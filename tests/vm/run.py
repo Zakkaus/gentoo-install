@@ -129,7 +129,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     medium = MEDIA[args.medium]
-    workdir = WORKROOT / f"{medium.name}-{args.firmware}"
+    # The configuration is part of the name: two runs sharing a directory would
+    # share a serial socket, and the second one never connects.
+    variant = Path(args.install).stem if args.install else "probe"
+    workdir = WORKROOT / f"{medium.name}-{args.firmware}-{variant}"
     workdir.mkdir(parents=True, exist_ok=True)
     key = ssh_keypair(workdir)
     result_disk = create_disk(workdir / "result.img")
