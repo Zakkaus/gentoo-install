@@ -164,6 +164,34 @@ def test_systemd_networkd_gets_a_network_file_and_not_only_an_enabled_unit() -> 
     assert ("systemctl", "enable", "systemd-networkd.service") in recorder.in_target
 
 
+def test_openrc_gets_a_serial_login_when_the_cmdline_asks_for_one() -> None:
+    """systemd starts one by itself; openrc's inittab ships the serial lines
+    commented out, so a machine installed for remote use has no way in."""
+    from gentoo_install.model.config import BootloaderConfig
+
+    remote = replace(
+        with_system(init=InitSystem.OPENRC),
+        bootloader=BootloaderConfig(kernel_params=("console=ttyS0,115200",)),
+    )
+    written = apply_all(remote, generated=generated(remote)).files
+    assert "agetty -L 115200 ttyS0" in written[PurePosixPath("/etc/inittab")]
+
+    local = with_system(init=InitSystem.OPENRC)
+    assert PurePosixPath("/etc/inittab") not in apply_all(
+        local, generated=generated(local)
+    ).files
+
+
+def test_systemd_needs_no_inittab_entry_for_the_serial_console() -> None:
+    from gentoo_install.model.config import BootloaderConfig
+
+    remote = replace(
+        config(), bootloader=BootloaderConfig(kernel_params=("console=ttyS0,115200",))
+    )
+    written = apply_all(remote, generated=generated(remote)).files
+    assert PurePosixPath("/etc/inittab") not in written
+
+
 def test_openrc_gets_netifrc_which_a_stage3_does_not_carry() -> None:
     installation = with_system(init=InitSystem.OPENRC)
     merged = " ".join(

@@ -296,6 +296,29 @@ class WriteNetworkConfig(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
+class EnableSerialGetty(Operation):
+    """A login on the serial console.
+
+    systemd starts one by itself when the kernel command line names a serial
+    console; openrc does not, and its inittab ships the serial lines commented
+    out, so a machine installed for remote use comes up with no way in.
+    """
+
+    stage: Stage = Stage.SYSTEM
+    port: str
+    baud: int
+
+    def describe(self) -> str:
+        return f"start a login on {self.port} at {self.baud} baud"
+
+    def apply(self, context: Context) -> None:
+        context.append(
+            PurePosixPath("/etc/inittab"),
+            f"\n{self.port}:12345:respawn:/sbin/agetty -L {self.baud} {self.port} vt100\n",
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
 class EnableService(Operation):
     stage: Stage = Stage.SYSTEM
     service: str
@@ -337,6 +360,9 @@ def build(config: InstallConfig) -> list[Operation]:
                 password_hash=user.password_hash,
             )
         )
+    serial = _serial_console(config)
+    if serial is not None and system.init is InitSystem.OPENRC:
+        operations.append(EnableSerialGetty(port=serial[0], baud=serial[1]))
     operations.append(SetRootPassword(password_hash=system.root_password_hash))
     if any(user.sudo for user in system.users):
         operations += [
@@ -463,6 +489,18 @@ def _groups_of(user: User) -> tuple[str, ...]:
         if group not in groups:
             groups.append(group)
     return tuple(groups)
+
+
+def _serial_console(config: InstallConfig) -> tuple[str, int] | None:
+    """The serial port and speed the kernel command line asks for, if any."""
+    for parameter in config.bootloader.kernel_params:
+        if not parameter.startswith("console=ttyS"):
+            continue
+        value = parameter.split("=", 1)[1]
+        port, _, rest = value.partition(",")
+        digits = "".join(character for character in rest if character.isdigit())
+        return port, int(digits) if digits else 115200
+    return None
 
 
 def _sshd_service(init: InitSystem) -> str:

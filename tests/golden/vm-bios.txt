@@ -36,6 +36,7 @@
   set the hostname to biosbox
   give the target its own machine id
   write /etc/fstab with entries for /, swap
+  start a login on ttyS0 at 115200 baud
   set the root password
   install the network tools: emerge net-misc/netifrc net-misc/dhcpcd
   configure the wired interface for DHCP
