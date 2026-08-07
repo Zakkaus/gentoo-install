@@ -174,7 +174,12 @@ def test_openrc_gets_a_serial_login_when_the_cmdline_asks_for_one() -> None:
         bootloader=BootloaderConfig(kernel_params=("console=ttyS0,115200",)),
     )
     written = apply_all(remote, generated=generated(remote)).files
-    assert "agetty -L 115200 ttyS0" in written[PurePosixPath("/etc/inittab")]
+    line = written[PurePosixPath("/etc/inittab")].strip()
+    assert line.startswith("s0:")
+    assert "agetty -L 115200 ttyS0" in line
+    # The id field takes four characters at most; a longer one is dropped and
+    # the console stays silent, which is what a real boot showed.
+    assert len(line.split(":", 1)[0]) <= 4
 
     local = with_system(init=InitSystem.OPENRC)
     assert PurePosixPath("/etc/inittab") not in apply_all(
