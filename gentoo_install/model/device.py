@@ -39,10 +39,13 @@ class PartitionRole(Enum):
 
 
 class RaidLevel(Enum):
-    RAID0 = 0
-    RAID1 = 1
-    RAID5 = 5
-    RAID6 = 6
+    """Spelled as `mdadm --level` names them, because the parser reads an enum
+    from a TOML string and an integer value can never match one."""
+
+    RAID0 = "raid0"
+    RAID1 = "raid1"
+    RAID5 = "raid5"
+    RAID6 = "raid6"
 
 
 class RaidMetadata(Enum):

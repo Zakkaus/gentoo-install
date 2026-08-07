@@ -22,6 +22,7 @@ from gentoo_install.model.device import (
     Luks,
     MdRaid,
     Mountpoint,
+    RaidLevel,
     RaidMetadata,
     Subvolume,
 )
@@ -112,6 +113,15 @@ def test_a_misspelled_key_is_named_rather_than_ignored(section: str, key: str) -
     raw[section][key] = "whatever"
     with pytest.raises(ConfigError, match=key):
         parse(raw)
+
+
+def test_every_raid_level_can_be_written_in_the_file() -> None:
+    for level in RaidLevel:
+        raw = fixture()
+        raw["disk"]["devices"].append(
+            {"kind": "raid", "id": "md", "members": ["esp"], "level": level.value, "name": "md"}
+        )
+        assert parse(raw).disk.graph.of_type(MdRaid)[0].level is level
 
 
 def test_an_array_can_name_the_metadata_version_an_esp_member_needs() -> None:
