@@ -1,9 +1,10 @@
-# ZFS root with ZFSBootMenu, unencrypted. vm-zfs-encrypted.toml is the same
-# layout with native encryption.
+# ZFS root with native encryption, unlocked by ZFSBootMenu at boot. Same layout
+# as vm-zfs.toml; the pool carries encryption=on and the passphrase comes from a
+# file on the installing system, never from this file.
 config_version = 1
 
 [system]
-hostname = "zfsbox"
+hostname = "cryptzfs"
 timezone = "UTC"
 locales = ["en_US.UTF-8"]
 locale = "en_US.UTF-8"
@@ -73,6 +74,8 @@ kind = "zpool"
 id = "pool"
 vdevs = ["poolpart"]
 name = "rpool"
+encrypted = true
+passphrase_file = "/run/gentoo-install-keys/pool"
 
 [[disk.devices]]
 kind = "dataset"
