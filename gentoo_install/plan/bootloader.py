@@ -92,7 +92,8 @@ class WriteGrubDefaults(Operation):
 
 @dataclass(frozen=True, kw_only=True)
 class RequestBootctl(Operation):
-    """`bootctl` is behind a USE flag on both packages that can provide it."""
+    """The `boot` flag is what provides `bootctl` and the EFI stub, and both
+    packages that can provide them keep it behind that flag."""
 
     stage: Stage = Stage.BOOTLOADER
     package: str
@@ -218,6 +219,15 @@ def build(config: InstallConfig) -> list[Operation]:
     elif kind is Bootloader.ZFSBOOTMENU and esp is not None and esp_device is not None:
         pool = _pool_name(config)
         operations += [
+            # generate-zbm builds a single EFI executable around the stub that
+            # systemd ships behind its `boot` flag; without it the run produces
+            # loose components and no bootable image.
+            RequestBootctl(package=BOOTCTL_PACKAGE[config.system.init]),
+            Emerge(
+                stage=Stage.BOOTLOADER,
+                packages=(BOOTCTL_PACKAGE[config.system.init],),
+                summary="install the EFI stub generate-zbm builds around",
+            ),
             GenerateHostId(),
             InstallZfsBootMenu(
                 pool=pool,

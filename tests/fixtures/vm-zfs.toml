@@ -1,0 +1,90 @@
+# ZFS root with ZFSBootMenu, unencrypted. Native encryption needs a passphrase
+# and nothing asks for one yet, so that half of the path waits for the
+# interface; everything else here is the same.
+config_version = 1
+
+[system]
+hostname = "zfsbox"
+timezone = "UTC"
+locales = ["en_US.UTF-8"]
+locale = "en_US.UTF-8"
+init = "systemd"
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
+
+[portage]
+profile = "default/linux/amd64/23.0/systemd"
+makeopts = "-j4"
+
+[portage.binhost]
+official = true
+community = "off"
+
+[kernel]
+source = "dist-bin"
+
+[bootloader]
+kind = "zfsbootmenu"
+firmware = "uefi"
+kernel_params = ["console=ttyS0,115200"]
+
+[disk]
+root = "mnt-root"
+
+[[disk.devices]]
+kind = "existing"
+id = "disk"
+selector = "/dev/disk/by-id/virtio-target0"
+wipe = true
+
+[[disk.devices]]
+kind = "table"
+id = "table"
+disk = "disk"
+table = "gpt"
+
+[[disk.devices]]
+kind = "partition"
+id = "esp"
+table = "table"
+index = 1
+role = "esp"
+size = "512MiB"
+
+[[disk.devices]]
+kind = "partition"
+id = "poolpart"
+table = "table"
+index = 2
+role = "data"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "espfs"
+device = "esp"
+type = "vfat"
+label = "ESP"
+
+[[disk.devices]]
+kind = "zpool"
+id = "pool"
+vdevs = ["poolpart"]
+name = "rpool"
+
+[[disk.devices]]
+kind = "dataset"
+id = "ds-root"
+pool = "pool"
+name = "ROOT/gentoo"
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-root"
+source = "ds-root"
+path = "/"
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-esp"
+source = "espfs"
+path = "/efi"
+options = ["umask=0077"]
