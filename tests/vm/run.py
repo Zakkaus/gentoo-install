@@ -15,11 +15,12 @@ import re
 import socket
 import subprocess
 import sys
+import tomllib
 import time
 from pathlib import Path
 
 from .console import SerialConsole
-from .driver import build as build_driver
+from .driver import REPOSITORY, build as build_driver
 from .media import MEDIA, Medium
 from .qemu import Firmware, Vm, VmSpec
 from .results import collect_command, create_disk, read_disk
@@ -40,7 +41,6 @@ EXPECTED = (
     ("mounts", r"^/\s+\S+\s+ext4"),
     ("mounts", r"^/efi\s+\S+\s+vfat"),
     ("fstab", r"UUID=\S+\s+/\s+ext4"),
-    ("hostname", r"^vmtest$"),
     ("units", r"^enabled$"),
     ("kernel", r"^(kernel|vmlinuz)-"),
 )
@@ -255,7 +255,9 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"[{time.monotonic() - started:5.1f}s] logged into the installed system")
                 check_installed(console)
                 power_off(console, vm)
-                return report(result_disk, keep=args.keep, assertions=True)
+                return report(
+                    result_disk, keep=args.keep, assertions=REPOSITORY / "tests" / args.install
+                )
             reach_shell(console, medium)
             print(f"[{time.monotonic() - started:5.1f}s] root shell on serial")
 
@@ -301,21 +303,27 @@ def power_off(console: SerialConsole, vm: Vm) -> None:
     print("guest did not power off, killing it", file=sys.stderr)
 
 
-def report(result_disk: Path, *, keep: bool, assertions: bool = False) -> int:
+def report(
+    result_disk: Path, *, keep: bool, assertions: Path | None = None
+) -> int:
     results = read_disk(result_disk)
     for name in sorted(results):
         print(f"--- {name} ---")
         print(results[name].decode("utf-8", "replace").rstrip())
-    code = check_expected(results) if assertions else 0
+    code = check_expected(results, assertions) if assertions is not None else 0
     if not keep:
         result_disk.unlink(missing_ok=True)
     return code
 
 
-def check_expected(results: dict[str, bytes]) -> int:
+def check_expected(results: dict[str, bytes], config: Path) -> int:
     """Turn the collected output into a verdict."""
     missing: list[str] = []
-    for name, pattern in EXPECTED:
+    # From the configuration rather than hardcoded: a second fixture installs a
+    # different name, and a check that only ever matched the first one would
+    # pass on a system that ignored the setting.
+    wanted = tomllib.loads(config.read_text()).get("system", {}).get("hostname", "")
+    for name, pattern in [*EXPECTED, ("hostname", f"^{re.escape(wanted)}$")]:
         text = results.get(f"{name}.txt", b"").decode("utf-8", "replace")
         if re.search(pattern, text, re.MULTILINE) is None:
             missing.append(f"{name}.txt does not match {pattern}")
