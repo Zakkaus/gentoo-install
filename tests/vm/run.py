@@ -179,7 +179,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--boot-installed",
         action="store_true",
-        help="boot the target disk from a previous --install run and check the system it holds",
+        help="boot the disk a previous --install run produced and check the system on it; "
+        "takes the same --install argument, which is what names the run",
     )
     parser.add_argument("--interactive", action="store_true", help="hand the VM to a human over SSH")
     parser.add_argument("--keep", action="store_true", help="keep the run directory")
@@ -188,13 +189,16 @@ def main(argv: list[str] | None = None) -> int:
     medium = MEDIA[args.medium]
     # The configuration is part of the name: two runs sharing a directory would
     # share a serial socket, and the second one never connects.
+    if args.boot_installed and not args.install:
+        print("--boot-installed needs the same --install argument as the run it checks", file=sys.stderr)
+        return 1
     variant = Path(args.install).stem if args.install else "probe"
     workdir = WORKROOT / f"{medium.name}-{args.firmware}-{variant}"
     workdir.mkdir(parents=True, exist_ok=True)
     ssh_port = args.ssh_port or free_port()
     key = ssh_keypair(workdir)
     result_disk = create_disk(workdir / "result.img")
-    driver_iso = build_driver(workdir / "driver.iso") if args.install else None
+    driver_iso = build_driver(workdir / "driver.iso") if args.install and not args.boot_installed else None
     targets: tuple[Path, ...] = ()
     if args.boot_installed:
         installed = workdir / "target.qcow2"
