@@ -129,6 +129,9 @@ class PortageConfig:
 @dataclass(frozen=True)
 class KernelConfig:
     source: KernelSource = KernelSource.DIST_BIN
+    #: Overrides the package the source implies, for a sources package this
+    #: installer does not name itself, such as one from another overlay.
+    package: str = ""
     #: Added to the ones the disk layout implies.
     dracut_modules: tuple[str, ...] = ()
 

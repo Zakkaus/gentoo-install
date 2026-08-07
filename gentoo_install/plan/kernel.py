@@ -208,7 +208,7 @@ def build(config: InstallConfig) -> list[Operation]:
         operations.append(
             Emerge(stage=Stage.KERNEL, packages=tools, summary="install the storage tools")
         )
-    package = KERNEL_PACKAGES[config.kernel.source]
+    package = config.kernel.package or KERNEL_PACKAGES[config.kernel.source]
     operations.append(
         Emerge(
             stage=Stage.KERNEL,

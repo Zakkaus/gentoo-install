@@ -86,6 +86,18 @@ def test_a_source_kernel_is_configured_and_built_rather_than_only_unpacked() -> 
     assert any("FONT_CJK_32x32" in argv and "--disable" in argv for argv in toggles)
 
 
+def test_a_configuration_can_name_a_kernel_package_this_installer_does_not() -> None:
+    """gentoo-zh and other overlays ship sources packages of their own, and the
+    build steps are the same whichever one it is."""
+    named = replace(
+        config(),
+        kernel=KernelConfig(source=KernelSource.CJK_SOURCE, package="sys-kernel/gentoo-sources"),
+    )
+    described = " ".join(operation.describe() for operation in kernel.build(named))
+    assert "sys-kernel/gentoo-sources" in described
+    assert "gentoo-cjk-sources" not in described
+
+
 def test_a_kernel_built_from_source_asks_for_no_dist_kernel_initramfs() -> None:
     patched = replace(config(), kernel=KernelConfig(source=KernelSource.CJK_SOURCE))
     assert not any("rebuild the initramfs" in o.describe() for o in kernel.build(patched))

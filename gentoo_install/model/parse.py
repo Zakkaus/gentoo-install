@@ -187,10 +187,11 @@ def _overlay(raw: Mapping[str, Any], at: str) -> Overlay:
 
 
 def _kernel(raw: Mapping[str, Any], at: str) -> KernelConfig:
-    _reject_unknown(raw, at, {"source", "dracut_modules"})
+    _reject_unknown(raw, at, {"source", "package", "dracut_modules"})
     default = KernelConfig()
     return KernelConfig(
         source=_enum(raw, "source", at, KernelSource, default.source),
+        package=_str(raw, "package", at, default.package),
         dracut_modules=_strings(raw, "dracut_modules", at, default.dracut_modules),
     )
 

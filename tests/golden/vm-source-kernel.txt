@@ -1,0 +1,60 @@
+[partition]
+  wipe existing signatures from disk
+  create a gpt partition table on disk as table
+  create partition 1 on disk as esp: esp, 512MiB
+  create partition 2 on disk as rootpart: data, the rest of the disk
+  reread the partition table of disk and wait for its nodes
+
+[format]
+  make a vfat filesystem on esp as espfs labelled ESP
+  make a ext4 filesystem on rootpart as rootfs labelled gentoo
+
+[mount]
+  mount rootpart at /
+  mount esp at /efi with umask=0077
+
+[stage3]
+  download the newest systemd stage3 from https://distfiles.gentoo.org, verify it against BB572E0E2D182910 and unpack it into the target
+
+[chroot]
+  mount proc, sys, dev and run into the target and copy resolv.conf
+
+[portage]
+  write /etc/portage/make.conf with COMMON_FLAGS, CFLAGS, CXXFLAGS, FCFLAGS, FFLAGS, MAKEOPTS, ACCEPT_LICENSE, L10N, FEATURES; 2 mirrors in the configured order
+  create the three autounmask files emerge writes its decisions into
+  fetch the first ebuild repository snapshot with emerge-webrsync
+  select profile default/linux/amd64/23.0/systemd
+  install git, which every later repository sync needs: emerge dev-vcs/git
+  point repository gentoo at https://github.com/gentoo-mirror/gentoo.git, commit signatures verified
+  sync repository gentoo
+  run getuto so Portage has a keyring to verify binary packages against
+
+[system]
+  generate and verify locales en_US.UTF-8
+  set the system locale to en_US.UTF-8
+  set the timezone to UTC
+  set the console keymap to us and its font to latarcyrheb-sun32
+  set the hostname to srcbox
+  give the target its own machine id
+  write /etc/fstab with entries for /, /efi
+  set the root password
+  configure the wired interface for DHCP
+  enable systemd-networkd.service at boot
+
+[kernel]
+  set sys-kernel/installkernel to use dracut
+  accept the linux-firmware licence
+  install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
+  install the storage tools: emerge sys-fs/dosfstools sys-fs/e2fsprogs
+  install the kernel: emerge sys-kernel/gentoo-sources, from source
+  point /usr/src/linux at the kernel that was just unpacked
+  configure the kernel from defconfig with +FRAMEBUFFER_CONSOLE, +CONSOLE_TRANSLATIONS, +FB_EFI, +FONT_CJK_16x16, -FONT_CJK_32x32
+  build the kernel and its modules, then install both
+
+[bootloader]
+  install the bootloader: emerge sys-boot/grub sys-boot/efibootmgr
+  write /etc/default/grub with cmdline console=ttyS0,115200
+  install GRUB for uefi on the esp at /efi
+
+[finish]
+  unmount everything under the target
