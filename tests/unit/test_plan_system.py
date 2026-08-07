@@ -82,6 +82,15 @@ def test_fstab_names_devices_by_uuid_and_puts_the_root_check_first() -> None:
     assert any("umask=0077" in line for line in lines)
 
 
+def test_an_option_the_layout_sets_replaces_the_default_rather_than_joining_it() -> None:
+    """`umask=0077,umask=0077` is what mount reads when both are written, and
+    the installed system's fstab had exactly that."""
+    installation = config()
+    written = apply_all(installation, generated=generated(installation)).files[FSTAB]
+    esp = next(line for line in written.splitlines() if "/efi" in line)
+    assert esp.count("umask=") == 1
+
+
 def test_a_swap_entry_is_written_even_though_the_installer_never_enables_it() -> None:
     from gentoo_install.model.device import Swap
 

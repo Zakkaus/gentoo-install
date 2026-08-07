@@ -369,7 +369,7 @@ def fstab_entries(config: InstallConfig) -> tuple[FstabEntry, ...]:
                     device=filesystem.device,
                     path=mount.path,
                     kind=filesystem.kind.value,
-                    options=(*_default_options(filesystem.kind), *mount.options, f"subvol={source.name}"),
+                    options=_options(filesystem.kind, mount.options, f"subvol={source.name}"),
                     dump=0,
                     check=_check_order(mount.path),
                 )
@@ -381,7 +381,7 @@ def fstab_entries(config: InstallConfig) -> tuple[FstabEntry, ...]:
                     device=source.device,
                     path=mount.path,
                     kind=source.kind.value,
-                    options=(*_default_options(source.kind), *mount.options),
+                    options=_options(source.kind, mount.options),
                     dump=0,
                     check=_check_order(mount.path),
                 )
@@ -420,6 +420,20 @@ def _containers_under(config: InstallConfig) -> frozenset[DeviceId]:
             node.id for node in graph.of_type(Luks) if node.id in graph.ancestors_of(mount.id)
         }
     return frozenset(found)
+
+
+def _options(kind: FilesystemType, chosen: tuple[str, ...], *extra: str) -> tuple[str, ...]:
+    """The defaults for a filesystem, then what the layout asked for.
+
+    An option the layout already sets replaces the default rather than joining
+    it: `umask=0077,umask=0077` is what mount reads, and only the last one wins.
+    """
+    kept: list[str] = []
+    named = {option.split("=", 1)[0] for option in (*chosen, *extra)}
+    for option in _default_options(kind):
+        if option.split("=", 1)[0] not in named:
+            kept.append(option)
+    return (*kept, *chosen, *extra)
 
 
 def _default_options(kind: FilesystemType) -> tuple[str, ...]:
