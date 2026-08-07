@@ -51,6 +51,19 @@ def test_a_command_that_is_not_installed_says_so(tmp_path: Path) -> None:
         runner(tmp_path).run(["definitely-not-a-command-on-this-machine"])
 
 
+def test_a_command_that_hangs_without_printing_is_still_killed(tmp_path: Path) -> None:
+    """The timeout is a watchdog rather than a check between output lines: a
+    silent hang never reaches a per-line check."""
+    with pytest.raises(CommandFailed, match="did not finish"):
+        runner(tmp_path).run(["sleep", "30"], timeout=1.0)
+
+
+def test_output_arrives_line_by_line_rather_than_at_the_end(tmp_path: Path) -> None:
+    seen: list[str] = []
+    Runner(log=seen.append).run(["sh", "-c", "echo first; echo second"])
+    assert [line for line in seen if line.startswith("| ")] == ["| first", "| second"]
+
+
 def test_a_failure_can_be_asked_for_rather_than_raised(tmp_path: Path) -> None:
     assert runner(tmp_path).run(["false"], check=False).returncode == 1
 
