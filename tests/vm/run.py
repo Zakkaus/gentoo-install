@@ -89,10 +89,12 @@ def run_installer(console: SerialConsole, config: str, extra: str = "") -> None:
     console.run("mkdir -p /mnt/driver")
     console.run("mountpoint -q /mnt/driver || mount -o ro /dev/sr1 /mnt/driver")
     console.run(f"mkdir -p {RESULT_DIR}")
+    # tee, not a redirect: the serial console is the only way to watch a run
+    # that takes half an hour, and a redirect makes it silent until it ends.
     console.run(
-        f"cd /mnt/driver && python3 -m gentoo_install --config {config} {extra} "
-        f"> {RESULT_DIR}/install.txt 2>&1; echo $? > {RESULT_DIR}/install.rc",
-        timeout=1800.0,
+        f"cd /mnt/driver && python3 -u -m gentoo_install --config {config} {extra} 2>&1 "
+        f"| tee {RESULT_DIR}/install.txt; echo ${{PIPESTATUS[0]}} > {RESULT_DIR}/install.rc",
+        timeout=3600.0,
     )
     console.run(f"cp /mnt/driver/{config} {RESULT_DIR}/config.toml 2>/dev/null || true")
     console.run(collect_command(RESULT_DIR))

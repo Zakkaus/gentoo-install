@@ -29,9 +29,11 @@
 [portage]
   write /etc/portage/make.conf with COMMON_FLAGS, CFLAGS, CXXFLAGS, FCFLAGS, FFLAGS, MAKEOPTS, USE, VIDEO_CARDS, ACCEPT_LICENSE, L10N, GENTOO_MIRRORS, FEATURES
   create the three autounmask files emerge writes its decisions into
+  fetch the first ebuild repository snapshot with emerge-webrsync
+  select profile default/linux/amd64/23.0/desktop/systemd
+  install git, which every later repository sync needs: emerge dev-vcs/git
   point repository gentoo at https://mirrors.cernet.edu.cn/git/gentoo-portage.git, commit signatures verified
   sync repository gentoo
-  select profile default/linux/amd64/23.0/desktop/systemd
   point repository gentoo-zh at https://mirrors.cernet.edu.cn/gentoo-zh.git
   sync repository gentoo-zh
   accept ~amd64 for packages from gentoo-zh only

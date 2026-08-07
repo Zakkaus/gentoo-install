@@ -129,6 +129,20 @@ def test_the_local_copy_goes_before_the_first_sync_or_git_refuses() -> None:
     assert removed < synced
 
 
+def test_the_first_tree_arrives_by_webrsync_because_stage3_has_no_git() -> None:
+    operations = portage.build(config(), MIRROR)
+    described = [operation.describe() for operation in operations]
+    webrsync = next(n for n, text in enumerate(described) if "emerge-webrsync" in text)
+    git = next(n for n, text in enumerate(described) if "dev-vcs/git" in text)
+    git_sync = next(n for n, text in enumerate(described) if text == "sync repository gentoo")
+    assert webrsync < git < git_sync
+
+
+def test_a_verified_repository_names_the_key_it_verifies_against() -> None:
+    stanza = apply_all(config()).files[PurePosixPath("/etc/portage/repos.conf/gentoo.conf")]
+    assert "sync-openpgp-key-path = /usr/share/openpgp-keys/gentoo-release.asc" in stanza
+
+
 def test_an_overlay_is_accepted_only_for_itself() -> None:
     installation = with_portage(
         overlays=(Overlay(name="gentoo-zh", sync_uri="https://example.invalid/overlay.git"),)

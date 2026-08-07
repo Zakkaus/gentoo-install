@@ -32,6 +32,9 @@ GENTOOZH_FINGERPRINT: Final[str] = "6A0726AF1476A2F382C6AC6638A0234EC16AD42E"
 #: `sec-keys/openpgp-keys-gentoozh` installs the key here.
 GENTOOZH_KEY: Final[PurePosixPath] = PurePosixPath("/usr/share/openpgp-keys/gentoozh.asc")
 
+#: A stage3 ships the release engineering key at this path.
+RELEASE_KEY: Final[PurePosixPath] = PurePosixPath("/usr/share/openpgp-keys/gentoo-release.asc")
+
 BINHOST_URI: Final[dict[MirrorRegion, str]] = {
     MirrorRegion.CN: "https://mirrors.cernet.edu.cn/gentoo-zh/binpkgs/x86-64",
     MirrorRegion.GLOBAL: "https://distfiles.gentoozh.org/binpkgs/x86-64",
@@ -197,9 +200,26 @@ class ConfigureRepository(Operation):
         ]
         if self.verify_commits:
             stanza.append("sync-git-verify-commit-signature = true")
+            # Without a key path there is nothing to verify against, and Portage
+            # treats the whole sync as unverified rather than failing loudly.
+            stanza.append(f"sync-openpgp-key-path = {RELEASE_KEY}")
         context.write(
             PurePosixPath(f"/etc/portage/repos.conf/{self.name}.conf"), "\n".join(stanza) + "\n"
         )
+
+
+@dataclass(frozen=True, kw_only=True)
+class WebrsyncRepository(Operation):
+    """The first sync cannot be a git sync: a stage3 has no `dev-vcs/git`, and
+    nothing can be merged until a tree exists. `emerge-webrsync` needs neither."""
+
+    stage: Stage = Stage.PORTAGE
+
+    def describe(self) -> str:
+        return "fetch the first ebuild repository snapshot with emerge-webrsync"
+
+    def apply(self, context: Context) -> None:
+        context.run_in_target(["emerge-webrsync"])
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -351,6 +371,13 @@ def build(config: InstallConfig, mirror: str) -> list[Operation]:
     operations += [
         WriteMakeConf(content=make_conf(config)),
         CreateAutounmaskFiles(),
+        WebrsyncRepository(),
+        SelectProfile(profile=portage.profile),
+        Emerge(
+            stage=Stage.PORTAGE,
+            packages=("dev-vcs/git",),
+            summary="install git, which every later repository sync needs",
+        ),
         ConfigureRepository(
             name="gentoo",
             location=gentoo,
@@ -358,7 +385,6 @@ def build(config: InstallConfig, mirror: str) -> list[Operation]:
             verify_commits=True,
         ),
         SyncRepository(name="gentoo", location=gentoo),
-        SelectProfile(profile=portage.profile),
     ]
     for overlay in portage.overlays:
         location = PurePosixPath(f"/var/db/repos/{overlay.name}")
