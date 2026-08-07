@@ -1,0 +1,129 @@
+config_version = 1
+
+[system]
+hostname = "gig"
+timezone = "Asia/Taipei"
+locales = ["en_US.UTF-8", "zh_TW.UTF-8"]
+locale = "zh_TW.UTF-8"
+keymap = "us"
+init = "systemd"
+sshd = true
+
+[[system.users]]
+name = "zakk"
+groups = ["wheel", "video", "render"]
+sudo = true
+
+[portage]
+profile = "default/linux/amd64/23.0/desktop/systemd"
+keywords = "stable"
+makeopts = "-j32 -l32"
+common_flags = "-O2 -pipe -march=x86-64-v3"
+use = ["dracut", "initramfs", "cjk"]
+video_cards = ["amdgpu", "radeonsi"]
+
+[portage.mirrors]
+region = "cn"
+speed_test = true
+
+[portage.binhost]
+official = true
+community = "stable"
+
+[[portage.overlays]]
+name = "gentoo-zh"
+sync_uri = "https://mirrors.cernet.edu.cn/gentoo-zh.git"
+
+[kernel]
+source = "cjk-source"
+
+[bootloader]
+kind = "grub"
+firmware = "uefi"
+kernel_params = ["quiet"]
+
+[packages]
+desktop = "plasma"
+applications = ["fcitx5-rime", "noto-cjk", "flclash"]
+
+[disk]
+root = "mnt-root"
+
+[[disk.devices]]
+kind = "existing"
+id = "disk"
+selector = "/dev/disk/by-id/virtio-target"
+wipe = true
+
+[[disk.devices]]
+kind = "table"
+id = "table"
+disk = "disk"
+table = "gpt"
+
+[[disk.devices]]
+kind = "partition"
+id = "esp"
+table = "table"
+index = 1
+role = "esp"
+size = "512MiB"
+
+[[disk.devices]]
+kind = "partition"
+id = "cryptroot"
+table = "table"
+index = 2
+role = "data"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "espfs"
+device = "esp"
+type = "vfat"
+label = "ESP"
+
+[[disk.devices]]
+kind = "luks"
+id = "root-luks"
+backing = "cryptroot"
+name = "root"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "rootfs"
+device = "root-luks"
+type = "btrfs"
+
+[[disk.devices]]
+kind = "subvolume"
+id = "sub-root"
+filesystem = "rootfs"
+name = "@"
+
+[[disk.devices]]
+kind = "subvolume"
+id = "sub-home"
+filesystem = "rootfs"
+name = "@home"
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-root"
+source = "sub-root"
+path = "/"
+options = ["compress=zstd:1"]
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-home"
+source = "sub-home"
+path = "/home"
+options = ["compress=zstd:1"]
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-esp"
+source = "espfs"
+path = "/efi"
+options = ["umask=0077"]
