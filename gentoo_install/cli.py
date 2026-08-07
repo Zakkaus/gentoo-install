@@ -17,6 +17,7 @@ from .exec import preflight
 from .exec.apply import Machine, apply
 from .exec.probe import Probe
 from .exec.runner import Runner
+from .log import Journal
 from .model.config import InstallConfig
 from .model.parse import load
 from .plan.build import DEFAULT_MIRROR, build
@@ -99,7 +100,8 @@ def install(config: InstallConfig, operations: tuple[Operation, ...], arguments:
         print(line, file=log, flush=True)
         print(line)
 
-    runner = Runner(log=record)
+    journal = Journal(path=work / "install.jsonl")
+    runner = Runner(log=record, journal=journal)
     probe = Probe(runner=runner, work=work)
     probe.load()
     if not arguments.skip_preflight:
@@ -111,5 +113,10 @@ def install(config: InstallConfig, operations: tuple[Operation, ...], arguments:
         config=config, runner=runner, probe=probe, work=work, mountpoint=arguments.target
     )
     apply(operations, machine)
-    record(f"installed {len(operations)} operations into {arguments.target}")
+    counted = journal.counts()
+    record(
+        f"installed {len(operations)} operations into {arguments.target}; "
+        f"{counted.get('binary', 0)} packages from a binary host, "
+        f"{counted.get('compiled', 0)} compiled"
+    )
     return EXIT_OK

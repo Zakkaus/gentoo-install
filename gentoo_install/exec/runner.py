@@ -15,6 +15,7 @@ from pathlib import Path, PurePosixPath
 from typing import Callable, Sequence
 
 from ..errors import CommandFailed
+from ..log import Journal
 
 
 @dataclass(frozen=True)
@@ -40,6 +41,7 @@ class Runner:
     """
 
     log: Callable[[str], None] = print
+    journal: Journal | None = None
     dry_run: bool = False
     #: Prepended to every command, which is how `run_in_target` chroots.
     prefix: tuple[str, ...] = ()
@@ -81,6 +83,10 @@ class Runner:
             seconds=time.monotonic() - started,
         )
         self.history.append(result)
+        if self.journal is not None:
+            self.journal.command(result.argv, result.returncode, result.seconds)
+            if "emerge" in full:
+                self.journal.packages(result.stdout)
         if check and result.returncode != 0:
             raise CommandFailed(
                 f"{result.command} exited {result.returncode}: {_tail(result.stderr or result.stdout)}"
@@ -91,6 +97,7 @@ class Runner:
         """A runner whose commands land inside the target's chroot."""
         return Runner(
             log=self.log,
+            journal=self.journal,
             dry_run=self.dry_run,
             prefix=("chroot", str(target)),
             # DONT_MOUNT_BOOT: the target's /boot is already mounted where the

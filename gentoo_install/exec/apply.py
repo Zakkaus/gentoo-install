@@ -6,6 +6,7 @@ This is the `Context` the plan layer declares. Everything it does goes through
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Sequence
@@ -128,4 +129,9 @@ def apply(operations: Sequence[Operation], machine: Machine) -> None:
     """
     for operation in operations:
         machine.runner.log(f"[{operation.stage.value}] {operation.describe()}")
+        started = time.monotonic()
         operation.apply(machine)
+        if machine.runner.journal is not None:
+            machine.runner.journal.operation(
+                operation.stage.value, operation.describe(), time.monotonic() - started
+            )
