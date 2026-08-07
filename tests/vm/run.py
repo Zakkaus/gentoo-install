@@ -162,6 +162,9 @@ def run_installer(console: SerialConsole, config: str, extra: str = "") -> None:
         timeout=3600.0,
     )
     console.run(f"cp /mnt/driver/{config} {RESULT_DIR}/config.toml 2>/dev/null || true")
+    # The journal says which packages came from a binary host and which were
+    # compiled, which is the question this configuration exists to answer.
+    console.run(f"cp /run/gentoo-install/install.jsonl {RESULT_DIR}/ 2>/dev/null || true")
     console.run(collect_command(RESULT_DIR))
     console.run("sync")
 
