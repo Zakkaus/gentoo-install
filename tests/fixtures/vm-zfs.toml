@@ -19,6 +19,11 @@ makeopts = "-j4"
 official = true
 community = "off"
 
+# sys-boot/zfsbootmenu is in this overlay and in no other repository.
+[[portage.overlays]]
+name = "gentoo-zh"
+sync_uri = "https://github.com/gentoo-zh/overlay.git"
+
 [kernel]
 source = "dist-bin"
 

@@ -27,6 +27,10 @@ region = "global"
 official = true
 community = "off"
 
+[[portage.overlays]]
+name = "gentoo-zh"
+sync_uri = "https://github.com/gentoo-zh/overlay.git"
+
 [kernel]
 source = "cjk-source"
 

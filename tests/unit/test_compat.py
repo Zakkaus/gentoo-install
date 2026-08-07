@@ -17,6 +17,7 @@ from gentoo_install.model.config import (
     InstallConfig,
     KernelConfig,
     KernelSource,
+    Overlay,
     PortageConfig,
     SystemConfig,
 )
@@ -101,6 +102,10 @@ def cjk_console_on_an_unpatched_kernel() -> InstallConfig:
     )
 
 
+def zfsbootmenu_without_its_overlay() -> InstallConfig:
+    return boots(config(zfs_root()), Bootloader.ZFSBOOTMENU, Firmware.UEFI)
+
+
 def community_binhost_without_its_overlay() -> InstallConfig:
     return replace(
         config(),
@@ -127,6 +132,7 @@ CASES: list[tuple[Callable[[], InstallConfig], Trait, Trait]] = [
     (bios_on_gpt_without_a_bios_boot_partition, Trait.BIOS_BOOT, Trait.GPT_WITHOUT_BIOS_BOOT),
     (cjk_console_on_an_unpatched_kernel, Trait.CONSOLE_CJK, Trait.KERNEL_WITHOUT_CJKTTY),
     (community_binhost_without_its_overlay, Trait.COMMUNITY_BINHOST, Trait.NO_GENTOOZH_OVERLAY),
+    (zfsbootmenu_without_its_overlay, Trait.ZFSBOOTMENU, Trait.NO_GENTOOZH_OVERLAY),
     (cjk_console_with_an_8x8_font, Trait.CONSOLE_CJK, Trait.FONT_WITHOUT_CJK_GLYPHS),
 ]
 
@@ -149,7 +155,13 @@ def test_a_plain_uefi_install_breaks_no_rule() -> None:
 
 
 def test_zfs_with_zfsbootmenu_and_the_kernel_in_the_pool_breaks_no_rule() -> None:
-    assert violations(boots(config(zfs_root()), Bootloader.ZFSBOOTMENU, Firmware.UEFI)) == ()
+    installable = replace(
+        boots(config(zfs_root()), Bootloader.ZFSBOOTMENU, Firmware.UEFI),
+        portage=PortageConfig(
+            overlays=(Overlay(name="gentoo-zh", sync_uri="https://example.invalid/overlay.git"),)
+        ),
+    )
+    assert violations(installable) == ()
 
 
 def test_a_mirrored_esp_with_metadata_1_0_breaks_no_rule() -> None:

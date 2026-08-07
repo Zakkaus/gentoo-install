@@ -50,6 +50,7 @@ class Trait(Enum):
     LUKS = "LUKS"
     GRUB = "GRUB"
     SYSTEMD_BOOT = "systemd-boot"
+    ZFSBOOTMENU = "ZFSBootMenu"
     UEFI_BOOT = "UEFI boot"
     BIOS_BOOT = "BIOS boot"
     NO_MOUNTED_ESP = "no mounted esp"
@@ -109,6 +110,12 @@ RULES: tuple[Rule, ...] = (
         "cjktty ships CJK glyphs for 8x16 and 16x32 only",
     ),
     Rule(
+        Trait.ZFSBOOTMENU,
+        Trait.NO_GENTOOZH_OVERLAY,
+        "sys-boot/zfsbootmenu is in that overlay and in no other repository, so "
+        "the emerge fails once the disks have already been partitioned",
+    ),
+    Rule(
         Trait.COMMUNITY_BINHOST,
         Trait.NO_GENTOOZH_OVERLAY,
         "the key its packages are signed with comes from that overlay, and "
@@ -130,6 +137,8 @@ def traits_of(config: InstallConfig) -> frozenset[Trait]:
         found.add(Trait.GRUB)
     if config.bootloader.kind is Bootloader.SYSTEMD_BOOT:
         found.add(Trait.SYSTEMD_BOOT)
+    if config.bootloader.kind is Bootloader.ZFSBOOTMENU:
+        found.add(Trait.ZFSBOOTMENU)
     if config.bootloader.firmware is Firmware.UEFI:
         found.add(Trait.UEFI_BOOT)
     else:
