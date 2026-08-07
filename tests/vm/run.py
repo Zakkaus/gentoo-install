@@ -336,7 +336,13 @@ def _from_config(config: Path) -> list[tuple[str, str]]:
     graph = installation.disk.graph
     root = graph[installation.disk.root]
     source = graph[root.source] if isinstance(root, Mountpoint) else root
-    expected = [("hostname", f"^{re.escape(installation.system.hostname)}$")]
+    # systemd keeps the bare name in /etc/hostname; openrc keeps a shell
+    # assignment in /etc/conf.d/hostname, and neither form matches the other.
+    name = re.escape(installation.system.hostname)
+    if installation.system.init is InitSystem.SYSTEMD:
+        expected = [("hostname", f"^{name}$")]
+    else:
+        expected = [("hostname", f'hostname="{name}"')]
     network = "systemd-networkd" if installation.system.init is InitSystem.SYSTEMD else "dhcpcd"
     expected.append(("units", re.escape(network)))
     esp = compat.esp_mount(graph)
