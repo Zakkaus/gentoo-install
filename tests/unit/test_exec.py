@@ -118,6 +118,15 @@ def test_the_required_commands_come_from_the_layout() -> None:
     assert "mkfs.ext4" in plain and "sgdisk" in plain
     assert "cryptsetup" not in plain and "zpool" not in plain
 
+
+def test_every_filesystem_the_installer_can_make_has_a_required_command() -> None:
+    """The list is derived from the table the operations use, so a filesystem
+    added there cannot be silently absent here."""
+    from gentoo_install.model.device import FilesystemType
+    from gentoo_install.plan.disk import MKFS
+
+    assert set(MKFS) == set(FilesystemType)
+
     from gentoo_install.model.parse import load
 
     encrypted = preflight.required_commands(load(Path("tests/fixtures/btrfs-luks.toml")))

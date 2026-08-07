@@ -24,10 +24,13 @@ from ..model.device import (
     VolumeGroup,
     ZfsPool,
 )
+from ..plan.disk import MKFS
 from .probe import RELEASE_KEY, Machine, Probe
 
 #: Commands every install needs, whatever the layout is.
-ALWAYS: Final[tuple[str, ...]] = ("tar", "gpg", "mount", "umount", "findmnt", "lsblk", "blkid", "chroot")
+ALWAYS: Final[tuple[str, ...]] = (
+    "tar", "gpg", "mount", "umount", "findmnt", "lsblk", "blkid", "chroot", "udevadm", "swapon",
+)
 
 #: What each part of a layout adds. Derived from the graph, never a second list.
 BY_FEATURE: Final[dict[str, tuple[str, ...]]] = {
@@ -37,13 +40,11 @@ BY_FEATURE: Final[dict[str, tuple[str, ...]]] = {
     "mdraid": ("mdadm",),
     "lvm": ("lvm",),
     "zfs": ("zpool", "zfs", "zgenhostid"),
-    FilesystemType.EXT4.value: ("mkfs.ext4",),
-    FilesystemType.EXT3.value: ("mkfs.ext3",),
-    FilesystemType.EXT2.value: ("mkfs.ext2",),
-    FilesystemType.BTRFS.value: ("mkfs.btrfs", "btrfs"),
-    FilesystemType.XFS.value: ("mkfs.xfs",),
-    FilesystemType.F2FS.value: ("mkfs.f2fs",),
-    FilesystemType.VFAT.value: ("mkfs.vfat",),
+}
+
+#: btrfs needs its own tool as well as its mkfs, to make the subvolumes.
+EXTRA_FILESYSTEM_COMMANDS: Final[dict[FilesystemType, tuple[str, ...]]] = {
+    FilesystemType.BTRFS: ("btrfs",),
 }
 
 #: Below this, compiling in a tmpfs is what runs the machine out of memory.
@@ -76,7 +77,10 @@ def required_commands(config: InstallConfig) -> frozenset[str]:
     if graph.of_type(ZfsPool):
         wanted |= set(BY_FEATURE["zfs"])
     for filesystem in graph.of_type(Filesystem):
-        wanted |= set(BY_FEATURE.get(filesystem.kind.value, ()))
+        # Taken from the table the operations themselves use, so a filesystem
+        # added there can never be missing here.
+        wanted.add(MKFS[filesystem.kind][0])
+        wanted |= set(EXTRA_FILESYSTEM_COMMANDS.get(filesystem.kind, ()))
     return frozenset(wanted)
 
 
