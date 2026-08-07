@@ -215,6 +215,18 @@ def esp_mount(graph: DeviceGraph) -> Mountpoint | None:
     return None
 
 
+def boot_is_encrypted(graph: DeviceGraph) -> bool:
+    """Whether the boot files sit inside a LUKS container.
+
+    GRUB then has to unlock it before it can read them, which it refuses to do
+    unless the configuration says so.
+    """
+    boot = _covering_mount(graph, _BOOT)
+    if boot is None:
+        return False
+    return any(isinstance(graph[parent], Luks) for parent in graph.ancestors_of(boot.id))
+
+
 def _covering_mount(graph: DeviceGraph, path: PurePosixPath) -> Mountpoint | None:
     """The mount a file at `path` lands on: the deepest one `path` sits under."""
     covering = [mount for mount in graph.of_type(Mountpoint) if path.is_relative_to(mount.path)]

@@ -159,6 +159,34 @@ def test_a_bootloader_with_no_menu_entry_is_a_failure_rather_than_a_success() ->
         operation.apply(recorder)
 
 
+def test_grub_is_told_the_disk_is_encrypted() -> None:
+    """`grub-install` refuses outright when /boot is inside a LUKS container
+    and the configuration does not say so."""
+    from gentoo_install.model.device import Luks
+
+    nodes: list[Node] = [node for node in ext4_on_gpt() if node.id != i("rootfs")]
+    nodes += [
+        Luks(id=i("crypt"), backing=i("rootpart"), name="root"),
+        Filesystem(id=i("rootfs"), device=i("crypt"), kind=FilesystemType.EXT4),
+    ]
+    written = apply_boot(config(nodes)).files[PurePosixPath("/etc/default/grub")]
+    assert "GRUB_ENABLE_CRYPTODISK=y" in written
+    assert "GRUB_ENABLE_CRYPTODISK" not in apply_boot(config()).files[
+        PurePosixPath("/etc/default/grub")
+    ]
+
+
+def test_grub_talks_on_the_serial_line_when_the_cmdline_does() -> None:
+    """A machine installed for remote use whose bootloader only draws on VGA
+    cannot be recovered over the line it was installed through."""
+    from gentoo_install.model.config import BootloaderConfig as Boot
+
+    remote = replace(config(), bootloader=Boot(kernel_params=("console=ttyS0,115200",)))
+    written = apply_boot(remote).files[PurePosixPath("/etc/default/grub")]
+    assert 'GRUB_TERMINAL_OUTPUT="console serial"' in written
+    assert "--unit=0 --speed=115200" in written
+
+
 def test_grub_is_installed_to_the_removable_path_as_well() -> None:
     """Firmware with no NVRAM entry, and firmware that lost it, boots only the
     removable path. The installed system has to come up either way."""

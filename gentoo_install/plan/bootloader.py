@@ -78,17 +78,41 @@ class InstallGrub(Operation):
 class WriteGrubDefaults(Operation):
     stage: Stage = Stage.BOOTLOADER
     kernel_params: tuple[str, ...]
+    #: `/boot` inside a LUKS container. `grub-install` refuses outright without
+    #: this, saying so in as many words.
+    cryptodisk: bool
+    #: Where GRUB itself talks. A machine installed for remote use whose
+    #: bootloader only draws on VGA cannot be recovered over the serial line.
+    serial: tuple[str, int] | None
 
     def describe(self) -> str:
-        return f"write /etc/default/grub with cmdline {' '.join(self.kernel_params) or 'empty'}"
+        extra = []
+        if self.cryptodisk:
+            extra.append("cryptodisk enabled")
+        if self.serial is not None:
+            extra.append(f"its menu on {self.serial[0]}")
+        listed = f", {' and '.join(extra)}" if extra else ""
+        return f"write /etc/default/grub with cmdline {' '.join(self.kernel_params) or 'empty'}{listed}"
 
     def apply(self, context: Context) -> None:
-        context.write(
-            PurePosixPath("/etc/default/grub"),
-            f'GRUB_CMDLINE_LINUX_DEFAULT="{" ".join(self.kernel_params)}"\n'
-            "GRUB_TIMEOUT=5\n"
-            "GRUB_DISABLE_RECOVERY=true\n",
-        )
+        lines = [
+            f'GRUB_CMDLINE_LINUX_DEFAULT="{" ".join(self.kernel_params)}"',
+            "GRUB_TIMEOUT=5",
+            "GRUB_DISABLE_RECOVERY=true",
+        ]
+        if self.cryptodisk:
+            lines.append("GRUB_ENABLE_CRYPTODISK=y")
+        if self.serial is not None:
+            port, baud = self.serial
+            unit = port.removeprefix("ttyS")
+            # Both, not serial alone: a machine that also has a monitor would
+            # otherwise show nothing at all until the kernel starts.
+            lines += [
+                'GRUB_TERMINAL_INPUT="console serial"',
+                'GRUB_TERMINAL_OUTPUT="console serial"',
+                f'GRUB_SERIAL_COMMAND="serial --unit={unit} --speed={baud}"',
+            ]
+        context.write(PurePosixPath("/etc/default/grub"), "\n".join(lines) + "\n")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -217,7 +241,11 @@ def build(config: InstallConfig) -> list[Operation]:
     ]
     if kind is Bootloader.GRUB:
         operations += [
-            WriteGrubDefaults(kernel_params=config.bootloader.kernel_params),
+            WriteGrubDefaults(
+                kernel_params=config.bootloader.kernel_params,
+                cryptodisk=compat.boot_is_encrypted(config.disk.graph),
+                serial=_serial_console(config),
+            ),
             InstallGrub(
                 firmware=config.bootloader.firmware, esp=esp, boot_device=config.disk.root
             ),
@@ -251,6 +279,16 @@ def build(config: InstallConfig) -> list[Operation]:
             ),
         ]
     return operations
+
+
+def _serial_console(config: InstallConfig) -> tuple[str, int] | None:
+    for parameter in config.bootloader.kernel_params:
+        if not parameter.startswith("console=ttyS"):
+            continue
+        port, _, rest = parameter.split("=", 1)[1].partition(",")
+        digits = "".join(character for character in rest if character.isdigit())
+        return port, int(digits) if digits else 115200
+    return None
 
 
 def _windows_path(image: str, esp: PurePosixPath) -> str:

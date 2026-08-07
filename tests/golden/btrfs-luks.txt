@@ -73,7 +73,7 @@
 
 [bootloader]
   install the bootloader: emerge sys-boot/grub sys-boot/efibootmgr
-  write /etc/default/grub with cmdline quiet
+  write /etc/default/grub with cmdline quiet, cryptodisk enabled
   install GRUB for uefi on the esp at /efi
 
 [packages]
