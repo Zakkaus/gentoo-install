@@ -1,6 +1,8 @@
-"""Boot an install medium in QEMU and either probe it or hand it to a human.
+"""Boot an install medium in QEMU and probe it, drive the installer, or hand it
+to a human.
 
     python3 -m tests.vm.run --medium official-minimal
+    python3 -m tests.vm.run --medium official-minimal --install tests/fixtures/ext4-bios.toml
     python3 -m tests.vm.run --medium gigos --interactive
 """
 
@@ -13,11 +15,14 @@ import time
 from pathlib import Path
 
 from .console import SerialConsole
+from .driver import build as build_driver
 from .media import MEDIA, Medium
 from .qemu import Firmware, Vm, VmSpec
 from .results import collect_command, create_disk, read_disk
 
 WORKROOT = Path.home() / "code/gentoo-install/lab/vm/runs"
+#: Big enough for a stage3, a desktop and the swap a fixture may ask for.
+TARGET_SIZE = "40G"
 RESULT_DIR = "/run/vm-result"
 
 PROBE = (
@@ -27,6 +32,17 @@ PROBE = (
     ("portage", "command -v emerge gcc; ls /var/db/repos 2>/dev/null"),
     ("block", "lsblk -no NAME,SIZE,TYPE"),
 )
+
+
+def create_target(path: Path) -> Path:
+    """A blank disk for the installer to partition, thrown away with the run."""
+    path.unlink(missing_ok=True)
+    subprocess.run(
+        ["qemu-img", "create", "-f", "qcow2", str(path), TARGET_SIZE],
+        check=True,
+        capture_output=True,
+    )
+    return path
 
 
 def ssh_keypair(workdir: Path) -> Path:
@@ -68,6 +84,21 @@ def reach_shell(console: SerialConsole, medium: Medium) -> None:
         console.login(medium.login_user, medium.login_password, medium.root_prompt)
 
 
+def run_installer(console: SerialConsole, config: str, extra: str = "") -> None:
+    """Run the installer from the driver CD and keep everything it printed."""
+    console.run("mkdir -p /mnt/driver")
+    console.run("mountpoint -q /mnt/driver || mount -o ro /dev/sr1 /mnt/driver")
+    console.run(f"mkdir -p {RESULT_DIR}")
+    console.run(
+        f"cd /mnt/driver && python3 -m gentoo_install --config {config} {extra} "
+        f"> {RESULT_DIR}/install.txt 2>&1; echo $? > {RESULT_DIR}/install.rc",
+        timeout=1800.0,
+    )
+    console.run(f"cp /mnt/driver/{config} {RESULT_DIR}/config.toml 2>/dev/null || true")
+    console.run(collect_command(RESULT_DIR))
+    console.run("sync")
+
+
 def probe(console: SerialConsole) -> None:
     console.run(f"mkdir -p {RESULT_DIR}")
     for name, command in PROBE:
@@ -81,6 +112,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--medium", choices=sorted(MEDIA), default="official-minimal")
     parser.add_argument("--firmware", choices=[f.value for f in Firmware], default="uefi")
     parser.add_argument("--ssh-port", type=int, default=2222)
+    parser.add_argument(
+        "--install",
+        help="run the installer from the driver CD against this configuration, "
+        "as a path inside the CD such as fixtures/ext4-bios.toml",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="with --install, print the operations instead of performing them",
+    )
     parser.add_argument("--interactive", action="store_true", help="hand the VM to a human over SSH")
     parser.add_argument("--keep", action="store_true", help="keep the run directory")
     args = parser.parse_args(argv)
@@ -90,6 +131,8 @@ def main(argv: list[str] | None = None) -> int:
     workdir.mkdir(parents=True, exist_ok=True)
     key = ssh_keypair(workdir)
     result_disk = create_disk(workdir / "result.img")
+    driver_iso = build_driver(workdir / "driver.iso") if args.install else None
+    targets = (create_target(workdir / "target.qcow2"),) if args.install else ()
 
     spec = VmSpec(
         medium=medium,
@@ -97,6 +140,8 @@ def main(argv: list[str] | None = None) -> int:
         firmware=Firmware(args.firmware),
         ssh_port=args.ssh_port,
         disks=(result_disk,),
+        driver_iso=driver_iso,
+        targets=targets,
     )
 
     started = time.monotonic()
@@ -119,7 +164,10 @@ def main(argv: list[str] | None = None) -> int:
                     return 0
                 return 0
 
-            probe(console)
+            if args.install:
+                run_installer(console, args.install, "--dry-run" if args.dry_run else "")
+            else:
+                probe(console)
             console.send("poweroff")
             try:
                 vm.wait(timeout=120.0)

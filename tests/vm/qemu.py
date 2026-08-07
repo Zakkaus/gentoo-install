@@ -34,6 +34,10 @@ class VmSpec:
     cpus: int = 4
     ssh_port: int = 2222
     disks: tuple[Path, ...] = ()
+    #: Built from the working tree each run and mounted as the second CD.
+    driver_iso: Path | None = None
+    #: Target disks the installer may partition, as (path, size) pairs.
+    targets: tuple[Path, ...] = ()
 
 
 class Vm:
@@ -74,10 +78,19 @@ class Vm:
         ]
         if self.spec.firmware is Firmware.UEFI:
             argv += self._ovmf_args()
+        if self.spec.driver_iso is not None:
+            argv += ["-drive", f"file={self.spec.driver_iso},media=cdrom,readonly=on"]
         for index, disk in enumerate(self.spec.disks):
             argv += [
                 "-drive", f"file={disk},format=raw,if=none,id=disk{index}",
                 "-device", f"virtio-blk-pci,drive=disk{index}",
+            ]
+        for index, target in enumerate(self.spec.targets):
+            # A stable serial gives the configuration a selector that survives
+            # the guest renumbering its disks.
+            argv += [
+                "-drive", f"file={target},format=qcow2,if=none,id=target{index}",
+                "-device", f"virtio-blk-pci,drive=target{index},serial=target{index}",
             ]
         return argv
 
