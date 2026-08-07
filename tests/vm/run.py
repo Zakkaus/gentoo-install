@@ -18,7 +18,7 @@ import sys
 import time
 from pathlib import Path
 
-from .console import SerialConsole
+from .console import ConsoleTimeout, SerialConsole
 from .driver import build as build_driver
 from .media import MEDIA, Medium
 from .qemu import Firmware, Vm, VmSpec
@@ -27,6 +27,11 @@ from .results import collect_command, create_disk, read_disk
 WORKROOT = Path.home() / "code/gentoo-install/lab/vm/runs"
 #: Big enough for a stage3, a desktop and the swap a fixture may ask for.
 TARGET_SIZE = "40G"
+
+#: What a guest prints on its way down. Waiting for it is not politeness: the
+#: harness has to keep reading the serial socket, and a guest whose console
+#: buffer fills with nobody draining it stops mid-shutdown.
+SHUTDOWN = r"Reached target .*(Power Off|Shutdown)|reboot: Power down|System halted"
 
 #: The password in `fixtures/vm-binpkg.toml`, as plain text. It exists so the
 #: harness can log into what it installed; nothing else uses it.
@@ -254,11 +259,7 @@ def main(argv: list[str] | None = None) -> int:
                 console.login("root", INSTALLED_PASSWORD, r"# ")
                 print(f"[{time.monotonic() - started:5.1f}s] logged into the installed system")
                 check_installed(console)
-                console.send("poweroff")
-                try:
-                    vm.wait(timeout=120.0)
-                except subprocess.TimeoutExpired:
-                    print("guest did not power off, killing it", file=sys.stderr)
+                power_off(console, vm)
                 return report(result_disk, keep=args.keep, assertions=True)
             reach_shell(console, medium)
             print(f"[{time.monotonic() - started:5.1f}s] root shell on serial")
@@ -281,13 +282,22 @@ def main(argv: list[str] | None = None) -> int:
                 run_installer(console, args.install, "--dry-run" if args.dry_run else "")
             else:
                 probe(console)
-            console.send("poweroff")
-            try:
-                vm.wait(timeout=120.0)
-            except subprocess.TimeoutExpired:
-                print("guest did not power off, killing it", file=sys.stderr)
+            power_off(console, vm)
 
     return report(result_disk, keep=args.keep)
+
+
+def power_off(console: SerialConsole, vm: Vm) -> None:
+    """Shut the guest down while still reading its console."""
+    console.send("poweroff")
+    try:
+        console.expect(SHUTDOWN, timeout=180.0)
+    except ConsoleTimeout:
+        print("guest printed no shutdown message", file=sys.stderr)
+    try:
+        vm.wait(timeout=60.0)
+    except subprocess.TimeoutExpired:
+        print("guest did not power off, killing it", file=sys.stderr)
 
 
 def report(result_disk: Path, *, keep: bool, assertions: bool = False) -> int:
