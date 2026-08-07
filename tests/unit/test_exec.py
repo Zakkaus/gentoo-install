@@ -197,13 +197,33 @@ def test_a_signature_from_the_wrong_key_is_refused(tmp_path: Path) -> None:
             return Result(
                 argv=tuple(argv),
                 returncode=0,
-                stdout="[GNUPG:] VALIDSIG DEADBEEF 2026-08-08\n",
+                stdout="[GNUPG:] VALIDSIG SUBKEY 2026-08-08 1 4 0 1 8 00 DEADBEEF\n",
                 stderr="",
                 seconds=0.0,
             )
 
     with pytest.raises(IntegrityError, match="not the pinned"):
         fetch._verify_signature(tmp_path / "x.DIGESTS", "ABC123", Signed(log=lambda line: None))
+
+
+def test_the_pin_names_the_primary_key_rather_than_the_subkey_that_signed(tmp_path: Path) -> None:
+    """Gentoo signs with a subkey. Comparing VALIDSIG's second field rejects a
+    signature that is good, which is how the pinned value was found to name the
+    primary key."""
+
+    class Subkey(Runner):
+        def run(self, argv, *, check=True, input_text=None, timeout=None):  # type: ignore[no-untyped-def]
+            from gentoo_install.exec.runner import Result
+
+            return Result(
+                argv=tuple(argv),
+                returncode=0,
+                stdout="[GNUPG:] VALIDSIG 534E4209 2026-08-08 1 4 0 1 8 00 PRIMARYFPR\n",
+                stderr="",
+                seconds=0.0,
+            )
+
+    fetch._verify_signature(tmp_path / "x.DIGESTS", "primaryfpr", Subkey(log=lambda line: None))
 
 
 def test_a_fingerprint_that_only_appears_in_the_output_is_not_a_signature(tmp_path: Path) -> None:

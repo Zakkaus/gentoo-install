@@ -148,10 +148,16 @@ def _verify_signature(digests: Path, fingerprint: str, runner: Runner) -> None:
 
 
 def _signing_key(status: str) -> str | None:
+    """The primary key's fingerprint, which is what a pin names.
+
+    `VALIDSIG` reports the subkey that made the signature in its second field
+    and the primary key in its last. Gentoo signs with a subkey, so comparing
+    the second field rejects a signature that is perfectly good.
+    """
     for line in status.splitlines():
         fields = line.split()
         if len(fields) >= 3 and fields[0] == "[GNUPG:]" and fields[1] in ("VALIDSIG", "EXPKEYSIG"):
-            return fields[2]
+            return fields[-1]
     return None
 
 
