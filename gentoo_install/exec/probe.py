@@ -21,6 +21,8 @@ from ..model.device import DeviceId
 from .runner import Runner
 
 EFI_MARKER: Final[Path] = Path("/sys/firmware/efi")
+#: Where both install media keep the release engineering public key.
+RELEASE_KEY: Final[Path] = Path("/usr/share/openpgp-keys/gentoo-release.asc")
 MEMINFO: Final[Path] = Path("/proc/meminfo")
 
 
@@ -33,6 +35,8 @@ class Machine:
     root: bool
     memory_bytes: int
     commands: frozenset[str]
+    #: Whether the medium ships the key a stage3 signature is checked against.
+    release_key: bool
 
 
 @dataclass
@@ -54,6 +58,7 @@ class Probe:
             root=os.geteuid() == 0,
             memory_bytes=self._memory(),
             commands=frozenset(name for name in wanted if shutil.which(name) is not None),
+            release_key=RELEASE_KEY.is_file(),
         )
 
     def resolve(self, device: DeviceId, selector: str) -> str:

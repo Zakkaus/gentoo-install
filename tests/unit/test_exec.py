@@ -5,7 +5,13 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
-from gentoo_install.errors import CommandFailed, DeviceNotFound, IntegrityError, PreflightFailed
+from gentoo_install.errors import (
+    CommandFailed,
+    ConfigError,
+    DeviceNotFound,
+    IntegrityError,
+    PreflightFailed,
+)
 from gentoo_install.exec import fetch, preflight
 from gentoo_install.exec.probe import Machine as ProbedMachine
 from gentoo_install.exec.probe import Probe
@@ -27,6 +33,7 @@ def described(**fields: object) -> ProbedMachine:
         "root": True,
         "memory_bytes": 16 * 1024**3,
         "commands": frozenset(preflight.required_commands(config())),
+        "release_key": True,
     }
     base.update(fields)
     return ProbedMachine(**base)  # type: ignore[arg-type]
@@ -242,5 +249,12 @@ def test_the_measured_order_is_used_only_when_the_configuration_asks() -> None:
 
 
 def test_no_passphrase_is_invented_when_none_was_supplied() -> None:
-    with pytest.raises(IntegrityError, match="no passphrase"):
+    """A configuration error, not an integrity one: exit code 3 says the data
+    could not be trusted, and an unwritten prompt is not that."""
+    with pytest.raises(ConfigError, match="no passphrase"):
         fetch.passphrase_for(DeviceId("crypt"))
+
+
+def test_a_medium_without_the_release_key_is_stopped_before_the_download(tmp_path: Path) -> None:
+    report = preflight.inspect(present(), described(release_key=False), probe_of(tmp_path))
+    assert any("signature cannot be checked" in reason for reason in report.fatal)

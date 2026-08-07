@@ -58,6 +58,11 @@ class IntegrityError(GentooInstallError):
     against another mirror: untrusted data stays untrusted."""
 
 
+class DownloadFailed(GentooInstallError):
+    """A file the install needs could not be fetched. Distinct from an integrity
+    failure: the data never arrived rather than arriving untrustworthy."""
+
+
 class CommandFailed(GentooInstallError):
     """An external command exited non-zero. The operation did not finish, which
     is a different thing from data that cannot be trusted."""

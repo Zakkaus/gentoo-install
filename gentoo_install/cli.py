@@ -64,12 +64,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         if arguments.config is None:
             print("the menu is not written yet; pass --config FILE", file=sys.stderr)
             return EXIT_CONFIG
-        operations = build(load(arguments.config), load_catalog(), mirror=arguments.mirror)
+        config = load(arguments.config)
+        operations = build(config, load_catalog(), mirror=arguments.mirror)
         if arguments.dry_run:
             print(render(operations), end="")
             print(summarise(operations))
             return EXIT_OK
-        return install(load(arguments.config), operations, arguments)
+        return install(config, operations, arguments)
     except errors.DeviceNotFound as error:
         print(f"device: {error}", file=sys.stderr)
         return EXIT_PREFLIGHT
@@ -82,8 +83,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     except errors.IntegrityError as error:
         print(f"integrity: {error}", file=sys.stderr)
         return EXIT_INTEGRITY
+    except errors.DownloadFailed as error:
+        print(f"download: {error}", file=sys.stderr)
+        return EXIT_COMMAND
     except errors.CommandFailed as error:
         print(f"command: {error}", file=sys.stderr)
+        return EXIT_COMMAND
+    except errors.GentooInstallError as error:
+        # A named error with no clause of its own still gets its exit code from
+        # here, rather than escaping as a traceback that exits 1.
+        print(f"{type(error).__name__}: {error}", file=sys.stderr)
         return EXIT_COMMAND
     except KeyboardInterrupt:
         print("aborted", file=sys.stderr)
@@ -94,29 +103,29 @@ def install(config: InstallConfig, operations: tuple[Operation, ...], arguments:
     """Check the machine, then perform every operation in order."""
     work: Path = arguments.work
     work.mkdir(parents=True, exist_ok=True)
-    log = (work / "install.log").open("a")
+    with (work / "install.log").open("a") as log:
 
-    def record(line: str) -> None:
-        print(line, file=log, flush=True)
-        print(line)
+        def record(line: str) -> None:
+            print(line, file=log, flush=True)
+            print(line, flush=True)
 
-    journal = Journal(path=work / "install.jsonl")
-    runner = Runner(log=record, journal=journal)
-    probe = Probe(runner=runner, work=work)
-    probe.load()
-    if not arguments.skip_preflight:
-        report = preflight.check(config, probe)
-        for warning in report.warnings:
-            record(f"warning: {warning}")
-        report.raise_if_fatal()
-    machine = Machine(
-        config=config, runner=runner, probe=probe, work=work, mountpoint=arguments.target
-    )
-    apply(operations, machine)
-    counted = journal.counts()
-    record(
-        f"installed {len(operations)} operations into {arguments.target}; "
-        f"{counted.get('binary', 0)} packages from a binary host, "
-        f"{counted.get('compiled', 0)} compiled"
-    )
+        journal = Journal(path=work / "install.jsonl")
+        runner = Runner(log=record, journal=journal)
+        probe = Probe(runner=runner, work=work)
+        probe.load()
+        if not arguments.skip_preflight:
+            report = preflight.check(config, probe)
+            for warning in report.warnings:
+                record(f"warning: {warning}")
+            report.raise_if_fatal()
+        machine = Machine(
+            config=config, runner=runner, probe=probe, work=work, mountpoint=arguments.target
+        )
+        apply(operations, machine)
+        counted = journal.counts()
+        record(
+            f"installed {len(operations)} operations into {arguments.target}; "
+            f"{counted.get('binary', 0)} packages from a binary host, "
+            f"{counted.get('compiled', 0)} compiled"
+        )
     return EXIT_OK

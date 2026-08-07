@@ -14,15 +14,13 @@ import urllib.request
 from pathlib import Path
 from typing import Final
 
-from ..errors import IntegrityError
+from ..errors import ConfigError, DownloadFailed, IntegrityError
 from ..model.device import DeviceId
+from .probe import RELEASE_KEY
 from .runner import Runner
 
 STAGE3_PATH: Final[str] = "releases/amd64/autobuilds"
 TIMEOUT: Final[float] = 60.0
-
-#: Where the install medium keeps the release engineering public key.
-RELEASE_KEY: Final[Path] = Path("/usr/share/openpgp-keys/gentoo-release.asc")
 
 #: Every Gentoo mirror carries this, and it is small enough that the time is
 #: dominated by latency and the first megabytes of throughput.
@@ -87,7 +85,7 @@ def passphrase_for(device: DeviceId) -> str:
     Interactive entry belongs to the interface layer; until it exists, a run
     that needs one fails here rather than inventing a key nobody knows.
     """
-    raise IntegrityError(
+    raise ConfigError(
         f"no passphrase is available for {device}; the interface that asks for one is not written"
     )
 
@@ -101,21 +99,33 @@ def _newest(base: str) -> str:
 
 def _import_release_key(runner: Runner) -> None:
     """The medium ships the key; importing it beats fetching one from a
-    keyserver, which would decide at run time what to trust."""
-    if RELEASE_KEY.is_file():
-        runner.run(["gpg", "--quiet", "--import", str(RELEASE_KEY)], check=False)
+    keyserver, which would decide at run time what to trust.
+
+    `preflight.py` is what checks the file exists, so a machine without it is
+    stopped before the download rather than after it.
+    """
+    runner.run(["gpg", "--quiet", "--import", str(RELEASE_KEY)], check=False)
 
 
 def _read(url: str) -> str:
-    with urllib.request.urlopen(url, timeout=TIMEOUT) as response:
-        return str(response.read().decode("utf-8", "replace"))
+    try:
+        with urllib.request.urlopen(url, timeout=TIMEOUT) as response:
+            return str(response.read().decode("utf-8", "replace"))
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        raise DownloadFailed(f"{url} could not be read: {error}") from error
 
 
 def _download(url: str, target: Path) -> None:
+    """Written beside the target and renamed, so an interrupted download never
+    leaves a short file that looks complete."""
     partial = target.with_suffix(target.suffix + ".part")
-    with urllib.request.urlopen(url, timeout=TIMEOUT) as response, partial.open("wb") as handle:
-        while chunk := response.read(1 << 20):
-            handle.write(chunk)
+    try:
+        with urllib.request.urlopen(url, timeout=TIMEOUT) as response, partial.open("wb") as handle:
+            while chunk := response.read(1 << 20):
+                handle.write(chunk)
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        partial.unlink(missing_ok=True)
+        raise DownloadFailed(f"{url} could not be fetched: {error}") from error
     partial.replace(target)
 
 

@@ -24,7 +24,7 @@ from ..model.device import (
     VolumeGroup,
     ZfsPool,
 )
-from .probe import Machine, Probe
+from .probe import RELEASE_KEY, Machine, Probe
 
 #: Commands every install needs, whatever the layout is.
 ALWAYS: Final[tuple[str, ...]] = ("tar", "gpg", "mount", "umount", "findmnt", "lsblk", "blkid", "chroot")
@@ -115,6 +115,12 @@ def inspect(config: InstallConfig, machine: Machine, probe: Probe) -> Report:
             continue
         if probe.mounted(path):
             fatal.append(f"{path} is mounted; the installer will not repartition a disk in use")
+
+    if not machine.release_key:
+        fatal.append(
+            f"{RELEASE_KEY} is absent, so a stage3 signature cannot be checked against the "
+            "pinned key"
+        )
 
     if machine.memory_bytes and machine.memory_bytes < TMPFS_MINIMUM:
         warnings.append(
