@@ -9,6 +9,7 @@ to a human.
 from __future__ import annotations
 
 import argparse
+import socket
 import subprocess
 import sys
 import time
@@ -48,6 +49,13 @@ PROBE = (
     ("portage", "command -v emerge gcc; ls /var/db/repos 2>/dev/null"),
     ("block", "lsblk -no NAME,SIZE,TYPE"),
 )
+
+
+def free_port() -> int:
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port: int = probe.getsockname()[1]
+    return port
 
 
 def create_target(path: Path) -> Path:
@@ -138,7 +146,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--medium", choices=sorted(MEDIA), default="official-minimal")
     parser.add_argument("--firmware", choices=[f.value for f in Firmware], default="uefi")
-    parser.add_argument("--ssh-port", type=int, default=2222)
+    parser.add_argument(
+        "--ssh-port",
+        type=int,
+        default=0,
+        help="host port forwarded to the guest's sshd; 0 picks a free one, which is what "
+        "keeps two runs from colliding",
+    )
     parser.add_argument(
         "--install",
         help="run the installer from the driver CD against this configuration, "
@@ -164,6 +178,7 @@ def main(argv: list[str] | None = None) -> int:
     variant = Path(args.install).stem if args.install else "probe"
     workdir = WORKROOT / f"{medium.name}-{args.firmware}-{variant}"
     workdir.mkdir(parents=True, exist_ok=True)
+    ssh_port = args.ssh_port or free_port()
     key = ssh_keypair(workdir)
     result_disk = create_disk(workdir / "result.img")
     driver_iso = build_driver(workdir / "driver.iso") if args.install else None
@@ -181,7 +196,7 @@ def main(argv: list[str] | None = None) -> int:
         medium=medium,
         workdir=workdir,
         firmware=Firmware(args.firmware),
-        ssh_port=args.ssh_port,
+        ssh_port=ssh_port,
         disks=(result_disk,),
         driver_iso=driver_iso,
         targets=targets,
@@ -206,11 +221,11 @@ def main(argv: list[str] | None = None) -> int:
 
             install_key(console, key.with_suffix(".pub").read_text().strip())
             console.run("command -v sshd >/dev/null && (rc-service sshd start || systemctl start sshd) || true")
-            probed = ssh(key, args.ssh_port, "true")
+            probed = ssh(key, ssh_port, "true")
             print(f"[{time.monotonic() - started:5.1f}s] ssh reachable: {probed.returncode == 0}")
 
             if args.interactive:
-                print(f"ssh -p {args.ssh_port} -i {key} root@127.0.0.1")
+                print(f"ssh -p {ssh_port} -i {key} root@127.0.0.1")
                 print("the VM stays up until this process is interrupted")
                 try:
                     vm.wait(timeout=86400.0)
