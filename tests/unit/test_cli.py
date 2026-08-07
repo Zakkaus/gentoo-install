@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from gentoo_install.cli import EXIT_ABORTED, EXIT_CONFIG, EXIT_OK, main
+from gentoo_install.cli import EXIT_CONFIG, EXIT_OK, EXIT_PREFLIGHT, main
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
@@ -43,12 +43,21 @@ def test_a_broken_rule_is_a_configuration_error(
     assert "root on ZFS excludes GRUB" in capsys.readouterr().err
 
 
-def test_installing_for_real_is_not_implemented_and_says_so(
-    capsys: pytest.CaptureFixture[str],
+def test_an_install_stops_at_preflight_rather_than_touching_a_disk(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    code = main(["--config", str(FIXTURES / "ext4-bios.toml")])
-    assert code == EXIT_ABORTED
-    assert "untouched" in capsys.readouterr().err
+    """Run as an ordinary user against a machine that has none of the fixture's
+    devices: the run has to end in the preflight report, not part way through."""
+    code = main(
+        [
+            "--config", str(FIXTURES / "ext4-bios.toml"),
+            "--work", str(tmp_path / "work"),
+            "--target", str(tmp_path / "target"),
+        ]
+    )
+    assert code == EXIT_PREFLIGHT
+    printed = capsys.readouterr().err
+    assert "run as root" in printed or "not present" in printed
 
 
 def test_no_configuration_asks_for_one(capsys: pytest.CaptureFixture[str]) -> None:

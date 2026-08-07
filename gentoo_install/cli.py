@@ -13,9 +13,18 @@ from typing import Sequence
 
 from . import errors
 from .data import load_catalog
+from .exec import preflight
+from .exec.apply import Machine, apply
+from .exec.probe import Probe
+from .exec.runner import Runner
+from .model.config import InstallConfig
 from .model.parse import load
 from .plan.build import DEFAULT_MIRROR, build
+from .plan.operations import Operation
 from .plan.render import render, summarise
+
+#: Everything a run needs to keep: the device map, the staged keys, the log.
+WORK = Path("/run/gentoo-install")
 
 EXIT_OK = 0
 EXIT_CONFIG = 1
@@ -36,6 +45,15 @@ def parser() -> argparse.ArgumentParser:
         help="print the operations the configuration produces and exit without touching anything",
     )
     parsed.add_argument("--mirror", default=DEFAULT_MIRROR, help="where to fetch stage3 from")
+    parsed.add_argument(
+        "--target", type=Path, default=Path("/mnt/gentoo"), help="where to mount the new system"
+    )
+    parsed.add_argument("--work", type=Path, default=WORK, help="where to keep the run's state")
+    parsed.add_argument(
+        "--skip-preflight",
+        action="store_true",
+        help="install without checking the machine first, for a harness that knows what it booted",
+    )
     return parsed
 
 
@@ -50,8 +68,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(render(operations), end="")
             print(summarise(operations))
             return EXIT_OK
-        print("only --dry-run is implemented; the disks are untouched", file=sys.stderr)
-        return EXIT_ABORTED
+        return install(load(arguments.config), operations, arguments)
+    except errors.DeviceNotFound as error:
+        print(f"device: {error}", file=sys.stderr)
+        return EXIT_PREFLIGHT
     except errors.ConfigError as error:
         print(f"configuration: {error}", file=sys.stderr)
         return EXIT_CONFIG
@@ -67,3 +87,29 @@ def main(argv: Sequence[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("aborted", file=sys.stderr)
         return EXIT_ABORTED
+
+
+def install(config: InstallConfig, operations: tuple[Operation, ...], arguments: argparse.Namespace) -> int:
+    """Check the machine, then perform every operation in order."""
+    work: Path = arguments.work
+    work.mkdir(parents=True, exist_ok=True)
+    log = (work / "install.log").open("a")
+
+    def record(line: str) -> None:
+        print(line, file=log, flush=True)
+        print(line)
+
+    runner = Runner(log=record)
+    probe = Probe(runner=runner, work=work)
+    probe.load()
+    if not arguments.skip_preflight:
+        report = preflight.check(config, probe)
+        for warning in report.warnings:
+            record(f"warning: {warning}")
+        report.raise_if_fatal()
+    machine = Machine(
+        config=config, runner=runner, probe=probe, work=work, mountpoint=arguments.target
+    )
+    apply(operations, machine)
+    record(f"installed {len(operations)} operations into {arguments.target}")
+    return EXIT_OK
