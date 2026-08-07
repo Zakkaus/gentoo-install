@@ -319,3 +319,31 @@ def test_an_empty_or_missing_passphrase_file_is_named(tmp_path: Path) -> None:
 def test_a_medium_without_the_release_key_is_stopped_before_the_download(tmp_path: Path) -> None:
     report = preflight.inspect(present(), described(release_key=False), probe_of(tmp_path))
     assert any("signature cannot be checked" in reason for reason in report.fatal)
+
+
+def test_a_short_zfs_passphrase_is_caught_before_the_disk_is_touched(tmp_path: Path) -> None:
+    """`zpool create` rejects it only after the vdevs have been partitioned,
+    which leaves the disk wiped and the install stopped."""
+    from gentoo_install.model.device import ZfsPool
+
+    from .layouts import zfs_root
+
+    def with_key(source: str) -> InstallConfig:
+        nodes = [
+            replace(node, passphrase_file=source) if isinstance(node, ZfsPool) else node
+            for node in zfs_root()
+        ]
+        return replace(
+            config(nodes),
+            bootloader=BootloaderConfig(kind=Bootloader.ZFSBOOTMENU, firmware=Firmware.UEFI),
+        )
+
+    key = tmp_path / "key"
+    key.write_text("1234567")
+    problems = preflight._passphrase_problems(with_key(str(key)))
+    assert len(problems) == 1 and "at least 8" in problems[0]
+
+    key.write_text("12345678")
+    assert preflight._passphrase_problems(with_key(str(key))) == []
+    assert "cannot be read" in preflight._passphrase_problems(with_key(str(tmp_path / "gone")))[0]
+    assert "names no passphrase_file" in preflight._passphrase_problems(with_key(""))[0]

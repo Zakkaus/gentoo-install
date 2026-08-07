@@ -47,6 +47,10 @@ EXTRA_FILESYSTEM_COMMANDS: Final[dict[FilesystemType, tuple[str, ...]]] = {
     FilesystemType.BTRFS: ("btrfs",),
 }
 
+#: `zpool create` refuses anything shorter, and it refuses it after the disk
+#: has already been partitioned.
+ZFS_PASSPHRASE_MINIMUM: Final[int] = 8
+
 #: Below this, compiling in a tmpfs is what runs the machine out of memory.
 TMPFS_MINIMUM: Final[int] = 8 * 1024**3
 
@@ -84,6 +88,41 @@ def required_commands(config: InstallConfig) -> frozenset[str]:
     return frozenset(wanted)
 
 
+def _passphrase_problems(config: InstallConfig) -> list[str]:
+    """Read every passphrase file before the first disk is touched.
+
+    `zpool create` rejects a short passphrase only once the pool's vdevs have
+    been partitioned, which leaves the disk wiped and the install stopped.
+    """
+    problems: list[str] = []
+    graph = config.disk.graph
+    encrypted: list[tuple[str, str, int]] = [
+        (node.id, node.passphrase_file, 0) for node in graph.of_type(Luks)
+    ]
+    encrypted += [
+        (pool.id, pool.passphrase_file, ZFS_PASSPHRASE_MINIMUM)
+        for pool in graph.of_type(ZfsPool)
+        if pool.encrypted
+    ]
+    for device, source, minimum in encrypted:
+        if not source:
+            problems.append(f"{device} is encrypted but names no passphrase_file")
+            continue
+        try:
+            passphrase = Path(source).read_text().strip("\n")
+        except OSError as error:
+            problems.append(f"{device}: {source} cannot be read: {error}")
+            continue
+        if not passphrase:
+            problems.append(f"{device}: {source} is empty")
+        elif len(passphrase) < minimum:
+            problems.append(
+                f"{device}: {source} holds {len(passphrase)} characters and zfs takes at "
+                f"least {minimum}"
+            )
+    return problems
+
+
 def check(config: InstallConfig, probe: Probe) -> Report:
     wanted = required_commands(config)
     machine = probe.machine(wanted)
@@ -119,6 +158,8 @@ def inspect(config: InstallConfig, machine: Machine, probe: Probe) -> Report:
             continue
         if probe.mounted(path):
             fatal.append(f"{path} is mounted; the installer will not repartition a disk in use")
+
+    fatal += _passphrase_problems(config)
 
     if not machine.release_key:
         fatal.append(

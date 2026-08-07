@@ -43,6 +43,10 @@ TARGET_SIZE = "40G"
 #: The password in `fixtures/vm-binpkg.toml`, as plain text. It exists so the
 #: harness can log into what it installed; nothing else uses it.
 INSTALLED_PASSWORD = "install"
+
+#: The disk passphrase, which is not the root password: zfs takes at least
+#: eight characters, and a real install does not reuse one for the other.
+DISK_PASSPHRASE = "install-disk"
 RESULT_DIR = "/run/vm-result"
 
 #: What the installed system has to show, as (result file, pattern). A check
@@ -181,7 +185,7 @@ def unlock_and_login(console: SerialConsole, installation: InstallConfig) -> Non
             console.send(INSTALLED_PASSWORD)
             console.expect(r"# ", timeout=60.0)
             return
-        console.send(INSTALLED_PASSWORD)
+        console.send(DISK_PASSPHRASE)
     raise SystemExit("the disk kept asking for a passphrase; it is not the one installed")
 
 
@@ -206,7 +210,7 @@ def stage_passphrases(console: SerialConsole, installation: InstallConfig) -> No
     for source in wanted:
         parent = PurePosixPath(source).parent
         console.run(f"mkdir -p {parent} && chmod 700 {parent}")
-        console.run(f"printf '%s' '{INSTALLED_PASSWORD}' > {source}")
+        console.run(f"printf '%s' '{DISK_PASSPHRASE}' > {source}")
         console.run(f"chmod 600 {source}")
 
 
