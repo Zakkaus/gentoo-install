@@ -1,0 +1,114 @@
+# ZFS root with ZFSBootMenu: the kernel stays in the pool, the esp holds only
+# the ZBM executable. UEFI only, no GRUB.
+config_version = 1
+
+[system]
+hostname = "zfsbox"
+timezone = "Asia/Taipei"
+locales = ["en_US.UTF-8", "zh_TW.UTF-8"]
+locale = "zh_TW.UTF-8"
+init = "systemd"
+console_cjk = true
+console_font = "16x32"
+
+[[system.users]]
+name = "zakk"
+sudo = true
+password_hash = "$6$rounds=656000$fixedsaltforthetest$0"
+
+[portage]
+profile = "default/linux/amd64/23.0/systemd"
+makeopts = "-j8"
+
+[portage.mirrors]
+region = "global"
+
+[portage.binhost]
+official = true
+community = "off"
+
+[kernel]
+source = "cjk-source"
+
+[bootloader]
+kind = "zfsbootmenu"
+firmware = "uefi"
+kernel_params = ["quiet"]
+
+[packages]
+desktop = "console"
+
+[disk]
+root = "mnt-root"
+
+[[disk.devices]]
+kind = "existing"
+id = "disk"
+selector = "/dev/disk/by-id/virtio-target"
+wipe = true
+
+[[disk.devices]]
+kind = "table"
+id = "table"
+disk = "disk"
+table = "gpt"
+
+[[disk.devices]]
+kind = "partition"
+id = "esp"
+table = "table"
+index = 1
+role = "esp"
+size = "512MiB"
+
+[[disk.devices]]
+kind = "partition"
+id = "poolpart"
+table = "table"
+index = 2
+role = "data"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "espfs"
+device = "esp"
+type = "vfat"
+label = "ESP"
+
+[[disk.devices]]
+kind = "zpool"
+id = "pool"
+vdevs = ["poolpart"]
+name = "zpcala"
+encrypted = true
+
+[[disk.devices]]
+kind = "dataset"
+id = "ds-root"
+pool = "pool"
+name = "ROOT/gentoo/root"
+
+[[disk.devices]]
+kind = "dataset"
+id = "ds-home"
+pool = "pool"
+name = "ROOT/gentoo/home"
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-root"
+source = "ds-root"
+path = "/"
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-home"
+source = "ds-home"
+path = "/home"
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-esp"
+source = "espfs"
+path = "/efi"
+options = ["umask=0077"]
