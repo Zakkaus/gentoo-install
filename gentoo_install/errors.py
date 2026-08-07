@@ -58,6 +58,10 @@ class IntegrityError(GentooInstallError):
     against another mirror: untrusted data stays untrusted."""
 
 
+class NothingToBoot(GentooInstallError):
+    """The bootloader was written but has no kernel to offer."""
+
+
 class DownloadFailed(GentooInstallError):
     """A file the install needs could not be fetched. Distinct from an integrity
     failure: the data never arrived rather than arriving untrustworthy."""

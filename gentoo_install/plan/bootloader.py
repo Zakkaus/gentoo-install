@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Final
 
+from ..errors import NothingToBoot
 from ..model import compat
 from ..model.config import Bootloader, Firmware, InitSystem, InstallConfig
 from ..model.device import DeviceId, Mountpoint, Partition, PartitionRole, ZfsDataset, ZfsPool
@@ -63,6 +64,13 @@ class InstallGrub(Operation):
                 ["grub-install", "--target=i386-pc", context.containing_disk(self.boot_device)]
             )
         context.run_in_target(["grub-mkconfig", "--output", "/boot/grub/grub.cfg"])
+        # grub-mkconfig exits 0 having found no kernel, and the machine then
+        # drops back to the firmware menu with nothing to boot.
+        entries = context.run_in_target(
+            ["grep", "--count", "^menuentry", "/boot/grub/grub.cfg"], check=False
+        ).strip()
+        if not entries.isdigit() or int(entries) == 0:
+            raise NothingToBoot("grub.cfg has no menu entry; /boot holds no kernel")
 
 
 @dataclass(frozen=True, kw_only=True)
