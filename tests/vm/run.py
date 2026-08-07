@@ -16,11 +16,18 @@ import socket
 import subprocess
 import sys
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from gentoo_install.model import compat
 from gentoo_install.model.config import InitSystem, InstallConfig
-from gentoo_install.model.device import Filesystem, Mountpoint, Subvolume, ZfsDataset
+from gentoo_install.model.device import (
+    Filesystem,
+    Luks,
+    Mountpoint,
+    Subvolume,
+    ZfsDataset,
+    ZfsPool,
+)
 from gentoo_install.model.parse import load
 
 from .console import SerialConsole
@@ -158,6 +165,22 @@ def check_installed(console: SerialConsole, installation: InstallConfig) -> None
     console.run("sync")
 
 
+def stage_passphrases(console: SerialConsole, installation: InstallConfig) -> None:
+    """Put the passphrases where the layout says they are.
+
+    An operator does this by hand before an unattended install; the harness
+    does it here so an encrypted layout can be tested without a prompt.
+    """
+    graph = installation.disk.graph
+    wanted = [node.passphrase_file for node in graph.of_type(Luks) if node.passphrase_file]
+    wanted += [node.passphrase_file for node in graph.of_type(ZfsPool) if node.passphrase_file]
+    for source in wanted:
+        parent = PurePosixPath(source).parent
+        console.run(f"mkdir -p {parent} && chmod 700 {parent}")
+        console.run(f"printf '%s' '{INSTALLED_PASSWORD}' > {source}")
+        console.run(f"chmod 600 {source}")
+
+
 def run_installer(console: SerialConsole, config: str, extra: str = "") -> None:
     """Run the installer from the driver CD and keep everything it printed."""
     console.run("mkdir -p /mnt/driver")
@@ -285,6 +308,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
 
             if args.install:
+                stage_passphrases(console, load(REPOSITORY / "tests" / args.install))
                 run_installer(console, args.install, "--dry-run" if args.dry_run else "")
             else:
                 probe(console)
