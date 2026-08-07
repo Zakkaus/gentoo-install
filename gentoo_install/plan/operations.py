@@ -86,6 +86,9 @@ class Context(Protocol):
     def partition_index(self, device: DeviceId) -> int:
         """A partition's number, which is what `efibootmgr --part` wants."""
 
+    def jobs(self) -> int:
+        """How many compile jobs this machine should run at once."""
+
     def device_uuid(self, device: DeviceId) -> str:
         """The UUID of a formatted device, for fstab and crypttab."""
 

@@ -33,6 +33,18 @@ KERNEL_PACKAGES: Final[dict[KernelSource, str]] = {
 #: Filesystems whose driver dracut only includes when asked.
 FILESYSTEM_MODULES: Final[dict[FilesystemType, str]] = {FilesystemType.BTRFS: "btrfs"}
 
+#: What a kernel needs switched on for the framebuffer console to draw CJK.
+#: `FONT_CJK_32x32` is off on purpose: its Kconfig default is on, and the base
+#: patch ships an empty glyph table, so it costs 8 MiB of kernel memory for a
+#: font with nothing in it.
+CJK_CONSOLE_OPTIONS: Final[tuple[tuple[str, bool], ...]] = (
+    ("FRAMEBUFFER_CONSOLE", True),
+    ("CONSOLE_TRANSLATIONS", True),
+    ("FB_EFI", True),
+    ("FONT_CJK_16x16", True),
+    ("FONT_CJK_32x32", False),
+)
+
 #: Userspace tools the target needs for each layer of its storage stack.
 STORAGE_PACKAGES: Final[dict[str, str]] = {
     "btrfs": "sys-fs/btrfs-progs",
@@ -111,6 +123,66 @@ class RebuildInitramfs(Operation):
         context.run_in_target(["emerge", "--config", self.package])
 
 
+@dataclass(frozen=True, kw_only=True)
+class SelectKernelSource(Operation):
+    """A sources package unpacks a tree and installs nothing. Everything after
+    this works on whatever `/usr/src/linux` points at."""
+
+    stage: Stage = Stage.KERNEL
+
+    def describe(self) -> str:
+        return "point /usr/src/linux at the kernel that was just unpacked"
+
+    def apply(self, context: Context) -> None:
+        context.run_in_target(["eselect", "kernel", "set", "1"])
+
+
+@dataclass(frozen=True, kw_only=True)
+class ConfigureKernel(Operation):
+    """`defconfig` first, then the options this install needs on top of it.
+
+    `olddefconfig` afterwards answers everything the toggles pulled in, which is
+    what keeps the build from stopping at an interactive prompt.
+    """
+
+    stage: Stage = Stage.KERNEL
+    options: tuple[tuple[str, bool], ...]
+
+    def describe(self) -> str:
+        named = ", ".join(f"{'+' if wanted else '-'}{name}" for name, wanted in self.options)
+        return f"configure the kernel from defconfig with {named or 'no extra options'}"
+
+    def apply(self, context: Context) -> None:
+        source = "/usr/src/linux"
+        context.run_in_target(["make", "--directory", source, "defconfig"])
+        for name, wanted in self.options:
+            context.run_in_target(
+                [
+                    f"{source}/scripts/config",
+                    "--file", f"{source}/.config",
+                    "--enable" if wanted else "--disable",
+                    name,
+                ]
+            )
+        context.run_in_target(["make", "--directory", source, "olddefconfig"])
+
+
+@dataclass(frozen=True, kw_only=True)
+class BuildKernel(Operation):
+    stage: Stage = Stage.KERNEL
+
+    def describe(self) -> str:
+        return "build the kernel and its modules, then install both"
+
+    def apply(self, context: Context) -> None:
+        source = "/usr/src/linux"
+        context.run_in_target(["make", "--directory", source, f"--jobs={context.jobs()}"])
+        context.run_in_target(["make", "--directory", source, "modules_install"])
+        # `install` runs installkernel, which is what builds the initramfs and
+        # copies the image where the bootloader will look for it.
+        context.run_in_target(["make", "--directory", source, "install"])
+
+
 def build(config: InstallConfig) -> list[Operation]:
     modules = dracut_modules(config)
     operations: list[Operation] = [ConfigureInstallKernel()]
@@ -140,7 +212,15 @@ def build(config: InstallConfig) -> list[Operation]:
             binary_packages=config.kernel.source is KernelSource.DIST_BIN,
         )
     )
-    if config.kernel.source is not KernelSource.CJK_SOURCE:
+    if config.kernel.source is KernelSource.CJK_SOURCE:
+        # A sources package leaves a tree, not a kernel: without these three the
+        # install finishes with a bootloader pointing at nothing.
+        operations += [
+            SelectKernelSource(),
+            ConfigureKernel(options=CJK_CONSOLE_OPTIONS if config.system.console_cjk else ()),
+            BuildKernel(),
+        ]
+    else:
         operations.append(RebuildInitramfs(package=package))
     return operations
 

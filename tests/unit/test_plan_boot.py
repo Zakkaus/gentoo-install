@@ -6,10 +6,12 @@ from pathlib import PurePosixPath
 from gentoo_install.model.config import (
     Bootloader,
     BootloaderConfig,
+    ConsoleFontSize,
     Firmware,
     InstallConfig,
     KernelConfig,
     KernelSource,
+    SystemConfig,
 )
 from gentoo_install.model.device import Filesystem, FilesystemType, Luks, MdRaid, Node, RaidLevel
 from gentoo_install.plan import bootloader, kernel
@@ -67,7 +69,24 @@ def test_the_firmware_licence_is_accepted_before_firmware_is_merged() -> None:
     assert "linux-fw-redistributable no-source-code" in accepted
 
 
-def test_a_source_kernel_is_not_asked_to_regenerate_a_dist_kernel_initramfs() -> None:
+def test_a_source_kernel_is_configured_and_built_rather_than_only_unpacked() -> None:
+    """A sources package leaves a tree in /usr/src and installs no kernel, so
+    without these the install ends with a bootloader pointing at nothing."""
+    patched = replace(
+        config(),
+        kernel=KernelConfig(source=KernelSource.CJK_SOURCE),
+        system=SystemConfig(console_cjk=True, console_font=ConsoleFontSize.SIZE_16X32),
+    )
+    recorder = apply_kernel(patched)
+    assert ("eselect", "kernel", "set", "1") in recorder.in_target
+    assert recorder.argv_starting("make", "--directory", "/usr/src/linux", "defconfig")
+    assert recorder.argv_starting("make", "--directory", "/usr/src/linux", "install")
+    toggles = [argv for argv in recorder.in_target if argv[0].endswith("scripts/config")]
+    assert any("FONT_CJK_16x16" in argv and "--enable" in argv for argv in toggles)
+    assert any("FONT_CJK_32x32" in argv and "--disable" in argv for argv in toggles)
+
+
+def test_a_kernel_built_from_source_asks_for_no_dist_kernel_initramfs() -> None:
     patched = replace(config(), kernel=KernelConfig(source=KernelSource.CJK_SOURCE))
     assert not any("rebuild the initramfs" in o.describe() for o in kernel.build(patched))
     binary = replace(config(), kernel=KernelConfig(source=KernelSource.DIST_BIN))

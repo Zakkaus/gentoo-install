@@ -6,6 +6,7 @@ This is the `Context` the plan layer declares. Everything it does goes through
 
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
@@ -130,6 +131,9 @@ class Machine:
         if not isinstance(node, Partition):
             raise InvalidLayout(f"{device} is not a partition, so it has no number")
         return node.index
+
+    def jobs(self) -> int:
+        return os.cpu_count() or 1
 
     def device_uuid(self, device: DeviceId) -> str:
         return self.probe.uuid_of(self.device_path(device), device)

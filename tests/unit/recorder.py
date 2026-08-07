@@ -48,6 +48,9 @@ class Recorder:
     def partition_index(self, device: DeviceId) -> int:
         return 1
 
+    def jobs(self) -> int:
+        return 4
+
     def device_uuid(self, device: DeviceId) -> str:
         return f"uuid-of-{device}"
 
