@@ -9,6 +9,8 @@ to a human.
 from __future__ import annotations
 
 import argparse
+import fcntl
+import os
 import re
 import socket
 import subprocess
@@ -62,6 +64,23 @@ PROBE = (
     ("portage", "command -v emerge gcc; ls /var/db/repos 2>/dev/null"),
     ("block", "lsblk -no NAME,SIZE,TYPE"),
 )
+
+
+class RunInProgress(Exception):
+    """Another run holds this directory. Its result disk and its serial socket
+    would both be taken over, and the first run would fail in a way that looks
+    like a failed install."""
+
+
+def claim(workdir: Path) -> int:
+    lock = workdir / "run.lock"
+    handle = os.open(lock, os.O_CREAT | os.O_RDWR)
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(handle)
+        raise RunInProgress(f"another run holds {lock}") from None
+    return handle
 
 
 def free_port() -> int:
@@ -195,6 +214,11 @@ def main(argv: list[str] | None = None) -> int:
     variant = Path(args.install).stem if args.install else "probe"
     workdir = WORKROOT / f"{medium.name}-{args.firmware}-{variant}"
     workdir.mkdir(parents=True, exist_ok=True)
+    try:
+        claim(workdir)
+    except RunInProgress as error:
+        print(error, file=sys.stderr)
+        return 1
     ssh_port = args.ssh_port or free_port()
     key = ssh_keypair(workdir)
     result_disk = create_disk(workdir / "result.img")
