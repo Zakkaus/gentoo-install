@@ -17,7 +17,7 @@ from .media import MEDIA, Medium
 from .qemu import Firmware, Vm, VmSpec
 from .results import collect_command, create_disk, read_disk
 
-WORKROOT = Path.home() / ".cache/gentoo-install-test/runs"
+WORKROOT = Path.home() / "code/gentoo-install/lab/vm/runs"
 RESULT_DIR = "/run/vm-result"
 
 PROBE = (

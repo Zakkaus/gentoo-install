@@ -6,7 +6,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-CACHE = Path.home() / ".cache/gentoo-install-test"
+CACHE = Path.home() / "code/gentoo-install/lab/vm"
 
 
 class MediaError(Exception):
