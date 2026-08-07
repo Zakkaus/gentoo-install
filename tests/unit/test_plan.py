@@ -16,6 +16,7 @@ from gentoo_install.model.config import (
     InstallConfig,
     KernelConfig,
     KernelSource,
+    Overlay,
     PackagesConfig,
     PortageConfig,
     SystemConfig,
@@ -123,6 +124,11 @@ def test_a_zfs_root_produces_no_grub_operation() -> None:
     zfs = replace(
         config(zfs_root()),
         bootloader=BootloaderConfig(kind=Bootloader.ZFSBOOTMENU, firmware=Firmware.UEFI),
+        # ZFSBootMenu lives in this overlay, and the rule table refuses the
+        # configuration without it.
+        portage=PortageConfig(
+            overlays=(Overlay(name="gentoo-zh", sync_uri="https://example.invalid/overlay.git"),)
+        ),
     )
     assert not any("GRUB" in operation.describe() for operation in plan(zfs))
     assert any("ZFSBootMenu" in operation.describe() for operation in plan(zfs))
