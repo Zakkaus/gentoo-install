@@ -18,3 +18,19 @@ class InvalidSize(ConfigError):
 
 class UnalignedSize(ConfigError):
     """A size or offset does not sit on the alignment the device requires."""
+
+
+class DuplicateDeviceId(ConfigError):
+    """Two nodes in the device graph claim the same id."""
+
+
+class UnknownDeviceId(ConfigError):
+    """A node references an id that no node defines."""
+
+
+class DeviceCycle(ConfigError):
+    """The device graph contains a cycle, so no build order exists."""
+
+
+class DeviceNotFound(GentooInstallError):
+    """A device the configuration names is absent from the running system."""
