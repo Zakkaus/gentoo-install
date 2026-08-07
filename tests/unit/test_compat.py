@@ -98,10 +98,10 @@ def cjk_console_on_a_binary_kernel() -> InstallConfig:
     )
 
 
-def cjk_console_with_a_12x22_font() -> InstallConfig:
+def cjk_console_with_an_8x8_font() -> InstallConfig:
     return replace(
         config(),
-        system=SystemConfig(console_cjk=True, console_font=ConsoleFontSize.SIZE_12X22),
+        system=SystemConfig(console_cjk=True, console_font=ConsoleFontSize.SIZE_8X8),
         kernel=KernelConfig(source=KernelSource.CJK_SOURCE),
     )
 
@@ -116,7 +116,7 @@ CASES: list[tuple[Callable[[], InstallConfig], Trait, Trait]] = [
     (esp_on_a_mirror, Trait.ESP_ON_MDRAID, Trait.ESP_MDRAID_SUPERBLOCK_AT_START),
     (bios_on_gpt_without_a_bios_boot_partition, Trait.BIOS_BOOT, Trait.GPT_WITHOUT_BIOS_BOOT),
     (cjk_console_on_a_binary_kernel, Trait.CONSOLE_CJK, Trait.PREBUILT_KERNEL),
-    (cjk_console_with_a_12x22_font, Trait.CONSOLE_CJK, Trait.FONT_WITHOUT_CJK_GLYPHS),
+    (cjk_console_with_an_8x8_font, Trait.CONSOLE_CJK, Trait.FONT_WITHOUT_CJK_GLYPHS),
 ]
 
 
