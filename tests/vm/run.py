@@ -156,6 +156,35 @@ def reach_shell(console: SerialConsole, medium: Medium) -> None:
         console.login(medium.login_user, medium.login_password, medium.root_prompt)
 
 
+#: What GRUB and the initramfs say when they want a passphrase. GRUB asks
+#: because /boot is inside the container, the initramfs asks to open the root:
+#: two prompts for one passphrase unless a keyfile is embedded.
+PASSPHRASE_PROMPT = r"[Ee]nter passphrase|Please enter passphrase|password for"
+
+
+def unlock_and_login(console: SerialConsole, installation: InstallConfig) -> None:
+    """Answer every passphrase prompt on the way to a login."""
+    graph = installation.disk.graph
+    encrypted = bool(graph.of_type(Luks)) or any(
+        pool.encrypted for pool in graph.of_type(ZfsPool)
+    )
+    if not encrypted:
+        console.login("root", INSTALLED_PASSWORD, r"# ")
+        return
+    # Bounded: a wrong passphrase makes the prompt come back, and each one
+    # re-arms the timeout, so an unbounded loop would never fail.
+    for _ in range(5):
+        seen = console.expect(rf"{PASSPHRASE_PROMPT}|login:", timeout=300.0)
+        if b"login:" in seen:
+            console.send("root")
+            console.expect(r"[Pp]assword:", timeout=60.0)
+            console.send(INSTALLED_PASSWORD)
+            console.expect(r"# ", timeout=60.0)
+            return
+        console.send(INSTALLED_PASSWORD)
+    raise SystemExit("the disk kept asking for a passphrase; it is not the one installed")
+
+
 def check_installed(console: SerialConsole, installation: InstallConfig) -> None:
     """Assert against the system that was installed, booted from its own disk."""
     console.run(f"mkdir -p {RESULT_DIR}")
@@ -283,9 +312,10 @@ def main(argv: list[str] | None = None) -> int:
     with Vm(spec) as vm:
         with SerialConsole.connect(vm.serial_socket, vm.serial_log) as console:
             if args.boot_installed:
-                console.login("root", INSTALLED_PASSWORD, r"# ")
+                expected = load(REPOSITORY / "tests" / args.install)
+                unlock_and_login(console, expected)
                 print(f"[{time.monotonic() - started:5.1f}s] logged into the installed system")
-                check_installed(console, load(REPOSITORY / "tests" / args.install))
+                check_installed(console, expected)
                 power_off(console, vm)
                 return report(
                     result_disk, keep=args.keep, assertions=REPOSITORY / "tests" / args.install
