@@ -53,10 +53,10 @@
   write /etc/crypttab for root
   create user zakk in users, wheel, audio, video, render, usb, input with no password
   lock the root account
+  install sudo: emerge app-admin/sudo
   let the wheel group run sudo, with a password
   install sshd: emerge net-misc/openssh
   enable sshd.service at boot
-  install the network tools: emerge net-misc/dhcpcd
   configure the wired interface for DHCP
   enable systemd-networkd.service at boot
 

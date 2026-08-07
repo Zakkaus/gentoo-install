@@ -53,7 +53,7 @@ class GenerateLocales(Operation):
         return f"generate and verify locales {', '.join(self.locales)}"
 
     def apply(self, context: Context) -> None:
-        content = "".join(f"{locale} {locale.split('.')[-1]}\n" for locale in self.locales)
+        content = "".join(f"{locale} {_charmap(locale)}\n" for locale in self.locales)
         context.write(PurePosixPath("/etc/locale.gen"), content)
         context.run_in_target(["locale-gen"])
         available = context.run_in_target(["locale", "--all-locales"]).lower().split()
@@ -62,8 +62,10 @@ class GenerateLocales(Operation):
         ]
         if missing:
             for locale in missing:
-                name, _, charset = locale.partition(".")
-                context.run_in_target(["localedef", "--inputfile", name, "--charmap", charset, locale])
+                name = locale.split(".", 1)[0]
+                context.run_in_target(
+                    ["localedef", "--inputfile", name, "--charmap", _charmap(locale), locale]
+                )
             still = context.run_in_target(["locale", "--all-locales"]).lower().split()
             absent = [locale for locale in self.locales if _normalised(locale) not in still]
             if absent:
@@ -153,8 +155,11 @@ class WriteMachineId(Operation):
     def apply(self, context: Context) -> None:
         if self.init is InitSystem.SYSTEMD:
             context.run_in_target(["systemd-machine-id-setup"])
-        else:
-            context.run_in_target(["dbus-uuidgen", "--ensure=/etc/machine-id"])
+            return
+        # `dbus-uuidgen` would need sys-apps/dbus, which a stage3 has not got.
+        # The kernel hands out a fresh uuid to anyone who reads this file.
+        value = context.run_in_target(["cat", "/proc/sys/kernel/random/uuid"]).strip()
+        context.write(PurePosixPath("/etc/machine-id"), value.replace("-", "") + "\n")
 
 
 @dataclass(frozen=True)
@@ -334,18 +339,21 @@ def build(config: InstallConfig) -> list[Operation]:
         )
     operations.append(SetRootPassword(password_hash=system.root_password_hash))
     if any(user.sudo for user in system.users):
-        operations.append(GrantSudo())
+        operations += [
+            Emerge(stage=Stage.SYSTEM, packages=("app-admin/sudo",), summary="install sudo"),
+            GrantSudo(),
+        ]
     if system.sshd:
         operations += [
             Emerge(stage=Stage.SYSTEM, packages=("net-misc/openssh",), summary="install sshd"),
             EnableService(service=_sshd_service(system.init), init=system.init),
         ]
+    network = _network_packages(system.init)
+    if network:
+        operations.append(
+            Emerge(stage=Stage.SYSTEM, packages=network, summary="install the network tools")
+        )
     operations += [
-        Emerge(
-            stage=Stage.SYSTEM,
-            packages=_network_packages(system.init),
-            summary="install the network tools",
-        ),
         WriteNetworkConfig(init=system.init),
         EnableService(service=_network_service(system.init), init=system.init),
     ]
@@ -467,7 +475,8 @@ def _network_service(init: InitSystem) -> str:
 
 def _network_packages(init: InitSystem) -> tuple[str, ...]:
     if init is InitSystem.SYSTEMD:
-        return ("net-misc/dhcpcd",)
+        # networkd is part of systemd and does the DHCP itself.
+        return ()
     # stage3 carries no netifrc, and openrc's net.* scripts are nothing without it.
     return ("net-misc/netifrc", "net-misc/dhcpcd")
 
@@ -477,6 +486,13 @@ def _set_password(context: Context, user: str, password_hash: str) -> None:
         context.run_in_target(["passwd", "--lock", user])
         return
     context.run_in_target(["usermod", "--password", password_hash, user])
+
+
+def _charmap(locale: str) -> str:
+    """`zh_TW.UTF-8` names its charmap; `C` and `en_US` do not, and locale.gen
+    needs one either way."""
+    _, _, charmap = locale.partition(".")
+    return charmap or "UTF-8"
 
 
 def _normalised(locale: str) -> str:
