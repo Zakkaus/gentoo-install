@@ -54,11 +54,11 @@ class MirrorRegion(Enum):
 
 
 class ConsoleFontSize(Enum):
-    """Cell size of the console font, which decides which glyphs fit in it."""
+    """Cell size of the console font. Every size here is one `sys-apps/kbd`
+    ships a font for, so the choice never names a font the target lacks."""
 
     SIZE_8X8 = "8x8"
     SIZE_8X16 = "8x16"
-    SIZE_12X22 = "12x22"
     SIZE_16X32 = "16x32"
 
 
@@ -68,6 +68,9 @@ class User:
     groups: tuple[str, ...] = ()
     shell: str = "/bin/bash"
     sudo: bool = False
+    #: A crypt(3) hash. Empty locks the account; a plaintext password is never
+    #: carried in a configuration file.
+    password_hash: str = ""
 
 
 @dataclass(frozen=True)
@@ -83,6 +86,8 @@ class SystemConfig:
     console_font: ConsoleFontSize = ConsoleFontSize.SIZE_8X16
     init: InitSystem = InitSystem.SYSTEMD
     users: tuple[User, ...] = ()
+    #: Empty locks root, which is what a system with a sudo user wants.
+    root_password_hash: str = ""
     sshd: bool = False
 
 

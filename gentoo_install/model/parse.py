@@ -101,7 +101,7 @@ def _system(raw: Mapping[str, Any], at: str) -> SystemConfig:
         at,
         {
             "hostname", "timezone", "locales", "locale", "keymap", "console_cjk",
-            "console_font", "init", "sshd", "users",
+            "console_font", "init", "sshd", "users", "root_password_hash",
         },
     )
     default = SystemConfig()
@@ -114,13 +114,14 @@ def _system(raw: Mapping[str, Any], at: str) -> SystemConfig:
         console_cjk=_bool(raw, "console_cjk", at, default.console_cjk),
         console_font=_enum(raw, "console_font", at, ConsoleFontSize, default.console_font),
         init=_enum(raw, "init", at, InitSystem, default.init),
+        root_password_hash=_str(raw, "root_password_hash", at, default.root_password_hash),
         sshd=_bool(raw, "sshd", at, default.sshd),
         users=tuple(_user(entry, f"{at}.users[{n}]") for n, entry in enumerate(_tables(raw, "users", at))),
     )
 
 
 def _user(raw: Mapping[str, Any], at: str) -> User:
-    _reject_unknown(raw, at, {"name", "groups", "shell", "sudo"})
+    _reject_unknown(raw, at, {"name", "groups", "shell", "sudo", "password_hash"})
     default = User(name="")
     name = _str(raw, "name", at, required=True)
     if not name:
@@ -130,6 +131,7 @@ def _user(raw: Mapping[str, Any], at: str) -> User:
         groups=_strings(raw, "groups", at, default.groups),
         shell=_str(raw, "shell", at, default.shell),
         sudo=_bool(raw, "sudo", at, default.sudo),
+        password_hash=_str(raw, "password_hash", at, default.password_hash),
     )
 
 
