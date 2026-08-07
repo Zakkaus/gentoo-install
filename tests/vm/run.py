@@ -9,6 +9,7 @@ to a human.
 from __future__ import annotations
 
 import argparse
+import re
 import socket
 import subprocess
 import sys
@@ -29,6 +30,18 @@ TARGET_SIZE = "40G"
 #: harness can log into what it installed; nothing else uses it.
 INSTALLED_PASSWORD = "install"
 RESULT_DIR = "/run/vm-result"
+
+#: What the installed system has to show, as (result file, pattern). A check
+#: that only collected output would pass on a system that booted into an
+#: emergency shell, so each of these decides the exit code.
+EXPECTED = (
+    ("mounts", r"^/\s"),
+    ("mounts", r"^/efi\s"),
+    ("fstab", r"UUID=\S+\s+/\s+ext4"),
+    ("hostname", r"^vmtest$"),
+    ("units", r"^enabled$"),
+    ("kernel", r"vmlinuz"),
+)
 
 #: What a system installed by this installer has to be able to answer.
 INSTALLED = (
@@ -215,7 +228,7 @@ def main(argv: list[str] | None = None) -> int:
                     vm.wait(timeout=120.0)
                 except subprocess.TimeoutExpired:
                     print("guest did not power off, killing it", file=sys.stderr)
-                return report(result_disk, keep=args.keep)
+                return report(result_disk, keep=args.keep, assertions=True)
             reach_shell(console, medium)
             print(f"[{time.monotonic() - started:5.1f}s] root shell on serial")
 
@@ -246,13 +259,32 @@ def main(argv: list[str] | None = None) -> int:
     return report(result_disk, keep=args.keep)
 
 
-def report(result_disk: Path, *, keep: bool) -> int:
+def report(result_disk: Path, *, keep: bool, assertions: bool = False) -> int:
     results = read_disk(result_disk)
     for name in sorted(results):
         print(f"--- {name} ---")
         print(results[name].decode("utf-8", "replace").rstrip())
+    code = check_expected(results) if assertions else 0
     if not keep:
         result_disk.unlink(missing_ok=True)
+    return code
+
+
+def check_expected(results: dict[str, bytes]) -> int:
+    """Turn the collected output into a verdict."""
+    missing: list[str] = []
+    for name, pattern in EXPECTED:
+        text = results.get(f"{name}.txt", b"").decode("utf-8", "replace")
+        if re.search(pattern, text, re.MULTILINE) is None:
+            missing.append(f"{name}.txt does not match {pattern}")
+    failed = results.get("failed.txt", b"").decode("utf-8", "replace").strip()
+    if failed:
+        missing.append(f"systemd reports failed units: {failed.splitlines()[0]}")
+    for problem in missing:
+        print(f"FAIL {problem}", file=sys.stderr)
+    if missing:
+        return 1
+    print("the installed system booted, mounted its layout and has no failed unit")
     return 0
 
 
