@@ -12,15 +12,22 @@ from pathlib import PurePosixPath
 from typing import Final
 
 from ..model import compat
-from ..model.config import Bootloader, Firmware, InstallConfig
+from ..model.config import Bootloader, Firmware, InitSystem, InstallConfig
 from ..model.device import DeviceId, Mountpoint, Partition, PartitionRole, ZfsDataset, ZfsPool
 from .operations import Context, Operation, Stage
 from .portage import Emerge
 
 BOOTLOADER_PACKAGES: Final[dict[Bootloader, tuple[str, ...]]] = {
     Bootloader.GRUB: ("sys-boot/grub",),
-    Bootloader.SYSTEMD_BOOT: ("sys-apps/systemd-utils",),
+    Bootloader.SYSTEMD_BOOT: (),
     Bootloader.ZFSBOOTMENU: ("sys-boot/zfsbootmenu",),
+}
+
+#: `bootctl` comes from systemd on a systemd system and from systemd-utils on
+#: an openrc one, and the two block each other, so the init decides which.
+BOOTCTL_PACKAGE: Final[dict[InitSystem, str]] = {
+    InitSystem.SYSTEMD: "sys-apps/systemd",
+    InitSystem.OPENRC: "sys-apps/systemd-utils",
 }
 
 #: Writing an NVRAM entry needs this, and only UEFI has NVRAM to write to.
@@ -72,6 +79,22 @@ class WriteGrubDefaults(Operation):
             f'GRUB_CMDLINE_LINUX_DEFAULT="{" ".join(self.kernel_params)}"\n'
             "GRUB_TIMEOUT=5\n"
             "GRUB_DISABLE_RECOVERY=true\n",
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class RequestBootctl(Operation):
+    """`bootctl` is behind a USE flag on both packages that can provide it."""
+
+    stage: Stage = Stage.BOOTLOADER
+    package: str
+
+    def describe(self) -> str:
+        return f"ask for {self.package}[boot], which is what provides bootctl"
+
+    def apply(self, context: Context) -> None:
+        context.write(
+            PurePosixPath("/etc/portage/package.use/systemd-boot"), f"{self.package} boot\n"
         )
 
 
@@ -178,7 +201,12 @@ def build(config: InstallConfig) -> list[Operation]:
             ),
         ]
     elif kind is Bootloader.SYSTEMD_BOOT and esp is not None:
-        operations.append(InstallSystemdBoot(esp=esp))
+        provider = BOOTCTL_PACKAGE[config.system.init]
+        operations = [
+            RequestBootctl(package=provider),
+            Emerge(stage=Stage.BOOTLOADER, packages=(provider,), summary="install bootctl"),
+            InstallSystemdBoot(esp=esp),
+        ]
     elif kind is Bootloader.ZFSBOOTMENU and esp is not None and esp_device is not None:
         pool = _pool_name(config)
         operations += [

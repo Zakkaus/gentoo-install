@@ -93,6 +93,24 @@ def test_a_kernel_built_from_source_asks_for_no_dist_kernel_initramfs() -> None:
     assert any("rebuild the initramfs" in o.describe() for o in kernel.build(binary))
 
 
+def test_bootctl_comes_from_the_package_the_init_system_allows() -> None:
+    """systemd provides bootctl on a systemd system and systemd-utils on an
+    openrc one; merging the wrong one hits a blocker."""
+    from gentoo_install.model.config import InitSystem, SystemConfig
+
+    for init, package in (
+        (InitSystem.SYSTEMD, "sys-apps/systemd"),
+        (InitSystem.OPENRC, "sys-apps/systemd-utils"),
+    ):
+        installation = replace(
+            config(),
+            system=SystemConfig(init=init),
+            bootloader=BootloaderConfig(kind=Bootloader.SYSTEMD_BOOT, firmware=Firmware.UEFI),
+        )
+        described = " ".join(operation.describe() for operation in bootloader.build(installation))
+        assert package in described
+
+
 def test_grub_is_installed_to_the_removable_path_as_well() -> None:
     """Firmware with no NVRAM entry, and firmware that lost it, boots only the
     removable path. The installed system has to come up either way."""
