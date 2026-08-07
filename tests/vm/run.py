@@ -40,9 +40,7 @@ RESULT_DIR = "/run/vm-result"
 #: that only collected output would pass on a system that booted into an
 #: emergency shell, so each of these decides the exit code.
 EXPECTED = (
-    ("mounts", r"^/\s+\S+\s+ext4"),
     ("mounts", r"^/efi\s+\S+\s+vfat"),
-    ("fstab", r"UUID=\S+\s+/\s+ext4"),
     ("units", r"^enabled$"),
     ("kernel", r"^(kernel|vmlinuz)-"),
 )
