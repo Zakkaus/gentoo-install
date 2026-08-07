@@ -122,10 +122,15 @@ class Runner:
             if watchdog is not None:
                 watchdog.start()
             try:
-                if input_text is not None and process.stdin is not None:
-                    process.stdin.write(input_text)
-                    process.stdin.close()
-                if process.stdout is not None:
+                if input_text is not None:
+                    # communicate(), not a write before the read loop: input
+                    # bigger than the pipe buffer deadlocks against a command
+                    # that is already blocked writing its output.
+                    written, _ = process.communicate(input_text)
+                    lines.append(written)
+                    if self.echo:
+                        self.log(f"| {written.rstrip()}")
+                elif process.stdout is not None:
                     for line in process.stdout:
                         lines.append(line)
                         if self.echo:
