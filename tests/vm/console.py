@@ -104,6 +104,21 @@ class SerialConsole:
         self._log.flush()
         self._buffer += chunk
 
+    def drain(self, seconds: float) -> None:
+        """Read and discard for a while.
+
+        A guest whose console buffer fills stops writing, and a systemd
+        shutdown that cannot write stops shutting down. Nothing is looking for
+        a pattern here; the point is that somebody is reading.
+        """
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            try:
+                self._read_once()
+            except ConsoleClosed:
+                return
+        self._buffer = b""
+
     def close(self) -> None:
         self._sock.close()
         self._log.close()

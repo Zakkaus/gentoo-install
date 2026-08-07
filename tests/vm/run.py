@@ -18,7 +18,7 @@ import sys
 import time
 from pathlib import Path
 
-from .console import ConsoleTimeout, SerialConsole
+from .console import SerialConsole
 from .driver import build as build_driver
 from .media import MEDIA, Medium
 from .qemu import Firmware, Vm, VmSpec
@@ -27,11 +27,6 @@ from .results import collect_command, create_disk, read_disk
 WORKROOT = Path.home() / "code/gentoo-install/lab/vm/runs"
 #: Big enough for a stage3, a desktop and the swap a fixture may ask for.
 TARGET_SIZE = "40G"
-
-#: What a guest prints on its way down. Waiting for it is not politeness: the
-#: harness has to keep reading the serial socket, and a guest whose console
-#: buffer fills with nobody draining it stops mid-shutdown.
-SHUTDOWN = r"Reached target .*(Power Off|Shutdown)|reboot: Power down|System halted"
 
 #: The password in `fixtures/vm-binpkg.toml`, as plain text. It exists so the
 #: harness can log into what it installed; nothing else uses it.
@@ -288,16 +283,22 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def power_off(console: SerialConsole, vm: Vm) -> None:
-    """Shut the guest down while still reading its console."""
+    """Shut the guest down, reading its console until the process is gone.
+
+    Draining has to continue past the last message worth matching: the guest
+    stops writing when its console buffer fills, and a shutdown that cannot
+    write does not finish.
+    """
     console.send("poweroff")
-    try:
-        console.expect(SHUTDOWN, timeout=180.0)
-    except ConsoleTimeout:
-        print("guest printed no shutdown message", file=sys.stderr)
-    try:
-        vm.wait(timeout=60.0)
-    except subprocess.TimeoutExpired:
-        print("guest did not power off, killing it", file=sys.stderr)
+    deadline = time.monotonic() + 180.0
+    while time.monotonic() < deadline:
+        console.drain(2.0)
+        try:
+            vm.wait(timeout=0.1)
+            return
+        except subprocess.TimeoutExpired:
+            continue
+    print("guest did not power off, killing it", file=sys.stderr)
 
 
 def report(result_disk: Path, *, keep: bool, assertions: bool = False) -> int:
