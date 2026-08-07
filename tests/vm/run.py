@@ -37,18 +37,18 @@ RESULT_DIR = "/run/vm-result"
 #: that only collected output would pass on a system that booted into an
 #: emergency shell, so each of these decides the exit code.
 EXPECTED = (
-    ("mounts", r"^/\s"),
-    ("mounts", r"^/efi\s"),
+    ("mounts", r"^/\s+\S+\s+ext4"),
+    ("mounts", r"^/efi\s+\S+\s+vfat"),
     ("fstab", r"UUID=\S+\s+/\s+ext4"),
     ("hostname", r"^vmtest$"),
     ("units", r"^enabled$"),
-    ("kernel", r"vmlinuz"),
+    ("kernel", r"^(kernel|vmlinuz)-"),
 )
 
 #: What a system installed by this installer has to be able to answer.
 INSTALLED = (
     ("os-release", "cat /etc/os-release"),
-    ("mounts", "findmnt --noheadings --output TARGET,SOURCE,FSTYPE /  /efi"),
+    ("mounts", "findmnt --noheadings --list --output TARGET,SOURCE,FSTYPE"),
     ("fstab", "cat /etc/fstab"),
     ("locale", "locale; localectl status 2>/dev/null || true"),
     ("hostname", "cat /etc/hostname"),
