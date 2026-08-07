@@ -60,18 +60,12 @@ def test_resolv_conf_is_copied_so_the_chroot_can_resolve_a_mirror() -> None:
     )
 
 
-def test_efivars_is_mounted_for_uefi_and_not_for_bios() -> None:
-    from gentoo_install.model.config import Bootloader, BootloaderConfig
-
-    uefi = apply_all(config())
-    assert uefi.argv_starting("mount", "--types", "efivarfs")
-    bios = apply_all(
-        replace(
-            config(),
-            bootloader=BootloaderConfig(kind=Bootloader.GRUB, firmware=Firmware.BIOS),
-        )
-    )
-    assert not bios.argv_starting("mount", "--types", "efivarfs")
+def test_efivarfs_comes_with_the_recursive_bind_rather_than_a_second_mount() -> None:
+    """Mounting it again would fail on a machine that booted BIOS, and the
+    rbind of /sys already carries it."""
+    recorder = apply_all(config())
+    assert not recorder.argv_starting("mount", "--types", "efivarfs")
+    assert ("mount", "--rbind", "/sys", "/mnt/gentoo/sys") in recorder.argv_starting("mount")
 
 
 def test_make_conf_carries_the_flags_the_configuration_set() -> None:

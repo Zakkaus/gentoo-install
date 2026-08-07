@@ -13,7 +13,6 @@ from typing import Final
 
 from ..model.config import (
     BinhostChannel,
-    Firmware,
     InitSystem,
     InstallConfig,
     Keywords,
@@ -121,7 +120,11 @@ class InstallStage3(Operation):
 @dataclass(frozen=True, kw_only=True)
 class PrepareChroot(Operation):
     """`/run` is bound and made slave rather than mounted as a fresh tmpfs: that
-    is the Handbook's form and it keeps the installing system's udev reachable."""
+    is the Handbook's form and it keeps the installing system's udev reachable.
+
+    `/sys` is recursive, so the target gets efivarfs with it and `efibootmgr`
+    inside the chroot can write a boot entry.
+    """
 
     stage: Stage = Stage.CHROOT
 
@@ -136,22 +139,6 @@ class PrepareChroot(Operation):
             context.run(["mount", "--rbind" if propagation == "rslave" else "--bind", source, where])
             context.run(["mount", f"--make-{propagation}", where])
         context.run(["install", "--mode=0644", "/etc/resolv.conf", str(target / "etc/resolv.conf")])
-
-
-@dataclass(frozen=True, kw_only=True)
-class MountEfiVars(Operation):
-    stage: Stage = Stage.CHROOT
-
-    def describe(self) -> str:
-        return "mount efivarfs in the target so efibootmgr can write a boot entry"
-
-    def apply(self, context: Context) -> None:
-        context.run(
-            [
-                "mount", "--types", "efivarfs", "efivarfs",
-                str(context.target / "sys/firmware/efi/efivars"),
-            ]
-        )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -393,8 +380,6 @@ def build(config: InstallConfig, mirror: str, use: tuple[str, ...] = ()) -> list
         InstallStage3(mirror=mirror, variant=_variant(config)),
         PrepareChroot(),
     ]
-    if config.bootloader.firmware is Firmware.UEFI:
-        operations.append(MountEfiVars())
     operations += [
         WriteMakeConf(
             settings=make_conf(config, use),

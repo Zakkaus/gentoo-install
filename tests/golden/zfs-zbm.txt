@@ -23,7 +23,6 @@
 
 [chroot]
   mount proc, sys, dev and run into the target and copy resolv.conf
-  mount efivarfs in the target so efibootmgr can write a boot entry
 
 [portage]
   write /etc/portage/make.conf with COMMON_FLAGS, CFLAGS, CXXFLAGS, FCFLAGS, FFLAGS, MAKEOPTS, ACCEPT_LICENSE, L10N, FEATURES; 2 mirrors in the configured order

@@ -45,17 +45,24 @@ CJK_CONSOLE_OPTIONS: Final[tuple[tuple[str, bool], ...]] = (
     ("FONT_CJK_32x32", False),
 )
 
-#: Userspace tools the target needs for each layer of its storage stack.
-STORAGE_PACKAGES: Final[dict[str, str]] = {
+#: The tool each dracut module's layer needs in the installed system.
+STACK_PACKAGES: Final[dict[str, str]] = {
     "btrfs": "sys-fs/btrfs-progs",
     "crypt": "sys-fs/cryptsetup",
     "lvm": "sys-fs/lvm2",
     "mdraid": "sys-fs/mdadm",
     "zfs": "sys-fs/zfs",
-    "xfs": "sys-fs/xfsprogs",
-    "f2fs": "sys-fs/f2fs-tools",
-    "vfat": "sys-fs/dosfstools",
-    "ext": "sys-fs/e2fsprogs",
+}
+
+#: The tool each filesystem needs, so the target can check and mount it again.
+FILESYSTEM_PACKAGES: Final[dict[FilesystemType, str]] = {
+    FilesystemType.EXT2: "sys-fs/e2fsprogs",
+    FilesystemType.EXT3: "sys-fs/e2fsprogs",
+    FilesystemType.EXT4: "sys-fs/e2fsprogs",
+    FilesystemType.BTRFS: "sys-fs/btrfs-progs",
+    FilesystemType.XFS: "sys-fs/xfsprogs",
+    FilesystemType.F2FS: "sys-fs/f2fs-tools",
+    FilesystemType.VFAT: "sys-fs/dosfstools",
 }
 
 
@@ -93,8 +100,8 @@ class WriteDracutModules(Operation):
 
 @dataclass(frozen=True, kw_only=True)
 class AcceptFirmwareLicence(Operation):
-    """`linux-firmware` stops at an interactive licence prompt otherwise, and an
-    unattended install waits there until it is killed."""
+    """Written rather than left to `--autounmask-license`, so the acceptance is
+    a file the installed system keeps and not a decision buried in a log."""
 
     stage: Stage = Stage.KERNEL
 
@@ -207,7 +214,7 @@ def build(config: InstallConfig) -> list[Operation]:
             stage=Stage.KERNEL,
             packages=(package,),
             summary="install the kernel",
-            # A patched kernel exists on no binary host but ours, and a sources
+            # A patched kernel is on no official binary host, and a sources
             # package has to be compiled in any case.
             binary_packages=config.kernel.source is KernelSource.DIST_BIN,
         )
@@ -251,12 +258,11 @@ def storage_packages(config: InstallConfig) -> tuple[str, ...]:
     graph = config.disk.graph
     wanted: list[str] = []
     for module in dracut_modules(config):
-        package = STORAGE_PACKAGES.get(module)
+        package = STACK_PACKAGES.get(module)
         if package is not None and package not in wanted:
             wanted.append(package)
     for filesystem in graph.of_type(Filesystem):
-        key = "ext" if filesystem.kind.value.startswith("ext") else filesystem.kind.value
-        package = STORAGE_PACKAGES.get(key)
-        if package is not None and package not in wanted:
+        package = FILESYSTEM_PACKAGES[filesystem.kind]
+        if package not in wanted:
             wanted.append(package)
     return tuple(wanted)
