@@ -1,0 +1,449 @@
+"""stage3, the chroot, and everything Portage needs before the first emerge.
+
+The order here is not a preference. `getuto` has to build `/etc/portage/gnupg`
+before a key can be imported, an imported key stays untrusted until `lsign`, and
+`package.use/zz-autounmask` has to exist before the emerge that writes into it.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import PurePosixPath
+from typing import Final
+
+from ..model.config import (
+    BinhostChannel,
+    Firmware,
+    InitSystem,
+    InstallConfig,
+    Keywords,
+    MirrorRegion,
+    PortageConfig,
+)
+from .operations import Context, Operation, Stage
+
+#: The release engineering key, pinned. A fingerprint that does not match this
+#: is a failed install, not a prompt to trust something new.
+RELENG_FINGERPRINT: Final[str] = "13EBBDBEDE7A12775DFDB1BABB572E0E2D182910"
+
+#: gentoo-zh signs its binary packages with this key.
+GENTOOZH_FINGERPRINT: Final[str] = "6A0726AF1476A2F382C6AC6638A0234EC16AD42E"
+
+#: `sec-keys/openpgp-keys-gentoozh` installs the key here.
+GENTOOZH_KEY: Final[PurePosixPath] = PurePosixPath("/usr/share/openpgp-keys/gentoozh.asc")
+
+BINHOST_URI: Final[dict[MirrorRegion, str]] = {
+    MirrorRegion.CN: "https://mirrors.cernet.edu.cn/gentoo-zh/binpkgs/x86-64",
+    MirrorRegion.GLOBAL: "https://distfiles.gentoozh.org/binpkgs/x86-64",
+}
+
+DISTFILES: Final[dict[MirrorRegion, tuple[str, ...]]] = {
+    MirrorRegion.CN: (
+        "https://mirrors.cernet.edu.cn/gentoo/",
+        "https://mirrors.tuna.tsinghua.edu.cn/gentoo/",
+        "https://mirrors.ustc.edu.cn/gentoo/",
+    ),
+    MirrorRegion.GLOBAL: (
+        "https://distfiles.gentoo.org/",
+        "https://gentoo.osuosl.org/",
+    ),
+}
+
+REPO_SYNC_URI: Final[dict[MirrorRegion, str]] = {
+    MirrorRegion.CN: "https://mirrors.cernet.edu.cn/git/gentoo-portage.git",
+    MirrorRegion.GLOBAL: "https://github.com/gentoo-mirror/gentoo.git",
+}
+
+#: Portage writes automatic keyword, USE and licence decisions into these. They
+#: have to exist before the first emerge, or the writes land outside Portage.
+AUTOUNMASK_FILES: Final[tuple[str, ...]] = (
+    "/etc/portage/package.use/zz-autounmask",
+    "/etc/portage/package.accept_keywords/zz-autounmask",
+    "/etc/portage/package.license/zz-autounmask",
+)
+
+#: Never `--binpkg-respect-use=y` with these: it overrides `--autounmask-use=y`
+#: and the two together leave autounmask doing nothing.
+EMERGE_OPTIONS: Final[tuple[str, ...]] = (
+    "--verbose",
+    "--autounmask-license=y",
+    "--autounmask-use=y",
+    "--autounmask-write=y",
+    "--autounmask-continue=y",
+)
+
+BINPKG_OPTIONS: Final[tuple[str, ...]] = (
+    "--getbinpkg=y",
+    "--binpkg-changed-deps=y",
+    "--usepkg-exclude",
+    "acct-*/* virtual/* */*-bin",
+)
+
+
+@dataclass(frozen=True, kw_only=True)
+class InstallStage3(Operation):
+    """Download, verify and unpack in one step, because the archive's name is
+    only known once the mirror's directory index has been read.
+
+    GNU tar, not Python's tarfile: stage3 carries xattrs and file capabilities
+    and tarfile restores neither.
+    """
+
+    stage: Stage = Stage.STAGE3
+    mirror: str
+    variant: str
+
+    def describe(self) -> str:
+        return (
+            f"download the newest {self.variant} stage3 from {self.mirror}, verify it "
+            f"against {RELENG_FINGERPRINT[-16:]} and unpack it into the target"
+        )
+
+    def apply(self, context: Context) -> None:
+        archive = context.fetch_stage3(self.mirror, self.variant, RELENG_FINGERPRINT)
+        context.run(
+            [
+                "tar", "--extract",
+                "--file", str(archive),
+                "--directory", str(context.target),
+                "--preserve-permissions",
+                "--xattrs-include=*.*",
+                "--numeric-owner",
+            ]
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class PrepareChroot(Operation):
+    """`/run` is bound and made slave rather than mounted as a fresh tmpfs: that
+    is the Handbook's form and it keeps the installing system's udev reachable."""
+
+    stage: Stage = Stage.CHROOT
+
+    def describe(self) -> str:
+        return "mount proc, sys, dev and run into the target and copy resolv.conf"
+
+    def apply(self, context: Context) -> None:
+        target = context.target
+        context.run(["mount", "--types", "proc", "/proc", str(target / "proc")])
+        for source, propagation in (("/sys", "rslave"), ("/dev", "rslave"), ("/run", "slave")):
+            where = str(target / source.lstrip("/"))
+            context.run(["mount", "--rbind" if propagation == "rslave" else "--bind", source, where])
+            context.run(["mount", f"--make-{propagation}", where])
+        context.run(["install", "--mode=0644", "/etc/resolv.conf", str(target / "etc/resolv.conf")])
+
+
+@dataclass(frozen=True, kw_only=True)
+class MountEfiVars(Operation):
+    stage: Stage = Stage.CHROOT
+
+    def describe(self) -> str:
+        return "mount efivarfs in the target so efibootmgr can write a boot entry"
+
+    def apply(self, context: Context) -> None:
+        context.run(
+            [
+                "mount", "--types", "efivarfs", "efivarfs",
+                str(context.target / "sys/firmware/efi/efivars"),
+            ]
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class WriteMakeConf(Operation):
+    stage: Stage = Stage.PORTAGE
+    content: str
+
+    def describe(self) -> str:
+        settings = [line.split("=", 1)[0] for line in self.content.splitlines() if "=" in line]
+        return f"write /etc/portage/make.conf with {', '.join(settings)}"
+
+    def apply(self, context: Context) -> None:
+        context.write(PurePosixPath("/etc/portage/make.conf"), self.content)
+
+
+@dataclass(frozen=True, kw_only=True)
+class CreateAutounmaskFiles(Operation):
+    stage: Stage = Stage.PORTAGE
+
+    def describe(self) -> str:
+        return "create the three autounmask files emerge writes its decisions into"
+
+    def apply(self, context: Context) -> None:
+        for path in AUTOUNMASK_FILES:
+            context.write(PurePosixPath(path), "")
+
+
+@dataclass(frozen=True, kw_only=True)
+class ConfigureRepository(Operation):
+    stage: Stage = Stage.PORTAGE
+    name: str
+    location: PurePosixPath
+    sync_uri: str
+    verify_commits: bool
+
+    def describe(self) -> str:
+        verified = ", commit signatures verified" if self.verify_commits else ""
+        return f"point repository {self.name} at {self.sync_uri}{verified}"
+
+    def apply(self, context: Context) -> None:
+        stanza = [
+            f"[{self.name}]",
+            f"location = {self.location}",
+            "sync-type = git",
+            f"sync-uri = {self.sync_uri}",
+            "sync-depth = 1",
+            "auto-sync = yes",
+        ]
+        if self.verify_commits:
+            stanza.append("sync-git-verify-commit-signature = true")
+        context.write(
+            PurePosixPath(f"/etc/portage/repos.conf/{self.name}.conf"), "\n".join(stanza) + "\n"
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class SyncRepository(Operation):
+    """A directory holding a copy that git did not create makes `emerge --sync`
+    refuse, so the local copy goes first."""
+
+    stage: Stage = Stage.PORTAGE
+    name: str
+    location: PurePosixPath
+
+    def describe(self) -> str:
+        return f"sync repository {self.name}"
+
+    def apply(self, context: Context) -> None:
+        context.run_in_target(["rm", "--recursive", "--force", str(self.location)])
+        context.run_in_target(["emerge", "--sync", self.name])
+        context.run_in_target(["chown", "--recursive", "portage:portage", str(self.location)])
+
+
+@dataclass(frozen=True, kw_only=True)
+class SelectProfile(Operation):
+    stage: Stage = Stage.PORTAGE
+    profile: str
+
+    def describe(self) -> str:
+        return f"select profile {self.profile}"
+
+    def apply(self, context: Context) -> None:
+        context.run_in_target(["eselect", "profile", "set", self.profile])
+
+
+@dataclass(frozen=True, kw_only=True)
+class AcceptOverlayKeywords(Operation):
+    """gentoo-zh only ever carries `~amd64`, so the keyword is accepted for that
+    repository alone. The main tree stays stable."""
+
+    stage: Stage = Stage.PORTAGE
+    repository: str
+
+    def describe(self) -> str:
+        return f"accept ~amd64 for packages from {self.repository} only"
+
+    def apply(self, context: Context) -> None:
+        context.write(
+            PurePosixPath(f"/etc/portage/package.accept_keywords/{self.repository}"),
+            f"*/*::{self.repository} ~amd64\n",
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class Emerge(Operation):
+    stage: Stage = Stage.PACKAGES
+    packages: tuple[str, ...]
+    summary: str
+    oneshot: bool = False
+    binary_packages: bool = True
+
+    def describe(self) -> str:
+        how = "" if self.binary_packages else ", from source"
+        return f"{self.summary}: emerge {' '.join(self.packages)}{how}"
+
+    def apply(self, context: Context) -> None:
+        argv = ["emerge", *EMERGE_OPTIONS]
+        if self.oneshot:
+            argv.append("--oneshot")
+        if self.binary_packages:
+            argv += BINPKG_OPTIONS
+        else:
+            argv.append("--usepkg=n")
+        context.run_in_target([*argv, "--", *self.packages])
+
+
+@dataclass(frozen=True, kw_only=True)
+class TrustBinhostKey(Operation):
+    """`getuto` first: it creates `/etc/portage/gnupg` and its trustdb. A key
+    imported into that keyring stays untrusted until `lsign`, and verification
+    fails the same way it fails with no key at all."""
+
+    stage: Stage = Stage.PORTAGE
+    fingerprint: str
+    key_path: PurePosixPath
+
+    def describe(self) -> str:
+        return f"run getuto, import {self.fingerprint[-16:]} from {self.key_path} and locally sign it"
+
+    def apply(self, context: Context) -> None:
+        context.run_in_target(["getuto"])
+        context.run_in_target(
+            ["gpg", "--homedir", "/etc/portage/gnupg", "--import", str(self.key_path)]
+        )
+        context.run_in_target(
+            [
+                "gpg", "--homedir", "/etc/portage/gnupg",
+                "--batch", "--yes",
+                "--pinentry-mode", "loopback",
+                "--passphrase-file", "/etc/portage/gnupg/pass",
+                "--lsign-key", self.fingerprint,
+            ]
+        )
+        context.run_in_target(["gpg", "--homedir", "/etc/portage/gnupg", "--check-trustdb"])
+
+
+@dataclass(frozen=True, kw_only=True)
+class ConfigureBinhost(Operation):
+    stage: Stage = Stage.PORTAGE
+    name: str
+    sync_uri: str
+    verify: bool
+
+    def describe(self) -> str:
+        signed = "verified" if self.verify else "unverified"
+        return f"add {signed} binary package host {self.name} at {self.sync_uri}"
+
+    def apply(self, context: Context) -> None:
+        stanza = (
+            f"[{self.name}]\n"
+            f"sync-uri = {self.sync_uri}\n"
+            "priority = 10\n"
+            f"verify-signature = {'true' if self.verify else 'false'}\n"
+            f"location = /var/cache/binhost/{self.name}\n"
+        )
+        context.write(PurePosixPath(f"/etc/portage/binrepos.conf/{self.name}.conf"), stanza)
+
+
+@dataclass(frozen=True, kw_only=True)
+class AcceptTestingGlobally(Operation):
+    """Last, never earlier. Opening `~amd64` before the system is installed
+    drags the whole install into an unmask chain."""
+
+    stage: Stage = Stage.FINISH
+
+    def describe(self) -> str:
+        return 'append ACCEPT_KEYWORDS="~amd64" to make.conf, after everything is installed'
+
+    def apply(self, context: Context) -> None:
+        context.append(PurePosixPath("/etc/portage/make.conf"), 'ACCEPT_KEYWORDS="~amd64"\n')
+
+
+def build(config: InstallConfig, mirror: str) -> list[Operation]:
+    portage = config.portage
+    gentoo = PurePosixPath("/var/db/repos/gentoo")
+    operations: list[Operation] = [
+        InstallStage3(mirror=mirror, variant=_variant(config)),
+        PrepareChroot(),
+    ]
+    if config.bootloader.firmware is Firmware.UEFI:
+        operations.append(MountEfiVars())
+    operations += [
+        WriteMakeConf(content=make_conf(config)),
+        CreateAutounmaskFiles(),
+        ConfigureRepository(
+            name="gentoo",
+            location=gentoo,
+            sync_uri=_repo_sync_uri(portage),
+            verify_commits=True,
+        ),
+        SyncRepository(name="gentoo", location=gentoo),
+        SelectProfile(profile=portage.profile),
+    ]
+    for overlay in portage.overlays:
+        location = PurePosixPath(f"/var/db/repos/{overlay.name}")
+        operations += [
+            ConfigureRepository(
+                name=overlay.name,
+                location=location,
+                sync_uri=overlay.sync_uri,
+                verify_commits=False,
+            ),
+            SyncRepository(name=overlay.name, location=location),
+            AcceptOverlayKeywords(repository=overlay.name),
+        ]
+    if portage.binhost.community is not BinhostChannel.OFF:
+        operations += [
+            Emerge(
+                stage=Stage.PORTAGE,
+                packages=("sec-keys/openpgp-keys-gentoozh",),
+                summary="install the key the community binary packages are signed with",
+                binary_packages=False,
+            ),
+            TrustBinhostKey(fingerprint=GENTOOZH_FINGERPRINT, key_path=GENTOOZH_KEY),
+            ConfigureBinhost(name="gentoo-zh", sync_uri=_binhost_uri(portage), verify=True),
+        ]
+    return operations
+
+
+def finish(config: InstallConfig) -> list[Operation]:
+    if config.portage.keywords is Keywords.TESTING:
+        return [AcceptTestingGlobally()]
+    return []
+
+
+def make_conf(config: InstallConfig) -> str:
+    portage = config.portage
+    lines = [
+        f'COMMON_FLAGS="{portage.common_flags}"',
+        'CFLAGS="${COMMON_FLAGS}"',
+        'CXXFLAGS="${COMMON_FLAGS}"',
+        'FCFLAGS="${COMMON_FLAGS}"',
+        'FFLAGS="${COMMON_FLAGS}"',
+    ]
+    if portage.makeopts:
+        lines.append(f'MAKEOPTS="{portage.makeopts}"')
+    if portage.use:
+        lines.append(f'USE="{" ".join(portage.use)}"')
+    if portage.video_cards:
+        lines.append(f'VIDEO_CARDS="{" ".join(portage.video_cards)}"')
+    lines += [
+        f'ACCEPT_LICENSE="{" ".join(portage.accept_license)}"',
+        f'L10N="{" ".join(_l10n(config))}"',
+        f'GENTOO_MIRRORS="{" ".join(_distfiles(portage))}"',
+    ]
+    if _uses_binhost(portage):
+        lines.append('FEATURES="getbinpkg"')
+    return "\n".join(lines) + "\n"
+
+
+def _uses_binhost(portage: PortageConfig) -> bool:
+    return portage.binhost.official or portage.binhost.community is not BinhostChannel.OFF
+
+
+def _distfiles(portage: PortageConfig) -> tuple[str, ...]:
+    if portage.mirrors.distfiles:
+        return portage.mirrors.distfiles
+    return DISTFILES[portage.mirrors.region]
+
+
+def _repo_sync_uri(portage: PortageConfig) -> str:
+    return portage.mirrors.repo_sync_uri or REPO_SYNC_URI[portage.mirrors.region]
+
+
+def _binhost_uri(portage: PortageConfig) -> str:
+    return BINHOST_URI[portage.mirrors.region]
+
+
+def _l10n(config: InstallConfig) -> tuple[str, ...]:
+    """`L10N` uses a hyphen and no encoding, so `zh_CN.UTF-8` becomes `zh-CN`."""
+    tags: list[str] = []
+    for locale in config.system.locales:
+        tag = locale.split(".", 1)[0].replace("_", "-")
+        if tag not in tags:
+            tags.append(tag)
+    return tuple(tags)
+
+
+def _variant(config: InstallConfig) -> str:
+    return "systemd" if config.system.init is InitSystem.SYSTEMD else "openrc"
