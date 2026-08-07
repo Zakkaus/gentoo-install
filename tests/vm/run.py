@@ -18,10 +18,12 @@ import sys
 import time
 from pathlib import Path
 
-from .console import SerialConsole
+from gentoo_install.model import compat
+from gentoo_install.model.config import InitSystem, InstallConfig
 from gentoo_install.model.device import Filesystem, Mountpoint, Subvolume, ZfsDataset
 from gentoo_install.model.parse import load
 
+from .console import SerialConsole
 from .driver import REPOSITORY, build as build_driver
 from .media import MEDIA, Medium
 from .qemu import Firmware, Vm, VmSpec
@@ -39,23 +41,30 @@ RESULT_DIR = "/run/vm-result"
 #: What the installed system has to show, as (result file, pattern). A check
 #: that only collected output would pass on a system that booted into an
 #: emergency shell, so each of these decides the exit code.
-EXPECTED = (
-    ("mounts", r"^/efi\s+\S+\s+vfat"),
-    ("units", r"^enabled$"),
-    ("kernel", r"^(kernel|vmlinuz)-"),
-)
+EXPECTED = (("kernel", r"^(kernel|vmlinuz)-"),)
 
 #: What a system installed by this installer has to be able to answer.
 INSTALLED = (
     ("os-release", "cat /etc/os-release"),
     ("mounts", "findmnt --noheadings --list --output TARGET,SOURCE,FSTYPE"),
     ("fstab", "cat /etc/fstab"),
-    ("locale", "locale; localectl status 2>/dev/null || true"),
-    ("hostname", "cat /etc/hostname"),
+    ("locale", "locale"),
+    ("hostname", "cat /etc/hostname || cat /etc/conf.d/hostname"),
     ("kernel", "uname -r; ls /boot"),
-    ("units", "systemctl is-enabled sshd.service systemd-networkd.service"),
-    ("failed", "systemctl --failed --no-legend --no-pager"),
 )
+
+#: Asking systemd's questions of an openrc system gets "command not found",
+#: which reads as a failure of the install rather than of the check.
+BY_INIT: dict[InitSystem, tuple[tuple[str, str], ...]] = {
+    InitSystem.SYSTEMD: (
+        ("units", "systemctl list-unit-files --state=enabled --no-legend --no-pager"),
+        ("failed", "systemctl --failed --no-legend --no-pager"),
+    ),
+    InitSystem.OPENRC: (
+        ("units", "rc-update show default"),
+        ("failed", "rc-status --crashed"),
+    ),
+}
 
 PROBE = (
     ("os-release", "head -3 /etc/os-release; uname -r"),
@@ -140,10 +149,10 @@ def reach_shell(console: SerialConsole, medium: Medium) -> None:
         console.login(medium.login_user, medium.login_password, medium.root_prompt)
 
 
-def check_installed(console: SerialConsole) -> None:
+def check_installed(console: SerialConsole, installation: InstallConfig) -> None:
     """Assert against the system that was installed, booted from its own disk."""
     console.run(f"mkdir -p {RESULT_DIR}")
-    for name, command in INSTALLED:
+    for name, command in (*INSTALLED, *BY_INIT[installation.system.init]):
         console.run(f"{{ {command} ; }} > {RESULT_DIR}/{name}.txt 2>&1")
     console.run(collect_command(RESULT_DIR))
     console.run("sync")
@@ -253,7 +262,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.boot_installed:
                 console.login("root", INSTALLED_PASSWORD, r"# ")
                 print(f"[{time.monotonic() - started:5.1f}s] logged into the installed system")
-                check_installed(console)
+                check_installed(console, load(REPOSITORY / "tests" / args.install))
                 power_off(console, vm)
                 return report(
                     result_disk, keep=args.keep, assertions=REPOSITORY / "tests" / args.install
@@ -328,6 +337,13 @@ def _from_config(config: Path) -> list[tuple[str, str]]:
     root = graph[installation.disk.root]
     source = graph[root.source] if isinstance(root, Mountpoint) else root
     expected = [("hostname", f"^{re.escape(installation.system.hostname)}$")]
+    network = "systemd-networkd" if installation.system.init is InitSystem.SYSTEMD else "dhcpcd"
+    expected.append(("units", re.escape(network)))
+    esp = compat.esp_mount(graph)
+    if esp is not None:
+        # A BIOS install has no esp at all, so asking for one would fail on a
+        # machine that did exactly what its layout said.
+        expected.append(("mounts", rf"^{esp.path}\s+\S+\s+vfat"))
     if isinstance(source, ZfsDataset):
         # A dataset carries its own mountpoint, so fstab has no entry for `/`.
         expected.append(("mounts", r"^/\s+\S+\s+zfs"))
