@@ -64,3 +64,6 @@
 
 [packages]
   install the console group: emerge sys-apps/kbd app-editors/vim
+
+[finish]
+  unmount everything under the target and export zpcala

@@ -78,3 +78,6 @@
   install the fcitx5-rime group: emerge app-i18n/fcitx app-i18n/fcitx-rime app-i18n/fcitx-configtool app-i18n/rime-data
   install the noto-cjk group: emerge media-fonts/noto-cjk media-fonts/noto media-libs/fontconfig
   install the flclash group: emerge net-proxy/flclash
+
+[finish]
+  unmount everything under the target

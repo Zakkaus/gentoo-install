@@ -52,3 +52,6 @@
   install the bootloader: emerge sys-boot/grub
   write /etc/default/grub with cmdline empty
   install GRUB for bios on the boot disk
+
+[finish]
+  unmount everything under the target

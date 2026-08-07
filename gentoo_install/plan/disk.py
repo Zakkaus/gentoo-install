@@ -428,6 +428,28 @@ class MountZfsDataset(Operation):
         context.run(["zfs", "mount", self.name])
 
 
+@dataclass(frozen=True, kw_only=True)
+class UnmountTarget(Operation):
+    """Leaving the target mounted keeps `/dev` and `/proc` bound into it, and
+    the installing system then hangs at shutdown waiting for them."""
+
+    stage: Stage = Stage.FINISH
+    pools: tuple[str, ...]
+
+    def describe(self) -> str:
+        exported = f" and export {', '.join(self.pools)}" if self.pools else ""
+        return f"unmount everything under the target{exported}"
+
+    def apply(self, context: Context) -> None:
+        context.run(["umount", "--recursive", "--lazy", str(context.target)])
+        for pool in self.pools:
+            context.run(["zpool", "export", pool])
+
+
+def finish(config: InstallConfig) -> list[Operation]:
+    return [UnmountTarget(pools=tuple(pool.name for pool in config.disk.graph.of_type(ZfsPool)))]
+
+
 def build(config: InstallConfig) -> list[Operation]:
     graph = config.disk.graph
     operations: list[Operation] = []

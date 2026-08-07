@@ -105,11 +105,18 @@ def test_the_binary_kernel_comes_from_a_binary_host_and_a_patched_one_does_not()
     ][0]
 
 
-def test_testing_keywords_are_written_last_of_all() -> None:
+def test_testing_keywords_are_written_before_the_target_is_unmounted() -> None:
+    """Both are in the last stage, and the order inside it matters: nothing can
+    be written to a filesystem that is no longer mounted."""
     testing = replace(config(), portage=PortageConfig(keywords=Keywords.TESTING))
     operations = plan(testing)
     assert operations[-1].stage is Stage.FINISH
-    assert "ACCEPT_KEYWORDS" in operations[-1].describe()
+    assert first_index(operations, "ACCEPT_KEYWORDS") < first_index(operations, "unmount everything")
+
+
+def test_the_target_is_always_unmounted_at_the_end() -> None:
+    operations = plan(config())
+    assert "unmount everything under the target" in operations[-1].describe()
 
 
 def test_a_zfs_root_produces_no_grub_operation() -> None:

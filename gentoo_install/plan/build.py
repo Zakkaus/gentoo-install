@@ -27,5 +27,8 @@ def build(config: InstallConfig, catalog: packages.Catalog, *, mirror: str = DEF
         *bootloader.build(config),
         *packages.build(config, catalog),
         *portage.finish(config),
+        # Last of all: the keyword change above still has to reach make.conf in
+        # the target, and nothing can be written once it is unmounted.
+        *disk.finish(config),
     ]
     return tuple(sorted(operations, key=lambda operation: operation.stage.order))

@@ -56,3 +56,6 @@
   install the bootloader: emerge sys-boot/grub sys-boot/efibootmgr
   write /etc/default/grub with cmdline console=ttyS0,115200
   install GRUB for uefi on the esp at /efi
+
+[finish]
+  unmount everything under the target
