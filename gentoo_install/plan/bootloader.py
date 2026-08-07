@@ -43,14 +43,11 @@ class InstallGrub(Operation):
 
     def apply(self, context: Context) -> None:
         if self.firmware is Firmware.UEFI and self.esp is not None:
-            context.run_in_target(
-                [
-                    "grub-install",
-                    "--target=x86_64-efi",
-                    f"--efi-directory={self.esp}",
-                    "--bootloader-id=Gentoo",
-                ]
-            )
+            efi = ["grub-install", "--target=x86_64-efi", f"--efi-directory={self.esp}"]
+            context.run_in_target([*efi, "--bootloader-id=Gentoo"])
+            # Also as the removable-media path: firmware that loses its NVRAM
+            # entry, and every firmware that never had one, boots only that.
+            context.run_in_target([*efi, "--removable"])
         else:
             context.run_in_target(["grub-install", "--target=i386-pc", context.boot_disk()])
         context.run_in_target(["grub-mkconfig", "--output", "/boot/grub/grub.cfg"])

@@ -1,6 +1,10 @@
 # What the VM harness installs: UEFI, GPT, ext4, systemd, binary packages
 # throughout. No desktop and no overlay, so a run finishes in minutes and a
 # failure is the installer's rather than a compiler's.
+#
+# The root hash below is `install`, produced by `openssl passwd -6`. It has to
+# be a real hash: a made-up one is accepted by `usermod --password` and only
+# shows up as a system nobody can log into.
 config_version = 1
 
 [system]
@@ -10,7 +14,7 @@ locales = ["en_US.UTF-8"]
 locale = "en_US.UTF-8"
 init = "systemd"
 sshd = true
-root_password_hash = "$6$gentooinstall$Ml8lQAHZbNy9Pi.aM.C0ubuMPNaAlfBFxNHIRQxjO4Cm/PHXVNwHUXHYHl/PWMzYIz5MMwjT5FTiAwjR3lQrz1"
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
 
 [portage]
 profile = "default/linux/amd64/23.0/systemd"

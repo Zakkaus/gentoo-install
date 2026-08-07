@@ -36,8 +36,11 @@ class VmSpec:
     disks: tuple[Path, ...] = ()
     #: Built from the working tree each run and mounted as the second CD.
     driver_iso: Path | None = None
-    #: Target disks the installer may partition, as (path, size) pairs.
+    #: Target disks the installer may partition.
     targets: tuple[Path, ...] = ()
+    #: Boot what is on the target disk instead of the install medium. This is
+    #: the only check that an install produced a system that boots.
+    boot_installed: bool = False
 
 
 class Vm:
@@ -58,7 +61,6 @@ class Vm:
         self._process = subprocess.Popen(self._argv(), stdout=subprocess.DEVNULL, stderr=errors)
 
     def _argv(self) -> list[str]:
-        kernel, initrd = self.spec.medium.boot_files()
         argv = [
             "qemu-system-x86_64",
             "-enable-kvm",
@@ -66,16 +68,20 @@ class Vm:
             "-machine", "q35",
             "-smp", str(self.spec.cpus),
             "-m", self.spec.memory,
-            "-kernel", str(kernel),
-            "-initrd", str(initrd),
-            "-append", self.spec.medium.cmdline(),
-            "-drive", f"file={self.spec.medium.iso},media=cdrom,readonly=on",
             "-netdev", f"user,id=net0,hostfwd=tcp::{self.spec.ssh_port}-:22",
             "-device", "virtio-net-pci,netdev=net0",
             "-display", "none",
             "-monitor", "none",
             "-serial", f"unix:{self.serial_socket},server,nowait",
         ]
+        if not self.spec.boot_installed:
+            kernel, initrd = self.spec.medium.boot_files()
+            argv += [
+                "-kernel", str(kernel),
+                "-initrd", str(initrd),
+                "-append", self.spec.medium.cmdline(),
+                "-drive", f"file={self.spec.medium.iso},media=cdrom,readonly=on",
+            ]
         if self.spec.firmware is Firmware.UEFI:
             argv += self._ovmf_args()
         if self.spec.driver_iso is not None:
@@ -97,9 +103,12 @@ class Vm:
     def _ovmf_args(self) -> list[str]:
         if not OVMF_CODE.is_file() or not OVMF_VARS.is_file():
             raise QemuError(f"OVMF firmware is missing: {OVMF_CODE}, {OVMF_VARS}")
-        # NVRAM must be writable and per-run, so boot entries do not leak between tests.
+        # NVRAM must be writable and per-run, so boot entries do not leak between
+        # tests. Booting the installed system keeps the file the install wrote,
+        # which is where its boot entry lives.
         variables = self.spec.workdir / "OVMF_VARS.fd"
-        shutil.copy(OVMF_VARS, variables)
+        if not (self.spec.boot_installed and variables.is_file()):
+            shutil.copy(OVMF_VARS, variables)
         return [
             "-drive", f"if=pflash,format=qcow2,readonly=on,file={OVMF_CODE}",
             "-drive", f"if=pflash,format=raw,file={variables}",

@@ -23,7 +23,23 @@ from .results import collect_command, create_disk, read_disk
 WORKROOT = Path.home() / "code/gentoo-install/lab/vm/runs"
 #: Big enough for a stage3, a desktop and the swap a fixture may ask for.
 TARGET_SIZE = "40G"
+
+#: The password in `fixtures/vm-binpkg.toml`, as plain text. It exists so the
+#: harness can log into what it installed; nothing else uses it.
+INSTALLED_PASSWORD = "install"
 RESULT_DIR = "/run/vm-result"
+
+#: What a system installed by this installer has to be able to answer.
+INSTALLED = (
+    ("os-release", "cat /etc/os-release"),
+    ("mounts", "findmnt --noheadings --output TARGET,SOURCE,FSTYPE /  /efi"),
+    ("fstab", "cat /etc/fstab"),
+    ("locale", "locale; localectl status 2>/dev/null || true"),
+    ("hostname", "cat /etc/hostname"),
+    ("kernel", "uname -r; ls /boot"),
+    ("units", "systemctl is-enabled sshd.service systemd-networkd.service"),
+    ("failed", "systemctl --failed --no-legend --no-pager"),
+)
 
 PROBE = (
     ("os-release", "head -3 /etc/os-release; uname -r"),
@@ -84,6 +100,15 @@ def reach_shell(console: SerialConsole, medium: Medium) -> None:
         console.login(medium.login_user, medium.login_password, medium.root_prompt)
 
 
+def check_installed(console: SerialConsole) -> None:
+    """Assert against the system that was installed, booted from its own disk."""
+    console.run(f"mkdir -p {RESULT_DIR}")
+    for name, command in INSTALLED:
+        console.run(f"{{ {command} ; }} > {RESULT_DIR}/{name}.txt 2>&1")
+    console.run(collect_command(RESULT_DIR))
+    console.run("sync")
+
+
 def run_installer(console: SerialConsole, config: str, extra: str = "") -> None:
     """Run the installer from the driver CD and keep everything it printed."""
     console.run("mkdir -p /mnt/driver")
@@ -124,6 +149,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="with --install, print the operations instead of performing them",
     )
+    parser.add_argument(
+        "--boot-installed",
+        action="store_true",
+        help="boot the target disk from a previous --install run and check the system it holds",
+    )
     parser.add_argument("--interactive", action="store_true", help="hand the VM to a human over SSH")
     parser.add_argument("--keep", action="store_true", help="keep the run directory")
     args = parser.parse_args(argv)
@@ -137,7 +167,15 @@ def main(argv: list[str] | None = None) -> int:
     key = ssh_keypair(workdir)
     result_disk = create_disk(workdir / "result.img")
     driver_iso = build_driver(workdir / "driver.iso") if args.install else None
-    targets = (create_target(workdir / "target.qcow2"),) if args.install else ()
+    targets: tuple[Path, ...] = ()
+    if args.boot_installed:
+        installed = workdir / "target.qcow2"
+        if not installed.is_file():
+            print(f"{installed} does not exist; run --install first", file=sys.stderr)
+            return 1
+        targets = (installed,)
+    elif args.install:
+        targets = (create_target(workdir / "target.qcow2"),)
 
     spec = VmSpec(
         medium=medium,
@@ -147,11 +185,22 @@ def main(argv: list[str] | None = None) -> int:
         disks=(result_disk,),
         driver_iso=driver_iso,
         targets=targets,
+        boot_installed=args.boot_installed,
     )
 
     started = time.monotonic()
     with Vm(spec) as vm:
         with SerialConsole.connect(vm.serial_socket, vm.serial_log) as console:
+            if args.boot_installed:
+                console.login("root", INSTALLED_PASSWORD, r"# ")
+                print(f"[{time.monotonic() - started:5.1f}s] logged into the installed system")
+                check_installed(console)
+                console.send("poweroff")
+                try:
+                    vm.wait(timeout=120.0)
+                except subprocess.TimeoutExpired:
+                    print("guest did not power off, killing it", file=sys.stderr)
+                return report(result_disk, keep=args.keep)
             reach_shell(console, medium)
             print(f"[{time.monotonic() - started:5.1f}s] root shell on serial")
 
@@ -179,11 +228,15 @@ def main(argv: list[str] | None = None) -> int:
             except subprocess.TimeoutExpired:
                 print("guest did not power off, killing it", file=sys.stderr)
 
+    return report(result_disk, keep=args.keep)
+
+
+def report(result_disk: Path, *, keep: bool) -> int:
     results = read_disk(result_disk)
     for name in sorted(results):
         print(f"--- {name} ---")
         print(results[name].decode("utf-8", "replace").rstrip())
-    if not args.keep:
+    if not keep:
         result_disk.unlink(missing_ok=True)
     return 0
 
