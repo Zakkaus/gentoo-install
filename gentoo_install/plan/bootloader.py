@@ -34,9 +34,10 @@ BOOTCTL_PACKAGE: Final[dict[InitSystem, str]] = {
 #: Writing an NVRAM entry needs this, and only UEFI has NVRAM to write to.
 EFI_PACKAGE: Final[str] = "sys-boot/efibootmgr"
 
-#: Where ZFSBootMenu's EFI executable is installed under the esp, and the
-#: fallback path firmware boots when no NVRAM entry survives.
-ZBM_IMAGE: Final[str] = "EFI/zbm/vmlinuz.EFI"
+#: Where generate-zbm writes, and the fallback path firmware boots when no
+#: NVRAM entry survives. The image's name is not fixed: generate-zbm names it
+#: after the kernel it built from, so it is looked up rather than assumed.
+ZBM_DIRECTORY: Final[str] = "EFI/zbm"
 FALLBACK_IMAGE: Final[str] = "EFI/BOOT/BOOTX64.EFI"
 
 
@@ -150,7 +151,7 @@ class InstallZfsBootMenu(Operation):
     kernel_params: tuple[str, ...]
 
     def describe(self) -> str:
-        return f"build ZFSBootMenu into {self.esp}/{ZBM_IMAGE} and boot {self.dataset} from it"
+        return f"build ZFSBootMenu into {self.esp}/{ZBM_DIRECTORY} and boot {self.dataset} from it"
 
     def apply(self, context: Context) -> None:
         context.run_in_target(["zpool", "set", f"bootfs={self.dataset}", self.pool])
@@ -176,9 +177,8 @@ class InstallZfsBootMenu(Operation):
             "  Stub: /usr/lib/systemd/boot/efi/linuxx64.efi.stub\n",
         )
         context.run_in_target(["generate-zbm"])
-        context.run_in_target(
-            ["install", "-D", "-m0644", f"{self.esp}/{ZBM_IMAGE}", f"{self.esp}/{FALLBACK_IMAGE}"]
-        )
+        image = self._image(context)
+        context.run_in_target(["install", "-D", "-m0644", image, f"{self.esp}/{FALLBACK_IMAGE}"])
         context.run_in_target(
             [
                 "efibootmgr",
@@ -186,9 +186,22 @@ class InstallZfsBootMenu(Operation):
                 "--disk", context.containing_disk(self.esp_device),
                 "--part", str(context.partition_index(self.esp_device)),
                 "--label", "ZFSBootMenu",
-                "--loader", "\\EFI\\zbm\\vmlinuz.EFI",
+                "--loader", _windows_path(image, self.esp),
             ]
         )
+
+    def _image(self, context: Context) -> str:
+        """Whatever generate-zbm just wrote. It names the image after the kernel
+        it built from, so `vmlinuz.EFI` is only one of the names it can have."""
+        listing = context.run_in_target(
+            ["find", f"{self.esp}/{ZBM_DIRECTORY}", "-name", "*.EFI"], check=False
+        )
+        found = sorted(
+            line.strip() for line in listing.splitlines() if line.strip().endswith(".EFI")
+        )
+        if not found:
+            raise NothingToBoot(f"generate-zbm wrote no EFI image under {self.esp}/{ZBM_DIRECTORY}")
+        return found[0]
 
 
 def build(config: InstallConfig) -> list[Operation]:
@@ -238,6 +251,11 @@ def build(config: InstallConfig) -> list[Operation]:
             ),
         ]
     return operations
+
+
+def _windows_path(image: str, esp: PurePosixPath) -> str:
+    """`efibootmgr --loader` wants the path within the esp, backslashed."""
+    return "\\" + str(PurePosixPath(image).relative_to(esp)).replace("/", "\\")
 
 
 def _esp_partition(config: InstallConfig) -> DeviceId | None:

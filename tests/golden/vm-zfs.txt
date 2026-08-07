@@ -63,7 +63,7 @@
   ask for sys-apps/systemd[boot], which is what provides bootctl
   install the EFI stub generate-zbm builds around: emerge sys-apps/systemd
   copy the installing system's hostid into the target so the pool imports
-  build ZFSBootMenu into /efi/EFI/zbm/vmlinuz.EFI and boot rpool/ROOT/gentoo from it
+  build ZFSBootMenu into /efi/EFI/zbm and boot rpool/ROOT/gentoo from it
 
 [finish]
   unmount everything under the target and export rpool

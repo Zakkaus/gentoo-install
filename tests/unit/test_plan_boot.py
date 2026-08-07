@@ -175,12 +175,48 @@ def test_a_bios_install_writes_no_efi_artefact() -> None:
     assert argv[-1] == "/dev/vda"
 
 
-def test_zfsbootmenu_sets_bootfs_and_writes_both_efi_paths() -> None:
-    zfs = replace(
+def zfs_installation() -> InstallConfig:
+    from gentoo_install.model.config import Overlay, PortageConfig
+
+    return replace(
         config(zfs_root()),
         bootloader=BootloaderConfig(kind=Bootloader.ZFSBOOTMENU, firmware=Firmware.UEFI),
+        portage=PortageConfig(
+            overlays=(Overlay(name="gentoo-zh", sync_uri="https://example.invalid/overlay.git"),)
+        ),
     )
-    recorder = apply_boot(zfs)
+
+
+def test_the_zbm_image_is_the_one_generate_zbm_wrote() -> None:
+    """It names the image after the kernel it built from, so the name is looked
+    up: assuming `vmlinuz.EFI` left the fallback path empty and the machine
+    unbootable."""
+    recorder = Recorder()
+    recorder.replies["find"] = "/efi/EFI/zbm/kernel.EFI\n"
+    for operation in bootloader.build(zfs_installation()):
+        operation.apply(recorder)
+    copied = recorder.only("install", "-D", "-m0644")
+    assert copied[3] == "/efi/EFI/zbm/kernel.EFI"
+    entry = recorder.only("efibootmgr", "--create")
+    assert "\\EFI\\zbm\\kernel.EFI" in entry
+
+
+def test_generate_zbm_writing_nothing_is_a_failure() -> None:
+    recorder = Recorder()
+    recorder.replies["find"] = "\n"
+    operation = next(
+        o for o in bootloader.build(zfs_installation()) if isinstance(o, bootloader.InstallZfsBootMenu)
+    )
+    with pytest.raises(NothingToBoot):
+        operation.apply(recorder)
+
+
+def test_zfsbootmenu_sets_bootfs_and_writes_both_efi_paths() -> None:
+    zfs = zfs_installation()
+    recorder = Recorder()
+    recorder.replies["find"] = "/efi/EFI/zbm/kernel.EFI\n"
+    for operation in bootloader.build(zfs):
+        operation.apply(recorder)
     assert recorder.only("zpool", "set")[2].startswith("bootfs=zpcala/")
     assert recorder.argv_starting("zgenhostid")
     installed = recorder.only("install", "-D", "-m0644")
@@ -191,8 +227,8 @@ def test_zfsbootmenu_sets_bootfs_and_writes_both_efi_paths() -> None:
 
 
 def test_the_pool_keeps_its_hostid_or_it_will_not_import() -> None:
-    zfs = replace(
-        config(zfs_root()),
-        bootloader=BootloaderConfig(kind=Bootloader.ZFSBOOTMENU, firmware=Firmware.UEFI),
-    )
-    assert apply_boot(zfs).argv_starting("zgenhostid")
+    recorder = Recorder()
+    recorder.replies["find"] = "/efi/EFI/zbm/kernel.EFI\n"
+    for operation in bootloader.build(zfs_installation()):
+        operation.apply(recorder)
+    assert recorder.argv_starting("zgenhostid")
