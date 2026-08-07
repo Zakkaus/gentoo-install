@@ -1,0 +1,99 @@
+"""Install media the harness can boot, and how to get a shell on each."""
+
+from __future__ import annotations
+
+import subprocess
+from dataclasses import dataclass
+from pathlib import Path
+
+CACHE = Path.home() / ".cache/gentoo-install-test"
+
+
+class MediaError(Exception):
+    """The install medium is missing or does not contain what the profile claims."""
+
+
+@dataclass(frozen=True)
+class Medium:
+    """An ISO plus everything needed to boot it headless and reach a root shell.
+
+    The kernel and initramfs are extracted and passed to QEMU directly instead of
+    booting the ISO's own bootloader, because the shipped menu entries carry no
+    `console=ttyS0` and cannot be edited unattended.
+    """
+
+    name: str
+    iso: Path
+    volume_label: str
+    kernel_in_iso: str
+    initrd_in_iso: str
+    root_prompt: str
+    login_user: str | None = None
+    login_password: str | None = None
+    extra_cmdline: tuple[str, ...] = ()
+
+    def cmdline(self) -> str:
+        base = (
+            f"root=live:CDLABEL={self.volume_label}",
+            "rd.live.image",
+            "console=ttyS0,115200",
+        )
+        return " ".join((*base, *self.extra_cmdline))
+
+    def boot_files(self) -> tuple[Path, Path]:
+        if not self.iso.is_file():
+            raise MediaError(f"{self.iso} does not exist")
+        # Keyed by ISO filename so a new build never boots the previous extraction.
+        target = CACHE / self.name / self.iso.stem
+        kernel = target / "kernel"
+        initrd = target / "initrd"
+        if not (kernel.is_file() and initrd.is_file()):
+            target.mkdir(parents=True, exist_ok=True)
+            _extract(self.iso, {self.kernel_in_iso: kernel, self.initrd_in_iso: initrd})
+        return kernel, initrd
+
+
+def _extract(iso: Path, files: dict[str, Path]) -> None:
+    argv = ["xorriso", "-osirrox", "on", "-indev", str(iso)]
+    for source, target in files.items():
+        target.unlink(missing_ok=True)
+        argv += ["-extract", source, str(target)]
+    result = subprocess.run(argv, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise MediaError(f"xorriso failed on {iso}: {result.stderr.strip()}")
+    for target in files.values():
+        if not target.is_file():
+            raise MediaError(f"{iso} does not contain {target.name}")
+
+
+GIGOS = Medium(
+    name="gigos",
+    iso=Path.home() / "Downloads/gig-os-20260803.iso",
+    volume_label="Gig-OS",
+    kernel_in_iso="/boot/kernel",
+    initrd_in_iso="/boot/initrd",
+    root_prompt=r"# ",
+    login_user="root",
+    login_password="live",
+    extra_cmdline=(
+        "systemd.unit=multi-user.target",
+        "systemd.wants=sshd.service",
+        # Without this the live session defaults to zh_CN and the login prompt is
+        # localized, which no English pattern can match.
+        "gigos.lang=en_US",
+        "rd.driver.blacklist=nvidia,nvidia_drm,nvidia_modeset,nvidia_uvm",
+    ),
+)
+
+OFFICIAL_MINIMAL = Medium(
+    name="official-minimal",
+    iso=Path.home() / "Downloads/install-amd64-minimal-20260712T170110Z.iso",
+    volume_label="Gentoo-amd64-20260712",
+    kernel_in_iso="/boot/gentoo",
+    initrd_in_iso="/boot/gentoo.igz",
+    # The official medium logs root in automatically and needs no credentials.
+    root_prompt=r"livecd ~ #",
+    extra_cmdline=("rd.live.dir=/", "rd.live.squashimg=image.squashfs", "cdroot", "nodhcp"),
+)
+
+MEDIA = {medium.name: medium for medium in (GIGOS, OFFICIAL_MINIMAL)}
