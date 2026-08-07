@@ -93,10 +93,15 @@ class Vm:
             ]
         for index, target in enumerate(self.spec.targets):
             # A stable serial gives the configuration a selector that survives
-            # the guest renumbering its disks.
+            # the guest renumbering its disks. `bootindex` is what makes the
+            # firmware try this disk first: SeaBIOS boots whichever drive comes
+            # first otherwise, and that is the harness's own result disk.
+            device = f"virtio-blk-pci,drive=target{index},serial=target{index}"
+            if self.spec.boot_installed and index == 0:
+                device += ",bootindex=0"
             argv += [
                 "-drive", f"file={target},format=qcow2,if=none,id=target{index}",
-                "-device", f"virtio-blk-pci,drive=target{index},serial=target{index}",
+                "-device", device,
             ]
         return argv
 
