@@ -144,7 +144,11 @@ class Machine:
         return ranked
 
     def fetch_stage3(self, mirror: str, variant: str, fingerprint: str) -> PurePosixPath:
-        return PurePosixPath(fetch.stage3(mirror, variant, fingerprint, self.work, self.runner))
+        """Downloaded onto the target, not into the work directory: that is a
+        tmpfs on an install medium, and a stage3 there costs the memory the
+        emerge is about to need."""
+        cache = self.mountpoint / "var/cache/gentoo-install"
+        return PurePosixPath(fetch.stage3(mirror, variant, fingerprint, cache, self.runner))
 
 
 def apply(operations: Sequence[Operation], machine: Machine) -> None:
