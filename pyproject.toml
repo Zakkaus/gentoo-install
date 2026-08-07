@@ -1,0 +1,15 @@
+[project]
+name = "gentoo-install"
+version = "0.0.0"
+description = "Interactive Gentoo installer"
+requires-python = ">=3.13"
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_unreachable = true
+files = ["tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
