@@ -1,0 +1,3 @@
+packages = ["net-misc/networkmanager"]
+services = ["NetworkManager.service"]
+use = ["networkmanager"]

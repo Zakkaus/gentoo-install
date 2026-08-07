@@ -1,0 +1,4 @@
+# A proxy client, so a machine behind a restricted network can reach the
+# outside once the install finishes.
+packages = ["net-proxy/flclash"]
+repositories = ["gentoo-zh"]

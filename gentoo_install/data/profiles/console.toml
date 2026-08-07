@@ -1,0 +1,3 @@
+# No desktop: a text console that can still read CJK, for a server or the
+# text-only install image.
+packages = ["sys-apps/kbd", "app-editors/vim"]
