@@ -32,5 +32,10 @@ class DeviceCycle(ConfigError):
     """The device graph contains a cycle, so no build order exists."""
 
 
+class ValidationFailed(ConfigError):
+    """The configuration parses but does not describe an installable system; the
+    message carries every problem found, not the first one."""
+
+
 class DeviceNotFound(GentooInstallError):
     """A device the configuration names is absent from the running system."""
