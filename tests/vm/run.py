@@ -15,11 +15,13 @@ import re
 import socket
 import subprocess
 import sys
-import tomllib
 import time
 from pathlib import Path
 
 from .console import SerialConsole
+from gentoo_install.model.device import Filesystem, Mountpoint, Subvolume, ZfsDataset
+from gentoo_install.model.parse import load
+
 from .driver import REPOSITORY, build as build_driver
 from .media import MEDIA, Medium
 from .qemu import Firmware, Vm, VmSpec
@@ -316,14 +318,35 @@ def report(
     return code
 
 
+def _from_config(config: Path) -> list[tuple[str, str]]:
+    """What this particular configuration should have produced.
+
+    Derived from the model rather than written out twice: a check that only
+    ever matched the first fixture passed on a system that ignored the setting
+    and failed on the second one.
+    """
+    installation = load(config)
+    graph = installation.disk.graph
+    root = graph[installation.disk.root]
+    source = graph[root.source] if isinstance(root, Mountpoint) else root
+    expected = [("hostname", f"^{re.escape(installation.system.hostname)}$")]
+    if isinstance(source, ZfsDataset):
+        # A dataset carries its own mountpoint, so fstab has no entry for `/`.
+        expected.append(("mounts", r"^/\s+\S+\s+zfs"))
+        return expected
+    filesystem = graph[source.filesystem] if isinstance(source, Subvolume) else source
+    kind = filesystem.kind.value if isinstance(filesystem, Filesystem) else ""
+    expected += [("mounts", rf"^/\s+\S+\s+{kind}"), ("fstab", rf"UUID=\S+\s+/\s+{kind}")]
+    return expected
+
+
 def check_expected(results: dict[str, bytes], config: Path) -> int:
     """Turn the collected output into a verdict."""
     missing: list[str] = []
     # From the configuration rather than hardcoded: a second fixture installs a
     # different name, and a check that only ever matched the first one would
     # pass on a system that ignored the setting.
-    wanted = tomllib.loads(config.read_text()).get("system", {}).get("hostname", "")
-    for name, pattern in [*EXPECTED, ("hostname", f"^{re.escape(wanted)}$")]:
+    for name, pattern in [*EXPECTED, *_from_config(config)]:
         text = results.get(f"{name}.txt", b"").decode("utf-8", "replace")
         if re.search(pattern, text, re.MULTILINE) is None:
             missing.append(f"{name}.txt does not match {pattern}")
