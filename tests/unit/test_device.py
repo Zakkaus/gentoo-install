@@ -59,6 +59,20 @@ def test_a_realistic_stack_builds() -> None:
     assert graph.inputs_of(i("disk")) == ()
 
 
+def test_ancestors_reach_the_disk_through_every_layer() -> None:
+    graph = DeviceGraph.build(btrfs_on_luks())
+    assert graph.ancestors_of(i("mnt-root")) == frozenset(
+        {i("sub-root"), i("rootfs"), i("root-luks"), i("cryptroot"), i("table"), i("disk")}
+    )
+    assert graph.ancestors_of(i("disk")) == frozenset()
+
+
+def test_ancestors_visit_a_shared_parent_once() -> None:
+    graph = DeviceGraph.build(btrfs_on_luks())
+    both = graph.ancestors_of(i("mnt-home")) | graph.ancestors_of(i("mnt-esp"))
+    assert i("table") in both and i("disk") in both
+
+
 def test_of_type_selects_by_class() -> None:
     graph = DeviceGraph.build(btrfs_on_luks())
     assert {node.name for node in graph.of_type(Subvolume)} == {"@", "@home"}

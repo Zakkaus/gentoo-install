@@ -19,6 +19,7 @@ from .config import (
     BinhostChannel,
     Bootloader,
     BootloaderConfig,
+    ConsoleFontSize,
     DiskConfig,
     Firmware,
     InitSystem,
@@ -49,6 +50,7 @@ from .device import (
     PartitionRole,
     PartitionTable,
     RaidLevel,
+    RaidMetadata,
     Subvolume,
     Swap,
     TableType,
@@ -94,7 +96,14 @@ def parse(raw: Mapping[str, Any]) -> InstallConfig:
 
 
 def _system(raw: Mapping[str, Any], at: str) -> SystemConfig:
-    _reject_unknown(raw, at, {"hostname", "timezone", "locales", "locale", "keymap", "init", "sshd", "users"})
+    _reject_unknown(
+        raw,
+        at,
+        {
+            "hostname", "timezone", "locales", "locale", "keymap", "console_cjk",
+            "console_font", "init", "sshd", "users",
+        },
+    )
     default = SystemConfig()
     return SystemConfig(
         hostname=_str(raw, "hostname", at, default.hostname),
@@ -102,6 +111,8 @@ def _system(raw: Mapping[str, Any], at: str) -> SystemConfig:
         locales=_strings(raw, "locales", at, default.locales),
         locale=_str(raw, "locale", at, default.locale),
         keymap=_str(raw, "keymap", at, default.keymap),
+        console_cjk=_bool(raw, "console_cjk", at, default.console_cjk),
+        console_font=_enum(raw, "console_font", at, ConsoleFontSize, default.console_font),
         init=_enum(raw, "init", at, InitSystem, default.init),
         sshd=_bool(raw, "sshd", at, default.sshd),
         users=tuple(_user(entry, f"{at}.users[{n}]") for n, entry in enumerate(_tables(raw, "users", at))),
@@ -247,12 +258,13 @@ def _luks(raw: Mapping[str, Any], at: str) -> Node:
 
 
 def _raid(raw: Mapping[str, Any], at: str) -> Node:
-    _reject_unknown(raw, at, {"kind", "id", "members", "level", "name"})
+    _reject_unknown(raw, at, {"kind", "id", "members", "level", "name", "metadata"})
     return MdRaid(
         id=_id(raw, at),
         members=_refs(raw, "members", at),
         level=_enum(raw, "level", at, RaidLevel, RaidLevel.RAID1),
         name=_str(raw, "name", at, required=True),
+        metadata=_enum(raw, "metadata", at, RaidMetadata, RaidMetadata.V1_2),
     )
 
 

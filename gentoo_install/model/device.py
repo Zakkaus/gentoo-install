@@ -45,6 +45,21 @@ class RaidLevel(Enum):
     RAID6 = 6
 
 
+class RaidMetadata(Enum):
+    """mdadm superblock format, as `--metadata` spells it."""
+
+    V0_90 = "0.90"
+    V1_0 = "1.0"
+    V1_1 = "1.1"
+    V1_2 = "1.2"
+
+    @property
+    def superblock_at_start(self) -> bool:
+        """0.90 and 1.0 sit at the end of the member, so firmware that knows
+        nothing about mdraid still reads the member as a plain filesystem."""
+        return self in (RaidMetadata.V1_1, RaidMetadata.V1_2)
+
+
 class FilesystemType(Enum):
     EXT2 = "ext2"
     EXT3 = "ext3"
@@ -118,6 +133,8 @@ class MdRaid(Node):
     members: tuple[DeviceId, ...]
     level: RaidLevel
     name: str
+    #: mdadm's own default. An array holding the esp needs 0.90 or 1.0.
+    metadata: RaidMetadata = RaidMetadata.V1_2
 
     @property
     def inputs(self) -> tuple[DeviceId, ...]:
@@ -245,6 +262,18 @@ class DeviceGraph:
         return tuple(
             node.id for node in self.nodes.values() if device in node.inputs
         )
+
+    def ancestors_of(self, device: DeviceId) -> frozenset[DeviceId]:
+        """Every id this node is transitively built from, excluding itself."""
+        seen: set[DeviceId] = set()
+        stack = list(self[device].inputs)
+        while stack:
+            current = stack.pop()
+            if current in seen:
+                continue
+            seen.add(current)
+            stack.extend(self[current].inputs)
+        return frozenset(seen)
 
     def of_type[T: Node](self, kind: type[T]) -> tuple[T, ...]:
         return tuple(node for node in self.nodes.values() if isinstance(node, kind))

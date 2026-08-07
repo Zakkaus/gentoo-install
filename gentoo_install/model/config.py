@@ -53,6 +53,15 @@ class MirrorRegion(Enum):
     GLOBAL = "global"
 
 
+class ConsoleFontSize(Enum):
+    """Cell size of the console font, which decides which glyphs fit in it."""
+
+    SIZE_8X8 = "8x8"
+    SIZE_8X16 = "8x16"
+    SIZE_12X22 = "12x22"
+    SIZE_16X32 = "16x32"
+
+
 @dataclass(frozen=True)
 class User:
     name: str
@@ -69,6 +78,9 @@ class SystemConfig:
     locale: str = "zh_CN.UTF-8"
     #: There is no `cn` keymap; a Chinese locale does not imply one.
     keymap: str = "us"
+    #: The local console renders CJK itself, which needs a kernel carrying cjktty.
+    console_cjk: bool = False
+    console_font: ConsoleFontSize = ConsoleFontSize.SIZE_8X16
     init: InitSystem = InitSystem.SYSTEMD
     users: tuple[User, ...] = ()
     sshd: bool = False

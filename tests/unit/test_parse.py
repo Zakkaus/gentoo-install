@@ -10,12 +10,21 @@ from gentoo_install.errors import ConfigError, DeviceCycle, InvalidSize, Unknown
 from gentoo_install.model.config import (
     BinhostChannel,
     Bootloader,
+    ConsoleFontSize,
     InitSystem,
     KernelSource,
     Keywords,
     MirrorRegion,
 )
-from gentoo_install.model.device import DeviceId, FilesystemType, Luks, Mountpoint, Subvolume
+from gentoo_install.model.device import (
+    DeviceId,
+    FilesystemType,
+    Luks,
+    MdRaid,
+    Mountpoint,
+    RaidMetadata,
+    Subvolume,
+)
 from gentoo_install.model.parse import load, parse
 from gentoo_install.model.size import Size
 
@@ -103,6 +112,29 @@ def test_a_misspelled_key_is_named_rather_than_ignored(section: str, key: str) -
     raw[section][key] = "whatever"
     with pytest.raises(ConfigError, match=key):
         parse(raw)
+
+
+def test_an_array_can_name_the_metadata_version_an_esp_member_needs() -> None:
+    raw = fixture()
+    raw["disk"]["devices"].append(
+        {"kind": "raid", "id": "md", "members": ["esp"], "name": "md", "metadata": "1.0"}
+    )
+    assert parse(raw).disk.graph.of_type(MdRaid)[0].metadata is RaidMetadata.V1_0
+
+
+def test_an_array_defaults_to_the_metadata_version_mdadm_picks() -> None:
+    raw = fixture()
+    raw["disk"]["devices"].append({"kind": "raid", "id": "md", "members": ["esp"], "name": "md"})
+    assert parse(raw).disk.graph.of_type(MdRaid)[0].metadata is RaidMetadata.V1_2
+
+
+def test_the_console_font_and_cjk_switch_are_read_from_the_file() -> None:
+    raw = fixture()
+    raw["system"]["console_cjk"] = True
+    raw["system"]["console_font"] = "16x32"
+    config = parse(raw)
+    assert config.system.console_cjk is True
+    assert config.system.console_font is ConsoleFontSize.SIZE_16X32
 
 
 def test_an_unknown_top_level_key_is_rejected() -> None:
