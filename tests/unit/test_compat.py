@@ -8,6 +8,8 @@ import pytest
 
 from gentoo_install.model.compat import RULES, Trait, excluded_by, traits_of, violations
 from gentoo_install.model.config import (
+    Binhost,
+    BinhostChannel,
     Bootloader,
     BootloaderConfig,
     ConsoleFontSize,
@@ -15,6 +17,7 @@ from gentoo_install.model.config import (
     InstallConfig,
     KernelConfig,
     KernelSource,
+    PortageConfig,
     SystemConfig,
 )
 from gentoo_install.model.device import (
@@ -90,11 +93,18 @@ def bios_on_gpt_without_a_bios_boot_partition() -> InstallConfig:
     return boots(config(), Bootloader.GRUB, Firmware.BIOS)
 
 
-def cjk_console_on_a_binary_kernel() -> InstallConfig:
+def cjk_console_on_an_unpatched_kernel() -> InstallConfig:
     return replace(
         config(),
         system=SystemConfig(console_cjk=True),
-        kernel=KernelConfig(source=KernelSource.DIST_BIN),
+        kernel=KernelConfig(source=KernelSource.DIST_SOURCE),
+    )
+
+
+def community_binhost_without_its_overlay() -> InstallConfig:
+    return replace(
+        config(),
+        portage=PortageConfig(binhost=Binhost(official=True, community=BinhostChannel.STABLE)),
     )
 
 
@@ -115,7 +125,8 @@ CASES: list[tuple[Callable[[], InstallConfig], Trait, Trait]] = [
     (systemd_boot_with_the_kernel_on_ext4, Trait.SYSTEMD_BOOT, Trait.KERNEL_OFF_ESP),
     (esp_on_a_mirror, Trait.ESP_ON_MDRAID, Trait.ESP_MDRAID_SUPERBLOCK_AT_START),
     (bios_on_gpt_without_a_bios_boot_partition, Trait.BIOS_BOOT, Trait.GPT_WITHOUT_BIOS_BOOT),
-    (cjk_console_on_a_binary_kernel, Trait.CONSOLE_CJK, Trait.PREBUILT_KERNEL),
+    (cjk_console_on_an_unpatched_kernel, Trait.CONSOLE_CJK, Trait.KERNEL_WITHOUT_CJKTTY),
+    (community_binhost_without_its_overlay, Trait.COMMUNITY_BINHOST, Trait.NO_GENTOOZH_OVERLAY),
     (cjk_console_with_an_8x8_font, Trait.CONSOLE_CJK, Trait.FONT_WITHOUT_CJK_GLYPHS),
 ]
 

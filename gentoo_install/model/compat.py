@@ -12,7 +12,14 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import PurePosixPath
 
-from .config import Bootloader, ConsoleFontSize, Firmware, InstallConfig, KernelSource
+from .config import (
+    BinhostChannel,
+    Bootloader,
+    ConsoleFontSize,
+    Firmware,
+    InstallConfig,
+    KernelSource,
+)
 from .device import (
     DeviceGraph,
     DeviceId,
@@ -51,7 +58,9 @@ class Trait(Enum):
     ESP_MDRAID_SUPERBLOCK_AT_START = "mdraid metadata 1.1 or 1.2 under the esp"
     GPT_WITHOUT_BIOS_BOOT = "a GPT boot disk with no bios-boot partition"
     CONSOLE_CJK = "CJK on the console"
-    PREBUILT_KERNEL = "gentoo-kernel-bin"
+    COMMUNITY_BINHOST = "the gentoo-zh binary host"
+    NO_GENTOOZH_OVERLAY = "no gentoo-zh overlay"
+    KERNEL_WITHOUT_CJKTTY = "a kernel that does not carry the cjktty patch"
     FONT_WITHOUT_CJK_GLYPHS = "a console font other than 8x16 or 16x32"
 
 
@@ -90,14 +99,20 @@ RULES: tuple[Rule, ...] = (
     Rule(Trait.BIOS_BOOT, Trait.GPT_WITHOUT_BIOS_BOOT, "GRUB stage 1.5 needs somewhere to live"),
     Rule(
         Trait.CONSOLE_CJK,
-        Trait.PREBUILT_KERNEL,
-        "cjktty patches the kernel VT layer, which the official binary kernel does "
-        "not carry; build the kernel or take one from our binhost",
+        Trait.KERNEL_WITHOUT_CJKTTY,
+        "cjktty patches the kernel VT layer, which no official kernel carries; "
+        "sys-kernel/gentoo-cjk-sources is the one that does",
     ),
     Rule(
         Trait.CONSOLE_CJK,
         Trait.FONT_WITHOUT_CJK_GLYPHS,
         "cjktty ships CJK glyphs for 8x16 and 16x32 only",
+    ),
+    Rule(
+        Trait.COMMUNITY_BINHOST,
+        Trait.NO_GENTOOZH_OVERLAY,
+        "the key its packages are signed with comes from that overlay, and "
+        "without it nothing from the host verifies",
     ),
 )
 
@@ -139,8 +154,12 @@ def traits_of(config: InstallConfig) -> frozenset[Trait]:
 
     if config.system.console_cjk:
         found.add(Trait.CONSOLE_CJK)
-    if config.kernel.source is KernelSource.DIST_BIN:
-        found.add(Trait.PREBUILT_KERNEL)
+    if config.portage.binhost.community is not BinhostChannel.OFF:
+        found.add(Trait.COMMUNITY_BINHOST)
+    if not any(overlay.name == "gentoo-zh" for overlay in config.portage.overlays):
+        found.add(Trait.NO_GENTOOZH_OVERLAY)
+    if config.kernel.source is not KernelSource.CJK_SOURCE:
+        found.add(Trait.KERNEL_WITHOUT_CJKTTY)
     if config.system.console_font not in CJK_FONT_SIZES:
         found.add(Trait.FONT_WITHOUT_CJK_GLYPHS)
 
