@@ -58,6 +58,21 @@ def test_a_command_that_fails_raises_with_its_output(tmp_path: Path) -> None:
         runner(tmp_path).run(["sh", "-c", "echo trouble >&2; exit 3"])
 
 
+def test_a_failure_names_the_error_rather_than_the_last_thing_printed(tmp_path: Path) -> None:
+    """Portage keeps printing after an error, so the tail of the output is news
+    items and the cause is further up."""
+    script = (
+        "echo 'ERROR: sys-fs/zfs failed (setup phase): Kernel not configured';"
+        "echo ' * IMPORTANT: 22 news items need reading';"
+        "echo ' * Use eselect news read';"
+        "echo ' * Regenerating GNU info directory index';"
+        "echo ' * Processed 109 info files';"
+        "echo ' * nothing to see here'; exit 1"
+    )
+    with pytest.raises(CommandFailed, match="Kernel not configured"):
+        runner(tmp_path).run(["sh", "-c", script])
+
+
 def test_a_command_that_is_not_installed_says_so(tmp_path: Path) -> None:
     with pytest.raises(CommandFailed, match="not installed"):
         runner(tmp_path).run(["definitely-not-a-command-on-this-machine"])

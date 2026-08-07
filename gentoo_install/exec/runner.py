@@ -8,6 +8,7 @@ it would also be deciding, on its own, what a failure means.
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import signal
 import subprocess
@@ -167,9 +168,17 @@ class Runner:
         return {**os.environ, **self.environment}
 
 
+#: What a failing command's own error looks like. Portage keeps printing after
+#: one, so the last lines of the output are news items rather than the cause.
+_COMPLAINT = re.compile(r"\b(ERROR|error:|failed|Call stack|died|cannot|No such file)", re.I)
+
+
 def _tail(text: str, lines: int = 5) -> str:
-    kept = [line for line in text.strip().splitlines() if line.strip()][-lines:]
-    return " | ".join(kept) if kept else "no output"
+    """The lines worth reading, which are rarely the last ones."""
+    kept = [line.strip() for line in text.splitlines() if line.strip()]
+    complaints = [line for line in kept if _COMPLAINT.search(line)]
+    chosen = complaints[:lines] if complaints else kept[-lines:]
+    return " | ".join(chosen) if chosen else "no output"
 
 
 def write_file(path: Path, content: str, mode: int = 0o644) -> None:
