@@ -19,8 +19,11 @@ from .runner import Runner
 STAGE3_PATH: Final[str] = "releases/amd64/autobuilds"
 TIMEOUT: Final[float] = 60.0
 
-#: The index lists every build; this is the tarball line in it.
-_ENTRY = re.compile(r"^(?P<name>stage3-amd64-[\w.\-]+\.tar\.xz)\s+(?P<size>\d+)", re.MULTILINE)
+#: Where the install medium keeps the release engineering public key.
+RELEASE_KEY: Final[Path] = Path("/usr/share/openpgp-keys/gentoo-release.asc")
+
+#: The mirror's index is HTML; this is the link to a tarball in it.
+_ENTRY = re.compile(r'href="(stage3-amd64-[\w.\-]+\.tar\.xz)"')
 
 
 def stage3(mirror: str, variant: str, fingerprint: str, work: Path, runner: Runner) -> Path:
@@ -39,6 +42,7 @@ def stage3(mirror: str, variant: str, fingerprint: str, work: Path, runner: Runn
     _download(f"{base}/{name}", archive)
     digests = work / f"{name}.DIGESTS"
     _download(f"{base}/{name}.DIGESTS", digests)
+    _import_release_key(runner)
     _verify_signature(digests, fingerprint, runner)
     _verify_digest(archive, digests)
     (work / f"{name}.verified").write_text("")
@@ -57,13 +61,17 @@ def passphrase_for(device: DeviceId) -> str:
 
 
 def _newest(base: str) -> str:
-    listing = _read(f"{base}/")
-    names = sorted({found.group("name") for found in _ENTRY.finditer(listing)})
-    if not names:
-        names = sorted(set(re.findall(r'href="(stage3-amd64-[\w.\-]+\.tar\.xz)"', listing)))
+    names: set[str] = {str(name) for name in _ENTRY.findall(_read(f"{base}/"))}
     if not names:
         raise IntegrityError(f"{base} lists no stage3 archive")
-    return names[-1]
+    return sorted(names)[-1]
+
+
+def _import_release_key(runner: Runner) -> None:
+    """The medium ships the key; importing it beats fetching one from a
+    keyserver, which would decide at run time what to trust."""
+    if RELEASE_KEY.is_file():
+        runner.run(["gpg", "--quiet", "--import", str(RELEASE_KEY)], check=False)
 
 
 def _read(url: str) -> str:

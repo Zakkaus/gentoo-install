@@ -10,8 +10,18 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Sequence
 
+from ..errors import InvalidLayout
 from ..model.config import InstallConfig
-from ..model.device import DeviceId, Existing, Luks, LogicalVolume, MdRaid, VolumeGroup
+from ..model.device import (
+    DeviceId,
+    Existing,
+    LogicalVolume,
+    Luks,
+    MdRaid,
+    Partition,
+    PartitionTable,
+    VolumeGroup,
+)
 from ..plan.operations import Operation
 from . import fetch
 from .probe import Probe
@@ -58,6 +68,8 @@ class Machine:
         node = self.config.disk.graph[device]
         if isinstance(node, Existing):
             return self.probe.resolve(device, node.selector)
+        if isinstance(node, Partition):
+            return self._partition_path(node)
         if isinstance(node, Luks):
             return f"/dev/mapper/{node.name}"
         if isinstance(node, MdRaid):
@@ -67,6 +79,18 @@ class Machine:
             if isinstance(group, VolumeGroup):
                 return f"/dev/{group.name}/{node.name}"
         return self.probe.path_of(device)
+
+    def _partition_path(self, node: Partition) -> str:
+        """`/dev/vdb` plus index 2 is `/dev/vdb2`, but `/dev/nvme0n1` plus 2 is
+        `/dev/nvme0n1p2`: a name ending in a digit takes the `p`."""
+        table = self.config.disk.graph[node.table]
+        if not isinstance(table, PartitionTable):
+            raise InvalidLayout(f"{node.id} names {node.table}, which is not a partition table")
+        disk = self.device_path(table.disk)
+        separator = "p" if disk[-1].isdigit() else ""
+        path = self.probe.wait_for(f"{disk}{separator}{node.index}")
+        self.probe.remember(node.id, path)
+        return path
 
     def key_file(self, device: DeviceId) -> PurePosixPath:
         """Staged under the work directory, which is a tmpfs on the install
@@ -87,7 +111,7 @@ class Machine:
         graph = self.config.disk.graph
         for node in graph.of_type(Existing):
             return self.probe.resolve(node.id, node.selector)
-        raise LookupError("the layout names no disk to install a bootloader on")
+        raise InvalidLayout("the layout names no disk to install a bootloader on")
 
     def device_uuid(self, device: DeviceId) -> str:
         return self.probe.uuid_of(device)

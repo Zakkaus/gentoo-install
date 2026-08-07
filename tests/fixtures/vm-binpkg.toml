@@ -1,0 +1,89 @@
+# What the VM harness installs: UEFI, GPT, ext4, systemd, binary packages
+# throughout. No desktop and no overlay, so a run finishes in minutes and a
+# failure is the installer's rather than a compiler's.
+config_version = 1
+
+[system]
+hostname = "vmtest"
+timezone = "UTC"
+locales = ["en_US.UTF-8"]
+locale = "en_US.UTF-8"
+init = "systemd"
+sshd = true
+root_password_hash = "$6$gentooinstall$Ml8lQAHZbNy9Pi.aM.C0ubuMPNaAlfBFxNHIRQxjO4Cm/PHXVNwHUXHYHl/PWMzYIz5MMwjT5FTiAwjR3lQrz1"
+
+[portage]
+profile = "default/linux/amd64/23.0/systemd"
+makeopts = "-j4"
+
+[portage.mirrors]
+region = "global"
+
+[portage.binhost]
+official = true
+community = "off"
+
+[kernel]
+source = "dist-bin"
+
+[bootloader]
+kind = "grub"
+firmware = "uefi"
+kernel_params = ["console=ttyS0,115200"]
+
+[disk]
+root = "mnt-root"
+
+[[disk.devices]]
+kind = "existing"
+id = "disk"
+selector = "/dev/disk/by-id/virtio-target0"
+wipe = true
+
+[[disk.devices]]
+kind = "table"
+id = "table"
+disk = "disk"
+table = "gpt"
+
+[[disk.devices]]
+kind = "partition"
+id = "esp"
+table = "table"
+index = 1
+role = "esp"
+size = "512MiB"
+
+[[disk.devices]]
+kind = "partition"
+id = "rootpart"
+table = "table"
+index = 2
+role = "data"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "espfs"
+device = "esp"
+type = "vfat"
+label = "ESP"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "rootfs"
+device = "rootpart"
+type = "ext4"
+label = "gentoo"
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-root"
+source = "rootfs"
+path = "/"
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-esp"
+source = "espfs"
+path = "/efi"
+options = ["umask=0077"]

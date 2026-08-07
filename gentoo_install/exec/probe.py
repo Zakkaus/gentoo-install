@@ -11,6 +11,7 @@ import json
 import os
 import platform
 import shutil
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final
@@ -103,6 +104,20 @@ class Probe:
         result = self.runner.run(["lsblk", "--noheadings", "--output", "PKNAME", path])
         parent = result.stdout.strip().splitlines()
         return f"/dev/{parent[0].strip()}" if parent and parent[0].strip() else path
+
+    def wait_for(self, path: str, seconds: float = 15.0) -> str:
+        """Wait for a device node to appear.
+
+        `partprobe` returns before udev has finished creating the nodes, so the
+        first operation that wants a new partition would otherwise find nothing.
+        """
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            if Path(path).exists():
+                return path
+            self.runner.run(["udevadm", "settle"], check=False)
+            time.sleep(0.5)
+        raise DeviceNotFound(f"{path} did not appear within {seconds:.0f}s")
 
     def mounted(self, path: Path) -> bool:
         return self.runner.run(["findmnt", "--mountpoint", str(path)], check=False).returncode == 0
