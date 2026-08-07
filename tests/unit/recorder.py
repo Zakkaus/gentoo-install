@@ -28,7 +28,7 @@ class Recorder:
 
     def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
         self.in_target.append(tuple(argv))
-        return self.replies.get(argv[0], "")
+        return self.replies.get(argv[0], "1")
 
     def write(self, path: PurePosixPath, content: str, *, mode: int = 0o644) -> None:
         self.files[path] = content

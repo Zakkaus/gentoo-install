@@ -192,7 +192,17 @@ class BuildKernel(Operation):
 
 def build(config: InstallConfig) -> list[Operation]:
     modules = dracut_modules(config)
-    operations: list[Operation] = [ConfigureInstallKernel()]
+    operations: list[Operation] = [
+        ConfigureInstallKernel(),
+        # A dist-kernel pulls this in; a sources package does not, and without
+        # it `make install` falls back to the kernel's own script, which looks
+        # for LILO and leaves /boot without a kernel or an initramfs.
+        Emerge(
+            stage=Stage.KERNEL,
+            packages=("sys-kernel/installkernel",),
+            summary="install the hook that puts a kernel in /boot",
+        ),
+    ]
     if modules:
         operations.append(WriteDracutModules(modules=modules))
     operations += [

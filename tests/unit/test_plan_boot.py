@@ -3,6 +3,10 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import PurePosixPath
 
+import pytest
+
+from gentoo_install.errors import NothingToBoot
+
 from gentoo_install.model.config import (
     Bootloader,
     BootloaderConfig,
@@ -121,6 +125,25 @@ def test_bootctl_comes_from_the_package_the_init_system_allows() -> None:
         )
         described = " ".join(operation.describe() for operation in bootloader.build(installation))
         assert package in described
+
+
+def test_a_kernel_hook_is_installed_because_a_sources_package_pulls_none_in() -> None:
+    """Without it `make install` falls back to the kernel's own script, which
+    looks for LILO and leaves /boot with no kernel."""
+    described = " ".join(operation.describe() for operation in kernel.build(config()))
+    assert "sys-kernel/installkernel" in described
+
+
+def test_a_bootloader_with_no_menu_entry_is_a_failure_rather_than_a_success() -> None:
+    """grub-mkconfig exits 0 having found nothing, and the machine drops back
+    to the firmware menu."""
+    recorder = Recorder()
+    recorder.replies["grep"] = "0\n"
+    operation = next(
+        operation for operation in bootloader.build(config()) if isinstance(operation, bootloader.InstallGrub)
+    )
+    with pytest.raises(NothingToBoot):
+        operation.apply(recorder)
 
 
 def test_grub_is_installed_to_the_removable_path_as_well() -> None:
