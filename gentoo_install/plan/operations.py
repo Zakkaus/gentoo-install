@@ -78,6 +78,10 @@ class Context(Protocol):
     def device_uuid(self, device: DeviceId) -> str:
         """The UUID of a formatted device, for fstab and crypttab."""
 
+    def rank_mirrors(self, candidates: tuple[str, ...]) -> tuple[str, ...]:
+        """Measure each candidate and return them fastest first. A candidate
+        that times out goes last rather than removing itself."""
+
     def fetch_stage3(self, mirror: str, variant: str, fingerprint: str) -> PurePosixPath:
         """Download the newest stage3 of `variant`, check its signature against
         `fingerprint` and its digest, and return where it was written."""

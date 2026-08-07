@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import hashlib
 import re
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Final
@@ -21,6 +23,14 @@ TIMEOUT: Final[float] = 60.0
 
 #: Where the install medium keeps the release engineering public key.
 RELEASE_KEY: Final[Path] = Path("/usr/share/openpgp-keys/gentoo-release.asc")
+
+#: Every Gentoo mirror carries this, and it is small enough that the time is
+#: dominated by latency and the first megabytes of throughput.
+PROBE_FILE: Final[str] = "distfiles/timestamp.chk"
+
+#: A mirror that has not answered by now is not the one to install from.
+PROBE_TIMEOUT: Final[float] = 5.0
+
 
 #: The mirror's index is HTML; this is the link to a tarball in it.
 _ENTRY = re.compile(r'href="(stage3-amd64-[\w.\-]+\.tar\.xz)"')
@@ -47,6 +57,28 @@ def stage3(mirror: str, variant: str, fingerprint: str, work: Path, runner: Runn
     _verify_digest(archive, digests)
     (work / f"{name}.verified").write_text("")
     return archive
+
+
+def rank_mirrors(candidates: tuple[str, ...]) -> tuple[str, ...]:
+    """Fastest first, measured. A mirror that fails or times out keeps its place
+    at the end rather than disappearing: a slow mirror still installs, and a
+    measurement that found nothing must not leave an empty list.
+    """
+    measured: list[tuple[float, int, str]] = []
+    for position, mirror in enumerate(candidates):
+        measured.append((_probe(mirror), position, mirror))
+    return tuple(mirror for _, _, mirror in sorted(measured))
+
+
+def _probe(mirror: str) -> float:
+    url = f"{mirror.rstrip('/')}/{PROBE_FILE}"
+    started = time.monotonic()
+    try:
+        with urllib.request.urlopen(url, timeout=PROBE_TIMEOUT) as response:
+            response.read(1 << 16)
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return float("inf")
+    return time.monotonic() - started
 
 
 def passphrase_for(device: DeviceId) -> str:

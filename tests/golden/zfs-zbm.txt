@@ -26,7 +26,7 @@
   mount efivarfs in the target so efibootmgr can write a boot entry
 
 [portage]
-  write /etc/portage/make.conf with COMMON_FLAGS, CFLAGS, CXXFLAGS, FCFLAGS, FFLAGS, MAKEOPTS, ACCEPT_LICENSE, L10N, GENTOO_MIRRORS, FEATURES
+  write /etc/portage/make.conf with COMMON_FLAGS, CFLAGS, CXXFLAGS, FCFLAGS, FFLAGS, MAKEOPTS, ACCEPT_LICENSE, L10N, FEATURES; 2 mirrors in the configured order
   create the three autounmask files emerge writes its decisions into
   fetch the first ebuild repository snapshot with emerge-webrsync
   select profile default/linux/amd64/23.0/systemd

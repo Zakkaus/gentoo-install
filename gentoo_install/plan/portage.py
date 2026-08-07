@@ -154,15 +154,28 @@ class MountEfiVars(Operation):
 
 @dataclass(frozen=True, kw_only=True)
 class WriteMakeConf(Operation):
+    """The mirror order is settled here rather than in the plan, because the
+    only useful way to order mirrors is to measure them, and measuring is
+    something only `exec` may do."""
+
     stage: Stage = Stage.PORTAGE
-    content: str
+    settings: tuple[tuple[str, str], ...]
+    mirrors: tuple[str, ...]
+    speed_test: bool
 
     def describe(self) -> str:
-        settings = [line.split("=", 1)[0] for line in self.content.splitlines() if "=" in line]
-        return f"write /etc/portage/make.conf with {', '.join(settings)}"
+        keys = [key for key, _ in self.settings]
+        order = "fastest first, measured" if self.speed_test else "in the configured order"
+        return (
+            f"write /etc/portage/make.conf with {', '.join(keys)}; "
+            f"{len(self.mirrors)} mirrors {order}"
+        )
 
     def apply(self, context: Context) -> None:
-        context.write(PurePosixPath("/etc/portage/make.conf"), self.content)
+        mirrors = context.rank_mirrors(self.mirrors) if self.speed_test else self.mirrors
+        lines = [f'{key}="{value}"' for key, value in self.settings]
+        lines.append(f'GENTOO_MIRRORS="{" ".join(mirrors)}"')
+        context.write(PurePosixPath("/etc/portage/make.conf"), "\n".join(lines) + "\n")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -369,7 +382,11 @@ def build(config: InstallConfig, mirror: str) -> list[Operation]:
     if config.bootloader.firmware is Firmware.UEFI:
         operations.append(MountEfiVars())
     operations += [
-        WriteMakeConf(content=make_conf(config)),
+        WriteMakeConf(
+            settings=make_conf(config),
+            mirrors=_distfiles(portage),
+            speed_test=portage.mirrors.speed_test,
+        ),
         CreateAutounmaskFiles(),
         WebrsyncRepository(),
         SelectProfile(profile=portage.profile),
@@ -418,29 +435,29 @@ def finish(config: InstallConfig) -> list[Operation]:
     return []
 
 
-def make_conf(config: InstallConfig) -> str:
+def make_conf(config: InstallConfig) -> tuple[tuple[str, str], ...]:
+    """Everything but `GENTOO_MIRRORS`, which is settled when the operation runs."""
     portage = config.portage
-    lines = [
-        f'COMMON_FLAGS="{portage.common_flags}"',
-        'CFLAGS="${COMMON_FLAGS}"',
-        'CXXFLAGS="${COMMON_FLAGS}"',
-        'FCFLAGS="${COMMON_FLAGS}"',
-        'FFLAGS="${COMMON_FLAGS}"',
+    settings: list[tuple[str, str]] = [
+        ("COMMON_FLAGS", portage.common_flags),
+        ("CFLAGS", "${COMMON_FLAGS}"),
+        ("CXXFLAGS", "${COMMON_FLAGS}"),
+        ("FCFLAGS", "${COMMON_FLAGS}"),
+        ("FFLAGS", "${COMMON_FLAGS}"),
     ]
     if portage.makeopts:
-        lines.append(f'MAKEOPTS="{portage.makeopts}"')
+        settings.append(("MAKEOPTS", portage.makeopts))
     if portage.use:
-        lines.append(f'USE="{" ".join(portage.use)}"')
+        settings.append(("USE", " ".join(portage.use)))
     if portage.video_cards:
-        lines.append(f'VIDEO_CARDS="{" ".join(portage.video_cards)}"')
-    lines += [
-        f'ACCEPT_LICENSE="{" ".join(portage.accept_license)}"',
-        f'L10N="{" ".join(_l10n(config))}"',
-        f'GENTOO_MIRRORS="{" ".join(_distfiles(portage))}"',
+        settings.append(("VIDEO_CARDS", " ".join(portage.video_cards)))
+    settings += [
+        ("ACCEPT_LICENSE", " ".join(portage.accept_license)),
+        ("L10N", " ".join(_l10n(config))),
     ]
     if _uses_binhost(portage):
-        lines.append('FEATURES="getbinpkg"')
-    return "\n".join(lines) + "\n"
+        settings.append(("FEATURES", "getbinpkg"))
+    return tuple(settings)
 
 
 def _uses_binhost(portage: PortageConfig) -> bool:

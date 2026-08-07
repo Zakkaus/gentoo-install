@@ -48,6 +48,10 @@ class Recorder:
     def device_uuid(self, device: DeviceId) -> str:
         return f"uuid-of-{device}"
 
+    def rank_mirrors(self, candidates: tuple[str, ...]) -> tuple[str, ...]:
+        self.commands.append(("rank-mirrors", *candidates))
+        return tuple(reversed(candidates))
+
     def fetch_stage3(self, mirror: str, variant: str, fingerprint: str) -> PurePosixPath:
         self.commands.append(("fetch-stage3", mirror, variant, fingerprint))
         return PurePosixPath("/var/cache/gentoo-install/stage3.tar.xz")

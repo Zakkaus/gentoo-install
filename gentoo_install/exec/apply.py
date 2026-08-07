@@ -117,6 +117,11 @@ class Machine:
     def device_uuid(self, device: DeviceId) -> str:
         return self.probe.uuid_of(device)
 
+    def rank_mirrors(self, candidates: tuple[str, ...]) -> tuple[str, ...]:
+        ranked = fetch.rank_mirrors(candidates)
+        self.runner.log(f"mirrors, fastest first: {', '.join(ranked)}")
+        return ranked
+
     def fetch_stage3(self, mirror: str, variant: str, fingerprint: str) -> PurePosixPath:
         return PurePosixPath(fetch.stage3(mirror, variant, fingerprint, self.work, self.runner))
 

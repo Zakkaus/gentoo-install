@@ -173,6 +173,37 @@ def test_a_signature_from_the_wrong_key_is_refused(tmp_path: Path) -> None:
         fetch._verify_signature(tmp_path / "x.DIGESTS", "ABC123", Signed(log=lambda line: None))
 
 
+def test_a_mirror_that_never_answers_goes_last_rather_than_disappearing() -> None:
+    """An empty mirror list is worse than a slow mirror: Portage with no mirror
+    at all cannot fetch anything."""
+    candidates = ("https://mirror.invalid.example./", "https://other.invalid.example./")
+    ranked = fetch.rank_mirrors(candidates)
+    assert set(ranked) == set(candidates)
+    assert len(ranked) == len(candidates)
+
+
+def test_the_measured_order_is_used_only_when_the_configuration_asks() -> None:
+    from .layouts import config as layout
+    from .recorder import Recorder
+    from gentoo_install.model.config import MirrorConfig, PortageConfig
+    from gentoo_install.plan import portage as plan_portage
+
+    measured = Recorder()
+    for operation in plan_portage.build(
+        replace(layout(), portage=PortageConfig(mirrors=MirrorConfig(speed_test=True))),
+        "https://distfiles.gentoo.org",
+    ):
+        if isinstance(operation, plan_portage.WriteMakeConf):
+            operation.apply(measured)
+    assert measured.argv_starting("rank-mirrors")
+
+    plain = Recorder()
+    for operation in plan_portage.build(layout(), "https://distfiles.gentoo.org"):
+        if isinstance(operation, plan_portage.WriteMakeConf):
+            operation.apply(plain)
+    assert not plain.argv_starting("rank-mirrors")
+
+
 def test_no_passphrase_is_invented_when_none_was_supplied() -> None:
     with pytest.raises(IntegrityError, match="no passphrase"):
         fetch.passphrase_for(DeviceId("crypt"))
