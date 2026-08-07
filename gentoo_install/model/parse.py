@@ -256,8 +256,13 @@ def _partition(raw: Mapping[str, Any], at: str) -> Node:
 
 
 def _luks(raw: Mapping[str, Any], at: str) -> Node:
-    _reject_unknown(raw, at, {"kind", "id", "backing", "name"})
-    return Luks(id=_id(raw, at), backing=_ref(raw, "backing", at), name=_str(raw, "name", at, required=True))
+    _reject_unknown(raw, at, {"kind", "id", "backing", "name", "passphrase_file"})
+    return Luks(
+        id=_id(raw, at),
+        backing=_ref(raw, "backing", at),
+        name=_str(raw, "name", at, required=True),
+        passphrase_file=_str(raw, "passphrase_file", at, ""),
+    )
 
 
 def _raid(raw: Mapping[str, Any], at: str) -> Node:
@@ -284,12 +289,13 @@ def _logical_volume(raw: Mapping[str, Any], at: str) -> Node:
 
 
 def _zpool(raw: Mapping[str, Any], at: str) -> Node:
-    _reject_unknown(raw, at, {"kind", "id", "vdevs", "name", "encrypted"})
+    _reject_unknown(raw, at, {"kind", "id", "vdevs", "name", "encrypted", "passphrase_file"})
     return ZfsPool(
         id=_id(raw, at),
         vdevs=_refs(raw, "vdevs", at),
         name=_str(raw, "name", at, required=True),
         encrypted=_bool(raw, "encrypted", at, False),
+        passphrase_file=_str(raw, "passphrase_file", at, ""),
     )
 
 

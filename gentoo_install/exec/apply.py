@@ -23,6 +23,7 @@ from ..model.device import (
     Partition,
     PartitionTable,
     VolumeGroup,
+    ZfsPool,
 )
 from ..plan.operations import Operation
 from . import fetch
@@ -45,8 +46,10 @@ class Machine:
     def target(self) -> PurePosixPath:
         return PurePosixPath(self.mountpoint)
 
-    def run(self, argv: Sequence[str], *, check: bool = True) -> str:
-        return self.runner.run(argv, check=check).stdout
+    def run(
+        self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+    ) -> str:
+        return self.runner.run(argv, check=check, input_text=input_text).stdout
 
     def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
         return self.runner.in_target(self.mountpoint).run(argv, check=check).stdout
@@ -94,6 +97,12 @@ class Machine:
         self.probe.remember(node.id, path)
         return path
 
+    def passphrase(self, device: DeviceId) -> str:
+        """The passphrase itself, for a command that reads one on stdin."""
+        node = self.config.disk.graph[device]
+        source = node.passphrase_file if isinstance(node, (Luks, ZfsPool)) else ""
+        return fetch.passphrase_for(device, source)
+
     def key_file(self, device: DeviceId) -> PurePosixPath:
         """Where the passphrase is staged, as a path on the installing system.
 
@@ -105,9 +114,11 @@ class Machine:
         known = self.keys.get(device)
         if known is not None:
             return known
+        node = self.config.disk.graph[device]
+        source = node.passphrase_file if isinstance(node, (Luks, ZfsPool)) else ""
         path = self.work / "keys" / str(device)
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        write_file(path, fetch.passphrase_for(device), 0o600)
+        write_file(path, fetch.passphrase_for(device, source), 0o600)
         staged = PurePosixPath(path)
         self.keys[device] = staged
         return staged

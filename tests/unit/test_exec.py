@@ -294,9 +294,26 @@ def test_the_measured_order_is_used_only_when_the_configuration_asks() -> None:
 
 def test_no_passphrase_is_invented_when_none_was_supplied() -> None:
     """A configuration error, not an integrity one: exit code 3 says the data
-    could not be trusted, and an unwritten prompt is not that."""
-    with pytest.raises(ConfigError, match="no passphrase"):
-        fetch.passphrase_for(DeviceId("crypt"))
+    could not be trusted, and a missing passphrase is not that."""
+    with pytest.raises(ConfigError, match="names no passphrase_file"):
+        fetch.passphrase_for(DeviceId("crypt"), "")
+
+
+def test_a_passphrase_comes_from_the_file_the_layout_names(tmp_path: Path) -> None:
+    """A path, never the passphrase: the configuration is copied into the
+    target and the log is what people paste into bug reports."""
+    source = tmp_path / "key"
+    source.write_text("open sesame\n")
+    assert fetch.passphrase_for(DeviceId("crypt"), str(source)) == "open sesame"
+
+
+def test_an_empty_or_missing_passphrase_file_is_named(tmp_path: Path) -> None:
+    empty = tmp_path / "empty"
+    empty.write_text("")
+    with pytest.raises(ConfigError, match="is empty"):
+        fetch.passphrase_for(DeviceId("crypt"), str(empty))
+    with pytest.raises(ConfigError, match="cannot be read"):
+        fetch.passphrase_for(DeviceId("crypt"), str(tmp_path / "absent"))
 
 
 def test_a_medium_without_the_release_key_is_stopped_before_the_download(tmp_path: Path) -> None:

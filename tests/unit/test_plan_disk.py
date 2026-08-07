@@ -173,6 +173,21 @@ def test_a_pool_is_created_under_the_target_with_encryption_only_when_asked() ->
     assert "encryption=on" not in apply_all(plain).only("zpool", "create")
 
 
+def test_an_encrypted_pool_gets_its_passphrase_on_stdin() -> None:
+    """`keylocation=prompt` reads it here and asks again at boot, which is what
+    ZFSBootMenu prompts for."""
+    recorder = Recorder()
+    for operation in disk.build(config(zfs_root())):
+        operation.apply(recorder)
+    assert recorder.stdin == ["a passphrase"]
+
+    plain = [replace(node, encrypted=False) if isinstance(node, ZfsPool) else node for node in zfs_root()]
+    quiet = Recorder()
+    for operation in disk.build(config(plain)):
+        operation.apply(quiet)
+    assert quiet.stdin == []
+
+
 def test_a_dataset_is_created_with_its_parents() -> None:
     argv = apply_all(zfs_root()).argv_starting("zfs", "create")
     assert all("-p" in command for command in argv)

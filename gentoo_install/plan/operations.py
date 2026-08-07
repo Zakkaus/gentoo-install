@@ -54,7 +54,9 @@ class Context(Protocol):
     def target(self) -> PurePosixPath:
         """Where the new system is mounted, `/mnt/gentoo` in an ordinary run."""
 
-    def run(self, argv: Sequence[str], *, check: bool = True) -> str:
+    def run(
+        self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+    ) -> str:
         """Run a command on the installing system and return its stdout.
 
         `check=False` for a command whose failure is an answer rather than a
@@ -95,6 +97,10 @@ class Context(Protocol):
     def rank_mirrors(self, candidates: tuple[str, ...]) -> tuple[str, ...]:
         """Measure each candidate and return them fastest first. A candidate
         that times out goes last rather than removing itself."""
+
+    def passphrase(self, device: DeviceId) -> str:
+        """The passphrase for an encrypted device, for a command that wants it
+        on stdin rather than in a file."""
 
     def fetch_stage3(self, mirror: str, variant: str, fingerprint: str) -> PurePosixPath:
         """Download the newest stage3 of `variant`, check its signature against

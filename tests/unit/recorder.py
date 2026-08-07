@@ -19,11 +19,16 @@ class Recorder:
     commands: list[tuple[str, ...]] = field(default_factory=list)
     in_target: list[tuple[str, ...]] = field(default_factory=list)
     files: dict[PurePosixPath, str] = field(default_factory=dict)
+    stdin: list[str] = field(default_factory=list)
     #: What `run_in_target` returns, keyed by the first word of the command.
     replies: dict[str, str] = field(default_factory=dict)
 
-    def run(self, argv: Sequence[str], *, check: bool = True) -> str:
+    def run(
+        self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+    ) -> str:
         self.commands.append(tuple(argv))
+        if input_text is not None:
+            self.stdin.append(input_text)
         return self.replies.get(argv[0], "")
 
     def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
@@ -38,6 +43,9 @@ class Recorder:
 
     def device_path(self, device: DeviceId) -> str:
         return f"/dev/mapper/{device}"
+
+    def passphrase(self, device: DeviceId) -> str:
+        return "a passphrase"
 
     def key_file(self, device: DeviceId) -> PurePosixPath:
         return PurePosixPath(f"/run/gentoo-install/keys/{device}")

@@ -362,6 +362,8 @@ class CreateZpool(Operation):
         options = [*POOL_OPTIONS]
         if self.encrypted:
             options += ["-O", "encryption=on", "-O", "keyformat=passphrase", "-O", "keylocation=prompt"]
+        # `keylocation=prompt` means the passphrase is read on stdin here and
+        # asked for at boot, which is what ZFSBootMenu prompts for.
         context.run(
             [
                 "zpool", "create", "-f",
@@ -369,7 +371,8 @@ class CreateZpool(Operation):
                 "-R", str(context.target),
                 self.name,
                 *(context.device_path(vdev) for vdev in self.vdevs),
-            ]
+            ],
+            input_text=context.passphrase(self.pool) if self.encrypted else None,
         )
 
 

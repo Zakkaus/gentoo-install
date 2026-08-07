@@ -79,15 +79,24 @@ def _probe(mirror: str) -> float:
     return time.monotonic() - started
 
 
-def passphrase_for(device: DeviceId) -> str:
-    """Where an encryption passphrase comes from.
+def passphrase_for(device: DeviceId, source: str) -> str:
+    """Read an encryption passphrase from the file the layout names.
 
-    Interactive entry belongs to the interface layer; until it exists, a run
-    that needs one fails here rather than inventing a key nobody knows.
+    A path, never the passphrase itself: the configuration is copied into the
+    target and the log is the file people paste into bug reports.
     """
-    raise ConfigError(
-        f"no passphrase is available for {device}; the interface that asks for one is not written"
-    )
+    if not source:
+        raise ConfigError(
+            f"{device} is encrypted but names no passphrase_file, and nothing else asks for one"
+        )
+    path = Path(source)
+    try:
+        passphrase = path.read_text().strip("\n")
+    except OSError as error:
+        raise ConfigError(f"{device}: {source} cannot be read: {error}") from error
+    if not passphrase:
+        raise ConfigError(f"{device}: {source} is empty")
+    return passphrase
 
 
 def _newest(base: str) -> str:

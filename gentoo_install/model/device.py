@@ -125,6 +125,10 @@ class Partition(Node):
 class Luks(Node):
     backing: DeviceId
     name: str
+    #: A file on the installing system holding the passphrase. The passphrase
+    #: itself is never in the configuration, which is copied into the target
+    #: and read by anyone who can read the install log.
+    passphrase_file: str = ""
 
     @property
     def inputs(self) -> tuple[DeviceId, ...]:
@@ -171,6 +175,9 @@ class ZfsPool(Node):
     vdevs: tuple[DeviceId, ...]
     name: str
     encrypted: bool = False
+    #: Where the passphrase is, when the pool is encrypted. Same rule as LUKS:
+    #: a path, never the passphrase.
+    passphrase_file: str = ""
 
     @property
     def inputs(self) -> tuple[DeviceId, ...]:
