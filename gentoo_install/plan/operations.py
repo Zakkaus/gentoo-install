@@ -54,10 +54,14 @@ class Context(Protocol):
     def target(self) -> PurePosixPath:
         """Where the new system is mounted, `/mnt/gentoo` in an ordinary run."""
 
-    def run(self, argv: Sequence[str]) -> str:
-        """Run a command on the installing system and return its stdout."""
+    def run(self, argv: Sequence[str], *, check: bool = True) -> str:
+        """Run a command on the installing system and return its stdout.
 
-    def run_in_target(self, argv: Sequence[str]) -> str:
+        `check=False` for a command whose failure is an answer rather than a
+        fault, such as deactivating swap that was never active.
+        """
+
+    def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
         """Run a command inside the target's chroot and return its stdout."""
 
     def write(self, path: PurePosixPath, content: str, *, mode: int = 0o644) -> None:
@@ -70,10 +74,17 @@ class Context(Protocol):
         """Resolve a device id to the path it currently has, such as `/dev/sda1`."""
 
     def key_file(self, device: DeviceId) -> PurePosixPath:
-        """Where the passphrase of an encrypted device is staged for this run."""
+        """Where the passphrase of an encrypted device is staged for this run.
 
-    def boot_disk(self) -> str:
-        """The whole disk a bootloader installs to, such as `/dev/sda`."""
+        A path on the installing system, not inside the target: it is passed to
+        `cryptsetup`, which runs outside the chroot.
+        """
+
+    def containing_disk(self, device: DeviceId) -> str:
+        """The whole disk a device sits on, such as `/dev/sda`."""
+
+    def partition_index(self, device: DeviceId) -> int:
+        """A partition's number, which is what `efibootmgr --part` wants."""
 
     def device_uuid(self, device: DeviceId) -> str:
         """The UUID of a formatted device, for fstab and crypttab."""

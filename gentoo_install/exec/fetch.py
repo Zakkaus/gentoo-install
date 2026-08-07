@@ -120,13 +120,29 @@ def _download(url: str, target: Path) -> None:
 
 
 def _verify_signature(digests: Path, fingerprint: str, runner: Runner) -> None:
+    """Compare the fingerprint gpg reports, not the text it printed.
+
+    A substring test over everything gpg wrote would also match the hex in a
+    file name the mirror chose, and the archive name comes from the mirror.
+    `EXPKEYSIG` is accepted because Gentoo's release key expires and is
+    extended; a revoked or bad signature is not.
+    """
     result = runner.run(["gpg", "--status-fd", "1", "--verify", str(digests)], check=False)
-    if result.returncode != 0:
+    signed = _signing_key(result.stdout)
+    if result.returncode != 0 or signed is None:
         raise IntegrityError(f"the signature on {digests.name} does not verify")
-    if fingerprint.upper() not in result.stdout.upper().replace(" ", ""):
+    if signed.upper() != fingerprint.upper():
         raise IntegrityError(
-            f"{digests.name} is signed by a key that is not the pinned {fingerprint}"
+            f"{digests.name} is signed by {signed}, not the pinned {fingerprint}"
         )
+
+
+def _signing_key(status: str) -> str | None:
+    for line in status.splitlines():
+        fields = line.split()
+        if len(fields) >= 3 and fields[0] == "[GNUPG:]" and fields[1] in ("VALIDSIG", "EXPKEYSIG"):
+            return fields[2]
+    return None
 
 
 def _verify_digest(archive: Path, digests: Path) -> None:

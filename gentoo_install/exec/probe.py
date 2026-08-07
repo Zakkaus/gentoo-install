@@ -46,7 +46,6 @@ class Probe:
     runner: Runner
     work: Path
     resolved: dict[DeviceId, str] = field(default_factory=dict)
-    uuids: dict[DeviceId, str] = field(default_factory=dict)
 
     def machine(self, wanted: frozenset[str] = frozenset()) -> Machine:
         return Machine(
@@ -58,17 +57,16 @@ class Probe:
         )
 
     def resolve(self, device: DeviceId, selector: str) -> str:
-        """Turn a selector from the configuration into a path that exists now."""
-        known = self.resolved.get(device)
-        if known is not None:
-            return known
+        """Turn a selector from the configuration into a path that exists now.
+
+        The selector is resolved every time rather than cached: a
+        `/dev/disk/by-id/...` name survives the kernel renumbering its disks and
+        the `/dev/sda` it points at today does not.
+        """
         candidate = Path(selector)
         if not candidate.exists():
             raise DeviceNotFound(f"{device}: {selector} is not present on this machine")
-        path = str(candidate.resolve())
-        self.resolved[device] = path
-        self.save()
-        return path
+        return str(candidate.resolve())
 
     def remember(self, device: DeviceId, path: str) -> None:
         """Record a device the installer created, such as a LUKS mapping."""
@@ -81,21 +79,17 @@ class Probe:
             raise DeviceNotFound(f"{device} has no path yet; nothing has created it")
         return path
 
-    def uuid_of(self, device: DeviceId) -> str:
-        """`blkid` after a fresh mkfs can miss the new signature, so the value is
-        cached the first time it is read and reused afterwards."""
-        known = self.uuids.get(device)
-        if known is not None:
-            return known
+    def uuid_of(self, path: str, device: DeviceId) -> str:
+        """Read a formatted device's UUID. Never cached: a device formatted a
+        second time keeps the first UUID in a cache, and fstab then names a
+        filesystem that no longer exists."""
         self.runner.run(["udevadm", "settle"], check=False)
         result = self.runner.run(
-            ["blkid", "--match-tag", "UUID", "--output", "value", self.path_of(device)]
+            ["blkid", "--match-tag", "UUID", "--output", "value", path], check=False
         )
         uuid = result.stdout.strip()
         if not uuid:
             raise DeviceNotFound(f"{device} has no UUID; was it formatted?")
-        self.uuids[device] = uuid
-        self.save()
         return uuid
 
     def disk_of(self, device: DeviceId) -> str:
@@ -119,22 +113,47 @@ class Probe:
             time.sleep(0.5)
         raise DeviceNotFound(f"{path} did not appear within {seconds:.0f}s")
 
-    def mounted(self, path: Path) -> bool:
-        return self.runner.run(["findmnt", "--mountpoint", str(path)], check=False).returncode == 0
+    def mounted(self, disk: str) -> bool:
+        """Whether a disk, or any partition on it, is in use.
+
+        `findmnt --mountpoint` answers about a directory, so asking it about
+        `/dev/sda` always said no and the guard against repartitioning a disk in
+        use could never fire.
+        """
+        # The runner merges stderr into stdout, so the exit code decides first:
+        # `lsblk: not a block device` on stdout would otherwise read as a
+        # mountpoint and every check would say the disk is in use.
+        listed = self.runner.run(
+            ["lsblk", "--noheadings", "--output", "MOUNTPOINT", disk], check=False
+        )
+        if listed.returncode != 0:
+            return False
+        if any(line.strip() for line in listed.stdout.splitlines()):
+            return True
+        swap = self.runner.run(["swapon", "--noheadings", "--show=NAME"], check=False)
+        if swap.returncode != 0:
+            return False
+        return any(line.strip().startswith(disk) for line in swap.stdout.splitlines())
 
     def save(self) -> None:
+        """Written beside the target and renamed over it, so a run that dies
+        mid-write leaves the previous cache rather than half of a new one."""
         self.work.mkdir(parents=True, exist_ok=True)
-        (self.work / "devices.json").write_text(
-            json.dumps({"paths": self.resolved, "uuids": self.uuids}, indent=2, sort_keys=True)
-        )
+        cache = self.work / "devices.json"
+        partial = cache.with_suffix(".json.part")
+        partial.write_text(json.dumps({"paths": self.resolved}, indent=2, sort_keys=True))
+        partial.replace(cache)
 
     def load(self) -> None:
         cache = self.work / "devices.json"
         if not cache.is_file():
             return
-        raw = json.loads(cache.read_text())
+        try:
+            raw = json.loads(cache.read_text())
+        except json.JSONDecodeError:
+            self.runner.log(f"{cache} is not readable JSON; starting with an empty device map")
+            return
         self.resolved = {DeviceId(key): value for key, value in raw.get("paths", {}).items()}
-        self.uuids = {DeviceId(key): value for key, value in raw.get("uuids", {}).items()}
 
     def _memory(self) -> int:
         if not MEMINFO.is_file():

@@ -113,7 +113,7 @@ def inspect(config: InstallConfig, machine: Machine, probe: Probe) -> Report:
         except DeviceNotFound as error:
             fatal.append(str(error))
             continue
-        if probe.mounted(Path(path)):
+        if probe.mounted(path):
             fatal.append(f"{path} is mounted; the installer will not repartition a disk in use")
 
     if machine.memory_bytes and machine.memory_bytes < TMPFS_MINIMUM:

@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Sequence
 
-from ..errors import InvalidLayout
+from ..errors import GentooInstallError, InvalidLayout
 from ..model.config import InstallConfig
 from ..model.device import (
     DeviceId,
@@ -44,11 +44,11 @@ class Machine:
     def target(self) -> PurePosixPath:
         return PurePosixPath(self.mountpoint)
 
-    def run(self, argv: Sequence[str]) -> str:
-        return self.runner.run(argv).stdout
+    def run(self, argv: Sequence[str], *, check: bool = True) -> str:
+        return self.runner.run(argv, check=check).stdout
 
-    def run_in_target(self, argv: Sequence[str]) -> str:
-        return self.runner.in_target(self.mountpoint).run(argv).stdout
+    def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
+        return self.runner.in_target(self.mountpoint).run(argv, check=check).stdout
 
     def write(self, path: PurePosixPath, content: str, *, mode: int = 0o644) -> None:
         write_file(under(self.mountpoint, path), content, mode)
@@ -94,28 +94,45 @@ class Machine:
         return path
 
     def key_file(self, device: DeviceId) -> PurePosixPath:
-        """Staged under the work directory, which is a tmpfs on the install
-        medium, so the passphrase never reaches a disk the installer wrote."""
+        """Where the passphrase is staged, as a path on the installing system.
+
+        Under the work directory, which is a tmpfs on an install medium, so the
+        passphrase never reaches a disk the installer wrote. A file left by an
+        earlier run is rewritten rather than reused: a changed passphrase would
+        otherwise be silently ignored.
+        """
         known = self.keys.get(device)
         if known is not None:
             return known
         path = self.work / "keys" / str(device)
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        if not path.is_file():
-            path.write_text(fetch.passphrase_for(device))
-            path.chmod(0o600)
+        write_file(path, fetch.passphrase_for(device), 0o600)
         staged = PurePosixPath(path)
         self.keys[device] = staged
         return staged
 
-    def boot_disk(self) -> str:
+    def containing_disk(self, device: DeviceId) -> str:
+        """The whole disk a device sits on, which is what a bootloader wants.
+
+        Derived from the graph rather than from whichever disk the graph happens
+        to yield first: a layout with a second disk would otherwise have its
+        bootloader written to the wrong one.
+        """
         graph = self.config.disk.graph
-        for node in graph.of_type(Existing):
-            return self.probe.resolve(node.id, node.selector)
-        raise InvalidLayout("the layout names no disk to install a bootloader on")
+        for parent in (device, *graph.ancestors_of(device)):
+            node = graph[parent]
+            if isinstance(node, Existing):
+                return self.probe.resolve(node.id, node.selector)
+        raise InvalidLayout(f"nothing under {device} is a disk this installer can boot from")
+
+    def partition_index(self, device: DeviceId) -> int:
+        node = self.config.disk.graph[device]
+        if not isinstance(node, Partition):
+            raise InvalidLayout(f"{device} is not a partition, so it has no number")
+        return node.index
 
     def device_uuid(self, device: DeviceId) -> str:
-        return self.probe.uuid_of(device)
+        return self.probe.uuid_of(self.device_path(device), device)
 
     def rank_mirrors(self, candidates: tuple[str, ...]) -> tuple[str, ...]:
         ranked = fetch.rank_mirrors(candidates)
@@ -135,8 +152,21 @@ def apply(operations: Sequence[Operation], machine: Machine) -> None:
     for operation in operations:
         machine.runner.log(f"[{operation.stage.value}] {operation.describe()}")
         started = time.monotonic()
-        operation.apply(machine)
-        if machine.runner.journal is not None:
-            machine.runner.journal.operation(
-                operation.stage.value, operation.describe(), time.monotonic() - started
-            )
+        try:
+            operation.apply(machine)
+        except GentooInstallError:
+            _record(machine, operation, started, "failed")
+            raise
+        _record(machine, operation, started, "done")
+
+
+def _record(machine: Machine, operation: Operation, started: float, status: str) -> None:
+    if machine.runner.journal is None:
+        return
+    machine.runner.journal.write(
+        "operation",
+        stage=operation.stage.value,
+        describe=operation.describe(),
+        seconds=round(time.monotonic() - started, 3),
+        status=status,
+    )

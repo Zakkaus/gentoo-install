@@ -7,13 +7,15 @@ order the modules happen to be called in.
 
 from __future__ import annotations
 
+from typing import Final
+
 from ..model.config import InstallConfig
 from ..model.validate import validate
 from . import bootloader, disk, kernel, packages, portage, system
 from .operations import Operation
 
 #: The mirror a stage3 is fetched from when the configuration names none.
-DEFAULT_MIRROR = "https://distfiles.gentoo.org"
+DEFAULT_MIRROR: Final[str] = "https://distfiles.gentoo.org"
 
 
 def build(config: InstallConfig, catalog: packages.Catalog, *, mirror: str = DEFAULT_MIRROR) -> tuple[Operation, ...]:
@@ -21,7 +23,7 @@ def build(config: InstallConfig, catalog: packages.Catalog, *, mirror: str = DEF
     validate(config)
     operations: list[Operation] = [
         *disk.build(config),
-        *portage.build(config, mirror),
+        *portage.build(config, mirror, packages.required_use(config, catalog)),
         *system.build(config),
         *kernel.build(config),
         *bootloader.build(config),

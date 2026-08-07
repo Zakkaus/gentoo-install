@@ -11,8 +11,9 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Final
 
+from ..model import compat
 from ..model.config import Bootloader, Firmware, InstallConfig
-from ..model.device import Mountpoint, ZfsDataset, ZfsPool
+from ..model.device import DeviceId, Mountpoint, Partition, PartitionRole, ZfsDataset, ZfsPool
 from .operations import Context, Operation, Stage
 from .portage import Emerge
 
@@ -36,6 +37,8 @@ class InstallGrub(Operation):
     stage: Stage = Stage.BOOTLOADER
     firmware: Firmware
     esp: PurePosixPath | None
+    #: Whose disk GRUB is written to on a BIOS machine: the one the root is on.
+    boot_device: DeviceId
 
     def describe(self) -> str:
         where = f"the esp at {self.esp}" if self.esp is not None else "the boot disk"
@@ -49,7 +52,9 @@ class InstallGrub(Operation):
             # entry, and every firmware that never had one, boots only that.
             context.run_in_target([*efi, "--removable"])
         else:
-            context.run_in_target(["grub-install", "--target=i386-pc", context.boot_disk()])
+            context.run_in_target(
+                ["grub-install", "--target=i386-pc", context.containing_disk(self.boot_device)]
+            )
         context.run_in_target(["grub-mkconfig", "--output", "/boot/grub/grub.cfg"])
 
 
@@ -84,16 +89,18 @@ class InstallSystemdBoot(Operation):
 
 @dataclass(frozen=True, kw_only=True)
 class GenerateHostId(Operation):
-    """The pool records the hostid it was created under. The target's initramfs
-    needs the same one or the pool is not imported at boot."""
+    """The pool records the hostid it was created under, which is the installing
+    system's. `zgenhostid -f` alone writes a fresh random one, so the value is
+    read from the installing system and written into the target."""
 
     stage: Stage = Stage.BOOTLOADER
 
     def describe(self) -> str:
-        return "write /etc/hostid so the pool imports on the target"
+        return "copy the installing system's hostid into the target so the pool imports"
 
     def apply(self, context: Context) -> None:
-        context.run_in_target(["zgenhostid", "-f"])
+        hostid = context.run(["hostid"]).strip()
+        context.run_in_target(["zgenhostid", "-f", hostid])
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -105,6 +112,9 @@ class InstallZfsBootMenu(Operation):
     pool: str
     dataset: str
     esp: PurePosixPath
+    #: The esp partition itself, so the boot entry names the right one rather
+    #: than defaulting to partition 1.
+    esp_device: DeviceId
     kernel_params: tuple[str, ...]
 
     def describe(self) -> str:
@@ -141,7 +151,8 @@ class InstallZfsBootMenu(Operation):
             [
                 "efibootmgr",
                 "--create",
-                "--disk", context.boot_disk(),
+                "--disk", context.containing_disk(self.esp_device),
+                "--part", str(context.partition_index(self.esp_device)),
                 "--label", "ZFSBootMenu",
                 "--loader", "\\EFI\\zbm\\vmlinuz.EFI",
             ]
@@ -150,7 +161,9 @@ class InstallZfsBootMenu(Operation):
 
 def build(config: InstallConfig) -> list[Operation]:
     kind = config.bootloader.kind
-    esp = _esp_path(config)
+    mount = compat.esp_mount(config.disk.graph)
+    esp = mount.path if mount is not None else None
+    esp_device = _esp_partition(config)
     packages = BOOTLOADER_PACKAGES[kind]
     if config.bootloader.firmware is Firmware.UEFI:
         packages = (*packages, EFI_PACKAGE)
@@ -160,11 +173,13 @@ def build(config: InstallConfig) -> list[Operation]:
     if kind is Bootloader.GRUB:
         operations += [
             WriteGrubDefaults(kernel_params=config.bootloader.kernel_params),
-            InstallGrub(firmware=config.bootloader.firmware, esp=esp),
+            InstallGrub(
+                firmware=config.bootloader.firmware, esp=esp, boot_device=config.disk.root
+            ),
         ]
     elif kind is Bootloader.SYSTEMD_BOOT and esp is not None:
         operations.append(InstallSystemdBoot(esp=esp))
-    elif kind is Bootloader.ZFSBOOTMENU and esp is not None:
+    elif kind is Bootloader.ZFSBOOTMENU and esp is not None and esp_device is not None:
         pool = _pool_name(config)
         operations += [
             GenerateHostId(),
@@ -172,18 +187,24 @@ def build(config: InstallConfig) -> list[Operation]:
                 pool=pool,
                 dataset=_root_dataset(config, pool),
                 esp=esp,
+                esp_device=esp_device,
                 kernel_params=config.bootloader.kernel_params,
             ),
         ]
     return operations
 
 
-def _esp_path(config: InstallConfig) -> PurePosixPath | None:
+def _esp_partition(config: InstallConfig) -> DeviceId | None:
+    """The esp partition itself, found through the mount `compat` already
+    identifies, so the two do not disagree about which mount is the esp."""
     graph = config.disk.graph
-    for path in (PurePosixPath("/efi"), PurePosixPath("/boot")):
-        for mount in graph.of_type(Mountpoint):
-            if mount.path == path:
-                return path
+    mount = compat.esp_mount(graph)
+    if mount is None:
+        return None
+    for parent in graph.ancestors_of(mount.id):
+        node = graph[parent]
+        if isinstance(node, Partition) and node.role is PartitionRole.ESP:
+            return node.id
     return None
 
 

@@ -22,11 +22,11 @@ class Recorder:
     #: What `run_in_target` returns, keyed by the first word of the command.
     replies: dict[str, str] = field(default_factory=dict)
 
-    def run(self, argv: Sequence[str]) -> str:
+    def run(self, argv: Sequence[str], *, check: bool = True) -> str:
         self.commands.append(tuple(argv))
         return self.replies.get(argv[0], "")
 
-    def run_in_target(self, argv: Sequence[str]) -> str:
+    def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
         self.in_target.append(tuple(argv))
         return self.replies.get(argv[0], "")
 
@@ -42,8 +42,11 @@ class Recorder:
     def key_file(self, device: DeviceId) -> PurePosixPath:
         return PurePosixPath(f"/run/gentoo-install/keys/{device}")
 
-    def boot_disk(self) -> str:
+    def containing_disk(self, device: DeviceId) -> str:
         return "/dev/vda"
+
+    def partition_index(self, device: DeviceId) -> int:
+        return 1
 
     def device_uuid(self, device: DeviceId) -> str:
         return f"uuid-of-{device}"

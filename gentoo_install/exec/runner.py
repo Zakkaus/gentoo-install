@@ -7,7 +7,9 @@ it would also be deciding, on its own, what a failure means.
 
 from __future__ import annotations
 
+import os
 import shlex
+import signal
 import subprocess
 import threading
 import time
@@ -57,7 +59,7 @@ class Runner:
         *,
         check: bool = True,
         input_text: str | None = None,
-        timeout: float | None = 3600.0,
+        timeout: float | None = None,
     ) -> Result:
         full = (*self.prefix, *argv)
         if self.dry_run:
@@ -96,40 +98,48 @@ class Runner:
         ended, which is indistinguishable from a hang. stderr is merged in so
         the order of the two streams is the order they happened in.
         """
-        process = subprocess.Popen(
+        expired = threading.Event()
+        lines: list[str] = []
+        # Its own session: killing `chroot` leaves the emerge inside it running,
+        # still holding the target's bind mounts.
+        with subprocess.Popen(
             argv,
             stdin=subprocess.PIPE if input_text is not None else subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             env=self._environment(),
-        )
-        if input_text is not None and process.stdin is not None:
-            process.stdin.write(input_text)
-            process.stdin.close()
-        # A timer, not a deadline checked per line: a command that hangs without
-        # printing anything never reaches a per-line check.
-        expired = threading.Event()
+            start_new_session=True,
+        ) as process:
 
-        def stop() -> None:
-            expired.set()
-            process.kill()
+            def stop() -> None:
+                expired.set()
+                _kill_group(process)
 
-        watchdog = threading.Timer(timeout, stop) if timeout is not None else None
-        if watchdog is not None:
-            watchdog.start()
-        lines: list[str] = []
-        try:
-            if process.stdout is not None:
-                for line in process.stdout:
-                    lines.append(line)
-                    if self.echo:
-                        self.log(f"| {line.rstrip()}")
-            returncode = process.wait()
-        finally:
+            # A timer, not a deadline checked per line: a command that hangs
+            # without printing anything never reaches a per-line check.
+            watchdog = threading.Timer(timeout, stop) if timeout is not None else None
             if watchdog is not None:
-                watchdog.cancel()
-        if expired.is_set():
+                watchdog.start()
+            try:
+                if input_text is not None and process.stdin is not None:
+                    process.stdin.write(input_text)
+                    process.stdin.close()
+                if process.stdout is not None:
+                    for line in process.stdout:
+                        lines.append(line)
+                        if self.echo:
+                            self.log(f"| {line.rstrip()}")
+                returncode = process.wait()
+            except BaseException:
+                _kill_group(process)
+                raise
+            finally:
+                if watchdog is not None:
+                    watchdog.cancel()
+        # A timer that fired after the command already exited must not turn a
+        # clean run into a timeout, so the signal decides, not the flag alone.
+        if expired.is_set() and returncode < 0:
             raise CommandFailed(f"{shlex.join(argv)} did not finish within {timeout}s")
         return "".join(lines), returncode
 
@@ -141,8 +151,7 @@ class Runner:
             dry_run=self.dry_run,
             echo=self.echo,
             prefix=("chroot", str(target)),
-            # DONT_MOUNT_BOOT: the target's /boot is already mounted where the
-            # layout says, and the kernel's install hook would mount it again.
+            # The target's /boot is already mounted where the layout says it is.
             environment={**self.environment, "DONT_MOUNT_BOOT": "1"},
             history=self.history,
         )
@@ -150,8 +159,6 @@ class Runner:
     def _environment(self) -> dict[str, str] | None:
         if not self.environment:
             return None
-        import os
-
         return {**os.environ, **self.environment}
 
 
@@ -161,10 +168,26 @@ def _tail(text: str, lines: int = 5) -> str:
 
 
 def write_file(path: Path, content: str, mode: int = 0o644) -> None:
-    """Write a file the installer owns, creating the directories above it."""
+    """Write a file the installer owns, creating the directories above it.
+
+    The mode is set before the content is written: writing first and narrowing
+    afterwards leaves a secret readable for the interval in between.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content)
+    handle = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    with os.fdopen(handle, "w") as opened:
+        opened.write(content)
     path.chmod(mode)
+
+
+def _kill_group(process: subprocess.Popen[str]) -> None:
+    """Kill the whole session, not the direct child."""
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        process.kill()
 
 
 def under(target: Path, path: PurePosixPath) -> Path:

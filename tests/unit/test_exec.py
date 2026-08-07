@@ -10,8 +10,8 @@ from gentoo_install.exec import fetch, preflight
 from gentoo_install.exec.probe import Machine as ProbedMachine
 from gentoo_install.exec.probe import Probe
 from gentoo_install.exec.runner import Runner, under
-from gentoo_install.model.config import Bootloader, BootloaderConfig, Firmware
-from gentoo_install.model.device import DeviceId
+from gentoo_install.model.config import Bootloader, BootloaderConfig, Firmware, InstallConfig
+from gentoo_install.model.device import DeviceId, Existing, Node
 
 from .layouts import config, ext4_on_gpt, i
 
@@ -32,13 +32,18 @@ def described(**fields: object) -> ProbedMachine:
     return ProbedMachine(**base)  # type: ignore[arg-type]
 
 
-def probe_of(tmp_path: Path, *, disk: str | None = "/dev/null") -> Probe:
-    """A probe that has already resolved the layout's disk, so a check about
-    firmware or memory is not answered by a missing device on the test host."""
-    probe = Probe(runner=runner(tmp_path), work=tmp_path)
-    if disk is not None:
-        probe.remember(DeviceId("disk"), disk)
-    return probe
+def probe_of(tmp_path: Path) -> Probe:
+    return Probe(runner=runner(tmp_path), work=tmp_path)
+
+
+def present() -> InstallConfig:
+    """The layout with its disk pointed at something every machine has, so a
+    check about firmware or memory is not answered by a missing device."""
+    nodes: list[Node] = [
+        replace(node, selector="/dev/null") if isinstance(node, Existing) else node
+        for node in ext4_on_gpt()
+    ]
+    return config(nodes)
 
 
 def test_a_command_that_fails_raises_with_its_output(tmp_path: Path) -> None:
@@ -90,13 +95,13 @@ def test_a_target_path_becomes_a_host_path() -> None:
 
 def test_a_selector_that_is_absent_names_the_device_rather_than_guessing(tmp_path: Path) -> None:
     with pytest.raises(DeviceNotFound, match="disk"):
-        probe_of(tmp_path, disk=None).resolve(DeviceId("disk"), "/dev/definitely-absent")
+        probe_of(tmp_path).resolve(DeviceId("disk"), "/dev/definitely-absent")
 
 
 def test_a_resolved_device_survives_a_restart_of_the_installer(tmp_path: Path) -> None:
-    first = probe_of(tmp_path, disk=None)
+    first = probe_of(tmp_path)
     first.remember(DeviceId("disk"), "/dev/vda")
-    second = probe_of(tmp_path, disk=None)
+    second = probe_of(tmp_path)
     second.load()
     assert second.path_of(DeviceId("disk")) == "/dev/vda"
 
@@ -130,7 +135,7 @@ def test_a_uefi_configuration_on_a_bios_boot_is_fatal(tmp_path: Path) -> None:
 
 def test_a_bios_configuration_on_a_uefi_boot_is_only_a_warning(tmp_path: Path) -> None:
     on_bios = replace(
-        config(), bootloader=BootloaderConfig(kind=Bootloader.GRUB, firmware=Firmware.BIOS)
+        present(), bootloader=BootloaderConfig(kind=Bootloader.GRUB, firmware=Firmware.BIOS)
     )
     report = preflight.inspect(on_bios, described(uefi=True), probe_of(tmp_path))
     assert not report.fatal
@@ -138,7 +143,7 @@ def test_a_bios_configuration_on_a_uefi_boot_is_only_a_warning(tmp_path: Path) -
 
 
 def test_little_memory_warns_instead_of_stopping(tmp_path: Path) -> None:
-    report = preflight.inspect(config(), described(memory_bytes=2 * 1024**3), probe_of(tmp_path))
+    report = preflight.inspect(present(), described(memory_bytes=2 * 1024**3), probe_of(tmp_path))
     assert not report.fatal
     assert any("tmpfs" in warning for warning in report.warnings)
 
@@ -159,6 +164,12 @@ def test_a_digest_that_does_not_match_stops_the_install(tmp_path: Path) -> None:
         fetch._verify_digest(archive, digests)
 
 
+def test_a_device_that_is_not_a_block_device_is_not_reported_as_mounted(tmp_path: Path) -> None:
+    """`lsblk` writes its complaint to stderr, which the runner merges into
+    stdout; taking that as output would make every disk look mounted."""
+    assert probe_of(tmp_path).mounted("/dev/null") is False
+
+
 def test_a_signature_from_the_wrong_key_is_refused(tmp_path: Path) -> None:
     """A run that verified against whatever key signed the file would verify
     nothing, so the fingerprint is compared even when gpg is happy."""
@@ -167,10 +178,36 @@ def test_a_signature_from_the_wrong_key_is_refused(tmp_path: Path) -> None:
         def run(self, argv, *, check=True, input_text=None, timeout=3600.0):  # type: ignore[no-untyped-def]
             from gentoo_install.exec.runner import Result
 
-            return Result(argv=tuple(argv), returncode=0, stdout="VALIDSIG DEADBEEF", stderr="", seconds=0.0)
+            return Result(
+                argv=tuple(argv),
+                returncode=0,
+                stdout="[GNUPG:] VALIDSIG DEADBEEF 2026-08-08\n",
+                stderr="",
+                seconds=0.0,
+            )
 
     with pytest.raises(IntegrityError, match="not the pinned"):
         fetch._verify_signature(tmp_path / "x.DIGESTS", "ABC123", Signed(log=lambda line: None))
+
+
+def test_a_fingerprint_that_only_appears_in_the_output_is_not_a_signature(tmp_path: Path) -> None:
+    """The archive name comes from the mirror, so hex inside it must not be
+    mistaken for the key that signed the file."""
+
+    class Mentioned(Runner):
+        def run(self, argv, *, check=True, input_text=None, timeout=None):  # type: ignore[no-untyped-def]
+            from gentoo_install.exec.runner import Result
+
+            return Result(
+                argv=tuple(argv),
+                returncode=0,
+                stdout="gpg: Good signature from stage3-amd64-ABC123.tar.xz\n",
+                stderr="",
+                seconds=0.0,
+            )
+
+    with pytest.raises(IntegrityError, match="does not verify"):
+        fetch._verify_signature(tmp_path / "x.DIGESTS", "ABC123", Mentioned(log=lambda line: None))
 
 
 def test_a_mirror_that_never_answers_goes_last_rather_than_disappearing() -> None:

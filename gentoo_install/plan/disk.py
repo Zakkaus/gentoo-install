@@ -62,8 +62,15 @@ MKFS: Final[dict[FilesystemType, tuple[str, ...]]] = {
 }
 
 #: `-L` everywhere except vfat, which spells its label option `-n`.
-LABEL_OPTION: Final[dict[FilesystemType, str]] = {kind: "-L" for kind in MKFS}
-LABEL_OPTION[FilesystemType.VFAT] = "-n"
+LABEL_OPTION: Final[dict[FilesystemType, str]] = {
+    FilesystemType.EXT2: "-L",
+    FilesystemType.EXT3: "-L",
+    FilesystemType.EXT4: "-L",
+    FilesystemType.BTRFS: "-L",
+    FilesystemType.XFS: "-L",
+    FilesystemType.F2FS: "-l",
+    FilesystemType.VFAT: "-n",
+}
 
 #: The first partition starts here, which is also the alignment every later one
 #: is rounded up to.
@@ -154,8 +161,8 @@ class CreatePartition(Operation):
                 f"--typecode={self.index}:{TYPE_CODES[self.role]}",
             ]
             if self.role is PartitionRole.BIOS_BOOT:
-                # Attribute 2 is "legacy BIOS bootable"; firmware ignores the
-                # partition without it and GRUB has nowhere to embed itself.
+                # Attribute 2 marks the partition legacy BIOS bootable, which is
+                # what firmware doing a legacy boot from GPT looks for.
                 argv.append(f"--attributes={self.index}:set:2")
             if self.label:
                 argv.append(f"--change-name={self.index}:{self.label}")
@@ -322,7 +329,7 @@ class CreateSubvolume(Operation):
 @dataclass(frozen=True, kw_only=True)
 class MakeSwap(Operation):
     """The target's fstab enables this swap, not the installer: swap in use on
-    the installing system keeps the device busy and cannot be unmounted."""
+    the installing system keeps the device busy."""
 
     stage: Stage = Stage.FORMAT
     swap: DeviceId
@@ -333,8 +340,10 @@ class MakeSwap(Operation):
 
     def apply(self, context: Context) -> None:
         path = context.device_path(self.device)
+        # The install medium may have activated an existing swap signature on
+        # this partition, and `mkswap` refuses while it is in use.
+        context.run(["swapoff", path], check=False)
         context.run(["mkswap", path])
-        context.run(["swapoff", path])
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -480,6 +489,10 @@ def topological(graph: DeviceGraph) -> tuple[Node, ...]:
             (node for node in remaining.values() if all(parent in ready for parent in node.inputs)),
             key=_order_key,
         )
+        if not available:
+            raise InvalidLayout(
+                "these devices cannot be ordered: " + ", ".join(sorted(remaining))
+            )
         for node in available:
             ready[node.id] = node
             del remaining[node.id]

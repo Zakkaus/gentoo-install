@@ -75,11 +75,13 @@ EMERGE_OPTIONS: Final[tuple[str, ...]] = (
     "--autounmask-continue=y",
 )
 
+#: `*/*-bin` is deliberately absent: it would exclude `gentoo-kernel-bin`, the
+#: one package this installer asks a binary host for.
 BINPKG_OPTIONS: Final[tuple[str, ...]] = (
     "--getbinpkg=y",
     "--binpkg-changed-deps=y",
     "--usepkg-exclude",
-    "acct-*/* virtual/* */*-bin",
+    "acct-*/* virtual/*",
 )
 
 
@@ -307,20 +309,32 @@ class Emerge(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
+class PrepareBinhostTrust(Operation):
+    """`getuto` creates `/etc/portage/gnupg` and its trustdb. Without it even
+    the official host's signatures have nothing to verify against."""
+
+    stage: Stage = Stage.PORTAGE
+
+    def describe(self) -> str:
+        return "run getuto so Portage has a keyring to verify binary packages against"
+
+    def apply(self, context: Context) -> None:
+        context.run_in_target(["getuto"])
+
+
+@dataclass(frozen=True, kw_only=True)
 class TrustBinhostKey(Operation):
-    """`getuto` first: it creates `/etc/portage/gnupg` and its trustdb. A key
-    imported into that keyring stays untrusted until `lsign`, and verification
-    fails the same way it fails with no key at all."""
+    """A key imported into Portage's keyring stays untrusted until `lsign`, and
+    verification then fails the same way it fails with no key at all."""
 
     stage: Stage = Stage.PORTAGE
     fingerprint: str
     key_path: PurePosixPath
 
     def describe(self) -> str:
-        return f"run getuto, import {self.fingerprint[-16:]} from {self.key_path} and locally sign it"
+        return f"import {self.fingerprint[-16:]} from {self.key_path} and locally sign it"
 
     def apply(self, context: Context) -> None:
-        context.run_in_target(["getuto"])
         context.run_in_target(
             ["gpg", "--homedir", "/etc/portage/gnupg", "--import", str(self.key_path)]
         )
@@ -372,7 +386,7 @@ class AcceptTestingGlobally(Operation):
         context.append(PurePosixPath("/etc/portage/make.conf"), 'ACCEPT_KEYWORDS="~amd64"\n')
 
 
-def build(config: InstallConfig, mirror: str) -> list[Operation]:
+def build(config: InstallConfig, mirror: str, use: tuple[str, ...] = ()) -> list[Operation]:
     portage = config.portage
     gentoo = PurePosixPath("/var/db/repos/gentoo")
     operations: list[Operation] = [
@@ -383,7 +397,7 @@ def build(config: InstallConfig, mirror: str) -> list[Operation]:
         operations.append(MountEfiVars())
     operations += [
         WriteMakeConf(
-            settings=make_conf(config),
+            settings=make_conf(config, use),
             mirrors=_distfiles(portage),
             speed_test=portage.mirrors.speed_test,
         ),
@@ -415,6 +429,8 @@ def build(config: InstallConfig, mirror: str) -> list[Operation]:
             SyncRepository(name=overlay.name, location=location),
             AcceptOverlayKeywords(repository=overlay.name),
         ]
+    if _uses_binhost(portage):
+        operations.append(PrepareBinhostTrust())
     if portage.binhost.community is not BinhostChannel.OFF:
         operations += [
             Emerge(
@@ -435,8 +451,12 @@ def finish(config: InstallConfig) -> list[Operation]:
     return []
 
 
-def make_conf(config: InstallConfig) -> tuple[tuple[str, str], ...]:
-    """Everything but `GENTOO_MIRRORS`, which is settled when the operation runs."""
+def make_conf(config: InstallConfig, use: tuple[str, ...] = ()) -> tuple[tuple[str, str], ...]:
+    """Everything but `GENTOO_MIRRORS`, which is settled when the operation runs.
+
+    `use` carries the flags the selected package groups declare, so a desktop
+    profile that needs `wayland` gets it without a second place to edit.
+    """
     portage = config.portage
     settings: list[tuple[str, str]] = [
         ("COMMON_FLAGS", portage.common_flags),
@@ -447,8 +467,9 @@ def make_conf(config: InstallConfig) -> tuple[tuple[str, str], ...]:
     ]
     if portage.makeopts:
         settings.append(("MAKEOPTS", portage.makeopts))
-    if portage.use:
-        settings.append(("USE", " ".join(portage.use)))
+    wanted = [*portage.use, *(flag for flag in use if flag not in portage.use)]
+    if wanted:
+        settings.append(("USE", " ".join(wanted)))
     if portage.video_cards:
         settings.append(("VIDEO_CARDS", " ".join(portage.video_cards)))
     settings += [

@@ -120,7 +120,7 @@ def traits_of(config: InstallConfig) -> frozenset[Trait]:
     else:
         found.add(Trait.BIOS_BOOT)
 
-    if _esp_mount(graph) is None:
+    if esp_mount(graph) is None:
         found.add(Trait.NO_MOUNTED_ESP)
     boot = _covering_mount(graph, _BOOT)
     if boot is None or not _on_esp(graph, boot.id):
@@ -179,7 +179,7 @@ def _on_esp(graph: DeviceGraph, device: DeviceId) -> bool:
     )
 
 
-def _esp_mount(graph: DeviceGraph) -> Mountpoint | None:
+def esp_mount(graph: DeviceGraph) -> Mountpoint | None:
     for path in _ESP_PATHS:
         for mount in graph.of_type(Mountpoint):
             if mount.path == path and _on_esp(graph, mount.id):
