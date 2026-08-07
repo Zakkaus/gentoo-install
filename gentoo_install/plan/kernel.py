@@ -131,6 +131,23 @@ class RebuildInitramfs(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
+class RequestDistKernelModules(Operation):
+    """An out-of-tree module builds against `/usr/src/linux` unless it is told
+    the kernel is a dist-kernel, and a dist-kernel leaves no `.config` there:
+    `sys-fs/zfs` then dies in its setup phase with "Kernel not configured"."""
+
+    stage: Stage = Stage.KERNEL
+    packages: tuple[str, ...]
+
+    def describe(self) -> str:
+        return f"tell {', '.join(self.packages)} to build against the dist-kernel"
+
+    def apply(self, context: Context) -> None:
+        lines = "".join(f"{package} dist-kernel\n" for package in self.packages)
+        context.write(PurePosixPath("/etc/portage/package.use/dist-kernel-modules"), lines)
+
+
+@dataclass(frozen=True, kw_only=True)
 class SelectKernelSource(Operation):
     """A sources package unpacks a tree and installs nothing. Everything after
     this works on whatever `/usr/src/linux` points at."""
@@ -213,6 +230,9 @@ def build(config: InstallConfig) -> list[Operation]:
             summary="install the initramfs builder and firmware",
         ),
     ]
+    modules = _out_of_tree_modules(config)
+    if modules and config.kernel.source is not KernelSource.CJK_SOURCE:
+        operations.append(RequestDistKernelModules(packages=modules))
     tools = storage_packages(config)
     if tools:
         operations.append(
@@ -261,6 +281,19 @@ def dracut_modules(config: InstallConfig) -> tuple[str, ...]:
         if extra not in modules:
             modules.append(extra)
     return tuple(modules)
+
+
+#: Packages that build a kernel module of their own.
+OUT_OF_TREE: Final[dict[str, tuple[str, ...]]] = {
+    "zfs": ("sys-fs/zfs", "sys-fs/zfs-kmod"),
+}
+
+
+def _out_of_tree_modules(config: InstallConfig) -> tuple[str, ...]:
+    wanted: list[str] = []
+    for module in dracut_modules(config):
+        wanted += [package for package in OUT_OF_TREE.get(module, ()) if package not in wanted]
+    return tuple(wanted)
 
 
 def storage_packages(config: InstallConfig) -> tuple[str, ...]:

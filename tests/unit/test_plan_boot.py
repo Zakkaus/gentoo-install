@@ -127,6 +127,19 @@ def test_bootctl_comes_from_the_package_the_init_system_allows() -> None:
         assert package in described
 
 
+def test_zfs_is_told_to_build_against_a_dist_kernel() -> None:
+    """A dist-kernel leaves no `.config` in /usr/src/linux, and `sys-fs/zfs`
+    dies in its setup phase looking for one."""
+    described = " ".join(operation.describe() for operation in kernel.build(config(zfs_root())))
+    assert "sys-fs/zfs-kmod" in described and "dist-kernel" in described
+
+
+def test_a_kernel_built_from_source_needs_no_such_flag() -> None:
+    """It configured and built the tree itself, so the `.config` is there."""
+    patched = replace(config(zfs_root()), kernel=KernelConfig(source=KernelSource.CJK_SOURCE))
+    assert not any("dist-kernel" in o.describe() for o in kernel.build(patched))
+
+
 def test_a_kernel_hook_is_installed_because_a_sources_package_pulls_none_in() -> None:
     """Without it `make install` falls back to the kernel's own script, which
     looks for LILO and leaves /boot with no kernel."""
