@@ -32,10 +32,32 @@ class DeviceCycle(ConfigError):
     """The device graph contains a cycle, so no build order exists."""
 
 
+class InvalidLayout(ConfigError):
+    """A device references another of a kind it cannot be built from."""
+
+
 class ValidationFailed(ConfigError):
     """The configuration parses but does not describe an installable system; the
     message carries every problem found, not the first one."""
 
 
+class LocaleMissing(GentooInstallError):
+    """A locale the target needs is absent after generating it."""
+
+
 class DeviceNotFound(GentooInstallError):
     """A device the configuration names is absent from the running system."""
+
+
+class PreflightFailed(GentooInstallError):
+    """A condition the install needs does not hold on this machine."""
+
+
+class IntegrityError(GentooInstallError):
+    """A signature, checksum or key fingerprint did not match. Never retried
+    against another mirror: untrusted data stays untrusted."""
+
+
+class CommandFailed(GentooInstallError):
+    """An external command exited non-zero. The operation did not finish, which
+    is a different thing from data that cannot be trusted."""

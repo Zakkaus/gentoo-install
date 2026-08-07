@@ -1,0 +1,610 @@
+"""Disks: partition tables, arrays, filesystems and mounts.
+
+The device graph decides the order. Nodes are emitted in topological order so a
+node is always built after everything it is built from, and the operations are
+then grouped by stage, because every partition has to exist before the first
+`mkfs` runs.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import PurePosixPath
+from typing import Final
+
+from ..errors import InvalidLayout
+from ..model.config import InstallConfig
+from ..model.device import (
+    DeviceGraph,
+    DeviceId,
+    Existing,
+    Filesystem,
+    FilesystemType,
+    LogicalVolume,
+    Luks,
+    MdRaid,
+    Mountpoint,
+    Node,
+    Partition,
+    PartitionRole,
+    PartitionTable,
+    RaidLevel,
+    RaidMetadata,
+    Subvolume,
+    Swap,
+    TableType,
+    VolumeGroup,
+    ZfsDataset,
+    ZfsPool,
+)
+from ..model.size import DEFAULT_ALIGNMENT, Size
+from .operations import Context, Operation, Stage
+
+#: GPT type codes as `sgdisk --typecode` spells them.
+TYPE_CODES: Final[dict[PartitionRole, str]] = {
+    PartitionRole.ESP: "ef00",
+    PartitionRole.BIOS_BOOT: "ef02",
+    PartitionRole.SWAP: "8200",
+    PartitionRole.RAID: "fd00",
+    PartitionRole.LVM: "8e00",
+    PartitionRole.DATA: "8300",
+}
+
+#: `mkfs` for each filesystem, with the flags that make the result predictable.
+MKFS: Final[dict[FilesystemType, tuple[str, ...]]] = {
+    FilesystemType.EXT2: ("mkfs.ext2", "-F"),
+    FilesystemType.EXT3: ("mkfs.ext3", "-F"),
+    FilesystemType.EXT4: ("mkfs.ext4", "-F"),
+    FilesystemType.BTRFS: ("mkfs.btrfs", "-f"),
+    FilesystemType.XFS: ("mkfs.xfs", "-f"),
+    FilesystemType.F2FS: ("mkfs.f2fs", "-f"),
+    FilesystemType.VFAT: ("mkfs.vfat", "-F", "32"),
+}
+
+#: `-L` everywhere except vfat, which spells its label option `-n`.
+LABEL_OPTION: Final[dict[FilesystemType, str]] = {kind: "-L" for kind in MKFS}
+LABEL_OPTION[FilesystemType.VFAT] = "-n"
+
+#: The first partition starts here, which is also the alignment every later one
+#: is rounded up to.
+FIRST_OFFSET: Final[Size] = Size(DEFAULT_ALIGNMENT)
+
+#: Pool properties, taken from what the Live ISO's Calamares configuration
+#: creates, so a pool this installer makes matches one the GUI installer makes.
+POOL_OPTIONS: Final[tuple[str, ...]] = (
+    "-o", "ashift=12",
+    "-o", "autotrim=on",
+    "-O", "mountpoint=none",
+    "-O", "acltype=posixacl",
+    "-O", "relatime=on",
+)
+
+#: Dataset properties. `dnodesize=auto` is what makes `xattr=sa` usable: a
+#: system attribute needs a dnode large enough to hold it.
+DATASET_OPTIONS: Final[tuple[str, ...]] = (
+    "-o", "compression=lz4",
+    "-o", "atime=off",
+    "-o", "xattr=sa",
+    "-o", "dnodesize=auto",
+)
+
+
+@dataclass(frozen=True, kw_only=True)
+class WipeSignatures(Operation):
+    """`mkfs` refuses, or worse silently inherits, when an old superblock is left."""
+
+    stage: Stage = Stage.PARTITION
+    device: DeviceId
+
+    def describe(self) -> str:
+        return f"wipe existing signatures from {self.device}"
+
+    def apply(self, context: Context) -> None:
+        context.run(["wipefs", "--all", context.device_path(self.device)])
+
+
+@dataclass(frozen=True, kw_only=True)
+class CreatePartitionTable(Operation):
+    stage: Stage = Stage.PARTITION
+    table: DeviceId
+    disk: DeviceId
+    kind: TableType
+
+    def describe(self) -> str:
+        return f"create a {self.kind.value} partition table on {self.disk} as {self.table}"
+
+    def apply(self, context: Context) -> None:
+        path = context.device_path(self.disk)
+        if self.kind is TableType.GPT:
+            context.run(["sgdisk", "--zap-all", path])
+        else:
+            context.run(["parted", "--script", path, "mklabel", "msdos"])
+
+
+@dataclass(frozen=True, kw_only=True)
+class CreatePartition(Operation):
+    stage: Stage = Stage.PARTITION
+    partition: DeviceId
+    disk: DeviceId
+    table_kind: TableType
+    index: int
+    role: PartitionRole
+    #: None means the rest of the disk, which only the last partition may ask for.
+    size: Size | None
+    label: str
+    #: Where this partition starts. Only the MBR path needs it: `sgdisk` places a
+    #: partition at the first aligned free sector by itself, `parted` does not.
+    start: Size
+
+    def describe(self) -> str:
+        extent = str(self.size) if self.size is not None else "the rest of the disk"
+        name = f" labelled {self.label}" if self.label else ""
+        return (
+            f"create partition {self.index} on {self.disk} as {self.partition}: "
+            f"{self.role.value}, {extent}{name}"
+        )
+
+    def apply(self, context: Context) -> None:
+        path = context.device_path(self.disk)
+        if self.table_kind is TableType.GPT:
+            end = f"+{self.size}" if self.size is not None else "0"
+            argv = [
+                "sgdisk",
+                f"--new={self.index}:0:{end}",
+                f"--typecode={self.index}:{TYPE_CODES[self.role]}",
+            ]
+            if self.role is PartitionRole.BIOS_BOOT:
+                # Attribute 2 is "legacy BIOS bootable"; firmware ignores the
+                # partition without it and GRUB has nowhere to embed itself.
+                argv.append(f"--attributes={self.index}:set:2")
+            if self.label:
+                argv.append(f"--change-name={self.index}:{self.label}")
+            context.run([*argv, path])
+            return
+        end = str(self.start + self.size) if self.size is not None else "100%"
+        context.run(
+            ["parted", "--script", "--align", "optimal", path, "mkpart", "primary", str(self.start), end]
+        )
+        if self.role is PartitionRole.ESP:
+            context.run(["parted", "--script", path, "set", str(self.index), "esp", "on"])
+
+
+@dataclass(frozen=True, kw_only=True)
+class RereadPartitionTable(Operation):
+    """`sgdisk` returns before the kernel has reread the table, so the partition
+    nodes do not exist yet when the next operation asks for one."""
+
+    stage: Stage = Stage.PARTITION
+    disk: DeviceId
+
+    def describe(self) -> str:
+        return f"reread the partition table of {self.disk} and wait for its nodes"
+
+    def apply(self, context: Context) -> None:
+        context.run(["partprobe", context.device_path(self.disk)])
+        context.run(["udevadm", "settle"])
+
+
+@dataclass(frozen=True, kw_only=True)
+class CreateMdRaid(Operation):
+    stage: Stage = Stage.ARRAY
+    array: DeviceId
+    members: tuple[DeviceId, ...]
+    level: RaidLevel
+    metadata: RaidMetadata
+    name: str
+
+    def describe(self) -> str:
+        members = ", ".join(self.members)
+        return (
+            f"create {self.level.value} array /dev/md/{self.name} as {self.array} "
+            f"from {members}, metadata {self.metadata.value}"
+        )
+
+    def apply(self, context: Context) -> None:
+        context.run(
+            [
+                "mdadm",
+                "--create",
+                f"/dev/md/{self.name}",
+                "--run",
+                f"--level={self.level.value}",
+                f"--metadata={self.metadata.value}",
+                f"--raid-devices={len(self.members)}",
+                *(context.device_path(member) for member in self.members),
+            ]
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class CreateLuks(Operation):
+    stage: Stage = Stage.ARRAY
+    container: DeviceId
+    backing: DeviceId
+    name: str
+
+    def describe(self) -> str:
+        return f"format {self.backing} as LUKS2 and open it as /dev/mapper/{self.name}"
+
+    def apply(self, context: Context) -> None:
+        path = context.device_path(self.backing)
+        key = str(context.key_file(self.container))
+        context.run(
+            [
+                "cryptsetup", "luksFormat",
+                "--type", "luks2",
+                "--cipher", "aes-xts-plain64",
+                "--hash", "sha512",
+                "--pbkdf", "argon2id",
+                "--key-size", "512",
+                "--batch-mode",
+                "--key-file", key,
+                path,
+            ]
+        )
+        context.run(["cryptsetup", "open", "--type", "luks2", "--key-file", key, path, self.name])
+
+
+@dataclass(frozen=True, kw_only=True)
+class CreateVolumeGroup(Operation):
+    stage: Stage = Stage.ARRAY
+    group: DeviceId
+    members: tuple[DeviceId, ...]
+    name: str
+
+    def describe(self) -> str:
+        return f"create volume group {self.name} as {self.group} from {', '.join(self.members)}"
+
+    def apply(self, context: Context) -> None:
+        paths = [context.device_path(member) for member in self.members]
+        context.run(["pvcreate", "--force", *paths])
+        context.run(["vgcreate", self.name, *paths])
+
+
+@dataclass(frozen=True, kw_only=True)
+class CreateLogicalVolume(Operation):
+    stage: Stage = Stage.ARRAY
+    volume: DeviceId
+    group: str
+    name: str
+    size: Size | None
+
+    def describe(self) -> str:
+        extent = str(self.size) if self.size is not None else "the rest of the group"
+        return f"create logical volume {self.group}/{self.name} as {self.volume}: {extent}"
+
+    def apply(self, context: Context) -> None:
+        extent = ["--size", str(self.size)] if self.size is not None else ["--extents", "100%FREE"]
+        context.run(["lvcreate", "--yes", *extent, "--name", self.name, self.group])
+
+
+@dataclass(frozen=True, kw_only=True)
+class MakeFilesystem(Operation):
+    stage: Stage = Stage.FORMAT
+    filesystem: DeviceId
+    device: DeviceId
+    kind: FilesystemType
+    label: str
+
+    def describe(self) -> str:
+        name = f" labelled {self.label}" if self.label else ""
+        return f"make a {self.kind.value} filesystem on {self.device} as {self.filesystem}{name}"
+
+    def apply(self, context: Context) -> None:
+        argv = list(MKFS[self.kind])
+        if self.label:
+            argv += [LABEL_OPTION[self.kind], self.label]
+        context.run([*argv, context.device_path(self.device)])
+
+
+@dataclass(frozen=True, kw_only=True)
+class CreateSubvolume(Operation):
+    """btrfs subvolumes live inside the filesystem, so the top level has to be
+    mounted to create one and unmounted again before the layout is mounted."""
+
+    stage: Stage = Stage.FORMAT
+    subvolume: DeviceId
+    device: DeviceId
+    name: str
+
+    def describe(self) -> str:
+        return f"create btrfs subvolume {self.name} on {self.device} as {self.subvolume}"
+
+    def apply(self, context: Context) -> None:
+        scratch = context.target.parent / "btrfs-top"
+        path = context.device_path(self.device)
+        context.run(["mkdir", "--parents", str(scratch)])
+        context.run(["mount", "--types", "btrfs", path, str(scratch)])
+        context.run(["btrfs", "subvolume", "create", str(scratch / self.name)])
+        context.run(["umount", str(scratch)])
+
+
+@dataclass(frozen=True, kw_only=True)
+class MakeSwap(Operation):
+    """The target's fstab enables this swap, not the installer: swap in use on
+    the installing system keeps the device busy and cannot be unmounted."""
+
+    stage: Stage = Stage.FORMAT
+    swap: DeviceId
+    device: DeviceId
+
+    def describe(self) -> str:
+        return f"make swap on {self.device} as {self.swap}"
+
+    def apply(self, context: Context) -> None:
+        path = context.device_path(self.device)
+        context.run(["mkswap", path])
+        context.run(["swapoff", path])
+
+
+@dataclass(frozen=True, kw_only=True)
+class CreateZpool(Operation):
+    stage: Stage = Stage.ZFS
+    pool: DeviceId
+    vdevs: tuple[DeviceId, ...]
+    name: str
+    encrypted: bool
+
+    def describe(self) -> str:
+        how = " with native encryption" if self.encrypted else ""
+        return f"create zpool {self.name} as {self.pool} from {', '.join(self.vdevs)}{how}"
+
+    def apply(self, context: Context) -> None:
+        options = [*POOL_OPTIONS]
+        if self.encrypted:
+            options += ["-O", "encryption=on", "-O", "keyformat=passphrase", "-O", "keylocation=prompt"]
+        context.run(
+            [
+                "zpool", "create", "-f",
+                *options,
+                "-R", str(context.target),
+                self.name,
+                *(context.device_path(vdev) for vdev in self.vdevs),
+            ]
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class CreateDataset(Operation):
+    stage: Stage = Stage.ZFS
+    dataset: DeviceId
+    name: str
+    #: Where the dataset is mounted, or None when it only holds other datasets.
+    mountpoint: PurePosixPath | None
+
+    def describe(self) -> str:
+        where = str(self.mountpoint) if self.mountpoint is not None else "none"
+        return f"create dataset {self.name} as {self.dataset}, mountpoint {where}"
+
+    def apply(self, context: Context) -> None:
+        where = str(self.mountpoint) if self.mountpoint is not None else "none"
+        # -p: a dataset three levels down needs its parents, and the layout
+        # names only the leaves it mounts.
+        context.run(
+            [
+                "zfs", "create", "-p",
+                *DATASET_OPTIONS,
+                "-o", f"mountpoint={where}",
+                "-o", "canmount=noauto",
+                self.name,
+            ]
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class Mount(Operation):
+    stage: Stage = Stage.MOUNT
+    mountpoint: DeviceId
+    source: DeviceId
+    path: PurePosixPath
+    options: tuple[str, ...]
+
+    def describe(self) -> str:
+        options = f" with {','.join(self.options)}" if self.options else ""
+        return f"mount {self.source} at {self.path}{options}"
+
+    def apply(self, context: Context) -> None:
+        where = _under(context.target, self.path)
+        context.run(["mkdir", "--parents", str(where)])
+        argv = ["mount"]
+        if self.options:
+            argv += ["--options", ",".join(self.options)]
+        context.run([*argv, context.device_path(self.source), str(where)])
+
+
+@dataclass(frozen=True, kw_only=True)
+class MountZfsDataset(Operation):
+    """A dataset carries its own mountpoint property, so it is mounted by name."""
+
+    stage: Stage = Stage.MOUNT
+    mountpoint: DeviceId
+    name: str
+    path: PurePosixPath
+
+    def describe(self) -> str:
+        return f"mount dataset {self.name} at {self.path}"
+
+    def apply(self, context: Context) -> None:
+        context.run(["zfs", "mount", self.name])
+
+
+def build(config: InstallConfig) -> list[Operation]:
+    graph = config.disk.graph
+    operations: list[Operation] = []
+    mounts: list[Operation] = []
+    for node in topological(graph):
+        for operation in _operations_for(graph, node):
+            (mounts if operation.stage is Stage.MOUNT else operations).append(operation)
+    for disk in _disks_with_partitions(graph):
+        operations.append(RereadPartitionTable(disk=disk))
+    # `/` before `/home`, or the second mount is hidden by the first.
+    operations += sorted(mounts, key=_mount_depth)
+    # Every partition exists before the first mkfs, so the stage decides here
+    # too, not just once the whole plan is assembled.
+    return sorted(operations, key=lambda operation: operation.stage.order)
+
+
+def topological(graph: DeviceGraph) -> tuple[Node, ...]:
+    """Nodes ordered so each one follows everything it is built from.
+
+    Ties are broken by partition index first and by id second, so the same graph
+    always produces the same plan, and `sgdisk --new=N:0:+size` never places a
+    later partition in the space an earlier one was going to take.
+    """
+    ready: dict[DeviceId, Node] = {}
+    remaining = dict(graph.nodes)
+    while remaining:
+        available = sorted(
+            (node for node in remaining.values() if all(parent in ready for parent in node.inputs)),
+            key=_order_key,
+        )
+        for node in available:
+            ready[node.id] = node
+            del remaining[node.id]
+    return tuple(ready.values())
+
+
+def _order_key(node: Node) -> tuple[int, str]:
+    return (node.index if isinstance(node, Partition) else 0, node.id)
+
+
+def _mount_depth(operation: Operation) -> int:
+    if isinstance(operation, (Mount, MountZfsDataset)):
+        return len(operation.path.parts)
+    return 0
+
+
+def _disks_with_partitions(graph: DeviceGraph) -> tuple[DeviceId, ...]:
+    disks: list[DeviceId] = []
+    for partition in graph.of_type(Partition):
+        table = graph[partition.table]
+        if isinstance(table, PartitionTable) and table.disk not in disks:
+            disks.append(table.disk)
+    return tuple(disks)
+
+
+def _operations_for(graph: DeviceGraph, node: Node) -> list[Operation]:
+    if isinstance(node, Existing):
+        return [WipeSignatures(device=node.id)] if node.wipe else []
+    if isinstance(node, PartitionTable):
+        return [CreatePartitionTable(table=node.id, disk=node.disk, kind=node.table)]
+    if isinstance(node, Partition):
+        table = _expect(graph, node.table, PartitionTable)
+        return [
+            CreatePartition(
+                partition=node.id,
+                disk=table.disk,
+                table_kind=table.table,
+                index=node.index,
+                role=node.role,
+                size=node.size,
+                label=node.label,
+                start=_start_of(graph, node),
+            ),
+        ]
+    if isinstance(node, MdRaid):
+        return [
+            CreateMdRaid(
+                array=node.id,
+                members=node.members,
+                level=node.level,
+                metadata=node.metadata,
+                name=node.name,
+            )
+        ]
+    if isinstance(node, Luks):
+        return [CreateLuks(container=node.id, backing=node.backing, name=node.name)]
+    if isinstance(node, VolumeGroup):
+        return [CreateVolumeGroup(group=node.id, members=node.members, name=node.name)]
+    if isinstance(node, LogicalVolume):
+        group = _expect(graph, node.group, VolumeGroup)
+        return [
+            CreateLogicalVolume(volume=node.id, group=group.name, name=node.name, size=node.size)
+        ]
+    if isinstance(node, Filesystem):
+        return [
+            MakeFilesystem(
+                filesystem=node.id, device=node.device, kind=node.kind, label=node.label
+            )
+        ]
+    if isinstance(node, Subvolume):
+        filesystem = _expect(graph, node.filesystem, Filesystem)
+        return [CreateSubvolume(subvolume=node.id, device=filesystem.device, name=node.name)]
+    if isinstance(node, Swap):
+        return [MakeSwap(swap=node.id, device=node.device)]
+    if isinstance(node, ZfsPool):
+        return [
+            CreateZpool(pool=node.id, vdevs=node.vdevs, name=node.name, encrypted=node.encrypted)
+        ]
+    if isinstance(node, ZfsDataset):
+        pool = _expect(graph, node.pool, ZfsPool)
+        return [
+            CreateDataset(
+                dataset=node.id,
+                name=f"{pool.name}/{node.name}",
+                mountpoint=_dataset_mountpoint(graph, node.id),
+            )
+        ]
+    if isinstance(node, Mountpoint):
+        return _mount_operations(graph, node)
+    return []
+
+
+def _mount_operations(graph: DeviceGraph, node: Mountpoint) -> list[Operation]:
+    source = graph[node.source]
+    if isinstance(source, ZfsDataset):
+        pool = _expect(graph, source.pool, ZfsPool)
+        return [
+            MountZfsDataset(mountpoint=node.id, name=f"{pool.name}/{source.name}", path=node.path)
+        ]
+    if isinstance(source, Subvolume):
+        filesystem = _expect(graph, source.filesystem, Filesystem)
+        return [
+            Mount(
+                mountpoint=node.id,
+                source=filesystem.device,
+                path=node.path,
+                options=(*node.options, f"subvol={source.name}"),
+            )
+        ]
+    if isinstance(source, Filesystem):
+        return [
+            Mount(mountpoint=node.id, source=source.device, path=node.path, options=node.options)
+        ]
+    return [Mount(mountpoint=node.id, source=node.source, path=node.path, options=node.options)]
+
+
+def _dataset_mountpoint(graph: DeviceGraph, dataset: DeviceId) -> PurePosixPath | None:
+    for mount in graph.of_type(Mountpoint):
+        if mount.source == dataset:
+            return mount.path
+    return None
+
+
+def _start_of(graph: DeviceGraph, partition: Partition) -> Size:
+    """Where an MBR partition begins: after every partition with a lower index.
+
+    A partition with no size takes the rest of the disk, so anything after it has
+    no start to compute; `validate.py` rejects that layout.
+    """
+    start = FIRST_OFFSET
+    for sibling in sorted(graph.of_type(Partition), key=lambda node: node.index):
+        if sibling.table != partition.table or sibling.index >= partition.index:
+            continue
+        if sibling.size is None:
+            return start
+        start = (start + sibling.size).align_up()
+    return start
+
+
+def _expect[T: Node](graph: DeviceGraph, device: DeviceId, kind: type[T]) -> T:
+    node = graph[device]
+    if not isinstance(node, kind):
+        raise InvalidLayout(
+            f"{device!r} is a {type(node).__name__.lower()} where a {kind.__name__.lower()} is required"
+        )
+    return node
+
+
+def _under(target: PurePosixPath, path: PurePosixPath) -> PurePosixPath:
+    return target / path.relative_to("/") if path != PurePosixPath("/") else target
