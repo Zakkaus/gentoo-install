@@ -90,3 +90,23 @@ def test_bios_gets_a_table_that_needs_no_bios_boot_partition() -> None:
     """GPT would need one for GRUB's stage 1.5; MBR uses the gap after the
     table, so the template avoids a partition nobody asked about."""
     validate(configured(Choice(disk="/dev/vda", firmware=Firmware.BIOS), Bootloader.GRUB, Firmware.BIOS))
+
+
+def test_the_btrfs_template_matches_the_calamares_subvolume_list() -> None:
+    """Feature parity with the GUI installer is the bar: `mount.conf` of
+    `calamares-settings-gig` lists `/@`, `/@home`, `/@cache` and `/@log`, and a
+    system installed either way has to keep its churn in the same places."""
+    from pathlib import PurePosixPath
+
+    from gentoo_install.model.device import Mountpoint, Subvolume
+    from gentoo_install.model.templates import SUBVOLUMES, build
+
+    graph, _ = build(Choice(disk="/dev/vda", layout=Layout.WHOLE_DISK_BTRFS))
+    assert {node.name for node in graph.of_type(Subvolume)} == {"@", "@home", "@cache", "@log"}
+    mounted = {
+        node.path: node.options
+        for node in graph.of_type(Mountpoint)
+        if isinstance(graph[node.source], Subvolume)
+    }
+    assert set(mounted) == {PurePosixPath(where) for _, where in SUBVOLUMES}
+    assert all(options == ("compress=zstd:1",) for options in mounted.values())

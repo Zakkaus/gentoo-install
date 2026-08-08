@@ -39,9 +39,14 @@ from .size import Size
 #: fills an esp that later turns out to be too small.
 ESP_SIZE: Final[Size] = Size.parse("1GiB")
 
-#: The subvolume layout Calamares installs, so a system installed either way
-#: has its snapshots in the same place.
-SUBVOLUMES: Final[tuple[tuple[str, str], ...]] = (("@", "/"), ("@home", "/home"))
+#: `btrfsSubvolumes` of `calamares-settings-gig`'s `mount.conf`, so a system
+#: installed either way keeps its snapshots and its churn in the same places.
+SUBVOLUMES: Final[tuple[tuple[str, str], ...]] = (
+    ("@", "/"),
+    ("@home", "/home"),
+    ("@cache", "/var/cache"),
+    ("@log", "/var/log"),
+)
 
 
 class Layout(Enum):
