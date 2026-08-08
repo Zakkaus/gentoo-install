@@ -7,6 +7,8 @@ this installer decides before it writes, so nothing has to be undone.
 
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Final
@@ -379,8 +381,10 @@ def _serial_console(config: InstallConfig) -> tuple[str, int] | None:
         if not parameter.startswith("console=ttyS"):
             continue
         port, _, rest = parameter.split("=", 1)[1].partition(",")
-        digits = "".join(character for character in rest if character.isdigit())
-        return port, int(digits) if digits else 115200
+        # The leading run only: `115200n8` names the speed and then the frame
+        # format, and taking every digit made that 1152008 baud.
+        speed = re.match(r"\d+", rest)
+        return port, int(speed.group()) if speed else 115200
     return None
 
 
