@@ -491,13 +491,10 @@ def root_password_screen(
 ) -> Answer[InstallConfig]:
     """The hash goes into the configuration; the plaintext never does."""
     translate = context.translate
-    field = TextField(
-        title=translate("Root password"), masked=True, footer=footer(translate)
-    )
-    answer = field.run(screen)
-    if not answer.chosen:
-        return Answer(answer.outcome)
-    hashed = context.hash_password(answer.unwrap())
+    typed = _ask_password(screen, context, translate("Root password"))
+    if typed is None:
+        return Answer(Outcome.BACK)
+    hashed = context.hash_password(typed)
     return Answer(
         Outcome.CHOSE, replace(config, system=replace(config.system, root_password_hash=hashed))
     )
@@ -518,16 +515,12 @@ def user_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     name = named.unwrap().strip()
     if not name:
         return Answer(Outcome.CHOSE, replace(config, system=replace(config.system, users=())))
-    typed = TextField(
-        # One string with the name in it, not a fragment plus the name: the
-        # relation the label exists to state does not survive concatenation in
-        # a language that puts the possessive first.
-        title=translate("Password for {user}").format(user=name),
-        masked=True,
-        footer=footer(translate),
-    ).run(screen)
-    if not typed.chosen:
-        return Answer(typed.outcome)
+    # One string with the name in it, not a fragment plus the name: the relation
+    # the label exists to state does not survive concatenation in a language
+    # that puts the possessive first.
+    password = _ask_password(screen, context, translate("Password for {user}").format(user=name))
+    if password is None:
+        return Answer(Outcome.BACK)
     granted = Confirm(
         **answers(translate),
         title=translate("Give this account sudo?"), footer=footer(translate)
@@ -539,7 +532,7 @@ def user_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
         # No list here: `plan/system.py:USER_GROUPS` is the one table, and
         # naming `wheel` again put a account that declined sudo back in it.
         sudo=granted.unwrap(),
-        password_hash=context.hash_password(typed.unwrap()),
+        password_hash=context.hash_password(password),
     )
     return Answer(Outcome.CHOSE, replace(config, system=replace(config.system, users=(user,))))
 
@@ -1476,6 +1469,29 @@ def _ask_passphrase(screen: Screen, context: Context) -> str:
             _say(screen, context, translate("The two do not match."))
             continue
         return context.stage_passphrase(typed)
+
+
+def _ask_password(screen: Screen, context: Context, title: str) -> str | None:
+    """A password typed twice, or None when the operator went back.
+
+    Twice for the same reason the passphrase is: the field is masked, and a
+    password with a typo in it is found out at the first login of a machine
+    that has already been installed.
+    """
+    translate = context.translate
+    while True:
+        first = TextField(title=title, masked=True, footer=footer(translate)).run(screen)
+        if not first.chosen:
+            return None
+        typed = first.unwrap()
+        again = TextField(
+            title=translate("Type it again"), masked=True, footer=footer(translate)
+        ).run(screen)
+        if not again.chosen:
+            return None
+        if again.unwrap() == typed:
+            return typed
+        _say(screen, context, translate("The two do not match."))
 
 
 def _say(screen: Screen, context: Context, message: str) -> None:

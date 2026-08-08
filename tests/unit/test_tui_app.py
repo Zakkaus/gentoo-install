@@ -1191,3 +1191,19 @@ def test_the_address_row_says_what_the_machine_will_come_up_with() -> None:
             assert shown == "eth0: 192.0.2.10/24"
         else:
             assert "192.0.2.10" not in shown, chosen
+
+
+def test_a_password_is_typed_twice_before_it_is_hashed() -> None:
+    """The field is masked, so a typo is found out at the first login of a
+    machine that has already been installed. The passphrase was checked this
+    way and the two passwords were not."""
+    at = context()
+    # Two that differ, the message, then two that match.
+    keys = [*"first", "\n", *"second", "\n", "\n", *"right", "\n", *"right", "\n"]
+    answer = screens.root_password_screen(FakeScreen(keys=keys, lines=24), config(), at)
+    assert answer.unwrap().system.root_password_hash == "$6$test$5"
+
+    account = [*"zakk", "\n", *"one", "\n", *"two", "\n", "\n", *"same", "\n", *"same", "\n", "\n"]
+    made = screens.user_screen(FakeScreen(keys=account, lines=24), config(), at)
+    user = made.unwrap().system.users[0]
+    assert user.name == "zakk" and user.password_hash == "$6$test$4"

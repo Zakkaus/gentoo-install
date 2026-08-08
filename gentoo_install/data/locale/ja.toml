@@ -288,3 +288,4 @@
 "Network" = "ネットワーク"
 "systemd logs to journald" = "systemd は journald に記録する"
 "only the cjk kernel draws CJK on the console" = "cjk カーネルだけがコンソールに CJK を描画する"
+"Type it again" = "もう一度入力"

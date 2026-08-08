@@ -288,3 +288,4 @@
 "Network" = "网络"
 "systemd logs to journald" = "systemd 由 journald 记录"
 "only the cjk kernel draws CJK on the console" = "只有 cjk 内核能在控制台画出 CJK"
+"Type it again" = "再输入一次"
