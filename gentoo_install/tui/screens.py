@@ -42,7 +42,7 @@ from ..model import atoms, manual, mirrors, paste, sshkey
 from ..model.templates import Choice, Layout, build
 from ..model.validate import validate
 from ..plan.packages import Catalog as Groups
-from .widgets import Answer, Confirm, Item, Menu, Outcome, Screen, TextField
+from .widgets import Answer, Confirm, Field, Form, Item, Menu, Outcome, Screen, TextField
 
 #: A screen takes what has been decided and returns it changed.
 Step = Callable[[Screen, InstallConfig, "Context"], Answer[InstallConfig]]
@@ -1863,41 +1863,78 @@ def initramfs_keymap_screen(
 
 
 def address_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
-    """DHCP, or an address typed in. A machine on a network with no DHCP comes
-    up unreachable otherwise."""
+    """DHCP, or every static field on one page.
+
+    A machine on a network with no DHCP comes up unreachable, and one given an
+    address with no resolver comes up unable to look anything up. Both families
+    are here because a v6-only network is not a special case any more.
+    """
     translate = context.translate
-    wanted = Confirm(
-        title=translate("Use DHCP?"), footer=footer(translate)
-    ).run(screen)
+    system = config.system
+    wanted = Confirm(title=translate("Use DHCP?"), footer=footer(translate)).run(screen)
     if not wanted.chosen:
         return Answer(wanted.outcome)
     if wanted.unwrap():
         return Answer(
             Outcome.CHOSE,
-            replace(config, system=replace(config.system, address="", gateway="")),
+            replace(
+                config,
+                system=replace(system, addresses=(), gateways=(), dns=()),
+            ),
         )
-    address = TextField(
-        title=translate("Address with its prefix, such as 192.0.2.10/24"),
-        value=config.system.address,
+    form = Form(
+        title=translate("Static address"),
+        fields=[
+            Field(
+                label=translate("Interface"),
+                value=system.interface,
+                placeholder=translate("enp1s0, or empty for the first wired one"),
+            ),
+            Field(
+                label=translate("IPv4"),
+                value=next((one for one in system.addresses if ":" not in one), ""),
+                placeholder="192.0.2.10/24",
+            ),
+            Field(
+                label=translate("IPv4 gateway"),
+                value=next((one for one in system.gateways if ":" not in one), ""),
+                placeholder="192.0.2.1",
+            ),
+            Field(
+                label=translate("IPv6"),
+                value=next((one for one in system.addresses if ":" in one), ""),
+                placeholder="2001:db8::2/64",
+            ),
+            Field(
+                label=translate("IPv6 gateway"),
+                value=next((one for one in system.gateways if ":" in one), ""),
+                placeholder="fe80::1",
+            ),
+            Field(
+                label=translate("DNS"),
+                value=" ".join(system.dns),
+                placeholder=translate("separated by spaces"),
+            ),
+        ],
         footer=footer(translate),
-    ).run(screen)
-    if not address.chosen:
-        return Answer(address.outcome)
-    gateway = TextField(
-        title=translate("Gateway"),
-        value=config.system.gateway,
-        footer=footer(translate),
-    ).run(screen)
-    if not gateway.chosen:
-        return Answer(gateway.outcome)
+        done=translate("Done"),
+    )
+    answer = form.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    interface, four, four_gateway, six, six_gateway, resolvers = (
+        one.strip() for one in answer.unwrap()
+    )
     return Answer(
         Outcome.CHOSE,
         replace(
             config,
             system=replace(
-                config.system,
-                address=address.unwrap().strip(),
-                gateway=gateway.unwrap().strip(),
+                system,
+                interface=interface,
+                addresses=tuple(one for one in (four, six) if one),
+                gateways=tuple(one for one in (four_gateway, six_gateway) if one),
+                dns=tuple(resolvers.split()),
             ),
         ),
     )

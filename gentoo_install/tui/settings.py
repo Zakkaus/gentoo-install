@@ -152,10 +152,11 @@ def _unlock_keymap(config: InstallConfig, context: Context) -> str:
 
 
 def _address(config: InstallConfig, context: Context) -> str:
-    if not config.system.address:
-        return "dhcp"
-    gateway = f" via {config.system.gateway}" if config.system.gateway else ""
-    return f"{config.system.address}{gateway}"
+    system = config.system
+    if not system.addresses:
+        return "DHCP"
+    where = system.interface or "auto"
+    return f"{where}: {', '.join(system.addresses)}"
 
 
 def _keys(config: InstallConfig, context: Context) -> str:

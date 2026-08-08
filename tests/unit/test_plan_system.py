@@ -8,6 +8,7 @@ import pytest
 
 from gentoo_install.errors import LocaleMissing
 from gentoo_install.model.config import (
+    Networking,
     ConsoleFontSize,
     InitSystem,
     InstallConfig,
@@ -289,19 +290,95 @@ def test_an_array_records_itself_where_the_initramfs_reads_it() -> None:
     )
 
 
-def test_a_static_address_is_written_for_the_init_that_reads_it() -> None:
-    """A machine on a network with no DHCP comes up unreachable otherwise."""
-    static = replace(
-        config(),
-        system=replace(config().system, address="192.0.2.10/24", gateway="192.0.2.1"),
-    )
+def static(**fields: object) -> InstallConfig:
+    return replace(config(), system=replace(config().system, **fields))  # type: ignore[arg-type]
+
+
+def networked(installation: InstallConfig) -> Recorder:
     recorder = Recorder()
-    for operation in system.build(static):
+    for operation in system.build(installation):
         if isinstance(operation, system.WriteNetworkConfig):
             operation.apply(recorder)
-    written = recorder.files[PurePosixPath("/etc/systemd/network/20-wired.network")]
-    assert "Address=192.0.2.10/24" in written and "Gateway=192.0.2.1" in written
+    return recorder
+
+
+NETWORKD = PurePosixPath("/etc/systemd/network/20-wired.network")
+CONFD_NET = PurePosixPath("/etc/conf.d/net")
+
+
+def test_a_static_address_carries_its_gateway_and_its_resolvers() -> None:
+    """An address with no resolver boots able to reach a number and unable to
+    look up a name, which reads as no network at all."""
+    written = networked(
+        static(
+            addresses=("192.0.2.10/24",), gateways=("192.0.2.1",), dns=("1.1.1.1", "9.9.9.9")
+        )
+    ).files[NETWORKD]
+    assert "Address=192.0.2.10/24" in written
+    assert "Gateway=192.0.2.1" in written
+    assert "DNS=1.1.1.1" in written and "DNS=9.9.9.9" in written
     assert "DHCP=yes" not in written
+
+
+def test_both_families_are_configured_together() -> None:
+    """A v6-only or dual-stack network is not a special case any more."""
+    written = networked(
+        static(
+            addresses=("192.0.2.10/24", "2001:db8::2/64"),
+            gateways=("192.0.2.1", "fe80::1"),
+        )
+    ).files[NETWORKD]
+    assert "Address=2001:db8::2/64" in written
+    assert "Gateway=fe80::1" in written
+
+
+def test_dhcp_accepts_router_advertisements_as_well() -> None:
+    """Stateless autoconfiguration is how most v6 networks hand out a prefix,
+    and DHCP=yes alone does not ask for it."""
+    written = networked(static()).files[NETWORKD]
+    assert "DHCP=yes" in written and "IPv6AcceptRA=yes" in written
+
+
+def test_the_interface_is_matched_by_name_when_one_is_given() -> None:
+    assert "Name=enp1s0" in networked(static(interface="enp1s0")).files[NETWORKD]
+    both = networked(static()).files[NETWORKD]
+    assert "Name=en*" in both and "Name=eth*" in both
+
+
+def test_netifrc_names_the_interface_the_operator_gave() -> None:
+    """netifrc has no wildcard: `config_eth0` on a machine whose card is
+    `enp1s0` configures an interface that does not exist."""
+    openrc = static(init=InitSystem.OPENRC, interface="enp1s0", addresses=("192.0.2.10/24",))
+    written = networked(openrc).files[CONFD_NET]
+    assert 'config_enp1s0="192.0.2.10/24"' in written
+
+
+def test_an_openrc_static_address_is_applied_by_netifrc_and_not_by_dhcpcd() -> None:
+    """dhcpcd manages every interface itself and would DHCP over the static
+    address, and nothing reads /etc/conf.d/net unless net.<iface> is enabled."""
+    openrc = static(init=InitSystem.OPENRC, interface="enp1s0", addresses=("192.0.2.10/24",))
+    operations = system.build(openrc)
+    linked = [one for one in operations if isinstance(one, system.LinkNetifrcService)]
+    assert [one.interface for one in linked] == ["enp1s0"]
+    enabled = [
+        one.service for one in operations if isinstance(one, system.EnableService)
+    ]
+    assert "dhcpcd" not in enabled
+
+    plain = static(init=InitSystem.OPENRC)
+    services = [
+        one.service for one in system.build(plain) if isinstance(one, system.EnableService)
+    ]
+    assert "dhcpcd" in services
+
+
+def test_networkmanager_is_left_to_manage_the_interfaces_itself() -> None:
+    managed = static(networking=Networking.NETWORKMANAGER_IWD)
+    assert not networked(managed).files
+    services = [
+        one.service for one in system.build(managed) if isinstance(one, system.EnableService)
+    ]
+    assert "NetworkManager" in services
 
 
 def test_root_can_be_given_a_key_before_the_first_boot() -> None:

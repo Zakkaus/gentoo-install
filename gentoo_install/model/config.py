@@ -129,9 +129,17 @@ class SystemConfig:
     #: own because an encrypted root asks for its passphrase there, and a
     #: keyboard that is not us cannot type one it was never told about.
     keymap_initramfs: str = ""
-    #: A static address in CIDR form, such as `192.0.2.10/24`. Empty is DHCP.
-    address: str = ""
-    gateway: str = ""
+    #: The interface to configure. Empty matches `en*` and `eth*`, which is
+    #: what a machine with one wired card wants.
+    interface: str = ""
+    #: Static addresses in CIDR form, either family, such as `192.0.2.10/24`
+    #: and `2001:db8::2/64`. Empty is DHCP and router advertisements.
+    addresses: tuple[str, ...] = ()
+    #: One per family at most. A v6 gateway is often `fe80::1`.
+    gateways: tuple[str, ...] = ()
+    #: Resolvers. A static address with none of these boots with an address and
+    #: no way to resolve a name.
+    dns: tuple[str, ...] = ()
     #: Public keys for root and for every sudo user. One list: the operator
     #: authorises a person, not an account.
     authorized_keys: tuple[str, ...] = ()

@@ -304,37 +304,81 @@ class WriteNetworkConfig(Operation):
     stage: Stage = Stage.SYSTEM
     init: InitSystem
     networking: Networking
-    #: A static address in CIDR form. Empty is DHCP.
-    address: str = ""
-    gateway: str = ""
+    #: Empty matches `en*` and `eth*` on systemd. netifrc has no wildcard, so
+    #: an empty name there falls back to `eth0`.
+    interface: str = ""
+    #: CIDR, either family. Empty is DHCP and router advertisements.
+    addresses: tuple[str, ...] = ()
+    gateways: tuple[str, ...] = ()
+    dns: tuple[str, ...] = ()
 
     def describe(self) -> str:
         if self.networking in (Networking.NETWORKMANAGER_WPA, Networking.NETWORKMANAGER_IWD):
             return f"leave the interfaces to NetworkManager ({self.networking.value})"
-        if self.address:
-            return f"configure the wired interface as {self.address}"
-        return "configure the wired interface for DHCP"
+        where = self.interface or "the wired interface"
+        if self.addresses:
+            return f"configure {where} as {', '.join(self.addresses)}"
+        return f"configure {where} for DHCP"
 
     def apply(self, context: Context) -> None:
         if self.networking in (Networking.NETWORKMANAGER_WPA, Networking.NETWORKMANAGER_IWD):
             return
         if self.init is InitSystem.SYSTEMD:
-            network = "[Match]\nName=en*\nName=eth*\n\n[Network]\n"
-            if self.address:
-                network += f"Address={self.address}\n"
-                if self.gateway:
-                    network += f"Gateway={self.gateway}\n"
-            else:
-                network += "DHCP=yes\n"
-            context.write(PurePosixPath("/etc/systemd/network/20-wired.network"), network)
+            context.write(
+                PurePosixPath("/etc/systemd/network/20-wired.network"), self._networkd()
+            )
             return
-        if self.address:
-            lines = f'config_eth0="{self.address}"\n'
-            if self.gateway:
-                lines += f'routes_eth0="default via {self.gateway}"\n'
-            context.write(PurePosixPath("/etc/conf.d/net"), lines)
-            return
-        context.write(PurePosixPath("/etc/conf.d/net"), 'config_eth0="dhcp"\n')
+        context.write(PurePosixPath("/etc/conf.d/net"), self._netifrc())
+
+    def _networkd(self) -> str:
+        match = f"Name={self.interface}\n" if self.interface else "Name=en*\nName=eth*\n"
+        lines = [f"[Match]\n{match}", "[Network]\n"]
+        if self.addresses:
+            lines += [f"Address={one}\n" for one in self.addresses]
+            lines += [f"Gateway={one}\n" for one in self.gateways]
+        else:
+            # Both families: DHCP=yes covers v4 and the v6 stateful case, and
+            # IPv6AcceptRA covers the stateless one, which is the common way a
+            # v6 network hands out a prefix.
+            lines += ["DHCP=yes\n", "IPv6AcceptRA=yes\n"]
+        lines += [f"DNS={one}\n" for one in self.dns]
+        return "".join(lines)
+
+    def _netifrc(self) -> str:
+        name = self.interface or "eth0"
+        if not self.addresses:
+            return f'config_{name}="dhcp"\n'
+        lines = [f'config_{name}="{" ".join(self.addresses)}"\n']
+        # `default via` for v4 and `default via` for v6 both go in `routes_`;
+        # netifrc reads the family from the address.
+        if self.gateways:
+            routes = "\n".join(f"default via {one}" for one in self.gateways)
+            lines.append(f'routes_{name}="{routes}"\n')
+        if self.dns:
+            lines.append(f'dns_servers_{name}="{" ".join(self.dns)}"\n')
+        return "".join(lines)
+
+
+@dataclass(frozen=True, kw_only=True)
+class LinkNetifrcService(Operation):
+    """netifrc runs one service per interface, each a symlink to `net.lo`.
+
+    Without it `/etc/conf.d/net` is a file nobody reads, and an openrc machine
+    given a static address comes up with none.
+    """
+
+    stage: Stage = Stage.SYSTEM
+    interface: str
+
+    def describe(self) -> str:
+        return f"enable net.{self.interface} so netifrc applies the static address"
+
+    def apply(self, context: Context) -> None:
+        service = f"net.{self.interface}"
+        context.run_in_target(
+            ["ln", "--symbolic", "--force", "net.lo", f"/etc/init.d/{service}"]
+        )
+        context.run_in_target(["rc-update", "add", service, "default"])
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -607,11 +651,20 @@ def build(config: InstallConfig) -> list[Operation]:
         WriteNetworkConfig(
             init=system.init,
             networking=system.networking,
-            address=system.address,
-            gateway=system.gateway,
+            interface=system.interface,
+            addresses=system.addresses,
+            gateways=system.gateways,
+            dns=system.dns,
         ),
-        EnableService(service=_network_service(system), init=system.init),
     ]
+    if _needs_netifrc(system):
+        # Not dhcpcd: it would DHCP over the static address, and nothing reads
+        # /etc/conf.d/net unless the per-interface service is in a runlevel.
+        operations.append(LinkNetifrcService(interface=system.interface or "eth0"))
+    else:
+        operations.append(
+            EnableService(service=_network_service(system), init=system.init)
+        )
     return operations
 
 
@@ -735,6 +788,16 @@ def key_accounts(system: SystemConfig) -> tuple[tuple[str, str], ...]:
 
 def _sshd_service(init: InitSystem) -> str:
     return "sshd"
+
+
+def _needs_netifrc(system: SystemConfig) -> bool:
+    """openrc with a static address. `dhcpcd` manages every interface itself,
+    so it is enough for DHCP and wrong for anything else."""
+    return (
+        system.init is InitSystem.OPENRC
+        and system.networking is Networking.BUILTIN
+        and bool(system.addresses)
+    )
 
 
 def _network_service(system: SystemConfig) -> str:

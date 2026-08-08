@@ -554,3 +554,42 @@ def test_rsync_configures_the_repository_without_pulling_in_git() -> None:
     described = [one.describe() for one in plan_portage.build(chosen, "https://example.invalid")]
     assert not any("dev-vcs/git" in line for line in described)
     assert any("rsync://" in line for line in described)
+
+
+def test_the_static_address_is_one_page_with_every_field_on_it() -> None:
+    """Six fields answered one screen at a time are six questions the operator
+    never sees together, and an address is exactly one setting."""
+    at = context()
+    # `No` is first in a Confirm, and No here means a static address.
+    keys = [
+        "\n",
+        *"enp1s0", "KEY_DOWN",
+        *"192.0.2.10/24", "KEY_DOWN",
+        *"192.0.2.1", "KEY_DOWN",
+        *"2001:db8::2/64", "KEY_DOWN",
+        *"fe80::1", "KEY_DOWN",
+        *"1.1.1.1 9.9.9.9", "KEY_DOWN", "\n",
+    ]
+    screen = FakeScreen(keys=keys, lines=30, columns=100)
+    answer = screens.address_screen(screen, config(), at)
+    system = answer.unwrap().system
+    assert system.interface == "enp1s0"
+    assert system.addresses == ("192.0.2.10/24", "2001:db8::2/64")
+    assert system.gateways == ("192.0.2.1", "fe80::1")
+    assert system.dns == ("1.1.1.1", "9.9.9.9")
+
+
+def test_choosing_dhcp_clears_every_static_field() -> None:
+    at = context()
+    filled = replace(
+        config(),
+        system=replace(
+            config().system,
+            addresses=("192.0.2.10/24",),
+            gateways=("192.0.2.1",),
+            dns=("1.1.1.1",),
+        ),
+    )
+    answer = screens.address_screen(FakeScreen(keys=["KEY_DOWN", "\n"]), filled, at)
+    system = answer.unwrap().system
+    assert system.addresses == () and system.gateways == () and system.dns == ()
