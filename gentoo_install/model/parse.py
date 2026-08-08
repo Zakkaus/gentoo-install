@@ -215,12 +215,14 @@ def _mirrors(raw: Mapping[str, Any], at: str) -> MirrorConfig:
 
 
 def _remote_unlock(raw: Mapping[str, Any], at: str) -> RemoteUnlock:
-    _reject_unknown(raw, at, {"enabled", "port", "address"})
+    _reject_unknown(raw, at, {"enabled", "port", "address", "gateway", "interface"})
     default = RemoteUnlock()
     return RemoteUnlock(
         enabled=_bool(raw, "enabled", at, default.enabled),
         port=_int(raw, "port", at, default.port),
         address=_str(raw, "address", at, default.address),
+        gateway=_str(raw, "gateway", at, default.gateway),
+        interface=_str(raw, "interface", at, default.interface),
     )
 
 

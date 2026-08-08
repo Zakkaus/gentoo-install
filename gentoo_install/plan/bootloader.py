@@ -7,6 +7,8 @@ this installer decides before it writes, so nothing has to be undone.
 
 from __future__ import annotations
 
+import ipaddress
+
 import re
 
 from dataclasses import dataclass
@@ -15,7 +17,7 @@ from typing import Final
 
 from ..errors import NothingToBoot
 from ..model import compat
-from ..model.config import Bootloader, Firmware, InitSystem, InstallConfig
+from ..model.config import Bootloader, Firmware, InitSystem, InstallConfig, RemoteUnlock
 from ..model.device import (
     Existing,
     DeviceId,
@@ -351,7 +353,46 @@ def unlock_parameters(config: InstallConfig) -> tuple[str, ...]:
     unlock = config.kernel.remote_unlock
     if not unlock.enabled:
         return ()
-    return ("rd.neednet=1", f"ip={unlock.address or 'dhcp'}")
+    return ("rd.neednet=1", f"ip={_ip_parameter(unlock)}")
+
+
+def _ip_parameter(unlock: RemoteUnlock) -> str:
+    """dracut's `ip=`, built from the three fields the operator answered.
+
+    Seven colon-separated fields: client, peer, gateway, netmask, hostname,
+    interface, autoconf. The netmask is dotted there, so a CIDR prefix is
+    converted; an address alone reaches nothing off its own subnet.
+    """
+    if not unlock.address:
+        return f"{unlock.interface}:dhcp" if unlock.interface else "dhcp"
+    address, _, prefix = unlock.address.partition("/")
+    netmask = _netmask(address, prefix)
+    client, gateway = _bracketed(address), _bracketed(unlock.gateway)
+    return f"{client}::{gateway}:{netmask}::{unlock.interface}:none"
+
+
+def _bracketed(address: str) -> str:
+    """An IPv6 literal in square brackets. The fields are colon-separated and
+    so is the address, so an unbracketed one makes the whole parameter
+    unreadable."""
+    return f"[{address}]" if ":" in address else address
+
+
+def _netmask(address: str, prefix: str) -> str:
+    """Dotted for IPv4, the prefix itself for IPv6, empty when unparsable.
+
+    Left empty rather than guessed: dracut takes an empty field as `unset`,
+    and a wrong netmask silently puts the machine on the wrong subnet.
+    """
+    if not prefix:
+        return ""
+    try:
+        parsed = ipaddress.ip_network(f"{address}/{prefix}", strict=False)
+    except ValueError:
+        return ""
+    if isinstance(parsed, ipaddress.IPv6Network):
+        return str(parsed.prefixlen)
+    return str(parsed.netmask)
 
 
 def initramfs_devices(config: InstallConfig) -> tuple[tuple[DeviceId, ...], tuple[DeviceId, ...]]:

@@ -260,8 +260,13 @@ class RemoteUnlock:
     #: 222 is the module's own default. Kept off 22 so a client's known_hosts
     #: entry for the running system does not collide with the initramfs one.
     port: int = 222
-    #: DHCP unless an address is given here in dracut's `ip=` seven-field form.
+    #: The address in CIDR, or empty for DHCP. Three fields rather than
+    #: dracut's seven-colon `ip=`: an initramfs with an address and no gateway
+    #: answers only its own subnet, and one with no interface named picks
+    #: whichever came up first.
     address: str = ""
+    gateway: str = ""
+    interface: str = ""
 
 
 @dataclass(frozen=True)

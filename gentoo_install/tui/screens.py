@@ -2668,7 +2668,7 @@ def remote_unlock_screen(
             Outcome.CHOSE,
             replace(config, kernel=replace(config.kernel, remote_unlock=replace(unlock, enabled=False))),
         )
-    typed = (str(unlock.port), unlock.address)
+    typed = (str(unlock.port), unlock.address, unlock.gateway, unlock.interface)
     while True:
         form = Form(
             title=translate("Remote unlock"),
@@ -2677,7 +2677,17 @@ def remote_unlock_screen(
                 Field(
                     label=translate("Address"),
                     value=typed[1],
-                    placeholder=translate("empty for DHCP, or dracut ip= form"),
+                    placeholder=translate("192.0.2.10/24, or empty for DHCP"),
+                ),
+                Field(
+                    label=translate("Gateway"),
+                    value=typed[2],
+                    placeholder=translate("192.0.2.1, needed to answer off this subnet"),
+                ),
+                Field(
+                    label=translate("Interface"),
+                    value=typed[3],
+                    placeholder=translate("eth0, or empty for whichever comes up"),
                 ),
             ],
             footer=footer(translate),
@@ -2686,12 +2696,12 @@ def remote_unlock_screen(
         answer = form.run(screen)
         if not answer.chosen:
             return Answer(answer.outcome)
-        port, address = (one.strip() for one in answer.unwrap())
+        port, address, gateway, interface = (one.strip() for one in answer.unwrap())
         if port.isdigit():
             break
         # Reopened with what was typed: dropping out of the form took the
-        # address with it and the operator retyped both to fix one.
-        typed = (port, address)
+        # other three with it and the operator retyped them to fix one.
+        typed = (port, address, gateway, interface)
         _say(screen, context, translate("The port has to be a number."))
     return Answer(
         Outcome.CHOSE,
@@ -2699,7 +2709,14 @@ def remote_unlock_screen(
             config,
             kernel=replace(
                 config.kernel,
-                remote_unlock=replace(unlock, enabled=True, port=int(port), address=address),
+                remote_unlock=replace(
+                    unlock,
+                    enabled=True,
+                    port=int(port),
+                    address=address,
+                    gateway=gateway,
+                    interface=interface,
+                ),
             ),
         ),
     )

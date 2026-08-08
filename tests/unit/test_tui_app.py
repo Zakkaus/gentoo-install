@@ -1146,15 +1146,20 @@ def test_a_bad_port_keeps_the_address_that_was_typed_beside_it() -> None:
     # bad characters is the whole correction.
     keys = [
         "KEY_DOWN", "\n",
-        *"abc", "KEY_DOWN", *"192.0.2.5", "KEY_DOWN", "\n",
+        *"abc", "KEY_DOWN", *"192.0.2.5/24", "KEY_DOWN", *"192.0.2.1",
+        "KEY_DOWN", *"eth0", "KEY_DOWN", "\n",
         "\n",
-        "KEY_BACKSPACE", "KEY_BACKSPACE", "KEY_BACKSPACE", "KEY_DOWN", "KEY_DOWN", "\n",
+        "KEY_BACKSPACE", "KEY_BACKSPACE", "KEY_BACKSPACE",
+        "KEY_DOWN", "KEY_DOWN", "KEY_DOWN", "KEY_DOWN", "\n",
     ]
     screen = FakeScreen(keys=keys, lines=30, columns=100)
     answer = screens.remote_unlock_screen(screen, with_key, at)
     unlock = answer.unwrap().kernel.remote_unlock
     assert unlock.port == 222
-    assert unlock.address == "192.0.2.5"
+    # All three survived the message, not only the one beside the bad field.
+    assert (unlock.address, unlock.gateway, unlock.interface) == (
+        "192.0.2.5/24", "192.0.2.1", "eth0"
+    )
 
 
 def test_a_listed_key_says_that_enter_removes_it() -> None:

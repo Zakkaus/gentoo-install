@@ -461,22 +461,38 @@ def test_the_unlock_prompt_uses_the_keyboard_that_is_attached() -> None:
 
 def test_remote_unlock_puts_an_address_on_the_command_line() -> None:
     """dracut's network module does nothing without both `rd.neednet=1` and an
-    `ip=`, so the initramfs would come up with no address to ssh into."""
+    `ip=`, so the initramfs would come up with no address to ssh into.
+
+    The three fields are built into dracut's seven, because an initramfs with
+    an address and no gateway answers only its own subnet and one with no
+    interface named takes whichever came up first.
+    """
     from gentoo_install.model.config import RemoteUnlock
 
-    plain = replace(config(), kernel=KernelConfig(remote_unlock=RemoteUnlock(enabled=True)))
-    assert bootloader.unlock_parameters(plain) == ("rd.neednet=1", "ip=dhcp")
-    static = replace(
-        config(),
-        kernel=KernelConfig(
-            remote_unlock=RemoteUnlock(
-                enabled=True, address="192.0.2.10::192.0.2.1:255.255.255.0::enp1s0:none"
-            )
-        ),
-    )
-    assert "ip=192.0.2.10::192.0.2.1:255.255.255.0::enp1s0:none" in bootloader.unlock_parameters(static)
-    assert bootloader.unlock_parameters(config()) == ()
+    def parameters(**fields: object) -> tuple[str, ...]:
+        unlock = RemoteUnlock(enabled=True, **fields)  # type: ignore[arg-type]
+        return bootloader.unlock_parameters(
+            replace(config(), kernel=KernelConfig(remote_unlock=unlock))
+        )
 
+    assert parameters() == ("rd.neednet=1", "ip=dhcp")
+    assert parameters(interface="enp1s0") == ("rd.neednet=1", "ip=enp1s0:dhcp")
+    assert parameters(address="192.0.2.10/24", gateway="192.0.2.1", interface="enp1s0") == (
+        "rd.neednet=1",
+        "ip=192.0.2.10::192.0.2.1:255.255.255.0::enp1s0:none",
+    )
+    # IPv6 goes in brackets, because the fields and the address share a
+    # separator, and takes the prefix itself where IPv4 takes a netmask.
+    assert parameters(address="2001:db8::10/64", gateway="2001:db8::1") == (
+        "rd.neednet=1",
+        "ip=[2001:db8::10]::[2001:db8::1]:64:::none",
+    )
+    # Unparsable: the field is left empty rather than guessed, because a wrong
+    # netmask puts the machine on the wrong subnet without saying so.
+    assert parameters(address="192.0.2.10/nonsense") == (
+        "rd.neednet=1",
+        "ip=192.0.2.10::::::none",
+    )
 
 def test_remote_unlock_adds_the_modules_that_answer_on_the_network() -> None:
     """`crypt-ssh` is what dracut-crypt-ssh installs as 60crypt-ssh, and it
