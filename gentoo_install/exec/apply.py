@@ -60,9 +60,12 @@ class Machine:
         write_file(under(self.mountpoint, path), content, mode)
 
     def read(self, path: PurePosixPath) -> str:
+        """Empty for a file that is not there, which is the normal case before
+        the stage3 is unpacked. Any other failure is raised: swallowing it made
+        `merge` replace the stage3's make.conf instead of editing it."""
         try:
             return under(self.mountpoint, path).read_text()
-        except OSError:
+        except FileNotFoundError:
             return ""
 
     def append(self, path: PurePosixPath, content: str) -> None:
