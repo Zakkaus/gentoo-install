@@ -325,3 +325,29 @@ def test_common_flags_are_left_alone_unless_they_were_changed() -> None:
     assert "COMMON_FLAGS" not in keys
     changed = replace(config(), portage=replace(config().portage, common_flags="-O3 -pipe"))
     assert "COMMON_FLAGS" in [key for key, _ in portage.make_conf(changed)]
+
+
+def test_global_testing_takes_the_unstable_binary_host_whatever_the_row_says() -> None:
+    """The stable set is built against the main tree's `amd64`, so Portage
+    refuses every package of it once `~amd64` is in force; the two rows were
+    settable apart and the install fetched from a path with nothing usable."""
+    from gentoo_install.model.config import BinhostChannel, GentooZhMirror, Keywords
+    from gentoo_install.plan.portage import community_binhost
+
+    base = replace(
+        config().portage,
+        mirrors=replace(config().portage.mirrors, gentoo_zh=GentooZhMirror.CERNET),
+    )
+    stable = replace(
+        base, keywords=Keywords.STABLE,
+        binhost=replace(base.binhost, community=BinhostChannel.STABLE),
+    )
+    assert community_binhost(stable).endswith("/gentoo-zh/binpkgs/x86-64")
+
+    for channel in (BinhostChannel.STABLE, BinhostChannel.UNSTABLE):
+        testing = replace(
+            base, keywords=Keywords.TESTING,
+            binhost=replace(base.binhost, community=channel),
+        )
+        assert community_binhost(testing).endswith("/gentoo-zh/unstable/binpkgs/x86-64"), channel
+

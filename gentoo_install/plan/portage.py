@@ -601,7 +601,7 @@ def build(
                 fingerprint=GENTOOZH_FINGERPRINT,
                 key_path=GENTOOZH_KEY,
             ),
-            ConfigureBinhost(name="gentoo-zh", sync_uri=_binhost_uri(portage), verify=True),
+            ConfigureBinhost(name="gentoo-zh", sync_uri=community_binhost(portage), verify=True),
         ]
     return operations
 
@@ -684,10 +684,17 @@ def _repo_sync_uri(portage: PortageConfig) -> str:
     )
 
 
-def _binhost_uri(portage: PortageConfig) -> str:
+def community_binhost(portage: PortageConfig) -> str:
+    """Where the gentoo-zh binary packages come from.
+
+    Global `~amd64` forces the unstable path whatever the channel row says: the
+    stable set is built against the main tree's `amd64`, and Portage refuses a
+    binary package whose dependencies do not match the keywords in force.
+    """
     return mirrors.gentoozh_binhost(
         portage.mirrors.gentoo_zh,
-        unstable=portage.binhost.community is BinhostChannel.UNSTABLE,
+        unstable=portage.binhost.community is BinhostChannel.UNSTABLE
+        or portage.keywords is Keywords.TESTING,
     )
 
 

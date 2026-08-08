@@ -39,6 +39,7 @@ from ..model.config import (
 )
 from ..model.device import FilesystemType, PartitionRole, TableType, ZfsPool
 from ..plan.kernel import KERNEL_PACKAGES
+from ..plan.portage import community_binhost
 from ..model.size import Size
 from ..errors import GentooInstallError, ValidationFailed
 from ..model import atoms, manual, mirrors, paste, sshkey
@@ -678,10 +679,10 @@ def _mirror_fields(config: InstallConfig, translate: Catalog) -> list[Item[str]]
             Item(
                 label=translate("gentoo-zh binary packages"),
                 value=_ZH_BINHOST,
-                detail=mirrors.gentoozh_binhost(
-                    chosen.gentoo_zh,
-                    unstable=portage.binhost.community is BinhostChannel.UNSTABLE,
-                )
+                # The plan's own function, so the row cannot name one path
+                # while the install writes another: global `~amd64` forces the
+                # unstable one whatever this row was set to.
+                detail=community_binhost(portage)
                 if portage.binhost.community is not BinhostChannel.OFF
                 else translate("not used"),
             ),

@@ -1237,3 +1237,4 @@ def test_the_unlock_keyboard_offers_following_the_console() -> None:
     answer = screens.initramfs_keymap_screen(screen, config(), at)
     assert answer.unwrap().system.keymap_initramfs == ""
     assert "the same as the console" in "\n".join(screen.frames[0])
+
