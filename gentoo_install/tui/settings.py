@@ -19,7 +19,8 @@ from ..plan.kernel import KERNEL_PACKAGES
 from ..model import mirrors
 from ..model.device import Existing, Luks, MdRaid, PartitionTable, VolumeGroup, ZfsPool
 from . import screens
-from .screens import Context, Step
+from .screens import Context, Step, footer
+from .widgets import Answer, Item, Menu, Outcome, Screen
 
 #: Shown for a row the operator has not visited and that has no usable default.
 UNSET: Final[str] = "not set"
@@ -36,6 +37,70 @@ class Setting:
     edit: Step | None
     #: A run cannot start until every required row has an answer.
     required: bool = False
+
+
+def nested(title: str, rows: tuple[Setting, ...]) -> Step:
+    """A row that opens a list of rows, drawn the same way the main menu is.
+
+    Six decisions about one subject read as six unrelated rows in a menu of
+    thirty; behind one row they read as the subject they belong to. Not a
+    wizard: the list is re-enterable and every row shows its value.
+    """
+
+    def open(
+        screen: Screen, config: InstallConfig, context: Context
+    ) -> Answer[InstallConfig]:
+        current = config
+        cursor = 0
+        while True:
+            items = [
+                Item(
+                    label=context.translate(row.label),
+                    value=index,
+                    detail=row.value(current, context),
+                    disabled_because="" if row.edit else context.translate("detected"),
+                )
+                for index, row in enumerate(rows)
+            ]
+            items.append(Item(label=context.translate("Done"), value=len(rows)))
+            menu: Menu[int] = Menu(
+                title=context.translate(title),
+                items=items,
+                footer=footer(context.translate),
+                cursor=cursor,
+            )
+            answer = menu.run(screen)
+            cursor = menu.cursor
+            if not answer.chosen:
+                return Answer(answer.outcome)
+            chosen = answer.unwrap()[0]
+            if chosen == len(rows):
+                return Answer(Outcome.CHOSE, current)
+            editor = rows[chosen].edit
+            if editor is None:
+                continue
+            edited = editor(screen, current, context)
+            if edited.outcome is Outcome.CANCELLED:
+                return Answer(Outcome.CANCELLED)
+            if edited.chosen:
+                current = edited.unwrap()
+
+    return open
+
+
+def _summary(rows: tuple[Setting, ...], take: int = 2) -> Callable[[InstallConfig, Context], str]:
+    """What a grouped row shows: the first values behind it, and how many more.
+
+    Not all of them: six joined by commas runs past 80 columns, and the part
+    that gets truncated away is the end of the list.
+    """
+
+    def shown(config: InstallConfig, context: Context) -> str:
+        first = ", ".join(row.value(config, context) for row in rows[:take])
+        rest = len(rows) - take
+        return f"{first} +{rest}" if rest > 0 else first
+
+    return shown
 
 
 def _shown(config: InstallConfig, context: Context) -> str:
@@ -55,6 +120,10 @@ def _swap(config: InstallConfig, context: Context) -> str:
 
 def _kernel(config: InstallConfig, context: Context) -> str:
     return config.kernel.package or KERNEL_PACKAGES[config.kernel.source]
+
+
+def _cpu_flags(config: InstallConfig, context: Context) -> str:
+    return " ".join(config.portage.cpu_flags) or context.translate("what the profile sets")
 
 
 def _keywords(config: InstallConfig, context: Context) -> str:
@@ -194,25 +263,47 @@ def _erase(config: InstallConfig, context: Context) -> str:
 #: The menu, flat and in the order it is drawn. One row per decision: nesting
 #: hides a choice behind a heading nobody opens, and `archinstall` reaches the
 #: same conclusion.
-SETTINGS: Final[tuple[Setting, ...]] = (
-    # Detected and shown, never chosen: the UEFI and BIOS paths differ and
-    # installing for the one the machine did not boot is a mistake.
-    Setting("firmware", "Firmware", _firmware, None),
-    Setting("keymap", "Keyboard layout", lambda c, x: c.system.keymap, screens.keymap_screen),
-    Setting("keymap_initramfs", "Keyboard at unlock", _unlock_keymap, screens.initramfs_keymap_screen),
-    Setting("locale", "System language", lambda c, x: c.system.locale, screens.locale_screen),
-    Setting("timezone", "Timezone", lambda c, x: c.system.timezone, screens.timezone_screen),
-    Setting("mirror", "Mirrors", _mirror, screens.mirror_screen, required=True),
-    Setting("compiler", "Compiler", _compiler, screens.compiler_screen),
+#: The disk, as one subject. Six rows in a menu of thirty read as six unrelated
+#: decisions; behind one row they read as the layout they describe.
+DISK: Final[tuple[Setting, ...]] = (
     Setting("disk", "Drive", _drive, screens.disk_screen, required=True),
     Setting("table", "Partition table", _table, screens.table_screen),
     Setting("layout", "Layout", _layout, screens.layout_screen),
     Setting("partitions", "Partitions", _partitions, screens.partitions_screen),
     Setting("encryption", "Encryption", _encryption, screens.encryption_screen),
     Setting("swap", "Swap", _swap, screens.swap_screen),
+)
+
+#: How the target builds. Read together, so shown together.
+COMPILER: Final[tuple[Setting, ...]] = (
+    Setting("makeopts", "Compile jobs", _makeopts, screens.makeopts_screen),
+    Setting("cflags", "Compiler flags", _cflags, screens.compile_flags_screen),
+    # Read from /proc/cpuinfo, so it is right without being asked; shown
+    # because it decides which binary packages match.
+    Setting("cpu_flags", "CPU flags", _cpu_flags, None),
+    Setting("license", "Licenses", _license, screens.license_screen),
+    Setting("keywords", "Package keywords", _keywords, screens.keywords_screen),
+)
+
+#: Who reaches the machine over the network once it boots.
+SSH: Final[tuple[Setting, ...]] = (
+    Setting("sshd", "SSH server", _sshd, screens.sshd_screen),
+    Setting("rootlogin", "Root login over SSH", _root_login, screens.root_login_screen),
+    Setting("keys", "SSH public keys", _keys, screens.authorized_keys_screen),
+)
+
+SETTINGS: Final[tuple[Setting, ...]] = (
+    Setting("firmware", "Firmware", _firmware, None),
+    Setting("keymap", "Keyboard layout", lambda c, x: c.system.keymap, screens.keymap_screen),
+    Setting("keymap_initramfs", "Keyboard at unlock", _unlock_keymap, screens.initramfs_keymap_screen),
+    Setting("locale", "System language", lambda c, x: c.system.locale, screens.locale_screen),
+    Setting("timezone", "Timezone", lambda c, x: c.system.timezone, screens.timezone_screen),
+    Setting("mirror", "Mirrors", _mirror, screens.mirror_screen, required=True),
+    Setting("storage", "Disk", _summary(DISK), nested("Disk", DISK), required=True),
     Setting("hostname", "Hostname", lambda c, x: c.system.hostname, screens.system_screen),
     Setting("init", "Init system", lambda c, x: c.system.init.value, screens.init_screen),
     Setting("profile", "Profile", lambda c, x: c.portage.profile, screens._profile_screen),
+    Setting("compiler", "Compiler", _summary(COMPILER), nested("Compiler", COMPILER)),
     Setting("root", "Root password", _root, screens.root_password_screen, required=True),
     Setting("user", "User account", _user, screens.user_screen),
     Setting("kernel", "Kernel", _kernel, screens.kernel_screen),
@@ -224,17 +315,21 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("extra", "Extra packages", _extra, screens.extra_packages_screen),
     Setting("network", "Network configuration", _network, screens.networking_screen),
     Setting("address", "Address", _address, screens.address_screen),
-    Setting("keys", "SSH public keys", _keys, screens.authorized_keys_screen),
-    Setting("rootlogin", "Root login over SSH", _root_login, screens.root_login_screen),
-    Setting("sshd", "SSH server", _sshd, screens.sshd_screen),
+    Setting("ssh", "SSH", _summary(SSH), nested("SSH", SSH)),
     Setting("erase", "Confirm erasing the drive", _erase, screens.erase_screen, required=True),
 )
 
 
 def unanswered(config: InstallConfig, context: Context) -> tuple[str, ...]:
-    """Required rows still showing nothing, which is what blocks the install."""
+    """Required rows still showing nothing, which is what blocks the install.
+
+    A grouped row is named by whichever row behind it is missing: `Disk` says
+    nothing about which of its six the operator has not reached.
+    """
+    grouped = {"storage", "compiler", "ssh"}
+    rows = [one for one in SETTINGS if one.key not in grouped]
     return tuple(
         setting.label
-        for setting in SETTINGS
+        for setting in (*rows, *DISK, *COMPILER, *SSH)
         if setting.required and setting.value(config, context) == UNSET
     )

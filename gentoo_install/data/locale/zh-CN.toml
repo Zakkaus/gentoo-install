@@ -230,3 +230,6 @@
 "the in-kernel driver, which is all Intel and AMD usually need" = "内核内建驱动，Intel 与 AMD 多数只需这个"
 "stable ::gentoo, ~amd64 for the overlay" = "::gentoo 稳定，overlay 用 ~amd64"
 "~amd64 throughout" = "全部 ~amd64"
+"Disk" = "磁盘"
+"SSH" = "SSH"
+"detected" = "检测到的"

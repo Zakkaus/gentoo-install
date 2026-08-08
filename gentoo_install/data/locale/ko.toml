@@ -230,3 +230,6 @@
 "the in-kernel driver, which is all Intel and AMD usually need" = "커널 내장 드라이버, Intel 과 AMD 는 대개 이것으로 충분"
 "stable ::gentoo, ~amd64 for the overlay" = "::gentoo 안정, 오버레이는 ~amd64"
 "~amd64 throughout" = "전부 ~amd64"
+"Disk" = "디스크"
+"SSH" = "SSH"
+"detected" = "감지된 값"

@@ -438,13 +438,26 @@ def test_the_gentoozh_distfiles_are_appended_and_never_ranked() -> None:
     assert appended[-1] == "https://distfiles.gentoozh.org"
 
 
-def test_the_compiler_row_gathers_the_four_that_are_read_together() -> None:
+def test_a_grouped_row_shows_its_own_rows_and_comes_back() -> None:
+    """Six decisions about one subject read as six unrelated rows in a menu of
+    thirty. Behind one row they read as the subject they belong to."""
     at = context()
-    screen = FakeScreen(keys=["q"], lines=30, columns=110)
-    screens.compiler_screen(screen, config(), at)
-    drawn = screen.last
-    for label in ("Compile jobs", "Compiler flags", "CPU flags", "Licenses", "Package keywords"):
-        assert label in drawn, label
+    for title, rows in (
+        ("Disk", settings.DISK),
+        ("Compiler", settings.COMPILER),
+        ("SSH", settings.SSH),
+    ):
+        screen = FakeScreen(keys=["q"], lines=40, columns=120)
+        settings.nested(title, rows)(screen, config(), at)
+        for row in rows:
+            assert row.label in screen.last, (title, row.label)
+
+
+def test_a_grouped_row_names_the_row_behind_it_that_is_missing() -> None:
+    """`Disk` says nothing about which of its six the operator has not reached."""
+    blank = replace(config(), system=replace(config().system, root_password_hash=""))
+    assert "Root password" in settings.unanswered(blank, context())
+    assert "Drive" in settings.unanswered(blank, context()) or config().disk.graph
 
 
 def test_the_driver_is_one_choice_and_not_a_row_to_tick() -> None:

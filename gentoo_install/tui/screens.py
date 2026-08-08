@@ -117,7 +117,7 @@ class Context:
         self.existing, self.disk_size = self._inspect(disk)
 
 
-def _footer(translate: Catalog) -> str:
+def footer(translate: Catalog) -> str:
     return "  ".join(
         (
             f"[enter] {translate('Continue')}",
@@ -139,7 +139,7 @@ def disk_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     menu: Menu[str] = Menu(
         title=translate("Disks"),
         items=[Item(label=name, value=name, detail=detail) for name, detail in context.disks],
-        footer=_footer(translate),
+        footer=footer(translate),
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -159,7 +159,7 @@ def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> An
         Item(label="manual: choose the partitions yourself", value=(None, FilesystemType.EXT4)),
     ]
     menu: Menu[tuple[Layout | None, FilesystemType]] = Menu(
-        title=translate("Layout"), items=items, footer=_footer(translate)
+        title=translate("Layout"), items=items, footer=footer(translate)
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -198,7 +198,7 @@ def _zfs_bootloader(screen: Screen, config: InstallConfig, context: Context) -> 
                 detail=translate("no overlay, and the esp has to hold the kernel"),
             ),
         ],
-        footer=_footer(translate),
+        footer=footer(translate),
     ).run(screen)
     if not answer.chosen:
         return config
@@ -230,7 +230,7 @@ def erase_screen(screen: Screen, config: InstallConfig, context: Context) -> Ans
         title=f"{translate('This erases every partition on the disk.')} {disk}. "
         f"{translate('Type the disk name to confirm.')}",
         phrase=disk,
-        footer=_footer(translate),
+        footer=footer(translate),
     )
     answer = question.run(screen)
     if not answer.chosen:
@@ -244,7 +244,7 @@ def system_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     field = TextField(
         title=translate("Hostname"),
         value=config.system.hostname,
-        footer=_footer(translate),
+        footer=footer(translate),
     )
     answer = field.run(screen)
     if not answer.chosen:
@@ -260,7 +260,7 @@ def init_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     menu: Menu[InitSystem] = Menu(
         title=translate("Init system"),
         items=[Item(label=init.value, value=init) for init in InitSystem],
-        footer=_footer(translate),
+        footer=footer(translate),
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -291,7 +291,7 @@ def root_password_screen(
     """The hash goes into the configuration; the plaintext never does."""
     translate = context.translate
     field = TextField(
-        title=translate("Root password"), masked=True, footer=_footer(translate)
+        title=translate("Root password"), masked=True, footer=footer(translate)
     )
     answer = field.run(screen)
     if not answer.chosen:
@@ -310,7 +310,7 @@ def user_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     """
     translate = context.translate
     named = TextField(
-        title=translate("User name, or empty for root only"), footer=_footer(translate)
+        title=translate("User name, or empty for root only"), footer=footer(translate)
     ).run(screen)
     if not named.chosen:
         return Answer(named.outcome)
@@ -318,12 +318,12 @@ def user_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     if not name:
         return Answer(Outcome.CHOSE, replace(config, system=replace(config.system, users=())))
     typed = TextField(
-        title=translate("Password for") + f" {name}", masked=True, footer=_footer(translate)
+        title=translate("Password for") + f" {name}", masked=True, footer=footer(translate)
     ).run(screen)
     if not typed.chosen:
         return Answer(typed.outcome)
     granted = Confirm(
-        title=translate("Give this account sudo?"), footer=_footer(translate)
+        title=translate("Give this account sudo?"), footer=footer(translate)
     ).run(screen)
     if not granted.chosen:
         return Answer(granted.outcome)
@@ -392,7 +392,7 @@ def mirror_screen(screen: Screen, config: InstallConfig, context: Context) -> An
         menu: Menu[str] = Menu(
             title=translate("Mirrors"),
             items=_mirror_fields(current, translate),
-            footer=_footer(translate),
+            footer=footer(translate),
             cursor=cursor,
         )
         answer = menu.run(screen)
@@ -501,7 +501,7 @@ def _edit_mirror(
         picked = Menu(
             title=translate("Region"),
             items=[Item(label=one.value, value=one) for one in MirrorRegion],
-            footer=_footer(translate),
+            footer=footer(translate),
         ).run(screen)
         if not picked.chosen:
             return None
@@ -520,7 +520,7 @@ def _edit_mirror(
                 )
                 for one in offered
             ],
-            footer=_footer(translate),
+            footer=footer(translate),
         ).run(screen)
         if not chosen.chosen:
             return None
@@ -529,7 +529,7 @@ def _edit_mirror(
         )
     if field == _DISTFILES:
         asked_files = Confirm(
-            title=translate("Write GENTOO_MIRRORS?"), footer=_footer(translate)
+            title=translate("Write GENTOO_MIRRORS?"), footer=footer(translate)
         ).run(screen)
         if not asked_files.chosen:
             return None
@@ -541,7 +541,7 @@ def _edit_mirror(
         )
     if field == _MEASURE:
         asked = Confirm(
-            title=translate("Measure the mirrors before installing?"), footer=_footer(translate)
+            title=translate("Measure the mirrors before installing?"), footer=footer(translate)
         ).run(screen)
         if not asked.chosen:
             return None
@@ -576,7 +576,7 @@ def _edit_mirror(
     if field == _ZH_DISTFILES:
         asked_zh = Confirm(
             title=translate("Add the gentoo-zh distfiles to GENTOO_MIRRORS?"),
-            footer=_footer(translate),
+            footer=footer(translate),
         ).run(screen)
         if not asked_zh.chosen:
             return None
@@ -608,7 +608,7 @@ def _pick(
             Item(label=str(getattr(value, "value", value)), value=value, detail=translate(reason))
             for value, reason in offered
         ],
-        footer=_footer(translate),
+        footer=footer(translate),
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -637,7 +637,7 @@ def _edit_binhost(
         for (official, subarch), reason in BINHOSTS
     ]
     menu: Menu[tuple[bool, str]] = Menu(
-        title=translate("Gentoo binary packages"), items=items, footer=_footer(translate)
+        title=translate("Gentoo binary packages"), items=items, footer=footer(translate)
     )
     if context.supports_v3:
         # Recommended by starting on it: it is the faster of the two and this
@@ -672,7 +672,7 @@ def _edit_gentoozh(
         for one in mirrors.GENTOOZH_SITES
     ]
     answer = Menu(
-        title=translate("gentoo-zh"), items=items, footer=_footer(translate)
+        title=translate("gentoo-zh"), items=items, footer=footer(translate)
     ).run(screen)
     if not answer.chosen:
         return None
@@ -692,7 +692,7 @@ def _toggle_overlay(
     screen: Screen, context: Context, config: InstallConfig, name: str
 ) -> InstallConfig | None:
     translate = context.translate
-    asked = Confirm(title=f"{name}?", footer=_footer(translate)).run(screen)
+    asked = Confirm(title=f"{name}?", footer=footer(translate)).run(screen)
     if not asked.chosen:
         return None
     portage = config.portage
@@ -716,7 +716,7 @@ def bootloader_screen(
             Item(label=kind.value, value=kind, disabled_because=broken[0].reason if broken else "")
         )
     menu: Menu[Bootloader] = Menu(
-        title=translate("Bootloader"), items=items, footer=_footer(translate)
+        title=translate("Bootloader"), items=items, footer=footer(translate)
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -762,7 +762,7 @@ def keywords_screen(
                 detail=translate("the ~amd64 unstable channel"),
             ),
         ],
-        footer=_footer(translate),
+        footer=footer(translate),
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -771,66 +771,6 @@ def keywords_screen(
         Outcome.CHOSE,
         replace(config, portage=replace(config.portage, keywords=answer.unwrap()[0])),
     )
-
-
-#: One row of the compiler screen. Four settings that are read together and
-#: were four rows apart, so nobody saw them as one decision.
-_JOBS: Final[str] = "jobs"
-_FLAGS: Final[str] = "flags"
-_CPU_FLAGS: Final[str] = "cpu-flags"
-_LICENSE: Final[str] = "license"
-_KEYWORDS: Final[str] = "keywords"
-
-
-def compiler_screen(
-    screen: Screen, config: InstallConfig, context: Context
-) -> Answer[InstallConfig]:
-    """How the target builds: jobs, flags, licences and keywords in one place."""
-    translate = context.translate
-    current = config
-    cursor = 0
-    while True:
-        menu: Menu[str] = Menu(
-            title=translate("Compiler"),
-            items=_compiler_fields(current, context),
-            footer=_footer(translate),
-            cursor=cursor,
-        )
-        answer = menu.run(screen)
-        cursor = menu.cursor
-        if not answer.chosen:
-            return Answer(answer.outcome)
-        field = answer.unwrap()[0]
-        if field == _DONE:
-            return Answer(Outcome.CHOSE, current)
-        edited = _COMPILER_FIELDS[field](screen, current, context)
-        if edited.chosen:
-            current = edited.unwrap()
-
-
-def _compiler_fields(config: InstallConfig, context: Context) -> list[Item[str]]:
-    translate = context.translate
-    portage = config.portage
-    return [
-        Item(
-            label=translate("Compile jobs"),
-            value=_JOBS,
-            detail=portage.makeopts or f"-j{context.cores}",
-        ),
-        Item(label=translate("Compiler flags"), value=_FLAGS, detail=portage.common_flags),
-        Item(
-            label=translate("CPU flags"),
-            value=_CPU_FLAGS,
-            detail=" ".join(portage.cpu_flags) or translate("what the profile sets"),
-        ),
-        Item(label=translate("Licenses"), value=_LICENSE, detail=" ".join(portage.accept_license)),
-        Item(
-            label=translate("Package keywords"),
-            value=_KEYWORDS,
-            detail="~amd64" if portage.keywords is Keywords.TESTING else "amd64",
-        ),
-        Item(label=translate("Done"), value=_DONE),
-    ]
 
 
 def kernel_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
@@ -843,7 +783,7 @@ def kernel_screen(screen: Screen, config: InstallConfig, context: Context) -> An
             Item(label=KERNEL_PACKAGES[source], value=source, detail=translate(reason))
             for source, reason in KERNELS
         ],
-        footer=_footer(translate),
+        footer=footer(translate),
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -885,7 +825,7 @@ def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> A
         for name in sorted(DESKTOP_PROFILES)
     ]
     menu: Menu[str] = Menu(
-        title=translate("Desktop and applications"), items=items, footer=_footer(translate)
+        title=translate("Desktop and applications"), items=items, footer=footer(translate)
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -969,7 +909,7 @@ def _one_group(
             Item(label=name or translate("none"), value=name, detail=translate(reason))
             for name, reason in offered
         ],
-        footer=_footer(translate),
+        footer=footer(translate),
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -1003,7 +943,7 @@ def packages_screen(
         items=items,
         multiple=True,
         selected={index for index, item in enumerate(items) if item.value in chosen_already},
-        footer=_footer(translate),
+        footer=footer(translate),
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -1067,7 +1007,7 @@ def locale_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     menu: Menu[str] = Menu(
         title=translate("System language"),
         items=[Item(label=f"{name}  {label}", value=name) for name, label in LOCALES],
-        footer=_footer(translate),
+        footer=footer(translate),
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -1098,7 +1038,7 @@ def timezone_screen(screen: Screen, config: InstallConfig, context: Context) -> 
     chosen_area: Menu[str] = Menu(
         title=translate("Timezone"),
         items=[Item(label=area, value=area) for area in areas],
-        footer=_footer(translate),
+        footer=footer(translate),
     )
     picked = chosen_area.run(screen)
     if not picked.chosen:
@@ -1112,7 +1052,7 @@ def timezone_screen(screen: Screen, config: InstallConfig, context: Context) -> 
     city: Menu[str] = Menu(
         title=area,
         items=[Item(label=zone.split("/", 1)[1], value=zone) for zone in within],
-        footer=_footer(translate),
+        footer=footer(translate),
     )
     answer = city.run(screen)
     if not answer.chosen:
@@ -1126,7 +1066,7 @@ def encryption_screen(screen: Screen, config: InstallConfig, context: Context) -
     """Whether the root filesystem is encrypted, and the passphrase if it is."""
     translate = context.translate
     wanted = Confirm(
-        title=translate("Encrypt the root filesystem?"), footer=_footer(translate)
+        title=translate("Encrypt the root filesystem?"), footer=footer(translate)
     ).run(screen)
     if not wanted.chosen:
         return Answer(wanted.outcome)
@@ -1150,7 +1090,7 @@ def _ask_passphrase(screen: Screen, context: Context) -> str:
     translate = context.translate
     while True:
         first = TextField(
-            title=translate("Passphrase"), masked=True, footer=_footer(translate)
+            title=translate("Passphrase"), masked=True, footer=footer(translate)
         ).run(screen)
         if not first.chosen:
             return ""
@@ -1161,7 +1101,7 @@ def _ask_passphrase(screen: Screen, context: Context) -> str:
             _say(screen, context, translate("The passphrase is too short."))
             continue
         again = TextField(
-            title=translate("Passphrase again"), masked=True, footer=_footer(translate)
+            title=translate("Passphrase again"), masked=True, footer=footer(translate)
         ).run(screen)
         if not again.chosen:
             return ""
@@ -1177,7 +1117,7 @@ def _say(screen: Screen, context: Context, message: str) -> None:
     Menu(
         title=message,
         items=[Item(label=context.translate("Continue"), value=0)],
-        footer=_footer(context.translate),
+        footer=footer(context.translate),
     ).run(screen)
 
 
@@ -1189,7 +1129,7 @@ def swap_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
         Item(label="8 GiB partition", value="8GiB"),
         Item(label="zram, 4 GiB compressed in memory", value="zram:4GiB"),
     ]
-    menu: Menu[str] = Menu(title=translate("Swap"), items=items, footer=_footer(translate))
+    menu: Menu[str] = Menu(title=translate("Swap"), items=items, footer=footer(translate))
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
@@ -1222,7 +1162,7 @@ def sshd_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
                 detail=translate("root included"),
             ),
         ],
-        footer=_footer(translate),
+        footer=footer(translate),
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -1253,12 +1193,12 @@ def overview_screen(screen: Screen, config: InstallConfig, context: Context) -> 
     menu: Menu[int] = Menu(
         title=f"{translate('Overview')}: {summarise(operations)}",
         items=items,
-        footer=_footer(translate),
+        footer=footer(translate),
     )
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
-    question = Confirm(title=translate("Install"), footer=_footer(translate))
+    question = Confirm(title=translate("Install"), footer=footer(translate))
     confirmed = question.run(screen)
     if not confirmed.chosen:
         return Answer(confirmed.outcome)
@@ -1274,7 +1214,7 @@ def _profile_screen(screen: Screen, config: InstallConfig, context: Context) -> 
     menu: Menu[str] = Menu(
         title=context.translate("Portage"),
         items=[Item(label=profile, value=profile) for profile in wanted],
-        footer=_footer(context.translate),
+        footer=footer(context.translate),
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -1290,7 +1230,7 @@ def table_screen(screen: Screen, config: InstallConfig, context: Context) -> Ans
     translate = context.translate
     items = [Item(label=table.value, value=table) for table in TableType]
     menu: Menu[TableType] = Menu(
-        title=translate("Partition table"), items=items, footer=_footer(translate)
+        title=translate("Partition table"), items=items, footer=footer(translate)
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -1312,7 +1252,7 @@ def firmware_screen(screen: Screen, config: InstallConfig, context: Context) -> 
         for firmware in Firmware
     ]
     menu: Menu[Firmware] = Menu(
-        title=translate("Firmware"), items=items, footer=_footer(translate)
+        title=translate("Firmware"), items=items, footer=footer(translate)
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -1330,7 +1270,7 @@ def keymap_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     field = TextField(
         title=context.translate("Keyboard layout"),
         value=config.system.keymap,
-        footer=_footer(context.translate),
+        footer=footer(context.translate),
     )
     answer = field.run(screen)
     if not answer.chosen:
@@ -1358,7 +1298,7 @@ def networking_screen(
         Item(label=choice.value, value=choice, detail=detail[choice]) for choice in Networking
     ]
     menu: Menu[Networking] = Menu(
-        title=translate("Network configuration"), items=items, footer=_footer(translate)
+        title=translate("Network configuration"), items=items, footer=footer(translate)
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -1394,7 +1334,7 @@ def partitions_screen(
         menu: Menu[int] = Menu(
             title=f"{translate('Partitions')}  {_capacity(context)}",
             items=items,
-            footer=f"{_layout_problem(context, config)}  {_footer(translate)}".strip(),
+            footer=f"{_layout_problem(context, config)}  {footer(translate)}".strip(),
         )
         answer = menu.run(screen)
         if not answer.chosen:
@@ -1496,7 +1436,7 @@ def _edit_slice(
         menu: Menu[str] = Menu(
             title=f"{translate('Partition')} {entry.index}",
             items=_slice_fields(entry, purpose, translate),
-            footer=_footer(translate),
+            footer=footer(translate),
             cursor=cursor,
         )
         answer = menu.run(screen)
@@ -1565,7 +1505,7 @@ def _edit_field(
             title=translate("Size"),
             value="" if entry.size is None else str(entry.size),
             placeholder=translate("512MiB, 20GiB, or empty for the remaining space"),
-            footer=_footer(translate),
+            footer=footer(translate),
         ).run(screen)
         if not typed.chosen:
             return None
@@ -1575,7 +1515,7 @@ def _edit_field(
         picked = Menu(
             title=translate("What is this partition for?"),
             items=[Item(label=one.label, value=one) for one in manual.PURPOSES],
-            footer=_footer(translate),
+            footer=footer(translate),
         ).run(screen)
         if not picked.chosen:
             return None
@@ -1592,7 +1532,7 @@ def _edit_field(
             Item(label="zfs", value=None, detail=translate("a pool member, not a filesystem"))
         )
         answered = Menu(
-            title=translate("Filesystem"), items=items, footer=_footer(translate)
+            title=translate("Filesystem"), items=items, footer=footer(translate)
         ).run(screen)
         if not answered.chosen:
             return None
@@ -1605,7 +1545,7 @@ def _edit_field(
             title=translate("Mount point"),
             value=entry.mountpoint,
             placeholder=translate("/srv, or empty to leave it unmounted"),
-            footer=_footer(translate),
+            footer=footer(translate),
         ).run(screen)
         if not where.chosen:
             return None
@@ -1615,7 +1555,7 @@ def _edit_field(
             title=translate("Label"),
             value=entry.label,
             placeholder=translate("gentoo"),
-            footer=_footer(translate),
+            footer=footer(translate),
         ).run(screen)
         if not named.chosen:
             return None
@@ -1644,7 +1584,7 @@ def _edit_slice_encryption(
             if purpose.role is PartitionRole.ZFS
             else translate("Encrypt this partition?")
         ),
-        footer=_footer(translate),
+        footer=footer(translate),
     ).run(screen)
     if not turned.chosen:
         return None
@@ -1670,7 +1610,7 @@ def extra_packages_screen(
         typed = TextField(
             title=translate("Packages to install, separated by spaces"),
             value=" ".join(config.packages.extra),
-            footer=_footer(translate),
+            footer=footer(translate),
         ).run(screen)
         if not typed.chosen:
             return Answer(typed.outcome)
@@ -1798,7 +1738,7 @@ def license_screen(screen: Screen, config: InstallConfig, context: Context) -> A
         Item(label=value, value=value, detail=translate(reason)) for value, reason in LICENSES
     ]
     menu: Menu[str] = Menu(
-        title=translate("Licenses to accept"), items=items, footer=_footer(translate)
+        title=translate("Licenses to accept"), items=items, footer=footer(translate)
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -1828,7 +1768,7 @@ def makeopts_screen(screen: Screen, config: InstallConfig, context: Context) -> 
         for jobs in dict.fromkeys(offered)
     ]
     menu: Menu[str] = Menu(
-        title=translate("Compile jobs"), items=items, footer=_footer(translate)
+        title=translate("Compile jobs"), items=items, footer=footer(translate)
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -1869,7 +1809,7 @@ def compile_flags_screen(
         Item(label=translate("Type them"), value=""),
     ]
     menu: Menu[str] = Menu(
-        title=translate("Compiler flags"), items=items, footer=_footer(translate)
+        title=translate("Compiler flags"), items=items, footer=footer(translate)
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -1879,7 +1819,7 @@ def compile_flags_screen(
         typed = TextField(
             title=translate("Compiler flags"),
             value=config.portage.common_flags,
-            footer=_footer(translate),
+            footer=footer(translate),
         ).run(screen)
         if not typed.chosen:
             return Answer(typed.outcome)
@@ -1902,7 +1842,7 @@ def initramfs_keymap_screen(
     field = TextField(
         title=translate("Keyboard the initramfs uses, empty to follow the console"),
         value=config.system.keymap_initramfs,
-        footer=_footer(translate),
+        footer=footer(translate),
     )
     answer = field.run(screen)
     if not answer.chosen:
@@ -1918,7 +1858,7 @@ def address_screen(screen: Screen, config: InstallConfig, context: Context) -> A
     up unreachable otherwise."""
     translate = context.translate
     wanted = Confirm(
-        title=translate("Use DHCP?"), footer=_footer(translate)
+        title=translate("Use DHCP?"), footer=footer(translate)
     ).run(screen)
     if not wanted.chosen:
         return Answer(wanted.outcome)
@@ -1930,14 +1870,14 @@ def address_screen(screen: Screen, config: InstallConfig, context: Context) -> A
     address = TextField(
         title=translate("Address with its prefix, such as 192.0.2.10/24"),
         value=config.system.address,
-        footer=_footer(translate),
+        footer=footer(translate),
     ).run(screen)
     if not address.chosen:
         return Answer(address.outcome)
     gateway = TextField(
         title=translate("Gateway"),
         value=config.system.gateway,
-        footer=_footer(translate),
+        footer=footer(translate),
     ).run(screen)
     if not gateway.chosen:
         return Answer(gateway.outcome)
@@ -1979,7 +1919,7 @@ def authorized_keys_screen(
             Item(label=translate("Done"), value=3),
         ]
         menu: Menu[int] = Menu(
-            title=translate("SSH public keys"), items=items, footer=_footer(translate)
+            title=translate("SSH public keys"), items=items, footer=footer(translate)
         )
         answer = menu.run(screen)
         if not answer.chosen:
@@ -2011,7 +1951,7 @@ def _type_a_key(screen: Screen, context: Context) -> str:
     typed = TextField(
         title=translate("Public key"),
         placeholder=translate("ssh-ed25519 AAAA... name@host"),
-        footer=_footer(translate),
+        footer=footer(translate),
     ).run(screen)
     if not typed.chosen:
         return ""
@@ -2025,7 +1965,7 @@ def _paste_a_key(screen: Screen, context: Context) -> str:
     typed = TextField(
         title=f"{paste.BASE}/",
         placeholder=translate("the identifier, such as hjq+353Jzfk"),
-        footer=_footer(translate),
+        footer=footer(translate),
     ).run(screen)
     if not typed.chosen or not typed.unwrap().strip():
         return ""
@@ -2037,7 +1977,7 @@ def _fetch_a_key(screen: Screen, context: Context) -> str:
     typed = TextField(
         title=translate("URL of a public key"),
         placeholder=translate("https://example.com/id_ed25519.pub"),
-        footer=_footer(translate),
+        footer=footer(translate),
     ).run(screen)
     if not typed.chosen or not typed.unwrap().strip():
         return ""
@@ -2098,7 +2038,7 @@ def root_login_screen(
                 detail=translate("reach root through a sudo user"),
             ),
         ],
-        footer=_footer(translate),
+        footer=footer(translate),
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -2107,14 +2047,3 @@ def root_login_screen(
         Outcome.CHOSE,
         replace(config, system=replace(config.system, sshd_root_login=answer.unwrap()[0])),
     )
-
-
-#: Which screen each compiler field opens. Below the screens it names, because
-#: they are defined further down the module.
-_COMPILER_FIELDS: Final[dict[str, Step]] = {
-    _JOBS: makeopts_screen,
-    _FLAGS: compile_flags_screen,
-    _CPU_FLAGS: compile_flags_screen,
-    _LICENSE: license_screen,
-    _KEYWORDS: keywords_screen,
-}
