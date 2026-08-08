@@ -520,3 +520,17 @@ def test_the_systemd_boot_branch_keeps_what_the_shared_prefix_built() -> None:
     # GRUB still gets it: grub-install needs efibootmgr to write the entry.
     grub = [one.describe() for one in bootloader.build(config())]
     assert any("efibootmgr" in line for line in grub)
+
+
+def test_which_tool_builds_a_kernel_module_is_one_table() -> None:
+    """It was two: a `builds_a_module` flag nobody read and an `OUT_OF_TREE`
+    dict beside it. Two tables holding one fact disagree eventually."""
+    from gentoo_install.plan.kernel import STACK_PACKAGES, _out_of_tree_modules
+
+    assert not hasattr(kernel, "OUT_OF_TREE")
+    declared = {atom for tool in STACK_PACKAGES.values() for atom in tool.modules}
+    assert declared == {"sys-fs/zfs", "sys-fs/zfs-kmod"}
+
+    zfs = load(Path("tests/fixtures/vm-zfs.toml"))
+    assert set(_out_of_tree_modules(zfs)) == declared
+    assert _out_of_tree_modules(config()) == ()

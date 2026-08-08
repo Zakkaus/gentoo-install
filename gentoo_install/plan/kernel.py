@@ -69,9 +69,10 @@ class StackTool:
     #: Flags the default build does not carry: without `sys-fs/lvm2[lvm]`
     #: dracut cannot build its lvm module.
     use: tuple[str, ...] = ()
-    #: Builds against the kernel, so a sources build has to be configured and
-    #: compiled before this is merged.
-    builds_a_module: bool = False
+    #: Atoms this tool builds a kernel module from. They read
+    #: `/usr/src/linux/.config`, which a dist-kernel does not leave, so each
+    #: one has to be told to build against the package instead.
+    modules: tuple[str, ...] = ()
 
 
 #: The tool each dracut module needs in the target.
@@ -80,7 +81,7 @@ STACK_PACKAGES: Final[dict[str, StackTool]] = {
     "crypt": StackTool("sys-fs/cryptsetup"),
     "lvm": StackTool("sys-fs/lvm2", use=("lvm",)),
     "mdraid": StackTool("sys-fs/mdadm"),
-    "zfs": StackTool("sys-fs/zfs", builds_a_module=True),
+    "zfs": StackTool("sys-fs/zfs", modules=("sys-fs/zfs", "sys-fs/zfs-kmod")),
 }
 
 #: The tool each filesystem needs, so the target can check and mount it again.
@@ -476,16 +477,15 @@ def dracut_modules(config: InstallConfig) -> tuple[str, ...]:
     return tuple(modules)
 
 
-#: Packages that build a kernel module of their own.
-OUT_OF_TREE: Final[dict[str, tuple[str, ...]]] = {
-    "zfs": ("sys-fs/zfs", "sys-fs/zfs-kmod"),
-}
-
-
 def _out_of_tree_modules(config: InstallConfig) -> tuple[str, ...]:
+    """Read from STACK_PACKAGES, not from a list beside it: which tool builds a
+    kernel module is one fact, and two tables holding it disagree eventually."""
     wanted: list[str] = []
     for module in dracut_modules(config):
-        wanted += [package for package in OUT_OF_TREE.get(module, ()) if package not in wanted]
+        tool = STACK_PACKAGES.get(module)
+        if tool is None:
+            continue
+        wanted += [atom for atom in tool.modules if atom not in wanted]
     return tuple(wanted)
 
 
