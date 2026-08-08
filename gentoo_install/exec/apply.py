@@ -233,11 +233,16 @@ def apply(
     completed, so a resumed run does not partition a disk it already installed
     onto.
     """
+    total = len(operations)
+    opened = time.monotonic()
     for position, operation in enumerate(operations):
+        counted = f"[{position + 1}/{total} {_elapsed(time.monotonic() - opened)}]"
         if (position, operation.describe()) in finished:
-            machine.runner.log(f"[{operation.stage.value}] done earlier: {operation.describe()}")
+            machine.runner.log(
+                f"{counted} [{operation.stage.value}] done earlier: {operation.describe()}"
+            )
             continue
-        machine.runner.log(f"[{operation.stage.value}] {operation.describe()}")
+        machine.runner.log(f"{counted} [{operation.stage.value}] {operation.describe()}")
         started = time.monotonic()
         try:
             operation.apply(machine)
@@ -245,6 +250,13 @@ def apply(
             _record(machine, operation, started, "failed", position)
             raise
         _record(machine, operation, started, "done", position)
+
+
+def _elapsed(seconds: float) -> str:
+    """How long the run has been going. A desktop emerge takes hours and the
+    only clock on the screen was the operator's own."""
+    whole = int(seconds)
+    return f"{whole // 3600:d}:{whole // 60 % 60:02d}:{whole % 60:02d}"
 
 
 def _record(

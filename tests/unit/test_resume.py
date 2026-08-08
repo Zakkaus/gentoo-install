@@ -118,3 +118,39 @@ def test_a_half_written_last_line_does_not_stop_the_replay(tmp_path: Path) -> No
     with path.open("a") as handle:
         handle.write('{"event": "operation", "desc')
     assert completed(Journal(path=path)) == {(0, "partition")}
+
+
+def test_the_running_installer_says_where_it_is_and_how_long_it_has_taken() -> None:
+    """A desktop emerge takes hours, and the screen carried one line per
+    operation with no position, no total and no clock."""
+    from gentoo_install.exec.apply import _elapsed, apply
+    from gentoo_install.exec.probe import Probe
+    from gentoo_install.exec.runner import Runner
+    from gentoo_install.plan.build import build
+    from gentoo_install.data import load_catalog
+    from gentoo_install.model.parse import load
+    from gentoo_install.exec.apply import Machine
+
+    assert _elapsed(0) == "0:00:00"
+    assert _elapsed(3671) == "1:01:11"
+
+    said: list[str] = []
+    runner = Runner(log=said.append, dry_run=True)
+    config = load(Path("tests/fixtures/ext4-bios.toml"))
+    operations = build(config, load_catalog())
+    machine = Machine(
+        config=config,
+        runner=runner,
+        probe=Probe(runner=runner, work=Path("/tmp")),
+        work=Path("/tmp"),
+        mountpoint=Path("/mnt/gentoo"),
+    )
+    # Every operation is reported as already done, so nothing runs and the
+    # counter is all that is under test.
+    finished = frozenset(
+        (position, one.describe()) for position, one in enumerate(operations)
+    )
+    apply(operations, machine, finished)
+    counted = [line for line in said if line.startswith("[1/")]
+    assert counted and f"[1/{len(operations)} 0:00:00]" in counted[0]
+    assert any(line.startswith(f"[{len(operations)}/{len(operations)} ") for line in said)
