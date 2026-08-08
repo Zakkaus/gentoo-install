@@ -41,7 +41,9 @@ BY_FEATURE: Final[dict[str, tuple[str, ...]]] = {
     "luks": ("cryptsetup",),
     "mdraid": ("mdadm",),
     "lvm": ("lvm",),
-    "zfs": ("zpool", "zfs", "zgenhostid"),
+    # `hostid`, not `zgenhostid`: the host reads its own id and the target
+    # writes it, so the tool that writes runs inside the chroot.
+    "zfs": ("zpool", "zfs", "hostid"),
 }
 
 #: btrfs needs its own tool as well as its mkfs, to make the subvolumes.
