@@ -480,3 +480,27 @@ def test_the_nvidia_drop_in_does_not_collide_with_the_one_the_ebuild_installs() 
     nvidia = load_catalog()["nvidia"]
     assert [str(one.path) for one in nvidia.files] == ["/etc/modprobe.d/nvidia-modeset.conf"]
     assert "modeset=1" in nvidia.files[0].content
+
+
+def test_a_chinese_interface_defaults_to_the_patched_kernel() -> None:
+    """cjktty is what puts CJK on the console, and it is in gentoo-zh and
+    nowhere else, so the overlay is ticked with it rather than after it."""
+    from gentoo_install.model.config import KernelSource
+
+    for tag in ("zh-CN", "zh-TW"):
+        seeded = screens.with_language(config(), tag)
+        assert seeded.kernel.source is KernelSource.CJK, tag
+        assert seeded.system.console_cjk, tag
+        assert [one.name for one in seeded.portage.overlays] == ["gentoo-zh"], tag
+        validate(seeded)
+
+
+def test_other_languages_are_not_pulled_into_that_overlay() -> None:
+    """The patch covers their scripts too, but the overlay is a Chinese one and
+    defaulting into it is a decision they did not make."""
+    from gentoo_install.model.config import KernelSource
+
+    for tag in ("en", "ja", "ko"):
+        seeded = screens.with_language(config(), tag)
+        assert seeded.kernel.source is not KernelSource.CJK, tag
+        assert seeded.portage.overlays == (), tag

@@ -1589,13 +1589,17 @@ class LanguageDefaults:
     locale: str
     timezone: str
     mirror: MirrorRegion
+    #: True for the languages the cjktty patch is the point of. It pulls in
+    #: gentoo-zh, so it is not a default for a language that would not use the
+    #: rest of that overlay.
+    cjk_console: bool = False
 
 
 #: One row per interface language. Keyed by the same tags as the catalogs.
 LANGUAGE_DEFAULTS: Final[dict[str, LanguageDefaults]] = {
     "en": LanguageDefaults("en_US.UTF-8", "UTC", MirrorRegion.GLOBAL),
-    "zh-CN": LanguageDefaults("zh_CN.UTF-8", "Asia/Shanghai", MirrorRegion.CN),
-    "zh-TW": LanguageDefaults("zh_TW.UTF-8", "Asia/Taipei", MirrorRegion.GLOBAL),
+    "zh-CN": LanguageDefaults("zh_CN.UTF-8", "Asia/Shanghai", MirrorRegion.CN, True),
+    "zh-TW": LanguageDefaults("zh_TW.UTF-8", "Asia/Taipei", MirrorRegion.GLOBAL, True),
     "ja": LanguageDefaults("ja_JP.UTF-8", "Asia/Tokyo", MirrorRegion.GLOBAL),
     "ko": LanguageDefaults("ko_KR.UTF-8", "Asia/Seoul", MirrorRegion.GLOBAL),
 }
@@ -1609,14 +1613,27 @@ def with_language(config: InstallConfig, tag: str) -> InstallConfig:
     locales = config.system.locales
     if chosen.locale not in locales:
         locales = (*locales, chosen.locale)
-    return replace(
+    seeded = replace(
         config,
         system=replace(
-            config.system, locale=chosen.locale, timezone=chosen.timezone, locales=locales
+            config.system,
+            locale=chosen.locale,
+            timezone=chosen.timezone,
+            locales=locales,
+            console_cjk=chosen.cjk_console,
         ),
         portage=replace(
             config.portage, mirrors=replace(config.portage.mirrors, region=chosen.mirror)
         ),
+    )
+    if not chosen.cjk_console:
+        return seeded
+    # The patched kernel is what puts CJK on the console, and it is in gentoo-zh
+    # and nowhere else, so the overlay comes with it or the row is unusable.
+    return replace(
+        seeded,
+        kernel=replace(seeded.kernel, source=KernelSource.CJK),
+        portage=_with_gentoo_zh(seeded),
     )
 
 
