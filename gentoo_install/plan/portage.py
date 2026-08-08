@@ -45,12 +45,8 @@ AUTOUNMASK_FILES: Final[tuple[str, ...]] = (
     "/etc/portage/package.license/zz-autounmask",
 )
 
-#: No `--autounmask-license`: with `--autounmask-write` and `--continue` it
-#: writes the acceptance itself, so ACCEPT_LICENSE stops refusing anything and
-#: the operator's choice of @FREE becomes a suggestion. A licence the set does
-#: not cover is a package group declaring it, or an install that stops.
-#: Never `--binpkg-respect-use=y` with these either: it overrides
-#: `--autounmask-use=y` and the two together leave autounmask doing nothing.
+#: What is absent matters as much as what is here, and the reason for each
+#: absence is the fixed-emerge-options section of docs/design.md.
 EMERGE_OPTIONS: Final[tuple[str, ...]] = (
     "--verbose",
     "--autounmask-use=y",
@@ -175,7 +171,7 @@ def merge(existing: str, wanted: Sequence[tuple[str, str]]) -> str:
     """Replace the keys this installer sets and keep the rest of the file.
 
     The stage3 ships a make.conf with comments and a CHOST nobody should be
-    rewriting, so the file is edited rather than replaced: a key we set is
+    rewriting, so the file is edited rather than replaced: a key named here is
     substituted in place, and one the file does not mention is appended.
     """
     replacing = dict(wanted)

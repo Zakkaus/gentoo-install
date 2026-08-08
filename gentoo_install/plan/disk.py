@@ -349,8 +349,8 @@ class VerifyFilesystem(Operation):
     """The type already on the device, checked against what was declared.
 
     `blkid --probe` rather than the cache: the cache holds whatever was there
-    before this run, which for a reused partition is the answer we want to
-    avoid trusting.
+    before this run, which for a reused partition is the answer this
+    check must not trust.
     """
 
     stage: Stage = Stage.FORMAT
