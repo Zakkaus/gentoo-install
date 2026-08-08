@@ -309,3 +309,16 @@ def test_the_command_line_names_the_container_the_initramfs_opens() -> None:
         if isinstance(operation, bootloader.WriteGrubDefaults):
             operation.apply(plain)
     assert "rd.luks.uuid" not in plain.files[PurePosixPath("/etc/default/grub")]
+
+
+def test_zfsbootmenu_talks_where_the_install_did() -> None:
+    """`org.zfsbootmenu:commandline` is the command line of the system ZBM
+    boots, not of ZBM, so an encrypted pool prompts on a console nobody reads."""
+    operations = bootloader.build(load(Path("tests/fixtures/vm-zfs-encrypted.toml")))
+    installed = next(
+        operation
+        for operation in operations
+        if isinstance(operation, bootloader.InstallZfsBootMenu)
+    )
+    written = installed._config()
+    assert "console=ttyS0,115200" in written and "console=tty1" in written

@@ -183,21 +183,25 @@ class InstallZfsBootMenu(Operation):
     #: than defaulting to partition 1.
     esp_device: DeviceId
     kernel_params: tuple[str, ...]
+    #: Where ZFSBootMenu's own kernel talks. `org.zfsbootmenu:commandline` is
+    #: the command line of the system it boots, not of ZFSBootMenu, so an
+    #: encrypted pool asks for its passphrase where nobody is listening.
+    serial: tuple[str, int] | None
 
     def describe(self) -> str:
         return f"build ZFSBootMenu into {self.esp}/{ZBM_DIRECTORY} and boot {self.dataset} from it"
 
-    def apply(self, context: Context) -> None:
-        context.run_in_target(["zpool", "set", f"bootfs={self.dataset}", self.pool])
-        context.run_in_target(
-            [
-                "zfs", "set",
-                f"org.zfsbootmenu:commandline={' '.join(self.kernel_params)}",
-                self.dataset,
-            ]
-        )
-        context.write(
-            PurePosixPath("/etc/zfsbootmenu/config.yaml"),
+    def _config(self) -> str:
+        kernel = ""
+        if self.serial is not None:
+            port, baud = self.serial
+            # Both consoles, and the serial one last: /dev/console follows the
+            # last `console=`, and a machine with a monitor still shows a menu.
+            kernel = (
+                "Kernel:\n"
+                f'  CommandLine: "ro loglevel=4 console=tty1 console={port},{baud}"\n'
+            )
+        return (
             "Global:\n"
             "  ManageImages: true\n"
             f"  BootMountPoint: {self.esp}\n"
@@ -208,8 +212,20 @@ class InstallZfsBootMenu(Operation):
             f"  ImageDir: {self.esp}/EFI/zbm\n"
             "  Versions: false\n"
             "  Enabled: true\n"
-            "  Stub: /usr/lib/systemd/boot/efi/linuxx64.efi.stub\n",
+            "  Stub: /usr/lib/systemd/boot/efi/linuxx64.efi.stub\n"
+            f"{kernel}"
         )
+
+    def apply(self, context: Context) -> None:
+        context.run_in_target(["zpool", "set", f"bootfs={self.dataset}", self.pool])
+        context.run_in_target(
+            [
+                "zfs", "set",
+                f"org.zfsbootmenu:commandline={' '.join(self.kernel_params)}",
+                self.dataset,
+            ]
+        )
+        context.write(PurePosixPath("/etc/zfsbootmenu/config.yaml"), self._config())
         context.run_in_target(["generate-zbm"])
         image = self._image(context)
         context.run_in_target(["install", "-D", "-m0644", image, f"{self.esp}/{FALLBACK_IMAGE}"])
@@ -289,6 +305,7 @@ def build(config: InstallConfig) -> list[Operation]:
                 esp=esp,
                 esp_device=esp_device,
                 kernel_params=config.bootloader.kernel_params,
+                serial=_serial_console(config),
             ),
         ]
     return operations
