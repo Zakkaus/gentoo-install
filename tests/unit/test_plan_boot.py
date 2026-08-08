@@ -376,9 +376,12 @@ def test_a_stack_tool_gets_the_use_flag_dracut_needs() -> None:
         operation.describe() for operation in kernel.build(load(Path("tests/fixtures/vm-lvm.toml")))
     ]
     asked = next(index for index, line in enumerate(described) if "sys-fs/lvm2[lvm]" in line)
-    built = next(index for index, line in enumerate(described) if "from source" in line)
+    built = next(index for index, line in enumerate(described) if "need a flag" in line)
     installed = next(index for index, line in enumerate(described) if "install the kernel" in line)
-    assert asked < built < installed
+    # The request first, then the kernel, then the tool built against it: a
+    # module package merged before the kernel builds against a different one.
+    assert asked < installed < built
+    assert "from source" in described[built]
     # The binary host builds the default USE, so this one cannot come from it.
     assert "sys-fs/lvm2" not in next(
         line for line in described if line.startswith("install the storage tools:")
@@ -621,7 +624,10 @@ def test_zfsbootmenu_unlocks_once_rather_than_asking_the_initramfs_too() -> None
     assert recorder.files[PurePosixPath("/etc/dracut.conf.d/zfs-key.conf")] == (
         'install_items+=" /etc/zfs/zpcala.key "\n'
     )
-    assert ("zfs", "set", "keylocation=file:///etc/zfs/zpcala.key", "zpcala") in recorder.in_target
+    # On the installing system: the pool is imported there, and the target has
+    # no `zfs` binary until sys-fs/zfs is merged later in the same stage.
+    assert ("zfs", "set", "keylocation=file:///etc/zfs/zpcala.key", "zpcala") in recorder.commands
+    assert not recorder.in_target
 
 
 def test_a_separate_boot_partition_keeps_the_prompt() -> None:
@@ -664,3 +670,25 @@ def test_only_zfsbootmenu_moves_the_key_off_the_prompt() -> None:
         bootloader=BootloaderConfig(kind=Bootloader.GRUB, firmware=Firmware.UEFI),
     )
     assert not [one for one in kernel.build(grub) if isinstance(one, kernel.StoreZfsKey)]
+
+
+def test_the_kernel_is_merged_before_anything_that_builds_a_module_for_it() -> None:
+    """`sys-fs/zfs[dist-kernel]` depends on `virtual/dist-kernel`. Merged while
+    the chosen kernel is still masked, Portage satisfies that virtual with a
+    second kernel and builds zfs.ko for the one that will not boot."""
+    described = [one.describe() for one in kernel.build(zfs_installation())]
+    kernel_at = next(at for at, one in enumerate(described) if one.startswith("install the kernel"))
+    module = next(at for at, one in enumerate(described) if "build against the dist-kernel" in one)
+    tools = next(at for at, one in enumerate(described) if "install the storage tools" in one)
+    initramfs = next(at for at, one in enumerate(described) if one.startswith("rebuild the initramfs"))
+    assert kernel_at < module < tools < initramfs
+
+
+def test_the_zfs_key_is_set_from_the_installing_system() -> None:
+    """A stage3 has no `zfs` binary until sys-fs/zfs is merged, which happens
+    later in the same stage; the pool is imported here in any case."""
+    recorder = Recorder()
+    for operation in kernel.build(zfs_installation()):
+        if isinstance(operation, kernel.StoreZfsKey):
+            operation.apply(recorder)
+    assert recorder.commands and not recorder.in_target

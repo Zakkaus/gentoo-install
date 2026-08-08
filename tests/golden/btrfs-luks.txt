@@ -76,9 +76,9 @@
   tell dracut to carry crypt, btrfs
   accept the linux-firmware licence
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
-  install the storage tools: emerge sys-fs/cryptsetup sys-fs/btrfs-progs sys-fs/dosfstools
   accept sys-kernel/gentoo-cjk-kernel as testing, with cjk off
   install the kernel: emerge sys-kernel/gentoo-cjk-kernel, from source
+  install the storage tools: emerge sys-fs/cryptsetup sys-fs/btrfs-progs sys-fs/dosfstools
   rebuild the initramfs from sys-kernel/gentoo-cjk-kernel with the modules written above
 
 [bootloader]

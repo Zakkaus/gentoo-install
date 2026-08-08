@@ -245,7 +245,10 @@ class StoreZfsKey(Operation):
             PurePosixPath("/etc/dracut.conf.d/zfs-key.conf"),
             f'install_items+=" {self.key} "\n',
         )
-        context.run_in_target(["zfs", "set", f"keylocation=file://{self.key}", self.name])
+        # On the installing system, not in the target: the pool is imported
+        # here, and a stage3 has no `zfs` binary until sys-fs/zfs is merged
+        # several operations later.
+        context.run(["zfs", "set", f"keylocation=file://{self.key}", self.name])
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -440,29 +443,9 @@ def build(config: InstallConfig) -> list[Operation]:
             summary="install the initramfs builder and firmware",
         ),
     ]
-    modules = _out_of_tree_modules(config)
-    if modules:
-        operations.append(RequestDistKernelModules(packages=modules))
     flagged = storage_use(config)
     if flagged:
         operations.insert(0, RequestStorageUse(entries=flagged))
-    tools = storage_packages(config)
-    plain = tuple(name for name in tools if name not in {atom for atom, _ in flagged})
-    if plain:
-        operations.append(
-            Emerge(stage=Stage.KERNEL, packages=plain, summary="install the storage tools")
-        )
-    if flagged:
-        # From source: the binary host builds the default USE, and a binary
-        # package without the flag would be installed over the request above.
-        operations.append(
-            Emerge(
-                stage=Stage.KERNEL,
-                packages=tuple(atom for atom, _ in flagged),
-                summary="install the storage tools that need a flag the default build lacks",
-                binary_packages=False,
-            )
-        )
     package = config.kernel.package or KERNEL_PACKAGES[config.kernel.source]
     version = config.kernel.version
     # `=atom-version` rather than a range: the operator chose one version off a
@@ -482,6 +465,10 @@ def build(config: InstallConfig) -> list[Operation]:
         ]
     if config.kernel.source in CJK_KERNELS:
         operations.append(RequestCjkKernel(package=package, cjk=config.system.console_cjk))
+    # Before the storage tools, not after: sys-fs/zfs and its kind depend on
+    # `virtual/dist-kernel`, and merging one while the chosen kernel is still
+    # masked satisfies that virtual with a second kernel and builds the module
+    # for that one instead.
     operations.append(
         Emerge(
             stage=Stage.KERNEL,
@@ -492,6 +479,26 @@ def build(config: InstallConfig) -> list[Operation]:
             binary_packages=config.kernel.source is KernelSource.DIST_BIN,
         )
     )
+    modules = _out_of_tree_modules(config)
+    if modules:
+        operations.append(RequestDistKernelModules(packages=modules))
+    tools = storage_packages(config)
+    plain = tuple(name for name in tools if name not in {atom for atom, _ in flagged})
+    if plain:
+        operations.append(
+            Emerge(stage=Stage.KERNEL, packages=plain, summary="install the storage tools")
+        )
+    if flagged:
+        # From source: the binary host builds the default USE, and a binary
+        # package without the flag would be installed over the request above.
+        operations.append(
+            Emerge(
+                stage=Stage.KERNEL,
+                packages=tuple(atom for atom, _ in flagged),
+                summary="install the storage tools that need a flag the default build lacks",
+                binary_packages=False,
+            )
+        )
     operations.append(RebuildInitramfs(package=package))
     return operations
 

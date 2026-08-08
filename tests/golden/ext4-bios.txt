@@ -51,8 +51,8 @@
   install the hook that puts a kernel in /boot: emerge sys-kernel/installkernel
   accept the linux-firmware licence
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
-  install the storage tools: emerge sys-fs/e2fsprogs
   install the kernel: emerge sys-kernel/gentoo-kernel-bin
+  install the storage tools: emerge sys-fs/e2fsprogs
   rebuild the initramfs from sys-kernel/gentoo-kernel-bin with the modules written above
 
 [bootloader]
