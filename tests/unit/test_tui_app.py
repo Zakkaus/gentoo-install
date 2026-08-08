@@ -1094,3 +1094,28 @@ def test_staying_after_a_cancel_keeps_the_answers_that_came_with_it(
     screen = FakeScreen(keys=keys, lines=30, columns=100)
     run(screen, config(), at)
     assert "kept" in "\n".join(screen.frames[-3])
+
+
+def test_a_bad_port_keeps_the_address_that_was_typed_beside_it() -> None:
+    """The form dropped out to the menu, so an operator who mistyped the port
+    retyped the address as well."""
+    at = context()
+    at.erase_confirmed = True
+    with_key = replace(
+        config(), system=replace(config().system, authorized_keys=(GOOD_KEY,))
+    )
+    # Yes to unlocking, then `abc` appended to the port and an address typed.
+    # After the message the form comes back holding both, so deleting the three
+    # bad characters is the whole correction.
+    keys = [
+        "KEY_DOWN", "\n",
+        *"abc", "KEY_DOWN", *"192.0.2.5", "KEY_DOWN", "\n",
+        "\n",
+        "KEY_BACKSPACE", "KEY_BACKSPACE", "KEY_BACKSPACE", "KEY_DOWN", "KEY_DOWN", "\n",
+    ]
+    screen = FakeScreen(keys=keys, lines=30, columns=100)
+    answer = screens.remote_unlock_screen(screen, with_key, at)
+    unlock = answer.unwrap().kernel.remote_unlock
+    assert unlock.port == 222
+    assert unlock.address == "192.0.2.5"
+
