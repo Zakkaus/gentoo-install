@@ -151,6 +151,31 @@ def test_a_sudo_user_lands_in_wheel_and_a_plain_one_does_not() -> None:
     assert "wheel" not in groups_of(apply_all(plain, generated=generated(plain)).only("useradd"))
 
 
+def test_declining_sudo_in_the_menu_keeps_the_account_out_of_wheel() -> None:
+    """`_groups_of` strips `wheel` for a plain account and then re-adds every
+    name in `user.groups`, so a second copy of the list in the menu handed the
+    account the group `/etc/sudoers.d/10-wheel` grants ALL to."""
+    from gentoo_install.tui import screens
+
+    from .fake_screen import FakeScreen
+
+    from gentoo_install.data import load_catalog
+    from gentoo_install.i18n import Catalog
+
+    at = screens.Context(
+        translate=Catalog("en"),
+        disks=[("/dev/disk/by-id/virtio-target0", "20 GiB")],
+        groups=load_catalog(),
+        hash_password=lambda password: "$6$t$x",
+    )
+    # A name, a password twice, then No to sudo.
+    keys = [*"zakk", "\n", *"secret", "\n", *"secret", "\n", "\n"]
+    answer = screens.user_screen(FakeScreen(keys=keys, lines=24, columns=100), config(), at)
+    plain = answer.unwrap().system.users[0]
+    assert plain.sudo is False
+    assert "wheel" not in system._groups_of(plain)
+
+
 def test_sudo_needs_a_password_because_a_desktop_button_once_removed_that() -> None:
     installation = with_system(users=(User(name="zakk", sudo=True),))
     written = apply_all(installation, generated=generated(installation)).files

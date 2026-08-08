@@ -515,7 +515,8 @@ def user_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
         return Answer(granted.outcome)
     user = User(
         name=name,
-        groups=("wheel", "audio", "video", "usb"),
+        # No list here: `plan/system.py:USER_GROUPS` is the one table, and
+        # naming `wheel` again put a account that declined sudo back in it.
         sudo=granted.unwrap(),
         password_hash=context.hash_password(typed.unwrap()),
     )
