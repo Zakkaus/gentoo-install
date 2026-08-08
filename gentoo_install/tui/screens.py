@@ -24,11 +24,12 @@ from ..model.config import (
     InstallConfig,
     KernelSource,
     MirrorRegion,
+    Networking,
     Overlay,
     PortageConfig,
     User,
 )
-from ..model.device import FilesystemType
+from ..model.device import FilesystemType, TableType
 from ..model.size import Size
 from ..model.templates import Choice, Layout, build
 from ..plan.packages import Catalog as Groups
@@ -37,8 +38,6 @@ from .widgets import Answer, Confirm, Item, Menu, Outcome, Screen, TextField
 #: A screen takes what has been decided and returns it changed.
 Step = Callable[[Screen, InstallConfig, "Context"], Answer[InstallConfig]]
 
-#: A row of any menu: its label, what it currently shows, and what edits it.
-Row = tuple[str, Callable[[InstallConfig, "Context"], str], Step]
 
 
 class Context:
@@ -52,6 +51,7 @@ class Context:
         hash_password: Callable[[str], str],
         stage_passphrase: Callable[[str], str] = lambda text: "",
         timezones: Sequence[str] = (),
+        firmware: Firmware = Firmware.UEFI,
     ) -> None:
         self.translate = translate
         #: Selector and a human description, from `exec/probe.py`.
@@ -65,9 +65,15 @@ class Context:
         self.stage_passphrase = stage_passphrase
         #: Every zone the machine knows, from `exec/probe.py`.
         self.timezones = tuple(timezones)
-        #: Kept so the disk screen can rebuild the graph when one answer
-        #: changes, rather than editing a graph it did not build.
-        self.choice = Choice(disk=disks[0][0] if disks else "")
+        #: How this machine booted. The install defaults to the same, because
+        #: installing for the other is almost always a mistake.
+        self.firmware = firmware
+        #: Kept so a disk screen can rebuild the graph when one answer changes,
+        #: rather than editing a graph it did not build.
+        self.choice = Choice(disk=disks[0][0] if disks else "", firmware=firmware)
+        #: Erasing a drive is confirmed by typing its name, and the menu shows
+        #: whether that has been done rather than asking again at the end.
+        self.erase_confirmed = False
 
 
 def _footer(translate: Catalog) -> str:
@@ -78,41 +84,6 @@ def _footer(translate: Catalog) -> str:
             f"[q] {translate('Cancel')}",
         )
     )
-
-
-def run_menu(
-    screen: Screen,
-    config: InstallConfig,
-    context: Context,
-    title: str,
-    rows: Sequence[Row],
-    extra: Sequence[Item[int]] = (),
-) -> Answer[InstallConfig]:
-    """Draw rows with their current values and let one be edited, repeatedly.
-
-    The operator leaves by going back, so every row can be revisited any number
-    of times and in any order. `extra` adds rows the caller handles itself,
-    numbered after the editable ones.
-    """
-    current = config
-    while True:
-        items = [
-            Item(label=label, value=index, detail=value(current, context))
-            for index, (label, value, _) in enumerate(rows)
-        ]
-        items += [replace(item, value=len(rows) + item.value) for item in extra]
-        menu: Menu[int] = Menu(title=title, items=items, footer=_footer(context.translate))
-        answer = menu.run(screen)
-        if not answer.chosen:
-            return Answer(answer.outcome, current)
-        chosen = answer.unwrap()[0]
-        if chosen >= len(rows):
-            return Answer(Outcome.CHOSE, current)
-        edited = rows[chosen][2](screen, current, context)
-        if edited.outcome is Outcome.CANCELLED:
-            return Answer(Outcome.CANCELLED)
-        if edited.chosen:
-            current = edited.unwrap()
 
 
 def _rebuild(config: InstallConfig, choice: Choice) -> InstallConfig:
@@ -187,8 +158,7 @@ def erase_screen(screen: Screen, config: InstallConfig, context: Context) -> Ans
     answer = question.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
-    if not answer.unwrap():
-        return Answer(Outcome.BACK)
+    context.erase_confirmed = answer.unwrap()
     return Answer(Outcome.CHOSE, config)
 
 
@@ -403,6 +373,12 @@ def packages_screen(
 #: `zpool create` refuses anything shorter, and LUKS with a short passphrase is
 #: not worth offering either.
 PASSPHRASE_MINIMUM: Final[int] = 8
+
+#: The overlays this installer knows how to add, and where each syncs from.
+OVERLAYS: dict[str, str] = {
+    "gentoo-zh": GENTOO_ZH,
+    "gig": "https://github.com/gentoo-zh/gig-overlay.git",
+}
 
 PROFILES: tuple[str, ...] = (
     "default/linux/amd64/23.0",
@@ -657,70 +633,6 @@ STEPS: tuple[Step, ...] = (
 )
 
 
-def _keymap_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
-    field = TextField(
-        title=context.translate("Target system"),
-        value=config.system.keymap,
-        footer=_footer(context.translate),
-    )
-    answer = field.run(screen)
-    if not answer.chosen:
-        return Answer(answer.outcome)
-    return Answer(
-        Outcome.CHOSE,
-        replace(config, system=replace(config.system, keymap=answer.unwrap() or "us")),
-    )
-
-
-def disk_menu(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
-    rows: tuple[Row, ...] = (
-        ("Device", lambda c, x: x.choice.disk.rsplit("/", 1)[-1] or "not set", disk_screen),
-        ("Layout", lambda c, x: x.choice.layout.value, layout_screen),
-        (
-            "Encryption",
-            lambda c, x: "on" if x.choice.passphrase_file else "off",
-            encryption_screen,
-        ),
-        ("Erase and confirm", lambda c, x: "confirm before installing", erase_screen),
-    )
-    return run_menu(screen, config, context, context.translate("Disks"), rows)
-
-
-def system_menu(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
-    rows: tuple[Row, ...] = (
-        ("Hostname", lambda c, x: c.system.hostname, system_screen),
-        ("Locale", lambda c, x: c.system.locale, locale_screen),
-        ("Timezone", lambda c, x: c.system.timezone, timezone_screen),
-        ("Keyboard", lambda c, x: c.system.keymap, _keymap_screen),
-        ("Init system", lambda c, x: c.system.init.value, init_screen),
-    )
-    return run_menu(screen, config, context, context.translate("Target system"), rows)
-
-
-def users_menu(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
-    rows: tuple[Row, ...] = (
-        (
-            "Root password",
-            lambda c, x: "set" if c.system.root_password_hash else "locked",
-            root_password_screen,
-        ),
-        (
-            "Account",
-            lambda c, x: ", ".join(u.name for u in c.system.users) or "none",
-            user_screen,
-        ),
-    )
-    return run_menu(screen, config, context, context.translate("Users"), rows)
-
-
-def portage_menu(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
-    rows: tuple[Row, ...] = (
-        ("Mirrors", lambda c, x: c.portage.mirrors.region.value, mirror_screen),
-        ("Profile", lambda c, x: c.portage.profile, _profile_screen),
-    )
-    return run_menu(screen, config, context, context.translate("Portage"), rows)
-
-
 def _profile_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
     """Only the profiles that match the chosen init, because the validator
     refuses the other half and the operator should not be offered them."""
@@ -742,13 +654,112 @@ def _profile_screen(screen: Screen, config: InstallConfig, context: Context) -> 
     )
 
 
-def packages_menu(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
-    rows: tuple[Row, ...] = (
-        ("Desktop", lambda c, x: c.packages.desktop or "none", desktop_screen),
-        (
-            "Applications",
-            lambda c, x: ", ".join(c.packages.applications) or "none",
-            packages_screen,
-        ),
+def table_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
+    """GPT or MBR. UEFI needs GPT in practice, and the compatibility table
+    refuses BIOS booting a GPT disk with no bios-boot partition."""
+    translate = context.translate
+    items = [Item(label=table.value, value=table) for table in TableType]
+    menu: Menu[TableType] = Menu(
+        title=translate("Partition table"), items=items, footer=_footer(translate)
     )
-    return run_menu(screen, config, context, context.translate("Desktop and applications"), rows)
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    context.choice = replace(context.choice, table=answer.unwrap()[0])
+    return Answer(Outcome.CHOSE, _rebuild(config, context.choice))
+
+
+def firmware_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
+    """Detected rather than asked first: the machine already booted one way,
+    and installing for the other is almost always a mistake."""
+    translate = context.translate
+    items = [
+        Item(
+            label=firmware.value,
+            value=firmware,
+            detail="this machine booted this way" if firmware is context.firmware else "",
+        )
+        for firmware in Firmware
+    ]
+    menu: Menu[Firmware] = Menu(
+        title=translate("Firmware"), items=items, footer=_footer(translate)
+    )
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    firmware = answer.unwrap()[0]
+    context.choice = replace(context.choice, firmware=firmware)
+    changed = _rebuild(config, context.choice)
+    return Answer(
+        Outcome.CHOSE,
+        replace(changed, bootloader=replace(changed.bootloader, firmware=firmware)),
+    )
+
+
+def keymap_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
+    field = TextField(
+        title=context.translate("Keyboard layout"),
+        value=config.system.keymap,
+        footer=_footer(context.translate),
+    )
+    answer = field.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    return Answer(
+        Outcome.CHOSE,
+        replace(config, system=replace(config.system, keymap=answer.unwrap() or "us")),
+    )
+
+
+def repositories_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """The overlays, each chosen on its own. One is never added behind the
+    operator's back, so selecting ZFSBootMenu ticks gentoo-zh visibly here."""
+    translate = context.translate
+    present = {overlay.name for overlay in config.portage.overlays}
+    items = [
+        Item(label=name, value=name, detail=uri) for name, uri in sorted(OVERLAYS.items())
+    ]
+    menu: Menu[str] = Menu(
+        title=translate("Optional repositories"),
+        items=items,
+        multiple=True,
+        selected={index for index, item in enumerate(items) if item.value in present},
+        footer=_footer(translate),
+    )
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    chosen = tuple(
+        Overlay(name=name, sync_uri=OVERLAYS[name]) for name in answer.unwrap()
+    )
+    return Answer(Outcome.CHOSE, replace(config, portage=replace(config.portage, overlays=chosen)))
+
+
+def networking_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """How the installed system brings a link up. The two NetworkManager rows
+    differ only in which supplicant drives wifi."""
+    translate = context.translate
+    builtin = "systemd-networkd" if config.system.init is InitSystem.SYSTEMD else "netifrc"
+    detail = {
+        Networking.BUILTIN: builtin,
+        Networking.NETWORKMANAGER_WPA: "wpa_supplicant for wifi",
+        Networking.NETWORKMANAGER_IWD: "iwd for wifi",
+        Networking.NONE: "configure it yourself after the install",
+    }
+    items = [
+        Item(label=choice.value, value=choice, detail=detail[choice]) for choice in Networking
+    ]
+    menu: Menu[Networking] = Menu(
+        title=translate("Network configuration"), items=items, footer=_footer(translate)
+    )
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    return Answer(
+        Outcome.CHOSE,
+        replace(config, system=replace(config.system, networking=answer.unwrap()[0])),
+    )

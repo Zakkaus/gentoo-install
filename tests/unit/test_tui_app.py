@@ -46,14 +46,24 @@ def down(count: int) -> list[str]:
     return ["KEY_DOWN"] * count
 
 
-def test_the_menu_shows_every_setting_with_its_current_value() -> None:
-    """The operator has to see what is set without opening each row."""
-    screen = FakeScreen(keys=["q"])
-    run(screen, config(), context())
-    drawn = screen.last
+def test_every_row_is_reachable_and_shows_its_current_value() -> None:
+    """More rows than an 80x24 console holds, so the list scrolls and the test
+    walks it rather than reading one frame."""
+    at = context()
+    screen = FakeScreen(keys=[*down(len(settings.SETTINGS)), "q"])
+    run(screen, config(), at)
+    seen = "\n".join("\n".join(frame) for frame in screen.frames)
     for setting in settings.SETTINGS:
-        assert setting.label in drawn, setting.label
-    assert "gentoo" in drawn
+        assert setting.label in seen, setting.label
+        assert setting.value(config(), at) in seen or setting.required, setting.label
+
+
+def test_the_menu_is_flat() -> None:
+    """One row per decision. Nesting hides a choice behind a heading nobody
+    opens, which is what the maintainer asked to be rid of."""
+    assert len(settings.SETTINGS) > 20
+    for setting in settings.SETTINGS:
+        assert "menu" not in setting.edit.__name__
 
 
 def test_a_row_can_be_opened_and_the_menu_comes_back() -> None:
@@ -82,17 +92,35 @@ def test_the_same_row_can_be_edited_twice() -> None:
 def test_install_is_blocked_while_something_required_is_missing() -> None:
     """And the row says what is missing rather than silently doing nothing."""
     blank = replace(config(), system=replace(config().system, root_password_hash=""))
-    screen = FakeScreen(keys=["q"])
-    run(screen, blank, context())
-    assert "Install" in screen.last
+    at = context()
+    screen = FakeScreen(keys=[*down(len(settings.SETTINGS)), "q"])
+    run(screen, blank, at)
+    seen = "\n".join("\n".join(frame) for frame in screen.frames)
+    assert "Root password" in seen
+    assert "still needs an answer" in seen
 
 
 def test_install_hands_back_the_configuration() -> None:
+    at = context()
+    at.erase_confirmed = True
+    ready = replace(
+        config(), system=replace(config().system, root_password_hash="$6$test$x")
+    )
     keys = [*down(len(settings.SETTINGS)), "\n"]
-    finished = run(FakeScreen(keys=keys), config(), context())
+    finished = run(FakeScreen(keys=keys), ready, at)
     assert not finished.cancelled
     assert finished.config is not None
     validate(finished.config)
+
+
+def test_erasing_the_drive_is_a_row_that_has_to_be_confirmed() -> None:
+    """It is required, so the install row stays blocked until the operator has
+    typed the drive name once."""
+    at = context()
+    screen = FakeScreen(keys=[*down(len(settings.SETTINGS)), "q"])
+    run(screen, config(), at)
+    seen = "\n".join("\n".join(frame) for frame in screen.frames)
+    assert "Confirm erasing the drive" in seen
 
 
 def test_the_timezone_list_is_every_zone_the_machine_knows() -> None:

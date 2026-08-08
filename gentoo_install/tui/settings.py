@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Callable, Final
 
 from ..model.config import Bootloader, InstallConfig, KernelSource
-from ..model.device import Existing, Luks, MdRaid, VolumeGroup, ZfsPool
+from ..model.device import Existing, Luks, MdRaid, PartitionTable, VolumeGroup, ZfsPool
 from . import screens
 from .screens import Context, Step
 
@@ -36,24 +36,6 @@ class Setting:
     required: bool = False
 
 
-def _disk(config: InstallConfig, context: Context) -> str:
-    graph = config.disk.graph
-    disks = [node.selector.rsplit("/", 1)[-1] for node in graph.of_type(Existing)]
-    if not disks:
-        return UNSET
-    layers = []
-    if graph.of_type(Luks):
-        layers.append("luks")
-    if graph.of_type(MdRaid):
-        layers.append("mdraid")
-    if graph.of_type(VolumeGroup):
-        layers.append("lvm")
-    if graph.of_type(ZfsPool):
-        layers.append("zfs")
-    described = ", ".join(disks)
-    return f"{described} ({' '.join(layers)})" if layers else described
-
-
 def _swap(config: InstallConfig, context: Context) -> str:
     from ..model.device import Swap
 
@@ -62,23 +44,6 @@ def _swap(config: InstallConfig, context: Context) -> str:
     if config.disk.graph.of_type(Swap):
         return "a partition"
     return "none"
-
-
-def _system(config: InstallConfig, context: Context) -> str:
-    system = config.system
-    return f"{system.hostname}, {system.locale}, {system.timezone}, {system.init.value}"
-
-
-def _users(config: InstallConfig, context: Context) -> str:
-    root = "root has a password" if config.system.root_password_hash else "root is locked"
-    named = ", ".join(user.name for user in config.system.users)
-    return f"{root}; {named}" if named else root
-
-
-def _portage(config: InstallConfig, context: Context) -> str:
-    portage = config.portage
-    measured = ", measured" if portage.mirrors.speed_test else ""
-    return f"{portage.profile}, {portage.mirrors.region.value} mirrors{measured}"
 
 
 def _binhost(config: InstallConfig, context: Context) -> str:
@@ -99,28 +64,86 @@ def _bootloader(config: InstallConfig, context: Context) -> str:
     return f"{config.bootloader.kind.value}, {config.bootloader.firmware.value}"
 
 
-def _packages(config: InstallConfig, context: Context) -> str:
-    desktop = config.packages.desktop or "no desktop"
-    applications = ", ".join(config.packages.applications)
-    return f"{desktop}; {applications}" if applications else desktop
-
-
 def _network(config: InstallConfig, context: Context) -> str:
-    return "sshd enabled" if config.system.sshd else "sshd off"
+    return config.system.networking.value
 
 
-#: The menu, in the order it is drawn.
+def _mirror(config: InstallConfig, context: Context) -> str:
+    mirrors = config.portage.mirrors
+    return f"{mirrors.region.value}, measured" if mirrors.speed_test else mirrors.region.value
+
+
+def _repositories(config: InstallConfig, context: Context) -> str:
+    return ", ".join(overlay.name for overlay in config.portage.overlays) or "none"
+
+
+def _firmware(config: InstallConfig, context: Context) -> str:
+    detected = " (detected)" if config.bootloader.firmware is context.firmware else ""
+    return f"{config.bootloader.firmware.value}{detected}"
+
+
+def _drive(config: InstallConfig, context: Context) -> str:
+    disks = [node.selector.rsplit("/", 1)[-1] for node in config.disk.graph.of_type(Existing)]
+    return ", ".join(disks) if disks else UNSET
+
+
+def _table(config: InstallConfig, context: Context) -> str:
+    tables = {node.table.value for node in config.disk.graph.of_type(PartitionTable)}
+    return ", ".join(sorted(tables)) if tables else UNSET
+
+
+def _layout(config: InstallConfig, context: Context) -> str:
+    return context.choice.layout.value
+
+
+def _encryption(config: InstallConfig, context: Context) -> str:
+    return "on" if context.choice.passphrase_file else "off"
+
+
+def _root(config: InstallConfig, context: Context) -> str:
+    return "set" if config.system.root_password_hash else UNSET
+
+
+def _user(config: InstallConfig, context: Context) -> str:
+    return ", ".join(user.name for user in config.system.users) or "none"
+
+
+def _applications(config: InstallConfig, context: Context) -> str:
+    return ", ".join(config.packages.applications) or "none"
+
+
+def _erase(config: InstallConfig, context: Context) -> str:
+    return "confirmed" if context.erase_confirmed else UNSET
+
+
+#: The menu, flat and in the order it is drawn. One row per decision: nesting
+#: hides a choice behind a heading nobody opens, and `archinstall` reaches the
+#: same conclusion.
 SETTINGS: Final[tuple[Setting, ...]] = (
-    Setting("disk", "Disks", _disk, screens.disk_menu, required=True),
+    Setting("keymap", "Keyboard layout", lambda c, x: c.system.keymap, screens.keymap_screen),
+    Setting("locale", "System language", lambda c, x: c.system.locale, screens.locale_screen),
+    Setting("timezone", "Timezone", lambda c, x: c.system.timezone, screens.timezone_screen),
+    Setting("mirror", "Mirror region", _mirror, screens.mirror_screen),
+    Setting("repositories", "Optional repositories", _repositories, screens.repositories_screen),
+    Setting("firmware", "Firmware", _firmware, screens.firmware_screen),
+    Setting("disk", "Drive", _drive, screens.disk_screen, required=True),
+    Setting("table", "Partition table", _table, screens.table_screen),
+    Setting("layout", "Layout", _layout, screens.layout_screen),
+    Setting("encryption", "Encryption", _encryption, screens.encryption_screen),
     Setting("swap", "Swap", _swap, screens.swap_screen),
-    Setting("system", "Target system", _system, screens.system_menu, required=True),
-    Setting("users", "Users", _users, screens.users_menu, required=True),
-    Setting("portage", "Portage", _portage, screens.portage_menu),
-    Setting("binhost", "Binary packages", _binhost, screens.binhost_screen),
+    Setting("hostname", "Hostname", lambda c, x: c.system.hostname, screens.system_screen),
+    Setting("init", "Init system", lambda c, x: c.system.init.value, screens.init_screen),
+    Setting("profile", "Profile", lambda c, x: c.portage.profile, screens._profile_screen),
+    Setting("root", "Root password", _root, screens.root_password_screen, required=True),
+    Setting("user", "User account", _user, screens.user_screen),
     Setting("kernel", "Kernel", _kernel, screens.kernel_screen),
     Setting("bootloader", "Bootloader", _bootloader, screens.bootloader_screen),
-    Setting("packages", "Desktop and applications", _packages, screens.packages_menu),
-    Setting("network", "Network and SSH", _network, screens.sshd_screen),
+    Setting("binhost", "Binary packages", _binhost, screens.binhost_screen),
+    Setting("desktop", "Desktop", lambda c, x: c.packages.desktop or "none", screens.desktop_screen),
+    Setting("packages", "Additional packages", _applications, screens.packages_screen),
+    Setting("network", "Network configuration", _network, screens.networking_screen),
+    Setting("sshd", "SSH server", lambda c, x: "on" if c.system.sshd else "off", screens.sshd_screen),
+    Setting("erase", "Confirm erasing the drive", _erase, screens.erase_screen, required=True),
 )
 
 

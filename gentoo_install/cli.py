@@ -24,7 +24,7 @@ from .tui import app, screens
 from .tui.curses_screen import CursesScreen
 from .i18n import Catalog, tag_for
 from .model import templates
-from .model.config import DiskConfig, InstallConfig
+from .model.config import DiskConfig, Firmware, InstallConfig
 from .model.parse import load
 from .plan.build import DEFAULT_MIRROR, build
 from .plan.operations import Operation
@@ -175,6 +175,7 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         hash_password=lambda password: fetch.password_hash(password, runner),
         stage_passphrase=lambda text: _stage_passphrase(text, arguments.work),
         timezones=probe.timezones(),
+        firmware=Firmware.UEFI if probe.machine().uefi else Firmware.BIOS,
     )
     if not context.disks:
         raise errors.DeviceNotFound("this machine reports no disk to install onto")
