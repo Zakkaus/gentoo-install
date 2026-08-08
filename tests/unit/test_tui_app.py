@@ -16,12 +16,24 @@ from .layouts import config
 DISKS = [("/dev/disk/by-id/virtio-target0", "20 GiB"), ("/dev/disk/by-id/virtio-target1", "40 GiB")]
 
 
+#: What the screen handed to `stage_passphrase`, so a test can assert the
+#: passphrase left the screen without appearing on it.
+STAGED: list[str] = []
+
+
+def staged(text: str) -> str:
+    STAGED.append(text)
+    return "/run/keys/tui"
+
+
 def context() -> screens.Context:
+    STAGED.clear()
     return screens.Context(
         translate=Catalog("en"),
         disks=DISKS,
         groups=load_catalog(),
         hash_password=lambda password: f"$6$test${len(password)}",
+        stage_passphrase=staged,
         timezones=("UTC", "Asia/Shanghai", "Asia/Taipei", "Europe/London"),
     )
 
@@ -123,3 +135,58 @@ def test_choosing_zfs_still_adds_the_overlay_that_carries_zfsbootmenu() -> None:
     answer = screens.layout_screen(FakeScreen(keys=keys), config(), context())
     assert answer.unwrap().bootloader.kind is Bootloader.ZFSBOOTMENU
     assert [o.name for o in answer.unwrap().portage.overlays] == ["gentoo-zh"]
+
+
+def test_the_passphrase_is_typed_here_and_never_drawn() -> None:
+    """The operator types a passphrase, not the name of a file holding one, and
+    the screen stages the file itself."""
+    at = context()
+    typed = list("hunter2hunter2")
+    keys = ["KEY_DOWN", "\n", *typed, "\n", *typed, "\n"]
+    screen = FakeScreen(keys=keys)
+    answer = screens.encryption_screen(screen, config(), at)
+    assert answer.outcome is Outcome.CHOSE
+    assert STAGED == ["hunter2hunter2"]
+    assert at.choice.passphrase_file == "/run/keys/tui"
+    drawn = "\n".join("\n".join(frame) for frame in screen.frames)
+    assert "hunter2hunter2" not in drawn
+    assert "*" * 14 in drawn
+
+
+def test_a_passphrase_typed_twice_differently_is_refused() -> None:
+    at = context()
+    keys = [
+        "KEY_DOWN", "\n",
+        *list("hunter2hunter2"), "\n",
+        *list("hunter2different"), "\n",
+        "\n",
+        *list("hunter2hunter2"), "\n",
+        *list("hunter2hunter2"), "\n",
+    ]
+    answer = screens.encryption_screen(FakeScreen(keys=keys), config(), at)
+    assert answer.outcome is Outcome.CHOSE
+    assert STAGED == ["hunter2hunter2"]
+
+
+def test_a_passphrase_zfs_would_refuse_is_caught_before_the_disks_are_touched() -> None:
+    """`zpool create` rejects anything under eight characters, and it rejects
+    it after the vdevs are partitioned."""
+    at = context()
+    keys = [
+        "KEY_DOWN", "\n",
+        *list("short"), "\n",
+        "\n",
+        *list("longenough"), "\n",
+        *list("longenough"), "\n",
+    ]
+    screen = FakeScreen(keys=keys)
+    screens.encryption_screen(screen, config(), at)
+    assert STAGED == ["longenough"]
+    assert "too short" in "\n".join("\n".join(frame) for frame in screen.frames)
+
+
+def test_declining_encryption_clears_the_passphrase() -> None:
+    at = context()
+    at.choice = replace(at.choice, passphrase_file="/run/keys/old")
+    screens.encryption_screen(FakeScreen(keys=["\n"]), config(), at)
+    assert at.choice.passphrase_file == ""

@@ -9,7 +9,7 @@ validator never disagree about why something cannot be chosen.
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Callable, Sequence
+from typing import Callable, Final, Sequence
 
 from ..i18n import Catalog
 from ..model import compat
@@ -50,6 +50,7 @@ class Context:
         disks: Sequence[tuple[str, str]],
         groups: Groups,
         hash_password: Callable[[str], str],
+        stage_passphrase: Callable[[str], str] = lambda text: "",
         timezones: Sequence[str] = (),
     ) -> None:
         self.translate = translate
@@ -59,6 +60,9 @@ class Context:
         #: Injected rather than imported: the model layer does no I/O, and
         #: hashing runs `openssl` on the installing system.
         self.hash_password = hash_password
+        #: Writes a passphrase into the run's work directory and returns its
+        #: path. Injected because the model layer does no I/O.
+        self.stage_passphrase = stage_passphrase
         #: Every zone the machine knows, from `exec/probe.py`.
         self.timezones = tuple(timezones)
         #: Kept so the disk screen can rebuild the graph when one answer
@@ -396,6 +400,10 @@ def packages_screen(
 
 #: Taken from profiles.desc for amd64 23.0. A systemd profile is the same path
 #: plus /systemd, which `_profile_for` relies on.
+#: `zpool create` refuses anything shorter, and LUKS with a short passphrase is
+#: not worth offering either.
+PASSPHRASE_MINIMUM: Final[int] = 8
+
 PROFILES: tuple[str, ...] = (
     "default/linux/amd64/23.0",
     "default/linux/amd64/23.0/systemd",
@@ -490,19 +498,54 @@ def timezone_screen(screen: Screen, config: InstallConfig, context: Context) -> 
 
 
 def encryption_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
-    """A path to the passphrase, never the passphrase: the file this names is
-    read at run time and the configuration is copied into the target."""
+    """Ask for the passphrase, then stage it in a file.
+
+    The configuration holds the file's path and never the passphrase, because
+    it is copied into the target and the install log is what people paste into
+    bug reports. Typing it here rather than naming a file is what the operator
+    expects; the file is this screen's job.
+    """
     translate = context.translate
-    field = TextField(
-        title=translate("Disks"),
-        value=context.choice.passphrase_file,
-        footer=_footer(translate),
-    )
-    answer = field.run(screen)
-    if not answer.chosen:
-        return Answer(answer.outcome)
-    context.choice = replace(context.choice, passphrase_file=answer.unwrap().strip())
-    return Answer(Outcome.CHOSE, _rebuild(config, context.choice))
+    wanted = Confirm(
+        title=translate("Encrypt the root filesystem?"), footer=_footer(translate)
+    ).run(screen)
+    if not wanted.chosen:
+        return Answer(wanted.outcome)
+    if not wanted.unwrap():
+        context.choice = replace(context.choice, passphrase_file="")
+        return Answer(Outcome.CHOSE, _rebuild(config, context.choice))
+    while True:
+        first = TextField(
+            title=translate("Passphrase"), masked=True, footer=_footer(translate)
+        ).run(screen)
+        if not first.chosen:
+            return Answer(first.outcome)
+        typed = first.unwrap()
+        if len(typed) < PASSPHRASE_MINIMUM:
+            # Checked here, not at preflight: zfs refuses a short passphrase
+            # only once the disks have been partitioned.
+            _say(screen, context, translate("The passphrase is too short."))
+            continue
+        again = TextField(
+            title=translate("Passphrase again"), masked=True, footer=_footer(translate)
+        ).run(screen)
+        if not again.chosen:
+            return Answer(again.outcome)
+        if again.unwrap() != typed:
+            _say(screen, context, translate("The two do not match."))
+            continue
+        context.choice = replace(context.choice, passphrase_file=context.stage_passphrase(typed))
+        return Answer(Outcome.CHOSE, _rebuild(config, context.choice))
+
+
+def _say(screen: Screen, context: Context, message: str) -> None:
+    """One line the operator has to acknowledge, so a rejected entry is not
+    silently redrawn as an empty field."""
+    Menu(
+        title=message,
+        items=[Item(label=context.translate("Continue"), value=0)],
+        footer=_footer(context.translate),
+    ).run(screen)
 
 
 def swap_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:

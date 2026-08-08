@@ -15,3 +15,8 @@
 "This erases every partition on the disk." = "這會清除磁碟上的每一個分割區。"
 "Type the disk name to confirm." = "輸入磁碟名稱以確認。"
 "unavailable" = "不可選"
+"Encrypt the root filesystem?" = "要加密根檔案系統嗎？"
+"Passphrase" = "密語"
+"Passphrase again" = "再輸入一次密語"
+"The passphrase is too short." = "密語太短。"
+"The two do not match." = "兩次輸入不一致。"

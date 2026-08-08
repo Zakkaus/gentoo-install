@@ -18,7 +18,7 @@ from .data import load_catalog
 from .exec import fetch, preflight
 from .exec.apply import Machine, apply
 from .exec.probe import Probe
-from .exec.runner import Runner
+from .exec.runner import Runner, write_file
 from .log import Journal
 from .tui import app, screens
 from .tui.curses_screen import CursesScreen
@@ -173,6 +173,7 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         disks=probe.disks(),
         groups=load_catalog(),
         hash_password=lambda password: fetch.password_hash(password, runner),
+        stage_passphrase=lambda text: _stage_passphrase(text, arguments.work),
         timezones=probe.timezones(),
     )
     if not context.disks:
@@ -195,3 +196,15 @@ def _blank(disk: str) -> InstallConfig:
     """What the first screen starts from: a layout the operator will replace."""
     graph, root = templates.build(templates.Choice(disk=disk))
     return InstallConfig(disk=DiskConfig(graph=graph, root=root))
+
+
+def _stage_passphrase(passphrase: str, work: Path) -> str:
+    """Write a passphrase where the disk operations read it from.
+
+    Under the work directory, which is a tmpfs on an install medium, so the
+    passphrase never reaches a disk this run wrote.
+    """
+    where = work / "keys" / "tui"
+    where.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    write_file(where, passphrase, 0o600)
+    return str(where)
