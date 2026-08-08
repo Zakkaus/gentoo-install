@@ -57,7 +57,6 @@
   enable sysklogd at boot
   install cron: emerge sys-process/cronie
   enable cronie at boot
-  enable lvm at boot
 
 [kernel]
   set sys-kernel/installkernel to dracut
@@ -74,6 +73,9 @@
   install the bootloader: emerge sys-boot/grub sys-boot/efibootmgr
   write /etc/default/grub with cmdline console=ttyS0,115200, its menu on ttyS0
   install GRUB for uefi on the esp at /efi
+
+[packages]
+  enable lvm at boot
 
 [finish]
   unmount everything under the target

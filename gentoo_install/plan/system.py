@@ -642,7 +642,14 @@ def build(config: InstallConfig) -> list[Operation]:
         if system.init is InitSystem.OPENRC and any(
             not entry.initrd_attach for entry in crypttab
         ):
-            operations.append(EnableService(service="dmcrypt", init=system.init, runlevel="boot"))
+            operations.append(
+                EnableService(
+                    stage=STORAGE_SERVICE_STAGE,
+                    service="dmcrypt",
+                    init=system.init,
+                    runlevel="boot",
+                )
+            )
     for user in system.users:
         operations.append(
             CreateUser(
@@ -711,7 +718,9 @@ def build(config: InstallConfig) -> list[Operation]:
         # openrc assembles the stack with a service per kind. The root comes up
         # from the initramfs either way; anything else needs these.
         operations += [
-            EnableService(service=service, init=system.init, runlevel="boot")
+            EnableService(
+                stage=STORAGE_SERVICE_STAGE, service=service, init=system.init, runlevel="boot"
+            )
             for kind, service in OPENRC_STORAGE
             if config.disk.graph.of_type(kind)
         ]
@@ -856,6 +865,10 @@ OPENRC_STORAGE: Final[tuple[tuple[type[Node], str], ...]] = (
     (VolumeGroup, "lvm"),
     (MdRaid, "mdraid"),
 )
+
+#: `sys-fs/lvm2`, `sys-fs/mdadm` and `sys-fs/cryptsetup` are merged with the
+#: kernel stack, and `rc-update` refuses a service whose package is absent.
+STORAGE_SERVICE_STAGE: Final[Stage] = Stage.PACKAGES
 
 
 def _logging(system: SystemConfig) -> list[Operation]:

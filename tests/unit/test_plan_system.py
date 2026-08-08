@@ -16,7 +16,15 @@ from gentoo_install.model.config import (
     User,
 )
 from gentoo_install.model.size import Size
-from gentoo_install.model.device import Filesystem, FilesystemType, Luks, Mountpoint, Node
+from gentoo_install.model.device import (
+    Filesystem,
+    FilesystemType,
+    Luks,
+    Mountpoint,
+    Node,
+    Partition,
+    PartitionRole,
+)
 from gentoo_install.plan import system
 
 from .layouts import config, ext4_on_gpt, i
@@ -485,6 +493,53 @@ def test_openrc_reads_its_containers_from_conf_d_and_not_from_crypttab() -> None
     systemd = Recorder()
     system.WriteCrypttab(entries=entries, init=InitSystem.SYSTEMD).apply(systemd)
     assert "x-initrd.attach" in systemd.files[PurePosixPath("/etc/crypttab")]
+
+
+def test_an_openrc_storage_service_is_enabled_after_its_package_is_merged() -> None:
+    """`rc-update add lvm boot` exits 1 with `service does not exist` until
+    sys-fs/lvm2 is installed, and that happens with the kernel stack."""
+    from pathlib import Path
+
+    from gentoo_install.data import load_catalog
+    from gentoo_install.model.parse import load
+    from gentoo_install.plan.build import build
+
+    for fixture, package, service in (
+        ("vm-lvm", "sys-fs/lvm2", "lvm"),
+        ("vm-mdraid", "sys-fs/mdadm", "mdraid"),
+    ):
+        loaded = load(Path(f"tests/fixtures/{fixture}.toml"))
+        openrc = replace(
+            loaded,
+            system=replace(loaded.system, init=InitSystem.OPENRC),
+            portage=replace(loaded.portage, profile="default/linux/amd64/23.0"),
+        )
+        described = [one.describe() for one in build(openrc, load_catalog())]
+        merged = next(n for n, line in enumerate(described) if package in line)
+        enabled = next(n for n, line in enumerate(described) if line == f"enable {service} at boot")
+        assert merged < enabled, fixture
+
+
+def test_dmcrypt_waits_for_cryptsetup_the_same_way() -> None:
+    """The third openrc storage service, and the only one a fixture cannot
+    reach: every fixture's container holds the root, which the initramfs opens."""
+    nodes: list[Node] = [
+        *ext4_on_gpt(),
+        Partition(
+            id=i("datapart"), table=i("table"), index=3, role=PartitionRole.DATA, size=None
+        ),
+        Luks(id=i("crypt"), backing=i("datapart"), name="data"),
+        Filesystem(id=i("datafs"), device=i("crypt"), kind=FilesystemType.EXT4),
+        Mountpoint(id=i("mnt-data"), source=i("datafs"), path=PurePosixPath("/data")),
+    ]
+    services = [
+        one
+        for one in system.build(
+            replace(config(nodes), system=SystemConfig(init=InitSystem.OPENRC))
+        )
+        if isinstance(one, system.EnableService) and one.service == "dmcrypt"
+    ]
+    assert [one.stage for one in services] == [system.STORAGE_SERVICE_STAGE]
 
 
 def test_openrc_gets_a_logger_and_cron_because_a_stage3_has_neither() -> None:
