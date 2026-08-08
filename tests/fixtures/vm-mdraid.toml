@@ -1,0 +1,112 @@
+# mdraid: a RAID1 root across two disks, with an esp on each so the machine
+# still boots when one disk is gone. UEFI, systemd, ext4.
+config_version = 1
+
+[system]
+hostname = "raidbox"
+timezone = "UTC"
+locales = ["en_US.UTF-8"]
+locale = "en_US.UTF-8"
+init = "systemd"
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
+
+[portage]
+profile = "default/linux/amd64/23.0/systemd"
+makeopts = "-j4"
+
+[portage.binhost]
+official = true
+community = "off"
+
+[kernel]
+source = "dist-bin"
+
+[bootloader]
+kind = "grub"
+firmware = "uefi"
+kernel_params = ["console=ttyS0,115200"]
+
+[disk]
+root = "mnt-root"
+
+[[disk.devices]]
+kind = "existing"
+id = "disk0"
+selector = "/dev/disk/by-id/virtio-target0"
+wipe = true
+
+[[disk.devices]]
+kind = "existing"
+id = "disk1"
+selector = "/dev/disk/by-id/virtio-target1"
+wipe = true
+
+[[disk.devices]]
+kind = "table"
+id = "table0"
+disk = "disk0"
+table = "gpt"
+
+[[disk.devices]]
+kind = "table"
+id = "table1"
+disk = "disk1"
+table = "gpt"
+
+# The esp is not mirrored: firmware reads a plain vfat partition, and a raid1
+# esp would need metadata 1.0 to look like one. One per disk instead.
+[[disk.devices]]
+kind = "partition"
+id = "esp"
+table = "table0"
+index = 1
+role = "esp"
+size = "512MiB"
+
+[[disk.devices]]
+kind = "partition"
+id = "member0"
+table = "table0"
+index = 2
+role = "raid"
+
+[[disk.devices]]
+kind = "partition"
+id = "member1"
+table = "table1"
+index = 1
+role = "raid"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "espfs"
+device = "esp"
+type = "vfat"
+label = "ESP"
+
+[[disk.devices]]
+kind = "raid"
+id = "array"
+members = ["member0", "member1"]
+level = "raid1"
+name = "root"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "rootfs"
+device = "array"
+type = "ext4"
+label = "gentoo"
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-root"
+source = "rootfs"
+path = "/"
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-esp"
+source = "espfs"
+path = "/efi"
+options = ["umask=0077"]

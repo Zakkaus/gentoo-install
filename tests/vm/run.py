@@ -21,6 +21,7 @@ from pathlib import Path, PurePosixPath
 from gentoo_install.model import compat
 from gentoo_install.model.config import Bootloader, InitSystem, InstallConfig
 from gentoo_install.model.device import (
+    Existing,
     Filesystem,
     Luks,
     Mountpoint,
@@ -114,6 +115,13 @@ def free_port() -> int:
         probe.bind(("127.0.0.1", 0))
         port: int = probe.getsockname()[1]
     return port
+
+
+def _target_paths(workdir: Path, installation: InstallConfig) -> tuple[Path, ...]:
+    count = max(1, len(installation.disk.graph.of_type(Existing)))
+    if count == 1:
+        return (workdir / "target.qcow2",)
+    return tuple(workdir / f"target{index}.qcow2" for index in range(count))
 
 
 def create_target(path: Path) -> Path:
@@ -317,14 +325,19 @@ def main(argv: list[str] | None = None) -> int:
     result_disk = create_disk(workdir / "result.img")
     driver_iso = build_driver(workdir / "driver.iso") if args.install and not args.boot_installed else None
     targets: tuple[Path, ...] = ()
-    if args.boot_installed:
-        installed = workdir / "target.qcow2"
-        if not installed.is_file():
-            print(f"{installed} does not exist; run --install first", file=sys.stderr)
-            return 1
-        targets = (installed,)
-    elif args.install:
-        targets = (create_target(workdir / "target.qcow2"),)
+    if args.install:
+        # One disk per `existing` node, because the fixture names them
+        # `virtio-target0`, `virtio-target1` and qemu numbers the serials the
+        # same way; an mdraid layout needs more than one.
+        wanted = _target_paths(workdir, load(REPOSITORY / "tests" / args.install))
+        if args.boot_installed:
+            missing = [path for path in wanted if not path.is_file()]
+            if missing:
+                print(f"{missing[0]} does not exist; run --install first", file=sys.stderr)
+                return 1
+            targets = wanted
+        else:
+            targets = tuple(create_target(path) for path in wanted)
 
     spec = VmSpec(
         medium=medium,
