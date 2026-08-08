@@ -102,6 +102,7 @@
 "SSH public keys" = "SSH 公钥"
 "Public key" = "公钥"
 "Type a key" = "手动输入公钥"
+"enter removes it" = "按 enter 移除"
 "Fetch from a paste" = "从 paste 获取"
 "the identifier alone" = "只需标识符"
 "the identifier, such as hjq+353Jzfk" = "标识符，例如 hjq+353Jzfk"

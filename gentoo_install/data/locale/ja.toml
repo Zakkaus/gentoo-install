@@ -102,6 +102,7 @@
 "SSH public keys" = "SSH 公開鍵"
 "Public key" = "公開鍵"
 "Type a key" = "公開鍵を手動で入力"
+"enter removes it" = "enter で削除"
 "Fetch from a paste" = "paste から取得"
 "the identifier alone" = "識別子のみ"
 "the identifier, such as hjq+353Jzfk" = "識別子、例 hjq+353Jzfk"

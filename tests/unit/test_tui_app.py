@@ -1119,3 +1119,14 @@ def test_a_bad_port_keeps_the_address_that_was_typed_beside_it() -> None:
     assert unlock.port == 222
     assert unlock.address == "192.0.2.5"
 
+
+def test_a_listed_key_says_that_enter_removes_it() -> None:
+    """Enter was the only thing the row did, and a key fetched from a URL went
+    without a word."""
+    at = context()
+    with_key = replace(
+        config(), system=replace(config().system, authorized_keys=(GOOD_KEY,))
+    )
+    screen = FakeScreen(keys=["q"], lines=24, columns=100)
+    screens.authorized_keys_screen(screen, with_key, at)
+    assert "enter removes it" in screen.last

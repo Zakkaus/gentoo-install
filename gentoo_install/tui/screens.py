@@ -2340,7 +2340,14 @@ def authorized_keys_screen(
     keys = list(config.system.authorized_keys)
     while True:
         items: list[Item[int]] = [
-            Item(label=_key_summary(key), value=-index - 1) for index, key in enumerate(keys)
+            Item(
+                label=_key_summary(key),
+                value=-index - 1,
+                # Said rather than confirmed: enter is the only thing this row
+                # does, and a key fetched from a URL is gone without a word.
+                detail=translate("enter removes it"),
+            )
+            for index, key in enumerate(keys)
         ]
         items += [
             Item(label=translate("Type a key"), value=0),

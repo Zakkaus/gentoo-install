@@ -102,6 +102,7 @@
 "SSH public keys" = "SSH 공개 키"
 "Public key" = "공개 키"
 "Type a key" = "공개 키 직접 입력"
+"enter removes it" = "enter로 제거"
 "Fetch from a paste" = "paste 에서 가져오기"
 "the identifier alone" = "식별자만"
 "the identifier, such as hjq+353Jzfk" = "식별자, 예 hjq+353Jzfk"
