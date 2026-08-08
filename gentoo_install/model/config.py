@@ -85,6 +85,8 @@ class SystemConfig:
     console_cjk: bool = False
     console_font: ConsoleFontSize = ConsoleFontSize.SIZE_8X16
     init: InitSystem = InitSystem.SYSTEMD
+    #: What the RTC holds. Dual-booting Windows is the reason to say false.
+    hardware_clock_utc: bool = True
     users: tuple[User, ...] = ()
     #: Empty locks root, which is what a system with a sudo user wants.
     root_password_hash: str = ""

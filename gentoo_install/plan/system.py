@@ -322,6 +322,32 @@ class EnableSerialGetty(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
+class SetHardwareClock(Operation):
+    """What the RTC is taken to hold. Wrong here and the clock is off by the
+    timezone offset every boot until something corrects it."""
+
+    stage: Stage = Stage.SYSTEM
+    utc: bool
+    init: InitSystem
+
+    def describe(self) -> str:
+        return f"treat the hardware clock as {'UTC' if self.utc else 'local time'}"
+
+    def apply(self, context: Context) -> None:
+        if self.init is InitSystem.OPENRC:
+            context.write(
+                PurePosixPath("/etc/conf.d/hwclock"),
+                f'clock="{"UTC" if self.utc else "local"}"\n',
+            )
+            return
+        # systemd reads the third line of /etc/adjtime and nothing else.
+        context.write(
+            PurePosixPath("/etc/adjtime"),
+            f"0.0 0 0.0\n0\n{'UTC' if self.utc else 'LOCAL'}\n",
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
 class EnableService(Operation):
     stage: Stage = Stage.SYSTEM
     service: str
@@ -350,6 +376,7 @@ def build(config: InstallConfig) -> list[Operation]:
         SetHostname(hostname=system.hostname, init=system.init),
         WriteMachineId(init=system.init),
         WriteFstab(entries=fstab_entries(config)),
+        SetHardwareClock(utc=system.hardware_clock_utc, init=system.init),
     ]
     crypttab = crypttab_entries(config)
     if crypttab:

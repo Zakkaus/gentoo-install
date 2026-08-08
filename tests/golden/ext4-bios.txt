@@ -35,6 +35,7 @@
   set the hostname to plain
   give the target its own machine id
   write /etc/fstab with entries for /, swap
+  treat the hardware clock as UTC
   set the root password
   install the network tools: emerge net-misc/netifrc net-misc/dhcpcd
   configure the wired interface for DHCP

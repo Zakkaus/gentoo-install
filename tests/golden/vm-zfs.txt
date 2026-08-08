@@ -44,6 +44,7 @@
   set the hostname to zfsbox
   give the target its own machine id
   write /etc/fstab with entries for /efi
+  treat the hardware clock as UTC
   set the root password
   configure the wired interface for DHCP
   enable systemd-networkd.service at boot

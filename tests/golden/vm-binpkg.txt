@@ -37,6 +37,7 @@
   set the hostname to vmtest
   give the target its own machine id
   write /etc/fstab with entries for /, /efi
+  treat the hardware clock as UTC
   set the root password
   install sshd: emerge net-misc/openssh
   enable sshd.service at boot

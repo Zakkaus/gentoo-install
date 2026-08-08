@@ -233,3 +233,5 @@ def test_a_failed_community_key_leaves_the_official_host_alone() -> None:
 
     portage.Emerge(packages=("sys-boot/grub",), summary="install the bootloader").apply(recorder)
     assert "--getbinpkg=y" in next(argv for argv in recorder.in_target if argv[0] == "emerge")
+
+

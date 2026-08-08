@@ -203,3 +203,23 @@ def test_openrc_gets_netifrc_which_a_stage3_does_not_carry() -> None:
         operation.describe() for operation in system.build(installation) if "emerge" in operation.describe()
     )
     assert "net-misc/netifrc" in merged
+
+
+def test_the_hardware_clock_is_written_where_each_init_reads_it() -> None:
+    """systemd reads the third line of /etc/adjtime and nothing else; openrc
+    reads conf.d. Wrong here and every boot is off by the timezone offset."""
+    recorder = Recorder()
+    for operation in system.build(config()):
+        if isinstance(operation, system.SetHardwareClock):
+            operation.apply(recorder)
+    assert recorder.files[PurePosixPath("/etc/adjtime")].splitlines()[2] == "UTC"
+
+    local = replace(
+        config(),
+        system=replace(config().system, init=InitSystem.OPENRC, hardware_clock_utc=False),
+    )
+    plain = Recorder()
+    for operation in system.build(local):
+        if isinstance(operation, system.SetHardwareClock):
+            operation.apply(plain)
+    assert plain.files[PurePosixPath("/etc/conf.d/hwclock")] == 'clock="local"\n'

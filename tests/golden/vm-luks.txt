@@ -44,6 +44,7 @@
   set the hostname to cryptbox
   give the target its own machine id
   write /etc/fstab with entries for /, /home, /efi
+  treat the hardware clock as UTC
   write /etc/crypttab for root
   set the root password
   configure the wired interface for DHCP

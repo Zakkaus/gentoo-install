@@ -38,6 +38,7 @@
   set the hostname to sdbootbox
   give the target its own machine id
   write /etc/fstab with entries for /, /boot
+  treat the hardware clock as UTC
   set the root password
   configure the wired interface for DHCP
   enable systemd-networkd.service at boot

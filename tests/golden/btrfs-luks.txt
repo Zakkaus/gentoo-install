@@ -50,6 +50,7 @@
   set the hostname to gig
   give the target its own machine id
   write /etc/fstab with entries for /, /home, /efi
+  treat the hardware clock as UTC
   write /etc/crypttab for root
   create user zakk in users, wheel, audio, video, render, usb, input with no password
   lock the root account
