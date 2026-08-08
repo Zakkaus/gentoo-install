@@ -1047,3 +1047,50 @@ def test_a_required_row_inside_any_group_is_named_by_its_own_label() -> None:
             ]
             assert row in walked, f"{group.label}/{row.label}"
             assert required.label == row.label
+
+
+def test_cancelling_out_of_a_group_hands_back_what_was_edited_in_it() -> None:
+    """It returned a bare CANCELLED, so declining to leave dropped every answer
+    already given inside that group and not only the screen backed out of."""
+    from gentoo_install.model.config import Keywords
+
+    at = context()
+    # The menu steps over a row it cannot open, so the count is of the rows
+    # that can be reached, not of the position in the tuple.
+    reachable = [one for one in settings.COMPILER if one.edit is not None]
+    keywords = next(n for n, one in enumerate(reachable) if one.label == "Package keywords")
+    # Into the keywords row, pick ~amd64, then cancel out of the group menu.
+    keys = [*down(keywords), "\n", "KEY_DOWN", "\n", "q"]
+    opened = settings.nested("Compiler", settings.COMPILER)
+    answer = opened(FakeScreen(keys=keys, lines=30, columns=100), config(), at)
+    assert answer.outcome is Outcome.CANCELLED
+    assert answer.value is not None
+    assert answer.value.portage.keywords is Keywords.TESTING
+
+
+def test_staying_after_a_cancel_keeps_the_answers_that_came_with_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`app.run` read a value only from a CHOSE answer, so the configuration a
+    cancelled group handed back was thrown away at the main menu."""
+    from gentoo_install.tui.widgets import Answer
+
+    at = context()
+    # Hostname rather than a value inside a group: `_summary` shows only the
+    # first two rows of a group, so the change has to be one the menu draws.
+    edited = replace(config(), system=replace(config().system, hostname="kept"))
+    cancelled = Answer(Outcome.CANCELLED, edited)
+    from gentoo_install.tui import app as tui_app
+
+    index = row("Hostname")
+    patched = replace(settings.SETTINGS[index], edit=lambda s, c, x: cancelled)
+    replaced = (*settings.SETTINGS[:index], patched, *settings.SETTINGS[index + 1 :])
+    monkeypatch.setattr(tui_app, "SETTINGS", replaced)
+    # The menu steps over the one row it cannot open.
+    reachable = [one for one in replaced if one.edit is not None]
+    steps = next(n for n, one in enumerate(reachable) if one.label == "Hostname")
+    # Open that row, answer No to leaving, then leave for real.
+    keys = [*down(steps), "\n", "\n", "q", "KEY_DOWN", "\n"]
+    screen = FakeScreen(keys=keys, lines=30, columns=100)
+    run(screen, config(), at)
+    assert "kept" in "\n".join(screen.frames[-3])

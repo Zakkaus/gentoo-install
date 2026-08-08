@@ -92,7 +92,9 @@ def nested(title: str, rows: tuple[Setting, ...]) -> Step:
                 # leaves the group and keeps what was edited inside it.
                 return Answer(Outcome.CHOSE, current)
             if not answer.chosen:
-                return Answer(answer.outcome)
+                # The edits go with it: the operator who cancels and then says
+                # no to leaving gets the group back as they left it.
+                return Answer(answer.outcome, current)
             chosen = answer.unwrap()[0]
             if chosen == len(rows):
                 return Answer(Outcome.CHOSE, current)
@@ -102,7 +104,7 @@ def nested(title: str, rows: tuple[Setting, ...]) -> Step:
             context.visited.add(rows[chosen].key)
             edited = editor(screen, current, context)
             if edited.outcome is Outcome.CANCELLED:
-                return Answer(Outcome.CANCELLED)
+                return Answer(Outcome.CANCELLED, current)
             if edited.chosen:
                 current = edited.unwrap()
 

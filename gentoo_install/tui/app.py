@@ -87,8 +87,14 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
             continue
         context.visited.add(SETTINGS[chosen].key)
         edited = editor(screen, current, context)
-        if edited.outcome is Outcome.CANCELLED and _leaving(screen, context):
-            return Finished(None)
+        if edited.outcome is Outcome.CANCELLED:
+            if _leaving(screen, context):
+                return Finished(None)
+            # A grouped row hands back what was edited inside it, so staying
+            # keeps those answers instead of dropping the whole group.
+            if edited.value is not None:
+                current = edited.value
+            continue
         if edited.chosen:
             current = edited.unwrap()
 
