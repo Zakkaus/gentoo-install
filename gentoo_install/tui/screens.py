@@ -445,10 +445,16 @@ def packages_screen(
     # A desktop is chosen on its own screen, because it also decides the
     # profile; this one offers what can be added beside any of them.
     names = sorted(name for name in context.groups if name not in DESKTOP_PROFILES)
+    items = [
+        Item(label=name, value=name, detail=" ".join(context.groups[name].packages))
+        for name in names
+    ]
+    chosen_already = set(config.packages.applications)
     menu: Menu[str] = Menu(
-        title=translate("Desktop and applications"),
-        items=[Item(label=name, value=name) for name in names],
+        title=translate("Applications"),
+        items=items,
         multiple=True,
+        selected={index for index, item in enumerate(items) if item.value in chosen_already},
         footer=_footer(translate),
     )
     answer = menu.run(screen)
@@ -1259,7 +1265,7 @@ def language_screen(screen: Screen, context: Context) -> str:
 LICENSES: tuple[tuple[str, str], ...] = (
     ("@FREE", "free software and free documentation only"),
     ("@FREE @BINARY-REDISTRIBUTABLE", "also firmware and other redistributable binaries"),
-    ("*", "everything, including licences you have not read"),
+    ("*", "every license"),
 )
 
 

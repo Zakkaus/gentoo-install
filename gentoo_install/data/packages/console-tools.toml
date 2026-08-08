@@ -1,0 +1,12 @@
+# What a freshly installed system is missing the first time someone logs into
+# a console: an editor, an archiver, a pager for logs, and gentoolkit.
+packages = [
+    "app-editors/nano",
+    "app-misc/tmux",
+    "sys-process/htop",
+    "app-arch/unzip",
+    "app-arch/p7zip",
+    "app-portage/gentoolkit",
+    "dev-vcs/git",
+    "app-misc/fastfetch",
+]

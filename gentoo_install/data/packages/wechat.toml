@@ -1,0 +1,4 @@
+# The bwrap build, which is the one gentoo-zh keeps working; the plain
+# `wechat` package needs a system the sandbox already provides.
+packages = ["net-im/wechat-universal-bwrap"]
+repositories = ["gentoo-zh"]
