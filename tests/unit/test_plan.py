@@ -167,7 +167,13 @@ def test_dracut_carries_a_module_for_every_layer_of_the_stack() -> None:
 
 
 def test_an_openrc_target_gets_netifrc_which_stage3_does_not_carry() -> None:
-    openrc = replace(config(), system=SystemConfig(init=InitSystem.OPENRC))
+    base = config()
+    openrc = replace(
+        base,
+        system=SystemConfig(init=InitSystem.OPENRC),
+        # The profile follows the init; the validator refuses them disagreeing.
+        portage=replace(base.portage, profile="default/linux/amd64/23.0"),
+    )
     assert "net-misc/netifrc" in " ".join(operation.describe() for operation in plan(openrc))
 
 

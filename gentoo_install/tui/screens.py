@@ -173,9 +173,24 @@ def init_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
+    init = answer.unwrap()[0]
     return Answer(
-        Outcome.CHOSE, replace(config, system=replace(config.system, init=answer.unwrap()[0]))
+        Outcome.CHOSE,
+        replace(
+            config,
+            system=replace(config.system, init=init),
+            portage=replace(config.portage, profile=_profile_for(config.portage.profile, init)),
+        ),
     )
+
+
+def _profile_for(profile: str, init: InitSystem) -> str:
+    """The profile has to follow the init: a systemd profile has `systemd` as a
+    path component, and the two disagreeing builds packages for the other."""
+    parts = [part for part in profile.split("/") if part != "systemd"]
+    if init is InitSystem.SYSTEMD:
+        parts.append("systemd")
+    return "/".join(parts)
 
 
 def root_password_screen(

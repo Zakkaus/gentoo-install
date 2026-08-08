@@ -38,7 +38,7 @@ def test_the_whole_walk_produces_a_configuration_that_validates() -> None:
         "\n",                                   # locale: zh_TW
         "\n",                                   # timezone: Asia/Shanghai
         *["\x7f"] * len("gentoo"), *list("box"), "\n",  # clear the default, type a name
-        "\n",                                   # init: systemd
+        "KEY_DOWN", "\n",                       # init: systemd, the second row
         *list("secret"), "\n",                  # root password
         *list("zakk"), "\n",                    # a normal account
         *list("secret"), "\n",                  # its password
@@ -124,3 +124,15 @@ def test_an_empty_user_name_leaves_the_system_with_root_only() -> None:
     )
     assert finished.config is not None
     assert finished.config.system.users == ()
+
+
+def test_choosing_openrc_moves_the_profile_off_systemd() -> None:
+    """The validator refuses the two disagreeing, so the screen that changes
+    one has to change the other."""
+    finished = run(
+        FakeScreen(keys=["\n"]), config(), context(), steps=(screens.init_screen,)
+    )
+    assert finished.config is not None
+    assert finished.config.system.init.value == "openrc"
+    assert "systemd" not in finished.config.portage.profile.split("/")
+    validate(finished.config)

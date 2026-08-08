@@ -120,7 +120,9 @@ class Binhost:
 
 @dataclass(frozen=True)
 class PortageConfig:
-    profile: str = "default/linux/amd64/23.0"
+    #: Matches the default init. A systemd profile has `systemd` as a path
+    #: component; the two disagreeing leaves packages built for the other.
+    profile: str = "default/linux/amd64/23.0/systemd"
     keywords: Keywords = Keywords.STABLE
     #: Atoms accepted as testing while the rest of the system stays stable.
     testing_packages: tuple[str, ...] = ()

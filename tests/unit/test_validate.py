@@ -6,6 +6,7 @@ from pathlib import Path, PurePosixPath
 import pytest
 
 from gentoo_install.errors import ValidationFailed
+from gentoo_install.model.config import InitSystem
 from gentoo_install.model.device import Mountpoint, Node, Partition, PartitionRole
 from gentoo_install.model.size import Size
 from gentoo_install.model.parse import load
@@ -97,3 +98,21 @@ def test_a_root_with_room_passes() -> None:
         )
     )
     validate(config(nodes))
+
+
+def test_a_profile_that_disagrees_with_the_init_is_refused() -> None:
+    """The profile decides what packages are built against, so one that does
+    not match leaves a system whose packages expect the other init."""
+    base = config()
+    with pytest.raises(ValidationFailed, match="without /systemd"):
+        validate(replace(base, system=replace(base.system, init=InitSystem.OPENRC)))
+
+    openrc = replace(
+        base,
+        system=replace(base.system, init=InitSystem.OPENRC),
+        portage=replace(base.portage, profile="default/linux/amd64/23.0/desktop"),
+    )
+    validate(openrc)
+
+    with pytest.raises(ValidationFailed, match="ending in /systemd"):
+        validate(replace(openrc, system=replace(openrc.system, init=InitSystem.SYSTEMD)))

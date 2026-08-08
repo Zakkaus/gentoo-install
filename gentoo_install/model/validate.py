@@ -12,7 +12,7 @@ from typing import Final
 
 from ..errors import ValidationFailed
 from . import compat
-from .config import InstallConfig
+from .config import InitSystem, InstallConfig
 from .device import Mountpoint
 from .size import Size
 
@@ -23,6 +23,7 @@ def validate(config: InstallConfig) -> None:
     problems = [
         *_layout_problems(config),
         *_root_size_problems(config),
+        *_profile_problems(config),
         *(rule.describe() for rule in compat.violations(config)),
     ]
     if problems:
@@ -52,6 +53,18 @@ def _root_size_problems(config: InstallConfig) -> list[str]:
                 "a kernel and linux-firmware need"
             ]
     return []
+
+
+def _profile_problems(config: InstallConfig) -> list[str]:
+    """The profile decides what the system is built against, so one that does
+    not match the init leaves a system whose packages expect the other."""
+    profile = config.portage.profile
+    systemd_profile = "systemd" in profile.split("/")
+    wants_systemd = config.system.init is InitSystem.SYSTEMD
+    if systemd_profile == wants_systemd:
+        return []
+    wanted = "one ending in /systemd" if wants_systemd else "one without /systemd"
+    return [f"init is {config.system.init.value} and the profile is {profile}; use {wanted}"]
 
 
 def _layout_problems(config: InstallConfig) -> list[str]:
