@@ -279,8 +279,8 @@ def build(config: InstallConfig) -> list[Operation]:
     esp_device = _esp_partition(config)
     packages = BOOTLOADER_PACKAGES[kind]
     if config.bootloader.firmware is Firmware.UEFI and kind is not Bootloader.SYSTEMD_BOOT:
-        # Not for systemd-boot: `bootctl install` writes the boot entry through
-        # efivarfs itself, and this branch built an emerge it then discarded.
+        # GRUB only: `bootctl install` writes the boot entry through efivarfs
+        # itself, so systemd-boot needs no efibootmgr.
         packages = (*packages, EFI_PACKAGE)
     operations: list[Operation] = []
     if packages:

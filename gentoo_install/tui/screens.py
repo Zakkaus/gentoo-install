@@ -390,13 +390,17 @@ def _zfs_bootloader(screen: Screen, config: InstallConfig, context: Context) -> 
 
 
 def _with_gentoo_zh(config: InstallConfig) -> PortageConfig:
+    """The overlay, cloned from the site already chosen for it.
+
+    Read from `model/mirrors.py` and not written here: a literal beside that
+    table is a second address to update, and the overlay has moved once
+    already. A site the operator has not picked yet answers as upstream.
+    """
     if any(overlay.name == "gentoo-zh" for overlay in config.portage.overlays):
         return config.portage
-    added = (*config.portage.overlays, Overlay(name="gentoo-zh", sync_uri=GENTOO_ZH))
+    where = mirrors.gentoozh(config.portage.mirrors.gentoo_zh).git
+    added = (*config.portage.overlays, Overlay(name="gentoo-zh", sync_uri=where))
     return replace(config.portage, overlays=added)
-
-
-GENTOO_ZH = "https://github.com/gentoo-zh/overlay.git"
 
 
 def erase_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:

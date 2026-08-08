@@ -978,3 +978,29 @@ def test_the_console_font_is_a_row_and_the_size_with_no_cjk_says_why() -> None:
         FakeScreen(keys=["KEY_DOWN", "KEY_DOWN", "\n"], lines=24), config(), at
     )
     assert chosen.unwrap().system.console_font is ConsoleFontSize.SIZE_16X32
+
+
+def test_the_overlay_address_is_held_in_one_place() -> None:
+    """`_with_gentoo_zh` carried its own literal beside the table in
+    `model/mirrors.py`, and the overlay has moved host once already."""
+    from gentoo_install.model.config import GentooZhMirror
+    from gentoo_install.model import mirrors
+
+    for site in GentooZhMirror:
+        chosen = replace(
+            config(),
+            portage=replace(
+                config().portage,
+                mirrors=replace(config().portage.mirrors, gentoo_zh=site),
+            ),
+        )
+        added = screens._with_gentoo_zh(chosen).overlays[-1]
+        assert added.name == "gentoo-zh"
+        assert added.sync_uri == mirrors.gentoozh(site).git
+
+    from pathlib import Path
+
+    # `gig` keeps its address in `PLAIN_OVERLAYS`, which is the table for the
+    # overlays that have no mirror; only gentoo-zh has one and belongs there.
+    source = Path(screens.__file__).read_text()
+    assert "gentoo-zh/overlay" not in source
