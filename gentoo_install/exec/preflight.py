@@ -55,9 +55,16 @@ EXTRA_FILESYSTEM_COMMANDS: Final[dict[FilesystemType, tuple[str, ...]]] = {
     FilesystemType.BTRFS: ("btrfs",),
 }
 
-#: Commands that must be the GNU one: busybox satisfies `which` and then
-#: rejects the flags, and stage3 needs tar's `--xattrs-include`.
-GNU_ONLY: Final[dict[str, str]] = {"tar": "GNU tar"}
+#: Commands whose busybox applet satisfies `which` and then rejects the flags,
+#: with what the output has to say and why the applet will not do.
+GNU_ONLY: Final[dict[str, tuple[str, str]]] = {
+    "tar": ("GNU tar", "stage3 needs the GNU one for xattrs and capabilities"),
+    "mount": (
+        "util-linux",
+        "the chroot needs --rbind and --make-rslave, which the busybox applet "
+        "has no option for at all",
+    ),
+}
 
 #: `zpool create` refuses anything shorter, and it refuses it after the disk
 #: has already been partitioned.
@@ -108,13 +115,12 @@ def _busybox_problems(machine: Machine) -> list[str]:
     """Named here rather than discovered when the flag is rejected, which is
     after the disks are partitioned and the archive is downloaded."""
     problems: list[str] = []
-    for command, wanted in GNU_ONLY.items():
+    for command, (wanted, reason) in GNU_ONLY.items():
         version = machine.versions.get(command)
         if version is None or wanted in version:
             continue
         problems.append(
-            f"{command} is not {wanted} ({version.splitlines()[0][:60]}); "
-            "stage3 needs the GNU one for xattrs and capabilities"
+            f"{command} is not {wanted} ({version.splitlines()[0][:60]}); {reason}"
         )
     return problems
 
@@ -156,7 +162,7 @@ def _passphrase_problems(config: InstallConfig) -> list[str]:
 
 def check(config: InstallConfig, probe: Probe, target: str = "/mnt/gentoo") -> Report:
     wanted = required_commands(config)
-    machine = probe.machine(wanted)
+    machine = probe.machine(wanted, judged=GNU_ONLY)
     return inspect(config, machine, probe, target)
 
 

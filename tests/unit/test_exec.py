@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
+from typing import Iterable
 
 import pytest
 
@@ -404,3 +405,37 @@ def test_the_disk_a_mirrored_root_boots_from_is_the_same_on_every_run(tmp_path: 
     assert isinstance(first, Existing)
     for _ in range(4):
         assert machine.containing_disk(array.id) == first.selector
+
+
+def test_every_command_that_has_to_be_the_real_one_is_checked(tmp_path: Path) -> None:
+    """A busybox applet satisfies `which` and then rejects the flags, which is
+    a failure after the disks are written. One case per entry in the table."""
+    busybox = "BusyBox v1.36.1 (2024-01-01 00:00:00 UTC) multi-call binary."
+    for command, (wanted, _) in preflight.GNU_ONLY.items():
+        applet = described(versions={name: busybox for name in preflight.GNU_ONLY})
+        report = preflight.inspect(present(), applet, probe_of(tmp_path))
+        assert any(f"{command} is not {wanted}" in reason for reason in report.fatal), command
+
+    real = described(
+        versions={
+            "tar": "tar (GNU tar) 1.35",
+            "mount": "mount from util-linux 2.42.2",
+        }
+    )
+    assert not any("is not" in reason for reason in preflight.inspect(
+        present(), real, probe_of(tmp_path)
+    ).fatal)
+
+
+def test_the_commands_whose_implementation_matters_are_the_ones_probed(tmp_path: Path) -> None:
+    """`preflight` owns the table and `probe` reads the versions, so a command
+    added to `GNU_ONLY` is asked for without a second list to update."""
+    asked: list[str] = []
+
+    class Watching(Probe):
+        def versions(self, wanted: Iterable[str]) -> dict[str, str]:
+            asked.extend(wanted)
+            return {}
+
+    preflight.check(present(), Watching(runner=runner(tmp_path), work=tmp_path))
+    assert set(asked) == set(preflight.GNU_ONLY)

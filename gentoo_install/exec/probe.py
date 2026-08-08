@@ -83,7 +83,11 @@ class Probe:
             found[command] = self.runner.run([command, "--version"], check=False).stdout
         return found
 
-    def machine(self, wanted: frozenset[str] = frozenset()) -> Machine:
+    def machine(
+        self, wanted: frozenset[str] = frozenset(), judged: Iterable[str] = ()
+    ) -> Machine:
+        """`judged` names the commands whose implementation matters; the table
+        of what each one has to be lives in `preflight.py`."""
         return Machine(
             architecture=platform.machine(),
             uefi=EFI_MARKER.is_dir(),
@@ -91,7 +95,7 @@ class Probe:
             memory_bytes=self._memory(),
             commands=frozenset(name for name in wanted if shutil.which(name) is not None),
             release_key=RELEASE_KEY.is_file(),
-            versions=self.versions(self.check_versions_of),
+            versions=self.versions(judged),
         )
 
     def resolve(self, device: DeviceId, selector: str) -> str:
@@ -173,10 +177,6 @@ class Probe:
     #: `lsblk` calls these TYPE=disk and none of them is an install target:
     #: compressed swap, a loopback of the live image, a ramdisk.
     NOT_A_TARGET: ClassVar[tuple[str, ...]] = ("/dev/zram", "/dev/loop", "/dev/ram")
-
-    #: Commands whose implementation `preflight` has to judge. Set by the
-    #: caller so the table of what GNU means stays in one module.
-    check_versions_of: ClassVar[tuple[str, ...]] = ("tar",)
 
     def disks(self) -> tuple[tuple[str, str], ...]:
         """Whole disks the interface can offer, as a selector and a size.
