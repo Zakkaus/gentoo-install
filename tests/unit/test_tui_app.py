@@ -138,11 +138,35 @@ def test_install_hands_back_the_configuration() -> None:
         system=replace(config().system, root_password_hash="$6$test$x"),
         portage=replace(config().portage, mirrors=replace(config().portage.mirrors, site="tuna")),
     )
-    keys = [*down(len(settings.SETTINGS)), "\n"]
-    finished = run(FakeScreen(keys=keys), ready, at)
+    # The Install row opens the overview: enter leaves the operation list, and
+    # the confirmation starts on No, so Yes takes one more key.
+    keys = [*down(len(settings.SETTINGS)), "\n", "\n", "KEY_DOWN", "\n"]
+    screen = FakeScreen(keys=keys)
+    finished = run(screen, ready, at)
     assert not finished.cancelled
     assert finished.config is not None
     validate(finished.config)
+    seen = "\n".join("\n".join(frame) for frame in screen.frames)
+    assert "Overview" in seen and "operations:" in seen
+
+
+def test_the_install_row_shows_every_operation_before_it_starts() -> None:
+    """`overview_screen` was written and never wired: choosing Install went
+    straight to partitioning the disk with no list and no confirmation."""
+    at = context()
+    at.erase_confirmed = True
+    ready = replace(
+        config(),
+        system=replace(config().system, root_password_hash="$6$test$x"),
+        portage=replace(config().portage, mirrors=replace(config().portage.mirrors, site="tuna")),
+    )
+    # Enter leaves the operation list, then No, which returns to the menu.
+    keys = [*down(len(settings.SETTINGS)), "\n", "\n", "\n", "q", "KEY_DOWN", "\n"]
+    screen = FakeScreen(keys=keys)
+    finished = run(screen, ready, at)
+    assert finished.cancelled
+    seen = "\n".join("\n".join(frame) for frame in screen.frames)
+    assert "wipe existing signatures" in seen
 
 
 def test_erasing_the_drive_is_a_row_that_has_to_be_confirmed() -> None:

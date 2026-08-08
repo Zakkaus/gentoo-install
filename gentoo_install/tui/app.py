@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from ..model.config import InstallConfig
 from ..model.validate import validate
 from ..errors import ValidationFailed
-from .screens import Context, answers
+from .screens import Context, answers, overview_screen
 from .settings import SETTINGS, style_of, unanswered
 from .widgets import Confirm, Item, Menu, Outcome, Screen
 
@@ -72,7 +72,14 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
             continue
         chosen = answer.unwrap()[0]
         if chosen == len(SETTINGS):
-            return Finished(current)
+            # The operation list itself, then one confirmation: the row before
+            # this one is the last chance to see what the disk is about to get.
+            seen = overview_screen(screen, current, context)
+            if seen.chosen:
+                return Finished(seen.unwrap())
+            if seen.outcome is Outcome.CANCELLED and _leaving(screen, context):
+                return Finished(None)
+            continue
         editor = SETTINGS[chosen].edit
         if editor is None:
             continue

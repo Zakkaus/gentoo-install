@@ -1545,6 +1545,8 @@ def overview_screen(screen: Screen, config: InstallConfig, context: Context) -> 
     if not confirmed.chosen:
         return Answer(confirmed.outcome)
     return Answer(Outcome.CHOSE, config) if confirmed.unwrap() else Answer(Outcome.BACK)
+
+
 def _profile_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
     """Only the profiles that match the chosen init, because the validator
     refuses the other half and the operator should not be offered them."""
