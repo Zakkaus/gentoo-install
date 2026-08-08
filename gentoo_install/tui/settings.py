@@ -159,6 +159,13 @@ def _address(config: InstallConfig, context: Context) -> str:
     return f"{where}: {', '.join(system.addresses)}"
 
 
+def _remote_unlock(config: InstallConfig, context: Context) -> str:
+    unlock = config.kernel.remote_unlock
+    if not unlock.enabled:
+        return context.translate("off")
+    return f"{unlock.port}, {unlock.address or 'DHCP'}"
+
+
 def _keys(config: InstallConfig, context: Context) -> str:
     count = len(config.system.authorized_keys)
     return f"{count} authorised" if count else "none"
@@ -291,6 +298,7 @@ SSH: Final[tuple[Setting, ...]] = (
     Setting("sshd", "SSH server", _sshd, screens.sshd_screen),
     Setting("rootlogin", "Root login over SSH", _root_login, screens.root_login_screen),
     Setting("keys", "SSH public keys", _keys, screens.authorized_keys_screen),
+    Setting("unlock", "Remote unlock", _remote_unlock, screens.remote_unlock_screen),
 )
 
 SETTINGS: Final[tuple[Setting, ...]] = (

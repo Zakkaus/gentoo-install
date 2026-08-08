@@ -227,13 +227,32 @@ class PortageConfig:
 
 
 @dataclass(frozen=True)
+class RemoteUnlock:
+    """Unlocking an encrypted root over ssh, from the initramfs.
+
+    Off unless `enabled`. The authorised keys are the ones in
+    `SystemConfig.authorized_keys`: dracut-crypt-ssh reads
+    `/root/.ssh/authorized_keys` by default and that is where they are written,
+    so a machine with none has an ssh daemon nobody can log into.
+    """
+
+    enabled: bool = False
+    #: 222 is the module's own default. Kept off 22 so a client's known_hosts
+    #: entry for the running system does not collide with the initramfs one.
+    port: int = 222
+    #: DHCP unless an address is given here in dracut's `ip=` seven-field form.
+    address: str = ""
+
+
+@dataclass(frozen=True)
 class KernelConfig:
     source: KernelSource = KernelSource.DIST_BIN
-    #: Overrides the package the source implies, for a sources package this
-    #: installer does not name itself, such as one from another overlay.
+    #: Overrides the package the source implies, for one this installer does
+    #: not name itself, such as a kernel from another overlay.
     package: str = ""
     #: Added to the ones the disk layout implies.
     dracut_modules: tuple[str, ...] = ()
+    remote_unlock: RemoteUnlock = field(default_factory=RemoteUnlock)
 
 
 @dataclass(frozen=True)

@@ -68,6 +68,9 @@ class Trait(Enum):
     NO_GENTOOZH_OVERLAY = "no gentoo-zh overlay"
     KERNEL_WITHOUT_CJKTTY = "a kernel that does not carry the cjktty patch"
     CJK_KERNEL = "the patched kernel from gentoo-zh"
+    REMOTE_UNLOCK = "unlocking the root over ssh"
+    NO_AUTHORIZED_KEY = "no authorised ssh key"
+    NO_ENCRYPTED_CONTAINER = "no encrypted container to unlock"
     FONT_WITHOUT_CJK_GLYPHS = "a console font other than 8x16 or 16x32"
 
 
@@ -109,6 +112,17 @@ RULES: tuple[Rule, ...] = (
         Trait.KERNEL_WITHOUT_CJKTTY,
         "cjktty patches the kernel VT layer, which no official kernel carries; "
         "sys-kernel/gentoo-cjk-kernel is the one that does",
+    ),
+    Rule(
+        Trait.REMOTE_UNLOCK,
+        Trait.NO_AUTHORIZED_KEY,
+        "dracut-crypt-ssh authorises /root/.ssh/authorized_keys, so with none "
+        "the initramfs runs an ssh daemon nobody can log into",
+    ),
+    Rule(
+        Trait.REMOTE_UNLOCK,
+        Trait.NO_ENCRYPTED_CONTAINER,
+        "there is no passphrase prompt to reach: the root is not encrypted",
     ),
     Rule(
         Trait.CJK_KERNEL,
@@ -179,6 +193,12 @@ def traits_of(config: InstallConfig) -> frozenset[Trait]:
         found.add(Trait.COMMUNITY_BINHOST)
     if not any(overlay.name == "gentoo-zh" for overlay in config.portage.overlays):
         found.add(Trait.NO_GENTOOZH_OVERLAY)
+    if config.kernel.remote_unlock.enabled:
+        found.add(Trait.REMOTE_UNLOCK)
+        if not config.system.authorized_keys:
+            found.add(Trait.NO_AUTHORIZED_KEY)
+        if not early_containers(graph):
+            found.add(Trait.NO_ENCRYPTED_CONTAINER)
     if config.kernel.source is KernelSource.CJK:
         found.add(Trait.CJK_KERNEL)
     else:

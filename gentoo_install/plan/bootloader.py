@@ -283,7 +283,7 @@ def build(config: InstallConfig) -> list[Operation]:
     if kind is Bootloader.GRUB:
         operations += [
             WriteGrubDefaults(
-                kernel_params=config.bootloader.kernel_params,
+                kernel_params=(*unlock_parameters(config), *config.bootloader.kernel_params),
                 cryptodisk=compat.boot_is_encrypted(config.disk.graph),
                 serial=_serial_console(config),
                 luks=initramfs_devices(config)[0],
@@ -318,7 +318,7 @@ def build(config: InstallConfig) -> list[Operation]:
                 dataset=_root_dataset(config, pool),
                 esp=esp,
                 esp_device=esp_device,
-                kernel_params=config.bootloader.kernel_params,
+                kernel_params=(*unlock_parameters(config), *config.bootloader.kernel_params),
                 serial=_serial_console(config),
             ),
         ]
@@ -333,6 +333,18 @@ def luks_parameters(context: Context, devices: tuple[DeviceId, ...]) -> tuple[st
 def keymap_parameters(keymap: str) -> tuple[str, ...]:
     """`rd.vconsole.keymap`, so the passphrase prompt uses the right keyboard."""
     return (f"rd.vconsole.keymap={keymap}",) if keymap else ()
+
+
+def unlock_parameters(config: InstallConfig) -> tuple[str, ...]:
+    """What the initramfs needs to have an address before the root is unlocked.
+
+    `rd.neednet=1` brings the link up without a network root, and `ip=` is what
+    configures it; dracut's network module does nothing without both.
+    """
+    unlock = config.kernel.remote_unlock
+    if not unlock.enabled:
+        return ()
+    return ("rd.neednet=1", f"ip={unlock.address or 'dhcp'}")
 
 
 def initramfs_devices(config: InstallConfig) -> tuple[tuple[DeviceId, ...], tuple[DeviceId, ...]]:

@@ -455,3 +455,51 @@ def test_the_unlock_prompt_uses_the_keyboard_that_is_attached() -> None:
         if isinstance(operation, bootloader.WriteGrubDefaults):
             operation.apply(plain)
     assert "rd.vconsole.keymap" not in plain.files[PurePosixPath("/etc/default/grub")]
+
+
+def test_remote_unlock_puts_an_address_on_the_command_line() -> None:
+    """dracut's network module does nothing without both `rd.neednet=1` and an
+    `ip=`, so the initramfs would come up with no address to ssh into."""
+    from gentoo_install.model.config import RemoteUnlock
+
+    plain = replace(config(), kernel=KernelConfig(remote_unlock=RemoteUnlock(enabled=True)))
+    assert bootloader.unlock_parameters(plain) == ("rd.neednet=1", "ip=dhcp")
+    static = replace(
+        config(),
+        kernel=KernelConfig(
+            remote_unlock=RemoteUnlock(
+                enabled=True, address="192.0.2.10::192.0.2.1:255.255.255.0::enp1s0:none"
+            )
+        ),
+    )
+    assert "ip=192.0.2.10::192.0.2.1:255.255.255.0::enp1s0:none" in bootloader.unlock_parameters(static)
+    assert bootloader.unlock_parameters(config()) == ()
+
+
+def test_remote_unlock_adds_the_modules_that_answer_on_the_network() -> None:
+    """`crypt-ssh` is what dracut-crypt-ssh installs as 60crypt-ssh, and it
+    needs `network` beside it or the initramfs has no link."""
+    from gentoo_install.model.config import RemoteUnlock
+
+    wanted = replace(config(), kernel=KernelConfig(remote_unlock=RemoteUnlock(enabled=True)))
+    modules = kernel.dracut_modules(wanted)
+    assert "crypt-ssh" in modules and "network" in modules
+    assert "crypt-ssh" not in kernel.dracut_modules(config())
+
+
+def test_the_unlock_daemon_is_keyworded_and_told_where_to_read_its_keys() -> None:
+    """It is ~amd64, and the module reads its configuration at initramfs build
+    time, so the file has to exist before dracut runs."""
+    from gentoo_install.model.config import RemoteUnlock
+
+    wanted = replace(config(), kernel=KernelConfig(remote_unlock=RemoteUnlock(enabled=True)))
+    recorder = apply_kernel(wanted)
+    keywords = recorder.files[
+        PurePosixPath("/etc/portage/package.accept_keywords/dracut-crypt-ssh")
+    ]
+    assert keywords == "sys-kernel/dracut-crypt-ssh ~amd64\n"
+    written = recorder.files[PurePosixPath("/etc/dracut.conf.d/crypt-ssh.conf")]
+    assert 'dropbear_port="222"' in written
+    # The `unlock` helper runs cryptsetup and the module does not pull it in.
+    assert "/sbin/cryptsetup" in written
+    assert 'dropbear_ed25519_key="SYSTEM"' in written

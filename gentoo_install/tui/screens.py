@@ -2184,6 +2184,60 @@ def _checked_key(screen: Screen, context: Context, line: str) -> str:
         return ""
 
 
+def remote_unlock_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """Unlocking the root over ssh, from the initramfs.
+
+    The authorised keys are the same ones: dracut-crypt-ssh reads
+    `/root/.ssh/authorized_keys`, which is where they are written, so this is
+    refused without one rather than installed as a daemon nobody can reach.
+    """
+    translate = context.translate
+    unlock = config.kernel.remote_unlock
+    asked = Confirm(
+        title=translate("Unlock the root over SSH from the initramfs?"),
+        footer=footer(translate),
+    ).run(screen)
+    if not asked.chosen:
+        return Answer(asked.outcome)
+    if not asked.unwrap():
+        return Answer(
+            Outcome.CHOSE,
+            replace(config, kernel=replace(config.kernel, remote_unlock=replace(unlock, enabled=False))),
+        )
+    form = Form(
+        title=translate("Remote unlock"),
+        fields=[
+            Field(label=translate("Port"), value=str(unlock.port), placeholder="222"),
+            Field(
+                label=translate("Address"),
+                value=unlock.address,
+                placeholder=translate("empty for DHCP, or dracut ip= form"),
+            ),
+        ],
+        footer=footer(translate),
+        done=translate("Done"),
+    )
+    answer = form.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    port, address = (one.strip() for one in answer.unwrap())
+    if not port.isdigit():
+        _say(screen, context, translate("The port has to be a number."))
+        return Answer(Outcome.BACK)
+    return Answer(
+        Outcome.CHOSE,
+        replace(
+            config,
+            kernel=replace(
+                config.kernel,
+                remote_unlock=replace(unlock, enabled=True, port=int(port), address=address),
+            ),
+        ),
+    )
+
+
 def root_login_screen(
     screen: Screen, config: InstallConfig, context: Context
 ) -> Answer[InstallConfig]:

@@ -18,6 +18,7 @@ from gentoo_install.model.config import (
     KernelConfig,
     KernelSource,
     Overlay,
+    RemoteUnlock,
     PortageConfig,
     SystemConfig,
 )
@@ -125,6 +126,29 @@ def the_patched_kernel_without_its_overlay() -> InstallConfig:
     return replace(config(), kernel=KernelConfig(source=KernelSource.CJK))
 
 
+def remote_unlock_without_a_key() -> InstallConfig:
+    """dracut-crypt-ssh authorises `/root/.ssh/authorized_keys`, so with none
+    the initramfs runs a daemon nobody can log into."""
+    encrypted = [node for node in ext4_on_gpt() if node.id != i("rootfs")]
+    encrypted += [
+        Luks(id=i("crypt"), backing=i("rootpart"), name="root"),
+        Filesystem(id=i("rootfs"), device=i("crypt"), kind=FilesystemType.EXT4),
+    ]
+    return replace(
+        config(encrypted),
+        kernel=KernelConfig(remote_unlock=RemoteUnlock(enabled=True)),
+        system=replace(config().system, authorized_keys=()),
+    )
+
+
+def remote_unlock_of_an_unencrypted_root() -> InstallConfig:
+    return replace(
+        config(),
+        kernel=KernelConfig(remote_unlock=RemoteUnlock(enabled=True)),
+        system=replace(config().system, authorized_keys=("ssh-ed25519 AAAA k",)),
+    )
+
+
 CASES: list[tuple[Callable[[], InstallConfig], Trait, Trait]] = [
     (zfs_on_grub, Trait.ROOT_ON_ZFS, Trait.GRUB),
     (zfs_on_bios, Trait.ROOT_ON_ZFS, Trait.BIOS_BOOT),
@@ -139,6 +163,8 @@ CASES: list[tuple[Callable[[], InstallConfig], Trait, Trait]] = [
     (zfsbootmenu_without_its_overlay, Trait.ZFSBOOTMENU, Trait.NO_GENTOOZH_OVERLAY),
     (cjk_console_with_an_8x8_font, Trait.CONSOLE_CJK, Trait.FONT_WITHOUT_CJK_GLYPHS),
     (the_patched_kernel_without_its_overlay, Trait.CJK_KERNEL, Trait.NO_GENTOOZH_OVERLAY),
+    (remote_unlock_without_a_key, Trait.REMOTE_UNLOCK, Trait.NO_AUTHORIZED_KEY),
+    (remote_unlock_of_an_unencrypted_root, Trait.REMOTE_UNLOCK, Trait.NO_ENCRYPTED_CONTAINER),
 ]
 
 

@@ -33,6 +33,7 @@ from .bootloader import (
     luks_parameters,
 )
 from .bootloader import _initramfs_keymap as bootloader_keymap
+from .bootloader import unlock_parameters
 from .operations import Context, Operation, Stage
 from .portage import Emerge
 
@@ -45,6 +46,14 @@ KERNEL_PACKAGES: Final[dict[KernelSource, str]] = {
 
 #: Filesystems whose driver dracut only includes when asked.
 FILESYSTEM_MODULES: Final[dict[FilesystemType, str]] = {FilesystemType.BTRFS: "btrfs"}
+
+#: Early unlocking over ssh. It is `~amd64`, and its RDEPEND brings dropbear
+#: and one of the network managers dracut's network module can drive.
+REMOTE_UNLOCK_PACKAGE: Final[str] = "sys-kernel/dracut-crypt-ssh"
+
+#: Modules an initramfs needs to answer on the network before the root is
+#: unlocked. `crypt-ssh` is the module dracut-crypt-ssh installs as 60crypt-ssh.
+REMOTE_UNLOCK_MODULES: Final[tuple[str, ...]] = ("crypt-ssh", "network")
 
 #: The cjk USE flag of `sys-kernel/gentoo-cjk-kernel`, which merges the
 #: patch's own `cjk.config`. It is on by default, so only turning it off has
@@ -217,6 +226,43 @@ class AcceptFirmwareLicence(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
+class ConfigureRemoteUnlock(Operation):
+    """dracut-crypt-ssh's own configuration file.
+
+    It is `~amd64`, so the keyword is accepted for that atom alone. `dropbear`
+    comes in through its RDEPEND; the module reads this file at initramfs build
+    time, so it has to exist before dracut runs.
+    """
+
+    stage: Stage = Stage.KERNEL
+    port: int
+
+    def describe(self) -> str:
+        return f"configure remote unlock over ssh on port {self.port}"
+
+    def apply(self, context: Context) -> None:
+        context.write(
+            PurePosixPath("/etc/portage/package.accept_keywords/dracut-crypt-ssh"),
+            f"{REMOTE_UNLOCK_PACKAGE} ~amd64\n",
+        )
+        lines = [
+            f'dropbear_port="{self.port}"',
+            # SYSTEM converts the target's own host key, so a client that has
+            # already trusted this machine does not see a new one at unlock.
+            'dropbear_rsa_key="SYSTEM"',
+            'dropbear_ecdsa_key="SYSTEM"',
+            'dropbear_ed25519_key="SYSTEM"',
+            # The `unlock` helper runs cryptsetup, which the module does not
+            # pull in by itself.
+            'install_items+=" /sbin/cryptsetup "',
+        ]
+        context.write(
+            PurePosixPath("/etc/dracut.conf.d/crypt-ssh.conf"),
+            "".join(f"{line}\n" for line in lines),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
 class RequestCjkKernel(Operation):
     """Keyword and USE for the patched dist-kernel.
 
@@ -291,7 +337,11 @@ def build(config: InstallConfig) -> list[Operation]:
                 luks=initramfs_devices(config)[0],
                 arrays=initramfs_devices(config)[1],
                 keymap=bootloader_keymap(config),
-                kernel_params=(*extra, *config.bootloader.kernel_params),
+                kernel_params=(
+                    *extra,
+                    *unlock_parameters(config),
+                    *config.bootloader.kernel_params,
+                ),
             )
         )
     operations += [
@@ -348,6 +398,16 @@ def build(config: InstallConfig) -> list[Operation]:
             )
         )
     package = config.kernel.package or KERNEL_PACKAGES[config.kernel.source]
+    if config.kernel.remote_unlock.enabled:
+        unlock = config.kernel.remote_unlock
+        operations += [
+            ConfigureRemoteUnlock(port=unlock.port),
+            Emerge(
+                stage=Stage.KERNEL,
+                packages=(REMOTE_UNLOCK_PACKAGE,),
+                summary="install the initramfs ssh daemon",
+            ),
+        ]
     if config.kernel.source is KernelSource.CJK:
         operations.append(RequestCjkKernel(package=package, cjk=config.system.console_cjk))
     operations.append(
@@ -379,6 +439,8 @@ def dracut_modules(config: InstallConfig) -> tuple[str, ...]:
         module = FILESYSTEM_MODULES.get(filesystem.kind)
         if module is not None and module not in modules:
             modules.append(module)
+    if config.kernel.remote_unlock.enabled:
+        modules += [one for one in REMOTE_UNLOCK_MODULES if one not in modules]
     for extra in config.kernel.dracut_modules:
         if extra not in modules:
             modules.append(extra)

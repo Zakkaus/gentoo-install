@@ -32,6 +32,7 @@ from .config import (
     MirrorRegion,
     Networking,
     Overlay,
+    RemoteUnlock,
     Sync,
     PackagesConfig,
     PortageConfig,
@@ -209,6 +210,16 @@ def _mirrors(raw: Mapping[str, Any], at: str) -> MirrorConfig:
     )
 
 
+def _remote_unlock(raw: Mapping[str, Any], at: str) -> RemoteUnlock:
+    _reject_unknown(raw, at, {"enabled", "port", "address"})
+    default = RemoteUnlock()
+    return RemoteUnlock(
+        enabled=_bool(raw, "enabled", at, default.enabled),
+        port=_int(raw, "port", at, default.port),
+        address=_str(raw, "address", at, default.address),
+    )
+
+
 def _binhost(raw: Mapping[str, Any], at: str) -> Binhost:
     _reject_unknown(raw, at, {"official", "community", "subarch"})
     default = Binhost()
@@ -225,12 +236,15 @@ def _overlay(raw: Mapping[str, Any], at: str) -> Overlay:
 
 
 def _kernel(raw: Mapping[str, Any], at: str) -> KernelConfig:
-    _reject_unknown(raw, at, {"source", "package", "dracut_modules"})
+    _reject_unknown(raw, at, {"source", "package", "dracut_modules", "remote_unlock"})
     default = KernelConfig()
     return KernelConfig(
         source=_enum(raw, "source", at, KernelSource, default.source),
         package=_str(raw, "package", at, default.package),
         dracut_modules=_strings(raw, "dracut_modules", at, default.dracut_modules),
+        remote_unlock=_remote_unlock(
+            _table(raw, "remote_unlock", at), f"{at}.remote_unlock"
+        ),
     )
 
 
