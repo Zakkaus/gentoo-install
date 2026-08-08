@@ -434,13 +434,21 @@ class Probe:
         disk mounted there, and refusing to start again over the previous
         attempt's own leftovers is what makes a failed install unrepeatable.
         """
+        # Nothing can be mounted from something that is not a disk, and the
+        # tests point this at /dev/null. Every other failure below answers yes.
+        if not Path(disk).is_block_device():
+            return False
         # The runner merges stderr into stdout, so the exit code decides first:
-        # `lsblk: not a block device` would otherwise read as a mountpoint.
+        # `lsblk: not a block device` would otherwise read as a mountpoint. A
+        # command that fails answers yes: this guard exists to refuse a
+        # destructive operation, and a machine it cannot read is one it cannot
+        # clear. busybox `swapon` has no `--show`, and answering no there let a
+        # run repartition a disk holding an active swap.
         listed = self.runner.run(
             ["lsblk", "--noheadings", "--output", "MOUNTPOINT", disk], check=False
         )
         if listed.returncode != 0:
-            return False
+            return True
         elsewhere = [
             where
             for where in (line.strip() for line in listed.stdout.splitlines())
@@ -450,7 +458,7 @@ class Probe:
             return True
         swap = self.runner.run(["swapon", "--noheadings", "--show=NAME"], check=False)
         if swap.returncode != 0:
-            return False
+            return True
         return any(line.strip().startswith(disk) for line in swap.stdout.splitlines())
 
     def save(self) -> None:

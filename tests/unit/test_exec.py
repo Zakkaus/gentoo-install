@@ -623,3 +623,52 @@ def test_a_status_with_no_valid_signature_names_no_key() -> None:
     from gentoo_install.exec.fetch import _signing_key
 
     assert _signing_key("[GNUPG:] BADSIG 534E4209 Gentoo <releng@gentoo.org>\n") is None
+
+
+def test_a_disk_whose_state_cannot_be_read_counts_as_in_use(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """busybox `swapon` has no `--show`, and answering no to a guard that
+    exists to refuse let a run repartition a disk holding an active swap."""
+    from gentoo_install.exec.runner import Result
+
+    probe = probe_of(tmp_path)
+    monkeypatch.setattr(Path, "is_block_device", lambda self: True)
+    monkeypatch.setattr(
+        probe.runner,
+        "run",
+        lambda argv, **rest: Result(
+            argv=tuple(argv), stdout="swapon: unknown option", stderr="", returncode=1, seconds=0.0
+        ),
+    )
+    assert probe.mounted("/dev/sdz") is True
+
+
+def test_a_table_edited_in_place_is_checked_for_mounts_too(tmp_path: Path) -> None:
+    """The disk carries `wipe=False` when its table is only edited, so the one
+    guard against repartitioning a disk in use skipped exactly the case that
+    deletes a partition from a disk holding another operating system."""
+    from gentoo_install.exec.preflight import _disks_at_risk
+    from gentoo_install.model.device import DeviceGraph, PartitionTable
+
+    from .layouts import ext4_on_gpt, i
+
+    nodes = [
+        replace(node, wipe=False) if isinstance(node, Existing) else node
+        for node in ext4_on_gpt()
+    ]
+    nodes = [
+        replace(node, create=False, remove=(2,)) if isinstance(node, PartitionTable) else node
+        for node in nodes
+    ]
+    graph = DeviceGraph.build(nodes)
+    assert [disk.id for disk in _disks_at_risk(graph)] == [i("disk")]
+
+    # Nothing edits the table: every partition survives and no disk is at risk.
+    kept = DeviceGraph.build(
+        [
+            replace(node, create=False, remove=()) if isinstance(node, PartitionTable) else node
+            for node in nodes
+        ]
+    )
+    assert _disks_at_risk(kept) == []

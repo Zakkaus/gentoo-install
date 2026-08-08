@@ -14,8 +14,10 @@ from typing import Final
 from ..errors import DeviceNotFound, PreflightFailed
 from ..model.config import Firmware, InstallConfig
 from ..model.device import (
+    DeviceGraph,
     Existing,
     Filesystem,
+    Swap,
     FilesystemType,
     Luks,
     MdRaid,
@@ -46,7 +48,11 @@ BY_FEATURE: Final[dict[str, tuple[str, ...]]] = {
     "mbr": ("parted", "partprobe", "wipefs"),
     "luks": ("cryptsetup",),
     "mdraid": ("mdadm",),
-    "lvm": ("lvm",),
+    # The binaries the operations invoke, not the multicall name: a medium
+    # carrying lvm without its symlinks passes on `lvm` and dies at `pvcreate`
+    # with the disks already partitioned.
+    "lvm": ("pvcreate", "vgcreate", "lvcreate"),
+    "swap": ("mkswap", "swapoff"),
     # `hostid`, not `zgenhostid`: the host reads its own id and the target
     # writes it, so the tool that writes runs inside the chroot.
     "zfs": ("zpool", "zfs", "hostid"),
@@ -99,6 +105,8 @@ def required_commands(config: InstallConfig) -> frozenset[str]:
         wanted |= set(BY_FEATURE["mdraid"])
     if graph.of_type(VolumeGroup):
         wanted |= set(BY_FEATURE["lvm"])
+    if graph.of_type(Swap):
+        wanted |= set(BY_FEATURE["swap"])
     if graph.of_type(ZfsPool):
         wanted |= set(BY_FEATURE["zfs"])
     for filesystem in graph.of_type(Filesystem):
@@ -111,6 +119,25 @@ def required_commands(config: InstallConfig) -> frozenset[str]:
         wanted.add(MKFS[filesystem.kind][0])
         wanted |= set(EXTRA_FILESYSTEM_COMMANDS.get(filesystem.kind, ()))
     return frozenset(wanted)
+
+
+def _disks_at_risk(graph: DeviceGraph) -> list[Existing]:
+    """Every disk this run writes a partition table on.
+
+    Not `wipe` alone: a table edited in place carries `wipe=False`, and
+    deleting an entry from a disk whose other partition is mounted is exactly
+    the case the mount check exists for.
+    """
+    edited = {
+        table.disk
+        for table in graph.of_type(PartitionTable)
+        if table.create or table.remove
+    }
+    return [
+        disk
+        for disk in graph.of_type(Existing)
+        if disk.wipe or disk.id in edited
+    ]
 
 
 def _busybox_problems(machine: Machine) -> list[str]:
@@ -231,9 +258,7 @@ def inspect(
         fatal.append(f"these commands are missing: {', '.join(missing)}")
     fatal += _busybox_problems(machine)
 
-    for disk in config.disk.graph.of_type(Existing):
-        if not disk.wipe:
-            continue
+    for disk in _disks_at_risk(config.disk.graph):
         try:
             path = probe.resolve(disk.id, disk.selector)
         except DeviceNotFound as error:

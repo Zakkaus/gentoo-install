@@ -406,3 +406,46 @@ def test_an_array_has_enough_members_for_the_level_it_names() -> None:
     assert at_level(RaidLevel.RAID1) == []
     assert "at least 3" in " ".join(at_level(RaidLevel.RAID5))
     assert "at least 4" in " ".join(at_level(RaidLevel.RAID6))
+
+
+def test_an_entry_is_deleted_with_the_tool_that_reads_the_table() -> None:
+    """`sgdisk` reads an msdos label, converts it to GPT in memory and writes
+    that back, so deleting one entry with it takes the other operating system
+    on the disk with it."""
+    from gentoo_install.model.device import DeviceId, TableType
+
+    for kind, expected in (
+        (TableType.GPT, ("sgdisk", "--delete=2")),
+        (TableType.MBR, ("parted", "--script")),
+    ):
+        recorder = Recorder()
+        disk.CreatePartitionTable(
+            table=DeviceId("table"),
+            disk=DeviceId("disk"),
+            kind=kind,
+            create=False,
+            remove=(2,),
+        ).apply(recorder)
+        assert recorder.commands[0][:2] == expected, kind
+        if kind is TableType.MBR:
+            assert recorder.commands[0][-2:] == ("rm", "2")
+
+
+def test_a_swap_partition_makes_preflight_ask_for_mkswap() -> None:
+    """`MakeSwap` runs it, and only filesystems contributed to the list, so a
+    medium without it passed and died after the disks were partitioned."""
+    from gentoo_install.exec import preflight
+    from gentoo_install.model.parse import load
+
+    wanted = preflight.required_commands(load(Path("tests/fixtures/vm-bios.toml")))
+    assert {"mkswap", "swapoff"} <= wanted
+
+
+def test_the_lvm_check_names_the_binaries_the_plan_runs() -> None:
+    """A medium carrying lvm2 as one multicall binary without its symlinks
+    passed on `lvm` and then died at `pvcreate`."""
+    from gentoo_install.exec import preflight
+    from gentoo_install.model.parse import load
+
+    wanted = preflight.required_commands(load(Path("tests/fixtures/vm-lvm.toml")))
+    assert {"pvcreate", "vgcreate", "lvcreate"} <= wanted

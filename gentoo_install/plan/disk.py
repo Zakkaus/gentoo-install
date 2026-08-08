@@ -173,10 +173,14 @@ class CreatePartitionTable(Operation):
         path = context.device_path(self.disk)
         if not self.create:
             for index in self.remove:
-                # Highest first: sgdisk addresses entries by number and the
-                # numbers do not shift, but reading the log in that order
-                # matches the table the operator was looking at.
-                context.run(["sgdisk", f"--delete={index}", path])
+                # Each tool against its own table. `sgdisk` reads an msdos
+                # label, converts it to GPT in memory and writes that back, so
+                # deleting one entry with it takes the other operating system
+                # on the disk with it.
+                if self.kind is TableType.GPT:
+                    context.run(["sgdisk", f"--delete={index}", path])
+                else:
+                    context.run(["parted", "--script", path, "rm", str(index)])
             return
         if self.kind is TableType.GPT:
             context.run(["sgdisk", "--zap-all", path])
