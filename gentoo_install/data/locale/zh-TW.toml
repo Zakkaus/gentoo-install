@@ -307,3 +307,6 @@
 "192.0.2.10/24, or empty for DHCP" = "192.0.2.10/24，留空表示 DHCP"
 "192.0.2.1, needed to answer off this subnet" = "192.0.2.1，跨子網回應需要它"
 "eth0, or empty for whichever comes up" = "eth0，留空表示先起來的那張"
+"Pool topology" = "pool 拓撲"
+"no redundancy" = "無冗餘"
+"needs at least" = "至少需要"

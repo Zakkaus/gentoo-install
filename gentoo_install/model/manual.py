@@ -28,6 +28,7 @@ from .device import (
     TableType,
     ZfsDataset,
     ZfsPool,
+    ZfsTopology,
 )
 from .size import Size
 
@@ -154,6 +155,9 @@ class Layout:
     reused: list[Reused] = field(default_factory=list)
     #: The pool every slice marked as a pool member joins.
     pool: str = "rpool"
+    #: How those members are joined. Only asked once more than one is marked:
+    #: a single member has nothing to mirror.
+    topology: ZfsTopology = ZfsTopology.STRIPE
 
     def next_index(self) -> int:
         return max((entry.index for entry in self.slices), default=0) + 1
@@ -309,6 +313,7 @@ def build(layout: Layout) -> tuple[DeviceGraph, DeviceId]:
                 id=DeviceId("pool"),
                 vdevs=tuple(vdevs),
                 name=layout.pool,
+                topology=layout.topology,
                 encrypted=bool(pool_passphrase),
                 passphrase_file=pool_passphrase,
             )

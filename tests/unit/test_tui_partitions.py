@@ -504,3 +504,59 @@ def test_a_reused_layout_says_what_it_does_with_the_partition_table() -> None:
     at.layout.reused = [manual.Reused(selector="/dev/vda1")]
     assert row.value(config(), at) != settings.UNSET
     assert row.unavailable(config(), at)
+
+
+def test_the_pool_topology_row_appears_once_there_is_something_to_join() -> None:
+    """A pool of one has nothing to mirror, and `validate` refuses several
+    joined as a stripe, so the row is exactly as wide as the choice is real."""
+    from gentoo_install.model.device import ZfsTopology
+
+    at = context()
+    at.manual = True
+    at.layout.disk = at.choice.disk
+
+    def slices(members: int) -> list[manual.Slice]:
+        made = [
+            manual.Slice(
+                index=1, role=PartitionRole.ESP, size=None,
+                filesystem=FilesystemType.VFAT, mountpoint="/efi",
+            )
+        ]
+        made += [
+            manual.Slice(
+                index=n + 2, role=PartitionRole.ZFS, size=None,
+                filesystem=None, mountpoint="/" if n == 0 else "",
+            )
+            for n in range(members)
+        ]
+        return made
+
+    at.layout.slices = slices(1)
+    single = FakeScreen(keys=["q"], lines=24, columns=100)
+    screens.partitions_screen(single, config(), at)
+    assert "Pool topology" not in "\n".join(single.frames[0])
+
+    at.layout.slices = slices(2)
+    pair = FakeScreen(keys=["q"], lines=24, columns=100)
+    screens.partitions_screen(pair, config(), at)
+    assert "Pool topology" in "\n".join(pair.frames[0])
+
+
+def test_a_topology_this_many_devices_cannot_make_says_how_many_it_needs() -> None:
+    """Drawn with the count rather than left out: a row that is simply absent
+    reads as a topology this installer does not support."""
+    from gentoo_install.model.device import ZfsTopology
+
+    at = context()
+    screen = FakeScreen(keys=["q"], lines=20, columns=100)
+    screens._pool_topology(screen, at, 2)
+    drawn = "\n".join(screen.frames[0])
+    for one in ZfsTopology:
+        assert one.value in drawn, one
+    assert "raidz2 - needs at least 3" in drawn
+    assert "raidz3 - needs at least 4" in drawn
+
+    # Enough devices, and no row carries a count.
+    roomy = FakeScreen(keys=["q"], lines=20, columns=100)
+    screens._pool_topology(roomy, at, 4)
+    assert "needs at least" not in "\n".join(roomy.frames[0])

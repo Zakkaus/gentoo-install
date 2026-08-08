@@ -307,3 +307,6 @@
 "192.0.2.10/24, or empty for DHCP" = "192.0.2.10/24, 비우면 DHCP"
 "192.0.2.1, needed to answer off this subnet" = "192.0.2.1, 서브넷 밖 응답에 필요"
 "eth0, or empty for whichever comes up" = "eth0, 비우면 먼저 올라온 것"
+"Pool topology" = "풀 구성"
+"no redundancy" = "이중화 없음"
+"needs at least" = "최소 필요"

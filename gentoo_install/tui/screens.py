@@ -37,7 +37,13 @@ from ..model.config import (
     Sync,
     User,
 )
-from ..model.device import FilesystemType, PartitionRole, TableType, ZfsPool
+from ..model.device import (
+    FilesystemType,
+    PartitionRole,
+    TableType,
+    ZfsPool,
+    ZfsTopology,
+)
 from ..plan import kernel as plan_kernel
 from ..plan.kernel import KERNEL_PACKAGES
 from ..plan.portage import community_binhost
@@ -1899,6 +1905,17 @@ def partitions_screen(
         rows = sorted(context.layout.slices, key=lambda one: one.index)
         items: list[Item[int]] = list(_existing(context))
         items += [Item(label=entry.describe(), value=index) for index, entry in enumerate(rows)]
+        members = [one for one in rows if one.role is PartitionRole.ZFS]
+        if len(members) > 1:
+            # Only with more than one member: a pool of one has nothing to
+            # mirror, and `validate` refuses several joined as a stripe.
+            items.append(
+                Item(
+                    label=translate("Pool topology"),
+                    value=len(rows) + 2,
+                    detail=context.layout.topology.value,
+                )
+            )
         items.append(Item(label=translate("Add a partition"), value=len(rows)))
         items.append(Item(label=translate("Done"), value=len(rows) + 1))
         menu: Menu[int] = Menu(
@@ -1914,6 +1931,11 @@ def partitions_screen(
             return Answer(answer.outcome)
         chosen = answer.unwrap()[0]
         if chosen < 0:
+            continue
+        if chosen == len(rows) + 2:
+            picked = _pool_topology(screen, context, len(members))
+            if picked is not None:
+                context.layout.topology = picked
             continue
         if chosen == len(rows) + 1:
             # Marked here rather than by whoever opened this screen: the row can
@@ -1951,6 +1973,29 @@ def _capacity(context: Context) -> str:
     rest = any(entry.size is None for entry in context.layout.slices)
     used = Size(claimed)
     return f"{total} total, {used} claimed{', rest to one partition' if rest else ''}"
+
+
+def _pool_topology(
+    screen: Screen, context: Context, members: int
+) -> ZfsTopology | None:
+    """How the pool members are joined, with the ones this many cannot make
+    drawn with the count they need rather than left out."""
+    translate = context.translate
+    items = [
+        Item(
+            label=one.value,
+            value=one,
+            detail=translate("no redundancy") if one is ZfsTopology.STRIPE else "",
+            disabled_because=""
+            if members >= one.minimum
+            else f"{translate('needs at least')} {one.minimum}",
+        )
+        for one in ZfsTopology
+    ]
+    answer = Menu(
+        title=translate("Pool topology"), items=items, footer=footer(translate)
+    ).run(screen)
+    return answer.unwrap()[0] if answer.chosen else None
 
 
 def _existing(context: Context) -> tuple[Item[int], ...]:

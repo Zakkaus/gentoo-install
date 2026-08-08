@@ -307,3 +307,6 @@
 "192.0.2.10/24, or empty for DHCP" = "192.0.2.10/24、空欄なら DHCP"
 "192.0.2.1, needed to answer off this subnet" = "192.0.2.1、サブネット外に応答するのに必要"
 "eth0, or empty for whichever comes up" = "eth0、空欄なら最初に上がったもの"
+"Pool topology" = "プール構成"
+"no redundancy" = "冗長性なし"
+"needs at least" = "最低必要数"
