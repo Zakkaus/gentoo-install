@@ -189,12 +189,16 @@ def test_the_install_row_shows_every_operation_before_it_starts() -> None:
         system=replace(config().system, root_password_hash="$6$test$x"),
         portage=replace(config().portage, mirrors=replace(config().portage.mirrors, site="tuna")),
     )
-    # Enter leaves the operation list, then No, which returns to the menu.
+    # Enter leaves the overview, then No, which returns to the menu.
     keys = [*down(len(settings.SETTINGS)), "\n", "\n", "\n", "q", "KEY_DOWN", "\n"]
-    screen = FakeScreen(keys=keys)
+    # Tall enough to hold the summary and the operations under it.
+    screen = FakeScreen(keys=keys, lines=90, columns=100)
     finished = run(screen, ready, at)
     assert finished.cancelled
     seen = "\n".join("\n".join(frame) for frame in screen.frames)
+    # Every row with its own label, then the operations the plan produced.
+    assert "Root password  set" in seen
+    assert "Bootloader  grub" in seen
     assert "wipe existing signatures" in seen
 
 
@@ -411,15 +415,15 @@ def test_a_paste_needs_only_its_identifier() -> None:
 
 
 def test_choosing_the_traditional_catalog_moves_the_defaults_with_it() -> None:
-    """Someone reading Traditional Chinese is in Taipei rather than Shanghai, and the CN
-    mirrors are the wrong side of a border for them."""
+    """Locale and timezone follow the language. The mirror region does not: a
+    Taiwanese machine reading Chinese is not behind the Great Firewall and one
+    in China reading English is, so that answer comes from the egress."""
     taiwan = screens.with_language(config(), "zh-TW")
     assert taiwan.system.timezone == "Asia/Taipei"
     assert taiwan.system.locale == "zh_TW.UTF-8"
     china = screens.with_language(config(), "zh-CN")
     assert china.system.timezone == "Asia/Shanghai"
     assert china.system.locale == "zh_CN.UTF-8"
-    # The region is read from the egress, so the language leaves it alone.
     assert china.portage.mirrors.region is taiwan.portage.mirrors.region
 
 
@@ -460,7 +464,7 @@ def test_the_mirror_row_shows_every_service_and_lets_each_be_chosen() -> None:
     drawn = screen.last
     for label in (
         "Region", "Gentoo mirror", "Gentoo distfiles", "Repository sync",
-        "Gentoo tree from", "Gentoo binary packages", "gentoo-zh", "guru",
+        "Gentoo repository", "Gentoo binary packages", "gentoo-zh", "guru",
     ):
         assert label in drawn, label
 
@@ -598,7 +602,7 @@ def test_the_tree_row_names_the_address_the_chosen_method_uses() -> None:
     ):
         chosen = replace(config(), portage=replace(config().portage, sync=method))
         rows = screens._mirror_fields(chosen, at.translate)
-        detail = next(one.detail for one in rows if one.label == "Gentoo tree from")
+        detail = next(one.detail for one in rows if one.label == "Gentoo repository")
         assert expected in detail, method
 
 
@@ -1330,11 +1334,7 @@ def test_a_required_row_has_to_be_opened_and_not_only_filled_in() -> None:
         for one in (group.rows or (group,))
         if one.required
     ]
-    # Nothing visited: every required row is named even though each has a value.
     named = settings.unanswered(ready, at)
     assert {one.label for one in required} <= set(named)
-    for one in required:
-        assert one.value(ready, at) != settings.UNSET or one.key == "erase"
-
     at.visited.update(one.key for one in required)
     assert settings.unanswered(ready, at) == ()

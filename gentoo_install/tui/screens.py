@@ -665,7 +665,7 @@ def _mirror_fields(config: InstallConfig, translate: Catalog) -> list[Item[str]]
         # One row, not one per method: showing a git address under a webrsync
         # choice is the interface contradicting itself.
         Item(
-            label=translate("Gentoo tree from"),
+            label=translate("Gentoo repository"),
             value="",
             detail=_tree_source(portage, region, site, translate),
         ),
@@ -1604,11 +1604,26 @@ def overview_screen(screen: Screen, config: InstallConfig, context: Context) -> 
     """
     from ..plan.build import build as plan_build
     from ..plan.render import summarise
+    from .settings import SETTINGS, UNSET
 
     translate = context.translate
     operations = plan_build(config, context.groups)
-    lines = [operation.describe() for operation in operations]
-    items = [Item(label=line, value=index) for index, line in enumerate(lines)]
+    items: list[Item[int]] = []
+    # Every row with its own label: the main menu's grouped rows read as a bare
+    # list of values, and this is the last screen before the disk is written.
+    for group in SETTINGS:
+        for row in group.rows or (group,):
+            value = row.value(config, context)
+            items.append(
+                Item(
+                    label=f"{translate(row.label)}  {translate(value) if value == UNSET else value}",
+                    value=0,
+                )
+            )
+    items.append(Item(label=f"— {translate('Operations')} —", value=0))
+    # The operation list itself, so the screen cannot describe something the
+    # installer will not do.
+    items += [Item(label=operation.describe(), value=0) for operation in operations]
     menu: Menu[int] = Menu(
         title=f"{translate('Overview')}: {summarise(operations)}",
         items=items,
