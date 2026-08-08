@@ -1260,6 +1260,24 @@ def test_selecting_gentoo_zh_turns_its_binary_host_on() -> None:
     assert screens._with_gentoo_zh(picked).binhost.community is BinhostChannel.UNSTABLE
 
 
+def test_a_grouped_row_uses_the_width_the_terminal_actually_has() -> None:
+    """It took two values whatever the terminal was, so a 160-column ssh window
+    still read `openrc, syslog-ng +1` with the rest of the line empty."""
+    at = context()
+    disk = next(one for one in settings.SETTINGS if one.key == "storage")
+
+    at.columns = 80
+    narrow = disk.value(config(), at)
+    at.columns = 200
+    wide = disk.value(config(), at)
+
+    assert "+" in narrow
+    assert "+" not in wide
+    assert wide.count(",") == len(disk.rows) - 1
+    # Narrow still fits: the count is what the line has room for.
+    assert len(narrow) < 80
+
+
 def test_the_rows_say_not_set_in_the_language_the_menu_is_in() -> None:
     """`UNSET` is the sentinel `style_of` compares against, so it reached the
     screen untranslated and one English line sat in a Chinese menu."""

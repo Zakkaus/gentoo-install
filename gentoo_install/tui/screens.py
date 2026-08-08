@@ -48,6 +48,7 @@ from ..model.validate import validate
 from ..plan.packages import Catalog as Groups
 from ..plan import system as plan_system
 from .widgets import (
+    MINIMUM_COLUMNS,
     Answer,
     Confirm,
     Field,
@@ -107,6 +108,9 @@ class Context:
         #: Every console keymap the machine ships, as (family, name). Empty on
         #: a medium with no keymap tree, which is when the name is typed.
         self.keymaps = keymaps
+        #: How wide the terminal is, set by whichever menu is about to draw. A
+        #: grouped row fits its summary to this rather than to a fixed 80.
+        self.columns = MINIMUM_COLUMNS
         #: The highest kernel `sys-fs/zfs` builds a module for, read from its
         #: ebuild. Empty when no repository is visible, which offers every version.
         self.zfs_kernel_max = zfs_kernel_max

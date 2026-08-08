@@ -35,6 +35,8 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
     #: operator hunt for where they were.
     cursor = 0
     while True:
+        # Before the rows are built: a grouped row fits its summary to this.
+        context.columns = screen.size()[1]
         blocked = _blocked(current, context)
         items: list[Item[int]] = [
             Item(

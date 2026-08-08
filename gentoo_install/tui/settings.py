@@ -27,6 +27,7 @@ from ..model import mirrors
 from ..model.device import Existing, Luks, MdRaid, PartitionTable, VolumeGroup, ZfsPool
 from . import screens
 from .screens import Context, Step, footer
+from ..i18n import width
 from .widgets import Answer, Item, Menu, Outcome, Screen, Style
 
 #: Shown for a row the operator has not visited and that has no usable default.
@@ -123,17 +124,29 @@ def nested(title: str, rows: tuple[Setting, ...]) -> Step:
     return open
 
 
-def _summary(rows: tuple[Setting, ...], take: int = 2) -> Callable[[InstallConfig, Context], str]:
-    """What a grouped row shows: the first values behind it, and how many more.
+#: Room the label, the indent and the `+N` need, so the summary is measured
+#: against what is left of the line rather than against the whole width.
+_MARGIN: Final[int] = 34
 
-    Not all of them: six joined by commas runs past 80 columns, and the part
-    that gets truncated away is the end of the list.
-    """
+
+def _summary(rows: tuple[Setting, ...]) -> Callable[[InstallConfig, Context], str]:
+    """What a grouped row shows: as many of the values behind it as fit, and
+    how many more. Measured against the terminal, because a wide one has room
+    for all six and truncating them there says less than it costs."""
 
     def shown(config: InstallConfig, context: Context) -> str:
-        first = ", ".join(row.value(config, context) for row in rows[:take])
-        rest = len(rows) - take
-        return f"{first} +{rest}" if rest > 0 else first
+        room = max(20, context.columns - _MARGIN)
+        values = [row.value(config, context) for row in rows]
+        taken: list[str] = []
+        for value in values:
+            candidate = ", ".join([*taken, value])
+            rest = len(values) - len(taken) - 1
+            if taken and width(candidate) + (4 if rest else 0) > room:
+                break
+            taken.append(value)
+        left = len(values) - len(taken)
+        joined = ", ".join(taken)
+        return f"{joined} +{left}" if left else joined
 
     return shown
 
