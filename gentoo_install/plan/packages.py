@@ -43,6 +43,11 @@ class Group:
     #: Values this group adds to `VIDEO_CARDS`, which a driver group needs and
     #: nothing else does.
     video_cards: tuple[str, ...] = ()
+    #: Licence groups this group's packages need in `ACCEPT_LICENSE`. A driver
+    #: whose licence the default refuses dies an hour into the install.
+    accept_license: tuple[str, ...] = ()
+    #: The display manager this group installs, if it is one.
+    display_manager: str = ""
     files: tuple[GroupFile, ...] = ()
     #: package.use lines this group needs, written before anything merges.
     package_use: tuple[str, ...] = ()
@@ -222,7 +227,12 @@ def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
 
 
 def groups(config: InstallConfig, catalog: Catalog) -> tuple[Group, ...]:
-    names = [config.packages.desktop, *config.packages.applications]
+    names = [
+        config.packages.desktop,
+        config.packages.graphics,
+        config.packages.display_manager,
+        *config.packages.applications,
+    ]
     found: list[Group] = []
     for name in names:
         if not name:
@@ -277,6 +287,16 @@ def required_video_cards(config: InstallConfig, catalog: Catalog) -> tuple[str, 
         for card in group.video_cards:
             if card not in wanted:
                 wanted.append(card)
+    return tuple(wanted)
+
+
+def required_licenses(config: InstallConfig, catalog: Catalog) -> tuple[str, ...]:
+    """What the configuration accepts, widened by what a chosen group needs."""
+    wanted = list(config.portage.accept_license)
+    for group in groups(config, catalog):
+        for licence in group.accept_license:
+            if licence not in wanted:
+                wanted.append(licence)
     return tuple(wanted)
 
 

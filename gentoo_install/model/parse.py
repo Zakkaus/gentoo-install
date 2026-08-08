@@ -240,12 +240,14 @@ def _bootloader(raw: Mapping[str, Any], at: str) -> BootloaderConfig:
 
 
 def _packages(raw: Mapping[str, Any], at: str) -> PackagesConfig:
-    _reject_unknown(raw, at, {"desktop", "applications", "extra"})
+    _reject_unknown(raw, at, {"desktop", "applications", "extra", "graphics", "display_manager"})
     default = PackagesConfig()
     return PackagesConfig(
         desktop=_str(raw, "desktop", at, default.desktop),
         applications=_strings(raw, "applications", at, default.applications),
         extra=_strings(raw, "extra", at, default.extra),
+        graphics=_str(raw, "graphics", at, default.graphics),
+        display_manager=_str(raw, "display_manager", at, default.display_manager),
     )
 
 

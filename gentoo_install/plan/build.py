@@ -28,6 +28,7 @@ def build(config: InstallConfig, catalog: packages.Catalog, *, mirror: str = DEF
             mirror,
             packages.required_use(config, catalog),
             packages.required_video_cards(config, catalog),
+            packages.required_licenses(config, catalog),
         ),
         *system.build(config),
         *kernel.build(config),

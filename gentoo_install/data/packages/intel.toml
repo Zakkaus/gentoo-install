@@ -1,0 +1,5 @@
+# i915 and xe are in the kernel; what is missing from a bare install is the
+# firmware, which is redistributable but not free.
+packages = ["sys-kernel/linux-firmware"]
+video_cards = ["intel"]
+accept_license = ["@BINARY-REDISTRIBUTABLE"]

@@ -1,0 +1,5 @@
+# A console greeter, for a desktop reached without an X or Wayland login
+# screen of its own.
+packages = ["gui-libs/greetd", "gui-apps/tuigreet"]
+services = ["greetd.service"]
+display_manager = "greetd"

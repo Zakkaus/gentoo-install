@@ -154,6 +154,14 @@ def _user(config: InstallConfig, context: Context) -> str:
     return ", ".join(user.name for user in config.system.users) or "none"
 
 
+def _graphics(config: InstallConfig, context: Context) -> str:
+    return config.packages.graphics or context.translate("none")
+
+
+def _display_manager(config: InstallConfig, context: Context) -> str:
+    return config.packages.display_manager or context.translate("none")
+
+
 def _applications(config: InstallConfig, context: Context) -> str:
     return ", ".join(config.packages.applications) or "none"
 
@@ -223,6 +231,8 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("binhost", "Binary packages", _binhost, screens.binhost_screen),
     Setting("sync", "Repository sync", lambda c, x: c.portage.sync.value, screens.sync_screen),
     Setting("desktop", "Desktop", lambda c, x: c.packages.desktop or "none", screens.desktop_screen),
+    Setting("graphics", "Graphics", _graphics, screens.graphics_screen),
+    Setting("dm", "Display manager", _display_manager, screens.display_manager_screen),
     Setting("packages", "Applications", _applications, screens.packages_screen),
     Setting("extra", "Extra packages", _extra, screens.extra_packages_screen),
     Setting("network", "Network configuration", _network, screens.networking_screen),

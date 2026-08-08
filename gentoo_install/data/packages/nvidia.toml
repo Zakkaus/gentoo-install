@@ -1,10 +1,14 @@
-# The proprietary driver. nouveau is the default and needs no group: it is in
-# the kernel and only wants VIDEO_CARDS.
+# The proprietary driver. NVIDIA-2025 is in @BINARY-REDISTRIBUTABLE, so the
+# default @FREE refuses it and the emerge dies an hour into the install.
+#
+# No `blacklist nouveau` here: the ebuild's own /etc/modprobe.d/nvidia.conf
+# does it and adds itself to dracut's install_items. modeset is written the
+# way calamares-settings-gig writes it, in modprobe.d rather than on the
+# kernel command line, because a drop-in survives a bootloader change.
 packages = ["x11-drivers/nvidia-drivers"]
 video_cards = ["nvidia"]
+accept_license = ["@BINARY-REDISTRIBUTABLE"]
 
-# Without modeset the proprietary driver gives a Wayland session no KMS and the
-# compositor falls back to software rendering or refuses to start.
 [[files]]
-path = "/etc/modprobe.d/nvidia.conf"
-content = "options nvidia-drm modeset=1\n"
+path = "/etc/modprobe.d/nvidia-modeset.conf"
+content = "options nvidia_drm modeset=1\n"

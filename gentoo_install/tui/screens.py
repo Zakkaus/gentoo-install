@@ -29,6 +29,7 @@ from ..model.config import (
     MirrorRegion,
     Networking,
     Overlay,
+    PackagesConfig,
     PortageConfig,
     Sync,
     User,
@@ -661,13 +662,97 @@ def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> A
     )
 
 
+#: The graphics groups, in the order the menu lists them, and what each is
+#: for. Kept out of the applications list: a driver is one choice, not a set of
+#: things to tick.
+GRAPHICS: tuple[tuple[str, str], ...] = (
+    ("", "whatever the kernel picks"),
+    ("intel", "i915 and xe, with the firmware they need"),
+    ("amdgpu", "GCN 1.2 and newer"),
+    ("radeon", "AMD up to Sea Islands"),
+    ("nouveau", "the in-kernel NVIDIA driver"),
+    ("nvidia", "the proprietary driver, which widens ACCEPT_LICENSE"),
+    ("virtual-machine", "virtio-gpu, QXL and the VMware adapter"),
+)
+
+#: The display managers. A desktop no longer names one, because which login
+#: screen to run is a decision of its own.
+DISPLAY_MANAGERS: tuple[tuple[str, str], ...] = (
+    ("", "a text console login"),
+    ("sddm", "the one Plasma expects"),
+    ("gdm", "the one GNOME expects"),
+    ("lightdm", "the one Xfce expects"),
+    ("greetd", "a console greeter"),
+)
+
+
+def graphics_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """Which driver, which is what VIDEO_CARDS and the firmware follow."""
+    return _one_group(
+        screen,
+        config,
+        context,
+        "Graphics",
+        GRAPHICS,
+        lambda packages, name: replace(packages, graphics=name),
+    )
+
+
+def display_manager_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    return _one_group(
+        screen,
+        config,
+        context,
+        "Display manager",
+        DISPLAY_MANAGERS,
+        lambda packages, name: replace(packages, display_manager=name),
+    )
+
+
+def _one_group(
+    screen: Screen,
+    config: InstallConfig,
+    context: Context,
+    title: str,
+    offered: tuple[tuple[str, str], ...],
+    apply: Callable[[PackagesConfig, str], PackagesConfig],
+) -> Answer[InstallConfig]:
+    """A row that holds one group name, drawn from a table of them."""
+    translate = context.translate
+    menu: Menu[str] = Menu(
+        title=translate(title),
+        items=[
+            Item(label=name or translate("none"), value=name, detail=translate(reason))
+            for name, reason in offered
+        ],
+        footer=_footer(translate),
+    )
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    return Answer(
+        Outcome.CHOSE, replace(config, packages=apply(config.packages, answer.unwrap()[0]))
+    )
+
+
 def packages_screen(
     screen: Screen, config: InstallConfig, context: Context
 ) -> Answer[InstallConfig]:
     translate = context.translate
     # A desktop is chosen on its own screen, because it also decides the
     # profile; this one offers what can be added beside any of them.
-    names = sorted(name for name in context.groups if name not in DESKTOP_PROFILES)
+    # A desktop, a driver and a display manager are each one choice of their
+    # own, so none of them is a row to tick here.
+    elsewhere = (
+        set(DESKTOP_PROFILES)
+        | {name for name, _ in GRAPHICS}
+        | {name for name, _ in DISPLAY_MANAGERS}
+    )
+    names = sorted(name for name in context.groups if name not in elsewhere)
     items = [
         Item(label=name, value=name, detail=" ".join(context.groups[name].packages))
         for name in names

@@ -3,9 +3,7 @@
 packages = [
     "kde-plasma/plasma-meta",
     "kde-apps/kde-apps-meta",
-    "x11-misc/sddm",
     "x11-base/xorg-server",
 ]
-services = ["sddm.service"]
-use = ["wayland", "qt6", "kcm", "networkmanager", "sddm"]
+use = ["wayland", "qt6", "kcm", "networkmanager"]
 wayland = true

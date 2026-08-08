@@ -1,0 +1,4 @@
+# The older AMD chips amdgpu does not cover, up to Sea Islands.
+packages = ["sys-kernel/linux-firmware"]
+video_cards = ["radeon", "r600"]
+accept_license = ["@BINARY-REDISTRIBUTABLE"]

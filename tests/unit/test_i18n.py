@@ -103,9 +103,10 @@ def in_a_table() -> set[str]:
     Read from the tables rather than listed again here: a second list is one
     more thing to forget when a row is added.
     """
-    from gentoo_install.tui.screens import KERNELS, LICENSES
+    from gentoo_install.tui.screens import DISPLAY_MANAGERS, GRAPHICS, KERNELS, LICENSES
 
-    return {reason for _, reason in KERNELS} | {reason for _, reason in LICENSES}
+    tables = (KERNELS, LICENSES, GRAPHICS, DISPLAY_MANAGERS)
+    return {reason for table in tables for _, reason in table}
 
 
 def displayed() -> set[str]:

@@ -243,6 +243,10 @@ class PackagesConfig:
     desktop: str = ""
     #: Group names under `data/packages/`.
     applications: tuple[str, ...] = ()
+    #: The graphics driver group, empty for whatever the kernel picks.
+    graphics: str = ""
+    #: The display manager group, empty for a console login.
+    display_manager: str = ""
     #: Merged verbatim after everything else.
     extra: tuple[str, ...] = ()
 

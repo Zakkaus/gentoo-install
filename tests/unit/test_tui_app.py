@@ -436,3 +436,47 @@ def test_the_compiler_row_gathers_the_four_that_are_read_together() -> None:
     drawn = screen.last
     for label in ("Compile jobs", "Compiler flags", "CPU flags", "Licenses", "Package keywords"):
         assert label in drawn, label
+
+
+def test_the_driver_is_one_choice_and_not_a_row_to_tick() -> None:
+    """A machine has one graphics driver, so ticking two in the applications
+    list would put two VIDEO_CARDS values in make.conf."""
+    at = context()
+    answer = screens.graphics_screen(FakeScreen(keys=[*down(5), "\n"], lines=30), config(), at)
+    assert answer.unwrap().packages.graphics == "nvidia"
+    offered = FakeScreen(keys=["q"], lines=30, columns=100)
+    screens.packages_screen(offered, config(), at)
+    for name, _ in screens.GRAPHICS:
+        if name:
+            assert f"  {name} " not in offered.last, name
+
+
+def test_a_desktop_no_longer_picks_the_login_screen_for_the_operator() -> None:
+    """Which login screen to run is a decision of its own, and the profiles
+    used to each name one."""
+    at = context()
+    for name in ("plasma", "gnome", "xfce"):
+        group = at.groups[name]
+        assert not group.services, name
+        assert not any(atom.endswith(("sddm", "gdm", "lightdm")) for atom in group.packages), name
+    answer = screens.display_manager_screen(FakeScreen(keys=["KEY_DOWN", "\n"]), config(), at)
+    assert answer.unwrap().packages.display_manager == "sddm"
+
+
+def test_the_proprietary_driver_widens_the_licences_it_needs() -> None:
+    """NVIDIA-2025 is in @BINARY-REDISTRIBUTABLE, so the default @FREE refuses
+    it and the emerge dies an hour into the install."""
+    from gentoo_install.plan import packages as plan_packages
+
+    chosen = replace(config(), packages=replace(config().packages, graphics="nvidia"))
+    assert "@BINARY-REDISTRIBUTABLE" in plan_packages.required_licenses(chosen, load_catalog())
+    plain = replace(config(), packages=replace(config().packages, graphics="nouveau"))
+    assert plan_packages.required_licenses(plain, load_catalog()) == ("@FREE",)
+
+
+def test_the_nvidia_drop_in_does_not_collide_with_the_one_the_ebuild_installs() -> None:
+    """x11-drivers/nvidia-drivers ships /etc/modprobe.d/nvidia.conf itself and
+    adds it to dracut's install_items; writing over it is a collision."""
+    nvidia = load_catalog()["nvidia"]
+    assert [str(one.path) for one in nvidia.files] == ["/etc/modprobe.d/nvidia-modeset.conf"]
+    assert "modeset=1" in nvidia.files[0].content

@@ -1,0 +1,3 @@
+packages = ["gnome-base/gdm"]
+services = ["gdm.service"]
+display_manager = "gdm"

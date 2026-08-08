@@ -241,7 +241,15 @@ def test_a_driver_group_adds_its_video_cards_and_its_drop_in() -> None:
         for operation in plan_packages.build(wanted, catalog)
         if isinstance(operation, plan_packages.WriteGroupFile)
     ]
-    assert [str(entry.file.path) for entry in written] == ["/etc/modprobe.d/nvidia.conf"]
+    # Not `nvidia.conf`: that is the file the ebuild installs, and writing our
+    # own over it is a collision rather than a configuration.
+    assert [str(entry.file.path) for entry in written] == [
+        "/etc/modprobe.d/nvidia-modeset.conf"
+    ]
+    assert plan_packages.required_licenses(wanted, catalog) == (
+        "@FREE",
+        "@BINARY-REDISTRIBUTABLE",
+    )
 
 
 def test_an_input_method_group_configures_fcitx_for_every_user() -> None:

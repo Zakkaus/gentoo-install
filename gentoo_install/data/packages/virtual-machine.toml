@@ -1,0 +1,3 @@
+# virtio-gpu, QXL and the VMware adapter, which is what a guest is offered.
+# virgl is the Mesa driver for virtio-gpu with 3D.
+video_cards = ["virgl", "qxl", "vmware"]
