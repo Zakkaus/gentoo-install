@@ -78,3 +78,8 @@
 "also firmware and other redistributable binaries" = "另含韌體等可再散布的二進位檔"
 "everything, including licences you have not read" = "全部，包含你沒讀過的授權"
 "this machine's core count" = "這台機器的核心數"
+"Compiler flags" = "編譯器旗標"
+"what the stage3 already has" = "stage3 原本就是這個"
+"binary packages match" = "二進位套件可以命中"
+"built for this CPU, and no binary package matches" = "為這顆 CPU 建置，二進位套件將全部無法命中"
+"Type them" = "自己輸入"

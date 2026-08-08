@@ -1124,3 +1124,53 @@ def makeopts_screen(screen: Screen, config: InstallConfig, context: Context) -> 
         Outcome.CHOSE,
         replace(config, portage=replace(config.portage, makeopts=answer.unwrap()[0])),
     )
+
+
+def compile_flags_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """`COMMON_FLAGS`, which CFLAGS and the rest follow.
+
+    Leaving the stage3's value is first because it is what Gentoo built the
+    binary packages against: `-march=native` makes every one of them a miss,
+    and an install that was ten minutes becomes hours of compiling.
+    """
+    translate = context.translate
+    stock = PortageConfig().common_flags
+    items: list[Item[str]] = [
+        Item(
+            label=f"{stock}  ({translate('what the stage3 already has')})",
+            value=stock,
+            detail=translate("binary packages match"),
+        ),
+        Item(
+            label="-O2 -pipe -march=native",
+            value="-O2 -pipe -march=native",
+            detail=translate("built for this CPU, and no binary package matches"),
+        ),
+        Item(
+            label="-O3 -pipe -march=native",
+            value="-O3 -pipe -march=native",
+            detail=translate("built for this CPU, and no binary package matches"),
+        ),
+        Item(label=translate("Type them"), value=""),
+    ]
+    menu: Menu[str] = Menu(
+        title=translate("Compiler flags"), items=items, footer=_footer(translate)
+    )
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    chosen = answer.unwrap()[0]
+    if not chosen:
+        typed = TextField(
+            title=translate("Compiler flags"),
+            value=config.portage.common_flags,
+            footer=_footer(translate),
+        ).run(screen)
+        if not typed.chosen:
+            return Answer(typed.outcome)
+        chosen = typed.unwrap().strip() or stock
+    return Answer(
+        Outcome.CHOSE, replace(config, portage=replace(config.portage, common_flags=chosen))
+    )

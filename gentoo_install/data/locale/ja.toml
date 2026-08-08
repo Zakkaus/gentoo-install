@@ -78,3 +78,8 @@
 "also firmware and other redistributable binaries" = "ファームウェアなど再配布可能なバイナリも含む"
 "everything, including licences you have not read" = "すべて。読んでいないライセンスも含む"
 "this machine's core count" = "このマシンのコア数"
+"Compiler flags" = "コンパイラフラグ"
+"what the stage3 already has" = "stage3 が元から持っている値"
+"binary packages match" = "バイナリパッケージと一致します"
+"built for this CPU, and no binary package matches" = "この CPU 向けに構築。バイナリパッケージは一つも一致しません"
+"Type them" = "自分で入力"

@@ -78,3 +78,8 @@
 "also firmware and other redistributable binaries" = "펌웨어 등 재배포 가능한 바이너리도 포함"
 "everything, including licences you have not read" = "전부. 읽지 않은 라이선스도 포함"
 "this machine's core count" = "이 컴퓨터의 코어 수"
+"Compiler flags" = "컴파일러 플래그"
+"what the stage3 already has" = "stage3 가 원래 가진 값"
+"binary packages match" = "바이너리 패키지가 일치합니다"
+"built for this CPU, and no binary package matches" = "이 CPU 용으로 빌드. 바이너리 패키지는 하나도 맞지 않습니다"
+"Type them" = "직접 입력"

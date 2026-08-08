@@ -78,3 +78,8 @@
 "also firmware and other redistributable binaries" = "另含固件等可再分发的二进制文件"
 "everything, including licences you have not read" = "全部，包含你没读过的许可"
 "this machine's core count" = "这台机器的核心数"
+"Compiler flags" = "编译器标志"
+"what the stage3 already has" = "stage3 原本就是这个"
+"binary packages match" = "二进制包可以命中"
+"built for this CPU, and no binary package matches" = "为这颗 CPU 构建，二进制包将全部无法命中"
+"Type them" = "自己输入"

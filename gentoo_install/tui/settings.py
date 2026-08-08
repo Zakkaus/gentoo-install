@@ -133,6 +133,13 @@ def _makeopts(config: InstallConfig, context: Context) -> str:
     return config.portage.makeopts or f"-j{context.cores} (this machine)"
 
 
+def _cflags(config: InstallConfig, context: Context) -> str:
+    from ..model.config import PortageConfig
+
+    flags = config.portage.common_flags
+    return f"{flags} (stage3 default)" if flags == PortageConfig().common_flags else flags
+
+
 def _extra(config: InstallConfig, context: Context) -> str:
     return " ".join(config.packages.extra) or "none"
 
@@ -164,6 +171,7 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("profile", "Profile", lambda c, x: c.portage.profile, screens._profile_screen),
     Setting("license", "Licenses", _license, screens.license_screen),
     Setting("makeopts", "Compile jobs", _makeopts, screens.makeopts_screen),
+    Setting("cflags", "Compiler flags", _cflags, screens.compile_flags_screen),
     Setting("root", "Root password", _root, screens.root_password_screen, required=True),
     Setting("user", "User account", _user, screens.user_screen),
     Setting("kernel", "Kernel", _kernel, screens.kernel_screen),
