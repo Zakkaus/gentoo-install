@@ -31,14 +31,16 @@ class Medium:
     login_user: str | None = None
     login_password: str | None = None
     extra_cmdline: tuple[str, ...] = ()
+    #: Set when the medium does not boot the dracut way. Alpine's initramfs
+    #: takes `modules=` and finds its own media; it has no `root=live:`.
+    boot_cmdline: tuple[str, ...] = ()
 
     def cmdline(self) -> str:
-        base = (
+        base = self.boot_cmdline or (
             f"root=live:CDLABEL={self.volume_label}",
             "rd.live.image",
-            "console=ttyS0,115200",
         )
-        return " ".join((*base, *self.extra_cmdline))
+        return " ".join((*base, "console=ttyS0,115200", *self.extra_cmdline))
 
     def boot_files(self) -> tuple[Path, Path]:
         if not self.iso.is_file():
@@ -96,4 +98,17 @@ OFFICIAL_MINIMAL = Medium(
     extra_cmdline=("rd.live.dir=/", "rd.live.squashimg=image.squashfs", "cdroot", "nodhcp"),
 )
 
-MEDIA = {medium.name: medium for medium in (GIGOS, OFFICIAL_MINIMAL)}
+ALPINE = Medium(
+    name="alpine",
+    iso=Path.home() / "Downloads/alpine-standard-3.24.1-x86_64.iso",
+    volume_label="alpine-std 3.24.1 x86_64",
+    kernel_in_iso="/boot/vmlinuz-lts",
+    initrd_in_iso="/boot/initramfs-lts",
+    # Alpine logs root in with no password and its shell prompt has no host.
+    root_prompt=r"localhost:~#",
+    login_user="root",
+    login_password=None,
+    boot_cmdline=("modules=loop,squashfs,sd-mod,usb-storage",),
+)
+
+MEDIA = {medium.name: medium for medium in (GIGOS, OFFICIAL_MINIMAL, ALPINE)}
