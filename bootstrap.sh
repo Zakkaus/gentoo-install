@@ -68,21 +68,30 @@ package_for() {
 	lvm:*) printf 'lvm2' ;;
 	gpg:*) printf 'gnupg' ;;
 	zpool:debian | zfs:debian | zpool:ubuntu | zfs:ubuntu) printf 'zfsutils-linux' ;;
+	# archzfs is a third-party repository, so there is nothing to name here;
+	# `probe.zfs_support()` refuses the layout before this would matter.
 	zpool:arch | zfs:arch) printf 'zfs-utils' ;;
 	udevadm:alpine) printf 'eudev' ;;
-	chroot:alpine | tar:alpine) printf '%s' "$command" ;;
-	# The busybox applets answer `which` and then reject the flags the chroot
-	# and the stage3 need, so Alpine installs the real ones.
-	mount:alpine | umount:alpine) printf 'util-linux' ;;
+	udevadm:debian | udevadm:ubuntu) printf 'udev' ;;
+	udevadm:fedora | udevadm:rhel | udevadm:centos) printf 'systemd-udev' ;;
+	udevadm:*) printf 'systemd' ;;
+	tar:alpine) printf 'tar' ;;
+	# Alpine splits util-linux into one package per tool, and the `util-linux`
+	# package itself is an empty placeholder that installs nothing. The busybox
+	# applets answer `which` and then reject the flags, so each real one is
+	# named on its own.
+	mount:alpine | umount:alpine | lsblk:alpine | blkid:alpine | findmnt:alpine \
+		| wipefs:alpine) printf '%s' "$command" ;;
+	blockdev:alpine | swapon:alpine) printf 'util-linux-misc' ;;
 	openssl:*) printf 'openssl' ;;
 	zpool:* | zfs:*) printf 'zfs' ;;
 	mkfs.xfs:*) printf 'xfsprogs' ;;
 	mkfs.f2fs:*) printf 'f2fs-tools' ;;
 	mkfs.ext4:* | mkfs.ext2:* | mkfs.ext3:*) printf 'e2fsprogs' ;;
 	tar:*) printf 'tar' ;;
-	udevadm:debian | udevadm:ubuntu) printf 'systemd' ;;
 	wipefs:* | blkid:* | lsblk:* | findmnt:* | blockdev:* | swapon:*) printf 'util-linux' ;;
-	chroot:debian | chroot:ubuntu) printf 'coreutils' ;;
+	# No distribution ships a package named after either of these.
+	chroot:* | hostid:*) printf 'coreutils' ;;
 	*) printf '%s' "$command" ;;
 	esac
 }
@@ -109,7 +118,12 @@ if ! python=$(python_binary); then
 	found=$(command -v python3 >/dev/null 2>&1 && python3 --version 2>&1 || printf 'none')
 	say "this installer needs python 3.$PYTHON_MINIMUM_MINOR or newer; found: $found"
 	if manager=$(install_command "$family"); then
-		say "install one with: $manager python3"
+		# A versioned name for the dnf families: their bare `python3` is the
+		# platform 3.9, which fails this same check.
+		case "$family" in
+		fedora | rhel | centos) say "install one with: $manager python3.12" ;;
+		*) say "install one with: $manager python3" ;;
+		esac
 	fi
 	exit 1
 fi

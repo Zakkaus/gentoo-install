@@ -126,6 +126,11 @@ class ReleaseTarget(Operation):
 
     def apply(self, context: Context) -> None:
         context.run(["umount", "--recursive", "--lazy", str(context.target)], check=False)
+        # The btrfs top level is mounted beside the target, not under it, so a
+        # recursive unmount of the target never reaches it.
+        context.run(
+            ["umount", "--lazy", str(context.target.parent / SCRATCH_MOUNT)], check=False
+        )
         for argv in self.steps:
             # check=False throughout: none of these existing is the normal case
             # on a first run.
@@ -395,6 +400,11 @@ class VerifyFilesystem(Operation):
             )
 
 
+#: Where a btrfs top level is mounted while its subvolumes are created. Beside
+#: the target rather than under it: the layout is mounted on the target itself.
+SCRATCH_MOUNT: Final[str] = "btrfs-top"
+
+
 @dataclass(frozen=True, kw_only=True)
 class CreateSubvolume(Operation):
     """btrfs subvolumes live inside the filesystem, so the top level has to be
@@ -409,12 +419,17 @@ class CreateSubvolume(Operation):
         return f"create btrfs subvolume {self.name} on {self.device} as {self.subvolume}"
 
     def apply(self, context: Context) -> None:
-        scratch = context.target.parent / "btrfs-top"
+        scratch = context.target.parent / SCRATCH_MOUNT
         path = context.device_path(self.device)
         context.run(["mkdir", "--parents", str(scratch)])
         context.run(["mount", "--types", "btrfs", path, str(scratch)])
-        context.run(["btrfs", "subvolume", "create", str(scratch / self.name)])
-        context.run(["umount", str(scratch)])
+        try:
+            context.run(["btrfs", "subvolume", "create", str(scratch / self.name)])
+        finally:
+            # In `finally`: a name left by an earlier attempt fails here, and
+            # leaving the device mounted makes the next run die at `wipefs`
+            # with `Device or resource busy` and nothing naming the holder.
+            context.run(["umount", str(scratch)], check=False)
 
 
 @dataclass(frozen=True, kw_only=True)

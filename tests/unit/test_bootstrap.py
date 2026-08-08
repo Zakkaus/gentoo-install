@@ -157,3 +157,29 @@ def test_fedora_gets_the_package_that_actually_ships_sgdisk(tmp_path: Path) -> N
     for release in ("ID=fedora\n", 'ID=rocky\nID_LIKE="rhel centos fedora"\n'):
         said = run(tmp_path, release, *arguments, path=only_python(tmp_path))
         assert "gdisk" in said and "gptfdisk" not in said
+
+
+def test_alpine_names_each_util_linux_tool_on_its_own(tmp_path: Path) -> None:
+    """Alpine's `util-linux` package is a 1.5 kB placeholder that installs
+    nothing; the tools are one package each, so `apk add util-linux` left the
+    same commands missing and the operator looping on the same message."""
+    said = run(tmp_path, "ID=alpine\n", "--config", "tests/fixtures/vm-luks.toml",
+               path=only_python(tmp_path))
+    assert "apk add" in said
+    for named in ("lsblk", "findmnt", "blkid"):
+        assert named in said, named
+    # The placeholder must not be what it asks for.
+    assert " util-linux " not in said and not said.rstrip().endswith(" util-linux")
+
+
+def test_no_distribution_is_told_to_install_a_package_named_chroot(tmp_path: Path) -> None:
+    """`chroot` and `hostid` are coreutils everywhere; no distribution ships a
+    package under either name."""
+    for release in ("ID=alpine\n", "ID=arch\n", "ID=fedora\n", "ID=debian\n"):
+        said = run(tmp_path, release, "--config", "tests/fixtures/vm-zfs.toml",
+                   path=only_python(tmp_path))
+        # The install line only: the line above it lists the missing commands,
+        # where the word `chroot` belongs.
+        line = next(one for one in said.splitlines() if one.startswith("run: "))
+        assert "chroot" not in line, release
+        assert "coreutils" in line, release

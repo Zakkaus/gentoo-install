@@ -72,6 +72,21 @@ GNU_ONLY: Final[dict[str, tuple[str, str]]] = {
         "the chroot needs --rbind and --make-rslave, which the busybox applet "
         "has no option for at all",
     ),
+    "blkid": (
+        "util-linux",
+        "the fstab UUIDs come from --probe --match-tag, and the busybox applet "
+        "takes no options at all",
+    ),
+    "umount": (
+        "util-linux",
+        "releasing a half-finished run needs --recursive and --lazy, which the "
+        "busybox applet does not have",
+    ),
+    "swapon": (
+        "util-linux",
+        "the check that refuses to repartition a disk in use reads --show, "
+        "which the busybox applet does not have",
+    ),
 }
 
 #: `zpool create` refuses anything shorter, and it refuses it after the disk
