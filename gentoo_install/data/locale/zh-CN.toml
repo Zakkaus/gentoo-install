@@ -313,6 +313,8 @@
 "no redundancy" = "无冗余"
 "needs at least" = "至少需要"
 "needs the overlay" = "需要 overlay"
+"choose a desktop first" = "请先选桌面环境"
+"locked, a sudo user logs in" = "已锁定，由 sudo 用户登录"
 "What happens to it" = "如何处置"
 "keep" = "保留"
 "format" = "格式化"

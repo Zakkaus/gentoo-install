@@ -354,7 +354,17 @@ def _encryption(config: InstallConfig, context: Context) -> str:
 
 
 def _root(config: InstallConfig, context: Context) -> str:
-    return context.translate("set") if config.system.root_password_hash else UNSET
+    """`set`, `locked`, or the sentinel that blocks the install.
+
+    Locked is an answer, not a missing one: an empty hash locks the account,
+    which is what a system with a sudo user wants. Without this the row asked
+    for ever, because the screen cannot produce a hash for no password.
+    """
+    if config.system.root_password_hash:
+        return context.translate("set")
+    if any(user.sudo for user in config.system.users):
+        return context.translate("locked, a sudo user logs in")
+    return UNSET
 
 
 def _user(config: InstallConfig, context: Context) -> str:

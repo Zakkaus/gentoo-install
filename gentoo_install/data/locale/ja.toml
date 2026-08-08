@@ -313,6 +313,8 @@
 "no redundancy" = "冗長性なし"
 "needs at least" = "最低必要数"
 "needs the overlay" = "必要なオーバーレイ"
+"choose a desktop first" = "先にデスクトップを選択"
+"locked, a sudo user logs in" = "ロック済み、sudo ユーザーでログイン"
 "What happens to it" = "この扱い"
 "keep" = "保持"
 "format" = "フォーマット"

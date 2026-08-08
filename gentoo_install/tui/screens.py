@@ -1200,6 +1200,9 @@ def graphics_screen(
 def display_manager_screen(
     screen: Screen, config: InstallConfig, context: Context
 ) -> Answer[InstallConfig]:
+    # A manager with no desktop installs a login screen that has no session to
+    # start, so every entry but `none` says to pick a desktop first.
+    without = "" if config.packages.desktop else context.translate("choose a desktop first")
     return _one_group(
         screen,
         config,
@@ -1207,6 +1210,7 @@ def display_manager_screen(
         "Display manager",
         DISPLAY_MANAGERS,
         lambda packages, name: replace(packages, display_manager=name),
+        unavailable=lambda name: without if name else "",
     )
 
 
@@ -1229,13 +1233,19 @@ def _one_group(
     title: str,
     offered: tuple[tuple[str, str], ...],
     apply: Callable[[PackagesConfig, str], PackagesConfig],
+    unavailable: Callable[[str], str] = lambda name: "",
 ) -> Answer[InstallConfig]:
     """A row that holds one group name, drawn from a table of them."""
     translate = context.translate
     menu: Menu[str] = Menu(
         title=translate(title),
         items=[
-            Item(label=name or translate("none"), value=name, detail=translate(reason))
+            Item(
+                label=name or translate("none"),
+                value=name,
+                detail=translate(reason),
+                disabled_because=unavailable(name),
+            )
             for name, reason in offered
         ],
         footer=footer(translate),

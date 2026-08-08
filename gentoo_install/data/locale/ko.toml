@@ -313,6 +313,8 @@
 "no redundancy" = "이중화 없음"
 "needs at least" = "최소 필요"
 "needs the overlay" = "필요한 오버레이"
+"choose a desktop first" = "데스크톱을 먼저 선택"
+"locked, a sudo user logs in" = "잠김, sudo 사용자로 로그인"
 "What happens to it" = "처리 방식"
 "keep" = "유지"
 "format" = "포맷"
