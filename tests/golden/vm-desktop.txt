@@ -44,9 +44,9 @@
   set the root password
   install sshd: emerge net-misc/openssh
   ssh password login: off, root: on
-  enable sshd.service at boot
+  enable sshd at boot
   configure the wired interface for DHCP
-  enable systemd-networkd.service at boot
+  enable systemd-networkd at boot
 
 [kernel]
   set sys-kernel/installkernel to dracut
@@ -70,7 +70,7 @@
   install the noto-cjk group: emerge media-fonts/noto-cjk media-fonts/noto media-libs/fontconfig
   install the pipewire group: emerge media-video/pipewire media-video/wireplumber
   install the network-manager group: emerge net-misc/networkmanager
-  enable NetworkManager.service at boot
+  enable NetworkManager at boot
   set the input method environment in /etc/environment.d/90-input-method.conf: XMODIFIERS only, since the session is Wayland
   configure fcitx with rime and luna_pinyin terra_pinyin bopomofo pinyin_simp for skel
 

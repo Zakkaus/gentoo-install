@@ -50,7 +50,7 @@
   write /etc/crypttab for root
   set the root password
   configure the wired interface for DHCP
-  enable systemd-networkd.service at boot
+  enable systemd-networkd at boot
 
 [kernel]
   set sys-kernel/installkernel to dracut

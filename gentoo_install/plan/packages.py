@@ -208,6 +208,8 @@ def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
             operations.append(WriteGroupUse(group=group.name, lines=group.package_use))
         for wanted in group.files:
             operations.append(WriteGroupFile(group=group.name, file=wanted))
+        if group.display_manager:
+            operations += _display_manager(group.display_manager, config.system.init)
         for service in group.services:
             # In this stage, not the system one: the unit does not exist until
             # the package that ships it is merged.
@@ -288,6 +290,30 @@ def required_video_cards(config: InstallConfig, catalog: Catalog) -> tuple[str, 
             if card not in wanted:
                 wanted.append(card)
     return tuple(wanted)
+
+
+#: openrc runs every display manager through one init script, which reads the
+#: name from its conf.d file. `gui-libs/display-manager-init` is what ships
+#: both, and nothing else pulls it in.
+DISPLAY_MANAGER_INIT: Final[str] = "gui-libs/display-manager-init"
+DISPLAY_MANAGER_CONF: Final[PurePosixPath] = PurePosixPath("/etc/conf.d/display-manager")
+
+
+def _display_manager(name: str, init: InitSystem) -> list[Operation]:
+    if init is InitSystem.SYSTEMD:
+        return [EnableService(stage=Stage.PACKAGES, service=name, init=init)]
+    return [
+        Emerge(
+            stage=Stage.PACKAGES,
+            packages=(DISPLAY_MANAGER_INIT,),
+            summary="install the openrc display manager script",
+        ),
+        WriteGroupFile(
+            group=name,
+            file=GroupFile(path=DISPLAY_MANAGER_CONF, content=f'DISPLAYMANAGER="{name}"\n'),
+        ),
+        EnableService(stage=Stage.PACKAGES, service="display-manager", init=init),
+    ]
 
 
 def required_licenses(config: InstallConfig, catalog: Catalog) -> tuple[str, ...]:

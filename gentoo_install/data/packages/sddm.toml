@@ -1,6 +1,5 @@
 # Plasma's display manager. `plasma-meta[sddm]` is what pulls it in, so the
 # flag goes with the choice rather than sitting in the desktop profile.
 packages = ["x11-misc/sddm"]
-services = ["sddm.service"]
 use = ["sddm"]
 display_manager = "sddm"

@@ -43,9 +43,9 @@
   set the root password
   install sshd: emerge net-misc/openssh
   ssh password login: off, root: on
-  enable sshd.service at boot
+  enable sshd at boot
   configure the wired interface for DHCP
-  enable systemd-networkd.service at boot
+  enable systemd-networkd at boot
 
 [kernel]
   set sys-kernel/installkernel to dracut

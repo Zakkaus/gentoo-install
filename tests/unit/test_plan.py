@@ -292,3 +292,26 @@ def test_a_wayland_desktop_leaves_the_module_variables_unset() -> None:
     assert "XMODIFIERS=@im=fcitx" in written
     assert "GTK_IM_MODULE" not in written and "QT_IM_MODULE=" not in written
     assert "QT_IM_MODULES=" in written
+
+
+def test_a_display_manager_is_enabled_the_way_each_init_does_it() -> None:
+    """openrc runs every one through a single `display-manager` script that
+    reads the name from conf.d; `rc-update add sddm` would fail with the disks
+    already written."""
+    catalog = load_catalog()
+    wanted = replace(config(), packages=PackagesConfig(display_manager="sddm"))
+    systemd = [one.describe() for one in plan_packages.build(wanted, catalog)]
+    assert "enable sddm at boot" in systemd
+    assert not any("display-manager" in line for line in systemd)
+
+    openrc = replace(wanted, system=replace(wanted.system, init=InitSystem.OPENRC))
+    described = [one.describe() for one in plan_packages.build(openrc, catalog)]
+    assert "enable display-manager at boot" in described
+    assert any("gui-libs/display-manager-init" in line for line in described)
+
+
+def test_no_group_names_a_systemd_unit_file() -> None:
+    """openrc has no `.service`, and the suffix reaches `rc-update` unchanged."""
+    for group in load_catalog().values():
+        for service in group.services:
+            assert not service.endswith(".service"), (group.name, service)

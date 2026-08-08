@@ -1,2 +1,2 @@
 packages = ["net-firewall/nftables"]
-services = ["nftables.service"]
+services = ["nftables"]

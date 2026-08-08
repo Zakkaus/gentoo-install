@@ -54,7 +54,7 @@
   install sudo: emerge app-admin/sudo
   let the wheel group run sudo, with a password
   configure the wired interface for DHCP
-  enable systemd-networkd.service at boot
+  enable systemd-networkd at boot
 
 [kernel]
   set sys-kernel/installkernel to dracut

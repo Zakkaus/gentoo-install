@@ -513,6 +513,9 @@ class SetHardwareClock(Operation):
 
 @dataclass(frozen=True, kw_only=True)
 class EnableService(Operation):
+    """The service by name, without a suffix: openrc has no `.service`, and a
+    unit name handed to `rc-update` fails with the disks already written."""
+
     stage: Stage = Stage.SYSTEM
     service: str
     init: InitSystem
@@ -523,7 +526,7 @@ class EnableService(Operation):
 
     def apply(self, context: Context) -> None:
         if self.init is InitSystem.SYSTEMD:
-            context.run_in_target(["systemctl", "enable", self.service])
+            context.run_in_target(["systemctl", "enable", f"{self.service}.service"])
         else:
             context.run_in_target(["rc-update", "add", self.service, self.runlevel])
 
@@ -731,13 +734,15 @@ def key_accounts(system: SystemConfig) -> tuple[tuple[str, str], ...]:
 
 
 def _sshd_service(init: InitSystem) -> str:
-    return "sshd.service" if init is InitSystem.SYSTEMD else "sshd"
+    return "sshd"
 
 
 def _network_service(system: SystemConfig) -> str:
+    """The name both inits use where there is one; the built-in manager is a
+    different program on each, so only that case differs."""
     if system.networking in (Networking.NETWORKMANAGER_WPA, Networking.NETWORKMANAGER_IWD):
-        return "NetworkManager.service" if system.init is InitSystem.SYSTEMD else "NetworkManager"
-    return "systemd-networkd.service" if system.init is InitSystem.SYSTEMD else "dhcpcd"
+        return "NetworkManager"
+    return "systemd-networkd" if system.init is InitSystem.SYSTEMD else "dhcpcd"
 
 
 def _network_packages(system: SystemConfig) -> tuple[str, ...]:

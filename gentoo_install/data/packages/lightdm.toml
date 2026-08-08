@@ -1,3 +1,2 @@
 packages = ["x11-misc/lightdm", "x11-misc/lightdm-gtk-greeter"]
-services = ["lightdm.service"]
 display_manager = "lightdm"
