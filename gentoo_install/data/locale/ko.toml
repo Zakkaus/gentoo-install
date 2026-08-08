@@ -37,6 +37,7 @@
 "still needs an answer" = "설정되지 않음"
 "Bootloader" = "부트로더"
 "Confirm erasing the drive" = "디스크 지우기 확인"
+"nothing is erased" = "디스크를 지우지 않음"
 "Desktop" = "데스크톱"
 "Drive" = "디스크"
 "Encryption" = "암호화"

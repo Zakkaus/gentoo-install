@@ -37,6 +37,7 @@
 "still needs an answer" = "未設定"
 "Bootloader" = "ブートローダー"
 "Confirm erasing the drive" = "ディスク消去の確認"
+"nothing is erased" = "ディスクを消去しない"
 "Desktop" = "デスクトップ"
 "Drive" = "ディスク"
 "Encryption" = "暗号化"

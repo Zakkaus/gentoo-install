@@ -411,3 +411,27 @@ def test_switching_the_disk_moves_a_hand_written_table_with_it() -> None:
     # The kept rows named partitions of the disk that is no longer the target.
     assert at.layout.reused == []
     assert answer.outcome is Outcome.CHOSE
+
+
+def test_a_reuse_layout_is_not_asked_to_confirm_an_erase_it_will_not_do() -> None:
+    """`build_reused` produces only `Existing(wipe=False)`, so demanding the
+    disk name blocked an install that writes no partition table at all."""
+    from pathlib import PurePosixPath
+
+    from gentoo_install.model.device import Existing
+    from gentoo_install.tui import settings
+
+    from .layouts import i
+
+    at = context()
+    kept = [
+        Existing(id=i("kept1"), selector="/dev/disk/by-id/virtio-target0-part1", wipe=False),
+        Filesystem(id=i("keptfs"), device=i("kept1"), kind=FilesystemType.EXT4, create=False),
+        Mountpoint(id=i("mnt-root"), source=i("keptfs"), path=PurePosixPath("/")),
+    ]
+    reused = config(kept)
+    assert settings.unanswered(reused, at).count("Confirm erasing the drive") == 0
+
+    # A layout that does erase still has to be confirmed.
+    at.erase_confirmed = False
+    assert "Confirm erasing the drive" in settings.unanswered(config(), at)

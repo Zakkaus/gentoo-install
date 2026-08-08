@@ -304,6 +304,14 @@ def _extra(config: InstallConfig, context: Context) -> str:
 
 
 def _erase(config: InstallConfig, context: Context) -> str:
+    """Answered already when the layout writes no partition table.
+
+    A reuse layout produces only `Existing(wipe=False)` nodes, so demanding the
+    disk name for an erase that will not happen blocked an install that erases
+    nothing.
+    """
+    if not any(node.wipe for node in config.disk.graph.of_type(Existing)):
+        return context.translate("nothing is erased")
     return "confirmed" if context.erase_confirmed else UNSET
 
 

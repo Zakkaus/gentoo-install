@@ -37,6 +37,7 @@
 "still needs an answer" = "尚未設定"
 "Bootloader" = "開機載入器"
 "Confirm erasing the drive" = "確認清除磁碟"
+"nothing is erased" = "不抹除磁碟"
 "Desktop" = "桌面"
 "Drive" = "磁碟"
 "Encryption" = "加密"
