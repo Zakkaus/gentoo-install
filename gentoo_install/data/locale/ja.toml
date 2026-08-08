@@ -12,6 +12,7 @@
 "Type the disk name to confirm." = "確認のためディスク名を入力してください。"
 "That is not the name of this disk." = "このディスクの名前ではありません。"
 "Encrypt the root filesystem?" = "ルートファイルシステムを暗号化しますか？"
+"A hand-written table is encrypted per partition." = "手書きのパーティション表はパーティション単位で暗号化する。"
 "Encrypt this partition?" = "このパーティションを暗号化しますか？"
 "Encrypt the pool?" = "この pool を暗号化しますか？"
 "Passphrase" = "パスフレーズ"

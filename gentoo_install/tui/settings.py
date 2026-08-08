@@ -249,7 +249,13 @@ def _partitions(config: InstallConfig, context: Context) -> str:
 
 
 def _encryption(config: InstallConfig, context: Context) -> str:
-    return "on" if context.choice.passphrase_file else "off"
+    """Read from the graph and not from `context.choice`: a hand-written table
+    is built from `context.layout`, so the choice said `on` over a layout that
+    carried no container and the machine came up unencrypted."""
+    graph = config.disk.graph
+    if graph.of_type(Luks) or any(pool.passphrase_file for pool in graph.of_type(ZfsPool)):
+        return "on"
+    return "off"
 
 
 def _root(config: InstallConfig, context: Context) -> str:

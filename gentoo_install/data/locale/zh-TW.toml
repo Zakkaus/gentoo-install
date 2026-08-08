@@ -12,6 +12,7 @@
 "Type the disk name to confirm." = "輸入磁碟名稱以確認。"
 "That is not the name of this disk." = "這不是這顆磁碟的名稱。"
 "Encrypt the root filesystem?" = "要加密根檔案系統嗎？"
+"A hand-written table is encrypted per partition." = "手寫的分割表以分割區為單位加密。"
 "Encrypt this partition?" = "要加密此分割區嗎？"
 "Encrypt the pool?" = "要加密此 pool 嗎？"
 "Passphrase" = "密碼"

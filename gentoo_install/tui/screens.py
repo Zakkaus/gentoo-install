@@ -1425,6 +1425,12 @@ def timezone_screen(screen: Screen, config: InstallConfig, context: Context) -> 
 def encryption_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
     """Whether the root filesystem is encrypted, and the passphrase if it is."""
     translate = context.translate
+    if context.manual:
+        # `_rebuild` builds from `context.layout` here and reads none of
+        # `context.choice`, so staging a passphrase left the row reading `on`
+        # over a graph with no container in it at all.
+        _say(screen, context, translate("A hand-written table is encrypted per partition."))
+        return Answer(Outcome.BACK)
     wanted = Confirm(
         **answers(translate),
         title=translate("Encrypt the root filesystem?"), footer=footer(translate)

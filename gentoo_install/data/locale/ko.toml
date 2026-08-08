@@ -12,6 +12,7 @@
 "Type the disk name to confirm." = "확인하려면 디스크 이름을 입력하십시오."
 "That is not the name of this disk." = "이 디스크의 이름이 아닙니다."
 "Encrypt the root filesystem?" = "루트 파일 시스템을 암호화하시겠습니까?"
+"A hand-written table is encrypted per partition." = "직접 쓴 파티션 표는 파티션 단위로 암호화한다."
 "Encrypt this partition?" = "이 파티션을 암호화하시겠습니까?"
 "Encrypt the pool?" = "이 pool을 암호화하시겠습니까?"
 "Passphrase" = "암호"

@@ -39,7 +39,7 @@ from gentoo_install.tui import screens
 from gentoo_install.tui.widgets import Outcome
 
 from .fake_screen import FakeScreen
-from .layouts import config
+from .layouts import config, ext4_on_gpt, i
 from .test_tui_app import context
 
 
@@ -421,8 +421,6 @@ def test_a_reuse_layout_is_not_asked_to_confirm_an_erase_it_will_not_do() -> Non
     from gentoo_install.model.device import Existing
     from gentoo_install.tui import settings
 
-    from .layouts import i
-
     at = context()
     kept = [
         Existing(id=i("kept1"), selector="/dev/disk/by-id/virtio-target0-part1", wipe=False),
@@ -435,3 +433,30 @@ def test_a_reuse_layout_is_not_asked_to_confirm_an_erase_it_will_not_do() -> Non
     # A layout that does erase still has to be confirmed.
     at.erase_confirmed = False
     assert "Confirm erasing the drive" in settings.unanswered(config(), at)
+
+
+def test_the_encryption_row_reads_the_graph_and_not_the_answer_given_to_it() -> None:
+    """`_rebuild` builds a hand-written table from `context.layout` and reads
+    none of `context.choice`, so the row said `on` over a graph with no
+    container in it and the machine came up unencrypted."""
+    from gentoo_install.tui import settings
+
+    at = context()
+    at.manual = True
+    at.layout.disk = at.choice.disk
+    row = next(one for one in settings.DISK if one.key == "encryption")
+
+    # The screen refuses rather than staging a passphrase nothing will use.
+    screen = FakeScreen(keys=["\n"], lines=24, columns=100)
+    answer = screens.encryption_screen(screen, config(), at)
+    assert answer.outcome is Outcome.BACK
+    assert not at.choice.passphrase_file
+    assert row.value(config(), at) == "off"
+
+    # A graph that does carry a container reads on, whatever the choice holds.
+    nodes = [node for node in ext4_on_gpt() if node.id != i("rootfs")]
+    nodes += [
+        Luks(id=i("crypt"), backing=i("rootpart"), name="root", passphrase_file="/run/keys/x"),
+        Filesystem(id=i("rootfs"), device=i("crypt"), kind=FilesystemType.EXT4),
+    ]
+    assert row.value(config(nodes), at) == "on"
