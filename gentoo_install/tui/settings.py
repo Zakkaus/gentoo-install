@@ -37,6 +37,10 @@ class Setting:
     edit: Step | None
     #: A run cannot start until every required row has an answer.
     required: bool = False
+    #: The rows behind this one when it opens a group. Held here so which rows
+    #: are groups is one fact: `unanswered` walked its own list of three and
+    #: missed the fourth, which would have reported `Kernel` for a row inside.
+    rows: tuple[Setting, ...] = ()
 
 
 def style_of(setting: Setting, config: InstallConfig, context: Context) -> Style:
@@ -354,16 +358,16 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("locale", "System language", lambda c, x: c.system.locale, screens.locale_screen),
     Setting("timezone", "Timezone", lambda c, x: c.system.timezone, screens.timezone_screen),
     Setting("mirror", "Mirrors", _mirror, screens.mirror_screen, required=True),
-    Setting("storage", "Disk", _summary(DISK), nested("Disk", DISK), required=True),
+    Setting("storage", "Disk", _summary(DISK), nested("Disk", DISK), required=True, rows=DISK),
     Setting("hostname", "Hostname", lambda c, x: c.system.hostname, screens.system_screen),
     Setting("init", "Init system", lambda c, x: c.system.init.value, screens.init_screen),
     Setting("logger", "System logger", _logger, screens.logger_screen),
     Setting("cron", "Cron", _cron, screens.cron_screen),
     Setting("profile", "Profile", lambda c, x: c.portage.profile, screens._profile_screen),
-    Setting("compiler", "Compiler", _summary(COMPILER), nested("Compiler", COMPILER)),
+    Setting("compiler", "Compiler", _summary(COMPILER), nested("Compiler", COMPILER), rows=COMPILER),
     Setting("root", "Root password", _root, screens.root_password_screen, required=True),
     Setting("user", "User account", _user, screens.user_screen),
-    Setting("kernel", "Kernel", _summary(KERNEL), nested("Kernel", KERNEL)),
+    Setting("kernel", "Kernel", _summary(KERNEL), nested("Kernel", KERNEL), rows=KERNEL),
     Setting("bootloader", "Bootloader", _bootloader, screens.bootloader_screen),
     Setting("desktop", "Desktop", lambda c, x: c.packages.desktop or "none", screens.desktop_screen),
     Setting("graphics", "Graphics", _graphics, screens.graphics_screen),
@@ -372,7 +376,7 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("extra", "Extra packages", _extra, screens.extra_packages_screen),
     Setting("network", "Network configuration", _network, screens.networking_screen),
     Setting("address", "Address", _address, screens.address_screen),
-    Setting("ssh", "SSH", _summary(SSH), nested("SSH", SSH)),
+    Setting("ssh", "SSH", _summary(SSH), nested("SSH", SSH), rows=SSH),
     Setting("erase", "Confirm erasing the drive", _erase, screens.erase_screen, required=True),
 )
 
@@ -383,10 +387,9 @@ def unanswered(config: InstallConfig, context: Context) -> tuple[str, ...]:
     A grouped row is named by whichever row behind it is missing: `Disk` says
     nothing about which of its six the operator has not reached.
     """
-    grouped = {"storage", "compiler", "ssh"}
-    rows = [one for one in SETTINGS if one.key not in grouped]
+    walked = [one for group in SETTINGS for one in (group.rows or (group,))]
     return tuple(
         setting.label
-        for setting in (*rows, *DISK, *COMPILER, *SSH)
+        for setting in walked
         if setting.required and setting.value(config, context) == UNSET
     )

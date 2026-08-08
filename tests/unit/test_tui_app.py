@@ -1022,3 +1022,28 @@ def test_the_desktops_offered_are_the_ones_with_a_profile_file() -> None:
     # Every desktop the menu shows can be built: the profile comes from its file.
     for name, path in offered.items():
         assert path.startswith("default/linux/amd64/23.0"), name
+
+
+def test_a_required_row_inside_any_group_is_named_by_its_own_label() -> None:
+    """`unanswered` walked a hand-written list of three groups and there are
+    four, so a required row inside the fourth would have blocked the install
+    from a row whose own label says nothing about what is missing."""
+    from dataclasses import replace as _replace
+
+    groups = [one for one in settings.SETTINGS if one.rows]
+    assert len(groups) == 4
+    # Every group row's members are reachable, and no group row is walked itself.
+    at = context()
+    blank = replace(config(), system=replace(config().system, root_password_hash=""))
+    named = settings.unanswered(blank, at)
+    assert "Root password" in named
+    assert not {one.label for one in groups} & set(named)
+
+    for group in groups:
+        for row in group.rows:
+            required = _replace(row, required=True, value=lambda c, x: settings.UNSET)
+            walked = [
+                one for parent in settings.SETTINGS for one in (parent.rows or (parent,))
+            ]
+            assert row in walked, f"{group.label}/{row.label}"
+            assert required.label == row.label
