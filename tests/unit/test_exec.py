@@ -603,3 +603,23 @@ def test_a_loaded_module_needs_no_modprobe(
     monkeypatch.setattr(shutil_module, "which", lambda name: f"/usr/sbin/{name}")
     monkeypatch.setattr(probe_module.Probe, "ZFS_LOADED", (here,))
     assert probe_of(tmp_path).zfs_support() == ""
+
+
+def test_an_expired_key_is_not_read_as_a_fingerprint() -> None:
+    """`EXPKEYSIG` ends in the username, per gpg's DETAILS, so taking its last
+    field pins the installer against `<releng@gentoo.org>` and reports a good
+    signature as signed by the wrong key. gpg emits VALIDSIG beside it."""
+    from gentoo_install.exec.fetch import _signing_key
+
+    status = (
+        "[GNUPG:] EXPKEYSIG 534E4209AB49EEE1 Gentoo Linux Release Engineering "
+        "(Automated Weekly Release Key) <releng@gentoo.org>\n"
+        "[GNUPG:] VALIDSIG 534E4209AB49EEE1 2026-08-08 1 4 0 1 8 00 PRIMARYFPR\n"
+    )
+    assert _signing_key(status) == "PRIMARYFPR"
+
+
+def test_a_status_with_no_valid_signature_names_no_key() -> None:
+    from gentoo_install.exec.fetch import _signing_key
+
+    assert _signing_key("[GNUPG:] BADSIG 534E4209 Gentoo <releng@gentoo.org>\n") is None

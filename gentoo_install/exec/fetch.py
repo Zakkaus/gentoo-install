@@ -360,8 +360,9 @@ def _verify_signature(digests: Path, fingerprint: str, runner: Runner) -> None:
 
     A substring test over everything gpg wrote would also match the hex in a
     file name the mirror chose, and the archive name comes from the mirror.
-    `EXPKEYSIG` is accepted because Gentoo's release key expires and is
-    extended; a revoked or bad signature is not.
+    An expired key is refused with everything else gpg refuses: it exits
+    non-zero for one, and a pin that no longer verifies is not a thing to work
+    around silently.
     """
     result = runner.run(["gpg", "--status-fd", "1", "--verify", str(digests)], check=False)
     signed = _signing_key(result.stdout)
@@ -376,13 +377,16 @@ def _verify_signature(digests: Path, fingerprint: str, runner: Runner) -> None:
 def _signing_key(status: str) -> str | None:
     """The primary key's fingerprint, which is what a pin names.
 
-    `VALIDSIG` reports the subkey that made the signature in its second field
-    and the primary key in its last. Gentoo signs with a subkey, so comparing
-    the second field rejects a signature that is perfectly good.
+    `VALIDSIG` only. Its last field is the primary key and its second the
+    subkey that signed; Gentoo signs with a subkey, so comparing the second
+    rejects a signature that is perfectly good. `EXPKEYSIG` ends in the
+    *username*, per gpg's own DETAILS, so reading a fingerprint out of it
+    yields `<releng@gentoo.org>` and accuses a good signature of being wrong.
+    gpg emits both lines for one signature, so nothing is lost by ignoring it.
     """
     for line in status.splitlines():
         fields = line.split()
-        if len(fields) >= 3 and fields[0] == "[GNUPG:]" and fields[1] in ("VALIDSIG", "EXPKEYSIG"):
+        if len(fields) >= 3 and fields[0] == "[GNUPG:]" and fields[1] == "VALIDSIG":
             return fields[-1]
     return None
 
