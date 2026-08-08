@@ -136,9 +136,6 @@
 "this CPU cannot run it" = "CPU が非対応"
 
 # Kernel
-"prebuilt, minutes" = "ビルド済み、数分"
-"built here, hours" = "ここでビルド、数時間"
-"cjktty for CJK on the console, from gentoo-zh" = "cjktty 入り、コンソールで CJK 表示、gentoo-zh から"
 "Package keywords" = "パッケージのキーワード"
 
 # Mirrors and compiler
@@ -233,3 +230,6 @@
 "Gentoo tree from" = "Gentoo ツリーの取得元"
 "a snapshot from GENTOO_MIRRORS" = "GENTOO_MIRRORS 上のスナップショット"
 "what emerge --sync has always done" = "emerge --sync が従来行ってきた方法"
+"prebuilt" = "ビルド済み"
+"built here" = "ここでビルド"
+"built here, cjktty for CJK on the console, from gentoo-zh" = "ここでビルド、cjktty 入り、コンソールで CJK 表示、gentoo-zh から"

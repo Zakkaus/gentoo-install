@@ -740,9 +740,9 @@ def bootloader_screen(
 #: the package builds and installs itself, so none of them is a source tree the
 #: installer would have to configure.
 KERNELS: tuple[tuple[KernelSource, str], ...] = (
-    (KernelSource.DIST_BIN, "prebuilt, minutes"),
-    (KernelSource.DIST_SOURCE, "built here, hours"),
-    (KernelSource.CJK, "cjktty for CJK on the console, from gentoo-zh"),
+    (KernelSource.DIST_BIN, "prebuilt"),
+    (KernelSource.DIST_SOURCE, "built here"),
+    (KernelSource.CJK, "built here, cjktty for CJK on the console, from gentoo-zh"),
 )
 
 

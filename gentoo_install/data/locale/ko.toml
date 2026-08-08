@@ -136,9 +136,6 @@
 "this CPU cannot run it" = "CPU 미지원"
 
 # Kernel
-"prebuilt, minutes" = "미리 빌드됨, 몇 분"
-"built here, hours" = "여기서 빌드, 몇 시간"
-"cjktty for CJK on the console, from gentoo-zh" = "cjktty 포함, 콘솔에서 CJK 표시, gentoo-zh 제공"
 "Package keywords" = "패키지 키워드"
 
 # Mirrors and compiler
@@ -233,3 +230,6 @@
 "Gentoo tree from" = "Gentoo 트리 출처"
 "a snapshot from GENTOO_MIRRORS" = "GENTOO_MIRRORS 의 스냅샷"
 "what emerge --sync has always done" = "emerge --sync 가 해 온 방식"
+"prebuilt" = "미리 빌드됨"
+"built here" = "여기서 빌드"
+"built here, cjktty for CJK on the console, from gentoo-zh" = "여기서 빌드, cjktty 포함, 콘솔에서 CJK 표시, gentoo-zh 제공"
