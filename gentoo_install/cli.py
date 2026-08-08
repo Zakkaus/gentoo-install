@@ -7,9 +7,10 @@ data could not be trusted, 4 says an operation did not finish.
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 from pathlib import Path
-from typing import Sequence
+from typing import Iterable, Sequence
 
 from . import errors
 from .data import load_catalog
@@ -51,6 +52,12 @@ def parser() -> argparse.ArgumentParser:
     )
     parsed.add_argument("--work", type=Path, default=WORK, help="where to keep the run's state")
     parsed.add_argument(
+        "--missing-commands",
+        action="store_true",
+        help="list the commands this layout needs and this machine lacks, one per line, "
+        "which is what bootstrap.sh turns into a package list",
+    )
+    parsed.add_argument(
         "--skip-preflight",
         action="store_true",
         help="install without checking the machine first, for a harness that knows what it booted",
@@ -62,9 +69,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = parser().parse_args(argv)
     try:
         if arguments.config is None:
+            if arguments.missing_commands:
+                # Nothing to derive a layout from, so answer for the commands
+                # every install needs whatever it is about to do.
+                print("\n".join(sorted(_absent(preflight.ALWAYS))))
+                return EXIT_OK
             print("the menu is not written yet; pass --config FILE", file=sys.stderr)
             return EXIT_CONFIG
         config = load(arguments.config)
+        if arguments.missing_commands:
+            print("\n".join(sorted(_absent(preflight.required_commands(config)))))
+            return EXIT_OK
         operations = build(config, load_catalog(), mirror=arguments.mirror)
         if arguments.dry_run:
             print(render(operations), end="")
@@ -129,3 +144,7 @@ def install(config: InstallConfig, operations: tuple[Operation, ...], arguments:
             f"{counted.get('compiled', 0)} compiled"
         )
     return EXIT_OK
+
+
+def _absent(wanted: Iterable[str]) -> set[str]:
+    return {command for command in wanted if shutil.which(command) is None}
