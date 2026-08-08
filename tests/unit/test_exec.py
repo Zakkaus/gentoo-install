@@ -463,3 +463,40 @@ def test_a_disk_is_named_by_id_without_shelling_out_to_find(
 
     monkeypatch.setattr(Probe, "BY_ID", tmp_path / "absent")
     assert probe._stable_name("/dev/sda") == "/dev/sda"
+
+
+def test_a_table_bigger_than_its_disk_is_refused_before_the_old_one_is_erased(
+    tmp_path: Path,
+) -> None:
+    """`sgdisk --new` fails only after `wipefs --all` and `sgdisk --zap-all`
+    have run, so the check has to be a preflight one: by then the table that
+    was on the disk is gone and there is nothing to go back to."""
+    from gentoo_install.model.device import Partition, PartitionRole
+    from gentoo_install.model.size import Size
+
+    nodes: list[Node] = [
+        replace(node, size=Size.parse("40GiB"))
+        if isinstance(node, Partition) and node.role is PartitionRole.DATA
+        else node
+        for node in present().disk.graph.nodes.values()
+    ]
+    oversized = config([replace(node, selector="/dev/null") if isinstance(node, Existing) else node
+                        for node in nodes])
+
+    class Sized(Probe):
+        def resolve(self, device: DeviceId, selector: str) -> str:
+            return selector
+
+        def disk_bytes(self, disk: str) -> int:
+            return 20 * 1024**3
+
+    report = preflight.inspect(oversized, described(), Sized(runner=runner(tmp_path), work=tmp_path))
+    assert any("does not fit" in reason for reason in report.fatal)
+
+    # The same table on a disk that holds it raises nothing.
+    class Roomy(Sized):
+        def disk_bytes(self, disk: str) -> int:
+            return 200 * 1024**3
+
+    roomy = preflight.inspect(oversized, described(), Roomy(runner=runner(tmp_path), work=tmp_path))
+    assert not any("does not fit" in reason for reason in roomy.fatal)

@@ -322,6 +322,21 @@ class Probe:
         )
         return listed.stdout.strip() if listed.returncode == 0 else ""
 
+    def disk_bytes(self, disk: str) -> int:
+        """Capacity in bytes, or 0 when the device cannot be read.
+
+        `disk_size` answers `128G`, which is rounded and cannot be compared
+        against a partition table whose sizes are exact.
+        """
+        listed = self.runner.run(
+            ["lsblk", "--bytes", "--noheadings", "--nodeps", "--output", "SIZE", disk],
+            check=False,
+        )
+        if listed.returncode != 0:
+            return 0
+        text = listed.stdout.strip().splitlines()
+        return int(text[0]) if text and text[0].strip().isdigit() else 0
+
     def _zone_table(self, path: Path) -> tuple[str, ...]:
         try:
             text = path.read_text(encoding="utf-8")

@@ -19,11 +19,13 @@ from ..model.device import (
     FilesystemType,
     Luks,
     MdRaid,
+    Partition,
     PartitionTable,
     TableType,
     VolumeGroup,
     ZfsPool,
 )
+from ..model.size import DEFAULT_ALIGNMENT, SectorSize, Size
 from ..plan.disk import MKFS
 from .probe import RELEASE_KEY, Machine, Probe
 
@@ -160,6 +162,46 @@ def _passphrase_problems(config: InstallConfig) -> list[str]:
     return problems
 
 
+def _capacity_problems(config: InstallConfig, probe: Probe) -> list[str]:
+    """Whether each table's fixed partitions fit the disk they are on.
+
+    Checked before anything runs, because `sgdisk --new` refuses the partition
+    that does not fit only after `wipefs --all` and `sgdisk --zap-all` have
+    already destroyed the table that was there. 512-byte sectors: the GPT tail
+    is 33 of them, so assuming the smaller sector reserves the smaller tail and
+    the check stays on the permissive side of a 4Kn disk.
+    """
+    graph = config.disk.graph
+    problems: list[str] = []
+    for table in graph.of_type(PartitionTable):
+        disk = graph[table.disk]
+        if not isinstance(disk, Existing):
+            continue
+        try:
+            capacity = probe.disk_bytes(probe.resolve(disk.id, disk.selector))
+        except DeviceNotFound:
+            # Already reported by the loop that resolves every wiped disk.
+            continue
+        if not capacity:
+            continue
+        claimed = sum(
+            one.size.bytes
+            for one in graph.of_type(Partition)
+            if one.table == table.id and one.size is not None
+        )
+        usable = Size(capacity)
+        if table.table is TableType.GPT:
+            usable = usable.gpt_last_usable(SectorSize(512))
+        # The first partition starts at the alignment boundary, not at zero.
+        usable = Size(max(0, usable.bytes - DEFAULT_ALIGNMENT))
+        if claimed > usable.bytes:
+            problems.append(
+                f"{disk.selector} holds {Size(capacity)} and {table.id} claims "
+                f"{Size(claimed)} in fixed sizes, which does not fit"
+            )
+    return problems
+
+
 def check(config: InstallConfig, probe: Probe, target: str = "/mnt/gentoo") -> Report:
     wanted = required_commands(config)
     machine = probe.machine(wanted, judged=GNU_ONLY)
@@ -201,6 +243,7 @@ def inspect(
             fatal.append(f"{path} is mounted; the installer will not repartition a disk in use")
 
     fatal += _passphrase_problems(config)
+    fatal += _capacity_problems(config, probe)
 
     if not machine.release_key:
         # Not fatal: every medium that is not Gentoo's ships no key file, and
