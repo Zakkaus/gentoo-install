@@ -603,6 +603,14 @@ def test_ibus_gets_its_own_environment_and_no_fcitx_profile() -> None:
     assert not any("fcitx5/profile" in name for name in written)
 
 
+def test_the_framework_group_itself_declares_its_framework() -> None:
+    """`fcitx5` carries the toolkit modules and no engine, so a table that
+    counted only engine groups saw one framework and let both be installed:
+    two sets of Gtk and Qt modules, and XMODIFIERS pointing at the loser."""
+    wanted = replace(config(), packages=PackagesConfig(applications=("fcitx5", "ibus")))
+    assert "pick one" in plan_packages.framework_conflict(wanted, load_catalog())
+
+
 def test_every_engine_group_says_which_framework_it_belongs_to() -> None:
     """A group with an engine and no framework would be classified as fcitx by
     default, which is right today and silent when it stops being."""

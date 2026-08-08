@@ -1,9 +1,13 @@
 # The fcitx5 framework and the toolkit modules. `app-i18n/fcitx-gtk` and
 # `app-i18n/fcitx-qt` are separate packages: without them a Gtk or Qt
 # application has no way to reach fcitx at all.
+#
+# It declares the framework without providing an engine, so choosing it beside
+# ibus is refused; the engines are the rime, anthy, hangul and mozc groups.
 packages = [
     "app-i18n/fcitx",
     "app-i18n/fcitx-gtk",
     "app-i18n/fcitx-qt",
     "app-i18n/fcitx-configtool",
 ]
+input_framework = "fcitx"

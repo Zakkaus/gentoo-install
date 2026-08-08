@@ -3,7 +3,7 @@
 # from its own settings rather than from a launcher.
 #
 # It cannot be installed beside fcitx: both provide the Gtk and Qt modules and
-# both claim `XMODIFIERS`, so `model/compat.py` refuses the pair. `libpinyin`
+# both claim `XMODIFIERS`, so `packages.framework_conflict()` refuses the pair. `libpinyin`
 # is the Chinese engine, which is what makes it worth offering here at all.
 packages = [
     "app-i18n/ibus",
