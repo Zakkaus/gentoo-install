@@ -9,6 +9,7 @@ validator never disagree about why something cannot be chosen.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from enum import Enum
 from itertools import takewhile
 from typing import Callable, Final, Sequence, TypeVar
 
@@ -162,11 +163,25 @@ class Context:
         #: Whether `ld.so` says this CPU runs x86-64-v3 binaries.
         self.supports_v3 = supports_v3
         self._inspect = inspect_disk
+        self._inspected: dict[str, tuple[tuple[tuple[str, str, str], ...], str]] = {}
         if self.choice.disk:
             self.inspect_disk(self.choice.disk)
 
     def inspect_disk(self, disk: str) -> None:
-        self.existing, self.disk_size = self._inspect(disk)
+        self.existing, self.disk_size = self.contents(disk)
+
+    def contents(self, disk: str) -> tuple[tuple[tuple[str, str, str], ...], str]:
+        """What that disk holds and how big it is, asked once per disk.
+
+        Cached because the partition screen redraws after every edit and a
+        manual table may span several disks; `lsblk` per disk per keystroke is
+        a visible pause on a machine with a dozen of them.
+        """
+        known = self._inspected.get(disk)
+        if known is None:
+            known = self._inspect(disk)
+            self._inspected[disk] = known
+        return known
 
 
 def answers(translate: Catalog) -> dict[str, str]:
@@ -214,9 +229,8 @@ def disk_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     # `_rebuild` reads the layout rather than the choice when the table was
     # hand-written, so leaving this behind partitioned the disk the operator
     # switched away from. The kept rows name partitions of that disk and go too.
-    context.layout.disk = picked
     # The rows name partitions of the disk that is no longer the target.
-    context.layout.slices = []
+    context.layout = manual.Layout()
     # Cleared with the disk: the operator typed the name of the one they were
     # looking at, and carrying that confirmation to another unblocks the
     # install for a disk nobody agreed to erase.
@@ -470,6 +484,8 @@ _ZH_BINHOST: Final[str] = "zh-binhost"
 _ZH_SITE: Final[str] = "zh-site"
 _ZH_DISTFILES: Final[str] = "zh-distfiles"
 _DONE: Final[str] = "done"
+_TABLE: Final[str] = "table"
+_DROP: Final[str] = "drop"
 
 #: How the tree is kept up to date, and what each costs.
 SYNC_METHODS: tuple[tuple[Sync, str], ...] = (
@@ -1754,77 +1770,195 @@ def networking_screen(
     )
 
 
+class _RowKind(Enum):
+    """What one line of the partition screen stands for."""
+
+    DISK = "disk"
+    SLICE = "slice"
+    ADD_PARTITION = "add-partition"
+    ADD_DISK = "add-disk"
+    TOPOLOGY = "topology"
+    DONE = "done"
+
+
+@dataclass(frozen=True)
+class _Row:
+    """A line of the partition screen, and what it points at.
+
+    `disk` is a position in `Layout.disks` and `entry` a position in that
+    disk's rows; both are -1 on a line that points at neither.
+    """
+
+    kind: _RowKind
+    disk: int = -1
+    entry: int = -1
+
+
 def partitions_screen(
     screen: Screen, config: InstallConfig, context: Context
 ) -> Answer[InstallConfig]:
-    """The partition table, edited row by row.
+    """Every disk being partitioned, and under each one its table, row by row.
 
     Every change rebuilds the graph and runs the validator, so a table that
     cannot be installed says why here rather than at the first `mkfs`.
     """
     translate = context.translate
-    if context.layout.disk != context.choice.disk or not context.layout.slices:
+    if not context.layout.holds(context.choice.disk) or not context.layout.slices:
         # Seeded from what is on the disk when there is anything, and from the
         # template that was chosen when there is not: opening this row after
         # picking zfs used to show an ext4 root and discard the choice.
         context.layout = _seed(context)
+    cursor = 0
     while True:
-        rows = sorted(context.layout.slices, key=lambda one: one.index)
-        items: list[Item[int]] = [
-            Item(label=entry.describe(), value=index) for index, entry in enumerate(rows)
-        ]
-        members = [one for one in rows if one.role is PartitionRole.ZFS]
-        if len(members) > 1:
-            # Only with more than one member: a pool of one has nothing to
-            # mirror, and `validate` refuses several joined as a stripe.
-            items.append(
-                Item(
-                    label=translate("Pool topology"),
-                    value=len(rows) + 2,
-                    detail=context.layout.topology.value,
-                )
-            )
-        items.append(Item(label=translate("Add a partition"), value=len(rows)))
-        items.append(Item(label=translate("Done"), value=len(rows) + 1))
-        menu: Menu[int] = Menu(
-            # The title says what the screen does, not just what it is about:
-            # a table of the disk's current contents beside a table being
-            # written reads as one list with no explanation.
-            title=(
-                f"{translate('Partitions')}  {_capacity(context)}"
-                if not context.layout.writes_the_table()
-                else f"{translate('A new partition table')}  {_capacity(context)}"
-            ),
+        items = _partition_rows(context)
+        menu: Menu[_Row] = Menu(
+            title=_partitions_title(context),
             items=items,
+            cursor=cursor,
             footer=f"{_layout_problem(context, config)}  {footer(translate)}".strip(),
         )
         answer = menu.run(screen)
+        cursor = menu.cursor
         if not answer.chosen:
             return Answer(answer.outcome)
-        chosen = answer.unwrap()[0]
-        if chosen < 0:
-            continue
-        if chosen == len(rows) + 2:
-            picked = _pool_topology(screen, context, len(members))
-            if picked is not None:
-                context.layout.topology = picked
-            continue
-        if chosen == len(rows) + 1:
+        row = answer.unwrap()[0]
+        if row.kind is _RowKind.DONE:
             # Marked here rather than by whoever opened this screen: the row can
             # be reached from the menu as well as from the layout row, and a
             # flag set before the editor answers describes a table that may
             # never have been produced.
             context.manual = True
             return Answer(Outcome.CHOSE, _from_layout(config, context))
-        if chosen == len(rows):
-            added = _edit_slice(screen, context, None)
-            if added is not None:
-                context.layout.slices.append(added)
-            continue
-        edited = _edit_slice(screen, context, rows[chosen])
-        context.layout.slices.remove(rows[chosen])
-        if edited is not None:
-            context.layout.slices.append(edited)
+        _act_on(screen, context, row)
+
+
+def _partitions_title(context: Context) -> str:
+    translate = context.translate
+    if context.layout.writes_the_table():
+        return translate("A new partition table")
+    return translate("Partitions")
+
+
+def _partition_rows(context: Context) -> list[Item[_Row]]:
+    """One line per disk, its rows indented under it, then what can be added."""
+    translate = context.translate
+    items: list[Item[_Row]] = []
+    for position, disk in enumerate(context.layout.disks):
+        items.append(
+            Item(
+                label=disk.selector.rsplit("/", 1)[-1],
+                value=_Row(_RowKind.DISK, position),
+                detail=f"{disk.table.value}  {_capacity(context, disk)}",
+            )
+        )
+        for index, entry in enumerate(sorted(disk.slices, key=lambda one: one.index)):
+            # Two spaces rather than a box-drawing character: the console this
+            # runs on may have neither a CJK font nor a line-drawing set.
+            items.append(
+                Item(label=f"  {entry.describe()}", value=_Row(_RowKind.SLICE, position, index))
+            )
+        items.append(
+            Item(
+                label=f"  {translate('Add a partition')}",
+                value=_Row(_RowKind.ADD_PARTITION, position),
+            )
+        )
+    if _unused_disks(context):
+        items.append(Item(label=translate("Add a disk"), value=_Row(_RowKind.ADD_DISK)))
+    if len(_pool_members(context)) > 1:
+        # Only with more than one member: a pool of one has nothing to mirror,
+        # and `validate` refuses several joined as a stripe.
+        items.append(
+            Item(
+                label=translate("Pool topology"),
+                value=_Row(_RowKind.TOPOLOGY),
+                detail=context.layout.topology.value,
+            )
+        )
+    items.append(Item(label=translate("Done"), value=_Row(_RowKind.DONE)))
+    return items
+
+
+def _act_on(screen: Screen, context: Context, row: _Row) -> None:
+    """Everything the screen does but leave, so the loop above stays readable."""
+    if row.kind is _RowKind.TOPOLOGY:
+        picked = _pool_topology(screen, context, len(_pool_members(context)))
+        if picked is not None:
+            context.layout.topology = picked
+        return
+    if row.kind is _RowKind.ADD_DISK:
+        added = _pick_another_disk(screen, context)
+        if added is not None:
+            context.layout.disks.append(manual.Disk(selector=added))
+        return
+    disk = context.layout.disks[row.disk]
+    if row.kind is _RowKind.DISK:
+        _edit_disk(screen, context, row.disk)
+        return
+    if row.kind is _RowKind.ADD_PARTITION:
+        fresh = _edit_slice(screen, context, disk, None)
+        if fresh is not None:
+            disk.slices.append(fresh)
+        return
+    rows = sorted(disk.slices, key=lambda one: one.index)
+    edited = _edit_slice(screen, context, disk, rows[row.entry])
+    disk.slices.remove(rows[row.entry])
+    if edited is not None:
+        disk.slices.append(edited)
+
+
+def _pool_members(context: Context) -> list[manual.Slice]:
+    return [one for one in context.layout.slices if one.role is PartitionRole.ZFS]
+
+
+def _unused_disks(context: Context) -> list[tuple[str, str]]:
+    """Disks this machine has that the table does not already cover."""
+    return [one for one in context.disks if not context.layout.holds(one[0])]
+
+
+def _pick_another_disk(screen: Screen, context: Context) -> str | None:
+    translate = context.translate
+    answer = Menu(
+        title=translate("Add a disk"),
+        items=[
+            Item(label=name, value=name, detail=detail) for name, detail in _unused_disks(context)
+        ],
+        footer=footer(translate),
+    ).run(screen)
+    return answer.unwrap()[0] if answer.chosen else None
+
+
+def _edit_disk(screen: Screen, context: Context, position: int) -> None:
+    """What the disk itself carries: its table type, and whether it stays.
+
+    The first disk cannot be dropped here; it is the one the disk row chose,
+    and a table with no disk at all has nothing to install onto.
+    """
+    translate = context.translate
+    disk = context.layout.disks[position]
+    while True:
+        items: list[Item[str]] = [
+            Item(label=translate("Partition table"), value=_TABLE, detail=disk.table.value),
+            *(
+                [Item(label=translate("Take this disk off the table"), value=_DROP)]
+                if position > 0
+                else []
+            ),
+            Item(label=translate("Done"), value=_DONE),
+        ]
+        answer = Menu(title=disk.selector, items=items, footer=footer(translate)).run(screen)
+        if not answer.chosen or answer.unwrap()[0] == _DONE:
+            return
+        if answer.unwrap()[0] == _DROP:
+            context.layout.disks.pop(position)
+            return
+        picked = Menu(
+            title=translate("Partition table"),
+            items=[Item(label=one.value, value=one) for one in TableType],
+            footer=footer(translate),
+        ).run(screen)
+        if picked.chosen:
+            disk.table = picked.unwrap()[0]
 
 
 def _template_filesystem(choice: Choice) -> FilesystemType | None:
@@ -1833,13 +1967,13 @@ def _template_filesystem(choice: Choice) -> FilesystemType | None:
     return None if choice.layout is Layout.WHOLE_DISK_ZFS else choice.filesystem
 
 
-def _capacity(context: Context) -> str:
-    """The disk's size and what the table has already claimed, because a size
+def _capacity(context: Context, disk: manual.Disk) -> str:
+    """The disk's size and what its table has already claimed, because a size
     is guesswork without them."""
-    total = context.disk_size
+    total = context.contents(disk.selector)[1]
     if not total:
         return ""
-    fresh = [one for one in context.layout.slices if one.status is manual.SliceStatus.CREATE]
+    fresh = [one for one in disk.slices if one.status is manual.SliceStatus.CREATE]
     claimed = sum(entry.size.bytes for entry in fresh if entry.size is not None)
     rest = any(entry.size is None for entry in fresh)
     used = Size(claimed)
@@ -1858,10 +1992,14 @@ def _seed(context: Context) -> manual.Layout:
             context.choice.disk, context.choice.firmware, _template_filesystem(context.choice)
         )
     seeded = manual.Layout(
-        disk=context.choice.disk, table=context.choice.table or TableType.GPT
+        disks=[
+            manual.Disk(
+                selector=context.choice.disk, table=context.choice.table or TableType.GPT
+            )
+        ]
     )
     for index, (selector, _, kind) in enumerate(context.existing, start=1):
-        seeded.slices.append(
+        seeded.disks[0].slices.append(
             manual.Slice(
                 index=index,
                 role=PartitionRole.DATA,
@@ -1931,12 +2069,12 @@ _STATUS: Final[str] = "status"
 
 
 def _edit_slice(
-    screen: Screen, context: Context, current: manual.Slice | None
+    screen: Screen, context: Context, disk: manual.Disk, current: manual.Slice | None
 ) -> manual.Slice | None:
     """One partition as a list of fields, or None to delete it."""
     translate = context.translate
     entry = current or manual.Slice(
-        index=context.layout.next_index(),
+        index=disk.next_index(),
         role=PartitionRole.DATA,
         size=None,
         filesystem=FilesystemType.EXT4,

@@ -29,6 +29,7 @@ from gentoo_install.model.device import (
     Mountpoint,
     PartitionRole,
     Swap,
+    TableType,
     ZfsDataset,
     ZfsPool,
 )
@@ -41,6 +42,28 @@ from gentoo_install.tui.widgets import Outcome
 from .fake_screen import FakeScreen
 from .layouts import config, ext4_on_gpt, i
 from .test_tui_app import context
+
+
+def one_disk(
+    slices: list[manual.Slice],
+    disk: str = "/dev/vda",
+    table: TableType = TableType.GPT,
+    pool: str = "rpool",
+) -> manual.Layout:
+    """One disk carrying these rows, which is what most of these tests need."""
+    return manual.Layout(
+        disks=[manual.Disk(selector=disk, table=table, slices=list(slices))], pool=pool
+    )
+
+
+def to_row(at: screens.Context, label: str) -> list[str]:
+    """The keys that reach the partition-screen row with that label.
+
+    Counted rather than written out: the screen grew a line per disk, and every
+    test that had counted its own KEY_DOWNs then landed a row short.
+    """
+    labels = [item.label for item in screens._partition_rows(at)]
+    return ["KEY_DOWN"] * labels.index(label) + ["\n"]
 
 
 def opened() -> screens.Context:
@@ -70,7 +93,7 @@ def config_from(graph: DeviceGraph, root: DeviceId) -> InstallConfig:
 def test_a_partition_can_be_added_and_reaches_the_graph() -> None:
     at = opened()
     at.layout = manual.suggest("/dev/vda", Firmware.UEFI)
-    at.layout.slices.append(
+    at.layout.disks[0].slices.append(
         manual.Slice(
             index=3,
             role=PartitionRole.DATA,
@@ -87,7 +110,7 @@ def test_a_partition_can_be_added_and_reaches_the_graph() -> None:
 
 def test_each_partition_chooses_its_own_filesystem() -> None:
     """`/` on btrfs and `/home` on xfs is a layout people actually want."""
-    layout = manual.Layout(disk="/dev/vda", slices=[
+    layout = one_disk(slices=[
         manual.Slice(index=1, role=PartitionRole.ESP, size=Size.parse("1GiB"),
                      filesystem=FilesystemType.VFAT, mountpoint="/efi"),
         manual.Slice(index=2, role=PartitionRole.DATA, size=Size.parse("30GiB"),
@@ -103,7 +126,7 @@ def test_each_partition_chooses_its_own_filesystem() -> None:
 
 def test_a_table_with_no_root_says_so_rather_than_installing() -> None:
     at = opened()
-    at.layout = manual.Layout(disk="/dev/vda", slices=[
+    at.layout = one_disk(slices=[
         manual.Slice(index=1, role=PartitionRole.ESP, size=Size.parse("1GiB"),
                      filesystem=FilesystemType.VFAT, mountpoint="/efi"),
     ])
@@ -113,7 +136,7 @@ def test_a_table_with_no_root_says_so_rather_than_installing() -> None:
 def test_a_root_too_small_is_reported_in_the_table() -> None:
     """The validator's own sentence, so the table and the install row agree."""
     at = opened()
-    at.layout = manual.Layout(disk="/dev/vda", slices=[
+    at.layout = one_disk(slices=[
         manual.Slice(index=1, role=PartitionRole.ESP, size=Size.parse("1GiB"),
                      filesystem=FilesystemType.VFAT, mountpoint="/efi"),
         manual.Slice(index=2, role=PartitionRole.DATA, size=Size.parse("4GiB"),
@@ -123,7 +146,7 @@ def test_a_root_too_small_is_reported_in_the_table() -> None:
 
 
 def test_a_swap_partition_needs_no_filesystem() -> None:
-    layout = manual.Layout(disk="/dev/vda", slices=[
+    layout = one_disk(slices=[
         manual.Slice(index=1, role=PartitionRole.SWAP, size=Size.parse("4GiB")),
         manual.Slice(index=2, role=PartitionRole.DATA, size=None,
                      filesystem=FilesystemType.EXT4, mountpoint="/"),
@@ -135,7 +158,7 @@ def test_a_swap_partition_needs_no_filesystem() -> None:
 def test_the_editor_lists_the_table_and_leaves_on_done() -> None:
     at = opened()
     at.layout = manual.suggest(at.choice.disk, Firmware.UEFI)
-    screen = FakeScreen(keys=["KEY_DOWN", "KEY_DOWN", "KEY_DOWN", "\n"], lines=30, columns=90)
+    screen = FakeScreen(keys=to_row(at, "Done"), lines=30, columns=90)
     answer = screens.partitions_screen(screen, config(), at)
     assert answer.outcome is Outcome.CHOSE
     drawn = "\n".join("\n".join(frame) for frame in screen.frames)
@@ -174,7 +197,7 @@ def test_a_slice_knows_which_purpose_it_came_from() -> None:
 def test_a_manual_table_can_put_the_root_on_zfs() -> None:
     """ZFS is a pool, not a `FilesystemType`, so the manual table reaches it
     through a purpose that makes the partition a pool member."""
-    layout = manual.Layout(disk="/dev/vda", pool="rpool", slices=[
+    layout = one_disk(pool="rpool", slices=[
         # systemd-boot reads no pool, so the kernel has to sit on the esp and
         # the esp has to be where the kernel is installed.
         manual.Slice(index=1, role=PartitionRole.ESP, size=Size.parse("1GiB"),
@@ -191,7 +214,7 @@ def test_a_manual_table_can_put_the_root_on_zfs() -> None:
 
 
 def test_two_pool_members_make_one_pool() -> None:
-    layout = manual.Layout(disk="/dev/vda", slices=[
+    layout = one_disk(slices=[
         manual.Slice(index=1, role=PartitionRole.ESP, size=Size.parse("1GiB"),
                      filesystem=FilesystemType.VFAT, mountpoint="/efi"),
         manual.Slice(index=2, role=PartitionRole.ZFS, size=Size.parse("30GiB"), mountpoint="/"),
@@ -206,7 +229,7 @@ def test_two_pool_members_make_one_pool() -> None:
 def test_a_pool_member_is_never_wrapped_in_luks() -> None:
     """The pool encrypts its own datasets; LUKS underneath as well would ask
     for two passphrases to reach one filesystem."""
-    layout = manual.Layout(disk="/dev/vda", slices=[
+    layout = one_disk(slices=[
         manual.Slice(index=1, role=PartitionRole.ESP, size=Size.parse("1GiB"),
                      filesystem=FilesystemType.VFAT, mountpoint="/efi"),
         manual.Slice(index=2, role=PartitionRole.ZFS, size=None, mountpoint="/",
@@ -298,8 +321,7 @@ def reused(
 ) -> manual.Layout:
     """A table of one row that is already on the disk. `keep` mounts what is
     there; `format` makes a new filesystem in the same partition."""
-    return manual.Layout(
-        disk="/dev/vda",
+    return one_disk(
         slices=[
             manual.Slice(
                 index=2,
@@ -356,7 +378,7 @@ def test_a_reused_filesystem_on_a_partition_this_run_creates_is_refused() -> Non
     layout = manual.suggest("/dev/vda", Firmware.UEFI)
     graph, root = manual.build(layout)
     nodes = [
-        replace(node, create=False) if isinstance(node, Fs) and node.id == "fs2" else node
+        replace(node, create=False) if isinstance(node, Fs) and node.id == "disk1-fs2" else node
         for node in graph.nodes.values()
     ]
     broken = DeviceGraph.build(nodes)
@@ -396,7 +418,7 @@ def test_a_reused_esp_is_an_esp_whether_or_not_it_is_reformatted() -> None:
         wanted = (
             manual.SliceStatus.FORMAT if formatting else manual.SliceStatus.KEEP
         )
-        layout = manual.Layout(disk="/dev/vda", slices=[
+        layout = one_disk(slices=[
             kept("/dev/vda1", FilesystemType.VFAT, "/efi", wanted),
             kept("/dev/vda2", FilesystemType.EXT4, "/"),
         ])
@@ -410,13 +432,13 @@ def test_a_reused_esp_resolves_to_the_device_the_bootloader_installs_onto() -> N
     bootloader branch without saying anything."""
     from gentoo_install.plan import bootloader
 
-    layout = manual.Layout(disk="/dev/vda", slices=[
+    layout = one_disk(slices=[
         kept("/dev/vda1", FilesystemType.VFAT, "/efi"),
         kept("/dev/vda2", FilesystemType.EXT4, "/"),
     ])
     graph, root = manual.build(layout)
     installation = config_from(graph, root)
-    assert bootloader._esp_partition(installation) == "part1"
+    assert bootloader._esp_partition(installation) == "disk1-part1"
     assert any("install GRUB" in one.describe() for one in bootloader.build(installation))
 
 
@@ -426,7 +448,7 @@ def test_opening_another_row_does_not_replace_a_reused_table_with_a_wipe() -> No
     from gentoo_install.model.device import Existing
 
     at = opened()
-    at.layout = manual.Layout(disk="/dev/vda", slices=[
+    at.layout = one_disk(slices=[
         kept("/dev/vda1", FilesystemType.VFAT, "/efi"),
         kept("/dev/vda2", FilesystemType.EXT4, "/"),
     ])
@@ -442,14 +464,15 @@ def test_switching_the_disk_moves_a_hand_written_table_with_it() -> None:
     partitioned the one the operator had just switched away from."""
     at = context()
     at.manual = True
-    at.layout.disk = at.choice.disk
-    at.layout.slices = [kept(f"{at.choice.disk}-part1", FilesystemType.EXT4, "/", index=1)]
+    at.layout = one_disk(
+        [kept(f"{at.choice.disk}-part1", FilesystemType.EXT4, "/", index=1)],
+        disk=at.choice.disk,
+    )
     first = at.choice.disk
     answer = screens.disk_screen(FakeScreen(keys=["KEY_DOWN", "\n"], lines=24), config(), at)
     assert at.choice.disk != first
-    assert at.layout.disk == at.choice.disk
     # The rows named partitions of the disk that is no longer the target.
-    assert at.layout.slices == []
+    assert at.layout.disks == []
     assert answer.outcome is Outcome.CHOSE
 
 
@@ -484,7 +507,7 @@ def test_the_encryption_row_reads_the_graph_and_not_the_answer_given_to_it() -> 
 
     at = context()
     at.manual = True
-    at.layout.disk = at.choice.disk
+    at.layout = one_disk([], disk=at.choice.disk)
     row = next(one for one in settings.DISK if one.key == "encryption")
 
     # The screen refuses rather than staging a passphrase nothing will use.
@@ -523,8 +546,7 @@ def test_the_table_opens_on_what_is_already_on_the_disk() -> None:
     at = context()
     at.existing = (("/dev/vda1", "1G", "vfat"), ("/dev/vda2", "29G", "ext4"))
     at.manual = True
-    at.layout.slices = []
-    at.layout.disk = ""
+    at.layout = manual.Layout()
     screen = FakeScreen(keys=["q"], lines=24, columns=100)
     screens.partitions_screen(screen, config(), at)
 
@@ -546,7 +568,7 @@ def test_a_table_nobody_edits_says_what_it_does_with_the_partition_table() -> No
     assert row.value(config(), at) == "gpt"
     assert not row.unavailable(config(), at)
 
-    at.layout.slices = [kept("/dev/vda1", FilesystemType.EXT4, "/")]
+    at.layout = one_disk([kept("/dev/vda1", FilesystemType.EXT4, "/")])
     assert row.value(config(), at) != settings.UNSET
     assert row.unavailable(config(), at)
 
@@ -558,7 +580,6 @@ def test_the_pool_topology_row_appears_once_there_is_something_to_join() -> None
 
     at = context()
     at.manual = True
-    at.layout.disk = at.choice.disk
 
     def slices(members: int) -> list[manual.Slice]:
         made = [
@@ -576,12 +597,12 @@ def test_the_pool_topology_row_appears_once_there_is_something_to_join() -> None
         ]
         return made
 
-    at.layout.slices = slices(1)
+    at.layout = one_disk(slices(1), disk=at.choice.disk)
     single = FakeScreen(keys=["q"], lines=24, columns=100)
     screens.partitions_screen(single, config(), at)
     assert "Pool topology" not in "\n".join(single.frames[0])
 
-    at.layout.slices = slices(2)
+    at.layout = one_disk(slices(2), disk=at.choice.disk)
     pair = FakeScreen(keys=["q"], lines=24, columns=100)
     screens.partitions_screen(pair, config(), at)
     assert "Pool topology" in "\n".join(pair.frames[0])
@@ -616,7 +637,7 @@ def test_one_table_keeps_deletes_and_creates_in_the_same_pass() -> None:
     from gentoo_install.plan import disk as plan_disk
 
     status = manual.SliceStatus
-    layout = manual.Layout(disk="/dev/vda", slices=[
+    layout = one_disk(slices=[
         kept("/dev/vda1", FilesystemType.VFAT, "/efi"),
         kept("/dev/vda2", FilesystemType.EXT4, "", status.DELETE),
         manual.Slice(
@@ -662,7 +683,7 @@ def test_a_table_nobody_edits_writes_no_table_at_all() -> None:
 def test_the_entry_number_comes_off_the_selector_and_not_the_row() -> None:
     """`sgdisk --delete` addresses the entry in the table, and the row order in
     the editor is not that number."""
-    layout = manual.Layout(disk="/dev/vda", slices=[
+    layout = one_disk(slices=[
         manual.Slice(
             index=1, role=PartitionRole.DATA, size=None, filesystem=None,
             status=manual.SliceStatus.DELETE, selector="/dev/nvme0n1p7",
@@ -672,3 +693,102 @@ def test_the_entry_number_comes_off_the_selector_and_not_the_row() -> None:
 
     graph, _ = manual.build(layout)
     assert graph.of_type(PartitionTable)[0].remove == (7,)
+
+
+def two_disks() -> manual.Layout:
+    """The esp on one drive and the root on another, which is the layout a
+    machine with a small fast disk and a large slow one wants."""
+    return manual.Layout(
+        disks=[
+            manual.Disk(
+                selector="/dev/vda",
+                slices=[
+                    manual.Slice(
+                        index=1, role=PartitionRole.ESP, size=Size.parse("1GiB"),
+                        filesystem=FilesystemType.VFAT, mountpoint="/efi",
+                    )
+                ],
+            ),
+            manual.Disk(
+                selector="/dev/vdb",
+                slices=[
+                    manual.Slice(
+                        index=1, role=PartitionRole.DATA, size=None,
+                        filesystem=FilesystemType.EXT4, mountpoint="/",
+                    )
+                ],
+            ),
+        ]
+    )
+
+
+def test_a_table_can_span_more_than_one_disk() -> None:
+    from gentoo_install.model.device import Existing, PartitionTable
+
+    graph, root = manual.build(two_disks())
+    assert sorted(node.selector for node in graph.of_type(Existing)) == ["/dev/vda", "/dev/vdb"]
+    assert len(graph.of_type(PartitionTable)) == 2
+    validate(config_from(graph, root))
+
+
+def test_partition_one_of_each_disk_gets_its_own_id() -> None:
+    """Both disks have a partition 1, and one id for the two of them dropped a
+    node out of the graph without a word."""
+    graph, _ = manual.build(two_disks())
+    assert {"disk1-part1", "disk2-part1"} <= set(graph.nodes)
+
+
+def test_one_disk_can_be_rewritten_while_the_other_is_left_alone() -> None:
+    """The reason the table is per disk: the second drive holds data and only
+    the first is being repartitioned."""
+    from gentoo_install.model.device import PartitionTable
+
+    layout = two_disks()
+    layout.disks[1].slices = [kept("/dev/vdb1", FilesystemType.EXT4, "/")]
+    graph, root = manual.build(layout)
+    tables = graph.of_type(PartitionTable)
+    assert [node.disk for node in tables] == ["disk1"]
+    validate(config_from(graph, root))
+
+
+def test_the_screen_lists_every_disk_with_its_rows_under_it() -> None:
+    at = opened()
+    at.layout = two_disks()
+    at.choice = replace(at.choice, disk="/dev/vda")
+    screen = FakeScreen(keys=["q"], lines=30, columns=100)
+    screens.partitions_screen(screen, config(), at)
+    drawn = "\n".join(screen.frames[0])
+    assert "vda" in drawn and "vdb" in drawn
+    assert drawn.index("vda") < drawn.index("/efi") < drawn.index("vdb")
+
+
+def test_a_second_disk_can_be_added_from_the_table() -> None:
+    at = opened()
+    at.layout = manual.suggest(at.choice.disk, Firmware.UEFI)
+    keys = [*to_row(at, "Add a disk"), "\n"]
+    screens.partitions_screen(FakeScreen(keys=[*keys, "q"], lines=30, columns=100), config(), at)
+    assert [one.selector for one in at.layout.disks] == [one[0] for one in at.disks]
+
+
+def test_a_disk_already_in_the_table_is_not_offered_again() -> None:
+    at = opened()
+    at.layout = manual.Layout(
+        disks=[manual.Disk(selector=one[0]) for one in at.disks]
+    )
+    assert not screens._unused_disks(at)
+    labels = [item.label for item in screens._partition_rows(at)]
+    assert "Add a disk" not in labels
+
+
+def test_the_first_disk_cannot_be_taken_off_the_table() -> None:
+    """It is the one the disk row chose, and a table with no disk has nothing
+    to install onto."""
+    at = opened()
+    at.layout = two_disks()
+    first = FakeScreen(keys=["q"], lines=24, columns=90)
+    screens._edit_disk(first, at, 0)
+    assert "Take this disk off the table" not in "\n".join(first.frames[0])
+
+    second = FakeScreen(keys=["KEY_DOWN", "\n"], lines=24, columns=90)
+    screens._edit_disk(second, at, 1)
+    assert [one.selector for one in at.layout.disks] == ["/dev/vda"]

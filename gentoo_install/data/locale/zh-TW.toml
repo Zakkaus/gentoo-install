@@ -54,6 +54,8 @@
 "Partitions" = "分割區"
 "Partition" = "分割區"
 "Add a partition" = "新增分割區"
+"Add a disk" = "加入磁碟"
+"Take this disk off the table" = "把這顆磁碟移出表格"
 "Done" = "完成"
 "Size" = "大小"
 "512MiB, 20GiB, or empty for the remaining space" = "512MiB、20GiB，留空表示剩餘空間"

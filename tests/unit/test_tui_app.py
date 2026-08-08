@@ -710,7 +710,7 @@ def test_the_table_lists_what_is_on_the_disk_and_keeps_it_by_default() -> None:
     the row's default and everything else is a choice made on that row."""
     at = context()
     at.manual = True
-    at.layout.disk = ""
+    at.layout = manual.Layout()
     at.existing = (
         ("/dev/vda1", "1 GiB", "vfat"),
         ("/dev/vda2", "40 GiB", "ext4"),
@@ -731,7 +731,7 @@ def test_an_empty_disk_opens_on_the_template_proposal() -> None:
     """There is nothing to list, and an empty table is not a starting point."""
     at = context()
     at.manual = True
-    at.layout.disk = ""
+    at.layout = manual.Layout()
     at.existing = ()
     screen = FakeScreen(keys=["q"], lines=20, columns=100)
     screens.partitions_screen(screen, config(), at)
@@ -977,7 +977,8 @@ def test_opening_the_partitions_row_directly_marks_the_layout_manual() -> None:
     at = context()
     at.manual = False
     at.layout = manual.suggest(at.choice.disk, at.firmware)
-    screen = FakeScreen(keys=[*down(3), "\n"], lines=30, columns=100)
+    done = [item.label for item in screens._partition_rows(at)].index("Done")
+    screen = FakeScreen(keys=[*down(done), "\n"], lines=30, columns=100)
     screens.partitions_screen(screen, config(), at)
     assert at.manual
 

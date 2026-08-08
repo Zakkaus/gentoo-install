@@ -54,6 +54,8 @@
 "Partitions" = "パーティション"
 "Partition" = "パーティション"
 "Add a partition" = "パーティションを追加"
+"Add a disk" = "ディスクを追加"
+"Take this disk off the table" = "このディスクを表から外す"
 "Done" = "完了"
 "Size" = "サイズ"
 "512MiB, 20GiB, or empty for the remaining space" = "512MiB、20GiB、空欄なら残り全部"

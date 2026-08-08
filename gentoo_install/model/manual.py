@@ -171,28 +171,53 @@ class Slice:
 
 
 @dataclass
-class Layout:
-    """The whole table, plus the disk it is on."""
+class Disk:
+    """One disk and the table being edited on it.
 
-    disk: str = ""
+    A list of these rather than one disk, because `archinstall`'s
+    `select_devices()` hands `_manual_partitioning` a list and one
+    `DeviceModification` per disk: the esp on one drive and the root on
+    another, or a mirror across two, cannot be said with a single table.
+    """
+
+    selector: str = ""
     table: TableType = TableType.GPT
     slices: list[Slice] = field(default_factory=list)
+
     def writes_the_table(self) -> bool:
-        """Whether anything here changes the partition table.
+        """Whether anything here changes this disk's partition table.
 
         A table of nothing but `keep` and `format` rows is never written, so
         every partition on the disk survives; that is what the separate
         "reuse" mode used to be.
         """
         return any(one.status.edits_the_table for one in self.slices)
-    #: The pool every slice marked as a pool member joins.
+
+    def next_index(self) -> int:
+        return max((entry.index for entry in self.slices), default=0) + 1
+
+
+@dataclass
+class Layout:
+    """Every disk the operator is partitioning, and the pool they may share."""
+
+    disks: list[Disk] = field(default_factory=list)
+    #: The pool every slice marked as a pool member joins, on any disk.
     pool: str = "rpool"
     #: How those members are joined. Only asked once more than one is marked:
     #: a single member has nothing to mirror.
     topology: ZfsTopology = ZfsTopology.STRIPE
 
-    def next_index(self) -> int:
-        return max((entry.index for entry in self.slices), default=0) + 1
+    @property
+    def slices(self) -> list[Slice]:
+        """Every row across every disk, for a caller that only counts them."""
+        return [entry for disk in self.disks for entry in disk.slices]
+
+    def writes_the_table(self) -> bool:
+        return any(disk.writes_the_table() for disk in self.disks)
+
+    def holds(self, selector: str) -> bool:
+        return any(disk.selector == selector for disk in self.disks)
 
 
 def suggest(
@@ -215,21 +240,25 @@ def suggest(
         label="gentoo",
     )
     if firmware is not Firmware.UEFI:
-        return Layout(disk=disk, table=TableType.MBR, slices=[root])
+        return Layout(disks=[Disk(selector=disk, table=TableType.MBR, slices=[root])])
     return Layout(
-        disk=disk,
-        table=TableType.GPT,
-        slices=[
-            Slice(
-                index=1,
-                role=PartitionRole.ESP,
-                size=Size.parse("1GiB"),
-                filesystem=ESP_FILESYSTEM,
-                mountpoint="/efi",
-                label="ESP",
-            ),
-            replace(root, index=2),
-        ],
+        disks=[
+            Disk(
+                selector=disk,
+                table=TableType.GPT,
+                slices=[
+                    Slice(
+                        index=1,
+                        role=PartitionRole.ESP,
+                        size=Size.parse("1GiB"),
+                        filesystem=ESP_FILESYSTEM,
+                        mountpoint="/efi",
+                        label="ESP",
+                    ),
+                    replace(root, index=2),
+                ],
+            )
+        ]
     )
 
 
@@ -256,104 +285,114 @@ def _index_of(entry: Slice) -> int:
     return int(trailing) if trailing else entry.index
 
 
+def _table_nodes(disk: Disk, prefix: str) -> list[Node]:
+    """The disk and its table, or nothing when no row edits the table.
+
+    The disk is wiped only when nothing on it is kept, so `sgdisk --zap-all`
+    never takes a partition the operator asked to keep.
+    """
+    if not disk.writes_the_table():
+        return []
+    untouched = any(
+        one.status.exists and one.status is not SliceStatus.DELETE for one in disk.slices
+    ) or any(one.status is SliceStatus.DELETE for one in disk.slices)
+    return [
+        Existing(id=DeviceId(prefix), selector=disk.selector, wipe=not untouched),
+        PartitionTable(
+            id=DeviceId(f"{prefix}-table"),
+            disk=DeviceId(prefix),
+            table=disk.table,
+            create=not untouched,
+            remove=tuple(
+                _index_of(one) for one in disk.slices if one.status is SliceStatus.DELETE
+            ),
+        ),
+    ]
+
+
 def build(layout: Layout) -> tuple[DeviceGraph, DeviceId]:
     """The graph and the id of the mount point that is `/`.
 
-    One pass over one table. A row that is already on the disk becomes an
+    One pass over every disk's table. A row already on the disk becomes an
     `Existing` with `wipe` off; a new one becomes a `Partition`; a deleted one
-    becomes an entry the table drops. The disk is wiped only when nothing is
-    kept, so `sgdisk --zap-all` never takes a partition the operator asked for.
+    becomes an entry the table drops. Node ids carry the disk they came from,
+    because two disks both have a partition 1.
     """
-    kept = [one for one in layout.slices if one.status.exists and one.status is not SliceStatus.DELETE]
-    removed = tuple(
-        _index_of(one) for one in layout.slices if one.status is SliceStatus.DELETE
-    )
-    fresh = [one for one in layout.slices if one.status is SliceStatus.CREATE]
     nodes: list[Node] = []
-    if fresh or removed:
-        # Wiped only when there is nothing on the disk worth keeping: the
-        # operator who kept a row asked for the table it lives in.
-        untouched = bool(kept) or bool(removed)
-        nodes += [
-            Existing(id=DeviceId("disk"), selector=layout.disk, wipe=not untouched),
-            PartitionTable(
-                id=DeviceId("disk-table"),
-                disk=DeviceId("disk"),
-                table=layout.table,
-                create=not untouched,
-                remove=removed,
-            ),
-        ]
     root = DeviceId("")
     vdevs: list[DeviceId] = []
-    datasets: list[Slice] = []
+    #: Pool members with a mount point, each with the id prefix of its disk.
+    datasets: list[tuple[str, Slice]] = []
     pool_passphrase = ""
-    for entry in sorted(layout.slices, key=lambda one: one.index):
-        if entry.status is SliceStatus.DELETE:
-            # Gone from the table above, so it carries nothing downstream.
-            continue
-        part = DeviceId(f"part{entry.index}")
-        if entry.status is SliceStatus.CREATE:
+    for position, disk in enumerate(layout.disks, start=1):
+        prefix = f"disk{position}"
+        nodes += _table_nodes(disk, prefix)
+        for entry in sorted(disk.slices, key=lambda one: one.index):
+            if entry.status is SliceStatus.DELETE:
+                # Gone from the table above, so it carries nothing downstream.
+                continue
+            part = DeviceId(f"{prefix}-part{entry.index}")
+            if entry.status is SliceStatus.CREATE:
+                nodes.append(
+                    Partition(
+                        id=part,
+                        table=DeviceId(f"{prefix}-table"),
+                        index=entry.index,
+                        role=entry.role,
+                        size=entry.size,
+                        label=entry.label,
+                    )
+                )
+            else:
+                nodes.append(Existing(id=part, selector=entry.selector, wipe=False))
+            if entry.role is PartitionRole.ZFS:
+                # The pool encrypts its own datasets, so a member is never
+                # wrapped in LUKS as well.
+                vdevs.append(part)
+                pool_passphrase = pool_passphrase or entry.passphrase_file
+                if entry.mountpoint:
+                    datasets.append((prefix, entry))
+                continue
+            carrier = part
+            if entry.passphrase_file:
+                carrier = DeviceId(f"{prefix}-crypt{entry.index}")
+                nodes.append(
+                    Luks(
+                        id=carrier,
+                        backing=part,
+                        name=f"crypt{position}-{entry.index}",
+                        passphrase_file=entry.passphrase_file,
+                    )
+                )
+            if entry.role is PartitionRole.SWAP:
+                nodes.append(Swap(id=DeviceId(f"{prefix}-swap{entry.index}"), device=carrier))
+                continue
+            if entry.filesystem is None:
+                continue
+            filesystem = DeviceId(f"{prefix}-fs{entry.index}")
             nodes.append(
-                Partition(
-                    id=part,
-                    table=DeviceId("disk-table"),
-                    index=entry.index,
-                    role=entry.role,
-                    size=entry.size,
+                Filesystem(
+                    id=filesystem,
+                    device=carrier,
+                    kind=entry.filesystem,
                     label=entry.label,
+                    # `keep` mounts what is there; everything else makes one.
+                    create=entry.status is not SliceStatus.KEEP,
                 )
             )
-        else:
-            nodes.append(Existing(id=part, selector=entry.selector, wipe=False))
-        if entry.role is PartitionRole.ZFS:
-            # The pool encrypts its own datasets, so a member is never wrapped
-            # in LUKS as well.
-            vdevs.append(part)
-            pool_passphrase = pool_passphrase or entry.passphrase_file
-            if entry.mountpoint:
-                datasets.append(entry)
-            continue
-        carrier = part
-        if entry.passphrase_file:
-            carrier = DeviceId(f"crypt{entry.index}")
+            if not entry.mountpoint:
+                continue
+            mount = DeviceId(f"{prefix}-mnt{entry.index}")
             nodes.append(
-                Luks(
-                    id=carrier,
-                    backing=part,
-                    name=f"crypt{entry.index}",
-                    passphrase_file=entry.passphrase_file,
+                Mountpoint(
+                    id=mount,
+                    source=filesystem,
+                    path=PurePosixPath(entry.mountpoint),
+                    options=("umask=0077",) if entry.filesystem is ESP_FILESYSTEM else (),
                 )
             )
-        if entry.role is PartitionRole.SWAP:
-            nodes.append(Swap(id=DeviceId(f"swap{entry.index}"), device=carrier))
-            continue
-        if entry.filesystem is None:
-            continue
-        filesystem = DeviceId(f"fs{entry.index}")
-        nodes.append(
-            Filesystem(
-                id=filesystem,
-                device=carrier,
-                kind=entry.filesystem,
-                label=entry.label,
-                # `keep` mounts what is there; everything else makes one.
-                create=entry.status is not SliceStatus.KEEP,
-            )
-        )
-        if not entry.mountpoint:
-            continue
-        mount = DeviceId(f"mnt{entry.index}")
-        nodes.append(
-            Mountpoint(
-                id=mount,
-                source=filesystem,
-                path=PurePosixPath(entry.mountpoint),
-                options=("umask=0077",) if entry.filesystem is ESP_FILESYSTEM else (),
-            )
-        )
-        if entry.mountpoint == "/":
-            root = mount
+            if entry.mountpoint == "/":
+                root = mount
     if vdevs:
         nodes.append(
             ZfsPool(
@@ -365,9 +404,9 @@ def build(layout: Layout) -> tuple[DeviceGraph, DeviceId]:
                 passphrase_file=pool_passphrase,
             )
         )
-        for entry in datasets:
-            dataset = DeviceId(f"ds{entry.index}")
-            mount = DeviceId(f"mnt{entry.index}")
+        for prefix, entry in datasets:
+            dataset = DeviceId(f"{prefix}-ds{entry.index}")
+            mount = DeviceId(f"{prefix}-mnt{entry.index}")
             nodes += [
                 ZfsDataset(id=dataset, pool=DeviceId("pool"), name=dataset_for(entry.mountpoint)),
                 Mountpoint(id=mount, source=dataset, path=PurePosixPath(entry.mountpoint)),

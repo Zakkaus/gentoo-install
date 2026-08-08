@@ -54,6 +54,8 @@
 "Partitions" = "파티션"
 "Partition" = "파티션"
 "Add a partition" = "파티션 추가"
+"Add a disk" = "디스크 추가"
+"Take this disk off the table" = "이 디스크를 표에서 제외"
 "Done" = "완료"
 "Size" = "크기"
 "512MiB, 20GiB, or empty for the remaining space" = "512MiB, 20GiB, 비우면 남은 공간 전부"
