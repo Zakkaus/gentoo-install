@@ -1169,3 +1169,22 @@ def test_the_erase_question_fits_eighty_columns() -> None:
     assert len(title.rstrip()) <= 80
     # The name to type is in the field instead of the title.
     assert at.choice.disk in "\n".join(screen.frames[0])
+
+
+def test_the_address_row_says_what_the_machine_will_come_up_with() -> None:
+    """Only the init's own manager reads the address fields, so a static
+    address under NetworkManager was drawn as though it were in effect and
+    nothing wrote it anywhere."""
+    from gentoo_install.model.config import Networking
+
+    at = context()
+    address = next(one for one in settings.SETTINGS if one.key == "address")
+    typed = replace(
+        config().system, addresses=("192.0.2.10/24",), interface="eth0"
+    )
+    for chosen in Networking:
+        shown = address.value(replace(config(), system=replace(typed, networking=chosen)), at)
+        if chosen is Networking.BUILTIN:
+            assert shown == "eth0: 192.0.2.10/24"
+        else:
+            assert "192.0.2.10" not in shown, chosen

@@ -14,7 +14,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Final
 
-from ..model.config import Bootloader, InitSystem, InstallConfig, KernelSource, Keywords
+from ..model.config import (
+    Bootloader,
+    InitSystem,
+    InstallConfig,
+    KernelSource,
+    Keywords,
+    Networking,
+)
 from ..plan.kernel import KERNEL_PACKAGES
 from ..model import mirrors
 from ..model.device import Existing, Luks, MdRaid, PartitionTable, VolumeGroup, ZfsPool
@@ -191,7 +198,16 @@ def _unlock_keymap(config: InstallConfig, context: Context) -> str:
 
 
 def _address(config: InstallConfig, context: Context) -> str:
+    """What the machine will come up with, not what was typed here.
+
+    Only the init's own manager reads these fields, so a static address under
+    NetworkManager was drawn as though it were in effect and nothing wrote it.
+    """
     system = config.system
+    if system.networking is Networking.NONE:
+        return context.translate("no networking")
+    if system.networking is not Networking.BUILTIN:
+        return str(system.networking.value)
     if not system.addresses:
         return "DHCP"
     where = system.interface or "auto"

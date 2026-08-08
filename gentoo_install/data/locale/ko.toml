@@ -241,6 +241,7 @@
 "DNS" = "DNS"
 "separated by spaces" = "공백으로 구분"
 "Address" = "주소"
+"no networking" = "네트워크 없음"
 "Remote unlock" = "원격 잠금 해제"
 "Unlock the root over SSH from the initramfs?" = "initramfs 에서 SSH 로 루트를 잠금 해제하시겠습니까?"
 "Port" = "포트"
