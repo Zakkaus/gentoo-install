@@ -260,8 +260,11 @@ def run_installer(console: SerialConsole, config: str, extra: str = "") -> None:
     # The exit code is written inside the pipeline's first stage rather than
     # read from PIPESTATUS afterwards: that is a bash array, and a live system
     # running busybox ash answers `bad substitution` and never finishes.
+    # --no-shell: this is a serial console, so stdin is a terminal, and every
+    # question the installer asks on the way out sits there for ever. It offers
+    # a root shell and a paste of the log, and a run that fails reaches both.
     console.run(
-        f"cd /mnt/driver && {{ sh ./bootstrap.sh --config {config} {extra}; "
+        f"cd /mnt/driver && {{ sh ./bootstrap.sh --no-shell --config {config} {extra}; "
         f"echo $? > {RESULT_DIR}/install.rc; }} 2>&1 | tee {RESULT_DIR}/install.txt",
         timeout=3600.0,
     )

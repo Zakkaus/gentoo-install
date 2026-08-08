@@ -365,3 +365,23 @@ def test_a_clock_that_cannot_be_set_says_so_rather_than_blaming_the_network(
     cli._check_the_clock()
     said = capsys.readouterr().err
     assert "the clock could not be set" in said
+
+
+def test_an_unattended_run_is_asked_nothing_on_the_way_out(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """The VM harness drives a serial console, where stdin is a terminal, so
+    every question sits there for ever; a real run hung on the paste offer for
+    twelve minutes before it was killed."""
+    import argparse
+
+    asked: list[str] = []
+
+    def question_asked(question: str) -> bool:
+        asked.append(question)
+        return False
+
+    monkeypatch.setattr(cli, "_asked", question_asked)
+    arguments = argparse.Namespace(no_shell=True, target=tmp_path)
+    cli._offer_a_paste(arguments, tmp_path, lambda line: None, True)
+    assert asked == []
