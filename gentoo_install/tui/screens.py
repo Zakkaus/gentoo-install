@@ -459,10 +459,10 @@ def init_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     )
 
 
-def _profile_was_chosen(config: InstallConfig) -> bool:
+def _profile_was_chosen(config: InstallConfig, groups: Groups) -> bool:
     """Whether the profile is something other than what the current desktop and
     init imply, which is the only evidence the operator set it by hand."""
-    implied = DESKTOP_PROFILES.get(config.packages.desktop)
+    implied = desktop_profiles(groups).get(config.packages.desktop)
     if implied is None:
         return True
     return config.portage.profile != _profile_for(implied, config.system.init)
@@ -1142,15 +1142,20 @@ def kernel_screen(screen: Screen, config: InstallConfig, context: Context) -> An
 
 #: The profile each desktop is built against. Verified against
 #: profiles.desc: a systemd variant is the same path plus /systemd.
-DESKTOP_PROFILES: dict[str, str] = {
-    "": "default/linux/amd64/23.0",
-    "console": "default/linux/amd64/23.0",
-    "plasma": "default/linux/amd64/23.0/desktop/plasma",
-    "plasma-full": "default/linux/amd64/23.0/desktop/plasma",
-    "gnome": "default/linux/amd64/23.0/desktop/gnome",
-    "gnome-full": "default/linux/amd64/23.0/desktop/gnome",
-    "xfce": "default/linux/amd64/23.0/desktop",
-}
+#: What a machine with no desktop is built against. Every other answer names
+#: its own profile in `data/profiles/<name>.toml`.
+BASE_PROFILE: Final[str] = "default/linux/amd64/23.0"
+
+
+def desktop_profiles(groups: Groups) -> dict[str, str]:
+    """The desktops and the profile each is built against, read from the files
+    that declare them: a table beside `data/profiles/` meant a desktop added
+    there never reached the menu, and one added here installed nothing."""
+    found = {"": BASE_PROFILE}
+    for name, group in groups.items():
+        if group.profile:
+            found[name] = group.profile
+    return found
 
 
 def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
@@ -1165,7 +1170,7 @@ def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> A
     }
     items = [
         Item(label=name or "no desktop", value=name, detail=detail.get(name, ""))
-        for name in sorted(DESKTOP_PROFILES)
+        for name in sorted(desktop_profiles(context.groups))
     ]
     menu: Menu[str] = Menu(
         title=translate("Desktop and applications"), items=items, footer=footer(translate)
@@ -1175,7 +1180,7 @@ def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> A
         return Answer(answer.outcome)
     desktop = answer.unwrap()[0]
     changed = replace(config, packages=replace(config.packages, desktop=desktop))
-    if not _profile_was_chosen(config):
+    if not _profile_was_chosen(config, context.groups):
         # Only while the profile is still the one the last desktop implied.
         # Overwriting it regardless threw away a profile the operator had
         # picked on purpose, such as no-multilib.
@@ -1185,7 +1190,9 @@ def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> A
                 changed,
                 portage=replace(
                     config.portage,
-                    profile=_profile_for(DESKTOP_PROFILES[desktop], config.system.init),
+                    profile=_profile_for(
+                        desktop_profiles(context.groups)[desktop], config.system.init
+                    ),
                 ),
             ),
         )
@@ -1278,7 +1285,7 @@ def packages_screen(
     # A desktop, a driver and a display manager are each one choice of their
     # own, so none of them is a row to tick here.
     elsewhere = (
-        set(DESKTOP_PROFILES)
+        set(desktop_profiles(context.groups))
         | {name for name, _ in GRAPHICS}
         | {name for name, _ in DISPLAY_MANAGERS}
     )

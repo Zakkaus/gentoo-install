@@ -8,3 +8,4 @@ packages = [
 ]
 use = ["wayland", "qt6", "kcm", "networkmanager"]
 wayland = true
+profile = "default/linux/amd64/23.0/desktop/plasma"

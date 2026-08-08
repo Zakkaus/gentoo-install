@@ -19,7 +19,7 @@ KEYS: Final[frozenset[str]] = frozenset(
     {
         "packages", "services", "use", "repositories", "video_cards", "files",
         "input_method", "schemas", "wayland", "package_use", "accept_license",
-        "display_manager",
+        "display_manager", "profile",
     }
 )
 
@@ -57,6 +57,7 @@ def _load(path: Path) -> Group:
         video_cards=_strings(raw, "video_cards", path),
         accept_license=_strings(raw, "accept_license", path),
         display_manager=_text(raw, "display_manager", path),
+        profile=_text(raw, "profile", path),
         files=_files(raw, path),
         input_method=_text(raw, "input_method", path),
         schemas=_strings(raw, "schemas", path),

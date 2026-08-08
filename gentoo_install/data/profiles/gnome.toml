@@ -3,3 +3,4 @@
 packages = ["gnome-base/gnome-light", "x11-base/xorg-server"]
 use = ["wayland", "gnome", "networkmanager", "gtk"]
 wayland = true
+profile = "default/linux/amd64/23.0/desktop/gnome"

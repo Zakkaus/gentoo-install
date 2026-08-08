@@ -1004,3 +1004,21 @@ def test_the_overlay_address_is_held_in_one_place() -> None:
     # overlays that have no mirror; only gentoo-zh has one and belongs there.
     source = Path(screens.__file__).read_text()
     assert "gentoo-zh/overlay" not in source
+
+
+def test_the_desktops_offered_are_the_ones_with_a_profile_file() -> None:
+    """The list was a table beside `data/profiles/`, so a desktop added there
+    never reached the menu and one added here installed nothing."""
+    at = context()
+    from pathlib import Path
+
+    from gentoo_install import data
+
+    offered = screens.desktop_profiles(at.groups)
+    shipped = {path.stem for path in (Path(data.__file__).parent / "data/profiles").glob("*.toml")}
+    # One row per file, plus the machine with no desktop at all.
+    assert set(offered) == {"", *shipped}
+    assert offered[""] == screens.BASE_PROFILE
+    # Every desktop the menu shows can be built: the profile comes from its file.
+    for name, path in offered.items():
+        assert path.startswith("default/linux/amd64/23.0"), name

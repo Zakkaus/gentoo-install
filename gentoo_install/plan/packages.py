@@ -48,6 +48,9 @@ class Group:
     accept_license: tuple[str, ...] = ()
     #: The display manager this group installs, if it is one.
     display_manager: str = ""
+    #: The Portage profile this desktop is built against. Empty for an
+    #: application group, which changes no profile.
+    profile: str = ""
     files: tuple[GroupFile, ...] = ()
     #: package.use lines this group needs, written before anything merges.
     package_use: tuple[str, ...] = ()
