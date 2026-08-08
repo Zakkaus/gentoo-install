@@ -193,20 +193,24 @@ class Machine:
 def completed(journal: Journal | None) -> frozenset[tuple[int, str]]:
     """Operations a previous run finished, as position and description.
 
-    Position as well as text: a plan can hold two operations that describe
-    themselves identically, and skipping both because one finished would step
-    over work that was never done.
+    The position is read from the entry, not counted while replaying. Counting
+    drifted twice over: a failed attempt consumed a number, and a resumed run
+    appends to the same file, so after one resume every position was wrong and
+    the next resume re-ran operations that had already partitioned the disk.
+    Position as well as text, because a plan can hold two operations whose
+    descriptions match.
     """
     if journal is None:
         return frozenset()
     done: set[tuple[int, str]] = set()
-    position = 0
     for entry in journal.replay():
-        if entry.get("event") != "operation":
+        if entry.get("event") != "operation" or entry.get("status") != "done":
             continue
-        if entry.get("status") == "done":
+        position = entry.get("position")
+        # An entry from before positions were recorded says nothing reliable
+        # about where it sat, and redoing work is safer than skipping it.
+        if isinstance(position, int):
             done.add((position, str(entry.get("describe", ""))))
-        position += 1
     return frozenset(done)
 
 
@@ -231,12 +235,14 @@ def apply(
         try:
             operation.apply(machine)
         except GentooInstallError:
-            _record(machine, operation, started, "failed")
+            _record(machine, operation, started, "failed", position)
             raise
-        _record(machine, operation, started, "done")
+        _record(machine, operation, started, "done", position)
 
 
-def _record(machine: Machine, operation: Operation, started: float, status: str) -> None:
+def _record(
+    machine: Machine, operation: Operation, started: float, status: str, position: int
+) -> None:
     if machine.runner.journal is None:
         return
     machine.runner.journal.write(
@@ -245,4 +251,5 @@ def _record(machine: Machine, operation: Operation, started: float, status: str)
         describe=operation.describe(),
         seconds=round(time.monotonic() - started, 3),
         status=status,
+        position=position,
     )
