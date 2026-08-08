@@ -9,6 +9,7 @@ validator never disagree about why something cannot be chosen.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from itertools import takewhile
 from typing import Callable, Final, Sequence, TypeVar
 
 from ..i18n import Catalog
@@ -35,7 +36,7 @@ from ..model.config import (
     Sync,
     User,
 )
-from ..model.device import FilesystemType, PartitionRole, TableType
+from ..model.device import FilesystemType, PartitionRole, TableType, ZfsPool
 from ..plan.kernel import KERNEL_PACKAGES
 from ..model.size import Size
 from ..errors import GentooInstallError, ValidationFailed
@@ -70,6 +71,7 @@ class Context:
         ),
         fetch_text: Callable[[str], str] = lambda url: "",
         kernel_versions: Callable[[str], tuple[tuple[str, bool], ...]] = lambda atom: (),
+        zfs_kernel_max: str = "",
     ) -> None:
         self.translate = translate
         #: Selector and a human description, from `exec/probe.py`.
@@ -88,6 +90,9 @@ class Context:
         #: each with whether it is stable on amd64. Empty on a medium with no
         #: repository, which is when the version is typed instead.
         self.kernel_versions = kernel_versions
+        #: The highest kernel `sys-fs/zfs` builds a module for, read from its
+        #: ebuild. Empty when no repository is visible, which offers every version.
+        self.zfs_kernel_max = zfs_kernel_max
         #: Every zone the machine knows, from `exec/probe.py`.
         self.timezones = tuple(timezones)
         #: How this machine booted. The install defaults to the same, because
@@ -960,6 +965,30 @@ KERNELS: tuple[tuple[KernelSource, str], ...] = (
 )
 
 
+def _within(
+    offered: tuple[tuple[str, bool], ...], ceiling: str
+) -> tuple[tuple[str, bool], ...]:
+    """Kernel versions a ZFS root can actually boot.
+
+    A version above `MODULES_KERNEL_MAX` leaves `sys-fs/zfs` with no module and
+    the pool unmountable, so it is dropped rather than offered with a warning.
+    """
+    if not ceiling:
+        return offered
+    limit = _numeric(ceiling)
+    return tuple((version, stable) for version, stable in offered if _numeric(version) <= limit)
+
+
+def _numeric(version: str) -> tuple[int, ...]:
+    parts: list[int] = []
+    for piece in version.split("."):
+        digits = "".join(takewhile(str.isdigit, piece))
+        if not digits:
+            break
+        parts.append(int(digits))
+    return tuple(parts)
+
+
 def kernel_version_screen(
     screen: Screen, config: InstallConfig, context: Context
 ) -> Answer[InstallConfig]:
@@ -971,12 +1000,13 @@ def kernel_version_screen(
     """
     translate = context.translate
     package = config.kernel.package or KERNEL_PACKAGES[config.kernel.source]
-    offered = context.kernel_versions(package)
+    ceiling = context.zfs_kernel_max if config.disk.graph.of_type(ZfsPool) else ""
+    offered = _within(context.kernel_versions(package), ceiling)
     if not offered:
         typed = TextField(
             title=f"{package}  {translate('version')}",
             value=config.kernel.version,
-            placeholder=translate("empty for the newest the keywords allow"),
+            placeholder=translate("empty to leave the version to the keywords"),
             footer=footer(translate),
         ).run(screen)
         if not typed.chosen:
@@ -986,7 +1016,7 @@ def kernel_version_screen(
         )
     items: list[Item[str]] = [
         Item(
-            label=translate("newest"),
+            label=translate("not pinned"),
             value="",
             detail=translate("whatever the keywords allow at install time"),
         )
@@ -999,7 +1029,10 @@ def kernel_version_screen(
         )
         for version, stable in offered
     ]
-    menu: Menu[str] = Menu(title=package, items=items, footer=footer(translate))
+    title = package
+    if ceiling:
+        title = f"{package}  {translate('sys-fs/zfs module ceiling')} {ceiling}"
+    menu: Menu[str] = Menu(title=title, items=items, footer=footer(translate))
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)

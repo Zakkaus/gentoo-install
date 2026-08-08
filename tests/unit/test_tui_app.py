@@ -21,7 +21,7 @@ from gentoo_install.tui.app import run
 from gentoo_install.tui.widgets import Outcome
 
 from .fake_screen import FakeScreen
-from .layouts import config
+from .layouts import config, zfs_root
 
 DISKS = [("/dev/disk/by-id/virtio-target0", "20 GiB"), ("/dev/disk/by-id/virtio-target1", "40 GiB")]
 
@@ -673,7 +673,24 @@ def test_pinning_a_version_pins_the_atom_and_opens_its_keyword() -> None:
     assert not any("as testing" in line for line in loose)
 
 
-def test_the_newest_row_pins_nothing() -> None:
+def test_a_zfs_root_is_offered_no_kernel_the_module_will_not_build_for() -> None:
+    """`sys-fs/zfs-2.4.3` carries MODULES_KERNEL_MAX=7.0, so a 7.1 kernel leaves
+    the pool with no module and the machine with no root."""
+    at = context()
+    at.kernel_versions = lambda atom: (("7.1.7", False), ("6.18.43", False))
+    at.zfs_kernel_max = "7.0"
+    on_zfs = config(zfs_root())
+    screen = FakeScreen(keys=["KEY_DOWN", "\n"], lines=20, columns=100)
+    answer = screens.kernel_version_screen(screen, on_zfs, at)
+    assert answer.unwrap().kernel.version == "6.18.43"
+    assert "7.1.7" not in "\n".join(screen.frames[0])
+
+    # No pool: the ceiling is not this layout's business.
+    plain = FakeScreen(keys=["KEY_DOWN", "\n"], lines=20, columns=100)
+    assert screens.kernel_version_screen(plain, config(), at).unwrap().kernel.version == "7.1.7"
+
+
+def test_the_unpinned_row_pins_nothing() -> None:
     at = context()
     at.kernel_versions = lambda atom: (("7.1.7", False),)
     pinned = replace(config(), kernel=replace(config().kernel, version="7.1.7"))

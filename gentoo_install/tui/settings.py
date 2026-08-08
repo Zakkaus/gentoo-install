@@ -156,7 +156,7 @@ def _cpu_flags(config: InstallConfig, context: Context) -> str:
 
 
 def _kernel_version(config: InstallConfig, context: Context) -> str:
-    return config.kernel.version or context.translate("newest")
+    return config.kernel.version or context.translate("not pinned")
 
 
 def _keywords(config: InstallConfig, context: Context) -> str:

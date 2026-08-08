@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from gentoo_install import cli
+from gentoo_install.exec import fetch
 from gentoo_install.cli import EXIT_CONFIG, EXIT_OK, EXIT_PREFLIGHT, main
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
@@ -62,12 +63,41 @@ def test_an_install_stops_at_preflight_rather_than_touching_a_disk(
     assert "run as root" in printed or "not present" in printed
 
 
+def online(monkeypatch: pytest.MonkeyPatch, answer: bool = True) -> None:
+    """No test opens a connection: the answer is given rather than measured."""
+    monkeypatch.setattr(fetch, "online", lambda: answer)
+
+
+def test_the_menu_stops_when_the_machine_cannot_reach_the_package_site(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Kernel versions and the ZFS ceiling are read live so the installer runs
+    on a medium with no Gentoo repository; offline there is nothing to offer."""
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    online(monkeypatch, False)
+    assert main([]) == EXIT_PREFLIGHT
+    assert "needs a network" in capsys.readouterr().err
+
+
+def test_the_two_offline_answers_are_still_given_without_a_network(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--missing-commands` names packages and a dry run over a file prints a
+    plan; both are what somebody runs on a machine that is not the target."""
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    online(monkeypatch, False)
+    assert main(["--missing-commands"]) == EXIT_OK
+    assert main(["--config", str(FIXTURES / "ext4-bios.toml"), "--dry-run"]) == EXIT_OK
+    assert "needs a network" not in capsys.readouterr().err
+
+
 def test_no_configuration_without_a_terminal_says_so(
     capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """With no --config the menu opens, and pytest is not a terminal: that has
     to be an exit code with a sentence, not a curses traceback."""
     monkeypatch.setattr(os, "geteuid", lambda: 0)
+    online(monkeypatch)
     code = main([])
     said = capsys.readouterr().err
     assert code == EXIT_PREFLIGHT
@@ -80,6 +110,7 @@ def test_the_menu_does_not_open_for_an_ordinary_user(
     """Twenty answers thrown away by an EPERM in the middle of the run is the
     failure this replaces: nothing but a dry run works without root."""
     monkeypatch.setattr(os, "geteuid", lambda: 1000)
+    online(monkeypatch)
     assert main([]) == EXIT_PREFLIGHT
     assert "run as root" in capsys.readouterr().err
     assert main(["--dry-run", "--config", str(FIXTURES / "vm-binpkg.toml")]) == 0

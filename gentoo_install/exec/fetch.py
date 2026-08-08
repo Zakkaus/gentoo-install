@@ -7,9 +7,11 @@ not match is a failed install, not a reason to try another mirror.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
+from itertools import takewhile
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -139,6 +141,95 @@ def _import_release_key(runner: Runner) -> None:
 def text(url: str) -> str:
     """A short document, such as a public key someone pasted somewhere."""
     return _read(paste.raw_url(url))
+
+
+#: Version and keyword data for one package of the main tree.
+PACKAGES_API: Final[str] = "https://packages.gentoo.org/packages"
+
+#: One file of the main tree, by path. Used for what the API does not carry.
+GITWEB: Final[str] = "https://gitweb.gentoo.org/repo/gentoo.git/plain"
+
+#: The gentoo-zh overlay's file listing. Its packages are on no package site.
+OVERLAY_API: Final[str] = "https://api.github.com/repos/gentoo-zh/overlay/contents"
+
+
+def online() -> bool:
+    """Whether the package site answers.
+
+    Asked of the site the install reads rather than of any host: a machine
+    behind a portal resolves names and still cannot fetch an ebuild.
+    """
+    try:
+        _read(f"{PACKAGES_API}/sys-kernel/gentoo-kernel-bin.json")
+    except DownloadFailed:
+        return False
+    return True
+
+
+def package_versions(atom: str) -> tuple[tuple[str, bool], ...]:
+    """Versions of a main-tree package, newest first, each with whether it is
+    stable on amd64. Read live: the installing system need not be Gentoo and
+    need not carry a repository at all."""
+    try:
+        document = json.loads(_read(f"{PACKAGES_API}/{atom}.json"))
+    except (DownloadFailed, ValueError):
+        return ()
+    found = [
+        (str(entry["version"]), "amd64" in entry.get("keywords", []))
+        for entry in document.get("versions", [])
+        if entry.get("version")
+    ]
+    return tuple(sorted(found, key=lambda pair: _version_key(pair[0]), reverse=True))
+
+
+def overlay_versions(atom: str) -> tuple[tuple[str, bool], ...]:
+    """Versions of a gentoo-zh package, from the overlay's own file listing.
+
+    None is stable: the overlay is keyworded `~amd64` throughout, which is what
+    `package.accept_keywords` for it says.
+    """
+    _, _, name = atom.partition("/")
+    try:
+        listing = json.loads(_read(f"{OVERLAY_API}/{atom}"))
+    except (DownloadFailed, ValueError):
+        return ()
+    if not isinstance(listing, list):
+        return ()
+    versions = [
+        str(entry["name"])[len(name) + 1 : -len(".ebuild")]
+        for entry in listing
+        if isinstance(entry, dict) and str(entry.get("name", "")).endswith(".ebuild")
+    ]
+    named = [version for version in versions if version and version != "9999"]
+    return tuple((version, False) for version in sorted(named, key=_version_key, reverse=True))
+
+
+def zfs_kernel_max() -> str:
+    """The highest kernel `sys-fs/zfs` builds a module for, or empty if unread.
+
+    `MODULES_KERNEL_MAX` in the newest ebuild. A real ceiling: 2.4.3 stops at
+    7.0, so a 7.1 kernel leaves a ZFS root with no module to import the pool.
+    """
+    for version, _ in package_versions("sys-fs/zfs"):
+        try:
+            ebuild = _read(f"{GITWEB}/sys-fs/zfs/zfs-{version}.ebuild")
+        except DownloadFailed:
+            return ""
+        for line in ebuild.splitlines():
+            if line.startswith("MODULES_KERNEL_MAX="):
+                return line.split("=", 1)[1].strip().strip("\"'")
+    return ""
+
+
+def _version_key(version: str) -> tuple[int, ...]:
+    """Numeric components, so 6.18.43 sorts above 6.6.148."""
+    parts: list[int] = []
+    for piece in version.replace("-", ".").replace("_", ".").split("."):
+        digits = "".join(takewhile(str.isdigit, piece))
+        if not digits:
+            break
+        parts.append(int(digits))
+    return tuple(parts)
 
 
 def _read(url: str) -> str:

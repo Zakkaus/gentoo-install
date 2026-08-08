@@ -12,7 +12,7 @@ import os
 import shutil
 import sys
 from pathlib import Path
-from typing import Callable, Iterable, Sequence
+from typing import Callable, Final, Iterable, Sequence
 
 from . import errors
 from .data import load_catalog
@@ -86,6 +86,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = parser().parse_args(argv)
     try:
         _require_root(arguments)
+        if _needs_network(arguments):
+            _require_network()
         if arguments.config is None:
             if arguments.missing_commands:
                 # Nothing to derive a layout from, so answer for the commands
@@ -210,6 +212,41 @@ def _absent(wanted: Iterable[str]) -> set[str]:
     return {command for command in wanted if shutil.which(command) is None}
 
 
+#: The overlay that carries the patched kernel. Its packages are on no package
+#: site, so their versions come from the overlay's own listing.
+_OVERLAY_PACKAGES: Final[tuple[str, ...]] = ("sys-kernel/gentoo-cjk-kernel",)
+
+
+def _kernel_versions(atom: str) -> tuple[tuple[str, bool], ...]:
+    if atom in _OVERLAY_PACKAGES:
+        return fetch.overlay_versions(atom)
+    return fetch.package_versions(atom)
+
+
+def _needs_network(arguments: argparse.Namespace) -> bool:
+    """Everything but the two answers a machine can give offline.
+
+    `--missing-commands` lists what is absent and `--config --dry-run` prints a
+    plan; the menu reads every version live and an install fetches a stage3.
+    """
+    if arguments.missing_commands:
+        return False
+    return not (arguments.dry_run and arguments.config is not None)
+
+
+def _require_network() -> None:
+    """Stop at startup rather than halfway through the install.
+
+    Every version the menu offers is read live, so that the installer runs on
+    Alpine or Debian as well as on a Gentoo medium, and no install of any kind
+    finishes without fetching a stage3.
+    """
+    if not fetch.online():
+        raise errors.PreflightFailed(
+            "this machine cannot reach packages.gentoo.org; the installer needs a network"
+        )
+
+
 def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
     """Walk the screens and return what the operator built, or None."""
     runner = Runner(log=lambda line: None)
@@ -223,6 +260,9 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         timezones=probe.timezones(),
         firmware=Firmware.UEFI if probe.machine().uefi else Firmware.BIOS,
         inspect_disk=lambda disk: (probe.partitions(disk), probe.disk_size(disk)),
+        fetch_text=fetch.text,
+        kernel_versions=_kernel_versions,
+        zfs_kernel_max=fetch.zfs_kernel_max(),
         cores=probe.cores(),
         cpu_flags=probe.cpu_flags(),
         supports_v3=probe.supports_v3(),
