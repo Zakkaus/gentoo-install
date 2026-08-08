@@ -344,6 +344,12 @@ SSH: Final[tuple[Setting, ...]] = (
 SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("firmware", "Firmware", _firmware, None),
     Setting("keymap", "Keyboard layout", lambda c, x: c.system.keymap, screens.keymap_screen),
+    Setting(
+        "console_font",
+        "Console font",
+        lambda c, x: c.system.console_font.value,
+        screens.console_font_screen,
+    ),
     Setting("keymap_initramfs", "Keyboard at unlock", _unlock_keymap, screens.initramfs_keymap_screen),
     Setting("locale", "System language", lambda c, x: c.system.locale, screens.locale_screen),
     Setting("timezone", "Timezone", lambda c, x: c.system.timezone, screens.timezone_screen),

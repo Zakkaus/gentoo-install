@@ -15,6 +15,7 @@ from typing import Callable, Final, Sequence, TypeVar
 from ..i18n import Catalog
 from ..model import compat
 from ..model.config import (
+    ConsoleFontSize,
     Binhost,
     BinhostChannel,
     Bootloader,
@@ -1634,6 +1635,34 @@ def keymap_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     return Answer(
         Outcome.CHOSE,
         replace(config, system=replace(config.system, keymap=answer.unwrap() or "us")),
+    )
+
+
+def console_font_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """Cell size of the console font. A rule in `compat.py` refuses the 8x8 one
+    beside console CJK, so the excluded size is drawn with its own reason
+    rather than being offered and then rejected by the validator."""
+    items: list[Item[ConsoleFontSize]] = []
+    for size in ConsoleFontSize:
+        candidate = replace(config, system=replace(config.system, console_font=size))
+        broken = compat.violations(candidate)
+        items.append(
+            Item(
+                label=size.value,
+                value=size,
+                disabled_because=broken[0].reason if broken else "",
+            )
+        )
+    answer = Menu(
+        title=context.translate("Console font"), items=items, footer=footer(context.translate)
+    ).run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    return Answer(
+        Outcome.CHOSE,
+        replace(config, system=replace(config.system, console_font=answer.unwrap()[0])),
     )
 
 

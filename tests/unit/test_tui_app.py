@@ -957,3 +957,24 @@ def test_choosing_the_patched_kernel_turns_its_patch_on() -> None:
     assert any(
         "with cjk on" in one.describe() for one in plan_kernel.build(picked)
     )
+
+
+def test_the_console_font_is_a_row_and_the_size_with_no_cjk_says_why() -> None:
+    """It was settable only by hand-written TOML, and `compat.py` already
+    carries a rule about it: 8x8 has no CJK glyphs, so a Chinese console picked
+    from the menu could not reach the size that draws it."""
+    from gentoo_install.model.config import ConsoleFontSize
+
+    assert "console_font" in {one.key for one in settings.SETTINGS}
+    at = context()
+    cjk = replace(config(), system=replace(config().system, console_cjk=True))
+    screen = FakeScreen(keys=["q", "KEY_DOWN", "\n"], lines=24, columns=100)
+    screens.console_font_screen(screen, cjk, at)
+    drawn = screen.last
+    assert "8x8" in drawn and "16x32" in drawn
+    assert "cjk" in drawn.lower() or "CJK" in drawn
+
+    chosen = screens.console_font_screen(
+        FakeScreen(keys=["KEY_DOWN", "KEY_DOWN", "\n"], lines=24), config(), at
+    )
+    assert chosen.unwrap().system.console_font is ConsoleFontSize.SIZE_16X32
