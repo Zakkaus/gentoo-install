@@ -246,3 +246,81 @@ class Confirm:
         if not answer.chosen:
             return Answer(answer.outcome)
         return Answer(Outcome.CHOSE, answer.unwrap()[0])
+
+
+@dataclass
+class Field:
+    """One line of a `Form`."""
+
+    label: str
+    value: str = ""
+    #: Drawn inside the box while it is empty.
+    placeholder: str = ""
+
+
+@dataclass
+class Form:
+    """Several fields on one screen, moved between with the arrow keys.
+
+    One field per screen makes the operator answer six questions without ever
+    seeing them together, and a network address is exactly the case where the
+    six have to be read as one setting.
+    """
+
+    title: str
+    fields: list[Field]
+    footer: str = ""
+    done: str = "Done"
+
+    def run(self, screen: Screen) -> Answer[list[str]]:
+        typed = [list(field.value) for field in self.fields]
+        #: The last row is the one that submits, so it is a row like the others
+        #: and reachable the same way.
+        cursor = 0
+        while True:
+            self._draw(screen, typed, cursor)
+            pressed = screen.key()
+            if pressed in ("KEY_UP",):
+                cursor = max(0, cursor - 1)
+            elif pressed in ("KEY_DOWN",):
+                cursor = min(len(self.fields), cursor + 1)
+            elif pressed in ("\n", "KEY_ENTER"):
+                if cursor == len(self.fields):
+                    return Answer(Outcome.CHOSE, ["".join(one) for one in typed])
+                cursor += 1
+            elif pressed in ("\x7f", "KEY_BACKSPACE"):
+                if cursor < len(self.fields) and typed[cursor]:
+                    typed[cursor].pop()
+            elif pressed in CANCEL:
+                return Answer(Outcome.CANCELLED)
+            elif len(pressed) == 1 and pressed.isprintable() and cursor < len(self.fields):
+                typed[cursor].append(pressed)
+
+    def _draw(self, screen: Screen, typed: list[list[str]], cursor: int) -> None:
+        lines, columns = screen.size()
+        screen.clear()
+        screen.write(0, 0, truncate(self.title, columns))
+        widest = max((width(field.label) for field in self.fields), default=0)
+        room = columns - widest - 10
+        for index, field in enumerate(self.fields):
+            row = index + 2
+            if row >= lines - 1:
+                break
+            screen.write(row, 2, field.label)
+            shown = "".join(typed[index])
+            while width(shown) > room - 1:
+                shown = shown[1:]
+            inside = truncate(field.placeholder, room) if not shown else shown
+            if index == cursor:
+                inside = f"{shown}_" if shown else inside
+            screen.write(
+                row,
+                widest + 4,
+                f"[ {inside}{' ' * max(0, room - width(inside))} ]",
+                highlight=index == cursor,
+            )
+        end = min(len(self.fields) + 3, lines - 2)
+        screen.write(end, 2, self.done, highlight=cursor == len(self.fields))
+        if self.footer:
+            screen.write(lines - 1, 0, truncate(self.footer, columns))
+        screen.show()

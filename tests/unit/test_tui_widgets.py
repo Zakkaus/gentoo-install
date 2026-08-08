@@ -1,6 +1,15 @@
 from __future__ import annotations
 
-from gentoo_install.tui.widgets import Answer, Confirm, Item, Menu, Outcome, TextField
+from gentoo_install.tui.widgets import (
+    Answer,
+    Confirm,
+    Field,
+    Form,
+    Item,
+    Menu,
+    Outcome,
+    TextField,
+)
 
 from .fake_screen import FakeScreen
 
@@ -148,3 +157,43 @@ def test_q_is_a_character_in_a_field_and_a_way_out_of_a_menu() -> None:
     assert field.run(FakeScreen(keys=[*"qemu", "\n"])).unwrap() == "qemu"
     menu: Menu[int] = Menu(title="t", items=[Item(label="one", value=1)])
     assert menu.run(FakeScreen(keys=["q"])).outcome is Outcome.CANCELLED
+
+
+def test_a_form_moves_between_its_fields_with_the_arrow_keys() -> None:
+    """One field per screen makes the operator answer six questions without
+    ever seeing them together, which is the failure this replaces."""
+    form = Form(
+        title="Network",
+        fields=[Field(label="Address"), Field(label="Gateway"), Field(label="DNS")],
+    )
+    keys = [
+        *"10.0.0.2/24", "KEY_DOWN",
+        *"10.0.0.1", "KEY_DOWN",
+        *"1.1.1.1", "KEY_DOWN", "\n",
+    ]
+    answered = form.run(FakeScreen(keys=keys, lines=30, columns=100))
+    assert answered.unwrap() == ["10.0.0.2/24", "10.0.0.1", "1.1.1.1"]
+
+
+def test_a_form_edits_the_field_the_cursor_is_on_and_no_other() -> None:
+    form = Form(title="t", fields=[Field(label="a", value="one"), Field(label="b", value="two")])
+    keys = ["KEY_DOWN", "\x7f", "\x7f", "\x7f", *"three", "KEY_DOWN", "\n"]
+    assert form.run(FakeScreen(keys=keys, lines=20, columns=80)).unwrap() == ["one", "three"]
+
+
+def test_a_form_shows_every_field_at_once() -> None:
+    form = Form(
+        title="Network",
+        fields=[Field(label="Address", placeholder="10.0.0.2/24"), Field(label="DNS")],
+    )
+    screen = FakeScreen(keys=["KEY_DOWN", "KEY_DOWN", "\n"], lines=20, columns=90)
+    form.run(screen)
+    drawn = screen.frames[0]
+    assert any("Address" in line and "10.0.0.2/24" in line for line in drawn), drawn
+    assert any("DNS" in line for line in drawn)
+    assert any("Done" in line for line in drawn)
+
+
+def test_escape_leaves_a_form_without_an_answer() -> None:
+    form = Form(title="t", fields=[Field(label="a")])
+    assert form.run(FakeScreen(keys=["\x1b"])).outcome is Outcome.CANCELLED

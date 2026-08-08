@@ -28,9 +28,15 @@ class FakeScreen:
         self._current = {}
 
     def write(self, line: int, column: int, text: str, highlight: bool = False) -> None:
+        """Merged into the row at that column, the way curses does it.
+
+        Replacing the row would hide a widget writing two things over each
+        other, which is exactly what a screen made of columns can get wrong.
+        """
         assert 0 <= line < self.lines, f"row {line} is off a {self.lines}-line screen"
         assert column + width(text) <= self.columns, f"{text!r} runs past column {self.columns}"
-        self._current[line] = " " * column + text
+        row = self._current.get(line, "").ljust(column)
+        self._current[line] = row[:column] + text + row[column + len(text):]
         if highlight:
             self.highlighted.append(text)
 
