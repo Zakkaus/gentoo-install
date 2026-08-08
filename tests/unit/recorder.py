@@ -33,6 +33,8 @@ class Recorder:
         self.commands.append(tuple(argv))
         if input_text is not None:
             self.stdin.append(input_text)
+        if argv[0] in self.failures:
+            raise CommandFailed(f"{argv[0]} exited 1")
         return self.replies.get(argv[0], "")
 
     def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:

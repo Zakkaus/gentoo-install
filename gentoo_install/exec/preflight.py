@@ -34,7 +34,9 @@ ALWAYS: Final[tuple[str, ...]] = (
 
 #: What each part of a layout adds. Derived from the graph, never a second list.
 BY_FEATURE: Final[dict[str, tuple[str, ...]]] = {
-    "gpt": ("sgdisk", "partprobe", "wipefs"),
+    # `partprobe` is absent here on purpose: it comes from parted, and
+    # `RereadPartitionTable` falls back to `blockdev --rereadpt` without it.
+    "gpt": ("sgdisk", "blockdev", "wipefs"),
     "mbr": ("parted", "partprobe", "wipefs"),
     "luks": ("cryptsetup",),
     "mdraid": ("mdadm",),

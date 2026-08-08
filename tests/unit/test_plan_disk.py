@@ -212,3 +212,16 @@ def test_the_topological_order_is_the_same_every_time() -> None:
 def test_every_disk_operation_lands_in_a_disk_stage() -> None:
     allowed = {Stage.PARTITION, Stage.ARRAY, Stage.FORMAT, Stage.ZFS, Stage.MOUNT}
     assert {operation.stage for operation in disk.build(config(zfs_root()))} <= allowed
+
+
+def test_the_table_is_reread_without_parted_installed() -> None:
+    """`partprobe` comes from parted, which a gpt-only medium has no other
+    reason to carry, and a table nobody rereads leaves no partition nodes."""
+    recorder = Recorder(failures={"partprobe"})
+    disk.RereadPartitionTable(disk=i("disk")).apply(recorder)
+    assert ("blockdev", "--rereadpt", "/dev/mapper/disk") in recorder.commands
+    assert recorder.degraded("partprobe")
+
+    plain = Recorder()
+    disk.RereadPartitionTable(disk=i("disk")).apply(plain)
+    assert not any(argv[0] == "blockdev" for argv in plain.commands)

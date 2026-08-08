@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Final
 
-from ..errors import InvalidLayout
+from ..errors import CommandFailed, InvalidLayout
 from ..model.config import InstallConfig
 from ..model.device import (
     DeviceGraph,
@@ -188,7 +188,14 @@ class RereadPartitionTable(Operation):
         return f"reread the partition table of {self.disk} and wait for its nodes"
 
     def apply(self, context: Context) -> None:
-        context.run(["partprobe", context.device_path(self.disk)])
+        path = context.device_path(self.disk)
+        try:
+            context.run(["partprobe", path])
+        except CommandFailed as error:
+            # util-linux ships `blockdev` on every medium; `partprobe` comes
+            # from parted, which a gpt-only medium has no other reason to carry.
+            context.degrade("partprobe", f"blockdev rereads the table instead: {error}")
+            context.run(["blockdev", "--rereadpt", path])
         context.run(["udevadm", "settle"])
 
 
