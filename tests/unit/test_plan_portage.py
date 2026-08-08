@@ -235,3 +235,20 @@ def test_a_failed_community_key_leaves_the_official_host_alone() -> None:
     assert "--getbinpkg=y" in next(argv for argv in recorder.in_target if argv[0] == "emerge")
 
 
+def test_named_atoms_are_accepted_without_opening_the_whole_system() -> None:
+    """The third scope: the rest of the system keeps the guarantee stable
+    carries, so the binary host still matches."""
+    wanted = replace(
+        config(),
+        portage=replace(config().portage, testing_packages=("app-editors/neovim", "app-misc/tmux")),
+    )
+    recorder = Recorder()
+    for operation in portage.build(wanted, "https://distfiles.gentoo.org"):
+        if isinstance(operation, portage.AcceptTestingPackages):
+            operation.apply(recorder)
+    written = recorder.files[PurePosixPath("/etc/portage/package.accept_keywords/user")]
+    assert written == "app-editors/neovim ~amd64\napp-misc/tmux ~amd64\n"
+    assert not any(
+        isinstance(operation, portage.AcceptTestingGlobally)
+        for operation in portage.build(wanted, "https://distfiles.gentoo.org")
+    )

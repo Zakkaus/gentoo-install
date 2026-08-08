@@ -143,7 +143,7 @@ def _portage(raw: Mapping[str, Any], at: str) -> PortageConfig:
         raw,
         at,
         {
-            "profile", "keywords", "makeopts", "common_flags", "use", "video_cards",
+            "profile", "keywords", "testing_packages", "makeopts", "common_flags", "use", "video_cards",
             "accept_license", "mirrors", "binhost", "overlays",
         },
     )
@@ -151,6 +151,7 @@ def _portage(raw: Mapping[str, Any], at: str) -> PortageConfig:
     return PortageConfig(
         profile=_str(raw, "profile", at, default.profile),
         keywords=_enum(raw, "keywords", at, Keywords, default.keywords),
+        testing_packages=_strings(raw, "testing_packages", at, default.testing_packages),
         makeopts=_str(raw, "makeopts", at, default.makeopts),
         common_flags=_str(raw, "common_flags", at, default.common_flags),
         use=_strings(raw, "use", at, default.use),

@@ -122,6 +122,8 @@ class Binhost:
 class PortageConfig:
     profile: str = "default/linux/amd64/23.0"
     keywords: Keywords = Keywords.STABLE
+    #: Atoms accepted as testing while the rest of the system stays stable.
+    testing_packages: tuple[str, ...] = ()
     makeopts: str = ""
     common_flags: str = "-O2 -pipe"
     use: tuple[str, ...] = ()

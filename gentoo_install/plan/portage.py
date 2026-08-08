@@ -396,6 +396,22 @@ class ConfigureBinhost(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
+class AcceptTestingPackages(Operation):
+    """A third scope beside stable and global testing: named atoms only, so the
+    rest of the system keeps the guarantee stable carries."""
+
+    stage: Stage = Stage.PORTAGE
+    packages: tuple[str, ...]
+
+    def describe(self) -> str:
+        return f"accept ~amd64 for {' '.join(self.packages)} and nothing else"
+
+    def apply(self, context: Context) -> None:
+        lines = "".join(f"{atom} ~amd64\n" for atom in self.packages)
+        context.write(PurePosixPath("/etc/portage/package.accept_keywords/user"), lines)
+
+
+@dataclass(frozen=True, kw_only=True)
 class AcceptTestingGlobally(Operation):
     """Last, never earlier. Opening `~amd64` before the system is installed
     drags the whole install into an unmask chain."""
@@ -455,6 +471,8 @@ def build(
             SyncRepository(name=overlay.name, location=location),
             AcceptOverlayKeywords(repository=overlay.name),
         ]
+    if portage.testing_packages:
+        operations.append(AcceptTestingPackages(packages=portage.testing_packages))
     if _uses_binhost(portage):
         operations.append(PrepareBinhostTrust())
     if portage.binhost.community is not BinhostChannel.OFF:
