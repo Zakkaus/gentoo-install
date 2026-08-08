@@ -38,9 +38,14 @@ class Recorder:
         return self.replies.get(argv[0], "")
 
     def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
+        """`check=False` returns the output and raises nothing, the way the real
+        one does: a double that raises anyway hides every caller that reads an
+        exit code for itself."""
         self.in_target.append(tuple(argv))
         if argv[0] in self.failures:
-            raise CommandFailed(f"{argv[0]} exited 1")
+            if check:
+                raise CommandFailed(f"{argv[0]} exited 1")
+            return self.replies.get(argv[0], "")
         return self.replies.get(argv[0], "1")
 
     def write(self, path: PurePosixPath, content: str, *, mode: int = 0o644) -> None:

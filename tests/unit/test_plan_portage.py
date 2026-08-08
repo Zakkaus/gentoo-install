@@ -274,6 +274,28 @@ def test_a_package_name_that_matches_nothing_stops_before_the_disks_fill() -> No
     portage.VerifyPackages(packages=("app-editors/neovim",)).apply(Recorder())
 
 
+def test_a_package_the_licence_refuses_is_named_as_that_and_not_as_a_typo() -> None:
+    """The two have different answers: one is a name to correct, the other is
+    ACCEPT_LICENSE to widen. Reporting both as "no ebuild matches" sends the
+    operator hunting for a spelling mistake that is not there."""
+    recorder = Recorder(failures={"emerge"})
+    recorder.replies["emerge"] = (
+        "The following license changes are necessary to proceed:\n"
+        "#required by www-client/google-chrome\n"
+        ">=www-client/google-chrome-1 google-chrome"
+    )
+    check = portage.VerifyPackages(packages=("www-client/google-chrome",))
+    with pytest.raises(ConfigError, match="ACCEPT_LICENSE refuses"):
+        check.apply(recorder)
+
+
+def test_the_licence_choice_is_not_undone_by_autounmask() -> None:
+    """`--autounmask-license=y` with `--write` and `--continue` writes the
+    acceptance itself, which makes @FREE a suggestion rather than a refusal."""
+    assert "--autounmask-license=y" not in portage.EMERGE_OPTIONS
+    assert "--autounmask-use=y" in portage.EMERGE_OPTIONS
+
+
 def test_the_stage3_make_conf_is_edited_and_not_replaced() -> None:
     """It ships comments and a CHOST nobody should be rewriting, and its
     COMMON_FLAGS is what Gentoo built the binary packages against."""

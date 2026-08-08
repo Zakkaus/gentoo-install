@@ -49,11 +49,14 @@ AUTOUNMASK_FILES: Final[tuple[str, ...]] = (
     "/etc/portage/package.license/zz-autounmask",
 )
 
-#: Never `--binpkg-respect-use=y` with these: it overrides `--autounmask-use=y`
-#: and the two together leave autounmask doing nothing.
+#: No `--autounmask-license`: with `--autounmask-write` and `--continue` it
+#: writes the acceptance itself, so ACCEPT_LICENSE stops refusing anything and
+#: the operator's choice of @FREE becomes a suggestion. A licence the set does
+#: not cover is a package group declaring it, or an install that stops.
+#: Never `--binpkg-respect-use=y` with these either: it overrides
+#: `--autounmask-use=y` and the two together leave autounmask doing nothing.
 EMERGE_OPTIONS: Final[tuple[str, ...]] = (
     "--verbose",
-    "--autounmask-license=y",
     "--autounmask-use=y",
     "--autounmask-write=y",
     "--autounmask-continue=y",
@@ -421,31 +424,52 @@ class ConfigureBinhost(Operation):
 
 @dataclass(frozen=True, kw_only=True)
 class VerifyPackages(Operation):
-    """Every atom the operator typed has to resolve to an ebuild.
+    """Every atom the operator typed has to resolve, and be installable.
 
-    Asked here, right after the tree is synced and before anything is built: a
-    name that matches nothing otherwise stops the run at the packages stage,
-    hours in and with the disks already written.
+    Asked here, right after the tree is synced and before anything is built: an
+    atom that names nothing, or one whose licence `ACCEPT_LICENSE` refuses,
+    otherwise stops the run at the packages stage, hours in and with the disks
+    already written.
     """
 
     stage: Stage = Stage.PORTAGE
     packages: tuple[str, ...]
 
     def describe(self) -> str:
-        return f"check that {' '.join(self.packages)} name real packages"
+        return f"check that {' '.join(self.packages)} name packages this system will install"
 
     def apply(self, context: Context) -> None:
         missing: list[str] = []
+        refused: list[str] = []
         for atom in self.packages:
-            try:
-                context.run_in_target(["emerge", "--pretend", "--quiet", "--nodeps", "--", atom])
-            except CommandFailed:
-                missing.append(atom)
+            probe = ["emerge", "--pretend", "--quiet", "--nodeps", "--", atom]
+            output = context.run_in_target(probe, check=False)
+            if "license" not in output.lower() and _resolves(context, atom):
+                continue
+            # Told apart because the answers differ: one is a typo, the other
+            # is a licence the operator chose not to accept.
+            (refused if "license" in output.lower() else missing).append(atom)
+        problems: list[str] = []
         if missing:
-            raise ConfigError(
+            problems.append(
                 f"no ebuild matches {', '.join(missing)}; check the name, or add the "
                 "overlay that carries it"
             )
+        if refused:
+            problems.append(
+                f"ACCEPT_LICENSE refuses {', '.join(refused)}; widen it on the compiler "
+                "screen, or drop the package"
+            )
+        if problems:
+            raise ConfigError("; ".join(problems))
+
+
+def _resolves(context: Context, atom: str) -> bool:
+    try:
+        context.run_in_target(["emerge", "--pretend", "--quiet", "--nodeps", "--", atom])
+    except CommandFailed:
+        return False
+    return True
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -530,6 +554,16 @@ def build(
             ),
             SyncRepository(name="gentoo", location=gentoo),
         ]
+    if portage.overlays and portage.sync is not Sync.GIT:
+        # Every overlay is a git repository whichever way the main tree syncs,
+        # and a stage3 has no git: without this the first overlay sync fails.
+        operations.append(
+            Emerge(
+                stage=Stage.PORTAGE,
+                packages=("dev-vcs/git",),
+                summary="install git, which the overlays are cloned with",
+            )
+        )
     for overlay in portage.overlays:
         location = PurePosixPath(f"/var/db/repos/{overlay.name}")
         operations += [
@@ -542,10 +576,12 @@ def build(
             SyncRepository(name=overlay.name, location=location),
             AcceptOverlayKeywords(repository=overlay.name),
         ]
+    if portage.testing_packages:
+        # Before the check below: an atom accepted as testing is one the
+        # verifier would otherwise report as having no ebuild at all.
+        operations.append(AcceptTestingPackages(packages=portage.testing_packages))
     if config.packages.extra:
         operations.append(VerifyPackages(packages=config.packages.extra))
-    if portage.testing_packages:
-        operations.append(AcceptTestingPackages(packages=portage.testing_packages))
     if _uses_binhost(portage):
         operations.append(PrepareBinhostTrust())
     if portage.binhost.official:
