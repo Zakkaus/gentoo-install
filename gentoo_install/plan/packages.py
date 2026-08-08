@@ -205,7 +205,7 @@ class WriteInputMethodProfile(Operation):
 
 def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
     _check_repositories(config, catalog)
-    operations: list[Operation] = []
+    operations: list[Operation] = _session_services(config)
     for group in groups(config, catalog):
         if group.packages:
             operations.append(
@@ -316,13 +316,25 @@ DISPLAY_MANAGER_CONF: Final[PurePosixPath] = PurePosixPath("/etc/conf.d/display-
 OPENRC_SESSION: Final[tuple[tuple[str, str], ...]] = (("dbus", "default"), ("elogind", "boot"))
 
 
+def _session_services(config: InstallConfig) -> list[Operation]:
+    """What a graphical session needs running before anything can start one.
+
+    Emitted for the desktop and not for the display manager: a desktop chosen
+    with no manager still needs dbus and elogind, and without them the machine
+    boots to a console with a desktop it cannot start.
+    """
+    if config.system.init is InitSystem.SYSTEMD or not config.packages.desktop:
+        return []
+    return [
+        EnableService(stage=Stage.PACKAGES, service=service, init=config.system.init, runlevel=runlevel)
+        for service, runlevel in OPENRC_SESSION
+    ]
+
+
 def _display_manager(name: str, init: InitSystem) -> list[Operation]:
     if init is InitSystem.SYSTEMD:
         return [EnableService(stage=Stage.PACKAGES, service=name, init=init)]
     return [
-        EnableService(stage=Stage.PACKAGES, service=service, init=init, runlevel=runlevel)
-        for service, runlevel in OPENRC_SESSION
-    ] + [
         Emerge(
             stage=Stage.PACKAGES,
             packages=(DISPLAY_MANAGER_INIT,),

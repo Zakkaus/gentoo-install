@@ -398,3 +398,36 @@ def test_a_desktop_on_openrc_gets_the_session_services_systemd_provides() -> Non
         for one in plan_packages.build(systemd, catalog)
         if isinstance(one, EnableService)
     ] == ["sddm"]
+
+
+def test_an_openrc_desktop_gets_dbus_and_elogind_without_a_display_manager() -> None:
+    """They were emitted only inside `_display_manager`, so a desktop chosen
+    with no manager booted to a console with a desktop it cannot start."""
+    from dataclasses import replace as _replace
+    from pathlib import Path as _Path
+
+    from gentoo_install.data import load_catalog
+    from gentoo_install.model.config import InitSystem
+    from gentoo_install.model.parse import load
+    from gentoo_install.plan.build import build
+    from gentoo_install.plan.packages import OPENRC_SESSION
+    from gentoo_install.plan.system import EnableService
+
+    desktop = load(_Path("tests/fixtures/vm-desktop.toml"))
+    assert not desktop.packages.display_manager
+    openrc = _replace(
+        desktop,
+        system=_replace(desktop.system, init=InitSystem.OPENRC),
+        portage=_replace(desktop.portage, profile="default/linux/amd64/23.0/desktop/plasma"),
+    )
+    enabled = {
+        one.service for one in build(openrc, load_catalog()) if isinstance(one, EnableService)
+    }
+    assert {service for service, _ in OPENRC_SESSION} <= enabled
+
+    # No desktop, no session services: systemd needs none of this either.
+    console = _replace(openrc, packages=_replace(openrc.packages, desktop="", applications=()))
+    plain = {
+        one.service for one in build(console, load_catalog()) if isinstance(one, EnableService)
+    }
+    assert not {service for service, _ in OPENRC_SESSION} & plain
