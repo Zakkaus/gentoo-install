@@ -243,9 +243,12 @@ def run_installer(console: SerialConsole, config: str, extra: str = "") -> None:
     # that takes half an hour, and a redirect makes it silent until it ends.
     # Through the launcher, not python directly: that is the entry point an
     # operator uses, so every run exercises it.
+    # The exit code is written inside the pipeline's first stage rather than
+    # read from PIPESTATUS afterwards: that is a bash array, and a live system
+    # running busybox ash answers `bad substitution` and never finishes.
     console.run(
-        f"cd /mnt/driver && sh ./bootstrap.sh --config {config} {extra} 2>&1 "
-        f"| tee {RESULT_DIR}/install.txt; echo ${{PIPESTATUS[0]}} > {RESULT_DIR}/install.rc",
+        f"cd /mnt/driver && {{ sh ./bootstrap.sh --config {config} {extra}; "
+        f"echo $? > {RESULT_DIR}/install.rc; }} 2>&1 | tee {RESULT_DIR}/install.txt",
         timeout=3600.0,
     )
     console.run(f"cp /mnt/driver/{config} {RESULT_DIR}/config.toml 2>/dev/null || true")
