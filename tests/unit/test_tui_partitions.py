@@ -489,3 +489,18 @@ def test_the_partitions_row_belongs_to_whichever_mode_the_layout_chose() -> None
     screens.partitions_row(kept, config(), at)
     assert "A new partition table" not in "\n".join(kept.frames[0])
     assert at.layout.reused
+
+
+def test_a_reused_layout_says_what_it_does_with_the_partition_table() -> None:
+    """`build_reused` writes no table, so the row read `not set` for ever and
+    every answer given to it looked like it had not taken."""
+    from gentoo_install.tui import settings
+
+    at = context()
+    row = next(one for one in settings.DISK if one.key == "table")
+    assert row.value(config(), at) == "gpt"
+    assert not row.unavailable(config(), at)
+
+    at.layout.reused = [manual.Reused(selector="/dev/vda1")]
+    assert row.value(config(), at) != settings.UNSET
+    assert row.unavailable(config(), at)

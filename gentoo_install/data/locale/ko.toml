@@ -298,3 +298,5 @@
 "A new partition table" = "새 파티션 표"
 "on the disk now; the new table replaces it" = "디스크의 현재 내용. 새 표가 대체함"
 "follow the BIOS" = "BIOS를 따름"
+"the one already on the disk" = "디스크에 있는 기존 것"
+"a reused layout writes no table" = "기존 유지 시 표를 쓰지 않음"

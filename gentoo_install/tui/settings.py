@@ -298,8 +298,21 @@ def _drive(config: InstallConfig, context: Context) -> str:
 
 
 def _table(config: InstallConfig, context: Context) -> str:
+    """What the graph holds, or what a reuse layout does instead.
+
+    `build_reused` writes no partition table at all, so the row read `not set`
+    for ever and every answer given to it looked like it had not taken.
+    """
+    if context.layout.reused:
+        return context.translate("the one already on the disk")
     tables = {node.table.value for node in config.disk.graph.of_type(PartitionTable)}
     return ", ".join(sorted(tables)) if tables else UNSET
+
+
+def _reuse_writes_no_table(config: InstallConfig, context: Context) -> str:
+    if context.layout.reused:
+        return context.translate("a reused layout writes no table")
+    return ""
 
 
 def _layout(config: InstallConfig, context: Context) -> str:
@@ -413,7 +426,10 @@ def _cjk_kernel_only(config: InstallConfig, context: Context) -> str:
 #: decisions; behind one row they read as the layout they describe.
 DISK: Final[tuple[Setting, ...]] = (
     Setting("disk", "Drive", _drive, screens.disk_screen, required=True),
-    Setting("table", "Partition table", _table, screens.table_screen),
+    Setting(
+        "table", "Partition table", _table, screens.table_screen,
+        unavailable=_reuse_writes_no_table,
+    ),
     Setting("layout", "Layout", _layout, screens.layout_screen),
     Setting(
         "partitions", "Partitions", _partitions, screens.partitions_row,

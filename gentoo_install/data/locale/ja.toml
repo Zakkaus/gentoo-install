@@ -298,3 +298,5 @@
 "A new partition table" = "新しいパーティション表"
 "on the disk now; the new table replaces it" = "ディスクの現在の内容。新しい表が置き換える"
 "follow the BIOS" = "BIOS に従う"
+"the one already on the disk" = "ディスクにある既存のもの"
+"a reused layout writes no table" = "既存を流用する場合は表を書かない"

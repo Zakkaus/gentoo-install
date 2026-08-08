@@ -298,3 +298,5 @@
 "A new partition table" = "新的分割表"
 "on the disk now; the new table replaces it" = "磁碟現有內容，新的分割表會取代它"
 "follow the BIOS" = "跟隨 BIOS"
+"the one already on the disk" = "沿用磁碟上原有的"
+"a reused layout writes no table" = "沿用既有分割區不寫分割表"
