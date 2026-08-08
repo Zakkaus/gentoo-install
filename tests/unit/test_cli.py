@@ -10,6 +10,8 @@ import pytest
 from gentoo_install import cli
 from gentoo_install.exec import fetch
 from gentoo_install.cli import EXIT_CONFIG, EXIT_OK, EXIT_PREFLIGHT, main
+from gentoo_install.errors import ConfigError
+from gentoo_install.model.parse import load
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
@@ -254,3 +256,25 @@ def test_an_unattended_run_is_never_asked_about_a_shell(
     said: list[str] = []
     cli._offer_a_shell(arguments, cast(Machine, None), said.append, False)
     assert not said and not capsys.readouterr().out
+
+
+def test_a_saved_configuration_loads_back_into_the_same_install(tmp_path: Path) -> None:
+    """The point of saving is an unattended second run, so the file has to be
+    one `--config` accepts, not a record of what was chosen."""
+    original = load(FIXTURES / "vm-zfs.toml")
+    where = cli._save_config(original, str(tmp_path / "my-install.toml"))
+    assert Path(where).read_text().startswith("config_version")
+    assert load(Path(where)) == original
+
+
+def test_a_bare_name_is_saved_where_the_installer_was_started(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    where = cli._save_config(load(FIXTURES / "vm-zfs.toml"), "my-install.toml")
+    assert where == str(tmp_path / "my-install.toml")
+
+
+def test_a_path_that_cannot_be_written_names_the_path_and_the_reason() -> None:
+    with pytest.raises(ConfigError, match="cannot write /proc/nope/my-install.toml"):
+        cli._save_config(load(FIXTURES / "vm-zfs.toml"), "/proc/nope/my-install.toml")

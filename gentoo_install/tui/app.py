@@ -9,13 +9,18 @@ own, because installing is a task people change their minds during.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Final
 
 from ..model.config import InstallConfig
 from ..model.validate import validate
-from ..errors import ValidationFailed
-from .screens import Context, answers, overview_screen
+from ..errors import GentooInstallError, ValidationFailed
+from .screens import Context, overview_screen
 from .settings import SETTINGS, UNSET, Setting, style_of, unanswered
-from .widgets import Confirm, Item, Menu, Outcome, Screen
+from .widgets import Item, Menu, Outcome, Screen, TextField
+
+
+#: The default name for a saved configuration, offered as the field's example.
+SAVE_AS: Final[str] = "my-install.toml"
 
 
 @dataclass(frozen=True)
@@ -23,6 +28,9 @@ class Finished:
     """What the operator ended with, and whether they meant to."""
 
     config: InstallConfig | None
+    #: Where the configuration was written on the way out, for `cli.py` to
+    #: print once curses has given the terminal back.
+    saved: str = ""
 
     @property
     def cancelled(self) -> bool:
@@ -71,8 +79,9 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
         answer = menu.run(screen)
         cursor = menu.cursor
         if not answer.chosen:
-            if _leaving(screen, context):
-                return Finished(None)
+            left = _leaving(screen, current, context)
+            if left is not None:
+                return left
             continue
         chosen = answer.unwrap()[0]
         if chosen == len(SETTINGS):
@@ -81,8 +90,10 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
             seen = overview_screen(screen, current, context)
             if seen.chosen:
                 return Finished(seen.unwrap())
-            if seen.outcome is Outcome.CANCELLED and _leaving(screen, context):
-                return Finished(None)
+            if seen.outcome is Outcome.CANCELLED:
+                left = _leaving(screen, current, context)
+                if left is not None:
+                    return left
             continue
         editor = SETTINGS[chosen].edit
         if editor is None:
@@ -90,8 +101,9 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
         context.visited.add(SETTINGS[chosen].key)
         edited = editor(screen, current, context)
         if edited.outcome is Outcome.CANCELLED:
-            if _leaving(screen, context):
-                return Finished(None)
+            left = _leaving(screen, current, context)
+            if left is not None:
+                return left
             # A grouped row hands back what was edited inside it, so staying
             # keeps those answers instead of dropping the whole group.
             if edited.value is not None:
@@ -108,15 +120,41 @@ def _drawn(setting: Setting, config: InstallConfig, context: Context) -> str:
     return context.translate(value) if value == UNSET else value
 
 
-def _leaving(screen: Screen, context: Context) -> bool:
+def _leaving(screen: Screen, config: InstallConfig, context: Context) -> Finished | None:
     """Asked rather than obeyed, and asked wherever the escape came from: one
     stray key should not throw away every answer the operator has entered."""
-    leaving = Confirm(
-        **answers(context.translate),
+    menu: Menu[str] = Menu(
         title=context.translate("Leave without installing?"),
+        items=[
+            Item(label=context.translate("Back to the menu"), value="stay"),
+            Item(label=context.translate("Leave"), value="leave"),
+            Item(label=context.translate("Save the configuration and leave"), value="save"),
+        ],
         footer=context.translate("Cancel"),
-    ).run(screen)
-    return leaving.chosen and leaving.unwrap()
+    )
+    answer = menu.run(screen)
+    if not answer.chosen or answer.unwrap()[0] == "stay":
+        return None
+    if answer.unwrap()[0] == "leave":
+        return Finished(None)
+    return _saving(screen, config, context)
+
+
+def _saving(screen: Screen, config: InstallConfig, context: Context) -> Finished | None:
+    """Ask for a name and write the file, retrying on the message the write
+    failed with: a path that cannot be written is a typo far more often than a
+    reason to throw away every answer."""
+    title = context.translate("Save the configuration as")
+    while True:
+        typed = TextField(
+            title=title, placeholder=SAVE_AS, footer=context.translate("Cancel")
+        ).run(screen)
+        if not typed.chosen:
+            return None
+        try:
+            return Finished(None, saved=context.save_config(config, typed.unwrap() or SAVE_AS))
+        except GentooInstallError as error:
+            title = str(error)
 
 
 def _blocked(config: InstallConfig, context: Context) -> str:

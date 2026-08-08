@@ -38,6 +38,7 @@ from .model.config import (
     PortageConfig,
 )
 from .model.parse import load
+from .model.serialise import to_toml
 from .plan.build import DEFAULT_MIRROR, build
 from .plan.operations import Operation, Stage
 from .plan.render import render, summarise
@@ -362,6 +363,7 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         cores=probe.cores(),
         cpu_flags=probe.cpu_flags(),
         supports_v3=probe.supports_v3(),
+        save_config=_save_config,
     )
     if not context.disks:
         raise errors.DeviceNotFound("this machine reports no disk to install onto")
@@ -398,6 +400,8 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         raise errors.PreflightFailed(
             f"the menu needs a terminal and this is not one ({error}); pass --config FILE"
         ) from error
+    if finished.saved:
+        print(f"wrote {finished.saved}")
     return finished.config
 
 
@@ -448,6 +452,23 @@ def _require_root(arguments: argparse.Namespace) -> None:
     if arguments.dry_run or arguments.missing_commands or os.geteuid() == 0:
         return
     raise errors.PreflightFailed("run as root")
+
+
+def _save_config(config: InstallConfig, name: str) -> str:
+    """Write the menu's answers where the operator started the installer.
+
+    The working directory, not the work directory: the latter is a tmpfs on an
+    install medium and the point of saving is to still have the file after the
+    reboot.
+    """
+    where = Path(name).expanduser()
+    if not where.is_absolute():
+        where = Path.cwd() / where
+    try:
+        write_file(where, to_toml(config))
+    except OSError as error:
+        raise errors.ConfigError(f"cannot write {where}: {error.strerror}") from error
+    return str(where)
 
 
 def _stage_passphrase(passphrase: str, work: Path) -> str:

@@ -5,10 +5,12 @@ from dataclasses import replace
 import pytest
 
 from gentoo_install.data import load_catalog
+from gentoo_install.errors import ConfigError
 from gentoo_install.i18n import Catalog
 from gentoo_install.model.config import (
     Bootloader,
     InitSystem,
+    InstallConfig,
     Keywords,
     MirrorConfig,
     MirrorRegion,
@@ -333,6 +335,49 @@ def test_escape_asks_before_throwing_the_answers_away() -> None:
     assert "Leave without installing?" in seen
     # The menu was drawn again after the first refusal.
     assert seen.count("Keyboard layout") >= 2
+
+
+def test_the_answers_can_be_saved_to_a_file_on_the_way_out() -> None:
+    """Leaving with nothing written throws away every answer, and the operator
+    who wanted an unattended run has to type them all again."""
+    at = context()
+    written: list[tuple[str, str]] = []
+
+    def save(config: InstallConfig, name: str) -> str:
+        written.append((name, config.system.hostname))
+        return f"/root/{name}"
+
+    at.save_config = save
+    # Escape, step to the third row, take the name the field offers.
+    screen = FakeScreen(keys=["q", *down(2), "\n", "\n"])
+    finished = run(screen, config(), at)
+    assert finished.cancelled
+    assert finished.saved == "/root/my-install.toml"
+    assert written == [("my-install.toml", config().system.hostname)]
+
+
+def test_a_name_that_cannot_be_written_is_asked_again() -> None:
+    """The alternative is ending the run on a typo, with the answers gone."""
+    at = context()
+    refused = ["/proc/nope.toml"]
+
+    def save(config: InstallConfig, name: str) -> str:
+        if name in refused:
+            raise ConfigError(f"cannot write {name}: Permission denied")
+        return f"/root/{name}"
+
+    at.save_config = save
+    keys = ["q", *down(2), "\n", *"/proc/nope.toml", "\n", *"kept.toml", "\n"]
+    screen = FakeScreen(keys=keys)
+    finished = run(screen, config(), at)
+    assert finished.saved == "/root/kept.toml"
+    assert "Permission denied" in "\n".join("\n".join(frame) for frame in screen.frames)
+
+
+def test_leaving_without_saving_writes_nothing() -> None:
+    at = context()
+    at.save_config = lambda config, name: pytest.fail("nothing asked for a file")
+    assert run(FakeScreen(keys=["q", "KEY_DOWN", "\n"]), config(), at).saved == ""
 
 
 def test_v3_is_recommended_only_when_this_cpu_runs_it() -> None:

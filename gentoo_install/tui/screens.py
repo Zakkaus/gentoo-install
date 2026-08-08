@@ -95,6 +95,7 @@ class Context:
         keymaps: Callable[[], tuple[tuple[str, str], ...]] = lambda: (),
         timezone_here: str = "",
         zfs_kernel_max: str = "",
+        save_config: Callable[[InstallConfig, str], str] = lambda config, name: "",
     ) -> None:
         self.translate = translate
         #: Selector and a human description, from `exec/probe.py`.
@@ -113,6 +114,9 @@ class Context:
         #: each with whether it is stable on amd64. Empty on a medium with no
         #: repository, which is when the version is typed instead.
         self.kernel_versions = kernel_versions
+        #: Writes the configuration under the given name and returns the path.
+        #: Injected because this layer opens no file.
+        self.save_config = save_config
         #: Every console keymap the machine ships, as (family, name). Empty on
         #: a medium with no keymap tree, which is when the name is typed.
         self.keymaps = keymaps
