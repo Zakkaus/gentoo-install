@@ -753,3 +753,57 @@ def test_the_installed_system_resolves_with_its_own_nameservers() -> None:
     plain = apply_all(openrc, generated=generated(openrc))
     assert "dns_servers_" in plain.files[PurePosixPath("/etc/conf.d/net")]
     assert not any("resolved" in " ".join(argv) for argv in plain.in_target)
+
+
+def test_a_static_address_reaches_every_manager_that_can_take_one() -> None:
+    """It was written for the init's own manager and dropped for
+    NetworkManager, so an operator who typed an address under NetworkManager
+    got a machine on DHCP and no word about it."""
+    static = dict(
+        interface="eth0",
+        addresses=("192.0.2.10/24", "2001:db8::10/64"),
+        gateways=("192.0.2.1", "2001:db8::1"),
+        dns=("223.5.5.5", "2400:3200::1"),
+    )
+    for init in InitSystem:
+        for manager in (Networking.NETWORKMANAGER_WPA, Networking.NETWORKMANAGER_IWD):
+            chosen = with_system(init=init, networking=manager, **static)
+            written = apply_all(chosen, generated=DEFAULT_LOCALES).files
+            profile = written[system.NM_PROFILE]
+            # One family per section, and the gateway rides on the first
+            # address of its own family.
+            assert "[ipv4]\nmethod=manual\naddress1=192.0.2.10/24,192.0.2.1" in profile
+            assert "[ipv6]\nmethod=manual\naddress1=2001:db8::10/64,2001:db8::1" in profile
+            assert "dns=223.5.5.5;" in profile and "dns=2400:3200::1;" in profile
+            assert "interface-name=eth0" in profile
+
+
+def test_networkmanager_on_dhcp_still_needs_no_file() -> None:
+    """It manages every unconfigured interface, so a file saying so is a file
+    that changes nothing."""
+    for manager in (Networking.NETWORKMANAGER_WPA, Networking.NETWORKMANAGER_IWD):
+        chosen = with_system(networking=manager)
+        assert system.NM_PROFILE not in apply_all(chosen, generated=DEFAULT_LOCALES).files
+
+
+def test_one_family_alone_leaves_the_other_on_automatic() -> None:
+    """`disabled` would switch the other family off, and a v4-only answer is
+    not a decision about v6."""
+    only_v4 = with_system(
+        networking=Networking.NETWORKMANAGER_WPA, addresses=("192.0.2.10/24",)
+    )
+    profile = apply_all(only_v4, generated=DEFAULT_LOCALES).files[system.NM_PROFILE]
+    assert "[ipv4]\nmethod=manual" in profile
+    assert "[ipv6]\nmethod=auto" in profile
+
+
+def test_the_profile_is_written_with_the_mode_networkmanager_demands() -> None:
+    """It refuses a world-readable keyfile and says so only in its own log,
+    while the machine sits there with no address."""
+    chosen = with_system(networking=Networking.NETWORKMANAGER_WPA, addresses=("192.0.2.10/24",))
+    written = next(
+        one for one in system.build(chosen) if isinstance(one, system.WriteNetworkConfig)
+    )
+    recorder = Recorder()
+    written.apply(recorder)
+    assert recorder.modes[system.NM_PROFILE] == 0o600

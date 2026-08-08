@@ -20,6 +20,9 @@ class Recorder:
     commands: list[tuple[str, ...]] = field(default_factory=list)
     in_target: list[tuple[str, ...]] = field(default_factory=list)
     files: dict[PurePosixPath, str] = field(default_factory=dict)
+    #: The mode each file was written with. A keyfile NetworkManager refuses
+    #: for being world-readable is a mode the plan has to be able to assert.
+    modes: dict[PurePosixPath, int] = field(default_factory=dict)
     stdin: list[str] = field(default_factory=list)
     #: What `run_in_target` returns, keyed by the first word of the command.
     replies: dict[str, str] = field(default_factory=dict)
@@ -50,6 +53,7 @@ class Recorder:
 
     def write(self, path: PurePosixPath, content: str, *, mode: int = 0o644) -> None:
         self.files[path] = content
+        self.modes[path] = mode
 
     def read(self, path: PurePosixPath) -> str:
         return self.files.get(path, "")

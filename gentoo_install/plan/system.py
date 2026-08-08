@@ -362,10 +362,12 @@ class LinkResolvConf(Operation):
 
 @dataclass(frozen=True, kw_only=True)
 class WriteNetworkConfig(Operation):
-    """A wired interface with DHCP. systemd-networkd does nothing without a
-    `.network` file, so enabling the service alone leaves the system offline.
+    """A wired interface, from whichever manager the configuration named.
 
-    NetworkManager needs no file: it manages every unconfigured interface.
+    systemd-networkd does nothing without a `.network` file, so enabling the
+    service alone leaves the system offline. NetworkManager needs no file to
+    do DHCP, and needs one to do anything else: a static address given to it
+    with no profile written was dropped and the machine came up on DHCP.
     """
 
     stage: Stage = Stage.SYSTEM
@@ -382,18 +384,27 @@ class WriteNetworkConfig(Operation):
     def describe(self) -> str:
         if self.networking is Networking.NONE:
             return "leave the network unconfigured"
-        if self.networking is not Networking.BUILTIN:
-            return f"leave the interfaces to NetworkManager ({self.networking.value})"
         where = self.interface or "the wired interface"
+        if self.networking is not Networking.BUILTIN:
+            if not self.addresses:
+                return f"leave the interfaces to NetworkManager ({self.networking.value})"
+            return f"write a NetworkManager profile for {where} as {', '.join(self.addresses)}"
         if self.addresses:
             return f"configure {where} as {', '.join(self.addresses)}"
         return f"configure {where} for DHCP"
 
     def apply(self, context: Context) -> None:
+        if self.networking is Networking.NONE:
+            # The operator brings the link up by hand.
+            return
         if self.networking is not Networking.BUILTIN:
-            # NetworkManager manages every unconfigured interface itself, and
-            # NONE means the operator brings the link up by hand. Writing a
-            # DHCP file for either is configuring what they asked not to be.
+            if not self.addresses:
+                # NetworkManager does DHCP on every unconfigured interface, so
+                # a file saying so is a file that changes nothing.
+                return
+            # 0600 or NetworkManager refuses to read it, and says so only in
+            # its own log while the machine sits with no address.
+            context.write(NM_PROFILE, self._networkmanager(), mode=0o600)
             return
         if self.init is InitSystem.SYSTEMD:
             context.write(
@@ -401,6 +412,34 @@ class WriteNetworkConfig(Operation):
             )
             return
         context.write(PurePosixPath("/etc/conf.d/net"), self._netifrc())
+
+    def _networkmanager(self) -> str:
+        """A keyfile connection. The gateway rides on the first address of its
+        own family, which is the form `nm-settings-keyfile` documents."""
+        lines = [
+            "[connection]\nid=wired\ntype=ethernet\nautoconnect=true\n",
+        ]
+        if self.interface:
+            lines.append(f"interface-name={self.interface}\n")
+        for family, wanted in (("ipv4", self._of(4)), ("ipv6", self._of(6))):
+            lines.append(f"\n[{family}]\n")
+            if not wanted:
+                # `auto` and not `disabled`: a v4-only answer must not switch
+                # v6 off, and a v6-only one must not switch v4 off.
+                lines.append("method=auto\n")
+                continue
+            lines.append("method=manual\n")
+            gateway = next((one for one in self.gateways if _family(one) == family[-1]), "")
+            for index, address in enumerate(wanted, start=1):
+                joined = f"{address},{gateway}" if index == 1 and gateway else address
+                lines.append(f"address{index}={joined}\n")
+            servers = [one for one in self.dns if _family(one) == family[-1]]
+            if servers:
+                lines.append("dns=" + ";".join(servers) + ";\n")
+        return "".join(lines)
+
+    def _of(self, family: int) -> tuple[str, ...]:
+        return tuple(one for one in self.addresses if _family(one) == str(family))
 
     def _networkd(self) -> str:
         match = f"Name={self.interface}\n" if self.interface else "Name=en*\nName=eth*\n"
@@ -952,6 +991,19 @@ LOGGERS: Final[dict[Logger, LoggerChoice]] = {
     ),
     Logger.METALOG: LoggerChoice("app-admin/metalog", "metalog", "smaller, no remote logging"),
 }
+
+#: Where NetworkManager reads a keyfile connection from. One file, because
+#: the installer configures one wired interface and nothing else.
+NM_PROFILE: Final[PurePosixPath] = PurePosixPath(
+    "/etc/NetworkManager/system-connections/wired.nmconnection"
+)
+
+
+def _family(address: str) -> str:
+    """`6` for anything holding a colon, `4` otherwise. Enough to sort an
+    address list: the two families never share a separator."""
+    return "6" if ":" in address else "4"
+
 
 #: openrc brings up a storage stack with a service per kind; systemd has
 #: generators that need none. Service names read from each ebuild's newinitd.
