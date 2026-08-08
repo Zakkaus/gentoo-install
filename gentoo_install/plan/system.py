@@ -897,10 +897,26 @@ def _sshd_service() -> str:
 
 #: What each logger is called as a package and as a service. systemd needs
 #: none: journald is part of it.
-LOGGERS: Final[dict[Logger, tuple[str, str]]] = {
-    Logger.SYSKLOGD: ("app-admin/sysklogd", "sysklogd"),
-    Logger.SYSLOG_NG: ("app-admin/syslog-ng", "syslog-ng"),
-    Logger.METALOG: ("app-admin/metalog", "metalog"),
+@dataclass(frozen=True)
+class LoggerChoice:
+    """One logger: what to merge, what to enable, and what the row says."""
+
+    package: str
+    service: str
+    #: The source string the menu shows, so a logger cannot be offered without
+    #: a package or merged without a row.
+    reason: str
+
+
+LOGGERS: Final[dict[Logger, LoggerChoice]] = {
+    Logger.NONE: LoggerChoice("", "", "no system log at all"),
+    Logger.SYSKLOGD: LoggerChoice(
+        "app-admin/sysklogd", "sysklogd", "what the handbook installs"
+    ),
+    Logger.SYSLOG_NG: LoggerChoice(
+        "app-admin/syslog-ng", "syslog-ng", "filters and remote destinations"
+    ),
+    Logger.METALOG: LoggerChoice("app-admin/metalog", "metalog", "smaller, no remote logging"),
 }
 
 #: openrc brings up a storage stack with a service per kind; systemd has
@@ -940,12 +956,13 @@ def _logging(system: SystemConfig) -> list[Operation]:
     the same lines; `cronie` is the same package on both.
     """
     operations: list[Operation] = []
-    named = LOGGERS.get(system.logger)
-    if named is not None and system.init is not InitSystem.SYSTEMD:
-        atom, service = named
+    named = LOGGERS[system.logger]
+    if named.package and system.init is not InitSystem.SYSTEMD:
         operations += [
-            Emerge(stage=Stage.SYSTEM, packages=(atom,), summary="install the system logger"),
-            EnableService(service=service, init=system.init),
+            Emerge(
+                stage=Stage.SYSTEM, packages=(named.package,), summary="install the system logger"
+            ),
+            EnableService(service=named.service, init=system.init),
         ]
     if system.cron:
         operations += [

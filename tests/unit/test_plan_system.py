@@ -12,6 +12,7 @@ from gentoo_install.model.config import (
     ConsoleFontSize,
     InitSystem,
     InstallConfig,
+    Logger,
     SystemConfig,
     User,
 )
@@ -26,6 +27,7 @@ from gentoo_install.model.device import (
     PartitionRole,
 )
 from gentoo_install.plan import system
+from gentoo_install.plan.portage import Emerge
 
 from .layouts import config, ext4_on_gpt, i
 from .recorder import Recorder
@@ -681,3 +683,21 @@ def test_an_encrypted_pool_loads_its_key_between_import_and_mount() -> None:
         one.service for one in system.build(encrypted) if isinstance(one, system.EnableService)
     ]
     assert order.index("zfs-import") < order.index("zfs-load-key") < order.index("zfs-mount")
+
+
+def test_every_logger_has_a_package_a_service_and_a_row() -> None:
+    """It was two tables of the same name: `plan/system.py` held the package
+    and the service, `tui/screens.py` held the menu row. A logger added to one
+    and forgotten in the other was offered and then silently not installed."""
+    assert set(system.LOGGERS) == set(Logger)
+    for chosen, entry in system.LOGGERS.items():
+        assert entry.reason, chosen
+        # NONE is the only member with nothing to merge.
+        assert bool(entry.package) is bool(entry.service)
+        assert bool(entry.package) is (chosen is not Logger.NONE), chosen
+
+    picked = with_system(init=InitSystem.OPENRC, logger=Logger.METALOG)
+    merged = [
+        one for one in system.build(picked) if isinstance(one, Emerge) and "logger" in one.summary
+    ]
+    assert merged and merged[0].packages == ("app-admin/metalog",)

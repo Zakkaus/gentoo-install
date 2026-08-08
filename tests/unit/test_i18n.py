@@ -104,22 +104,25 @@ def in_a_table() -> set[str]:
     more thing to forget when a row is added.
     """
     from gentoo_install.model.mirrors import GENTOO_SITES, GENTOOZH_SITES
+    from gentoo_install.plan.system import LOGGERS
     from gentoo_install.tui.screens import (
         BINHOSTS,
         DISPLAY_MANAGERS,
         GENTOOZH_CHANNELS,
         GRAPHICS,
         KERNELS,
-        LOGGERS,
         LICENSES,
         SYNC_METHODS,
     )
 
     tables = (
         KERNELS, LICENSES, GRAPHICS, DISPLAY_MANAGERS,
-        SYNC_METHODS, GENTOOZH_CHANNELS, BINHOSTS, LOGGERS,
+        SYNC_METHODS, GENTOOZH_CHANNELS, BINHOSTS,
     )
     found = {reason for table in tables for _, reason in table}
+    # The logger table lives in `plan/` because it also names the package and
+    # the service; the menu reads the same rows rather than keeping a copy.
+    found |= {choice.reason for choice in LOGGERS.values()}
     # A mirror is drawn by its own name and where it is, both translated: a
     # Chinese interface listing "Nanjing University" reads half-finished.
     for site in (*GENTOO_SITES, *GENTOOZH_SITES):

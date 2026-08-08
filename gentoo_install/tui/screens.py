@@ -45,6 +45,7 @@ from ..model import atoms, manual, mirrors, paste, sshkey
 from ..model.templates import Choice, Layout, build
 from ..model.validate import validate
 from ..plan.packages import Catalog as Groups
+from ..plan import system as plan_system
 from .widgets import Answer, Confirm, Field, Form, Item, Menu, Outcome, Screen, TextField
 
 #: A screen takes what has been decided and returns it changed.
@@ -1032,16 +1033,6 @@ def kernel_version_screen(
     )
 
 
-#: What each logger costs. openrc has none after a stage3; systemd carries
-#: journald, so a second one would write the same lines twice.
-LOGGERS: tuple[tuple[Logger, str], ...] = (
-    (Logger.SYSKLOGD, "what the handbook installs"),
-    (Logger.SYSLOG_NG, "filters and remote destinations"),
-    (Logger.METALOG, "smaller, no remote logging"),
-    (Logger.NONE, "no system log at all"),
-)
-
-
 def logger_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
     """Which system logger, which only openrc needs.
 
@@ -1056,7 +1047,8 @@ def logger_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     menu: Menu[Logger] = Menu(
         title=translate("System logger"),
         items=[
-            Item(label=one.value, value=one, detail=translate(reason)) for one, reason in LOGGERS
+            Item(label=one.value, value=one, detail=translate(choice.reason))
+            for one, choice in plan_system.LOGGERS.items()
         ],
         footer=footer(translate),
     )
