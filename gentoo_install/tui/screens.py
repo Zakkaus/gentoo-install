@@ -55,6 +55,8 @@ class Context:
         stage_passphrase: Callable[[str], str] = lambda text: "",
         timezones: Sequence[str] = (),
         firmware: Firmware = Firmware.UEFI,
+        cores: int = 1,
+        cpu_flags: Sequence[str] = (),
         inspect_disk: Callable[[str], tuple[tuple[tuple[str, str, str], ...], str]] = (
             lambda disk: ((), "")
         ),
@@ -90,6 +92,10 @@ class Context:
         self.disk_size = ""
         #: The catalog's tag, so the language screen can preselect it.
         self.tag = translate.tag
+        #: This machine's core count and instruction set, for the rows that
+        #: recommend a value rather than asking for one blind.
+        self.cores = cores
+        self.cpu_flags = tuple(cpu_flags)
         self._inspect = inspect_disk
         if self.choice.disk:
             self.inspect_disk(self.choice.disk)
@@ -1061,3 +1067,60 @@ def language_screen(screen: Screen, context: Context) -> str:
     )
     answer = menu.run(screen)
     return answer.unwrap()[0] if answer.chosen else context.tag
+
+
+#: What each license set allows, in the order the menu offers them.
+LICENSES: tuple[tuple[str, str], ...] = (
+    ("@FREE", "free software and free documentation only"),
+    ("@FREE @BINARY-REDISTRIBUTABLE", "also firmware and other redistributable binaries"),
+    ("*", "everything, including licences you have not read"),
+)
+
+
+def license_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
+    """`ACCEPT_LICENSE`. The default refuses anything that is not free, and a
+    machine that needs firmware will not install until this is widened."""
+    translate = context.translate
+    items = [
+        Item(label=value, value=value, detail=translate(reason)) for value, reason in LICENSES
+    ]
+    menu: Menu[str] = Menu(
+        title=translate("Licenses to accept"), items=items, footer=_footer(translate)
+    )
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    return Answer(
+        Outcome.CHOSE,
+        replace(
+            config,
+            portage=replace(config.portage, accept_license=tuple(answer.unwrap()[0].split())),
+        ),
+    )
+
+
+def makeopts_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
+    """How many compile jobs. The machine's core count is first and preselected,
+    because it is right for almost every install and wrong only when memory is
+    short: each job can want a gigabyte."""
+    translate = context.translate
+    cores = context.cores
+    offered = [cores, max(1, cores // 2), 1]
+    items = [
+        Item(
+            label=f"-j{jobs}",
+            value=f"-j{jobs}",
+            detail=translate("this machine's core count") if jobs == cores else "",
+        )
+        for jobs in dict.fromkeys(offered)
+    ]
+    menu: Menu[str] = Menu(
+        title=translate("Compile jobs"), items=items, footer=_footer(translate)
+    )
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    return Answer(
+        Outcome.CHOSE,
+        replace(config, portage=replace(config.portage, makeopts=answer.unwrap()[0])),
+    )

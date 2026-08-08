@@ -45,6 +45,20 @@ class Machine:
 #: Directories under zoneinfo that are not regions: legacy aliases, and the
 #: right and posix trees, which repeat every zone with another leap-second
 #: table.
+#: What the kernel calls a CPU feature, and what portage calls it. Only the
+#: ones `CPU_FLAGS_X86` defines: a name portage does not know is a build
+#: failure, not an optimisation.
+CPU_FLAGS: Final[dict[str, str]] = {
+    "aes": "aes", "avx": "avx", "avx2": "avx2", "avx512f": "avx512f",
+    "avx512bw": "avx512bw", "avx512cd": "avx512cd", "avx512dq": "avx512dq",
+    "avx512vl": "avx512vl", "avx512vbmi": "avx512vbmi", "avx512vnni": "avx512vnni",
+    "bmi1": "avx2", "f16c": "f16c", "fma": "fma3", "mmx": "mmx", "mmxext": "mmxext",
+    "pclmulqdq": "pclmul", "popcnt": "popcnt", "rdrand": "rdrand", "sha_ni": "sha",
+    "sse": "sse", "sse2": "sse2", "pni": "sse3", "sse4_1": "sse4_1",
+    "sse4_2": "sse4_2", "sse4a": "sse4a", "ssse3": "ssse3",
+    "vaes": "vaes", "vpclmulqdq": "vpclmulqdq",
+}
+
 _NOT_A_REGION: Final[frozenset[str]] = frozenset({"right", "posix", "SystemV", "Etc"})
 
 
@@ -206,6 +220,30 @@ class Probe:
                 if city.is_file():
                     found.append(str(city.relative_to(root)))
         return ("UTC", *found)
+
+    def cpu_flags(self) -> tuple[str, ...]:
+        """`CPU_FLAGS_X86` for this machine, from /proc/cpuinfo.
+
+        Read here rather than run through `cpuid2cpuflags`: that is
+        app-portage/cpuid2cpuflags, which no install medium carries, and the
+        flag names it prints are a fixed mapping of the ones the kernel already
+        reports.
+        """
+        try:
+            text = Path("/proc/cpuinfo").read_text()
+        except OSError:
+            return ()
+        reported: set[str] = set()
+        for line in text.splitlines():
+            name, _, value = line.partition(":")
+            if name.strip() == "flags":
+                reported.update(value.split())
+                break
+        found = [portage for kernel, portage in CPU_FLAGS.items() if kernel in reported]
+        return tuple(sorted(set(found)))
+
+    def cores(self) -> int:
+        return os.cpu_count() or 1
 
     def partitions(self, disk: str) -> tuple[tuple[str, str, str], ...]:
         """What is on a disk now, as name, size and filesystem.

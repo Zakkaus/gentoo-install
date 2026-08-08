@@ -24,7 +24,7 @@ from .tui import app, screens
 from .tui.curses_screen import CursesScreen
 from .i18n import Catalog, tag_for
 from .model import templates
-from .model.config import DiskConfig, Firmware, InstallConfig
+from .model.config import DiskConfig, Firmware, InstallConfig, PortageConfig
 from .model.parse import load
 from .plan.build import DEFAULT_MIRROR, build
 from .plan.operations import Operation
@@ -210,6 +210,8 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         timezones=probe.timezones(),
         firmware=Firmware.UEFI if probe.machine().uefi else Firmware.BIOS,
         inspect_disk=lambda disk: (probe.partitions(disk), probe.disk_size(disk)),
+        cores=probe.cores(),
+        cpu_flags=probe.cpu_flags(),
     )
     if not context.disks:
         raise errors.DeviceNotFound("this machine reports no disk to install onto")
@@ -217,7 +219,7 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         # Checked before curses starts: initialising it writes escape codes to
         # the pipe before it discovers there is no terminal.
         raise errors.PreflightFailed("the menu needs a terminal; pass --config FILE")
-    start = _blank(context.disks[0][0])
+    start = _blank(context.disks[0][0], context.cores, context.cpu_flags)
 
     def walk(window: object) -> app.Finished:
         display = CursesScreen(window)
@@ -237,10 +239,18 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
     return finished.config
 
 
-def _blank(disk: str) -> InstallConfig:
-    """What the first screen starts from: a layout the operator will replace."""
+def _blank(disk: str, cores: int, cpu_flags: tuple[str, ...]) -> InstallConfig:
+    """What the menu starts from.
+
+    MAKEOPTS and CPU_FLAGS_X86 are filled in from this machine: both are right
+    for almost every install, and leaving them empty means the operator has to
+    know their own instruction set to get an ordinary build.
+    """
     graph, root = templates.build(templates.Choice(disk=disk))
-    return InstallConfig(disk=DiskConfig(graph=graph, root=root))
+    return InstallConfig(
+        disk=DiskConfig(graph=graph, root=root),
+        portage=PortageConfig(makeopts=f"-j{cores}", cpu_flags=cpu_flags),
+    )
 
 
 def _stage_passphrase(passphrase: str, work: Path) -> str:

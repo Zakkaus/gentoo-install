@@ -146,6 +146,9 @@ class PortageConfig:
     use: tuple[str, ...] = ()
     video_cards: tuple[str, ...] = ()
     accept_license: tuple[str, ...] = ("@FREE",)
+    #: Detected from /proc/cpuinfo when the interface fills it in. Empty means
+    #: the profile's own value stands.
+    cpu_flags: tuple[str, ...] = ()
     mirrors: MirrorConfig = field(default_factory=MirrorConfig)
     binhost: Binhost = field(default_factory=Binhost)
     overlays: tuple[Overlay, ...] = ()

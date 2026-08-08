@@ -553,6 +553,8 @@ def make_conf(
     wanted = [*portage.use, *(flag for flag in use if flag not in portage.use)]
     if wanted:
         settings.append(("USE", " ".join(wanted)))
+    if portage.cpu_flags:
+        settings.append(("CPU_FLAGS_X86", " ".join(portage.cpu_flags)))
     wanted_cards = video_cards or portage.video_cards
     if wanted_cards:
         settings.append(("VIDEO_CARDS", " ".join(wanted_cards)))

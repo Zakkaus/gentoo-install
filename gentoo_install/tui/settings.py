@@ -125,6 +125,14 @@ def _applications(config: InstallConfig, context: Context) -> str:
     return ", ".join(config.packages.applications) or "none"
 
 
+def _license(config: InstallConfig, context: Context) -> str:
+    return " ".join(config.portage.accept_license)
+
+
+def _makeopts(config: InstallConfig, context: Context) -> str:
+    return config.portage.makeopts or f"-j{context.cores} (this machine)"
+
+
 def _extra(config: InstallConfig, context: Context) -> str:
     return " ".join(config.packages.extra) or "none"
 
@@ -154,6 +162,8 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("hostname", "Hostname", lambda c, x: c.system.hostname, screens.system_screen),
     Setting("init", "Init system", lambda c, x: c.system.init.value, screens.init_screen),
     Setting("profile", "Profile", lambda c, x: c.portage.profile, screens._profile_screen),
+    Setting("license", "Licenses", _license, screens.license_screen),
+    Setting("makeopts", "Compile jobs", _makeopts, screens.makeopts_screen),
     Setting("root", "Root password", _root, screens.root_password_screen, required=True),
     Setting("user", "User account", _user, screens.user_screen),
     Setting("kernel", "Kernel", _kernel, screens.kernel_screen),
