@@ -49,6 +49,11 @@ EXTRA_FILESYSTEM_COMMANDS: Final[dict[FilesystemType, tuple[str, ...]]] = {
     FilesystemType.BTRFS: ("btrfs",),
 }
 
+#: Commands that have to be the GNU implementation, and what identifies one.
+#: A live system built on busybox satisfies `which` and then fails on the
+#: flags: busybox tar has no `--xattrs-include`, and stage3 needs it.
+GNU_ONLY: Final[dict[str, str]] = {"tar": "GNU tar"}
+
 #: `zpool create` refuses anything shorter, and it refuses it after the disk
 #: has already been partitioned.
 ZFS_PASSPHRASE_MINIMUM: Final[int] = 8
@@ -88,6 +93,21 @@ def required_commands(config: InstallConfig) -> frozenset[str]:
         wanted.add(MKFS[filesystem.kind][0])
         wanted |= set(EXTRA_FILESYSTEM_COMMANDS.get(filesystem.kind, ()))
     return frozenset(wanted)
+
+
+def _busybox_problems(machine: Machine) -> list[str]:
+    """Named here rather than discovered when the flag is rejected, which is
+    after the disks are partitioned and the archive is downloaded."""
+    problems: list[str] = []
+    for command, wanted in GNU_ONLY.items():
+        version = machine.versions.get(command)
+        if version is None or wanted in version:
+            continue
+        problems.append(
+            f"{command} is not {wanted} ({version.splitlines()[0][:60]}); "
+            "stage3 needs the GNU one for xattrs and capabilities"
+        )
+    return problems
 
 
 def _passphrase_problems(config: InstallConfig) -> list[str]:
@@ -149,6 +169,7 @@ def inspect(config: InstallConfig, machine: Machine, probe: Probe) -> Report:
     missing = sorted(required_commands(config) - machine.commands)
     if missing:
         fatal.append(f"these commands are missing: {', '.join(missing)}")
+    fatal += _busybox_problems(machine)
 
     for disk in config.disk.graph.of_type(Existing):
         if not disk.wipe:

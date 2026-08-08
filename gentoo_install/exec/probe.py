@@ -14,7 +14,7 @@ import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import ClassVar, Final
+from typing import ClassVar, Final, Iterable, Mapping
 
 from ..errors import DeviceNotFound
 from ..model.device import DeviceId
@@ -37,6 +37,9 @@ class Machine:
     commands: frozenset[str]
     #: Whether the medium ships the key a stage3 signature is checked against.
     release_key: bool
+    #: What `--version` said, for the commands whose implementation matters.
+    #: A busybox applet satisfies `which` and then rejects the flags.
+    versions: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -51,6 +54,14 @@ class Probe:
     work: Path
     resolved: dict[DeviceId, str] = field(default_factory=dict)
 
+    def versions(self, wanted: Iterable[str]) -> dict[str, str]:
+        found: dict[str, str] = {}
+        for command in wanted:
+            if shutil.which(command) is None:
+                continue
+            found[command] = self.runner.run([command, "--version"], check=False).stdout
+        return found
+
     def machine(self, wanted: frozenset[str] = frozenset()) -> Machine:
         return Machine(
             architecture=platform.machine(),
@@ -59,6 +70,7 @@ class Probe:
             memory_bytes=self._memory(),
             commands=frozenset(name for name in wanted if shutil.which(name) is not None),
             release_key=RELEASE_KEY.is_file(),
+            versions=self.versions(self.check_versions_of),
         )
 
     def resolve(self, device: DeviceId, selector: str) -> str:
@@ -121,6 +133,10 @@ class Probe:
     #: `lsblk` calls these TYPE=disk and none of them is an install target:
     #: compressed swap, a loopback of the live image, a ramdisk.
     NOT_A_TARGET: ClassVar[tuple[str, ...]] = ("/dev/zram", "/dev/loop", "/dev/ram")
+
+    #: Commands whose implementation `preflight` has to judge. Set by the
+    #: caller so the table of what GNU means stays in one module.
+    check_versions_of: ClassVar[tuple[str, ...]] = ("tar",)
 
     def disks(self) -> tuple[tuple[str, str], ...]:
         """Whole disks the interface can offer, as a selector and a size.
