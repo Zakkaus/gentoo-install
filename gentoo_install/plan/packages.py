@@ -11,13 +11,22 @@ function of its arguments.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
+from pathlib import PurePosixPath
+from typing import Final, Mapping
 
 from ..errors import ConfigError
-from ..model.config import InstallConfig
-from .operations import Operation, Stage
+from ..model.config import InitSystem, InstallConfig
+from .operations import Context, Operation, Stage
 from .portage import Emerge
 from .system import EnableService
+
+
+@dataclass(frozen=True)
+class GroupFile:
+    """A file a group has to write, such as a modprobe drop-in."""
+
+    path: PurePosixPath
+    content: str
 
 
 @dataclass(frozen=True)
@@ -31,12 +40,135 @@ class Group:
     #: Repositories the packages come from. Selecting the group is what asks for
     #: them; an overlay is never added behind the user's back.
     repositories: tuple[str, ...] = ()
+    #: Values this group adds to `VIDEO_CARDS`, which a driver group needs and
+    #: nothing else does.
+    video_cards: tuple[str, ...] = ()
+    files: tuple[GroupFile, ...] = ()
+    #: The fcitx engine this group provides, if it provides one.
+    input_method: str = ""
+    #: Rime schemas the group ships, in the order they should be offered.
+    schemas: tuple[str, ...] = ()
+    #: Whether the session this group installs is Wayland. On Wayland the input
+    #: method environment is set differently, so the group has to say.
+    wayland: bool = False
+
+
+@dataclass(frozen=True, kw_only=True)
+class WriteGroupFile(Operation):
+    stage: Stage = Stage.PACKAGES
+    group: str
+    file: GroupFile
+
+    def describe(self) -> str:
+        return f"write {self.file.path} for the {self.group} group"
+
+    def apply(self, context: Context) -> None:
+        context.write(self.file.path, self.file.content)
 
 
 Catalog = Mapping[str, Group]
 
 
+#: Where a session picks up environment variables. systemd reads the first at
+#: user-session start; on openrc `env-update` folds the second into
+#: /etc/profile.env.
+ENVIRONMENT_FILE: Final[dict[InitSystem, PurePosixPath]] = {
+    InitSystem.SYSTEMD: PurePosixPath("/etc/environment.d/90-input-method.conf"),
+    InitSystem.OPENRC: PurePosixPath("/etc/env.d/90input-method"),
+}
+
+#: New users get the same input method as the ones the installer creates.
+SKELETON: Final[PurePosixPath] = PurePosixPath("/etc/skel")
+
+
+@dataclass(frozen=True, kw_only=True)
+class WriteInputMethodEnvironment(Operation):
+    """`XMODIFIERS` always, the other two only off Wayland.
+
+    A Wayland compositor drives fcitx over the text-input protocol, and setting
+    `GTK_IM_MODULE` or `QT_IM_MODULE` there makes the candidate window blink.
+    """
+
+    stage: Stage = Stage.PACKAGES
+    init: InitSystem
+    wayland: bool
+
+    def describe(self) -> str:
+        how = "XMODIFIERS only, since the session is Wayland" if self.wayland else "all three"
+        return f"set the input method environment in {ENVIRONMENT_FILE[self.init]}: {how}"
+
+    def apply(self, context: Context) -> None:
+        lines = ["XMODIFIERS=@im=fcitx"]
+        if self.wayland:
+            # Qt 6.7 and later take a fallback list, which covers a toolkit
+            # that ships no fcitx module without breaking the ones that do.
+            lines.append('QT_IM_MODULES="wayland;fcitx;ibus"')
+        else:
+            lines += ["GTK_IM_MODULE=fcitx", "QT_IM_MODULE=fcitx"]
+        context.write(ENVIRONMENT_FILE[self.init], "\n".join(lines) + "\n")
+
+
+@dataclass(frozen=True, kw_only=True)
+class WriteInputMethodProfile(Operation):
+    """fcitx starts with no engine configured, so a fresh desktop types latin
+    until someone opens the configuration tool and adds one by hand."""
+
+    stage: Stage = Stage.PACKAGES
+    engine: str
+    schemas: tuple[str, ...]
+    layout: str
+    #: Home directories to seed, `/etc/skel` included so later users match.
+    homes: tuple[tuple[PurePosixPath, str], ...]
+
+    def describe(self) -> str:
+        who = ", ".join(owner or "skel" for _, owner in self.homes)
+        listed = " ".join(self.schemas) or "no rime schema"
+        return f"configure fcitx with {self.engine} and {listed} for {who}"
+
+    def apply(self, context: Context) -> None:
+        for home, owner in self.homes:
+            context.write(home / ".config/fcitx5/profile", self._profile())
+            for version in ("3.0", "4.0"):
+                context.write(
+                    home / f".config/gtk-{version}/settings.ini",
+                    "[Settings]\ngtk-im-module=fcitx\n",
+                )
+            if self.schemas:
+                context.write(
+                    home / ".local/share/fcitx5/rime/default.custom.yaml", self._rime()
+                )
+            if owner:
+                context.run_in_target(["chown", "--recursive", f"{owner}:{owner}", str(home)])
+
+    def _profile(self) -> str:
+        """fcitx's own ini. The keyboard is first and the default, so a console
+        or a password field does not start composing."""
+        keyboard = f"keyboard-{self.layout}"
+        return (
+            "[Groups/0]\n"
+            "Name=Default\n"
+            f"Default Layout={self.layout}\n"
+            f"DefaultIM={keyboard}\n"
+            "\n"
+            "[Groups/0/Items/0]\n"
+            f"Name={keyboard}\n"
+            "Layout=\n"
+            "\n"
+            "[Groups/0/Items/1]\n"
+            f"Name={self.engine}\n"
+            "Layout=\n"
+            "\n"
+            "[GroupOrder]\n"
+            "0=Default\n"
+        )
+
+    def _rime(self) -> str:
+        listed = "".join(f"    - schema: {schema}\n" for schema in self.schemas)
+        return f"patch:\n  schema_list:\n{listed}"
+
+
 def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
+    _check_repositories(config, catalog)
     operations: list[Operation] = []
     for group in groups(config, catalog):
         if group.packages:
@@ -47,12 +179,15 @@ def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
                     summary=f"install the {group.name} group",
                 )
             )
+        for wanted in group.files:
+            operations.append(WriteGroupFile(group=group.name, file=wanted))
         for service in group.services:
             # In this stage, not the system one: the unit does not exist until
             # the package that ships it is merged.
             operations.append(
                 EnableService(stage=Stage.PACKAGES, service=service, init=config.system.init)
             )
+    operations += _input_method(config, catalog)
     if config.packages.extra:
         operations.append(
             Emerge(
@@ -77,6 +212,22 @@ def groups(config: InstallConfig, catalog: Catalog) -> tuple[Group, ...]:
     return tuple(found)
 
 
+def _check_repositories(config: InstallConfig, catalog: Catalog) -> None:
+    """A group whose packages live in an overlay needs that overlay selected.
+
+    Checked here rather than at emerge time, which is an hour into an install
+    that has already partitioned the disks.
+    """
+    have = {overlay.name for overlay in config.portage.overlays}
+    for group in groups(config, catalog):
+        missing = [name for name in group.repositories if name not in have]
+        if missing:
+            raise ConfigError(
+                f"the {group.name} group needs the {', '.join(missing)} overlay, "
+                "which this configuration does not add"
+            )
+
+
 def required_repositories(config: InstallConfig, catalog: Catalog) -> tuple[str, ...]:
     """What the selected groups need, so the interface can say so before the
     user commits instead of failing at emerge time."""
@@ -97,5 +248,42 @@ def required_use(config: InstallConfig, catalog: Catalog) -> tuple[str, ...]:
     return tuple(wanted)
 
 
+def required_video_cards(config: InstallConfig, catalog: Catalog) -> tuple[str, ...]:
+    """What the configuration asks for, then what a driver group adds."""
+    wanted = list(config.portage.video_cards)
+    for group in groups(config, catalog):
+        for card in group.video_cards:
+            if card not in wanted:
+                wanted.append(card)
+    return tuple(wanted)
+
+
 def _known(catalog: Catalog) -> str:
     return ", ".join(sorted(catalog)) or "nothing"
+
+
+def _input_method(config: InstallConfig, catalog: Catalog) -> list[Operation]:
+    """Nothing at all unless a selected group provides an engine."""
+    chosen = groups(config, catalog)
+    engine = next((group.input_method for group in chosen if group.input_method), "")
+    if not engine:
+        return []
+    schemas: list[str] = []
+    for group in chosen:
+        schemas += [schema for schema in group.schemas if schema not in schemas]
+    homes: list[tuple[PurePosixPath, str]] = [(SKELETON, "")]
+    homes += [
+        (PurePosixPath(f"/home/{user.name}"), user.name) for user in config.system.users
+    ]
+    return [
+        WriteInputMethodEnvironment(
+            init=config.system.init,
+            wayland=any(group.wayland for group in chosen),
+        ),
+        WriteInputMethodProfile(
+            engine=engine,
+            schemas=tuple(schemas),
+            layout=config.system.keymap,
+            homes=tuple(homes),
+        ),
+    ]

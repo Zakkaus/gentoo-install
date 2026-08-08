@@ -7,15 +7,20 @@ once and handed to it. `cli.py` is the only caller.
 from __future__ import annotations
 
 import tomllib
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Final
 
 from .errors import ConfigError
-from .plan.packages import Catalog, Group
+from .plan.packages import Catalog, Group, GroupFile
 
 DATA: Final[Path] = Path(__file__).resolve().parent / "data"
 
-KEYS: Final[frozenset[str]] = frozenset({"packages", "services", "use", "repositories"})
+KEYS: Final[frozenset[str]] = frozenset(
+    {
+        "packages", "services", "use", "repositories", "video_cards", "files",
+        "input_method", "schemas", "wayland",
+    }
+)
 
 
 def load_catalog(root: Path | None = None) -> Catalog:
@@ -48,7 +53,41 @@ def _load(path: Path) -> Group:
         services=_strings(raw, "services", path),
         use=_strings(raw, "use", path),
         repositories=_strings(raw, "repositories", path),
+        video_cards=_strings(raw, "video_cards", path),
+        files=_files(raw, path),
+        input_method=_text(raw, "input_method", path),
+        schemas=_strings(raw, "schemas", path),
+        wayland=_flag(raw, "wayland", path),
     )
+
+
+def _files(raw: dict[str, object], path: Path) -> tuple[GroupFile, ...]:
+    value = raw.get("files", [])
+    if not isinstance(value, list):
+        raise ConfigError(f"{path}: files must be a list of tables")
+    found: list[GroupFile] = []
+    for entry in value:
+        if not isinstance(entry, dict) or set(entry) != {"path", "content"}:
+            raise ConfigError(f"{path}: each file needs exactly a path and a content")
+        where, content = entry["path"], entry["content"]
+        if not isinstance(where, str) or not isinstance(content, str):
+            raise ConfigError(f"{path}: file path and content must be strings")
+        found.append(GroupFile(path=PurePosixPath(where), content=content))
+    return tuple(found)
+
+
+def _text(raw: dict[str, object], key: str, path: Path) -> str:
+    value = raw.get(key, "")
+    if not isinstance(value, str):
+        raise ConfigError(f"{path}: {key} must be a string")
+    return value
+
+
+def _flag(raw: dict[str, object], key: str, path: Path) -> bool:
+    value = raw.get(key, False)
+    if not isinstance(value, bool):
+        raise ConfigError(f"{path}: {key} must be true or false")
+    return value
 
 
 def _strings(raw: dict[str, object], key: str, path: Path) -> tuple[str, ...]:

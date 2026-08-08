@@ -23,7 +23,12 @@ def build(config: InstallConfig, catalog: packages.Catalog, *, mirror: str = DEF
     validate(config)
     operations: list[Operation] = [
         *disk.build(config),
-        *portage.build(config, mirror, packages.required_use(config, catalog)),
+        *portage.build(
+            config,
+            mirror,
+            packages.required_use(config, catalog),
+            packages.required_video_cards(config, catalog),
+        ),
         *system.build(config),
         *kernel.build(config),
         *bootloader.build(config),

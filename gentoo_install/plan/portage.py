@@ -409,7 +409,12 @@ class AcceptTestingGlobally(Operation):
         context.append(PurePosixPath("/etc/portage/make.conf"), 'ACCEPT_KEYWORDS="~amd64"\n')
 
 
-def build(config: InstallConfig, mirror: str, use: tuple[str, ...] = ()) -> list[Operation]:
+def build(
+    config: InstallConfig,
+    mirror: str,
+    use: tuple[str, ...] = (),
+    video_cards: tuple[str, ...] = (),
+) -> list[Operation]:
     portage = config.portage
     gentoo = PurePosixPath("/var/db/repos/gentoo")
     operations: list[Operation] = [
@@ -418,7 +423,7 @@ def build(config: InstallConfig, mirror: str, use: tuple[str, ...] = ()) -> list
     ]
     operations += [
         WriteMakeConf(
-            settings=make_conf(config, use),
+            settings=make_conf(config, use, video_cards),
             mirrors=_distfiles(portage),
             speed_test=portage.mirrors.speed_test,
         ),
@@ -476,7 +481,11 @@ def finish(config: InstallConfig) -> list[Operation]:
     return []
 
 
-def make_conf(config: InstallConfig, use: tuple[str, ...] = ()) -> tuple[tuple[str, str], ...]:
+def make_conf(
+    config: InstallConfig,
+    use: tuple[str, ...] = (),
+    video_cards: tuple[str, ...] = (),
+) -> tuple[tuple[str, str], ...]:
     """Everything but `GENTOO_MIRRORS`, which is settled when the operation runs.
 
     `use` carries the flags the selected package groups declare, so a desktop
@@ -495,8 +504,9 @@ def make_conf(config: InstallConfig, use: tuple[str, ...] = ()) -> tuple[tuple[s
     wanted = [*portage.use, *(flag for flag in use if flag not in portage.use)]
     if wanted:
         settings.append(("USE", " ".join(wanted)))
-    if portage.video_cards:
-        settings.append(("VIDEO_CARDS", " ".join(portage.video_cards)))
+    wanted_cards = video_cards or portage.video_cards
+    if wanted_cards:
+        settings.append(("VIDEO_CARDS", " ".join(wanted_cards)))
     settings += [
         ("ACCEPT_LICENSE", " ".join(portage.accept_license)),
         ("L10N", " ".join(_l10n(config))),
