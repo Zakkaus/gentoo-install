@@ -191,9 +191,10 @@ def inspect(
     fatal += _passphrase_problems(config)
 
     if not machine.release_key:
-        fatal.append(
-            f"{RELEASE_KEY} is absent, so a stage3 signature cannot be checked against the "
-            "pinned key"
+        # Not fatal: every medium that is not Gentoo's ships no key file, and
+        # `fetch` downloads one whose fingerprint still has to match the pin.
+        warnings.append(
+            f"{RELEASE_KEY} is absent, so the release key is fetched before the stage3 is verified"
         )
 
     if machine.memory_bytes and machine.memory_bytes < TMPFS_MINIMUM:

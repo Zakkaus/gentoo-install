@@ -64,7 +64,7 @@ def stage3(mirror: str, variant: str, fingerprint: str, work: Path, runner: Runn
     _download(f"{base}/{name}", archive)
     digests = work / f"{name}.DIGESTS"
     _download(f"{base}/{name}.DIGESTS", digests)
-    _import_release_key(runner)
+    _import_release_key(runner, work)
     _verify_signature(digests, fingerprint, runner)
     _verify_digest(archive, digests)
     (work / f"{name}.verified").write_text("")
@@ -124,18 +124,28 @@ def _newest(base: str) -> str:
     return sorted(names)[-1]
 
 
-def _import_release_key(runner: Runner) -> None:
-    """The medium ships the key; importing it beats fetching one from a
-    keyserver, which would decide at run time what to trust.
+#: Gentoo's own keyring, which carries the release signing key. Fetched when
+#: the medium ships no key file, which is every medium that is not Gentoo's.
+RELEASE_KEYRING: Final[str] = "https://qa-reports.gentoo.org/output/service-keys.gpg"
 
-    `preflight.py` is what checks the file exists, so a machine without it is
-    stopped before the download rather than after it.
+
+def _import_release_key(runner: Runner, work: Path) -> None:
+    """Load the key a stage3 signature is checked against.
+
+    Trust comes from `RELENG_FINGERPRINT`, not from where the key came from: a
+    substituted key has a different fingerprint and `_verify_signature` refuses
+    it. So an Alpine or Debian medium, which ships no key file, downloads one.
     """
-    result = runner.run(["gpg", "--quiet", "--import", str(RELEASE_KEY)], check=False)
+    source = RELEASE_KEY
+    if not RELEASE_KEY.is_file():
+        source = work / "gentoo-release.gpg"
+        work.mkdir(parents=True, exist_ok=True)
+        _download(RELEASE_KEYRING, source)
+    result = runner.run(["gpg", "--quiet", "--import", str(source)], check=False)
     if result.returncode != 0:
         # Named here rather than left to the verification below, which would
         # report a good signature as a bad one because the key never loaded.
-        raise PreflightFailed(f"{RELEASE_KEY} could not be imported: {result.stdout.strip()}")
+        raise PreflightFailed(f"{source} could not be imported: {result.stdout.strip()}")
 
 
 def text(url: str) -> str:

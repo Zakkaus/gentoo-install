@@ -316,9 +316,13 @@ def test_an_empty_or_missing_passphrase_file_is_named(tmp_path: Path) -> None:
         fetch.passphrase_for(DeviceId("crypt"), str(tmp_path / "absent"))
 
 
-def test_a_medium_without_the_release_key_is_stopped_before_the_download(tmp_path: Path) -> None:
+def test_a_medium_without_the_release_key_fetches_one_rather_than_stopping(tmp_path: Path) -> None:
+    """Alpine, Debian, Arch, Fedora and openSUSE ship no
+    `/usr/share/openpgp-keys/gentoo-release.asc`, and the installer has to run
+    on all of them. The pinned fingerprint is what trust rests on."""
     report = preflight.inspect(present(), described(release_key=False), probe_of(tmp_path))
-    assert any("signature cannot be checked" in reason for reason in report.fatal)
+    assert not any("release key" in reason for reason in report.fatal)
+    assert any("release key is fetched" in reason for reason in report.warnings)
 
 
 def test_a_short_zfs_passphrase_is_caught_before_the_disk_is_touched(tmp_path: Path) -> None:
