@@ -461,3 +461,31 @@ def test_the_encryption_row_reads_the_graph_and_not_the_answer_given_to_it() -> 
         Filesystem(id=i("rootfs"), device=i("crypt"), kind=FilesystemType.EXT4),
     ]
     assert row.value(config(nodes), at) == "on"
+
+
+def test_the_partitions_row_belongs_to_whichever_mode_the_layout_chose() -> None:
+    """It opened the hand-written editor whatever the layout was: over a
+    template it switched to manual without saying so and listed the disk as
+    about to be erased, and over a reuse layout it threw the kept rows away."""
+    from gentoo_install.model.device import Existing
+    from gentoo_install.tui import settings
+
+    at = context()
+    at.existing = (("/dev/vda1", "1G", "vfat"), ("/dev/vda2", "29G", "ext4"))
+    row = next(one for one in settings.DISK if one.key == "partitions")
+
+    # A whole-disk template writes the table, so there is nothing to edit here.
+    assert row.unavailable(config(), at)
+
+    at.manual = True
+    assert not row.unavailable(config(), at)
+    fresh = FakeScreen(keys=["q"], lines=24, columns=90)
+    screens.partitions_row(fresh, config(), at)
+    assert "A new partition table" in fresh.frames[0][0]
+
+    # A reused layout keeps its rows and their per-partition answers.
+    at.layout.reused = [manual.Reused(selector="/dev/vda1")]
+    kept = FakeScreen(keys=["q"], lines=24, columns=90)
+    screens.partitions_row(kept, config(), at)
+    assert "A new partition table" not in "\n".join(kept.frames[0])
+    assert at.layout.reused

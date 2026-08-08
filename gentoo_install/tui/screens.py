@@ -214,6 +214,21 @@ def disk_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     return Answer(Outcome.CHOSE, _rebuild(config, context))
 
 
+def partitions_row(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """The table editor for whichever mode the layout row chose.
+
+    Two editors, not one: a hand-written table replaces the whole partition
+    table, and a reused one writes none at all and decides per partition
+    whether it is formatted. Opening the manual editor over a reused layout
+    threw those decisions away.
+    """
+    if context.layout.reused:
+        return reuse_screen(screen, config, context)
+    return partitions_screen(screen, config, context)
+
+
 def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
     translate = context.translate
     items: list[Item[tuple[Layout | None, FilesystemType]]] = [
@@ -1853,7 +1868,10 @@ def partitions_screen(
         items.append(Item(label=translate("Add a partition"), value=len(rows)))
         items.append(Item(label=translate("Done"), value=len(rows) + 1))
         menu: Menu[int] = Menu(
-            title=f"{translate('Partitions')}  {_capacity(context)}",
+            # The title says what the screen does, not just what it is about:
+            # a table of the disk's current contents beside a table being
+            # written reads as one list with no explanation.
+            title=f"{translate('A new partition table')}  {_capacity(context)}",
             items=items,
             footer=f"{_layout_problem(context, config)}  {footer(translate)}".strip(),
         )
@@ -1907,7 +1925,9 @@ def _existing(context: Context) -> tuple[Item[int], ...]:
         Item(
             label=f"{name}  {size}  {kind or 'no filesystem'}",
             value=-1,
-            disabled_because=context.translate("on the disk now, will be erased"),
+            disabled_because=context.translate(
+                "on the disk now; the new table replaces it"
+            ),
         )
         for name, size, kind in context.existing
     )

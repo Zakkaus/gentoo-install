@@ -307,6 +307,18 @@ def _layout(config: InstallConfig, context: Context) -> str:
     return context.choice.layout.value
 
 
+def _template_writes_the_table(config: InstallConfig, context: Context) -> str:
+    """A whole-disk template has no table to hand-write.
+
+    Opening this row over one switched the layout to manual without saying so,
+    and the editor then listed the disk's contents as about to be erased, which
+    is not what the operator had chosen a template for.
+    """
+    if context.manual or context.layout.reused:
+        return ""
+    return context.translate("the layout row writes this table")
+
+
 def _partitions(config: InstallConfig, context: Context) -> str:
     if not context.manual:
         return context.translate("default")
@@ -402,7 +414,10 @@ DISK: Final[tuple[Setting, ...]] = (
     Setting("disk", "Drive", _drive, screens.disk_screen, required=True),
     Setting("table", "Partition table", _table, screens.table_screen),
     Setting("layout", "Layout", _layout, screens.layout_screen),
-    Setting("partitions", "Partitions", _partitions, screens.partitions_screen),
+    Setting(
+        "partitions", "Partitions", _partitions, screens.partitions_row,
+        unavailable=_template_writes_the_table,
+    ),
     Setting("encryption", "Encryption", _encryption, screens.encryption_screen),
     Setting(
         "keymap_initramfs", "Keyboard at unlock", _unlock_keymap, screens.initramfs_keymap_screen
