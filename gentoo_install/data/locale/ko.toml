@@ -60,6 +60,7 @@
 "What is this partition for?" = "이 파티션의 용도"
 "Filesystem" = "파일 시스템"
 "this purpose fixes the filesystem" = "이 용도는 파일 시스템이 고정됩니다"
+"a pool member, not a filesystem" = "pool 의 멤버이며 파일 시스템이 아님"
 "Mount point" = "마운트 지점"
 "/srv, or empty to leave it unmounted" = "/srv, 비우면 마운트하지 않음"
 "this purpose fixes the mount point" = "이 용도는 마운트 지점이 고정됩니다"

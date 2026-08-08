@@ -60,6 +60,7 @@
 "What is this partition for?" = "分割區用途"
 "Filesystem" = "檔案系統"
 "this purpose fixes the filesystem" = "此用途檔案系統固定"
+"a pool member, not a filesystem" = "pool 的成員，不是檔案系統"
 "Mount point" = "掛載點"
 "/srv, or empty to leave it unmounted" = "/srv，留空表示不掛載"
 "this purpose fixes the mount point" = "此用途掛載點固定"

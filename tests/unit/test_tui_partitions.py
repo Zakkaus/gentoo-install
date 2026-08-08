@@ -24,6 +24,7 @@ from gentoo_install.model.device import (
 )
 from gentoo_install.model.size import Size
 from gentoo_install.model.validate import validate
+from gentoo_install.model.templates import Layout
 from gentoo_install.tui import screens
 from gentoo_install.tui.widgets import Outcome
 
@@ -225,3 +226,36 @@ def test_a_field_that_does_not_apply_says_why() -> None:
     fields = screens._slice_fields(swap, manual.purpose_of(swap), opened().translate)
     filesystem = next(item for item in fields if item.label == "Filesystem")
     assert filesystem.disabled_because
+
+
+def test_zfs_is_offered_where_a_filesystem_is_chosen() -> None:
+    """It is a pool and not a `FilesystemType`, but the operator opening the
+    filesystem row is looking for it there, so it is a row there as well."""
+    at = opened()
+    entry = manual.Slice(index=2, role=PartitionRole.DATA, size=None,
+                         filesystem=FilesystemType.EXT4, mountpoint="/")
+    screen = FakeScreen(keys=[*["KEY_DOWN"] * len(FilesystemType), "\n"], lines=30)
+    changed = screens._edit_field(screen, at, entry, manual.purpose_of(entry), screens._FILESYSTEM)
+    assert changed is not None
+    assert changed.role is PartitionRole.ZFS
+    assert changed.filesystem is None
+    assert changed.mountpoint == "/"
+    assert "zfs" in screen.last
+
+
+def test_opening_the_table_after_choosing_zfs_keeps_zfs() -> None:
+    """The row used to seed a fresh ext4 table, which discarded the layout the
+    operator had just chosen without saying so."""
+    at = opened()
+    at.choice = replace(at.choice, layout=Layout.WHOLE_DISK_ZFS, disk="/dev/vdb")
+    screens.partitions_screen(FakeScreen(keys=["q"]), config(), at)
+    root = next(one for one in at.layout.slices if one.mountpoint == "/")
+    assert root.role is PartitionRole.ZFS and root.filesystem is None
+
+
+def test_opening_the_table_after_choosing_xfs_keeps_xfs() -> None:
+    at = opened()
+    at.choice = replace(at.choice, filesystem=FilesystemType.XFS, disk="/dev/vdb")
+    screens.partitions_screen(FakeScreen(keys=["q"]), config(), at)
+    root = next(one for one in at.layout.slices if one.mountpoint == "/")
+    assert root.filesystem is FilesystemType.XFS

@@ -60,6 +60,7 @@
 "What is this partition for?" = "このパーティションの用途"
 "Filesystem" = "ファイルシステム"
 "this purpose fixes the filesystem" = "この用途ではファイルシステムは固定です"
+"a pool member, not a filesystem" = "pool のメンバーで、ファイルシステムではない"
 "Mount point" = "マウントポイント"
 "/srv, or empty to leave it unmounted" = "/srv、空欄ならマウントしない"
 "this purpose fixes the mount point" = "この用途ではマウントポイントは固定です"

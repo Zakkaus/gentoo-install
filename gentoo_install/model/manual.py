@@ -7,7 +7,7 @@ produce the graph a configuration file would have described.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import PurePosixPath
 from typing import Final
 
@@ -79,6 +79,11 @@ PURPOSES: Final[tuple[Purpose, ...]] = (
 _OTHER: Final[Purpose] = PURPOSES[-1]
 
 
+def purpose_for(key: str) -> Purpose:
+    """The row of the table with that key."""
+    return next(one for one in PURPOSES if one.key == key)
+
+
 def purpose_of(entry: Slice) -> Purpose:
     """Which row of the menu a slice came from.
 
@@ -131,47 +136,40 @@ class Layout:
         return max((entry.index for entry in self.slices), default=0) + 1
 
 
-def suggest(disk: str, firmware: Firmware) -> Layout:
+def suggest(
+    disk: str,
+    firmware: Firmware,
+    filesystem: FilesystemType | None = FilesystemType.EXT4,
+) -> Layout:
     """What the table starts as, so the operator edits rather than types.
 
     A blank table is a worse starting point than one that already boots: every
-    layout needs the same first two entries and only the sizes differ.
+    layout needs the same first entries and only the sizes differ. `filesystem`
+    is None for a root on ZFS, which is a pool member and carries none.
     """
-    if firmware is Firmware.UEFI:
-        return Layout(
-            disk=disk,
-            table=TableType.GPT,
-            slices=[
-                Slice(
-                    index=1,
-                    role=PartitionRole.ESP,
-                    size=Size.parse("1GiB"),
-                    filesystem=ESP_FILESYSTEM,
-                    mountpoint="/efi",
-                    label="ESP",
-                ),
-                Slice(
-                    index=2,
-                    role=PartitionRole.DATA,
-                    size=None,
-                    filesystem=FilesystemType.EXT4,
-                    mountpoint="/",
-                    label="gentoo",
-                ),
-            ],
-        )
+    root = Slice(
+        index=1,
+        role=PartitionRole.ZFS if filesystem is None else PartitionRole.DATA,
+        size=None,
+        filesystem=filesystem,
+        mountpoint="/",
+        label="gentoo",
+    )
+    if firmware is not Firmware.UEFI:
+        return Layout(disk=disk, table=TableType.MBR, slices=[root])
     return Layout(
         disk=disk,
-        table=TableType.MBR,
+        table=TableType.GPT,
         slices=[
             Slice(
                 index=1,
-                role=PartitionRole.DATA,
-                size=None,
-                filesystem=FilesystemType.EXT4,
-                mountpoint="/",
-                label="gentoo",
-            )
+                role=PartitionRole.ESP,
+                size=Size.parse("1GiB"),
+                filesystem=ESP_FILESYSTEM,
+                mountpoint="/efi",
+                label="ESP",
+            ),
+            replace(root, index=2),
         ],
     )
 

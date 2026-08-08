@@ -956,7 +956,12 @@ def partitions_screen(
     """
     translate = context.translate
     if context.layout.disk != context.choice.disk:
-        context.layout = manual.suggest(context.choice.disk, context.choice.firmware)
+        # Seeded from the template that was chosen, not from a fixed default:
+        # opening this row after picking zfs used to show an ext4 root and
+        # discard the choice.
+        context.layout = manual.suggest(
+            context.choice.disk, context.choice.firmware, _template_filesystem(context.choice)
+        )
     while True:
         rows = sorted(context.layout.slices, key=lambda one: one.index)
         items: list[Item[int]] = list(_existing(context))
@@ -985,6 +990,12 @@ def partitions_screen(
         context.layout.slices.remove(rows[chosen])
         if edited is not None:
             context.layout.slices.append(edited)
+
+
+def _template_filesystem(choice: Choice) -> FilesystemType | None:
+    """What the root of the chosen template carries. None for ZFS, whose root
+    is a dataset on a pool and not a filesystem on a partition."""
+    return None if choice.layout is Layout.WHOLE_DISK_ZFS else choice.filesystem
 
 
 def _capacity(context: Context) -> str:
@@ -1148,14 +1159,25 @@ def _edit_field(
             return None
         return _apply_purpose(entry, picked.unwrap()[0])
     if field == _FILESYSTEM:
-        chosen = Menu(
-            title=translate("Filesystem"),
-            items=[Item(label=one.value, value=one) for one in FilesystemType],
-            footer=_footer(translate),
+        # zfs is listed here as well as under the purpose, because that is
+        # where anyone choosing a filesystem looks for it. It is a pool, so
+        # picking it changes what the partition is rather than how it is
+        # formatted.
+        items: list[Item[FilesystemType | None]] = [
+            Item(label=one.value, value=one) for one in FilesystemType
+        ]
+        items.append(
+            Item(label="zfs", value=None, detail=translate("a pool member, not a filesystem"))
+        )
+        answered = Menu(
+            title=translate("Filesystem"), items=items, footer=_footer(translate)
         ).run(screen)
-        if not chosen.chosen:
+        if not answered.chosen:
             return None
-        return replace(entry, filesystem=chosen.unwrap()[0])
+        kind = answered.unwrap()[0]
+        if kind is None:
+            return _apply_purpose(entry, manual.purpose_for("zfs"))
+        return replace(entry, filesystem=kind)
     if field == _MOUNTPOINT:
         where = TextField(
             title=translate("Mount point"),
