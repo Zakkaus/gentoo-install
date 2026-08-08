@@ -56,6 +56,8 @@ class Choice:
     disk: str
     layout: Layout = Layout.WHOLE_DISK
     firmware: Firmware = Firmware.UEFI
+    #: None follows the firmware: GPT for UEFI, MBR for BIOS.
+    table: TableType | None = None
     filesystem: FilesystemType = FilesystemType.EXT4
     swap: Size | None = None
     #: A path on the installing system, never the passphrase. Empty means the
@@ -73,7 +75,8 @@ def build(choice: Choice) -> tuple[DeviceGraph, DeviceId]:
         PartitionTable(
             id=DeviceId("table"),
             disk=DeviceId("disk"),
-            table=TableType.GPT if choice.firmware is Firmware.UEFI else TableType.MBR,
+            table=choice.table
+            or (TableType.GPT if choice.firmware is Firmware.UEFI else TableType.MBR),
         ),
     ]
     index = 1
