@@ -167,6 +167,10 @@ def disk_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     if not answer.chosen:
         return Answer(answer.outcome)
     context.choice = replace(context.choice, disk=answer.unwrap()[0])
+    # Cleared with the disk: the operator typed the name of the one they were
+    # looking at, and carrying that confirmation to another unblocks the
+    # install for a disk nobody agreed to erase.
+    context.erase_confirmed = False
     context.inspect_disk(context.choice.disk)
     return Answer(Outcome.CHOSE, _rebuild(config, context))
 
@@ -849,10 +853,18 @@ def _edit_gentoozh(
     if picked is None:
         kept = tuple(one for one in portage.overlays if one.name != "gentoo-zh")
         return replace(config, portage=replace(portage, overlays=kept))
+    # The overlay is cloned from the chosen site, not from upstream: a mirror
+    # picked here and ignored by the sync is the choice doing nothing.
     added = _with_gentoo_zh(config)
+    overlays = tuple(
+        replace(one, sync_uri=mirrors.gentoozh(picked).git) if one.name == "gentoo-zh" else one
+        for one in added.overlays
+    )
     return replace(
         config,
-        portage=replace(added, mirrors=replace(portage.mirrors, gentoo_zh=picked)),
+        portage=replace(
+            added, overlays=overlays, mirrors=replace(portage.mirrors, gentoo_zh=picked)
+        ),
     )
 
 
@@ -1357,13 +1369,13 @@ def swap_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     if not answer.chosen:
         return Answer(answer.outcome)
     chosen = answer.unwrap()[0]
-    if chosen.startswith("zram:"):
-        return Answer(
-            Outcome.CHOSE,
-            replace(config, system=replace(config.system, zram=Size.parse(chosen.removeprefix("zram:")))),
-        )
-    context.choice = replace(context.choice, swap=Size.parse(chosen) if chosen else None)
-    return Answer(Outcome.CHOSE, _rebuild(config, context))
+    # One exclusive choice, so each row clears the other kind. Setting only its
+    # own left an operator who tried both with a swap partition and zram.
+    zram = Size.parse(chosen.removeprefix("zram:")) if chosen.startswith("zram:") else None
+    partition = Size.parse(chosen) if chosen and not chosen.startswith("zram:") else None
+    context.choice = replace(context.choice, swap=partition)
+    changed = _rebuild(config, context)
+    return Answer(Outcome.CHOSE, replace(changed, system=replace(changed.system, zram=zram)))
 
 
 def sshd_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:

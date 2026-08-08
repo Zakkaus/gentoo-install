@@ -732,3 +732,31 @@ def test_colour_repeats_what_the_text_already_says() -> None:
     seen = "\n".join("\n".join(frame) for frame in screen.frames)
     assert "not set" in seen
     assert "still needs an answer" in seen
+
+
+def test_choosing_a_disk_again_takes_back_the_erase_confirmation() -> None:
+    """The operator typed the name of the disk they were looking at. Carrying
+    that to another one unblocks the install for a disk nobody agreed to."""
+    at = context()
+    at.erase_confirmed = True
+    screens.disk_screen(FakeScreen(keys=["KEY_DOWN", "\n"]), config(), at)
+    assert not at.erase_confirmed
+    assert settings.SETTINGS[row("Confirm erasing the drive")].value(config(), at) == "not set"
+
+
+def test_swap_is_one_choice_and_not_two_that_accumulate() -> None:
+    """Picking a partition and then zram left the operator with both, from a
+    menu that presents them as alternatives."""
+    at = context()
+    from gentoo_install.model.device import Swap
+
+    partition = screens.swap_screen(FakeScreen(keys=["KEY_DOWN", "\n"]), config(), at).unwrap()
+    assert partition.system.zram is None
+    assert partition.disk.graph.of_type(Swap)
+
+    zram = screens.swap_screen(FakeScreen(keys=[*down(3), "\n"]), partition, at).unwrap()
+    assert zram.system.zram is not None
+    assert not zram.disk.graph.of_type(Swap)
+
+    none = screens.swap_screen(FakeScreen(keys=["\n"]), zram, at).unwrap()
+    assert none.system.zram is None and not none.disk.graph.of_type(Swap)
