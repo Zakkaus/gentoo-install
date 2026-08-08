@@ -100,6 +100,7 @@ class Context:
         zfs_kernel_max: str = "",
         save_config: Callable[[InstallConfig, str], str] = lambda config, name: "",
         publish_config: Callable[[InstallConfig], str] = lambda config: "",
+        zfs_unavailable: str = "",
     ) -> None:
         self.translate = translate
         #: Selector and a human description, from `exec/probe.py`.
@@ -124,6 +125,10 @@ class Context:
         #: Sends the configuration to the pastebin and returns the address.
         #: Injected because this layer opens no connection.
         self.publish_config = publish_config
+        #: Why this live system cannot make a pool, or empty when it can. Every
+        #: row that would produce one is drawn with this as its reason, because
+        #: the medium the installer runs from is often not a Gentoo one.
+        self.zfs_unavailable = zfs_unavailable
         #: Every console keymap the machine ships, as (family, name). Empty on
         #: a medium with no keymap tree, which is when the name is typed.
         self.keymaps = keymaps
@@ -259,6 +264,7 @@ def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> An
             label="zfs",
             value=(Layout.WHOLE_DISK_ZFS, FilesystemType.EXT4),
             detail=translate("with ZFSBootMenu"),
+            disabled_because=context.zfs_unavailable,
         ),
         Item(
             label=translate("manual"),
@@ -2341,7 +2347,16 @@ def _edit_field(
     if field == _PURPOSE:
         picked = Menu(
             title=translate("What is this partition for?"),
-            items=[Item(label=one.label, value=one) for one in manual.PURPOSES],
+            items=[
+                Item(
+                    label=one.label,
+                    value=one,
+                    disabled_because=(
+                        context.zfs_unavailable if one.role is PartitionRole.ZFS else ""
+                    ),
+                )
+                for one in manual.PURPOSES
+            ],
             footer=footer(translate),
         ).run(screen)
         if not picked.chosen:
@@ -2356,7 +2371,12 @@ def _edit_field(
             Item(label=one.value, value=one) for one in FilesystemType
         ]
         items.append(
-            Item(label="zfs", value=None, detail=translate("a pool member, not a filesystem"))
+            Item(
+                label="zfs",
+                value=None,
+                detail=translate("a pool member, not a filesystem"),
+                disabled_because=context.zfs_unavailable,
+            )
         )
         answered = Menu(
             title=translate("Filesystem"), items=items, footer=footer(translate)

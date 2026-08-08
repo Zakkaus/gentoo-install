@@ -547,3 +547,59 @@ def test_every_request_names_the_installer(monkeypatch: pytest.MonkeyPatch) -> N
     fetch.text("https://paste.gentoozh.org/abcdef")
     fetch.network_time()
     assert seen == [fetch.USER_AGENT, fetch.USER_AGENT]
+
+
+def test_a_medium_with_no_zfs_stops_before_the_disks_are_touched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The installer runs off whatever medium is to hand, and most of them have
+    no ZFS; `zpool create` finds that out after the disks are partitioned."""
+    from gentoo_install.model.parse import load
+
+    pooled = load(Path("tests/fixtures/vm-zfs.toml"))
+    probe = probe_of(tmp_path)
+    monkeypatch.setattr(Probe, "zfs_support", lambda self: "this live system has no zpool")
+    report = preflight.inspect(pooled, described(commands=frozenset()), probe)
+    assert any("has no zpool, and this configuration makes a pool" in one for one in report.fatal)
+
+
+def test_a_medium_with_no_zfs_stops_nothing_that_makes_no_pool(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Probe, "zfs_support", lambda self: "this live system has no zpool")
+    report = preflight.inspect(present(), described(), probe_of(tmp_path))
+    assert not any("pool" in one for one in report.fatal)
+
+
+def test_the_zfs_check_names_the_command_that_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two halves fail separately: no userland at all, and a userland whose
+    module will not load."""
+    import shutil as shutil_module
+
+    from gentoo_install.exec import probe as probe_module
+
+    probe = probe_of(tmp_path)
+    monkeypatch.setattr(shutil_module, "which", lambda name: None)
+    assert probe.zfs_support() == "this live system has no zpool or zfs"
+
+    monkeypatch.setattr(shutil_module, "which", lambda name: f"/usr/sbin/{name}")
+    monkeypatch.setattr(probe_module.Probe, "ZFS_LOADED", (tmp_path / "absent",))
+    assert "cannot load the zfs kernel module" in probe.zfs_support()
+
+
+def test_a_loaded_module_needs_no_modprobe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A kernel with ZFS built in has no /sys/module entry to find, so either
+    marker is enough and neither is asked for twice."""
+    import shutil as shutil_module
+
+    from gentoo_install.exec import probe as probe_module
+
+    here = tmp_path / "dev-zfs"
+    here.touch()
+    monkeypatch.setattr(shutil_module, "which", lambda name: f"/usr/sbin/{name}")
+    monkeypatch.setattr(probe_module.Probe, "ZFS_LOADED", (here,))
+    assert probe_of(tmp_path).zfs_support() == ""

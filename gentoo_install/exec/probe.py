@@ -318,6 +318,28 @@ class Probe:
             )
         return False
 
+    #: What the kernel side of ZFS shows up as once it is loaded. Either is
+    #: enough: a module built into the kernel has no directory under /sys/module.
+    ZFS_LOADED: ClassVar[tuple[Path, ...]] = (Path("/dev/zfs"), Path("/sys/module/zfs"))
+
+    def zfs_support(self) -> str:
+        """Why this live system cannot make a pool, or empty when it can.
+
+        Asked at startup because the installer runs off whatever medium is to
+        hand — Alpine, Debian, a Fedora live image — and most of them carry no
+        ZFS at all. Finding that out at `zpool create`, after the disks are
+        partitioned, is the alternative.
+        """
+        missing = [name for name in ("zpool", "zfs") if shutil.which(name) is None]
+        if missing:
+            return f"this live system has no {' or '.join(missing)}"
+        if any(path.exists() for path in self.ZFS_LOADED):
+            return ""
+        loaded = self.runner.run(["modprobe", "zfs"], check=False)
+        if loaded.returncode != 0 or not any(path.exists() for path in self.ZFS_LOADED):
+            return "this live system cannot load the zfs kernel module"
+        return ""
+
     def cores(self) -> int:
         return os.cpu_count() or 1
 

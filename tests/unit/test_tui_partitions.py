@@ -879,3 +879,57 @@ def test_a_level_the_members_cannot_make_is_shown_with_what_it_needs() -> None:
 def test_the_raid_purpose_is_offered_beside_the_pool_member() -> None:
     keys = [one.key for one in manual.PURPOSES]
     assert "raid" in keys and "zfs" in keys
+
+
+def without_zfs() -> screens.Context:
+    at = opened()
+    at.zfs_unavailable = "this live system has no zpool"
+    return at
+
+
+def test_a_medium_with_no_zfs_offers_no_zfs_layout() -> None:
+    """Alpine and Debian live images carry none, and the installer is meant to
+    run from them; the row says why rather than failing at zpool create."""
+    at = without_zfs()
+    screen = FakeScreen(keys=["q"], lines=24, columns=100)
+    screens.layout_screen(screen, config(), at)
+    drawn = "\n".join(screen.frames[0])
+    assert "zfs  with ZFSBootMenu - this live system has no zpool" in drawn
+
+
+def test_a_medium_with_no_zfs_offers_no_pool_member_purpose() -> None:
+    at = without_zfs()
+    entry = manual.Slice(index=1, role=PartitionRole.DATA, size=None,
+                         filesystem=FilesystemType.EXT4, mountpoint="/")
+    screen = FakeScreen(keys=["q"], lines=24, columns=100)
+    screens._edit_field(screen, at, entry, manual.purpose_of(entry), screens._PURPOSE)
+    drawn = "\n".join(screen.frames[0])
+    assert "zfs pool member - this live system has no zpool" in drawn
+
+
+def test_a_medium_with_no_zfs_offers_no_zfs_in_the_filesystem_menu() -> None:
+    """It is listed there because that is where anyone choosing a filesystem
+    looks for it, so that is where the reason has to appear too."""
+    at = without_zfs()
+    entry = manual.Slice(index=1, role=PartitionRole.DATA, size=None,
+                         filesystem=FilesystemType.EXT4, mountpoint="/")
+    screen = FakeScreen(keys=["q"], lines=24, columns=100)
+    screens._edit_field(screen, at, entry, manual.purpose_of(entry), screens._FILESYSTEM)
+    drawn = "\n".join(screen.frames[0])
+    assert "this live system has no zpool" in drawn
+
+
+def test_a_medium_with_zfs_offers_all_three() -> None:
+    at = opened()
+    for screen, call in (
+        (FakeScreen(keys=["q"], lines=24, columns=100), "layout"),
+        (FakeScreen(keys=["q"], lines=24, columns=100), screens._PURPOSE),
+        (FakeScreen(keys=["q"], lines=24, columns=100), screens._FILESYSTEM),
+    ):
+        if call == "layout":
+            screens.layout_screen(screen, config(), at)
+        else:
+            entry = manual.Slice(index=1, role=PartitionRole.DATA, size=None,
+                                 filesystem=FilesystemType.EXT4, mountpoint="/")
+            screens._edit_field(screen, at, entry, manual.purpose_of(entry), call)
+        assert "live system" not in "\n".join(screen.frames[0])

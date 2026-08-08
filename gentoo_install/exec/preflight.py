@@ -242,6 +242,14 @@ def inspect(
         if probe.mounted(path, ignoring=str(config_target)):
             fatal.append(f"{path} is mounted; the installer will not repartition a disk in use")
 
+    if config.disk.graph.of_type(ZfsPool):
+        # The commands alone are not enough: a medium can carry the userland
+        # and no module, and `zpool create` finds that out after the disks are
+        # already partitioned.
+        unusable = probe.zfs_support()
+        if unusable:
+            fatal.append(f"{unusable}, and this configuration makes a pool")
+
     fatal += _passphrase_problems(config)
     fatal += _capacity_problems(config, probe)
 

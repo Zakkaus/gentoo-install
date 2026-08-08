@@ -434,6 +434,7 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         supports_v3=probe.supports_v3(),
         save_config=_save_config,
         publish_config=_publish_config,
+        zfs_unavailable=probe.zfs_support(),
     )
     if not context.disks:
         raise errors.DeviceNotFound("this machine reports no disk to install onto")
