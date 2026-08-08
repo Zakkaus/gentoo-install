@@ -95,13 +95,14 @@ def test_the_firmware_row_is_shown_and_not_chosen() -> None:
     )
 
 
-def test_the_menu_is_flat() -> None:
-    """One row per decision. Nesting hides a choice behind a heading nobody
-    opens, which is what the maintainer asked to be rid of."""
-    assert len(settings.SETTINGS) > 20
+def test_a_group_is_a_list_and_never_a_wizard() -> None:
+    """Nesting is for one subject read as one row; behind it the rows are
+    re-enterable in any order, which is the main menu's own loop."""
+    grouped = [one for one in settings.SETTINGS if one.rows]
+    assert grouped and all(one.edit is not None for one in grouped)
     for setting in settings.SETTINGS:
         if setting.edit is not None:
-            assert "menu" not in setting.edit.__name__
+            assert "wizard" not in setting.edit.__name__
 
 
 def test_a_row_can_be_opened_and_the_menu_comes_back() -> None:
@@ -975,7 +976,7 @@ def test_the_console_font_is_a_row_and_the_size_with_no_cjk_says_why() -> None:
     from the menu could not reach the size that draws it."""
     from gentoo_install.model.config import ConsoleFontSize
 
-    assert "console_font" in {one.key for one in settings.SETTINGS}
+    assert "console_font" in {one.key for group in settings.SETTINGS for one in group.rows}
     at = context()
     cjk = replace(config(), system=replace(config().system, console_cjk=True))
     screen = FakeScreen(keys=["q", "KEY_DOWN", "\n"], lines=24, columns=100)
@@ -1041,7 +1042,7 @@ def test_a_required_row_inside_any_group_is_named_by_its_own_label() -> None:
     from dataclasses import replace as _replace
 
     groups = [one for one in settings.SETTINGS if one.rows]
-    assert len(groups) == 4
+    assert len(groups) == 7
     # Every group row's members are reachable, and no group row is walked itself.
     at = context()
     blank = replace(config(), system=replace(config().system, root_password_hash=""))
@@ -1178,7 +1179,9 @@ def test_the_address_row_says_what_the_machine_will_come_up_with() -> None:
     from gentoo_install.model.config import Networking
 
     at = context()
-    address = next(one for one in settings.SETTINGS if one.key == "address")
+    address = next(
+        one for group in settings.SETTINGS for one in group.rows if one.key == "address"
+    )
     typed = replace(
         config().system, addresses=("192.0.2.10/24",), interface="eth0"
     )

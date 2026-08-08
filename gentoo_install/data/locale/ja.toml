@@ -100,6 +100,7 @@
 
 # Network and SSH
 "Keyboard at unlock" = "起動時の解錠キーボード"
+"nothing is unlocked at boot" = "起動時に解錠しない"
 "Keyboard the initramfs uses, empty to follow the console" = "initramfs のキーボード配列。空欄ならコンソールに従う"
 "Use DHCP?" = "DHCP を使いますか？"
 "SSH public keys" = "SSH 公開鍵"
@@ -283,3 +284,7 @@
 "filters and remote destinations" = "フィルタと遠隔転送に対応"
 "smaller, no remote logging" = "小さい、遠隔転送なし"
 "no system log at all" = "システムログを残さない"
+"Desktop environment" = "デスクトップ環境"
+"Network" = "ネットワーク"
+"systemd logs to journald" = "systemd は journald に記録する"
+"only the cjk kernel draws CJK on the console" = "cjk カーネルだけがコンソールに CJK を描画する"

@@ -48,6 +48,10 @@ class Setting:
     #: are groups is one fact: `unanswered` walked its own list of three and
     #: missed the fourth, which would have reported `Kernel` for a row inside.
     rows: tuple[Setting, ...] = ()
+    #: Why this row cannot be opened right now, or empty when it can. A row
+    #: whose answer the rest of the configuration has already settled is drawn
+    #: with the reason rather than opening a screen that changes nothing.
+    unavailable: Callable[[InstallConfig, Context], str] = lambda config, context: ""
 
 
 def style_of(setting: Setting, config: InstallConfig, context: Context) -> Style:
@@ -80,7 +84,8 @@ def nested(title: str, rows: tuple[Setting, ...]) -> Step:
                     label=context.translate(row.label),
                     value=index,
                     detail=row.value(current, context),
-                    disabled_because="" if row.edit else context.translate("detected"),
+                    disabled_because=row.unavailable(current, context)
+                    or ("" if row.edit else context.translate("detected")),
                     style=style_of(row, current, context),
                 )
                 for index, row in enumerate(rows)
@@ -106,7 +111,7 @@ def nested(title: str, rows: tuple[Setting, ...]) -> Step:
             if chosen == len(rows):
                 return Answer(Outcome.CHOSE, current)
             editor = rows[chosen].edit
-            if editor is None:
+            if editor is None or rows[chosen].unavailable(current, context):
                 continue
             context.visited.add(rows[chosen].key)
             edited = editor(screen, current, context)
@@ -193,6 +198,15 @@ def _network(config: InstallConfig, context: Context) -> str:
 
 
 def _unlock_keymap(config: InstallConfig, context: Context) -> str:
+    """Nothing is typed at unlock unless something is unlocked.
+
+    The prompt comes from the initramfs, so a layout with no container and no
+    remote unlock never shows one and the row was reporting a keyboard for a
+    prompt that will not appear.
+    """
+    graph = config.disk.graph
+    if not graph.of_type(Luks) and not config.kernel.remote_unlock.enabled:
+        return context.translate("nothing is unlocked at boot")
     chosen = config.system.keymap_initramfs
     return chosen if chosen else f"{config.system.keymap} (same as the console)"
 
@@ -337,6 +351,14 @@ def _erase(config: InstallConfig, context: Context) -> str:
     return "confirmed" if context.erase_confirmed else UNSET
 
 
+def _cjk_kernel_only(config: InstallConfig, context: Context) -> str:
+    """A font with CJK glyphs draws nothing without the patch that lets the
+    console show them, so the size is a choice only under that kernel."""
+    if config.kernel.source is not KernelSource.CJK:
+        return context.translate("only the cjk kernel draws CJK on the console")
+    return ""
+
+
 #: The disk, as one subject. Six rows in a menu of thirty read as six unrelated
 #: decisions; behind one row they read as the layout they describe.
 DISK: Final[tuple[Setting, ...]] = (
@@ -345,6 +367,9 @@ DISK: Final[tuple[Setting, ...]] = (
     Setting("layout", "Layout", _layout, screens.layout_screen),
     Setting("partitions", "Partitions", _partitions, screens.partitions_screen),
     Setting("encryption", "Encryption", _encryption, screens.encryption_screen),
+    Setting(
+        "keymap_initramfs", "Keyboard at unlock", _unlock_keymap, screens.initramfs_keymap_screen
+    ),
     Setting("swap", "Swap", _swap, screens.swap_screen),
 )
 
@@ -363,6 +388,13 @@ COMPILER: Final[tuple[Setting, ...]] = (
 #: than held in a table: the list moves every week.
 KERNEL: Final[tuple[Setting, ...]] = (
     Setting("source", "Package", _kernel, screens.kernel_screen),
+    Setting(
+        "console_font",
+        "Console font",
+        lambda c, x: c.system.console_font.value,
+        screens.console_font_screen,
+        unavailable=_cjk_kernel_only,
+    ),
     Setting("version", "Version", _kernel_version, screens.kernel_version_screen),
 )
 
@@ -377,37 +409,57 @@ SSH: Final[tuple[Setting, ...]] = (
 #: The menu, flat and in the order it is drawn. One row per decision: nesting
 #: hides a choice behind a heading nobody opens, and `archinstall` reaches the
 #: same conclusion.
+def _journald_only(config: InstallConfig, context: Context) -> str:
+    """systemd logs to journald and merges no other logger, so the row has
+    nothing to offer until the init is openrc."""
+    if config.system.init is InitSystem.SYSTEMD:
+        return context.translate("systemd logs to journald")
+    return ""
+
+
+#: The init system and what it brings with it. The logger is openrc's question
+#: alone; cron is `sys-process/cronie` on both, so it stays a choice on both.
+INIT: Final[tuple[Setting, ...]] = (
+    Setting("init", "Init system", lambda c, x: c.system.init.value, screens.init_screen),
+    Setting("logger", "System logger", _logger, screens.logger_screen, unavailable=_journald_only),
+    Setting("cron", "Cron", _cron, screens.cron_screen),
+)
+
+
+#: The desktop, as one subject. Which session, which driver and which login
+#: screen are one decision made three times, not three unrelated rows.
+DESKTOP: Final[tuple[Setting, ...]] = (
+    Setting("desktop", "Desktop", lambda c, x: c.packages.desktop or "none", screens.desktop_screen),
+    Setting("graphics", "Graphics", _graphics, screens.graphics_screen),
+    Setting("dm", "Display manager", _display_manager, screens.display_manager_screen),
+)
+
+#: How the machine comes up on the network. The address is only read by some of
+#: the managers, so the two rows have to be read together.
+NETWORK: Final[tuple[Setting, ...]] = (
+    Setting("network", "Network configuration", _network, screens.networking_screen),
+    Setting("address", "Address", _address, screens.address_screen),
+)
+
 SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("firmware", "Firmware", _firmware, None),
     Setting("keymap", "Keyboard layout", lambda c, x: c.system.keymap, screens.keymap_screen),
-    Setting(
-        "console_font",
-        "Console font",
-        lambda c, x: c.system.console_font.value,
-        screens.console_font_screen,
-    ),
-    Setting("keymap_initramfs", "Keyboard at unlock", _unlock_keymap, screens.initramfs_keymap_screen),
     Setting("locale", "System language", lambda c, x: c.system.locale, screens.locale_screen),
     Setting("timezone", "Timezone", lambda c, x: c.system.timezone, screens.timezone_screen),
     Setting("mirror", "Mirrors", _mirror, screens.mirror_screen, required=True),
     Setting("storage", "Disk", _summary(DISK), nested("Disk", DISK), required=True, rows=DISK),
     Setting("hostname", "Hostname", lambda c, x: c.system.hostname, screens.system_screen),
-    Setting("init", "Init system", lambda c, x: c.system.init.value, screens.init_screen),
-    Setting("logger", "System logger", _logger, screens.logger_screen),
-    Setting("cron", "Cron", _cron, screens.cron_screen),
+    Setting("system", "Init system", _summary(INIT), nested("Init system", INIT), rows=INIT),
     Setting("profile", "Profile", lambda c, x: c.portage.profile, screens._profile_screen),
     Setting("compiler", "Compiler", _summary(COMPILER), nested("Compiler", COMPILER), rows=COMPILER),
     Setting("root", "Root password", _root, screens.root_password_screen, required=True),
     Setting("user", "User account", _user, screens.user_screen),
     Setting("kernel", "Kernel", _summary(KERNEL), nested("Kernel", KERNEL), rows=KERNEL),
     Setting("bootloader", "Bootloader", _bootloader, screens.bootloader_screen),
-    Setting("desktop", "Desktop", lambda c, x: c.packages.desktop or "none", screens.desktop_screen),
-    Setting("graphics", "Graphics", _graphics, screens.graphics_screen),
-    Setting("dm", "Display manager", _display_manager, screens.display_manager_screen),
+    Setting("environment", "Desktop environment", _summary(DESKTOP), nested("Desktop environment", DESKTOP), rows=DESKTOP),
     Setting("packages", "Applications", _applications, screens.packages_screen),
     Setting("extra", "Extra packages", _extra, screens.extra_packages_screen),
-    Setting("network", "Network configuration", _network, screens.networking_screen),
-    Setting("address", "Address", _address, screens.address_screen),
+    Setting("networking", "Network", _summary(NETWORK), nested("Network", NETWORK), rows=NETWORK),
     Setting("ssh", "SSH", _summary(SSH), nested("SSH", SSH), rows=SSH),
     Setting("erase", "Confirm erasing the drive", _erase, screens.erase_screen, required=True),
 )
