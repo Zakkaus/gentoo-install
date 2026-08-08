@@ -342,9 +342,14 @@ class LinkResolvConf(Operation):
     booted with the live medium's nameservers. `systemd-networkd` publishes
     what it learns only through `systemd-resolved`, so the DNS the operator
     typed reached no program at all.
+
+    Last of all, because the link points at a socket `systemd-resolved` only
+    creates once the installed system boots. Written any earlier it takes the
+    copied resolver away from every emerge that follows, and the install dies
+    on `Temporary failure in name resolution`.
     """
 
-    stage: Stage = Stage.SYSTEM
+    stage: Stage = Stage.FINISH
     init: InitSystem
 
     def describe(self) -> str:

@@ -45,7 +45,6 @@
   configure the wired interface for DHCP
   enable systemd-networkd at boot
   enable systemd-resolved at boot
-  point /etc/resolv.conf at systemd-resolved rather than the install medium's
   install cron: emerge sys-process/cronie
   enable cronie at boot
 
@@ -64,5 +63,6 @@
   install systemd-boot on the esp at /boot
 
 [finish]
+  point /etc/resolv.conf at systemd-resolved rather than the install medium's
   delete the downloaded stage3 from /var/cache/gentoo-install
   unmount everything under the target

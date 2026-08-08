@@ -807,3 +807,26 @@ def test_the_profile_is_written_with_the_mode_networkmanager_demands() -> None:
     recorder = Recorder()
     written.apply(recorder)
     assert recorder.modes[system.NM_PROFILE] == 0o600
+
+
+def test_the_resolver_link_is_the_last_thing_written() -> None:
+    """It points at a socket systemd-resolved only creates once the installed
+    system boots. Written before the emerges, it takes the copied resolver away
+    from every one of them and the install dies on name resolution."""
+    from pathlib import Path as FilePath
+
+    from gentoo_install.data import load_catalog as catalog_of
+    from gentoo_install.model.parse import load as load_config
+    from gentoo_install.plan.build import build as whole_plan
+    from gentoo_install.plan.portage import Emerge
+    from gentoo_install.plan.system import LinkResolvConf
+
+    operations = whole_plan(load_config(FilePath("tests/fixtures/vm-binpkg.toml")), catalog_of())
+    linked = next(
+        at for at, one in enumerate(operations) if isinstance(one, LinkResolvConf)
+    )
+    last_merge = max(at for at, one in enumerate(operations) if isinstance(one, Emerge))
+    unmounted = next(
+        at for at, one in enumerate(operations) if one.describe().startswith("unmount")
+    )
+    assert last_merge < linked < unmounted
