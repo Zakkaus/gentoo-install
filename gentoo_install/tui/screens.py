@@ -703,15 +703,36 @@ def binhost_screen(screen: Screen, config: InstallConfig, context: Context) -> A
 
 
 def sshd_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
+    """Off, keys only, or password login. Three rows rather than two questions:
+    whether a password is accepted is the decision, not a detail of the first."""
     translate = context.translate
-    question = Confirm(
-        title=translate("Start an SSH server at boot?"), footer=_footer(translate)
+    menu: Menu[tuple[bool, bool]] = Menu(
+        title=translate("Start an SSH server at boot?"),
+        items=[
+            Item(label=translate("no server"), value=(False, False)),
+            Item(
+                label=translate("keys only"),
+                value=(True, False),
+                detail=translate("no password is accepted"),
+            ),
+            Item(
+                label=translate("password login"),
+                value=(True, True),
+                detail=translate("root included"),
+            ),
+        ],
+        footer=_footer(translate),
     )
-    answer = question.run(screen)
+    answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
+    running, password = answer.unwrap()[0]
     return Answer(
-        Outcome.CHOSE, replace(config, system=replace(config.system, sshd=answer.unwrap()))
+        Outcome.CHOSE,
+        replace(
+            config,
+            system=replace(config.system, sshd=running, sshd_password_login=password),
+        ),
     )
 
 
@@ -1423,6 +1444,37 @@ def authorized_keys_screen(
     keys = (typed,) if typed else ()
     return Answer(
         Outcome.CHOSE, replace(config, system=replace(config.system, root_authorized_keys=keys))
+    )
+
+
+def root_login_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """Whether sshd lets root in at all, which is separate from whether a
+    password is accepted: a key is enough to reach root without one."""
+    translate = context.translate
+    menu: Menu[bool] = Menu(
+        title=translate("Let root log in over SSH?"),
+        items=[
+            Item(
+                label=translate("allowed"),
+                value=True,
+                detail=translate("the authorised keys are written for root too"),
+            ),
+            Item(
+                label=translate("refused"),
+                value=False,
+                detail=translate("reach root through a sudo user"),
+            ),
+        ],
+        footer=_footer(translate),
+    )
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    return Answer(
+        Outcome.CHOSE,
+        replace(config, system=replace(config.system, sshd_root_login=answer.unwrap()[0])),
     )
 
 

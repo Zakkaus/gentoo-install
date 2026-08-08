@@ -339,7 +339,7 @@ class WriteNetworkConfig(Operation):
 
 @dataclass(frozen=True, kw_only=True)
 class WriteAuthorizedKeys(Operation):
-    """Keys root may log in with.
+    """Keys the named accounts may log in with.
 
     A headless install with no key and no console is reachable only by taking
     the disk out, so this is written before the first boot rather than after.
@@ -347,17 +347,59 @@ class WriteAuthorizedKeys(Operation):
 
     stage: Stage = Stage.SYSTEM
     keys: tuple[str, ...]
+    #: Account name and home directory. root is included unless sshd refuses
+    #: root, in which case a key there would authorise a login that cannot
+    #: happen.
+    accounts: tuple[tuple[str, str], ...]
 
     def describe(self) -> str:
-        return f"authorise {len(self.keys)} ssh key(s) for root"
+        who = ", ".join(name for name, _ in self.accounts)
+        return f"authorise {len(self.keys)} ssh key(s) for {who}"
 
     def apply(self, context: Context) -> None:
+        body = "".join(f"{key}\n" for key in self.keys)
+        for name, home in self.accounts:
+            context.write(PurePosixPath(f"{home}/.ssh/authorized_keys"), body, mode=0o600)
+            context.run_in_target(["chmod", "700", f"{home}/.ssh"])
+            if name != "root":
+                context.run_in_target(["chown", "-R", f"{name}:{name}", f"{home}/.ssh"])
+
+
+@dataclass(frozen=True, kw_only=True)
+class WriteSshdConfig(Operation):
+    """Whether sshd accepts a password, as a drop-in.
+
+    `50-` so it sorts before the `9999999gentoo-pam.conf` the ebuild installs
+    with `PasswordAuthentication no`: sshd takes the first value it reads for a
+    keyword, so a later file cannot turn password login back on.
+    """
+
+    stage: Stage = Stage.SYSTEM
+    password_login: bool
+    root_login: bool
+
+    def describe(self) -> str:
+        password = "on" if self.password_login else "off"
+        return f"ssh password login: {password}, root: {'on' if self.root_login else 'off'}"
+
+    def apply(self, context: Context) -> None:
+        answer = "yes" if self.password_login else "no"
+        if not self.root_login:
+            root = "no"
+        else:
+            root = "yes" if self.password_login else "prohibit-password"
+        # PAM answers the password prompt through keyboard-interactive, so
+        # PasswordAuthentication alone leaves it refused.
+        lines = [
+            f"PasswordAuthentication {answer}",
+            f"KbdInteractiveAuthentication {answer}",
+            f"PermitRootLogin {root}",
+        ]
         context.write(
-            PurePosixPath("/root/.ssh/authorized_keys"),
-            "".join(f"{key}\n" for key in self.keys),
+            PurePosixPath("/etc/ssh/sshd_config.d/50-gentoo-install.conf"),
+            "".join(f"{line}\n" for line in lines),
             mode=0o600,
         )
-        context.run_in_target(["chmod", "700", "/root/.ssh"])
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -503,7 +545,11 @@ def build(config: InstallConfig) -> list[Operation]:
     if config.disk.graph.of_type(MdRaid):
         operations.append(WriteMdadmConf())
     if system.root_authorized_keys:
-        operations.append(WriteAuthorizedKeys(keys=system.root_authorized_keys))
+        operations.append(
+            WriteAuthorizedKeys(
+                keys=system.root_authorized_keys, accounts=key_accounts(system)
+            )
+        )
     if system.zram is not None:
         operations += [
             Emerge(
@@ -542,6 +588,10 @@ def build(config: InstallConfig) -> list[Operation]:
     if system.sshd:
         operations += [
             Emerge(stage=Stage.SYSTEM, packages=("net-misc/openssh",), summary="install sshd"),
+            WriteSshdConfig(
+                password_login=system.sshd_password_login,
+                root_login=system.sshd_root_login,
+            ),
             EnableService(service=_sshd_service(system.init), init=system.init),
         ]
     flags = _network_use(system)
@@ -667,6 +717,19 @@ def _serial_console(config: InstallConfig) -> tuple[str, int] | None:
         digits = "".join(character for character in rest if character.isdigit())
         return port, int(digits) if digits else 115200
     return None
+
+
+def key_accounts(system: SystemConfig) -> tuple[tuple[str, str], ...]:
+    """Which accounts get the authorised keys, and their home directories.
+
+    Every sudo user, plus root unless sshd refuses root and a sudo user exists
+    to log in instead: a key that reaches no account leaves a headless machine
+    with no way in.
+    """
+    accounts = [(user.name, f"/home/{user.name}") for user in system.users if user.sudo]
+    if system.sshd_root_login or not accounts:
+        accounts.insert(0, ("root", "/root"))
+    return tuple(accounts)
 
 
 def _sshd_service(init: InitSystem) -> str:

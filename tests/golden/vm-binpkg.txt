@@ -42,6 +42,7 @@
   treat the hardware clock as UTC
   set the root password
   install sshd: emerge net-misc/openssh
+  ssh password login: off, root: on
   enable sshd.service at boot
   configure the wired interface for DHCP
   enable systemd-networkd.service at boot

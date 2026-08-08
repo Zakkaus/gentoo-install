@@ -21,6 +21,12 @@ from gentoo_install.plan import system
 from .layouts import config, ext4_on_gpt, i
 from .recorder import Recorder
 
+#: What `locale -a` answers for the default set, so a test that is not
+#: about locales does not trip over the check that they were generated.
+DEFAULT_LOCALES = " ".join(
+    locale.lower().replace("-", "") for locale in SystemConfig().locales
+)
+
 FSTAB = PurePosixPath("/etc/fstab")
 CRYPTTAB = PurePosixPath("/etc/crypttab")
 
@@ -313,3 +319,61 @@ def test_root_can_be_given_a_key_before_the_first_boot() -> None:
     assert not any(
         isinstance(operation, system.WriteAuthorizedKeys) for operation in system.build(config())
     )
+
+
+def test_the_sshd_drop_in_sorts_before_the_one_the_ebuild_installs() -> None:
+    """`9999999gentoo-pam.conf` sets `PasswordAuthentication no`, and sshd takes
+    the first value it reads, so a later file cannot turn password login on."""
+    recorder = apply_all(with_system(sshd=True, sshd_password_login=True), generated=DEFAULT_LOCALES)
+    where = PurePosixPath("/etc/ssh/sshd_config.d/50-gentoo-install.conf")
+    written = recorder.files[where]
+    assert where.name < "9999999gentoo-pam.conf"
+    assert "PasswordAuthentication yes" in written
+    # PAM answers the prompt through keyboard-interactive, so the one setting
+    # on its own still leaves a password refused.
+    assert "KbdInteractiveAuthentication yes" in written
+    assert "PermitRootLogin yes" in written
+
+
+def test_keys_only_leaves_root_reachable_with_a_key_and_not_a_password() -> None:
+    recorder = apply_all(with_system(sshd=True, sshd_password_login=False), generated=DEFAULT_LOCALES)
+    written = recorder.files[PurePosixPath("/etc/ssh/sshd_config.d/50-gentoo-install.conf")]
+    assert "PasswordAuthentication no" in written
+    assert "PermitRootLogin prohibit-password" in written
+
+
+def test_refusing_root_refuses_it_with_a_key_too() -> None:
+    recorder = apply_all(with_system(sshd=True, sshd_root_login=False), generated=DEFAULT_LOCALES)
+    written = recorder.files[PurePosixPath("/etc/ssh/sshd_config.d/50-gentoo-install.conf")]
+    assert "PermitRootLogin no" in written
+
+
+def test_a_key_is_written_for_root_and_for_every_sudo_user() -> None:
+    """The operator authorises a person, and that person uses both accounts."""
+    installation = with_system(
+        root_authorized_keys=("ssh-ed25519 AAAA test",),
+        users=(User(name="zakk", sudo=True), User(name="guest")),
+    )
+    recorder = apply_all(installation, generated=generated(installation))
+    assert PurePosixPath("/root/.ssh/authorized_keys") in recorder.files
+    assert PurePosixPath("/home/zakk/.ssh/authorized_keys") in recorder.files
+    assert PurePosixPath("/home/guest/.ssh/authorized_keys") not in recorder.files
+    assert recorder.argv_starting("chown")
+
+
+def test_a_key_still_reaches_root_when_there_is_no_sudo_user() -> None:
+    """Refusing root with no other account authorised leaves a headless machine
+    with no way in at all."""
+    installation = with_system(
+        root_authorized_keys=("ssh-ed25519 AAAA test",), sshd_root_login=False
+    )
+    assert system.key_accounts(installation.system) == (("root", "/root"),)
+
+
+def test_refusing_root_keeps_the_key_off_root_when_a_sudo_user_has_it() -> None:
+    installation = with_system(
+        root_authorized_keys=("ssh-ed25519 AAAA test",),
+        sshd_root_login=False,
+        users=(User(name="zakk", sudo=True),),
+    )
+    assert system.key_accounts(installation.system) == (("zakk", "/home/zakk"),)

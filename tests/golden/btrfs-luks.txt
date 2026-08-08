@@ -60,6 +60,7 @@
   install sudo: emerge app-admin/sudo
   let the wheel group run sudo, with a password
   install sshd: emerge net-misc/openssh
+  ssh password login: off, root: on
   enable sshd.service at boot
   configure the wired interface for DHCP
   enable systemd-networkd.service at boot

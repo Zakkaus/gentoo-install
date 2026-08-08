@@ -142,6 +142,18 @@ def _applications(config: InstallConfig, context: Context) -> str:
     return ", ".join(config.packages.applications) or "none"
 
 
+def _root_login(config: InstallConfig, context: Context) -> str:
+    return context.translate("allowed" if config.system.sshd_root_login else "refused")
+
+
+def _sshd(config: InstallConfig, context: Context) -> str:
+    if not config.system.sshd:
+        return context.translate("no server")
+    return context.translate(
+        "password login" if config.system.sshd_password_login else "keys only"
+    )
+
+
 def _license(config: InstallConfig, context: Context) -> str:
     return " ".join(config.portage.accept_license)
 
@@ -197,12 +209,13 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("binhost", "Binary packages", _binhost, screens.binhost_screen),
     Setting("sync", "Repository sync", lambda c, x: c.portage.sync.value, screens.sync_screen),
     Setting("desktop", "Desktop", lambda c, x: c.packages.desktop or "none", screens.desktop_screen),
-    Setting("packages", "Package groups", _applications, screens.packages_screen),
+    Setting("packages", "Applications", _applications, screens.packages_screen),
     Setting("extra", "Extra packages", _extra, screens.extra_packages_screen),
     Setting("network", "Network configuration", _network, screens.networking_screen),
     Setting("address", "Address", _address, screens.address_screen),
     Setting("keys", "SSH keys for root", _keys, screens.authorized_keys_screen),
-    Setting("sshd", "SSH server", lambda c, x: "on" if c.system.sshd else "off", screens.sshd_screen),
+    Setting("rootlogin", "Root login over SSH", _root_login, screens.root_login_screen),
+    Setting("sshd", "SSH server", _sshd, screens.sshd_screen),
     Setting("erase", "Confirm erasing the drive", _erase, screens.erase_screen, required=True),
 )
 

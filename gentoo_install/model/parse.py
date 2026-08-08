@@ -103,9 +103,10 @@ def _system(raw: Mapping[str, Any], at: str) -> SystemConfig:
         at,
         {
             "hostname", "timezone", "locales", "locale", "keymap", "console_cjk",
-            "console_font", "init", "sshd", "users", "root_password_hash",
+            "console_font", "init", "sshd", "sshd_password_login", "users",
+            "root_password_hash",
             "zram", "hardware_clock_utc", "networking", "keymap_initramfs",
-            "address", "gateway", "root_authorized_keys",
+            "address", "gateway", "root_authorized_keys", "sshd_root_login",
         },
     )
     default = SystemConfig()
@@ -126,6 +127,10 @@ def _system(raw: Mapping[str, Any], at: str) -> SystemConfig:
         init=_enum(raw, "init", at, InitSystem, default.init),
         root_password_hash=_str(raw, "root_password_hash", at, default.root_password_hash),
         sshd=_bool(raw, "sshd", at, default.sshd),
+        sshd_password_login=_bool(
+            raw, "sshd_password_login", at, default.sshd_password_login
+        ),
+        sshd_root_login=_bool(raw, "sshd_root_login", at, default.sshd_root_login),
         networking=_enum(raw, "networking", at, Networking, default.networking),
         zram=_size(raw, "zram", at),
         hardware_clock_utc=_bool(raw, "hardware_clock_utc", at, default.hardware_clock_utc),
