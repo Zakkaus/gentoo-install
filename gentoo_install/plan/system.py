@@ -211,19 +211,42 @@ class CrypttabEntry:
 
 @dataclass(frozen=True, kw_only=True)
 class WriteCrypttab(Operation):
+    """Where each init reads its containers from.
+
+    openrc reads none of `/etc/crypttab`: `sys-fs/cryptsetup` ships a `dmcrypt`
+    service that reads `/etc/conf.d/dmcrypt`, so writing crypttab there left a
+    container nobody opened at boot.
+    """
+
     stage: Stage = Stage.SYSTEM
     entries: tuple[CrypttabEntry, ...]
+    init: InitSystem
 
     def describe(self) -> str:
         names = ", ".join(entry.name for entry in self.entries)
-        return f"write /etc/crypttab for {names}"
+        where = "/etc/crypttab" if self.init is InitSystem.SYSTEMD else "/etc/conf.d/dmcrypt"
+        return f"write {where} for {names}"
 
     def apply(self, context: Context) -> None:
-        lines = []
-        for entry in self.entries:
-            options = "luks,x-initrd.attach" if entry.initrd_attach else "luks"
-            lines.append(f"{entry.name}\tUUID={context.device_uuid(entry.backing)}\tnone\t{options}")
-        context.write(PurePosixPath("/etc/crypttab"), "\n".join(lines) + "\n")
+        if self.init is InitSystem.SYSTEMD:
+            lines = []
+            for entry in self.entries:
+                options = "luks,x-initrd.attach" if entry.initrd_attach else "luks"
+                lines.append(
+                    f"{entry.name}\tUUID={context.device_uuid(entry.backing)}\tnone\t{options}"
+                )
+            context.write(PurePosixPath("/etc/crypttab"), "\n".join(lines) + "\n")
+            return
+        # Each target starts a section, which is what the init script's own
+        # parser assumes; the root is already open, so it is left out.
+        sections = [
+            f"target={entry.name}\nsource='UUID={context.device_uuid(entry.backing)}'"
+            for entry in self.entries
+            if not entry.initrd_attach
+        ]
+        context.write(
+            PurePosixPath("/etc/conf.d/dmcrypt"), "\n\n".join(sections) + "\n" if sections else ""
+        )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -313,7 +336,9 @@ class WriteNetworkConfig(Operation):
     dns: tuple[str, ...] = ()
 
     def describe(self) -> str:
-        if self.networking in (Networking.NETWORKMANAGER_WPA, Networking.NETWORKMANAGER_IWD):
+        if self.networking is Networking.NONE:
+            return "leave the network unconfigured"
+        if self.networking is not Networking.BUILTIN:
             return f"leave the interfaces to NetworkManager ({self.networking.value})"
         where = self.interface or "the wired interface"
         if self.addresses:
@@ -321,7 +346,10 @@ class WriteNetworkConfig(Operation):
         return f"configure {where} for DHCP"
 
     def apply(self, context: Context) -> None:
-        if self.networking in (Networking.NETWORKMANAGER_WPA, Networking.NETWORKMANAGER_IWD):
+        if self.networking is not Networking.BUILTIN:
+            # NetworkManager manages every unconfigured interface itself, and
+            # NONE means the operator brings the link up by hand. Writing a
+            # DHCP file for either is configuring what they asked not to be.
             return
         if self.init is InitSystem.SYSTEMD:
             context.write(
@@ -607,7 +635,11 @@ def build(config: InstallConfig) -> list[Operation]:
             )
     crypttab = crypttab_entries(config)
     if crypttab:
-        operations.append(WriteCrypttab(entries=crypttab))
+        operations.append(WriteCrypttab(entries=crypttab, init=system.init))
+        if system.init is InitSystem.OPENRC and any(
+            not entry.initrd_attach for entry in crypttab
+        ):
+            operations.append(EnableService(service="dmcrypt", init=system.init, runlevel="boot"))
     for user in system.users:
         operations.append(
             CreateUser(
@@ -659,7 +691,11 @@ def build(config: InstallConfig) -> list[Operation]:
             dns=system.dns,
         ),
     ]
-    if _needs_netifrc(system):
+    if system.networking is Networking.NONE:
+        # Nothing enabled: an operator who chose no networking gets none, not
+        # DHCP from whichever service the init happens to ship.
+        pass
+    elif _needs_netifrc(system):
         # Not dhcpcd: it would DHCP over the static address, and nothing reads
         # /etc/conf.d/net unless the per-interface service is in a runlevel.
         operations.append(LinkNetifrcService(interface=system.interface or "eth0"))

@@ -454,3 +454,34 @@ def test_refusing_root_keeps_the_key_off_root_when_a_sudo_user_has_it() -> None:
         users=(User(name="zakk", sudo=True),),
     )
     assert system.key_accounts(installation.system) == (("zakk", "/home/zakk"),)
+
+
+def test_choosing_no_networking_configures_none() -> None:
+    """`NONE` produced exactly the plan `BUILTIN` did: a DHCP file and a
+    service, which is the opposite of what the option says."""
+    quiet = static(networking=Networking.NONE)
+    assert not networked(quiet).files
+    services = [
+        one.service for one in system.build(quiet) if isinstance(one, system.EnableService)
+    ]
+    assert "systemd-networkd" not in services and "dhcpcd" not in services
+
+
+def test_openrc_reads_its_containers_from_conf_d_and_not_from_crypttab() -> None:
+    """`sys-fs/cryptsetup` ships a `dmcrypt` service that reads
+    /etc/conf.d/dmcrypt; crypttab there is a file nobody opens."""
+    entries = (
+        system.CrypttabEntry(name="root", backing=i("crypt"), initrd_attach=True),
+        system.CrypttabEntry(name="data", backing=i("crypt2"), initrd_attach=False),
+    )
+    recorder = Recorder()
+    system.WriteCrypttab(entries=entries, init=InitSystem.OPENRC).apply(recorder)
+    written = recorder.files[PurePosixPath("/etc/conf.d/dmcrypt")]
+    assert "target=data" in written
+    # The root is already open by then: the initramfs did it.
+    assert "target=root" not in written
+    assert PurePosixPath("/etc/crypttab") not in recorder.files
+
+    systemd = Recorder()
+    system.WriteCrypttab(entries=entries, init=InitSystem.SYSTEMD).apply(systemd)
+    assert "x-initrd.attach" in systemd.files[PurePosixPath("/etc/crypttab")]
