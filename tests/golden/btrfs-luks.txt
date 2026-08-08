@@ -40,6 +40,7 @@
   install the key the community binary packages are signed with: emerge sec-keys/openpgp-keys-gentoozh, from source
   import 38A0234EC16AD42E from /usr/share/openpgp-keys/gentoozh.asc and locally sign it for gentoo-zh
   add verified binary package host gentoo-zh at https://mirrors.cernet.edu.cn/gentoo-zh/binpkgs/x86-64
+  ask for sys-apps/systemd[cryptsetup], which provides the unlock generator
 
 [system]
   generate and verify locales en_US.UTF-8, zh_TW.UTF-8
@@ -62,6 +63,7 @@
 [kernel]
   set sys-kernel/installkernel to dracut
   install the hook that puts a kernel in /boot: emerge sys-kernel/installkernel
+  rebuild systemd with the unlock generator: emerge sys-apps/systemd, from source
   tell dracut to carry crypt, btrfs
   accept the linux-firmware licence
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware

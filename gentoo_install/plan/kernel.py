@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Final
 
-from ..model.config import Bootloader, InstallConfig, KernelSource
+from ..model.config import Bootloader, InitSystem, InstallConfig, KernelSource
 from ..errors import InvalidLayout
 from ..model import compat
 from ..model.device import (
@@ -124,6 +124,26 @@ class WriteKernelCmdline(Operation):
         context.write(
             PurePosixPath("/etc/kernel/cmdline"),
             " ".join((where, "rw", *opened, *self.kernel_params)) + "\n",
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class RequestSystemdCryptsetup(Operation):
+    """`cryptsetup` is in systemd's IUSE without a `+` and no profile turns it
+    on, so a stage3 systemd ships no `systemd-cryptsetup-generator`. A systemd
+    initramfs then never builds an unlock unit and boot waits for a device that
+    only appears once the container is open.
+    """
+
+    stage: Stage = Stage.PORTAGE
+
+    def describe(self) -> str:
+        return "ask for sys-apps/systemd[cryptsetup], which provides the unlock generator"
+
+    def apply(self, context: Context) -> None:
+        context.write(
+            PurePosixPath("/etc/portage/package.use/cryptsetup"),
+            "sys-apps/systemd cryptsetup\n",
         )
 
 
@@ -252,6 +272,7 @@ class BuildKernel(Operation):
 
 
 def build(config: InstallConfig) -> list[Operation]:
+    graph = config.disk.graph
     modules = dracut_modules(config)
     entries = config.bootloader.kind is Bootloader.SYSTEMD_BOOT
     operations: list[Operation] = [
@@ -276,6 +297,19 @@ def build(config: InstallConfig) -> list[Operation]:
             summary="install the hook that puts a kernel in /boot",
         ),
     ]
+    if graph.of_type(Luks) and config.system.init is InitSystem.SYSTEMD:
+        operations += [
+            RequestSystemdCryptsetup(),
+            # From source: the binary host builds the default USE, and a binary
+            # package without the flag would be installed over this one.
+            Emerge(
+                stage=Stage.KERNEL,
+                packages=("sys-apps/systemd",),
+                summary="rebuild systemd with the unlock generator",
+                oneshot=True,
+                binary_packages=False,
+            ),
+        ]
     if modules:
         operations.append(WriteDracutModules(modules=modules))
     operations += [

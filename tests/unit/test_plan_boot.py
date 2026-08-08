@@ -322,3 +322,20 @@ def test_zfsbootmenu_talks_where_the_install_did() -> None:
     )
     written = installed._config()
     assert "console=ttyS0,115200" in written and "console=tty1" in written
+
+
+def test_a_systemd_initramfs_gets_the_generator_that_unlocks_the_root() -> None:
+    """`cryptsetup` is in systemd's IUSE without a `+`, so a stage3 systemd has
+    no generator and the initramfs waits for a device it never opens."""
+    described = [
+        operation.describe() for operation in kernel.build(load(Path("tests/fixtures/vm-luks.toml")))
+    ]
+    asked = described.index("ask for sys-apps/systemd[cryptsetup], which provides the unlock generator")
+    rebuilt = described.index("rebuild systemd with the unlock generator: emerge sys-apps/systemd, from source")
+    built = described.index(
+        "rebuild the initramfs from sys-kernel/gentoo-kernel-bin with the modules written above"
+    )
+    assert asked < rebuilt < built
+
+    plain = [operation.describe() for operation in kernel.build(load(Path("tests/fixtures/vm-sdboot.toml")))]
+    assert not any("unlock generator" in line for line in plain)
