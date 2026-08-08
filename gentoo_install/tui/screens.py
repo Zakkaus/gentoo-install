@@ -2129,14 +2129,13 @@ INTERFACE_LANGUAGES: tuple[tuple[str, str, bool], ...] = (
 class LanguageDefaults:
     """What picking an interface language pre-fills.
 
-    Someone reading Traditional Chinese is in Taipei rather than Shanghai and wants
-    `zh_TW.UTF-8`, and the CN mirrors are the wrong side of a border for them.
-    Every one of these stays a row the operator can change.
+    Locale and timezone follow the language; the mirror region does not, and is
+    read from where the machine reaches the internet. Every one of these stays
+    a row the operator can change.
     """
 
     locale: str
     timezone: str
-    mirror: MirrorRegion
     #: True for the languages the cjktty patch is the point of. It pulls in
     #: gentoo-zh, so it is not a default for a language that would not use the
     #: rest of that overlay.
@@ -2145,11 +2144,11 @@ class LanguageDefaults:
 
 #: One row per interface language. Keyed by the same tags as the catalogs.
 LANGUAGE_DEFAULTS: Final[dict[str, LanguageDefaults]] = {
-    "en": LanguageDefaults("en_US.UTF-8", "UTC", MirrorRegion.GLOBAL),
-    "zh-CN": LanguageDefaults("zh_CN.UTF-8", "Asia/Shanghai", MirrorRegion.CN, True),
-    "zh-TW": LanguageDefaults("zh_TW.UTF-8", "Asia/Taipei", MirrorRegion.GLOBAL, True),
-    "ja": LanguageDefaults("ja_JP.UTF-8", "Asia/Tokyo", MirrorRegion.GLOBAL),
-    "ko": LanguageDefaults("ko_KR.UTF-8", "Asia/Seoul", MirrorRegion.GLOBAL),
+    "en": LanguageDefaults("en_US.UTF-8", "UTC"),
+    "zh-CN": LanguageDefaults("zh_CN.UTF-8", "Asia/Shanghai", True),
+    "zh-TW": LanguageDefaults("zh_TW.UTF-8", "Asia/Taipei", True),
+    "ja": LanguageDefaults("ja_JP.UTF-8", "Asia/Tokyo"),
+    "ko": LanguageDefaults("ko_KR.UTF-8", "Asia/Seoul"),
 }
 
 
@@ -2169,16 +2168,6 @@ def with_language(config: InstallConfig, tag: str) -> InstallConfig:
             timezone=chosen.timezone,
             locales=locales,
             console_cjk=chosen.cjk_console,
-        ),
-        portage=replace(
-            config.portage,
-            mirrors=replace(
-                config.portage.mirrors,
-                region=chosen.mirror,
-                # With the region: a site of the region it left is not in the
-                # new list, and every lookup by key then finds nothing.
-                site=mirrors.gentoo_sites(chosen.mirror)[0].key,
-            ),
         ),
     )
     if not chosen.cjk_console:

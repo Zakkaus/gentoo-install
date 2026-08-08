@@ -27,13 +27,14 @@ from .log import Journal
 from .tui import app, screens
 from .tui.curses_screen import CursesScreen, too_small
 from .i18n import Catalog, tag_for
-from .model import templates
+from .model import mirrors, templates
 from .model.config import (
     Binhost,
     DiskConfig,
     Firmware,
     InstallConfig,
     MirrorConfig,
+    MirrorRegion,
     PortageConfig,
 )
 from .model.parse import load
@@ -41,9 +42,9 @@ from .plan.build import DEFAULT_MIRROR, build
 from .plan.operations import Operation, Stage
 from .plan.render import render, summarise
 
-#: The site the global region lists first, so the mirror row starts answered
-#: rather than blocking the install until somebody opens it.
-DEFAULT_SITE: Final[str] = "gentoo"
+#: The country whose mirrors are the ones worth offering. Every other answer,
+#: and no answer at all, takes the global list.
+CN: Final[str] = "CN"
 
 #: Everything a run needs to keep: the device map, the staged keys, the log.
 WORK = Path("/run/gentoo-install")
@@ -365,7 +366,11 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         # the pipe before it discovers there is no terminal.
         raise errors.PreflightFailed("the menu needs a terminal; pass --config FILE")
     start = _blank(
-        context.disks[0][0], context.cores, context.cpu_flags, context.supports_v3
+        context.disks[0][0],
+        context.cores,
+        context.cpu_flags,
+        context.supports_v3,
+        fetch.egress_country(),
     )
 
     def walk(window: object) -> app.Finished:
@@ -392,8 +397,22 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
     return finished.config
 
 
+def _region(country: str) -> MirrorRegion:
+    """Which mirror list to offer, from where the packets come out.
+
+    Not from the interface language: a Taiwanese or Singaporean machine reading
+    Chinese is not behind the Great Firewall, and one in China reading English
+    is. An unread country takes the global list, which reaches everywhere.
+    """
+    return MirrorRegion.CN if country == CN else MirrorRegion.GLOBAL
+
+
 def _blank(
-    disk: str, cores: int, cpu_flags: tuple[str, ...], supports_v3: bool = False
+    disk: str,
+    cores: int,
+    cpu_flags: tuple[str, ...],
+    supports_v3: bool = False,
+    country: str = "",
 ) -> InstallConfig:
     """What the menu starts from.
 
@@ -404,13 +423,14 @@ def _blank(
     nothing, so the row that blocks the install starts answered.
     """
     graph, root = templates.build(templates.Choice(disk=disk))
+    region = _region(country)
     return InstallConfig(
         disk=DiskConfig(graph=graph, root=root),
         portage=PortageConfig(
             makeopts=f"-j{cores}",
             cpu_flags=cpu_flags,
             binhost=Binhost(subarch="x86-64-v3" if supports_v3 else "x86-64"),
-            mirrors=MirrorConfig(site=DEFAULT_SITE),
+            mirrors=MirrorConfig(region=region, site=mirrors.gentoo_sites(region)[0].key),
         ),
     )
 

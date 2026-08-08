@@ -186,6 +186,36 @@ def network_time() -> float:
         return 0.0
 
 
+#: Where the machine's egress country is read from, in order. Two, because the
+#: first is not always reachable from the network whose answer matters most.
+COUNTRY_URLS: Final[tuple[str, ...]] = (
+    "https://ipinfo.io/country",
+    "https://www.cloudflare.com/cdn-cgi/trace",
+)
+
+
+def egress_country() -> str:
+    """The two-letter country the machine reaches the internet from, or empty.
+
+    Which mirrors are worth offering follows from where the packets come out,
+    not from which language the operator reads: a Taiwanese or Singaporean
+    machine reading Chinese is not behind the Great Firewall, and a machine in
+    China reading English is.
+    """
+    for url in COUNTRY_URLS:
+        try:
+            answer = _read(url)
+        except DownloadFailed:
+            continue
+        for line in answer.splitlines():
+            if line.startswith("loc="):
+                return line[4:].strip().upper()
+        stripped = answer.strip().upper()
+        if len(stripped) == 2 and stripped.isalpha():
+            return stripped
+    return ""
+
+
 def online() -> bool:
     """Whether the package site answers.
 

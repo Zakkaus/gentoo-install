@@ -355,9 +355,20 @@ def test_global_testing_takes_the_unstable_binary_host_whatever_the_row_says() -
 def test_the_menu_starts_on_this_machine_s_subarchitecture_and_a_mirror() -> None:
     """`x86-64-v3` needs AVX2, so the row is offered only where it runs and
     chosen where it does; the mirror row is required and started unanswered."""
-    from gentoo_install.cli import DEFAULT_SITE, _blank
+    from gentoo_install.cli import _blank
+    from gentoo_install.model.config import MirrorRegion
+    from gentoo_install.model.mirrors import gentoo_sites
 
     assert _blank("/dev/vda", 4, (), supports_v3=True).portage.binhost.subarch == "x86-64-v3"
     plain = _blank("/dev/vda", 4, (), supports_v3=False)
     assert plain.portage.binhost.subarch == "x86-64"
-    assert plain.portage.mirrors.site == DEFAULT_SITE
+    assert plain.portage.mirrors.site == gentoo_sites(MirrorRegion.GLOBAL)[0].key
+
+    # The region follows where the packets come out, not the language.
+    inside = _blank("/dev/vda", 4, (), country="CN")
+    assert inside.portage.mirrors.region is MirrorRegion.CN
+    assert inside.portage.mirrors.site == gentoo_sites(MirrorRegion.CN)[0].key
+    for outside in ("TW", "SG", "US", ""):
+        assert _blank("/dev/vda", 4, (), country=outside).portage.mirrors.region is (
+            MirrorRegion.GLOBAL
+        ), outside

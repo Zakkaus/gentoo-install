@@ -398,11 +398,11 @@ def test_choosing_the_traditional_catalog_moves_the_defaults_with_it() -> None:
     taiwan = screens.with_language(config(), "zh-TW")
     assert taiwan.system.timezone == "Asia/Taipei"
     assert taiwan.system.locale == "zh_TW.UTF-8"
-    assert taiwan.portage.mirrors.region is MirrorRegion.GLOBAL
     china = screens.with_language(config(), "zh-CN")
     assert china.system.timezone == "Asia/Shanghai"
     assert china.system.locale == "zh_CN.UTF-8"
-    assert china.portage.mirrors.region is MirrorRegion.CN
+    # The region is read from the egress, so the language leaves it alone.
+    assert china.portage.mirrors.region is taiwan.portage.mirrors.region
 
 
 def test_every_interface_language_has_defaults_of_its_own() -> None:
