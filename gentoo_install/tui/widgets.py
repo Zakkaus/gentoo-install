@@ -176,6 +176,9 @@ class TextField:
     #: Shown instead of the characters typed, for a password.
     masked: bool = False
     footer: str = ""
+    #: Drawn inside the field while it is empty, so a field that takes an
+    #: unusual value still says what that value looks like.
+    placeholder: str = ""
 
     def run(self, screen: Screen) -> Answer[str]:
         typed = list(self.value)
@@ -198,12 +201,14 @@ class TextField:
         lines, columns = screen.size()
         screen.clear()
         screen.write(0, 0, truncate(self.title, columns))
+        # Brackets and a caret, drawn highlighted: a bare string at the top of
+        # an empty screen does not read as somewhere to type.
+        room = columns - 8
         shown = "*" * len(typed) if self.masked else "".join(typed)
-        # Keep the end visible: the operator is looking at what they just typed.
-        room = columns - 4
-        while width(shown) > room:
+        while width(shown) > room - 1:
             shown = shown[1:]
-        screen.write(2, 2, shown)
+        inside = truncate(self.placeholder, room) if not typed else f"{shown}_"
+        screen.write(2, 2, f"[ {inside}{' ' * (room - width(inside))} ]", highlight=True)
         if self.footer:
             screen.write(lines - 1, 0, truncate(self.footer, columns))
         screen.show()

@@ -111,3 +111,23 @@ def test_a_destructive_confirmation_has_no_default_to_press_enter_on() -> None:
     wrong = list("/dev/vda") + ["\n"]
     assert question.run(FakeScreen(keys=wrong)).unwrap() is False
     assert Confirm(title="Erase?").run(FakeScreen(keys=["\n"])).unwrap() is False
+
+
+def test_a_text_field_draws_somewhere_to_type() -> None:
+    """A bare string at the top of an empty screen does not read as an input:
+    the maintainer could not tell which screens wanted typing."""
+    field = TextField(title="Size", placeholder="512MiB")
+    screen = FakeScreen(keys=["2", "0", "G", "\n"])
+    assert field.run(screen).unwrap() == "20G"
+    first, last = screen.frames[0], screen.frames[-1]
+    assert any("[ 512MiB" in line for line in first), first
+    assert any("[ 20G_" in line for line in last), last
+
+
+def test_a_masked_field_shows_the_caret_and_not_the_characters() -> None:
+    field = TextField(title="Passphrase", masked=True)
+    screen = FakeScreen(keys=[*"hunter2", "\n"])
+    assert field.run(screen).unwrap() == "hunter2"
+    drawn = "\n".join("\n".join(frame) for frame in screen.frames)
+    assert "hunter2" not in drawn
+    assert "[ *******_" in drawn
