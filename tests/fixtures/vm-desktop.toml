@@ -1,0 +1,104 @@
+# What the VM harness installs: UEFI, GPT, ext4, systemd, binary packages
+# throughout. No desktop and no overlay, so a run finishes in minutes and a
+# failure is the installer's rather than a compiler's.
+#
+# The root hash below is `install`, produced by `openssl passwd -6`. It has to
+# be a real hash: a made-up one is accepted by `usermod --password` and only
+# shows up as a system nobody can log into.
+config_version = 1
+
+[system]
+hostname = "deskbox"
+timezone = "UTC"
+locales = ["en_US.UTF-8"]
+locale = "en_US.UTF-8"
+init = "systemd"
+sshd = true
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
+
+[portage]
+profile = "default/linux/amd64/23.0/desktop/plasma/systemd"
+makeopts = "-j4"
+
+[portage.mirrors]
+region = "global"
+
+[portage.binhost]
+official = true
+community = "off"
+
+[kernel]
+source = "dist-bin"
+
+[bootloader]
+kind = "grub"
+firmware = "uefi"
+kernel_params = ["console=ttyS0,115200"]
+
+[disk]
+root = "mnt-root"
+
+[[disk.devices]]
+kind = "existing"
+id = "disk"
+selector = "/dev/disk/by-id/virtio-target0"
+wipe = true
+
+[[disk.devices]]
+kind = "table"
+id = "table"
+disk = "disk"
+table = "gpt"
+
+[[disk.devices]]
+kind = "partition"
+id = "esp"
+table = "table"
+index = 1
+role = "esp"
+size = "512MiB"
+
+[[disk.devices]]
+kind = "partition"
+id = "rootpart"
+table = "table"
+index = 2
+role = "data"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "espfs"
+device = "esp"
+type = "vfat"
+label = "ESP"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "rootfs"
+device = "rootpart"
+type = "ext4"
+label = "gentoo"
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-root"
+source = "rootfs"
+path = "/"
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-esp"
+source = "espfs"
+path = "/efi"
+options = ["umask=0077"]
+
+# The desktop the plan names as the parity bar, with the Chinese environment
+# switched on: fonts and an input method are separate choices from the locale.
+[packages]
+desktop = "plasma"
+applications = ["fcitx5", "rime", "rime-ice", "noto-cjk", "pipewire", "network-manager"]
+
+# rime-ice is in this overlay and in no other repository.
+[[portage.overlays]]
+name = "gentoo-zh"
+sync_uri = "https://github.com/gentoo-zh/overlay.git"

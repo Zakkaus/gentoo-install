@@ -1,0 +1,78 @@
+[partition]
+  wipe existing signatures from disk
+  create a gpt partition table on disk as table
+  create partition 1 on disk as esp: esp, 512MiB
+  create partition 2 on disk as rootpart: data, the rest of the disk
+  reread the partition table of disk and wait for its nodes
+
+[format]
+  make a vfat filesystem on esp as espfs labelled ESP
+  make a ext4 filesystem on rootpart as rootfs labelled gentoo
+
+[mount]
+  mount rootpart at /
+  mount esp at /efi with umask=0077
+
+[stage3]
+  download the newest systemd stage3 from https://distfiles.gentoo.org, verify it against BB572E0E2D182910 and unpack it into the target
+
+[chroot]
+  mount proc, sys, dev and run into the target and copy resolv.conf
+
+[portage]
+  write /etc/portage/make.conf with COMMON_FLAGS, CFLAGS, CXXFLAGS, FCFLAGS, FFLAGS, MAKEOPTS, USE, ACCEPT_LICENSE, L10N, FEATURES; 2 mirrors in the configured order
+  create the three autounmask files emerge writes its decisions into
+  fetch the first ebuild repository snapshot with emerge-webrsync
+  select profile default/linux/amd64/23.0/desktop/plasma/systemd
+  install git, which every later repository sync needs: emerge dev-vcs/git
+  point repository gentoo at https://github.com/gentoo-mirror/gentoo.git, commit signatures verified
+  sync repository gentoo
+  point repository gentoo-zh at https://github.com/gentoo-zh/overlay.git
+  sync repository gentoo-zh
+  accept ~amd64 for packages from gentoo-zh only
+  run getuto so Portage has a keyring to verify binary packages against
+
+[system]
+  generate and verify locales en_US.UTF-8
+  set the system locale to en_US.UTF-8
+  set the timezone to UTC
+  set the console keymap to us and its font to default8x16
+  set the hostname to deskbox
+  give the target its own machine id
+  write /etc/fstab with entries for /, /efi
+  treat the hardware clock as UTC
+  set the root password
+  install sshd: emerge net-misc/openssh
+  enable sshd.service at boot
+  configure the wired interface for DHCP
+  enable systemd-networkd.service at boot
+
+[kernel]
+  set sys-kernel/installkernel to dracut
+  install the hook that puts a kernel in /boot: emerge sys-kernel/installkernel
+  accept the linux-firmware licence
+  install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
+  install the storage tools: emerge sys-fs/dosfstools sys-fs/e2fsprogs
+  install the kernel: emerge sys-kernel/gentoo-kernel-bin
+  rebuild the initramfs from sys-kernel/gentoo-kernel-bin with the modules written above
+
+[bootloader]
+  install the bootloader: emerge sys-boot/grub sys-boot/efibootmgr
+  write /etc/default/grub with cmdline console=ttyS0,115200, its menu on ttyS0
+  install GRUB for uefi on the esp at /efi
+
+[packages]
+  install the plasma group: emerge kde-plasma/plasma-meta x11-misc/sddm x11-base/xorg-server kde-apps/konsole kde-apps/dolphin
+  enable sddm.service at boot
+  install the fcitx5 group: emerge app-i18n/fcitx app-i18n/fcitx-gtk app-i18n/fcitx-qt app-i18n/fcitx-configtool
+  install the rime group: emerge app-i18n/fcitx-rime app-i18n/rime-data
+  install the rime-ice group: emerge app-i18n/rime-ice
+  install the noto-cjk group: emerge media-fonts/noto-cjk media-fonts/noto media-libs/fontconfig
+  install the pipewire group: emerge media-video/pipewire media-video/wireplumber
+  install the network-manager group: emerge net-misc/networkmanager
+  enable NetworkManager.service at boot
+  set the input method environment in /etc/environment.d/90-input-method.conf: XMODIFIERS only, since the session is Wayland
+  configure fcitx with rime and luna_pinyin terra_pinyin bopomofo rime_ice for skel
+
+[finish]
+  unmount everything under the target
