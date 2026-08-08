@@ -10,7 +10,7 @@
   make a vfat filesystem on esp as espfs labelled ESP
 
 [zfs]
-  create zpool rpool as pool from poolpart
+  create zpool rpool as pool from poolpart as a stripe
   create dataset rpool/ROOT/gentoo as ds-root, mountpoint /
 
 [mount]

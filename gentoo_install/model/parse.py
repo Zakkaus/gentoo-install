@@ -62,6 +62,7 @@ from .device import (
     VolumeGroup,
     ZfsDataset,
     ZfsPool,
+    ZfsTopology,
 )
 from .size import Size
 
@@ -352,11 +353,14 @@ def _logical_volume(raw: Mapping[str, Any], at: str) -> Node:
 
 
 def _zpool(raw: Mapping[str, Any], at: str) -> Node:
-    _reject_unknown(raw, at, {"kind", "id", "vdevs", "name", "encrypted", "passphrase_file"})
+    _reject_unknown(
+        raw, at, {"kind", "id", "vdevs", "name", "topology", "encrypted", "passphrase_file"}
+    )
     return ZfsPool(
         id=_id(raw, at),
         vdevs=_refs(raw, "vdevs", at),
         name=_str(raw, "name", at, required=True),
+        topology=_enum(raw, "topology", at, ZfsTopology, ZfsTopology.STRIPE),
         encrypted=_bool(raw, "encrypted", at, False),
         passphrase_file=_str(raw, "passphrase_file", at, ""),
     )

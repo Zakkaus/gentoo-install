@@ -324,3 +324,62 @@ def test_the_downloaded_stage3_does_not_ship_with_the_installed_system() -> None
     recorder = Recorder()
     discard.apply(recorder)
     assert recorder.only("rm")[-1] == f"/{STAGE3_CACHE}"
+
+
+def test_a_pool_of_several_devices_says_how_they_are_joined() -> None:
+    """`zpool create p a b` with no keyword stripes them and survives losing
+    neither, and an operator who gave two disks almost always meant a mirror.
+
+    The rule is exercised on its own: a ZFS root drags in the bootloader rules
+    with it, and those are another table's business.
+    """
+    from gentoo_install.model.config import InstallConfig
+    from gentoo_install.model.device import DeviceId, ZfsPool, ZfsTopology
+    from gentoo_install.model.validate import _pool_problems
+
+    def with_pool(vdevs: tuple[DeviceId, ...], topology: ZfsTopology) -> InstallConfig:
+        nodes = [
+            replace(node, vdevs=vdevs, topology=topology) if isinstance(node, ZfsPool) else node
+            for node in zfs_root()
+        ]
+        return config(nodes)
+
+    one, two = (i("poolpart"),), (i("poolpart"), i("esp"))
+    assert _pool_problems(with_pool(one, ZfsTopology.STRIPE)) == []
+    assert "no topology" in " ".join(_pool_problems(with_pool(two, ZfsTopology.STRIPE)))
+    assert _pool_problems(with_pool(two, ZfsTopology.MIRROR)) == []
+
+    # Each topology carries what it needs, and the check fires before the disks
+    # are touched rather than in `zpool create` after they are partitioned.
+    assert "at least 3" in " ".join(_pool_problems(with_pool(two, ZfsTopology.RAIDZ2)))
+
+
+def test_the_topology_keyword_goes_before_the_devices() -> None:
+    """`zpool create pool mirror a b`. A stripe has no keyword at all: the
+    devices follow the pool name directly."""
+    from gentoo_install.model.device import ZfsPool, ZfsTopology
+    from gentoo_install.plan.disk import CreateZpool
+
+    for topology, expected in (
+        (ZfsTopology.STRIPE, None),
+        (ZfsTopology.MIRROR, "mirror"),
+        (ZfsTopology.RAIDZ1, "raidz1"),
+    ):
+        recorder = Recorder()
+        CreateZpool(
+            pool=i("pool"),
+            vdevs=(i("a"), i("b")),
+            name="rpool",
+            topology=topology,
+            encrypted=False,
+        ).apply(recorder)
+        argv = recorder.only("zpool", "create")
+        after = argv[argv.index("rpool") + 1 :]
+        if expected is None:
+            assert after[0].startswith("/dev/"), topology
+        else:
+            assert after[0] == expected, topology
+            assert after[1].startswith("/dev/")
+    # Every member of the table has a minimum, so a new one cannot be added
+    # without saying how many devices it takes.
+    assert {one: one.minimum for one in ZfsTopology}.keys() == set(ZfsTopology)

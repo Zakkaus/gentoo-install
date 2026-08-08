@@ -173,10 +173,44 @@ class LogicalVolume(Node):
         return (self.group,)
 
 
+class ZfsTopology(Enum):
+    """How `zpool create` joins the vdevs.
+
+    A bare list of devices is a stripe: `zpool create p a b` survives losing
+    neither. The keyword is what makes it redundant, so the default here is
+    the one that is safe to assume for a single device and refused for more.
+    """
+
+    STRIPE = "stripe"
+    MIRROR = "mirror"
+    RAIDZ1 = "raidz1"
+    RAIDZ2 = "raidz2"
+    RAIDZ3 = "raidz3"
+
+    @property
+    def keyword(self) -> str:
+        """What goes on the `zpool create` line before the devices. A stripe
+        has none: the devices follow the pool name directly."""
+        return "" if self is ZfsTopology.STRIPE else self.value
+
+    @property
+    def minimum(self) -> int:
+        """Devices this topology needs. `zpool create` refuses fewer, after the
+        disks have already been partitioned."""
+        return {
+            ZfsTopology.STRIPE: 1,
+            ZfsTopology.MIRROR: 2,
+            ZfsTopology.RAIDZ1: 2,
+            ZfsTopology.RAIDZ2: 3,
+            ZfsTopology.RAIDZ3: 4,
+        }[self]
+
+
 @dataclass(frozen=True)
 class ZfsPool(Node):
     vdevs: tuple[DeviceId, ...]
     name: str
+    topology: ZfsTopology = ZfsTopology.STRIPE
     encrypted: bool = False
     #: A path, never the passphrase. Same rule as `Luks.passphrase_file`.
     passphrase_file: str = ""

@@ -15,7 +15,6 @@ from typing import Callable, Final, cast
 from ..errors import CommandFailed, InvalidLayout
 from ..model.config import InstallConfig
 from ..model.device import (
-    T,
     DeviceGraph,
     DeviceId,
     Existing,
@@ -33,10 +32,12 @@ from ..model.device import (
     RaidMetadata,
     Subvolume,
     Swap,
+    T,
     TableType,
     VolumeGroup,
     ZfsDataset,
     ZfsPool,
+    ZfsTopology,
 )
 from ..model.size import DEFAULT_ALIGNMENT, Size
 from .operations import Context, Operation, Stage
@@ -418,11 +419,16 @@ class CreateZpool(Operation):
     pool: DeviceId
     vdevs: tuple[DeviceId, ...]
     name: str
+    topology: ZfsTopology
     encrypted: bool
 
     def describe(self) -> str:
         how = " with native encryption" if self.encrypted else ""
-        return f"create zpool {self.name} as {self.pool} from {', '.join(self.vdevs)}{how}"
+        joined = ", ".join(self.vdevs)
+        return (
+            f"create zpool {self.name} as {self.pool} from {joined} "
+            f"as a {self.topology.value}{how}"
+        )
 
     def apply(self, context: Context) -> None:
         options = [*POOL_OPTIONS]
@@ -436,6 +442,10 @@ class CreateZpool(Operation):
                 *options,
                 "-R", str(context.target),
                 self.name,
+                # Before the devices, and absent for a stripe: `zpool create p
+                # a b` with no keyword joins them end to end and survives
+                # losing neither.
+                *([self.topology.keyword] if self.topology.keyword else []),
                 *(context.device_path(vdev) for vdev in self.vdevs),
             ],
             input_text=context.passphrase(self.pool) if self.encrypted else None,
@@ -705,7 +715,13 @@ def _operations_for(graph: DeviceGraph, node: Node) -> list[Operation]:
         return [MakeSwap(swap=node.id, device=node.device)]
     if isinstance(node, ZfsPool):
         return [
-            CreateZpool(pool=node.id, vdevs=node.vdevs, name=node.name, encrypted=node.encrypted)
+            CreateZpool(
+                pool=node.id,
+                vdevs=node.vdevs,
+                name=node.name,
+                topology=node.topology,
+                encrypted=node.encrypted,
+            )
         ]
     if isinstance(node, ZfsDataset):
         pool = _expect(graph, node.pool, ZfsPool)

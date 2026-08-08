@@ -14,7 +14,16 @@ from typing import Final
 from ..errors import ValidationFailed
 from . import compat
 from .config import InitSystem, InstallConfig
-from .device import DeviceGraph, DeviceId, Existing, Filesystem, Mountpoint, Node
+from .device import (
+    DeviceGraph,
+    DeviceId,
+    Existing,
+    Filesystem,
+    Mountpoint,
+    Node,
+    ZfsPool,
+    ZfsTopology,
+)
 from .size import Size
 
 _ROOT = PurePosixPath("/")
@@ -27,12 +36,35 @@ def validate(config: InstallConfig) -> None:
         *_profile_problems(config),
         *_kernel_package_problems(config),
         *_reuse_problems(config),
+        *_pool_problems(config),
         *(rule.describe() for rule in compat.violations(config)),
     ]
     if problems:
         raise ValidationFailed(
             "the configuration does not describe an installable system:\n  " + "\n  ".join(problems)
         )
+
+
+def _pool_problems(config: InstallConfig) -> list[str]:
+    """Every pool says how its vdevs are joined, and has enough of them.
+
+    A bare list of devices is a stripe: `zpool create p a b` survives losing
+    neither, and an operator who gave two disks almost always meant a mirror.
+    The default is only safe for one device, so more than one has to say.
+    """
+    problems: list[str] = []
+    for pool in config.disk.graph.of_type(ZfsPool):
+        if len(pool.vdevs) > 1 and pool.topology is ZfsTopology.STRIPE:
+            problems.append(
+                f"{pool.id} joins {len(pool.vdevs)} devices with no topology, which stripes "
+                f"them; name one of {', '.join(one.value for one in ZfsTopology)}"
+            )
+        if len(pool.vdevs) < pool.topology.minimum:
+            problems.append(
+                f"{pool.id} is a {pool.topology.value} of {len(pool.vdevs)} devices and needs "
+                f"at least {pool.topology.minimum}"
+            )
+    return problems
 
 
 def _reuse_problems(config: InstallConfig) -> list[str]:
