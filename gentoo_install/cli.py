@@ -387,10 +387,21 @@ def _check_the_clock() -> None:
         f"warning: this machine's clock is more than a day out; setting it to {when:%F %T} UTC",
         file=sys.stderr,
     )
-    Runner(log=lambda line: None).run(
+    runner = Runner(log=lambda line: None)
+    setting = runner.run(
         ["hwclock", "--utc", "--set", "--date", when.strftime("%Y-%m-%d %H:%M:%S")], check=False
     )
-    Runner(log=lambda line: None).run(["hwclock", "--hctosys", "--utc"], check=False)
+    if setting.returncode != 0:
+        # Said rather than swallowed: busybox has no `hwclock --set`, and every
+        # HTTPS request then fails on a not-yet-valid certificate while the
+        # next message blames the network.
+        print(
+            "warning: the clock could not be set; TLS may refuse every mirror "
+            f"until it is corrected by hand ({setting.stdout.strip()[:80]})",
+            file=sys.stderr,
+        )
+        return
+    runner.run(["hwclock", "--hctosys", "--utc"], check=False)
 
 
 def _require_network() -> None:

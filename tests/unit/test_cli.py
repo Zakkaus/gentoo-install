@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import time
 from typing import Sequence, cast
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import pytest
 
 from gentoo_install import cli
 from gentoo_install.exec import fetch
+from gentoo_install.exec.runner import Runner
 from gentoo_install.cli import EXIT_CONFIG, EXIT_OK, EXIT_PREFLIGHT, main
 from gentoo_install.errors import ConfigError
 from gentoo_install.model.parse import load
@@ -342,3 +344,24 @@ def test_a_code_is_drawn_beside_the_address_when_it_fits(
     # survive a console that scrolled.
     assert printed[-1] == "https://paste.gentoozh.org/AbCdEf.log"
     assert any("\u2588" in line for line in printed)
+
+
+def test_a_clock_that_cannot_be_set_says_so_rather_than_blaming_the_network(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """busybox has no `hwclock --set`, and every HTTPS request then fails on a
+    not-yet-valid certificate while the next message blames the mirror."""
+    from gentoo_install.exec.runner import Result
+
+    monkeypatch.setattr(fetch, "network_time", lambda: time.time() + 10 * 24 * 3600)
+
+    def refused(argv: Sequence[str], **rest: object) -> Result:
+        return Result(
+            argv=tuple(argv), stdout="hwclock: unrecognized option", stderr="", returncode=1,
+            seconds=0.0,
+        )
+
+    monkeypatch.setattr(Runner, "run", lambda self, argv, **rest: refused(argv, **rest))
+    cli._check_the_clock()
+    said = capsys.readouterr().err
+    assert "the clock could not be set" in said

@@ -370,10 +370,19 @@ class Probe:
 
     #: Where `sys-apps/kbd` keeps its keymaps. Debian and Arch put the same
     #: tree under `kbd/`, and only the PC families matter on amd64.
+    #: Where each distribution puts the console keymaps. Gentoo, Arch and
+    #: openSUSE use the first two; Fedora moved the tree under /usr/lib and
+    #: dropped the architecture level; Alpine's kbd-legacy adds one.
     KEYMAPS: ClassVar[tuple[Path, ...]] = (
         Path("/usr/share/keymaps/i386"),
         Path("/usr/share/kbd/keymaps/i386"),
+        Path("/usr/share/keymaps/legacy/i386"),
+        Path("/usr/lib/kbd/keymaps/legacy/i386"),
+        Path("/usr/lib/kbd/keymaps/xkb"),
     )
+
+    #: Debian's console-data names them `.kmap.gz`, everyone else `.map.gz`.
+    KEYMAP_SUFFIXES: ClassVar[tuple[str, ...]] = (".map.gz", ".kmap.gz")
 
     def keymaps(self) -> tuple[tuple[str, str], ...]:
         """Every console keymap this machine ships, as (family, name).
@@ -390,8 +399,13 @@ class Probe:
             for family in families:
                 if family.name == "include":
                     continue
-                for keymap in sorted(family.glob("*.map.gz")):
-                    found.setdefault(keymap.name[: -len(".map.gz")], family.name)
+                for suffix in self.KEYMAP_SUFFIXES:
+                    for keymap in sorted(family.glob(f"*{suffix}")):
+                        found.setdefault(keymap.name[: -len(suffix)], family.name)
+            # Fedora's xkb tree is flat, with no family directory at all.
+            for suffix in self.KEYMAP_SUFFIXES:
+                for keymap in sorted(base.glob(f"*{suffix}")):
+                    found.setdefault(keymap.name[: -len(suffix)], base.name)
         return tuple((family, name) for name, family in sorted(found.items()))
 
     def disk_bytes(self, disk: str) -> int:
