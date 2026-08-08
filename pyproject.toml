@@ -2,10 +2,10 @@
 name = "gentoo-install"
 version = "0.0.0"
 description = "Interactive Gentoo installer"
-requires-python = ">=3.13"
+requires-python = ">=3.11"
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.11"
 strict = true
 warn_unreachable = true
 files = ["gentoo_install", "tests"]

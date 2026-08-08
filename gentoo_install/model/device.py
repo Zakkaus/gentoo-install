@@ -14,12 +14,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import PurePosixPath
-from typing import Iterable, Mapping, NewType
+from typing import Iterable, Mapping, NewType, TypeVar
 
 from ..errors import DeviceCycle, DuplicateDeviceId, UnknownDeviceId
 from .size import Size
 
 DeviceId = NewType("DeviceId", str)
+
+#: Any node kind, for the lookups that filter a graph by class.
+T = TypeVar("T", bound="Node")
 
 
 class TableType(Enum):
@@ -283,7 +286,7 @@ class DeviceGraph:
             stack.extend(self[current].inputs)
         return frozenset(seen)
 
-    def of_type[T: Node](self, kind: type[T]) -> tuple[T, ...]:
+    def of_type(self, kind: type[T]) -> tuple[T, ...]:
         return tuple(node for node in self.nodes.values() if isinstance(node, kind))
 
 

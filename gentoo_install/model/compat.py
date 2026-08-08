@@ -21,6 +21,7 @@ from .config import (
     KernelSource,
 )
 from .device import (
+    T,
     DeviceGraph,
     DeviceId,
     Luks,
@@ -195,7 +196,7 @@ def _chain(graph: DeviceGraph, device: DeviceId) -> tuple[Node, ...]:
     return tuple(graph[parent] for parent in graph.ancestors_of(device))
 
 
-def _nodes_under[T: Node](graph: DeviceGraph, device: DeviceId, kind: type[T]) -> tuple[T, ...]:
+def _nodes_under(graph: DeviceGraph, device: DeviceId, kind: type[T]) -> tuple[T, ...]:
     return tuple(node for node in _chain(graph, device) if isinstance(node, kind))
 
 

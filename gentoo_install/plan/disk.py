@@ -15,6 +15,7 @@ from typing import Final
 from ..errors import CommandFailed, InvalidLayout
 from ..model.config import InstallConfig
 from ..model.device import (
+    T,
     DeviceGraph,
     DeviceId,
     Existing,
@@ -640,7 +641,7 @@ def _start_of(graph: DeviceGraph, partition: Partition) -> Size:
     return start
 
 
-def _expect[T: Node](graph: DeviceGraph, device: DeviceId, kind: type[T]) -> T:
+def _expect(graph: DeviceGraph, device: DeviceId, kind: type[T]) -> T:
     node = graph[device]
     if not isinstance(node, kind):
         raise InvalidLayout(
