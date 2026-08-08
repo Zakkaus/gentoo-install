@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import io
 import os
 import re
 import socket
@@ -285,6 +286,10 @@ def probe(console: SerialConsole) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # A run takes half an hour and every print is buffered when stdout is a
+    # file, so a campaign showed nothing at all until it finished.
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout.reconfigure(line_buffering=True)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--medium", choices=sorted(MEDIA), default="official-minimal")
     parser.add_argument("--firmware", choices=[f.value for f in Firmware], default="uefi")
@@ -311,9 +316,26 @@ def main(argv: list[str] | None = None) -> int:
         help="boot the disk a previous --install run produced and check the system on it; "
         "takes the same --install argument, which is what names the run",
     )
+    parser.add_argument(
+        "--and-boot",
+        action="store_true",
+        help="after a successful --install, boot the disk it produced and check it; "
+        "one invocation instead of two, which is what an unattended campaign needs",
+    )
     parser.add_argument("--interactive", action="store_true", help="hand the VM to a human over SSH")
     parser.add_argument("--keep", action="store_true", help="keep the run directory")
     args = parser.parse_args(argv)
+
+    if args.and_boot:
+        # The install first, then the same arguments again with the boot check.
+        # Recursion rather than a loop: `main` owns the lock, the workdir and
+        # the port, and both halves need their own.
+        installed = main([one for one in (argv or sys.argv[1:]) if one != "--and-boot"])
+        if installed != 0:
+            return installed
+        return main(
+            [one for one in (argv or sys.argv[1:]) if one != "--and-boot"] + ["--boot-installed"]
+        )
 
     medium = MEDIA[args.medium]
     # The configuration is part of the name: two runs sharing a directory would
