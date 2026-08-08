@@ -7,7 +7,7 @@
 
 [array]
   create volume group vg0 as vg from pv
-  create logical volume vg0/root as lv-root: 8GiB
+  create logical volume vg0/root as lv-root: 16GiB
   create logical volume vg0/home as lv-home: the rest of the group
 
 [format]

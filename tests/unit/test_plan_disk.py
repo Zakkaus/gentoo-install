@@ -237,5 +237,5 @@ def test_a_volume_with_no_size_is_created_after_the_sized_ones() -> None:
         if "logical volume" in operation.describe()
     ]
     assert len(described) == 2
-    assert "8GiB" in described[0]
+    assert "16GiB" in described[0]
     assert "the rest of the group" in described[1]

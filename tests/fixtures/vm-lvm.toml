@@ -74,7 +74,7 @@ kind = "logical-volume"
 id = "lv-root"
 group = "vg"
 name = "root"
-size = "8GiB"
+size = "16GiB"
 
 # No size: the rest of the group, which is what makes the two volumes worth
 # testing separately from a single filesystem.

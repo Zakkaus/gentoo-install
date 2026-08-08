@@ -6,7 +6,8 @@ from pathlib import Path, PurePosixPath
 import pytest
 
 from gentoo_install.errors import ValidationFailed
-from gentoo_install.model.device import Mountpoint, Node
+from gentoo_install.model.device import Mountpoint, Node, Partition, PartitionRole
+from gentoo_install.model.size import Size
 from gentoo_install.model.parse import load
 from gentoo_install.model.validate import validate
 
@@ -57,3 +58,42 @@ def test_a_layout_problem_and_a_broken_rule_are_reported_in_one_message() -> Non
     message = str(caught.value)
     assert "2 devices are mounted at /efi" in message
     assert "root on ZFS excludes GRUB" in message
+
+
+def test_a_root_too_small_is_refused_before_anything_is_written() -> None:
+    """Measured: an install into 8 GiB runs out during linux-firmware, an hour
+    after the disks were partitioned."""
+    nodes = [
+        node
+        for node in ext4_on_gpt()
+        if not isinstance(node, Partition) or node.role is not PartitionRole.DATA
+    ]
+    nodes.append(
+        Partition(
+            id=i("rootpart"),
+            table=i("table"),
+            index=2,
+            role=PartitionRole.DATA,
+            size=Size.parse("8GiB"),
+        )
+    )
+    with pytest.raises(ValidationFailed, match="under the"):
+        validate(config(nodes))
+
+
+def test_a_root_with_room_passes() -> None:
+    nodes = [
+        node
+        for node in ext4_on_gpt()
+        if not isinstance(node, Partition) or node.role is not PartitionRole.DATA
+    ]
+    nodes.append(
+        Partition(
+            id=i("rootpart"),
+            table=i("table"),
+            index=2,
+            role=PartitionRole.DATA,
+            size=Size.parse("30GiB"),
+        )
+    )
+    validate(config(nodes))

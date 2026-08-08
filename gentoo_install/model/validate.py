@@ -8,21 +8,50 @@ from __future__ import annotations
 
 from collections import Counter
 from pathlib import PurePosixPath
+from typing import Final
 
 from ..errors import ValidationFailed
 from . import compat
 from .config import InstallConfig
 from .device import Mountpoint
+from .size import Size
 
 _ROOT = PurePosixPath("/")
 
 
 def validate(config: InstallConfig) -> None:
-    problems = [*_layout_problems(config), *(rule.describe() for rule in compat.violations(config))]
+    problems = [
+        *_layout_problems(config),
+        *_root_size_problems(config),
+        *(rule.describe() for rule in compat.violations(config)),
+    ]
     if problems:
         raise ValidationFailed(
             "the configuration does not describe an installable system:\n  " + "\n  ".join(problems)
         )
+
+
+#: A stage3, a kernel build and linux-firmware together, with room for the
+#: portage tree. Measured: an install into 8 GiB runs out during
+#: sys-kernel/linux-firmware, an hour after the disks were written.
+ROOT_MINIMUM: Final[Size] = Size.parse("12GiB")
+
+
+def _root_size_problems(config: InstallConfig) -> list[str]:
+    """Checked here because the size is in the configuration: a root too small
+    is knowable before anything is partitioned."""
+    graph = config.disk.graph
+    root = graph.nodes.get(config.disk.root)
+    if not isinstance(root, Mountpoint):
+        return []
+    for node in (root, *(graph[parent] for parent in graph.ancestors_of(root.id))):
+        size = getattr(node, "size", None)
+        if isinstance(size, Size) and size < ROOT_MINIMUM:
+            return [
+                f"{node.id} carries / and is {size}, under the {ROOT_MINIMUM} a stage3, "
+                "a kernel and linux-firmware need"
+            ]
+    return []
 
 
 def _layout_problems(config: InstallConfig) -> list[str]:
