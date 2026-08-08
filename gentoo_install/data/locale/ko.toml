@@ -99,7 +99,7 @@
 "Type them" = "직접 입력"
 
 # Network and SSH
-"Keyboard at unlock" = "잠금 해제 시 키보드"
+"Keyboard at unlock" = "부팅 해제 키보드"
 "Keyboard the initramfs uses, empty to follow the console" = "initramfs 가 쓰는 키보드 배열. 비우면 콘솔을 따름"
 "Use DHCP?" = "DHCP를 쓰시겠습니까?"
 "SSH public keys" = "SSH 공개 키"

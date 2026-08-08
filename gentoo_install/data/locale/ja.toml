@@ -99,7 +99,7 @@
 "Type them" = "手動で入力"
 
 # Network and SSH
-"Keyboard at unlock" = "解錠時のキーボード"
+"Keyboard at unlock" = "起動時の解錠キーボード"
 "Keyboard the initramfs uses, empty to follow the console" = "initramfs のキーボード配列。空欄ならコンソールに従う"
 "Use DHCP?" = "DHCP を使いますか？"
 "SSH public keys" = "SSH 公開鍵"
