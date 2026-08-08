@@ -879,15 +879,31 @@ def _toggle_overlay(config: InstallConfig, name: str) -> InstallConfig:
     return replace(config, portage=replace(portage, overlays=kept))
 
 
+def _common_violations(candidates: Sequence[InstallConfig]) -> set[compat.Rule]:
+    """Rules every candidate breaks, which no choice on this screen can fix.
+
+    Reporting them on each row disables the whole screen and points the
+    operator at a setting that is not on it.
+    """
+    broken = [set(compat.violations(one)) for one in candidates]
+    return set.intersection(*broken) if broken else set()
+
+
 def bootloader_screen(
     screen: Screen, config: InstallConfig, context: Context
 ) -> Answer[InstallConfig]:
     """Every excluded bootloader is drawn with the rule's own sentence."""
     translate = context.translate
+    # Only what this choice introduces: `violations` reports every rule the
+    # whole configuration breaks, so one unrelated problem elsewhere greyed out
+    # all three rows and named a reason that pointed at another screen.
+    shared = _common_violations(
+        [replace(config, bootloader=replace(config.bootloader, kind=one)) for one in Bootloader]
+    )
     items: list[Item[Bootloader]] = []
     for kind in Bootloader:
         candidate = replace(config, bootloader=replace(config.bootloader, kind=kind))
-        broken = compat.violations(candidate)
+        broken = [one for one in compat.violations(candidate) if one not in shared]
         items.append(
             Item(label=kind.value, value=kind, disabled_because=broken[0].reason if broken else "")
         )
@@ -1658,33 +1674,6 @@ def table_screen(screen: Screen, config: InstallConfig, context: Context) -> Ans
     return Answer(Outcome.CHOSE, _rebuild(config, context))
 
 
-def firmware_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
-    """Detected rather than asked first: the machine already booted one way,
-    and installing for the other is almost always a mistake."""
-    translate = context.translate
-    items = [
-        Item(
-            label=firmware.value,
-            value=firmware,
-            detail="this machine booted this way" if firmware is context.firmware else "",
-        )
-        for firmware in Firmware
-    ]
-    menu: Menu[Firmware] = Menu(
-        title=translate("Firmware"), items=items, footer=footer(translate)
-    )
-    answer = menu.run(screen)
-    if not answer.chosen:
-        return Answer(answer.outcome)
-    firmware = answer.unwrap()[0]
-    context.choice = replace(context.choice, firmware=firmware)
-    changed = _rebuild(config, context)
-    return Answer(
-        Outcome.CHOSE,
-        replace(changed, bootloader=replace(changed.bootloader, firmware=firmware)),
-    )
-
-
 def keymap_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
     """The keymaps this machine ships, family first.
 
@@ -1739,10 +1728,13 @@ def console_font_screen(
     """Cell size of the console font. A rule in `compat.py` refuses the 8x8 one
     beside console CJK, so the excluded size is drawn with its own reason
     rather than being offered and then rejected by the validator."""
+    shared = _common_violations(
+        [replace(config, system=replace(config.system, console_font=one)) for one in ConsoleFontSize]
+    )
     items: list[Item[ConsoleFontSize]] = []
     for size in ConsoleFontSize:
         candidate = replace(config, system=replace(config.system, console_font=size))
-        broken = compat.violations(candidate)
+        broken = [one for one in compat.violations(candidate) if one not in shared]
         items.append(
             Item(
                 label=size.value,
@@ -1882,7 +1874,14 @@ def partitions_screen(
             # flag set before the editor answers describes a table that may
             # never have been produced.
             context.manual = True
-            return Answer(Outcome.CHOSE, _from_layout(config, context))
+            built = _from_layout(config, context)
+            if context.layout.disks and _pool_members(context):
+                # The same question the template path asks: a ZFS root cannot
+                # boot from GRUB, and ZFSBootMenu needs the overlay adding.
+                # Without this every bootloader row was greyed and the table
+                # had no way out.
+                built = _zfs_bootloader(screen, built, context)
+            return Answer(Outcome.CHOSE, built)
         _act_on(screen, context, row)
 
 

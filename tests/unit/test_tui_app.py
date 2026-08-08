@@ -1501,3 +1501,27 @@ def test_the_overview_says_so_rather_than_leaving_curses_with_a_traceback() -> N
     answer = screens.overview_screen(screen, wanted, at)
     assert answer.outcome is Outcome.CANCELLED
     assert "gentoo-zh" in "\n".join(screen.frames[0])
+
+
+def test_one_unrelated_problem_does_not_grey_out_the_whole_bootloader_screen() -> None:
+    """`compat.violations` reports every rule the configuration breaks, so a
+    remote unlock with no ssh key disabled all three bootloaders and named a
+    reason that belongs to another row."""
+    from dataclasses import replace as replaced
+
+    from gentoo_install.model.config import KernelConfig, RemoteUnlock
+
+    at = context()
+    from .layouts import zfs_root
+
+    encrypted = config(zfs_root())
+    unreachable = replaced(
+        encrypted, kernel=KernelConfig(remote_unlock=RemoteUnlock(enabled=True))
+    )
+    screen = FakeScreen(keys=["q"], lines=24, columns=110)
+    screens.bootloader_screen(screen, unreachable, at)
+    drawn = "\n".join(screen.frames[0])
+    # The unlock rule is broken whichever bootloader is chosen, so it belongs
+    # to none of them; the ZFS rule belongs to GRUB alone and still shows.
+    assert "authorized_keys" not in drawn
+    assert "zfsbootmenu" in drawn

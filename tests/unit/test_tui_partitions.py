@@ -933,3 +933,34 @@ def test_a_medium_with_zfs_offers_all_three() -> None:
                                  filesystem=FilesystemType.EXT4, mountpoint="/")
             screens._edit_field(screen, at, entry, manual.purpose_of(entry), call)
         assert "live system" not in "\n".join(screen.frames[0])
+
+
+def test_a_hand_built_zfs_root_is_asked_which_bootloader() -> None:
+    """The template path asks; the manual one did not, so no overlay was added
+    and every row of the bootloader screen was greyed with nothing to pick."""
+    at = opened()
+    at.choice = replace(at.choice, disk="/dev/vda")
+    at.layout = manual.Layout(
+        disks=[
+            manual.Disk(
+                selector="/dev/vda",
+                slices=[
+                    manual.Slice(
+                        index=1, role=PartitionRole.ESP, size=Size.parse("1GiB"),
+                        filesystem=FilesystemType.VFAT, mountpoint="/efi",
+                    ),
+                    manual.Slice(
+                        index=2, role=PartitionRole.ZFS, size=None,
+                        filesystem=None, mountpoint="/",
+                    ),
+                ],
+            )
+        ]
+    )
+    done = [item.label for item in screens._partition_rows(at)].index("Done")
+    keys = ["KEY_DOWN"] * done + ["\n", "\n"]
+    screen = FakeScreen(keys=keys, lines=30, columns=110)
+    answer = screens.partitions_screen(screen, config(), at)
+    assert answer.chosen
+    assert answer.unwrap().bootloader.kind is Bootloader.ZFSBOOTMENU
+    assert [one.name for one in answer.unwrap().portage.overlays] == ["gentoo-zh"]
