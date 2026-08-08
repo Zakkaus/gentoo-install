@@ -1,18 +1,21 @@
-"""The screen stack: run each step, and let the operator go back through them.
+"""The main menu: every setting, its current value, and what edits it.
 
-Every answer is a whole `InstallConfig`, so going back is discarding the last
-one rather than undoing an edit. Nothing here writes to a machine; the result is
-handed to the same `plan.build` a configuration file goes through.
+Not a wizard. The operator opens rows in any order and as often as they like,
+and starts the install from the last row when nothing required is missing.
+`archinstall` and `oddlama-gentoo-install` each arrived at this shape on their
+own, because installing is a task people change their minds during.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence
 
 from ..model.config import InstallConfig
-from .screens import STEPS, Context, Step
-from .widgets import Outcome, Screen
+from ..model.validate import validate
+from ..errors import ValidationFailed
+from .screens import Context
+from .settings import SETTINGS, unanswered
+from .widgets import Item, Menu, Outcome, Screen
 
 
 @dataclass(frozen=True)
@@ -26,26 +29,55 @@ class Finished:
         return self.config is None
 
 
-def run(
-    screen: Screen,
-    start: InstallConfig,
-    context: Context,
-    steps: Sequence[Step] = STEPS,
-) -> Finished:
-    #: One entry per completed step, so going back restores exactly what that
-    #: step was given rather than replaying the ones before it.
-    history: list[InstallConfig] = [start]
-    index = 0
-    while index < len(steps):
-        answer = steps[index](screen, history[index], context)
-        if answer.outcome is Outcome.CANCELLED:
+def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
+    current = start
+    while True:
+        blocked = _blocked(current, context)
+        items: list[Item[int]] = [
+            Item(
+                label=setting.label,
+                value=index,
+                detail=setting.value(current, context),
+            )
+            for index, setting in enumerate(SETTINGS)
+        ]
+        items.append(
+            Item(
+                label=context.translate("Install"),
+                value=len(SETTINGS),
+                disabled_because=blocked,
+            )
+        )
+        menu: Menu[int] = Menu(
+            title="gentoo-install",
+            items=items,
+            footer="  ".join(
+                (
+                    f"[enter] {context.translate('Continue')}",
+                    f"[q] {context.translate('Cancel')}",
+                )
+            ),
+        )
+        answer = menu.run(screen)
+        if not answer.chosen:
             return Finished(None)
-        if answer.outcome is Outcome.BACK:
-            if index == 0:
-                return Finished(None)
-            index -= 1
-            del history[index + 1 :]
-            continue
-        history.append(answer.unwrap())
-        index += 1
-    return Finished(history[-1])
+        chosen = answer.unwrap()[0]
+        if chosen == len(SETTINGS):
+            return Finished(current)
+        edited = SETTINGS[chosen].edit(screen, current, context)
+        if edited.outcome is Outcome.CANCELLED:
+            return Finished(None)
+        if edited.chosen:
+            current = edited.unwrap()
+
+
+def _blocked(config: InstallConfig, context: Context) -> str:
+    """Why the install cannot start, in the row that would start it."""
+    missing = unanswered(config, context)
+    if missing:
+        return f"{', '.join(missing)} still needs an answer"
+    try:
+        validate(config)
+    except ValidationFailed as error:
+        return str(error).splitlines()[-1].strip()
+    return ""

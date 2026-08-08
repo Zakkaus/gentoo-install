@@ -173,6 +173,7 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         disks=probe.disks(),
         groups=load_catalog(),
         hash_password=lambda password: fetch.password_hash(password, runner),
+        timezones=probe.timezones(),
     )
     if not context.disks:
         raise errors.DeviceNotFound("this machine reports no disk to install onto")

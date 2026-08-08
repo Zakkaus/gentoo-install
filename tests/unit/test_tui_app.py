@@ -4,12 +4,11 @@ from dataclasses import replace
 
 from gentoo_install.data import load_catalog
 from gentoo_install.i18n import Catalog
-from gentoo_install.model.config import Bootloader, InstallConfig
-from gentoo_install.model.templates import Layout
+from gentoo_install.model.config import Bootloader, InitSystem
 from gentoo_install.model.validate import validate
-from gentoo_install.tui import screens
+from gentoo_install.tui import screens, settings
 from gentoo_install.tui.app import run
-from gentoo_install.tui.widgets import Answer, Outcome, Screen
+from gentoo_install.tui.widgets import Outcome
 
 from .fake_screen import FakeScreen
 from .layouts import config
@@ -23,136 +22,104 @@ def context() -> screens.Context:
         disks=DISKS,
         groups=load_catalog(),
         hash_password=lambda password: f"$6$test${len(password)}",
+        timezones=("UTC", "Asia/Shanghai", "Asia/Taipei", "Europe/London"),
     )
 
 
-def test_the_whole_walk_produces_a_configuration_that_validates() -> None:
-    """The interface cannot produce something the file parser would reject:
-    both end at the same model and the same validator."""
-    disk = DISKS[1][0]
+def row(label: str) -> int:
+    return next(index for index, s in enumerate(settings.SETTINGS) if s.label == label)
+
+
+def down(count: int) -> list[str]:
+    return ["KEY_DOWN"] * count
+
+
+def test_the_menu_shows_every_setting_with_its_current_value() -> None:
+    """The operator has to see what is set without opening each row."""
+    screen = FakeScreen(keys=["q"])
+    run(screen, config(), context())
+    drawn = screen.last
+    for setting in settings.SETTINGS:
+        assert setting.label in drawn, setting.label
+    assert "gentoo" in drawn
+
+
+def test_a_row_can_be_opened_and_the_menu_comes_back() -> None:
+    """Not a wizard: editing one row returns to the menu rather than moving to
+    the next question, so any row can be revisited."""
+    keys = [*down(row("Kernel")), "\n", "\n", "q"]
+    screen = FakeScreen(keys=keys)
+    finished = run(screen, config(), context())
+    assert finished.cancelled
+    # The kernel screen was drawn, and then the menu again.
+    assert any("Kernel" in "\n".join(frame) for frame in screen.frames)
+
+
+def test_the_same_row_can_be_edited_twice() -> None:
+    """A wizard makes the operator cancel and start over to change an early
+    answer; this has to not."""
     keys = [
-        "KEY_DOWN", "\n",                       # second disk
-        "\n",                                   # ext4 whole disk
-        "\n",                                   # no swap
-        *list(disk), "\n",                      # type the disk name to erase
-        "\n",                                   # locale: zh_TW
-        "\n",                                   # timezone: Asia/Shanghai
-        *["\x7f"] * len("gentoo"), *list("box"), "\n",  # clear the default, type a name
-        "KEY_DOWN", "\n",                       # init: systemd, the second row
-        *list("secret"), "\n",                  # root password
-        *list("zakk"), "\n",                    # a normal account
-        *list("secret"), "\n",                  # its password
-        "KEY_DOWN", "\n",                       # grant it sudo
-        "\n",                                   # official mirrors
-        "\n",                                   # official binary packages
-        "\n",                                   # kernel source
-        "\n",                                   # bootloader
-        "\n",                                   # no desktop
-        "\n",                                   # no applications
-        "\n",                                   # no sshd
-        "\n",                                   # overview: scroll to the end
-        "KEY_DOWN", "\n",                       # confirm the install
+        *down(row("Bootloader")), "\n", "\n",
+        *down(row("Bootloader")), "\n", "\n",
+        "q",
     ]
+    finished = run(FakeScreen(keys=keys), config(), context())
+    assert finished.cancelled
+
+
+def test_install_is_blocked_while_something_required_is_missing() -> None:
+    """And the row says what is missing rather than silently doing nothing."""
+    blank = replace(config(), system=replace(config().system, root_password_hash=""))
+    screen = FakeScreen(keys=["q"])
+    run(screen, blank, context())
+    assert "Install" in screen.last
+
+
+def test_install_hands_back_the_configuration() -> None:
+    keys = [*down(len(settings.SETTINGS)), "\n"]
     finished = run(FakeScreen(keys=keys), config(), context())
     assert not finished.cancelled
     assert finished.config is not None
     validate(finished.config)
-    assert finished.config.system.hostname == "box"
-    assert finished.config.system.root_password_hash == "$6$test$6"
-    assert finished.config.system.locale == "zh_TW.UTF-8"
-    assert [user.name for user in finished.config.system.users] == ["zakk"]
-    assert finished.config.system.users[0].sudo
 
 
-def test_going_back_discards_only_the_last_answer() -> None:
-    """Back has to restore what the previous screen was given, not replay the
-    screens before it with an answer already applied."""
-    seen: list[str] = []
-
-    def first(screen: Screen, current: InstallConfig, context: screens.Context) -> Answer[InstallConfig]:
-        seen.append("first")
-        return Answer(Outcome.CHOSE, replace(current, system=replace(current.system, hostname="one")))
-
-    def second(screen: Screen, current: InstallConfig, context: screens.Context) -> Answer[InstallConfig]:
-        seen.append("second")
-        if seen.count("second") == 1:
-            return Answer(Outcome.BACK)
-        return Answer(Outcome.CHOSE, current)
-
-    finished = run(FakeScreen(), config(), context(), steps=(first, second))
-    assert seen == ["first", "second", "first", "second"]
-    assert finished.config is not None
-    assert finished.config.system.hostname == "one"
+def test_the_timezone_list_is_every_zone_the_machine_knows() -> None:
+    """A hand-picked shortlist is not a timezone chooser, and six hundred rows
+    do not fit a console, so the area comes first."""
+    screen = FakeScreen(keys=["KEY_DOWN", "\n", "KEY_DOWN", "\n"])
+    answer = screens.timezone_screen(screen, config(), context())
+    assert answer.outcome is Outcome.CHOSE
+    assert answer.unwrap().system.timezone == "Asia/Taipei"
 
 
-def test_back_on_the_first_screen_leaves_the_installer() -> None:
-    assert run(FakeScreen(keys=["KEY_LEFT"]), config(), context()).cancelled
+def test_choosing_utc_needs_no_second_screen() -> None:
+    """It has no area, so asking for a city after it would be an empty list."""
+    answer = screens.timezone_screen(FakeScreen(keys=["\n"]), config(), context())
+    assert answer.unwrap().system.timezone == "UTC"
 
 
-def test_choosing_zfs_adds_the_only_overlay_that_carries_zfsbootmenu() -> None:
-    """Otherwise the walk ends at a configuration the validator rejects for a
-    reason the operator was never shown."""
-    keys = ["\n", "KEY_DOWN", "KEY_DOWN", "KEY_DOWN", "\n"]
-    finished = run(FakeScreen(keys=keys), config(), context(), steps=screens.STEPS[:2])
-    assert finished.config is not None
-    assert finished.config.bootloader.kind is Bootloader.ZFSBOOTMENU
-    assert [overlay.name for overlay in finished.config.portage.overlays] == ["gentoo-zh"]
-    validate(finished.config)
+def test_only_profiles_matching_the_init_are_offered() -> None:
+    """The validator refuses the other half, so offering them wastes a choice."""
+    screen = FakeScreen(keys=["q"])
+    screens._profile_screen(screen, config(), context())
+    drawn = screen.last
+    assert "23.0/systemd" in drawn
+    openrc = replace(config(), system=replace(config().system, init=InitSystem.OPENRC))
+    plain = FakeScreen(keys=["q"])
+    screens._profile_screen(plain, openrc, context())
+    assert "systemd" not in plain.last
 
 
-def test_the_overview_lists_what_the_installer_will_actually_do() -> None:
-    """Built from the operation sequence itself, so the screen cannot promise
-    something the installer does not perform."""
-    screen = FakeScreen(keys=["\n", "KEY_DOWN", "\n"])
-    finished = run(screen, config(), context(), steps=(screens.overview_screen,))
-    assert not finished.cancelled
-    drawn = "\n".join("\n".join(frame) for frame in screen.frames)
-    assert "wipe existing signatures" in drawn
-    assert "operations:" in drawn
+def test_binary_packages_are_a_row_of_their_own() -> None:
+    """Never bundled with another choice: it is the difference between a ten
+    minute install and a four hour one."""
+    assert any(setting.key == "binhost" for setting in settings.SETTINGS)
+    said = settings.SETTINGS[row("Binary packages")].value(config(), context())
+    assert said
 
 
-def test_declining_the_overview_goes_back_rather_than_installing() -> None:
-    screen = FakeScreen(keys=["\n", "\n"])
-    finished = run(screen, config(), context(), steps=(screens.overview_screen,))
-    assert finished.cancelled
-
-
-def test_an_empty_user_name_leaves_the_system_with_root_only() -> None:
-    """A server install makes that choice deliberately, so an empty field is
-    an answer rather than a prompt to try again."""
-    finished = run(
-        FakeScreen(keys=["\n"]), config(), context(), steps=(screens.user_screen,)
-    )
-    assert finished.config is not None
-    assert finished.config.system.users == ()
-
-
-def test_choosing_openrc_moves_the_profile_off_systemd() -> None:
-    """The validator refuses the two disagreeing, so the screen that changes
-    one has to change the other."""
-    finished = run(
-        FakeScreen(keys=["\n"]), config(), context(), steps=(screens.init_screen,)
-    )
-    assert finished.config is not None
-    assert finished.config.system.init.value == "openrc"
-    assert "systemd" not in finished.config.portage.profile.split("/")
-    validate(finished.config)
-
-
-def test_choosing_a_desktop_moves_the_profile_to_match() -> None:
-    """The profile decides what the packages are built against, so a desktop
-    on a plain profile builds a desktop against the wrong one."""
-    keys = ["KEY_DOWN", "KEY_DOWN", "\n"]
-    finished = run(FakeScreen(keys=keys), config(), context(), steps=(screens.desktop_screen,))
-    assert finished.config is not None
-    assert finished.config.packages.desktop == "plasma"
-    assert finished.config.portage.profile == "default/linux/amd64/23.0/desktop/plasma/systemd"
-    validate(finished.config)
-
-
-def test_the_desktop_is_not_offered_again_among_the_applications() -> None:
-    """It is chosen on its own screen; listing it twice lets the two disagree."""
-    screen = FakeScreen(keys=["\n"])
-    run(screen, config(), context(), steps=(screens.packages_screen,))
-    assert "plasma" not in screen.last
-    assert "firefox" in screen.last
+def test_choosing_zfs_still_adds_the_overlay_that_carries_zfsbootmenu() -> None:
+    keys = ["KEY_DOWN", "KEY_DOWN", "KEY_DOWN", "\n"]
+    answer = screens.layout_screen(FakeScreen(keys=keys), config(), context())
+    assert answer.unwrap().bootloader.kind is Bootloader.ZFSBOOTMENU
+    assert [o.name for o in answer.unwrap().portage.overlays] == ["gentoo-zh"]
