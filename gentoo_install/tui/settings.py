@@ -448,7 +448,7 @@ COMPILER: Final[tuple[Setting, ...]] = (
     Setting("cflags", "Compiler flags", _cflags, screens.compile_flags_screen),
     # Read from /proc/cpuinfo, so it is right without being asked; shown
     # because it decides which binary packages match.
-    Setting("cpu_flags", "CPU flags", _cpu_flags, None),
+    Setting("cpu_flags", "CPU flags", _cpu_flags, screens.cpu_flags_screen),
     Setting("license", "Licenses", _license, screens.license_screen),
     Setting("keywords", "Package keywords", _keywords, screens.keywords_screen),
 )

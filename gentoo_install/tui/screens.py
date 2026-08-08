@@ -1491,7 +1491,7 @@ def encryption_screen(screen: Screen, config: InstallConfig, context: Context) -
         # `_rebuild` builds from `context.layout` here and reads none of
         # `context.choice`, so staging a passphrase left the row reading `on`
         # over a graph with no container in it at all.
-        _say(screen, context, translate("A hand-written table is encrypted per partition."))
+        _say(screen, context, translate("Encryption is a field of each partition, under Partitions."))
         return Answer(Outcome.BACK)
     wanted = Confirm(
         **answers(translate),
@@ -1814,6 +1814,40 @@ def console_font_screen(
     return Answer(
         Outcome.CHOSE,
         replace(config, system=replace(config.system, console_font=answer.unwrap()[0])),
+    )
+
+
+def cpu_flags_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """This machine's flags, or the baseline the profile sets.
+
+    The detected list builds for the CPU in front of the operator and for no
+    other, which is wrong for an image, for a disk moved to another machine,
+    and for anything the binary host built against the baseline.
+    """
+    translate = context.translate
+    detected = tuple(context.cpu_flags)
+    items: list[Item[tuple[str, ...]]] = [
+        Item(
+            label=" ".join(detected) or translate("none detected"),
+            value=detected,
+            detail=translate("this machine"),
+        ),
+        Item(
+            label=translate("baseline"),
+            value=(),
+            detail=translate("what the profile sets, and what a binary host builds"),
+        ),
+    ]
+    answer = Menu(
+        title=translate("CPU flags"), items=items, footer=footer(translate)
+    ).run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    return Answer(
+        Outcome.CHOSE,
+        replace(config, portage=replace(config.portage, cpu_flags=answer.unwrap()[0])),
     )
 
 

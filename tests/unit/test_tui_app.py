@@ -1361,3 +1361,23 @@ def test_the_timezone_can_follow_the_machine_the_installer_is_running_on() -> No
     plain = FakeScreen(keys=["\n"], lines=24, columns=90)
     assert screens.timezone_screen(plain, config(), at).unwrap().system.timezone == "UTC"
     assert "follow the BIOS" not in "\n".join(plain.frames[0])
+
+
+def test_the_cpu_flags_row_offers_the_baseline_as_well_as_this_machine() -> None:
+    """The detected list builds for the CPU in front of the operator and for no
+    other, which is wrong for an image, for a disk moved to another machine,
+    and for anything a binary host built against the baseline."""
+    at = context()
+    at.cpu_flags = ("avx2", "aes")
+    row = next(one for group in settings.SETTINGS for one in group.rows if one.key == "cpu_flags")
+    assert row.edit is not None
+
+    detected = screens.cpu_flags_screen(
+        FakeScreen(keys=["\n"], lines=20, columns=96), config(), at
+    )
+    assert detected.unwrap().portage.cpu_flags == ("avx2", "aes")
+
+    baseline = screens.cpu_flags_screen(
+        FakeScreen(keys=["KEY_DOWN", "\n"], lines=20, columns=96), config(), at
+    )
+    assert baseline.unwrap().portage.cpu_flags == ()
