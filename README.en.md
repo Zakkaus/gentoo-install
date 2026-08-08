@@ -21,6 +21,20 @@ Python 3.11 is the floor, set by `tomllib` in the standard library. The installe
 
 The launcher works out which commands are missing and prints the install line for that distribution, so you do not have to map them yourself.
 
+## Without cloning first
+
+The repository is public, so one line fetches and runs it. The same line works
+on every live system:
+
+```sh
+curl -fsSL https://github.com/Zakkaus/gentoo-install/archive/refs/heads/master.tar.gz | tar xz
+cd gentoo-install-master && ./bootstrap.sh
+```
+
+It needs `curl` and `tar`, which every live medium has; Alpine's busybox tar
+unpacks this archive too. Only stage3 needs GNU tar, and the installer checks
+for that itself.
+
 ## Usage
 
 The installer has to run as root. `bootstrap.sh` is the only entry point: it checks the Python version, lists the missing commands, then runs the installer.

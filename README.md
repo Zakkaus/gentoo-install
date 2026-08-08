@@ -21,6 +21,17 @@ Python 下限是 3.11，由標準庫的 `tomllib` 決定。安裝器只用標準
 
 缺哪些指令由啟動腳本算出來並給出該發行版的安裝指令，不必自己對照。
 
+## 不用先 clone
+
+倉庫是公開的，所以一行就能取得並執行。這條在任何一種 live 系統上都一樣：
+
+```sh
+curl -fsSL https://github.com/Zakkaus/gentoo-install/archive/refs/heads/master.tar.gz | tar xz
+cd gentoo-install-master && ./bootstrap.sh
+```
+
+需要 `curl` 與 `tar`；兩者每一種 live 媒介都有，Alpine 的 busybox tar 也解得開這個壓縮檔（stage3 才需要 GNU tar，那是安裝器自己檢查的）。
+
 ## 使用
 
 安裝器要以 root 執行。`bootstrap.sh` 是唯一入口，它檢查 Python 版本、列出缺少的指令，然後執行安裝器。
