@@ -1174,3 +1174,92 @@ def compile_flags_screen(
     return Answer(
         Outcome.CHOSE, replace(config, portage=replace(config.portage, common_flags=chosen))
     )
+
+
+def initramfs_keymap_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """The keyboard the passphrase prompt uses.
+
+    Its own row because it is the one that locks people out: an encrypted root
+    asks before the console keymap is loaded, and a keyboard that is not us
+    cannot type a passphrase it was never told about.
+    """
+    translate = context.translate
+    field = TextField(
+        title=translate("Keyboard the initramfs uses, empty to follow the console"),
+        value=config.system.keymap_initramfs,
+        footer=_footer(translate),
+    )
+    answer = field.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    return Answer(
+        Outcome.CHOSE,
+        replace(config, system=replace(config.system, keymap_initramfs=answer.unwrap().strip())),
+    )
+
+
+def address_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
+    """DHCP, or an address typed in. A machine on a network with no DHCP comes
+    up unreachable otherwise."""
+    translate = context.translate
+    wanted = Confirm(
+        title=translate("Use DHCP?"), footer=_footer(translate)
+    ).run(screen)
+    if not wanted.chosen:
+        return Answer(wanted.outcome)
+    if wanted.unwrap():
+        return Answer(
+            Outcome.CHOSE,
+            replace(config, system=replace(config.system, address="", gateway="")),
+        )
+    address = TextField(
+        title=translate("Address with its prefix, such as 192.0.2.10/24"),
+        value=config.system.address,
+        footer=_footer(translate),
+    ).run(screen)
+    if not address.chosen:
+        return Answer(address.outcome)
+    gateway = TextField(
+        title=translate("Gateway"),
+        value=config.system.gateway,
+        footer=_footer(translate),
+    ).run(screen)
+    if not gateway.chosen:
+        return Answer(gateway.outcome)
+    return Answer(
+        Outcome.CHOSE,
+        replace(
+            config,
+            system=replace(
+                config.system,
+                address=address.unwrap().strip(),
+                gateway=gateway.unwrap().strip(),
+            ),
+        ),
+    )
+
+
+def authorized_keys_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """Public keys root may log in with, one per entry.
+
+    Typed rather than read from the live system: the operator installing over
+    ssh is not necessarily the person whose key belongs on the new machine.
+    """
+    translate = context.translate
+    field = TextField(
+        title=translate("Public key for root, empty to add none"),
+        value=config.system.root_authorized_keys[0] if config.system.root_authorized_keys else "",
+        footer=_footer(translate),
+    )
+    answer = field.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    typed = answer.unwrap().strip()
+    keys = (typed,) if typed else ()
+    return Answer(
+        Outcome.CHOSE, replace(config, system=replace(config.system, root_authorized_keys=keys))
+    )

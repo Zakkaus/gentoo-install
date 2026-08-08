@@ -304,22 +304,60 @@ class WriteNetworkConfig(Operation):
     stage: Stage = Stage.SYSTEM
     init: InitSystem
     networking: Networking
+    #: A static address in CIDR form. Empty is DHCP.
+    address: str = ""
+    gateway: str = ""
 
     def describe(self) -> str:
         if self.networking in (Networking.NETWORKMANAGER_WPA, Networking.NETWORKMANAGER_IWD):
             return f"leave the interfaces to NetworkManager ({self.networking.value})"
+        if self.address:
+            return f"configure the wired interface as {self.address}"
         return "configure the wired interface for DHCP"
 
     def apply(self, context: Context) -> None:
         if self.networking in (Networking.NETWORKMANAGER_WPA, Networking.NETWORKMANAGER_IWD):
             return
         if self.init is InitSystem.SYSTEMD:
-            context.write(
-                PurePosixPath("/etc/systemd/network/20-wired.network"),
-                "[Match]\nName=en*\nName=eth*\n\n[Network]\nDHCP=yes\n",
-            )
+            network = "[Match]\nName=en*\nName=eth*\n\n[Network]\n"
+            if self.address:
+                network += f"Address={self.address}\n"
+                if self.gateway:
+                    network += f"Gateway={self.gateway}\n"
+            else:
+                network += "DHCP=yes\n"
+            context.write(PurePosixPath("/etc/systemd/network/20-wired.network"), network)
+            return
+        if self.address:
+            lines = f'config_eth0="{self.address}"\n'
+            if self.gateway:
+                lines += f'routes_eth0="default via {self.gateway}"\n'
+            context.write(PurePosixPath("/etc/conf.d/net"), lines)
             return
         context.write(PurePosixPath("/etc/conf.d/net"), 'config_eth0="dhcp"\n')
+
+
+@dataclass(frozen=True, kw_only=True)
+class WriteAuthorizedKeys(Operation):
+    """Keys root may log in with.
+
+    A headless install with no key and no console is reachable only by taking
+    the disk out, so this is written before the first boot rather than after.
+    """
+
+    stage: Stage = Stage.SYSTEM
+    keys: tuple[str, ...]
+
+    def describe(self) -> str:
+        return f"authorise {len(self.keys)} ssh key(s) for root"
+
+    def apply(self, context: Context) -> None:
+        context.write(
+            PurePosixPath("/root/.ssh/authorized_keys"),
+            "".join(f"{key}\n" for key in self.keys),
+            mode=0o600,
+        )
+        context.run_in_target(["chmod", "700", "/root/.ssh"])
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -464,6 +502,8 @@ def build(config: InstallConfig) -> list[Operation]:
     ]
     if config.disk.graph.of_type(MdRaid):
         operations.append(WriteMdadmConf())
+    if system.root_authorized_keys:
+        operations.append(WriteAuthorizedKeys(keys=system.root_authorized_keys))
     if system.zram is not None:
         operations += [
             Emerge(
@@ -513,7 +553,12 @@ def build(config: InstallConfig) -> list[Operation]:
             Emerge(stage=Stage.SYSTEM, packages=network, summary="install the network tools")
         )
     operations += [
-        WriteNetworkConfig(init=system.init, networking=system.networking),
+        WriteNetworkConfig(
+            init=system.init,
+            networking=system.networking,
+            address=system.address,
+            gateway=system.gateway,
+        ),
         EnableService(service=_network_service(system), init=system.init),
     ]
     return operations

@@ -281,3 +281,35 @@ def test_an_array_records_itself_where_the_initramfs_reads_it() -> None:
     assert not any(
         isinstance(operation, system.WriteMdadmConf) for operation in system.build(config())
     )
+
+
+def test_a_static_address_is_written_for_the_init_that_reads_it() -> None:
+    """A machine on a network with no DHCP comes up unreachable otherwise."""
+    static = replace(
+        config(),
+        system=replace(config().system, address="192.0.2.10/24", gateway="192.0.2.1"),
+    )
+    recorder = Recorder()
+    for operation in system.build(static):
+        if isinstance(operation, system.WriteNetworkConfig):
+            operation.apply(recorder)
+    written = recorder.files[PurePosixPath("/etc/systemd/network/20-wired.network")]
+    assert "Address=192.0.2.10/24" in written and "Gateway=192.0.2.1" in written
+    assert "DHCP=yes" not in written
+
+
+def test_root_can_be_given_a_key_before_the_first_boot() -> None:
+    """A headless install with no key and no console is reachable only by
+    taking the disk out."""
+    keyed = replace(
+        config(),
+        system=replace(config().system, root_authorized_keys=("ssh-ed25519 AAAA test",)),
+    )
+    recorder = Recorder()
+    for operation in system.build(keyed):
+        if isinstance(operation, system.WriteAuthorizedKeys):
+            operation.apply(recorder)
+    assert recorder.files[PurePosixPath("/root/.ssh/authorized_keys")] == "ssh-ed25519 AAAA test\n"
+    assert not any(
+        isinstance(operation, system.WriteAuthorizedKeys) for operation in system.build(config())
+    )

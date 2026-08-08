@@ -73,6 +73,23 @@ def _network(config: InstallConfig, context: Context) -> str:
     return config.system.networking.value
 
 
+def _unlock_keymap(config: InstallConfig, context: Context) -> str:
+    chosen = config.system.keymap_initramfs
+    return chosen if chosen else f"{config.system.keymap} (same as the console)"
+
+
+def _address(config: InstallConfig, context: Context) -> str:
+    if not config.system.address:
+        return "dhcp"
+    gateway = f" via {config.system.gateway}" if config.system.gateway else ""
+    return f"{config.system.address}{gateway}"
+
+
+def _keys(config: InstallConfig, context: Context) -> str:
+    count = len(config.system.root_authorized_keys)
+    return f"{count} authorised" if count else "none"
+
+
 def _mirror(config: InstallConfig, context: Context) -> str:
     mirrors = config.portage.mirrors
     return f"{mirrors.region.value}, measured" if mirrors.speed_test else mirrors.region.value
@@ -156,6 +173,7 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     # installing for the one the machine did not boot is a mistake.
     Setting("firmware", "Firmware", _firmware, None),
     Setting("keymap", "Keyboard layout", lambda c, x: c.system.keymap, screens.keymap_screen),
+    Setting("keymap_initramfs", "Keyboard at unlock", _unlock_keymap, screens.initramfs_keymap_screen),
     Setting("locale", "System language", lambda c, x: c.system.locale, screens.locale_screen),
     Setting("timezone", "Timezone", lambda c, x: c.system.timezone, screens.timezone_screen),
     Setting("mirror", "Mirror region", _mirror, screens.mirror_screen),
@@ -181,6 +199,8 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("packages", "Package groups", _applications, screens.packages_screen),
     Setting("extra", "Extra packages", _extra, screens.extra_packages_screen),
     Setting("network", "Network configuration", _network, screens.networking_screen),
+    Setting("address", "Address", _address, screens.address_screen),
+    Setting("keys", "SSH keys for root", _keys, screens.authorized_keys_screen),
     Setting("sshd", "SSH server", lambda c, x: "on" if c.system.sshd else "off", screens.sshd_screen),
     Setting("erase", "Confirm erasing the drive", _erase, screens.erase_screen, required=True),
 )
