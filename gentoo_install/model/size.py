@@ -201,11 +201,30 @@ class Size:
         return Size(self.bytes // divisor)
 
     def __str__(self) -> str:
-        """Largest IEC unit that keeps the value exact, otherwise bytes."""
+        """Largest IEC unit that keeps the value exact, otherwise bytes.
+
+        For reading and for `parted`, which takes `MiB`. `sgdisk` and
+        `lvcreate` do not: use `single_letter()` for those.
+        """
         for unit in _IEC_LADDER:
             if self.bytes >= unit.value and self.bytes % unit.value == 0:
                 return f"{self.bytes // unit.value}{unit.suffix}"
         return f"{self.bytes}B"
+
+    def single_letter(self) -> str:
+        """The size with a one-letter unit, which is what two tools require.
+
+        `lvcreate --size` accepts only `b s k m g t p e`, so `512MiB` is
+        rejected outright. `sgdisk --new` is worse: it reads a bare number as
+        *sectors* and has no byte suffix, so `+1500000000B` asked for a
+        partition of 1.5 billion sectors and failed on a disk 2000 times
+        smaller. A value that is not a whole KiB is rounded up to one, because
+        neither tool can express the remainder.
+        """
+        for unit in _IEC_LADDER:
+            if self.bytes >= unit.value and self.bytes % unit.value == 0:
+                return f"{self.bytes // unit.value}{unit.suffix[0]}"
+        return f"{-(-self.bytes // Unit.KIB.value)}K"
 
 
 ZERO: Final[Size] = Size(0)

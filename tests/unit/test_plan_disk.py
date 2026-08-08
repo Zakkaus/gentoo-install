@@ -47,7 +47,9 @@ def test_a_gpt_partition_is_created_with_its_index_type_and_size() -> None:
     recorder = apply_all(ext4_on_gpt())
     created = recorder.argv_starting("sgdisk")
     assert created[0][:3] == ("sgdisk", "--zap-all", "/dev/mapper/disk")
-    assert created[1][1:3] == ("--new=1:0:+512MiB", "--typecode=1:ef00")
+    # `512M`, not `512MiB`: sgdisk has no byte suffix and reads a bare
+    # number as sectors, so the readable form is not the one it takes.
+    assert created[1][1:3] == ("--new=1:0:+512M", "--typecode=1:ef00")
     assert created[2][1:3] == ("--new=2:0:0", "--typecode=2:8300")
 
 

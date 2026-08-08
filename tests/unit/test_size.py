@@ -141,3 +141,27 @@ def test_of_rejects_a_fraction_that_is_not_a_whole_number_of_bytes() -> None:
 )
 def test_str_uses_the_largest_unit_that_stays_exact(size: Size, text: str) -> None:
     assert str(size) == text
+
+
+def test_a_size_for_sgdisk_and_lvm_carries_a_one_letter_unit() -> None:
+    """`lvcreate --size` accepts only `b s k m g t p e`, so `512MiB` is
+    rejected; `sgdisk --new` has no byte suffix at all and reads a bare number
+    as sectors."""
+    assert Size.parse("512MiB").single_letter() == "512M"
+    assert Size.parse("20GiB").single_letter() == "20G"
+    assert Size.parse("4KiB").single_letter() == "4K"
+
+
+def test_a_size_that_is_not_a_whole_kib_rounds_up_rather_than_saying_bytes() -> None:
+    """`sgdisk --new=1:0:+1500000000B` asked for 1.5 billion sectors and failed
+    on a disk two thousand times smaller. Neither tool can express the
+    remainder, so the next whole KiB is the honest answer."""
+    rounded = Size.parse("1500000000B").single_letter()
+    assert rounded == "1464844K"
+    assert Size.parse(rounded).bytes >= 1500000000
+    assert Size.parse(rounded).bytes - 1500000000 < 1024
+
+
+def test_the_readable_form_still_uses_the_full_iec_unit() -> None:
+    """`parted` takes `MiB`, and so does a person reading the plan."""
+    assert str(Size.parse("512MiB")) == "512MiB"

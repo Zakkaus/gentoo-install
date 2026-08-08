@@ -219,7 +219,7 @@ class CreatePartition(Operation):
     def apply(self, context: Context) -> None:
         path = context.device_path(self.disk)
         if self.table_kind is TableType.GPT:
-            end = f"+{self.size}" if self.size is not None else "0"
+            end = f"+{self.size.single_letter()}" if self.size is not None else "0"
             argv = [
                 "sgdisk",
                 f"--new={self.index}:0:{end}",
@@ -351,7 +351,11 @@ class CreateLogicalVolume(Operation):
         return f"create logical volume {self.group}/{self.name} as {self.volume}: {extent}"
 
     def apply(self, context: Context) -> None:
-        extent = ["--size", str(self.size)] if self.size is not None else ["--extents", "100%FREE"]
+        extent = (
+            ["--size", self.size.single_letter()]
+            if self.size is not None
+            else ["--extents", "100%FREE"]
+        )
         context.run(["lvcreate", "--yes", *extent, "--name", self.name, self.group])
 
 
