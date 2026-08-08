@@ -197,3 +197,21 @@ def test_a_form_shows_every_field_at_once() -> None:
 def test_escape_leaves_a_form_without_an_answer() -> None:
     form = Form(title="t", fields=[Field(label="a")])
     assert form.run(FakeScreen(keys=["\x1b"])).outcome is Outcome.CANCELLED
+
+
+def test_a_field_that_had_content_can_be_cleared() -> None:
+    """Backspace on an empty field leaves the screen, so clearing one used to
+    be impossible: the keystroke that emptied it was followed by one that left
+    and kept the old value. Several fields mean something by empty."""
+    field = TextField(title="Mount point", value="/srv")
+    keys = ["\x7f", "\x7f", "\x7f", "\x7f", "\x7f", "\n"]
+    assert field.run(FakeScreen(keys=keys)).unwrap() == ""
+
+
+def test_backspace_still_goes_back_from_a_field_nobody_touched() -> None:
+    # A field with content takes one backspace per character before it is
+    # empty, and only then does the next one leave.
+    field = TextField(title="Mount point", value="/srv")
+    assert field.run(FakeScreen(keys=["\x7f"] * 4 + ["\x7f", "\n"])).unwrap() == ""
+    empty = TextField(title="Mount point")
+    assert empty.run(FakeScreen(keys=["\x7f"])).outcome is Outcome.BACK

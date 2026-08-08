@@ -215,6 +215,10 @@ class TextField:
 
     def run(self, screen: Screen) -> Answer[str]:
         typed = list(self.value)
+        # Backspace leaves the screen only while the field is untouched: a
+        # field that had content could not be cleared otherwise, and several
+        # of them mean something by empty.
+        touched = False
         while True:
             self._draw(screen, typed)
             pressed = screen.key()
@@ -223,12 +227,14 @@ class TextField:
             if pressed in ("\x7f", "KEY_BACKSPACE"):
                 if typed:
                     typed.pop()
-                else:
+                    touched = True
+                elif not touched:
                     return Answer(Outcome.BACK)
             elif pressed in CANCEL:
                 return Answer(Outcome.CANCELLED)
             elif len(pressed) == 1 and pressed.isprintable():
                 typed.append(pressed)
+                touched = True
 
     def _draw(self, screen: Screen, typed: list[str]) -> None:
         lines, columns = screen.size()
@@ -303,8 +309,8 @@ class Form:
 
     def run(self, screen: Screen) -> Answer[list[str]]:
         typed = [list(field.value) for field in self.fields]
-        #: The last row is the one that submits, so it is a row like the others
-        #: and reachable the same way.
+        # The last row submits, so it is a row like the others and reachable
+        # the same way.
         cursor = 0
         while True:
             self._draw(screen, typed, cursor)
