@@ -145,7 +145,6 @@
 "gentoo-zh distfiles" = "gentoo-zh の distfiles"
 "gentoo-zh binary packages" = "gentoo-zh のバイナリパッケージ"
 "Add the gentoo-zh distfiles to GENTOO_MIRRORS?" = "gentoo-zh の distfiles を GENTOO_MIRRORS に追加しますか？"
-"appended" = "追加済み"
 "not used" = "使わない"
 "Compiler" = "コンパイル"
 "CPU flags" = "CPU フラグ"

@@ -145,7 +145,6 @@
 "gentoo-zh distfiles" = "gentoo-zh distfiles"
 "gentoo-zh binary packages" = "gentoo-zh 바이너리 패키지"
 "Add the gentoo-zh distfiles to GENTOO_MIRRORS?" = "gentoo-zh distfiles 를 GENTOO_MIRRORS 에 추가하시겠습니까?"
-"appended" = "추가됨"
 "not used" = "사용 안 함"
 "Compiler" = "컴파일"
 "CPU flags" = "CPU 플래그"

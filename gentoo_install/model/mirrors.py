@@ -230,9 +230,8 @@ def gentoozh_binhost(
 
 
 def gentoozh_distfiles(chosen: GentooZhMirror) -> tuple[str, ...]:
-    """The chosen site first and upstream last, which is the order the project
-    documents. Portage appends `distfiles/`, so the base is what goes in."""
-    upstream = gentoozh(GentooZhMirror.UPSTREAM).distfiles
-    if chosen is GentooZhMirror.UPSTREAM:
-        return (upstream,)
-    return (gentoozh(chosen).distfiles, upstream)
+    """Every site, the chosen one first, the same as `gentoo_distfiles`: a
+    mirror behind on one file still has the rest. Portage appends `distfiles/`,
+    so the base is what goes in."""
+    ordered = sorted(GENTOOZH_SITES, key=lambda site: site.key != chosen.value)
+    return tuple(site.distfiles for site in ordered)

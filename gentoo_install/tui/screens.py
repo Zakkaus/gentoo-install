@@ -645,7 +645,9 @@ def _mirror_fields(config: InstallConfig, translate: Catalog) -> list[Item[str]]
             Item(
                 label=translate("gentoo-zh distfiles"),
                 value=_ZH_DISTFILES,
-                detail=translate("appended")
+                # The first of the list, which is the one Portage tries first:
+                # all five spelled out do not fit an 80-column row.
+                detail=mirrors.gentoozh_distfiles(chosen.gentoo_zh)[0]
                 if chosen.gentoo_zh_distfiles
                 else translate("not used"),
             ),

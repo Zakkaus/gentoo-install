@@ -60,11 +60,12 @@ def test_gentoozh_binhost_and_distfiles_come_from_the_same_site() -> None:
         assert mirrors.gentoozh_distfiles(chosen)[0] == site.distfiles
 
 
-def test_upstream_is_last_in_the_gentoozh_list() -> None:
-    """The order the project documents: the chosen mirror first, the origin
-    last, so a mirror that is behind still falls through to a complete set."""
+def test_every_gentoozh_site_is_appended_with_the_chosen_one_first() -> None:
+    """`GENTOO_MIRRORS` is a fallback chain: a mirror that is behind on one
+    file still has the rest, so the choice is an order and not a filter."""
     ordered = mirrors.gentoozh_distfiles(GentooZhMirror.NJU)
-    assert ordered[-1] == "https://distfiles.gentoozh.org"
-    assert mirrors.gentoozh_distfiles(GentooZhMirror.UPSTREAM) == (
-        "https://distfiles.gentoozh.org",
+    assert ordered[0] == "https://mirror.nju.edu.cn/gentoo-zh"
+    assert set(ordered) == {site.distfiles for site in mirrors.GENTOOZH_SITES}
+    assert mirrors.gentoozh_distfiles(GentooZhMirror.UPSTREAM)[0] == (
+        "https://distfiles.gentoozh.org"
     )

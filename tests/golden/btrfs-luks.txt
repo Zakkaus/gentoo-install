@@ -27,7 +27,7 @@
   mount proc, sys, dev and run into the target and copy resolv.conf
 
 [portage]
-  write /etc/portage/make.conf with COMMON_FLAGS, CFLAGS, CXXFLAGS, FCFLAGS, FFLAGS, MAKEOPTS, USE, VIDEO_CARDS, ACCEPT_LICENSE, L10N, FEATURES; 23 mirrors fastest first, measured, 1 appended
+  write /etc/portage/make.conf with COMMON_FLAGS, CFLAGS, CXXFLAGS, FCFLAGS, FFLAGS, MAKEOPTS, USE, VIDEO_CARDS, ACCEPT_LICENSE, L10N, FEATURES; 23 mirrors fastest first, measured, 5 appended
   create the three autounmask files emerge writes its decisions into
   fetch the first ebuild repository snapshot with emerge-webrsync
   select profile default/linux/amd64/23.0/desktop/systemd

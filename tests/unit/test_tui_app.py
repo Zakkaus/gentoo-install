@@ -439,7 +439,7 @@ def test_the_gentoozh_distfiles_are_appended_and_never_ranked() -> None:
     )
     appended = _appended_distfiles(on)
     assert appended[0].endswith("nju.edu.cn/gentoo-zh")
-    assert appended[-1] == "https://distfiles.gentoozh.org"
+    assert "https://distfiles.gentoozh.org" in appended
 
 
 def test_a_grouped_row_shows_its_own_rows_and_comes_back() -> None:
