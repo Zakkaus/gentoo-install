@@ -26,7 +26,7 @@ distribution() {
 		. "$OS_RELEASE"
 		for candidate in ${ID_LIKE:-} ${ID:-}; do
 			case "$candidate" in
-			debian | ubuntu | arch | suse | opensuse* | fedora | rhel | centos | gentoo)
+			debian | ubuntu | arch | suse | opensuse* | fedora | rhel | centos | gentoo | alpine)
 				printf '%s\n' "$candidate"
 				return 0
 				;;
@@ -47,6 +47,7 @@ install_command() {
 	suse | opensuse | opensuse-leap | opensuse-tumbleweed) printf 'zypper --non-interactive install' ;;
 	fedora | rhel | centos) printf 'dnf install -y' ;;
 	gentoo) printf 'emerge --noreplace' ;;
+	alpine) printf 'apk add' ;;
 	*) return 1 ;;
 	esac
 }
@@ -57,6 +58,7 @@ package_for() {
 	family=$2
 	case "$command:$family" in
 	sgdisk:debian | sgdisk:ubuntu) printf 'gdisk' ;;
+	sgdisk:alpine) printf 'sgdisk' ;;
 	sgdisk:*) printf 'gptfdisk' ;;
 	partprobe:* | parted:*) printf 'parted' ;;
 	mkfs.vfat:* | mkfs.fat:*) printf 'dosfstools' ;;
@@ -67,10 +69,13 @@ package_for() {
 	gpg:*) printf 'gnupg' ;;
 	zpool:debian | zfs:debian | zpool:ubuntu | zfs:ubuntu) printf 'zfsutils-linux' ;;
 	zpool:arch | zfs:arch) printf 'zfs-utils' ;;
+	udevadm:alpine) printf 'eudev' ;;
+	chroot:alpine | tar:alpine) printf '%s' "$command" ;;
 	zpool:* | zfs:*) printf 'zfs' ;;
 	mkfs.xfs:*) printf 'xfsprogs' ;;
 	mkfs.f2fs:*) printf 'f2fs-tools' ;;
 	mkfs.ext4:* | mkfs.ext2:* | mkfs.ext3:*) printf 'e2fsprogs' ;;
+	tar:*) printf 'tar' ;;
 	udevadm:debian | udevadm:ubuntu) printf 'systemd' ;;
 	wipefs:* | blkid:* | lsblk:* | findmnt:* | blockdev:* | swapon:*) printf 'util-linux' ;;
 	chroot:debian | chroot:ubuntu) printf 'coreutils' ;;
