@@ -10,6 +10,7 @@
 "Install" = "설치 시작"
 "This erases every partition on the disk." = "디스크의 모든 파티션을 지웁니다."
 "Type the disk name to confirm." = "확인하려면 디스크 이름을 입력하십시오."
+"That is not the name of this disk." = "이 디스크의 이름이 아닙니다."
 "Encrypt the root filesystem?" = "루트 파일 시스템을 암호화하시겠습니까?"
 "Encrypt this partition?" = "이 파티션을 암호화하시겠습니까?"
 "Encrypt the pool?" = "이 pool을 암호화하시겠습니까?"

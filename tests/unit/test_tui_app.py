@@ -53,7 +53,15 @@ def context() -> screens.Context:
 
 
 def row(label: str) -> int:
+    """Where the row sits in `SETTINGS`."""
     return next(index for index, s in enumerate(settings.SETTINGS) if s.label == label)
+
+
+def steps(label: str, rows: tuple[settings.Setting, ...] | None = None) -> int:
+    """How many KEY_DOWNs reach that row. The menu steps over a row it cannot
+    open, so this counts the ones it can and not the position in the tuple."""
+    reachable = [one for one in (rows or settings.SETTINGS) if one.edit is not None]
+    return next(index for index, one in enumerate(reachable) if one.label == label)
 
 
 def down(count: int) -> list[str]:
@@ -99,7 +107,7 @@ def test_the_menu_is_flat() -> None:
 def test_a_row_can_be_opened_and_the_menu_comes_back() -> None:
     """Not a wizard: editing one row returns to the menu rather than moving to
     the next question, so any row can be revisited."""
-    keys = [*down(row("Kernel")), "\n", "\n", "q", "KEY_DOWN", "\n"]
+    keys = [*down(steps("Kernel")), "\n", "\n", "q", "KEY_DOWN", "\n"]
     screen = FakeScreen(keys=keys)
     finished = run(screen, config(), context())
     assert finished.cancelled
@@ -110,9 +118,11 @@ def test_a_row_can_be_opened_and_the_menu_comes_back() -> None:
 def test_the_same_row_can_be_edited_twice() -> None:
     """A wizard makes the operator cancel and start over to change an early
     answer; this has to not."""
+    # The menu remembers where the cursor was, so the second visit is one
+    # keystroke and not the walk down again.
     keys = [
-        *down(row("Bootloader")), "\n", "\n",
-        *down(row("Bootloader")), "\n", "\n",
+        *down(steps("Bootloader")), "\n", "\n",
+        "\n", "\n",
         "q", "KEY_DOWN", "\n",
     ]
     finished = run(FakeScreen(keys=keys), config(), context())
@@ -354,7 +364,7 @@ def test_a_screen_cancelled_by_mistake_asks_before_discarding_everything() -> No
     other answer without asking."""
     at = context()
     # Open the kernel row, escape out of it, answer No, then leave properly.
-    keys = [*down(row("Kernel")), "\n", "q", "\n", "q", "KEY_DOWN", "\n"]
+    keys = [*down(steps("Kernel")), "\n", "q", "\n", "q", "KEY_DOWN", "\n"]
     screen = FakeScreen(keys=keys)
     finished = run(screen, config(), at)
     assert finished.cancelled
@@ -1130,3 +1140,32 @@ def test_a_listed_key_says_that_enter_removes_it() -> None:
     screen = FakeScreen(keys=["q"], lines=24, columns=100)
     screens.authorized_keys_screen(screen, with_key, at)
     assert "enter removes it" in screen.last
+
+
+def test_a_phrase_that_is_not_the_disk_name_says_so_and_asks_again() -> None:
+    """It stored False and returned to the menu, so a trailing space read as a
+    refusal and the row went back to unset with nothing explaining why."""
+    at = context()
+    disk = at.choice.disk
+    # A wrong name, the message, then the right one.
+    keys = [*"/dev/sda", "\n", "\n", *disk, "\n"]
+    screen = FakeScreen(keys=keys, lines=24, columns=80)
+    answer = screens.erase_screen(screen, config(), at)
+    assert answer.outcome is Outcome.CHOSE
+    assert at.erase_confirmed is True
+    seen = "\n".join("\n".join(frame) for frame in screen.frames)
+    assert "That is not the name of this disk." in seen
+
+
+def test_the_erase_question_fits_eighty_columns() -> None:
+    """The selector, three sentences and the field did not, and the clause that
+    was cut is the one saying what to type."""
+    at = context()
+    # Backspace on an untouched field is what leaves it; `q` is a character.
+    screen = FakeScreen(keys=["KEY_BACKSPACE"], lines=24, columns=80)
+    screens.erase_screen(screen, config(), at)
+    title = next(line for line in screen.frames[0] if line.strip())
+    assert "Type the disk name to confirm." in title
+    assert len(title.rstrip()) <= 80
+    # The name to type is in the field instead of the title.
+    assert at.choice.disk in "\n".join(screen.frames[0])

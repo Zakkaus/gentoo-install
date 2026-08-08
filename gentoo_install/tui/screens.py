@@ -408,18 +408,27 @@ def erase_screen(screen: Screen, config: InstallConfig, context: Context) -> Ans
     """The one screen with no default: the disk name has to be typed."""
     translate = context.translate
     disk = context.choice.disk
-    question = Confirm(
-        **answers(translate),
-        title=f"{translate('This erases every partition on the disk.')} {disk}. "
-        f"{translate('Type the disk name to confirm.')}",
-        phrase=disk,
-        footer=footer(translate),
-    )
-    answer = question.run(screen)
-    if not answer.chosen:
-        return Answer(answer.outcome)
-    context.erase_confirmed = answer.unwrap()
-    return Answer(Outcome.CHOSE, config)
+    while True:
+        # The selector goes in the field rather than the title: together they
+        # are three sentences and a `/dev/disk/by-id/` path, and 80 columns
+        # truncated away the one saying what to type.
+        question = Confirm(
+            **answers(translate),
+            title=f"{translate('This erases every partition on the disk.')} "
+            f"{translate('Type the disk name to confirm.')}",
+            phrase=disk,
+            placeholder=disk,
+            footer=footer(translate),
+        )
+        answer = question.run(screen)
+        if not answer.chosen:
+            return Answer(answer.outcome)
+        if answer.unwrap():
+            context.erase_confirmed = True
+            return Answer(Outcome.CHOSE, config)
+        # Said rather than swallowed: a trailing space read as a refusal, and
+        # the row went back to unset with nothing explaining why.
+        _say(screen, context, translate("That is not the name of this disk."))
 
 
 def system_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:

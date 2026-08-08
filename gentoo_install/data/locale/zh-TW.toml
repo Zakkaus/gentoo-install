@@ -10,6 +10,7 @@
 "Install" = "開始安裝"
 "This erases every partition on the disk." = "將清除磁碟上的所有分割區。"
 "Type the disk name to confirm." = "輸入磁碟名稱以確認。"
+"That is not the name of this disk." = "這不是這顆磁碟的名稱。"
 "Encrypt the root filesystem?" = "要加密根檔案系統嗎？"
 "Encrypt this partition?" = "要加密此分割區嗎？"
 "Encrypt the pool?" = "要加密此 pool 嗎？"

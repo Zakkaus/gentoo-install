@@ -260,6 +260,9 @@ class Confirm:
 
     title: str
     phrase: str = ""
+    #: Drawn inside the field, so the phrase to type is visible without the
+    #: title having to carry it.
+    placeholder: str = ""
     footer: str = ""
     #: The two answers, already translated by the caller. Defaulted so a test
     #: needs no catalog, and passed in everywhere the operator will read them.
@@ -268,7 +271,9 @@ class Confirm:
 
     def run(self, screen: Screen) -> Answer[bool]:
         if self.phrase:
-            typed = TextField(title=self.title, footer=self.footer).run(screen)
+            typed = TextField(
+                title=self.title, footer=self.footer, placeholder=self.placeholder
+            ).run(screen)
             if not typed.chosen:
                 return Answer(typed.outcome)
             return Answer(Outcome.CHOSE, typed.unwrap() == self.phrase)
