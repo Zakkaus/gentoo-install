@@ -672,3 +672,43 @@ def test_a_table_edited_in_place_is_checked_for_mounts_too(tmp_path: Path) -> No
         ]
     )
     assert _disks_at_risk(kept) == []
+
+
+def test_the_bootloader_disk_of_a_reused_partition_is_the_disk(tmp_path: Path) -> None:
+    """A reused partition is an `Existing` whose selector names the partition,
+    and there is no whole-disk node above it. `grub-install /dev/sda2` writes
+    into a partition boot sector or refuses, and the machine does not boot."""
+    from gentoo_install.exec.apply import Machine
+    from gentoo_install.model.config import DiskConfig
+    from gentoo_install.model.device import (
+        DeviceGraph,
+        DeviceId,
+        Filesystem,
+        FilesystemType,
+        Mountpoint,
+    )
+    from pathlib import PurePosixPath
+
+    from .layouts import config as base
+
+    nodes = [
+        Existing(id=DeviceId("part"), selector="/dev/null", wipe=False),
+        Filesystem(
+            id=DeviceId("fs"), device=DeviceId("part"), kind=FilesystemType.EXT4, create=False
+        ),
+        Mountpoint(id=DeviceId("root"), source=DeviceId("fs"), path=PurePosixPath("/")),
+    ]
+    reused = replace(
+        base(), disk=DiskConfig(graph=DeviceGraph.build(nodes), root=DeviceId("root"))
+    )
+    probe = probe_of(tmp_path)
+    machine = Machine(config=reused, probe=probe, runner=probe.runner, work=tmp_path)
+    asked: list[str] = []
+
+    def disk_of(device: DeviceId) -> str:
+        asked.append(str(device))
+        return "/dev/sda"
+
+    probe.disk_of = disk_of  # type: ignore[method-assign]
+    assert machine.containing_disk(DeviceId("root")) == "/dev/sda"
+    assert asked == ["part"]

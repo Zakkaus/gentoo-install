@@ -162,10 +162,18 @@ class Machine:
         answered with a different disk on every run.
         """
         graph = self.config.disk.graph
+        tables = {table.disk for table in graph.of_type(PartitionTable)}
         for parent in (device, *sorted(graph.ancestors_of(device))):
             node = graph[parent]
-            if isinstance(node, Existing):
-                return self.probe.resolve(node.id, node.selector)
+            if not isinstance(node, Existing):
+                continue
+            path = self.probe.resolve(node.id, node.selector)
+            if node.id in tables:
+                return path
+            # A reused partition is an `Existing` too, and its selector names
+            # the partition. `grub-install /dev/sda2` writes into a partition
+            # boot sector or refuses outright, so the parent decides.
+            return self.probe.disk_of(node.id)
         raise InvalidLayout(f"nothing under {device} is a disk this installer can boot from")
 
     def partition_index(self, device: DeviceId) -> int:
