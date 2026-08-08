@@ -15,7 +15,7 @@ from ..model.validate import validate
 from ..errors import ValidationFailed
 from .screens import Context
 from .settings import SETTINGS, unanswered
-from .widgets import Item, Menu, Outcome, Screen
+from .widgets import Confirm, Item, Menu, Outcome, Screen
 
 
 @dataclass(frozen=True)
@@ -38,6 +38,7 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
                 label=setting.label,
                 value=index,
                 detail=setting.value(current, context),
+                disabled_because="" if setting.edit else "detected from this machine",
             )
             for index, setting in enumerate(SETTINGS)
         ]
@@ -60,11 +61,22 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
         )
         answer = menu.run(screen)
         if not answer.chosen:
-            return Finished(None)
+            # Asked rather than obeyed: one stray escape should not throw away
+            # every answer the operator has entered.
+            leaving = Confirm(
+                title=context.translate("Leave without installing?"),
+                footer=context.translate("Cancel"),
+            ).run(screen)
+            if leaving.chosen and leaving.unwrap():
+                return Finished(None)
+            continue
         chosen = answer.unwrap()[0]
         if chosen == len(SETTINGS):
             return Finished(current)
-        edited = SETTINGS[chosen].edit(screen, current, context)
+        editor = SETTINGS[chosen].edit
+        if editor is None:
+            continue
+        edited = editor(screen, current, context)
         if edited.outcome is Outcome.CANCELLED:
             return Finished(None)
         if edited.chosen:

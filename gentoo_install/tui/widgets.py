@@ -151,10 +151,12 @@ class Menu(Generic[V]):
                 mark = "x" if index in self.selected else " "
                 mark = f"[{mark}]"
             text = f"{mark} {item.label}" if self.multiple else item.label
-            if item.disabled_because:
-                text = f"{text} - {item.disabled_because}"
-            elif item.detail:
+            if item.detail:
                 text = f"{text}  {item.detail}"
+            if item.disabled_because:
+                # After the value, not instead of it: a row that cannot be
+                # chosen still has to show what it settled on.
+                text = f"{text} - {item.disabled_because}"
             screen.write(row + 2, 2, truncate(text, columns - 4), highlight=index == cursor)
         if self.footer:
             screen.write(lines - 1, 0, truncate(self.footer, columns))

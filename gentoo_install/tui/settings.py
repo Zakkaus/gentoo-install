@@ -31,9 +31,14 @@ class Setting:
     label: str
     #: What the row shows to the right of its label.
     value: Callable[[InstallConfig, Context], str]
-    edit: Step
+    edit: Step | None
     #: A run cannot start until every required row has an answer.
     required: bool = False
+
+
+def _shown(config: InstallConfig, context: Context) -> str:
+    """A row with nothing to edit still has to say what it settled on."""
+    return _firmware(config, context)
 
 
 def _swap(config: InstallConfig, context: Context) -> str:
@@ -120,12 +125,14 @@ def _erase(config: InstallConfig, context: Context) -> str:
 #: hides a choice behind a heading nobody opens, and `archinstall` reaches the
 #: same conclusion.
 SETTINGS: Final[tuple[Setting, ...]] = (
+    # Detected and shown, never chosen: the UEFI and BIOS paths differ and
+    # installing for the one the machine did not boot is a mistake.
+    Setting("firmware", "Firmware", _firmware, None),
     Setting("keymap", "Keyboard layout", lambda c, x: c.system.keymap, screens.keymap_screen),
     Setting("locale", "System language", lambda c, x: c.system.locale, screens.locale_screen),
     Setting("timezone", "Timezone", lambda c, x: c.system.timezone, screens.timezone_screen),
     Setting("mirror", "Mirror region", _mirror, screens.mirror_screen),
     Setting("repositories", "Optional repositories", _repositories, screens.repositories_screen),
-    Setting("firmware", "Firmware", _firmware, screens.firmware_screen),
     Setting("disk", "Drive", _drive, screens.disk_screen, required=True),
     Setting("table", "Partition table", _table, screens.table_screen),
     Setting("layout", "Layout", _layout, screens.layout_screen),

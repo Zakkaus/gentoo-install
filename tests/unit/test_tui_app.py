@@ -50,7 +50,7 @@ def test_every_row_is_reachable_and_shows_its_current_value() -> None:
     """More rows than an 80x24 console holds, so the list scrolls and the test
     walks it rather than reading one frame."""
     at = context()
-    screen = FakeScreen(keys=[*down(len(settings.SETTINGS)), "q"])
+    screen = FakeScreen(keys=[*down(len(settings.SETTINGS)), "q", "KEY_DOWN", "\n"])
     run(screen, config(), at)
     seen = "\n".join("\n".join(frame) for frame in screen.frames)
     for setting in settings.SETTINGS:
@@ -58,18 +58,34 @@ def test_every_row_is_reachable_and_shows_its_current_value() -> None:
         assert setting.value(config(), at) in seen or setting.required, setting.label
 
 
+def test_the_firmware_row_is_shown_and_not_chosen() -> None:
+    """The UEFI and BIOS paths differ, and installing for the one the machine
+    did not boot is a mistake rather than an option."""
+    firmware = next(s for s in settings.SETTINGS if s.key == "firmware")
+    assert firmware.edit is None
+    at = context()
+    screen = FakeScreen(keys=["q", "KEY_DOWN", "\n"])
+    run(screen, config(), at)
+    # `last` is now the confirmation, so look at the menu frame before it.
+    assert any(
+        "uefi (detected) - detected from this machine" in "\n".join(frame)
+        for frame in screen.frames
+    )
+
+
 def test_the_menu_is_flat() -> None:
     """One row per decision. Nesting hides a choice behind a heading nobody
     opens, which is what the maintainer asked to be rid of."""
     assert len(settings.SETTINGS) > 20
     for setting in settings.SETTINGS:
-        assert "menu" not in setting.edit.__name__
+        if setting.edit is not None:
+            assert "menu" not in setting.edit.__name__
 
 
 def test_a_row_can_be_opened_and_the_menu_comes_back() -> None:
     """Not a wizard: editing one row returns to the menu rather than moving to
     the next question, so any row can be revisited."""
-    keys = [*down(row("Kernel")), "\n", "\n", "q"]
+    keys = [*down(row("Kernel")), "\n", "\n", "q", "KEY_DOWN", "\n"]
     screen = FakeScreen(keys=keys)
     finished = run(screen, config(), context())
     assert finished.cancelled
@@ -83,7 +99,7 @@ def test_the_same_row_can_be_edited_twice() -> None:
     keys = [
         *down(row("Bootloader")), "\n", "\n",
         *down(row("Bootloader")), "\n", "\n",
-        "q",
+        "q", "KEY_DOWN", "\n",
     ]
     finished = run(FakeScreen(keys=keys), config(), context())
     assert finished.cancelled
@@ -93,7 +109,7 @@ def test_install_is_blocked_while_something_required_is_missing() -> None:
     """And the row says what is missing rather than silently doing nothing."""
     blank = replace(config(), system=replace(config().system, root_password_hash=""))
     at = context()
-    screen = FakeScreen(keys=[*down(len(settings.SETTINGS)), "q"])
+    screen = FakeScreen(keys=[*down(len(settings.SETTINGS)), "q", "KEY_DOWN", "\n"])
     run(screen, blank, at)
     seen = "\n".join("\n".join(frame) for frame in screen.frames)
     assert "Root password" in seen
@@ -117,7 +133,7 @@ def test_erasing_the_drive_is_a_row_that_has_to_be_confirmed() -> None:
     """It is required, so the install row stays blocked until the operator has
     typed the drive name once."""
     at = context()
-    screen = FakeScreen(keys=[*down(len(settings.SETTINGS)), "q"])
+    screen = FakeScreen(keys=[*down(len(settings.SETTINGS)), "q", "KEY_DOWN", "\n"])
     run(screen, config(), at)
     seen = "\n".join("\n".join(frame) for frame in screen.frames)
     assert "Confirm erasing the drive" in seen
@@ -140,12 +156,12 @@ def test_choosing_utc_needs_no_second_screen() -> None:
 
 def test_only_profiles_matching_the_init_are_offered() -> None:
     """The validator refuses the other half, so offering them wastes a choice."""
-    screen = FakeScreen(keys=["q"])
+    screen = FakeScreen(keys=["q", "KEY_DOWN", "\n"])
     screens._profile_screen(screen, config(), context())
     drawn = screen.last
     assert "23.0/systemd" in drawn
     openrc = replace(config(), system=replace(config().system, init=InitSystem.OPENRC))
-    plain = FakeScreen(keys=["q"])
+    plain = FakeScreen(keys=["q", "KEY_DOWN", "\n"])
     screens._profile_screen(plain, openrc, context())
     assert "systemd" not in plain.last
 
@@ -218,3 +234,16 @@ def test_declining_encryption_clears_the_passphrase() -> None:
     at.choice = replace(at.choice, passphrase_file="/run/keys/old")
     screens.encryption_screen(FakeScreen(keys=["\n"]), config(), at)
     assert at.choice.passphrase_file == ""
+
+
+def test_escape_asks_before_throwing_the_answers_away() -> None:
+    """One stray escape should not discard everything the operator entered."""
+    at = context()
+    # Answer No to the question, then leave properly the second time.
+    screen = FakeScreen(keys=["q", "\n", "q", "KEY_DOWN", "\n"])
+    finished = run(screen, config(), at)
+    assert finished.cancelled
+    seen = "\n".join("\n".join(frame) for frame in screen.frames)
+    assert "Leave without installing?" in seen
+    # The menu was drawn again after the first refusal.
+    assert seen.count("Keyboard layout") >= 2
