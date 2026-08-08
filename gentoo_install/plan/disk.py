@@ -546,7 +546,7 @@ def build(config: InstallConfig) -> list[Operation]:
     # `/` before `/home`, or the second mount is hidden by the first.
     operations += sorted(mounts, key=_mount_depth)
     # Every partition exists before the first mkfs, so the stage decides here
-    # too, not just once the whole plan is assembled.
+    # too, not only once the whole plan is assembled.
     return sorted(operations, key=lambda operation: operation.stage.order)
 
 

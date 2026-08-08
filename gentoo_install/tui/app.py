@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from ..model.config import InstallConfig
 from ..model.validate import validate
 from ..errors import ValidationFailed
-from .screens import Context
+from .screens import Context, answers
 from .settings import SETTINGS, style_of, unanswered
 from .widgets import Confirm, Item, Menu, Outcome, Screen
 
@@ -88,6 +88,7 @@ def _leaving(screen: Screen, context: Context) -> bool:
     """Asked rather than obeyed, and asked wherever the escape came from: one
     stray key should not throw away every answer the operator has entered."""
     leaving = Confirm(
+        **answers(context.translate),
         title=context.translate("Leave without installing?"),
         footer=context.translate("Cancel"),
     ).run(screen)

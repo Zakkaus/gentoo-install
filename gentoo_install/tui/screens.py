@@ -126,6 +126,12 @@ class Context:
         self.existing, self.disk_size = self._inspect(disk)
 
 
+def answers(translate: Catalog) -> dict[str, str]:
+    """The yes and no a `Confirm` shows. Every one of them reads them from the
+    catalog, so a translated interface does not answer in English."""
+    return {"no": translate("No"), "yes": translate("Yes")}
+
+
 def footer(translate: Catalog) -> str:
     return "  ".join(
         (
@@ -163,13 +169,25 @@ def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     items: list[Item[tuple[Layout | None, FilesystemType]]] = [
         Item(label="ext4", value=(Layout.WHOLE_DISK, FilesystemType.EXT4)),
         Item(label="xfs", value=(Layout.WHOLE_DISK, FilesystemType.XFS)),
-        Item(label="btrfs with @ and @home", value=(Layout.WHOLE_DISK_BTRFS, FilesystemType.BTRFS)),
-        Item(label="zfs with ZFSBootMenu", value=(Layout.WHOLE_DISK_ZFS, FilesystemType.EXT4)),
-        Item(label="manual: choose the partitions yourself", value=(None, FilesystemType.EXT4)),
         Item(
-            label="reuse the partitions already on the disk",
+            label="btrfs",
+            value=(Layout.WHOLE_DISK_BTRFS, FilesystemType.BTRFS),
+            detail=translate("with the @ and @home subvolumes"),
+        ),
+        Item(
+            label="zfs",
+            value=(Layout.WHOLE_DISK_ZFS, FilesystemType.EXT4),
+            detail=translate("with ZFSBootMenu"),
+        ),
+        Item(
+            label=translate("manual"),
+            value=(None, FilesystemType.EXT4),
+            detail=translate("choose the partitions yourself"),
+        ),
+        Item(
+            label=translate("reuse"),
             value=(Layout.REUSE, FilesystemType.EXT4),
-            detail=translate("nothing is partitioned"),
+            detail=translate("keep the partitions already on the disk"),
         ),
     ]
     menu: Menu[tuple[Layout | None, FilesystemType]] = Menu(
@@ -298,6 +316,7 @@ def _edit_reused(
                 entry = replace(entry, filesystem=picked.unwrap()[0])
         else:
             asked = Confirm(
+                **answers(translate),
                 title=translate("Format it, losing what is on it?"), footer=footer(translate)
             ).run(screen)
             if asked.chosen:
@@ -355,6 +374,7 @@ def erase_screen(screen: Screen, config: InstallConfig, context: Context) -> Ans
     translate = context.translate
     disk = context.choice.disk
     question = Confirm(
+        **answers(translate),
         title=f"{translate('This erases every partition on the disk.')} {disk}. "
         f"{translate('Type the disk name to confirm.')}",
         phrase=disk,
@@ -451,6 +471,7 @@ def user_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     if not typed.chosen:
         return Answer(typed.outcome)
     granted = Confirm(
+        **answers(translate),
         title=translate("Give this account sudo?"), footer=footer(translate)
     ).run(screen)
     if not granted.chosen:
@@ -666,6 +687,7 @@ def _edit_mirror(
         )
     if field == _DISTFILES:
         asked_files = Confirm(
+            **answers(translate),
             title=translate("Write GENTOO_MIRRORS?"), footer=footer(translate)
         ).run(screen)
         if not asked_files.chosen:
@@ -678,6 +700,7 @@ def _edit_mirror(
         )
     if field == _MEASURE:
         asked = Confirm(
+            **answers(translate),
             title=translate("Measure the mirrors before installing?"), footer=footer(translate)
         ).run(screen)
         if not asked.chosen:
@@ -712,6 +735,7 @@ def _edit_mirror(
         return _edit_gentoozh(screen, context, config)
     if field == _ZH_DISTFILES:
         asked_zh = Confirm(
+            **answers(translate),
             title=translate("Add the gentoo-zh distfiles to GENTOO_MIRRORS?"),
             footer=footer(translate),
         ).run(screen)
@@ -829,7 +853,9 @@ def _toggle_overlay(
     screen: Screen, context: Context, config: InstallConfig, name: str
 ) -> InstallConfig | None:
     translate = context.translate
-    asked = Confirm(title=f"{name}?", footer=footer(translate)).run(screen)
+    asked = Confirm(
+        **answers(translate), title=f"{name}?", footer=footer(translate)
+    ).run(screen)
     if not asked.chosen:
         return None
     portage = config.portage
@@ -1251,6 +1277,7 @@ def encryption_screen(screen: Screen, config: InstallConfig, context: Context) -
     """Whether the root filesystem is encrypted, and the passphrase if it is."""
     translate = context.translate
     wanted = Confirm(
+        **answers(translate),
         title=translate("Encrypt the root filesystem?"), footer=footer(translate)
     ).run(screen)
     if not wanted.chosen:
@@ -1309,10 +1336,14 @@ def _say(screen: Screen, context: Context, message: str) -> None:
 def swap_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
     translate = context.translate
     items: list[Item[str]] = [
-        Item(label="none", value=""),
-        Item(label="4 GiB partition", value="4GiB"),
-        Item(label="8 GiB partition", value="8GiB"),
-        Item(label="zram, 4 GiB compressed in memory", value="zram:4GiB"),
+        Item(label=translate("none"), value=""),
+        Item(label="4GiB", value="4GiB", detail=translate("a partition")),
+        Item(label="8GiB", value="8GiB", detail=translate("a partition")),
+        Item(
+            label="zram 4GiB",
+            value="zram:4GiB",
+            detail=translate("compressed in memory, no partition"),
+        ),
     ]
     menu: Menu[str] = Menu(title=translate("Swap"), items=items, footer=footer(translate))
     answer = menu.run(screen)
@@ -1383,7 +1414,9 @@ def overview_screen(screen: Screen, config: InstallConfig, context: Context) -> 
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
-    question = Confirm(title=translate("Install"), footer=footer(translate))
+    question = Confirm(
+        **answers(translate), title=translate("Install"), footer=footer(translate)
+    )
     confirmed = question.run(screen)
     if not confirmed.chosen:
         return Answer(confirmed.outcome)
@@ -1765,6 +1798,7 @@ def _edit_slice_encryption(
 ) -> manual.Slice | None:
     translate = context.translate
     turned = Confirm(
+        **answers(translate),
         title=(
             translate("Encrypt the pool?")
             if purpose.role is PartitionRole.ZFS
@@ -2048,7 +2082,9 @@ def address_screen(screen: Screen, config: InstallConfig, context: Context) -> A
     """
     translate = context.translate
     system = config.system
-    wanted = Confirm(title=translate("Use DHCP?"), footer=footer(translate)).run(screen)
+    wanted = Confirm(
+        **answers(translate), title=translate("Use DHCP?"), footer=footer(translate)
+    ).run(screen)
     if not wanted.chosen:
         return Answer(wanted.outcome)
     if wanted.unwrap():
@@ -2253,6 +2289,7 @@ def remote_unlock_screen(
     translate = context.translate
     unlock = config.kernel.remote_unlock
     asked = Confirm(
+        **answers(translate),
         title=translate("Unlock the root over SSH from the initramfs?"),
         footer=footer(translate),
     ).run(screen)

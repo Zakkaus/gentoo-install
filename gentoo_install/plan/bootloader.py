@@ -256,7 +256,7 @@ class InstallZfsBootMenu(Operation):
         )
 
     def _image(self, context: Context) -> str:
-        """Whatever generate-zbm just wrote. It names the image after the kernel
+        """Whatever generate-zbm wrote. It names the image after the kernel
         it built from, so `vmlinuz.EFI` is only one of the names it can have."""
         listing = context.run_in_target(
             ["find", f"{self.esp}/{ZBM_DIRECTORY}", "-name", "*.EFI"], check=False

@@ -255,6 +255,10 @@ class Confirm:
     title: str
     phrase: str = ""
     footer: str = ""
+    #: The two answers, already translated by the caller. Defaulted so a test
+    #: needs no catalog, and passed in everywhere the operator will read them.
+    no: str = "No"
+    yes: str = "Yes"
 
     def run(self, screen: Screen) -> Answer[bool]:
         if self.phrase:
@@ -264,7 +268,7 @@ class Confirm:
             return Answer(Outcome.CHOSE, typed.unwrap() == self.phrase)
         menu: Menu[bool] = Menu(
             title=self.title,
-            items=[Item(label="No", value=False), Item(label="Yes", value=True)],
+            items=[Item(label=self.no, value=False), Item(label=self.yes, value=True)],
             footer=self.footer,
         )
         answer = menu.run(screen)
