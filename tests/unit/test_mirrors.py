@@ -42,11 +42,15 @@ def test_the_chosen_site_comes_first_and_the_rest_stay() -> None:
     assert len(ordered) == len(mirrors.GENTOO_REGIONS[MirrorRegion.CN])
 
 
-def test_a_site_that_serves_no_rsync_falls_back_within_its_region() -> None:
+def test_rsync_always_names_somewhere() -> None:
+    """Most mirrors carry the files and not an rsync module, and the official
+    pool is what the handbook gives, so there is always an answer."""
     assert mirrors.gentoo_rsync_uri(MirrorRegion.CN, "sustech").startswith("rsync://")
-    # No global mirror in the list serves rsync, and saying so beats inventing
-    # an address that would fail at the first sync.
-    assert mirrors.gentoo_rsync_uri(MirrorRegion.GLOBAL) == ""
+    assert (
+        mirrors.gentoo_rsync_uri(MirrorRegion.GLOBAL)
+        == "rsync://rsync.gentoo.org/gentoo-portage"
+    )
+    assert mirrors.gentoo_rsync_uri(MirrorRegion.CN, "tuna").endswith("tsinghua.edu.cn/gentoo-portage")
 
 
 def test_gentoozh_binhost_and_distfiles_come_from_the_same_site() -> None:

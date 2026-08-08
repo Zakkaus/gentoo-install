@@ -72,6 +72,7 @@ class Sync(Enum):
 
     GIT = "git"
     WEBRSYNC = "webrsync"
+    RSYNC = "rsync"
 
 
 class BinhostChannel(Enum):

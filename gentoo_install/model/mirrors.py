@@ -113,6 +113,9 @@ GENTOO_SITES: Final[tuple[Site, ...]] = (
         "gentoo", "gentoo.org", "worldwide",
         "https://distfiles.gentoo.org",
         "https://github.com/gentoo-mirror/gentoo.git",
+        # The address the handbook gives, which rotates over the official
+        # rsync pool.
+        "rsync://rsync.gentoo.org/gentoo-portage",
     ),
     Site("osuosl", "OSU Open Source Lab", "worldwide", "https://gentoo.osuosl.org"),
 )
@@ -190,11 +193,14 @@ def gentoo_sync_uri(region: MirrorRegion, preferred: str = "") -> str:
 
 
 def gentoo_rsync_uri(region: MirrorRegion, preferred: str = "") -> str:
-    """Empty when no site of that region serves rsync, which is most of them."""
+    """The chosen site's rsync module, then any in the region, then the official
+    pool. Never empty: most mirrors carry the files and not an rsync module, and
+    `rsync.gentoo.org` is what the handbook gives."""
     chosen = _GENTOO.get(preferred)
     if chosen is not None and chosen.rsync:
         return chosen.rsync
-    return next((site.rsync for site in gentoo_sites(region) if site.rsync), "")
+    within = next((site.rsync for site in gentoo_sites(region) if site.rsync), "")
+    return within or _GENTOO["gentoo"].rsync
 
 
 #: Where a mirror keeps the official binary packages for 23.0, relative to the

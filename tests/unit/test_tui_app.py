@@ -403,7 +403,7 @@ def test_the_mirror_row_shows_every_service_and_lets_each_be_chosen() -> None:
     drawn = screen.last
     for label in (
         "Region", "Gentoo mirror", "Gentoo distfiles", "Repository sync",
-        "Gentoo rsync", "Gentoo binary packages", "gentoo-zh", "guru",
+        "Gentoo tree from", "Gentoo binary packages", "gentoo-zh", "guru",
     ):
         assert label in drawn, label
 
@@ -526,3 +526,31 @@ def test_other_languages_are_not_pulled_into_that_overlay() -> None:
         seeded = screens.with_language(config(), tag)
         assert seeded.kernel.source is not KernelSource.CJK, tag
         assert seeded.portage.overlays == (), tag
+
+
+def test_the_tree_row_names_the_address_the_chosen_method_uses() -> None:
+    """Showing a git address under a webrsync choice is the interface
+    contradicting itself, which is what the maintainer read off the screen."""
+    from gentoo_install.model.config import Sync
+
+    at = context()
+    for method, expected in (
+        (Sync.GIT, ".git"),
+        (Sync.RSYNC, "rsync://"),
+        (Sync.WEBRSYNC, "GENTOO_MIRRORS"),
+    ):
+        chosen = replace(config(), portage=replace(config().portage, sync=method))
+        rows = screens._mirror_fields(chosen, at.translate)
+        detail = next(one.detail for one in rows if one.label == "Gentoo tree from")
+        assert expected in detail, method
+
+
+def test_rsync_configures_the_repository_without_pulling_in_git() -> None:
+    """rsync needs none, and the stage3 already carries the binary."""
+    from gentoo_install.model.config import Sync
+    from gentoo_install.plan import portage as plan_portage
+
+    chosen = replace(config(), portage=replace(config().portage, sync=Sync.RSYNC))
+    described = [one.describe() for one in plan_portage.build(chosen, "https://example.invalid")]
+    assert not any("dev-vcs/git" in line for line in described)
+    assert any("rsync://" in line for line in described)

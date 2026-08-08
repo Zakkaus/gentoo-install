@@ -355,6 +355,7 @@ _DONE: Final[str] = "done"
 #: How the tree is kept up to date, and what each costs.
 SYNC_METHODS: tuple[tuple[Sync, str], ...] = (
     (Sync.GIT, "carries the history a signed sync checks"),
+    (Sync.RSYNC, "what emerge --sync has always done"),
     (Sync.WEBRSYNC, "no git, and no history"),
 )
 
@@ -434,15 +435,12 @@ def _mirror_fields(config: InstallConfig, translate: Catalog) -> list[Item[str]]
             detail=translate("yes") if chosen.speed_test else translate("no"),
         ),
         Item(label=translate("Repository sync"), value=_SYNC, detail=portage.sync.value),
+        # One row, not one per method: showing a git address under a webrsync
+        # choice is the interface contradicting itself.
         Item(
-            label=translate("Gentoo repository"),
+            label=translate("Gentoo tree from"),
             value="",
-            detail=mirrors.gentoo_sync_uri(region, site),
-        ),
-        Item(
-            label=translate("Gentoo rsync"),
-            value="",
-            detail=mirrors.gentoo_rsync_uri(region, site) or translate("no site here serves it"),
+            detail=_tree_source(portage, region, site, translate),
         ),
         Item(
             label=translate("Gentoo binary packages"),
@@ -484,6 +482,17 @@ def _mirror_fields(config: InstallConfig, translate: Catalog) -> list[Item[str]]
     ]
     rows.append(Item(label=translate("Done"), value=_DONE))
     return rows
+
+
+def _tree_source(
+    portage: PortageConfig, region: MirrorRegion, site: str, translate: Catalog
+) -> str:
+    """Where the chosen sync method will actually read the tree from."""
+    if portage.sync is Sync.GIT:
+        return mirrors.gentoo_sync_uri(region, site)
+    if portage.sync is Sync.RSYNC:
+        return mirrors.gentoo_rsync_uri(region, site)
+    return translate("a snapshot from GENTOO_MIRRORS")
 
 
 def _edit_mirror(

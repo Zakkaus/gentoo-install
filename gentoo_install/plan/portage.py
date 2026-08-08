@@ -217,6 +217,9 @@ class ConfigureRepository(Operation):
     location: PurePosixPath
     sync_uri: str
     verify_commits: bool
+    #: `git` or `rsync`, as `sync-type` spells them. `sync-depth` and the
+    #: signature keys mean nothing to rsync, so they are written only for git.
+    sync_type: str = "git"
 
     def describe(self) -> str:
         verified = ", commit signatures verified" if self.verify_commits else ""
@@ -226,11 +229,12 @@ class ConfigureRepository(Operation):
         stanza = [
             f"[{self.name}]",
             f"location = {self.location}",
-            "sync-type = git",
+            f"sync-type = {self.sync_type}",
             f"sync-uri = {self.sync_uri}",
-            "sync-depth = 1",
-            "auto-sync = yes",
         ]
+        if self.sync_type == "git":
+            stanza.append("sync-depth = 1")
+        stanza.append("auto-sync = yes")
         if self.verify_commits:
             stanza.append("sync-git-verify-commit-signature = true")
             # Without a key path there is nothing to verify against, and Portage
@@ -513,6 +517,19 @@ def build(
             ),
             SyncRepository(name="gentoo", location=gentoo),
         ]
+    elif portage.sync is Sync.RSYNC:
+        # No `dev-vcs/git`: rsync needs none, and the stage3 already has the
+        # rsync binary. Signatures are verified per snapshot, not per commit.
+        operations += [
+            ConfigureRepository(
+                name="gentoo",
+                location=gentoo,
+                sync_uri=_rsync_uri(portage),
+                verify_commits=False,
+                sync_type="rsync",
+            ),
+            SyncRepository(name="gentoo", location=gentoo),
+        ]
     for overlay in portage.overlays:
         location = PurePosixPath(f"/var/db/repos/{overlay.name}")
         operations += [
@@ -619,6 +636,10 @@ def _distfiles(portage: PortageConfig) -> tuple[str, ...]:
     if portage.mirrors.distfiles:
         return portage.mirrors.distfiles
     return mirrors.gentoo_distfiles(portage.mirrors.region, portage.mirrors.site)
+
+
+def _rsync_uri(portage: PortageConfig) -> str:
+    return mirrors.gentoo_rsync_uri(portage.mirrors.region, portage.mirrors.site)
 
 
 def _appended_distfiles(portage: PortageConfig) -> tuple[str, ...]:
