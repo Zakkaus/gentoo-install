@@ -218,8 +218,18 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         # the pipe before it discovers there is no terminal.
         raise errors.PreflightFailed("the menu needs a terminal; pass --config FILE")
     start = _blank(context.disks[0][0])
+
+    def walk(window: object) -> app.Finished:
+        display = CursesScreen(window)
+        # Asked before the menu: the environment says which language the
+        # operator reads, not whether this terminal can draw it.
+        if not arguments.lang:
+            context.translate = Catalog(screens.language_screen(display, context))
+            context.tag = context.translate.tag
+        return app.run(display, start, context)
+
     try:
-        finished = curses.wrapper(lambda window: app.run(CursesScreen(window), start, context))
+        finished = curses.wrapper(walk)
     except curses.error as error:
         raise errors.PreflightFailed(
             f"the menu needs a terminal and this is not one ({error}); pass --config FILE"
