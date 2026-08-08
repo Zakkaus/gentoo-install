@@ -26,11 +26,71 @@ from .device import (
     PartitionTable,
     Swap,
     TableType,
+    ZfsDataset,
+    ZfsPool,
 )
 from .size import Size
 
 #: What `sgdisk` needs the esp to be, and what firmware reads.
 ESP_FILESYSTEM: Final[FilesystemType] = FilesystemType.VFAT
+
+#: The dataset a pool's root filesystem lives on, as the OpenZFS root-on-Linux
+#: guide names it.
+ROOT_DATASET: Final[str] = "ROOT/gentoo"
+
+
+@dataclass(frozen=True)
+class Purpose:
+    """One row of the purpose menu, and everything that follows from it.
+
+    The operator picks what the partition is for, not a GPT type code: the role,
+    the mount point and whether a filesystem applies are all derived here.
+    """
+
+    key: str
+    label: str
+    role: PartitionRole
+    #: Where it mounts. Empty for a purpose that mounts nothing, and for the
+    #: one purpose that asks.
+    mountpoint: str = ""
+    filesystem: FilesystemType | None = None
+    #: A purpose whose filesystem is fixed by the firmware or the pool takes no
+    #: filesystem menu.
+    chooses_filesystem: bool = True
+    #: Only `other` asks, because every other purpose already knows.
+    asks_mountpoint: bool = False
+
+
+#: Every purpose the manual table offers. RAID and LVM members are absent on
+#: purpose: this table builds no array and no volume group, so a member here
+#: would be a partition nothing ever assembles.
+PURPOSES: Final[tuple[Purpose, ...]] = (
+    Purpose("root", "root", PartitionRole.DATA, "/", FilesystemType.EXT4),
+    Purpose("esp", "esp", PartitionRole.ESP, "/efi", ESP_FILESYSTEM, chooses_filesystem=False),
+    Purpose("boot", "boot", PartitionRole.DATA, "/boot", FilesystemType.EXT4),
+    Purpose("home", "home", PartitionRole.DATA, "/home", FilesystemType.EXT4),
+    Purpose("var", "var", PartitionRole.DATA, "/var", FilesystemType.EXT4),
+    Purpose("swap", "swap", PartitionRole.SWAP, chooses_filesystem=False),
+    Purpose("zfs", "zfs pool member", PartitionRole.ZFS, chooses_filesystem=False, asks_mountpoint=True),
+    Purpose("bios-boot", "bios-boot", PartitionRole.BIOS_BOOT, chooses_filesystem=False),
+    Purpose("other", "other", PartitionRole.DATA, filesystem=FilesystemType.EXT4, asks_mountpoint=True),
+)
+
+_OTHER: Final[Purpose] = PURPOSES[-1]
+
+
+def purpose_of(entry: Slice) -> Purpose:
+    """Which row of the menu a slice came from.
+
+    Derived rather than stored: the role and the mount point already say it, and
+    a stored copy is one more thing that can disagree with them.
+    """
+    for candidate in PURPOSES:
+        if candidate.role is not entry.role:
+            continue
+        if candidate.asks_mountpoint or candidate.mountpoint == entry.mountpoint:
+            return candidate
+    return _OTHER
 
 
 @dataclass(frozen=True)
@@ -46,15 +106,15 @@ class Slice:
     mountpoint: str = ""
     label: str = ""
     #: A path on the installing system, never the passphrase. Non-empty puts
-    #: LUKS between the partition and its filesystem.
+    #: LUKS between the partition and its filesystem, or encrypts the pool.
     passphrase_file: str = ""
 
     def describe(self) -> str:
         size = str(self.size) if self.size is not None else "rest"
         kind = self.filesystem.value if self.filesystem is not None else self.role.value
-        where = self.mountpoint or "not mounted"
+        where = self.mountpoint or "-"
         locked = " luks" if self.passphrase_file else ""
-        return f"{self.index}  {size}  {kind}{locked}  {where}"
+        return f"{self.index}  {size:>9}  {kind:<6}{locked}  {where}"
 
 
 @dataclass
@@ -64,6 +124,8 @@ class Layout:
     disk: str = ""
     table: TableType = TableType.GPT
     slices: list[Slice] = field(default_factory=list)
+    #: The pool every slice marked as a pool member joins.
+    pool: str = "rpool"
 
     def next_index(self) -> int:
         return max((entry.index for entry in self.slices), default=0) + 1
@@ -114,6 +176,15 @@ def suggest(disk: str, firmware: Firmware) -> Layout:
     )
 
 
+def dataset_for(mountpoint: str) -> str:
+    """What to call the dataset mounted there.
+
+    `/` is the pool's root filesystem and takes the conventional name; anything
+    else takes its path, because a dataset name cannot start with a slash.
+    """
+    return ROOT_DATASET if mountpoint == "/" else mountpoint.strip("/").replace("//", "/")
+
+
 def build(layout: Layout) -> tuple[DeviceGraph, DeviceId]:
     """The graph and the id of the mount point that is `/`."""
     nodes: list[Node] = [
@@ -121,6 +192,9 @@ def build(layout: Layout) -> tuple[DeviceGraph, DeviceId]:
         PartitionTable(id=DeviceId("table"), disk=DeviceId("disk"), table=layout.table),
     ]
     root = DeviceId("")
+    vdevs: list[DeviceId] = []
+    datasets: list[Slice] = []
+    pool_passphrase = ""
     for entry in sorted(layout.slices, key=lambda one: one.index):
         part = DeviceId(f"part{entry.index}")
         nodes.append(
@@ -133,6 +207,14 @@ def build(layout: Layout) -> tuple[DeviceGraph, DeviceId]:
                 label=entry.label,
             )
         )
+        if entry.role is PartitionRole.ZFS:
+            # The pool encrypts its own datasets, so a member is never wrapped
+            # in LUKS as well.
+            vdevs.append(part)
+            pool_passphrase = pool_passphrase or entry.passphrase_file
+            if entry.mountpoint:
+                datasets.append(entry)
+            continue
         carrier = part
         if entry.passphrase_file:
             carrier = DeviceId(f"crypt{entry.index}")
@@ -166,4 +248,23 @@ def build(layout: Layout) -> tuple[DeviceGraph, DeviceId]:
         )
         if entry.mountpoint == "/":
             root = mount
+    if vdevs:
+        nodes.append(
+            ZfsPool(
+                id=DeviceId("pool"),
+                vdevs=tuple(vdevs),
+                name=layout.pool,
+                encrypted=bool(pool_passphrase),
+                passphrase_file=pool_passphrase,
+            )
+        )
+        for entry in datasets:
+            dataset = DeviceId(f"ds{entry.index}")
+            mount = DeviceId(f"mnt{entry.index}")
+            nodes += [
+                ZfsDataset(id=dataset, pool=DeviceId("pool"), name=dataset_for(entry.mountpoint)),
+                Mountpoint(id=mount, source=dataset, path=PurePosixPath(entry.mountpoint)),
+            ]
+            if entry.mountpoint == "/":
+                root = mount
     return DeviceGraph.build(nodes), root

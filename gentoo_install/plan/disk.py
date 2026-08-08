@@ -48,6 +48,8 @@ TYPE_CODES: Final[dict[PartitionRole, str]] = {
     PartitionRole.SWAP: "8200",
     PartitionRole.RAID: "fd00",
     PartitionRole.LVM: "8e00",
+    # Solaris root, which is the type OpenZFS on Linux gives a pool member.
+    PartitionRole.ZFS: "bf00",
     PartitionRole.DATA: "8300",
 }
 

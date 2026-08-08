@@ -565,13 +565,7 @@ def timezone_screen(screen: Screen, config: InstallConfig, context: Context) -> 
 
 
 def encryption_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
-    """Ask for the passphrase, then stage it in a file.
-
-    The configuration holds the file's path and never the passphrase, because
-    it is copied into the target and the install log is what people paste into
-    bug reports. Typing it here rather than naming a file is what the operator
-    expects; the file is this screen's job.
-    """
+    """Whether the root filesystem is encrypted, and the passphrase if it is."""
     translate = context.translate
     wanted = Confirm(
         title=translate("Encrypt the root filesystem?"), footer=_footer(translate)
@@ -581,12 +575,27 @@ def encryption_screen(screen: Screen, config: InstallConfig, context: Context) -
     if not wanted.unwrap():
         context.choice = replace(context.choice, passphrase_file="")
         return Answer(Outcome.CHOSE, _rebuild(config, context.choice))
+    staged = _ask_passphrase(screen, context)
+    if not staged:
+        return Answer(Outcome.BACK)
+    context.choice = replace(context.choice, passphrase_file=staged)
+    return Answer(Outcome.CHOSE, _rebuild(config, context.choice))
+
+
+def _ask_passphrase(screen: Screen, context: Context) -> str:
+    """The passphrase typed twice, staged in a file whose path is returned.
+
+    Empty when the operator went back. The configuration holds the path and
+    never the passphrase, because it is copied into the target and the install
+    log is what people paste into bug reports.
+    """
+    translate = context.translate
     while True:
         first = TextField(
             title=translate("Passphrase"), masked=True, footer=_footer(translate)
         ).run(screen)
         if not first.chosen:
-            return Answer(first.outcome)
+            return ""
         typed = first.unwrap()
         if len(typed) < PASSPHRASE_MINIMUM:
             # Checked here, not at preflight: zfs refuses a short passphrase
@@ -597,12 +606,11 @@ def encryption_screen(screen: Screen, config: InstallConfig, context: Context) -
             title=translate("Passphrase again"), masked=True, footer=_footer(translate)
         ).run(screen)
         if not again.chosen:
-            return Answer(again.outcome)
+            return ""
         if again.unwrap() != typed:
             _say(screen, context, translate("The two do not match."))
             continue
-        context.choice = replace(context.choice, passphrase_file=context.stage_passphrase(typed))
-        return Answer(Outcome.CHOSE, _rebuild(config, context.choice))
+        return context.stage_passphrase(typed)
 
 
 def _say(screen: Screen, context: Context, message: str) -> None:
@@ -977,66 +985,183 @@ def _from_layout(config: InstallConfig, context: Context) -> InstallConfig:
     return replace(config, disk=DiskConfig(graph=graph, root=root))
 
 
+#: One row of the slice editor. Every field is visible with its value, so no
+#: answer is hidden behind a screen the operator has to reach to discover.
+_SIZE: Final[str] = "size"
+_PURPOSE: Final[str] = "purpose"
+_FILESYSTEM: Final[str] = "filesystem"
+_MOUNTPOINT: Final[str] = "mountpoint"
+_LABEL: Final[str] = "label"
+_ENCRYPTION: Final[str] = "encryption"
+_DELETE: Final[str] = "delete"
+_DONE: Final[str] = "done"
+
+
 def _edit_slice(
     screen: Screen, context: Context, current: manual.Slice | None
 ) -> manual.Slice | None:
-    """One partition's four answers, or None to delete it."""
+    """One partition as a list of fields, or None to delete it."""
     translate = context.translate
-    if current is not None:
-        keep = Menu(
-            title=current.describe(),
-            items=[
-                Item(label=translate("Change it"), value=True),
-                Item(label=translate("Delete it"), value=False),
-            ],
+    entry = current or manual.Slice(
+        index=context.layout.next_index(),
+        role=PartitionRole.DATA,
+        size=None,
+        filesystem=FilesystemType.EXT4,
+        mountpoint="",
+    )
+    cursor = 0
+    while True:
+        purpose = manual.purpose_of(entry)
+        menu: Menu[str] = Menu(
+            title=f"{translate('Partition')} {entry.index}",
+            items=_slice_fields(entry, purpose, translate),
+            footer=_footer(translate),
+            cursor=cursor,
+        )
+        answer = menu.run(screen)
+        cursor = menu.cursor
+        if not answer.chosen:
+            return current
+        field = answer.unwrap()[0]
+        if field == _DONE:
+            return entry
+        if field == _DELETE:
+            return None
+        changed = _edit_field(screen, context, entry, purpose, field)
+        if changed is not None:
+            entry = changed
+
+
+def _slice_fields(
+    entry: manual.Slice, purpose: manual.Purpose, translate: Catalog
+) -> list[Item[str]]:
+    """Every field with its value, and why one that does not apply cannot be
+    opened."""
+    no_filesystem = translate("this purpose fixes the filesystem")
+    return [
+        Item(label=translate("Size"), value=_SIZE, detail=_size_of(entry, translate)),
+        Item(label=translate("Purpose"), value=_PURPOSE, detail=purpose.label),
+        Item(
+            label=translate("Filesystem"),
+            value=_FILESYSTEM,
+            detail=entry.filesystem.value if entry.filesystem else "-",
+            disabled_because="" if purpose.chooses_filesystem else no_filesystem,
+        ),
+        Item(
+            label=translate("Mount point"),
+            value=_MOUNTPOINT,
+            detail=entry.mountpoint or "-",
+            disabled_because=(
+                "" if purpose.asks_mountpoint else translate("this purpose fixes the mount point")
+            ),
+        ),
+        Item(label=translate("Label"), value=_LABEL, detail=entry.label or "-"),
+        Item(
+            label=translate("Encryption"),
+            value=_ENCRYPTION,
+            detail=translate("on") if entry.passphrase_file else translate("off"),
+        ),
+        Item(label=translate("Delete this partition"), value=_DELETE),
+        Item(label=translate("Done"), value=_DONE),
+    ]
+
+
+def _size_of(entry: manual.Slice, translate: Catalog) -> str:
+    return str(entry.size) if entry.size is not None else translate("the remaining space")
+
+
+def _edit_field(
+    screen: Screen,
+    context: Context,
+    entry: manual.Slice,
+    purpose: manual.Purpose,
+    field: str,
+) -> manual.Slice | None:
+    """The one screen behind a field, or None when the operator went back."""
+    translate = context.translate
+    if field == _SIZE:
+        typed = TextField(
+            title=translate("Size"),
+            value="" if entry.size is None else str(entry.size),
+            placeholder=translate("512MiB, 20GiB, or empty for the remaining space"),
             footer=_footer(translate),
         ).run(screen)
-        if not keep.chosen:
-            return current
-        if not keep.unwrap()[0]:
+        if not typed.chosen:
             return None
-    size = TextField(
-        title=translate("Size, or rest for the remaining space"),
-        value="" if current is None or current.size is None else str(current.size),
-        footer=_footer(translate),
-    ).run(screen)
-    if not size.chosen:
-        return current
-    role = Menu(
-        title=translate("What is this partition for?"),
-        items=[Item(label=one.value, value=one) for one in PartitionRole],
-        footer=_footer(translate),
-    ).run(screen)
-    if not role.chosen:
-        return current
-    chosen_role = role.unwrap()[0]
-    filesystem: FilesystemType | None = None
-    mountpoint = ""
-    if chosen_role not in (PartitionRole.SWAP, PartitionRole.BIOS_BOOT):
+        text = typed.unwrap().strip()
+        return replace(entry, size=Size.parse(text) if text else None)
+    if field == _PURPOSE:
         picked = Menu(
+            title=translate("What is this partition for?"),
+            items=[Item(label=one.label, value=one) for one in manual.PURPOSES],
+            footer=_footer(translate),
+        ).run(screen)
+        if not picked.chosen:
+            return None
+        return _apply_purpose(entry, picked.unwrap()[0])
+    if field == _FILESYSTEM:
+        chosen = Menu(
             title=translate("Filesystem"),
             items=[Item(label=one.value, value=one) for one in FilesystemType],
             footer=_footer(translate),
         ).run(screen)
-        if not picked.chosen:
-            return current
-        filesystem = picked.unwrap()[0]
+        if not chosen.chosen:
+            return None
+        return replace(entry, filesystem=chosen.unwrap()[0])
+    if field == _MOUNTPOINT:
         where = TextField(
-            title=translate("Mount point, or empty to leave it unmounted"),
-            value=current.mountpoint if current else "",
+            title=translate("Mount point"),
+            value=entry.mountpoint,
+            placeholder=translate("/srv, or empty to leave it unmounted"),
             footer=_footer(translate),
         ).run(screen)
         if not where.chosen:
-            return current
-        mountpoint = where.unwrap().strip()
-    typed = size.unwrap().strip()
-    return manual.Slice(
-        index=current.index if current else context.layout.next_index(),
-        role=chosen_role,
-        size=None if typed in ("", "rest") else Size.parse(typed),
-        filesystem=filesystem,
-        mountpoint=mountpoint,
+            return None
+        return replace(entry, mountpoint=where.unwrap().strip())
+    if field == _LABEL:
+        named = TextField(
+            title=translate("Label"),
+            value=entry.label,
+            placeholder=translate("gentoo"),
+            footer=_footer(translate),
+        ).run(screen)
+        if not named.chosen:
+            return None
+        return replace(entry, label=named.unwrap().strip())
+    return _edit_slice_encryption(screen, context, entry, purpose)
+
+
+def _apply_purpose(entry: manual.Slice, purpose: manual.Purpose) -> manual.Slice:
+    """Everything the purpose decides, in one place: picking `swap` has to drop
+    the filesystem and the mount point it had as `root`."""
+    return replace(
+        entry,
+        role=purpose.role,
+        filesystem=entry.filesystem if purpose.chooses_filesystem else purpose.filesystem,
+        mountpoint=entry.mountpoint if purpose.asks_mountpoint else purpose.mountpoint,
     )
+
+
+def _edit_slice_encryption(
+    screen: Screen, context: Context, entry: manual.Slice, purpose: manual.Purpose
+) -> manual.Slice | None:
+    translate = context.translate
+    turned = Confirm(
+        title=(
+            translate("Encrypt the pool?")
+            if purpose.role is PartitionRole.ZFS
+            else translate("Encrypt this partition?")
+        ),
+        footer=_footer(translate),
+    ).run(screen)
+    if not turned.chosen:
+        return None
+    if not turned.unwrap():
+        return replace(entry, passphrase_file="")
+    staged = _ask_passphrase(screen, context)
+    if not staged:
+        return None
+    return replace(entry, passphrase_file=staged)
 
 
 def extra_packages_screen(

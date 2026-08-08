@@ -38,6 +38,7 @@ class PartitionRole(Enum):
     SWAP = "swap"
     RAID = "raid"
     LVM = "lvm"
+    ZFS = "zfs"
     DATA = "data"
 
 
