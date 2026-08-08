@@ -33,6 +33,11 @@ from .runner import Runner
 STAGE3_PATH: Final[str] = "releases/amd64/autobuilds"
 TIMEOUT: Final[float] = 60.0
 
+#: Sent on every request. `paste.gentoozh.org` answers 403 to the agent urllib
+#: sends by default, so a key fetched from a paste failed before this existed;
+#: naming the installer also puts something readable in a mirror's log.
+USER_AGENT: Final[str] = "gentoo-install"
+
 #: Every Gentoo mirror carries this, and it is small enough that the time is
 #: dominated by latency and the first megabytes of throughput.
 PROBE_FILE: Final[str] = "distfiles/timestamp.chk"
@@ -89,7 +94,7 @@ def _probe(mirror: str) -> float:
     url = f"{mirror.rstrip('/')}/{PROBE_FILE}"
     started = time.monotonic()
     try:
-        with urllib.request.urlopen(url, timeout=PROBE_TIMEOUT) as response:
+        with urllib.request.urlopen(_asked(url), timeout=PROBE_TIMEOUT) as response:
             response.read(1 << 16)
     except (urllib.error.URLError, TimeoutError, OSError):
         return float("inf")
@@ -175,7 +180,7 @@ CLOCK_TOLERANCE: Final[float] = 24 * 3600.0
 def network_time() -> float:
     """Seconds since the epoch from a `Date` header, or 0 when unread."""
     try:
-        request = urllib.request.Request(CLOCK_URL, method="HEAD")
+        request = _asked(CLOCK_URL, method="HEAD")
         with urllib.request.urlopen(request, timeout=PROBE_TIMEOUT) as response:
             stamp = response.headers.get("Date", "")
     except (urllib.error.URLError, TimeoutError, OSError):
@@ -295,9 +300,16 @@ def _version_key(version: str) -> tuple[int, ...]:
     return tuple(parts)
 
 
+def _asked(url: str, *, data: bytes | None = None, method: str = "GET", **headers: str) -> urllib.request.Request:
+    """Every request this module makes, so none of them goes out unnamed."""
+    return urllib.request.Request(
+        url, data=data, method=method, headers={"User-Agent": USER_AGENT, **headers}
+    )
+
+
 def _read(url: str) -> str:
     try:
-        with urllib.request.urlopen(url, timeout=TIMEOUT) as response:
+        with urllib.request.urlopen(_asked(url), timeout=TIMEOUT) as response:
             return str(response.read().decode("utf-8", "replace"))
     except (urllib.error.URLError, TimeoutError, OSError) as error:
         raise DownloadFailed(f"{url} could not be read: {error}") from error
@@ -308,7 +320,7 @@ def _download(url: str, target: Path) -> None:
     leaves a short file that looks complete."""
     partial = target.with_suffix(target.suffix + ".part")
     try:
-        with urllib.request.urlopen(url, timeout=TIMEOUT) as response, partial.open("wb") as handle:
+        with urllib.request.urlopen(_asked(url), timeout=TIMEOUT) as response, partial.open("wb") as handle:
             while chunk := response.read(1 << 20):
                 handle.write(chunk)
     except (urllib.error.URLError, TimeoutError, OSError) as error:

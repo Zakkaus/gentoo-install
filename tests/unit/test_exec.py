@@ -515,3 +515,35 @@ def test_a_cpu_flag_is_renamed_and_never_swapped_for_another(tmp_path: Path) -> 
     # One kernel name per portage name: two keys sharing a value is a swap.
     values = [portage for portage in CPU_FLAGS.values()]
     assert len(values) == len(set(values))
+
+
+def test_every_request_names_the_installer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`paste.gentoozh.org` answers 403 to urllib's default agent, so a key
+    fetched from a paste failed before every request carried a name."""
+    import urllib.request
+
+    from gentoo_install.exec import fetch
+
+    seen: list[str] = []
+
+    class Answer:
+        def __enter__(self) -> Answer:
+            return self
+
+        def __exit__(self, *unused: object) -> None:
+            return None
+
+        def read(self, *unused: object) -> bytes:
+            return b"ssh-ed25519 AAAA test@example"
+
+        headers: dict[str, str] = {}
+
+    def opened(request: object, timeout: float = 0.0) -> Answer:
+        assert isinstance(request, urllib.request.Request)
+        seen.append(request.get_header("User-agent") or "")
+        return Answer()
+
+    monkeypatch.setattr(urllib.request, "urlopen", opened)
+    fetch.text("https://paste.gentoozh.org/abcdef")
+    fetch.network_time()
+    assert seen == [fetch.USER_AGENT, fetch.USER_AGENT]
