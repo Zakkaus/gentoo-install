@@ -1,0 +1,17 @@
+# 介面字串，正體中文。鍵是英文原文，查不到就退回原文。
+[strings]
+"Disks" = "磁碟"
+"Target system" = "目標系統"
+"Users" = "使用者"
+"Portage" = "Portage"
+"Kernel and bootloader" = "核心與開機載入器"
+"Desktop and applications" = "桌面與應用"
+"Network and SSH" = "網路與 SSH"
+"Overview" = "總覽"
+"Continue" = "下一步"
+"Back" = "上一步"
+"Cancel" = "取消"
+"Install" = "開始安裝"
+"This erases every partition on the disk." = "這會清除磁碟上的每一個分割區。"
+"Type the disk name to confirm." = "輸入磁碟名稱以確認。"
+"unavailable" = "不可選"
