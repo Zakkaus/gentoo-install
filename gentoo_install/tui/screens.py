@@ -549,7 +549,7 @@ SYNC_METHODS: tuple[tuple[Sync, str], ...] = (
 GENTOOZH_CHANNELS: tuple[tuple[BinhostChannel, str], ...] = (
     (BinhostChannel.OFF, "not used"),
     (BinhostChannel.STABLE, "stable ::gentoo, ~amd64 for the overlay"),
-    (BinhostChannel.UNSTABLE, "~amd64 throughout"),
+    (BinhostChannel.UNSTABLE, "~amd64 throughout, so fewer packages match a binary host"),
 )
 
 #: Only x86-64 and x86-64-v3 carry a useful number of official binary packages;
@@ -1113,7 +1113,9 @@ def keywords_screen(
             Item(
                 label="~amd64",
                 value=Keywords.TESTING,
-                detail=translate("the ~amd64 unstable channel"),
+                detail=translate(
+                    "the ~amd64 unstable channel, so fewer packages match a binary host"
+                ),
             ),
         ],
         footer=footer(translate),
