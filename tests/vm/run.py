@@ -19,7 +19,7 @@ import time
 from pathlib import Path, PurePosixPath
 
 from gentoo_install.model import compat
-from gentoo_install.model.config import InitSystem, InstallConfig
+from gentoo_install.model.config import Bootloader, InitSystem, InstallConfig
 from gentoo_install.model.device import (
     Filesystem,
     Luks,
@@ -52,7 +52,9 @@ RESULT_DIR = "/run/vm-result"
 #: What the installed system has to show, as (result file, pattern). A check
 #: that only collected output would pass on a system that booted into an
 #: emergency shell, so each of these decides the exit code.
-EXPECTED = (("kernel", r"^(kernel|vmlinuz)-"),)
+#: Where a kernel image lives depends on the layout the bootloader wants, so
+#: the pattern comes from the configuration in `_from_config`.
+EXPECTED: tuple[tuple[str, str], ...] = ()
 
 #: What a system installed by this installer has to be able to answer.
 INSTALLED = (
@@ -61,7 +63,11 @@ INSTALLED = (
     ("fstab", "cat /etc/fstab"),
     ("locale", "locale"),
     ("hostname", "cat /etc/hostname || cat /etc/conf.d/hostname"),
-    ("kernel", "uname -r; ls /boot"),
+    (
+        "kernel",
+        "uname -r; find /boot -maxdepth 4 -type f "
+        r"\( -name 'vmlinuz*' -o -name 'kernel-*' -o -name linux -o -name '*.conf' \) | sort",
+    ),
 )
 
 #: Asking systemd's questions of an openrc system gets "command not found",
@@ -414,6 +420,14 @@ def _from_config(config: Path) -> list[tuple[str, str]]:
         expected = [("hostname", f'hostname="{name}"')]
     network = "systemd-networkd" if installation.system.init is InitSystem.SYSTEMD else "dhcpcd"
     expected.append(("units", re.escape(network)))
+    if installation.bootloader.kind is Bootloader.SYSTEMD_BOOT:
+        # bls: /boot/<entry-token>/<version>/linux, with an entry naming it.
+        expected += [
+            ("kernel", r"^/boot/[^/]+/[^/]+/linux$"),
+            ("kernel", r"^/boot/loader/entries/.+\.conf$"),
+        ]
+    else:
+        expected.append(("kernel", r"^/boot/(kernel|vmlinuz)-"))
     esp = compat.esp_mount(graph)
     if esp is not None:
         # A BIOS install has no esp at all, so asking for one would fail on a
