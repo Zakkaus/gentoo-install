@@ -230,6 +230,27 @@ class Probe:
                 return name
         return names[0] if names else path
 
+    #: What the running system's `/etc/localtime` points at. A live medium
+    #: sets it from the firmware clock and its own default, so it is the one
+    #: guess about where the machine is that costs nothing to make.
+    LOCALTIME: ClassVar[Path] = Path("/etc/localtime")
+
+    def timezone_here(self) -> str:
+        """The zone the installing system is on, or empty when it is not a link.
+
+        Read from the symlink and not from `timedatectl`: a live medium need
+        not carry systemd, and the link is what every distribution writes.
+        """
+        try:
+            target = self.LOCALTIME.resolve()
+        except OSError:
+            return ""
+        parts = target.parts
+        if "zoneinfo" not in parts:
+            return ""
+        named = "/".join(parts[parts.index("zoneinfo") + 1 :])
+        return named if named in self.timezones() else ""
+
     def timezones(self) -> tuple[str, ...]:
         """Every zone this machine knows, as `Area/City`.
 

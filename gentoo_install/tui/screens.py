@@ -87,6 +87,7 @@ class Context:
         fetch_text: Callable[[str], str] = lambda url: "",
         kernel_versions: Callable[[str], tuple[tuple[str, bool], ...]] = lambda atom: (),
         keymaps: Callable[[], tuple[tuple[str, str], ...]] = lambda: (),
+        timezone_here: str = "",
         zfs_kernel_max: str = "",
     ) -> None:
         self.translate = translate
@@ -115,6 +116,10 @@ class Context:
         #: The highest kernel `sys-fs/zfs` builds a module for, read from its
         #: ebuild. Empty when no repository is visible, which offers every version.
         self.zfs_kernel_max = zfs_kernel_max
+        #: The zone the installing system is on, from its `/etc/localtime`. A
+        #: live medium sets that from the firmware clock and its own default,
+        #: so it is the one guess about where the machine is that costs nothing.
+        self.timezone_here = timezone_here
         #: Every zone the machine knows, from `exec/probe.py`.
         self.timezones = tuple(timezones)
         #: How this machine booted. The install defaults to the same, because
@@ -1422,15 +1427,30 @@ def timezone_screen(screen: Screen, config: InstallConfig, context: Context) -> 
         area = zone.split("/", 1)[0]
         if area not in areas:
             areas.append(area)
+    items = [Item(label=area, value=area) for area in areas]
+    if context.timezone_here:
+        # First, because it is usually right: the medium took it from the
+        # firmware clock, and the operator is standing next to the machine.
+        items.insert(
+            0,
+            Item(
+                label=translate("the same as this machine"),
+                value="",
+                detail=context.timezone_here,
+            ),
+        )
     chosen_area: Menu[str] = Menu(
-        title=translate("Timezone"),
-        items=[Item(label=area, value=area) for area in areas],
-        footer=footer(translate),
+        title=translate("Timezone"), items=items, footer=footer(translate)
     )
     picked = chosen_area.run(screen)
     if not picked.chosen:
         return Answer(picked.outcome)
     area = picked.unwrap()[0]
+    if not area:
+        return Answer(
+            Outcome.CHOSE,
+            replace(config, system=replace(config.system, timezone=context.timezone_here)),
+        )
     within = [zone for zone in zones if zone.split("/", 1)[0] == area]
     if within == [area]:
         return Answer(

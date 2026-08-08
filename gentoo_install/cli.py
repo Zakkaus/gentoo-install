@@ -357,6 +357,7 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         fetch_text=fetch.text,
         kernel_versions=_kernel_versions,
         keymaps=probe.keymaps,
+        timezone_here=probe.timezone_here(),
         zfs_kernel_max=fetch.zfs_kernel_max(),
         cores=probe.cores(),
         cpu_flags=probe.cpu_flags(),
