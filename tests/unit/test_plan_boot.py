@@ -5,7 +5,7 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
-from gentoo_install.errors import NothingToBoot
+from gentoo_install.errors import NothingToBoot, ValidationFailed
 
 from gentoo_install.model.config import (
     Bootloader,
@@ -19,6 +19,7 @@ from gentoo_install.model.config import (
 )
 from gentoo_install.model.device import Filesystem, FilesystemType, Luks, MdRaid, Node, RaidLevel
 from gentoo_install.model.parse import load
+from gentoo_install.model.validate import validate
 from gentoo_install.plan import bootloader, kernel
 
 from .layouts import config, ext4_on_gpt, i, zfs_root
@@ -74,40 +75,51 @@ def test_the_firmware_licence_is_accepted_before_firmware_is_merged() -> None:
     assert "linux-fw-redistributable no-source-code" in accepted
 
 
-def test_a_source_kernel_is_configured_and_built_rather_than_only_unpacked() -> None:
-    """A sources package leaves a tree in /usr/src and installs no kernel, so
-    without these the install ends with a bootloader pointing at nothing."""
+def test_the_patched_kernel_is_a_dist_kernel_and_builds_itself() -> None:
+    """`sys-kernel/gentoo-cjk-kernel` inherits kernel-build and PDEPENDs on
+    virtual/dist-kernel, so nothing here configures or compiles a tree."""
     patched = replace(
         config(),
-        kernel=KernelConfig(source=KernelSource.CJK_SOURCE),
+        kernel=KernelConfig(source=KernelSource.CJK),
         system=SystemConfig(console_cjk=True, console_font=ConsoleFontSize.SIZE_16X32),
     )
     recorder = apply_kernel(patched)
-    assert ("eselect", "kernel", "set", "1") in recorder.in_target
-    assert recorder.argv_starting("make", "--directory", "/usr/src/linux", "defconfig")
-    assert recorder.argv_starting("make", "--directory", "/usr/src/linux", "install")
-    toggles = [argv for argv in recorder.in_target if argv[0].endswith("scripts/config")]
-    assert any("FONT_CJK_16x16" in argv and "--enable" in argv for argv in toggles)
-    assert any("FONT_CJK_32x32" in argv and "--disable" in argv for argv in toggles)
+    assert not recorder.argv_starting("eselect")
+    assert not recorder.argv_starting("make")
+    described = " ".join(operation.describe() for operation in kernel.build(patched))
+    assert "sys-kernel/gentoo-cjk-kernel" in described
+    assert any("rebuild the initramfs" in o.describe() for o in kernel.build(patched))
 
 
-def test_a_configuration_can_name_a_kernel_package_this_installer_does_not() -> None:
-    """gentoo-zh and other overlays ship sources packages of their own, and the
-    build steps are the same whichever one it is."""
-    named = replace(
+def test_the_patched_kernel_is_keyworded_and_its_cjk_flag_is_left_alone() -> None:
+    """It is ~amd64 in gentoo-zh, and its cjk flag is on by default: writing
+    the flag when it is wanted would be a line that changes nothing."""
+    wanted = replace(
         config(),
-        kernel=KernelConfig(source=KernelSource.CJK_SOURCE, package="sys-kernel/gentoo-sources"),
+        kernel=KernelConfig(source=KernelSource.CJK),
+        system=SystemConfig(console_cjk=True, console_font=ConsoleFontSize.SIZE_16X32),
     )
-    described = " ".join(operation.describe() for operation in kernel.build(named))
-    assert "sys-kernel/gentoo-sources" in described
-    assert "gentoo-cjk-sources" not in described
+    recorder = apply_kernel(wanted)
+    keywords = recorder.files[
+        PurePosixPath("/etc/portage/package.accept_keywords/cjk-kernel")
+    ]
+    assert keywords == "sys-kernel/gentoo-cjk-kernel ~amd64\n"
+    assert PurePosixPath("/etc/portage/package.use/cjk-kernel") not in recorder.files
+    off = apply_kernel(replace(config(), kernel=KernelConfig(source=KernelSource.CJK)))
+    assert (
+        off.files[PurePosixPath("/etc/portage/package.use/cjk-kernel")]
+        == "sys-kernel/gentoo-cjk-kernel -cjk\n"
+    )
 
 
-def test_a_kernel_built_from_source_asks_for_no_dist_kernel_initramfs() -> None:
-    patched = replace(config(), kernel=KernelConfig(source=KernelSource.CJK_SOURCE))
-    assert not any("rebuild the initramfs" in o.describe() for o in kernel.build(patched))
-    binary = replace(config(), kernel=KernelConfig(source=KernelSource.DIST_BIN))
-    assert any("rebuild the initramfs" in o.describe() for o in kernel.build(binary))
+def test_a_sources_package_is_refused_rather_than_left_unbuilt() -> None:
+    """It would unpack a tree nothing compiles, and the failure would be a
+    bootloader pointing at an empty /boot an hour after the disks were written."""
+    named = replace(
+        config(), kernel=KernelConfig(source=KernelSource.CJK, package="sys-kernel/gentoo-sources")
+    )
+    with pytest.raises(ValidationFailed, match="source tree"):
+        validate(named)
 
 
 def test_bootctl_comes_from_the_package_the_init_system_allows() -> None:
@@ -135,15 +147,16 @@ def test_zfs_is_told_to_build_against_a_dist_kernel() -> None:
     assert "sys-fs/zfs-kmod" in described and "dist-kernel" in described
 
 
-def test_a_kernel_built_from_source_needs_no_such_flag() -> None:
-    """It configured and built the tree itself, so the `.config` is there."""
-    patched = replace(config(zfs_root()), kernel=KernelConfig(source=KernelSource.CJK_SOURCE))
-    assert not any("dist-kernel" in o.describe() for o in kernel.build(patched))
+def test_the_patched_kernel_needs_the_flag_too() -> None:
+    """It is a dist-kernel like the other two, so `sys-fs/zfs` has the same
+    `Kernel not configured` failure without it."""
+    patched = replace(config(zfs_root()), kernel=KernelConfig(source=KernelSource.CJK))
+    assert any("dist-kernel" in o.describe() for o in kernel.build(patched))
 
 
-def test_a_kernel_hook_is_installed_because_a_sources_package_pulls_none_in() -> None:
-    """Without it `make install` falls back to the kernel's own script, which
-    looks for LILO and leaves /boot with no kernel."""
+def test_the_kernel_hook_is_installed_before_any_kernel_is() -> None:
+    """installkernel is what puts an image and an initramfs in /boot; without
+    it grub-mkconfig still exits 0 over an empty directory."""
     described = " ".join(operation.describe() for operation in kernel.build(config()))
     assert "sys-kernel/installkernel" in described
 
@@ -399,28 +412,28 @@ def test_both_command_line_writers_are_told_the_same_devices() -> None:
     assert grub.luks == bls.luks
 
 
-def test_a_module_that_builds_against_a_sources_kernel_waits_for_it() -> None:
+def test_every_kernel_choice_asks_zfs_to_build_against_a_dist_kernel() -> None:
     """`sys-fs/zfs` reads /usr/src/linux/.config and dies with `Kernel not
-    configured` when it is merged before the kernel is built."""
+    configured`; a dist-kernel leaves no such file, so the flag is what it
+    reads instead. Every choice is a dist-kernel, so every choice needs it."""
     from dataclasses import replace as _replace
 
     from gentoo_install.model.config import KernelSource
 
     zfs = load(Path("tests/fixtures/vm-zfs.toml"))
-    sources = _replace(zfs, kernel=_replace(zfs.kernel, source=KernelSource.CJK_SOURCE))
-    described = [operation.describe() for operation in kernel.build(sources)]
-    built = next(index for index, line in enumerate(described) if line.startswith("build the kernel"))
-    merged = next(index for index, line in enumerate(described) if "sys-fs/zfs" in line)
-    assert built < merged
-    assert not any(
-        line.startswith("install the storage tools:") and "sys-fs/zfs" in line
-        for line in described
-    )
+    for source in KernelSource:
+        chosen = _replace(zfs, kernel=_replace(zfs.kernel, source=source, package=""))
+        described = [operation.describe() for operation in kernel.build(chosen)]
+        asked = next(
+            index for index, line in enumerate(described) if "dist-kernel" in line
+        )
+        merged = next(
+            index
+            for index, line in enumerate(described)
+            if line.startswith("install ") and "sys-fs/zfs" in line
+        )
+        assert asked < merged, source
 
-    # A dist-kernel is a package, so zfs[dist-kernel] pulls it in and the order
-    # that has been verified in a VM stays as it is.
-    dist = [operation.describe() for operation in kernel.build(zfs)]
-    assert any(line.startswith("install the storage tools:") and "sys-fs/zfs" in line for line in dist)
 
 
 def test_the_unlock_prompt_uses_the_keyboard_that_is_attached() -> None:

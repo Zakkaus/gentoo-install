@@ -2,7 +2,6 @@
 [strings]
 "Disks" = "磁盘"
 "Portage" = "Portage"
-"Kernel and bootloader" = "内核与引导程序"
 "Desktop and applications" = "桌面与应用程序"
 "Overview" = "总览"
 "Continue" = "下一步"
@@ -138,3 +137,8 @@
 "hours rather than minutes" = "以小时计"
 "this CPU runs it, and the packages are built for it" = "CPU 支持，软件包按此构建"
 "this CPU cannot run it" = "CPU 不支持"
+
+# 核心
+"prebuilt, minutes" = "预先构建，数分钟"
+"built here, hours" = "本机构建，数小时"
+"cjktty for CJK on the console, from gentoo-zh" = "带 cjktty，控制台可显示中文，来自 gentoo-zh"

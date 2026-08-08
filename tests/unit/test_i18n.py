@@ -97,15 +97,15 @@ def test_truncate_never_cuts_a_character_in_half() -> None:
     assert width(truncate(WIDE + WIDE, 5)) <= 5
 
 
-#: Tables whose second element is translated where the row is drawn, so the
-#: scan below cannot see them at the call site.
-TRANSLATED_IN_A_TABLE = frozenset(
-    {
-        "free software and free documentation only",
-        "also firmware and other redistributable binaries",
-        "every license",
-    }
-)
+def in_a_table() -> set[str]:
+    """Reasons the screens keep in a table and translate where the row is drawn.
+
+    Read from the tables rather than listed again here: a second list is one
+    more thing to forget when a row is added.
+    """
+    from gentoo_install.tui.screens import KERNELS, LICENSES
+
+    return {reason for _, reason in KERNELS} | {reason for _, reason in LICENSES}
 
 
 def displayed() -> set[str]:
@@ -114,7 +114,7 @@ def displayed() -> set[str]:
 
     from gentoo_install import tui
 
-    found = set(TRANSLATED_IN_A_TABLE)
+    found = in_a_table()
     for module in Path(tui.__file__).parent.parent.rglob("*.py"):
         for node in ast.walk(ast.parse(module.read_text(encoding="utf-8"))):
             if not isinstance(node, ast.Call):

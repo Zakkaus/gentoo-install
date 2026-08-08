@@ -24,12 +24,26 @@ def validate(config: InstallConfig) -> None:
         *_layout_problems(config),
         *_root_size_problems(config),
         *_profile_problems(config),
+        *_kernel_package_problems(config),
         *(rule.describe() for rule in compat.violations(config)),
     ]
     if problems:
         raise ValidationFailed(
             "the configuration does not describe an installable system:\n  " + "\n  ".join(problems)
         )
+
+
+def _kernel_package_problems(config: InstallConfig) -> list[str]:
+    """The installer configures and compiles no kernel of its own, so a
+    `-sources` package would unpack a tree that nothing ever builds and leave
+    the bootloader pointing at a `/boot` with no kernel in it."""
+    package = config.kernel.package
+    if package and package.endswith("-sources"):
+        return [
+            f"{package} installs a source tree and no kernel; name a dist-kernel "
+            "such as sys-kernel/gentoo-kernel"
+        ]
+    return []
 
 
 #: Measured: an install into 8 GiB runs out during linux-firmware, an hour

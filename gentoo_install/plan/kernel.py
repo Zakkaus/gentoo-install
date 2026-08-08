@@ -40,21 +40,17 @@ from .portage import Emerge
 KERNEL_PACKAGES: Final[dict[KernelSource, str]] = {
     KernelSource.DIST_BIN: "sys-kernel/gentoo-kernel-bin",
     KernelSource.DIST_SOURCE: "sys-kernel/gentoo-kernel",
-    KernelSource.CJK_SOURCE: "sys-kernel/gentoo-cjk-sources",
+    KernelSource.CJK: "sys-kernel/gentoo-cjk-kernel",
 }
 
 #: Filesystems whose driver dracut only includes when asked.
 FILESYSTEM_MODULES: Final[dict[FilesystemType, str]] = {FilesystemType.BTRFS: "btrfs"}
 
-#: `FONT_CJK_32x32` is off on purpose: its Kconfig default is on and the base
-#: patch ships an empty glyph table, so it costs 8 MiB for nothing.
-CJK_CONSOLE_OPTIONS: Final[tuple[tuple[str, bool], ...]] = (
-    ("FRAMEBUFFER_CONSOLE", True),
-    ("CONSOLE_TRANSLATIONS", True),
-    ("FB_EFI", True),
-    ("FONT_CJK_16x16", True),
-    ("FONT_CJK_32x32", False),
-)
+#: The cjk USE flag of `sys-kernel/gentoo-cjk-kernel`, which merges the
+#: patch's own `cjk.config`. It is on by default, so only turning it off has
+#: to be written.
+CJK_USE: Final[str] = "cjk"
+
 
 @dataclass(frozen=True)
 class StackTool:
@@ -221,6 +217,33 @@ class AcceptFirmwareLicence(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
+class RequestCjkKernel(Operation):
+    """Keyword and USE for the patched dist-kernel.
+
+    It is `~amd64` in gentoo-zh, and its `cjk` flag is what merges the patch's
+    own `cjk.config`; the flag is on by default, so only refusing it is written.
+    """
+
+    stage: Stage = Stage.KERNEL
+    package: str
+    cjk: bool
+
+    def describe(self) -> str:
+        return f"accept {self.package} as testing, with cjk {'on' if self.cjk else 'off'}"
+
+    def apply(self, context: Context) -> None:
+        context.write(
+            PurePosixPath("/etc/portage/package.accept_keywords/cjk-kernel"),
+            f"{self.package} ~amd64\n",
+        )
+        if not self.cjk:
+            context.write(
+                PurePosixPath("/etc/portage/package.use/cjk-kernel"),
+                f"{self.package} -{CJK_USE}\n",
+            )
+
+
+@dataclass(frozen=True, kw_only=True)
 class RebuildInitramfs(Operation):
     """The kernel was merged before the dracut configuration was complete for
     any package that pulls one in, so the image is built again from it."""
@@ -252,66 +275,6 @@ class RequestDistKernelModules(Operation):
         context.write(PurePosixPath("/etc/portage/package.use/dist-kernel-modules"), lines)
 
 
-@dataclass(frozen=True, kw_only=True)
-class SelectKernelSource(Operation):
-    """A sources package unpacks a tree and installs nothing. Everything after
-    this works on whatever `/usr/src/linux` points at."""
-
-    stage: Stage = Stage.KERNEL
-
-    def describe(self) -> str:
-        return "point /usr/src/linux at the kernel that was just unpacked"
-
-    def apply(self, context: Context) -> None:
-        context.run_in_target(["eselect", "kernel", "set", "1"])
-
-
-@dataclass(frozen=True, kw_only=True)
-class ConfigureKernel(Operation):
-    """`defconfig` first, then the options this install needs on top of it.
-
-    `olddefconfig` afterwards answers everything the toggles pulled in, which is
-    what keeps the build from stopping at an interactive prompt.
-    """
-
-    stage: Stage = Stage.KERNEL
-    options: tuple[tuple[str, bool], ...]
-
-    def describe(self) -> str:
-        named = ", ".join(f"{'+' if wanted else '-'}{name}" for name, wanted in self.options)
-        return f"configure the kernel from defconfig with {named or 'no extra options'}"
-
-    def apply(self, context: Context) -> None:
-        source = "/usr/src/linux"
-        context.run_in_target(["make", "--directory", source, "defconfig"])
-        for name, wanted in self.options:
-            context.run_in_target(
-                [
-                    f"{source}/scripts/config",
-                    "--file", f"{source}/.config",
-                    "--enable" if wanted else "--disable",
-                    name,
-                ]
-            )
-        context.run_in_target(["make", "--directory", source, "olddefconfig"])
-
-
-@dataclass(frozen=True, kw_only=True)
-class BuildKernel(Operation):
-    stage: Stage = Stage.KERNEL
-
-    def describe(self) -> str:
-        return "build the kernel and its modules, then install both"
-
-    def apply(self, context: Context) -> None:
-        source = "/usr/src/linux"
-        context.run_in_target(["make", "--directory", source, f"--jobs={context.jobs()}"])
-        context.run_in_target(["make", "--directory", source, "modules_install"])
-        # `install` runs installkernel, which is what builds the initramfs and
-        # copies the image where the bootloader will look for it.
-        context.run_in_target(["make", "--directory", source, "install"])
-
-
 def build(config: InstallConfig) -> list[Operation]:
     graph = config.disk.graph
     modules = dracut_modules(config)
@@ -332,8 +295,6 @@ def build(config: InstallConfig) -> list[Operation]:
             )
         )
     operations += [
-        # A sources package does not pull this in, and `make install` then
-        # falls back to the kernel's own script, which looks for LILO.
         Emerge(
             stage=Stage.KERNEL,
             packages=("sys-kernel/installkernel",),
@@ -364,17 +325,12 @@ def build(config: InstallConfig) -> list[Operation]:
         ),
     ]
     modules = _out_of_tree_modules(config)
-    if modules and config.kernel.source is not KernelSource.CJK_SOURCE:
+    if modules:
         operations.append(RequestDistKernelModules(packages=modules))
     flagged = storage_use(config)
     if flagged:
         operations.insert(0, RequestStorageUse(entries=flagged))
     tools = storage_packages(config)
-    # A sources kernel is not built yet at this point, so anything that builds
-    # against it is merged after `BuildKernel` instead.
-    from_sources = config.kernel.source is KernelSource.CJK_SOURCE
-    deferred = module_packages(config) if from_sources else ()
-    tools = tuple(name for name in tools if name not in deferred)
     plain = tuple(name for name in tools if name not in {atom for atom, _ in flagged})
     if plain:
         operations.append(
@@ -392,6 +348,8 @@ def build(config: InstallConfig) -> list[Operation]:
             )
         )
     package = config.kernel.package or KERNEL_PACKAGES[config.kernel.source]
+    if config.kernel.source is KernelSource.CJK:
+        operations.append(RequestCjkKernel(package=package, cjk=config.system.console_cjk))
     operations.append(
         Emerge(
             stage=Stage.KERNEL,
@@ -402,25 +360,7 @@ def build(config: InstallConfig) -> list[Operation]:
             binary_packages=config.kernel.source is KernelSource.DIST_BIN,
         )
     )
-    if config.kernel.source is KernelSource.CJK_SOURCE:
-        # A sources package leaves a tree, not a kernel: without these three the
-        # install finishes with a bootloader pointing at nothing.
-        operations += [
-            SelectKernelSource(),
-            ConfigureKernel(options=CJK_CONSOLE_OPTIONS if config.system.console_cjk else ()),
-            BuildKernel(),
-        ]
-        if deferred:
-            operations.append(
-                Emerge(
-                    stage=Stage.KERNEL,
-                    packages=deferred,
-                    summary="install the modules that build against the kernel",
-                    binary_packages=False,
-                )
-            )
-    else:
-        operations.append(RebuildInitramfs(package=package))
+    operations.append(RebuildInitramfs(package=package))
     return operations
 
 
@@ -465,20 +405,6 @@ def storage_use(config: InstallConfig) -> tuple[tuple[str, tuple[str, ...]], ...
         tool = STACK_PACKAGES.get(module)
         if tool is not None and tool.use and (tool.atom, tool.use) not in wanted:
             wanted.append((tool.atom, tool.use))
-    return tuple(wanted)
-
-
-def module_packages(config: InstallConfig) -> tuple[str, ...]:
-    """Stack tools that build a kernel module.
-
-    A sources kernel has to be configured and compiled before these are merged:
-    `sys-fs/zfs` reads `/usr/src/linux/.config` and dies without it.
-    """
-    wanted: list[str] = []
-    for module in dracut_modules(config):
-        tool = STACK_PACKAGES.get(module)
-        if tool is not None and tool.builds_a_module and tool.atom not in wanted:
-            wanted.append(tool.atom)
     return tuple(wanted)
 
 

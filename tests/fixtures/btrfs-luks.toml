@@ -35,7 +35,7 @@ name = "gentoo-zh"
 sync_uri = "https://mirrors.cernet.edu.cn/gentoo-zh.git"
 
 [kernel]
-source = "cjk-source"
+source = "cjk"
 
 [bootloader]
 kind = "grub"

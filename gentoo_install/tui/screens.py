@@ -367,7 +367,7 @@ def bootloader_screen(
             Item(label=kind.value, value=kind, disabled_because=broken[0].reason if broken else "")
         )
     menu: Menu[Bootloader] = Menu(
-        title=translate("Kernel and bootloader"), items=items, footer=_footer(translate)
+        title=translate("Bootloader"), items=items, footer=_footer(translate)
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -378,19 +378,36 @@ def bootloader_screen(
     )
 
 
+#: What each kernel choice costs and what it gives. All three are dist-kernels:
+#: the package builds and installs itself, so none of them is a source tree the
+#: installer would have to configure.
+KERNELS: tuple[tuple[KernelSource, str], ...] = (
+    (KernelSource.DIST_BIN, "prebuilt, minutes"),
+    (KernelSource.DIST_SOURCE, "built here, hours"),
+    (KernelSource.CJK, "cjktty for CJK on the console, from gentoo-zh"),
+)
+
+
 def kernel_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
     translate = context.translate
     menu: Menu[KernelSource] = Menu(
-        title=translate("Kernel and bootloader"),
-        items=[Item(label=source.value, value=source) for source in KernelSource],
+        title=translate("Kernel"),
+        items=[
+            Item(label=source.value, value=source, detail=translate(reason))
+            for source, reason in KERNELS
+        ],
         footer=_footer(translate),
     )
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
-    return Answer(
-        Outcome.CHOSE, replace(config, kernel=replace(config.kernel, source=answer.unwrap()[0]))
-    )
+    chosen = answer.unwrap()[0]
+    changed = replace(config, kernel=replace(config.kernel, source=chosen))
+    if chosen is KernelSource.CJK:
+        # The package is in gentoo-zh and in no other repository, so choosing
+        # it is consenting to that overlay rather than having it added quietly.
+        changed = replace(changed, portage=_with_gentoo_zh(changed))
+    return Answer(Outcome.CHOSE, changed)
 
 
 #: The profile each desktop is built against. Verified against

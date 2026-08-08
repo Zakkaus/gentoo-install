@@ -65,6 +65,7 @@ class Trait(Enum):
     COMMUNITY_BINHOST = "the gentoo-zh binary host"
     NO_GENTOOZH_OVERLAY = "no gentoo-zh overlay"
     KERNEL_WITHOUT_CJKTTY = "a kernel that does not carry the cjktty patch"
+    CJK_KERNEL = "the patched kernel from gentoo-zh"
     FONT_WITHOUT_CJK_GLYPHS = "a console font other than 8x16 or 16x32"
 
 
@@ -105,7 +106,13 @@ RULES: tuple[Rule, ...] = (
         Trait.CONSOLE_CJK,
         Trait.KERNEL_WITHOUT_CJKTTY,
         "cjktty patches the kernel VT layer, which no official kernel carries; "
-        "sys-kernel/gentoo-cjk-sources is the one that does",
+        "sys-kernel/gentoo-cjk-kernel is the one that does",
+    ),
+    Rule(
+        Trait.CJK_KERNEL,
+        Trait.NO_GENTOOZH_OVERLAY,
+        "sys-kernel/gentoo-cjk-kernel is in that overlay and in no other "
+        "repository, so the emerge fails once the disks have been partitioned",
     ),
     Rule(
         Trait.CONSOLE_CJK,
@@ -170,7 +177,9 @@ def traits_of(config: InstallConfig) -> frozenset[Trait]:
         found.add(Trait.COMMUNITY_BINHOST)
     if not any(overlay.name == "gentoo-zh" for overlay in config.portage.overlays):
         found.add(Trait.NO_GENTOOZH_OVERLAY)
-    if config.kernel.source is not KernelSource.CJK_SOURCE:
+    if config.kernel.source is KernelSource.CJK:
+        found.add(Trait.CJK_KERNEL)
+    else:
         found.add(Trait.KERNEL_WITHOUT_CJKTTY)
     if config.system.console_font not in CJK_FONT_SIZES:
         found.add(Trait.FONT_WITHOUT_CJK_GLYPHS)

@@ -1,7 +1,6 @@
-# The source-kernel path: a sources package is unpacked, configured, built and
-# installed. `sys-kernel/gentoo-sources` stands in for
-# `sys-kernel/gentoo-cjk-sources` while that ebuild is still in review; the
-# steps under test are the same either way.
+# The patched kernel: `sys-kernel/gentoo-cjk-kernel` from gentoo-zh, which is a
+# dist-kernel and so builds and installs itself. It is ~amd64, and its cjk USE
+# flag is what merges the patch's own config.
 config_version = 1
 
 [system]
@@ -18,13 +17,16 @@ root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75
 profile = "default/linux/amd64/23.0/systemd"
 makeopts = "-j4"
 
+[[portage.overlays]]
+name = "gentoo-zh"
+sync_uri = "https://github.com/gentoo-zh/overlay.git"
+
 [portage.binhost]
 official = true
 community = "off"
 
 [kernel]
-source = "cjk-source"
-package = "sys-kernel/gentoo-sources"
+source = "cjk"
 
 [bootloader]
 kind = "grub"

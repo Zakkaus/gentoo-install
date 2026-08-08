@@ -26,6 +26,9 @@ from gentoo_install.model.device import Node, Partition, PartitionRole
 from gentoo_install.model.parse import load
 from gentoo_install.plan import disk as plan_disk
 from gentoo_install.plan.build import build
+
+#: The overlay every gentoo-zh package needs, and the rule table demands it.
+GENTOO_ZH = Overlay(name="gentoo-zh", sync_uri="https://github.com/gentoo-zh/overlay.git")
 from gentoo_install.plan.operations import Operation, Stage
 from gentoo_install.plan import packages as plan_packages
 from gentoo_install.plan.packages import Catalog, Group
@@ -100,7 +103,13 @@ def test_the_esp_is_formatted_before_it_is_mounted() -> None:
 
 def test_the_binary_kernel_comes_from_a_binary_host_and_a_patched_one_does_not() -> None:
     binary = plan(replace(config(), kernel=KernelConfig(source=KernelSource.DIST_BIN)))
-    patched = plan(replace(config(), kernel=KernelConfig(source=KernelSource.CJK_SOURCE)))
+    patched = plan(
+        replace(
+            config(),
+            kernel=KernelConfig(source=KernelSource.CJK),
+            portage=replace(config().portage, overlays=(GENTOO_ZH,)),
+        )
+    )
     assert "from source" not in [
         operation.describe() for operation in binary if "install the kernel" in operation.describe()
     ][0]

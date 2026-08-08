@@ -2,7 +2,6 @@
 [strings]
 "Disks" = "ディスク"
 "Portage" = "Portage"
-"Kernel and bootloader" = "カーネルとブートローダー"
 "Desktop and applications" = "デスクトップとアプリケーション"
 "Overview" = "概要"
 "Continue" = "次へ"
@@ -138,3 +137,8 @@
 "hours rather than minutes" = "時間単位"
 "this CPU runs it, and the packages are built for it" = "CPU が対応し、パッケージもこれ向けに構築"
 "this CPU cannot run it" = "CPU が非対応"
+
+# Kernel
+"prebuilt, minutes" = "ビルド済み、数分"
+"built here, hours" = "ここでビルド、数時間"
+"cjktty for CJK on the console, from gentoo-zh" = "cjktty 入り、コンソールで CJK 表示、gentoo-zh から"

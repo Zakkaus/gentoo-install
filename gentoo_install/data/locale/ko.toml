@@ -2,7 +2,6 @@
 [strings]
 "Disks" = "디스크"
 "Portage" = "Portage"
-"Kernel and bootloader" = "커널과 부트로더"
 "Desktop and applications" = "데스크톱과 응용 프로그램"
 "Overview" = "요약"
 "Continue" = "다음"
@@ -138,3 +137,8 @@
 "hours rather than minutes" = "시간 단위"
 "this CPU runs it, and the packages are built for it" = "CPU 가 지원하며 패키지도 이에 맞게 빌드"
 "this CPU cannot run it" = "CPU 미지원"
+
+# Kernel
+"prebuilt, minutes" = "미리 빌드됨, 몇 분"
+"built here, hours" = "여기서 빌드, 몇 시간"
+"cjktty for CJK on the console, from gentoo-zh" = "cjktty 포함, 콘솔에서 CJK 표시, gentoo-zh 제공"

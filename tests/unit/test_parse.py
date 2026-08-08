@@ -52,7 +52,7 @@ def test_the_fixture_parses_into_every_section() -> None:
     assert config.portage.binhost.community is BinhostChannel.STABLE
     assert config.portage.overlays[0].name == "gentoo-zh"
 
-    assert config.kernel.source is KernelSource.CJK_SOURCE
+    assert config.kernel.source is KernelSource.CJK
     assert config.bootloader.kind is Bootloader.GRUB
     assert config.packages.desktop == "plasma"
 

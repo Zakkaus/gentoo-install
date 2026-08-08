@@ -22,9 +22,15 @@ class InitSystem(Enum):
 
 
 class KernelSource(Enum):
+    """Every choice is a dist-kernel: the package builds and installs itself.
+
+    The installer configures no kernel of its own, so a `-sources` package
+    would unpack a tree nothing ever compiles.
+    """
+
     DIST_BIN = "dist-bin"
     DIST_SOURCE = "dist-source"
-    CJK_SOURCE = "cjk-source"
+    CJK = "cjk"
 
 
 class Bootloader(Enum):

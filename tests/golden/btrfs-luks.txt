@@ -73,10 +73,9 @@
   accept the linux-firmware licence
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
   install the storage tools: emerge sys-fs/cryptsetup sys-fs/btrfs-progs sys-fs/dosfstools
-  install the kernel: emerge sys-kernel/gentoo-cjk-sources, from source
-  point /usr/src/linux at the kernel that was just unpacked
-  configure the kernel from defconfig with no extra options
-  build the kernel and its modules, then install both
+  accept sys-kernel/gentoo-cjk-kernel as testing, with cjk off
+  install the kernel: emerge sys-kernel/gentoo-cjk-kernel, from source
+  rebuild the initramfs from sys-kernel/gentoo-cjk-kernel with the modules written above
 
 [bootloader]
   install the bootloader: emerge sys-boot/grub sys-boot/efibootmgr

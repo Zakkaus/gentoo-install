@@ -117,8 +117,12 @@ def cjk_console_with_an_8x8_font() -> InstallConfig:
     return replace(
         config(),
         system=SystemConfig(console_cjk=True, console_font=ConsoleFontSize.SIZE_8X8),
-        kernel=KernelConfig(source=KernelSource.CJK_SOURCE),
+        kernel=KernelConfig(source=KernelSource.CJK),
     )
+
+
+def the_patched_kernel_without_its_overlay() -> InstallConfig:
+    return replace(config(), kernel=KernelConfig(source=KernelSource.CJK))
 
 
 CASES: list[tuple[Callable[[], InstallConfig], Trait, Trait]] = [
@@ -134,6 +138,7 @@ CASES: list[tuple[Callable[[], InstallConfig], Trait, Trait]] = [
     (community_binhost_without_its_overlay, Trait.COMMUNITY_BINHOST, Trait.NO_GENTOOZH_OVERLAY),
     (zfsbootmenu_without_its_overlay, Trait.ZFSBOOTMENU, Trait.NO_GENTOOZH_OVERLAY),
     (cjk_console_with_an_8x8_font, Trait.CONSOLE_CJK, Trait.FONT_WITHOUT_CJK_GLYPHS),
+    (the_patched_kernel_without_its_overlay, Trait.CJK_KERNEL, Trait.NO_GENTOOZH_OVERLAY),
 ]
 
 

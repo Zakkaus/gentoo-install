@@ -32,7 +32,7 @@ name = "gentoo-zh"
 sync_uri = "https://github.com/gentoo-zh/overlay.git"
 
 [kernel]
-source = "cjk-source"
+source = "cjk"
 
 [bootloader]
 kind = "zfsbootmenu"
