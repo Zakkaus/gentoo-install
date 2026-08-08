@@ -58,6 +58,7 @@ class Context:
         firmware: Firmware = Firmware.UEFI,
         cores: int = 1,
         cpu_flags: Sequence[str] = (),
+        supports_v3: bool = False,
         inspect_disk: Callable[[str], tuple[tuple[tuple[str, str, str], ...], str]] = (
             lambda disk: ((), "")
         ),
@@ -97,6 +98,8 @@ class Context:
         #: recommend a value rather than asking for one blind.
         self.cores = cores
         self.cpu_flags = tuple(cpu_flags)
+        #: Whether `ld.so` says this CPU runs x86-64-v3 binaries.
+        self.supports_v3 = supports_v3
         self._inspect = inspect_disk
         if self.choice.disk:
             self.inspect_disk(self.choice.disk)
@@ -647,7 +650,18 @@ def binhost_screen(screen: Screen, config: InstallConfig, context: Context) -> A
         Item(
             label="official, x86-64-v3",
             value=(True, BinhostChannel.OFF, "x86-64-v3"),
-            detail=translate("needs AVX2; faster packages, and fewer of them"),
+            # `ld.so` lists the subarchitectures it would search, so a machine
+            # that cannot run these is told rather than left to find out when
+            # the first binary package dies with an illegal instruction. The
+            # reason replaces the detail: both together overflow 80 columns.
+            detail=(
+                translate("this CPU runs it, and the packages are built for it")
+                if context.supports_v3
+                else ""
+            ),
+            disabled_because=(
+                "" if context.supports_v3 else translate("this CPU cannot run it")
+            ),
         ),
         Item(
             label="official and gentoo-zh",
@@ -663,6 +677,10 @@ def binhost_screen(screen: Screen, config: InstallConfig, context: Context) -> A
     menu: Menu[tuple[bool, BinhostChannel, str]] = Menu(
         title=translate("Binary packages"), items=items, footer=_footer(translate)
     )
+    if context.supports_v3:
+        # Recommended by starting on it: it is the faster of the two and this
+        # machine has already proved it can run it.
+        menu.cursor = 1
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)

@@ -261,3 +261,20 @@ def test_escape_asks_before_throwing_the_answers_away() -> None:
     assert "Leave without installing?" in seen
     # The menu was drawn again after the first refusal.
     assert seen.count("Keyboard layout") >= 2
+
+
+def test_v3_is_recommended_only_when_this_cpu_runs_it() -> None:
+    """`ld.so` lists the subarchitectures it would search, so a machine that
+    cannot run them is told rather than left to meet an illegal instruction."""
+    modern = context()
+    modern.supports_v3 = True
+    screen = FakeScreen(keys=["\n"])
+    answer = screens.binhost_screen(screen, config(), modern)
+    assert answer.unwrap().portage.binhost.subarch == "x86-64-v3"
+
+    old = context()
+    old.supports_v3 = False
+    plain = FakeScreen(keys=["\n"])
+    answer = screens.binhost_screen(plain, config(), old)
+    assert answer.unwrap().portage.binhost.subarch == "x86-64"
+    assert "this CPU cannot run it" in plain.last

@@ -242,6 +242,25 @@ class Probe:
         found = [portage for kernel, portage in CPU_FLAGS.items() if kernel in reported]
         return tuple(sorted(set(found)))
 
+    def supports_v3(self) -> bool:
+        """Whether this CPU runs `x86-64-v3` binaries.
+
+        `ld.so --help` lists the subarchitectures it would search, which is the
+        loader's own answer rather than a guess from a flag list, and it is
+        what decides whether that binary host is worth offering.
+        """
+        for loader in ("/lib64/ld-linux-x86-64.so.2", "/lib/ld-linux-x86-64.so.2"):
+            if not Path(loader).exists():
+                continue
+            listed = self.runner.run([loader, "--help"], check=False)
+            if listed.returncode != 0:
+                continue
+            return any(
+                line.strip().startswith("x86-64-v3 (supported")
+                for line in listed.stdout.splitlines()
+            )
+        return False
+
     def cores(self) -> int:
         return os.cpu_count() or 1
 

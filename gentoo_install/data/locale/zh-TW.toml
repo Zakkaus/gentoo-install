@@ -98,3 +98,5 @@
 "needs AVX2; faster packages, and fewer of them" = "需要 AVX2；套件更快，但數量較少"
 "gentoo-zh builds x86-64 only" = "gentoo-zh 只建 x86-64"
 "hours rather than minutes" = "以小時計，不是分鐘"
+"this CPU runs it, and the packages are built for it" = "這顆 CPU 跑得動，套件就是照它建的"
+"this CPU cannot run it" = "這顆 CPU 跑不動"

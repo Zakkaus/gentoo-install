@@ -98,3 +98,5 @@
 "needs AVX2; faster packages, and fewer of them" = "AVX2 필요. 더 빠르지만 수는 적음"
 "gentoo-zh builds x86-64 only" = "gentoo-zh 는 x86-64 만 빌드"
 "hours rather than minutes" = "분이 아니라 시간 단위"
+"this CPU runs it, and the packages are built for it" = "이 CPU에서 동작하며 패키지도 그에 맞게 빌드됩니다"
+"this CPU cannot run it" = "이 CPU에서는 동작하지 않습니다"

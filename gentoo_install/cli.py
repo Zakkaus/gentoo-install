@@ -212,6 +212,7 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         inspect_disk=lambda disk: (probe.partitions(disk), probe.disk_size(disk)),
         cores=probe.cores(),
         cpu_flags=probe.cpu_flags(),
+        supports_v3=probe.supports_v3(),
     )
     if not context.disks:
         raise errors.DeviceNotFound("this machine reports no disk to install onto")
