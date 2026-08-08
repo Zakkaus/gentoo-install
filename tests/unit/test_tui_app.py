@@ -820,6 +820,7 @@ def test_what_still_asks_before_it_changes() -> None:
         "Encrypt the root filesystem?",
         "Encrypt this partition?",
         "Encrypt the pool?",
+        "Encrypt this array?",
         "Give this account sudo?",
         "Use DHCP?",
         "Unlock the root over SSH from the initramfs?",
@@ -827,9 +828,9 @@ def test_what_still_asks_before_it_changes() -> None:
     }
     for title in asked:
         assert title in source, title
-    # Seven call sites, eight titles: the slice screen words its question for a
+    # Eight call sites, nine titles: the slice screen words its question for a
     # pool or for a partition.
-    assert source.count("Confirm(") == 7
+    assert source.count("Confirm(") == 8
 
 
 def test_a_zfs_root_is_offered_no_kernel_the_module_will_not_build_for() -> None:

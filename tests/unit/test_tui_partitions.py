@@ -792,3 +792,90 @@ def test_the_first_disk_cannot_be_taken_off_the_table() -> None:
     second = FakeScreen(keys=["KEY_DOWN", "\n"], lines=24, columns=90)
     screens._edit_disk(second, at, 1)
     assert [one.selector for one in at.layout.disks] == ["/dev/vda"]
+
+
+def mirrored() -> manual.Layout:
+    """One partition on each of two disks, joined into a mirrored root."""
+    layout = manual.Layout(
+        disks=[
+            manual.Disk(
+                selector=f"/dev/vd{letter}",
+                slices=[
+                    manual.Slice(
+                        index=1, role=PartitionRole.ESP, size=Size.parse("1GiB"),
+                        filesystem=FilesystemType.VFAT,
+                        mountpoint="/efi" if letter == "a" else "",
+                    ),
+                    manual.Slice(index=2, role=PartitionRole.RAID, size=None, filesystem=None),
+                ],
+            )
+            for letter in ("a", "b")
+        ]
+    )
+    layout.array.mountpoint = "/"
+    return layout
+
+
+def test_a_mirrored_root_can_be_written_by_hand() -> None:
+    from gentoo_install.model.device import MdRaid, RaidLevel
+
+    graph, root = manual.build(mirrored())
+    array = graph.of_type(MdRaid)[0]
+    assert array.level is RaidLevel.RAID1
+    assert set(array.members) == {"disk1-part2", "disk2-part2"}
+    mounted = graph[root]
+    assert isinstance(mounted, Mountpoint) and str(mounted.path) == "/"
+    validate(config_from(graph, root))
+
+
+def test_an_array_member_carries_no_filesystem_of_its_own() -> None:
+    """The array carries the filesystem, so a member with one is a partition
+    formatted and then overwritten by `mdadm --create`."""
+    from gentoo_install.model.device import Filesystem as Fs
+
+    graph, _ = manual.build(mirrored())
+    on_members = [
+        node for node in graph.of_type(Fs) if node.device in ("disk1-part2", "disk2-part2")
+    ]
+    assert on_members == []
+
+
+def test_an_encrypted_array_puts_luks_between_it_and_the_filesystem() -> None:
+    from gentoo_install.model.device import Filesystem as Fs
+    from gentoo_install.model.device import Luks
+
+    layout = mirrored()
+    layout.array.passphrase_file = "/run/keys/array"
+    graph, root = manual.build(layout)
+    container = graph.of_type(Luks)[0]
+    assert container.backing == "array"
+    assert graph.of_type(Fs)[-1].device == container.id
+    validate(config_from(graph, root))
+
+
+def test_the_array_row_appears_once_a_row_is_marked_a_member() -> None:
+    at = opened()
+    at.choice = replace(at.choice, disk="/dev/vda")
+    at.layout = manual.suggest("/dev/vda", Firmware.UEFI)
+    assert "RAID array" not in [item.label for item in screens._partition_rows(at)]
+
+    at.layout = mirrored()
+    labels = [item.label for item in screens._partition_rows(at)]
+    assert "RAID array" in labels
+
+
+def test_a_level_the_members_cannot_make_is_shown_with_what_it_needs() -> None:
+    """`mdadm --create` refuses it after the disks are partitioned, so the
+    menu says so before they are."""
+    at = opened()
+    at.layout = mirrored()
+    screen = FakeScreen(keys=["KEY_DOWN", "\n", "q", "q"], lines=24, columns=90)
+    screens._edit_array(screen, at)
+    drawn = "\n".join("\n".join(frame) for frame in screen.frames)
+    assert "raid5 - needs at least 3" in drawn
+    assert "raid6 - needs at least 4" in drawn
+
+
+def test_the_raid_purpose_is_offered_beside_the_pool_member() -> None:
+    keys = [one.key for one in manual.PURPOSES]
+    assert "raid" in keys and "zfs" in keys

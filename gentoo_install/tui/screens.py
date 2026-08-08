@@ -41,6 +41,8 @@ from ..model.config import (
 from ..model.device import (
     FilesystemType,
     PartitionRole,
+    RaidLevel,
+    RaidMetadata,
     TableType,
     ZfsPool,
     ZfsTopology,
@@ -1778,6 +1780,7 @@ class _RowKind(Enum):
     ADD_PARTITION = "add-partition"
     ADD_DISK = "add-disk"
     TOPOLOGY = "topology"
+    ARRAY = "array"
     DONE = "done"
 
 
@@ -1875,8 +1878,22 @@ def _partition_rows(context: Context) -> list[Item[_Row]]:
                 detail=context.layout.topology.value,
             )
         )
+    if _array_members(context):
+        items.append(
+            Item(
+                label=translate("RAID array"),
+                value=_Row(_RowKind.ARRAY),
+                detail=_array_summary(context),
+            )
+        )
     items.append(Item(label=translate("Done"), value=_Row(_RowKind.DONE)))
     return items
+
+
+def _array_summary(context: Context) -> str:
+    array = context.layout.array
+    where = array.mountpoint or "-"
+    return f"{array.name}, {array.level.value}, {array.filesystem.value}, {where}"
 
 
 def _act_on(screen: Screen, context: Context, row: _Row) -> None:
@@ -1885,6 +1902,9 @@ def _act_on(screen: Screen, context: Context, row: _Row) -> None:
         picked = _pool_topology(screen, context, len(_pool_members(context)))
         if picked is not None:
             context.layout.topology = picked
+        return
+    if row.kind is _RowKind.ARRAY:
+        _edit_array(screen, context)
         return
     if row.kind is _RowKind.ADD_DISK:
         added = _pick_another_disk(screen, context)
@@ -1905,6 +1925,10 @@ def _act_on(screen: Screen, context: Context, row: _Row) -> None:
     disk.slices.remove(rows[row.entry])
     if edited is not None:
         disk.slices.append(edited)
+
+
+def _array_members(context: Context) -> list[manual.Slice]:
+    return [one for one in context.layout.slices if one.role is PartitionRole.RAID]
 
 
 def _pool_members(context: Context) -> list[manual.Slice]:
@@ -2010,6 +2034,123 @@ def _seed(context: Context) -> manual.Layout:
             )
         )
     return seeded
+
+
+_LEVEL: Final[str] = "level"
+_METADATA: Final[str] = "metadata"
+_NAME: Final[str] = "name"
+
+
+def _edit_array(screen: Screen, context: Context) -> None:
+    """The array the member rows are assembled into, as a list of fields.
+
+    The same shape as a partition's field list, because it answers the same
+    kind of questions: what it is called, what goes on it and where.
+    """
+    translate = context.translate
+    members = len(_array_members(context))
+    while True:
+        array = context.layout.array
+        items: list[Item[str]] = [
+            Item(label=translate("Name"), value=_NAME, detail=array.name),
+            Item(label=translate("RAID level"), value=_LEVEL, detail=array.level.value),
+            Item(label=translate("Superblock"), value=_METADATA, detail=array.metadata.value),
+            Item(
+                label=translate("Filesystem"), value=_FILESYSTEM, detail=array.filesystem.value
+            ),
+            Item(
+                label=translate("Mount point"), value=_MOUNTPOINT, detail=array.mountpoint or "-"
+            ),
+            Item(label=translate("Label"), value=_LABEL, detail=array.label or "-"),
+            Item(
+                label=translate("Encryption"),
+                value=_ENCRYPTION,
+                detail=translate("on") if array.passphrase_file else translate("off"),
+            ),
+            Item(label=translate("Done"), value=_DONE),
+        ]
+        answer = Menu(
+            title=f"{translate('RAID array')}  {members} {translate('members')}",
+            items=items,
+            footer=footer(translate),
+        ).run(screen)
+        if not answer.chosen or answer.unwrap()[0] == _DONE:
+            return
+        _edit_array_field(screen, context, answer.unwrap()[0], members)
+
+
+def _edit_array_field(screen: Screen, context: Context, field: str, members: int) -> None:
+    translate = context.translate
+    array = context.layout.array
+    if field == _LEVEL:
+        picked: Answer[list[RaidLevel]] = Menu(
+            title=translate("RAID level"),
+            items=[
+                Item(
+                    label=one.value,
+                    value=one,
+                    disabled_because=""
+                    if members >= one.minimum
+                    else f"{translate('needs at least')} {one.minimum}",
+                )
+                for one in RaidLevel
+            ],
+            footer=footer(translate),
+        ).run(screen)
+        if picked.chosen:
+            array.level = picked.unwrap()[0]
+        return
+    if field == _METADATA:
+        chosen: Answer[list[RaidMetadata]] = Menu(
+            title=translate("Superblock"),
+            items=[
+                Item(
+                    label=one.value,
+                    value=one,
+                    detail=""
+                    if one.superblock_at_start
+                    else translate("at the end, so firmware reads the member"),
+                )
+                for one in RaidMetadata
+            ],
+            footer=footer(translate),
+        ).run(screen)
+        if chosen.chosen:
+            array.metadata = chosen.unwrap()[0]
+        return
+    if field == _FILESYSTEM:
+        kind: Answer[list[FilesystemType]] = Menu(
+            title=translate("Filesystem"),
+            items=[Item(label=one.value, value=one) for one in FilesystemType],
+            footer=footer(translate),
+        ).run(screen)
+        if kind.chosen:
+            array.filesystem = kind.unwrap()[0]
+        return
+    if field == _ENCRYPTION:
+        turned = Confirm(
+            **answers(translate),
+            title=translate("Encrypt this array?"),
+            footer=footer(translate),
+        ).run(screen)
+        if not turned.chosen:
+            return
+        array.passphrase_file = _ask_passphrase(screen, context) if turned.unwrap() else ""
+        return
+    titles = {_NAME: "Name", _MOUNTPOINT: "Mount point", _LABEL: "Label"}
+    values = {_NAME: array.name, _MOUNTPOINT: array.mountpoint, _LABEL: array.label}
+    typed = TextField(
+        title=translate(titles[field]), value=values[field], footer=footer(translate)
+    ).run(screen)
+    if not typed.chosen:
+        return
+    text = typed.unwrap().strip()
+    if field == _NAME:
+        array.name = text or array.name
+    elif field == _MOUNTPOINT:
+        array.mountpoint = text
+    else:
+        array.label = text
 
 
 def _pool_topology(

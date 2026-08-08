@@ -22,9 +22,12 @@ from .device import (
     Luks,
     Mountpoint,
     Node,
+    MdRaid,
     Partition,
     PartitionRole,
     PartitionTable,
+    RaidLevel,
+    RaidMetadata,
     Swap,
     TableType,
     ZfsDataset,
@@ -32,6 +35,10 @@ from .device import (
     ZfsTopology,
 )
 from .size import Size
+
+#: The id of the one array a hand-written table can build, and of its mount.
+ARRAY: Final[str] = "array"
+ARRAY_MOUNT: Final[str] = "array-mnt"
 
 #: What `sgdisk` needs the esp to be, and what firmware reads.
 ESP_FILESYSTEM: Final[FilesystemType] = FilesystemType.VFAT
@@ -63,9 +70,9 @@ class Purpose:
     asks_mountpoint: bool = False
 
 
-#: Every purpose the manual table offers. RAID and LVM members are absent on
-#: purpose: this table builds no array and no volume group, so a member here
-#: would be a partition nothing ever assembles.
+#: Every purpose the manual table offers. LVM members are absent on purpose:
+#: this table builds no volume group, so a member here would be a partition
+#: nothing ever assembles.
 PURPOSES: Final[tuple[Purpose, ...]] = (
     Purpose("root", "root", PartitionRole.DATA, "/", FilesystemType.EXT4),
     Purpose("esp", "esp", PartitionRole.ESP, "/efi", ESP_FILESYSTEM, chooses_filesystem=False),
@@ -74,6 +81,7 @@ PURPOSES: Final[tuple[Purpose, ...]] = (
     Purpose("var", "var", PartitionRole.DATA, "/var", FilesystemType.EXT4),
     Purpose("swap", "swap", PartitionRole.SWAP, chooses_filesystem=False),
     Purpose("zfs", "zfs pool member", PartitionRole.ZFS, chooses_filesystem=False, asks_mountpoint=True),
+    Purpose("raid", "raid array member", PartitionRole.RAID, chooses_filesystem=False),
     Purpose("bios-boot", "bios-boot", PartitionRole.BIOS_BOOT, chooses_filesystem=False),
     Purpose("other", "other", PartitionRole.DATA, filesystem=FilesystemType.EXT4, asks_mountpoint=True),
 )
@@ -198,10 +206,33 @@ class Disk:
 
 
 @dataclass
+class Array:
+    """What the rows marked as array members are assembled into.
+
+    One array, as there is one pool: a second would make every row say which
+    one it joins, and this table exists to be read at a glance.
+    """
+
+    name: str = "md0"
+    level: RaidLevel = RaidLevel.RAID1
+    #: An array holding the esp needs the superblock at the end, so the
+    #: firmware reads the member as a plain vfat partition.
+    metadata: RaidMetadata = RaidMetadata.V1_2
+    filesystem: FilesystemType = FilesystemType.EXT4
+    mountpoint: str = "/"
+    label: str = ""
+    #: A path on the installing system, never the passphrase. Non-empty puts
+    #: LUKS between the array and its filesystem.
+    passphrase_file: str = ""
+
+
+@dataclass
 class Layout:
     """Every disk the operator is partitioning, and the pool they may share."""
 
     disks: list[Disk] = field(default_factory=list)
+    #: What the rows marked as array members are assembled into.
+    array: Array = field(default_factory=Array)
     #: The pool every slice marked as a pool member joins, on any disk.
     pool: str = "rpool"
     #: How those members are joined. Only asked once more than one is marked:
@@ -310,6 +341,44 @@ def _table_nodes(disk: Disk, prefix: str) -> list[Node]:
     ]
 
 
+def _array_nodes(array: Array, members: tuple[DeviceId, ...]) -> list[Node]:
+    """The array, whatever encrypts it, its filesystem and its mount point."""
+    nodes: list[Node] = [
+        MdRaid(
+            id=DeviceId(ARRAY),
+            members=members,
+            level=array.level,
+            name=array.name,
+            metadata=array.metadata,
+        )
+    ]
+    carrier = DeviceId(ARRAY)
+    if array.passphrase_file:
+        carrier = DeviceId(f"{ARRAY}-crypt")
+        nodes.append(
+            Luks(
+                id=carrier,
+                backing=DeviceId(ARRAY),
+                name=array.name,
+                passphrase_file=array.passphrase_file,
+            )
+        )
+    filesystem = DeviceId(f"{ARRAY}-fs")
+    nodes.append(
+        Filesystem(id=filesystem, device=carrier, kind=array.filesystem, label=array.label)
+    )
+    if array.mountpoint:
+        nodes.append(
+            Mountpoint(
+                id=DeviceId(ARRAY_MOUNT),
+                source=filesystem,
+                path=PurePosixPath(array.mountpoint),
+                options=("umask=0077",) if array.filesystem is ESP_FILESYSTEM else (),
+            )
+        )
+    return nodes
+
+
 def build(layout: Layout) -> tuple[DeviceGraph, DeviceId]:
     """The graph and the id of the mount point that is `/`.
 
@@ -321,6 +390,7 @@ def build(layout: Layout) -> tuple[DeviceGraph, DeviceId]:
     nodes: list[Node] = []
     root = DeviceId("")
     vdevs: list[DeviceId] = []
+    members: list[DeviceId] = []
     #: Pool members with a mount point, each with the id prefix of its disk.
     datasets: list[tuple[str, Slice]] = []
     pool_passphrase = ""
@@ -352,6 +422,11 @@ def build(layout: Layout) -> tuple[DeviceGraph, DeviceId]:
                 pool_passphrase = pool_passphrase or entry.passphrase_file
                 if entry.mountpoint:
                     datasets.append((prefix, entry))
+                continue
+            if entry.role is PartitionRole.RAID:
+                # The array carries the filesystem and any LUKS, so a member
+                # carries neither.
+                members.append(part)
                 continue
             carrier = part
             if entry.passphrase_file:
@@ -393,6 +468,10 @@ def build(layout: Layout) -> tuple[DeviceGraph, DeviceId]:
             )
             if entry.mountpoint == "/":
                 root = mount
+    if members:
+        nodes += _array_nodes(layout.array, tuple(members))
+        if layout.array.mountpoint == "/":
+            root = DeviceId(ARRAY_MOUNT)
     if vdevs:
         nodes.append(
             ZfsPool(
