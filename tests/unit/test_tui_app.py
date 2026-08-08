@@ -418,7 +418,7 @@ def test_the_gentoozh_distfiles_are_appended_and_never_ranked() -> None:
     from gentoo_install.model.config import GentooZhMirror
     from gentoo_install.plan.portage import _appended_distfiles
 
-    off = replace(config().portage, mirrors=MirrorConfig())
+    off = replace(config().portage, mirrors=MirrorConfig(gentoo_zh_distfiles=False))
     assert _appended_distfiles(off) == ()
     on = replace(
         config().portage,

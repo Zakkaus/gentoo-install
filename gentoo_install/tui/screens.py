@@ -391,13 +391,22 @@ def _mirror_fields(current: MirrorConfig, translate: Catalog) -> list[Item[str]]
         ),
         Item(label=translate("Repository sync"), value="", detail=mirrors.gentoo_sync_uri(region, site)),
         Item(label=translate("rsync"), value="", detail=mirrors.gentoo_rsync_uri(region, site) or "-"),
-        Item(label=translate("gentoo-zh mirror"), value=_ZH_SITE, detail=zh.name),
+        Item(label=translate("gentoo-zh mirror"), value=_ZH_SITE, detail=translate(zh.name)),
         Item(
             label=translate("gentoo-zh distfiles"),
             value=_ZH_DISTFILES,
             detail=translate("appended") if current.gentoo_zh_distfiles else translate("not used"),
         ),
-        Item(label=translate("gentoo-zh binary packages"), value="", detail=mirrors.gentoozh_binhost(current.gentoo_zh)),
+        Item(
+            label=translate("Gentoo binary packages"),
+            value="",
+            detail=mirrors.gentoo_binhost(region, site),
+        ),
+        Item(
+            label=translate("gentoo-zh binary packages"),
+            value="",
+            detail=mirrors.gentoozh_binhost(current.gentoo_zh),
+        ),
         Item(label=translate("Done"), value=_DONE),
     ]
 
@@ -425,7 +434,11 @@ def _edit_mirror(
         chosen = Menu(
             title=translate("Gentoo mirror"),
             items=[
-                Item(label=one.name, value=one.key, detail=f"{one.area}  {one.distfiles}")
+                Item(
+                    label=translate(one.name),
+                    value=one.key,
+                    detail=f"{translate(one.area)}  {one.distfiles}",
+                )
                 for one in offered
             ],
             footer=_footer(translate),
@@ -445,9 +458,9 @@ def _edit_mirror(
             title=translate("gentoo-zh mirror"),
             items=[
                 Item(
-                    label=one.name,
+                    label=translate(one.name),
                     value=GentooZhMirror(one.key),
-                    detail=f"{one.area}  {one.distfiles}",
+                    detail=f"{translate(one.area)}  {one.distfiles}",
                 )
                 for one in mirrors.GENTOOZH_SITES
             ],
@@ -511,15 +524,17 @@ def keywords_screen(
     menu: Menu[Keywords] = Menu(
         title=translate("Package keywords"),
         items=[
+            # The keyword itself, not the enum name: `amd64` and `~amd64` are
+            # what the operator will see in every Portage message afterwards.
             Item(
-                label=Keywords.STABLE.value,
+                label="amd64",
                 value=Keywords.STABLE,
-                detail=translate("amd64, what a package is marked with when it is tested"),
+                detail=translate("the amd64 stable channel"),
             ),
             Item(
-                label=Keywords.TESTING.value,
+                label="~amd64",
                 value=Keywords.TESTING,
-                detail=translate("~amd64 for everything, newer and less tested"),
+                detail=translate("the ~amd64 unstable channel"),
             ),
         ],
         footer=_footer(translate),

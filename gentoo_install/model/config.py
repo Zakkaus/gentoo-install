@@ -174,9 +174,10 @@ class MirrorConfig:
     site: str = ""
     #: Which gentoo-zh mirror, chosen apart from the region above.
     gentoo_zh: GentooZhMirror = GentooZhMirror.UPSTREAM
-    #: Whether its distfiles are appended to GENTOO_MIRRORS. Off by default:
-    #: they are only needed for packages that come from the overlay.
-    gentoo_zh_distfiles: bool = False
+    #: Whether its distfiles are appended to GENTOO_MIRRORS. On: no main mirror
+    #: carries the overlay's sources, and appending costs nothing when the
+    #: overlay is not selected.
+    gentoo_zh_distfiles: bool = True
 
 
 @dataclass(frozen=True)

@@ -103,10 +103,17 @@ def in_a_table() -> set[str]:
     Read from the tables rather than listed again here: a second list is one
     more thing to forget when a row is added.
     """
+    from gentoo_install.model.mirrors import GENTOO_SITES, GENTOOZH_SITES
     from gentoo_install.tui.screens import DISPLAY_MANAGERS, GRAPHICS, KERNELS, LICENSES
 
     tables = (KERNELS, LICENSES, GRAPHICS, DISPLAY_MANAGERS)
-    return {reason for table in tables for _, reason in table}
+    found = {reason for table in tables for _, reason in table}
+    # A mirror is drawn by its own name and where it is, both translated: a
+    # Chinese interface listing "Nanjing University" reads half-finished.
+    for site in (*GENTOO_SITES, *GENTOOZH_SITES):
+        found.add(site.name)
+        found.add(site.area)
+    return found
 
 
 def displayed() -> set[str]:

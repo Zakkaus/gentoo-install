@@ -80,7 +80,13 @@ GENTOO_SITES: Final[tuple[Site, ...]] = (
     Site("lzu", "Lanzhou University", "Lanzhou", "https://mirror.lzu.edu.cn/gentoo"),
     Site("aliyun", "Aliyun", "China, CDN", "https://mirrors.aliyun.com/gentoo"),
     Site("netease", "NetEase 163", "China, CDN", "https://mirrors.163.com/gentoo"),
-    Site("cernet", "CERNET", "China, nearest", "https://mirrors.cernet.edu.cn/gentoo"),
+    # Federated: it answers with a 302 to whichever member is nearest, so one
+    # address covers all three services and needs no measurement of its own.
+    Site(
+        "cernet", "CERNET", "China, nearest",
+        "https://mirrors.cernet.edu.cn/gentoo",
+        "https://mirrors.cernet.edu.cn/gentoo-portage.git",
+    ),
     Site("cicku-hk", "CICKU", "Hong Kong", "https://hk.mirrors.cicku.me/gentoo"),
     Site(
         "planetunix-hk", "PlanetUnix", "Hong Kong",
@@ -189,6 +195,18 @@ def gentoo_rsync_uri(region: MirrorRegion, preferred: str = "") -> str:
     if chosen is not None and chosen.rsync:
         return chosen.rsync
     return next((site.rsync for site in gentoo_sites(region) if site.rsync), "")
+
+
+#: Where a mirror keeps the official binary packages for 23.0, relative to the
+#: distfiles base. Every site that carries the releases tree carries these.
+BINPACKAGES: Final[str] = "releases/amd64/binpackages/23.0"
+
+
+def gentoo_binhost(region: MirrorRegion, preferred: str = "", subarch: str = "x86-64") -> str:
+    """The official binary packages, from the same site as the distfiles."""
+    sites = gentoo_sites(region)
+    chosen = next((site for site in sites if site.key == preferred), sites[0])
+    return f"{chosen.distfiles}/{BINPACKAGES}/{subarch}"
 
 
 def gentoozh(chosen: GentooZhMirror) -> Site:

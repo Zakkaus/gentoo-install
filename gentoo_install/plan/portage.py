@@ -24,12 +24,9 @@ from ..model.config import (
 )
 from .operations import Context, Operation, Stage
 
-#: Where Gentoo publishes binary packages for 23.0. Only `x86-64` and
-#: `x86-64-v3` carry a useful number of them; the other subarchitectures are
-#: nearly empty, so the interface offers those two.
-OFFICIAL_BINHOST: Final[str] = (
-    "https://distfiles.gentoo.org/releases/amd64/binpackages/23.0"
-)
+#: Only `x86-64` and `x86-64-v3` carry a useful number of official binary
+#: packages; the other subarchitectures are nearly empty, so the interface
+#: offers those two. Which mirror serves them is `model/mirrors.py`.
 
 #: The release engineering key, pinned. A fingerprint that does not match this
 #: is a failed install, not a prompt to trust something new.
@@ -535,7 +532,9 @@ def build(
         operations.append(
             ConfigureBinhost(
                 name="gentoo",
-                sync_uri=f"{OFFICIAL_BINHOST}/{portage.binhost.subarch}",
+                sync_uri=mirrors.gentoo_binhost(
+                    portage.mirrors.region, portage.mirrors.site, portage.binhost.subarch
+                ),
                 verify=True,
             )
         )
