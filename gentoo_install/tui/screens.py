@@ -142,8 +142,15 @@ def footer(translate: Catalog) -> str:
     )
 
 
-def _rebuild(config: InstallConfig, choice: Choice) -> InstallConfig:
-    graph, root = build(choice)
+def _rebuild(config: InstallConfig, context: Context) -> InstallConfig:
+    """The disk graph, from whichever description the operator is editing.
+
+    Through the template only when that is what the layout row chose. A screen
+    that rebuilt from the template regardless replaced a hand-written or reused
+    table with a whole-disk graph carrying `wipe`, which is the operator's data
+    destroyed by opening an unrelated row.
+    """
+    graph, root = manual.build(context.layout) if context.manual else build(context.choice)
     return replace(config, disk=DiskConfig(graph=graph, root=root))
 
 
@@ -161,7 +168,7 @@ def disk_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
         return Answer(answer.outcome)
     context.choice = replace(context.choice, disk=answer.unwrap()[0])
     context.inspect_disk(context.choice.disk)
-    return Answer(Outcome.CHOSE, _rebuild(config, context.choice))
+    return Answer(Outcome.CHOSE, _rebuild(config, context))
 
 
 def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
@@ -206,7 +213,7 @@ def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> An
         return partitions_screen(screen, config, context)
     context.manual = False
     context.choice = replace(context.choice, layout=layout, filesystem=filesystem)
-    changed = _rebuild(config, context.choice)
+    changed = _rebuild(config, context)
     if layout is Layout.WHOLE_DISK_ZFS:
         changed = _zfs_bootloader(screen, changed, context)
     return Answer(Outcome.CHOSE, changed)
@@ -1284,12 +1291,12 @@ def encryption_screen(screen: Screen, config: InstallConfig, context: Context) -
         return Answer(wanted.outcome)
     if not wanted.unwrap():
         context.choice = replace(context.choice, passphrase_file="")
-        return Answer(Outcome.CHOSE, _rebuild(config, context.choice))
+        return Answer(Outcome.CHOSE, _rebuild(config, context))
     staged = _ask_passphrase(screen, context)
     if not staged:
         return Answer(Outcome.BACK)
     context.choice = replace(context.choice, passphrase_file=staged)
-    return Answer(Outcome.CHOSE, _rebuild(config, context.choice))
+    return Answer(Outcome.CHOSE, _rebuild(config, context))
 
 
 def _ask_passphrase(screen: Screen, context: Context) -> str:
@@ -1356,7 +1363,7 @@ def swap_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
             replace(config, system=replace(config.system, zram=Size.parse(chosen.removeprefix("zram:")))),
         )
     context.choice = replace(context.choice, swap=Size.parse(chosen) if chosen else None)
-    return Answer(Outcome.CHOSE, _rebuild(config, context.choice))
+    return Answer(Outcome.CHOSE, _rebuild(config, context))
 
 
 def sshd_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
@@ -1454,7 +1461,7 @@ def table_screen(screen: Screen, config: InstallConfig, context: Context) -> Ans
     if not answer.chosen:
         return Answer(answer.outcome)
     context.choice = replace(context.choice, table=answer.unwrap()[0])
-    return Answer(Outcome.CHOSE, _rebuild(config, context.choice))
+    return Answer(Outcome.CHOSE, _rebuild(config, context))
 
 
 def firmware_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
@@ -1477,7 +1484,7 @@ def firmware_screen(screen: Screen, config: InstallConfig, context: Context) -> 
         return Answer(answer.outcome)
     firmware = answer.unwrap()[0]
     context.choice = replace(context.choice, firmware=firmware)
-    changed = _rebuild(config, context.choice)
+    changed = _rebuild(config, context)
     return Answer(
         Outcome.CHOSE,
         replace(changed, bootloader=replace(changed.bootloader, firmware=firmware)),

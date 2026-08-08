@@ -378,3 +378,19 @@ def test_a_reused_esp_resolves_to_the_device_the_bootloader_installs_onto() -> N
     installation = config_from(graph, root)
     assert bootloader._esp_partition(installation) == "kept1"
     assert any("install GRUB" in one.describe() for one in bootloader.build(installation))
+
+
+def test_opening_another_row_does_not_replace_a_reused_table_with_a_wipe() -> None:
+    """Every screen rebuilt the disk from the whole-disk template, so opening
+    Swap on a reused layout turned it into `wipe the whole disk`."""
+    from gentoo_install.model.device import Existing
+
+    at = opened()
+    at.layout = manual.Layout(disk="/dev/vda", reused=[
+        manual.Reused(selector="/dev/vda1", filesystem=FilesystemType.VFAT, mountpoint="/efi"),
+        manual.Reused(selector="/dev/vda2", filesystem=FilesystemType.EXT4, mountpoint="/"),
+    ])
+    answer = screens.swap_screen(FakeScreen(keys=["\n"]), config(), at)
+    graph = answer.unwrap().disk.graph
+    assert [one.wipe for one in graph.of_type(Existing)] == [False, False]
+    assert not graph.of_type(Partition)
