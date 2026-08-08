@@ -150,7 +150,7 @@ def _swap(config: InstallConfig, context: Context) -> str:
         return f"zram {config.system.zram}"
     if config.disk.graph.of_type(Swap):
         return "a partition"
-    return "none"
+    return context.translate("none")
 
 
 def _logger(config: InstallConfig, context: Context) -> str:
@@ -237,7 +237,7 @@ def _remote_unlock(config: InstallConfig, context: Context) -> str:
 
 def _keys(config: InstallConfig, context: Context) -> str:
     count = len(config.system.authorized_keys)
-    return f"{count} authorised" if count else "none"
+    return f"{count} authorised" if count else context.translate("none")
 
 
 def _mirror(config: InstallConfig, context: Context) -> str:
@@ -274,8 +274,10 @@ def _layout(config: InstallConfig, context: Context) -> str:
 
 def _partitions(config: InstallConfig, context: Context) -> str:
     if not context.manual:
-        return "from the layout above"
-    return ", ".join(entry.describe().split("  ")[1] for entry in context.layout.slices) or "none"
+        return context.translate("from the layout above")
+    return ", ".join(
+        entry.describe().split("  ")[1] for entry in context.layout.slices
+    ) or context.translate("none")
 
 
 def _encryption(config: InstallConfig, context: Context) -> str:
@@ -284,8 +286,8 @@ def _encryption(config: InstallConfig, context: Context) -> str:
     carried no container and the machine came up unencrypted."""
     graph = config.disk.graph
     if graph.of_type(Luks) or any(pool.passphrase_file for pool in graph.of_type(ZfsPool)):
-        return "on"
-    return "off"
+        return context.translate("on")
+    return context.translate("off")
 
 
 def _root(config: InstallConfig, context: Context) -> str:
@@ -293,7 +295,7 @@ def _root(config: InstallConfig, context: Context) -> str:
 
 
 def _user(config: InstallConfig, context: Context) -> str:
-    return ", ".join(user.name for user in config.system.users) or "none"
+    return ", ".join(user.name for user in config.system.users) or context.translate("none")
 
 
 def _graphics(config: InstallConfig, context: Context) -> str:
@@ -305,7 +307,7 @@ def _display_manager(config: InstallConfig, context: Context) -> str:
 
 
 def _applications(config: InstallConfig, context: Context) -> str:
-    return ", ".join(config.packages.applications) or "none"
+    return ", ".join(config.packages.applications) or context.translate("none")
 
 
 def _root_login(config: InstallConfig, context: Context) -> str:
@@ -336,7 +338,7 @@ def _cflags(config: InstallConfig, context: Context) -> str:
 
 
 def _extra(config: InstallConfig, context: Context) -> str:
-    return " ".join(config.packages.extra) or "none"
+    return " ".join(config.packages.extra) or context.translate("none")
 
 
 def _erase(config: InstallConfig, context: Context) -> str:
@@ -429,7 +431,10 @@ INIT: Final[tuple[Setting, ...]] = (
 #: The desktop, as one subject. Which session, which driver and which login
 #: screen are one decision made three times, not three unrelated rows.
 DESKTOP: Final[tuple[Setting, ...]] = (
-    Setting("desktop", "Desktop", lambda c, x: c.packages.desktop or "none", screens.desktop_screen),
+    Setting(
+        "desktop", "Desktop", lambda c, x: c.packages.desktop or x.translate("none"),
+        screens.desktop_screen,
+    ),
     Setting("graphics", "Graphics", _graphics, screens.graphics_screen),
     Setting("dm", "Display manager", _display_manager, screens.display_manager_screen),
 )

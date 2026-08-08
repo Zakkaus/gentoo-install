@@ -1258,3 +1258,17 @@ def test_selecting_gentoo_zh_turns_its_binary_host_on() -> None:
         ),
     )
     assert screens._with_gentoo_zh(picked).binhost.community is BinhostChannel.UNSTABLE
+
+
+def test_the_rows_say_not_set_in_the_language_the_menu_is_in() -> None:
+    """`UNSET` is the sentinel `style_of` compares against, so it reached the
+    screen untranslated and one English line sat in a Chinese menu."""
+    from gentoo_install.i18n import Catalog
+    from gentoo_install.tui.app import _drawn
+
+    at = context()
+    at.translate = Catalog("zh-TW")
+    blank = replace(config(), system=replace(config().system, root_password_hash=""))
+    root = next(one for one in settings.SETTINGS if one.key == "root")
+    assert root.value(blank, at) == settings.UNSET
+    assert _drawn(root, blank, at) == at.translate(settings.UNSET) != settings.UNSET

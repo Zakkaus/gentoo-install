@@ -47,7 +47,17 @@ from ..model.templates import Choice, Layout, build
 from ..model.validate import validate
 from ..plan.packages import Catalog as Groups
 from ..plan import system as plan_system
-from .widgets import Answer, Confirm, Field, Form, Item, Menu, Outcome, Screen, TextField
+from .widgets import (
+    Answer,
+    Confirm,
+    Field,
+    Form,
+    Item,
+    Menu,
+    Outcome,
+    Screen,
+    TextField,
+)
 
 #: A screen takes what has been decided and returns it changed.
 Step = Callable[[Screen, InstallConfig, "Context"], Answer[InstallConfig]]

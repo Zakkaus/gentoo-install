@@ -14,7 +14,7 @@ from ..model.config import InstallConfig
 from ..model.validate import validate
 from ..errors import ValidationFailed
 from .screens import Context, answers, overview_screen
-from .settings import SETTINGS, style_of, unanswered
+from .settings import SETTINGS, UNSET, Setting, style_of, unanswered
 from .widgets import Confirm, Item, Menu, Outcome, Screen
 
 
@@ -40,7 +40,7 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
             Item(
                 label=context.translate(setting.label),
                 value=index,
-                detail=setting.value(current, context),
+                detail=_drawn(setting, current, context),
                 disabled_because=""
                 if setting.edit
                 else context.translate("detected from this machine"),
@@ -97,6 +97,13 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
             continue
         if edited.chosen:
             current = edited.unwrap()
+
+
+def _drawn(setting: Setting, config: InstallConfig, context: Context) -> str:
+    """A row's value as the operator reads it. `UNSET` is the sentinel
+    `style_of` compares against, so it is translated here and not there."""
+    value = setting.value(config, context)
+    return context.translate(value) if value == UNSET else value
 
 
 def _leaving(screen: Screen, context: Context) -> bool:
