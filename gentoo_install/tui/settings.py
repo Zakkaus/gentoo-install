@@ -303,14 +303,16 @@ def _table(config: InstallConfig, context: Context) -> str:
     `build_reused` writes no partition table at all, so the row read `not set`
     for ever and every answer given to it looked like it had not taken.
     """
-    if context.layout.reused:
+    if not context.layout.writes_the_table() and context.layout.slices:
         return context.translate("the one already on the disk")
     tables = {node.table.value for node in config.disk.graph.of_type(PartitionTable)}
     return ", ".join(sorted(tables)) if tables else UNSET
 
 
 def _reuse_writes_no_table(config: InstallConfig, context: Context) -> str:
-    if context.layout.reused:
+    """A table nobody edits is never written, so its type is whatever the disk
+    already carries."""
+    if context.layout.slices and not context.layout.writes_the_table():
         return context.translate("a reused layout writes no table")
     return ""
 
@@ -328,7 +330,7 @@ def _template_writes_the_table(config: InstallConfig, context: Context) -> str:
     and the editor then listed the disk's contents as about to be erased, which
     is not what the operator had chosen a template for.
     """
-    if context.manual or context.layout.reused:
+    if context.manual:
         return ""
     return context.translate("the layout row writes this table")
 
@@ -432,7 +434,7 @@ DISK: Final[tuple[Setting, ...]] = (
     ),
     Setting("layout", "Layout", _layout, screens.layout_screen),
     Setting(
-        "partitions", "Partitions", _partitions, screens.partitions_row,
+        "partitions", "Partitions", _partitions, screens.partitions_screen,
         unavailable=_template_writes_the_table,
     ),
     Setting("encryption", "Encryption", _encryption, screens.encryption_screen),

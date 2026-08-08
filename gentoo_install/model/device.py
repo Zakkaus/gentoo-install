@@ -105,6 +105,14 @@ class Existing(Node):
 class PartitionTable(Node):
     disk: DeviceId
     table: TableType
+    #: Whether the table is written from scratch. Off edits the one already on
+    #: the disk, which is what lets a partition be kept beside a new one:
+    #: `sgdisk --zap-all` would take every entry with it.
+    create: bool = True
+    #: Entries removed from a table that is not written from scratch. Deleting
+    #: is an edit to the table, so it belongs to the table and not to a node of
+    #: its own: the partition it names stops existing.
+    remove: tuple[int, ...] = ()
 
     @property
     def inputs(self) -> tuple[DeviceId, ...]:

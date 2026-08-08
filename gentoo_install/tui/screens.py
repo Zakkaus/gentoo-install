@@ -211,28 +211,14 @@ def disk_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     # hand-written, so leaving this behind partitioned the disk the operator
     # switched away from. The kept rows name partitions of that disk and go too.
     context.layout.disk = picked
-    context.layout.reused = []
+    # The rows name partitions of the disk that is no longer the target.
+    context.layout.slices = []
     # Cleared with the disk: the operator typed the name of the one they were
     # looking at, and carrying that confirmation to another unblocks the
     # install for a disk nobody agreed to erase.
     context.erase_confirmed = False
     context.inspect_disk(picked)
     return Answer(Outcome.CHOSE, _rebuild(config, context))
-
-
-def partitions_row(
-    screen: Screen, config: InstallConfig, context: Context
-) -> Answer[InstallConfig]:
-    """The table editor for whichever mode the layout row chose.
-
-    Two editors, not one: a hand-written table replaces the whole partition
-    table, and a reused one writes none at all and decides per partition
-    whether it is formatted. Opening the manual editor over a reused layout
-    threw those decisions away.
-    """
-    if context.layout.reused:
-        return reuse_screen(screen, config, context)
-    return partitions_screen(screen, config, context)
 
 
 def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
@@ -253,12 +239,7 @@ def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> An
         Item(
             label=translate("manual"),
             value=(None, FilesystemType.EXT4),
-            detail=translate("choose the partitions yourself"),
-        ),
-        Item(
-            label=translate("reuse"),
-            value=(Layout.REUSE, FilesystemType.EXT4),
-            detail=translate("keep the partitions already on the disk"),
+            detail=translate("one table: keep, format, delete or add each partition"),
         ),
     ]
     menu: Menu[tuple[Layout | None, FilesystemType]] = Menu(
@@ -269,12 +250,8 @@ def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> An
         return Answer(answer.outcome)
     layout, filesystem = answer.unwrap()[0]
     context.manual = False
-    if layout is Layout.REUSE:
-        return reuse_screen(screen, config, context)
     if layout is None:
-        context.layout.reused = []
         return partitions_screen(screen, config, context)
-    context.manual = False
     context.choice = replace(context.choice, layout=layout, filesystem=filesystem)
     changed = _rebuild(config, context)
     if layout is Layout.WHOLE_DISK_ZFS:
@@ -282,122 +259,10 @@ def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     return Answer(Outcome.CHOSE, changed)
 
 
-def reuse_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
-    """The partitions already on the disk, each given a mount point.
-
-    Nothing is partitioned, so every partition the operator leaves alone keeps
-    its data. Formatting one is a choice per row rather than a mode.
-    """
-    translate = context.translate
-    if not context.existing:
-        _say(screen, context, translate("This disk holds no partitions."))
-        return Answer(Outcome.BACK)
-    if [one.selector for one in context.layout.reused] != [
-        name for name, _, _ in context.existing
-    ]:
-        context.layout.reused = [
-            manual.Reused(selector=name, filesystem=_known(kind))
-            for name, _, kind in context.existing
-        ]
-    cursor = 0
-    while True:
-        rows: list[Item[int]] = [
-            Item(label=one.describe(), value=index, detail=size)
-            for index, (one, size) in enumerate(
-                zip(context.layout.reused, [size for _, size, _ in context.existing])
-            )
-        ]
-        rows.append(Item(label=translate("Done"), value=len(context.layout.reused)))
-        menu: Menu[int] = Menu(
-            title=f"{translate('Reuse partitions')}  {_layout_problem(context, config)}".strip(),
-            items=rows,
-            footer=footer(translate),
-            cursor=cursor,
-        )
-        answer = menu.run(screen)
-        cursor = menu.cursor
-        if not answer.chosen:
-            return Answer(answer.outcome)
-        chosen = answer.unwrap()[0]
-        if chosen == len(context.layout.reused):
-            context.manual = True
-            graph, root = manual.build(context.layout)
-            return Answer(Outcome.CHOSE, replace(config, disk=DiskConfig(graph=graph, root=root)))
-        edited = _edit_reused(screen, context, context.layout.reused[chosen])
-        if edited is not None:
-            context.layout.reused[chosen] = edited
-
-
 def _known(kind: str) -> FilesystemType | None:
     """The type blkid reported, when the model has a member for it. ntfs and
     exfat are mounted and never created, so they have no member and no row."""
     return next((one for one in FilesystemType if one.value == kind), None)
-
-
-def _edit_reused(
-    screen: Screen, context: Context, entry: manual.Reused
-) -> manual.Reused | None:
-    translate = context.translate
-    cursor = 0
-    while True:
-        rows: list[Item[str]] = [
-            Item(
-                label=translate("Mount point"),
-                value=_MOUNTPOINT,
-                detail=entry.mountpoint or translate("not mounted"),
-                # A type with no `FilesystemType` member, ntfs and exfat among
-                # them, has no fstab line to write, and taking a mount point
-                # for one dropped it without saying so.
-                disabled_because=(
-                    "" if entry.filesystem else translate("name the filesystem first")
-                ),
-            ),
-            Item(
-                label=translate("Filesystem"),
-                value=_FILESYSTEM,
-                detail=entry.filesystem.value if entry.filesystem else translate("unknown"),
-            ),
-            Item(
-                label=translate("Format it"),
-                value=_FORMAT,
-                detail=translate("yes") if entry.format else translate("no, keep the data"),
-            ),
-            Item(label=translate("Done"), value=_DONE),
-        ]
-        menu: Menu[str] = Menu(
-            title=entry.selector, items=rows, footer=footer(translate), cursor=cursor
-        )
-        answer = menu.run(screen)
-        cursor = menu.cursor
-        if not answer.chosen:
-            return None
-        field = answer.unwrap()[0]
-        if field == _DONE:
-            return entry
-        if field == _MOUNTPOINT:
-            where = TextField(
-                title=translate("Mount point"),
-                value=entry.mountpoint,
-                placeholder=translate("/srv, or empty to leave it unmounted"),
-                footer=footer(translate),
-            ).run(screen)
-            if where.chosen:
-                entry = replace(entry, mountpoint=where.unwrap().strip())
-        elif field == _FILESYSTEM:
-            picked = Menu(
-                title=translate("Filesystem"),
-                items=[Item(label=one.value, value=one) for one in FilesystemType],
-                footer=footer(translate),
-            ).run(screen)
-            if picked.chosen:
-                entry = replace(entry, filesystem=picked.unwrap()[0])
-        else:
-            asked = Confirm(
-                **answers(translate),
-                title=translate("Format it, losing what is on it?"), footer=footer(translate)
-            ).run(screen)
-            if asked.chosen:
-                entry = replace(entry, format=asked.unwrap())
 
 
 def _zfs_bootloader(screen: Screen, config: InstallConfig, context: Context) -> InstallConfig:
@@ -1894,17 +1759,16 @@ def partitions_screen(
     cannot be installed says why here rather than at the first `mkfs`.
     """
     translate = context.translate
-    if context.layout.disk != context.choice.disk:
-        # Seeded from the template that was chosen, not from a fixed default:
-        # opening this row after picking zfs used to show an ext4 root and
-        # discard the choice.
-        context.layout = manual.suggest(
-            context.choice.disk, context.choice.firmware, _template_filesystem(context.choice)
-        )
+    if context.layout.disk != context.choice.disk or not context.layout.slices:
+        # Seeded from what is on the disk when there is anything, and from the
+        # template that was chosen when there is not: opening this row after
+        # picking zfs used to show an ext4 root and discard the choice.
+        context.layout = _seed(context)
     while True:
         rows = sorted(context.layout.slices, key=lambda one: one.index)
-        items: list[Item[int]] = list(_existing(context))
-        items += [Item(label=entry.describe(), value=index) for index, entry in enumerate(rows)]
+        items: list[Item[int]] = [
+            Item(label=entry.describe(), value=index) for index, entry in enumerate(rows)
+        ]
         members = [one for one in rows if one.role is PartitionRole.ZFS]
         if len(members) > 1:
             # Only with more than one member: a pool of one has nothing to
@@ -1922,7 +1786,11 @@ def partitions_screen(
             # The title says what the screen does, not just what it is about:
             # a table of the disk's current contents beside a table being
             # written reads as one list with no explanation.
-            title=f"{translate('A new partition table')}  {_capacity(context)}",
+            title=(
+                f"{translate('Partitions')}  {_capacity(context)}"
+                if not context.layout.writes_the_table()
+                else f"{translate('A new partition table')}  {_capacity(context)}"
+            ),
             items=items,
             footer=f"{_layout_problem(context, config)}  {footer(translate)}".strip(),
         )
@@ -1967,12 +1835,39 @@ def _capacity(context: Context) -> str:
     total = context.disk_size
     if not total:
         return ""
-    claimed = sum(
-        entry.size.bytes for entry in context.layout.slices if entry.size is not None
-    )
-    rest = any(entry.size is None for entry in context.layout.slices)
+    fresh = [one for one in context.layout.slices if one.status is manual.SliceStatus.CREATE]
+    claimed = sum(entry.size.bytes for entry in fresh if entry.size is not None)
+    rest = any(entry.size is None for entry in fresh)
     used = Size(claimed)
     return f"{total} total, {used} claimed{', rest to one partition' if rest else ''}"
+
+
+def _seed(context: Context) -> manual.Layout:
+    """The table the editor opens on.
+
+    Every partition already on the disk, kept: an operator who opens this over
+    a machine with data on it should see that data, not a proposal that erases
+    it. An empty disk has nothing to list, so it gets the template's proposal.
+    """
+    if not context.existing:
+        return manual.suggest(
+            context.choice.disk, context.choice.firmware, _template_filesystem(context.choice)
+        )
+    seeded = manual.Layout(
+        disk=context.choice.disk, table=context.choice.table or TableType.GPT
+    )
+    for index, (selector, _, kind) in enumerate(context.existing, start=1):
+        seeded.slices.append(
+            manual.Slice(
+                index=index,
+                role=PartitionRole.DATA,
+                size=None,
+                filesystem=_known(kind),
+                status=manual.SliceStatus.KEEP,
+                selector=selector,
+            )
+        )
+    return seeded
 
 
 def _pool_topology(
@@ -1996,20 +1891,6 @@ def _pool_topology(
         title=translate("Pool topology"), items=items, footer=footer(translate)
     ).run(screen)
     return answer.unwrap()[0] if answer.chosen else None
-
-
-def _existing(context: Context) -> tuple[Item[int], ...]:
-    """What is on the disk now, drawn above the table and not selectable."""
-    return tuple(
-        Item(
-            label=f"{name}  {size}  {kind or 'no filesystem'}",
-            value=-1,
-            disabled_because=context.translate(
-                "on the disk now; the new table replaces it"
-            ),
-        )
-        for name, size, kind in context.existing
-    )
 
 
 def _layout_problem(context: Context, config: InstallConfig) -> str:
@@ -2042,6 +1923,7 @@ _FORMAT: Final[str] = "format"
 _LABEL: Final[str] = "label"
 _ENCRYPTION: Final[str] = "encryption"
 _DELETE: Final[str] = "delete"
+_STATUS: Final[str] = "status"
 
 
 def _edit_slice(
@@ -2108,7 +1990,18 @@ def _slice_fields(
             value=_ENCRYPTION,
             detail=translate("on") if entry.passphrase_file else translate("off"),
         ),
-        Item(label=translate("Delete this partition"), value=_DELETE),
+        Item(
+            label=translate("What happens to it"),
+            value=_STATUS,
+            detail=translate(entry.status.value),
+        ),
+        # Only a row this table invented: one already on the disk is removed by
+        # answering `delete`, which is an edit to the table and not to the list.
+        *(
+            [Item(label=translate("Take this row off the table"), value=_DELETE)]
+            if entry.status is manual.SliceStatus.CREATE
+            else []
+        ),
         Item(label=translate("Done"), value=_DONE),
     ]
 
@@ -2126,6 +2019,27 @@ def _edit_field(
 ) -> manual.Slice | None:
     """The one screen behind a field, or None when the operator went back."""
     translate = context.translate
+    if field == _STATUS:
+        offered = (
+            [manual.SliceStatus.CREATE]
+            if entry.status is manual.SliceStatus.CREATE
+            else [
+                manual.SliceStatus.KEEP,
+                manual.SliceStatus.FORMAT,
+                manual.SliceStatus.DELETE,
+            ]
+        )
+        chosen_status: Answer[list[manual.SliceStatus]] = Menu(
+            title=translate("What happens to it"),
+            items=[
+                Item(label=translate(one.value), value=one, detail=translate(manual.STATUS_REASONS[one]))
+                for one in offered
+            ],
+            footer=footer(translate),
+        ).run(screen)
+        if not chosen_status.chosen:
+            return None
+        return replace(entry, status=chosen_status.unwrap()[0])
     if field == _SIZE:
         typed = TextField(
             title=translate("Size"),

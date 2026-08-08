@@ -660,34 +660,38 @@ def test_choosing_dhcp_clears_every_static_field() -> None:
     assert system.addresses == () and system.gateways == () and system.dns == ()
 
 
-def test_the_reuse_row_lists_what_is_on_the_disk_and_keeps_it_by_default() -> None:
+def test_the_table_lists_what_is_on_the_disk_and_keeps_it_by_default() -> None:
     """Every partition the operator leaves alone keeps its data, so `keep` is
-    the default and formatting is a choice per row."""
+    the row's default and everything else is a choice made on that row."""
     at = context()
+    at.manual = True
+    at.layout.disk = ""
     at.existing = (
         ("/dev/vda1", "1 GiB", "vfat"),
         ("/dev/vda2", "40 GiB", "ext4"),
         ("/dev/vda3", "500 GiB", "ntfs"),
     )
-    screen = FakeScreen(keys=[*down(3), "\n"], lines=30, columns=110)
-    screens.reuse_screen(screen, config(), at)
-    kept = at.layout.reused
-    assert [one.selector for one in kept] == ["/dev/vda1", "/dev/vda2", "/dev/vda3"]
-    assert not any(one.format for one in kept)
+    screen = FakeScreen(keys=["q"], lines=30, columns=110)
+    screens.partitions_screen(screen, config(), at)
+    rows = at.layout.slices
+    assert [one.selector for one in rows] == ["/dev/vda1", "/dev/vda2", "/dev/vda3"]
+    assert all(one.status is manual.SliceStatus.KEEP for one in rows)
     # ntfs has no FilesystemType member: it is mounted and never created, so
     # the row reports the type as unrecognised rather than inventing one.
-    assert kept[2].filesystem is None
-    assert kept[1].filesystem is FilesystemType.EXT4
+    assert rows[2].filesystem is None
+    assert rows[1].filesystem is FilesystemType.EXT4
 
 
-def test_reuse_on_a_disk_with_nothing_on_it_says_so() -> None:
+def test_an_empty_disk_opens_on_the_template_proposal() -> None:
+    """There is nothing to list, and an empty table is not a starting point."""
     at = context()
+    at.manual = True
+    at.layout.disk = ""
     at.existing = ()
-    screen = FakeScreen(keys=["\n"], lines=20)
-    answer = screens.reuse_screen(screen, config(), at)
-    assert answer.outcome is Outcome.BACK
-    assert "no partitions" in "\n".join("\n".join(frame) for frame in screen.frames)
-
+    screen = FakeScreen(keys=["q"], lines=20, columns=100)
+    screens.partitions_screen(screen, config(), at)
+    assert at.layout.slices
+    assert all(one.status is manual.SliceStatus.CREATE for one in at.layout.slices)
 
 def test_the_reuse_layout_is_never_built_from_a_template() -> None:
     """A template has no existing partitions to name, so approximating one
@@ -767,7 +771,6 @@ def test_what_still_asks_before_it_changes() -> None:
 
     source = inspect.getsource(screens)
     asked = {
-        "Format it, losing what is on it?",
         "This erases every partition on the disk.",
         "Encrypt the root filesystem?",
         "Encrypt this partition?",
@@ -779,9 +782,9 @@ def test_what_still_asks_before_it_changes() -> None:
     }
     for title in asked:
         assert title in source, title
-    # Eight call sites, nine titles: the slice screen words its question for a
+    # Seven call sites, eight titles: the slice screen words its question for a
     # pool or for a partition.
-    assert source.count("Confirm(") == 8
+    assert source.count("Confirm(") == 7
 
 
 def test_a_zfs_root_is_offered_no_kernel_the_module_will_not_build_for() -> None:
@@ -913,8 +916,13 @@ def test_a_layout_editor_that_backs_out_leaves_no_manual_table_behind() -> None:
     at = context()
     at.existing = ()
     at.manual = False
-    # reuse on a disk with nothing on it: the screen reports and goes back.
-    screens.layout_screen(FakeScreen(keys=[*down(5), "\n", "\n"], lines=30), config(), at)
+    # Into the manual editor and straight back out of it.
+    manual_row = next(
+        n for n, one in enumerate(("ext4", "xfs", "btrfs", "zfs", "manual")) if one == "manual"
+    )
+    screens.layout_screen(
+        FakeScreen(keys=[*down(manual_row), "\n", "q"], lines=30), config(), at
+    )
     assert not at.manual
 
 

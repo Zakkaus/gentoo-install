@@ -148,16 +148,36 @@ class WipeSignatures(Operation):
 
 @dataclass(frozen=True, kw_only=True)
 class CreatePartitionTable(Operation):
+    """A fresh table, or the entries removed from the one already there.
+
+    `--zap-all` takes every entry with it, so a table holding a partition the
+    operator asked to keep is edited rather than written.
+    """
+
     stage: Stage = Stage.PARTITION
     table: DeviceId
     disk: DeviceId
     kind: TableType
+    create: bool = True
+    remove: tuple[int, ...] = ()
 
     def describe(self) -> str:
-        return f"create a {self.kind.value} partition table on {self.disk} as {self.table}"
+        if self.create:
+            return f"create a {self.kind.value} partition table on {self.disk} as {self.table}"
+        if not self.remove:
+            return f"keep the {self.kind.value} partition table on {self.disk} as {self.table}"
+        listed = ", ".join(str(one) for one in self.remove)
+        return f"delete partition {listed} from {self.disk}, keeping the rest of its table"
 
     def apply(self, context: Context) -> None:
         path = context.device_path(self.disk)
+        if not self.create:
+            for index in self.remove:
+                # Highest first: sgdisk addresses entries by number and the
+                # numbers do not shift, but reading the log in that order
+                # matches the table the operator was looking at.
+                context.run(["sgdisk", f"--delete={index}", path])
+            return
         if self.kind is TableType.GPT:
             context.run(["sgdisk", "--zap-all", path])
         else:
@@ -663,7 +683,15 @@ def _operations_for(graph: DeviceGraph, node: Node) -> list[Operation]:
     if isinstance(node, Existing):
         return [WipeSignatures(device=node.id)] if node.wipe else []
     if isinstance(node, PartitionTable):
-        return [CreatePartitionTable(table=node.id, disk=node.disk, kind=node.table)]
+        return [
+            CreatePartitionTable(
+                table=node.id,
+                disk=node.disk,
+                kind=node.table,
+                create=node.create,
+                remove=node.remove,
+            )
+        ]
     if isinstance(node, Partition):
         table = _expect(graph, node.table, PartitionTable)
         return [

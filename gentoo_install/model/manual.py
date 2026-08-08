@@ -8,6 +8,7 @@ produce the graph a configuration file would have described.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from enum import Enum
 from pathlib import PurePosixPath
 from typing import Final
 
@@ -99,24 +100,43 @@ def purpose_of(entry: Slice) -> Purpose:
     return _OTHER
 
 
-@dataclass(frozen=True)
-class Reused:
-    """A partition that already exists and is kept.
+class SliceStatus(Enum):
+    """What happens to one row of the table.
 
-    `selector` is the path `exec/probe.py` listed. `format` chooses between
-    reusing what is on it and making a new filesystem in place; either way no
-    partition table is written, so every other partition on the disk survives.
+    Taken from `archinstall`'s `ModificationStatus`. Two exclusive modes could
+    not say "keep the Windows partition, reformat the root, delete the rest,
+    add a swap", and that is the ordinary case rather than an exotic one.
     """
 
-    selector: str
-    mountpoint: str = ""
-    filesystem: FilesystemType | None = None
-    format: bool = False
+    #: Already there and untouched. Mounted if it names a mount point.
+    KEEP = "keep"
+    #: Already there, kept in the table, given a new filesystem.
+    FORMAT = "format"
+    #: Already there, removed from the table. Its data goes with it.
+    DELETE = "delete"
+    #: Not there yet.
+    CREATE = "create"
 
-    def describe(self) -> str:
-        kind = self.filesystem.value if self.filesystem is not None else "unknown"
-        what = "format" if self.format else "keep"
-        return f"{self.selector}  {kind}  {self.mountpoint or '-'}  {what}"
+    @property
+    def exists(self) -> bool:
+        return self is not SliceStatus.CREATE
+
+    @property
+    def edits_the_table(self) -> bool:
+        """Whether this row changes the partition table itself. A table nobody
+        edits is never written, and every partition on the disk survives."""
+        return self in (SliceStatus.DELETE, SliceStatus.CREATE)
+
+
+#: What each status does, as the row says it. Beside the enum rather than in
+#: the screen: a status added here without a sentence is a menu row that reads
+#: as its own key.
+STATUS_REASONS: Final[dict[SliceStatus, str]] = {
+    SliceStatus.KEEP: "left alone, data and all",
+    SliceStatus.FORMAT: "kept in the table, given a new filesystem",
+    SliceStatus.DELETE: "removed from the table, data and all",
+    SliceStatus.CREATE: "not on the disk yet",
+}
 
 
 @dataclass(frozen=True)
@@ -134,13 +154,20 @@ class Slice:
     #: A path on the installing system, never the passphrase. Non-empty puts
     #: LUKS between the partition and its filesystem, or encrypts the pool.
     passphrase_file: str = ""
+    status: SliceStatus = SliceStatus.CREATE
+    #: The path `exec/probe.py` listed, for a row that is already on the disk.
+    #: Empty for `create`, which has no device until the plan runs.
+    selector: str = ""
 
     def describe(self) -> str:
-        size = str(self.size) if self.size is not None else "rest"
+        # A row already on the disk has whatever size it has; only a new one is
+        # given the rest of the free space.
+        size = str(self.size) if self.size is not None else ("" if self.status.exists else "rest")
         kind = self.filesystem.value if self.filesystem is not None else self.role.value
         where = self.mountpoint or "-"
         locked = " luks" if self.passphrase_file else ""
-        return f"{self.index}  {size:>9}  {kind:<6}{locked}  {where}"
+        named = self.selector.rsplit("/", 1)[-1] if self.selector else str(self.index)
+        return f"{named:<10} {size:>9}  {kind:<6}{locked}  {where:<12} {self.status.value}"
 
 
 @dataclass
@@ -150,9 +177,14 @@ class Layout:
     disk: str = ""
     table: TableType = TableType.GPT
     slices: list[Slice] = field(default_factory=list)
-    #: Partitions kept rather than created. Non-empty means no partition table
-    #: is written at all, which is what makes the rest of the disk survive.
-    reused: list[Reused] = field(default_factory=list)
+    def writes_the_table(self) -> bool:
+        """Whether anything here changes the partition table.
+
+        A table of nothing but `keep` and `format` rows is never written, so
+        every partition on the disk survives; that is what the separate
+        "reuse" mode used to be.
+        """
+        return any(one.status.edits_the_table for one in self.slices)
     #: The pool every slice marked as a pool member joins.
     pool: str = "rpool"
     #: How those members are joined. Only asked once more than one is marked:
@@ -210,62 +242,70 @@ def dataset_for(mountpoint: str) -> str:
     return ROOT_DATASET if mountpoint == "/" else mountpoint.strip("/").replace("//", "/")
 
 
-def build_reused(layout: Layout) -> tuple[DeviceGraph, DeviceId]:
-    """A graph that partitions nothing.
+def _index_of(entry: Slice) -> int:
+    """The number the partition has in the table on the disk.
 
-    Each kept partition becomes an `Existing` node with `wipe` off, so the plan
-    emits no `sgdisk` and no `wipefs`, and `Filesystem.create` decides whether
-    it is formatted.
+    Read off the selector rather than taken from `index`: the row order in the
+    editor is not the entry number, and `sgdisk --delete` addresses the entry.
     """
-    nodes: list[Node] = []
-    root = DeviceId("")
-    for index, entry in enumerate(layout.reused, start=1):
-        device = DeviceId(f"kept{index}")
-        nodes.append(Existing(id=device, selector=entry.selector, wipe=False))
-        if entry.filesystem is None or not entry.mountpoint:
-            continue
-        filesystem = DeviceId(f"keptfs{index}")
-        mount = DeviceId(f"keptmnt{index}")
-        nodes += [
-            Filesystem(
-                id=filesystem, device=device, kind=entry.filesystem, create=entry.format
-            ),
-            Mountpoint(
-                id=mount,
-                source=filesystem,
-                path=PurePosixPath(entry.mountpoint),
-                options=("umask=0077",) if entry.filesystem is ESP_FILESYSTEM else (),
-            ),
-        ]
-        if entry.mountpoint == "/":
-            root = mount
-    return DeviceGraph.build(nodes), root
+    trailing = ""
+    for character in reversed(entry.selector):
+        if not character.isdigit():
+            break
+        trailing = character + trailing
+    return int(trailing) if trailing else entry.index
 
 
 def build(layout: Layout) -> tuple[DeviceGraph, DeviceId]:
-    """The graph and the id of the mount point that is `/`."""
-    if layout.reused:
-        return build_reused(layout)
-    nodes: list[Node] = [
-        Existing(id=DeviceId("disk"), selector=layout.disk, wipe=True),
-        PartitionTable(id=DeviceId("table"), disk=DeviceId("disk"), table=layout.table),
-    ]
+    """The graph and the id of the mount point that is `/`.
+
+    One pass over one table. A row that is already on the disk becomes an
+    `Existing` with `wipe` off; a new one becomes a `Partition`; a deleted one
+    becomes an entry the table drops. The disk is wiped only when nothing is
+    kept, so `sgdisk --zap-all` never takes a partition the operator asked for.
+    """
+    kept = [one for one in layout.slices if one.status.exists and one.status is not SliceStatus.DELETE]
+    removed = tuple(
+        _index_of(one) for one in layout.slices if one.status is SliceStatus.DELETE
+    )
+    fresh = [one for one in layout.slices if one.status is SliceStatus.CREATE]
+    nodes: list[Node] = []
+    if fresh or removed:
+        # Wiped only when there is nothing on the disk worth keeping: the
+        # operator who kept a row asked for the table it lives in.
+        untouched = bool(kept) or bool(removed)
+        nodes += [
+            Existing(id=DeviceId("disk"), selector=layout.disk, wipe=not untouched),
+            PartitionTable(
+                id=DeviceId("disk-table"),
+                disk=DeviceId("disk"),
+                table=layout.table,
+                create=not untouched,
+                remove=removed,
+            ),
+        ]
     root = DeviceId("")
     vdevs: list[DeviceId] = []
     datasets: list[Slice] = []
     pool_passphrase = ""
     for entry in sorted(layout.slices, key=lambda one: one.index):
+        if entry.status is SliceStatus.DELETE:
+            # Gone from the table above, so it carries nothing downstream.
+            continue
         part = DeviceId(f"part{entry.index}")
-        nodes.append(
-            Partition(
-                id=part,
-                table=DeviceId("table"),
-                index=entry.index,
-                role=entry.role,
-                size=entry.size,
-                label=entry.label,
+        if entry.status is SliceStatus.CREATE:
+            nodes.append(
+                Partition(
+                    id=part,
+                    table=DeviceId("disk-table"),
+                    index=entry.index,
+                    role=entry.role,
+                    size=entry.size,
+                    label=entry.label,
+                )
             )
-        )
+        else:
+            nodes.append(Existing(id=part, selector=entry.selector, wipe=False))
         if entry.role is PartitionRole.ZFS:
             # The pool encrypts its own datasets, so a member is never wrapped
             # in LUKS as well.
@@ -292,7 +332,14 @@ def build(layout: Layout) -> tuple[DeviceGraph, DeviceId]:
             continue
         filesystem = DeviceId(f"fs{entry.index}")
         nodes.append(
-            Filesystem(id=filesystem, device=carrier, kind=entry.filesystem, label=entry.label)
+            Filesystem(
+                id=filesystem,
+                device=carrier,
+                kind=entry.filesystem,
+                label=entry.label,
+                # `keep` mounts what is there; everything else makes one.
+                create=entry.status is not SliceStatus.KEEP,
+            )
         )
         if not entry.mountpoint:
             continue

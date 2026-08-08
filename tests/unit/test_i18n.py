@@ -123,6 +123,12 @@ def in_a_table() -> set[str]:
     # The logger table lives in `plan/` because it also names the package and
     # the service; the menu reads the same rows rather than keeping a copy.
     found |= {choice.reason for choice in LOGGERS.values()}
+    # Each status is drawn by its own value, and its sentence lives beside the
+    # enum so a status added without one cannot reach a menu.
+    from gentoo_install.model.manual import STATUS_REASONS
+
+    found |= {one.value for one in STATUS_REASONS}
+    found |= set(STATUS_REASONS.values())
     # A mirror is drawn by its own name and where it is, both translated: a
     # Chinese interface listing "Nanjing University" reads half-finished.
     for site in (*GENTOO_SITES, *GENTOOZH_SITES):

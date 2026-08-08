@@ -271,9 +271,47 @@ def test_opening_the_table_after_choosing_xfs_keeps_xfs() -> None:
     assert root.filesystem is FilesystemType.XFS
 
 
-def reused(**fields: object) -> manual.Layout:
-    entry = manual.Reused(selector="/dev/vda2", filesystem=FilesystemType.EXT4, mountpoint="/")
-    return manual.Layout(disk="/dev/vda", reused=[replace(entry, **fields)])  # type: ignore[arg-type]
+def kept(
+    selector: str,
+    filesystem: FilesystemType,
+    mountpoint: str,
+    status: manual.SliceStatus = manual.SliceStatus.KEEP,
+    index: int = 0,
+) -> manual.Slice:
+    """One row already on the disk, for a table that writes no partitions."""
+    return manual.Slice(
+        index=index or int(selector[-1]),
+        role=PartitionRole.DATA,
+        size=None,
+        filesystem=filesystem,
+        mountpoint=mountpoint,
+        status=status,
+        selector=selector,
+    )
+
+
+def reused(
+    *,
+    filesystem: FilesystemType | None = FilesystemType.EXT4,
+    mountpoint: str = "/",
+    status: manual.SliceStatus = manual.SliceStatus.KEEP,
+) -> manual.Layout:
+    """A table of one row that is already on the disk. `keep` mounts what is
+    there; `format` makes a new filesystem in the same partition."""
+    return manual.Layout(
+        disk="/dev/vda",
+        slices=[
+            manual.Slice(
+                index=2,
+                role=PartitionRole.DATA,
+                size=None,
+                filesystem=filesystem,
+                mountpoint=mountpoint,
+                status=status,
+                selector="/dev/vda2",
+            )
+        ],
+    )
 
 
 def test_reusing_a_partition_creates_no_table_and_no_partition() -> None:
@@ -304,7 +342,7 @@ def test_keeping_a_filesystem_verifies_it_instead_of_making_one() -> None:
 def test_formatting_a_kept_partition_makes_the_filesystem_and_nothing_else() -> None:
     from gentoo_install.plan import disk as plan_disk
 
-    graph, root = manual.build(reused(format=True))
+    graph, root = manual.build(reused(status=manual.SliceStatus.FORMAT))
     described = [one.describe() for one in plan_disk.build(config_from(graph, root))]
     assert any(line.startswith("make a ext4") for line in described)
     assert not any("partition" in line and "sgdisk" in line for line in described)
@@ -345,7 +383,7 @@ def test_a_reused_filesystem_needs_no_mkfs_on_the_medium() -> None:
 
     graph, root = manual.build(reused(filesystem=FilesystemType.XFS))
     assert "mkfs.xfs" not in preflight.required_commands(config_from(graph, root))
-    made, made_root = manual.build(reused(filesystem=FilesystemType.XFS, format=True))
+    made, made_root = manual.build(reused(filesystem=FilesystemType.XFS, status=manual.SliceStatus.FORMAT))
     assert "mkfs.xfs" in preflight.required_commands(config_from(made, made_root))
 
 
@@ -355,10 +393,12 @@ def test_a_reused_esp_is_an_esp_whether_or_not_it_is_reformatted() -> None:
     from gentoo_install.model.compat import esp_mount
 
     for formatting in (False, True):
-        layout = manual.Layout(disk="/dev/vda", reused=[
-            manual.Reused(selector="/dev/vda1", filesystem=FilesystemType.VFAT,
-                          mountpoint="/efi", format=formatting),
-            manual.Reused(selector="/dev/vda2", filesystem=FilesystemType.EXT4, mountpoint="/"),
+        wanted = (
+            manual.SliceStatus.FORMAT if formatting else manual.SliceStatus.KEEP
+        )
+        layout = manual.Layout(disk="/dev/vda", slices=[
+            kept("/dev/vda1", FilesystemType.VFAT, "/efi", wanted),
+            kept("/dev/vda2", FilesystemType.EXT4, "/"),
         ])
         graph, root = manual.build(layout)
         assert esp_mount(graph) is not None, formatting
@@ -370,13 +410,13 @@ def test_a_reused_esp_resolves_to_the_device_the_bootloader_installs_onto() -> N
     bootloader branch without saying anything."""
     from gentoo_install.plan import bootloader
 
-    layout = manual.Layout(disk="/dev/vda", reused=[
-        manual.Reused(selector="/dev/vda1", filesystem=FilesystemType.VFAT, mountpoint="/efi"),
-        manual.Reused(selector="/dev/vda2", filesystem=FilesystemType.EXT4, mountpoint="/"),
+    layout = manual.Layout(disk="/dev/vda", slices=[
+        kept("/dev/vda1", FilesystemType.VFAT, "/efi"),
+        kept("/dev/vda2", FilesystemType.EXT4, "/"),
     ])
     graph, root = manual.build(layout)
     installation = config_from(graph, root)
-    assert bootloader._esp_partition(installation) == "kept1"
+    assert bootloader._esp_partition(installation) == "part1"
     assert any("install GRUB" in one.describe() for one in bootloader.build(installation))
 
 
@@ -386,9 +426,9 @@ def test_opening_another_row_does_not_replace_a_reused_table_with_a_wipe() -> No
     from gentoo_install.model.device import Existing
 
     at = opened()
-    at.layout = manual.Layout(disk="/dev/vda", reused=[
-        manual.Reused(selector="/dev/vda1", filesystem=FilesystemType.VFAT, mountpoint="/efi"),
-        manual.Reused(selector="/dev/vda2", filesystem=FilesystemType.EXT4, mountpoint="/"),
+    at.layout = manual.Layout(disk="/dev/vda", slices=[
+        kept("/dev/vda1", FilesystemType.VFAT, "/efi"),
+        kept("/dev/vda2", FilesystemType.EXT4, "/"),
     ])
     answer = screens.swap_screen(FakeScreen(keys=["\n"]), config(), at)
     graph = answer.unwrap().disk.graph
@@ -403,13 +443,13 @@ def test_switching_the_disk_moves_a_hand_written_table_with_it() -> None:
     at = context()
     at.manual = True
     at.layout.disk = at.choice.disk
-    at.layout.reused = [manual.Reused(selector=f"{at.choice.disk}-part1")]
+    at.layout.slices = [kept(f"{at.choice.disk}-part1", FilesystemType.EXT4, "/", index=1)]
     first = at.choice.disk
     answer = screens.disk_screen(FakeScreen(keys=["KEY_DOWN", "\n"], lines=24), config(), at)
     assert at.choice.disk != first
     assert at.layout.disk == at.choice.disk
-    # The kept rows named partitions of the disk that is no longer the target.
-    assert at.layout.reused == []
+    # The rows named partitions of the disk that is no longer the target.
+    assert at.layout.slices == []
     assert answer.outcome is Outcome.CHOSE
 
 
@@ -424,8 +464,8 @@ def test_a_reuse_layout_is_not_asked_to_confirm_an_erase_it_will_not_do() -> Non
     at = context()
     at.visited.add("erase")
     kept = [
-        Existing(id=i("kept1"), selector="/dev/disk/by-id/virtio-target0-part1", wipe=False),
-        Filesystem(id=i("keptfs"), device=i("kept1"), kind=FilesystemType.EXT4, create=False),
+        Existing(id=i("part1"), selector="/dev/disk/by-id/virtio-target0-part1", wipe=False),
+        Filesystem(id=i("keptfs"), device=i("part1"), kind=FilesystemType.EXT4, create=False),
         Mountpoint(id=i("mnt-root"), source=i("keptfs"), path=PurePosixPath("/")),
     ]
     reused = config(kept)
@@ -463,37 +503,42 @@ def test_the_encryption_row_reads_the_graph_and_not_the_answer_given_to_it() -> 
     assert row.value(config(nodes), at) == "on"
 
 
-def test_the_partitions_row_belongs_to_whichever_mode_the_layout_chose() -> None:
-    """It opened the hand-written editor whatever the layout was: over a
-    template it switched to manual without saying so and listed the disk as
-    about to be erased, and over a reuse layout it threw the kept rows away."""
-    from gentoo_install.model.device import Existing
+def test_the_partitions_row_opens_only_where_there_is_a_table_to_edit() -> None:
+    """A whole-disk template writes the table itself, so opening the editor
+    over one switched the layout to manual without saying so."""
     from gentoo_install.tui import settings
 
     at = context()
     at.existing = (("/dev/vda1", "1G", "vfat"), ("/dev/vda2", "29G", "ext4"))
     row = next(one for one in settings.DISK if one.key == "partitions")
-
-    # A whole-disk template writes the table, so there is nothing to edit here.
     assert row.unavailable(config(), at)
 
     at.manual = True
     assert not row.unavailable(config(), at)
-    fresh = FakeScreen(keys=["q"], lines=24, columns=90)
-    screens.partitions_row(fresh, config(), at)
-    assert "A new partition table" in fresh.frames[0][0]
-
-    # A reused layout keeps its rows and their per-partition answers.
-    at.layout.reused = [manual.Reused(selector="/dev/vda1")]
-    kept = FakeScreen(keys=["q"], lines=24, columns=90)
-    screens.partitions_row(kept, config(), at)
-    assert "A new partition table" not in "\n".join(kept.frames[0])
-    assert at.layout.reused
 
 
-def test_a_reused_layout_says_what_it_does_with_the_partition_table() -> None:
-    """`build_reused` writes no table, so the row read `not set` for ever and
-    every answer given to it looked like it had not taken."""
+def test_the_table_opens_on_what_is_already_on_the_disk() -> None:
+    """An operator who opens this over a machine with data on it should see
+    that data, not a proposal that erases it."""
+    at = context()
+    at.existing = (("/dev/vda1", "1G", "vfat"), ("/dev/vda2", "29G", "ext4"))
+    at.manual = True
+    at.layout.slices = []
+    at.layout.disk = ""
+    screen = FakeScreen(keys=["q"], lines=24, columns=100)
+    screens.partitions_screen(screen, config(), at)
+
+    assert [one.selector for one in at.layout.slices] == ["/dev/vda1", "/dev/vda2"]
+    assert all(one.status is manual.SliceStatus.KEEP for one in at.layout.slices)
+    # Nothing edits the table, so nothing writes one.
+    assert not at.layout.writes_the_table()
+    drawn = "\n".join(screen.frames[0])
+    assert "vda1" in drawn and "keep" in drawn
+
+
+def test_a_table_nobody_edits_says_what_it_does_with_the_partition_table() -> None:
+    """A table of nothing but kept rows writes none, so the row read `not set`
+    for ever and every answer given to it looked like it had not taken."""
     from gentoo_install.tui import settings
 
     at = context()
@@ -501,7 +546,7 @@ def test_a_reused_layout_says_what_it_does_with_the_partition_table() -> None:
     assert row.value(config(), at) == "gpt"
     assert not row.unavailable(config(), at)
 
-    at.layout.reused = [manual.Reused(selector="/dev/vda1")]
+    at.layout.slices = [kept("/dev/vda1", FilesystemType.EXT4, "/")]
     assert row.value(config(), at) != settings.UNSET
     assert row.unavailable(config(), at)
 
@@ -560,3 +605,70 @@ def test_a_topology_this_many_devices_cannot_make_says_how_many_it_needs() -> No
     roomy = FakeScreen(keys=["q"], lines=20, columns=100)
     screens._pool_topology(roomy, at, 4)
     assert "needs at least" not in "\n".join(roomy.frames[0])
+
+
+def test_one_table_keeps_deletes_and_creates_in_the_same_pass() -> None:
+    """Two exclusive modes could not say "keep the Windows partition, delete
+    the old root, add a new one", which is the ordinary case. The disk is not
+    wiped and the table is not rewritten: `sgdisk --zap-all` would take the
+    kept entries with it."""
+    from gentoo_install.model.device import Existing, PartitionTable
+    from gentoo_install.plan import disk as plan_disk
+
+    status = manual.SliceStatus
+    layout = manual.Layout(disk="/dev/vda", slices=[
+        kept("/dev/vda1", FilesystemType.VFAT, "/efi"),
+        kept("/dev/vda2", FilesystemType.EXT4, "", status.DELETE),
+        manual.Slice(
+            index=3, role=PartitionRole.DATA, size=None,
+            filesystem=FilesystemType.EXT4, mountpoint="/",
+        ),
+    ])
+    graph, root = manual.build(layout)
+
+    disk = next(one for one in graph.of_type(Existing) if one.selector == "/dev/vda")
+    assert disk.wipe is False
+    table = graph.of_type(PartitionTable)[0]
+    assert table.create is False
+    assert table.remove == (2,)
+
+    described = [one.describe() for one in plan_disk.build(config_from(graph, root))]
+    assert not any("wipe existing signatures" in line for line in described)
+    assert any("delete partition 2" in line for line in described)
+    assert any("create partition 3" in line for line in described)
+    # The kept esp is checked, not remade.
+    assert any("already holds a vfat" in line for line in described)
+
+
+def test_a_table_of_new_rows_alone_still_wipes_the_disk() -> None:
+    """Nothing on the disk is being kept, so the fresh table is the honest
+    thing to write and `--zap-all` takes nothing the operator asked for."""
+    from gentoo_install.model.device import Existing, PartitionTable
+
+    graph, _ = manual.build(manual.suggest("/dev/vda", Firmware.UEFI))
+    assert graph.of_type(Existing)[0].wipe is True
+    assert graph.of_type(PartitionTable)[0].create is True
+
+
+def test_a_table_nobody_edits_writes_no_table_at_all() -> None:
+    """Every partition on the disk survives, which is what the separate reuse
+    mode used to be and is now one case of the same table."""
+    from gentoo_install.model.device import PartitionTable
+
+    graph, _ = manual.build(reused())
+    assert graph.of_type(PartitionTable) == ()
+
+
+def test_the_entry_number_comes_off_the_selector_and_not_the_row() -> None:
+    """`sgdisk --delete` addresses the entry in the table, and the row order in
+    the editor is not that number."""
+    layout = manual.Layout(disk="/dev/vda", slices=[
+        manual.Slice(
+            index=1, role=PartitionRole.DATA, size=None, filesystem=None,
+            status=manual.SliceStatus.DELETE, selector="/dev/nvme0n1p7",
+        )
+    ])
+    from gentoo_install.model.device import PartitionTable
+
+    graph, _ = manual.build(layout)
+    assert graph.of_type(PartitionTable)[0].remove == (7,)
