@@ -95,3 +95,43 @@ def test_truncate_never_cuts_a_character_in_half() -> None:
     assert truncate(WIDE + WIDE, 5) == WIDE
     assert truncate("Disks", 99) == "Disks"
     assert width(truncate(WIDE + WIDE, 5)) <= 5
+
+
+#: Tables whose second element is translated where the row is drawn, so the
+#: scan below cannot see them at the call site.
+TRANSLATED_IN_A_TABLE = frozenset(
+    {
+        "free software and free documentation only",
+        "also firmware and other redistributable binaries",
+        "every license",
+    }
+)
+
+
+def displayed() -> set[str]:
+    """Every source string the interface passes through the catalog."""
+    import ast
+
+    from gentoo_install import tui
+
+    found = set(TRANSLATED_IN_A_TABLE)
+    for module in Path(tui.__file__).parent.parent.rglob("*.py"):
+        for node in ast.walk(ast.parse(module.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call):
+                continue
+            called = getattr(node.func, "id", "") or getattr(node.func, "attr", "")
+            if called == "translate" and node.args and isinstance(node.args[0], ast.Constant):
+                found.add(str(node.args[0].value))
+            if called == "Setting" and len(node.args) > 1:
+                if isinstance(node.args[1], ast.Constant):
+                    found.add(str(node.args[1].value))
+    return found
+
+
+def test_the_catalogs_hold_every_string_the_interface_shows() -> None:
+    """A string added without its translation reads as English in the middle of
+    a translated screen, and a stale key hides a screen nobody updated."""
+    shown = displayed()
+    keys = set(shipped("zh-TW"))
+    assert not shown - keys, sorted(shown - keys)
+    assert not keys - shown, sorted(keys - shown)
