@@ -12,11 +12,12 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Final
 
-from ..errors import LocaleMissing
+from ..errors import InvalidLayout, LocaleMissing
 from ..model import compat
 from ..model.config import ConsoleFontSize, InitSystem, InstallConfig, User
 from ..model.size import Size
 from ..model.device import (
+    MdRaid,
     DeviceId,
     Filesystem,
     FilesystemType,
@@ -357,6 +358,27 @@ class ConfigureZram(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
+class WriteMdadmConf(Operation):
+    """The array definition the initramfs assembles from.
+
+    Without it dracut's mdraid module brings the array up under whatever name
+    the kernel picks, the root UUID never appears, and boot stops in the
+    emergency shell.
+    """
+
+    stage: Stage = Stage.SYSTEM
+
+    def describe(self) -> str:
+        return "write /etc/mdadm.conf from the arrays this run created"
+
+    def apply(self, context: Context) -> None:
+        scanned = context.run(["mdadm", "--detail", "--scan"]).strip()
+        if not scanned:
+            raise InvalidLayout("mdadm reports no array to record in /etc/mdadm.conf")
+        context.write(PurePosixPath("/etc/mdadm.conf"), scanned + "\n")
+
+
+@dataclass(frozen=True, kw_only=True)
 class SetHardwareClock(Operation):
     """What the RTC is taken to hold. Wrong here and the clock is off by the
     timezone offset every boot until something corrects it."""
@@ -413,6 +435,8 @@ def build(config: InstallConfig) -> list[Operation]:
         WriteFstab(entries=fstab_entries(config)),
         SetHardwareClock(utc=system.hardware_clock_utc, init=system.init),
     ]
+    if config.disk.graph.of_type(MdRaid):
+        operations.append(WriteMdadmConf())
     if system.zram is not None:
         operations += [
             Emerge(

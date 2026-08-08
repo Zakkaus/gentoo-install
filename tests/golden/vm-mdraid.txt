@@ -45,6 +45,7 @@
   give the target its own machine id
   write /etc/fstab with entries for /, /efi
   treat the hardware clock as UTC
+  write /etc/mdadm.conf from the arrays this run created
   set the root password
   configure the wired interface for DHCP
   enable systemd-networkd.service at boot

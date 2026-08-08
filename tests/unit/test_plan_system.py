@@ -252,3 +252,28 @@ def test_the_hardware_clock_is_written_where_each_init_reads_it() -> None:
         if isinstance(operation, system.SetHardwareClock):
             operation.apply(plain)
     assert plain.files[PurePosixPath("/etc/conf.d/hwclock")] == 'clock="local"\n'
+
+
+def test_an_array_records_itself_where_the_initramfs_reads_it() -> None:
+    """Without /etc/mdadm.conf the array comes up under whatever name the
+    kernel picks, the root UUID never appears and boot stops in the emergency
+    shell."""
+    from gentoo_install.model.device import MdRaid, RaidLevel
+
+    nodes: list[Node] = [node for node in ext4_on_gpt() if node.id != i("rootfs")]
+    nodes += [
+        MdRaid(id=i("array"), members=(i("rootpart"),), level=RaidLevel.RAID1, name="root"),
+        Filesystem(id=i("rootfs"), device=i("array"), kind=FilesystemType.EXT4),
+    ]
+    recorder = Recorder(replies={"mdadm": "ARRAY /dev/md/root metadata=1.2 UUID=abc\n"})
+    written = [
+        operation for operation in system.build(config(nodes))
+        if isinstance(operation, system.WriteMdadmConf)
+    ]
+    assert len(written) == 1
+    written[0].apply(recorder)
+    assert recorder.files[PurePosixPath("/etc/mdadm.conf")].startswith("ARRAY /dev/md/root")
+
+    assert not any(
+        isinstance(operation, system.WriteMdadmConf) for operation in system.build(config())
+    )
