@@ -143,7 +143,7 @@ def install(config: InstallConfig, operations: tuple[Operation, ...], arguments:
         probe = Probe(runner=runner, work=work)
         probe.load()
         if not arguments.skip_preflight:
-            report = preflight.check(config, probe)
+            report = preflight.check(config, probe, str(arguments.target))
             for warning in report.warnings:
                 record(f"warning: {warning}")
             report.raise_if_fatal()

@@ -1,4 +1,5 @@
 [partition]
+  release anything a previous run of this configuration left mounted or open
   wipe existing signatures from disk
   create a mbr partition table on disk as table
   create partition 1 on disk as swappart: swap, 2GiB

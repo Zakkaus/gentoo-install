@@ -239,3 +239,19 @@ def test_a_volume_with_no_size_is_created_after_the_sized_ones() -> None:
     assert len(described) == 2
     assert "16GiB" in described[0]
     assert "the rest of the group" in described[1]
+
+
+def test_a_failed_run_can_be_started_again() -> None:
+    """An install that stopped halfway leaves the target mounted, containers
+    open and arrays assembled, and every one makes the disk busy at wipefs."""
+    released = [
+        operation
+        for operation in disk.build(load(Path("tests/fixtures/vm-luks.toml")))
+        if isinstance(operation, disk.ReleaseTarget)
+    ]
+    assert len(released) == 1
+    recorder = Recorder()
+    released[0].apply(recorder)
+    ran = [argv[0] for argv in recorder.commands]
+    assert ran[0] == "umount"
+    assert ("cryptsetup", "close", "root") in recorder.commands

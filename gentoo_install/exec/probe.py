@@ -200,12 +200,16 @@ class Probe:
                     found.append(str(city.relative_to(root)))
         return ("UTC", *found)
 
-    def mounted(self, disk: str) -> bool:
+    def mounted(self, disk: str, ignoring: str = "") -> bool:
         """Whether a disk, or any partition on it, is in use.
 
         `findmnt --mountpoint` answers about a directory, so asking it about
         `/dev/sda` always said no and the guard against repartitioning a disk in
         use could never fire.
+
+        `ignoring` is the install target: a run that stopped halfway leaves the
+        disk mounted there, and refusing to start again over the previous
+        attempt's own leftovers is what makes a failed install unrepeatable.
         """
         # The runner merges stderr into stdout, so the exit code decides first:
         # `lsblk: not a block device` would otherwise read as a mountpoint.
@@ -214,7 +218,12 @@ class Probe:
         )
         if listed.returncode != 0:
             return False
-        if any(line.strip() for line in listed.stdout.splitlines()):
+        elsewhere = [
+            where
+            for where in (line.strip() for line in listed.stdout.splitlines())
+            if where and not (ignoring and (where == ignoring or where.startswith(f"{ignoring}/")))
+        ]
+        if elsewhere:
             return True
         swap = self.runner.run(["swapon", "--noheadings", "--show=NAME"], check=False)
         if swap.returncode != 0:

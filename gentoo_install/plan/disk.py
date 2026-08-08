@@ -98,6 +98,37 @@ DATASET_OPTIONS: Final[tuple[str, ...]] = (
 
 
 @dataclass(frozen=True, kw_only=True)
+class ReleaseTarget(Operation):
+    """Take apart what a previous run of this configuration left behind.
+
+    An install that stopped halfway leaves the target mounted, containers open
+    and arrays assembled, and every one of those makes the disk busy so the
+    rerun fails at `wipefs`. Each step is `check=False`: none of them existing
+    is the normal case on a first run.
+    """
+
+    stage: Stage = Stage.PARTITION
+    containers: tuple[str, ...]
+    arrays: tuple[str, ...]
+    groups: tuple[str, ...]
+    pools: tuple[str, ...]
+
+    def describe(self) -> str:
+        return "release anything a previous run of this configuration left mounted or open"
+
+    def apply(self, context: Context) -> None:
+        context.run(["umount", "--recursive", "--lazy", str(context.target)], check=False)
+        for pool in self.pools:
+            context.run(["zpool", "export", pool], check=False)
+        for group in self.groups:
+            context.run(["vgchange", "--activate", "n", group], check=False)
+        for name in self.containers:
+            context.run(["cryptsetup", "close", name], check=False)
+        for array in self.arrays:
+            context.run(["mdadm", "--stop", f"/dev/md/{array}"], check=False)
+
+
+@dataclass(frozen=True, kw_only=True)
 class WipeSignatures(Operation):
     """`mkfs` refuses, or worse silently inherits, when an old superblock is left."""
 
@@ -470,7 +501,14 @@ def finish(config: InstallConfig) -> list[Operation]:
 
 def build(config: InstallConfig) -> list[Operation]:
     graph = config.disk.graph
-    operations: list[Operation] = []
+    operations: list[Operation] = [
+        ReleaseTarget(
+            containers=tuple(node.name for node in graph.of_type(Luks)),
+            arrays=tuple(node.name for node in graph.of_type(MdRaid)),
+            groups=tuple(node.name for node in graph.of_type(VolumeGroup)),
+            pools=tuple(node.name for node in graph.of_type(ZfsPool)),
+        )
+    ]
     mounts: list[Operation] = []
     for node in topological(graph):
         for operation in _operations_for(graph, node):

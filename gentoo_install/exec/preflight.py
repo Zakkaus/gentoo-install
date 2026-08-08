@@ -144,13 +144,16 @@ def _passphrase_problems(config: InstallConfig) -> list[str]:
     return problems
 
 
-def check(config: InstallConfig, probe: Probe) -> Report:
+def check(config: InstallConfig, probe: Probe, target: str = "/mnt/gentoo") -> Report:
     wanted = required_commands(config)
     machine = probe.machine(wanted)
-    return inspect(config, machine, probe)
+    return inspect(config, machine, probe, target)
 
 
-def inspect(config: InstallConfig, machine: Machine, probe: Probe) -> Report:
+def inspect(
+    config: InstallConfig, machine: Machine, probe: Probe, target: str = "/mnt/gentoo"
+) -> Report:
+    config_target = target
     fatal: list[str] = []
     warnings: list[str] = []
 
@@ -178,7 +181,7 @@ def inspect(config: InstallConfig, machine: Machine, probe: Probe) -> Report:
         except DeviceNotFound as error:
             fatal.append(str(error))
             continue
-        if probe.mounted(path):
+        if probe.mounted(path, ignoring=str(config_target)):
             fatal.append(f"{path} is mounted; the installer will not repartition a disk in use")
 
     fatal += _passphrase_problems(config)
