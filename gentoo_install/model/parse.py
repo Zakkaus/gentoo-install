@@ -31,6 +31,7 @@ from .config import (
     MirrorRegion,
     Networking,
     Overlay,
+    Sync,
     PackagesConfig,
     PortageConfig,
     SystemConfig,
@@ -152,7 +153,7 @@ def _portage(raw: Mapping[str, Any], at: str) -> PortageConfig:
         raw,
         at,
         {
-            "profile", "keywords", "testing_packages", "makeopts", "common_flags", "use", "video_cards",
+            "profile", "keywords", "sync", "testing_packages", "makeopts", "common_flags", "use", "video_cards",
             "accept_license", "cpu_flags", "mirrors", "binhost", "overlays",
         },
     )
@@ -160,6 +161,7 @@ def _portage(raw: Mapping[str, Any], at: str) -> PortageConfig:
     return PortageConfig(
         profile=_str(raw, "profile", at, default.profile),
         keywords=_enum(raw, "keywords", at, Keywords, default.keywords),
+        sync=_enum(raw, "sync", at, Sync, default.sync),
         testing_packages=_strings(raw, "testing_packages", at, default.testing_packages),
         makeopts=_str(raw, "makeopts", at, default.makeopts),
         common_flags=_str(raw, "common_flags", at, default.common_flags),
@@ -187,11 +189,12 @@ def _mirrors(raw: Mapping[str, Any], at: str) -> MirrorConfig:
 
 
 def _binhost(raw: Mapping[str, Any], at: str) -> Binhost:
-    _reject_unknown(raw, at, {"official", "community"})
+    _reject_unknown(raw, at, {"official", "community", "subarch"})
     default = Binhost()
     return Binhost(
         official=_bool(raw, "official", at, default.official),
         community=_enum(raw, "community", at, BinhostChannel, default.community),
+        subarch=_str(raw, "subarch", at, default.subarch),
     )
 
 

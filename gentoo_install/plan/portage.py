@@ -19,8 +19,16 @@ from ..model.config import (
     Keywords,
     MirrorRegion,
     PortageConfig,
+    Sync,
 )
 from .operations import Context, Operation, Stage
+
+#: Where Gentoo publishes binary packages for 23.0. Only `x86-64` and
+#: `x86-64-v3` carry a useful number of them; the other subarchitectures are
+#: nearly empty, so the interface offers those two.
+OFFICIAL_BINHOST: Final[str] = (
+    "https://distfiles.gentoo.org/releases/amd64/binpackages/23.0"
+)
 
 #: The release engineering key, pinned. A fingerprint that does not match this
 #: is a failed install, not a prompt to trust something new.
@@ -501,19 +509,22 @@ def build(
         CreateAutounmaskFiles(),
         WebrsyncRepository(),
         SelectProfile(profile=portage.profile),
-        Emerge(
-            stage=Stage.PORTAGE,
-            packages=("dev-vcs/git",),
-            summary="install git, which every later repository sync needs",
-        ),
-        ConfigureRepository(
-            name="gentoo",
-            location=gentoo,
-            sync_uri=_repo_sync_uri(portage),
-            verify_commits=True,
-        ),
-        SyncRepository(name="gentoo", location=gentoo),
     ]
+    if portage.sync is Sync.GIT:
+        operations += [
+            Emerge(
+                stage=Stage.PORTAGE,
+                packages=("dev-vcs/git",),
+                summary="install git, which every later repository sync needs",
+            ),
+            ConfigureRepository(
+                name="gentoo",
+                location=gentoo,
+                sync_uri=_repo_sync_uri(portage),
+                verify_commits=True,
+            ),
+            SyncRepository(name="gentoo", location=gentoo),
+        ]
     for overlay in portage.overlays:
         location = PurePosixPath(f"/var/db/repos/{overlay.name}")
         operations += [
@@ -532,6 +543,16 @@ def build(
         operations.append(AcceptTestingPackages(packages=portage.testing_packages))
     if _uses_binhost(portage):
         operations.append(PrepareBinhostTrust())
+    if portage.binhost.official:
+        # Written rather than left to the stage3's default, because that names
+        # the profile's baseline and the subarchitecture is a choice here.
+        operations.append(
+            ConfigureBinhost(
+                name="gentoo",
+                sync_uri=f"{OFFICIAL_BINHOST}/{portage.binhost.subarch}",
+                verify=True,
+            )
+        )
     if portage.binhost.community is not BinhostChannel.OFF:
         operations += [
             Emerge(

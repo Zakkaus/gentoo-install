@@ -27,6 +27,7 @@ from ..model.config import (
     Networking,
     Overlay,
     PortageConfig,
+    Sync,
     User,
 )
 from ..model.device import FilesystemType, PartitionRole, TableType
@@ -637,22 +638,39 @@ def binhost_screen(screen: Screen, config: InstallConfig, context: Context) -> A
     """Binary packages shorten an install from hours to minutes, and the cost
     of each choice is on the screen rather than discovered while compiling."""
     translate = context.translate
-    items: list[Item[tuple[bool, BinhostChannel]]] = [
-        Item(label="official binary packages", value=(True, BinhostChannel.OFF)),
+    items: list[Item[tuple[bool, BinhostChannel, str]]] = [
         Item(
-            label="official and gentoo-zh binary packages",
-            value=(True, BinhostChannel.STABLE),
+            label="official, x86-64",
+            value=(True, BinhostChannel.OFF, "x86-64"),
+            detail=translate("works on every amd64 machine"),
         ),
-        Item(label="compile everything from source", value=(False, BinhostChannel.OFF)),
+        Item(
+            label="official, x86-64-v3",
+            value=(True, BinhostChannel.OFF, "x86-64-v3"),
+            detail=translate("needs AVX2; faster packages, and fewer of them"),
+        ),
+        Item(
+            label="official and gentoo-zh",
+            value=(True, BinhostChannel.STABLE, "x86-64"),
+            detail=translate("gentoo-zh builds x86-64 only"),
+        ),
+        Item(
+            label="compile everything from source",
+            value=(False, BinhostChannel.OFF, "x86-64"),
+            detail=translate("hours rather than minutes"),
+        ),
     ]
-    menu: Menu[tuple[bool, BinhostChannel]] = Menu(
+    menu: Menu[tuple[bool, BinhostChannel, str]] = Menu(
         title=translate("Binary packages"), items=items, footer=_footer(translate)
     )
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
-    official, community = answer.unwrap()[0]
-    portage = replace(config.portage, binhost=Binhost(official=official, community=community))
+    official, community, subarch = answer.unwrap()[0]
+    portage = replace(
+        config.portage,
+        binhost=Binhost(official=official, community=community, subarch=subarch),
+    )
     if community is not BinhostChannel.OFF:
         portage = _with_gentoo_zh(replace(config, portage=portage))
     return Answer(Outcome.CHOSE, replace(config, portage=portage))
@@ -1262,4 +1280,34 @@ def authorized_keys_screen(
     keys = (typed,) if typed else ()
     return Answer(
         Outcome.CHOSE, replace(config, system=replace(config.system, root_authorized_keys=keys))
+    )
+
+
+def sync_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
+    """How the ebuild repository is kept up to date after the first sync.
+
+    The first sync is webrsync whichever this is: a stage3 has no `dev-vcs/git`,
+    so a git sync cannot be the step that installs it.
+    """
+    translate = context.translate
+    items = [
+        Item(
+            label=Sync.GIT.value,
+            value=Sync.GIT,
+            detail=translate("carries the history a signed sync checks"),
+        ),
+        Item(
+            label=Sync.WEBRSYNC.value,
+            value=Sync.WEBRSYNC,
+            detail=translate("no git, and no history"),
+        ),
+    ]
+    menu: Menu[Sync] = Menu(
+        title=translate("Repository sync"), items=items, footer=_footer(translate)
+    )
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    return Answer(
+        Outcome.CHOSE, replace(config, portage=replace(config.portage, sync=answer.unwrap()[0]))
     )

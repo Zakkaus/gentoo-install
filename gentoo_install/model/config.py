@@ -57,6 +57,17 @@ class Networking(Enum):
     NONE = "none"
 
 
+class Sync(Enum):
+    """How the ebuild repository is kept up to date after the first sync.
+
+    The first one is always webrsync whichever this is: a stage3 has no
+    `dev-vcs/git`, so a git sync cannot be the step that installs it.
+    """
+
+    GIT = "git"
+    WEBRSYNC = "webrsync"
+
+
 class BinhostChannel(Enum):
     OFF = "off"
     STABLE = "stable"
@@ -140,6 +151,10 @@ class MirrorConfig:
 @dataclass(frozen=True)
 class Binhost:
     official: bool = True
+    #: The official host's subarchitecture. `x86-64-v3` needs AVX2 and the two
+    #: are the only ones with a useful number of packages; gentoo-zh builds
+    #: `x86-64` only, so this does not touch it.
+    subarch: str = "x86-64"
     community: BinhostChannel = BinhostChannel.OFF
 
 
@@ -149,6 +164,9 @@ class PortageConfig:
     #: component; the two disagreeing leaves packages built for the other.
     profile: str = "default/linux/amd64/23.0/systemd"
     keywords: Keywords = Keywords.STABLE
+    #: git by default: it carries the history a `verify-commit` sync checks,
+    #: and it is what an ongoing system uses.
+    sync: Sync = Sync.GIT
     #: Atoms accepted as testing while the rest of the system stays stable.
     testing_packages: tuple[str, ...] = ()
     makeopts: str = ""

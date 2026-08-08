@@ -55,7 +55,7 @@ def _binhost(config: InstallConfig, context: Context) -> str:
     binhost = config.portage.binhost
     chosen = []
     if binhost.official:
-        chosen.append("official")
+        chosen.append(f"official {binhost.subarch}")
     if binhost.community.value != "off":
         chosen.append(f"gentoo-zh {binhost.community.value}")
     return ", ".join(chosen) if chosen else "off, compile everything"
@@ -195,6 +195,7 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("kernel", "Kernel", _kernel, screens.kernel_screen),
     Setting("bootloader", "Bootloader", _bootloader, screens.bootloader_screen),
     Setting("binhost", "Binary packages", _binhost, screens.binhost_screen),
+    Setting("sync", "Repository sync", lambda c, x: c.portage.sync.value, screens.sync_screen),
     Setting("desktop", "Desktop", lambda c, x: c.packages.desktop or "none", screens.desktop_screen),
     Setting("packages", "Package groups", _applications, screens.packages_screen),
     Setting("extra", "Extra packages", _extra, screens.extra_packages_screen),

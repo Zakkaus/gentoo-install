@@ -165,7 +165,13 @@ def test_the_binhost_is_only_trusted_once_its_key_is() -> None:
     installation = with_portage(binhost=Binhost(official=True, community=BinhostChannel.STABLE))
     operations = portage.build(installation, MIRROR)
     signed = next(n for n, operation in enumerate(operations) if "locally sign" in operation.describe())
-    added = next(n for n, operation in enumerate(operations) if "binary package host" in operation.describe())
+    # The gentoo-zh host specifically: the official one is trusted by getuto,
+    # which runs before either of them.
+    added = next(
+        n
+        for n, operation in enumerate(operations)
+        if "binary package host gentoo-zh" in operation.describe()
+    )
     assert signed < added
     stanza = apply_all(installation).files[PurePosixPath("/etc/portage/binrepos.conf/gentoo-zh.conf")]
     assert "verify-signature = true" in stanza
