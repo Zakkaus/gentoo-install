@@ -287,8 +287,9 @@ def _mirror(config: InstallConfig, context: Context) -> str:
 
 
 def _firmware(config: InstallConfig, context: Context) -> str:
-    detected = f" ({context.translate('detected')})" if config.bootloader.firmware is context.firmware else ""
-    return f"{config.bootloader.firmware.value}{detected}"
+    """The value alone. The row cannot be edited and already draws the reason
+    beside it, so a `(detected)` suffix said the same word twice."""
+    return str(config.bootloader.firmware.value)
 
 
 def _drive(config: InstallConfig, context: Context) -> str:

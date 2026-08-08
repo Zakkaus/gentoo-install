@@ -89,10 +89,9 @@ def test_the_firmware_row_is_shown_and_not_chosen() -> None:
     screen = FakeScreen(keys=["q", "KEY_DOWN", "\n"])
     run(screen, config(), at)
     # `last` is now the confirmation, so look at the menu frame before it.
-    assert any(
-        "uefi (detected) - detected from this machine" in "\n".join(frame)
-        for frame in screen.frames
-    )
+    # The value alone beside the reason: the row said `detected` twice.
+    assert any("uefi - detected" in "\n".join(frame) for frame in screen.frames)
+    assert not any("(detected)" in "\n".join(frame) for frame in screen.frames)
 
 
 def test_a_group_is_a_list_and_never_a_wizard() -> None:
