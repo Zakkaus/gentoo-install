@@ -56,6 +56,21 @@ class Journal:
         ten minute install and a four hour one."""
         self.write("degraded", what=what, reason=reason)
 
+    def replay(self) -> Iterator[dict[str, Any]]:
+        """Every entry a previous run wrote, in order. A line that does not
+        parse is skipped: a run killed mid-write leaves a partial last line."""
+        try:
+            text = self.path.read_text()
+        except OSError:
+            return
+        for line in text.splitlines():
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(entry, dict):
+                yield entry
+
     def counts(self) -> dict[str, int]:
         found: dict[str, int] = {}
         for entry in self.entries:

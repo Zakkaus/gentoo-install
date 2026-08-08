@@ -11,12 +11,12 @@ import curses
 import shutil
 import sys
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Callable, Iterable, Sequence
 
 from . import errors
 from .data import load_catalog
 from .exec import fetch, preflight
-from .exec.apply import Machine, apply
+from .exec.apply import Machine, apply, completed
 from .exec.probe import Probe
 from .exec.runner import Runner, write_file
 from .log import Journal
@@ -66,6 +66,12 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="list the commands this layout needs and this machine lacks, one per line, "
         "which is what bootstrap.sh turns into a package list",
+    )
+    parsed.add_argument(
+        "--resume",
+        action="store_true",
+        help="carry on from where a previous run stopped, skipping the operations its "
+        "journal records as done, instead of partitioning the disk again",
     )
     parsed.add_argument(
         "--skip-preflight",
@@ -128,6 +134,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         return EXIT_ABORTED
 
 
+def _keep_the_log(work: Path, target: Path, record: Callable[[str], None]) -> None:
+    """Copy the run's log onto the installed system.
+
+    The work directory is a tmpfs on an install medium, so a reboot takes the
+    log of the run that failed with it, which is the one anybody would want.
+    """
+    kept = target / "var/log/gentoo-install"
+    try:
+        kept.mkdir(parents=True, exist_ok=True)
+        for name in ("install.log", "install.jsonl"):
+            source = work / name
+            if source.is_file():
+                shutil.copy2(source, kept / name)
+    except OSError as error:
+        record(f"warning: the log could not be copied to {kept}: {error}")
+        return
+    record(f"the log of this run is in {kept}")
+
+
 def install(config: InstallConfig, operations: tuple[Operation, ...], arguments: argparse.Namespace) -> int:
     """Check the machine, then perform every operation in order."""
     work: Path = arguments.work
@@ -150,7 +175,15 @@ def install(config: InstallConfig, operations: tuple[Operation, ...], arguments:
         machine = Machine(
             config=config, runner=runner, probe=probe, work=work, mountpoint=arguments.target
         )
-        apply(operations, machine)
+        finished = completed(journal) if arguments.resume else frozenset()
+        if finished:
+            record(f"resuming: {len(finished)} operations were finished by an earlier run")
+        try:
+            apply(operations, machine, finished)
+        finally:
+            # In `finally`: the log of a run that failed is the one worth
+            # keeping, and it is the one a reboot would otherwise destroy.
+            _keep_the_log(work, arguments.target, record)
         counted = journal.counts()
         record(
             f"installed {len(operations)} operations into {arguments.target}; "

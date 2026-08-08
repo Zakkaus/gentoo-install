@@ -25,6 +25,7 @@ from ..model.device import (
     VolumeGroup,
     ZfsPool,
 )
+from ..log import Journal
 from ..plan.operations import Operation
 from . import fetch
 from .probe import Probe
@@ -180,13 +181,42 @@ class Machine:
         return PurePosixPath(fetch.stage3(mirror, variant, fingerprint, cache, self.runner))
 
 
-def apply(operations: Sequence[Operation], machine: Machine) -> None:
+def completed(journal: Journal | None) -> frozenset[tuple[int, str]]:
+    """Operations a previous run finished, as position and description.
+
+    Position as well as text: a plan can hold two operations that describe
+    themselves identically, and skipping both because one finished would step
+    over work that was never done.
+    """
+    if journal is None:
+        return frozenset()
+    done: set[tuple[int, str]] = set()
+    position = 0
+    for entry in journal.replay():
+        if entry.get("event") != "operation":
+            continue
+        if entry.get("status") == "done":
+            done.add((position, str(entry.get("describe", ""))))
+        position += 1
+    return frozenset(done)
+
+
+def apply(
+    operations: Sequence[Operation],
+    machine: Machine,
+    finished: frozenset[tuple[int, str]] = frozenset(),
+) -> None:
     """Perform each operation in order, stopping at the first failure.
 
-    Nothing is retried and nothing is skipped: a disk operation that failed
-    leaves a state the next one cannot assume anything about.
+    Nothing is retried: a disk operation that failed leaves a state the next
+    one cannot assume anything about. `finished` names what an earlier run
+    completed, so a resumed run does not partition a disk it already installed
+    onto.
     """
-    for operation in operations:
+    for position, operation in enumerate(operations):
+        if (position, operation.describe()) in finished:
+            machine.runner.log(f"[{operation.stage.value}] done earlier: {operation.describe()}")
+            continue
         machine.runner.log(f"[{operation.stage.value}] {operation.describe()}")
         started = time.monotonic()
         try:
