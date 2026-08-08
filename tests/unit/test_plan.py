@@ -652,3 +652,44 @@ def test_the_older_amd_group_does_not_suppress_r300() -> None:
     cards = load_catalog()["radeon"].video_cards
     assert "r600" not in cards
     assert set(cards) == {"radeon", "radeonsi"}
+
+
+def test_the_fcitx_profile_names_an_xkb_layout_and_not_a_console_keymap() -> None:
+    """`keyboard-de-latin1` is not an entry fcitx has, so the group's first
+    item was invalid and a German desktop typed latin anyway. The default `us`
+    is where the two namespaces happen to agree, which hid it."""
+    from gentoo_install.plan.packages import xkb_layout
+
+    assert xkb_layout("de-latin1") == "de"
+    assert xkb_layout("us") == "us"
+
+
+@pytest.mark.parametrize("keymap,expected", sorted(plan_packages.XKB_RENAMED.items()))
+def test_every_renamed_keymap_differs_from_what_the_prefix_rule_gives(
+    keymap: str, expected: str
+) -> None:
+    """The table exists for the names where the prefix is not the layout; a row
+    whose prefix already equals the layout is a row that never fires."""
+    from gentoo_install.plan.packages import xkb_layout
+
+    assert xkb_layout(keymap) == expected
+    assert keymap != expected
+
+
+@pytest.mark.parametrize("keymap,expected", sorted(plan_packages.XKB_FAMILIES.items()))
+def test_every_family_keymap_carries_no_country_of_its_own(keymap: str, expected: str) -> None:
+    """These are layout families rather than country names, so the prefix rule
+    has nothing to work with and would fall back to `us`."""
+    from gentoo_install.plan.packages import xkb_layout
+
+    assert xkb_layout(keymap) == expected
+    assert len(keymap) != 2
+
+
+def test_a_keymap_the_tables_do_not_know_falls_back_rather_than_inventing() -> None:
+    """An invalid layout makes fcitx ignore the group; `us` is what every
+    keymap produced before the tables existed."""
+    from gentoo_install.plan.packages import XKB_DEFAULT, xkb_layout
+
+    assert xkb_layout("wobble9") == XKB_DEFAULT
+    assert xkb_layout("") == XKB_DEFAULT

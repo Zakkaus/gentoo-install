@@ -10,6 +10,8 @@ function of its arguments.
 
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Final, Mapping, Sequence
@@ -96,6 +98,66 @@ ENVIRONMENT_FILE: Final[dict[InitSystem, PurePosixPath]] = {
     InitSystem.SYSTEMD: PurePosixPath("/etc/environment.d/90-input-method.conf"),
     InitSystem.OPENRC: PurePosixPath("/etc/env.d/90input-method"),
 }
+
+#: Console keymaps whose XKB layout is not the part before the first dash or
+#: underscore. Checked against `/usr/share/X11/xkb/symbols`: every other
+#: two-letter prefix in the keymap tree is a layout name as it stands.
+XKB_RENAMED: Final[dict[str, str]] = {
+    "uk": "gb",
+    "cf": "ca",
+    "sg": "ch",
+    "sv": "se",
+    "sr": "rs",
+    "fa": "ir",
+    "ky": "kg",
+    "en": "us",
+    "3l": "de",
+}
+
+#: Where the console name carries no country at all. fcitx names a layout, not
+#: a variant, so the dvorak and neo families resolve to the layout they sit on.
+XKB_FAMILIES: Final[dict[str, str]] = {
+    "azerty": "fr",
+    "neo": "de",
+    "neoqwertz": "de",
+    "bone": "de",
+    "adnw": "de",
+    "koy": "de",
+    "dvorak": "us",
+    "ansi": "us",
+    "carpalx": "us",
+    "jp106": "jp",
+    "hu101": "hu",
+    "croat": "hr",
+    "slovene": "si",
+    "kazakh": "kz",
+    "kyrgyz": "kg",
+    "hcesar": "pt",
+    "wangbe": "be",
+    "wangbe2": "be",
+    "bywin": "by",
+}
+
+#: What fcitx falls back to, and what every keymap produced before this table
+#: existed: `keyboard-de-latin1` is not an entry fcitx has, so the group's
+#: first item was invalid and the desktop typed latin anyway.
+XKB_DEFAULT: Final[str] = "us"
+
+
+def xkb_layout(keymap: str) -> str:
+    """The XKB layout fcitx wants, from the console keymap that was chosen.
+
+    The two are different namespaces: `de-latin1` is a console keymap and `de`
+    is the layout. A name this cannot place falls back to `us`, which is what
+    every one of them produced before.
+    """
+    head = re.split(r"[-_.]", keymap.strip().lower(), maxsplit=1)[0]
+    if head in XKB_RENAMED:
+        return XKB_RENAMED[head]
+    if head in XKB_FAMILIES:
+        return XKB_FAMILIES[head]
+    return head if len(head) == 2 and head.isalpha() else XKB_DEFAULT
+
 
 #: KWin's system-wide defaults. A user's own kwinrc still wins, so this is a
 #: default and not a decision imposed on them.
@@ -498,7 +560,7 @@ def _input_method(config: InstallConfig, catalog: Catalog) -> list[Operation]:
             WriteInputMethodProfile(
                 engines=tuple(engines),
                 schemas=tuple(schemas),
-                layout=config.system.keymap,
+                layout=xkb_layout(config.system.keymap),
                 homes=tuple(homes),
             )
         )
