@@ -134,5 +134,12 @@ if [ -n "$missing" ]; then
 	exit 1
 fi
 
+# Last, so the diagnostics above still run for an ordinary user: what needs
+# root is the install itself, which stages keys under /run and writes disks.
+case " $* " in
+*" --dry-run "*) ;;
+*) [ "$(id -u)" = 0 ] || die "run as root: sudo $0 $*" ;;
+esac
+
 cd "$HERE"
 exec "$python" -m gentoo_install "$@"

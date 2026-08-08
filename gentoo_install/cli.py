@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import curses
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -84,6 +85,7 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = parser().parse_args(argv)
     try:
+        _require_root(arguments)
         if arguments.config is None:
             if arguments.missing_commands:
                 # Nothing to derive a layout from, so answer for the commands
@@ -252,6 +254,17 @@ def _blank(disk: str, cores: int, cpu_flags: tuple[str, ...]) -> InstallConfig:
         disk=DiskConfig(graph=graph, root=root),
         portage=PortageConfig(makeopts=f"-j{cores}", cpu_flags=cpu_flags),
     )
+
+
+def _require_root(arguments: argparse.Namespace) -> None:
+    """Refuse before the menu rather than at the first write.
+
+    Every path but a dry run partitions disks and stages keys under /run, and a
+    menu answered as an ordinary user dies on EPERM with the answers thrown away.
+    """
+    if arguments.dry_run or arguments.missing_commands or os.geteuid() == 0:
+        return
+    raise errors.PreflightFailed("run as root")
 
 
 def _stage_passphrase(passphrase: str, work: Path) -> str:

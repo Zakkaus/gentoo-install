@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -60,10 +61,24 @@ def test_an_install_stops_at_preflight_rather_than_touching_a_disk(
     assert "run as root" in printed or "not present" in printed
 
 
-def test_no_configuration_without_a_terminal_says_so(capsys: pytest.CaptureFixture[str]) -> None:
+def test_no_configuration_without_a_terminal_says_so(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """With no --config the menu opens, and pytest is not a terminal: that has
     to be an exit code with a sentence, not a curses traceback."""
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
     code = main([])
     said = capsys.readouterr().err
     assert code == EXIT_PREFLIGHT
     assert "pass --config FILE" in said
+
+
+def test_the_menu_does_not_open_for_an_ordinary_user(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Twenty answers thrown away by an EPERM in the middle of the run is the
+    failure this replaces: nothing but a dry run works without root."""
+    monkeypatch.setattr(os, "geteuid", lambda: 1000)
+    assert main([]) == EXIT_PREFLIGHT
+    assert "run as root" in capsys.readouterr().err
+    assert main(["--dry-run", "--config", str(FIXTURES / "vm-binpkg.toml")]) == 0
