@@ -33,7 +33,7 @@ from ..model.config import (
 from ..model.device import FilesystemType, PartitionRole, TableType
 from ..model.size import Size
 from ..errors import GentooInstallError, ValidationFailed
-from ..model import atoms, manual
+from ..model import atoms, manual, paste, sshkey
 from ..model.templates import Choice, Layout, build
 from ..model.validate import validate
 from ..plan.packages import Catalog as Groups
@@ -62,6 +62,7 @@ class Context:
         inspect_disk: Callable[[str], tuple[tuple[tuple[str, str, str], ...], str]] = (
             lambda disk: ((), "")
         ),
+        fetch_text: Callable[[str], str] = lambda url: "",
     ) -> None:
         self.translate = translate
         #: Selector and a human description, from `exec/probe.py`.
@@ -73,6 +74,9 @@ class Context:
         #: Writes a passphrase into the run's work directory and returns its
         #: path. Injected because the model layer does no I/O.
         self.stage_passphrase = stage_passphrase
+        #: Reads a short document over the network, for a key someone pasted
+        #: somewhere. Injected because this layer opens no connection.
+        self.fetch_text = fetch_text
         #: Every zone the machine knows, from `exec/probe.py`.
         self.timezones = tuple(timezones)
         #: How this machine booted. The install defaults to the same, because
@@ -1426,25 +1430,125 @@ def address_screen(screen: Screen, config: InstallConfig, context: Context) -> A
 def authorized_keys_screen(
     screen: Screen, config: InstallConfig, context: Context
 ) -> Answer[InstallConfig]:
-    """Public keys root may log in with, one per entry.
+    """Public keys, typed or fetched, checked before they are the only way in.
 
-    Typed rather than read from the live system: the operator installing over
-    ssh is not necessarily the person whose key belongs on the new machine.
+    Not read from the live system: the operator installing over ssh is not
+    necessarily the person whose key belongs on the new machine.
     """
     translate = context.translate
-    field = TextField(
-        title=translate("Public key for root, empty to add none"),
-        value=config.system.root_authorized_keys[0] if config.system.root_authorized_keys else "",
+    keys = list(config.system.authorized_keys)
+    while True:
+        items: list[Item[int]] = [
+            Item(label=_key_summary(key), value=-index - 1) for index, key in enumerate(keys)
+        ]
+        items += [
+            Item(label=translate("Type a key"), value=0),
+            Item(
+                label=translate("Fetch from a paste"),
+                value=1,
+                detail=translate("the identifier alone"),
+            ),
+            Item(label=translate("Fetch from a URL"), value=2),
+            Item(label=translate("Done"), value=3),
+        ]
+        menu: Menu[int] = Menu(
+            title=translate("SSH public keys"), items=items, footer=_footer(translate)
+        )
+        answer = menu.run(screen)
+        if not answer.chosen:
+            return Answer(answer.outcome)
+        chosen = answer.unwrap()[0]
+        if chosen < 0:
+            keys.pop(-chosen - 1)
+            continue
+        if chosen == 3:
+            return Answer(
+                Outcome.CHOSE,
+                replace(config, system=replace(config.system, authorized_keys=tuple(keys))),
+            )
+        added = _ADD_A_KEY[chosen](screen, context)
+        if added:
+            keys.append(added)
+
+
+def _key_summary(key: str) -> str:
+    """Type and comment. The body is 68 columns of base64 that tells the
+    operator nothing about which key this is."""
+    fields = key.split()
+    comment = fields[2] if len(fields) > 2 else ""
+    return f"{fields[0]} {comment}".strip()
+
+
+def _type_a_key(screen: Screen, context: Context) -> str:
+    translate = context.translate
+    typed = TextField(
+        title=translate("Public key"),
+        placeholder=translate("ssh-ed25519 AAAA... name@host"),
         footer=_footer(translate),
-    )
-    answer = field.run(screen)
-    if not answer.chosen:
-        return Answer(answer.outcome)
-    typed = answer.unwrap().strip()
-    keys = (typed,) if typed else ()
-    return Answer(
-        Outcome.CHOSE, replace(config, system=replace(config.system, root_authorized_keys=keys))
-    )
+    ).run(screen)
+    if not typed.chosen:
+        return ""
+    return _checked_key(screen, context, typed.unwrap())
+
+
+def _paste_a_key(screen: Screen, context: Context) -> str:
+    """The identifier alone, because the whole address is tedious to copy onto
+    a console by hand and the host part never changes."""
+    translate = context.translate
+    typed = TextField(
+        title=f"{paste.BASE}/",
+        placeholder=translate("the identifier, such as hjq+353Jzfk"),
+        footer=_footer(translate),
+    ).run(screen)
+    if not typed.chosen or not typed.unwrap().strip():
+        return ""
+    return _read_a_key(screen, context, paste.url_for(typed.unwrap()))
+
+
+def _fetch_a_key(screen: Screen, context: Context) -> str:
+    translate = context.translate
+    typed = TextField(
+        title=translate("URL of a public key"),
+        placeholder=translate("https://example.com/id_ed25519.pub"),
+        footer=_footer(translate),
+    ).run(screen)
+    if not typed.chosen or not typed.unwrap().strip():
+        return ""
+    return _read_a_key(screen, context, typed.unwrap().strip())
+
+
+def _read_a_key(screen: Screen, context: Context, url: str) -> str:
+    translate = context.translate
+    try:
+        body = context.fetch_text(url)
+    except GentooInstallError as error:
+        _say(screen, context, str(error))
+        return ""
+    # A paste holding several keys is the normal case for one person's file,
+    # and taking the first line silently would drop the rest.
+    for line in body.splitlines():
+        if line.strip() and not line.lstrip().startswith("#"):
+            return _checked_key(screen, context, line)
+    _say(screen, context, translate("that address returned no key"))
+    return ""
+
+
+#: The rows that add a key, in the order the menu lists them.
+_ADD_A_KEY: Final[tuple[Callable[[Screen, "Context"], str], ...]] = (
+    lambda screen, context: _type_a_key(screen, context),
+    lambda screen, context: _paste_a_key(screen, context),
+    lambda screen, context: _fetch_a_key(screen, context),
+)
+
+
+def _checked_key(screen: Screen, context: Context, line: str) -> str:
+    """A key that reached the target truncated is discovered at the first login
+    attempt, by which time the console is gone."""
+    try:
+        return sshkey.check(line.strip())
+    except GentooInstallError as error:
+        _say(screen, context, str(error))
+        return ""
 
 
 def root_login_screen(

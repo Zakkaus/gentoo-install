@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Final
 
 from ..errors import CommandFailed, ConfigError, DownloadFailed, IntegrityError
+from ..model import paste
 from ..model.device import DeviceId
 from .probe import RELEASE_KEY
 from .runner import Runner
@@ -114,6 +115,11 @@ def _import_release_key(runner: Runner) -> None:
     stopped before the download rather than after it.
     """
     runner.run(["gpg", "--quiet", "--import", str(RELEASE_KEY)], check=False)
+
+
+def text(url: str) -> str:
+    """A short document, such as a public key someone pasted somewhere."""
+    return _read(paste.raw_url(url))
 
 
 def _read(url: str) -> str:

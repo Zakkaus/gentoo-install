@@ -309,7 +309,7 @@ def test_root_can_be_given_a_key_before_the_first_boot() -> None:
     taking the disk out."""
     keyed = replace(
         config(),
-        system=replace(config().system, root_authorized_keys=("ssh-ed25519 AAAA test",)),
+        system=replace(config().system, authorized_keys=("ssh-ed25519 AAAA test",)),
     )
     recorder = Recorder()
     for operation in system.build(keyed):
@@ -351,7 +351,7 @@ def test_refusing_root_refuses_it_with_a_key_too() -> None:
 def test_a_key_is_written_for_root_and_for_every_sudo_user() -> None:
     """The operator authorises a person, and that person uses both accounts."""
     installation = with_system(
-        root_authorized_keys=("ssh-ed25519 AAAA test",),
+        authorized_keys=("ssh-ed25519 AAAA test",),
         users=(User(name="zakk", sudo=True), User(name="guest")),
     )
     recorder = apply_all(installation, generated=generated(installation))
@@ -365,14 +365,14 @@ def test_a_key_still_reaches_root_when_there_is_no_sudo_user() -> None:
     """Refusing root with no other account authorised leaves a headless machine
     with no way in at all."""
     installation = with_system(
-        root_authorized_keys=("ssh-ed25519 AAAA test",), sshd_root_login=False
+        authorized_keys=("ssh-ed25519 AAAA test",), sshd_root_login=False
     )
     assert system.key_accounts(installation.system) == (("root", "/root"),)
 
 
 def test_refusing_root_keeps_the_key_off_root_when_a_sudo_user_has_it() -> None:
     installation = with_system(
-        root_authorized_keys=("ssh-ed25519 AAAA test",),
+        authorized_keys=("ssh-ed25519 AAAA test",),
         sshd_root_login=False,
         users=(User(name="zakk", sudo=True),),
     )

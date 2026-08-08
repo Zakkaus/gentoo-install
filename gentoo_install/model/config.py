@@ -114,9 +114,9 @@ class SystemConfig:
     #: A static address in CIDR form, such as `192.0.2.10/24`. Empty is DHCP.
     address: str = ""
     gateway: str = ""
-    #: Public keys authorised for root, so a headless install is reachable
-    #: without a password on the console.
-    root_authorized_keys: tuple[str, ...] = ()
+    #: Public keys for root and for every sudo user. One list: the operator
+    #: authorises a person, not an account.
+    authorized_keys: tuple[str, ...] = ()
     #: The local console renders CJK itself, which needs a kernel carrying cjktty.
     console_cjk: bool = False
     console_font: ConsoleFontSize = ConsoleFontSize.SIZE_8X16

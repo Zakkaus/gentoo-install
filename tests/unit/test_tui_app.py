@@ -15,6 +15,10 @@ from .layouts import config
 
 DISKS = [("/dev/disk/by-id/virtio-target0", "20 GiB"), ("/dev/disk/by-id/virtio-target1", "40 GiB")]
 
+#: A real key, from ssh-keygen: the checker walks the body, so a made-up
+#: string would fail for the wrong reason.
+GOOD_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB+85deBslaLOMFw71dx23wo7fFT76GVcEyQS9IdVvvT test@example"
+
 
 #: What the screen handed to `stage_passphrase`, so a test can assert the
 #: passphrase left the screen without appearing on it.
@@ -278,3 +282,63 @@ def test_v3_is_recommended_only_when_this_cpu_runs_it() -> None:
     answer = screens.binhost_screen(plain, config(), old)
     assert answer.unwrap().portage.binhost.subarch == "x86-64"
     assert "this CPU cannot run it" in plain.last
+
+
+def test_a_key_typed_into_the_screen_is_checked_before_it_is_kept() -> None:
+    """A truncated key is discovered at the first login attempt, by which time
+    the console the operator would fix it from is gone."""
+    at = context()
+    keys = ["\n", *"ssh-ed25519 AAAAtruncated", "\n", "\n", *down(3), "\n"]
+    screen = FakeScreen(keys=keys)
+    answer = screens.authorized_keys_screen(screen, config(), at)
+    assert answer.unwrap().system.authorized_keys == ()
+    assert "base64" in "\n".join("\n".join(frame) for frame in screen.frames)
+
+
+def test_a_key_can_be_fetched_from_a_url() -> None:
+    """Both forms of the paste address reach the text, and the comment line the
+    paste carries is skipped rather than stored as a key."""
+    at = context()
+    asked: list[str] = []
+
+    def fetched(url: str) -> str:
+        asked.append(url)
+        return f"# {url}\n{GOOD_KEY}\n"
+
+    at.fetch_text = fetched
+    keys = [*down(2), "\n", *"https://paste.gentoozh.org/abc", "\n", *down(4), "\n"]
+    answer = screens.authorized_keys_screen(FakeScreen(keys=keys), config(), at)
+    assert answer.unwrap().system.authorized_keys == (GOOD_KEY,)
+    assert asked == ["https://paste.gentoozh.org/abc"]
+
+
+def test_a_screen_cancelled_by_mistake_asks_before_discarding_everything() -> None:
+    """Escape inside a row used to end the run outright, which threw away every
+    other answer without asking."""
+    at = context()
+    # Open the kernel row, escape out of it, answer No, then leave properly.
+    keys = [*down(row("Kernel")), "\n", "q", "\n", "q", "KEY_DOWN", "\n"]
+    screen = FakeScreen(keys=keys)
+    finished = run(screen, config(), at)
+    assert finished.cancelled
+    seen = "\n".join("\n".join(frame) for frame in screen.frames)
+    assert "Leave without installing?" in seen
+    # The menu came back after the refusal rather than the run ending there.
+    assert seen.count("gentoo-install") >= 2
+
+
+def test_a_paste_needs_only_its_identifier() -> None:
+    """Typing the whole address onto a console by hand is what this avoids; the
+    host never changes, so only the identifier is asked for."""
+    at = context()
+    asked: list[str] = []
+
+    def fetched(url: str) -> str:
+        asked.append(url)
+        return GOOD_KEY
+
+    at.fetch_text = fetched
+    keys = ["KEY_DOWN", "\n", *"hjq+353Jzfk", "\n", *down(4), "\n"]
+    answer = screens.authorized_keys_screen(FakeScreen(keys=keys), config(), at)
+    assert asked == ["https://paste.gentoozh.org/raw/hjq+353Jzfk"]
+    assert answer.unwrap().system.authorized_keys == (GOOD_KEY,)

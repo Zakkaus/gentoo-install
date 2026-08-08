@@ -86,7 +86,7 @@ def _address(config: InstallConfig, context: Context) -> str:
 
 
 def _keys(config: InstallConfig, context: Context) -> str:
-    count = len(config.system.root_authorized_keys)
+    count = len(config.system.authorized_keys)
     return f"{count} authorised" if count else "none"
 
 
@@ -213,7 +213,7 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("extra", "Extra packages", _extra, screens.extra_packages_screen),
     Setting("network", "Network configuration", _network, screens.networking_screen),
     Setting("address", "Address", _address, screens.address_screen),
-    Setting("keys", "SSH keys for root", _keys, screens.authorized_keys_screen),
+    Setting("keys", "SSH public keys", _keys, screens.authorized_keys_screen),
     Setting("rootlogin", "Root login over SSH", _root_login, screens.root_login_screen),
     Setting("sshd", "SSH server", _sshd, screens.sshd_screen),
     Setting("erase", "Confirm erasing the drive", _erase, screens.erase_screen, required=True),

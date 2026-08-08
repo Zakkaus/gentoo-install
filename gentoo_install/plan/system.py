@@ -544,11 +544,9 @@ def build(config: InstallConfig) -> list[Operation]:
     ]
     if config.disk.graph.of_type(MdRaid):
         operations.append(WriteMdadmConf())
-    if system.root_authorized_keys:
+    if system.authorized_keys:
         operations.append(
-            WriteAuthorizedKeys(
-                keys=system.root_authorized_keys, accounts=key_accounts(system)
-            )
+            WriteAuthorizedKeys(keys=system.authorized_keys, accounts=key_accounts(system))
         )
     if system.zram is not None:
         operations += [
