@@ -26,7 +26,7 @@ from ..model.device import (
     ZfsDataset,
     ZfsPool,
 )
-from .bootloader import luks_parameters
+from .bootloader import array_parameters, initramfs_devices, luks_parameters
 from .operations import Context, Operation, Stage
 from .portage import Emerge
 
@@ -111,6 +111,7 @@ class WriteKernelCmdline(Operation):
     dataset: str
     kernel_params: tuple[str, ...]
     luks: tuple[DeviceId, ...] = ()
+    arrays: tuple[DeviceId, ...] = ()
 
     def describe(self) -> str:
         named = self.dataset or str(self.root)
@@ -121,10 +122,13 @@ class WriteKernelCmdline(Operation):
             where = f"root=ZFS={self.dataset}"
         else:
             where = f"root=UUID={context.device_uuid(self.root)}"
-        opened = luks_parameters(context, self.luks)
+        told = (
+            *luks_parameters(context, self.luks),
+            *array_parameters(context, self.arrays),
+        )
         context.write(
             PurePosixPath("/etc/kernel/cmdline"),
-            " ".join((where, "rw", *opened, *self.kernel_params)) + "\n",
+            " ".join((where, "rw", *told, *self.kernel_params)) + "\n",
         )
 
 
@@ -301,7 +305,8 @@ def build(config: InstallConfig) -> list[Operation]:
             WriteKernelCmdline(
                 root=root,
                 dataset=dataset,
-                luks=tuple(node.backing for node in compat.early_containers(config.disk.graph)),
+                luks=initramfs_devices(config)[0],
+                arrays=initramfs_devices(config)[1],
                 kernel_params=(*extra, *config.bootloader.kernel_params),
             )
         )

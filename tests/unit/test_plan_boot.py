@@ -374,3 +374,26 @@ def test_the_command_line_names_the_array_the_initramfs_assembles() -> None:
         if isinstance(operation, bootloader.WriteGrubDefaults):
             operation.apply(plain)
     assert "rd.md.uuid" not in plain.files[PurePosixPath("/etc/default/grub")]
+
+
+def test_both_command_line_writers_are_told_the_same_devices() -> None:
+    """Deriving it twice is how systemd-boot came to omit the arrays GRUB was
+    given, so one function answers for both."""
+    from dataclasses import replace as _replace
+
+    from gentoo_install.model.config import Bootloader
+
+    raid = load(Path("tests/fixtures/vm-mdraid.toml"))
+    grub = next(
+        operation
+        for operation in bootloader.build(raid)
+        if isinstance(operation, bootloader.WriteGrubDefaults)
+    )
+    entries = _replace(raid, bootloader=_replace(raid.bootloader, kind=Bootloader.SYSTEMD_BOOT))
+    bls = next(
+        operation
+        for operation in kernel.build(entries)
+        if isinstance(operation, kernel.WriteKernelCmdline)
+    )
+    assert grub.arrays == bls.arrays != ()
+    assert grub.luks == bls.luks

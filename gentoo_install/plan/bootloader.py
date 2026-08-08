@@ -281,10 +281,8 @@ def build(config: InstallConfig) -> list[Operation]:
                 kernel_params=config.bootloader.kernel_params,
                 cryptodisk=compat.boot_is_encrypted(config.disk.graph),
                 serial=_serial_console(config),
-                luks=tuple(
-                    node.backing for node in compat.early_containers(config.disk.graph)
-                ),
-                arrays=tuple(node.id for node in config.disk.graph.of_type(MdRaid)),
+                luks=initramfs_devices(config)[0],
+                arrays=initramfs_devices(config)[1],
             ),
             InstallGrub(
                 firmware=config.bootloader.firmware, esp=esp, boot_device=config.disk.root
@@ -324,6 +322,18 @@ def build(config: InstallConfig) -> list[Operation]:
 def luks_parameters(context: Context, devices: tuple[DeviceId, ...]) -> tuple[str, ...]:
     """`rd.luks.uuid` for each container the initramfs has to open."""
     return tuple(f"rd.luks.uuid={context.device_uuid(device)}" for device in devices)
+
+
+def initramfs_devices(config: InstallConfig) -> tuple[tuple[DeviceId, ...], tuple[DeviceId, ...]]:
+    """The containers and arrays the initramfs has to be told about.
+
+    One function for both command line writers: deriving it twice is how
+    systemd-boot came to omit the arrays that GRUB was given.
+    """
+    graph = config.disk.graph
+    containers = tuple(node.backing for node in compat.early_containers(graph))
+    arrays = tuple(node.id for node in graph.of_type(MdRaid))
+    return containers, arrays
 
 
 def array_parameters(context: Context, devices: tuple[DeviceId, ...]) -> tuple[str, ...]:
