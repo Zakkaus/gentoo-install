@@ -81,7 +81,9 @@ STACK_PACKAGES: Final[dict[str, StackTool]] = {
     "crypt": StackTool("sys-fs/cryptsetup"),
     "lvm": StackTool("sys-fs/lvm2", use=("lvm",)),
     "mdraid": StackTool("sys-fs/mdadm"),
-    "zfs": StackTool("sys-fs/zfs", modules=("sys-fs/zfs", "sys-fs/zfs-kmod")),
+    # Not sys-fs/zfs-kmod: `sys-fs/zfs-2.4.1` absorbed the module and blocks
+    # every older kmod, so naming it merges a package the tree has retired.
+    "zfs": StackTool("sys-fs/zfs", modules=("sys-fs/zfs",)),
 }
 
 #: The tool each filesystem needs, so the target can check and mount it again.

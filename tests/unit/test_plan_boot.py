@@ -144,7 +144,9 @@ def test_zfs_is_told_to_build_against_a_dist_kernel() -> None:
     """A dist-kernel leaves no `.config` in /usr/src/linux, and `sys-fs/zfs`
     dies in its setup phase looking for one."""
     described = " ".join(operation.describe() for operation in kernel.build(config(zfs_root())))
-    assert "sys-fs/zfs-kmod" in described and "dist-kernel" in described
+    assert "sys-fs/zfs" in described and "dist-kernel" in described
+    # 2.4.1 absorbed the module and blocks every older kmod.
+    assert "sys-fs/zfs-kmod" not in described
 
 
 def test_the_patched_kernel_needs_the_flag_too() -> None:
@@ -529,7 +531,7 @@ def test_which_tool_builds_a_kernel_module_is_one_table() -> None:
 
     assert not hasattr(kernel, "OUT_OF_TREE")
     declared = {atom for tool in STACK_PACKAGES.values() for atom in tool.modules}
-    assert declared == {"sys-fs/zfs", "sys-fs/zfs-kmod"}
+    assert declared == {"sys-fs/zfs"}
 
     zfs = load(Path("tests/fixtures/vm-zfs.toml"))
     assert set(_out_of_tree_modules(zfs)) == declared
