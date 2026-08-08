@@ -275,7 +275,7 @@ def _mirror(config: InstallConfig, context: Context) -> str:
 
 
 def _firmware(config: InstallConfig, context: Context) -> str:
-    detected = " (detected)" if config.bootloader.firmware is context.firmware else ""
+    detected = f" ({context.translate('detected')})" if config.bootloader.firmware is context.firmware else ""
     return f"{config.bootloader.firmware.value}{detected}"
 
 
@@ -314,7 +314,7 @@ def _encryption(config: InstallConfig, context: Context) -> str:
 
 
 def _root(config: InstallConfig, context: Context) -> str:
-    return "set" if config.system.root_password_hash else UNSET
+    return context.translate("set") if config.system.root_password_hash else UNSET
 
 
 def _user(config: InstallConfig, context: Context) -> str:
@@ -373,7 +373,7 @@ def _erase(config: InstallConfig, context: Context) -> str:
     """
     if not any(node.wipe for node in config.disk.graph.of_type(Existing)):
         return context.translate("nothing is erased")
-    return "confirmed" if context.erase_confirmed else UNSET
+    return context.translate("confirmed") if context.erase_confirmed else UNSET
 
 
 def _cjk_kernel_only(config: InstallConfig, context: Context) -> str:
