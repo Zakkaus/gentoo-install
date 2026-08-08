@@ -1355,10 +1355,10 @@ def test_the_timezone_can_follow_the_machine_the_installer_is_running_on() -> No
     answer = screens.timezone_screen(screen, config(), at)
     assert answer.unwrap().system.timezone == "Australia/Melbourne"
     drawn = "\n".join(screen.frames[0])
-    assert "the same as this machine" in drawn and "Australia/Melbourne" in drawn
+    assert "follow the BIOS" in drawn and "Australia/Melbourne" in drawn
 
     # Unreadable on this medium: the row is absent rather than empty.
     at.timezone_here = ""
     plain = FakeScreen(keys=["\n"], lines=24, columns=90)
     assert screens.timezone_screen(plain, config(), at).unwrap().system.timezone == "UTC"
-    assert "the same as this machine" not in "\n".join(plain.frames[0])
+    assert "follow the BIOS" not in "\n".join(plain.frames[0])

@@ -295,7 +295,7 @@
 "set" = "설정됨"
 "confirmed" = "확인됨"
 "prebuilt, cjktty for CJK on the console, from gentoo-zh" = "사전 빌드, cjktty 포함, 콘솔에서 CJK 표시, gentoo-zh 제공"
-"the same as this machine" = "이 기기와 동일"
 "the layout row writes this table" = "레이아웃 행이 정함"
 "A new partition table" = "새 파티션 표"
 "on the disk now; the new table replaces it" = "디스크의 현재 내용. 새 표가 대체함"
+"follow the BIOS" = "BIOS를 따름"

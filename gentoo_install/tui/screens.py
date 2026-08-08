@@ -1449,7 +1449,7 @@ def timezone_screen(screen: Screen, config: InstallConfig, context: Context) -> 
         items.insert(
             0,
             Item(
-                label=translate("the same as this machine"),
+                label=translate("follow the BIOS"),
                 value="",
                 detail=context.timezone_here,
             ),

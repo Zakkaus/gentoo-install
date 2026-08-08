@@ -295,7 +295,7 @@
 "set" = "已設定"
 "confirmed" = "已確認"
 "prebuilt, cjktty for CJK on the console, from gentoo-zh" = "預先建置，帶 cjktty，主控台可顯示 CJK 文字，來自 gentoo-zh"
-"the same as this machine" = "與這台機器相同"
 "the layout row writes this table" = "由磁碟配置那一列決定"
 "A new partition table" = "新的分割表"
 "on the disk now; the new table replaces it" = "磁碟現有內容，新的分割表會取代它"
+"follow the BIOS" = "跟隨 BIOS"
