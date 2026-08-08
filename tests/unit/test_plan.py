@@ -460,3 +460,33 @@ def test_each_rime_schema_is_a_group_the_operator_can_tick() -> None:
     assert "luna_pinyin cangjie5" in written
     assert "bopomofo" not in written
 
+
+def test_every_engine_the_operator_picked_is_in_the_fcitx_profile() -> None:
+    """It wrote the first one and installed the rest, so a desktop that asked
+    for Chinese and Japanese typed Chinese and had no way to reach mozc."""
+    from dataclasses import replace as _replace
+    from pathlib import Path as _Path
+
+    from gentoo_install.data import load_catalog
+    from gentoo_install.model.parse import load
+    from gentoo_install.plan.build import build
+    from gentoo_install.plan.packages import WriteInputMethodProfile
+
+    desktop = load(_Path("tests/fixtures/vm-desktop.toml"))
+    picked = _replace(
+        desktop,
+        packages=_replace(desktop.packages, applications=("fcitx5", "rime", "mozc", "hangul")),
+    )
+    written = next(
+        one for one in build(picked, load_catalog()) if isinstance(one, WriteInputMethodProfile)
+    )
+    assert written.engines == ("rime", "mozc", "hangul")
+
+    recorder = Recorder()
+    written.apply(recorder)
+    profile = recorder.files[PurePosixPath("/etc/skel/.config/fcitx5/profile")]
+    # The keyboard stays first and stays the default, so a password field does
+    # not start composing.
+    assert "DefaultIM=keyboard-us" in profile
+    for index, name in enumerate(("keyboard-us", "rime", "mozc", "hangul")):
+        assert f"[Groups/0/Items/{index}]\nName={name}\n" in profile

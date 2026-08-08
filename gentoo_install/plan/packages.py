@@ -150,7 +150,10 @@ class WriteInputMethodProfile(Operation):
     until someone opens the configuration tool and adds one by hand."""
 
     stage: Stage = Stage.PACKAGES
-    engine: str
+    #: Every engine the chosen groups provide. All of them, not the first: a
+    #: desktop that asked for Chinese and Japanese needs both in the profile,
+    #: and the ones left out are installed and unreachable.
+    engines: tuple[str, ...]
     schemas: tuple[str, ...]
     layout: str
     #: Home directories to seed, `/etc/skel` included so later users match.
@@ -159,7 +162,7 @@ class WriteInputMethodProfile(Operation):
     def describe(self) -> str:
         who = ", ".join(owner or "skel" for _, owner in self.homes)
         listed = " ".join(self.schemas) or "no rime schema"
-        return f"configure fcitx with {self.engine} and {listed} for {who}"
+        return f"configure fcitx with {', '.join(self.engines)} and {listed} for {who}"
 
     def apply(self, context: Context) -> None:
         for home, owner in self.homes:
@@ -180,23 +183,17 @@ class WriteInputMethodProfile(Operation):
         """fcitx's own ini. The keyboard is first and the default, so a console
         or a password field does not start composing."""
         keyboard = f"keyboard-{self.layout}"
-        return (
+        head = (
             "[Groups/0]\n"
             "Name=Default\n"
             f"Default Layout={self.layout}\n"
             f"DefaultIM={keyboard}\n"
-            "\n"
-            "[Groups/0/Items/0]\n"
-            f"Name={keyboard}\n"
-            "Layout=\n"
-            "\n"
-            "[Groups/0/Items/1]\n"
-            f"Name={self.engine}\n"
-            "Layout=\n"
-            "\n"
-            "[GroupOrder]\n"
-            "0=Default\n"
         )
+        items = "".join(
+            f"\n[Groups/0/Items/{index}]\nName={name}\nLayout=\n"
+            for index, name in enumerate((keyboard, *self.engines))
+        )
+        return f"{head}{items}\n[GroupOrder]\n0=Default\n"
 
     def _rime(self) -> str:
         listed = "".join(f"    - schema: {schema}\n" for schema in self.schemas)
@@ -365,8 +362,11 @@ def _known(catalog: Catalog) -> str:
 def _input_method(config: InstallConfig, catalog: Catalog) -> list[Operation]:
     """Nothing at all unless a selected group provides an engine."""
     chosen = groups(config, catalog)
-    engine = next((group.input_method for group in chosen if group.input_method), "")
-    if not engine:
+    engines: list[str] = []
+    for group in chosen:
+        if group.input_method and group.input_method not in engines:
+            engines.append(group.input_method)
+    if not engines:
         return []
     schemas: list[str] = []
     for group in chosen:
@@ -381,7 +381,7 @@ def _input_method(config: InstallConfig, catalog: Catalog) -> list[Operation]:
             wayland=any(group.wayland for group in chosen),
         ),
         WriteInputMethodProfile(
-            engine=engine,
+            engines=tuple(engines),
             schemas=tuple(schemas),
             layout=config.system.keymap,
             homes=tuple(homes),
