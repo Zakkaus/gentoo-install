@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -161,3 +162,21 @@ def test_a_terminal_too_small_for_the_interface_says_so_rather_than_drawing() ->
     assert "60x20" in cramped and f"{MINIMUM_COLUMNS}x{MINIMUM_LINES}" in cramped
     assert too_small(Sized(MINIMUM_LINES, MINIMUM_COLUMNS)) == ""  # type: ignore[arg-type]
     assert "too_small(display)" in Path("gentoo_install/cli.py").read_text()
+
+
+def test_the_menu_names_openssl_before_it_asks_anything(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`fetch.password_hash` shells out to `openssl passwd -6`, and finding it
+    absent at the root-password screen throws away every answer before it."""
+    from gentoo_install.exec import preflight
+
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    online(monkeypatch)
+    monkeypatch.setattr(shutil, "which", lambda name: None if name == "openssl" else "/bin/x")
+    assert main([]) == EXIT_PREFLIGHT
+    assert "the menu needs openssl" in capsys.readouterr().err
+    # A file carries its hashes, so an install from one needs none of it.
+    from gentoo_install.model.parse import load
+
+    assert "openssl" not in preflight.required_commands(load(FIXTURES / "ext4-bios.toml"))

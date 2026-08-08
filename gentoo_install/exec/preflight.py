@@ -32,6 +32,10 @@ ALWAYS: Final[tuple[str, ...]] = (
     "tar", "gpg", "mount", "umount", "findmnt", "lsblk", "blkid", "chroot", "udevadm", "swapon",
 )
 
+#: What the menu needs and a configuration file does not: a file carries
+#: `password_hash` already, and the menu computes one with `openssl passwd -6`.
+MENU_ONLY: Final[tuple[str, ...]] = ("openssl",)
+
 #: What each part of a layout adds. Derived from the graph, never a second list.
 BY_FEATURE: Final[dict[str, tuple[str, ...]]] = {
     # `partprobe` is absent here on purpose: it comes from parted, and

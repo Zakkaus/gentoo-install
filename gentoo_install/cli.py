@@ -92,7 +92,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             if arguments.missing_commands:
                 # Nothing to derive a layout from, so answer for the commands
                 # every install needs whatever it is about to do.
-                print("\n".join(sorted(_absent(preflight.ALWAYS))))
+                print("\n".join(sorted(_absent((*preflight.ALWAYS, *preflight.MENU_ONLY)))))
                 return EXIT_OK
             chosen = _from_menu(arguments)
             if chosen is None:
@@ -251,6 +251,11 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
     """Walk the screens and return what the operator built, or None."""
     runner = Runner(log=lambda line: None)
     probe = Probe(runner=runner, work=arguments.work)
+    # Checked before the first screen: the menu hashes a password with
+    # `openssl`, and finding it absent at that point throws away every answer.
+    lacking = _absent(preflight.MENU_ONLY)
+    if lacking:
+        raise errors.PreflightFailed(f"the menu needs {', '.join(sorted(lacking))}")
     context = screens.Context(
         translate=Catalog(tag_for(override=arguments.lang)),
         disks=probe.disks(),
