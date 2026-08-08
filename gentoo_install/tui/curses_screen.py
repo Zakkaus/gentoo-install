@@ -5,7 +5,11 @@ from __future__ import annotations
 import curses
 from typing import Any
 
-from .widgets import MINIMUM_COLUMNS, MINIMUM_LINES
+from .widgets import MINIMUM_COLUMNS, MINIMUM_LINES, Style
+
+#: Colour pair per style. A terminal with no colour keeps every pair at 0,
+#: which curses renders as the default attributes.
+_PAIRS: dict[Style, int] = {Style.PLAIN: 0, Style.REQUIRED: 1, Style.UNTOUCHED: 2}
 
 
 class CursesScreen:
@@ -15,6 +19,12 @@ class CursesScreen:
         # arrive as bytes, so ctrl-c reaches the widgets and is answered with
         # the same question an escape is, instead of ending the run outright.
         curses.raw()
+        self._coloured = curses.has_colors()
+        if self._coloured:
+            curses.start_color()
+            curses.use_default_colors()
+            curses.init_pair(_PAIRS[Style.REQUIRED], curses.COLOR_RED, -1)
+            curses.init_pair(_PAIRS[Style.UNTOUCHED], curses.COLOR_YELLOW, -1)
 
     def size(self) -> tuple[int, int]:
         lines, columns = self._window.getmaxyx()
@@ -23,12 +33,22 @@ class CursesScreen:
     def clear(self) -> None:
         self._window.erase()
 
-    def write(self, line: int, column: int, text: str, highlight: bool = False) -> None:
+    def write(
+        self,
+        line: int,
+        column: int,
+        text: str,
+        highlight: bool = False,
+        style: Style = Style.PLAIN,
+    ) -> None:
         lines, columns = self.size()
         if not 0 <= line < lines:
             return
+        attributes = curses.A_REVERSE if highlight else 0
+        if self._coloured and style is not Style.PLAIN:
+            attributes |= curses.color_pair(_PAIRS[style])
         try:
-            self._window.addstr(line, column, text, curses.A_REVERSE if highlight else 0)
+            self._window.addstr(line, column, text, attributes)
         except curses.error:
             # Writing the last cell of the last line always raises, and there
             # is nothing to recover: the text is already on screen.

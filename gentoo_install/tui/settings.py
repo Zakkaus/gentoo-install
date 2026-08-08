@@ -20,7 +20,7 @@ from ..model import mirrors
 from ..model.device import Existing, Luks, MdRaid, PartitionTable, VolumeGroup, ZfsPool
 from . import screens
 from .screens import Context, Step, footer
-from .widgets import Answer, Item, Menu, Outcome, Screen
+from .widgets import Answer, Item, Menu, Outcome, Screen, Style
 
 #: Shown for a row the operator has not visited and that has no usable default.
 UNSET: Final[str] = "not set"
@@ -37,6 +37,17 @@ class Setting:
     edit: Step | None
     #: A run cannot start until every required row has an answer.
     required: bool = False
+
+
+def style_of(setting: Setting, config: InstallConfig, context: Context) -> Style:
+    """Red for a required row with no answer, yellow for an optional row the
+    operator has not opened. Colour repeats what the value already says: a
+    console without it loses nothing."""
+    if setting.required and setting.value(config, context) == UNSET:
+        return Style.REQUIRED
+    if not setting.required and setting.edit is not None and setting.key not in context.visited:
+        return Style.UNTOUCHED
+    return Style.PLAIN
 
 
 def nested(title: str, rows: tuple[Setting, ...]) -> Step:
@@ -59,6 +70,7 @@ def nested(title: str, rows: tuple[Setting, ...]) -> Step:
                     value=index,
                     detail=row.value(current, context),
                     disabled_because="" if row.edit else context.translate("detected"),
+                    style=style_of(row, current, context),
                 )
                 for index, row in enumerate(rows)
             ]
@@ -79,6 +91,7 @@ def nested(title: str, rows: tuple[Setting, ...]) -> Step:
             editor = rows[chosen].edit
             if editor is None:
                 continue
+            context.visited.add(rows[chosen].key)
             edited = editor(screen, current, context)
             if edited.outcome is Outcome.CANCELLED:
                 return Answer(Outcome.CANCELLED)

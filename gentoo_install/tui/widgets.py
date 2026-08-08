@@ -30,6 +30,17 @@ MINIMUM_COLUMNS = 80
 MINIMUM_LINES = 24
 
 
+class Style(Enum):
+    """What a row's colour says. Never the only signal: a console with no
+    colour still has to show the same thing, so the text says it too."""
+
+    PLAIN = "plain"
+    #: Required and still unanswered. The install cannot start.
+    REQUIRED = "required"
+    #: Optional and never opened, so it is running on a default nobody chose.
+    UNTOUCHED = "untouched"
+
+
 class Outcome(Enum):
     """Three states, not two: going back is not the same as cancelling, and
     neither is the same as choosing."""
@@ -66,7 +77,14 @@ class Screen(Protocol):
 
     def clear(self) -> None: ...
 
-    def write(self, line: int, column: int, text: str, highlight: bool = False) -> None: ...
+    def write(
+        self,
+        line: int,
+        column: int,
+        text: str,
+        highlight: bool = False,
+        style: Style = Style.PLAIN,
+    ) -> None: ...
 
     def show(self) -> None:
         """Flush what was written."""
@@ -85,6 +103,7 @@ class Item(Generic[V]):
     #: interface and the validator give the same reason.
     disabled_because: str = ""
     detail: str = ""
+    style: Style = Style.PLAIN
 
 
 @dataclass
@@ -171,7 +190,13 @@ class Menu(Generic[V]):
                 # After the value, not instead of it: a row that cannot be
                 # chosen still has to show what it settled on.
                 text = f"{text} - {item.disabled_because}"
-            screen.write(row + 2, 2, truncate(text, columns - 4), highlight=index == cursor)
+            screen.write(
+                row + 2,
+                2,
+                truncate(text, columns - 4),
+                highlight=index == cursor,
+                style=item.style,
+            )
         if self.footer:
             screen.write(lines - 1, 0, truncate(self.footer, columns))
         screen.show()

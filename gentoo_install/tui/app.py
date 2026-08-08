@@ -14,7 +14,7 @@ from ..model.config import InstallConfig
 from ..model.validate import validate
 from ..errors import ValidationFailed
 from .screens import Context
-from .settings import SETTINGS, unanswered
+from .settings import SETTINGS, style_of, unanswered
 from .widgets import Confirm, Item, Menu, Outcome, Screen
 
 
@@ -42,6 +42,7 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
                 value=index,
                 detail=setting.value(current, context),
                 disabled_because="" if setting.edit else "detected from this machine",
+                style=style_of(setting, current, context),
             )
             for index, setting in enumerate(SETTINGS)
         ]
@@ -75,6 +76,7 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
         editor = SETTINGS[chosen].edit
         if editor is None:
             continue
+        context.visited.add(SETTINGS[chosen].key)
         edited = editor(screen, current, context)
         if edited.outcome is Outcome.CANCELLED and _leaving(screen, context):
             return Finished(None)

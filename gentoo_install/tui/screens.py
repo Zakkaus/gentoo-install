@@ -98,6 +98,10 @@ class Context:
         #: Erasing a drive is confirmed by typing its name, and the menu shows
         #: whether that has been done rather than asking again at the end.
         self.erase_confirmed = False
+        #: Keys of the rows the operator has opened. An optional row never
+        #: opened is running on a default nobody chose, which the menu says in
+        #: colour as well as in the value it shows.
+        self.visited: set[str] = set()
         #: The hand-written partition table, when the layout is manual.
         self.layout = manual.Layout()
         #: Whether the disk comes from that table rather than a template.

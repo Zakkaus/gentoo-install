@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from gentoo_install.i18n import width
+from gentoo_install.tui.widgets import Style
 
 
 @dataclass
@@ -19,6 +20,9 @@ class FakeScreen:
     #: Every frame drawn, most recent last, as a list of rendered rows.
     frames: list[list[str]] = field(default_factory=list)
     highlighted: list[str] = field(default_factory=list)
+    #: Every styled row drawn, so a test can assert what the colour says
+    #: without a terminal that has colour.
+    styled: list[tuple[Style, str]] = field(default_factory=list)
     _current: dict[int, str] = field(default_factory=dict)
 
     def size(self) -> tuple[int, int]:
@@ -27,7 +31,14 @@ class FakeScreen:
     def clear(self) -> None:
         self._current = {}
 
-    def write(self, line: int, column: int, text: str, highlight: bool = False) -> None:
+    def write(
+        self,
+        line: int,
+        column: int,
+        text: str,
+        highlight: bool = False,
+        style: Style = Style.PLAIN,
+    ) -> None:
         """Merged into the row at that column, the way curses does it.
 
         Replacing the row would hide a widget writing two things over each
@@ -39,6 +50,8 @@ class FakeScreen:
         self._current[line] = row[:column] + text + row[column + len(text):]
         if highlight:
             self.highlighted.append(text)
+        if style is not Style.PLAIN:
+            self.styled.append((style, text))
 
     def show(self) -> None:
         self.frames.append([self._current.get(row, "") for row in range(self.lines)])

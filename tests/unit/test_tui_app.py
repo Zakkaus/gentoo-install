@@ -678,3 +678,57 @@ def test_the_newest_row_pins_nothing() -> None:
     pinned = replace(config(), kernel=replace(config().kernel, version="7.1.7"))
     answer = screens.kernel_version_screen(FakeScreen(keys=["\n"], lines=20), pinned, at)
     assert answer.unwrap().kernel.version == ""
+
+
+def test_a_required_row_with_no_answer_is_drawn_red() -> None:
+    """Asked for by a user reading the screen: the blocked Install row names
+    one missing answer, and the rows themselves said nothing."""
+    from gentoo_install.tui.widgets import Style
+
+    at = context()
+    blank = replace(config(), system=replace(config().system, root_password_hash=""))
+    screen = FakeScreen(keys=["q", "KEY_DOWN", "\n"], lines=30, columns=100)
+    run(screen, blank, at)
+    red = [text for style, text in screen.styled if style is Style.REQUIRED]
+    assert any("Root password" in one for one in red), red
+    assert any("Mirrors" in one for one in red), red
+
+
+def test_an_optional_row_never_opened_is_drawn_yellow() -> None:
+    """It is running on a default nobody chose, which is worth seeing before
+    the install rather than after it."""
+    from gentoo_install.tui.widgets import Style
+
+    at = context()
+    screen = FakeScreen(keys=["q", "KEY_DOWN", "\n"], lines=30, columns=100)
+    run(screen, config(), at)
+    yellow = [text for style, text in screen.styled if style is Style.UNTOUCHED]
+    assert any("Desktop" in one for one in yellow), yellow
+
+    opened = context()
+    opened.visited = {setting.key for setting in settings.SETTINGS}
+    plain = FakeScreen(keys=["q", "KEY_DOWN", "\n"], lines=30, columns=100)
+    run(plain, config(), opened)
+    assert not [text for style, text in plain.styled if style is Style.UNTOUCHED]
+
+
+def test_a_row_shown_and_not_chosen_is_never_marked_untouched() -> None:
+    """Firmware is detected, so there is nothing for the operator to open and
+    yellow would be asking for something that cannot be given."""
+    from gentoo_install.tui.widgets import Style
+
+    at = context()
+    firmware = next(one for one in settings.SETTINGS if one.key == "firmware")
+    assert settings.style_of(firmware, config(), at) is Style.PLAIN
+
+
+def test_colour_repeats_what_the_text_already_says() -> None:
+    """A console without colour has to lose nothing, so the value and the
+    blocked row carry the same information."""
+    at = context()
+    blank = replace(config(), system=replace(config().system, root_password_hash=""))
+    screen = FakeScreen(keys=["q", "KEY_DOWN", "\n"], lines=30, columns=100)
+    run(screen, blank, at)
+    seen = "\n".join("\n".join(frame) for frame in screen.frames)
+    assert "not set" in seen
+    assert "still needs an answer" in seen
