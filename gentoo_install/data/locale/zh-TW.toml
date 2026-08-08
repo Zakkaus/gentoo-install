@@ -161,3 +161,6 @@
 "Add the gentoo-zh distfiles to GENTOO_MIRRORS?" = "要把 gentoo-zh distfiles 加進 GENTOO_MIRRORS 嗎？"
 "appended" = "已附加"
 "not used" = "不使用"
+"Compiler" = "編譯"
+"CPU flags" = "CPU 旗標"
+"what the profile sets" = "由 profile 決定"

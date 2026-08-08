@@ -532,6 +532,66 @@ def keywords_screen(
     )
 
 
+#: One row of the compiler screen. Four settings that are read together and
+#: were four rows apart, so nobody saw them as one decision.
+_JOBS: Final[str] = "jobs"
+_FLAGS: Final[str] = "flags"
+_CPU_FLAGS: Final[str] = "cpu-flags"
+_LICENSE: Final[str] = "license"
+_KEYWORDS: Final[str] = "keywords"
+
+
+def compiler_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """How the target builds: jobs, flags, licences and keywords in one place."""
+    translate = context.translate
+    current = config
+    cursor = 0
+    while True:
+        menu: Menu[str] = Menu(
+            title=translate("Compiler"),
+            items=_compiler_fields(current, context),
+            footer=_footer(translate),
+            cursor=cursor,
+        )
+        answer = menu.run(screen)
+        cursor = menu.cursor
+        if not answer.chosen:
+            return Answer(answer.outcome)
+        field = answer.unwrap()[0]
+        if field == _DONE:
+            return Answer(Outcome.CHOSE, current)
+        edited = _COMPILER_FIELDS[field](screen, current, context)
+        if edited.chosen:
+            current = edited.unwrap()
+
+
+def _compiler_fields(config: InstallConfig, context: Context) -> list[Item[str]]:
+    translate = context.translate
+    portage = config.portage
+    return [
+        Item(
+            label=translate("Compile jobs"),
+            value=_JOBS,
+            detail=portage.makeopts or f"-j{context.cores}",
+        ),
+        Item(label=translate("Compiler flags"), value=_FLAGS, detail=portage.common_flags),
+        Item(
+            label=translate("CPU flags"),
+            value=_CPU_FLAGS,
+            detail=" ".join(portage.cpu_flags) or translate("what the profile sets"),
+        ),
+        Item(label=translate("Licenses"), value=_LICENSE, detail=" ".join(portage.accept_license)),
+        Item(
+            label=translate("Package keywords"),
+            value=_KEYWORDS,
+            detail="~amd64" if portage.keywords is Keywords.TESTING else "amd64",
+        ),
+        Item(label=translate("Done"), value=_DONE),
+    ]
+
+
 def kernel_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
     translate = context.translate
     menu: Menu[KernelSource] = Menu(
@@ -1843,3 +1903,14 @@ def sync_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     return Answer(
         Outcome.CHOSE, replace(config, portage=replace(config.portage, sync=answer.unwrap()[0]))
     )
+
+
+#: Which screen each compiler field opens. Below the screens it names, because
+#: they are defined further down the module.
+_COMPILER_FIELDS: Final[dict[str, Step]] = {
+    _JOBS: makeopts_screen,
+    _FLAGS: compile_flags_screen,
+    _CPU_FLAGS: compile_flags_screen,
+    _LICENSE: license_screen,
+    _KEYWORDS: keywords_screen,
+}

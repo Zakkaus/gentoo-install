@@ -71,6 +71,13 @@ def _keywords(config: InstallConfig, context: Context) -> str:
     return "~amd64" if config.portage.keywords is Keywords.TESTING else "amd64"
 
 
+def _compiler(config: InstallConfig, context: Context) -> str:
+    """The three the operator is most likely to have changed. The rest are on
+    the screen behind this row."""
+    portage = config.portage
+    jobs = portage.makeopts or f"-j{context.cores}"
+    return f"{jobs}, {portage.common_flags}, {' '.join(portage.accept_license)}"
+
 
 def _bootloader(config: InstallConfig, context: Context) -> str:
     return f"{config.bootloader.kind.value}, {config.bootloader.firmware.value}"
@@ -198,10 +205,7 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("locale", "System language", lambda c, x: c.system.locale, screens.locale_screen),
     Setting("timezone", "Timezone", lambda c, x: c.system.timezone, screens.timezone_screen),
     Setting("mirror", "Mirrors", _mirror, screens.mirror_screen),
-    Setting("keywords", "Package keywords", _keywords, screens.keywords_screen),
-    Setting("cflags", "Compiler flags", _cflags, screens.compile_flags_screen),
-    Setting("makeopts", "Compile jobs", _makeopts, screens.makeopts_screen),
-    Setting("license", "Licenses", _license, screens.license_screen),
+    Setting("compiler", "Compiler", _compiler, screens.compiler_screen),
     Setting("repositories", "Optional repositories", _repositories, screens.repositories_screen),
     Setting("disk", "Drive", _drive, screens.disk_screen, required=True),
     Setting("table", "Partition table", _table, screens.table_screen),

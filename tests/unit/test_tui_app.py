@@ -427,3 +427,12 @@ def test_the_gentoozh_distfiles_are_appended_and_never_ranked() -> None:
     appended = _appended_distfiles(on)
     assert appended[0].endswith("nju.edu.cn/gentoo-zh")
     assert appended[-1] == "https://distfiles.gentoozh.org"
+
+
+def test_the_compiler_row_gathers_the_four_that_are_read_together() -> None:
+    at = context()
+    screen = FakeScreen(keys=["q"], lines=30, columns=110)
+    screens.compiler_screen(screen, config(), at)
+    drawn = screen.last
+    for label in ("Compile jobs", "Compiler flags", "CPU flags", "Licenses", "Package keywords"):
+        assert label in drawn, label
