@@ -192,8 +192,6 @@ class RereadPartitionTable(Operation):
         try:
             context.run(["partprobe", path])
         except CommandFailed as error:
-            # util-linux ships `blockdev` on every medium; `partprobe` comes
-            # from parted, which a gpt-only medium has no other reason to carry.
             context.degrade("partprobe", f"blockdev rereads the table instead: {error}")
             context.run(["blockdev", "--rereadpt", path])
         context.run(["udevadm", "settle"])

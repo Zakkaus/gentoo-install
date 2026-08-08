@@ -126,8 +126,7 @@ class Probe:
         use could never fire.
         """
         # The runner merges stderr into stdout, so the exit code decides first:
-        # `lsblk: not a block device` on stdout would otherwise read as a
-        # mountpoint and every check would say the disk is in use.
+        # `lsblk: not a block device` would otherwise read as a mountpoint.
         listed = self.runner.run(
             ["lsblk", "--noheadings", "--output", "MOUNTPOINT", disk], check=False
         )

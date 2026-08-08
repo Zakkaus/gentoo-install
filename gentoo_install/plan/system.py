@@ -312,9 +312,8 @@ class EnableSerialGetty(Operation):
         return f"start a login on {self.port} at {self.baud} baud"
 
     def apply(self, context: Context) -> None:
-        # The id field takes at most four characters, so `ttyS0` is one too
-        # long: sysvinit drops the entry and the console stays silent. Gentoo's
-        # own commented example in inittab uses `s0`.
+        # The id field takes at most four characters, so sysvinit drops a
+        # `ttyS0` entry and the console stays silent. Gentoo's example says s0.
         entry = f"s{self.port.removeprefix('ttyS')}"
         context.append(
             PurePosixPath("/etc/inittab"),

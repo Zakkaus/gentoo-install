@@ -40,10 +40,8 @@ KERNEL_PACKAGES: Final[dict[KernelSource, str]] = {
 #: Filesystems whose driver dracut only includes when asked.
 FILESYSTEM_MODULES: Final[dict[FilesystemType, str]] = {FilesystemType.BTRFS: "btrfs"}
 
-#: What a kernel needs switched on for the framebuffer console to draw CJK.
-#: `FONT_CJK_32x32` is off on purpose: its Kconfig default is on, and the base
-#: patch ships an empty glyph table, so it costs 8 MiB of kernel memory for a
-#: font with nothing in it.
+#: `FONT_CJK_32x32` is off on purpose: its Kconfig default is on and the base
+#: patch ships an empty glyph table, so it costs 8 MiB for nothing.
 CJK_CONSOLE_OPTIONS: Final[tuple[tuple[str, bool], ...]] = (
     ("FRAMEBUFFER_CONSOLE", True),
     ("CONSOLE_TRANSLATIONS", True),
@@ -111,8 +109,6 @@ class WriteKernelCmdline(Operation):
     root: DeviceId | None
     dataset: str
     kernel_params: tuple[str, ...]
-    #: Same reason as the GRUB defaults: nothing else tells the initramfs which
-    #: container to open.
     luks: tuple[DeviceId, ...] = ()
 
     def describe(self) -> str:
@@ -272,9 +268,8 @@ def build(config: InstallConfig) -> list[Operation]:
             )
         )
     operations += [
-        # A dist-kernel pulls this in; a sources package does not, and without
-        # it `make install` falls back to the kernel's own script, which looks
-        # for LILO and leaves /boot without a kernel or an initramfs.
+        # A sources package does not pull this in, and `make install` then
+        # falls back to the kernel's own script, which looks for LILO.
         Emerge(
             stage=Stage.KERNEL,
             packages=("sys-kernel/installkernel",),

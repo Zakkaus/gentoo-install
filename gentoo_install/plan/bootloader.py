@@ -34,9 +34,8 @@ BOOTCTL_PACKAGE: Final[dict[InitSystem, str]] = {
 #: Writing an NVRAM entry needs this, and only UEFI has NVRAM to write to.
 EFI_PACKAGE: Final[str] = "sys-boot/efibootmgr"
 
-#: Where generate-zbm writes, and the fallback path firmware boots when no
-#: NVRAM entry survives. The image's name is not fixed: generate-zbm names it
-#: after the kernel it built from, so it is looked up rather than assumed.
+#: Where generate-zbm writes, and the path firmware boots with no NVRAM entry.
+#: It names the image after the kernel, so the name is looked up, not assumed.
 ZBM_DIRECTORY: Final[str] = "EFI/zbm"
 FALLBACK_IMAGE: Final[str] = "EFI/BOOT/BOOTX64.EFI"
 
@@ -81,12 +80,9 @@ class WriteGrubDefaults(Operation):
     #: `/boot` inside a LUKS container. `grub-install` refuses outright without
     #: this, saying so in as many words.
     cryptodisk: bool
-    #: Where GRUB itself talks. A machine installed for remote use whose
-    #: bootloader only draws on VGA cannot be recovered over the serial line.
     serial: tuple[str, int] | None
-    #: Containers the initramfs opens, as `rd.luks.uuid` needs them. Gentoo's
-    #: dracut sets `hostonly_cmdline="no"`, and its in-chroot detection sees the
-    #: installer's own root, so the command line is the only thing that says so.
+    #: Gentoo's dracut sets `hostonly_cmdline="no"` and detects the chroot's own
+    #: root, so only `rd.luks.uuid` tells the initramfs what to open.
     luks: tuple[DeviceId, ...] = ()
 
     def describe(self) -> str:
@@ -110,8 +106,8 @@ class WriteGrubDefaults(Operation):
         if self.serial is not None:
             port, baud = self.serial
             unit = port.removeprefix("ttyS")
-            # Both, not serial alone: a machine that also has a monitor would
-            # otherwise show nothing at all until the kernel starts.
+            # Both: serial alone leaves a machine with a monitor dark until
+            # the kernel starts.
             lines += [
                 'GRUB_TERMINAL_INPUT="console serial"',
                 'GRUB_TERMINAL_OUTPUT="console serial"',
@@ -183,9 +179,8 @@ class InstallZfsBootMenu(Operation):
     #: than defaulting to partition 1.
     esp_device: DeviceId
     kernel_params: tuple[str, ...]
-    #: Where ZFSBootMenu's own kernel talks. `org.zfsbootmenu:commandline` is
-    #: the command line of the system it boots, not of ZFSBootMenu, so an
-    #: encrypted pool asks for its passphrase where nobody is listening.
+    #: `org.zfsbootmenu:commandline` is the command line of the system ZBM
+    #: boots, not of ZBM itself, which is what prompts for a passphrase.
     serial: tuple[str, int] | None
 
     def describe(self) -> str:
@@ -289,9 +284,8 @@ def build(config: InstallConfig) -> list[Operation]:
     elif kind is Bootloader.ZFSBOOTMENU and esp is not None and esp_device is not None:
         pool = _pool_name(config)
         operations += [
-            # generate-zbm builds a single EFI executable around the stub that
-            # systemd ships behind its `boot` flag; without it the run produces
-            # loose components and no bootable image.
+            # Without the stub systemd ships behind its `boot` flag,
+            # generate-zbm writes loose components and no bootable image.
             RequestBootctl(package=BOOTCTL_PACKAGE[config.system.init]),
             Emerge(
                 stage=Stage.BOOTLOADER,

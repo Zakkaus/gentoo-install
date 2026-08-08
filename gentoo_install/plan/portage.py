@@ -75,9 +75,8 @@ EMERGE_OPTIONS: Final[tuple[str, ...]] = (
     "--autounmask-continue=y",
 )
 
-#: What a failed keyring degrades: every host at once, because none of them can
-#: be verified without it. Named once, because the operation that gives up and
-#: the operations that read the decision are three modules apart.
+#: What a failed keyring degrades: every host at once, since none of them can
+#: be verified without one.
 BINARY_PACKAGES: Final[str] = "binary packages"
 
 

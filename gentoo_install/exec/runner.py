@@ -125,8 +125,7 @@ class Runner:
             try:
                 if input_text is not None:
                     # communicate(), not a write before the read loop: input
-                    # bigger than the pipe buffer deadlocks against a command
-                    # that is already blocked writing its output.
+                    # past the pipe buffer deadlocks against a blocked writer.
                     written, _ = process.communicate(input_text)
                     lines.append(written)
                     if self.echo:
