@@ -93,10 +93,15 @@ def _leaving(screen: Screen, context: Context) -> bool:
 
 
 def _blocked(config: InstallConfig, context: Context) -> str:
-    """Why the install cannot start, in the row that would start it."""
+    """Why the install cannot start, in the row that would start it.
+
+    One row named and the rest counted: every name would run past 80 columns
+    and the reason itself is what gets truncated away.
+    """
     missing = [context.translate(label) for label in unanswered(config, context)]
     if missing:
-        return f"{', '.join(missing)}: {context.translate('still needs an answer')}"
+        rest = f" +{len(missing) - 1}" if len(missing) > 1 else ""
+        return f"{missing[0]}{rest}: {context.translate('still needs an answer')}"
     try:
         validate(config)
     except ValidationFailed as error:

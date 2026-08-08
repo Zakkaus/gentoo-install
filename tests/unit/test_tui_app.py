@@ -130,7 +130,9 @@ def test_install_hands_back_the_configuration() -> None:
     at = context()
     at.erase_confirmed = True
     ready = replace(
-        config(), system=replace(config().system, root_password_hash="$6$test$x")
+        config(),
+        system=replace(config().system, root_password_hash="$6$test$x"),
+        portage=replace(config().portage, mirrors=replace(config().portage.mirrors, site="tuna")),
     )
     keys = [*down(len(settings.SETTINGS)), "\n"]
     finished = run(FakeScreen(keys=keys), ready, at)
@@ -176,12 +178,12 @@ def test_only_profiles_matching_the_init_are_offered() -> None:
     assert "systemd" not in plain.last
 
 
-def test_binary_packages_are_a_row_of_their_own() -> None:
-    """Never bundled with another choice: it is the difference between a ten
-    minute install and a four hour one."""
-    assert any(setting.key == "binhost" for setting in settings.SETTINGS)
-    said = settings.SETTINGS[row("Binary packages")].value(config(), context())
-    assert said
+def test_every_repository_choice_is_on_the_mirror_screen() -> None:
+    """One screen: an overlay selected with no mirror behind it, or a binhost
+    for a repository nobody selected, are states two rows apart can reach."""
+    keys = {setting.key for setting in settings.SETTINGS}
+    assert "mirror" in keys
+    assert not {"binhost", "sync", "repositories"} & keys
 
 
 def test_choosing_zfs_asks_before_adding_the_overlay() -> None:
@@ -278,15 +280,16 @@ def test_v3_is_recommended_only_when_this_cpu_runs_it() -> None:
     cannot run them is told rather than left to meet an illegal instruction."""
     modern = context()
     modern.supports_v3 = True
-    screen = FakeScreen(keys=["\n"])
-    answer = screens.binhost_screen(screen, config(), modern)
-    assert answer.unwrap().portage.binhost.subarch == "x86-64-v3"
+    answer = screens._edit_binhost(FakeScreen(keys=["\n"]), modern, config())
+    assert answer is not None
+    assert answer.portage.binhost.subarch == "x86-64-v3"
 
     old = context()
     old.supports_v3 = False
     plain = FakeScreen(keys=["\n"])
-    answer = screens.binhost_screen(plain, config(), old)
-    assert answer.unwrap().portage.binhost.subarch == "x86-64"
+    refused = screens._edit_binhost(plain, old, config())
+    assert refused is not None
+    assert refused.portage.binhost.official is False
     assert "this CPU cannot run it" in plain.last
 
 
@@ -392,24 +395,30 @@ def test_keywords_are_a_row_of_their_own() -> None:
 
 
 def test_the_mirror_row_shows_every_service_and_lets_each_be_chosen() -> None:
-    """Four services, and which of them a mirror serves is not something the
-    operator can guess from its name."""
+    """Which of them a mirror serves is not something the operator can guess
+    from its name, so each is drawn with where it will come from."""
     at = context()
-    screen = FakeScreen(keys=["q"], lines=30, columns=110)
+    screen = FakeScreen(keys=["q"], lines=40, columns=120)
     screens.mirror_screen(screen, config(), at)
     drawn = screen.last
-    for label in ("Region", "Gentoo mirror", "Repository sync", "rsync", "gentoo-zh mirror"):
+    for label in (
+        "Region", "Gentoo mirror", "Gentoo distfiles", "Repository sync",
+        "Gentoo rsync", "Gentoo binary packages", "gentoo-zh", "guru",
+    ):
         assert label in drawn, label
 
 
-def test_the_two_repositories_are_chosen_apart() -> None:
-    """They hold different files and do not offer the same set of sites."""
+def test_choosing_a_gentoozh_mirror_is_what_adds_the_overlay() -> None:
+    """A mirror chosen for an overlay nobody selected changes nothing, so the
+    two are one row."""
     at = context()
-    keys = [*down(5), "\n", "KEY_DOWN", "\n", *down(8), "\n"]
-    answer = screens.mirror_screen(FakeScreen(keys=keys, lines=30), config(), at)
-    chosen = answer.unwrap().portage.mirrors
-    assert chosen.gentoo_zh is not MirrorConfig().gentoo_zh
-    assert chosen.region is MirrorConfig().region
+    zh = next(index for index, item in enumerate(screens._mirror_fields(config(), at.translate))
+              if item.value == screens._ZH_SITE)
+    keys = [*down(zh), "\n", "KEY_DOWN", "KEY_DOWN", "\n", *down(20), "\n"]
+    answer = screens.mirror_screen(FakeScreen(keys=keys, lines=40), config(), at)
+    changed = answer.unwrap().portage
+    assert [one.name for one in changed.overlays] == ["gentoo-zh"]
+    assert changed.mirrors.gentoo_zh is not MirrorConfig().gentoo_zh
 
 
 def test_the_gentoozh_distfiles_are_appended_and_never_ranked() -> None:

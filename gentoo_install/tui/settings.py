@@ -53,16 +53,6 @@ def _swap(config: InstallConfig, context: Context) -> str:
     return "none"
 
 
-def _binhost(config: InstallConfig, context: Context) -> str:
-    binhost = config.portage.binhost
-    chosen = []
-    if binhost.official:
-        chosen.append(f"official {binhost.subarch}")
-    if binhost.community.value != "off":
-        chosen.append(f"gentoo-zh {binhost.community.value}")
-    return ", ".join(chosen) if chosen else "off, compile everything"
-
-
 def _kernel(config: InstallConfig, context: Context) -> str:
     return config.kernel.package or KERNEL_PACKAGES[config.kernel.source]
 
@@ -105,14 +95,14 @@ def _keys(config: InstallConfig, context: Context) -> str:
 
 
 def _mirror(config: InstallConfig, context: Context) -> str:
+    """Unset until a site is picked. Every repository is fetched from here, so
+    the region a machine happens to default to is not an answer."""
     chosen = config.portage.mirrors
-    site = chosen.site or mirrors.gentoo_sites(chosen.region)[0].key
+    if not chosen.site:
+        return UNSET
+    overlays = [overlay.name for overlay in config.portage.overlays]
     measured = ", measured" if chosen.speed_test else ""
-    return f"{site}, gentoo-zh {chosen.gentoo_zh.value}{measured}"
-
-
-def _repositories(config: InstallConfig, context: Context) -> str:
-    return ", ".join(overlay.name for overlay in config.portage.overlays) or "none"
+    return f"{chosen.site}{measured}" + (f", {', '.join(overlays)}" if overlays else "")
 
 
 def _firmware(config: InstallConfig, context: Context) -> str:
@@ -212,9 +202,8 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("keymap_initramfs", "Keyboard at unlock", _unlock_keymap, screens.initramfs_keymap_screen),
     Setting("locale", "System language", lambda c, x: c.system.locale, screens.locale_screen),
     Setting("timezone", "Timezone", lambda c, x: c.system.timezone, screens.timezone_screen),
-    Setting("mirror", "Mirrors", _mirror, screens.mirror_screen),
+    Setting("mirror", "Mirrors", _mirror, screens.mirror_screen, required=True),
     Setting("compiler", "Compiler", _compiler, screens.compiler_screen),
-    Setting("repositories", "Optional repositories", _repositories, screens.repositories_screen),
     Setting("disk", "Drive", _drive, screens.disk_screen, required=True),
     Setting("table", "Partition table", _table, screens.table_screen),
     Setting("layout", "Layout", _layout, screens.layout_screen),
@@ -228,8 +217,6 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("user", "User account", _user, screens.user_screen),
     Setting("kernel", "Kernel", _kernel, screens.kernel_screen),
     Setting("bootloader", "Bootloader", _bootloader, screens.bootloader_screen),
-    Setting("binhost", "Binary packages", _binhost, screens.binhost_screen),
-    Setting("sync", "Repository sync", lambda c, x: c.portage.sync.value, screens.sync_screen),
     Setting("desktop", "Desktop", lambda c, x: c.packages.desktop or "none", screens.desktop_screen),
     Setting("graphics", "Graphics", _graphics, screens.graphics_screen),
     Setting("dm", "Display manager", _display_manager, screens.display_manager_screen),

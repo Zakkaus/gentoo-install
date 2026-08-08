@@ -104,9 +104,20 @@ def in_a_table() -> set[str]:
     more thing to forget when a row is added.
     """
     from gentoo_install.model.mirrors import GENTOO_SITES, GENTOOZH_SITES
-    from gentoo_install.tui.screens import DISPLAY_MANAGERS, GRAPHICS, KERNELS, LICENSES
+    from gentoo_install.tui.screens import (
+        BINHOSTS,
+        DISPLAY_MANAGERS,
+        GENTOOZH_CHANNELS,
+        GRAPHICS,
+        KERNELS,
+        LICENSES,
+        SYNC_METHODS,
+    )
 
-    tables = (KERNELS, LICENSES, GRAPHICS, DISPLAY_MANAGERS)
+    tables = (
+        KERNELS, LICENSES, GRAPHICS, DISPLAY_MANAGERS,
+        SYNC_METHODS, GENTOOZH_CHANNELS, BINHOSTS,
+    )
     found = {reason for table in tables for _, reason in table}
     # A mirror is drawn by its own name and where it is, both translated: a
     # Chinese interface listing "Nanjing University" reads half-finished.

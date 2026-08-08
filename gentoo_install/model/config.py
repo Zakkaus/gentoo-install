@@ -172,6 +172,9 @@ class MirrorConfig:
     #: Which site of the region, by its key in `model/mirrors.py`. Empty takes
     #: the region's first.
     site: str = ""
+    #: Whether GENTOO_MIRRORS is written at all. Off leaves Portage on its own
+    #: built-in list, which is the right answer behind a caching proxy.
+    gentoo_distfiles: bool = True
     #: Which gentoo-zh mirror, chosen apart from the region above.
     gentoo_zh: GentooZhMirror = GentooZhMirror.UPSTREAM
     #: Whether its distfiles are appended to GENTOO_MIRRORS. On: no main mirror

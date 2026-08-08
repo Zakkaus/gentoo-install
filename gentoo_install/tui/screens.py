@@ -9,7 +9,7 @@ validator never disagree about why something cannot be chosen.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Callable, Final, Sequence
+from typing import Callable, Final, Sequence, TypeVar
 
 from ..i18n import Catalog
 from ..model import compat
@@ -336,25 +336,57 @@ def user_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     return Answer(Outcome.CHOSE, replace(config, system=replace(config.system, users=(user,))))
 
 
-#: One row of the mirror screen. Every field is visible with its value: the
-#: four services are separate choices, and which of them a mirror serves is
-#: not something the operator can guess from its name.
+#: One row of the mirror screen. The Gentoo rows come first and the overlay
+#: rows after, because a row of one repository between two rows of the other
+#: reads as though it belonged to it.
 _REGION: Final[str] = "region"
 _SITE: Final[str] = "site"
 _MEASURE: Final[str] = "measure"
+_DISTFILES: Final[str] = "distfiles"
+_SYNC: Final[str] = "sync"
+_BINHOST: Final[str] = "binhost"
+_ZH_BINHOST: Final[str] = "zh-binhost"
 _ZH_SITE: Final[str] = "zh-site"
 _ZH_DISTFILES: Final[str] = "zh-distfiles"
 _DONE: Final[str] = "done"
 
+#: The overlays with no mirror of their own, so they are on or off and nothing
+#: else. guru publishes from one place only.
+#: How the tree is kept up to date, and what each costs.
+SYNC_METHODS: tuple[tuple[Sync, str], ...] = (
+    (Sync.GIT, "carries the history a signed sync checks"),
+    (Sync.WEBRSYNC, "no git, and no history"),
+)
+
+#: The gentoo-zh binary package channels.
+GENTOOZH_CHANNELS: tuple[tuple[BinhostChannel, str], ...] = (
+    (BinhostChannel.OFF, "not used"),
+    (BinhostChannel.STABLE, "stable ::gentoo, ~amd64 for the overlay"),
+    (BinhostChannel.UNSTABLE, "~amd64 throughout"),
+)
+
+#: What the official binary package host offers, and what each costs.
+BINHOSTS: tuple[tuple[tuple[bool, str], str], ...] = (
+    ((False, "x86-64"), "hours rather than minutes"),
+    ((True, "x86-64"), "works on every amd64 machine"),
+    ((True, "x86-64-v3"), "this CPU runs it, and the packages are built for it"),
+)
+
+PLAIN_OVERLAYS: tuple[tuple[str, str], ...] = (
+    ("gig", "https://github.com/gentoo-zh/gig-overlay.git"),
+    ("guru", "https://anongit.gentoo.org/git/repo/proj/guru.git"),
+)
+
 
 def mirror_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
-    """The four services, each shown with where it will come from.
+    """Where every repository comes from, and which of them are used at all.
 
-    The main tree and gentoo-zh are chosen apart: they hold different files and
-    do not offer the same set of sites.
+    One screen because they are one decision: an overlay selected with no
+    mirror behind it, or a mirror chosen for an overlay that is not selected,
+    are both states the operator can reach by editing two rows apart.
     """
     translate = context.translate
-    current = config.portage.mirrors
+    current = config
     cursor = 0
     while True:
         menu: Menu[str] = Menu(
@@ -369,52 +401,98 @@ def mirror_screen(screen: Screen, config: InstallConfig, context: Context) -> An
             return Answer(answer.outcome)
         field = answer.unwrap()[0]
         if field == _DONE:
-            return Answer(
-                Outcome.CHOSE, replace(config, portage=replace(config.portage, mirrors=current))
-            )
+            return Answer(Outcome.CHOSE, current)
         changed = _edit_mirror(screen, context, current, field)
         if changed is not None:
             current = changed
 
 
-def _mirror_fields(current: MirrorConfig, translate: Catalog) -> list[Item[str]]:
-    region = current.region
-    site = mirrors.gentoo_sites(region)[0].key if not current.site else current.site
-    zh = mirrors.gentoozh(current.gentoo_zh)
-    return [
+def _mirror_fields(config: InstallConfig, translate: Catalog) -> list[Item[str]]:
+    portage = config.portage
+    chosen = portage.mirrors
+    region = chosen.region
+    site = chosen.site or mirrors.gentoo_sites(region)[0].key
+    used = {overlay.name for overlay in portage.overlays}
+    zh = mirrors.gentoozh(chosen.gentoo_zh)
+    rows = [
         Item(label=translate("Region"), value=_REGION, detail=region.value),
-        Item(label=translate("Gentoo mirror"), value=_SITE, detail=site),
+        Item(
+            label=translate("Gentoo mirror"),
+            value=_SITE,
+            detail=translate(mirrors.gentoo_sites(region)[0].name)
+            if not chosen.site
+            else translate(next(one.name for one in mirrors.gentoo_sites(region) if one.key == site)),
+        ),
+        Item(
+            label=translate("Gentoo distfiles"),
+            value=_DISTFILES,
+            detail=translate("in use") if chosen.gentoo_distfiles else translate("not used"),
+        ),
         Item(
             label=translate("Measure them"),
             value=_MEASURE,
-            detail=translate("yes") if current.speed_test else translate("no"),
+            detail=translate("yes") if chosen.speed_test else translate("no"),
         ),
-        Item(label=translate("Repository sync"), value="", detail=mirrors.gentoo_sync_uri(region, site)),
-        Item(label=translate("rsync"), value="", detail=mirrors.gentoo_rsync_uri(region, site) or "-"),
-        Item(label=translate("gentoo-zh mirror"), value=_ZH_SITE, detail=translate(zh.name)),
+        Item(label=translate("Repository sync"), value=_SYNC, detail=portage.sync.value),
         Item(
-            label=translate("gentoo-zh distfiles"),
-            value=_ZH_DISTFILES,
-            detail=translate("appended") if current.gentoo_zh_distfiles else translate("not used"),
+            label=translate("Gentoo repository"),
+            value="",
+            detail=mirrors.gentoo_sync_uri(region, site),
+        ),
+        Item(
+            label=translate("Gentoo rsync"),
+            value="",
+            detail=mirrors.gentoo_rsync_uri(region, site) or translate("no site here serves it"),
         ),
         Item(
             label=translate("Gentoo binary packages"),
-            value="",
-            detail=mirrors.gentoo_binhost(region, site),
+            value=_BINHOST,
+            detail=mirrors.gentoo_binhost(region, site, portage.binhost.subarch)
+            if portage.binhost.official
+            else translate("not used"),
         ),
         Item(
-            label=translate("gentoo-zh binary packages"),
-            value="",
-            detail=mirrors.gentoozh_binhost(current.gentoo_zh),
+            label=translate("gentoo-zh"),
+            value=_ZH_SITE,
+            detail=translate(zh.name) if "gentoo-zh" in used else translate("not used"),
         ),
-        Item(label=translate("Done"), value=_DONE),
     ]
+    if "gentoo-zh" in used:
+        rows += [
+            Item(
+                label=translate("gentoo-zh distfiles"),
+                value=_ZH_DISTFILES,
+                detail=translate("appended")
+                if chosen.gentoo_zh_distfiles
+                else translate("not used"),
+            ),
+            Item(
+                label=translate("gentoo-zh binary packages"),
+                value=_ZH_BINHOST,
+                detail=portage.binhost.community.value
+                if portage.binhost.community is not BinhostChannel.OFF
+                else translate("not used"),
+            ),
+        ]
+    rows += [
+        Item(
+            label=name,
+            value=name,
+            detail=translate("in use") if name in used else translate("not used"),
+        )
+        for name, _ in PLAIN_OVERLAYS
+    ]
+    rows.append(Item(label=translate("Done"), value=_DONE))
+    return rows
 
 
 def _edit_mirror(
-    screen: Screen, context: Context, current: MirrorConfig, field: str
-) -> MirrorConfig | None:
+    screen: Screen, context: Context, config: InstallConfig, field: str
+) -> InstallConfig | None:
+    """The one screen behind a field, or None when nothing changed."""
     translate = context.translate
+    portage = config.portage
+    current = portage.mirrors
     if not field:
         # A row that only reports where a service will come from, derived from
         # the two choices above it.
@@ -428,7 +506,8 @@ def _edit_mirror(
         if not picked.chosen:
             return None
         # The site belongs to the region, so changing one clears the other.
-        return replace(current, region=picked.unwrap()[0], site="")
+        mirrored = replace(current, region=picked.unwrap()[0], site="")
+        return replace(config, portage=replace(portage, mirrors=mirrored))
     if field == _SITE:
         offered = mirrors.gentoo_sites(current.region)
         chosen = Menu(
@@ -445,37 +524,183 @@ def _edit_mirror(
         ).run(screen)
         if not chosen.chosen:
             return None
-        return replace(current, site=chosen.unwrap()[0])
+        return replace(
+            config, portage=replace(portage, mirrors=replace(current, site=chosen.unwrap()[0]))
+        )
+    if field == _DISTFILES:
+        asked_files = Confirm(
+            title=translate("Write GENTOO_MIRRORS?"), footer=_footer(translate)
+        ).run(screen)
+        if not asked_files.chosen:
+            return None
+        return replace(
+            config,
+            portage=replace(
+                portage, mirrors=replace(current, gentoo_distfiles=asked_files.unwrap())
+            ),
+        )
     if field == _MEASURE:
         asked = Confirm(
             title=translate("Measure the mirrors before installing?"), footer=_footer(translate)
         ).run(screen)
         if not asked.chosen:
             return None
-        return replace(current, speed_test=asked.unwrap())
+        return replace(
+            config,
+            portage=replace(portage, mirrors=replace(current, speed_test=asked.unwrap())),
+        )
+    if field == _SYNC:
+        return _pick(
+            screen, context, config, "Repository sync",
+            list(SYNC_METHODS),
+            lambda chosen_config, value: replace(
+                chosen_config, portage=replace(chosen_config.portage, sync=value)
+            ),
+        )
+    if field == _BINHOST:
+        return _edit_binhost(screen, context, config)
+    if field == _ZH_BINHOST:
+        return _pick(
+            screen, context, config, "gentoo-zh binary packages",
+            list(GENTOOZH_CHANNELS),
+            lambda chosen_config, value: replace(
+                chosen_config,
+                portage=replace(
+                    chosen_config.portage,
+                    binhost=replace(chosen_config.portage.binhost, community=value),
+                ),
+            ),
+        )
     if field == _ZH_SITE:
-        chosen_zh = Menu(
-            title=translate("gentoo-zh mirror"),
-            items=[
-                Item(
-                    label=translate(one.name),
-                    value=GentooZhMirror(one.key),
-                    detail=f"{translate(one.area)}  {one.distfiles}",
-                )
-                for one in mirrors.GENTOOZH_SITES
-            ],
+        return _edit_gentoozh(screen, context, config)
+    if field == _ZH_DISTFILES:
+        asked_zh = Confirm(
+            title=translate("Add the gentoo-zh distfiles to GENTOO_MIRRORS?"),
             footer=_footer(translate),
         ).run(screen)
-        if not chosen_zh.chosen:
+        if not asked_zh.chosen:
             return None
-        return replace(current, gentoo_zh=chosen_zh.unwrap()[0])
-    asked_zh = Confirm(
-        title=translate("Add the gentoo-zh distfiles to GENTOO_MIRRORS?"),
+        return replace(
+            config,
+            portage=replace(
+                portage, mirrors=replace(current, gentoo_zh_distfiles=asked_zh.unwrap())
+            ),
+        )
+    return _toggle_overlay(screen, context, config, field)
+
+
+V = TypeVar("V")
+
+
+def _pick(
+    screen: Screen,
+    context: Context,
+    config: InstallConfig,
+    title: str,
+    offered: list[tuple[V, str]],
+    apply: Callable[[InstallConfig, V], InstallConfig],
+) -> InstallConfig | None:
+    """One value from a short list, each row carrying what it costs."""
+    translate = context.translate
+    menu: Menu[V] = Menu(
+        title=translate(title),
+        items=[
+            Item(label=str(getattr(value, "value", value)), value=value, detail=translate(reason))
+            for value, reason in offered
+        ],
         footer=_footer(translate),
-    ).run(screen)
-    if not asked_zh.chosen:
+    )
+    answer = menu.run(screen)
+    if not answer.chosen:
         return None
-    return replace(current, gentoo_zh_distfiles=asked_zh.unwrap())
+    return apply(config, answer.unwrap()[0])
+
+
+def _edit_binhost(
+    screen: Screen, context: Context, config: InstallConfig
+) -> InstallConfig | None:
+    """Off, or which subarchitecture. `ld.so` lists what this CPU would search,
+    so a machine that cannot run v3 is told rather than left to meet an illegal
+    instruction in the first binary package."""
+    translate = context.translate
+    items: list[Item[tuple[bool, str]]] = [
+        Item(
+            label=subarch if official else translate("not used"),
+            value=(official, subarch),
+            detail=translate(reason) if official is False or context.supports_v3 else "",
+            disabled_because=(
+                translate("this CPU cannot run it")
+                if subarch.endswith("v3") and not context.supports_v3
+                else ""
+            ),
+        )
+        for (official, subarch), reason in BINHOSTS
+    ]
+    menu: Menu[tuple[bool, str]] = Menu(
+        title=translate("Gentoo binary packages"), items=items, footer=_footer(translate)
+    )
+    if context.supports_v3:
+        # Recommended by starting on it: it is the faster of the two and this
+        # machine has already proved it can run it.
+        menu.cursor = 2
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return None
+    official, subarch = answer.unwrap()[0]
+    portage = config.portage
+    return replace(
+        config,
+        portage=replace(
+            portage, binhost=replace(portage.binhost, official=official, subarch=subarch)
+        ),
+    )
+
+
+def _edit_gentoozh(
+    screen: Screen, context: Context, config: InstallConfig
+) -> InstallConfig | None:
+    """Whether gentoo-zh is used and where from, which is one question: a
+    mirror chosen for an overlay nobody selected changes nothing."""
+    translate = context.translate
+    items: list[Item[GentooZhMirror | None]] = [Item(label=translate("not used"), value=None)]
+    items += [
+        Item(
+            label=translate(one.name),
+            value=GentooZhMirror(one.key),
+            detail=f"{translate(one.area)}  {one.distfiles}",
+        )
+        for one in mirrors.GENTOOZH_SITES
+    ]
+    answer = Menu(
+        title=translate("gentoo-zh"), items=items, footer=_footer(translate)
+    ).run(screen)
+    if not answer.chosen:
+        return None
+    picked = answer.unwrap()[0]
+    portage = config.portage
+    if picked is None:
+        kept = tuple(one for one in portage.overlays if one.name != "gentoo-zh")
+        return replace(config, portage=replace(portage, overlays=kept))
+    added = _with_gentoo_zh(config)
+    return replace(
+        config,
+        portage=replace(added, mirrors=replace(portage.mirrors, gentoo_zh=picked)),
+    )
+
+
+def _toggle_overlay(
+    screen: Screen, context: Context, config: InstallConfig, name: str
+) -> InstallConfig | None:
+    translate = context.translate
+    asked = Confirm(title=f"{name}?", footer=_footer(translate)).run(screen)
+    if not asked.chosen:
+        return None
+    portage = config.portage
+    kept = tuple(one for one in portage.overlays if one.name != name)
+    if asked.unwrap():
+        uri = next(where for offered, where in PLAIN_OVERLAYS if offered == name)
+        kept = (*kept, Overlay(name=name, sync_uri=uri))
+    return replace(config, portage=replace(portage, overlays=kept))
 
 
 def bootloader_screen(
@@ -681,7 +906,7 @@ def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> A
 #: for. Kept out of the applications list: a driver is one choice, not a set of
 #: things to tick.
 GRAPHICS: tuple[tuple[str, str], ...] = (
-    ("", "whatever the kernel picks"),
+    ("", "the in-kernel driver, which is all Intel and AMD usually need"),
     ("intel", "i915 and xe, with the firmware they need"),
     ("amdgpu", "GCN 1.2 and newer"),
     ("radeon", "AMD up to Sea Islands"),
@@ -978,63 +1203,6 @@ def swap_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     return Answer(Outcome.CHOSE, _rebuild(config, context.choice))
 
 
-def binhost_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
-    """Binary packages shorten an install from hours to minutes, and the cost
-    of each choice is on the screen rather than discovered while compiling."""
-    translate = context.translate
-    items: list[Item[tuple[bool, BinhostChannel, str]]] = [
-        Item(
-            label="official, x86-64",
-            value=(True, BinhostChannel.OFF, "x86-64"),
-            detail=translate("works on every amd64 machine"),
-        ),
-        Item(
-            label="official, x86-64-v3",
-            value=(True, BinhostChannel.OFF, "x86-64-v3"),
-            # `ld.so` lists the subarchitectures it would search, so a machine
-            # that cannot run these is told rather than left to find out when
-            # the first binary package dies with an illegal instruction. The
-            # reason replaces the detail: both together overflow 80 columns.
-            detail=(
-                translate("this CPU runs it, and the packages are built for it")
-                if context.supports_v3
-                else ""
-            ),
-            disabled_because=(
-                "" if context.supports_v3 else translate("this CPU cannot run it")
-            ),
-        ),
-        Item(
-            label="official and gentoo-zh",
-            value=(True, BinhostChannel.STABLE, "x86-64"),
-            detail=translate("gentoo-zh builds x86-64 only"),
-        ),
-        Item(
-            label="compile everything from source",
-            value=(False, BinhostChannel.OFF, "x86-64"),
-            detail=translate("hours rather than minutes"),
-        ),
-    ]
-    menu: Menu[tuple[bool, BinhostChannel, str]] = Menu(
-        title=translate("Binary packages"), items=items, footer=_footer(translate)
-    )
-    if context.supports_v3:
-        # Recommended by starting on it: it is the faster of the two and this
-        # machine has already proved it can run it.
-        menu.cursor = 1
-    answer = menu.run(screen)
-    if not answer.chosen:
-        return Answer(answer.outcome)
-    official, community, subarch = answer.unwrap()[0]
-    portage = replace(
-        config.portage,
-        binhost=Binhost(official=official, community=community, subarch=subarch),
-    )
-    if community is not BinhostChannel.OFF:
-        portage = _with_gentoo_zh(replace(config, portage=portage))
-    return Answer(Outcome.CHOSE, replace(config, portage=portage))
-
-
 def sshd_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
     """Off, keys only, or password login. Three rows rather than two questions:
     whether a password is accepted is the decision, not a detail of the first."""
@@ -1095,31 +1263,6 @@ def overview_screen(screen: Screen, config: InstallConfig, context: Context) -> 
     if not confirmed.chosen:
         return Answer(confirmed.outcome)
     return Answer(Outcome.CHOSE, config) if confirmed.unwrap() else Answer(Outcome.BACK)
-
-
-#: Screen order, which is the order of `docs/design.md`.
-STEPS: tuple[Step, ...] = (
-    disk_screen,
-    layout_screen,
-    swap_screen,
-    erase_screen,
-    locale_screen,
-    timezone_screen,
-    system_screen,
-    init_screen,
-    root_password_screen,
-    user_screen,
-    mirror_screen,
-    binhost_screen,
-    kernel_screen,
-    bootloader_screen,
-    desktop_screen,
-    packages_screen,
-    sshd_screen,
-    overview_screen,
-)
-
-
 def _profile_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
     """Only the profiles that match the chosen init, because the validator
     refuses the other half and the operator should not be offered them."""
@@ -1196,32 +1339,6 @@ def keymap_screen(screen: Screen, config: InstallConfig, context: Context) -> An
         Outcome.CHOSE,
         replace(config, system=replace(config.system, keymap=answer.unwrap() or "us")),
     )
-
-
-def repositories_screen(
-    screen: Screen, config: InstallConfig, context: Context
-) -> Answer[InstallConfig]:
-    """The overlays, each chosen on its own. One is never added behind the
-    operator's back, so selecting ZFSBootMenu ticks gentoo-zh visibly here."""
-    translate = context.translate
-    present = {overlay.name for overlay in config.portage.overlays}
-    items = [
-        Item(label=name, value=name, detail=uri) for name, uri in sorted(OVERLAYS.items())
-    ]
-    menu: Menu[str] = Menu(
-        title=translate("Optional repositories"),
-        items=items,
-        multiple=True,
-        selected={index for index, item in enumerate(items) if item.value in present},
-        footer=_footer(translate),
-    )
-    answer = menu.run(screen)
-    if not answer.chosen:
-        return Answer(answer.outcome)
-    chosen = tuple(
-        Overlay(name=name, sync_uri=OVERLAYS[name]) for name in answer.unwrap()
-    )
-    return Answer(Outcome.CHOSE, replace(config, portage=replace(config.portage, overlays=chosen)))
 
 
 def networking_screen(
@@ -1989,36 +2106,6 @@ def root_login_screen(
     return Answer(
         Outcome.CHOSE,
         replace(config, system=replace(config.system, sshd_root_login=answer.unwrap()[0])),
-    )
-
-
-def sync_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
-    """How the ebuild repository is kept up to date after the first sync.
-
-    The first sync is webrsync whichever this is: a stage3 has no `dev-vcs/git`,
-    so a git sync cannot be the step that installs it.
-    """
-    translate = context.translate
-    items = [
-        Item(
-            label=Sync.GIT.value,
-            value=Sync.GIT,
-            detail=translate("carries the history a signed sync checks"),
-        ),
-        Item(
-            label=Sync.WEBRSYNC.value,
-            value=Sync.WEBRSYNC,
-            detail=translate("no git, and no history"),
-        ),
-    ]
-    menu: Menu[Sync] = Menu(
-        title=translate("Repository sync"), items=items, footer=_footer(translate)
-    )
-    answer = menu.run(screen)
-    if not answer.chosen:
-        return Answer(answer.outcome)
-    return Answer(
-        Outcome.CHOSE, replace(config, portage=replace(config.portage, sync=answer.unwrap()[0]))
     )
 
 

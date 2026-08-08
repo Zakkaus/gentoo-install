@@ -162,7 +162,12 @@ class WriteMakeConf(Operation):
 
     def apply(self, context: Context) -> None:
         ranked = context.rank_mirrors(self.mirrors) if self.speed_test else self.mirrors
-        wanted = [*self.settings, ("GENTOO_MIRRORS", " ".join((*ranked, *self.appended)))]
+        wanted = list(self.settings)
+        listed = (*ranked, *self.appended)
+        # Not written at all when empty: an empty GENTOO_MIRRORS is a shorter
+        # list than Portage's own, not the same thing as leaving it alone.
+        if listed:
+            wanted.append(("GENTOO_MIRRORS", " ".join(listed)))
         existing = context.read(PurePosixPath("/etc/portage/make.conf"))
         context.write(PurePosixPath("/etc/portage/make.conf"), merge(existing, wanted))
 
@@ -609,6 +614,8 @@ def _uses_binhost(portage: PortageConfig) -> bool:
 
 
 def _distfiles(portage: PortageConfig) -> tuple[str, ...]:
+    if not portage.mirrors.gentoo_distfiles:
+        return ()
     if portage.mirrors.distfiles:
         return portage.mirrors.distfiles
     return mirrors.gentoo_distfiles(portage.mirrors.region, portage.mirrors.site)

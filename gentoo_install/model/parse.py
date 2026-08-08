@@ -187,6 +187,7 @@ def _mirrors(raw: Mapping[str, Any], at: str) -> MirrorConfig:
         at,
         {
             "region", "speed_test", "distfiles", "repo_sync_uri", "site",
+            "gentoo_distfiles",
             "gentoo_zh", "gentoo_zh_distfiles",
         },
     )
@@ -197,6 +198,7 @@ def _mirrors(raw: Mapping[str, Any], at: str) -> MirrorConfig:
         distfiles=_strings(raw, "distfiles", at, default.distfiles),
         repo_sync_uri=_str(raw, "repo_sync_uri", at, default.repo_sync_uri),
         site=_str(raw, "site", at, default.site),
+        gentoo_distfiles=_bool(raw, "gentoo_distfiles", at, default.gentoo_distfiles),
         gentoo_zh=_enum(raw, "gentoo_zh", at, GentooZhMirror, default.gentoo_zh),
         gentoo_zh_distfiles=_bool(
             raw, "gentoo_zh_distfiles", at, default.gentoo_zh_distfiles
