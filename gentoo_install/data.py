@@ -18,7 +18,7 @@ DATA: Final[Path] = Path(__file__).resolve().parent / "data"
 KEYS: Final[frozenset[str]] = frozenset(
     {
         "packages", "services", "use", "repositories", "video_cards", "files",
-        "input_method", "schemas", "wayland",
+        "input_method", "schemas", "wayland", "package_use",
     }
 )
 
@@ -58,6 +58,7 @@ def _load(path: Path) -> Group:
         input_method=_text(raw, "input_method", path),
         schemas=_strings(raw, "schemas", path),
         wayland=_flag(raw, "wayland", path),
+        package_use=_strings(raw, "package_use", path),
     )
 
 

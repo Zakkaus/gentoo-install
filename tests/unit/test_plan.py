@@ -208,7 +208,7 @@ def test_a_group_from_an_overlay_needs_that_overlay_selected() -> None:
     has already partitioned the disks."""
     catalog = load_catalog()
     wanted = replace(
-        config(), packages=PackagesConfig(applications=("rime-ice",))
+        config(), packages=PackagesConfig(applications=("flclash",))
     )
     with pytest.raises(ConfigError, match="gentoo-zh"):
         plan_packages.build(wanted, catalog)

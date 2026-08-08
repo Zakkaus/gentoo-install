@@ -1,0 +1,8 @@
+# The simplified Chinese schema, from the main tree. gentoo-zh packages
+# rime-ice, but only as a 9999 live ebuild with no keywords, which
+# `*/*::gentoo-zh ~amd64` cannot unmask and which would build from git HEAD at
+# install time.
+packages = ["app-i18n/rime-data"]
+package_use = ["app-i18n/rime-data extra"]
+input_method = "rime"
+schemas = ["pinyin_simp"]

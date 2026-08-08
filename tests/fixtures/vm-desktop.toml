@@ -96,9 +96,4 @@ options = ["umask=0077"]
 # switched on: fonts and an input method are separate choices from the locale.
 [packages]
 desktop = "plasma"
-applications = ["fcitx5", "rime", "rime-ice", "noto-cjk", "pipewire", "network-manager"]
-
-# rime-ice is in this overlay and in no other repository.
-[[portage.overlays]]
-name = "gentoo-zh"
-sync_uri = "https://github.com/gentoo-zh/overlay.git"
+applications = ["fcitx5", "rime", "rime-simplified", "noto-cjk", "pipewire", "network-manager"]

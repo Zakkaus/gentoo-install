@@ -41,6 +41,7 @@
   import 38A0234EC16AD42E from /usr/share/openpgp-keys/gentoozh.asc and locally sign it for gentoo-zh
   add verified binary package host gentoo-zh at https://mirrors.cernet.edu.cn/gentoo-zh/binpkgs/x86-64
   ask for sys-apps/systemd[cryptsetup], which provides the unlock generator
+  ask for app-i18n/rime-data extra for the rime-simplified group
 
 [system]
   generate and verify locales en_US.UTF-8, zh_TW.UTF-8
@@ -84,11 +85,11 @@
   enable sddm.service at boot
   install the fcitx5 group: emerge app-i18n/fcitx app-i18n/fcitx-gtk app-i18n/fcitx-qt app-i18n/fcitx-configtool
   install the rime group: emerge app-i18n/fcitx-rime app-i18n/rime-data
-  install the rime-ice group: emerge app-i18n/rime-ice
+  install the rime-simplified group: emerge app-i18n/rime-data
   install the noto-cjk group: emerge media-fonts/noto-cjk media-fonts/noto media-libs/fontconfig
   install the flclash group: emerge net-proxy/flclash-bin
   set the input method environment in /etc/environment.d/90-input-method.conf: XMODIFIERS only, since the session is Wayland
-  configure fcitx with rime and luna_pinyin terra_pinyin bopomofo rime_ice for skel, zakk
+  configure fcitx with rime and luna_pinyin terra_pinyin bopomofo pinyin_simp for skel, zakk
 
 [finish]
   unmount everything under the target

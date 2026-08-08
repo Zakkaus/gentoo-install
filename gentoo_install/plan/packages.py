@@ -44,6 +44,8 @@ class Group:
     #: nothing else does.
     video_cards: tuple[str, ...] = ()
     files: tuple[GroupFile, ...] = ()
+    #: package.use lines this group needs, written before anything merges.
+    package_use: tuple[str, ...] = ()
     #: The fcitx engine this group provides, if it provides one.
     input_method: str = ""
     #: Rime schemas the group ships, in the order they should be offered.
@@ -78,6 +80,25 @@ ENVIRONMENT_FILE: Final[dict[InitSystem, PurePosixPath]] = {
 
 #: New users get the same input method as the ones the installer creates.
 SKELETON: Final[PurePosixPath] = PurePosixPath("/etc/skel")
+
+
+@dataclass(frozen=True, kw_only=True)
+class WriteGroupUse(Operation):
+    """Written in the portage phase: the flags have to be set before the
+    packages that need them are merged."""
+
+    stage: Stage = Stage.PORTAGE
+    group: str
+    lines: tuple[str, ...]
+
+    def describe(self) -> str:
+        return f"ask for {'; '.join(self.lines)} for the {self.group} group"
+
+    def apply(self, context: Context) -> None:
+        context.write(
+            PurePosixPath(f"/etc/portage/package.use/{self.group}"),
+            "".join(f"{line}\n" for line in self.lines),
+        )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -178,6 +199,8 @@ def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
                     summary=f"install the {group.name} group",
                 )
             )
+        if group.package_use:
+            operations.append(WriteGroupUse(group=group.name, lines=group.package_use))
         for wanted in group.files:
             operations.append(WriteGroupFile(group=group.name, file=wanted))
         for service in group.services:

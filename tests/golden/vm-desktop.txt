@@ -27,10 +27,8 @@
   install git, which every later repository sync needs: emerge dev-vcs/git
   point repository gentoo at https://github.com/gentoo-mirror/gentoo.git, commit signatures verified
   sync repository gentoo
-  point repository gentoo-zh at https://github.com/gentoo-zh/overlay.git
-  sync repository gentoo-zh
-  accept ~amd64 for packages from gentoo-zh only
   run getuto so Portage has a keyring to verify binary packages against
+  ask for app-i18n/rime-data extra for the rime-simplified group
 
 [system]
   generate and verify locales en_US.UTF-8
@@ -66,13 +64,13 @@
   enable sddm.service at boot
   install the fcitx5 group: emerge app-i18n/fcitx app-i18n/fcitx-gtk app-i18n/fcitx-qt app-i18n/fcitx-configtool
   install the rime group: emerge app-i18n/fcitx-rime app-i18n/rime-data
-  install the rime-ice group: emerge app-i18n/rime-ice
+  install the rime-simplified group: emerge app-i18n/rime-data
   install the noto-cjk group: emerge media-fonts/noto-cjk media-fonts/noto media-libs/fontconfig
   install the pipewire group: emerge media-video/pipewire media-video/wireplumber
   install the network-manager group: emerge net-misc/networkmanager
   enable NetworkManager.service at boot
   set the input method environment in /etc/environment.d/90-input-method.conf: XMODIFIERS only, since the session is Wayland
-  configure fcitx with rime and luna_pinyin terra_pinyin bopomofo rime_ice for skel
+  configure fcitx with rime and luna_pinyin terra_pinyin bopomofo pinyin_simp for skel
 
 [finish]
   unmount everything under the target
