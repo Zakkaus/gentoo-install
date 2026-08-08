@@ -10,11 +10,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Generic, Protocol, Sequence, TypeVar
+from typing import Final, Generic, Protocol, Sequence, TypeVar
 
 from ..i18n import truncate, width
 
 V = TypeVar("V")
+
+#: What asks to leave. ctrl-c is here rather than a signal because raw mode
+#: delivers it as a byte, so it is answered rather than obeyed.
+CANCEL: Final[frozenset[str]] = frozenset({"\x1b", "\x03"})
+
+#: A menu takes `q` as well; a text field cannot, because `q` is a character
+#: someone is entitled to type into a hostname.
+CANCEL_IN_A_MENU: Final[frozenset[str]] = CANCEL | {"q"}
 
 #: 80x24 is the floor every screen has to work in, and a serial console is
 #: often exactly that.
@@ -111,7 +119,7 @@ class Menu(Generic[V]):
                     return answer
             elif pressed in ("KEY_LEFT", "\x7f", "KEY_BACKSPACE"):
                 return Answer(Outcome.BACK)
-            elif pressed in ("q", "\x1b"):
+            elif pressed in CANCEL_IN_A_MENU:
                 return Answer(Outcome.CANCELLED)
 
     def _accept(self, cursor: int) -> Answer[list[V]] | None:
@@ -192,7 +200,7 @@ class TextField:
                     typed.pop()
                 else:
                     return Answer(Outcome.BACK)
-            elif pressed == "\x1b":
+            elif pressed in CANCEL:
                 return Answer(Outcome.CANCELLED)
             elif len(pressed) == 1 and pressed.isprintable():
                 typed.append(pressed)

@@ -11,6 +11,10 @@ from .widgets import MINIMUM_COLUMNS, MINIMUM_LINES
 class CursesScreen:
     def __init__(self, window: Any) -> None:
         self._window = window
+        # raw() rather than cbreak(): the interrupt and suspend characters
+        # arrive as bytes, so ctrl-c reaches the widgets and is answered with
+        # the same question an escape is, instead of ending the run outright.
+        curses.raw()
 
     def size(self) -> tuple[int, int]:
         lines, columns = self._window.getmaxyx()

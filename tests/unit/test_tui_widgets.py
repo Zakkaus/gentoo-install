@@ -131,3 +131,20 @@ def test_a_masked_field_shows_the_caret_and_not_the_characters() -> None:
     drawn = "\n".join("\n".join(frame) for frame in screen.frames)
     assert "hunter2" not in drawn
     assert "[ *******_" in drawn
+
+
+def test_ctrl_c_asks_rather_than_ending_the_run() -> None:
+    """raw mode delivers it as a byte instead of a signal, so it reaches the
+    widget and is answered with the same question an escape is."""
+    menu: Menu[int] = Menu(title="t", items=[Item(label="one", value=1)])
+    assert menu.run(FakeScreen(keys=["\x03"])).outcome is Outcome.CANCELLED
+    field = TextField(title="t")
+    assert field.run(FakeScreen(keys=["\x03"])).outcome is Outcome.CANCELLED
+
+
+def test_q_is_a_character_in_a_field_and_a_way_out_of_a_menu() -> None:
+    """A hostname can contain q; a menu row cannot be typed into."""
+    field = TextField(title="t")
+    assert field.run(FakeScreen(keys=[*"qemu", "\n"])).unwrap() == "qemu"
+    menu: Menu[int] = Menu(title="t", items=[Item(label="one", value=1)])
+    assert menu.run(FakeScreen(keys=["q"])).outcome is Outcome.CANCELLED
