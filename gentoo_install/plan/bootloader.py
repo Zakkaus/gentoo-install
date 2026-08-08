@@ -84,6 +84,10 @@ class WriteGrubDefaults(Operation):
     #: Where GRUB itself talks. A machine installed for remote use whose
     #: bootloader only draws on VGA cannot be recovered over the serial line.
     serial: tuple[str, int] | None
+    #: Containers the initramfs opens, as `rd.luks.uuid` needs them. Gentoo's
+    #: dracut sets `hostonly_cmdline="no"`, and its in-chroot detection sees the
+    #: installer's own root, so the command line is the only thing that says so.
+    luks: tuple[DeviceId, ...] = ()
 
     def describe(self) -> str:
         extra = []
@@ -95,8 +99,9 @@ class WriteGrubDefaults(Operation):
         return f"write /etc/default/grub with cmdline {' '.join(self.kernel_params) or 'empty'}{listed}"
 
     def apply(self, context: Context) -> None:
+        parameters = (*luks_parameters(context, self.luks), *self.kernel_params)
         lines = [
-            f'GRUB_CMDLINE_LINUX_DEFAULT="{" ".join(self.kernel_params)}"',
+            f'GRUB_CMDLINE_LINUX_DEFAULT="{" ".join(parameters)}"',
             "GRUB_TIMEOUT=5",
             "GRUB_DISABLE_RECOVERY=true",
         ]
@@ -250,6 +255,9 @@ def build(config: InstallConfig) -> list[Operation]:
                 kernel_params=config.bootloader.kernel_params,
                 cryptodisk=compat.boot_is_encrypted(config.disk.graph),
                 serial=_serial_console(config),
+                luks=tuple(
+                    node.backing for node in compat.early_containers(config.disk.graph)
+                ),
             ),
             InstallGrub(
                 firmware=config.bootloader.firmware, esp=esp, boot_device=config.disk.root
@@ -284,6 +292,11 @@ def build(config: InstallConfig) -> list[Operation]:
             ),
         ]
     return operations
+
+
+def luks_parameters(context: Context, devices: tuple[DeviceId, ...]) -> tuple[str, ...]:
+    """`rd.luks.uuid` for each container the initramfs has to open."""
+    return tuple(f"rd.luks.uuid={context.device_uuid(device)}" for device in devices)
 
 
 def _serial_console(config: InstallConfig) -> tuple[str, int] | None:

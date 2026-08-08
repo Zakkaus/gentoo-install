@@ -39,6 +39,8 @@ from .device import (
 CJK_FONT_SIZES = frozenset({ConsoleFontSize.SIZE_8X16, ConsoleFontSize.SIZE_16X32})
 
 _BOOT = PurePosixPath("/boot")
+_ROOT = PurePosixPath("/")
+_USR = PurePosixPath("/usr")
 #: Where an esp is mounted in the target, in the order the installer prefers.
 _ESP_PATHS = (PurePosixPath("/efi"), PurePosixPath("/boot"))
 
@@ -213,6 +215,24 @@ def esp_mount(graph: DeviceGraph) -> Mountpoint | None:
             if mount.path == path and _on_esp(graph, mount.id):
                 return mount
     return None
+
+
+def early_containers(graph: DeviceGraph) -> tuple[Luks, ...]:
+    """The LUKS containers carrying `/` or `/usr`.
+
+    The initramfs has to open these before it can mount anything, so they are
+    what crypttab marks `x-initrd.attach` and what the kernel command line
+    names with `rd.luks.uuid`.
+    """
+    found: dict[DeviceId, Luks] = {}
+    for mount in graph.of_type(Mountpoint):
+        if mount.path not in (_ROOT, _USR):
+            continue
+        ancestors = graph.ancestors_of(mount.id)
+        found.update(
+            {node.id: node for node in graph.of_type(Luks) if node.id in ancestors}
+        )
+    return tuple(found.values())
 
 
 def boot_is_encrypted(graph: DeviceGraph) -> bool:

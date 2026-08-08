@@ -13,6 +13,7 @@ from typing import Final
 
 from ..model.config import Bootloader, InstallConfig, KernelSource
 from ..errors import InvalidLayout
+from ..model import compat
 from ..model.device import (
     DeviceId,
     Filesystem,
@@ -25,6 +26,7 @@ from ..model.device import (
     ZfsDataset,
     ZfsPool,
 )
+from .bootloader import luks_parameters
 from .operations import Context, Operation, Stage
 from .portage import Emerge
 
@@ -109,6 +111,9 @@ class WriteKernelCmdline(Operation):
     root: DeviceId | None
     dataset: str
     kernel_params: tuple[str, ...]
+    #: Same reason as the GRUB defaults: nothing else tells the initramfs which
+    #: container to open.
+    luks: tuple[DeviceId, ...] = ()
 
     def describe(self) -> str:
         named = self.dataset or str(self.root)
@@ -119,9 +124,10 @@ class WriteKernelCmdline(Operation):
             where = f"root=ZFS={self.dataset}"
         else:
             where = f"root=UUID={context.device_uuid(self.root)}"
+        opened = luks_parameters(context, self.luks)
         context.write(
             PurePosixPath("/etc/kernel/cmdline"),
-            " ".join((where, "rw", *self.kernel_params)) + "\n",
+            " ".join((where, "rw", *opened, *self.kernel_params)) + "\n",
         )
 
 
@@ -261,6 +267,7 @@ def build(config: InstallConfig) -> list[Operation]:
             WriteKernelCmdline(
                 root=root,
                 dataset=dataset,
+                luks=tuple(node.backing for node in compat.early_containers(config.disk.graph)),
                 kernel_params=(*extra, *config.bootloader.kernel_params),
             )
         )

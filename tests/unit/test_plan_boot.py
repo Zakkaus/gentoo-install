@@ -291,3 +291,21 @@ def test_the_boot_entry_names_the_root_the_layout_actually_has() -> None:
         )
         written[fixture] = recorder.files[PurePosixPath("/etc/kernel/cmdline")]
         assert expected in written[fixture]
+
+
+def test_the_command_line_names_the_container_the_initramfs_opens() -> None:
+    """Gentoo's dracut sets `hostonly_cmdline="no"`, and its detection runs in
+    the chroot where the root is the installer's own, so nothing else says it."""
+    encrypted = load(Path("tests/fixtures/vm-luks.toml"))
+    recorder = Recorder()
+    for operation in bootloader.build(encrypted):
+        if isinstance(operation, bootloader.WriteGrubDefaults):
+            operation.apply(recorder)
+    written = recorder.files[PurePosixPath("/etc/default/grub")]
+    assert "rd.luks.uuid=" in written
+
+    plain = Recorder()
+    for operation in bootloader.build(load(Path("tests/fixtures/ext4-bios.toml"))):
+        if isinstance(operation, bootloader.WriteGrubDefaults):
+            operation.apply(plain)
+    assert "rd.luks.uuid" not in plain.files[PurePosixPath("/etc/default/grub")]

@@ -13,6 +13,7 @@ from pathlib import PurePosixPath
 from typing import Final
 
 from ..errors import LocaleMissing
+from ..model import compat
 from ..model.config import ConsoleFontSize, InitSystem, InstallConfig, User
 from ..model.device import (
     DeviceId,
@@ -38,7 +39,6 @@ CONSOLE_FONTS: Final[dict[ConsoleFontSize, str]] = {
 USER_GROUPS: Final[tuple[str, ...]] = ("users", "wheel", "audio", "video", "render", "usb", "input")
 
 ROOT = PurePosixPath("/")
-USR = PurePosixPath("/usr")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -440,24 +440,12 @@ def fstab_entries(config: InstallConfig) -> tuple[FstabEntry, ...]:
 
 def crypttab_entries(config: InstallConfig) -> tuple[CrypttabEntry, ...]:
     graph = config.disk.graph
-    early = _containers_under(config)
+    early = {node.id for node in compat.early_containers(config.disk.graph)}
     return tuple(
         CrypttabEntry(name=node.name, backing=node.backing, initrd_attach=node.id in early)
         for node in graph.of_type(Luks)
     )
 
-
-def _containers_under(config: InstallConfig) -> frozenset[DeviceId]:
-    """LUKS containers carrying `/` or `/usr`, which the initramfs opens."""
-    graph = config.disk.graph
-    found: set[DeviceId] = set()
-    for mount in graph.of_type(Mountpoint):
-        if mount.path not in (ROOT, USR):
-            continue
-        found |= {
-            node.id for node in graph.of_type(Luks) if node.id in graph.ancestors_of(mount.id)
-        }
-    return frozenset(found)
 
 
 def _options(kind: FilesystemType, chosen: tuple[str, ...], *extra: str) -> tuple[str, ...]:
