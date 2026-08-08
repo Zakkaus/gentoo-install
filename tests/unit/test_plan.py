@@ -610,3 +610,37 @@ def test_every_engine_group_says_which_framework_it_belongs_to() -> None:
     named = {name for name, group in catalog.items() if group.input_method}
     assert named
     assert all(catalog[name].input_framework for name in named)
+
+
+def test_the_nvidia_module_is_built_against_the_dist_kernel() -> None:
+    """`dist-kernel` is off by default in linux-mod-r1's IUSE, so without it
+    the module is built once and the next kernel upgrade boots to a console
+    with no driver. The same reason `sys-fs/zfs` carries the flag."""
+    catalog = load_catalog()
+    assert catalog["nvidia"].package_use == ("x11-drivers/nvidia-drivers dist-kernel",)
+    wanted = replace(config(), packages=PackagesConfig(graphics="nvidia"))
+    # The whole plan, so the stage sort applies: the request is written in the
+    # portage phase and the merge happens in the packages one.
+    described = [one.describe() for one in build(wanted, catalog)]
+    asked = next(at for at, one in enumerate(described) if "dist-kernel" in one)
+    merged = next(at for at, one in enumerate(described) if "nvidia-drivers" in one and "emerge" in one)
+    assert asked < merged
+
+
+def test_only_nvidia_widens_accept_license() -> None:
+    """@BINARY-REDISTRIBUTABLE holds every NVIDIA EULA, so an Intel or AMD
+    machine declaring it pre-accepts a licence its operator never saw. The
+    firmware every install merges has its own per-package acceptance."""
+    catalog = load_catalog()
+    for name in ("intel", "amdgpu", "radeon", "nouveau", "virtual-machine"):
+        assert catalog[name].accept_license == (), name
+    assert catalog["nvidia"].accept_license == ("@BINARY-REDISTRIBUTABLE",)
+
+
+def test_the_older_amd_group_does_not_suppress_r300() -> None:
+    """mesa enables r300 and r600 under the `radeon` umbrella only when
+    neither is named explicitly, so `radeon r600` leaves an r300 card on
+    llvmpipe."""
+    cards = load_catalog()["radeon"].video_cards
+    assert "r600" not in cards
+    assert set(cards) == {"radeon", "radeonsi"}

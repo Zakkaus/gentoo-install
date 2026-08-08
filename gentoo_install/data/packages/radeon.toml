@@ -1,4 +1,6 @@
-# The older AMD chips amdgpu does not cover, up to Sea Islands.
-packages = ["sys-kernel/linux-firmware"]
-video_cards = ["radeon", "r600"]
-accept_license = ["@BINARY-REDISTRIBUTABLE"]
+# The older AMD chips amdgpu does not cover. `radeon` alone, not `radeon r600`:
+# mesa reads `if ! use video_cards_r300 && ! use video_cards_r600` before
+# enabling both gallium drivers under the umbrella flag, so naming r600
+# suppresses r300 and an r300-r500 card falls back to llvmpipe. radeonsi
+# carries Sea Islands, which the umbrella does not.
+video_cards = ["radeon", "radeonsi"]

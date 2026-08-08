@@ -1,5 +1,5 @@
-# i915 and xe are in the kernel; what is missing from a bare install is the
-# firmware, which is redistributable but not free.
-packages = ["sys-kernel/linux-firmware"]
+# i915 and xe are in the kernel and `intel` selects xorg-server's own
+# modesetting driver; `i965` is a dead flag, absent from mesa 26. The firmware
+# comes from `sys-kernel/linux-firmware`, which every install merges, with its
+# licence accepted per package rather than through @BINARY-REDISTRIBUTABLE.
 video_cards = ["intel"]
-accept_license = ["@BINARY-REDISTRIBUTABLE"]

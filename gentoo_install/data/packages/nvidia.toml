@@ -1,11 +1,16 @@
 # The proprietary driver. NVIDIA-2025 is in @BINARY-REDISTRIBUTABLE, so the
 # default @FREE refuses it and the emerge dies an hour into the install.
 #
+# `dist-kernel` is off by default in linux-mod-r1's IUSE. Without it the
+# module is built once and never rebuilt, so the next kernel upgrade leaves
+# the machine at a console with no driver.
+#
 # No `blacklist nouveau` here: the ebuild's own /etc/modprobe.d/nvidia.conf
 # does it and adds itself to dracut's install_items. modeset is written the
 # way calamares-settings-gig writes it, in modprobe.d rather than on the
 # kernel command line, because a drop-in survives a bootloader change.
 packages = ["x11-drivers/nvidia-drivers"]
+package_use = ["x11-drivers/nvidia-drivers dist-kernel"]
 video_cards = ["nvidia"]
 accept_license = ["@BINARY-REDISTRIBUTABLE"]
 

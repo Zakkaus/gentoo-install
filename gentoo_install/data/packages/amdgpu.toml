@@ -1,5 +1,5 @@
 # amdgpu covers GCN 1.2 and newer; radeonsi is its Mesa driver. The firmware
-# blobs are linux-fw-redistributable, which @FREE refuses.
-packages = ["sys-kernel/linux-firmware"]
+# is `sys-kernel/linux-firmware`, which every install merges already, and its
+# licence is accepted per package rather than through @BINARY-REDISTRIBUTABLE:
+# that group also holds every NVIDIA EULA.
 video_cards = ["amdgpu", "radeonsi"]
-accept_license = ["@BINARY-REDISTRIBUTABLE"]

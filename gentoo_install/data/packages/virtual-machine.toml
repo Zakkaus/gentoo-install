@@ -1,3 +1,5 @@
 # virtio-gpu, QXL and the VMware adapter, which is what a guest is offered.
-# virgl is the Mesa driver for virtio-gpu with 3D.
-video_cards = ["virgl", "qxl", "vmware"]
+# virgl is the Mesa driver for virtio-gpu with 3D. `fbdev` stays in the list
+# because VIDEO_CARDS in make.conf replaces the profile's default outright,
+# and a guest with no KMS driver would then have no fallback at all.
+video_cards = ["virgl", "qxl", "vmware", "fbdev"]
