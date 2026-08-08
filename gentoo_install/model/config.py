@@ -178,9 +178,10 @@ class SystemConfig:
     #: Whether sshd accepts a password. Off means keys only, which is what the
     #: shipped configuration already does.
     sshd_password_login: bool = False
-    #: Whether root may log in over ssh at all. Off refuses root even with a
-    #: key, which is the right answer once a sudo user exists.
-    sshd_root_login: bool = True
+    #: Whether root may log in over ssh at all. Off by default and off with a
+    #: key too: `key_accounts` puts the keys on root anyway when no sudo user
+    #: exists, so refusing root here costs a headless machine nothing.
+    sshd_root_login: bool = False
     networking: Networking = Networking.BUILTIN
 
 

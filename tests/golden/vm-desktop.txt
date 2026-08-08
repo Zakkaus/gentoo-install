@@ -43,7 +43,7 @@
   treat the hardware clock as UTC
   set the root password
   install sshd: emerge net-misc/openssh
-  ssh password login: off, root: on
+  ssh password login: off, root: off
   enable sshd at boot
   install the network tools: emerge net-misc/networkmanager net-wireless/wpa_supplicant
   leave the interfaces to NetworkManager (networkmanager-wpa)

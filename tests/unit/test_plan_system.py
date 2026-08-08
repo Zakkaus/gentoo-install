@@ -452,7 +452,10 @@ def test_root_can_be_given_a_key_before_the_first_boot() -> None:
 def test_the_sshd_drop_in_sorts_before_the_one_the_ebuild_installs() -> None:
     """`9999999gentoo-pam.conf` sets `PasswordAuthentication no`, and sshd takes
     the first value it reads, so a later file cannot turn password login on."""
-    recorder = apply_all(with_system(sshd=True, sshd_password_login=True), generated=DEFAULT_LOCALES)
+    recorder = apply_all(
+        with_system(sshd=True, sshd_password_login=True, sshd_root_login=True),
+        generated=DEFAULT_LOCALES,
+    )
     where = PurePosixPath("/etc/ssh/sshd_config.d/50-gentoo-install.conf")
     written = recorder.files[where]
     assert where.name < "9999999gentoo-pam.conf"
@@ -464,10 +467,29 @@ def test_the_sshd_drop_in_sorts_before_the_one_the_ebuild_installs() -> None:
 
 
 def test_keys_only_leaves_root_reachable_with_a_key_and_not_a_password() -> None:
-    recorder = apply_all(with_system(sshd=True, sshd_password_login=False), generated=DEFAULT_LOCALES)
+    """Only when root is allowed in at all, which is not the default."""
+    recorder = apply_all(
+        with_system(sshd=True, sshd_password_login=False, sshd_root_login=True),
+        generated=DEFAULT_LOCALES,
+    )
     written = recorder.files[PurePosixPath("/etc/ssh/sshd_config.d/50-gentoo-install.conf")]
     assert "PasswordAuthentication no" in written
     assert "PermitRootLogin prohibit-password" in written
+
+
+def test_root_over_ssh_is_refused_unless_the_operator_asks_for_it() -> None:
+    """A machine reachable as root by default is one bad password away from
+    being someone else's. The keys still reach root when no sudo user exists,
+    so a headless install loses nothing."""
+    from gentoo_install.model.config import SystemConfig
+
+    assert SystemConfig().sshd_root_login is False
+    plain = apply_all(with_system(sshd=True), generated=DEFAULT_LOCALES)
+    written = plain.files[PurePosixPath("/etc/ssh/sshd_config.d/50-gentoo-install.conf")]
+    assert "PermitRootLogin no" in written
+
+    alone = with_system(sshd=True, authorized_keys=("ssh-ed25519 AAAA test",))
+    assert system.key_accounts(alone.system)[0][0] == "root"
 
 
 def test_refusing_root_refuses_it_with_a_key_too() -> None:
@@ -477,10 +499,12 @@ def test_refusing_root_refuses_it_with_a_key_too() -> None:
 
 
 def test_a_key_is_written_for_root_and_for_every_sudo_user() -> None:
-    """The operator authorises a person, and that person uses both accounts."""
+    """The operator authorises a person, and that person uses both accounts.
+    Root is on the list only when sshd lets root in, which is not the default."""
     installation = with_system(
         authorized_keys=("ssh-ed25519 AAAA test",),
         users=(User(name="zakk", sudo=True), User(name="guest")),
+        sshd_root_login=True,
     )
     recorder = apply_all(installation, generated=generated(installation))
     assert PurePosixPath("/root/.ssh/authorized_keys") in recorder.files
