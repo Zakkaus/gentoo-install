@@ -867,7 +867,9 @@ def _edit_gentoozh(
         Item(
             label=translate(one.name),
             value=GentooZhMirror(one.key),
-            detail=f"{translate(one.area)}  {one.distfiles}",
+            # The git address, not the distfiles one: this choice writes
+            # `sync-uri`, and upstream serves the two from different hosts.
+            detail=f"{translate(one.area)}  {one.git}",
         )
         for one in mirrors.GENTOOZH_SITES
     ]
