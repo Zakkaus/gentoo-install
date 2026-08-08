@@ -12,8 +12,8 @@ from dataclasses import dataclass
 from typing import Final
 
 from ..model.config import InstallConfig
-from ..model.validate import validate
-from ..errors import GentooInstallError, ValidationFailed
+from ..errors import GentooInstallError
+from ..plan.build import build
 from .screens import Context, overview_screen
 from .settings import SETTINGS, UNSET, Setting, style_of, unanswered
 from .widgets import Item, Menu, Outcome, Screen, TextField
@@ -200,7 +200,11 @@ def _blocked(config: InstallConfig, context: Context) -> str:
         rest = f" +{len(missing) - 1}" if len(missing) > 1 else ""
         return f"{missing[0]}{rest}: {context.translate('still needs an answer')}"
     try:
-        validate(config)
-    except ValidationFailed as error:
+        # The whole plan, not `validate` alone: a group whose packages live in
+        # an overlay nobody selected raises from `plan.build`, and the row that
+        # blocks the install is the only place that can say so before the
+        # operator presses it and loses every answer to a traceback.
+        build(config, context.groups)
+    except GentooInstallError as error:
         return str(error).splitlines()[-1].strip()
     return ""

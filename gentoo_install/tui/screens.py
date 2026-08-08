@@ -1210,6 +1210,18 @@ def display_manager_screen(
     )
 
 
+def _needs_an_overlay(
+    wanted: Sequence[str], have: set[str], translate: Catalog
+) -> str:
+    """Why a group cannot be ticked: its packages are in no repository this
+    configuration adds. Said here rather than at the Install row, because this
+    is the screen the tick is on."""
+    missing = [name for name in wanted if name not in have]
+    if not missing:
+        return ""
+    return f"{translate('needs the overlay')} {', '.join(missing)}"
+
+
 def _one_group(
     screen: Screen,
     config: InstallConfig,
@@ -1250,8 +1262,14 @@ def packages_screen(
         | {name for name, _ in DISPLAY_MANAGERS}
     )
     names = sorted(name for name in context.groups if name not in elsewhere)
+    have = {overlay.name for overlay in config.portage.overlays}
     items = [
-        Item(label=name, value=name, detail=" ".join(context.groups[name].packages))
+        Item(
+            label=name,
+            value=name,
+            detail=" ".join(context.groups[name].packages),
+            disabled_because=_needs_an_overlay(context.groups[name].repositories, have, translate),
+        )
         for name in names
     ]
     chosen_already = set(config.packages.applications)
@@ -1553,7 +1571,14 @@ def overview_screen(screen: Screen, config: InstallConfig, context: Context) -> 
     from .settings import SETTINGS, UNSET
 
     translate = context.translate
-    operations = plan_build(config, context.groups)
+    try:
+        operations = plan_build(config, context.groups)
+    except GentooInstallError as error:
+        # The Install row is disabled for the same reason, so reaching this is
+        # a defect; saying so beats a traceback out of curses with every answer
+        # the operator entered.
+        _say(screen, context, str(error).splitlines()[-1].strip())
+        return Answer(Outcome.CANCELLED)
     items: list[Item[int]] = []
     # Every row with its own label: the main menu's grouped rows read as a bare
     # list of values, and this is the last screen before the disk is written.

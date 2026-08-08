@@ -312,6 +312,7 @@
 "Pool topology" = "プール構成"
 "no redundancy" = "冗長性なし"
 "needs at least" = "最低必要数"
+"needs the overlay" = "必要なオーバーレイ"
 "What happens to it" = "この扱い"
 "keep" = "保持"
 "format" = "フォーマット"

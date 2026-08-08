@@ -312,6 +312,7 @@
 "Pool topology" = "pool 拓扑"
 "no redundancy" = "无冗余"
 "needs at least" = "至少需要"
+"needs the overlay" = "需要 overlay"
 "What happens to it" = "如何处置"
 "keep" = "保留"
 "format" = "格式化"

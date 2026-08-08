@@ -1441,3 +1441,49 @@ def test_the_cpu_flags_row_offers_the_baseline_as_well_as_this_machine() -> None
         FakeScreen(keys=["KEY_DOWN", "\n"], lines=20, columns=96), config(), at
     )
     assert baseline.unwrap().portage.cpu_flags == ()
+
+
+def test_an_overlay_only_application_cannot_be_ticked_without_its_overlay() -> None:
+    """It raised `ConfigError` out of `plan.build`, which `_blocked` did not
+    catch, so Install stayed enabled and pressing it left curses with a
+    traceback and every answer gone."""
+    at = context()
+    plain = config()
+    assert not plain.portage.overlays
+    screen = FakeScreen(keys=["q"], lines=40, columns=110)
+    screens.packages_screen(screen, plain, at)
+    drawn = "\n".join(screen.frames[0])
+    assert "wechat" in drawn
+    assert "needs the overlay gentoo-zh" in drawn
+
+
+def test_the_install_row_says_why_a_plan_that_cannot_be_built_is_blocked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace as replaced
+
+    from gentoo_install.tui import app as tui_app
+
+    at = context()
+    wanted = replaced(
+        config(), packages=replace(config().packages, applications=("wechat",))
+    )
+    # The unanswered rows are reported first and would hide this; the branch
+    # under test is the one after them.
+    monkeypatch.setattr(tui_app, "unanswered", lambda config, context: ())
+    assert "gentoo-zh" in tui_app._blocked(wanted, at)
+
+
+def test_the_overview_says_so_rather_than_leaving_curses_with_a_traceback() -> None:
+    """Reaching it is a defect, since the row above is disabled for the same
+    reason; a message beats losing the session."""
+    from dataclasses import replace as replaced
+
+    at = context()
+    wanted = replaced(
+        config(), packages=replace(config().packages, applications=("wechat",))
+    )
+    screen = FakeScreen(keys=["\n"], lines=30, columns=110)
+    answer = screens.overview_screen(screen, wanted, at)
+    assert answer.outcome is Outcome.CANCELLED
+    assert "gentoo-zh" in "\n".join(screen.frames[0])

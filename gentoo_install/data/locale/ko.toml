@@ -312,6 +312,7 @@
 "Pool topology" = "풀 구성"
 "no redundancy" = "이중화 없음"
 "needs at least" = "최소 필요"
+"needs the overlay" = "필요한 오버레이"
 "What happens to it" = "처리 방식"
 "keep" = "유지"
 "format" = "포맷"
