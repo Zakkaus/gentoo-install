@@ -31,6 +31,7 @@ from ..model.config import (
     User,
 )
 from ..model.device import FilesystemType, PartitionRole, TableType
+from ..plan.kernel import KERNEL_PACKAGES
 from ..model.size import Size
 from ..errors import GentooInstallError, ValidationFailed
 from ..model import atoms, manual, paste, sshkey
@@ -393,7 +394,9 @@ def kernel_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     menu: Menu[KernelSource] = Menu(
         title=translate("Kernel"),
         items=[
-            Item(label=source.value, value=source, detail=translate(reason))
+            # The package name, not the enum value: `dist-bin` says nothing
+            # about which kernel is about to be installed.
+            Item(label=KERNEL_PACKAGES[source], value=source, detail=translate(reason))
             for source, reason in KERNELS
         ],
         footer=_footer(translate),

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Callable, Final
 
 from ..model.config import Bootloader, InstallConfig, KernelSource
+from ..plan.kernel import KERNEL_PACKAGES
 from ..model.device import Existing, Luks, MdRaid, PartitionTable, VolumeGroup, ZfsPool
 from . import screens
 from .screens import Context, Step
@@ -62,7 +63,7 @@ def _binhost(config: InstallConfig, context: Context) -> str:
 
 
 def _kernel(config: InstallConfig, context: Context) -> str:
-    return config.kernel.package or config.kernel.source.value
+    return config.kernel.package or KERNEL_PACKAGES[config.kernel.source]
 
 
 def _bootloader(config: InstallConfig, context: Context) -> str:

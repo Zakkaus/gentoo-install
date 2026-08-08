@@ -365,3 +365,13 @@ def test_every_interface_language_has_defaults_of_its_own() -> None:
     for tag, chosen in screens.LANGUAGE_DEFAULTS.items():
         seeded = screens.with_language(config(), tag)
         assert chosen.locale in seeded.system.locales, tag
+
+
+def test_the_kernel_row_names_the_package() -> None:
+    """`dist-bin` says nothing about which kernel is about to be installed."""
+    at = context()
+    screen = FakeScreen(keys=["q"], lines=30, columns=100)
+    screens.kernel_screen(screen, config(), at)
+    assert "sys-kernel/gentoo-cjk-kernel" in screen.last
+    assert "sys-kernel/gentoo-kernel-bin" in screen.last
+    assert settings.SETTINGS[row("Kernel")].value(config(), at).startswith("sys-kernel/")
