@@ -43,9 +43,6 @@ class Machine:
     versions: Mapping[str, str] = field(default_factory=dict)
 
 
-#: Directories under zoneinfo that are not regions: legacy aliases, and the
-#: right and posix trees, which repeat every zone with another leap-second
-#: table.
 #: What the kernel calls a CPU feature, and what portage calls it. Only the
 #: ones `CPU_FLAGS_X86` defines: a name portage does not know is a build
 #: failure, not an optimisation. A value differing from its key is a rename and
@@ -63,6 +60,9 @@ CPU_FLAGS: Final[dict[str, str]] = {
     "vaes": "vaes", "vpclmulqdq": "vpclmulqdq",
 }
 
+#: Directories under zoneinfo that are not regions: legacy aliases, and the
+#: right and posix trees, which repeat every zone with another leap-second
+#: table.
 _NOT_A_REGION: Final[frozenset[str]] = frozenset({"right", "posix", "SystemV", "Etc"})
 
 

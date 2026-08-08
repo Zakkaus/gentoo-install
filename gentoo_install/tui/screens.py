@@ -544,8 +544,6 @@ _ZH_SITE: Final[str] = "zh-site"
 _ZH_DISTFILES: Final[str] = "zh-distfiles"
 _DONE: Final[str] = "done"
 
-#: The overlays with no mirror of their own, so they are on or off and nothing
-#: else. guru publishes from one place only.
 #: How the tree is kept up to date, and what each costs.
 SYNC_METHODS: tuple[tuple[Sync, str], ...] = (
     (Sync.GIT, "carries the history a signed sync checks"),
@@ -568,6 +566,8 @@ BINHOSTS: tuple[tuple[tuple[bool, str], str], ...] = (
     ((True, "x86-64-v3"), "this CPU runs it, and the packages are built for it"),
 )
 
+#: The overlays with no mirror of their own, so they are on or off and nothing
+#: else. guru publishes from one place only.
 PLAIN_OVERLAYS: tuple[tuple[str, str], ...] = (
     ("gig", "https://github.com/gentoo-zh/gig-overlay.git"),
     ("guru", "https://anongit.gentoo.org/git/repo/proj/guru.git"),

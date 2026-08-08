@@ -301,9 +301,6 @@ def _erase(config: InstallConfig, context: Context) -> str:
     return "confirmed" if context.erase_confirmed else UNSET
 
 
-#: The menu, flat and in the order it is drawn. One row per decision: nesting
-#: hides a choice behind a heading nobody opens, and `archinstall` reaches the
-#: same conclusion.
 #: The disk, as one subject. Six rows in a menu of thirty read as six unrelated
 #: decisions; behind one row they read as the layout they describe.
 DISK: Final[tuple[Setting, ...]] = (
@@ -341,6 +338,9 @@ SSH: Final[tuple[Setting, ...]] = (
     Setting("unlock", "Remote unlock", _remote_unlock, screens.remote_unlock_screen),
 )
 
+#: The menu, flat and in the order it is drawn. One row per decision: nesting
+#: hides a choice behind a heading nobody opens, and `archinstall` reaches the
+#: same conclusion.
 SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("firmware", "Firmware", _firmware, None),
     Setting("keymap", "Keyboard layout", lambda c, x: c.system.keymap, screens.keymap_screen),
