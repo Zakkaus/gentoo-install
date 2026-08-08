@@ -1266,12 +1266,20 @@ def test_a_grouped_row_uses_the_width_the_terminal_actually_has() -> None:
     at = context()
     disk = next(one for one in settings.SETTINGS if one.key == "storage")
 
-    at.columns = 80
-    narrow = disk.value(config(), at)
+    # Five of the seven disk rows answer with nothing, and a summary made of
+    # those reads as a string of words with no subject.
+    quiet = {at.translate(one) for one in settings.QUIET}
+    said = [one for one in (row.value(config(), at) for row in disk.rows) if one not in quiet]
+    assert len(said) < len(disk.rows)
+
     at.columns = 200
     wide = disk.value(config(), at)
-    assert "+" in narrow and "+" not in wide
-    assert wide.count(",") == len(disk.rows) - 1
+    assert "+" not in wide
+    assert wide.count(",") == len(said) - 1
+
+    at.columns = 40
+    narrow = disk.value(config(), at)
+    assert "+" in narrow and len(narrow) < 40
 
 
 def test_the_rows_say_not_set_in_the_language_the_menu_is_in() -> None:

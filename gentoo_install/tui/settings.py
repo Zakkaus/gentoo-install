@@ -128,6 +128,13 @@ def nested(title: str, rows: tuple[Setting, ...]) -> Step:
 #: against what is left of the line rather than against the whole width.
 _MARGIN: Final[int] = 34
 
+#: Values that say a row holds no answer. A summary of seven rows reads as a
+#: string of words with no subject when five of them are one of these, so the
+#: group names what is set and says so when nothing is.
+QUIET: Final[tuple[str, ...]] = (
+    "none", "off", "not used", "nothing is erased", "nothing is unlocked at boot", "default",
+)
+
 
 def _summary(rows: tuple[Setting, ...]) -> Callable[[InstallConfig, Context], str]:
     """What a grouped row shows: as many of the values behind it as fit, and
@@ -135,7 +142,11 @@ def _summary(rows: tuple[Setting, ...]) -> Callable[[InstallConfig, Context], st
     for all six and truncating them there says less than it costs."""
 
     def shown(config: InstallConfig, context: Context) -> str:
-        said = [row.value(config, context) for row in rows]
+        quiet = {context.translate(one) for one in QUIET}
+        values = [row.value(config, context) for row in rows]
+        said = [one for one in values if one not in quiet]
+        if not said:
+            return context.translate("nothing set")
         room = max(20, context.columns - _MARGIN)
         taken: list[str] = []
         for value in said:
@@ -286,7 +297,7 @@ def _layout(config: InstallConfig, context: Context) -> str:
 
 def _partitions(config: InstallConfig, context: Context) -> str:
     if not context.manual:
-        return context.translate("from the layout above")
+        return context.translate("default")
     return ", ".join(
         entry.describe().split("  ")[1] for entry in context.layout.slices
     ) or context.translate("none")

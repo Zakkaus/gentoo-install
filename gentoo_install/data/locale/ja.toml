@@ -290,4 +290,5 @@
 "Type it again" = "もう一度入力"
 "Keyboard the initramfs uses" = "initramfs が使うキーボード"
 "the same as the console" = "コンソールと同じ"
-"from the layout above" = "上のレイアウトに従う"
+"default" = "既定"
+"nothing set" = "未設定"
