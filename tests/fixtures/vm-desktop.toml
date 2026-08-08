@@ -13,6 +13,9 @@ timezone = "UTC"
 locales = ["en_US.UTF-8"]
 locale = "en_US.UTF-8"
 init = "systemd"
+# The desktop brings NetworkManager, so the init's own manager stays off:
+# both claim every interface and the address is whichever won the race.
+networking = "networkmanager-wpa"
 sshd = true
 root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
 
@@ -96,4 +99,4 @@ options = ["umask=0077"]
 # switched on: fonts and an input method are separate choices from the locale.
 [packages]
 desktop = "plasma"
-applications = ["fcitx5", "rime", "rime-simplified", "noto-cjk", "pipewire", "network-manager"]
+applications = ["fcitx5", "rime", "rime-simplified", "noto-cjk", "pipewire"]

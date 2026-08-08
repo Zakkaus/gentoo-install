@@ -1,3 +1,0 @@
-packages = ["net-misc/networkmanager"]
-services = ["NetworkManager"]
-use = ["networkmanager"]

@@ -45,8 +45,9 @@
   install sshd: emerge net-misc/openssh
   ssh password login: off, root: on
   enable sshd at boot
-  configure the wired interface for DHCP
-  enable systemd-networkd at boot
+  install the network tools: emerge net-misc/networkmanager net-wireless/wpa_supplicant
+  leave the interfaces to NetworkManager (networkmanager-wpa)
+  enable NetworkManager at boot
   install cron: emerge sys-process/cronie
   enable cronie at boot
 
@@ -71,8 +72,6 @@
   install the rime-simplified group: emerge app-i18n/rime-data
   install the noto-cjk group: emerge media-fonts/noto-cjk media-fonts/noto media-libs/fontconfig
   install the pipewire group: emerge media-video/pipewire media-video/wireplumber
-  install the network-manager group: emerge net-misc/networkmanager
-  enable NetworkManager at boot
   set the input method environment in /etc/environment.d/90-input-method.conf: XMODIFIERS and QT_IM_MODULES, since the session is Wayland
   configure fcitx with rime and luna_pinyin terra_pinyin bopomofo pinyin_simp for skel
 
