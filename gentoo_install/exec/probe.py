@@ -14,7 +14,7 @@ import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Final
+from typing import ClassVar, Final
 
 from ..errors import DeviceNotFound
 from ..model.device import DeviceId
@@ -117,6 +117,43 @@ class Probe:
             self.runner.run(["udevadm", "settle"], check=False)
             time.sleep(0.5)
         raise DeviceNotFound(f"{path} did not appear within {seconds:.0f}s")
+
+    #: `lsblk` calls these TYPE=disk and none of them is an install target:
+    #: compressed swap, a loopback of the live image, a ramdisk.
+    NOT_A_TARGET: ClassVar[tuple[str, ...]] = ("/dev/zram", "/dev/loop", "/dev/ram")
+
+    def disks(self) -> tuple[tuple[str, str], ...]:
+        """Whole disks the interface can offer, as a selector and a size.
+
+        Named by `/dev/disk/by-id/` where one exists: a kernel name is assigned
+        at probe time and a configuration saved with one installs elsewhere on
+        the next boot.
+        """
+        listed = self.runner.run(
+            ["lsblk", "--noheadings", "--nodeps", "--paths", "--output", "NAME,SIZE,TYPE,MODEL"],
+            check=False,
+        )
+        found: list[tuple[str, str]] = []
+        for line in listed.stdout.splitlines():
+            fields = line.split(maxsplit=3)
+            if len(fields) < 3 or fields[2] != "disk":
+                continue
+            path, size = fields[0], fields[1]
+            if path.startswith(self.NOT_A_TARGET):
+                continue
+            model = fields[3] if len(fields) > 3 else ""
+            found.append((self._stable_name(path), f"{size} {model}".strip()))
+        return tuple(found)
+
+    def _stable_name(self, path: str) -> str:
+        links = self.runner.run(["find", "/dev/disk/by-id", "-lname", f"*/{path.rsplit('/', 1)[-1]}"], check=False)
+        names = sorted(line.strip() for line in links.stdout.splitlines() if line.strip())
+        # Prefer a by-id name that is not a wwn: a wwn is stable but says
+        # nothing a person can recognise.
+        for name in names:
+            if "/wwn-" not in name:
+                return name
+        return names[0] if names else path
 
     def mounted(self, disk: str) -> bool:
         """Whether a disk, or any partition on it, is in use.
