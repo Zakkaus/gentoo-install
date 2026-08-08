@@ -60,3 +60,6 @@
 "Filesystem" = "檔案系統"
 "Mount point, or empty to leave it unmounted" = "掛載點，留空表示不掛載"
 "no partition is mounted at /" = "沒有分割區掛在 / 上"
+"A ZFS root cannot boot from GRUB. Which bootloader?" = "ZFS 根無法由 GRUB 開機，要用哪一個？"
+"adds the gentoo-zh overlay, the only one that has it" = "會加入 gentoo-zh overlay，只有那裡有"
+"no overlay, and the esp has to hold the kernel" = "不需要 overlay，但核心必須放在 esp 上"

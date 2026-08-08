@@ -174,11 +174,25 @@ def test_binary_packages_are_a_row_of_their_own() -> None:
     assert said
 
 
-def test_choosing_zfs_still_adds_the_overlay_that_carries_zfsbootmenu() -> None:
-    keys = ["KEY_DOWN", "KEY_DOWN", "KEY_DOWN", "\n"]
-    answer = screens.layout_screen(FakeScreen(keys=keys), config(), context())
+def test_choosing_zfs_asks_before_adding_the_overlay() -> None:
+    """ZFSBootMenu is in gentoo-zh and in no other repository, so choosing it
+    is consenting to that overlay rather than having it added silently."""
+    zfs = ["KEY_DOWN", "KEY_DOWN", "KEY_DOWN", "\n"]
+    screen = FakeScreen(keys=[*zfs, "\n"])
+    answer = screens.layout_screen(screen, config(), context())
     assert answer.unwrap().bootloader.kind is Bootloader.ZFSBOOTMENU
     assert [o.name for o in answer.unwrap().portage.overlays] == ["gentoo-zh"]
+    assert "gentoo-zh" in screen.last or "gentoo-zh" in "\n".join(
+        "\n".join(frame) for frame in screen.frames
+    )
+
+
+def test_declining_the_overlay_leaves_zfs_on_systemd_boot() -> None:
+    """The other bootloader a ZFS root can use, and it needs no overlay."""
+    zfs = ["KEY_DOWN", "KEY_DOWN", "KEY_DOWN", "\n"]
+    answer = screens.layout_screen(FakeScreen(keys=[*zfs, "KEY_DOWN", "\n"]), config(), context())
+    assert answer.unwrap().bootloader.kind is Bootloader.SYSTEMD_BOOT
+    assert answer.unwrap().portage.overlays == ()
 
 
 def test_the_passphrase_is_typed_here_and_never_drawn() -> None:

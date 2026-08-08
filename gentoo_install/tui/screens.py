@@ -137,14 +137,44 @@ def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     context.choice = replace(context.choice, layout=layout, filesystem=filesystem)
     changed = _rebuild(config, context.choice)
     if layout is Layout.WHOLE_DISK_ZFS:
-        # The only repository carrying sys-boot/zfsbootmenu, which the
-        # compatibility table states and the validator would otherwise reject.
-        changed = replace(
-            changed,
-            bootloader=replace(changed.bootloader, kind=Bootloader.ZFSBOOTMENU),
-            portage=_with_gentoo_zh(changed),
-        )
+        changed = _zfs_bootloader(screen, changed, context)
     return Answer(Outcome.CHOSE, changed)
+
+
+def _zfs_bootloader(screen: Screen, config: InstallConfig, context: Context) -> InstallConfig:
+    """A ZFS root cannot use GRUB, so this asks which of the two that remain.
+
+    ZFSBootMenu lives in the gentoo-zh overlay and in no other repository, so
+    choosing it is also consenting to that overlay. Adding it silently is what
+    this replaces.
+    """
+    translate = context.translate
+    answer = Menu(
+        title=translate("A ZFS root cannot boot from GRUB. Which bootloader?"),
+        items=[
+            Item(
+                label="ZFSBootMenu",
+                value=Bootloader.ZFSBOOTMENU,
+                detail=translate("adds the gentoo-zh overlay, the only one that has it"),
+            ),
+            Item(
+                label="systemd-boot",
+                value=Bootloader.SYSTEMD_BOOT,
+                detail=translate("no overlay, and the esp has to hold the kernel"),
+            ),
+        ],
+        footer=_footer(translate),
+    ).run(screen)
+    if not answer.chosen:
+        return config
+    kind = answer.unwrap()[0]
+    if kind is Bootloader.SYSTEMD_BOOT:
+        return replace(config, bootloader=replace(config.bootloader, kind=kind))
+    return replace(
+        config,
+        bootloader=replace(config.bootloader, kind=kind),
+        portage=_with_gentoo_zh(config),
+    )
 
 
 def _with_gentoo_zh(config: InstallConfig) -> PortageConfig:
