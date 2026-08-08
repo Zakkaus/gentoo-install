@@ -14,6 +14,8 @@ from typing import Callable, Sequence
 from ..i18n import Catalog
 from ..model import compat
 from ..model.config import (
+    Binhost,
+    BinhostChannel,
     Bootloader,
     BootloaderConfig,
     DiskConfig,
@@ -249,15 +251,162 @@ def packages_screen(
     )
 
 
+#: Offered as a list rather than free text: a mistyped locale is only found
+#: when `locale -a` fails, which is after the stage3 is unpacked.
+LOCALES: tuple[tuple[str, str], ...] = (
+    ("zh_TW.UTF-8", "Chinese (Traditional)"),
+    ("zh_CN.UTF-8", "Chinese (Simplified)"),
+    ("en_US.UTF-8", "English"),
+)
+
+#: The zones this installer is aimed at, with UTC for a server.
+TIMEZONES: tuple[str, ...] = (
+    "Asia/Shanghai",
+    "Asia/Taipei",
+    "Asia/Hong_Kong",
+    "Asia/Tokyo",
+    "Europe/London",
+    "America/New_York",
+    "UTC",
+)
+
+
+def locale_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
+    translate = context.translate
+    menu: Menu[str] = Menu(
+        title=translate("Target system"),
+        items=[Item(label=f"{name}  {label}", value=name) for name, label in LOCALES],
+        footer=_footer(translate),
+    )
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    chosen = answer.unwrap()[0]
+    # Every offered locale is generated whichever one is selected: switching
+    # afterwards then needs no regeneration.
+    generated = tuple(name for name, _ in LOCALES)
+    return Answer(
+        Outcome.CHOSE,
+        replace(config, system=replace(config.system, locale=chosen, locales=generated)),
+    )
+
+
+def timezone_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
+    translate = context.translate
+    menu: Menu[str] = Menu(
+        title=translate("Target system"),
+        items=[Item(label=zone, value=zone) for zone in TIMEZONES],
+        footer=_footer(translate),
+    )
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    return Answer(
+        Outcome.CHOSE, replace(config, system=replace(config.system, timezone=answer.unwrap()[0]))
+    )
+
+
+def swap_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
+    translate = context.translate
+    items: list[Item[str]] = [
+        Item(label="none", value=""),
+        Item(label="4 GiB partition", value="4GiB"),
+        Item(label="8 GiB partition", value="8GiB"),
+        Item(label="zram, 4 GiB compressed in memory", value="zram:4GiB"),
+    ]
+    menu: Menu[str] = Menu(title=translate("Disks"), items=items, footer=_footer(translate))
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    chosen = answer.unwrap()[0]
+    if chosen.startswith("zram:"):
+        return Answer(
+            Outcome.CHOSE,
+            replace(config, system=replace(config.system, zram=Size.parse(chosen.removeprefix("zram:")))),
+        )
+    context.choice = replace(context.choice, swap=Size.parse(chosen) if chosen else None)
+    return Answer(Outcome.CHOSE, _rebuild(config, context.choice))
+
+
+def binhost_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
+    """Binary packages shorten an install from hours to minutes, and the cost
+    of each choice is on the screen rather than discovered while compiling."""
+    translate = context.translate
+    items: list[Item[tuple[bool, BinhostChannel]]] = [
+        Item(label="official binary packages", value=(True, BinhostChannel.OFF)),
+        Item(
+            label="official and gentoo-zh binary packages",
+            value=(True, BinhostChannel.STABLE),
+        ),
+        Item(label="compile everything from source", value=(False, BinhostChannel.OFF)),
+    ]
+    menu: Menu[tuple[bool, BinhostChannel]] = Menu(
+        title=translate("Portage"), items=items, footer=_footer(translate)
+    )
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    official, community = answer.unwrap()[0]
+    portage = replace(config.portage, binhost=Binhost(official=official, community=community))
+    if community is not BinhostChannel.OFF:
+        portage = _with_gentoo_zh(replace(config, portage=portage))
+    return Answer(Outcome.CHOSE, replace(config, portage=portage))
+
+
+def sshd_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
+    translate = context.translate
+    question = Confirm(title=translate("Network and SSH"), footer=_footer(translate))
+    answer = question.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    return Answer(
+        Outcome.CHOSE, replace(config, system=replace(config.system, sshd=answer.unwrap()))
+    )
+
+
+def overview_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
+    """Everything that is about to happen, then one confirmation.
+
+    The list is the operation sequence itself, so the screen cannot describe
+    something the installer will not do.
+    """
+    from ..plan.build import build as plan_build
+    from ..plan.render import summarise
+
+    translate = context.translate
+    operations = plan_build(config, context.groups)
+    lines = [operation.describe() for operation in operations]
+    items = [Item(label=line, value=index) for index, line in enumerate(lines)]
+    menu: Menu[int] = Menu(
+        title=f"{translate('Overview')}: {summarise(operations)}",
+        items=items,
+        footer=_footer(translate),
+    )
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    question = Confirm(title=translate("Install"), footer=_footer(translate))
+    confirmed = question.run(screen)
+    if not confirmed.chosen:
+        return Answer(confirmed.outcome)
+    return Answer(Outcome.CHOSE, config) if confirmed.unwrap() else Answer(Outcome.BACK)
+
+
 #: Screen order, which is the order of `docs/design.md`.
 STEPS: tuple[Step, ...] = (
     disk_screen,
     layout_screen,
+    swap_screen,
     erase_screen,
+    locale_screen,
+    timezone_screen,
     system_screen,
     init_screen,
     root_password_screen,
+    binhost_screen,
     kernel_screen,
     bootloader_screen,
     packages_screen,
+    sshd_screen,
+    overview_screen,
 )

@@ -33,13 +33,20 @@ def test_the_whole_walk_produces_a_configuration_that_validates() -> None:
     keys = [
         "KEY_DOWN", "\n",                       # second disk
         "\n",                                   # ext4 whole disk
+        "\n",                                   # no swap
         *list(disk), "\n",                      # type the disk name to erase
+        "\n",                                   # locale: zh_TW
+        "\n",                                   # timezone: Asia/Shanghai
         *["\x7f"] * len("gentoo"), *list("box"), "\n",  # clear the default, type a name
         "\n",                                   # init: systemd
         *list("secret"), "\n",                  # root password
+        "\n",                                   # official binary packages
         "\n",                                   # kernel source
         "\n",                                   # bootloader
         "\n",                                   # no applications
+        "\n",                                   # no sshd
+        "\n",                                   # overview: scroll to the end
+        "KEY_DOWN", "\n",                       # confirm the install
     ]
     finished = run(FakeScreen(keys=keys), config(), context())
     assert not finished.cancelled
@@ -47,6 +54,7 @@ def test_the_whole_walk_produces_a_configuration_that_validates() -> None:
     validate(finished.config)
     assert finished.config.system.hostname == "box"
     assert finished.config.system.root_password_hash == "$6$test$6"
+    assert finished.config.system.locale == "zh_TW.UTF-8"
 
 
 def test_going_back_discards_only_the_last_answer() -> None:
@@ -83,3 +91,20 @@ def test_choosing_zfs_adds_the_only_overlay_that_carries_zfsbootmenu() -> None:
     assert finished.config.bootloader.kind is Bootloader.ZFSBOOTMENU
     assert [overlay.name for overlay in finished.config.portage.overlays] == ["gentoo-zh"]
     validate(finished.config)
+
+
+def test_the_overview_lists_what_the_installer_will_actually_do() -> None:
+    """Built from the operation sequence itself, so the screen cannot promise
+    something the installer does not perform."""
+    screen = FakeScreen(keys=["\n", "KEY_DOWN", "\n"])
+    finished = run(screen, config(), context(), steps=(screens.overview_screen,))
+    assert not finished.cancelled
+    drawn = "\n".join("\n".join(frame) for frame in screen.frames)
+    assert "wipe existing signatures" in drawn
+    assert "operations:" in drawn
+
+
+def test_declining_the_overview_goes_back_rather_than_installing() -> None:
+    screen = FakeScreen(keys=["\n", "\n"])
+    finished = run(screen, config(), context(), steps=(screens.overview_screen,))
+    assert finished.cancelled
