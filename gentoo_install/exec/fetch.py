@@ -24,6 +24,7 @@ from ..errors import (
     DownloadFailed,
     IntegrityError,
     PreflightFailed,
+    UploadFailed,
 )
 from ..model import paste
 from ..model.device import DeviceId
@@ -157,6 +158,31 @@ def _import_release_key(runner: Runner, work: Path) -> None:
 def text(url: str) -> str:
     """A short document, such as a public key someone pasted somewhere."""
     return _read(paste.raw_url(url))
+
+
+def upload(body: str, export: paste.Export) -> str:
+    """Create a paste and return the address of the page that shows it.
+
+    Offered after a run has already finished or failed, so every failure here
+    is reported and none of them changes the outcome of the install.
+    """
+    request = _asked(
+        f"{paste.BASE}/",
+        data=paste.payload(body, export),
+        method="POST",
+        **{"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+            answered = json.loads(response.read().decode())
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        raise UploadFailed(f"{paste.HOST} did not take the paste: {error}") from error
+    except ValueError as error:
+        raise UploadFailed(f"{paste.HOST} answered something that is not JSON") from error
+    path = answered.get("path") if isinstance(answered, dict) else None
+    if not isinstance(path, str) or not path:
+        raise UploadFailed(f"{paste.HOST} answered no path for the new paste")
+    return paste.page_url(path)
 
 
 #: Version and keyword data for one package of the main tree.

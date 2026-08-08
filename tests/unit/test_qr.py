@@ -99,3 +99,20 @@ def test_a_mask_is_chosen_by_the_lowest_penalty() -> None:
     drawn = qr._place(qr._codewords(text.encode(), version), version, reserved)
     scored = [qr._penalty(qr._masked(drawn, reserved, one, version)) for one in range(8)]
     assert mask_of(qr.encode(text)) == min(range(8), key=lambda one: scored[one])
+
+
+@pytest.mark.parametrize("path", sorted(FIXTURES.glob("*.txt")), ids=lambda path: path.stem)
+def test_the_half_height_drawing_still_holds_every_module(path: Path) -> None:
+    """Two rows of modules per line halves the width, and a pairing that drops
+    or shifts a row produces a picture that looks like a code and is not one."""
+    text, expected = golden(path)
+    quiet = 4
+    lines = qr.halved(qr.encode(text), quiet=quiet)
+    back = [[False] * len(lines[0]) for _ in range(len(lines) * 2)]
+    for row, line in enumerate(lines):
+        for column, cell in enumerate(line):
+            top, bottom = next(pair for pair, glyph in qr.HALVES.items() if glyph == cell)
+            back[row * 2][column] = top
+            back[row * 2 + 1][column] = bottom
+    inner = [row[quiet : len(expected) + quiet] for row in back[quiet : len(expected) + quiet]]
+    assert [tuple(row) for row in inner] == [tuple(row) for row in expected]

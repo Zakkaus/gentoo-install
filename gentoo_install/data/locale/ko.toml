@@ -22,6 +22,8 @@
 "Back to the menu" = "메뉴로 돌아가기"
 "Leave" = "나가기"
 "Save the configuration and leave" = "설정을 저장하고 나가기"
+"Send the configuration to the pastebin and leave" = "설정을 paste 로 보내고 나가기"
+"public, without the password hashes" = "공개, 비밀번호 해시는 제거"
 "Save the configuration as" = "설정 저장 위치"
 "User name, or empty for root only" = "사용자 이름, 비우면 root만"
 "Give this account sudo?" = "이 계정에 sudo를 허용하시겠습니까?"

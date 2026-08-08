@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import tomllib
-from dataclasses import replace
+from dataclasses import fields, replace
 from pathlib import Path
 
 import pytest
@@ -9,7 +9,7 @@ import pytest
 from gentoo_install.model.config import InstallConfig, Overlay, User
 from gentoo_install.model.device import DeviceGraph, DeviceId, PartitionTable
 from gentoo_install.model.parse import _NODES, parse
-from gentoo_install.model.serialise import KINDS, to_toml
+from gentoo_install.model.serialise import KINDS, REDACTED, SECRET, to_toml
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
@@ -64,3 +64,44 @@ def test_a_default_is_left_out_of_the_file() -> None:
     config = parse(tomllib.loads((FIXTURES / "ext4-bios.toml").read_text()))
     plain = replace(config, system=replace(config.system, hostname="gentoo"))
     assert "hostname" not in to_toml(plain)
+
+
+def test_a_published_configuration_carries_no_password_hash() -> None:
+    """The pastebin is a public address and a crypt hash is what an offline
+    attack starts from."""
+    config = parse(tomllib.loads((FIXTURES / "ext4-bios.toml").read_text()))
+    config = replace(
+        config,
+        system=replace(
+            config.system,
+            root_password_hash="$6$rootsalt$rootrootroot",
+            users=(User(name="zakk", password_hash="$6$usersalt$useruseruser"),),
+        ),
+    )
+    published = to_toml(config, publishing=True)
+    assert "rootrootroot" not in published
+    assert "useruseruser" not in published
+    assert published.count(REDACTED) == 2
+
+
+def test_a_published_configuration_still_parses() -> None:
+    """It is offered so someone can attach it to an issue and be told to try
+    it, so it has to be a file `--config` accepts."""
+    config = parse(tomllib.loads((FIXTURES / "vm-desktop.toml").read_text()))
+    again = parse(tomllib.loads(to_toml(config, publishing=True)))
+    assert again.system.hostname == config.system.hostname
+    assert again.system.root_password_hash == REDACTED
+
+
+def test_every_secret_field_the_model_has_is_in_the_table() -> None:
+    """A field added with `password_hash` in its name and not in `SECRET` is a
+    hash this would publish."""
+    from gentoo_install.model.config import SystemConfig
+
+    named = {
+        field.name
+        for holder in (SystemConfig, User)
+        for field in fields(holder)
+        if "password" in field.name and field.name.endswith("hash")
+    }
+    assert named == SECRET

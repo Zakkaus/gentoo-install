@@ -55,20 +55,33 @@ KINDS: Final[dict[type[Node], str]] = {
 #: one case: the node discriminator already claims `kind`.
 RENAMED: Final[dict[tuple[type[Node], str], str]] = {(Filesystem, "kind"): "type"}
 
+#: Fields whose value is replaced when the configuration is published. A crypt
+#: hash is not the password, but it is what an offline attack starts from, and
+#: the pastebin is a public address.
+SECRET: Final[frozenset[str]] = frozenset({"password_hash", "root_password_hash"})
+
+#: What stands in for a secret. Not a valid hash, so a file edited from a
+#: published one locks the account rather than setting a password nobody knows.
+REDACTED: Final[str] = "removed-before-publishing"
+
 #: Sections of `InstallConfig`, in the order a person reads them.
 SECTIONS: Final[tuple[str, ...]] = ("system", "portage", "kernel", "bootloader", "packages")
 
 
-def to_toml(config: InstallConfig) -> str:
-    """The configuration as a file that parses back into the same object."""
+def to_toml(config: InstallConfig, *, publishing: bool = False) -> str:
+    """The configuration as a file that parses back into the same object.
+
+    `publishing` replaces every password hash, for the copy that goes to a
+    pastebin. The result still parses; it just installs no password.
+    """
     lines = [f"config_version = {config.config_version}"]
     for name in SECTIONS:
-        lines += _section(name, getattr(config, name))
+        lines += _section(name, getattr(config, name), publishing=publishing)
     lines += _disk(config)
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
-def _section(name: str, value: object, prefix: str = "") -> list[str]:
+def _section(name: str, value: object, prefix: str = "", *, publishing: bool = False) -> list[str]:
     """One `[table]` and its keys, then a `[table.child]` for each nested one."""
     path = f"{prefix}{name}"
     keys: list[str] = []
@@ -76,12 +89,15 @@ def _section(name: str, value: object, prefix: str = "") -> list[str]:
     for field in fields(value):  # type: ignore[arg-type]
         held = getattr(value, field.name)
         if is_dataclass(held) and not isinstance(held, type):
-            nested += _section(field.name, held, f"{path}.")
+            nested += _section(field.name, held, f"{path}.", publishing=publishing)
             continue
         if held is None or held == field.default or held == _empty(field.default_factory):
             continue
         if _tables(held):
-            nested += _array_of_tables(f"{path}.{field.name}", held)
+            nested += _array_of_tables(f"{path}.{field.name}", held, publishing=publishing)
+            continue
+        if publishing and field.name in SECRET:
+            keys.append(f"{field.name} = {_value(REDACTED)}")
             continue
         keys.append(f"{field.name} = {_value(held)}")
     if not keys and not nested:
@@ -94,13 +110,16 @@ def _tables(held: object) -> bool:
     return isinstance(held, tuple) and bool(held) and is_dataclass(held[0])
 
 
-def _array_of_tables(path: str, held: tuple[Any, ...]) -> list[str]:
+def _array_of_tables(path: str, held: tuple[Any, ...], *, publishing: bool = False) -> list[str]:
     lines: list[str] = []
     for one in held:
         lines += ["", f"[[{path}]]"]
         for field in fields(one):
             inner = getattr(one, field.name)
             if inner is None or inner == field.default or inner == _empty(field.default_factory):
+                continue
+            if publishing and field.name in SECRET:
+                lines.append(f"{field.name} = {_value(REDACTED)}")
                 continue
             lines.append(f"{field.name} = {_value(inner)}")
     return lines

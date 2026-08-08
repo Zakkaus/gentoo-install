@@ -27,7 +27,7 @@ from .log import Journal
 from .tui import app, screens
 from .tui.curses_screen import CursesScreen, too_small
 from .i18n import Catalog, tag_for
-from .model import mirrors, templates
+from .model import mirrors, paste, qr, templates
 from .model.config import (
     Binhost,
     DiskConfig,
@@ -229,6 +229,7 @@ def install(config: InstallConfig, operations: tuple[Operation, ...], arguments:
             failed = error
             record(f"the install stopped: {error}")
         try:
+            _offer_a_paste(arguments, work, record, failed is not None)
             _offer_a_shell(arguments, machine, record, failed is not None)
             apply(closing, machine, finished if failed is None else frozenset())
         finally:
@@ -246,6 +247,81 @@ def install(config: InstallConfig, operations: tuple[Operation, ...], arguments:
     return EXIT_OK
 
 
+def _unattended(arguments: argparse.Namespace) -> bool:
+    """Whether there is nobody at the keyboard to answer a question."""
+    return bool(arguments.no_shell) or not sys.stdin.isatty()
+
+
+def _asked(question: str) -> bool:
+    print(f"{question} [y/N] ", end="")
+    sys.stdout.flush()
+    try:
+        return sys.stdin.readline().strip().lower() in ("y", "yes")
+    except (EOFError, KeyboardInterrupt):
+        return False
+
+
+#: Black on white, so the code reads as a code. A terminal's own colours are
+#: light on dark, which draws every symbol inverted; most scanners cope and
+#: some do not, and there is no way to find out which one is pointed at it.
+_INVERTED: Final[str] = "\x1b[30;47m"
+_PLAIN: Final[str] = "\x1b[0m"
+
+
+def show_the_address(url: str) -> None:
+    """A code for the address, then the address.
+
+    The machine showing this is the one with no browser and no way to copy a
+    line off its console. The code goes first so the address is the line left
+    on screen, and the address is printed whether or not the code fits.
+    """
+    for line in _code_for(url):
+        print(line)
+    print(url)
+
+
+def _code_for(url: str) -> list[str]:
+    """The code as lines, or nothing when it does not fit the terminal."""
+    try:
+        drawn = qr.halved(qr.encode(url))
+    except GentooInstallError:
+        return []
+    columns, lines = shutil.get_terminal_size((80, 24))
+    if len(drawn[0]) > columns or len(drawn) + 2 > lines:
+        return []
+    if not sys.stdout.isatty():
+        return drawn
+    return [f"{_INVERTED}{line}{_PLAIN}" for line in drawn]
+
+
+def _offer_a_paste(
+    arguments: argparse.Namespace, work: Path, record: Callable[[str], None], stopped: bool
+) -> None:
+    """Send this run's log to the pastebin, so an issue can point at it.
+
+    Asked rather than done: the address is public, and it is the operator who
+    decides whether what their machine printed can go there.
+    """
+    if _unattended(arguments):
+        return
+    outcome = "the install stopped" if stopped else "the install finished"
+    if not _asked(f"{outcome}. send the log to {paste.HOST}, which is public?"):
+        return
+    source = work / "install.log"
+    try:
+        body = source.read_text()
+    except OSError as error:
+        record(f"warning: {source} could not be read: {error}")
+        return
+    try:
+        url = fetch.upload(body, paste.export_for("log"))
+    except GentooInstallError as error:
+        record(f"warning: {error}")
+        return
+    record(f"the log of this run is at {url}")
+    show_the_address(url)
+
+
 def _offer_a_shell(
     arguments: argparse.Namespace,
     machine: Machine,
@@ -258,16 +334,9 @@ def _offer_a_shell(
     who can tell whether the machine is fixable, and once the target is
     unmounted they would have to mount the whole layout again by hand.
     """
-    if arguments.no_shell or not sys.stdin.isatty():
+    if _unattended(arguments):
         return
-    asked = "the install stopped" if stopped else "the install finished"
-    print(f"{asked}. enter a root shell in {arguments.target} before unmounting? [y/N] ", end="")
-    sys.stdout.flush()
-    try:
-        answered = sys.stdin.readline().strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        return
-    if answered not in ("y", "yes"):
+    if not _asked(f"enter a root shell in {arguments.target} before unmounting?"):
         return
     record(f"a root shell was opened in {arguments.target}")
     machine.runner.run(["chroot", str(arguments.target), "/bin/bash", "--login"], check=False)
@@ -364,6 +433,7 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         cpu_flags=probe.cpu_flags(),
         supports_v3=probe.supports_v3(),
         save_config=_save_config,
+        publish_config=_publish_config,
     )
     if not context.disks:
         raise errors.DeviceNotFound("this machine reports no disk to install onto")
@@ -402,6 +472,8 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         ) from error
     if finished.saved:
         print(f"wrote {finished.saved}")
+    if finished.published:
+        show_the_address(finished.published)
     return finished.config
 
 
@@ -452,6 +524,15 @@ def _require_root(arguments: argparse.Namespace) -> None:
     if arguments.dry_run or arguments.missing_commands or os.geteuid() == 0:
         return
     raise errors.PreflightFailed("run as root")
+
+
+def _publish_config(config: InstallConfig) -> str:
+    """Send the menu's answers to the pastebin and return the address.
+
+    Written with `publishing=True`, so the crypt hashes are replaced: the
+    address is public and a hash is where an offline attack starts.
+    """
+    return fetch.upload(to_toml(config, publishing=True), paste.export_for("config"))
 
 
 def _save_config(config: InstallConfig, name: str) -> str:

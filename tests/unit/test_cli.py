@@ -278,3 +278,67 @@ def test_a_bare_name_is_saved_where_the_installer_was_started(
 def test_a_path_that_cannot_be_written_names_the_path_and_the_reason() -> None:
     with pytest.raises(ConfigError, match="cannot write /proc/nope/my-install.toml"):
         cli._save_config(load(FIXTURES / "vm-zfs.toml"), "/proc/nope/my-install.toml")
+
+
+def test_a_published_configuration_reaches_the_pastebin_without_its_hashes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One upload, of a body that still parses and carries no crypt hash."""
+    from dataclasses import replace as replaced
+
+    from gentoo_install.model import paste
+    from gentoo_install.model.config import User
+    from gentoo_install.model.serialise import REDACTED
+
+    sent: list[tuple[str, str]] = []
+
+    def uploaded(body: str, export: paste.Export) -> str:
+        sent.append((body, export.extension))
+        return "https://paste.gentoozh.org/AbCdEf.toml"
+
+    monkeypatch.setattr(fetch, "upload", uploaded)
+    config = load(FIXTURES / "ext4-bios.toml")
+    config = replaced(
+        config,
+        system=replaced(
+            config.system,
+            root_password_hash="$6$salt$secretsecret",
+            users=(User(name="zakk", password_hash="$6$salt$anothersecret"),),
+        ),
+    )
+    assert cli._publish_config(config) == "https://paste.gentoozh.org/AbCdEf.toml"
+    body, extension = sent[0]
+    assert extension == "toml"
+    assert "secretsecret" not in body and "anothersecret" not in body
+    assert body.count(REDACTED) == 2
+
+
+def test_the_address_is_printed_even_when_no_code_fits(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A console with no room for the code still has to say where the paste
+    is, because the address is the part that matters."""
+    import shutil as shutil_module
+
+    monkeypatch.setattr(
+        shutil_module, "get_terminal_size", lambda default=(80, 24): os.terminal_size((20, 24))
+    )
+    cli.show_the_address("https://paste.gentoozh.org/AbCdEf.log")
+    printed = capsys.readouterr().out
+    assert printed.strip() == "https://paste.gentoozh.org/AbCdEf.log"
+
+
+def test_a_code_is_drawn_beside_the_address_when_it_fits(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import shutil as shutil_module
+
+    monkeypatch.setattr(
+        shutil_module, "get_terminal_size", lambda default=(80, 24): os.terminal_size((100, 40))
+    )
+    cli.show_the_address("https://paste.gentoozh.org/AbCdEf.log")
+    printed = capsys.readouterr().out.splitlines()
+    # The code first, the address last: the address is the line that has to
+    # survive a console that scrolled.
+    assert printed[-1] == "https://paste.gentoozh.org/AbCdEf.log"
+    assert any("\u2588" in line for line in printed)

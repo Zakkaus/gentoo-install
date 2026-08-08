@@ -22,6 +22,8 @@
 "Back to the menu" = "メニューに戻る"
 "Leave" = "終了する"
 "Save the configuration and leave" = "設定を保存して終了する"
+"Send the configuration to the pastebin and leave" = "設定を paste に送って終了する"
+"public, without the password hashes" = "公開、パスワードハッシュは除去"
 "Save the configuration as" = "設定の保存先"
 "User name, or empty for root only" = "ユーザー名、空欄なら root のみ"
 "Give this account sudo?" = "このアカウントに sudo を許可しますか？"

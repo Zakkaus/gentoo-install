@@ -99,6 +99,7 @@ class Context:
         timezone_here: str = "",
         zfs_kernel_max: str = "",
         save_config: Callable[[InstallConfig, str], str] = lambda config, name: "",
+        publish_config: Callable[[InstallConfig], str] = lambda config: "",
     ) -> None:
         self.translate = translate
         #: Selector and a human description, from `exec/probe.py`.
@@ -120,6 +121,9 @@ class Context:
         #: Writes the configuration under the given name and returns the path.
         #: Injected because this layer opens no file.
         self.save_config = save_config
+        #: Sends the configuration to the pastebin and returns the address.
+        #: Injected because this layer opens no connection.
+        self.publish_config = publish_config
         #: Every console keymap the machine ships, as (family, name). Empty on
         #: a medium with no keymap tree, which is when the name is typed.
         self.keymaps = keymaps

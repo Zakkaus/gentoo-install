@@ -31,6 +31,9 @@ class Finished:
     #: Where the configuration was written on the way out, for `cli.py` to
     #: print once curses has given the terminal back.
     saved: str = ""
+    #: The address it was sent to, printed the same way and with a code beside
+    #: it, because a console address cannot be copied.
+    published: str = ""
 
     @property
     def cancelled(self) -> bool:
@@ -129,6 +132,11 @@ def _leaving(screen: Screen, config: InstallConfig, context: Context) -> Finishe
             Item(label=context.translate("Back to the menu"), value="stay"),
             Item(label=context.translate("Leave"), value="leave"),
             Item(label=context.translate("Save the configuration and leave"), value="save"),
+            Item(
+                label=context.translate("Send the configuration to the pastebin and leave"),
+                value="publish",
+                detail=context.translate("public, without the password hashes"),
+            ),
         ],
         footer=context.translate("Cancel"),
     )
@@ -137,7 +145,31 @@ def _leaving(screen: Screen, config: InstallConfig, context: Context) -> Finishe
         return None
     if answer.unwrap()[0] == "leave":
         return Finished(None)
+    if answer.unwrap()[0] == "publish":
+        return _publishing(screen, config, context)
     return _saving(screen, config, context)
+
+
+def _publishing(screen: Screen, config: InstallConfig, context: Context) -> Finished | None:
+    """Send the configuration to the pastebin, so an issue can point at it.
+
+    Every password hash is replaced first. The address is public and a crypt
+    hash is what an offline attack starts from.
+    """
+    try:
+        return Finished(None, published=context.publish_config(config))
+    except GentooInstallError as error:
+        _told(screen, context, str(error))
+        return None
+
+
+def _told(screen: Screen, context: Context, message: str) -> None:
+    """One line and an acknowledgement, for something with no other answer."""
+    Menu(
+        title=message,
+        items=[Item(label=context.translate("Continue"), value=True)],
+        footer=context.translate("Cancel"),
+    ).run(screen)
 
 
 def _saving(screen: Screen, config: InstallConfig, context: Context) -> Finished | None:

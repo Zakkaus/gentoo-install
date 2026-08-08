@@ -93,6 +93,37 @@ def render(matrix: Matrix, quiet: int = 4, dark: str = "██", light: str = " 
     )
 
 
+#: One character per two rows of modules: full, top only, bottom only, neither.
+#: The pairing is what makes the code square on a terminal cell that is about
+#: twice as tall as it is wide, at half the width of one character per module.
+HALVES: Final[dict[tuple[bool, bool], str]] = {
+    (True, True): "\u2588",
+    (True, False): "\u2580",
+    (False, True): "\u2584",
+    (False, False): " ",
+}
+
+
+def halved(matrix: Matrix, quiet: int = 4) -> list[str]:
+    """The grid as half-height lines, quiet zone included.
+
+    The caller sets the colours. Drawn in a terminal's own foreground these are
+    light modules on a dark screen, which is the code inverted; most scanners
+    read that and some do not, so `cli.py` forces black on white.
+    """
+    width = len(matrix) + quiet * 2
+    blank = (False,) * width
+    padded = [blank] * quiet
+    padded += [(False,) * quiet + row + (False,) * quiet for row in matrix]
+    padded += [blank] * quiet
+    if len(padded) % 2:
+        padded.append(blank)
+    return [
+        "".join(HALVES[(top, bottom)] for top, bottom in zip(padded[at], padded[at + 1]))
+        for at in range(0, len(padded), 2)
+    ]
+
+
 def _smallest(length: int) -> int:
     for version in sorted(BLOCKS):
         if length <= capacity(version):

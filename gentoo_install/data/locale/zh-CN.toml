@@ -22,6 +22,8 @@
 "Back to the menu" = "回到菜单"
 "Leave" = "离开"
 "Save the configuration and leave" = "保存配置后离开"
+"Send the configuration to the pastebin and leave" = "把配置送到 paste 后离开"
+"public, without the password hashes" = "公开，密码哈希已去除"
 "Save the configuration as" = "配置另存为"
 "User name, or empty for root only" = "用户名，留空则只有 root"
 "Give this account sudo?" = "要给此账号 sudo 权限吗？"

@@ -67,6 +67,11 @@ class DownloadFailed(GentooInstallError):
     failure: the data never arrived rather than arriving untrustworthy."""
 
 
+class UploadFailed(GentooInstallError):
+    """A paste could not be created. Never fatal: it is offered after the run
+    has already ended, and the log is still on the machine."""
+
+
 class CommandFailed(GentooInstallError):
     """An external command exited non-zero. The operation did not finish, which
     is a different thing from data that cannot be trusted."""
