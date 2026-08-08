@@ -278,11 +278,15 @@ def build(config: InstallConfig) -> list[Operation]:
     esp = mount.path if mount is not None else None
     esp_device = _esp_partition(config)
     packages = BOOTLOADER_PACKAGES[kind]
-    if config.bootloader.firmware is Firmware.UEFI:
+    if config.bootloader.firmware is Firmware.UEFI and kind is not Bootloader.SYSTEMD_BOOT:
+        # Not for systemd-boot: `bootctl install` writes the boot entry through
+        # efivarfs itself, and this branch built an emerge it then discarded.
         packages = (*packages, EFI_PACKAGE)
-    operations: list[Operation] = [
-        Emerge(stage=Stage.BOOTLOADER, packages=packages, summary="install the bootloader")
-    ]
+    operations: list[Operation] = []
+    if packages:
+        operations.append(
+            Emerge(stage=Stage.BOOTLOADER, packages=packages, summary="install the bootloader")
+        )
     if kind is Bootloader.GRUB:
         operations += [
             WriteGrubDefaults(
@@ -299,7 +303,7 @@ def build(config: InstallConfig) -> list[Operation]:
         ]
     elif kind is Bootloader.SYSTEMD_BOOT and esp is not None:
         provider = BOOTCTL_PACKAGE[config.system.init]
-        operations = [
+        operations += [
             RequestBootctl(package=provider),
             Emerge(stage=Stage.BOOTLOADER, packages=(provider,), summary="install bootctl"),
             InstallSystemdBoot(esp=esp),

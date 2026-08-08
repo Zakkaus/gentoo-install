@@ -503,3 +503,20 @@ def test_the_unlock_daemon_is_keyworded_and_told_where_to_read_its_keys() -> Non
     # The `unlock` helper runs cryptsetup and the module does not pull it in.
     assert "/sbin/cryptsetup" in written
     assert 'dropbear_ed25519_key="SYSTEM"' in written
+
+
+def test_the_systemd_boot_branch_keeps_what_the_shared_prefix_built() -> None:
+    """It rebound the list and threw away the emerge above it. bootctl writes
+    the boot entry through efivarfs, so efibootmgr is left out deliberately."""
+    from gentoo_install.model.config import Bootloader, BootloaderConfig, Firmware
+
+    chosen = replace(
+        config(),
+        bootloader=BootloaderConfig(kind=Bootloader.SYSTEMD_BOOT, firmware=Firmware.UEFI),
+    )
+    described = [one.describe() for one in bootloader.build(chosen)]
+    assert not any("efibootmgr" in line for line in described)
+    assert any("install bootctl" in line for line in described)
+    # GRUB still gets it: grub-install needs efibootmgr to write the entry.
+    grub = [one.describe() for one in bootloader.build(config())]
+    assert any("efibootmgr" in line for line in grub)
