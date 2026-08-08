@@ -69,6 +69,9 @@ class Context(Protocol):
     def write(self, path: PurePosixPath, content: str, *, mode: int = 0o644) -> None:
         """Write a file in the target, `path` being absolute inside the target."""
 
+    def read(self, path: PurePosixPath) -> str:
+        """A file in the target, or an empty string when it is not there."""
+
     def append(self, path: PurePosixPath, content: str) -> None:
         """Append to a file in the target, creating it when absent."""
 

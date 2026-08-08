@@ -266,3 +266,34 @@ def test_a_package_name_that_matches_nothing_stops_before_the_disks_fill() -> No
         check.apply(recorder)
 
     portage.VerifyPackages(packages=("app-editors/neovim",)).apply(Recorder())
+
+
+def test_the_stage3_make_conf_is_edited_and_not_replaced() -> None:
+    """It ships comments and a CHOST nobody should be rewriting, and its
+    COMMON_FLAGS is what Gentoo built the binary packages against."""
+    stage3 = (
+        "# These settings were set by the catalyst build script.\n"
+        'COMMON_FLAGS="-O2 -pipe"\n'
+        'CFLAGS="${COMMON_FLAGS}"\n'
+        'CHOST="x86_64-pc-linux-gnu"\n'
+    )
+    merged = portage.merge(stage3, [("MAKEOPTS", "-j8"), ("CPU_FLAGS_X86", "aes")])
+    assert "# These settings were set by the catalyst build script." in merged
+    assert 'CHOST="x86_64-pc-linux-gnu"' in merged
+    assert 'COMMON_FLAGS="-O2 -pipe"' in merged
+    assert 'MAKEOPTS="-j8"' in merged
+
+
+def test_a_key_the_file_already_has_is_replaced_in_place() -> None:
+    merged = portage.merge('MAKEOPTS="-j1"\n', [("MAKEOPTS", "-j8")])
+    assert merged.count("MAKEOPTS") == 1
+    assert 'MAKEOPTS="-j8"' in merged
+
+
+def test_common_flags_are_left_alone_unless_they_were_changed() -> None:
+    """The default is the stage3's own value, so writing it would only add a
+    line that says what the file already said."""
+    keys = [key for key, _ in portage.make_conf(config())]
+    assert "COMMON_FLAGS" not in keys
+    changed = replace(config(), portage=replace(config().portage, common_flags="-O3 -pipe"))
+    assert "COMMON_FLAGS" in [key for key, _ in portage.make_conf(changed)]

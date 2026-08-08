@@ -59,6 +59,12 @@ class Machine:
     def write(self, path: PurePosixPath, content: str, *, mode: int = 0o644) -> None:
         write_file(under(self.mountpoint, path), content, mode)
 
+    def read(self, path: PurePosixPath) -> str:
+        try:
+            return under(self.mountpoint, path).read_text()
+        except OSError:
+            return ""
+
     def append(self, path: PurePosixPath, content: str) -> None:
         where = under(self.mountpoint, path)
         where.parent.mkdir(parents=True, exist_ok=True)

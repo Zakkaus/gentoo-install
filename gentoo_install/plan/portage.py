@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import Final
+from typing import Final, Sequence
 
 from ..errors import CommandFailed, ConfigError
 from ..model.config import (
@@ -173,9 +173,35 @@ class WriteMakeConf(Operation):
 
     def apply(self, context: Context) -> None:
         mirrors = context.rank_mirrors(self.mirrors) if self.speed_test else self.mirrors
-        lines = [f'{key}="{value}"' for key, value in self.settings]
-        lines.append(f'GENTOO_MIRRORS="{" ".join(mirrors)}"')
-        context.write(PurePosixPath("/etc/portage/make.conf"), "\n".join(lines) + "\n")
+        wanted = [*self.settings, ("GENTOO_MIRRORS", " ".join(mirrors))]
+        existing = context.read(PurePosixPath("/etc/portage/make.conf"))
+        context.write(PurePosixPath("/etc/portage/make.conf"), merge(existing, wanted))
+
+
+def merge(existing: str, wanted: Sequence[tuple[str, str]]) -> str:
+    """Replace the keys this installer sets and keep the rest of the file.
+
+    The stage3 ships a make.conf with comments and a CHOST nobody should be
+    rewriting, so the file is edited rather than replaced: a key we set is
+    substituted in place, and one the file does not mention is appended.
+    """
+    replacing = dict(wanted)
+    kept: list[str] = []
+    seen: set[str] = set()
+    for line in existing.splitlines():
+        key = line.split("=", 1)[0].strip() if "=" in line and not line.lstrip().startswith("#") else ""
+        if key in replacing:
+            kept.append(f'{key}="{replacing[key]}"')
+            seen.add(key)
+            continue
+        kept.append(line)
+    added = [f'{key}="{value}"' for key, value in wanted if key not in seen]
+    if added:
+        if kept and kept[-1].strip():
+            kept.append("")
+        kept.append("# Added by gentoo-install.")
+        kept += added
+    return "\n".join(kept).rstrip("\n") + "\n"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -541,13 +567,17 @@ def make_conf(
     profile that needs `wayland` gets it without a second place to edit.
     """
     portage = config.portage
-    settings: list[tuple[str, str]] = [
-        ("COMMON_FLAGS", portage.common_flags),
-        ("CFLAGS", "${COMMON_FLAGS}"),
-        ("CXXFLAGS", "${COMMON_FLAGS}"),
-        ("FCFLAGS", "${COMMON_FLAGS}"),
-        ("FFLAGS", "${COMMON_FLAGS}"),
-    ]
+    settings: list[tuple[str, str]] = []
+    if portage.common_flags != PortageConfig().common_flags:
+        # Left alone at the default: the stage3 already sets these, and its
+        # value is the one Gentoo built the binary packages against.
+        settings += [
+            ("COMMON_FLAGS", portage.common_flags),
+            ("CFLAGS", "${COMMON_FLAGS}"),
+            ("CXXFLAGS", "${COMMON_FLAGS}"),
+            ("FCFLAGS", "${COMMON_FLAGS}"),
+            ("FFLAGS", "${COMMON_FLAGS}"),
+        ]
     if portage.makeopts:
         settings.append(("MAKEOPTS", portage.makeopts))
     wanted = [*portage.use, *(flag for flag in use if flag not in portage.use)]

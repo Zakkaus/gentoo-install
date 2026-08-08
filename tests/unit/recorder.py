@@ -46,6 +46,9 @@ class Recorder:
     def write(self, path: PurePosixPath, content: str, *, mode: int = 0o644) -> None:
         self.files[path] = content
 
+    def read(self, path: PurePosixPath) -> str:
+        return self.files.get(path, "")
+
     def append(self, path: PurePosixPath, content: str) -> None:
         self.files[path] = self.files.get(path, "") + content
 
