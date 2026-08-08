@@ -101,7 +101,6 @@
 # Network and SSH
 "Keyboard at unlock" = "起動時の解錠キーボード"
 "nothing is unlocked at boot" = "起動時に解錠しない"
-"Keyboard the initramfs uses, empty to follow the console" = "initramfs のキーボード配列。空欄ならコンソールに従う"
 "Use DHCP?" = "DHCP を使いますか？"
 "SSH public keys" = "SSH 公開鍵"
 "Public key" = "公開鍵"
@@ -289,3 +288,5 @@
 "systemd logs to journald" = "systemd は journald に記録する"
 "only the cjk kernel draws CJK on the console" = "cjk カーネルだけがコンソールに CJK を描画する"
 "Type it again" = "もう一度入力"
+"Keyboard the initramfs uses" = "initramfs が使うキーボード"
+"the same as the console" = "コンソールと同じ"

@@ -101,7 +101,6 @@
 # 网络与 SSH
 "Keyboard at unlock" = "开机解锁键盘"
 "nothing is unlocked at boot" = "开机不需解锁"
-"Keyboard the initramfs uses, empty to follow the console" = "initramfs 键盘布局，留空沿用控制台"
 "Use DHCP?" = "要用 DHCP 吗？"
 "SSH public keys" = "SSH 公钥"
 "Public key" = "公钥"
@@ -289,3 +288,5 @@
 "systemd logs to journald" = "systemd 由 journald 记录"
 "only the cjk kernel draws CJK on the console" = "只有 cjk 内核能在控制台画出 CJK"
 "Type it again" = "再输入一次"
+"Keyboard the initramfs uses" = "initramfs 使用的键盘"
+"the same as the console" = "与控制台相同"

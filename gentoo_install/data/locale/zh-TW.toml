@@ -101,7 +101,6 @@
 # 網路與 SSH
 "Keyboard at unlock" = "開機解鎖鍵盤"
 "nothing is unlocked at boot" = "開機不需解鎖"
-"Keyboard the initramfs uses, empty to follow the console" = "initramfs 鍵盤配置，留空沿用主控台"
 "Use DHCP?" = "要用 DHCP 嗎？"
 "SSH public keys" = "SSH 公鑰"
 "Public key" = "公鑰"
@@ -289,3 +288,5 @@
 "systemd logs to journald" = "systemd 由 journald 記錄"
 "only the cjk kernel draws CJK on the console" = "只有 cjk 核心能在主控台畫出 CJK"
 "Type it again" = "再輸入一次"
+"Keyboard the initramfs uses" = "initramfs 使用的鍵盤"
+"the same as the console" = "與主控台相同"

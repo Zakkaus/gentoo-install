@@ -325,6 +325,32 @@ class Probe:
         )
         return listed.stdout.strip() if listed.returncode == 0 else ""
 
+    #: Where `sys-apps/kbd` keeps its keymaps. Debian and Arch put the same
+    #: tree under `kbd/`, and only the PC families matter on amd64.
+    KEYMAPS: ClassVar[tuple[Path, ...]] = (
+        Path("/usr/share/keymaps/i386"),
+        Path("/usr/share/kbd/keymaps/i386"),
+    )
+
+    def keymaps(self) -> tuple[tuple[str, str], ...]:
+        """Every console keymap this machine ships, as (family, name).
+
+        Read rather than listed here: the set differs by distribution and by
+        `kbd` version, and a name the target has no file for loads nothing.
+        """
+        found: dict[str, str] = {}
+        for base in self.KEYMAPS:
+            try:
+                families = sorted(one for one in base.iterdir() if one.is_dir())
+            except OSError:
+                continue
+            for family in families:
+                if family.name == "include":
+                    continue
+                for keymap in sorted(family.glob("*.map.gz")):
+                    found.setdefault(keymap.name[: -len(".map.gz")], family.name)
+        return tuple((family, name) for name, family in sorted(found.items()))
+
     def disk_bytes(self, disk: str) -> int:
         """Capacity in bytes, or 0 when the device cannot be read.
 

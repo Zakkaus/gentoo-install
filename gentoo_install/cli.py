@@ -293,6 +293,7 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         inspect_disk=lambda disk: (probe.partitions(disk), probe.disk_size(disk)),
         fetch_text=fetch.text,
         kernel_versions=_kernel_versions,
+        keymaps=probe.keymaps,
         zfs_kernel_max=fetch.zfs_kernel_max(),
         cores=probe.cores(),
         cpu_flags=probe.cpu_flags(),

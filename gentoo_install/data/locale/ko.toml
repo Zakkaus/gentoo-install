@@ -101,7 +101,6 @@
 # Network and SSH
 "Keyboard at unlock" = "부팅 해제 키보드"
 "nothing is unlocked at boot" = "부팅 시 해제 없음"
-"Keyboard the initramfs uses, empty to follow the console" = "initramfs 가 쓰는 키보드 배열. 비우면 콘솔을 따름"
 "Use DHCP?" = "DHCP를 쓰시겠습니까?"
 "SSH public keys" = "SSH 공개 키"
 "Public key" = "공개 키"
@@ -289,3 +288,5 @@
 "systemd logs to journald" = "systemd는 journald에 기록"
 "only the cjk kernel draws CJK on the console" = "cjk 커널만 콘솔에 CJK를 그린다"
 "Type it again" = "다시 입력"
+"Keyboard the initramfs uses" = "initramfs가 쓰는 키보드"
+"the same as the console" = "콘솔과 동일"

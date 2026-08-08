@@ -73,6 +73,7 @@ class Context:
         ),
         fetch_text: Callable[[str], str] = lambda url: "",
         kernel_versions: Callable[[str], tuple[tuple[str, bool], ...]] = lambda atom: (),
+        keymaps: Callable[[], tuple[tuple[str, str], ...]] = lambda: (),
         zfs_kernel_max: str = "",
     ) -> None:
         self.translate = translate
@@ -92,6 +93,9 @@ class Context:
         #: each with whether it is stable on amd64. Empty on a medium with no
         #: repository, which is when the version is typed instead.
         self.kernel_versions = kernel_versions
+        #: Every console keymap the machine ships, as (family, name). Empty on
+        #: a medium with no keymap tree, which is when the name is typed.
+        self.keymaps = keymaps
         #: The highest kernel `sys-fs/zfs` builds a module for, read from its
         #: ebuild. Empty when no repository is visible, which offers every version.
         self.zfs_kernel_max = zfs_kernel_max
@@ -1658,18 +1662,51 @@ def firmware_screen(screen: Screen, config: InstallConfig, context: Context) -> 
 
 
 def keymap_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
-    field = TextField(
-        title=context.translate("Keyboard layout"),
-        value=config.system.keymap,
-        footer=footer(context.translate),
-    )
-    answer = field.run(screen)
-    if not answer.chosen:
-        return Answer(answer.outcome)
+    """The keymaps this machine ships, family first.
+
+    Two hundred rows do not fit a console, and a typed name that `kbd` has no
+    file for loads nothing and says so only at the next boot.
+    """
+    translate = context.translate
+    picked = _pick_keymap(screen, context, translate("Keyboard layout"), config.system.keymap)
+    if picked is None:
+        return Answer(Outcome.BACK)
     return Answer(
-        Outcome.CHOSE,
-        replace(config, system=replace(config.system, keymap=answer.unwrap() or "us")),
+        Outcome.CHOSE, replace(config, system=replace(config.system, keymap=picked or "us"))
     )
+
+
+def _pick_keymap(
+    screen: Screen, context: Context, title: str, current: str, empty: str = ""
+) -> str | None:
+    """One keymap, or None when the operator went back. `empty` names the row
+    that stands for no answer, and is absent when there is no such answer."""
+    translate = context.translate
+    offered = context.keymaps()
+    if not offered:
+        # A medium that ships no keymap tree has nothing to list, and a list
+        # nobody can populate is worse than a field.
+        typed = TextField(title=title, value=current, footer=footer(translate)).run(screen)
+        return typed.unwrap() if typed.chosen else None
+    families: list[Item[str]] = []
+    if empty:
+        families.append(Item(label=empty, value=""))
+    families += [
+        Item(label=family, value=family) for family in sorted({one for one, _ in offered})
+    ]
+    answer = Menu(title=title, items=families, footer=footer(translate)).run(screen)
+    if not answer.chosen:
+        return None
+    family = answer.unwrap()[0]
+    if not family:
+        return ""
+    within = [name for one, name in offered if one == family]
+    chosen = Menu(
+        title=f"{title}  {family}",
+        items=[Item(label=name, value=name) for name in within],
+        footer=footer(translate),
+    ).run(screen)
+    return chosen.unwrap()[0] if chosen.chosen else None
 
 
 def console_font_screen(
@@ -2265,17 +2302,17 @@ def initramfs_keymap_screen(
     cannot type a passphrase it was never told about.
     """
     translate = context.translate
-    field = TextField(
-        title=translate("Keyboard the initramfs uses, empty to follow the console"),
-        value=config.system.keymap_initramfs,
-        footer=footer(translate),
+    picked = _pick_keymap(
+        screen,
+        context,
+        translate("Keyboard the initramfs uses"),
+        config.system.keymap_initramfs,
+        empty=translate("the same as the console"),
     )
-    answer = field.run(screen)
-    if not answer.chosen:
-        return Answer(answer.outcome)
+    if picked is None:
+        return Answer(Outcome.BACK)
     return Answer(
-        Outcome.CHOSE,
-        replace(config, system=replace(config.system, keymap_initramfs=answer.unwrap().strip())),
+        Outcome.CHOSE, replace(config, system=replace(config.system, keymap_initramfs=picked))
     )
 
 

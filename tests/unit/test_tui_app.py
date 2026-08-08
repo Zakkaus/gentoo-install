@@ -1207,3 +1207,33 @@ def test_a_password_is_typed_twice_before_it_is_hashed() -> None:
     made = screens.user_screen(FakeScreen(keys=account, lines=24), config(), at)
     user = made.unwrap().system.users[0]
     assert user.name == "zakk" and user.password_hash == "$6$test$4"
+
+
+def test_the_keyboard_layout_is_picked_from_what_the_machine_ships() -> None:
+    """It was a text field, so a name `kbd` has no file for was accepted and
+    loaded nothing, and the operator found out at the next boot."""
+    at = context()
+    at.keymaps = lambda: (("qwerty", "de"), ("qwerty", "us"), ("dvorak", "dvorak"))
+    # The families are listed first: two hundred names do not fit a console.
+    screen = FakeScreen(keys=["KEY_DOWN", "\n", "KEY_DOWN", "\n"], lines=24, columns=90)
+    answer = screens.keymap_screen(screen, config(), at)
+    assert answer.unwrap().system.keymap == "us"
+    assert "qwerty" in "\n".join(screen.frames[0])
+    assert "dvorak" in "\n".join(screen.frames[0])
+
+    # A medium with no keymap tree falls back to typing the name.
+    at.keymaps = lambda: ()
+    # The field is prefilled with the current keymap, so `us` is cleared first.
+    typed = FakeScreen(keys=["KEY_BACKSPACE", "KEY_BACKSPACE", *"fr", "\n"], lines=24, columns=90)
+    assert screens.keymap_screen(typed, config(), at).unwrap().system.keymap == "fr"
+
+
+def test_the_unlock_keyboard_offers_following_the_console() -> None:
+    """Empty means the console's own keymap, which a list has to say rather
+    than leaving the operator to guess that no row is the answer."""
+    at = context()
+    at.keymaps = lambda: (("qwerty", "de"), ("qwerty", "us"))
+    screen = FakeScreen(keys=["\n"], lines=24, columns=90)
+    answer = screens.initramfs_keymap_screen(screen, config(), at)
+    assert answer.unwrap().system.keymap_initramfs == ""
+    assert "the same as the console" in "\n".join(screen.frames[0])
