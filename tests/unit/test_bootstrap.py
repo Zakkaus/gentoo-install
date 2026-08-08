@@ -99,3 +99,29 @@ def test_a_package_is_never_named_twice(tmp_path: Path) -> None:
     assert listed, said
     packages = listed[0].removeprefix("run: ").split()
     assert len(packages) == len(set(packages))
+
+
+def test_a_dry_run_needs_none_of_the_tools(tmp_path: Path) -> None:
+    """It performs nothing, and refusing it on a machine without them takes
+    away the one way to check a file before reaching the target. Found by
+    running the launcher on the Live ISO, which ships no lvm."""
+    said = run(
+        tmp_path,
+        "ID=gentoo\n",
+        "--config",
+        "tests/fixtures/vm-lvm.toml",
+        "--dry-run",
+        path=only_python(tmp_path),
+    )
+    assert "missing commands:" not in said
+
+
+def test_an_install_still_names_what_is_missing(tmp_path: Path) -> None:
+    said = run(
+        tmp_path,
+        "ID=gentoo\n",
+        "--config",
+        "tests/fixtures/vm-lvm.toml",
+        path=only_python(tmp_path),
+    )
+    assert "missing commands:" in said

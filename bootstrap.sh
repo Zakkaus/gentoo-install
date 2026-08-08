@@ -112,8 +112,13 @@ fi
 say "python: $python ($("$python" --version 2>&1))"
 
 # The installer's own preflight lists what the chosen layout needs and names
-# every missing command at once, so the operator fixes them in one pass.
-missing=$("$python" -m gentoo_install --missing-commands "$@" 2>/dev/null) || missing=""
+# every missing command at once, so the operator fixes them in one pass. Not
+# for a dry run: it performs nothing, and refusing it on a machine without the
+# tools takes away the one way to check a file before reaching the target.
+case " $* " in
+*" --dry-run "*) missing="" ;;
+*) missing=$("$python" -m gentoo_install --missing-commands "$@" 2>/dev/null) || missing="" ;;
+esac
 if [ -n "$missing" ]; then
 	packages=""
 	for command in $missing; do
