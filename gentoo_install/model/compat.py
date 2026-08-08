@@ -246,8 +246,14 @@ def _on_esp(graph: DeviceGraph, device: DeviceId) -> bool:
         partition.role is PartitionRole.ESP for partition in _nodes_under(graph, device, Partition)
     ):
         return True
-    kept = [one for one in _nodes_under(graph, device, Filesystem) if not one.create]
-    return any(one.kind is FilesystemType.VFAT for one in kept)
+    if any(isinstance(node, Partition) for node in _chain(graph, device)):
+        return False
+    # No partition to ask, so the filesystem answers. Not `create`: whether
+    # this run formats the esp does not change what the partition is, and
+    # keying on it made ticking `format` turn an esp into something else.
+    return any(
+        one.kind is FilesystemType.VFAT for one in _nodes_under(graph, device, Filesystem)
+    )
 
 
 def esp_mount(graph: DeviceGraph) -> Mountpoint | None:

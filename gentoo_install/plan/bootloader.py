@@ -15,6 +15,7 @@ from ..errors import NothingToBoot
 from ..model import compat
 from ..model.config import Bootloader, Firmware, InitSystem, InstallConfig
 from ..model.device import (
+    Existing,
     DeviceId,
     MdRaid,
     Mountpoint,
@@ -395,10 +396,17 @@ def _esp_partition(config: InstallConfig) -> DeviceId | None:
     mount = compat.esp_mount(graph)
     if mount is None:
         return None
-    for parent in graph.ancestors_of(mount.id):
+    # Sorted, because `ancestors_of` returns a frozenset and a mirrored esp
+    # would otherwise give a different plan on every run.
+    for parent in sorted(graph.ancestors_of(mount.id)):
         node = graph[parent]
         if isinstance(node, Partition) and node.role is PartitionRole.ESP:
             return node.id
+    # A reused esp has no `Partition` node: it is the existing device the
+    # filesystem sits on, which is what efibootmgr and grub-install want.
+    for parent in sorted(graph.ancestors_of(mount.id)):
+        if isinstance(graph[parent], Existing):
+            return graph[parent].id
     return None
 
 

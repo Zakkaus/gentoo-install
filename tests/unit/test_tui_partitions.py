@@ -347,3 +347,34 @@ def test_a_reused_filesystem_needs_no_mkfs_on_the_medium() -> None:
     assert "mkfs.xfs" not in preflight.required_commands(config_from(graph, root))
     made, made_root = manual.build(reused(filesystem=FilesystemType.XFS, format=True))
     assert "mkfs.xfs" in preflight.required_commands(config_from(made, made_root))
+
+
+def test_a_reused_esp_is_an_esp_whether_or_not_it_is_reformatted() -> None:
+    """Whether this run runs mkfs.vfat does not change what the partition is,
+    and keying on it made ticking `format` refuse every UEFI install."""
+    from gentoo_install.model.compat import esp_mount
+
+    for formatting in (False, True):
+        layout = manual.Layout(disk="/dev/vda", reused=[
+            manual.Reused(selector="/dev/vda1", filesystem=FilesystemType.VFAT,
+                          mountpoint="/efi", format=formatting),
+            manual.Reused(selector="/dev/vda2", filesystem=FilesystemType.EXT4, mountpoint="/"),
+        ])
+        graph, root = manual.build(layout)
+        assert esp_mount(graph) is not None, formatting
+        validate(config_from(graph, root))
+
+
+def test_a_reused_esp_resolves_to_the_device_the_bootloader_installs_onto() -> None:
+    """It has no `Partition` node, and returning None skipped the whole
+    bootloader branch without saying anything."""
+    from gentoo_install.plan import bootloader
+
+    layout = manual.Layout(disk="/dev/vda", reused=[
+        manual.Reused(selector="/dev/vda1", filesystem=FilesystemType.VFAT, mountpoint="/efi"),
+        manual.Reused(selector="/dev/vda2", filesystem=FilesystemType.EXT4, mountpoint="/"),
+    ])
+    graph, root = manual.build(layout)
+    installation = config_from(graph, root)
+    assert bootloader._esp_partition(installation) == "kept1"
+    assert any("install GRUB" in one.describe() for one in bootloader.build(installation))
