@@ -377,7 +377,7 @@ def report(
     for name in sorted(results):
         print(f"--- {name} ---")
         print(results[name].decode("utf-8", "replace").rstrip())
-    code = check_expected(results, assertions) if assertions is not None else 0
+    code = verdict(results, assertions)
     if not keep:
         result_disk.unlink(missing_ok=True)
     return code
@@ -416,6 +416,18 @@ def _from_config(config: Path) -> list[tuple[str, str]]:
     kind = filesystem.kind.value if isinstance(filesystem, Filesystem) else ""
     expected += [("mounts", rf"^/\s+\S+\s+{kind}"), ("fstab", rf"UUID=\S+\s+/\s+{kind}")]
     return expected
+
+
+def verdict(results: dict[str, bytes], assertions: Path | None) -> int:
+    """Turn everything the run left behind into one exit code."""
+    code = check_expected(results, assertions) if assertions is not None else 0
+    installer = results.get("install.rc", b"").decode("utf-8", "replace").strip()
+    # The installer's own exit code, which the collected output does not carry:
+    # a run that stopped at the bootloader printed its failure and exited 0.
+    if installer not in ("", "0"):
+        print(f"FAIL the installer exited {installer}", file=sys.stderr)
+        code = 1
+    return code
 
 
 def check_expected(results: dict[str, bytes], config: Path) -> int:
