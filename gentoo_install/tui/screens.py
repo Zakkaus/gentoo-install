@@ -990,7 +990,10 @@ def kernel_version_screen(
         return Answer(
             Outcome.CHOSE, replace(config, kernel=replace(config.kernel, version=typed.unwrap().strip()))
         )
-    items: list[Item[str]] = [
+    # No unpinned row under a ceiling: `MODULES_KERNEL_MAX` only warns, so
+    # nothing stops the resolver picking a kernel `sys-fs/zfs` will not build
+    # against, and the failure lands after the disks are written.
+    items: list[Item[str]] = [] if ceiling else [
         Item(
             label=translate("not pinned"),
             value="",

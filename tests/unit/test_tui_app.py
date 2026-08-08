@@ -730,10 +730,14 @@ def test_a_zfs_root_is_offered_no_kernel_the_module_will_not_build_for() -> None
     at.kernel_versions = lambda atom: (("7.1.7", False), ("6.18.43", False))
     at.zfs_kernel_max = "7.0"
     on_zfs = config(zfs_root())
-    screen = FakeScreen(keys=["KEY_DOWN", "\n"], lines=20, columns=100)
+    # No KEY_DOWN: with the ceiling applied the first row is already a version.
+    screen = FakeScreen(keys=["\n"], lines=20, columns=100)
     answer = screens.kernel_version_screen(screen, on_zfs, at)
     assert answer.unwrap().kernel.version == "6.18.43"
     assert "7.1.7" not in "\n".join(screen.frames[0])
+    # MODULES_KERNEL_MAX only warns, so an unpinned kernel would resolve to
+    # 7.1.7 and the ceiling would buy nothing.
+    assert "not pinned" not in "\n".join(screen.frames[0])
 
     # No pool: the ceiling is not this layout's business.
     plain = FakeScreen(keys=["KEY_DOWN", "\n"], lines=20, columns=100)
