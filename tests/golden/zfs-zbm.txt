@@ -64,6 +64,7 @@
   set sys-kernel/installkernel to dracut
   install the hook that puts a kernel in /boot: emerge sys-kernel/installkernel
   tell dracut to carry zfs
+  put the zpcala key in /etc/zfs/zpcala.key so only ZFSBootMenu asks for it
   accept the linux-firmware licence
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
   tell sys-fs/zfs to build against the dist-kernel

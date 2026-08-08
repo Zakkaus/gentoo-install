@@ -17,7 +17,20 @@ from gentoo_install.model.config import (
     KernelSource,
     SystemConfig,
 )
-from gentoo_install.model.device import Filesystem, FilesystemType, Luks, MdRaid, Node, RaidLevel
+from gentoo_install.model.device import (
+    DeviceGraph,
+    Filesystem,
+    FilesystemType,
+    Luks,
+    MdRaid,
+    Mountpoint,
+    Node,
+    Partition,
+    PartitionRole,
+    RaidLevel,
+    ZfsPool,
+)
+from gentoo_install.model.size import Size
 from gentoo_install.model.parse import load
 from gentoo_install.model.validate import validate
 from gentoo_install.plan import bootloader, kernel
@@ -591,3 +604,63 @@ def test_the_prebuilt_patched_kernel_sits_beside_the_source_one() -> None:
         # Keyworded and flagged like the other, and on no official binary host.
         assert any("as testing, with cjk" in line for line in described), source
         assert any("from source" in line for line in described), source
+
+
+def test_zfsbootmenu_unlocks_once_rather_than_asking_the_initramfs_too() -> None:
+    """ZBM unlocks the pool to read the kernel and the initramfs then asks for
+    the same passphrase again, because kexec does not carry the loaded key."""
+    recorder = Recorder()
+    for operation in kernel.build(zfs_installation()):
+        if isinstance(operation, kernel.StoreZfsKey):
+            operation.apply(recorder)
+    key = PurePosixPath("/etc/zfs/zpcala.key")
+    # No trailing newline: `zfs load-key` trims one, so the file is read the
+    # same either way and this is the form that cannot be wrong.
+    assert recorder.files[key] == "a passphrase"
+    assert recorder.modes[key] == 0o400
+    assert recorder.files[PurePosixPath("/etc/dracut.conf.d/zfs-key.conf")] == (
+        'install_items+=" /etc/zfs/zpcala.key "\n'
+    )
+    assert ("zfs", "set", "keylocation=file:///etc/zfs/zpcala.key", "zpcala") in recorder.in_target
+
+
+def test_a_separate_boot_partition_keeps_the_prompt() -> None:
+    """The key file rides inside the initramfs, so an initramfs on a partition
+    outside the pool would publish the passphrase in the clear."""
+    nodes = [
+        *zfs_root(),
+        Partition(
+            id=i("bootpart"),
+            table=i("table"),
+            index=3,
+            role=PartitionRole.DATA,
+            size=Size.parse("1GiB"),
+        ),
+        Filesystem(id=i("bootfs"), device=i("bootpart"), kind=FilesystemType.EXT4),
+        Mountpoint(id=i("mnt-boot"), source=i("bootfs"), path=PurePosixPath("/boot")),
+    ]
+    outside = replace(zfs_installation(), disk=replace(
+        zfs_installation().disk, graph=DeviceGraph.build(nodes)
+    ))
+    assert not [one for one in kernel.build(outside) if isinstance(one, kernel.StoreZfsKey)]
+
+
+def test_a_pool_that_is_not_encrypted_needs_no_key_file() -> None:
+    plain = [
+        node if not isinstance(node, ZfsPool) else replace(node, encrypted=False)
+        for node in zfs_root()
+    ]
+    open_pool = replace(zfs_installation(), disk=replace(
+        zfs_installation().disk, graph=DeviceGraph.build(plain)
+    ))
+    assert not [one for one in kernel.build(open_pool) if isinstance(one, kernel.StoreZfsKey)]
+
+
+def test_only_zfsbootmenu_moves_the_key_off_the_prompt() -> None:
+    """Under any other bootloader the initramfs prompt is the only prompt, and
+    a key file beside it would take the passphrase out of the boot path."""
+    grub = replace(
+        zfs_installation(),
+        bootloader=BootloaderConfig(kind=Bootloader.GRUB, firmware=Firmware.UEFI),
+    )
+    assert not [one for one in kernel.build(grub) if isinstance(one, kernel.StoreZfsKey)]
