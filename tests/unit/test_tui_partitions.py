@@ -422,6 +422,7 @@ def test_a_reuse_layout_is_not_asked_to_confirm_an_erase_it_will_not_do() -> Non
     from gentoo_install.tui import settings
 
     at = context()
+    at.visited.add("erase")
     kept = [
         Existing(id=i("kept1"), selector="/dev/disk/by-id/virtio-target0-part1", wipe=False),
         Filesystem(id=i("keptfs"), device=i("kept1"), kind=FilesystemType.EXT4, create=False),

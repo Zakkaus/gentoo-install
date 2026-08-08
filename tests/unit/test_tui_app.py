@@ -144,6 +144,15 @@ def test_install_is_blocked_while_something_required_is_missing() -> None:
 def test_install_hands_back_the_configuration() -> None:
     at = context()
     at.erase_confirmed = True
+    # A required row is answered when it has been opened: the mirror and the
+    # disk start on a value read from this machine, and an install that erases
+    # a drive nobody looked at is what the requirement exists to prevent.
+    at.visited.update(
+        one.key
+        for group in settings.SETTINGS
+        for one in (group.rows or (group,))
+        if one.required
+    )
     ready = replace(
         config(),
         system=replace(config().system, root_password_hash="$6$test$x"),
@@ -166,6 +175,15 @@ def test_the_install_row_shows_every_operation_before_it_starts() -> None:
     straight to partitioning the disk with no list and no confirmation."""
     at = context()
     at.erase_confirmed = True
+    # A required row is answered when it has been opened: the mirror and the
+    # disk start on a value read from this machine, and an install that erases
+    # a drive nobody looked at is what the requirement exists to prevent.
+    at.visited.update(
+        one.key
+        for group in settings.SETTINGS
+        for one in (group.rows or (group,))
+        if one.required
+    )
     ready = replace(
         config(),
         system=replace(config().system, root_password_hash="$6$test$x"),
@@ -1294,3 +1312,29 @@ def test_the_rows_say_not_set_in_the_language_the_menu_is_in() -> None:
     root = next(one for one in settings.SETTINGS if one.key == "root")
     assert root.value(blank, at) == settings.UNSET
     assert _drawn(root, blank, at) == at.translate(settings.UNSET) != settings.UNSET
+
+
+def test_a_required_row_has_to_be_opened_and_not_only_filled_in() -> None:
+    """The mirror and the disk start on a value read from this machine, so a
+    check for `UNSET` alone let an install erase a drive nobody looked at."""
+    at = context()
+    at.erase_confirmed = True
+    ready = replace(
+        config(),
+        system=replace(config().system, root_password_hash="$6$test$x"),
+        portage=replace(config().portage, mirrors=replace(config().portage.mirrors, site="tuna")),
+    )
+    required = [
+        one
+        for group in settings.SETTINGS
+        for one in (group.rows or (group,))
+        if one.required
+    ]
+    # Nothing visited: every required row is named even though each has a value.
+    named = settings.unanswered(ready, at)
+    assert {one.label for one in required} <= set(named)
+    for one in required:
+        assert one.value(ready, at) != settings.UNSET or one.key == "erase"
+
+    at.visited.update(one.key for one in required)
+    assert settings.unanswered(ready, at) == ()

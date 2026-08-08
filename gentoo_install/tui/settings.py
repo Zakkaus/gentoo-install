@@ -55,11 +55,23 @@ class Setting:
     unavailable: Callable[[InstallConfig, Context], str] = lambda config, context: ""
 
 
+def settled(setting: Setting, config: InstallConfig, context: Context) -> bool:
+    """Whether a required row counts as answered.
+
+    Opened, not merely non-empty: the mirror and the disk both start on a value
+    read from this machine, and an install that erases a drive nobody looked at
+    is the failure the requirement exists to prevent.
+    """
+    if setting.value(config, context) == UNSET:
+        return False
+    return setting.key in context.visited or not setting.required
+
+
 def style_of(setting: Setting, config: InstallConfig, context: Context) -> Style:
     """Red for a required row with no answer, yellow for an optional row the
     operator has not opened. Colour repeats what the value already says: a
     console without it loses nothing."""
-    if setting.required and setting.value(config, context) == UNSET:
+    if setting.required and not settled(setting, config, context):
         return Style.REQUIRED
     if not setting.required and setting.edit is not None and setting.key not in context.visited:
         return Style.UNTOUCHED
@@ -503,5 +515,5 @@ def unanswered(config: InstallConfig, context: Context) -> tuple[str, ...]:
     return tuple(
         setting.label
         for setting in walked
-        if setting.required and setting.value(config, context) == UNSET
+        if setting.required and not settled(setting, config, context)
     )
