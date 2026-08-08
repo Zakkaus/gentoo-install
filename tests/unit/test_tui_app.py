@@ -4,7 +4,7 @@ from dataclasses import replace
 
 from gentoo_install.data import load_catalog
 from gentoo_install.i18n import Catalog
-from gentoo_install.model.config import Bootloader, InitSystem, MirrorRegion
+from gentoo_install.model.config import Bootloader, InitSystem, Keywords, MirrorRegion
 from gentoo_install.model.validate import validate
 from gentoo_install.tui import screens, settings
 from gentoo_install.tui.app import run
@@ -375,3 +375,11 @@ def test_the_kernel_row_names_the_package() -> None:
     assert "sys-kernel/gentoo-cjk-kernel" in screen.last
     assert "sys-kernel/gentoo-kernel-bin" in screen.last
     assert settings.SETTINGS[row("Kernel")].value(config(), at).startswith("sys-kernel/")
+
+
+def test_keywords_are_a_row_of_their_own() -> None:
+    """Whether the installed system tracks ~amd64 is a decision, not a detail
+    of another one."""
+    at = context()
+    answer = screens.keywords_screen(FakeScreen(keys=["KEY_DOWN", "\n"]), config(), at)
+    assert answer.unwrap().portage.keywords is Keywords.TESTING

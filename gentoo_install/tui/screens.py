@@ -23,6 +23,7 @@ from ..model.config import (
     InitSystem,
     InstallConfig,
     KernelSource,
+    Keywords,
     MirrorRegion,
     Networking,
     Overlay,
@@ -387,6 +388,40 @@ KERNELS: tuple[tuple[KernelSource, str], ...] = (
     (KernelSource.DIST_SOURCE, "built here, hours"),
     (KernelSource.CJK, "cjktty for CJK on the console, from gentoo-zh"),
 )
+
+
+def keywords_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """`ACCEPT_KEYWORDS` for the installed system.
+
+    Written after everything is installed either way: opening `~amd64` before
+    that drags the whole install into an unmask chain.
+    """
+    translate = context.translate
+    menu: Menu[Keywords] = Menu(
+        title=translate("Package keywords"),
+        items=[
+            Item(
+                label=Keywords.STABLE.value,
+                value=Keywords.STABLE,
+                detail=translate("amd64, what a package is marked with when it is tested"),
+            ),
+            Item(
+                label=Keywords.TESTING.value,
+                value=Keywords.TESTING,
+                detail=translate("~amd64 for everything, newer and less tested"),
+            ),
+        ],
+        footer=_footer(translate),
+    )
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    return Answer(
+        Outcome.CHOSE,
+        replace(config, portage=replace(config.portage, keywords=answer.unwrap()[0])),
+    )
 
 
 def kernel_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:

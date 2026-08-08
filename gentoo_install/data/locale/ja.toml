@@ -143,3 +143,6 @@
 "prebuilt, minutes" = "ビルド済み、数分"
 "built here, hours" = "ここでビルド、数時間"
 "cjktty for CJK on the console, from gentoo-zh" = "cjktty 入り、コンソールで CJK 表示、gentoo-zh から"
+"Package keywords" = "パッケージのキーワード"
+"amd64, what a package is marked with when it is tested" = "amd64、テスト済みのパッケージに付く印"
+"~amd64 for everything, newer and less tested" = "すべて ~amd64、新しいがテストは少ない"

@@ -143,3 +143,6 @@
 "prebuilt, minutes" = "預先建置，數分鐘"
 "built here, hours" = "本機建置，數小時"
 "cjktty for CJK on the console, from gentoo-zh" = "帶 cjktty，主控台可顯示中文，來自 gentoo-zh"
+"Package keywords" = "套件關鍵字"
+"amd64, what a package is marked with when it is tested" = "amd64，套件測試過才會標上"
+"~amd64 for everything, newer and less tested" = "全部走 ~amd64，較新但測試較少"

@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Final
 
-from ..model.config import Bootloader, InstallConfig, KernelSource
+from ..model.config import Bootloader, InstallConfig, KernelSource, Keywords
 from ..plan.kernel import KERNEL_PACKAGES
 from ..model.device import Existing, Luks, MdRaid, PartitionTable, VolumeGroup, ZfsPool
 from . import screens
@@ -64,6 +64,10 @@ def _binhost(config: InstallConfig, context: Context) -> str:
 
 def _kernel(config: InstallConfig, context: Context) -> str:
     return config.kernel.package or KERNEL_PACKAGES[config.kernel.source]
+
+
+def _keywords(config: InstallConfig, context: Context) -> str:
+    return "~amd64" if config.portage.keywords is Keywords.TESTING else "amd64"
 
 
 def _bootloader(config: InstallConfig, context: Context) -> str:
@@ -209,6 +213,7 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("bootloader", "Bootloader", _bootloader, screens.bootloader_screen),
     Setting("binhost", "Binary packages", _binhost, screens.binhost_screen),
     Setting("sync", "Repository sync", lambda c, x: c.portage.sync.value, screens.sync_screen),
+    Setting("keywords", "Package keywords", _keywords, screens.keywords_screen),
     Setting("desktop", "Desktop", lambda c, x: c.packages.desktop or "none", screens.desktop_screen),
     Setting("packages", "Applications", _applications, screens.packages_screen),
     Setting("extra", "Extra packages", _extra, screens.extra_packages_screen),
