@@ -14,6 +14,7 @@ from gentoo_install.model.config import (
     SystemConfig,
     User,
 )
+from gentoo_install.model.size import Size
 from gentoo_install.model.device import Filesystem, FilesystemType, Luks, Mountpoint, Node
 from gentoo_install.plan import system
 
@@ -203,6 +204,34 @@ def test_openrc_gets_netifrc_which_a_stage3_does_not_carry() -> None:
         operation.describe() for operation in system.build(installation) if "emerge" in operation.describe()
     )
     assert "net-misc/netifrc" in merged
+
+
+def test_zram_is_configured_for_the_init_that_will_read_it() -> None:
+    """systemd has a generator that reads one file; openrc has an init script
+    that reads conf.d and has to be added to a runlevel."""
+    wanted = replace(config(), system=replace(config().system, zram=Size.parse("4GiB")))
+    recorder = Recorder()
+    for operation in system.build(wanted):
+        if isinstance(operation, system.ConfigureZram):
+            operation.apply(recorder)
+    assert "zram-size = 4096" in recorder.files[PurePosixPath("/etc/systemd/zram-generator.conf")]
+
+    openrc = replace(
+        wanted, system=replace(wanted.system, init=InitSystem.OPENRC, zram=Size.parse("2GiB"))
+    )
+    plain = Recorder()
+    enabled: list[str] = []
+    for operation in system.build(openrc):
+        if isinstance(operation, system.ConfigureZram):
+            operation.apply(plain)
+        if isinstance(operation, system.EnableService) and operation.service == "zram-init":
+            enabled.append(operation.runlevel)
+    assert "size0=2048" in plain.files[PurePosixPath("/etc/conf.d/zram-init")]
+    assert enabled == ["boot"]
+
+    assert not any(
+        isinstance(operation, system.ConfigureZram) for operation in system.build(config())
+    )
 
 
 def test_the_hardware_clock_is_written_where_each_init_reads_it() -> None:

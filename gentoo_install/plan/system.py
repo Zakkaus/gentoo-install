@@ -15,6 +15,7 @@ from typing import Final
 from ..errors import LocaleMissing
 from ..model import compat
 from ..model.config import ConsoleFontSize, InitSystem, InstallConfig, User
+from ..model.size import Size
 from ..model.device import (
     DeviceId,
     Filesystem,
@@ -321,6 +322,40 @@ class EnableSerialGetty(Operation):
         )
 
 
+#: What provides zram on each init. systemd has a generator that reads one
+#: config file; openrc has an init script that reads conf.d.
+ZRAM_PACKAGE: Final[dict[InitSystem, str]] = {
+    InitSystem.SYSTEMD: "sys-apps/zram-generator",
+    InitSystem.OPENRC: "sys-block/zram-init",
+}
+
+
+@dataclass(frozen=True, kw_only=True)
+class ConfigureZram(Operation):
+    stage: Stage = Stage.SYSTEM
+    size: Size
+    init: InitSystem
+
+    def describe(self) -> str:
+        return f"configure {self.size} of compressed swap in memory"
+
+    def apply(self, context: Context) -> None:
+        if self.init is InitSystem.SYSTEMD:
+            context.write(
+                PurePosixPath("/etc/systemd/zram-generator.conf"),
+                f"[zram0]\nzram-size = {self.size.bytes // 1024 ** 2}\n"
+                "compression-algorithm = zstd\n",
+            )
+            return
+        context.write(
+            PurePosixPath("/etc/conf.d/zram-init"),
+            "load_on_start=yes\nunload_on_stop=yes\nnum_devices=1\n"
+            "type0=swap\n"
+            f"size0={self.size.bytes // 1024 ** 2}\n"
+            "algo0=zstd\nlabl0=zram-swap\n",
+        )
+
+
 @dataclass(frozen=True, kw_only=True)
 class SetHardwareClock(Operation):
     """What the RTC is taken to hold. Wrong here and the clock is off by the
@@ -378,6 +413,20 @@ def build(config: InstallConfig) -> list[Operation]:
         WriteFstab(entries=fstab_entries(config)),
         SetHardwareClock(utc=system.hardware_clock_utc, init=system.init),
     ]
+    if system.zram is not None:
+        operations += [
+            Emerge(
+                stage=Stage.SYSTEM,
+                packages=(ZRAM_PACKAGE[system.init],),
+                summary="install the compressed swap device",
+            ),
+            ConfigureZram(size=system.zram, init=system.init),
+        ]
+        if system.init is InitSystem.OPENRC:
+            # systemd needs no unit here: the generator makes one from the file.
+            operations.append(
+                EnableService(service="zram-init", init=system.init, runlevel="boot")
+            )
     crypttab = crypttab_entries(config)
     if crypttab:
         operations.append(WriteCrypttab(entries=crypttab))

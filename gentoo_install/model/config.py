@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
+from .size import Size
 from .device import DeviceGraph, DeviceId
 
 #: `parse.py` refuses a newer file and migrates an older one.
@@ -85,6 +86,9 @@ class SystemConfig:
     console_cjk: bool = False
     console_font: ConsoleFontSize = ConsoleFontSize.SIZE_8X16
     init: InitSystem = InitSystem.SYSTEMD
+    #: Compressed swap in memory. None leaves it off; a size is what the device
+    #: is given, which is a ceiling and not an allocation.
+    zram: Size | None = None
     #: What the RTC holds. Dual-booting Windows is the reason to say false.
     hardware_clock_utc: bool = True
     users: tuple[User, ...] = ()
