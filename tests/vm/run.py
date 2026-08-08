@@ -30,7 +30,7 @@ from gentoo_install.model.device import (
 )
 from gentoo_install.model.parse import load
 
-from .console import SerialConsole
+from .console import PASSWORD_PROMPT, SerialConsole
 from .driver import REPOSITORY, build as build_driver
 from .media import MEDIA, Medium
 from .qemu import Firmware, Vm, VmSpec
@@ -198,7 +198,7 @@ def unlock_and_login(console: SerialConsole, installation: InstallConfig) -> Non
         seen = console.expect(rf"{PASSPHRASE_PROMPT}|login:", timeout=300.0)
         if b"login:" in seen:
             console.send("root")
-            console.expect(r"[Pp]assword:", timeout=60.0)
+            console.expect(PASSWORD_PROMPT, timeout=60.0)
             console.send(INSTALLED_PASSWORD)
             console.expect(r"# ", timeout=60.0)
             return

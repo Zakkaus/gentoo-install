@@ -30,6 +30,11 @@ def strip_ansi(data: bytes) -> bytes:
     return _ANSI.sub(b"", data)
 
 
+#: A system installed with a Chinese locale asks in Chinese, so the pattern
+#: carries the localized forms. This is the one CJK literal the tests allow.
+PASSWORD_PROMPT = r"[Pp]assword:|密码：|密碼："
+
+
 class SerialConsole:
     """Reads and writes a QEMU unix-socket serial port, with expect semantics."""
 
@@ -88,8 +93,7 @@ class SerialConsole:
         self.expect(r"login:", timeout=300.0)
         self.send(user)
         if password is not None:
-            # The prompt is localized on media that default to a Chinese locale.
-            self.expect(r"[Pp]assword:|密码：|密碼：", timeout=60.0)
+            self.expect(PASSWORD_PROMPT, timeout=60.0)
             self.send(password)
         self.expect(prompt, timeout=60.0)
 
