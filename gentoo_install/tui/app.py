@@ -41,7 +41,9 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
                 label=context.translate(setting.label),
                 value=index,
                 detail=setting.value(current, context),
-                disabled_because="" if setting.edit else "detected from this machine",
+                disabled_because=""
+                if setting.edit
+                else context.translate("detected from this machine"),
                 style=style_of(setting, current, context),
             )
             for index, setting in enumerate(SETTINGS)

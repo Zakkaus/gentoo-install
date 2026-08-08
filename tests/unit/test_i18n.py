@@ -155,3 +155,40 @@ def test_the_catalogs_hold_every_string_the_interface_shows() -> None:
     keys = set(shipped("zh-TW"))
     assert not shown - keys, sorted(shown - keys)
     assert not keys - shown, sorted(keys - shown)
+
+
+def _shown(value: object) -> list[str]:
+    """The strings an expression can end up drawing.
+
+    Only the result branches: `subarch.endswith("v3")` decides which branch is
+    taken and never reaches the screen, so a walk of the whole expression
+    reports the condition as untranslated text.
+    """
+    import ast
+
+    if isinstance(value, ast.Constant):
+        return [str(value.value)] if value.value else []
+    if isinstance(value, ast.IfExp):
+        return _shown(value.body) + _shown(value.orelse)
+    if isinstance(value, ast.BoolOp):
+        return [name for one in value.values for name in _shown(one)]
+    # A call, an attribute or a name: `translate(...)`, a rule's own `reason`,
+    # or a variable, none of which is a literal in the source.
+    return []
+
+
+def test_no_row_is_greyed_out_with_a_string_the_catalog_never_saw() -> None:
+    """`disabled_because` is drawn beside the label, so an English literal
+    there put one English line in the middle of a translated menu. It is
+    either empty, a catalog lookup, or a rule's own reason from `compat.py`."""
+    import ast
+
+    from gentoo_install import tui
+
+    for module in Path(tui.__file__).parent.rglob("*.py"):
+        tree = ast.parse(module.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.keyword) or node.arg != "disabled_because":
+                continue
+            literal = _shown(node.value)
+            assert not literal, f"{module.name}: disabled_because={literal} is not translated"

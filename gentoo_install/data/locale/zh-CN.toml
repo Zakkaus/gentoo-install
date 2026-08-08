@@ -29,6 +29,7 @@
 "Layout" = "磁盘布局"
 "Keyboard layout" = "键盘布局"
 "Console font" = "主控台字型"
+"detected from this machine" = "由这台机器检测"
 "Partition table" = "分区表"
 "Firmware" = "固件"
 "Network configuration" = "网络配置"
