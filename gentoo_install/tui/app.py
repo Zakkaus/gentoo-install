@@ -66,13 +66,7 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
         answer = menu.run(screen)
         cursor = menu.cursor
         if not answer.chosen:
-            # Asked rather than obeyed: one stray escape should not throw away
-            # every answer the operator has entered.
-            leaving = Confirm(
-                title=context.translate("Leave without installing?"),
-                footer=context.translate("Cancel"),
-            ).run(screen)
-            if leaving.chosen and leaving.unwrap():
+            if _leaving(screen, context):
                 return Finished(None)
             continue
         chosen = answer.unwrap()[0]
@@ -82,10 +76,20 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
         if editor is None:
             continue
         edited = editor(screen, current, context)
-        if edited.outcome is Outcome.CANCELLED:
+        if edited.outcome is Outcome.CANCELLED and _leaving(screen, context):
             return Finished(None)
         if edited.chosen:
             current = edited.unwrap()
+
+
+def _leaving(screen: Screen, context: Context) -> bool:
+    """Asked rather than obeyed, and asked wherever the escape came from: one
+    stray key should not throw away every answer the operator has entered."""
+    leaving = Confirm(
+        title=context.translate("Leave without installing?"),
+        footer=context.translate("Cancel"),
+    ).run(screen)
+    return leaving.chosen and leaving.unwrap()
 
 
 def _blocked(config: InstallConfig, context: Context) -> str:
