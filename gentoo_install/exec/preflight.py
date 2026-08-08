@@ -87,6 +87,10 @@ def required_commands(config: InstallConfig) -> frozenset[str]:
     if graph.of_type(ZfsPool):
         wanted |= set(BY_FEATURE["zfs"])
     for filesystem in graph.of_type(Filesystem):
+        if not filesystem.create:
+            # A reused filesystem is mounted and never made, so `mkfs` for it
+            # is not needed; `blkid` is, and ALWAYS already has it.
+            continue
         # Taken from the table the operations themselves use, so a filesystem
         # added there can never be missing here.
         wanted.add(MKFS[filesystem.kind][0])

@@ -345,12 +345,13 @@ def _dataset(raw: Mapping[str, Any], at: str) -> Node:
 
 
 def _filesystem(raw: Mapping[str, Any], at: str) -> Node:
-    _reject_unknown(raw, at, {"kind", "id", "device", "type", "label"})
+    _reject_unknown(raw, at, {"kind", "id", "device", "type", "label", "create"})
     return Filesystem(
         id=_id(raw, at),
         device=_ref(raw, "device", at),
         kind=_enum(raw, "type", at, FilesystemType, required=True),
         label=_str(raw, "label", at, ""),
+        create=_bool(raw, "create", at, True),
     )
 
 

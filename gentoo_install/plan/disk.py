@@ -344,6 +344,32 @@ class MakeFilesystem(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
+class VerifyFilesystem(Operation):
+    """The type already on the device, checked against what was declared.
+
+    `blkid --probe` rather than the cache: the cache holds whatever was there
+    before this run, which for a reused partition is the answer we want to
+    avoid trusting.
+    """
+
+    stage: Stage = Stage.FORMAT
+    filesystem: DeviceId
+    device: DeviceId
+    kind: FilesystemType
+
+    def describe(self) -> str:
+        return f"check {self.device} already holds a {self.kind.value} filesystem"
+
+    def apply(self, context: Context) -> None:
+        found = context.filesystem_type(self.device)
+        if found != self.kind.value:
+            raise InvalidLayout(
+                f"{self.device} holds {found or 'no filesystem'}, and the configuration "
+                f"reuses it as {self.kind.value}"
+            )
+
+
+@dataclass(frozen=True, kw_only=True)
 class CreateSubvolume(Operation):
     """btrfs subvolumes live inside the filesystem, so the top level has to be
     mounted to create one and unmounted again before the layout is mounted."""
@@ -614,6 +640,11 @@ def _operations_for(graph: DeviceGraph, node: Node) -> list[Operation]:
             CreateLogicalVolume(volume=node.id, group=group.name, name=node.name, size=node.size)
         ]
     if isinstance(node, Filesystem):
+        if not node.create:
+            # Verified rather than made: mounting an xfs partition that the
+            # configuration calls ext4 writes the wrong type into fstab, and
+            # the machine then fails to mount it on the next boot.
+            return [VerifyFilesystem(filesystem=node.id, device=node.device, kind=node.kind)]
         return [
             MakeFilesystem(
                 filesystem=node.id, device=node.device, kind=node.kind, label=node.label

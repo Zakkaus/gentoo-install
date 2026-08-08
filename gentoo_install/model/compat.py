@@ -24,6 +24,8 @@ from .device import (
     T,
     DeviceGraph,
     DeviceId,
+    Filesystem,
+    FilesystemType,
     Luks,
     MdRaid,
     Mountpoint,
@@ -214,9 +216,18 @@ def _holds(graph: DeviceGraph, device: DeviceId, kinds: tuple[type[Node], ...]) 
 
 
 def _on_esp(graph: DeviceGraph, device: DeviceId) -> bool:
-    return any(
+    """Whether the mount sits on an esp.
+
+    A partition this install creates says so with its role. A reused one has no
+    `Partition` node to ask, so the evidence is the filesystem: firmware reads
+    vfat and nothing else, and the flag is already set on the disk.
+    """
+    if any(
         partition.role is PartitionRole.ESP for partition in _nodes_under(graph, device, Partition)
-    )
+    ):
+        return True
+    kept = [one for one in _nodes_under(graph, device, Filesystem) if not one.create]
+    return any(one.kind is FilesystemType.VFAT for one in kept)
 
 
 def esp_mount(graph: DeviceGraph) -> Mountpoint | None:

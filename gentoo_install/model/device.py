@@ -201,6 +201,9 @@ class Filesystem(Node):
     device: DeviceId
     kind: FilesystemType
     label: str = ""
+    #: False for one that is already there: nothing is formatted, the type is
+    #: verified against the disk instead, and its data survives the install.
+    create: bool = True
 
     @property
     def inputs(self) -> tuple[DeviceId, ...]:

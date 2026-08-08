@@ -13,6 +13,7 @@ from enum import Enum
 from pathlib import PurePosixPath
 from typing import Final
 
+from ..errors import InvalidLayout
 from .config import Firmware
 from .device import (
     DeviceGraph,
@@ -47,6 +48,9 @@ class Layout(Enum):
     WHOLE_DISK = "whole-disk"
     WHOLE_DISK_BTRFS = "whole-disk-btrfs"
     WHOLE_DISK_ZFS = "whole-disk-zfs"
+    #: Not a template: it creates nothing. `templates.build` refuses it, and
+    #: `manual.build_reused` is what turns the operator's table into a graph.
+    REUSE = "reuse"
 
 
 @dataclass(frozen=True)
@@ -68,6 +72,13 @@ class Choice:
 
 def build(choice: Choice) -> tuple[DeviceGraph, DeviceId]:
     """The graph and the id of the mount point that is `/`."""
+    if choice.layout is Layout.REUSE:
+        # Refused rather than approximated: reuse names partitions that already
+        # exist, and a template has none of them to name.
+        raise InvalidLayout(
+            "the reuse layout describes existing partitions, so it is built from the "
+            "operator's table and not from a template"
+        )
     # MBR for BIOS rather than GPT: GPT would need a bios-boot partition for
     # GRUB's stage 1.5, and MBR needs nothing but the gap after the table.
     nodes: list[Node] = [

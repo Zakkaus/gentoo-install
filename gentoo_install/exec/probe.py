@@ -116,6 +116,20 @@ class Probe:
             raise DeviceNotFound(f"{device} has no path yet; nothing has created it")
         return path
 
+    def filesystem_type_of(self, path: str) -> str:
+        """What is on the device now, as `blkid` names it. Empty for nothing.
+
+        `--probe` for the same reason `uuid_of` uses it: the cache answers with
+        whatever was there before this run.
+        """
+        self.runner.run(["udevadm", "settle"], check=False)
+        result = self.runner.run(
+            ["blkid", "--probe", "--match-tag", "TYPE", "--output", "value", path], check=False
+        )
+        # The runner merges stderr into stdout, so a failure has to be read from
+        # the exit code: `not a block device` on stdout would read as a type.
+        return result.stdout.strip() if result.returncode == 0 else ""
+
     def uuid_of(self, path: str, device: DeviceId) -> str:
         """Read a formatted device's UUID.
 

@@ -99,6 +99,26 @@ def purpose_of(entry: Slice) -> Purpose:
 
 
 @dataclass(frozen=True)
+class Reused:
+    """A partition that already exists and is kept.
+
+    `selector` is the path `exec/probe.py` listed. `format` chooses between
+    reusing what is on it and making a new filesystem in place; either way no
+    partition table is written, so every other partition on the disk survives.
+    """
+
+    selector: str
+    mountpoint: str = ""
+    filesystem: FilesystemType | None = None
+    format: bool = False
+
+    def describe(self) -> str:
+        kind = self.filesystem.value if self.filesystem is not None else "unknown"
+        what = "format" if self.format else "keep"
+        return f"{self.selector}  {kind}  {self.mountpoint or '-'}  {what}"
+
+
+@dataclass(frozen=True)
 class Slice:
     """One row of the partition table the operator is editing."""
 
@@ -129,6 +149,9 @@ class Layout:
     disk: str = ""
     table: TableType = TableType.GPT
     slices: list[Slice] = field(default_factory=list)
+    #: Partitions kept rather than created. Non-empty means no partition table
+    #: is written at all, which is what makes the rest of the disk survive.
+    reused: list[Reused] = field(default_factory=list)
     #: The pool every slice marked as a pool member joins.
     pool: str = "rpool"
 
@@ -183,8 +206,42 @@ def dataset_for(mountpoint: str) -> str:
     return ROOT_DATASET if mountpoint == "/" else mountpoint.strip("/").replace("//", "/")
 
 
+def build_reused(layout: Layout) -> tuple[DeviceGraph, DeviceId]:
+    """A graph that partitions nothing.
+
+    Each kept partition becomes an `Existing` node with `wipe` off, so the plan
+    emits no `sgdisk` and no `wipefs`, and `Filesystem.create` decides whether
+    it is formatted.
+    """
+    nodes: list[Node] = []
+    root = DeviceId("")
+    for index, entry in enumerate(layout.reused, start=1):
+        device = DeviceId(f"kept{index}")
+        nodes.append(Existing(id=device, selector=entry.selector, wipe=False))
+        if entry.filesystem is None or not entry.mountpoint:
+            continue
+        filesystem = DeviceId(f"keptfs{index}")
+        mount = DeviceId(f"keptmnt{index}")
+        nodes += [
+            Filesystem(
+                id=filesystem, device=device, kind=entry.filesystem, create=entry.format
+            ),
+            Mountpoint(
+                id=mount,
+                source=filesystem,
+                path=PurePosixPath(entry.mountpoint),
+                options=("umask=0077",) if entry.filesystem is ESP_FILESYSTEM else (),
+            ),
+        ]
+        if entry.mountpoint == "/":
+            root = mount
+    return DeviceGraph.build(nodes), root
+
+
 def build(layout: Layout) -> tuple[DeviceGraph, DeviceId]:
     """The graph and the id of the mount point that is `/`."""
+    if layout.reused:
+        return build_reused(layout)
     nodes: list[Node] = [
         Existing(id=DeviceId("disk"), selector=layout.disk, wipe=True),
         PartitionTable(id=DeviceId("table"), disk=DeviceId("disk"), table=layout.table),

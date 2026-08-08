@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
 from gentoo_install.data import load_catalog
 from gentoo_install.i18n import Catalog
 from gentoo_install.model.config import (
@@ -11,6 +13,7 @@ from gentoo_install.model.config import (
     MirrorConfig,
     MirrorRegion,
 )
+from gentoo_install.model.device import FilesystemType
 from gentoo_install.model.validate import validate
 from gentoo_install.tui import screens, settings
 from gentoo_install.tui.app import run
@@ -593,3 +596,42 @@ def test_choosing_dhcp_clears_every_static_field() -> None:
     answer = screens.address_screen(FakeScreen(keys=["KEY_DOWN", "\n"]), filled, at)
     system = answer.unwrap().system
     assert system.addresses == () and system.gateways == () and system.dns == ()
+
+
+def test_the_reuse_row_lists_what_is_on_the_disk_and_keeps_it_by_default() -> None:
+    """Every partition the operator leaves alone keeps its data, so `keep` is
+    the default and formatting is a choice per row."""
+    at = context()
+    at.existing = (
+        ("/dev/vda1", "1 GiB", "vfat"),
+        ("/dev/vda2", "40 GiB", "ext4"),
+        ("/dev/vda3", "500 GiB", "ntfs"),
+    )
+    screen = FakeScreen(keys=[*down(3), "\n"], lines=30, columns=110)
+    screens.reuse_screen(screen, config(), at)
+    kept = at.layout.reused
+    assert [one.selector for one in kept] == ["/dev/vda1", "/dev/vda2", "/dev/vda3"]
+    assert not any(one.format for one in kept)
+    # ntfs has no FilesystemType member: it is mounted and never created, so
+    # the row reports the type as unrecognised rather than inventing one.
+    assert kept[2].filesystem is None
+    assert kept[1].filesystem is FilesystemType.EXT4
+
+
+def test_reuse_on_a_disk_with_nothing_on_it_says_so() -> None:
+    at = context()
+    at.existing = ()
+    screen = FakeScreen(keys=["\n"], lines=20)
+    answer = screens.reuse_screen(screen, config(), at)
+    assert answer.outcome is Outcome.BACK
+    assert "no partitions" in "\n".join("\n".join(frame) for frame in screen.frames)
+
+
+def test_the_reuse_layout_is_never_built_from_a_template() -> None:
+    """A template has no existing partitions to name, so approximating one
+    would silently install somewhere the operator did not choose."""
+    from gentoo_install.errors import InvalidLayout
+    from gentoo_install.model import templates
+
+    with pytest.raises(InvalidLayout, match="operator's table"):
+        templates.build(templates.Choice(disk="/dev/vda", layout=templates.Layout.REUSE))

@@ -8,13 +8,23 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
+from gentoo_install.errors import ValidationFailed
 from gentoo_install.model import manual
-from gentoo_install.model.config import Bootloader, BootloaderConfig, DiskConfig, InstallConfig
-from gentoo_install.model.device import DeviceGraph, DeviceId
-from gentoo_install.model.config import Firmware
+from gentoo_install.model.config import (
+    Bootloader,
+    BootloaderConfig,
+    DiskConfig,
+    Firmware,
+    InstallConfig,
+)
 from gentoo_install.model.device import (
+    DeviceGraph,
+    DeviceId,
     Filesystem,
     FilesystemType,
+    Partition,
     Luks,
     Mountpoint,
     PartitionRole,
@@ -259,3 +269,81 @@ def test_opening_the_table_after_choosing_xfs_keeps_xfs() -> None:
     screens.partitions_screen(FakeScreen(keys=["q"]), config(), at)
     root = next(one for one in at.layout.slices if one.mountpoint == "/")
     assert root.filesystem is FilesystemType.XFS
+
+
+def reused(**fields: object) -> manual.Layout:
+    entry = manual.Reused(selector="/dev/vda2", filesystem=FilesystemType.EXT4, mountpoint="/")
+    return manual.Layout(disk="/dev/vda", reused=[replace(entry, **fields)])  # type: ignore[arg-type]
+
+
+def test_reusing_a_partition_creates_no_table_and_no_partition() -> None:
+    """The point of the mode: every partition the operator leaves alone keeps
+    its data, so nothing may be written to the table."""
+    from gentoo_install.model.device import Existing, PartitionTable
+
+    graph, root = manual.build(reused())
+    assert not graph.of_type(PartitionTable)
+    assert not graph.of_type(Partition)
+    kept = graph.of_type(Existing)
+    assert [one.selector for one in kept] == ["/dev/vda2"]
+    assert not kept[0].wipe
+    assert root
+
+
+def test_keeping_a_filesystem_verifies_it_instead_of_making_one() -> None:
+    """Mounting an xfs partition the configuration calls ext4 writes the wrong
+    type into fstab, and the machine fails to mount it on the next boot."""
+    from gentoo_install.plan import disk as plan_disk
+
+    graph, root = manual.build(reused())
+    described = [one.describe() for one in plan_disk.build(config_from(graph, root))]
+    assert any("already holds a ext4" in line for line in described)
+    assert not any(line.startswith("make a") for line in described)
+
+
+def test_formatting_a_kept_partition_makes_the_filesystem_and_nothing_else() -> None:
+    from gentoo_install.plan import disk as plan_disk
+
+    graph, root = manual.build(reused(format=True))
+    described = [one.describe() for one in plan_disk.build(config_from(graph, root))]
+    assert any(line.startswith("make a ext4") for line in described)
+    assert not any("partition" in line and "sgdisk" in line for line in described)
+
+
+def test_a_reused_filesystem_on_a_partition_this_run_creates_is_refused() -> None:
+    """It describes keeping data that the same plan destroys a few operations
+    earlier."""
+    from gentoo_install.model.device import Filesystem as Fs
+
+    layout = manual.suggest("/dev/vda", Firmware.UEFI)
+    graph, root = manual.build(layout)
+    nodes = [
+        replace(node, create=False) if isinstance(node, Fs) and node.id == "fs2" else node
+        for node in graph.nodes.values()
+    ]
+    broken = DeviceGraph.build(nodes)
+    with pytest.raises(ValidationFailed, match="nothing would be left to reuse"):
+        validate(config_from(broken, root))
+
+
+def test_a_reused_filesystem_on_a_wiped_disk_is_refused() -> None:
+    from gentoo_install.model.device import Existing
+
+    graph, root = manual.build(reused())
+    nodes = [
+        replace(node, wipe=True) if isinstance(node, Existing) else node
+        for node in graph.nodes.values()
+    ]
+    with pytest.raises(ValidationFailed, match="marked to be wiped"):
+        validate(config_from(DeviceGraph.build(nodes), root))
+
+
+def test_a_reused_filesystem_needs_no_mkfs_on_the_medium() -> None:
+    """`mkfs.xfs` is absent from the official minimal ISO's smaller variants,
+    and a partition that is only mounted never calls it."""
+    from gentoo_install.exec import preflight
+
+    graph, root = manual.build(reused(filesystem=FilesystemType.XFS))
+    assert "mkfs.xfs" not in preflight.required_commands(config_from(graph, root))
+    made, made_root = manual.build(reused(filesystem=FilesystemType.XFS, format=True))
+    assert "mkfs.xfs" in preflight.required_commands(config_from(made, made_root))

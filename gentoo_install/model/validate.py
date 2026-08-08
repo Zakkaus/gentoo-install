@@ -13,7 +13,7 @@ from typing import Final
 from ..errors import ValidationFailed
 from . import compat
 from .config import InitSystem, InstallConfig
-from .device import Mountpoint
+from .device import Existing, Filesystem, Mountpoint
 from .size import Size
 
 _ROOT = PurePosixPath("/")
@@ -25,12 +25,40 @@ def validate(config: InstallConfig) -> None:
         *_root_size_problems(config),
         *_profile_problems(config),
         *_kernel_package_problems(config),
+        *_reuse_problems(config),
         *(rule.describe() for rule in compat.violations(config)),
     ]
     if problems:
         raise ValidationFailed(
             "the configuration does not describe an installable system:\n  " + "\n  ".join(problems)
         )
+
+
+def _reuse_problems(config: InstallConfig) -> list[str]:
+    """A filesystem the installer does not create has to sit on a device the
+    installer does not create either.
+
+    Reusing one on a partition this run makes, or on a disk this run wipes,
+    describes keeping data that the same plan destroys a few operations earlier.
+    """
+    graph = config.disk.graph
+    problems: list[str] = []
+    for filesystem in graph.of_type(Filesystem):
+        if filesystem.create:
+            continue
+        under = graph[filesystem.device]
+        if not isinstance(under, Existing):
+            problems.append(
+                f"{filesystem.id} reuses the filesystem on {filesystem.device}, which this "
+                f"install creates: nothing would be left to reuse"
+            )
+            continue
+        if under.wipe:
+            problems.append(
+                f"{filesystem.id} reuses the filesystem on {under.id}, which is marked to be "
+                f"wiped"
+            )
+    return problems
 
 
 def _kernel_package_problems(config: InstallConfig) -> list[str]:

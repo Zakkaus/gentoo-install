@@ -97,6 +97,9 @@ class Context(Protocol):
     def device_uuid(self, device: DeviceId) -> str:
         """The UUID of a formatted device, for fstab and crypttab."""
 
+    def filesystem_type(self, device: DeviceId) -> str:
+        """What is on the device now, as `blkid` names it. Empty for nothing."""
+
     def rank_mirrors(self, candidates: tuple[str, ...]) -> tuple[str, ...]:
         """Measure each candidate and return them fastest first. A candidate
         that times out goes last rather than removing itself."""

@@ -174,6 +174,9 @@ class Machine:
     def device_uuid(self, device: DeviceId) -> str:
         return self.probe.uuid_of(self.device_path(device), device)
 
+    def filesystem_type(self, device: DeviceId) -> str:
+        return self.probe.filesystem_type_of(self.device_path(device))
+
     def rank_mirrors(self, candidates: tuple[str, ...]) -> tuple[str, ...]:
         ranked = fetch.rank_mirrors(candidates)
         self.runner.log(f"mirrors, fastest first: {', '.join(ranked)}")

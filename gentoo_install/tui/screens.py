@@ -157,6 +157,11 @@ def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> An
         Item(label="btrfs with @ and @home", value=(Layout.WHOLE_DISK_BTRFS, FilesystemType.BTRFS)),
         Item(label="zfs with ZFSBootMenu", value=(Layout.WHOLE_DISK_ZFS, FilesystemType.EXT4)),
         Item(label="manual: choose the partitions yourself", value=(None, FilesystemType.EXT4)),
+        Item(
+            label="reuse the partitions already on the disk",
+            value=(Layout.REUSE, FilesystemType.EXT4),
+            detail=translate("nothing is partitioned"),
+        ),
     ]
     menu: Menu[tuple[Layout | None, FilesystemType]] = Menu(
         title=translate("Layout"), items=items, footer=footer(translate)
@@ -165,8 +170,12 @@ def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     if not answer.chosen:
         return Answer(answer.outcome)
     layout, filesystem = answer.unwrap()[0]
+    if layout is Layout.REUSE:
+        context.manual = True
+        return reuse_screen(screen, config, context)
     if layout is None:
         context.manual = True
+        context.layout.reused = []
         return partitions_screen(screen, config, context)
     context.manual = False
     context.choice = replace(context.choice, layout=layout, filesystem=filesystem)
@@ -174,6 +183,116 @@ def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     if layout is Layout.WHOLE_DISK_ZFS:
         changed = _zfs_bootloader(screen, changed, context)
     return Answer(Outcome.CHOSE, changed)
+
+
+def reuse_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
+    """The partitions already on the disk, each given a mount point.
+
+    Nothing is partitioned, so every partition the operator leaves alone keeps
+    its data. Formatting one is a choice per row rather than a mode.
+    """
+    translate = context.translate
+    if not context.existing:
+        _say(screen, context, translate("This disk holds no partitions."))
+        return Answer(Outcome.BACK)
+    if [one.selector for one in context.layout.reused] != [
+        name for name, _, _ in context.existing
+    ]:
+        context.layout.reused = [
+            manual.Reused(selector=name, filesystem=_known(kind))
+            for name, _, kind in context.existing
+        ]
+    cursor = 0
+    while True:
+        rows: list[Item[int]] = [
+            Item(label=one.describe(), value=index, detail=size)
+            for index, (one, size) in enumerate(
+                zip(context.layout.reused, [size for _, size, _ in context.existing])
+            )
+        ]
+        rows.append(Item(label=translate("Done"), value=len(context.layout.reused)))
+        menu: Menu[int] = Menu(
+            title=f"{translate('Reuse partitions')}  {_layout_problem(context, config)}".strip(),
+            items=rows,
+            footer=footer(translate),
+            cursor=cursor,
+        )
+        answer = menu.run(screen)
+        cursor = menu.cursor
+        if not answer.chosen:
+            return Answer(answer.outcome)
+        chosen = answer.unwrap()[0]
+        if chosen == len(context.layout.reused):
+            graph, root = manual.build(context.layout)
+            return Answer(Outcome.CHOSE, replace(config, disk=DiskConfig(graph=graph, root=root)))
+        edited = _edit_reused(screen, context, context.layout.reused[chosen])
+        if edited is not None:
+            context.layout.reused[chosen] = edited
+
+
+def _known(kind: str) -> FilesystemType | None:
+    """The type blkid reported, when the model has a member for it. ntfs and
+    exfat are mounted and never created, so they have no member and no row."""
+    return next((one for one in FilesystemType if one.value == kind), None)
+
+
+def _edit_reused(
+    screen: Screen, context: Context, entry: manual.Reused
+) -> manual.Reused | None:
+    translate = context.translate
+    cursor = 0
+    while True:
+        rows: list[Item[str]] = [
+            Item(
+                label=translate("Mount point"),
+                value=_MOUNTPOINT,
+                detail=entry.mountpoint or translate("not mounted"),
+            ),
+            Item(
+                label=translate("Filesystem"),
+                value=_FILESYSTEM,
+                detail=entry.filesystem.value if entry.filesystem else translate("unknown"),
+            ),
+            Item(
+                label=translate("Format it"),
+                value=_FORMAT,
+                detail=translate("yes") if entry.format else translate("no, keep the data"),
+            ),
+            Item(label=translate("Done"), value=_DONE),
+        ]
+        menu: Menu[str] = Menu(
+            title=entry.selector, items=rows, footer=footer(translate), cursor=cursor
+        )
+        answer = menu.run(screen)
+        cursor = menu.cursor
+        if not answer.chosen:
+            return None
+        field = answer.unwrap()[0]
+        if field == _DONE:
+            return entry
+        if field == _MOUNTPOINT:
+            where = TextField(
+                title=translate("Mount point"),
+                value=entry.mountpoint,
+                placeholder=translate("/srv, or empty to leave it unmounted"),
+                footer=footer(translate),
+            ).run(screen)
+            if where.chosen:
+                entry = replace(entry, mountpoint=where.unwrap().strip())
+        elif field == _FILESYSTEM:
+            picked = Menu(
+                title=translate("Filesystem"),
+                items=[Item(label=one.value, value=one) for one in FilesystemType],
+                footer=footer(translate),
+            ).run(screen)
+            if picked.chosen:
+                entry = replace(entry, filesystem=picked.unwrap()[0])
+        else:
+            asked = Confirm(
+                title=translate("Format it, losing what is on it?"), footer=footer(translate)
+            ).run(screen)
+            if asked.chosen:
+                entry = replace(entry, format=asked.unwrap())
 
 
 def _zfs_bootloader(screen: Screen, config: InstallConfig, context: Context) -> InstallConfig:
@@ -1422,6 +1541,7 @@ _SIZE: Final[str] = "size"
 _PURPOSE: Final[str] = "purpose"
 _FILESYSTEM: Final[str] = "filesystem"
 _MOUNTPOINT: Final[str] = "mountpoint"
+_FORMAT: Final[str] = "format"
 _LABEL: Final[str] = "label"
 _ENCRYPTION: Final[str] = "encryption"
 _DELETE: Final[str] = "delete"

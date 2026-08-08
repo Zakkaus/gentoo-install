@@ -82,6 +82,11 @@ class Recorder:
     def device_uuid(self, device: DeviceId) -> str:
         return f"uuid-of-{device}"
 
+    def filesystem_type(self, device: DeviceId) -> str:
+        """What a reused device is said to hold. Set per test through
+        `replies`, keyed by the id, so a mismatch can be exercised."""
+        return self.replies.get(f"type-of-{device}", "")
+
     def rank_mirrors(self, candidates: tuple[str, ...]) -> tuple[str, ...]:
         self.commands.append(("rank-mirrors", *candidates))
         return tuple(reversed(candidates))
