@@ -317,6 +317,10 @@ class Form:
         # The last row submits, so it is a row like the others and reachable
         # the same way.
         cursor = 0
+        # `TextField`'s rule: backspace deletes while the field under the cursor
+        # has content and leaves only from an empty one nobody has edited. The
+        # footer offers Back and the form had no way at all to take it.
+        touched = False
         while True:
             self._draw(screen, typed, cursor)
             pressed = screen.key()
@@ -331,10 +335,14 @@ class Form:
             elif pressed in ("\x7f", "KEY_BACKSPACE"):
                 if cursor < len(self.fields) and typed[cursor]:
                     typed[cursor].pop()
+                    touched = True
+                elif not touched:
+                    return Answer(Outcome.BACK)
             elif pressed in CANCEL:
                 return Answer(Outcome.CANCELLED)
             elif len(pressed) == 1 and pressed.isprintable() and cursor < len(self.fields):
                 typed[cursor].append(pressed)
+                touched = True
 
     def _draw(self, screen: Screen, typed: list[list[str]], cursor: int) -> None:
         lines, columns = screen.size()

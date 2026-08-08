@@ -215,3 +215,21 @@ def test_backspace_still_goes_back_from_a_field_nobody_touched() -> None:
     assert field.run(FakeScreen(keys=["\x7f"] * 4 + ["\x7f", "\n"])).unwrap() == ""
     empty = TextField(title="Mount point")
     assert empty.run(FakeScreen(keys=["\x7f"])).outcome is Outcome.BACK
+
+
+def test_a_form_takes_the_back_its_footer_offers() -> None:
+    """Every caller draws `[backspace] Back` and the form had no BACK branch,
+    so the only way out of it was to answer."""
+    from gentoo_install.tui.widgets import Field, Form
+
+    empty = Form(title="Address", fields=[Field(label="Port"), Field(label="Address")])
+    assert empty.run(FakeScreen(keys=["KEY_BACKSPACE"])).outcome is Outcome.BACK
+
+    # A field with content deletes instead, the same as a single text field.
+    filled = Form(
+        title="Address",
+        fields=[Field(label="Port", value="222"), Field(label="Address")],
+    )
+    answer = filled.run(FakeScreen(keys=["KEY_BACKSPACE", "KEY_DOWN", "KEY_DOWN", "\n"]))
+    assert answer.outcome is Outcome.CHOSE
+    assert answer.unwrap()[0] == "22"
