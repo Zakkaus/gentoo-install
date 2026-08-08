@@ -23,6 +23,7 @@ from gentoo_install.model.device import (
     Existing,
     Filesystem,
     FilesystemType,
+    Luks,
     Mountpoint,
     Node,
     Partition,
@@ -65,6 +66,22 @@ def zfs_root() -> list[Node]:
         ZfsPool(id=i("pool"), vdevs=(i("poolpart"),), name="zpcala", encrypted=True),
         ZfsDataset(id=i("ds-root"), pool=i("pool"), name="ROOT/gentoo/root"),
         Mountpoint(id=i("mnt-root"), source=i("ds-root"), path=PurePosixPath("/")),
+        Mountpoint(id=i("mnt-esp"), source=i("espfs"), path=PurePosixPath("/efi")),
+    ]
+
+
+def encrypted_root() -> list[Node]:
+    """The same layout with LUKS between the partition and its filesystem, for
+    anything that only makes sense when there is a passphrase prompt."""
+    return [
+        Existing(id=i("disk"), selector="/dev/disk/by-id/virtio-target", wipe=True),
+        PartitionTable(id=i("table"), disk=i("disk"), table=TableType.GPT),
+        Partition(id=i("esp"), table=i("table"), index=1, role=PartitionRole.ESP, size=Size.parse("512MiB")),
+        Partition(id=i("rootpart"), table=i("table"), index=2, role=PartitionRole.DATA, size=None),
+        Filesystem(id=i("espfs"), device=i("esp"), kind=FilesystemType.VFAT, label="ESP"),
+        Luks(id=i("crypt"), backing=i("rootpart"), name="root", passphrase_file="/run/keys/root"),
+        Filesystem(id=i("rootfs"), device=i("crypt"), kind=FilesystemType.EXT4, label="gentoo"),
+        Mountpoint(id=i("mnt-root"), source=i("rootfs"), path=PurePosixPath("/")),
         Mountpoint(id=i("mnt-esp"), source=i("espfs"), path=PurePosixPath("/efi")),
     ]
 

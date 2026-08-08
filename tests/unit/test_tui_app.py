@@ -23,7 +23,7 @@ from gentoo_install.tui.app import run
 from gentoo_install.tui.widgets import Outcome
 
 from .fake_screen import FakeScreen
-from .layouts import config, zfs_root
+from .layouts import config, encrypted_root, zfs_root
 
 DISKS = [("/dev/disk/by-id/virtio-target0", "20 GiB"), ("/dev/disk/by-id/virtio-target1", "40 GiB")]
 
@@ -1207,8 +1207,10 @@ def test_a_bad_port_keeps_the_address_that_was_typed_beside_it() -> None:
     retyped the address as well."""
     at = context()
     at.erase_confirmed = True
+    # An encrypted root as well as a key: with neither there is no passphrase
+    # prompt to reach, and the screen says so instead of asking.
     with_key = replace(
-        config(), system=replace(config().system, authorized_keys=(GOOD_KEY,))
+        config(encrypted_root()), system=replace(config().system, authorized_keys=(GOOD_KEY,))
     )
     # Yes to unlocking, then `abc` appended to the port and an address typed.
     # After the message the form comes back holding both, so deleting the three
@@ -1525,3 +1527,31 @@ def test_one_unrelated_problem_does_not_grey_out_the_whole_bootloader_screen() -
     # to none of them; the ZFS rule belongs to GRUB alone and still shows.
     assert "authorized_keys" not in drawn
     assert "zfsbootmenu" in drawn
+
+
+def test_remote_unlock_is_refused_without_a_key_and_without_encryption() -> None:
+    """Its own docstring said so and the body never looked; both rules only
+    surfaced at the Install row, six screens away from the answer."""
+    at = context()
+    for wanted, expected in (
+        (config(encrypted_root()), "authorized_keys"),
+        (
+            replace(config(), system=replace(config().system, authorized_keys=(GOOD_KEY,))),
+            "not encrypted",
+        ),
+    ):
+        screen = FakeScreen(keys=["\n"], lines=24, columns=110)
+        answer = screens.remote_unlock_screen(screen, wanted, at)
+        assert answer.outcome is Outcome.BACK
+        assert expected in "\n".join(screen.frames[0])
+
+
+def test_remote_unlock_is_offered_once_both_hold() -> None:
+    at = context()
+    both = replace(
+        config(encrypted_root()),
+        system=replace(config().system, authorized_keys=(GOOD_KEY,)),
+    )
+    screen = FakeScreen(keys=["q"], lines=24, columns=110)
+    screens.remote_unlock_screen(screen, both, at)
+    assert "Unlock the root over SSH" in "\n".join(screen.frames[0])

@@ -2962,6 +2962,16 @@ def remote_unlock_screen(
     """
     translate = context.translate
     unlock = config.kernel.remote_unlock
+    # Refused here rather than at the Install row: both rules live in
+    # `compat.py`, and this is the screen the answer is given on. Asked of a
+    # candidate with it enabled, because the rules fire on that trait.
+    candidate = replace(
+        config, kernel=replace(config.kernel, remote_unlock=replace(unlock, enabled=True))
+    )
+    blocking = compat.violations(candidate)
+    if blocking and not unlock.enabled:
+        _say(screen, context, blocking[0].reason)
+        return Answer(Outcome.BACK)
     asked = Confirm(
         **answers(translate),
         title=translate("Unlock the root over SSH from the initramfs?"),
