@@ -124,6 +124,14 @@ class Machine:
         self.keys[device] = staged
         return staged
 
+    def array_uuid(self, device: DeviceId) -> str:
+        exported = self.runner.run(["mdadm", "--detail", "--export", self.device_path(device)])
+        for line in exported.stdout.splitlines():
+            name, _, value = line.partition("=")
+            if name.strip() == "MD_UUID" and value.strip():
+                return value.strip()
+        raise InvalidLayout(f"mdadm reports no MD_UUID for {device}")
+
     def degrade(self, what: str, reason: str) -> None:
         self.given_up.add(what)
         self.runner.log(f"WARNING: {what} is unavailable, so {reason}")

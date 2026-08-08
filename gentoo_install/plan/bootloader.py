@@ -14,7 +14,15 @@ from typing import Final
 from ..errors import NothingToBoot
 from ..model import compat
 from ..model.config import Bootloader, Firmware, InitSystem, InstallConfig
-from ..model.device import DeviceId, Mountpoint, Partition, PartitionRole, ZfsDataset, ZfsPool
+from ..model.device import (
+    DeviceId,
+    MdRaid,
+    Mountpoint,
+    Partition,
+    PartitionRole,
+    ZfsDataset,
+    ZfsPool,
+)
 from .operations import Context, Operation, Stage
 from .portage import Emerge
 
@@ -84,6 +92,9 @@ class WriteGrubDefaults(Operation):
     #: Gentoo's dracut sets `hostonly_cmdline="no"` and detects the chroot's own
     #: root, so only `rd.luks.uuid` tells the initramfs what to open.
     luks: tuple[DeviceId, ...] = ()
+    #: Arrays the initramfs assembles. /etc/mdadm.conf alone is not enough:
+    #: dracut assembles nothing without `rd.md.uuid` on the command line.
+    arrays: tuple[DeviceId, ...] = ()
 
     def describe(self) -> str:
         extra = []
@@ -95,7 +106,11 @@ class WriteGrubDefaults(Operation):
         return f"write /etc/default/grub with cmdline {' '.join(self.kernel_params) or 'empty'}{listed}"
 
     def apply(self, context: Context) -> None:
-        parameters = (*luks_parameters(context, self.luks), *self.kernel_params)
+        parameters = (
+            *luks_parameters(context, self.luks),
+            *array_parameters(context, self.arrays),
+            *self.kernel_params,
+        )
         lines = [
             f'GRUB_CMDLINE_LINUX_DEFAULT="{" ".join(parameters)}"',
             "GRUB_TIMEOUT=5",
@@ -269,6 +284,7 @@ def build(config: InstallConfig) -> list[Operation]:
                 luks=tuple(
                     node.backing for node in compat.early_containers(config.disk.graph)
                 ),
+                arrays=tuple(node.id for node in config.disk.graph.of_type(MdRaid)),
             ),
             InstallGrub(
                 firmware=config.bootloader.firmware, esp=esp, boot_device=config.disk.root
@@ -308,6 +324,11 @@ def build(config: InstallConfig) -> list[Operation]:
 def luks_parameters(context: Context, devices: tuple[DeviceId, ...]) -> tuple[str, ...]:
     """`rd.luks.uuid` for each container the initramfs has to open."""
     return tuple(f"rd.luks.uuid={context.device_uuid(device)}" for device in devices)
+
+
+def array_parameters(context: Context, devices: tuple[DeviceId, ...]) -> tuple[str, ...]:
+    """`rd.md.uuid` for each array the initramfs has to assemble."""
+    return tuple(f"rd.md.uuid={context.array_uuid(device)}" for device in devices)
 
 
 def _serial_console(config: InstallConfig) -> tuple[str, int] | None:

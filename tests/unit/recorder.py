@@ -64,6 +64,9 @@ class Recorder:
     def partition_index(self, device: DeviceId) -> int:
         return 1
 
+    def array_uuid(self, device: DeviceId) -> str:
+        return self.replies.get("mdadm-uuid", "1111:2222:3333:4444")
+
     def degrade(self, what: str, reason: str) -> None:
         self.given_up.add(what)
 

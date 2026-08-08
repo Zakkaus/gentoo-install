@@ -102,6 +102,10 @@ class Context(Protocol):
         """The passphrase for an encrypted device, for a command that wants it
         on stdin rather than in a file."""
 
+    def array_uuid(self, device: DeviceId) -> str:
+        """The mdadm UUID of an assembled array, which is not the UUID of the
+        filesystem on it and is what `rd.md.uuid` names."""
+
     def degrade(self, what: str, reason: str) -> None:
         """Record that `what` failed and the install continued without it.
 

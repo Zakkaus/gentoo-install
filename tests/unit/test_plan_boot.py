@@ -358,3 +358,19 @@ def test_a_stack_tool_gets_the_use_flag_dracut_needs() -> None:
 
     plain = [operation.describe() for operation in kernel.build(config())]
     assert not any("package.use/storage" in line or "[lvm]" in line for line in plain)
+
+
+def test_the_command_line_names_the_array_the_initramfs_assembles() -> None:
+    """/etc/mdadm.conf alone is not enough: without `rd.md.uuid` dracut brings
+    up no array and boot stops in the emergency shell."""
+    recorder = Recorder()
+    for operation in bootloader.build(load(Path("tests/fixtures/vm-mdraid.toml"))):
+        if isinstance(operation, bootloader.WriteGrubDefaults):
+            operation.apply(recorder)
+    assert "rd.md.uuid=1111:2222:3333:4444" in recorder.files[PurePosixPath("/etc/default/grub")]
+
+    plain = Recorder()
+    for operation in bootloader.build(load(Path("tests/fixtures/ext4-bios.toml"))):
+        if isinstance(operation, bootloader.WriteGrubDefaults):
+            operation.apply(plain)
+    assert "rd.md.uuid" not in plain.files[PurePosixPath("/etc/default/grub")]
