@@ -27,6 +27,7 @@ from gentoo_install.model.device import Node, Partition, PartitionRole
 from gentoo_install.model.parse import load
 from gentoo_install.model.validate import validate
 from gentoo_install.plan import disk as plan_disk
+from gentoo_install.plan.system import EnableService
 from gentoo_install.plan.build import build
 
 #: The overlay every gentoo-zh package needs, and the rule table demands it.
@@ -372,3 +373,28 @@ def test_a_versioned_sources_atom_is_still_refused() -> None:
         with pytest.raises(ValidationFailed, match="source tree"):
             validate(named)
     validate(replace(config(), kernel=KernelConfig(package="=sys-kernel/gentoo-kernel-7.1.7-r1")))
+
+
+def test_a_desktop_on_openrc_gets_the_session_services_systemd_provides() -> None:
+    """elogind's init script says `before xdm`, but openrc only orders services
+    that are in a runlevel: without these a Plasma login has no seat, no
+    polkit and no suspend."""
+    catalog = load_catalog()
+    openrc = replace(
+        config(),
+        packages=PackagesConfig(desktop="plasma", display_manager="sddm"),
+        system=replace(config().system, init=InitSystem.OPENRC),
+    )
+    services = [
+        one.service
+        for one in plan_packages.build(openrc, catalog)
+        if isinstance(one, EnableService)
+    ]
+    assert services == ["dbus", "elogind", "display-manager"]
+
+    systemd = replace(openrc, system=replace(openrc.system, init=InitSystem.SYSTEMD))
+    assert [
+        one.service
+        for one in plan_packages.build(systemd, catalog)
+        if isinstance(one, EnableService)
+    ] == ["sddm"]

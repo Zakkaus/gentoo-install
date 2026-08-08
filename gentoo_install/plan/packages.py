@@ -307,10 +307,19 @@ DISPLAY_MANAGER_INIT: Final[str] = "gui-libs/display-manager-init"
 DISPLAY_MANAGER_CONF: Final[PurePosixPath] = PurePosixPath("/etc/conf.d/display-manager")
 
 
+#: What a desktop needs running on openrc and gets from systemd for free.
+#: elogind's init script says `before xdm`, but openrc only orders services
+#: that are in a runlevel, so declaring it is not the same as enabling it.
+OPENRC_SESSION: Final[tuple[tuple[str, str], ...]] = (("dbus", "default"), ("elogind", "boot"))
+
+
 def _display_manager(name: str, init: InitSystem) -> list[Operation]:
     if init is InitSystem.SYSTEMD:
         return [EnableService(stage=Stage.PACKAGES, service=name, init=init)]
     return [
+        EnableService(stage=Stage.PACKAGES, service=service, init=init, runlevel=runlevel)
+        for service, runlevel in OPENRC_SESSION
+    ] + [
         Emerge(
             stage=Stage.PACKAGES,
             packages=(DISPLAY_MANAGER_INIT,),
