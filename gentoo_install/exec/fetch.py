@@ -14,7 +14,7 @@ import urllib.request
 from pathlib import Path
 from typing import Final
 
-from ..errors import ConfigError, DownloadFailed, IntegrityError
+from ..errors import CommandFailed, ConfigError, DownloadFailed, IntegrityError
 from ..model.device import DeviceId
 from .probe import RELEASE_KEY
 from .runner import Runner
@@ -186,3 +186,20 @@ def _expected_sha512(digests: Path, name: str) -> str:
                 if len(parts) == 2 and Path(parts[1]).name == name:
                     return parts[0].lower()
     raise IntegrityError(f"{digests.name} has no SHA512 line for {name}")
+
+
+def password_hash(password: str, runner: Runner) -> str:
+    """A crypt(3) SHA-512 hash of `password`.
+
+    `openssl passwd -6`, because Python removed the `crypt` module in 3.13 and
+    a hand-rolled implementation of a password format is not worth the risk.
+    The password reaches openssl on stdin, so it is never in a command line
+    that ps or the journal would show.
+    """
+    if not password:
+        return ""
+    result = runner.run(["openssl", "passwd", "-6", "-stdin"], input_text=f"{password}\n")
+    hashed = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
+    if not hashed.startswith("$6$"):
+        raise CommandFailed(f"openssl produced no sha512 hash: {result.stdout[:80]!r}")
+    return hashed
