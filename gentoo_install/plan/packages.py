@@ -372,7 +372,9 @@ def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
         for wanted in group.files:
             operations.append(WriteGroupFile(group=group.name, file=wanted))
         if group.display_manager:
-            operations += _display_manager(group.display_manager, config.system.init)
+            operations += _display_manager(
+                group.display_manager, group.packages, config.system.init
+            )
         for service in group.services:
             # In this stage, not the system one: the unit does not exist until
             # the package that ships it is merged.
@@ -501,10 +503,34 @@ def _session_services(config: InstallConfig) -> list[Operation]:
     ]
 
 
-def _display_manager(name: str, init: InitSystem) -> list[Operation]:
+#: `lightdm` and `gdm` both carry `REQUIRED_USE="^^ ( elogind systemd )"` with
+#: neither flag on by default, so a profile that does not set one refuses the
+#: merge. Which one is the init's answer, and requesting the other is worse
+#: than requesting none: it is use-masked on that profile.
+SEAT_FLAG: Final[dict[InitSystem, str]] = {
+    InitSystem.SYSTEMD: "systemd",
+    InitSystem.OPENRC: "elogind",
+}
+
+
+def _seat_flag(name: str, packages: Sequence[str], init: InitSystem) -> list[Operation]:
+    """The one atom of the group that is the manager itself takes the flag; a
+    greeter that has no such flag would be a package.use line Portage warns
+    about and ignores."""
+    atom = next((one for one in packages if one.rsplit("/", 1)[-1] == name), "")
+    if not atom:
+        return []
+    return [WriteGroupUse(group=name, lines=(f"{atom} {SEAT_FLAG[init]}",))]
+
+
+def _display_manager(name: str, packages: Sequence[str], init: InitSystem) -> list[Operation]:
     if init is InitSystem.SYSTEMD:
-        return [EnableService(stage=Stage.PACKAGES, service=name, init=init)]
+        return [
+            *_seat_flag(name, packages, init),
+            EnableService(stage=Stage.PACKAGES, service=name, init=init),
+        ]
     return [
+        *_seat_flag(name, packages, init),
         Emerge(
             stage=Stage.PACKAGES,
             packages=(DISPLAY_MANAGER_INIT,),

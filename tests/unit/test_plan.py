@@ -693,3 +693,37 @@ def test_a_keymap_the_tables_do_not_know_falls_back_rather_than_inventing() -> N
 
     assert xkb_layout("wobble9") == XKB_DEFAULT
     assert xkb_layout("") == XKB_DEFAULT
+
+
+def test_a_display_manager_asks_for_the_seat_flag_its_init_provides() -> None:
+    """lightdm and gdm carry `^^ ( elogind systemd )` with neither on by
+    default, so a profile that sets neither refuses the merge; requesting the
+    wrong one is worse, because it is use-masked on that profile."""
+    catalog = load_catalog()
+    for init, flag in ((InitSystem.OPENRC, "elogind"), (InitSystem.SYSTEMD, "systemd")):
+        wanted = replace(
+            config(),
+            system=replace(config().system, init=init),
+            packages=PackagesConfig(desktop="xfce", display_manager="lightdm"),
+        )
+        lines = [
+            one.lines
+            for one in plan_packages.build(wanted, catalog)
+            if isinstance(one, plan_packages.WriteGroupUse) and one.group == "lightdm"
+        ]
+        assert lines == [(f"x11-misc/lightdm {flag}",)], init
+
+
+def test_the_greeter_is_not_given_a_flag_it_does_not_have() -> None:
+    """`x11-misc/lightdm-gtk-greeter` has no seat flag, and a package.use line
+    naming one is warned about and ignored."""
+    catalog = load_catalog()
+    wanted = replace(
+        config(), packages=PackagesConfig(desktop="xfce", display_manager="lightdm")
+    )
+    written = "".join(
+        " ".join(one.lines)
+        for one in plan_packages.build(wanted, catalog)
+        if isinstance(one, plan_packages.WriteGroupUse) and one.group == "lightdm"
+    )
+    assert "greeter" not in written
