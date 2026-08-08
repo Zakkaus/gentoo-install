@@ -111,4 +111,37 @@ ALPINE = Medium(
     boot_cmdline=("modules=loop,squashfs,sd-mod,usb-storage",),
 )
 
-MEDIA = {medium.name: medium for medium in (GIGOS, OFFICIAL_MINIMAL, ALPINE)}
+#: Downloaded rather than shipped, so they live under lab/ with the other
+#: build artefacts instead of beside the user's own images.
+ISO_CACHE = CACHE / "iso"
+
+DEBIAN = Medium(
+    name="debian",
+    iso=ISO_CACHE / "debian-live-13.6.0-amd64-standard.iso",
+    volume_label="d-live 13.6.0 st amd64",
+    kernel_in_iso="/live/vmlinuz",
+    initrd_in_iso="/live/initrd.img",
+    # The live session logs in as `user`; the installer needs root.
+    root_prompt=r"root@debian:",
+    login_user="user",
+    login_password="live",
+    boot_cmdline=("boot=live", "components", "username=user"),
+)
+
+ARCH = Medium(
+    name="arch",
+    iso=ISO_CACHE / "archlinux-2026.08.01-x86_64.iso",
+    volume_label="ARCH_202608",
+    kernel_in_iso="/arch/boot/x86_64/vmlinuz-linux",
+    initrd_in_iso="/arch/boot/x86_64/initramfs-linux.img",
+    root_prompt=r"root@archiso ~ #",
+    # Auto-login is configured for tty1 only; the serial getty asks.
+    login_user="root",
+    login_password=None,
+    boot_cmdline=("archisobasedir=arch", "archisolabel=ARCH_202608"),
+)
+
+MEDIA = {
+    medium.name: medium
+    for medium in (GIGOS, OFFICIAL_MINIMAL, ALPINE, DEBIAN, ARCH)
+}

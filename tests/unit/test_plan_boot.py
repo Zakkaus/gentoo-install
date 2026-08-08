@@ -339,3 +339,22 @@ def test_a_systemd_initramfs_gets_the_generator_that_unlocks_the_root() -> None:
 
     plain = [operation.describe() for operation in kernel.build(load(Path("tests/fixtures/vm-sdboot.toml")))]
     assert not any("unlock generator" in line for line in plain)
+
+
+def test_a_stack_tool_gets_the_use_flag_dracut_needs() -> None:
+    """`lvm` has no `+` in sys-fs/lvm2's IUSE, so the default build has
+    device-mapper and no LVM tools, and dracut cannot build its lvm module."""
+    described = [
+        operation.describe() for operation in kernel.build(load(Path("tests/fixtures/vm-lvm.toml")))
+    ]
+    asked = next(index for index, line in enumerate(described) if "sys-fs/lvm2[lvm]" in line)
+    built = next(index for index, line in enumerate(described) if "from source" in line)
+    installed = next(index for index, line in enumerate(described) if "install the kernel" in line)
+    assert asked < built < installed
+    # The binary host builds the default USE, so this one cannot come from it.
+    assert "sys-fs/lvm2" not in next(
+        line for line in described if line.startswith("install the storage tools:")
+    )
+
+    plain = [operation.describe() for operation in kernel.build(config())]
+    assert not any("package.use/storage" in line or "[lvm]" in line for line in plain)

@@ -35,6 +35,7 @@
   point repository gentoo at https://github.com/gentoo-mirror/gentoo.git, commit signatures verified
   sync repository gentoo
   run getuto so Portage has a keyring to verify binary packages against
+  ask for sys-fs/lvm2[lvm], which dracut needs and the default build lacks
 
 [system]
   generate and verify locales en_US.UTF-8
@@ -57,7 +58,8 @@
   tell dracut to carry lvm
   accept the linux-firmware licence
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
-  install the storage tools: emerge sys-fs/lvm2 sys-fs/dosfstools sys-fs/e2fsprogs
+  install the storage tools: emerge sys-fs/dosfstools sys-fs/e2fsprogs
+  install the storage tools that need a flag the default build lacks: emerge sys-fs/lvm2, from source
   install the kernel: emerge sys-kernel/gentoo-kernel-bin
   rebuild the initramfs from sys-kernel/gentoo-kernel-bin with the modules written above
 

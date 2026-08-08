@@ -51,12 +51,16 @@ CJK_CONSOLE_OPTIONS: Final[tuple[tuple[str, bool], ...]] = (
 )
 
 #: The tool each dracut module's layer needs in the installed system.
-STACK_PACKAGES: Final[dict[str, str]] = {
-    "btrfs": "sys-fs/btrfs-progs",
-    "crypt": "sys-fs/cryptsetup",
-    "lvm": "sys-fs/lvm2",
-    "mdraid": "sys-fs/mdadm",
-    "zfs": "sys-fs/zfs",
+#: The tool each dracut module needs in the target, and the USE flags that tool
+#: has to carry. `sys-fs/lvm2[lvm]` is the one that bites: the flag has no `+`,
+#: so the default build has device-mapper and no LVM tools, and dracut then
+#: cannot build its lvm module once the disks are already partitioned.
+STACK_PACKAGES: Final[dict[str, tuple[str, tuple[str, ...]]]] = {
+    "btrfs": ("sys-fs/btrfs-progs", ()),
+    "crypt": ("sys-fs/cryptsetup", ()),
+    "lvm": ("sys-fs/lvm2", ("lvm",)),
+    "mdraid": ("sys-fs/mdadm", ()),
+    "zfs": ("sys-fs/zfs", ()),
 }
 
 #: The tool each filesystem needs, so the target can check and mount it again.
@@ -145,6 +149,22 @@ class RequestSystemdCryptsetup(Operation):
             PurePosixPath("/etc/portage/package.use/cryptsetup"),
             "sys-apps/systemd cryptsetup\n",
         )
+
+
+@dataclass(frozen=True, kw_only=True)
+class RequestStorageUse(Operation):
+    """Written in the portage phase, before anything merges these packages."""
+
+    stage: Stage = Stage.PORTAGE
+    entries: tuple[tuple[str, tuple[str, ...]], ...]
+
+    def describe(self) -> str:
+        listed = ", ".join(f"{atom}[{','.join(flags)}]" for atom, flags in self.entries)
+        return f"ask for {listed}, which dracut needs and the default build lacks"
+
+    def apply(self, context: Context) -> None:
+        lines = "".join(f"{atom} {' '.join(flags)}\n" for atom, flags in self.entries)
+        context.write(PurePosixPath("/etc/portage/package.use/storage"), lines)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -323,10 +343,25 @@ def build(config: InstallConfig) -> list[Operation]:
     modules = _out_of_tree_modules(config)
     if modules and config.kernel.source is not KernelSource.CJK_SOURCE:
         operations.append(RequestDistKernelModules(packages=modules))
+    flagged = storage_use(config)
+    if flagged:
+        operations.insert(0, RequestStorageUse(entries=flagged))
     tools = storage_packages(config)
-    if tools:
+    plain = tuple(name for name in tools if name not in {atom for atom, _ in flagged})
+    if plain:
         operations.append(
-            Emerge(stage=Stage.KERNEL, packages=tools, summary="install the storage tools")
+            Emerge(stage=Stage.KERNEL, packages=plain, summary="install the storage tools")
+        )
+    if flagged:
+        # From source: the binary host builds the default USE, and a binary
+        # package without the flag would be installed over the request above.
+        operations.append(
+            Emerge(
+                stage=Stage.KERNEL,
+                packages=tuple(atom for atom, _ in flagged),
+                summary="install the storage tools that need a flag the default build lacks",
+                binary_packages=False,
+            )
         )
     package = config.kernel.package or KERNEL_PACKAGES[config.kernel.source]
     operations.append(
@@ -386,12 +421,23 @@ def _out_of_tree_modules(config: InstallConfig) -> tuple[str, ...]:
     return tuple(wanted)
 
 
+def storage_use(config: InstallConfig) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Stack packages that need a USE flag the default build does not carry."""
+    wanted: list[tuple[str, tuple[str, ...]]] = []
+    for module in dracut_modules(config):
+        entry = STACK_PACKAGES.get(module)
+        if entry is not None and entry[1] and entry not in wanted:
+            wanted.append(entry)
+    return tuple(wanted)
+
+
 def storage_packages(config: InstallConfig) -> tuple[str, ...]:
     """Whatever the layout uses, the target needs the tools to mount it again."""
     graph = config.disk.graph
     wanted: list[str] = []
     for module in dracut_modules(config):
-        package = STACK_PACKAGES.get(module)
+        entry = STACK_PACKAGES.get(module)
+        package = entry[0] if entry is not None else None
         if package is not None and package not in wanted:
             wanted.append(package)
     for filesystem in graph.of_type(Filesystem):
