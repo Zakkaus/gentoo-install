@@ -572,7 +572,7 @@ def test_a_chinese_interface_defaults_to_the_patched_kernel() -> None:
 
     for tag in ("zh-CN", "zh-TW"):
         seeded = screens.with_language(config(), tag)
-        assert seeded.kernel.source is KernelSource.CJK, tag
+        assert seeded.kernel.source is KernelSource.CJK_BIN, tag
         assert seeded.system.console_cjk, tag
         assert [one.name for one in seeded.portage.overlays] == ["gentoo-zh"], tag
         validate(seeded)
@@ -585,7 +585,7 @@ def test_other_languages_are_not_pulled_into_that_overlay() -> None:
 
     for tag in ("en", "ja", "ko"):
         seeded = screens.with_language(config(), tag)
-        assert seeded.kernel.source is not KernelSource.CJK, tag
+        assert seeded.kernel.source is not KernelSource.CJK_BIN, tag
         assert seeded.portage.overlays == (), tag
 
 
@@ -985,7 +985,7 @@ def test_choosing_the_patched_kernel_turns_its_patch_on() -> None:
     keys = ["KEY_DOWN", "KEY_DOWN", "\n", "\n"]
     chosen = screens.kernel_screen(FakeScreen(keys=keys, lines=24, columns=100), english, at)
     picked = chosen.unwrap()
-    assert picked.kernel.source is KernelSource.CJK
+    assert picked.kernel.source is KernelSource.CJK_BIN
     assert picked.system.console_cjk is True
     assert any(
         "with cjk on" in one.describe() for one in plan_kernel.build(picked)

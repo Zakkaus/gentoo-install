@@ -38,6 +38,7 @@ from ..model.config import (
     User,
 )
 from ..model.device import FilesystemType, PartitionRole, TableType, ZfsPool
+from ..plan import kernel as plan_kernel
 from ..plan.kernel import KERNEL_PACKAGES
 from ..plan.portage import community_binhost
 from ..model.size import Size
@@ -984,6 +985,7 @@ def bootloader_screen(
 KERNELS: tuple[tuple[KernelSource, str], ...] = (
     (KernelSource.DIST_BIN, "prebuilt"),
     (KernelSource.DIST_SOURCE, "built here"),
+    (KernelSource.CJK_BIN, "prebuilt, cjktty for CJK on the console, from gentoo-zh"),
     (KernelSource.CJK, "built here, cjktty for CJK on the console, from gentoo-zh"),
 )
 
@@ -1156,7 +1158,7 @@ def kernel_screen(screen: Screen, config: InstallConfig, context: Context) -> An
         return Answer(answer.outcome)
     chosen = answer.unwrap()[0]
     changed = replace(config, kernel=replace(config.kernel, source=chosen))
-    if chosen is KernelSource.CJK:
+    if chosen in plan_kernel.CJK_KERNELS:
         # cjk on with it, the mirror of the branch below: `RequestCjkKernel`
         # reads this flag, so choosing the patched kernel and leaving the flag
         # off wrote `-cjk` and compiled the patch out of the package that
@@ -2191,7 +2193,7 @@ def with_language(config: InstallConfig, tag: str) -> InstallConfig:
     # and nowhere else, so the overlay comes with it or the row is unusable.
     return replace(
         seeded,
-        kernel=replace(seeded.kernel, source=KernelSource.CJK),
+        kernel=replace(seeded.kernel, source=KernelSource.CJK_BIN),
         portage=_with_gentoo_zh(seeded),
     )
 

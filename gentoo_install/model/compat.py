@@ -210,7 +210,7 @@ def traits_of(config: InstallConfig) -> frozenset[Trait]:
             found.add(Trait.NO_AUTHORIZED_KEY)
         if not early_containers(graph) and not _encrypted_pool(graph, config.disk.root):
             found.add(Trait.NO_ENCRYPTED_CONTAINER)
-    if config.kernel.source is KernelSource.CJK:
+    if config.kernel.source in (KernelSource.CJK_BIN, KernelSource.CJK):
         found.add(Trait.CJK_KERNEL)
     else:
         found.add(Trait.KERNEL_WITHOUT_CJKTTY)

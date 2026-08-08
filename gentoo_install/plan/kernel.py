@@ -41,6 +41,7 @@ from .portage import Emerge
 KERNEL_PACKAGES: Final[dict[KernelSource, str]] = {
     KernelSource.DIST_BIN: "sys-kernel/gentoo-kernel-bin",
     KernelSource.DIST_SOURCE: "sys-kernel/gentoo-kernel",
+    KernelSource.CJK_BIN: "sys-kernel/gentoo-cjk-kernel-bin",
     KernelSource.CJK: "sys-kernel/gentoo-cjk-kernel",
 }
 
@@ -55,7 +56,11 @@ REMOTE_UNLOCK_PACKAGE: Final[str] = "sys-kernel/dracut-crypt-ssh"
 #: unlocked. `crypt-ssh` is the module dracut-crypt-ssh installs as 60crypt-ssh.
 REMOTE_UNLOCK_MODULES: Final[tuple[str, ...]] = ("crypt-ssh", "network")
 
-#: The cjk USE flag of `sys-kernel/gentoo-cjk-kernel`, which merges the
+#: The two packages that carry the cjktty patch, prebuilt and from source.
+#: Both take the `cjk` flag and both are keyworded `~amd64` in gentoo-zh.
+CJK_KERNELS: Final[tuple[KernelSource, ...]] = (KernelSource.CJK_BIN, KernelSource.CJK)
+
+#: The cjk USE flag of the patched kernels, which merges the
 #: patch's own `cjk.config`. It is on by default, so only turning it off has
 #: to be written.
 CJK_USE: Final[str] = "cjk"
@@ -440,15 +445,15 @@ def build(config: InstallConfig) -> list[Operation]:
                 summary="install the initramfs ssh daemon",
             ),
         ]
-    if config.kernel.source is KernelSource.CJK:
+    if config.kernel.source in CJK_KERNELS:
         operations.append(RequestCjkKernel(package=package, cjk=config.system.console_cjk))
     operations.append(
         Emerge(
             stage=Stage.KERNEL,
             packages=(atom,),
             summary="install the kernel",
-            # A patched kernel is on no official binary host, and a sources
-            # package has to be compiled in any case.
+            # The two prebuilt ones only: a source package has to be compiled
+            # in any case, and the patched pair is on no official binary host.
             binary_packages=config.kernel.source is KernelSource.DIST_BIN,
         )
     )

@@ -536,3 +536,42 @@ def test_which_tool_builds_a_kernel_module_is_one_table() -> None:
     zfs = load(Path("tests/fixtures/vm-zfs.toml"))
     assert set(_out_of_tree_modules(zfs)) == declared
     assert _out_of_tree_modules(config()) == ()
+
+
+def test_the_prebuilt_patched_kernel_is_the_one_a_chinese_interface_takes() -> None:
+    """`sys-kernel/gentoo-cjk-kernel-bin` is in gentoo-zh beside the source
+    one: same cjktty patch, same `+cjk` flag, same `virtual/dist-kernel`, and
+    nothing to compile on the target."""
+    from gentoo_install.model.config import KernelSource
+    from gentoo_install.plan.kernel import CJK_KERNELS, KERNEL_PACKAGES
+
+    assert KERNEL_PACKAGES[KernelSource.CJK_BIN] == "sys-kernel/gentoo-cjk-kernel-bin"
+    assert set(CJK_KERNELS) == {KernelSource.CJK_BIN, KernelSource.CJK}
+    assert set(KERNEL_PACKAGES) == set(KernelSource)
+
+    # Both take the keyword and the flag; neither comes from a binary host.
+    for source in CJK_KERNELS:
+        chosen = replace(config(), kernel=KernelConfig(source=source))
+        described = [one.describe() for one in kernel.build(chosen)]
+        assert any("as testing, with cjk" in line for line in described), source
+        assert any("from source" in line for line in described), source
+
+
+def test_the_prebuilt_patched_kernel_sits_beside_the_source_one() -> None:
+    """`sys-kernel/gentoo-cjk-kernel-bin` is in gentoo-zh: same cjktty patch,
+    same `+cjk` flag, same `virtual/dist-kernel`, nothing to compile."""
+    from gentoo_install.plan.kernel import CJK_KERNELS, KERNEL_PACKAGES
+
+    assert KERNEL_PACKAGES[KernelSource.CJK_BIN] == "sys-kernel/gentoo-cjk-kernel-bin"
+    assert set(CJK_KERNELS) == {KernelSource.CJK_BIN, KernelSource.CJK}
+    # Every choice has a package: a member with none installs nothing at all.
+    assert set(KERNEL_PACKAGES) == set(KernelSource)
+
+    for source in CJK_KERNELS:
+        described = [
+            one.describe()
+            for one in kernel.build(replace(config(), kernel=KernelConfig(source=source)))
+        ]
+        # Keyworded and flagged like the other, and on no official binary host.
+        assert any("as testing, with cjk" in line for line in described), source
+        assert any("from source" in line for line in described), source

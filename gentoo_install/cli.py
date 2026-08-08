@@ -279,7 +279,10 @@ def _absent(wanted: Iterable[str]) -> set[str]:
 
 #: The overlay that carries the patched kernel. Its packages are on no package
 #: site, so their versions come from the overlay's own listing.
-_OVERLAY_PACKAGES: Final[tuple[str, ...]] = ("sys-kernel/gentoo-cjk-kernel",)
+_OVERLAY_PACKAGES: Final[tuple[str, ...]] = (
+    "sys-kernel/gentoo-cjk-kernel-bin",
+    "sys-kernel/gentoo-cjk-kernel",
+)
 
 
 def _kernel_versions(atom: str) -> tuple[tuple[str, bool], ...]:

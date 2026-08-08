@@ -459,3 +459,4 @@ def test_each_rime_schema_is_a_group_the_operator_can_tick() -> None:
     written = " ".join(one.describe() for one in build(picked, catalog))
     assert "luna_pinyin cangjie5" in written
     assert "bopomofo" not in written
+

@@ -30,6 +30,7 @@ class KernelSource(Enum):
 
     DIST_BIN = "dist-bin"
     DIST_SOURCE = "dist-source"
+    CJK_BIN = "cjk-bin"
     CJK = "cjk"
 
 

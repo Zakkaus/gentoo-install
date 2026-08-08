@@ -391,7 +391,7 @@ def _erase(config: InstallConfig, context: Context) -> str:
 def _cjk_kernel_only(config: InstallConfig, context: Context) -> str:
     """A font with CJK glyphs draws nothing without the patch that lets the
     console show them, so the size is a choice only under that kernel."""
-    if config.kernel.source is not KernelSource.CJK:
+    if config.kernel.source not in (KernelSource.CJK_BIN, KernelSource.CJK):
         return context.translate("only the cjk kernel draws CJK on the console")
     return ""
 
