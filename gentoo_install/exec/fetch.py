@@ -116,7 +116,9 @@ def passphrase_for(device: DeviceId, source: str) -> str:
 def _newest(base: str) -> str:
     names: set[str] = {str(name) for name in _ENTRY.findall(_read(f"{base}/"))}
     if not names:
-        raise IntegrityError(f"{base} lists no stage3 archive")
+        # DownloadFailed, not IntegrityError: the index arrived and held
+        # nothing, which is a mirror mid-sync rather than data to distrust.
+        raise DownloadFailed(f"{base} lists no stage3 archive")
     return sorted(names)[-1]
 
 
