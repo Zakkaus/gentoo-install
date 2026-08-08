@@ -69,9 +69,8 @@ class WriteGroupFile(Operation):
 Catalog = Mapping[str, Group]
 
 
-#: Where a session picks up environment variables. systemd reads the first at
-#: user-session start; on openrc `env-update` folds the second into
-#: /etc/profile.env.
+#: Where a session reads environment variables: systemd at user-session start,
+#: openrc through `env-update` into /etc/profile.env.
 ENVIRONMENT_FILE: Final[dict[InitSystem, PurePosixPath]] = {
     InitSystem.SYSTEMD: PurePosixPath("/etc/environment.d/90-input-method.conf"),
     InitSystem.OPENRC: PurePosixPath("/etc/env.d/90input-method"),

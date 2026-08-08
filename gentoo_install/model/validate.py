@@ -32,9 +32,8 @@ def validate(config: InstallConfig) -> None:
         )
 
 
-#: A stage3, a kernel build and linux-firmware together, with room for the
-#: portage tree. Measured: an install into 8 GiB runs out during
-#: sys-kernel/linux-firmware, an hour after the disks were written.
+#: Measured: an install into 8 GiB runs out during linux-firmware, an hour
+#: after the disks were written.
 ROOT_MINIMUM: Final[Size] = Size.parse("12GiB")
 
 

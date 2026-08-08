@@ -50,11 +50,8 @@ CJK_CONSOLE_OPTIONS: Final[tuple[tuple[str, bool], ...]] = (
     ("FONT_CJK_32x32", False),
 )
 
-#: The tool each dracut module's layer needs in the installed system.
-#: The tool each dracut module needs in the target, and the USE flags that tool
-#: has to carry. `sys-fs/lvm2[lvm]` is the one that bites: the flag has no `+`,
-#: so the default build has device-mapper and no LVM tools, and dracut then
-#: cannot build its lvm module once the disks are already partitioned.
+#: The tool each dracut module needs in the target, and the USE flags it has to
+#: carry: without `sys-fs/lvm2[lvm]` dracut cannot build its lvm module.
 STACK_PACKAGES: Final[dict[str, tuple[str, tuple[str, ...]]]] = {
     "btrfs": ("sys-fs/btrfs-progs", ()),
     "crypt": ("sys-fs/cryptsetup", ()),

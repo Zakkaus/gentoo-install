@@ -49,9 +49,8 @@ EXTRA_FILESYSTEM_COMMANDS: Final[dict[FilesystemType, tuple[str, ...]]] = {
     FilesystemType.BTRFS: ("btrfs",),
 }
 
-#: Commands that have to be the GNU implementation, and what identifies one.
-#: A live system built on busybox satisfies `which` and then fails on the
-#: flags: busybox tar has no `--xattrs-include`, and stage3 needs it.
+#: Commands that must be the GNU one: busybox satisfies `which` and then
+#: rejects the flags, and stage3 needs tar's `--xattrs-include`.
 GNU_ONLY: Final[dict[str, str]] = {"tar": "GNU tar"}
 
 #: `zpool create` refuses anything shorter, and it refuses it after the disk

@@ -73,9 +73,8 @@ class Item(Generic[V]):
 
     label: str
     value: V
-    #: Non-empty means the row cannot be chosen, and this says why. The text
-    #: comes from `model/compat.py`, so the interface and the validator give
-    #: the same reason.
+    #: Why the row cannot be chosen, taken from `model/compat.py` so the
+    #: interface and the validator give the same reason.
     disabled_because: str = ""
     detail: str = ""
 
