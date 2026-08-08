@@ -18,6 +18,7 @@ import sys
 import time
 from pathlib import Path, PurePosixPath
 
+from gentoo_install.data import load_catalog
 from gentoo_install.model import compat
 from gentoo_install.model.config import Bootloader, InitSystem, InstallConfig
 from gentoo_install.model.device import (
@@ -64,6 +65,11 @@ INSTALLED = (
     ("fstab", "cat /etc/fstab"),
     ("locale", "locale"),
     ("hostname", "cat /etc/hostname || cat /etc/conf.d/hostname"),
+    (
+        "inputmethod",
+        "cat /etc/skel/.config/fcitx5/profile 2>/dev/null; "
+        "cat /etc/environment.d/90-input-method.conf /etc/env.d/90input-method 2>/dev/null",
+    ),
     (
         "kernel",
         "uname -r; find /boot -maxdepth 4 -type f "
@@ -449,6 +455,11 @@ def _from_config(config: Path) -> list[tuple[str, str]]:
         ]
     else:
         expected.append(("kernel", r"^/boot/(kernel|vmlinuz)-"))
+    # The Chinese environment is what this installer exists for, so a run that
+    # asked for an input method has to show it reached the installed system.
+    groups = load_catalog()
+    if any(groups[name].input_method for name in installation.packages.applications if name in groups):
+        expected += [("inputmethod", r"^DefaultIM="), ("inputmethod", r"XMODIFIERS=@im=fcitx")]
     esp = compat.esp_mount(graph)
     if esp is not None:
         # A BIOS install has no esp at all, so asking for one would fail on a
