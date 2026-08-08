@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
-from typing import Sequence
+from typing import Sequence, cast
 from pathlib import Path
 
 import pytest
@@ -224,3 +224,33 @@ def test_a_clock_that_agrees_is_left_alone(monkeypatch: pytest.MonkeyPatch) -> N
     ran = _record_commands(monkeypatch)
     main([])
     assert not any(argv[0] == "hwclock" for argv in ran)
+
+
+def test_the_target_is_still_mounted_when_the_shell_is_offered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The offer has to come between the last operation and the unmount: once
+    the target is gone the operator would have to mount the layout by hand."""
+    import inspect
+
+    source = inspect.getsource(cli.install)
+    offered = source.index("_offer_a_shell")
+    closing = source.index("apply(closing")
+    assert offered < closing
+    # And the body runs before either.
+    assert source.index("apply(body") < offered
+
+
+def test_an_unattended_run_is_never_asked_about_a_shell(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--no-shell` is what the VM harness passes: it drives a serial console,
+    where stdin is a terminal and the question would wait forever."""
+    import argparse
+
+    from gentoo_install.exec.apply import Machine
+
+    arguments = argparse.Namespace(no_shell=True, target=Path("/mnt/gentoo"))
+    said: list[str] = []
+    cli._offer_a_shell(arguments, cast(Machine, None), said.append, False)
+    assert not said and not capsys.readouterr().out

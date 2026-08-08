@@ -24,7 +24,9 @@ set -e
 mkdir -p /mnt/driver
 mountpoint -q /mnt/driver || mount -o ro /dev/sr1 /mnt/driver
 cd /mnt/driver
-exec python3 -m gentoo_install "$@"
+# --no-shell: the harness drives a serial console, where stdin is a terminal,
+# and the offer of a root shell would sit there waiting for an answer.
+exec python3 -m gentoo_install --no-shell "$@"
 """
 
 

@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Callable, Final, Iterable, Sequence
 
 from . import errors
+from .errors import GentooInstallError
 from .data import load_catalog
 from .exec import fetch, preflight
 from .exec.apply import Machine, apply, completed
@@ -30,7 +31,7 @@ from .model import templates
 from .model.config import DiskConfig, Firmware, InstallConfig, PortageConfig
 from .model.parse import load
 from .plan.build import DEFAULT_MIRROR, build
-from .plan.operations import Operation
+from .plan.operations import Operation, Stage
 from .plan.render import render, summarise
 
 #: Everything a run needs to keep: the device map, the staged keys, the log.
@@ -75,6 +76,12 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="carry on from where a previous run stopped, skipping the operations its "
         "journal records as done, instead of partitioning the disk again",
+    )
+    parsed.add_argument(
+        "--no-shell",
+        action="store_true",
+        help="unmount and exit without offering a root shell in the new system, which is "
+        "what an unattended run wants",
     )
     parsed.add_argument(
         "--skip-preflight",
@@ -198,12 +205,25 @@ def install(config: InstallConfig, operations: tuple[Operation, ...], arguments:
         finished = completed(journal) if arguments.resume else frozenset()
         if finished:
             record(f"resuming: {len(finished)} operations were finished by an earlier run")
+        # The closing stage unmounts, so the target has to still be mounted
+        # when the operator is offered a shell in it.
+        closing = tuple(one for one in operations if one.stage is Stage.FINISH)
+        body = tuple(one for one in operations if one.stage is not Stage.FINISH)
+        failed: GentooInstallError | None = None
         try:
-            apply(operations, machine, finished)
+            apply(body, machine, finished)
+        except GentooInstallError as error:
+            failed = error
+            record(f"the install stopped: {error}")
+        try:
+            _offer_a_shell(arguments, machine, record, failed is not None)
+            apply(closing, machine, finished if failed is None else frozenset())
         finally:
             # In `finally`: the log of a run that failed is the one worth
             # keeping, and it is the one a reboot would otherwise destroy.
             _keep_the_log(work, arguments.target, record)
+        if failed is not None:
+            raise failed
         counted = journal.counts()
         record(
             f"installed {len(operations)} operations into {arguments.target}; "
@@ -211,6 +231,34 @@ def install(config: InstallConfig, operations: tuple[Operation, ...], arguments:
             f"{counted.get('compiled', 0)} compiled"
         )
     return EXIT_OK
+
+
+def _offer_a_shell(
+    arguments: argparse.Namespace,
+    machine: Machine,
+    record: Callable[[str], None],
+    stopped: bool,
+) -> None:
+    """A root shell in the target before it is unmounted.
+
+    Offered after a failure as well as after a success: the operator is the one
+    who can tell whether the machine is fixable, and once the target is
+    unmounted they would have to mount the whole layout again by hand.
+    """
+    if arguments.no_shell or not sys.stdin.isatty():
+        return
+    asked = "the install stopped" if stopped else "the install finished"
+    print(f"{asked}. enter a root shell in {arguments.target} before unmounting? [y/N] ", end="")
+    sys.stdout.flush()
+    try:
+        answered = sys.stdin.readline().strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return
+    if answered not in ("y", "yes"):
+        return
+    record(f"a root shell was opened in {arguments.target}")
+    machine.runner.run(["chroot", str(arguments.target), "/bin/bash", "--login"], check=False)
+    record("the shell exited; unmounting")
 
 
 def _absent(wanted: Iterable[str]) -> set[str]:
