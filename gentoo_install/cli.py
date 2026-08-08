@@ -134,6 +134,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("aborted", file=sys.stderr)
         return EXIT_ABORTED
+    except OSError as error:
+        # The exec layer writes files and reads /proc, and ENOSPC on the target
+        # is a command that did not finish, not a configuration mistake.
+        print(f"system: {error}", file=sys.stderr)
+        return EXIT_COMMAND
+    except Exception as error:
+        # Last, and deliberately wide: this module is the one place an exception
+        # becomes an exit code, and one that escapes exits 1, which means
+        # "bad configuration" to anything reading the code.
+        print(f"unexpected {type(error).__name__}: {error}", file=sys.stderr)
+        return EXIT_COMMAND
 
 
 def _keep_the_log(work: Path, target: Path, record: Callable[[str], None]) -> None:

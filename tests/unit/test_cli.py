@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from gentoo_install import cli
 from gentoo_install.cli import EXIT_CONFIG, EXIT_OK, EXIT_PREFLIGHT, main
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
@@ -82,3 +83,31 @@ def test_the_menu_does_not_open_for_an_ordinary_user(
     assert main([]) == EXIT_PREFLIGHT
     assert "run as root" in capsys.readouterr().err
     assert main(["--dry-run", "--config", str(FIXTURES / "vm-binpkg.toml")]) == 0
+
+def test_an_error_with_no_name_of_its_own_still_becomes_an_exit_code(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """This module is the one place an exception becomes an exit code, and one
+    that escaped exited 1, which reads as a bad configuration."""
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+
+    def boom(*_: object, **__: object) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(cli, "load", boom)
+    code = main(["--config", str(FIXTURES / "vm-binpkg.toml")])
+    assert code == cli.EXIT_COMMAND
+    assert "No space left" in capsys.readouterr().err
+
+
+def test_an_unexpected_error_is_named_rather_than_traced(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+
+    def boom(*_: object, **__: object) -> None:
+        raise RuntimeError("something nobody predicted")
+
+    monkeypatch.setattr(cli, "load", boom)
+    assert main(["--config", str(FIXTURES / "vm-binpkg.toml")]) == cli.EXIT_COMMAND
+    assert "unexpected RuntimeError" in capsys.readouterr().err
