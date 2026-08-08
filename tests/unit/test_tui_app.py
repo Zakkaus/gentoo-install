@@ -40,6 +40,10 @@ def test_the_whole_walk_produces_a_configuration_that_validates() -> None:
         *["\x7f"] * len("gentoo"), *list("box"), "\n",  # clear the default, type a name
         "\n",                                   # init: systemd
         *list("secret"), "\n",                  # root password
+        *list("zakk"), "\n",                    # a normal account
+        *list("secret"), "\n",                  # its password
+        "KEY_DOWN", "\n",                       # grant it sudo
+        "\n",                                   # official mirrors
         "\n",                                   # official binary packages
         "\n",                                   # kernel source
         "\n",                                   # bootloader
@@ -55,6 +59,8 @@ def test_the_whole_walk_produces_a_configuration_that_validates() -> None:
     assert finished.config.system.hostname == "box"
     assert finished.config.system.root_password_hash == "$6$test$6"
     assert finished.config.system.locale == "zh_TW.UTF-8"
+    assert [user.name for user in finished.config.system.users] == ["zakk"]
+    assert finished.config.system.users[0].sudo
 
 
 def test_going_back_discards_only_the_last_answer() -> None:
@@ -108,3 +114,13 @@ def test_declining_the_overview_goes_back_rather_than_installing() -> None:
     screen = FakeScreen(keys=["\n", "\n"])
     finished = run(screen, config(), context(), steps=(screens.overview_screen,))
     assert finished.cancelled
+
+
+def test_an_empty_user_name_leaves_the_system_with_root_only() -> None:
+    """A server install makes that choice deliberately, so an empty field is
+    an answer rather than a prompt to try again."""
+    finished = run(
+        FakeScreen(keys=["\n"]), config(), context(), steps=(screens.user_screen,)
+    )
+    assert finished.config is not None
+    assert finished.config.system.users == ()

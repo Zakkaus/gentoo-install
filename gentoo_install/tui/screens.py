@@ -23,8 +23,10 @@ from ..model.config import (
     InitSystem,
     InstallConfig,
     KernelSource,
+    MirrorRegion,
     Overlay,
     PortageConfig,
+    User,
 )
 from ..model.device import FilesystemType
 from ..model.size import Size
@@ -189,6 +191,57 @@ def root_password_screen(
     return Answer(
         Outcome.CHOSE, replace(config, system=replace(config.system, root_password_hash=hashed))
     )
+
+
+def user_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
+    """One normal account with sudo, or none.
+
+    An empty name leaves the system with root only, which is a choice a server
+    install makes deliberately.
+    """
+    translate = context.translate
+    named = TextField(title=translate("Users"), footer=_footer(translate)).run(screen)
+    if not named.chosen:
+        return Answer(named.outcome)
+    name = named.unwrap().strip()
+    if not name:
+        return Answer(Outcome.CHOSE, replace(config, system=replace(config.system, users=())))
+    typed = TextField(title=translate("Users"), masked=True, footer=_footer(translate)).run(screen)
+    if not typed.chosen:
+        return Answer(typed.outcome)
+    granted = Confirm(title=translate("Users"), footer=_footer(translate)).run(screen)
+    if not granted.chosen:
+        return Answer(granted.outcome)
+    user = User(
+        name=name,
+        groups=("wheel", "audio", "video", "usb"),
+        sudo=granted.unwrap(),
+        password_hash=context.hash_password(typed.unwrap()),
+    )
+    return Answer(Outcome.CHOSE, replace(config, system=replace(config.system, users=(user,))))
+
+
+def mirror_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
+    """Which region's mirrors, and whether to measure them.
+
+    Measuring costs a minute and saves hours on a slow link, so it is a
+    question rather than a default.
+    """
+    translate = context.translate
+    items: list[Item[tuple[MirrorRegion, bool]]] = [
+        Item(label="official mirrors", value=(MirrorRegion.GLOBAL, False)),
+        Item(label="mirrors in China", value=(MirrorRegion.CN, False)),
+        Item(label="mirrors in China, fastest first", value=(MirrorRegion.CN, True)),
+    ]
+    menu: Menu[tuple[MirrorRegion, bool]] = Menu(
+        title=translate("Portage"), items=items, footer=_footer(translate)
+    )
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    region, measure = answer.unwrap()[0]
+    mirrors = replace(config.portage.mirrors, region=region, speed_test=measure)
+    return Answer(Outcome.CHOSE, replace(config, portage=replace(config.portage, mirrors=mirrors)))
 
 
 def bootloader_screen(
@@ -403,6 +456,8 @@ STEPS: tuple[Step, ...] = (
     system_screen,
     init_screen,
     root_password_screen,
+    user_screen,
+    mirror_screen,
     binhost_screen,
     kernel_screen,
     bootloader_screen,
