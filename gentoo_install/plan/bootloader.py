@@ -118,9 +118,14 @@ class WriteGrubDefaults(Operation):
 @dataclass(frozen=True, kw_only=True)
 class RequestBootctl(Operation):
     """The `boot` flag is what provides `bootctl` and the EFI stub, and both
-    packages that can provide them keep it behind that flag."""
+    packages that can provide them keep it behind that flag.
 
-    stage: Stage = Stage.BOOTLOADER
+    Written in the portage phase, not the bootloader phase:
+    `installkernel[systemd-boot]` depends on this same flag and is merged with
+    the kernel, several phases earlier.
+    """
+
+    stage: Stage = Stage.PORTAGE
     package: str
 
     def describe(self) -> str:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -18,6 +18,7 @@ from gentoo_install.model.config import (
     SystemConfig,
 )
 from gentoo_install.model.device import Filesystem, FilesystemType, Luks, MdRaid, Node, RaidLevel
+from gentoo_install.model.parse import load
 from gentoo_install.plan import bootloader, kernel
 
 from .layouts import config, ext4_on_gpt, i, zfs_root
@@ -260,3 +261,33 @@ def test_the_pool_keeps_its_hostid_or_it_will_not_import() -> None:
     for operation in bootloader.build(zfs_installation()):
         operation.apply(recorder)
     assert recorder.argv_starting("zgenhostid")
+
+
+def test_systemd_boot_gets_boot_entries_and_a_command_line() -> None:
+    """`layout=bls` comes from the USE flag, and without /etc/kernel/cmdline
+    `90-loaderentry.install` copies the install medium's own command line."""
+    sdboot = load(Path("tests/fixtures/vm-sdboot.toml"))
+    described = [operation.describe() for operation in kernel.build(sdboot)]
+    assert "set sys-kernel/installkernel to dracut systemd systemd-boot" in described
+    assert any("/etc/kernel/cmdline" in line for line in described)
+
+    grub = [operation.describe() for operation in kernel.build(config())]
+    assert "set sys-kernel/installkernel to dracut" in grub
+    assert not any("/etc/kernel/cmdline" in line for line in grub)
+
+
+def test_the_boot_entry_names_the_root_the_layout_actually_has() -> None:
+    written: dict[str, str] = {}
+    for fixture, expected in (
+        ("tests/fixtures/vm-sdboot.toml", "root=UUID="),
+        ("tests/fixtures/btrfs-luks.toml", "rootflags=subvol="),
+        ("tests/fixtures/zfs-zbm.toml", "root=ZFS="),
+    ):
+        installation = load(Path(fixture))
+        root, dataset, extra = kernel._root_parameters(installation)
+        recorder = Recorder()
+        kernel.WriteKernelCmdline(root=root, dataset=dataset, kernel_params=extra).apply(
+            recorder
+        )
+        written[fixture] = recorder.files[PurePosixPath("/etc/kernel/cmdline")]
+        assert expected in written[fixture]

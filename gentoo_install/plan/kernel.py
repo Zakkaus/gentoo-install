@@ -11,13 +11,18 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Final
 
-from ..model.config import InstallConfig, KernelSource
+from ..model.config import Bootloader, InstallConfig, KernelSource
+from ..errors import InvalidLayout
 from ..model.device import (
+    DeviceId,
     Filesystem,
     FilesystemType,
     Luks,
     MdRaid,
+    Mountpoint,
+    Subvolume,
     VolumeGroup,
+    ZfsDataset,
     ZfsPool,
 )
 from .operations import Context, Operation, Stage
@@ -72,14 +77,51 @@ class ConfigureInstallKernel(Operation):
     merged: the kernel's own install hook is what builds the initramfs."""
 
     stage: Stage = Stage.KERNEL
+    #: systemd-boot reads only what `layout=bls` writes, and that layout comes
+    #: from this USE flag. The ebuild's REQUIRED_USE adds `systemd` with it.
+    boot_entries: bool = False
 
     def describe(self) -> str:
-        return "set sys-kernel/installkernel to use dracut"
+        flags = " ".join(self._flags())
+        return f"set sys-kernel/installkernel to {flags}"
+
+    def _flags(self) -> tuple[str, ...]:
+        return ("dracut", "systemd", "systemd-boot") if self.boot_entries else ("dracut",)
 
     def apply(self, context: Context) -> None:
         context.write(
             PurePosixPath("/etc/portage/package.use/installkernel"),
-            "sys-kernel/installkernel dracut\n",
+            f"sys-kernel/installkernel {' '.join(self._flags())}\n",
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class WriteKernelCmdline(Operation):
+    """What a bls entry boots with.
+
+    `90-loaderentry.install` falls back to the running `/proc/cmdline` when this
+    file is absent, so the installed system would boot with the install
+    medium's own command line.
+    """
+
+    stage: Stage = Stage.KERNEL
+    #: None when the root is a dataset, which names itself rather than a UUID.
+    root: DeviceId | None
+    dataset: str
+    kernel_params: tuple[str, ...]
+
+    def describe(self) -> str:
+        named = self.dataset or str(self.root)
+        return f"write /etc/kernel/cmdline so the boot entries mount {named}"
+
+    def apply(self, context: Context) -> None:
+        if self.root is None:
+            where = f"root=ZFS={self.dataset}"
+        else:
+            where = f"root=UUID={context.device_uuid(self.root)}"
+        context.write(
+            PurePosixPath("/etc/kernel/cmdline"),
+            " ".join((where, "rw", *self.kernel_params)) + "\n",
         )
 
 
@@ -209,8 +251,20 @@ class BuildKernel(Operation):
 
 def build(config: InstallConfig) -> list[Operation]:
     modules = dracut_modules(config)
+    entries = config.bootloader.kind is Bootloader.SYSTEMD_BOOT
     operations: list[Operation] = [
-        ConfigureInstallKernel(),
+        ConfigureInstallKernel(boot_entries=entries),
+    ]
+    if entries:
+        root, dataset, extra = _root_parameters(config)
+        operations.append(
+            WriteKernelCmdline(
+                root=root,
+                dataset=dataset,
+                kernel_params=(*extra, *config.bootloader.kernel_params),
+            )
+        )
+    operations += [
         # A dist-kernel pulls this in; a sources package does not, and without
         # it `make install` falls back to the kernel's own script, which looks
         # for LILO and leaves /boot without a kernel or an initramfs.
@@ -309,3 +363,25 @@ def storage_packages(config: InstallConfig) -> tuple[str, ...]:
         if package not in wanted:
             wanted.append(package)
     return tuple(wanted)
+
+
+def _root_parameters(config: InstallConfig) -> tuple[DeviceId | None, str, tuple[str, ...]]:
+    """What a boot entry needs to find the root: a device, or a dataset name.
+
+    A subvolume root also needs `rootflags`, because the initramfs mounts the
+    filesystem's default subvolume otherwise.
+    """
+    graph = config.disk.graph
+    mount = graph[config.disk.root]
+    source = graph[mount.source] if isinstance(mount, Mountpoint) else mount
+    if isinstance(source, ZfsDataset):
+        pool = graph[source.pool]
+        name = pool.name if isinstance(pool, ZfsPool) else ""
+        return None, f"{name}/{source.name}", ()
+    if isinstance(source, Subvolume):
+        filesystem = graph[source.filesystem]
+        if isinstance(filesystem, Filesystem):
+            return filesystem.device, "", (f"rootflags=subvol={source.name}",)
+    if isinstance(source, Filesystem):
+        return source.device, "", ()
+    raise InvalidLayout(f"{config.disk.root} is not something a boot entry can mount")

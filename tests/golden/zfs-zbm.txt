@@ -36,6 +36,7 @@
   sync repository gentoo-zh
   accept ~amd64 for packages from gentoo-zh only
   run getuto so Portage has a keyring to verify binary packages against
+  ask for sys-apps/systemd[boot], which is what provides bootctl
 
 [system]
   generate and verify locales en_US.UTF-8, zh_TW.UTF-8
@@ -53,7 +54,7 @@
   enable systemd-networkd.service at boot
 
 [kernel]
-  set sys-kernel/installkernel to use dracut
+  set sys-kernel/installkernel to dracut
   install the hook that puts a kernel in /boot: emerge sys-kernel/installkernel
   tell dracut to carry zfs
   accept the linux-firmware licence
@@ -66,7 +67,6 @@
 
 [bootloader]
   install the bootloader: emerge sys-boot/zfsbootmenu sys-boot/efibootmgr
-  ask for sys-apps/systemd[boot], which is what provides bootctl
   install the EFI stub generate-zbm builds around: emerge sys-apps/systemd
   copy the installing system's hostid into the target so the pool imports
   build ZFSBootMenu into /efi/EFI/zbm and boot zpcala/ROOT/gentoo/root from it

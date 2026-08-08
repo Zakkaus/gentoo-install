@@ -1,0 +1,86 @@
+# systemd-boot, which reads neither ext4 nor btrfs, so the esp is mounted at
+# /boot and the kernel and initramfs are installed onto it.
+config_version = 1
+
+[system]
+hostname = "sdbootbox"
+timezone = "UTC"
+locales = ["en_US.UTF-8"]
+locale = "en_US.UTF-8"
+init = "systemd"
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
+
+[portage]
+profile = "default/linux/amd64/23.0/systemd"
+makeopts = "-j4"
+
+[portage.binhost]
+official = true
+community = "off"
+
+[kernel]
+source = "dist-bin"
+
+[bootloader]
+kind = "systemd-boot"
+firmware = "uefi"
+kernel_params = ["console=ttyS0,115200"]
+
+[disk]
+root = "mnt-root"
+
+[[disk.devices]]
+kind = "existing"
+id = "disk"
+selector = "/dev/disk/by-id/virtio-target0"
+wipe = true
+
+[[disk.devices]]
+kind = "table"
+id = "table"
+disk = "disk"
+table = "gpt"
+
+# 1 GiB rather than 512 MiB: this esp holds every kernel and initramfs, not
+# just a bootloader.
+[[disk.devices]]
+kind = "partition"
+id = "esp"
+table = "table"
+index = 1
+role = "esp"
+size = "1GiB"
+
+[[disk.devices]]
+kind = "partition"
+id = "rootpart"
+table = "table"
+index = 2
+role = "data"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "espfs"
+device = "esp"
+type = "vfat"
+label = "ESP"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "rootfs"
+device = "rootpart"
+type = "ext4"
+label = "gentoo"
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-root"
+source = "rootfs"
+path = "/"
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-esp"
+source = "espfs"
+path = "/boot"
+options = ["umask=0077"]

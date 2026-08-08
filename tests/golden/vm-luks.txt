@@ -49,7 +49,7 @@
   enable systemd-networkd.service at boot
 
 [kernel]
-  set sys-kernel/installkernel to use dracut
+  set sys-kernel/installkernel to dracut
   install the hook that puts a kernel in /boot: emerge sys-kernel/installkernel
   tell dracut to carry crypt, btrfs
   accept the linux-firmware licence

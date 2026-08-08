@@ -1,7 +1,7 @@
 [partition]
   wipe existing signatures from disk
   create a gpt partition table on disk as table
-  create partition 1 on disk as esp: esp, 512MiB
+  create partition 1 on disk as esp: esp, 1GiB
   create partition 2 on disk as rootpart: data, the rest of the disk
   reread the partition table of disk and wait for its nodes
 
@@ -11,7 +11,7 @@
 
 [mount]
   mount rootpart at /
-  mount esp at /efi with umask=0077
+  mount esp at /boot with umask=0077
 
 [stage3]
   download the newest systemd stage3 from https://distfiles.gentoo.org, verify it against BB572E0E2D182910 and unpack it into the target
@@ -28,23 +28,23 @@
   point repository gentoo at https://github.com/gentoo-mirror/gentoo.git, commit signatures verified
   sync repository gentoo
   run getuto so Portage has a keyring to verify binary packages against
+  ask for sys-apps/systemd[boot], which is what provides bootctl
 
 [system]
   generate and verify locales en_US.UTF-8
   set the system locale to en_US.UTF-8
   set the timezone to UTC
   set the console keymap to us and its font to default8x16
-  set the hostname to vmtest
+  set the hostname to sdbootbox
   give the target its own machine id
-  write /etc/fstab with entries for /, /efi
+  write /etc/fstab with entries for /, /boot
   set the root password
-  install sshd: emerge net-misc/openssh
-  enable sshd.service at boot
   configure the wired interface for DHCP
   enable systemd-networkd.service at boot
 
 [kernel]
-  set sys-kernel/installkernel to dracut
+  set sys-kernel/installkernel to dracut systemd systemd-boot
+  write /etc/kernel/cmdline so the boot entries mount rootpart
   install the hook that puts a kernel in /boot: emerge sys-kernel/installkernel
   accept the linux-firmware licence
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
@@ -53,9 +53,8 @@
   rebuild the initramfs from sys-kernel/gentoo-kernel-bin with the modules written above
 
 [bootloader]
-  install the bootloader: emerge sys-boot/grub sys-boot/efibootmgr
-  write /etc/default/grub with cmdline console=ttyS0,115200, its menu on ttyS0
-  install GRUB for uefi on the esp at /efi
+  install bootctl: emerge sys-apps/systemd
+  install systemd-boot on the esp at /boot
 
 [finish]
   unmount everything under the target
