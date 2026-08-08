@@ -1,5 +1,5 @@
-# Rime through fcitx, with the schemas `app-i18n/rime-data` ships. Traditional
-# and bopomofo are here; the simplified schema is the separate rime-ice group.
+# Rime through fcitx, with `luna_pinyin`, the schema that comes with the
+# engine. Bopomofo, Cangjie, Wubi and Cantonese are groups of their own.
 packages = ["app-i18n/fcitx-rime", "app-i18n/rime-data"]
 input_method = "rime"
-schemas = ["luna_pinyin", "terra_pinyin", "bopomofo"]
+schemas = ["luna_pinyin"]

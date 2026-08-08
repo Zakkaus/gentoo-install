@@ -431,3 +431,31 @@ def test_an_openrc_desktop_gets_dbus_and_elogind_without_a_display_manager() -> 
         one.service for one in build(console, load_catalog()) if isinstance(one, EnableService)
     }
     assert not {service for service, _ in OPENRC_SESSION} & plain
+
+
+def test_each_rime_schema_is_a_group_the_operator_can_tick() -> None:
+    """docs/design.md names five separately: three were bundled into `rime`
+    and two shipped in no file at all, so wubi86, cangjie5 and jyut6ping3 had
+    no row and no config key."""
+    from dataclasses import replace as _replace
+    from pathlib import Path as _Path
+
+    from gentoo_install.data import load_catalog
+    from gentoo_install.model.parse import load
+    from gentoo_install.plan.build import build
+
+    catalog = load_catalog()
+    named = {schema for group in catalog.values() for schema in group.schemas}
+    assert {"luna_pinyin", "bopomofo", "wubi86", "cangjie5", "jyut6ping3"} <= named
+    # One schema per group, so ticking one cannot drag in another.
+    for name, group in catalog.items():
+        assert len(group.schemas) <= 1, name
+
+    desktop = load(_Path("tests/fixtures/vm-desktop.toml"))
+    picked = _replace(
+        desktop,
+        packages=_replace(desktop.packages, applications=("fcitx5", "rime", "rime-cangjie")),
+    )
+    written = " ".join(one.describe() for one in build(picked, catalog))
+    assert "luna_pinyin cangjie5" in written
+    assert "bopomofo" not in written

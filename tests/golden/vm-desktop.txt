@@ -73,7 +73,7 @@
   install the noto-cjk group: emerge media-fonts/noto-cjk media-fonts/noto media-libs/fontconfig
   install the pipewire group: emerge media-video/pipewire media-video/wireplumber
   set the input method environment in /etc/environment.d/90-input-method.conf: XMODIFIERS and QT_IM_MODULES, since the session is Wayland
-  configure fcitx with rime and luna_pinyin terra_pinyin bopomofo pinyin_simp for skel
+  configure fcitx with rime and luna_pinyin pinyin_simp for skel
 
 [finish]
   delete the downloaded stage3 from /var/cache/gentoo-install

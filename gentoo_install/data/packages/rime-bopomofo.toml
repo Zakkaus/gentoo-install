@@ -1,0 +1,4 @@
+# Bopomofo, from the schemas `app-i18n/rime-data` ships by default.
+packages = ["app-i18n/rime-data"]
+input_method = "rime"
+schemas = ["bopomofo"]
