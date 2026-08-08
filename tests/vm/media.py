@@ -160,7 +160,20 @@ FEDORA = Medium(
     extra_cmdline=("systemd.unit=multi-user.target",),
 )
 
+OPENSUSE = Medium(
+    name="opensuse",
+    iso=ISO_CACHE / "opensuse-tumbleweed-rescue.iso",
+    volume_label="openSUSE_Tumbleweed_Rescue_CD",
+    kernel_in_iso="/boot/x86_64/loader/linux",
+    initrd_in_iso="/boot/x86_64/loader/initrd",
+    # The rescue image logs root in with no password at all.
+    root_prompt=r"localhost:~ #",
+    login_user="root",
+    login_password=None,
+    extra_cmdline=("rd.live.overlay.persistent", "rd.live.overlay.cowfs=ext4"),
+)
+
 MEDIA = {
     medium.name: medium
-    for medium in (GIGOS, OFFICIAL_MINIMAL, ALPINE, DEBIAN, ARCH, FEDORA)
+    for medium in (GIGOS, OFFICIAL_MINIMAL, ALPINE, DEBIAN, ARCH, FEDORA, OPENSUSE)
 }
