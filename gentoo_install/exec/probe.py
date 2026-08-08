@@ -97,12 +97,15 @@ class Probe:
         return path
 
     def uuid_of(self, path: str, device: DeviceId) -> str:
-        """Read a formatted device's UUID. Never cached: a device formatted a
-        second time keeps the first UUID in a cache, and fstab then names a
-        filesystem that no longer exists."""
+        """Read a formatted device's UUID.
+
+        `--probe` reads the device rather than blkid's cache, which still holds
+        the previous filesystem's UUID after a reformat; that UUID would go
+        into fstab and the kernel command line.
+        """
         self.runner.run(["udevadm", "settle"], check=False)
         result = self.runner.run(
-            ["blkid", "--match-tag", "UUID", "--output", "value", path], check=False
+            ["blkid", "--probe", "--match-tag", "UUID", "--output", "value", path], check=False
         )
         uuid = result.stdout.strip()
         if not uuid:

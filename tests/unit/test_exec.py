@@ -15,7 +15,7 @@ from gentoo_install.errors import (
 from gentoo_install.exec import fetch, preflight
 from gentoo_install.exec.probe import Machine as ProbedMachine
 from gentoo_install.exec.probe import Probe
-from gentoo_install.exec.runner import Runner, under
+from gentoo_install.exec.runner import Result, Runner, under
 from gentoo_install.model.config import Bootloader, BootloaderConfig, Firmware, InstallConfig
 from gentoo_install.model.device import DeviceId, Existing, Node
 
@@ -347,3 +347,21 @@ def test_a_short_zfs_passphrase_is_caught_before_the_disk_is_touched(tmp_path: P
     assert preflight._passphrase_problems(with_key(str(key))) == []
     assert "cannot be read" in preflight._passphrase_problems(with_key(str(tmp_path / "gone")))[0]
     assert "names no passphrase_file" in preflight._passphrase_problems(with_key(""))[0]
+
+
+def test_a_uuid_is_read_from_the_device_and_not_from_the_cache(tmp_path: Path) -> None:
+    """blkid's cache still holds the previous filesystem's UUID after a
+    reformat, and that UUID would go into fstab and the kernel command line."""
+    seen: list[tuple[str, ...]] = []
+
+    class Recording(Runner):
+        def run(self, argv, *, check=True, input_text=None, timeout=None):  # type: ignore[no-untyped-def]
+            seen.append(tuple(argv))
+            return Result(
+                argv=tuple(argv), returncode=0, stdout="1234-ABCD", stderr="", seconds=0.0
+            )
+
+    probe = Probe(runner=Recording(log=lambda line: None), work=tmp_path)
+    assert probe.uuid_of("/dev/vdb2", DeviceId("rootfs")) == "1234-ABCD"
+    called = next(argv for argv in seen if argv[0] == "blkid")
+    assert "--probe" in called
