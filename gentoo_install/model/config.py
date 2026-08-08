@@ -43,6 +43,20 @@ class Keywords(Enum):
     TESTING = "testing"
 
 
+class Networking(Enum):
+    """How the installed system brings a link up.
+
+    `BUILTIN` is whatever the init already has: systemd-networkd on systemd,
+    netifrc on openrc. The rest install a manager, and the two NetworkManager
+    entries differ only in which supplicant drives wifi.
+    """
+
+    BUILTIN = "builtin"
+    NETWORKMANAGER_WPA = "networkmanager-wpa"
+    NETWORKMANAGER_IWD = "networkmanager-iwd"
+    NONE = "none"
+
+
 class BinhostChannel(Enum):
     OFF = "off"
     STABLE = "stable"
@@ -95,6 +109,7 @@ class SystemConfig:
     #: Empty locks root, which is what a system with a sudo user wants.
     root_password_hash: str = ""
     sshd: bool = False
+    networking: Networking = Networking.BUILTIN
 
 
 @dataclass(frozen=True)

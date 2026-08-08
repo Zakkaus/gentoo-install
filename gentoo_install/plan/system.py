@@ -14,7 +14,7 @@ from typing import Final
 
 from ..errors import InvalidLayout, LocaleMissing
 from ..model import compat
-from ..model.config import ConsoleFontSize, InitSystem, InstallConfig, User
+from ..model.config import ConsoleFontSize, InitSystem, InstallConfig, Networking, SystemConfig, User
 from ..model.size import Size
 from ..model.device import (
     MdRaid,
@@ -277,17 +277,42 @@ class GrantSudo(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
+class RequestNetworkUse(Operation):
+    """Written in the portage phase, before NetworkManager is merged."""
+
+    stage: Stage = Stage.PORTAGE
+    lines: tuple[str, ...]
+
+    def describe(self) -> str:
+        return f"ask for {'; '.join(self.lines)}"
+
+    def apply(self, context: Context) -> None:
+        context.write(
+            PurePosixPath("/etc/portage/package.use/network"),
+            "".join(f"{line}\n" for line in self.lines),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
 class WriteNetworkConfig(Operation):
     """A wired interface with DHCP. systemd-networkd does nothing without a
-    `.network` file, so enabling the service alone leaves the system offline."""
+    `.network` file, so enabling the service alone leaves the system offline.
+
+    NetworkManager needs no file: it manages every unconfigured interface.
+    """
 
     stage: Stage = Stage.SYSTEM
     init: InitSystem
+    networking: Networking
 
     def describe(self) -> str:
+        if self.networking in (Networking.NETWORKMANAGER_WPA, Networking.NETWORKMANAGER_IWD):
+            return f"leave the interfaces to NetworkManager ({self.networking.value})"
         return "configure the wired interface for DHCP"
 
     def apply(self, context: Context) -> None:
+        if self.networking in (Networking.NETWORKMANAGER_WPA, Networking.NETWORKMANAGER_IWD):
+            return
         if self.init is InitSystem.SYSTEMD:
             context.write(
                 PurePosixPath("/etc/systemd/network/20-wired.network"),
@@ -479,14 +504,17 @@ def build(config: InstallConfig) -> list[Operation]:
             Emerge(stage=Stage.SYSTEM, packages=("net-misc/openssh",), summary="install sshd"),
             EnableService(service=_sshd_service(system.init), init=system.init),
         ]
-    network = _network_packages(system.init)
+    flags = _network_use(system)
+    if flags:
+        operations.append(RequestNetworkUse(lines=flags))
+    network = _network_packages(system)
     if network:
         operations.append(
             Emerge(stage=Stage.SYSTEM, packages=network, summary="install the network tools")
         )
     operations += [
-        WriteNetworkConfig(init=system.init),
-        EnableService(service=_network_service(system.init), init=system.init),
+        WriteNetworkConfig(init=system.init, networking=system.networking),
+        EnableService(service=_network_service(system), init=system.init),
     ]
     return operations
 
@@ -600,16 +628,31 @@ def _sshd_service(init: InitSystem) -> str:
     return "sshd.service" if init is InitSystem.SYSTEMD else "sshd"
 
 
-def _network_service(init: InitSystem) -> str:
-    return "systemd-networkd.service" if init is InitSystem.SYSTEMD else "dhcpcd"
+def _network_service(system: SystemConfig) -> str:
+    if system.networking in (Networking.NETWORKMANAGER_WPA, Networking.NETWORKMANAGER_IWD):
+        return "NetworkManager.service" if system.init is InitSystem.SYSTEMD else "NetworkManager"
+    return "systemd-networkd.service" if system.init is InitSystem.SYSTEMD else "dhcpcd"
 
 
-def _network_packages(init: InitSystem) -> tuple[str, ...]:
-    if init is InitSystem.SYSTEMD:
+def _network_packages(system: SystemConfig) -> tuple[str, ...]:
+    if system.networking is Networking.NETWORKMANAGER_IWD:
+        # `iwd` replaces wpa_supplicant as the wifi backend, and it is the flag
+        # rather than the package that decides which NetworkManager talks to.
+        return ("net-misc/networkmanager", "net-wireless/iwd")
+    if system.networking is Networking.NETWORKMANAGER_WPA:
+        return ("net-misc/networkmanager", "net-wireless/wpa_supplicant")
+    if system.init is InitSystem.SYSTEMD:
         # networkd is part of systemd and does the DHCP itself.
         return ()
     # stage3 carries no netifrc, and openrc's net.* scripts are nothing without it.
     return ("net-misc/netifrc", "net-misc/dhcpcd")
+
+
+def _network_use(system: SystemConfig) -> tuple[str, ...]:
+    """The flag that picks NetworkManager's wifi backend."""
+    if system.networking is Networking.NETWORKMANAGER_IWD:
+        return ("net-misc/networkmanager iwd",)
+    return ()
 
 
 def _set_password(context: Context, user: str, password_hash: str) -> None:

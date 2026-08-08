@@ -29,6 +29,7 @@ from .config import (
     Keywords,
     MirrorConfig,
     MirrorRegion,
+    Networking,
     Overlay,
     PackagesConfig,
     PortageConfig,
@@ -102,7 +103,7 @@ def _system(raw: Mapping[str, Any], at: str) -> SystemConfig:
         {
             "hostname", "timezone", "locales", "locale", "keymap", "console_cjk",
             "console_font", "init", "sshd", "users", "root_password_hash",
-            "zram", "hardware_clock_utc",
+            "zram", "hardware_clock_utc", "networking",
         },
     )
     default = SystemConfig()
@@ -117,6 +118,7 @@ def _system(raw: Mapping[str, Any], at: str) -> SystemConfig:
         init=_enum(raw, "init", at, InitSystem, default.init),
         root_password_hash=_str(raw, "root_password_hash", at, default.root_password_hash),
         sshd=_bool(raw, "sshd", at, default.sshd),
+        networking=_enum(raw, "networking", at, Networking, default.networking),
         zram=_size(raw, "zram", at),
         hardware_clock_utc=_bool(raw, "hardware_clock_utc", at, default.hardware_clock_utc),
         users=tuple(_user(entry, f"{at}.users[{n}]") for n, entry in enumerate(_tables(raw, "users", at))),
