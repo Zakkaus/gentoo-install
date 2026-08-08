@@ -176,6 +176,7 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         stage_passphrase=lambda text: _stage_passphrase(text, arguments.work),
         timezones=probe.timezones(),
         firmware=Firmware.UEFI if probe.machine().uefi else Firmware.BIOS,
+        inspect_disk=lambda disk: (probe.partitions(disk), probe.disk_size(disk)),
     )
     if not context.disks:
         raise errors.DeviceNotFound("this machine reports no disk to install onto")

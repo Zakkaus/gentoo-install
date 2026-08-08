@@ -207,6 +207,31 @@ class Probe:
                     found.append(str(city.relative_to(root)))
         return ("UTC", *found)
 
+    def partitions(self, disk: str) -> tuple[tuple[str, str, str], ...]:
+        """What is on a disk now, as name, size and filesystem.
+
+        Shown before the table is edited: an operator about to erase a disk has
+        to see what is on it, and sizes are guesswork without the total.
+        """
+        listed = self.runner.run(
+            ["lsblk", "--noheadings", "--paths", "--output", "NAME,SIZE,FSTYPE", disk],
+            check=False,
+        )
+        if listed.returncode != 0:
+            return ()
+        found: list[tuple[str, str, str]] = []
+        for line in listed.stdout.splitlines()[1:]:
+            fields = line.split()
+            if len(fields) >= 2:
+                found.append((fields[0].lstrip("`|-\u2500\u2514\u251c "), fields[1], fields[2] if len(fields) > 2 else ""))
+        return tuple(found)
+
+    def disk_size(self, disk: str) -> str:
+        listed = self.runner.run(
+            ["lsblk", "--noheadings", "--nodeps", "--output", "SIZE", disk], check=False
+        )
+        return listed.stdout.strip() if listed.returncode == 0 else ""
+
     def _zone_table(self, path: Path) -> tuple[str, ...]:
         try:
             text = path.read_text(encoding="utf-8")

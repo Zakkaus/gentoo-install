@@ -55,6 +55,9 @@ class Context:
         stage_passphrase: Callable[[str], str] = lambda text: "",
         timezones: Sequence[str] = (),
         firmware: Firmware = Firmware.UEFI,
+        inspect_disk: Callable[[str], tuple[tuple[tuple[str, str, str], ...], str]] = (
+            lambda disk: ((), "")
+        ),
     ) -> None:
         self.translate = translate
         #: Selector and a human description, from `exec/probe.py`.
@@ -81,6 +84,16 @@ class Context:
         self.layout = manual.Layout()
         #: Whether the disk comes from that table rather than a template.
         self.manual = False
+        #: What the chosen disk holds now, and how big it is. Both come from
+        #: `exec/probe.py` and are shown before anything is erased.
+        self.existing: tuple[tuple[str, str, str], ...] = ()
+        self.disk_size = ""
+        self._inspect = inspect_disk
+        if self.choice.disk:
+            self.inspect_disk(self.choice.disk)
+
+    def inspect_disk(self, disk: str) -> None:
+        self.existing, self.disk_size = self._inspect(disk)
 
 
 def _footer(translate: Catalog) -> str:
@@ -111,6 +124,7 @@ def disk_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     if not answer.chosen:
         return Answer(answer.outcome)
     context.choice = replace(context.choice, disk=answer.unwrap()[0])
+    context.inspect_disk(context.choice.disk)
     return Answer(Outcome.CHOSE, _rebuild(config, context.choice))
 
 
@@ -832,20 +846,21 @@ def partitions_screen(
         context.layout = manual.suggest(context.choice.disk, context.choice.firmware)
     while True:
         rows = sorted(context.layout.slices, key=lambda one: one.index)
-        items: list[Item[int]] = [
-            Item(label=entry.describe(), value=index) for index, entry in enumerate(rows)
-        ]
+        items: list[Item[int]] = list(_existing(context))
+        items += [Item(label=entry.describe(), value=index) for index, entry in enumerate(rows)]
         items.append(Item(label=translate("Add a partition"), value=len(rows)))
         items.append(Item(label=translate("Done"), value=len(rows) + 1))
         menu: Menu[int] = Menu(
-            title=f"{translate('Partitions')}  {_layout_problem(context, config)}",
+            title=f"{translate('Partitions')}  {_capacity(context)}",
             items=items,
-            footer=_footer(translate),
+            footer=f"{_layout_problem(context, config)}  {_footer(translate)}".strip(),
         )
         answer = menu.run(screen)
         if not answer.chosen:
             return Answer(answer.outcome)
         chosen = answer.unwrap()[0]
+        if chosen < 0:
+            continue
         if chosen == len(rows) + 1:
             return Answer(Outcome.CHOSE, _from_layout(config, context))
         if chosen == len(rows):
@@ -857,6 +872,32 @@ def partitions_screen(
         context.layout.slices.remove(rows[chosen])
         if edited is not None:
             context.layout.slices.append(edited)
+
+
+def _capacity(context: Context) -> str:
+    """The disk's size and what the table has already claimed, because a size
+    is guesswork without them."""
+    total = context.disk_size
+    if not total:
+        return ""
+    claimed = sum(
+        entry.size.bytes for entry in context.layout.slices if entry.size is not None
+    )
+    rest = any(entry.size is None for entry in context.layout.slices)
+    used = Size(claimed)
+    return f"{total} total, {used} claimed{', rest to one partition' if rest else ''}"
+
+
+def _existing(context: Context) -> tuple[Item[int], ...]:
+    """What is on the disk now, drawn above the table and not selectable."""
+    return tuple(
+        Item(
+            label=f"{name}  {size}  {kind or 'no filesystem'}",
+            value=-1,
+            disabled_because=context.translate("on the disk now, will be erased"),
+        )
+        for name, size, kind in context.existing
+    )
 
 
 def _layout_problem(context: Context, config: InstallConfig) -> str:
