@@ -51,6 +51,17 @@ class RaidLevel(Enum):
     RAID5 = "raid5"
     RAID6 = "raid6"
 
+    @property
+    def minimum(self) -> int:
+        """Members the level needs. `mdadm --create` refuses fewer, and it
+        refuses them after the disks have already been partitioned."""
+        return {
+            RaidLevel.RAID0: 2,
+            RaidLevel.RAID1: 2,
+            RaidLevel.RAID5: 3,
+            RaidLevel.RAID6: 4,
+        }[self]
+
 
 class RaidMetadata(Enum):
     """mdadm superblock format, as `--metadata` spells it."""

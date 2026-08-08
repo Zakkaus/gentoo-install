@@ -383,3 +383,26 @@ def test_the_topology_keyword_goes_before_the_devices() -> None:
     # Every member of the table has a minimum, so a new one cannot be added
     # without saying how many devices it takes.
     assert {one: one.minimum for one in ZfsTopology}.keys() == set(ZfsTopology)
+
+
+def test_an_array_has_enough_members_for_the_level_it_names() -> None:
+    """`mdadm --create` refuses a raid5 of two, and it refuses it after the
+    disks have already been partitioned."""
+    from gentoo_install.model.device import MdRaid, RaidLevel
+    from gentoo_install.model.validate import _array_problems
+
+    installation = load(Path("tests/fixtures/vm-mdraid.toml"))
+    graph = installation.disk.graph
+
+    def at_level(level: RaidLevel) -> list[str]:
+        nodes = [
+            replace(node, level=level) if isinstance(node, MdRaid) else node
+            for node in graph.nodes.values()
+        ]
+        return _array_problems(replace(installation, disk=replace(
+            installation.disk, graph=DeviceGraph.build(nodes)
+        )))
+
+    assert at_level(RaidLevel.RAID1) == []
+    assert "at least 3" in " ".join(at_level(RaidLevel.RAID5))
+    assert "at least 4" in " ".join(at_level(RaidLevel.RAID6))

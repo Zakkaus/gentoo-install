@@ -19,6 +19,7 @@ from .device import (
     DeviceId,
     Existing,
     Filesystem,
+    MdRaid,
     Mountpoint,
     Node,
     ZfsPool,
@@ -37,6 +38,7 @@ def validate(config: InstallConfig) -> None:
         *_kernel_package_problems(config),
         *_reuse_problems(config),
         *_pool_problems(config),
+        *_array_problems(config),
         *(rule.describe() for rule in compat.violations(config)),
     ]
     if problems:
@@ -65,6 +67,16 @@ def _pool_problems(config: InstallConfig) -> list[str]:
                 f"at least {pool.topology.minimum}"
             )
     return problems
+
+
+def _array_problems(config: InstallConfig) -> list[str]:
+    """Every array has enough members for the level it names."""
+    return [
+        f"{array.id} is a {array.level.value} of {len(array.members)} devices and needs "
+        f"at least {array.level.minimum}"
+        for array in config.disk.graph.of_type(MdRaid)
+        if len(array.members) < array.level.minimum
+    ]
 
 
 def _reuse_problems(config: InstallConfig) -> list[str]:
