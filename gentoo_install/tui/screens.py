@@ -208,11 +208,10 @@ def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     if not answer.chosen:
         return Answer(answer.outcome)
     layout, filesystem = answer.unwrap()[0]
+    context.manual = False
     if layout is Layout.REUSE:
-        context.manual = True
         return reuse_screen(screen, config, context)
     if layout is None:
-        context.manual = True
         context.layout.reused = []
         return partitions_screen(screen, config, context)
     context.manual = False
@@ -261,6 +260,7 @@ def reuse_screen(screen: Screen, config: InstallConfig, context: Context) -> Ans
             return Answer(answer.outcome)
         chosen = answer.unwrap()[0]
         if chosen == len(context.layout.reused):
+            context.manual = True
             graph, root = manual.build(context.layout)
             return Answer(Outcome.CHOSE, replace(config, disk=DiskConfig(graph=graph, root=root)))
         edited = _edit_reused(screen, context, context.layout.reused[chosen])
@@ -1580,6 +1580,11 @@ def partitions_screen(
         if chosen < 0:
             continue
         if chosen == len(rows) + 1:
+            # Marked here rather than by whoever opened this screen: the row can
+            # be reached from the menu as well as from the layout row, and a
+            # flag set before the editor answers describes a table that may
+            # never have been produced.
+            context.manual = True
             return Answer(Outcome.CHOSE, _from_layout(config, context))
         if chosen == len(rows):
             added = _edit_slice(screen, context, None)

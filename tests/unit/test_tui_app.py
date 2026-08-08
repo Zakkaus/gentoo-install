@@ -13,6 +13,7 @@ from gentoo_install.model.config import (
     MirrorConfig,
     MirrorRegion,
 )
+from gentoo_install.model import manual
 from gentoo_install.model.device import FilesystemType
 from gentoo_install.model.validate import validate
 from gentoo_install.tui import screens, settings
@@ -760,3 +761,35 @@ def test_swap_is_one_choice_and_not_two_that_accumulate() -> None:
 
     none = screens.swap_screen(FakeScreen(keys=["\n"]), zram, at).unwrap()
     assert none.system.zram is None and not none.disk.graph.of_type(Swap)
+
+
+def test_backing_out_of_a_group_keeps_what_was_edited_inside_it() -> None:
+    """Backspace is what the group's own footer calls Back, and it discarded
+    every edit made behind that row."""
+    at = context()
+    rows = settings.DISK
+    keys = [*down(5), "\n", *down(3), "\n", "\x7f"]
+    answer = settings.nested("Disk", rows)(FakeScreen(keys=keys, lines=30), config(), at)
+    assert answer.chosen
+
+
+def test_a_layout_editor_that_backs_out_leaves_no_manual_table_behind() -> None:
+    """The Layout and Partitions rows described a table the configuration did
+    not contain, because the flag was set before the editor answered."""
+    at = context()
+    at.existing = ()
+    at.manual = False
+    # reuse on a disk with nothing on it: the screen reports and goes back.
+    screens.layout_screen(FakeScreen(keys=[*down(5), "\n", "\n"], lines=30), config(), at)
+    assert not at.manual
+
+
+def test_opening_the_partitions_row_directly_marks_the_layout_manual() -> None:
+    """It is reachable from the menu as well as from the Layout row, and the
+    disk rebuild reads that flag."""
+    at = context()
+    at.manual = False
+    at.layout = manual.suggest(at.choice.disk, at.firmware)
+    screen = FakeScreen(keys=[*down(3), "\n"], lines=30, columns=100)
+    screens.partitions_screen(screen, config(), at)
+    assert at.manual

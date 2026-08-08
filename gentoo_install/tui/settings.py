@@ -83,6 +83,10 @@ def nested(title: str, rows: tuple[Setting, ...]) -> Step:
             )
             answer = menu.run(screen)
             cursor = menu.cursor
+            if answer.outcome is Outcome.BACK:
+                # Backspace is what this menu's own footer calls Back, so it
+                # leaves the group and keeps what was edited inside it.
+                return Answer(Outcome.CHOSE, current)
             if not answer.chosen:
                 return Answer(answer.outcome)
             chosen = answer.unwrap()[0]
