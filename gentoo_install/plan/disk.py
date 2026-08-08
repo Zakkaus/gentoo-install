@@ -508,8 +508,16 @@ def topological(graph: DeviceGraph) -> tuple[Node, ...]:
     return tuple(ready.values())
 
 
-def _order_key(node: Node) -> tuple[int, str]:
-    return (node.index if isinstance(node, Partition) else 0, node.id)
+def _order_key(node: Node) -> tuple[int, int, str]:
+    """Partition index first, then whether the node takes the remaining space.
+
+    `sgdisk --new=N:0:+size` and `lvcreate -l 100%FREE` both take what is free
+    when they run, so a node with no size has to be created after every sized
+    one that shares its container.
+    """
+    index = node.index if isinstance(node, Partition) else 0
+    takes_the_rest = isinstance(node, (Partition, LogicalVolume)) and node.size is None
+    return (index, 1 if takes_the_rest else 0, node.id)
 
 
 def _mount_depth(operation: Operation) -> int:

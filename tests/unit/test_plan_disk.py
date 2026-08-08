@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -24,6 +24,7 @@ from gentoo_install.model.device import (
     TableType,
     ZfsPool,
 )
+from gentoo_install.model.parse import load
 from gentoo_install.model.size import Size
 from gentoo_install.plan import disk
 from gentoo_install.plan.operations import Stage
@@ -225,3 +226,16 @@ def test_the_table_is_reread_without_parted_installed() -> None:
     plain = Recorder()
     disk.RereadPartitionTable(disk=i("disk")).apply(plain)
     assert not any(argv[0] == "blockdev" for argv in plain.commands)
+
+
+def test_a_volume_with_no_size_is_created_after_the_sized_ones() -> None:
+    """`lvcreate -l 100%FREE` takes what is free when it runs, so creating the
+    unsized volume first leaves the sized one with nothing."""
+    described = [
+        operation.describe()
+        for operation in disk.build(load(Path("tests/fixtures/vm-lvm.toml")))
+        if "logical volume" in operation.describe()
+    ]
+    assert len(described) == 2
+    assert "8GiB" in described[0]
+    assert "the rest of the group" in described[1]

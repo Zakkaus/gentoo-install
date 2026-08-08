@@ -1,0 +1,118 @@
+# LVM: one volume group over one partition, with root and home as separate
+# logical volumes. UEFI, openrc, ext4.
+config_version = 1
+
+[system]
+hostname = "lvmbox"
+timezone = "UTC"
+locales = ["en_US.UTF-8"]
+locale = "en_US.UTF-8"
+init = "openrc"
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
+
+[portage]
+profile = "default/linux/amd64/23.0"
+makeopts = "-j4"
+
+[portage.binhost]
+official = true
+community = "off"
+
+[kernel]
+source = "dist-bin"
+
+[bootloader]
+kind = "grub"
+firmware = "uefi"
+kernel_params = ["console=ttyS0,115200"]
+
+[disk]
+root = "mnt-root"
+
+[[disk.devices]]
+kind = "existing"
+id = "disk"
+selector = "/dev/disk/by-id/virtio-target0"
+wipe = true
+
+[[disk.devices]]
+kind = "table"
+id = "table"
+disk = "disk"
+table = "gpt"
+
+[[disk.devices]]
+kind = "partition"
+id = "esp"
+table = "table"
+index = 1
+role = "esp"
+size = "512MiB"
+
+[[disk.devices]]
+kind = "partition"
+id = "pv"
+table = "table"
+index = 2
+role = "lvm"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "espfs"
+device = "esp"
+type = "vfat"
+label = "ESP"
+
+[[disk.devices]]
+kind = "volume-group"
+id = "vg"
+members = ["pv"]
+name = "vg0"
+
+[[disk.devices]]
+kind = "logical-volume"
+id = "lv-root"
+group = "vg"
+name = "root"
+size = "8GiB"
+
+# No size: the rest of the group, which is what makes the two volumes worth
+# testing separately from a single filesystem.
+[[disk.devices]]
+kind = "logical-volume"
+id = "lv-home"
+group = "vg"
+name = "home"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "rootfs"
+device = "lv-root"
+type = "ext4"
+label = "gentoo"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "homefs"
+device = "lv-home"
+type = "ext4"
+label = "home"
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-root"
+source = "rootfs"
+path = "/"
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-esp"
+source = "espfs"
+path = "/efi"
+options = ["umask=0077"]
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-home"
+source = "homefs"
+path = "/home"
