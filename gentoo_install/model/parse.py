@@ -303,8 +303,22 @@ def _existing(raw: Mapping[str, Any], at: str) -> Node:
 
 
 def _table_node(raw: Mapping[str, Any], at: str) -> Node:
-    _reject_unknown(raw, at, {"kind", "id", "disk", "table"})
-    return PartitionTable(id=_id(raw, at), disk=_ref(raw, "disk", at), table=_enum(raw, "table", at, TableType, TableType.GPT))
+    _reject_unknown(raw, at, {"kind", "id", "disk", "table", "create", "remove"})
+    return PartitionTable(
+        id=_id(raw, at),
+        disk=_ref(raw, "disk", at),
+        table=_enum(raw, "table", at, TableType, TableType.GPT),
+        create=_bool(raw, "create", at, True),
+        remove=_indexes(raw, "remove", at),
+    )
+
+
+def _indexes(raw: Mapping[str, Any], key: str, at: str) -> tuple[int, ...]:
+    """Entry numbers to remove from a table that is not written from scratch."""
+    value = raw.get(key, [])
+    if not isinstance(value, list) or not all(isinstance(one, int) for one in value):
+        raise ConfigError(f"{at}.{key} must be a list of partition numbers")
+    return tuple(int(one) for one in value)
 
 
 def _partition(raw: Mapping[str, Any], at: str) -> Node:

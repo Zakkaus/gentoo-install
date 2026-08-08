@@ -22,6 +22,7 @@ from gentoo_install.model.device import (
     Luks,
     MdRaid,
     Mountpoint,
+    PartitionTable,
     RaidLevel,
     RaidMetadata,
     Subvolume,
@@ -122,6 +123,30 @@ def test_every_raid_level_can_be_written_in_the_file() -> None:
             {"kind": "raid", "id": "md", "members": ["esp"], "level": level.value, "name": "md"}
         )
         assert parse(raw).disk.graph.of_type(MdRaid)[0].level is level
+
+
+def test_a_table_can_be_edited_instead_of_written_from_scratch() -> None:
+    raw = fixture()
+    for device in raw["disk"]["devices"]:
+        if device["kind"] == "table":
+            device["create"] = False
+            device["remove"] = [2, 3]
+    table = parse(raw).disk.graph.of_type(PartitionTable)[0]
+    assert (table.create, table.remove) == (False, (2, 3))
+
+
+def test_a_table_is_written_from_scratch_by_default() -> None:
+    table = parse(fixture()).disk.graph.of_type(PartitionTable)[0]
+    assert (table.create, table.remove) == (True, ())
+
+
+def test_the_entries_to_remove_must_be_partition_numbers() -> None:
+    raw = fixture()
+    for device in raw["disk"]["devices"]:
+        if device["kind"] == "table":
+            device["remove"] = ["vda2"]
+    with pytest.raises(ConfigError, match="remove must be a list of partition numbers"):
+        parse(raw)
 
 
 def test_an_array_can_name_the_metadata_version_an_esp_member_needs() -> None:
