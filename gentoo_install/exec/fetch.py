@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -29,6 +30,10 @@ PROBE_FILE: Final[str] = "distfiles/timestamp.chk"
 
 #: A mirror that has not answered by now is not the one to install from.
 PROBE_TIMEOUT: Final[float] = 5.0
+
+#: Enough that a long mirror list is measured in one timeout rather than in
+#: one per site.
+PROBE_WORKERS: Final[int] = 8
 
 
 #: The mirror's index is HTML; this is the link to a tarball in it.
@@ -63,9 +68,11 @@ def rank_mirrors(candidates: tuple[str, ...]) -> tuple[str, ...]:
     at the end rather than disappearing: a slow mirror still installs, and a
     measurement that found nothing must not leave an empty list.
     """
-    measured: list[tuple[float, int, str]] = []
-    for position, mirror in enumerate(candidates):
-        measured.append((_probe(mirror), position, mirror))
+    # Concurrently: the China list is twenty-three sites, and measuring them
+    # one after another costs two minutes when most of them time out.
+    with ThreadPoolExecutor(max_workers=PROBE_WORKERS) as pool:
+        times = list(pool.map(_probe, candidates))
+    measured = [(time, position, mirror) for position, (time, mirror) in enumerate(zip(times, candidates))]
     return tuple(mirror for _, _, mirror in sorted(measured))
 
 

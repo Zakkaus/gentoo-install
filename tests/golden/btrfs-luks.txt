@@ -27,12 +27,12 @@
   mount proc, sys, dev and run into the target and copy resolv.conf
 
 [portage]
-  write /etc/portage/make.conf with COMMON_FLAGS, CFLAGS, CXXFLAGS, FCFLAGS, FFLAGS, MAKEOPTS, USE, VIDEO_CARDS, ACCEPT_LICENSE, L10N, FEATURES; 3 mirrors fastest first, measured
+  write /etc/portage/make.conf with COMMON_FLAGS, CFLAGS, CXXFLAGS, FCFLAGS, FFLAGS, MAKEOPTS, USE, VIDEO_CARDS, ACCEPT_LICENSE, L10N, FEATURES; 23 mirrors fastest first, measured
   create the three autounmask files emerge writes its decisions into
   fetch the first ebuild repository snapshot with emerge-webrsync
   select profile default/linux/amd64/23.0/desktop/systemd
   install git, which every later repository sync needs: emerge dev-vcs/git
-  point repository gentoo at https://mirrors.cernet.edu.cn/git/gentoo-portage.git, commit signatures verified
+  point repository gentoo at https://mirrors.tuna.tsinghua.edu.cn/git/gentoo-portage.git, commit signatures verified
   sync repository gentoo
   point repository gentoo-zh at https://mirrors.cernet.edu.cn/gentoo-zh.git
   sync repository gentoo-zh
@@ -41,7 +41,7 @@
   add verified binary package host gentoo at https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64
   install the key the community binary packages are signed with: emerge sec-keys/openpgp-keys-gentoozh, from source
   import 38A0234EC16AD42E from /usr/share/openpgp-keys/gentoozh.asc and locally sign it for gentoo-zh
-  add verified binary package host gentoo-zh at https://mirrors.cernet.edu.cn/gentoo-zh/binpkgs/x86-64
+  add verified binary package host gentoo-zh at https://distfiles.gentoozh.org/binpkgs/x86-64
   ask for sys-apps/systemd[cryptsetup], which provides the unlock generator
   ask for app-i18n/rime-data extra for the rime-simplified group
 

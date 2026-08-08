@@ -20,10 +20,12 @@ from ..model.config import (
     BootloaderConfig,
     DiskConfig,
     Firmware,
+    GentooZhMirror,
     InitSystem,
     InstallConfig,
     KernelSource,
     Keywords,
+    MirrorConfig,
     MirrorRegion,
     Networking,
     Overlay,
@@ -35,7 +37,7 @@ from ..model.device import FilesystemType, PartitionRole, TableType
 from ..plan.kernel import KERNEL_PACKAGES
 from ..model.size import Size
 from ..errors import GentooInstallError, ValidationFailed
-from ..model import atoms, manual, paste, sshkey
+from ..model import atoms, manual, mirrors, paste, sshkey
 from ..model.templates import Choice, Layout, build
 from ..model.validate import validate
 from ..plan.packages import Catalog as Groups
@@ -333,27 +335,133 @@ def user_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     return Answer(Outcome.CHOSE, replace(config, system=replace(config.system, users=(user,))))
 
 
-def mirror_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
-    """Which region's mirrors, and whether to measure them.
+#: One row of the mirror screen. Every field is visible with its value: the
+#: four services are separate choices, and which of them a mirror serves is
+#: not something the operator can guess from its name.
+_REGION: Final[str] = "region"
+_SITE: Final[str] = "site"
+_MEASURE: Final[str] = "measure"
+_ZH_SITE: Final[str] = "zh-site"
+_ZH_DISTFILES: Final[str] = "zh-distfiles"
+_DONE: Final[str] = "done"
 
-    Measuring costs a minute and saves hours on a slow link, so it is a
-    question rather than a default.
+
+def mirror_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
+    """The four services, each shown with where it will come from.
+
+    The main tree and gentoo-zh are chosen apart: they hold different files and
+    do not offer the same set of sites.
     """
     translate = context.translate
-    items: list[Item[tuple[MirrorRegion, bool]]] = [
-        Item(label="official mirrors", value=(MirrorRegion.GLOBAL, False)),
-        Item(label="mirrors in China", value=(MirrorRegion.CN, False)),
-        Item(label="mirrors in China, fastest first", value=(MirrorRegion.CN, True)),
+    current = config.portage.mirrors
+    cursor = 0
+    while True:
+        menu: Menu[str] = Menu(
+            title=translate("Mirrors"),
+            items=_mirror_fields(current, translate),
+            footer=_footer(translate),
+            cursor=cursor,
+        )
+        answer = menu.run(screen)
+        cursor = menu.cursor
+        if not answer.chosen:
+            return Answer(answer.outcome)
+        field = answer.unwrap()[0]
+        if field == _DONE:
+            return Answer(
+                Outcome.CHOSE, replace(config, portage=replace(config.portage, mirrors=current))
+            )
+        changed = _edit_mirror(screen, context, current, field)
+        if changed is not None:
+            current = changed
+
+
+def _mirror_fields(current: MirrorConfig, translate: Catalog) -> list[Item[str]]:
+    region = current.region
+    site = mirrors.gentoo_sites(region)[0].key if not current.site else current.site
+    zh = mirrors.gentoozh(current.gentoo_zh)
+    return [
+        Item(label=translate("Region"), value=_REGION, detail=region.value),
+        Item(label=translate("Gentoo mirror"), value=_SITE, detail=site),
+        Item(
+            label=translate("Measure them"),
+            value=_MEASURE,
+            detail=translate("yes") if current.speed_test else translate("no"),
+        ),
+        Item(label=translate("Repository sync"), value="", detail=mirrors.gentoo_sync_uri(region, site)),
+        Item(label=translate("rsync"), value="", detail=mirrors.gentoo_rsync_uri(region, site) or "-"),
+        Item(label=translate("gentoo-zh mirror"), value=_ZH_SITE, detail=zh.name),
+        Item(
+            label=translate("gentoo-zh distfiles"),
+            value=_ZH_DISTFILES,
+            detail=translate("appended") if current.gentoo_zh_distfiles else translate("not used"),
+        ),
+        Item(label=translate("gentoo-zh binary packages"), value="", detail=mirrors.gentoozh_binhost(current.gentoo_zh)),
+        Item(label=translate("Done"), value=_DONE),
     ]
-    menu: Menu[tuple[MirrorRegion, bool]] = Menu(
-        title=translate("Portage"), items=items, footer=_footer(translate)
-    )
-    answer = menu.run(screen)
-    if not answer.chosen:
-        return Answer(answer.outcome)
-    region, measure = answer.unwrap()[0]
-    mirrors = replace(config.portage.mirrors, region=region, speed_test=measure)
-    return Answer(Outcome.CHOSE, replace(config, portage=replace(config.portage, mirrors=mirrors)))
+
+
+def _edit_mirror(
+    screen: Screen, context: Context, current: MirrorConfig, field: str
+) -> MirrorConfig | None:
+    translate = context.translate
+    if not field:
+        # A row that only reports where a service will come from, derived from
+        # the two choices above it.
+        return None
+    if field == _REGION:
+        picked = Menu(
+            title=translate("Region"),
+            items=[Item(label=one.value, value=one) for one in MirrorRegion],
+            footer=_footer(translate),
+        ).run(screen)
+        if not picked.chosen:
+            return None
+        # The site belongs to the region, so changing one clears the other.
+        return replace(current, region=picked.unwrap()[0], site="")
+    if field == _SITE:
+        offered = mirrors.gentoo_sites(current.region)
+        chosen = Menu(
+            title=translate("Gentoo mirror"),
+            items=[
+                Item(label=one.name, value=one.key, detail=f"{one.area}  {one.distfiles}")
+                for one in offered
+            ],
+            footer=_footer(translate),
+        ).run(screen)
+        if not chosen.chosen:
+            return None
+        return replace(current, site=chosen.unwrap()[0])
+    if field == _MEASURE:
+        asked = Confirm(
+            title=translate("Measure the mirrors before installing?"), footer=_footer(translate)
+        ).run(screen)
+        if not asked.chosen:
+            return None
+        return replace(current, speed_test=asked.unwrap())
+    if field == _ZH_SITE:
+        chosen_zh = Menu(
+            title=translate("gentoo-zh mirror"),
+            items=[
+                Item(
+                    label=one.name,
+                    value=GentooZhMirror(one.key),
+                    detail=f"{one.area}  {one.distfiles}",
+                )
+                for one in mirrors.GENTOOZH_SITES
+            ],
+            footer=_footer(translate),
+        ).run(screen)
+        if not chosen_zh.chosen:
+            return None
+        return replace(current, gentoo_zh=chosen_zh.unwrap()[0])
+    asked_zh = Confirm(
+        title=translate("Add the gentoo-zh distfiles to GENTOO_MIRRORS?"),
+        footer=_footer(translate),
+    ).run(screen)
+    if not asked_zh.chosen:
+        return None
+    return replace(current, gentoo_zh_distfiles=asked_zh.unwrap())
 
 
 def bootloader_screen(
@@ -1091,7 +1199,6 @@ _MOUNTPOINT: Final[str] = "mountpoint"
 _LABEL: Final[str] = "label"
 _ENCRYPTION: Final[str] = "encryption"
 _DELETE: Final[str] = "delete"
-_DONE: Final[str] = "done"
 
 
 def _edit_slice(

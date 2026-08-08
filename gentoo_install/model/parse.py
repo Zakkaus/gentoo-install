@@ -28,6 +28,7 @@ from .config import (
     KernelSource,
     Keywords,
     MirrorConfig,
+    GentooZhMirror,
     MirrorRegion,
     Networking,
     Overlay,
@@ -181,13 +182,25 @@ def _portage(raw: Mapping[str, Any], at: str) -> PortageConfig:
 
 
 def _mirrors(raw: Mapping[str, Any], at: str) -> MirrorConfig:
-    _reject_unknown(raw, at, {"region", "speed_test", "distfiles", "repo_sync_uri"})
+    _reject_unknown(
+        raw,
+        at,
+        {
+            "region", "speed_test", "distfiles", "repo_sync_uri", "site",
+            "gentoo_zh", "gentoo_zh_distfiles",
+        },
+    )
     default = MirrorConfig()
     return MirrorConfig(
         region=_enum(raw, "region", at, MirrorRegion, default.region),
         speed_test=_bool(raw, "speed_test", at, default.speed_test),
         distfiles=_strings(raw, "distfiles", at, default.distfiles),
         repo_sync_uri=_str(raw, "repo_sync_uri", at, default.repo_sync_uri),
+        site=_str(raw, "site", at, default.site),
+        gentoo_zh=_enum(raw, "gentoo_zh", at, GentooZhMirror, default.gentoo_zh),
+        gentoo_zh_distfiles=_bool(
+            raw, "gentoo_zh_distfiles", at, default.gentoo_zh_distfiles
+        ),
     )
 
 

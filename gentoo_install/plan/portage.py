@@ -12,6 +12,7 @@ from pathlib import PurePosixPath
 from typing import Final, Sequence
 
 from ..errors import CommandFailed, ConfigError
+from ..model import mirrors
 from ..model.config import (
     BinhostChannel,
     InitSystem,
@@ -42,28 +43,6 @@ GENTOOZH_KEY: Final[PurePosixPath] = PurePosixPath("/usr/share/openpgp-keys/gent
 
 #: A stage3 ships the release engineering key at this path.
 RELEASE_KEY: Final[PurePosixPath] = PurePosixPath("/usr/share/openpgp-keys/gentoo-release.asc")
-
-BINHOST_URI: Final[dict[MirrorRegion, str]] = {
-    MirrorRegion.CN: "https://mirrors.cernet.edu.cn/gentoo-zh/binpkgs/x86-64",
-    MirrorRegion.GLOBAL: "https://distfiles.gentoozh.org/binpkgs/x86-64",
-}
-
-DISTFILES: Final[dict[MirrorRegion, tuple[str, ...]]] = {
-    MirrorRegion.CN: (
-        "https://mirrors.cernet.edu.cn/gentoo/",
-        "https://mirrors.tuna.tsinghua.edu.cn/gentoo/",
-        "https://mirrors.ustc.edu.cn/gentoo/",
-    ),
-    MirrorRegion.GLOBAL: (
-        "https://distfiles.gentoo.org/",
-        "https://gentoo.osuosl.org/",
-    ),
-}
-
-REPO_SYNC_URI: Final[dict[MirrorRegion, str]] = {
-    MirrorRegion.CN: "https://mirrors.cernet.edu.cn/git/gentoo-portage.git",
-    MirrorRegion.GLOBAL: "https://github.com/gentoo-mirror/gentoo.git",
-}
 
 #: Portage writes automatic keyword, USE and licence decisions into these. They
 #: have to exist before the first emerge, or the writes land outside Portage.
@@ -170,18 +149,23 @@ class WriteMakeConf(Operation):
     settings: tuple[tuple[str, str], ...]
     mirrors: tuple[str, ...]
     speed_test: bool
+    #: Appended after the measurement, never ranked with the rest: these hold
+    #: the overlay's own distfiles, so ranking them together would order one
+    #: repository by how fast the other answers.
+    appended: tuple[str, ...] = ()
 
     def describe(self) -> str:
         keys = [key for key, _ in self.settings]
         order = "fastest first, measured" if self.speed_test else "in the configured order"
+        extra = f", {len(self.appended)} appended" if self.appended else ""
         return (
             f"write /etc/portage/make.conf with {', '.join(keys)}; "
-            f"{len(self.mirrors)} mirrors {order}"
+            f"{len(self.mirrors)} mirrors {order}{extra}"
         )
 
     def apply(self, context: Context) -> None:
-        mirrors = context.rank_mirrors(self.mirrors) if self.speed_test else self.mirrors
-        wanted = [*self.settings, ("GENTOO_MIRRORS", " ".join(mirrors))]
+        ranked = context.rank_mirrors(self.mirrors) if self.speed_test else self.mirrors
+        wanted = [*self.settings, ("GENTOO_MIRRORS", " ".join((*ranked, *self.appended)))]
         existing = context.read(PurePosixPath("/etc/portage/make.conf"))
         context.write(PurePosixPath("/etc/portage/make.conf"), merge(existing, wanted))
 
@@ -505,6 +489,7 @@ def build(
             settings=make_conf(config, use, video_cards),
             mirrors=_distfiles(portage),
             speed_test=portage.mirrors.speed_test,
+            appended=_appended_distfiles(portage),
         ),
         CreateAutounmaskFiles(),
         WebrsyncRepository(),
@@ -625,15 +610,25 @@ def _uses_binhost(portage: PortageConfig) -> bool:
 def _distfiles(portage: PortageConfig) -> tuple[str, ...]:
     if portage.mirrors.distfiles:
         return portage.mirrors.distfiles
-    return DISTFILES[portage.mirrors.region]
+    return mirrors.gentoo_distfiles(portage.mirrors.region, portage.mirrors.site)
+
+
+def _appended_distfiles(portage: PortageConfig) -> tuple[str, ...]:
+    """gentoo-zh's own distfiles, when they were asked for. They hold the
+    sources of that overlay's packages and no main mirror carries them."""
+    if not portage.mirrors.gentoo_zh_distfiles:
+        return ()
+    return mirrors.gentoozh_distfiles(portage.mirrors.gentoo_zh)
 
 
 def _repo_sync_uri(portage: PortageConfig) -> str:
-    return portage.mirrors.repo_sync_uri or REPO_SYNC_URI[portage.mirrors.region]
+    return portage.mirrors.repo_sync_uri or mirrors.gentoo_sync_uri(
+        portage.mirrors.region, portage.mirrors.site
+    )
 
 
 def _binhost_uri(portage: PortageConfig) -> str:
-    return BINHOST_URI[portage.mirrors.region]
+    return mirrors.gentoozh_binhost(portage.mirrors.gentoo_zh)
 
 
 def _l10n(config: InstallConfig) -> tuple[str, ...]:

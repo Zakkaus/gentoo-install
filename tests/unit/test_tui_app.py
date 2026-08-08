@@ -4,7 +4,13 @@ from dataclasses import replace
 
 from gentoo_install.data import load_catalog
 from gentoo_install.i18n import Catalog
-from gentoo_install.model.config import Bootloader, InitSystem, Keywords, MirrorRegion
+from gentoo_install.model.config import (
+    Bootloader,
+    InitSystem,
+    Keywords,
+    MirrorConfig,
+    MirrorRegion,
+)
 from gentoo_install.model.validate import validate
 from gentoo_install.tui import screens, settings
 from gentoo_install.tui.app import run
@@ -383,3 +389,41 @@ def test_keywords_are_a_row_of_their_own() -> None:
     at = context()
     answer = screens.keywords_screen(FakeScreen(keys=["KEY_DOWN", "\n"]), config(), at)
     assert answer.unwrap().portage.keywords is Keywords.TESTING
+
+
+def test_the_mirror_row_shows_every_service_and_lets_each_be_chosen() -> None:
+    """Four services, and which of them a mirror serves is not something the
+    operator can guess from its name."""
+    at = context()
+    screen = FakeScreen(keys=["q"], lines=30, columns=110)
+    screens.mirror_screen(screen, config(), at)
+    drawn = screen.last
+    for label in ("Region", "Gentoo mirror", "Repository sync", "rsync", "gentoo-zh mirror"):
+        assert label in drawn, label
+
+
+def test_the_two_repositories_are_chosen_apart() -> None:
+    """They hold different files and do not offer the same set of sites."""
+    at = context()
+    keys = [*down(5), "\n", "KEY_DOWN", "\n", *down(8), "\n"]
+    answer = screens.mirror_screen(FakeScreen(keys=keys, lines=30), config(), at)
+    chosen = answer.unwrap().portage.mirrors
+    assert chosen.gentoo_zh is not MirrorConfig().gentoo_zh
+    assert chosen.region is MirrorConfig().region
+
+
+def test_the_gentoozh_distfiles_are_appended_and_never_ranked() -> None:
+    """They hold the overlay's own sources, so ranking them with the main
+    mirrors would order one repository by how fast the other answers."""
+    from gentoo_install.model.config import GentooZhMirror
+    from gentoo_install.plan.portage import _appended_distfiles
+
+    off = replace(config().portage, mirrors=MirrorConfig())
+    assert _appended_distfiles(off) == ()
+    on = replace(
+        config().portage,
+        mirrors=MirrorConfig(gentoo_zh=GentooZhMirror.NJU, gentoo_zh_distfiles=True),
+    )
+    appended = _appended_distfiles(on)
+    assert appended[0].endswith("nju.edu.cn/gentoo-zh")
+    assert appended[-1] == "https://distfiles.gentoozh.org"

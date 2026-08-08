@@ -85,6 +85,17 @@ class MirrorRegion(Enum):
     GLOBAL = "global"
 
 
+class GentooZhMirror(Enum):
+    """Which site gentoo-zh is fetched from. Separate from `MirrorRegion`: the
+    two repositories hold different files and do not share a mirror set."""
+
+    UPSTREAM = "upstream"
+    CERNET = "cernet"
+    NJU = "nju"
+    NYIST = "nyist"
+    HA = "ha"
+
+
 class ConsoleFontSize(Enum):
     """Cell size of the console font. Every size here is one `sys-apps/kbd`
     ships a font for, so the choice never names a font the target lacks."""
@@ -158,6 +169,14 @@ class MirrorConfig:
     #: Replaces the built-in list when non-empty.
     distfiles: tuple[str, ...] = ()
     repo_sync_uri: str = ""
+    #: Which site of the region, by its key in `model/mirrors.py`. Empty takes
+    #: the region's first.
+    site: str = ""
+    #: Which gentoo-zh mirror, chosen apart from the region above.
+    gentoo_zh: GentooZhMirror = GentooZhMirror.UPSTREAM
+    #: Whether its distfiles are appended to GENTOO_MIRRORS. Off by default:
+    #: they are only needed for packages that come from the overlay.
+    gentoo_zh_distfiles: bool = False
 
 
 @dataclass(frozen=True)

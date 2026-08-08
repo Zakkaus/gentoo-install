@@ -16,6 +16,7 @@ from typing import Callable, Final
 
 from ..model.config import Bootloader, InstallConfig, KernelSource, Keywords
 from ..plan.kernel import KERNEL_PACKAGES
+from ..model import mirrors
 from ..model.device import Existing, Luks, MdRaid, PartitionTable, VolumeGroup, ZfsPool
 from . import screens
 from .screens import Context, Step
@@ -70,6 +71,7 @@ def _keywords(config: InstallConfig, context: Context) -> str:
     return "~amd64" if config.portage.keywords is Keywords.TESTING else "amd64"
 
 
+
 def _bootloader(config: InstallConfig, context: Context) -> str:
     return f"{config.bootloader.kind.value}, {config.bootloader.firmware.value}"
 
@@ -96,8 +98,10 @@ def _keys(config: InstallConfig, context: Context) -> str:
 
 
 def _mirror(config: InstallConfig, context: Context) -> str:
-    mirrors = config.portage.mirrors
-    return f"{mirrors.region.value}, measured" if mirrors.speed_test else mirrors.region.value
+    chosen = config.portage.mirrors
+    site = chosen.site or mirrors.gentoo_sites(chosen.region)[0].key
+    measured = ", measured" if chosen.speed_test else ""
+    return f"{site}, gentoo-zh {chosen.gentoo_zh.value}{measured}"
 
 
 def _repositories(config: InstallConfig, context: Context) -> str:
@@ -193,7 +197,11 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("keymap_initramfs", "Keyboard at unlock", _unlock_keymap, screens.initramfs_keymap_screen),
     Setting("locale", "System language", lambda c, x: c.system.locale, screens.locale_screen),
     Setting("timezone", "Timezone", lambda c, x: c.system.timezone, screens.timezone_screen),
-    Setting("mirror", "Mirror region", _mirror, screens.mirror_screen),
+    Setting("mirror", "Mirrors", _mirror, screens.mirror_screen),
+    Setting("keywords", "Package keywords", _keywords, screens.keywords_screen),
+    Setting("cflags", "Compiler flags", _cflags, screens.compile_flags_screen),
+    Setting("makeopts", "Compile jobs", _makeopts, screens.makeopts_screen),
+    Setting("license", "Licenses", _license, screens.license_screen),
     Setting("repositories", "Optional repositories", _repositories, screens.repositories_screen),
     Setting("disk", "Drive", _drive, screens.disk_screen, required=True),
     Setting("table", "Partition table", _table, screens.table_screen),
@@ -204,16 +212,12 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("hostname", "Hostname", lambda c, x: c.system.hostname, screens.system_screen),
     Setting("init", "Init system", lambda c, x: c.system.init.value, screens.init_screen),
     Setting("profile", "Profile", lambda c, x: c.portage.profile, screens._profile_screen),
-    Setting("license", "Licenses", _license, screens.license_screen),
-    Setting("makeopts", "Compile jobs", _makeopts, screens.makeopts_screen),
-    Setting("cflags", "Compiler flags", _cflags, screens.compile_flags_screen),
     Setting("root", "Root password", _root, screens.root_password_screen, required=True),
     Setting("user", "User account", _user, screens.user_screen),
     Setting("kernel", "Kernel", _kernel, screens.kernel_screen),
     Setting("bootloader", "Bootloader", _bootloader, screens.bootloader_screen),
     Setting("binhost", "Binary packages", _binhost, screens.binhost_screen),
     Setting("sync", "Repository sync", lambda c, x: c.portage.sync.value, screens.sync_screen),
-    Setting("keywords", "Package keywords", _keywords, screens.keywords_screen),
     Setting("desktop", "Desktop", lambda c, x: c.packages.desktop or "none", screens.desktop_screen),
     Setting("packages", "Applications", _applications, screens.packages_screen),
     Setting("extra", "Extra packages", _extra, screens.extra_packages_screen),
