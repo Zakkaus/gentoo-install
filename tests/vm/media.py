@@ -71,9 +71,14 @@ def _extract(iso: Path, files: dict[str, Path]) -> None:
             raise MediaError(f"{iso} does not contain {target.name}")
 
 
+#: Every image lives here, not beside the operator's own downloads: AGENTS.md
+#: puts build artefacts under lab/, and three of these pointed at ~/Downloads
+#: until a run failed on a path nobody had moved.
+ISO_CACHE = CACHE / "iso"
+
 GIGOS = Medium(
     name="gigos",
-    iso=Path.home() / "Downloads/gig-os-20260803.iso",
+    iso=ISO_CACHE / "gig-os-20260807.iso",
     volume_label="Gig-OS",
     kernel_in_iso="/boot/kernel",
     initrd_in_iso="/boot/initrd",
@@ -92,7 +97,7 @@ GIGOS = Medium(
 
 OFFICIAL_MINIMAL = Medium(
     name="official-minimal",
-    iso=Path.home() / "Downloads/install-amd64-minimal-20260712T170110Z.iso",
+    iso=ISO_CACHE / "install-amd64-minimal-20260712T170110Z.iso",
     volume_label="Gentoo-amd64-20260712",
     kernel_in_iso="/boot/gentoo",
     initrd_in_iso="/boot/gentoo.igz",
@@ -103,7 +108,7 @@ OFFICIAL_MINIMAL = Medium(
 
 ALPINE = Medium(
     name="alpine",
-    iso=Path.home() / "Downloads/alpine-standard-3.24.1-x86_64.iso",
+    iso=ISO_CACHE / "alpine-standard-3.24.1-x86_64.iso",
     volume_label="alpine-std 3.24.1 x86_64",
     kernel_in_iso="/boot/vmlinuz-lts",
     initrd_in_iso="/boot/initramfs-lts",
@@ -113,10 +118,6 @@ ALPINE = Medium(
     login_password=None,
     boot_cmdline=("modules=loop,squashfs,sd-mod,usb-storage",),
 )
-
-#: Downloaded rather than shipped, so they live under lab/ with the other
-#: build artefacts instead of beside the user's own images.
-ISO_CACHE = CACHE / "iso"
 
 DEBIAN = Medium(
     name="debian",
