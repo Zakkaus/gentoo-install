@@ -500,3 +500,18 @@ def test_a_table_bigger_than_its_disk_is_refused_before_the_old_one_is_erased(
 
     roomy = preflight.inspect(oversized, described(), Roomy(runner=runner(tmp_path), work=tmp_path))
     assert not any("does not fit" in reason for reason in roomy.fatal)
+
+
+def test_a_cpu_flag_is_renamed_and_never_swapped_for_another(tmp_path: Path) -> None:
+    """`bmi1` was mapped to `avx2`, so an AMD Piledriver, which has the first
+    and not the second, got `avx2` in `CPU_FLAGS_X86` and every package built
+    for it died on SIGILL. The four below are genuine name differences between
+    /proc/cpuinfo and `cpu_flags_x86.desc`."""
+    from gentoo_install.exec.probe import CPU_FLAGS
+
+    renamed = {kernel: portage for kernel, portage in CPU_FLAGS.items() if kernel != portage}
+    assert renamed == {"fma": "fma3", "pclmulqdq": "pclmul", "sha_ni": "sha", "pni": "sse3"}
+    assert CPU_FLAGS["bmi1"] == "bmi1" and CPU_FLAGS["bmi2"] == "bmi2"
+    # One kernel name per portage name: two keys sharing a value is a swap.
+    values = [portage for portage in CPU_FLAGS.values()]
+    assert len(values) == len(set(values))

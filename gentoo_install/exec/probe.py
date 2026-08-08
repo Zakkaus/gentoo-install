@@ -48,12 +48,15 @@ class Machine:
 #: table.
 #: What the kernel calls a CPU feature, and what portage calls it. Only the
 #: ones `CPU_FLAGS_X86` defines: a name portage does not know is a build
-#: failure, not an optimisation.
+#: failure, not an optimisation. A value differing from its key is a rename and
+#: nothing else: mapping one feature onto another wrote `avx2` for a Piledriver
+#: that has `bmi1` and no AVX2, and every package built for it died on SIGILL.
 CPU_FLAGS: Final[dict[str, str]] = {
     "aes": "aes", "avx": "avx", "avx2": "avx2", "avx512f": "avx512f",
     "avx512bw": "avx512bw", "avx512cd": "avx512cd", "avx512dq": "avx512dq",
     "avx512vl": "avx512vl", "avx512vbmi": "avx512vbmi", "avx512vnni": "avx512vnni",
-    "bmi1": "avx2", "f16c": "f16c", "fma": "fma3", "mmx": "mmx", "mmxext": "mmxext",
+    "bmi1": "bmi1", "bmi2": "bmi2", "f16c": "f16c", "fma": "fma3",
+    "mmx": "mmx", "mmxext": "mmxext",
     "pclmulqdq": "pclmul", "popcnt": "popcnt", "rdrand": "rdrand", "sha_ni": "sha",
     "sse": "sse", "sse2": "sse2", "pni": "sse3", "sse4_1": "sse4_1",
     "sse4_2": "sse4_2", "sse4a": "sse4a", "ssse3": "ssse3",
