@@ -29,9 +29,12 @@ from ..model.config import (
     PortageConfig,
     User,
 )
-from ..model.device import FilesystemType, TableType
+from ..model.device import FilesystemType, PartitionRole, TableType
 from ..model.size import Size
+from ..errors import GentooInstallError, ValidationFailed
+from ..model import manual
 from ..model.templates import Choice, Layout, build
+from ..model.validate import validate
 from ..plan.packages import Catalog as Groups
 from .widgets import Answer, Confirm, Item, Menu, Outcome, Screen, TextField
 
@@ -74,6 +77,10 @@ class Context:
         #: Erasing a drive is confirmed by typing its name, and the menu shows
         #: whether that has been done rather than asking again at the end.
         self.erase_confirmed = False
+        #: The hand-written partition table, when the layout is manual.
+        self.layout = manual.Layout()
+        #: Whether the disk comes from that table rather than a template.
+        self.manual = False
 
 
 def _footer(translate: Catalog) -> str:
@@ -109,19 +116,24 @@ def disk_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
 
 def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
     translate = context.translate
-    items = [
+    items: list[Item[tuple[Layout | None, FilesystemType]]] = [
         Item(label="ext4", value=(Layout.WHOLE_DISK, FilesystemType.EXT4)),
         Item(label="xfs", value=(Layout.WHOLE_DISK, FilesystemType.XFS)),
         Item(label="btrfs with @ and @home", value=(Layout.WHOLE_DISK_BTRFS, FilesystemType.BTRFS)),
         Item(label="zfs with ZFSBootMenu", value=(Layout.WHOLE_DISK_ZFS, FilesystemType.EXT4)),
+        Item(label="manual: choose the partitions yourself", value=(None, FilesystemType.EXT4)),
     ]
-    menu: Menu[tuple[Layout, FilesystemType]] = Menu(
+    menu: Menu[tuple[Layout | None, FilesystemType]] = Menu(
         title=translate("Layout"), items=items, footer=_footer(translate)
     )
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
     layout, filesystem = answer.unwrap()[0]
+    if layout is None:
+        context.manual = True
+        return partitions_screen(screen, config, context)
+    context.manual = False
     context.choice = replace(context.choice, layout=layout, filesystem=filesystem)
     changed = _rebuild(config, context.choice)
     if layout is Layout.WHOLE_DISK_ZFS:
@@ -774,4 +786,126 @@ def networking_screen(
     return Answer(
         Outcome.CHOSE,
         replace(config, system=replace(config.system, networking=answer.unwrap()[0])),
+    )
+
+
+def partitions_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """The partition table, edited row by row.
+
+    Every change rebuilds the graph and runs the validator, so a table that
+    cannot be installed says why here rather than at the first `mkfs`.
+    """
+    translate = context.translate
+    if context.layout.disk != context.choice.disk:
+        context.layout = manual.suggest(context.choice.disk, context.choice.firmware)
+    while True:
+        rows = sorted(context.layout.slices, key=lambda one: one.index)
+        items: list[Item[int]] = [
+            Item(label=entry.describe(), value=index) for index, entry in enumerate(rows)
+        ]
+        items.append(Item(label=translate("Add a partition"), value=len(rows)))
+        items.append(Item(label=translate("Done"), value=len(rows) + 1))
+        menu: Menu[int] = Menu(
+            title=f"{translate('Partitions')}  {_layout_problem(context, config)}",
+            items=items,
+            footer=_footer(translate),
+        )
+        answer = menu.run(screen)
+        if not answer.chosen:
+            return Answer(answer.outcome)
+        chosen = answer.unwrap()[0]
+        if chosen == len(rows) + 1:
+            return Answer(Outcome.CHOSE, _from_layout(config, context))
+        if chosen == len(rows):
+            added = _edit_slice(screen, context, None)
+            if added is not None:
+                context.layout.slices.append(added)
+            continue
+        edited = _edit_slice(screen, context, rows[chosen])
+        context.layout.slices.remove(rows[chosen])
+        if edited is not None:
+            context.layout.slices.append(edited)
+
+
+def _layout_problem(context: Context, config: InstallConfig) -> str:
+    """What the validator says about the table as it stands."""
+    try:
+        graph, root = manual.build(context.layout)
+    except GentooInstallError as error:
+        return str(error)
+    if not root:
+        return context.translate("no partition is mounted at /")
+    try:
+        validate(replace(config, disk=DiskConfig(graph=graph, root=root)))
+    except ValidationFailed as error:
+        return str(error).splitlines()[-1].strip()
+    return ""
+
+
+def _from_layout(config: InstallConfig, context: Context) -> InstallConfig:
+    graph, root = manual.build(context.layout)
+    return replace(config, disk=DiskConfig(graph=graph, root=root))
+
+
+def _edit_slice(
+    screen: Screen, context: Context, current: manual.Slice | None
+) -> manual.Slice | None:
+    """One partition's four answers, or None to delete it."""
+    translate = context.translate
+    if current is not None:
+        keep = Menu(
+            title=current.describe(),
+            items=[
+                Item(label=translate("Change it"), value=True),
+                Item(label=translate("Delete it"), value=False),
+            ],
+            footer=_footer(translate),
+        ).run(screen)
+        if not keep.chosen:
+            return current
+        if not keep.unwrap()[0]:
+            return None
+    size = TextField(
+        title=translate("Size, or rest for the remaining space"),
+        value="" if current is None or current.size is None else str(current.size),
+        footer=_footer(translate),
+    ).run(screen)
+    if not size.chosen:
+        return current
+    role = Menu(
+        title=translate("What is this partition for?"),
+        items=[Item(label=one.value, value=one) for one in PartitionRole],
+        footer=_footer(translate),
+    ).run(screen)
+    if not role.chosen:
+        return current
+    chosen_role = role.unwrap()[0]
+    filesystem: FilesystemType | None = None
+    mountpoint = ""
+    if chosen_role not in (PartitionRole.SWAP, PartitionRole.BIOS_BOOT):
+        picked = Menu(
+            title=translate("Filesystem"),
+            items=[Item(label=one.value, value=one) for one in FilesystemType],
+            footer=_footer(translate),
+        ).run(screen)
+        if not picked.chosen:
+            return current
+        filesystem = picked.unwrap()[0]
+        where = TextField(
+            title=translate("Mount point, or empty to leave it unmounted"),
+            value=current.mountpoint if current else "",
+            footer=_footer(translate),
+        ).run(screen)
+        if not where.chosen:
+            return current
+        mountpoint = where.unwrap().strip()
+    typed = size.unwrap().strip()
+    return manual.Slice(
+        index=current.index if current else context.layout.next_index(),
+        role=chosen_role,
+        size=None if typed in ("", "rest") else Size.parse(typed),
+        filesystem=filesystem,
+        mountpoint=mountpoint,
     )

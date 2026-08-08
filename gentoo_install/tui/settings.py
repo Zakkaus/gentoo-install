@@ -98,7 +98,15 @@ def _table(config: InstallConfig, context: Context) -> str:
 
 
 def _layout(config: InstallConfig, context: Context) -> str:
+    if context.manual:
+        return f"manual, {len(context.layout.slices)} partitions"
     return context.choice.layout.value
+
+
+def _partitions(config: InstallConfig, context: Context) -> str:
+    if not context.manual:
+        return "from the layout above"
+    return ", ".join(entry.describe().split("  ")[1] for entry in context.layout.slices) or "none"
 
 
 def _encryption(config: InstallConfig, context: Context) -> str:
@@ -136,6 +144,7 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("disk", "Drive", _drive, screens.disk_screen, required=True),
     Setting("table", "Partition table", _table, screens.table_screen),
     Setting("layout", "Layout", _layout, screens.layout_screen),
+    Setting("partitions", "Partitions", _partitions, screens.partitions_screen),
     Setting("encryption", "Encryption", _encryption, screens.encryption_screen),
     Setting("swap", "Swap", _swap, screens.swap_screen),
     Setting("hostname", "Hostname", lambda c, x: c.system.hostname, screens.system_screen),
