@@ -52,6 +52,7 @@ class Trait(Enum):
     """Something a configuration is or has. The value is shown to the user."""
 
     ROOT_ON_ZFS = "root on ZFS"
+    NO_ZFS_ROOT = "a root that is not a ZFS dataset"
     LUKS = "LUKS"
     GRUB = "GRUB"
     SYSTEMD_BOOT = "systemd-boot"
@@ -93,6 +94,11 @@ RULES: tuple[Rule, ...] = (
     ),
     Rule(Trait.ROOT_ON_ZFS, Trait.BIOS_BOOT, "ZFSBootMenu is an EFI executable"),
     Rule(Trait.ROOT_ON_ZFS, Trait.LUKS, "use ZFS native encryption instead"),
+    Rule(
+        Trait.ZFSBOOTMENU,
+        Trait.NO_ZFS_ROOT,
+        "it imports a pool and boots a dataset from it, so it needs ZFS",
+    ),
     Rule(
         Trait.UEFI_BOOT,
         Trait.NO_MOUNTED_ESP,
@@ -156,6 +162,8 @@ def traits_of(config: InstallConfig) -> frozenset[Trait]:
 
     if _holds(graph, config.disk.root, (ZfsPool, ZfsDataset)):
         found.add(Trait.ROOT_ON_ZFS)
+    else:
+        found.add(Trait.NO_ZFS_ROOT)
     if any(isinstance(node, Luks) for node in _chain(graph, config.disk.root)):
         # Scoped to the root, like ROOT_ON_ZFS: the rules that name LUKS are
         # about what carries `/`, and a graph-wide test paired a ZFS root with

@@ -107,6 +107,18 @@ def zfsbootmenu_without_its_overlay() -> InstallConfig:
     return boots(config(zfs_root()), Bootloader.ZFSBOOTMENU, Firmware.UEFI)
 
 
+def zfsbootmenu_without_a_pool() -> InstallConfig:
+    """ZFSBootMenu imports a pool and boots a dataset out of it, so an ext4
+    root leaves it with nothing to import and the machine with nothing to
+    boot."""
+    return replace(
+        boots(config(), Bootloader.ZFSBOOTMENU, Firmware.UEFI),
+        portage=PortageConfig(
+            overlays=(Overlay(name="gentoo-zh", sync_uri="https://example.invalid/overlay.git"),)
+        ),
+    )
+
+
 def community_binhost_without_its_overlay() -> InstallConfig:
     return replace(
         config(),
@@ -161,6 +173,7 @@ CASES: list[tuple[Callable[[], InstallConfig], Trait, Trait]] = [
     (cjk_console_on_an_unpatched_kernel, Trait.CONSOLE_CJK, Trait.KERNEL_WITHOUT_CJKTTY),
     (community_binhost_without_its_overlay, Trait.COMMUNITY_BINHOST, Trait.NO_GENTOOZH_OVERLAY),
     (zfsbootmenu_without_its_overlay, Trait.ZFSBOOTMENU, Trait.NO_GENTOOZH_OVERLAY),
+    (zfsbootmenu_without_a_pool, Trait.ZFSBOOTMENU, Trait.NO_ZFS_ROOT),
     (cjk_console_with_an_8x8_font, Trait.CONSOLE_CJK, Trait.FONT_WITHOUT_CJK_GLYPHS),
     (the_patched_kernel_without_its_overlay, Trait.CJK_KERNEL, Trait.NO_GENTOOZH_OVERLAY),
     (remote_unlock_without_a_key, Trait.REMOTE_UNLOCK, Trait.NO_AUTHORIZED_KEY),
