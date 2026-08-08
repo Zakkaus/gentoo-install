@@ -82,6 +82,22 @@ def test_the_console_font_is_the_one_kbd_ships_for_that_size() -> None:
     assert "FONT=latarcyrheb-sun32" in written[PurePosixPath("/etc/vconsole.conf")]
 
 
+def test_openrc_takes_lang_from_env_d_because_locale_conf_is_systemds() -> None:
+    """`gentoo-install-zh/scripts/main.sh:80` branches the same way: openrc runs
+    `eselect locale set` and systemd writes the file. Writing only the systemd
+    file left an openrc install booting under C, with no CJK anywhere."""
+    openrc = with_system(init=InitSystem.OPENRC, locale="zh_TW.UTF-8")
+    written = apply_all(openrc, generated=generated(openrc))
+    assert PurePosixPath("/etc/locale.conf") not in written.files
+    assert written.files[PurePosixPath("/etc/env.d/02locale")] == 'LANG="zh_TW.UTF-8"\n'
+    assert ("env-update",) in written.in_target
+
+    systemd = with_system(init=InitSystem.SYSTEMD, locale="zh_TW.UTF-8")
+    both = apply_all(systemd, generated=generated(systemd))
+    assert both.files[PurePosixPath("/etc/locale.conf")] == "LANG=zh_TW.UTF-8\n"
+    assert PurePosixPath("/etc/env.d/02locale") not in both.files
+
+
 def test_openrc_writes_the_conf_d_files_instead_of_vconsole() -> None:
     installation = with_system(init=InitSystem.OPENRC)
     written = apply_all(installation, generated=generated(installation)).files

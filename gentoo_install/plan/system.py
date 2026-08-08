@@ -80,14 +80,26 @@ class GenerateLocales(Operation):
 
 @dataclass(frozen=True, kw_only=True)
 class SelectLocale(Operation):
+    """Where `LANG` lives differs by init.
+
+    openrc reads none of `/etc/locale.conf`: that is systemd's file. It takes
+    `LANG` from `/etc/env.d/02locale`, which `env-update` compiles into
+    `/etc/profile.env`, so writing only the systemd file booted openrc under C.
+    """
+
     stage: Stage = Stage.SYSTEM
     locale: str
+    init: InitSystem
 
     def describe(self) -> str:
         return f"set the system locale to {self.locale}"
 
     def apply(self, context: Context) -> None:
-        context.write(PurePosixPath("/etc/locale.conf"), f"LANG={self.locale}\n")
+        if self.init is InitSystem.SYSTEMD:
+            context.write(PurePosixPath("/etc/locale.conf"), f"LANG={self.locale}\n")
+            return
+        context.write(PurePosixPath("/etc/env.d/02locale"), f'LANG="{self.locale}"\n')
+        context.run_in_target(["env-update"])
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -610,7 +622,7 @@ def build(config: InstallConfig) -> list[Operation]:
     system = config.system
     operations: list[Operation] = [
         GenerateLocales(locales=system.locales),
-        SelectLocale(locale=system.locale),
+        SelectLocale(locale=system.locale, init=system.init),
         SetTimezone(timezone=system.timezone),
         ConfigureConsole(
             keymap=system.keymap, font=CONSOLE_FONTS[system.console_font], init=system.init
