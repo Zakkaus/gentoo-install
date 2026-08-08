@@ -19,7 +19,6 @@
 "The two do not match." = "두 입력이 일치하지 않습니다."
 "Leave without installing?" = "설치하지 않고 나가시겠습니까?"
 "User name, or empty for root only" = "사용자 이름, 비우면 root만"
-"Password for" = "암호 설정 대상"
 "Give this account sudo?" = "이 계정에 sudo를 허용하시겠습니까?"
 "Root password" = "root 암호"
 "Hostname" = "호스트 이름"
@@ -269,3 +268,4 @@
 "keep the partitions already on the disk" = "디스크의 기존 파티션을 유지"
 "a partition" = "파티션"
 "compressed in memory, no partition" = "메모리에서 압축, 파티션 없음"
+"Password for {user}" = "{user} 의 암호"

@@ -477,7 +477,12 @@ def user_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     if not name:
         return Answer(Outcome.CHOSE, replace(config, system=replace(config.system, users=())))
     typed = TextField(
-        title=translate("Password for") + f" {name}", masked=True, footer=footer(translate)
+        # One string with the name in it, not a fragment plus the name: the
+        # relation the label exists to state does not survive concatenation in
+        # a language that puts the possessive first.
+        title=translate("Password for {user}").format(user=name),
+        masked=True,
+        footer=footer(translate),
     ).run(screen)
     if not typed.chosen:
         return Answer(typed.outcome)

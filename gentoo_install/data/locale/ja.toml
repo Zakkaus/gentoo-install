@@ -19,7 +19,6 @@
 "The two do not match." = "二つが一致しません。"
 "Leave without installing?" = "インストールせずに終了しますか？"
 "User name, or empty for root only" = "ユーザー名、空欄なら root のみ"
-"Password for" = "パスワードの設定先"
 "Give this account sudo?" = "このアカウントに sudo を許可しますか？"
 "Root password" = "root のパスワード"
 "Hostname" = "ホスト名"
@@ -269,3 +268,4 @@
 "keep the partitions already on the disk" = "ディスク上の既存パーティションを残す"
 "a partition" = "パーティション"
 "compressed in memory, no partition" = "メモリ内で圧縮、パーティション不要"
+"Password for {user}" = "{user} のパスワード"
