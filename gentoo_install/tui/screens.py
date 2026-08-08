@@ -1059,7 +1059,13 @@ def kernel_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     if chosen is KernelSource.CJK:
         # The package is in gentoo-zh and in no other repository, so choosing
         # it is consenting to that overlay rather than having it added quietly.
-        changed = replace(changed, portage=_with_gentoo_zh(changed))
+        return Answer(Outcome.CHOSE, replace(changed, portage=_with_gentoo_zh(changed)))
+    if config.system.console_cjk:
+        # Turned off with the kernel that carried it, and said out loud: the
+        # rule would otherwise refuse the install with a message about the
+        # kernel, from a row that has no way to clear this.
+        _say(screen, context, translate("This kernel has no cjktty: console CJK is off."))
+        changed = replace(changed, system=replace(changed.system, console_cjk=False))
     return Answer(Outcome.CHOSE, changed)
 
 

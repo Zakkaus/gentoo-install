@@ -271,3 +271,4 @@
 "Password for {user}" = "{user} のパスワード"
 "not set" = "未設定"
 "name the filesystem first" = "先にファイルシステムを指定"
+"This kernel has no cjktty: console CJK is off." = "このカーネルには cjktty がないため、コンソールの CJK 表示を無効にしました。"

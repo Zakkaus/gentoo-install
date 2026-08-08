@@ -271,3 +271,4 @@
 "Password for {user}" = "{user} 的密码"
 "not set" = "尚未设置"
 "name the filesystem first" = "先指定文件系统"
+"This kernel has no cjktty: console CJK is off." = "这颗内核没有 cjktty，控制台中文已关闭。"

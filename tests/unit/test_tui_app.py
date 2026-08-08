@@ -814,3 +814,28 @@ def test_a_profile_the_operator_picked_survives_choosing_a_desktop() -> None:
     kept = screens.desktop_screen(FakeScreen(keys=plasma(), lines=30), chosen, at).unwrap()
     assert kept.packages.desktop == "plasma"
     assert kept.portage.profile == "default/linux/amd64/23.0/no-multilib/systemd"
+
+
+def test_choosing_a_kernel_without_cjktty_turns_console_cjk_off_and_says_so() -> None:
+    """The rule refused the install with a message about the kernel, and the
+    only row that set console_cjk was the language screen before the menu."""
+    from gentoo_install.model.config import KernelSource
+
+    at = context()
+    chinese = screens.with_language(config(), "zh-TW")
+    assert chinese.system.console_cjk
+
+    screen = FakeScreen(keys=["\n", "\n"], lines=30, columns=100)
+    plain = screens.kernel_screen(screen, chinese, at).unwrap()
+    assert plain.kernel.source is KernelSource.DIST_BIN
+    assert not plain.system.console_cjk
+    validate(plain)
+    assert "cjktty" in "\n".join("\n".join(frame) for frame in screen.frames)
+
+
+def test_the_patched_kernel_leaves_console_cjk_alone() -> None:
+    at = context()
+    chinese = screens.with_language(config(), "zh-CN")
+    keys = [*down(2), "\n"]
+    kept = screens.kernel_screen(FakeScreen(keys=keys, lines=30, columns=100), chinese, at).unwrap()
+    assert kept.system.console_cjk

@@ -271,3 +271,4 @@
 "Password for {user}" = "{user} 의 암호"
 "not set" = "설정 안 됨"
 "name the filesystem first" = "먼저 파일 시스템을 지정"
+"This kernel has no cjktty: console CJK is off." = "이 커널에는 cjktty 가 없어 콘솔 CJK 표시를 껐습니다."
