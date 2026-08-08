@@ -397,3 +397,27 @@ def test_both_command_line_writers_are_told_the_same_devices() -> None:
     )
     assert grub.arrays == bls.arrays != ()
     assert grub.luks == bls.luks
+
+
+def test_a_module_that_builds_against_a_sources_kernel_waits_for_it() -> None:
+    """`sys-fs/zfs` reads /usr/src/linux/.config and dies with `Kernel not
+    configured` when it is merged before the kernel is built."""
+    from dataclasses import replace as _replace
+
+    from gentoo_install.model.config import KernelSource
+
+    zfs = load(Path("tests/fixtures/vm-zfs.toml"))
+    sources = _replace(zfs, kernel=_replace(zfs.kernel, source=KernelSource.CJK_SOURCE))
+    described = [operation.describe() for operation in kernel.build(sources)]
+    built = next(index for index, line in enumerate(described) if line.startswith("build the kernel"))
+    merged = next(index for index, line in enumerate(described) if "sys-fs/zfs" in line)
+    assert built < merged
+    assert not any(
+        line.startswith("install the storage tools:") and "sys-fs/zfs" in line
+        for line in described
+    )
+
+    # A dist-kernel is a package, so zfs[dist-kernel] pulls it in and the order
+    # that has been verified in a VM stays as it is.
+    dist = [operation.describe() for operation in kernel.build(zfs)]
+    assert any(line.startswith("install the storage tools:") and "sys-fs/zfs" in line for line in dist)

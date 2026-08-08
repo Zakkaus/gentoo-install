@@ -60,11 +60,12 @@
   tell dracut to carry zfs
   accept the linux-firmware licence
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
-  install the storage tools: emerge sys-fs/zfs sys-fs/dosfstools
+  install the storage tools: emerge sys-fs/dosfstools
   install the kernel: emerge sys-kernel/gentoo-cjk-sources, from source
   point /usr/src/linux at the kernel that was just unpacked
   configure the kernel from defconfig with +FRAMEBUFFER_CONSOLE, +CONSOLE_TRANSLATIONS, +FB_EFI, +FONT_CJK_16x16, -FONT_CJK_32x32
   build the kernel and its modules, then install both
+  install the modules that build against the kernel: emerge sys-fs/zfs, from source
 
 [bootloader]
   install the bootloader: emerge sys-boot/zfsbootmenu sys-boot/efibootmgr

@@ -50,14 +50,26 @@ CJK_CONSOLE_OPTIONS: Final[tuple[tuple[str, bool], ...]] = (
     ("FONT_CJK_32x32", False),
 )
 
-#: The tool each dracut module needs in the target, and the USE flags it has to
-#: carry: without `sys-fs/lvm2[lvm]` dracut cannot build its lvm module.
-STACK_PACKAGES: Final[dict[str, tuple[str, tuple[str, ...]]]] = {
-    "btrfs": ("sys-fs/btrfs-progs", ()),
-    "crypt": ("sys-fs/cryptsetup", ()),
-    "lvm": ("sys-fs/lvm2", ("lvm",)),
-    "mdraid": ("sys-fs/mdadm", ()),
-    "zfs": ("sys-fs/zfs", ()),
+@dataclass(frozen=True)
+class StackTool:
+    """What one dracut module needs installed in the target."""
+
+    atom: str
+    #: Flags the default build does not carry: without `sys-fs/lvm2[lvm]`
+    #: dracut cannot build its lvm module.
+    use: tuple[str, ...] = ()
+    #: Builds against the kernel, so a sources build has to be configured and
+    #: compiled before this is merged.
+    builds_a_module: bool = False
+
+
+#: The tool each dracut module needs in the target.
+STACK_PACKAGES: Final[dict[str, StackTool]] = {
+    "btrfs": StackTool("sys-fs/btrfs-progs"),
+    "crypt": StackTool("sys-fs/cryptsetup"),
+    "lvm": StackTool("sys-fs/lvm2", use=("lvm",)),
+    "mdraid": StackTool("sys-fs/mdadm"),
+    "zfs": StackTool("sys-fs/zfs", builds_a_module=True),
 }
 
 #: The tool each filesystem needs, so the target can check and mount it again.
@@ -349,6 +361,11 @@ def build(config: InstallConfig) -> list[Operation]:
     if flagged:
         operations.insert(0, RequestStorageUse(entries=flagged))
     tools = storage_packages(config)
+    # A sources kernel is not built yet at this point, so anything that builds
+    # against it is merged after `BuildKernel` instead.
+    from_sources = config.kernel.source is KernelSource.CJK_SOURCE
+    deferred = module_packages(config) if from_sources else ()
+    tools = tuple(name for name in tools if name not in deferred)
     plain = tuple(name for name in tools if name not in {atom for atom, _ in flagged})
     if plain:
         operations.append(
@@ -384,6 +401,15 @@ def build(config: InstallConfig) -> list[Operation]:
             ConfigureKernel(options=CJK_CONSOLE_OPTIONS if config.system.console_cjk else ()),
             BuildKernel(),
         ]
+        if deferred:
+            operations.append(
+                Emerge(
+                    stage=Stage.KERNEL,
+                    packages=deferred,
+                    summary="install the modules that build against the kernel",
+                    binary_packages=False,
+                )
+            )
     else:
         operations.append(RebuildInitramfs(package=package))
     return operations
@@ -427,9 +453,23 @@ def storage_use(config: InstallConfig) -> tuple[tuple[str, tuple[str, ...]], ...
     """Stack packages that need a USE flag the default build does not carry."""
     wanted: list[tuple[str, tuple[str, ...]]] = []
     for module in dracut_modules(config):
-        entry = STACK_PACKAGES.get(module)
-        if entry is not None and entry[1] and entry not in wanted:
-            wanted.append(entry)
+        tool = STACK_PACKAGES.get(module)
+        if tool is not None and tool.use and (tool.atom, tool.use) not in wanted:
+            wanted.append((tool.atom, tool.use))
+    return tuple(wanted)
+
+
+def module_packages(config: InstallConfig) -> tuple[str, ...]:
+    """Stack tools that build a kernel module.
+
+    A sources kernel has to be configured and compiled before these are merged:
+    `sys-fs/zfs` reads `/usr/src/linux/.config` and dies without it.
+    """
+    wanted: list[str] = []
+    for module in dracut_modules(config):
+        tool = STACK_PACKAGES.get(module)
+        if tool is not None and tool.builds_a_module and tool.atom not in wanted:
+            wanted.append(tool.atom)
     return tuple(wanted)
 
 
@@ -438,10 +478,9 @@ def storage_packages(config: InstallConfig) -> tuple[str, ...]:
     graph = config.disk.graph
     wanted: list[str] = []
     for module in dracut_modules(config):
-        entry = STACK_PACKAGES.get(module)
-        package = entry[0] if entry is not None else None
-        if package is not None and package not in wanted:
-            wanted.append(package)
+        tool = STACK_PACKAGES.get(module)
+        if tool is not None and tool.atom not in wanted:
+            wanted.append(tool.atom)
     for filesystem in graph.of_type(Filesystem):
         package = FILESYSTEM_PACKAGES[filesystem.kind]
         if package not in wanted:
