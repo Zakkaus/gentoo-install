@@ -2,25 +2,24 @@
 
 # gentoo-install
 
-Installs a bootable Gentoo from any Linux live system. Driven by a menu or a
-configuration file, with a Chinese environment on by default and every part of
-it a switch.
+An installer that turns a machine into a bootable Gentoo from any Linux live
+system. Driven by a menu or a configuration file, with a Chinese environment on
+by default and every part of it a switch.
 
 ## Requirements
 
-Runs as root. Python 3.11 or newer, standard library only. Target is amd64.
+Runs as root, targets amd64. Python 3.11 or newer, standard library only.
 
-These live media were each tested. `bootstrap.sh` lists the missing commands and
-the install line for that distribution:
+It has to reach `packages.gentoo.org` at startup. Kernel versions and the
+kernel ceiling of `sys-fs/zfs` are read live, so the installer needs no ebuild
+tree on the machine it runs from and works on the live systems of Alpine,
+Debian, openSUSE, Fedora and Arch. It stops when it cannot reach the site;
+`--missing-commands` and `--config` with `--dry-run` are the two answers it
+gives offline.
 
-| Medium | python3 | Install first |
-|---|---|---|
-| Gentoo minimal 20260712 | 3.14.6 | nothing |
-| Arch 2026.08.01 | 3.14.6 | nothing |
-| openSUSE Tumbleweed Rescue | 3.13.14 | nothing |
-| Fedora Workstation Live 43 | 3.14.0 | `gptfdisk` |
-| Debian live 13.6 | 3.13.5 | `dosfstools`, `gdisk` |
-| Alpine 3.24.1 | none | `python3` and more |
+`bootstrap.sh` reads `/etc/os-release`, lists the commands this layout needs
+and the machine lacks, and prints the install line for that distribution. It
+supports `apt-get`, `pacman`, `zypper`, `dnf`, `emerge` and `apk`.
 
 ## Usage
 
@@ -30,34 +29,40 @@ cd gentoo-install-master
 ./bootstrap.sh
 ```
 
-`bootstrap.sh` is the only entry point.
-
 ```sh
-./bootstrap.sh                                       # menu
+./bootstrap.sh                                       # the menu
 ./bootstrap.sh --config my-install.toml              # unattended
-./bootstrap.sh --dry-run --config my-install.toml    # print the operations only
-./bootstrap.sh --config my-install.toml --resume     # carry on from where it stopped
+./bootstrap.sh --dry-run --config my-install.toml    # print the operations, touch no disk
+./bootstrap.sh --config my-install.toml --resume     # carry on from where a run stopped
+./bootstrap.sh --config my-install.toml --no-shell   # unmount at the end without asking
 ```
 
-The menu needs a real terminal. It asks for its language once; `--lang en` skips
-that.
+The menu needs a real terminal, at least 80x24. The interface language is asked
+once at the start; `--lang en` skips that question.
+
+When the install finishes, and when it stops partway, it offers a root shell in
+the target before unmounting. It offers one after a failure for the same
+reason: whether the machine is fixable is the operator's judgement, and once
+the target is unmounted the whole layout has to be mounted again by hand.
+`--no-shell` turns the question off.
 
 ## The configuration file
 
-TOML, declaring `config_version`. The disk is a device graph: every device has
-an `id`, devices refer to each other by `id`, and paths are resolved at run time.
+TOML, with `config_version` on the first line. A disk is a device graph: every
+device carries an `id`, devices refer to one another by `id`, and a device path
+is resolved when the install runs.
 
 ```toml
 config_version = 1
 
 [system]
 hostname = "gentoo"
-locale = "en_US.UTF-8"
+locale = "zh_TW.UTF-8"
 init = "systemd"
-root_password_hash = "$6$..."   # from openssl passwd -6, never a plaintext
+root_password_hash = "$6$..."   # from openssl passwd -6; no plaintext here
 
 [portage]
-profile = "default/linux/amd64/23.0/systemd"   # has to match the init
+profile = "default/linux/amd64/23.0/systemd"   # has to match init
 
 [bootloader]
 kind = "grub"
@@ -73,44 +78,45 @@ selector = "/dev/disk/by-id/virtio-target0"
 wipe = true
 ```
 
-Examples are in `tests/fixtures/`. Parsing touches no hardware, so `--dry-run`
-validates a file on a machine without the target disk.
+`tests/fixtures/` holds thirteen working examples covering UEFI, BIOS, LUKS2,
+LVM, mdraid, ZFS and a desktop. Parsing touches no hardware, so `--dry-run`
+checks a file on a machine that has no target disk.
 
-## Tested
+## Layouts
 
-Each of these was installed, shut down, and booted again with the medium
-removed. The check covers mounts, fstab, locale, enabled services and failed
-units.
-
-- UEFI with `gentoo-kernel-bin`
-- A kernel built from a sources package
-- ZFS with ZFSBootMenu, plain and with native encryption
-- BIOS with MBR and openrc
-- systemd-boot
-- LUKS2 under btrfs subvolumes
-- LVM
-- mdraid RAID1
-- KDE Plasma with the Chinese environment
+Partition tables GPT and MBR. Filesystems ext2/3/4, btrfs with subvolumes, xfs,
+f2fs, vfat, swap and zram. Stacks LUKS2, LVM, mdraid, and ZFS pools and
+datasets with native encryption. Bootloaders GRUB and systemd-boot, with
+ZFSBootMenu for a ZFS root. Existing partitions can be kept: no partition table
+is written, and each partition gets its own mount point and its own answer to
+whether it is formatted.
 
 ## The Chinese environment
 
-Locale, timezone, keyboard, mirrors, fonts and the input method are separate
-choices. Selecting an input method is what installs fcitx5 and rime and writes
-their configuration; under Wayland `GTK_IM_MODULE` and `QT_IM_MODULE` are left
-unset, because setting them makes the candidate window blink. An overlay is
-added only when it is selected.
+Locale, timezone, keyboard, mirror, font and input method are six separate
+options. fcitx5 and rime are installed and configured only when an input method
+is chosen; under Wayland `GTK_IM_MODULE` and `QT_IM_MODULE` are left unset,
+because setting them makes the candidate window flicker. Each rime schema is
+its own group: `luna_pinyin` comes with the engine, and `bopomofo`, `cangjie5`,
+`wubi86` and `jyut6ping3` are ticked separately. An overlay is added only when
+something selected needs it.
+
+CJK on the console needs `sys-kernel/gentoo-cjk-kernel`, which carries the
+cjktty patch and lives in gentoo-zh. The 16x32 console font is a choice only
+under that kernel.
 
 ## Binary packages
 
-Optional; compiling is the guaranteed path. The official and gentoo-zh hosts are
-separate, with separate keys. Any failure degrades to compiling with a warning,
-and `install.jsonl` records where each package came from and why anything
-degraded.
+Optional; building from source is the guaranteed path. The official binhost and
+gentoo-zh are separate, with separate keys. A failure to fetch a key, verify a
+signature or download a package degrades to compiling and prints a warning, and
+`install.jsonl` records where each package came from and the reason for every
+degradation.
 
 ## Exit codes
 
-`0` finished, `1` configuration error, `2` preflight failed, `3` integrity check
-failed, `4` an external command failed, `5` aborted.
+`0` finished, `1` bad configuration, `2` preflight failed, `3` integrity check
+failed, `4` an external command failed, `5` the operator aborted.
 
 ## Contributing
 
@@ -119,7 +125,7 @@ python3 -m mypy
 python3 -m pytest
 ```
 
-A change touching partitioning, filesystems, chroot, the bootloader or binhost
+A change to partitioning, filesystems, the chroot, the bootloader or binhost
 trust also needs one VM run:
 
 ```sh
@@ -127,4 +133,4 @@ python3 -m tests.vm.run --medium official-minimal --firmware uefi --install fixt
 python3 -m tests.vm.run --medium official-minimal --firmware uefi --install fixtures/vm-binpkg.toml --boot-installed
 ```
 
-Needs `qemu-system-x86_64`, KVM, OVMF and `xorriso`.
+It needs `qemu-system-x86_64`, KVM, OVMF and `xorriso`.
