@@ -1,1 +1,11 @@
 packages = ["www-client/chromium"]
+
+
+# Chromium reaches an input method over Wayland only with this flag; without it
+# a fcitx candidate window never appears in it. The two flags the fcitx wiki
+# lists beside it are not written: `chromium-launcher.sh` already picks the
+# ozone platform from XDG_SESSION_TYPE, and forcing wayland there breaks the
+# X11 session on the same install.
+[[wayland_files]]
+path = "/etc/chromium/default"
+content = 'CHROMIUM_FLAGS="${CHROMIUM_FLAGS} --enable-wayland-ime"'

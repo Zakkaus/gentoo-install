@@ -1,0 +1,13 @@
+# The other input method framework. Offered because a desktop that already
+# expects it should not be made to learn fcitx, and because GNOME drives it
+# from its own settings rather than from a launcher.
+#
+# It cannot be installed beside fcitx: both provide the Gtk and Qt modules and
+# both claim `XMODIFIERS`, so `model/compat.py` refuses the pair. `libpinyin`
+# is the Chinese engine, which is what makes it worth offering here at all.
+packages = [
+    "app-i18n/ibus",
+    "app-i18n/ibus-libpinyin",
+]
+input_framework = "ibus"
+input_method = "libpinyin"

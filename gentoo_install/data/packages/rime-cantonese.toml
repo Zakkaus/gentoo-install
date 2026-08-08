@@ -1,5 +1,6 @@
 # Jyutping. `rime-cantonese` is in the ebuild's PKGS_EXTRA, so the flag too.
 packages = ["app-i18n/rime-data"]
 package_use = ["app-i18n/rime-data extra"]
+input_framework = "fcitx"
 input_method = "rime"
 schemas = ["jyut6ping3"]

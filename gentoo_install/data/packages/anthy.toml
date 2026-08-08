@@ -1,3 +1,5 @@
 # Japanese input through fcitx. Separate from the Chinese schemas, so a user
-# can have one without the other.
+# can have one without the other. The engine fcitx addresses is `anthy`.
 packages = ["app-i18n/fcitx-anthy", "app-i18n/anthy"]
+input_framework = "fcitx"
+input_method = "anthy"

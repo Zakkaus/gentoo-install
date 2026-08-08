@@ -2,4 +2,5 @@
 # turn it off or the desktop gets a second input framework it never uses.
 packages = ["app-i18n/mozc"]
 package_use = ["app-i18n/mozc fcitx5 -ibus"]
+input_framework = "fcitx"
 input_method = "mozc"

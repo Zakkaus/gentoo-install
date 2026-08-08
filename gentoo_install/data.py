@@ -19,7 +19,8 @@ KEYS: Final[frozenset[str]] = frozenset(
     {
         "packages", "services", "use", "repositories", "video_cards", "files",
         "input_method", "schemas", "wayland", "package_use", "accept_license",
-        "display_manager", "profile",
+        "display_manager", "profile", "input_framework", "input_method_launcher",
+        "wayland_files",
     }
 )
 
@@ -60,23 +61,26 @@ def _load(path: Path) -> Group:
         profile=_text(raw, "profile", path),
         files=_files(raw, path),
         input_method=_text(raw, "input_method", path),
+        input_framework=_text(raw, "input_framework", path),
+        input_method_launcher=_text(raw, "input_method_launcher", path),
+        wayland_files=_files(raw, path, key="wayland_files"),
         schemas=_strings(raw, "schemas", path),
         wayland=_flag(raw, "wayland", path),
         package_use=_strings(raw, "package_use", path),
     )
 
 
-def _files(raw: dict[str, object], path: Path) -> tuple[GroupFile, ...]:
-    value = raw.get("files", [])
+def _files(raw: dict[str, object], path: Path, key: str = "files") -> tuple[GroupFile, ...]:
+    value = raw.get(key, [])
     if not isinstance(value, list):
-        raise ConfigError(f"{path}: files must be a list of tables")
+        raise ConfigError(f"{path}: {key} must be a list of tables")
     found: list[GroupFile] = []
     for entry in value:
         if not isinstance(entry, dict) or set(entry) != {"path", "content"}:
-            raise ConfigError(f"{path}: each file needs exactly a path and a content")
+            raise ConfigError(f"{path}: each {key} entry needs exactly a path and a content")
         where, content = entry["path"], entry["content"]
         if not isinstance(where, str) or not isinstance(content, str):
-            raise ConfigError(f"{path}: file path and content must be strings")
+            raise ConfigError(f"{path}: {key} path and content must be strings")
         found.append(GroupFile(path=PurePosixPath(where), content=content))
     return tuple(found)
 

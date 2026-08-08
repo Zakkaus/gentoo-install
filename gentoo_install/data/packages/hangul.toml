@@ -1,3 +1,4 @@
 # Korean, through libhangul. The engine fcitx addresses is `hangul`.
 packages = ["app-i18n/fcitx-hangul"]
+input_framework = "fcitx"
 input_method = "hangul"

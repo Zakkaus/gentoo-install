@@ -490,3 +490,116 @@ def test_every_engine_the_operator_picked_is_in_the_fcitx_profile() -> None:
     assert "DefaultIM=keyboard-us" in profile
     for index, name in enumerate(("keyboard-us", "rime", "mozc", "hangul")):
         assert f"[Groups/0/Items/{index}]\nName={name}\n" in profile
+
+
+def applied(wanted: InstallConfig, *kinds: type) -> Recorder:
+    recorder = Recorder()
+    for operation in plan_packages.build(wanted, load_catalog()):
+        if isinstance(operation, kinds):
+            operation.apply(recorder)
+    return recorder
+
+
+def test_a_plasma_wayland_session_starts_the_input_method_from_kwin() -> None:
+    """The Virtual keyboard KCM writes this same key. Without it fcitx runs as
+    an autostart entry, which does not speak input-method-v2 and integrates
+    incorrectly under KWin."""
+    wanted = replace(
+        config(), packages=PackagesConfig(desktop="plasma", applications=("fcitx5", "rime"))
+    )
+    written = applied(wanted, plan_packages.ConfigureKwinInputMethod).files
+    kwinrc = written[plan_packages.KWIN_DEFAULTS]
+    assert "InputMethod=/usr/share/applications/fcitx5-wayland-launcher.desktop" in kwinrc
+    assert "VirtualKeyboardEnabled=true" in kwinrc
+
+
+def test_a_desktop_that_is_not_wayland_writes_no_kwin_default() -> None:
+    wanted = replace(
+        config(), packages=PackagesConfig(desktop="xfce", applications=("fcitx5", "rime"))
+    )
+    assert not applied(wanted, plan_packages.ConfigureKwinInputMethod).files
+
+
+def test_a_session_with_no_input_method_writes_no_kwin_default() -> None:
+    """The key is about reaching an engine, so a plain Plasma install has no
+    reason to carry it."""
+    wanted = replace(config(), packages=PackagesConfig(desktop="plasma"))
+    assert not applied(wanted, plan_packages.ConfigureKwinInputMethod).files
+
+
+def test_chromium_gets_the_flag_that_lets_it_reach_the_input_method() -> None:
+    """Without it a candidate window never appears in Chromium under Wayland."""
+    wanted = replace(
+        config(),
+        packages=PackagesConfig(desktop="plasma", applications=("fcitx5", "rime", "chromium")),
+    )
+    recorder = applied(wanted, plan_packages.AppendWaylandFlags)
+    written = {str(path): text for path, text in recorder.files.items()}
+    assert "--enable-wayland-ime" in written["/etc/chromium/default"]
+    # The launcher picks the ozone platform from XDG_SESSION_TYPE, so forcing
+    # it here would break the X11 session on the same install.
+    assert "ozone-platform" not in written["/etc/chromium/default"]
+
+
+def test_the_flag_is_not_added_twice_to_a_file_that_already_has_it() -> None:
+    wanted = replace(
+        config(),
+        packages=PackagesConfig(desktop="plasma", applications=("fcitx5", "rime", "chromium")),
+    )
+    recorder = Recorder()
+    recorder.files[PurePosixPath("/etc/chromium/default")] = (
+        'CHROMIUM_FLAGS="${CHROMIUM_FLAGS} --enable-wayland-ime"\n'
+    )
+    for operation in plan_packages.build(wanted, load_catalog()):
+        if isinstance(operation, plan_packages.AppendWaylandFlags):
+            operation.apply(recorder)
+    assert recorder.files[PurePosixPath("/etc/chromium/default")].count("wayland-ime") == 1
+
+
+def test_chromium_on_an_x11_desktop_gets_no_wayland_flag() -> None:
+    wanted = replace(
+        config(),
+        packages=PackagesConfig(desktop="xfce", applications=("fcitx5", "rime", "chromium")),
+    )
+    assert not applied(wanted, plan_packages.AppendWaylandFlags).files
+
+
+def test_two_input_frameworks_are_refused_rather_than_installed() -> None:
+    """Both provide the Gtk and Qt modules and both claim XMODIFIERS, so the
+    loser is installed and unreachable."""
+    from gentoo_install.errors import ValidationFailed
+
+    wanted = replace(config(), packages=PackagesConfig(applications=("rime", "ibus")))
+    assert "pick one" in plan_packages.framework_conflict(wanted, load_catalog())
+    with pytest.raises(ValidationFailed, match="two input method frameworks"):
+        plan_packages.build(wanted, load_catalog())
+
+
+def test_one_framework_with_several_engines_is_fine() -> None:
+    """Chinese and Japanese together is the ordinary case."""
+    wanted = replace(config(), packages=PackagesConfig(applications=("rime", "anthy", "hangul")))
+    assert plan_packages.framework_conflict(wanted, load_catalog()) == ""
+
+
+def test_ibus_gets_its_own_environment_and_no_fcitx_profile() -> None:
+    """It is a different framework: writing an fcitx profile for it would
+    configure something that is not installed."""
+    wanted = replace(config(), packages=PackagesConfig(applications=("ibus",)))
+    recorder = applied(
+        wanted,
+        plan_packages.WriteInputMethodEnvironment,
+        plan_packages.WriteInputMethodProfile,
+    )
+    written = {str(path): text for path, text in recorder.files.items()}
+    assert "XMODIFIERS=@im=ibus" in written["/etc/environment.d/90-input-method.conf"]
+    assert "GTK_IM_MODULE=ibus" in written["/etc/environment.d/90-input-method.conf"]
+    assert not any("fcitx5/profile" in name for name in written)
+
+
+def test_every_engine_group_says_which_framework_it_belongs_to() -> None:
+    """A group with an engine and no framework would be classified as fcitx by
+    default, which is right today and silent when it stops being."""
+    catalog = load_catalog()
+    named = {name for name, group in catalog.items() if group.input_method}
+    assert named
+    assert all(catalog[name].input_framework for name in named)

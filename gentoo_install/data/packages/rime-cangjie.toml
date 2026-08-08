@@ -1,4 +1,5 @@
 # Cangjie 5, from the schemas `app-i18n/rime-data` ships by default.
 packages = ["app-i18n/rime-data"]
+input_framework = "fcitx"
 input_method = "rime"
 schemas = ["cangjie5"]

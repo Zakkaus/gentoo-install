@@ -56,6 +56,7 @@ from ..model import atoms, manual, mirrors, paste, sshkey
 from ..model.templates import Choice, Layout, build
 from ..model.validate import validate
 from ..plan.packages import Catalog as Groups
+from ..plan.packages import framework_conflict
 from ..plan import system as plan_system
 from .widgets import (
     MINIMUM_COLUMNS,
@@ -1254,21 +1255,26 @@ def packages_screen(
         for name in names
     ]
     chosen_already = set(config.packages.applications)
-    menu: Menu[str] = Menu(
-        title=translate("Applications"),
-        items=items,
-        multiple=True,
-        selected={index for index, item in enumerate(items) if item.value in chosen_already},
-        footer=footer(translate),
-    )
-    answer = menu.run(screen)
-    if not answer.chosen:
-        return Answer(answer.outcome)
-    chosen = answer.unwrap()
-    return Answer(
-        Outcome.CHOSE,
-        replace(config, packages=replace(config.packages, applications=tuple(chosen))),
-    )
+    while True:
+        menu: Menu[str] = Menu(
+            title=translate("Applications"),
+            items=items,
+            multiple=True,
+            selected={index for index, item in enumerate(items) if item.value in chosen_already},
+            footer=footer(translate),
+        )
+        answer = menu.run(screen)
+        if not answer.chosen:
+            return Answer(answer.outcome)
+        chosen = answer.unwrap()
+        edited = replace(config, packages=replace(config.packages, applications=tuple(chosen)))
+        # Checked here rather than at the Install row: the conflict is between
+        # two ticks on this screen and this is where either can be unticked.
+        clash = framework_conflict(edited, context.groups)
+        if not clash:
+            return Answer(Outcome.CHOSE, edited)
+        chosen_already = set(chosen)
+        _say(screen, context, clash)
 
 
 #: `zpool create` refuses anything shorter, and LUKS with a short passphrase is

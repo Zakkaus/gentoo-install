@@ -8,3 +8,8 @@ packages = [
 use = ["wayland", "qt6", "kcm", "networkmanager"]
 wayland = true
 profile = "default/linux/amd64/23.0/desktop/plasma"
+
+# KWin starts the input method itself on a Wayland session, and this is the key
+# the Virtual keyboard KCM writes. The launcher entry speaks input-method-v2;
+# `org.fcitx.Fcitx5.desktop` is the autostart entry and integrates incorrectly.
+input_method_launcher = "/usr/share/applications/fcitx5-wayland-launcher.desktop"

@@ -12,9 +12,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import Final, Mapping
+from typing import Final, Mapping, Sequence
 
-from ..errors import ConfigError
+from ..errors import ConfigError, ValidationFailed
 from ..model.config import InitSystem, InstallConfig
 from .operations import Context, Operation, Stage
 from .portage import Emerge
@@ -54,8 +54,19 @@ class Group:
     files: tuple[GroupFile, ...] = ()
     #: package.use lines this group needs, written before anything merges.
     package_use: tuple[str, ...] = ()
-    #: The fcitx engine this group provides, if it provides one.
+    #: The input method engine this group provides, if it provides one.
     input_method: str = ""
+    #: Which framework that engine belongs to. Two frameworks in one session
+    #: fight over the same toolkit modules, so `compat.py` refuses the pair.
+    input_framework: str = ""
+    #: The desktop entry KWin starts as the input method on Wayland, for a
+    #: session that drives one itself. Plasma's Virtual keyboard KCM writes the
+    #: same key into kwinrc; this is that choice, made in advance.
+    input_method_launcher: str = ""
+    #: Lines appended to a file only when the session is Wayland and an input
+    #: method is installed. Chromium reaches one over Wayland with a flag and
+    #: not otherwise.
+    wayland_files: tuple[GroupFile, ...] = ()
     #: Rime schemas the group ships, in the order they should be offered.
     schemas: tuple[str, ...] = ()
     #: Whether the session this group installs is Wayland. On Wayland the input
@@ -86,6 +97,10 @@ ENVIRONMENT_FILE: Final[dict[InitSystem, PurePosixPath]] = {
     InitSystem.OPENRC: PurePosixPath("/etc/env.d/90input-method"),
 }
 
+#: KWin's system-wide defaults. A user's own kwinrc still wins, so this is a
+#: default and not a decision imposed on them.
+KWIN_DEFAULTS: Final[PurePosixPath] = PurePosixPath("/etc/xdg/kwinrc")
+
 #: New users get the same input method as the ones the installer creates.
 SKELETON: Final[PurePosixPath] = PurePosixPath("/etc/skel")
 
@@ -109,6 +124,65 @@ class WriteGroupUse(Operation):
         )
 
 
+#: The environment each framework needs, by framework, off Wayland and on it.
+#: fcitx on Wayland deliberately sets neither toolkit variable: KWin drives it
+#: over text-input and setting them makes the candidate window blink. ibus has
+#: no such path and needs them in both sessions.
+INPUT_ENVIRONMENT: Final[dict[tuple[str, bool], tuple[str, ...]]] = {
+    ("fcitx", False): ("XMODIFIERS=@im=fcitx", "GTK_IM_MODULE=fcitx", "QT_IM_MODULE=fcitx"),
+    # Qt 6.7 and later take a fallback list, which covers a toolkit that ships
+    # no fcitx module without breaking the ones that do.
+    ("fcitx", True): ("XMODIFIERS=@im=fcitx", 'QT_IM_MODULES="wayland;fcitx;ibus"'),
+    ("ibus", False): ("XMODIFIERS=@im=ibus", "GTK_IM_MODULE=ibus", "QT_IM_MODULE=ibus"),
+    ("ibus", True): ("XMODIFIERS=@im=ibus", "GTK_IM_MODULE=ibus", "QT_IM_MODULE=ibus"),
+}
+
+
+@dataclass(frozen=True, kw_only=True)
+class ConfigureKwinInputMethod(Operation):
+    """Tell KWin which input method to start on a Wayland session.
+
+    The same key Plasma's Virtual keyboard KCM writes. The launcher entry is
+    the one that speaks `input-method-v2`; `org.fcitx.Fcitx5.desktop` is the
+    autostart entry and starting fcitx that way integrates incorrectly.
+    """
+
+    stage: Stage = Stage.PACKAGES
+    launcher: str
+
+    def describe(self) -> str:
+        return f"set {KWIN_DEFAULTS} so the Wayland session starts {self.launcher}"
+
+    def apply(self, context: Context) -> None:
+        context.write(
+            KWIN_DEFAULTS,
+            "[Wayland]\n"
+            f"InputMethod={self.launcher}\n"
+            "VirtualKeyboardEnabled=true\n",
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class AppendWaylandFlags(Operation):
+    """A line an application needs before it can reach an input method.
+
+    Appended after the packages are installed, so the file the package ships is
+    already there and Portage has no configuration conflict to leave behind.
+    """
+
+    stage: Stage = Stage.PACKAGES
+    group: str
+    file: GroupFile
+
+    def describe(self) -> str:
+        return f"add the Wayland input method flags for {self.group} to {self.file.path}"
+
+    def apply(self, context: Context) -> None:
+        if self.file.content.strip() in context.read(self.file.path):
+            return
+        context.append(self.file.path, f"{self.file.content.rstrip()}\n")
+
+
 @dataclass(frozen=True, kw_only=True)
 class WriteInputMethodEnvironment(Operation):
     """`XMODIFIERS` always, the other two only off Wayland.
@@ -119,25 +193,18 @@ class WriteInputMethodEnvironment(Operation):
 
     stage: Stage = Stage.PACKAGES
     init: InitSystem
+    framework: str
     wayland: bool
 
+    def _lines(self) -> tuple[str, ...]:
+        return INPUT_ENVIRONMENT[(self.framework, self.wayland)]
+
     def describe(self) -> str:
-        named = (
-            "XMODIFIERS and QT_IM_MODULES, since the session is Wayland"
-            if self.wayland
-            else "XMODIFIERS, GTK_IM_MODULE and QT_IM_MODULE"
-        )
-        return f"set the input method environment in {ENVIRONMENT_FILE[self.init]}: {named}"
+        named = ", ".join(one.split("=")[0] for one in self._lines())
+        return f"set {named} in {ENVIRONMENT_FILE[self.init]} for {self.framework}"
 
     def apply(self, context: Context) -> None:
-        lines = ["XMODIFIERS=@im=fcitx"]
-        if self.wayland:
-            # Qt 6.7 and later take a fallback list, which covers a toolkit
-            # that ships no fcitx module without breaking the ones that do.
-            lines.append('QT_IM_MODULES="wayland;fcitx;ibus"')
-        else:
-            lines += ["GTK_IM_MODULE=fcitx", "QT_IM_MODULE=fcitx"]
-        context.write(ENVIRONMENT_FILE[self.init], "\n".join(lines) + "\n")
+        context.write(ENVIRONMENT_FILE[self.init], "\n".join(self._lines()) + "\n")
         if self.init is InitSystem.OPENRC:
             # env.d is a source directory: nothing reads it until env-update
             # regenerates /etc/profile.env from it.
@@ -200,8 +267,34 @@ class WriteInputMethodProfile(Operation):
         return f"patch:\n  schema_list:\n{listed}"
 
 
+def framework_conflict(config: InstallConfig, catalog: Catalog) -> str:
+    """Why the chosen groups cannot be installed together, or empty.
+
+    Two input method frameworks in one session both provide the Gtk and Qt
+    modules and both claim `XMODIFIERS`, so whichever loses is installed and
+    unreachable. Read by `build` and by the screen that offers the groups, the
+    way `compat.py` is read by the validator and by the menu.
+    """
+    named: dict[str, list[str]] = {}
+    for group in groups(config, catalog):
+        if group.input_framework:
+            named.setdefault(group.input_framework, []).append(group.name)
+    if len(named) < 2:
+        return ""
+    listed = "; ".join(
+        f"{framework} from {', '.join(sorted(names))}" for framework, names in sorted(named.items())
+    )
+    return (
+        f"two input method frameworks were chosen ({listed}); they claim the same "
+        "toolkit modules, so pick one"
+    )
+
+
 def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
     _check_repositories(config, catalog)
+    conflict = framework_conflict(config, catalog)
+    if conflict:
+        raise ValidationFailed(conflict)
     operations: list[Operation] = _session_services(config)
     for group in groups(config, catalog):
         if group.packages:
@@ -368,22 +461,47 @@ def _input_method(config: InstallConfig, catalog: Catalog) -> list[Operation]:
             engines.append(group.input_method)
     if not engines:
         return []
-    schemas: list[str] = []
-    for group in chosen:
-        schemas += [schema for schema in group.schemas if schema not in schemas]
-    homes: list[tuple[PurePosixPath, str]] = [(SKELETON, "")]
-    homes += [
-        (PurePosixPath(f"/home/{user.name}"), user.name) for user in config.system.users
-    ]
-    return [
+    framework = _framework(chosen)
+    wayland = any(group.wayland for group in chosen)
+    operations: list[Operation] = [
         WriteInputMethodEnvironment(
-            init=config.system.init,
-            wayland=any(group.wayland for group in chosen),
-        ),
-        WriteInputMethodProfile(
-            engines=tuple(engines),
-            schemas=tuple(schemas),
-            layout=config.system.keymap,
-            homes=tuple(homes),
-        ),
+            init=config.system.init, framework=framework, wayland=wayland
+        )
     ]
+    if framework == "fcitx":
+        schemas: list[str] = []
+        for group in chosen:
+            schemas += [schema for schema in group.schemas if schema not in schemas]
+        homes: list[tuple[PurePosixPath, str]] = [(SKELETON, "")]
+        homes += [
+            (PurePosixPath(f"/home/{user.name}"), user.name) for user in config.system.users
+        ]
+        operations.append(
+            WriteInputMethodProfile(
+                engines=tuple(engines),
+                schemas=tuple(schemas),
+                layout=config.system.keymap,
+                homes=tuple(homes),
+            )
+        )
+    if wayland:
+        for group in chosen:
+            if group.input_method_launcher:
+                operations.append(
+                    ConfigureKwinInputMethod(launcher=group.input_method_launcher)
+                )
+            operations += [
+                AppendWaylandFlags(group=group.name, file=one) for one in group.wayland_files
+            ]
+    return operations
+
+
+def _framework(chosen: Sequence[Group]) -> str:
+    """Which framework the chosen engines belong to.
+
+    `validate` refuses two at once, so the first one found is the only one.
+    Empty defaults to fcitx: every engine group in the catalog names it, and a
+    group that names none is one nobody has classified yet.
+    """
+    named = [group.input_framework for group in chosen if group.input_framework]
+    return named[0] if named else "fcitx"

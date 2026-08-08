@@ -93,8 +93,9 @@
   install the rime-simplified group: emerge app-i18n/rime-data
   install the noto-cjk group: emerge media-fonts/noto-cjk media-fonts/noto media-libs/fontconfig
   install the flclash group: emerge net-proxy/flclash-bin
-  set the input method environment in /etc/environment.d/90-input-method.conf: XMODIFIERS and QT_IM_MODULES, since the session is Wayland
+  set XMODIFIERS, QT_IM_MODULES in /etc/environment.d/90-input-method.conf for fcitx
   configure fcitx with rime and luna_pinyin pinyin_simp for skel, zakk
+  set /etc/xdg/kwinrc so the Wayland session starts /usr/share/applications/fcitx5-wayland-launcher.desktop
 
 [finish]
   delete the downloaded stage3 from /var/cache/gentoo-install
