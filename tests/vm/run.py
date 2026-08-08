@@ -158,6 +158,17 @@ def reach_shell(console: SerialConsole, medium: Medium) -> None:
         console.expect(medium.root_prompt, timeout=300.0)
     else:
         console.login(medium.login_user, medium.login_password, medium.root_prompt)
+    pin_resolver(console)
+
+
+def pin_resolver(console: SerialConsole) -> None:
+    """Point the guest at a fixed resolver rather than at qemu's forwarder.
+
+    Slirp reads the host's `/etc/resolv.conf` once at startup, so a host that
+    changes resolver mid-run strands an install that is half an hour in with
+    `Temporary failure in name resolution`.
+    """
+    console.run("printf 'nameserver 1.1.1.1\\nnameserver 8.8.8.8\\n' > /etc/resolv.conf")
 
 
 #: What GRUB and the initramfs say when they want a passphrase. GRUB asks
