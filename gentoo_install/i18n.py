@@ -26,6 +26,8 @@ _ALIASES: Final[dict[str, str]] = {
     "zh_SG": "zh-CN",
     "en_US": "en",
     "en_GB": "en",
+    "ja_JP": "ja",
+    "ko_KR": "ko",
 }
 
 #: Read in this order, which is what `locale(7)` says overrides what.

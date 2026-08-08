@@ -189,6 +189,13 @@ class Probe:
         root = Path("/usr/share/zoneinfo")
         if not root.is_dir():
             return ()
+        # zone1970.tab lists the canonical zones, one per line, and reading it
+        # is both faster and closer to what the operator expects than walking a
+        # tree full of aliases.
+        for table in ("zone1970.tab", "zone.tab"):
+            listed = self._zone_table(root / table)
+            if listed:
+                return ("UTC", *listed)
         found: list[str] = []
         for area in sorted(root.iterdir()):
             # Only the region directories: the top level also holds files like
@@ -199,6 +206,20 @@ class Probe:
                 if city.is_file():
                     found.append(str(city.relative_to(root)))
         return ("UTC", *found)
+
+    def _zone_table(self, path: Path) -> tuple[str, ...]:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            return ()
+        found: list[str] = []
+        for line in text.splitlines():
+            if line.startswith("#"):
+                continue
+            fields = line.split("\t")
+            if len(fields) >= 3 and "/" in fields[2] and fields[2] not in found:
+                found.append(fields[2])
+        return tuple(sorted(found))
 
     def mounted(self, disk: str, ignoring: str = "") -> bool:
         """Whether a disk, or any partition on it, is in use.

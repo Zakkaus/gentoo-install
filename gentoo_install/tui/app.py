@@ -31,11 +31,14 @@ class Finished:
 
 def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
     current = start
+    #: Kept across redraws: coming back to the top after every edit makes the
+    #: operator hunt for where they were.
+    cursor = 0
     while True:
         blocked = _blocked(current, context)
         items: list[Item[int]] = [
             Item(
-                label=setting.label,
+                label=context.translate(setting.label),
                 value=index,
                 detail=setting.value(current, context),
                 disabled_because="" if setting.edit else "detected from this machine",
@@ -52,6 +55,7 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
         menu: Menu[int] = Menu(
             title="gentoo-install",
             items=items,
+            cursor=cursor,
             footer="  ".join(
                 (
                     f"[enter] {context.translate('Continue')}",
@@ -60,6 +64,7 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
             ),
         )
         answer = menu.run(screen)
+        cursor = menu.cursor
         if not answer.chosen:
             # Asked rather than obeyed: one stray escape should not throw away
             # every answer the operator has entered.
@@ -85,9 +90,9 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
 
 def _blocked(config: InstallConfig, context: Context) -> str:
     """Why the install cannot start, in the row that would start it."""
-    missing = unanswered(config, context)
+    missing = [context.translate(label) for label in unanswered(config, context)]
     if missing:
-        return f"{', '.join(missing)} still needs an answer"
+        return f"{', '.join(missing)}: {context.translate('still needs an answer')}"
     try:
         validate(config)
     except ValidationFailed as error:

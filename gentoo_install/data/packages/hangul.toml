@@ -1,0 +1,3 @@
+# Korean input through fcitx. Separate from the Chinese and Japanese schemas,
+# so a user can have one without the others.
+packages = ["app-i18n/fcitx-hangul", "app-i18n/libhangul"]

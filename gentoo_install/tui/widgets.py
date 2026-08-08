@@ -87,10 +87,16 @@ class Menu(Generic[V]):
     selected: set[int] = field(default_factory=set)
     multiple: bool = False
     footer: str = ""
+    #: Where the highlight starts, and where it was left. A menu re-entered
+    #: after editing a row has to come back to that row.
+    cursor: int = 0
 
     def run(self, screen: Screen) -> Answer[list[V]]:
-        cursor = self._first_enabled()
+        cursor = self.cursor if 0 <= self.cursor < len(self.items) else self._first_enabled()
+        if self.items[cursor].disabled_because:
+            cursor = self._first_enabled()
         while True:
+            self.cursor = cursor
             self._draw(screen, cursor)
             pressed = screen.key()
             if pressed in ("KEY_UP", "k"):

@@ -67,9 +67,9 @@ def test_every_shipped_catalog_translates_the_same_keys() -> None:
     """A key in one catalog and not the other is a screen that changes language
     halfway down."""
     tags = sorted(path.stem for path in LOCALES.glob("*.toml"))
-    assert tags == ["zh-CN", "zh-TW"]
-    first, second = (shipped(tag) for tag in tags)
-    assert set(first) == set(second)
+    assert tags == ["ja", "ko", "zh-CN", "zh-TW"]
+    keys = [set(shipped(tag)) for tag in tags]
+    assert all(other == keys[0] for other in keys[1:])
     for tag in tags:
         catalog = Catalog(tag)
         for key, value in shipped(tag).items():

@@ -116,7 +116,7 @@ def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> An
         Item(label="zfs with ZFSBootMenu", value=(Layout.WHOLE_DISK_ZFS, FilesystemType.EXT4)),
     ]
     menu: Menu[tuple[Layout, FilesystemType]] = Menu(
-        title=translate("Disks"), items=items, footer=_footer(translate)
+        title=translate("Layout"), items=items, footer=_footer(translate)
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -165,7 +165,7 @@ def erase_screen(screen: Screen, config: InstallConfig, context: Context) -> Ans
 def system_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
     translate = context.translate
     field = TextField(
-        title=translate("Target system"),
+        title=translate("Hostname"),
         value=config.system.hostname,
         footer=_footer(translate),
     )
@@ -181,7 +181,7 @@ def system_screen(screen: Screen, config: InstallConfig, context: Context) -> An
 def init_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
     translate = context.translate
     menu: Menu[InitSystem] = Menu(
-        title=translate("Target system"),
+        title=translate("Init system"),
         items=[Item(label=init.value, value=init) for init in InitSystem],
         footer=_footer(translate),
     )
@@ -213,7 +213,9 @@ def root_password_screen(
 ) -> Answer[InstallConfig]:
     """The hash goes into the configuration; the plaintext never does."""
     translate = context.translate
-    field = TextField(title=translate("Users"), masked=True, footer=_footer(translate))
+    field = TextField(
+        title=translate("Root password"), masked=True, footer=_footer(translate)
+    )
     answer = field.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
@@ -230,16 +232,22 @@ def user_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     install makes deliberately.
     """
     translate = context.translate
-    named = TextField(title=translate("Users"), footer=_footer(translate)).run(screen)
+    named = TextField(
+        title=translate("User name, or empty for root only"), footer=_footer(translate)
+    ).run(screen)
     if not named.chosen:
         return Answer(named.outcome)
     name = named.unwrap().strip()
     if not name:
         return Answer(Outcome.CHOSE, replace(config, system=replace(config.system, users=())))
-    typed = TextField(title=translate("Users"), masked=True, footer=_footer(translate)).run(screen)
+    typed = TextField(
+        title=translate("Password for") + f" {name}", masked=True, footer=_footer(translate)
+    ).run(screen)
     if not typed.chosen:
         return Answer(typed.outcome)
-    granted = Confirm(title=translate("Users"), footer=_footer(translate)).run(screen)
+    granted = Confirm(
+        title=translate("Give this account sudo?"), footer=_footer(translate)
+    ).run(screen)
     if not granted.chosen:
         return Answer(granted.outcome)
     user = User(
@@ -399,6 +407,8 @@ LOCALES: tuple[tuple[str, str], ...] = (
     ("zh_TW.UTF-8", "Chinese (Traditional)"),
     ("zh_CN.UTF-8", "Chinese (Simplified)"),
     ("en_US.UTF-8", "English"),
+    ("ja_JP.UTF-8", "Japanese"),
+    ("ko_KR.UTF-8", "Korean"),
 )
 
 #: The zones this installer is aimed at, with UTC for a server.
@@ -416,7 +426,7 @@ TIMEZONES: tuple[str, ...] = (
 def locale_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
     translate = context.translate
     menu: Menu[str] = Menu(
-        title=translate("Target system"),
+        title=translate("System language"),
         items=[Item(label=f"{name}  {label}", value=name) for name, label in LOCALES],
         footer=_footer(translate),
     )
@@ -447,7 +457,7 @@ def timezone_screen(screen: Screen, config: InstallConfig, context: Context) -> 
         if area not in areas:
             areas.append(area)
     chosen_area: Menu[str] = Menu(
-        title=translate("Target system"),
+        title=translate("Timezone"),
         items=[Item(label=area, value=area) for area in areas],
         footer=_footer(translate),
     )
@@ -532,7 +542,7 @@ def swap_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
         Item(label="8 GiB partition", value="8GiB"),
         Item(label="zram, 4 GiB compressed in memory", value="zram:4GiB"),
     ]
-    menu: Menu[str] = Menu(title=translate("Disks"), items=items, footer=_footer(translate))
+    menu: Menu[str] = Menu(title=translate("Swap"), items=items, footer=_footer(translate))
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
@@ -559,7 +569,7 @@ def binhost_screen(screen: Screen, config: InstallConfig, context: Context) -> A
         Item(label="compile everything from source", value=(False, BinhostChannel.OFF)),
     ]
     menu: Menu[tuple[bool, BinhostChannel]] = Menu(
-        title=translate("Portage"), items=items, footer=_footer(translate)
+        title=translate("Binary packages"), items=items, footer=_footer(translate)
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -573,7 +583,9 @@ def binhost_screen(screen: Screen, config: InstallConfig, context: Context) -> A
 
 def sshd_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
     translate = context.translate
-    question = Confirm(title=translate("Network and SSH"), footer=_footer(translate))
+    question = Confirm(
+        title=translate("Start an SSH server at boot?"), footer=_footer(translate)
+    )
     answer = question.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
