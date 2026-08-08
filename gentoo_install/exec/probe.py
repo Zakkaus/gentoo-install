@@ -42,6 +42,12 @@ class Machine:
     versions: Mapping[str, str] = field(default_factory=dict)
 
 
+#: Directories under zoneinfo that are not regions: legacy aliases, and the
+#: right and posix trees, which repeat every zone with another leap-second
+#: table.
+_NOT_A_REGION: Final[frozenset[str]] = frozenset({"right", "posix", "SystemV", "Etc"})
+
+
 @dataclass
 class Probe:
     """Resolves ids to paths and answers questions about the machine.
@@ -173,6 +179,26 @@ class Probe:
             if "/wwn-" not in name:
                 return name
         return names[0] if names else path
+
+    def timezones(self) -> tuple[str, ...]:
+        """Every zone this machine knows, as `Area/City`.
+
+        Read from the tree rather than a list in the source: a hand-picked
+        selection is not a timezone chooser, and the names change.
+        """
+        root = Path("/usr/share/zoneinfo")
+        if not root.is_dir():
+            return ()
+        found: list[str] = []
+        for area in sorted(root.iterdir()):
+            # Only the region directories: the top level also holds files like
+            # `UTC`, symlinks like `Japan`, and data like `posixrules`.
+            if not area.is_dir() or area.name in _NOT_A_REGION:
+                continue
+            for city in sorted(area.rglob("*")):
+                if city.is_file():
+                    found.append(str(city.relative_to(root)))
+        return ("UTC", *found)
 
     def mounted(self, disk: str) -> bool:
         """Whether a disk, or any partition on it, is in use.
