@@ -269,3 +269,4 @@
 "a partition" = "一个分区"
 "compressed in memory, no partition" = "内存中压缩，不占分区"
 "Password for {user}" = "{user} 的密码"
+"not set" = "尚未设置"

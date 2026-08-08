@@ -120,12 +120,16 @@ class ReleaseTarget(Operation):
 
     def apply(self, context: Context) -> None:
         context.run(["umount", "--recursive", "--lazy", str(context.target)], check=False)
-        for pool in self.pools:
-            context.run(["zpool", "export", pool], check=False)
-        for group in self.groups:
-            context.run(["vgchange", "--activate", "n", group], check=False)
-        for name in self.containers:
-            context.run(["cryptsetup", "close", name], check=False)
+        # Twice, because one order cannot suit both nestings: LVM on LUKS wants
+        # the group deactivated first, LUKS on LVM wants the container closed
+        # first, and a step whose turn has not come is a no-op either way.
+        for _ in range(2):
+            for pool in self.pools:
+                context.run(["zpool", "export", pool], check=False)
+            for group in self.groups:
+                context.run(["vgchange", "--activate", "n", group], check=False)
+            for name in self.containers:
+                context.run(["cryptsetup", "close", name], check=False)
         for array in self.arrays:
             context.run(["mdadm", "--stop", f"/dev/md/{array}"], check=False)
 

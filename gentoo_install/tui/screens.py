@@ -531,7 +531,8 @@ GENTOOZH_CHANNELS: tuple[tuple[BinhostChannel, str], ...] = (
     (BinhostChannel.UNSTABLE, "~amd64 throughout"),
 )
 
-#: What the official binary package host offers, and what each costs.
+#: Only x86-64 and x86-64-v3 carry a useful number of official binary packages;
+#: the other subarchitectures are nearly empty.
 BINHOSTS: tuple[tuple[tuple[bool, str], str], ...] = (
     ((False, "x86-64"), "hours rather than minutes"),
     ((True, "x86-64"), "works on every amd64 machine"),
@@ -585,9 +586,12 @@ def _mirror_fields(config: InstallConfig, translate: Catalog) -> list[Item[str]]
         Item(
             label=translate("Gentoo mirror"),
             value=_SITE,
-            detail=translate(mirrors.gentoo_sites(region)[0].name)
-            if not chosen.site
-            else translate(next(one.name for one in mirrors.gentoo_sites(region) if one.key == site)),
+            # Unset until it is picked, the same as the row that opens this
+            # screen: filling the blank in with the region's first site made
+            # the two disagree about whether the question was answered.
+            detail=translate(next(one.name for one in mirrors.gentoo_sites(region) if one.key == site))
+            if chosen.site
+            else translate("not set"),
         ),
         Item(
             label=translate("Gentoo distfiles"),
@@ -632,7 +636,10 @@ def _mirror_fields(config: InstallConfig, translate: Catalog) -> list[Item[str]]
             Item(
                 label=translate("gentoo-zh binary packages"),
                 value=_ZH_BINHOST,
-                detail=portage.binhost.community.value
+                detail=mirrors.gentoozh_binhost(
+                    chosen.gentoo_zh,
+                    unstable=portage.binhost.community is BinhostChannel.UNSTABLE,
+                )
                 if portage.binhost.community is not BinhostChannel.OFF
                 else translate("not used"),
             ),
@@ -804,7 +811,7 @@ def _edit_binhost(
         Item(
             label=subarch if official else translate("not used"),
             value=(official, subarch),
-            detail=translate(reason) if official is False or context.supports_v3 else "",
+            detail=translate(reason) if subarch != "x86-64-v3" or context.supports_v3 else "",
             disabled_because=(
                 translate("this CPU cannot run it")
                 if subarch.endswith("v3") and not context.supports_v3
@@ -856,8 +863,17 @@ def _edit_gentoozh(
     picked = answer.unwrap()[0]
     portage = config.portage
     if picked is None:
+        # What required the overlay goes with it: leaving the community binhost
+        # on refuses the install from a row the operator is not looking at.
         kept = tuple(one for one in portage.overlays if one.name != "gentoo-zh")
-        return replace(config, portage=replace(portage, overlays=kept))
+        return replace(
+            config,
+            portage=replace(
+                portage,
+                overlays=kept,
+                binhost=replace(portage.binhost, community=BinhostChannel.OFF),
+            ),
+        )
     # The overlay is cloned from the chosen site, not from upstream: a mirror
     # picked here and ignored by the sync is the choice doing nothing.
     added = _with_gentoo_zh(config)
@@ -1190,18 +1206,12 @@ def packages_screen(
     )
 
 
-#: Taken from profiles.desc for amd64 23.0. A systemd profile is the same path
-#: plus /systemd, which `_profile_for` relies on.
 #: `zpool create` refuses anything shorter, and LUKS with a short passphrase is
 #: not worth offering either.
 PASSPHRASE_MINIMUM: Final[int] = 8
 
-#: The overlays this installer knows how to add, and where each syncs from.
-OVERLAYS: dict[str, str] = {
-    "gentoo-zh": GENTOO_ZH,
-    "gig": "https://github.com/gentoo-zh/gig-overlay.git",
-}
-
+#: Taken from profiles.desc for amd64 23.0. A systemd profile is the same path
+#: plus /systemd, which `_profile_for` relies on.
 PROFILES: tuple[str, ...] = (
     "default/linux/amd64/23.0",
     "default/linux/amd64/23.0/systemd",

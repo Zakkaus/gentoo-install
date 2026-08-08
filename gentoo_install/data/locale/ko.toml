@@ -269,3 +269,4 @@
 "a partition" = "파티션"
 "compressed in memory, no partition" = "메모리에서 압축, 파티션 없음"
 "Password for {user}" = "{user} 의 암호"
+"not set" = "설정 안 됨"

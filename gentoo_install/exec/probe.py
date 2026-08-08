@@ -182,7 +182,9 @@ class Probe:
         result = self.runner.run(
             ["blkid", "--probe", "--match-tag", "UUID", "--output", "value", path], check=False
         )
-        uuid = result.stdout.strip()
+        # The exit code before the text: the runner merges stderr into stdout,
+        # so `not a block device` would go into fstab as a UUID.
+        uuid = result.stdout.strip() if result.returncode == 0 else ""
         if not uuid:
             raise DeviceNotFound(f"{device} has no UUID; was it formatted?")
         return uuid
@@ -228,7 +230,7 @@ class Probe:
             check=False,
         )
         found: list[tuple[str, str]] = []
-        for line in listed.stdout.splitlines():
+        for line in listed.stdout.splitlines() if listed.returncode == 0 else []:
             fields = line.split(maxsplit=3)
             if len(fields) < 3 or fields[2] != "disk":
                 continue
@@ -240,7 +242,14 @@ class Probe:
         return tuple(found)
 
     def _stable_name(self, path: str) -> str:
-        links = self.runner.run(["find", "/dev/disk/by-id", "-lname", f"*/{path.rsplit('/', 1)[-1]}"], check=False)
+        links = self.runner.run(
+            ["find", "/dev/disk/by-id", "-lname", f"*/{path.rsplit('/', 1)[-1]}"], check=False
+        )
+        # The exit code first: the runner merges stderr into stdout, so a
+        # machine with no by-id directory would otherwise offer its error
+        # message to the operator as a disk name.
+        if links.returncode != 0:
+            return path
         names = sorted(line.strip() for line in links.stdout.splitlines() if line.strip())
         # Prefer a by-id name that is not a wwn: a wwn is stable but says
         # nothing a person can recognise.

@@ -24,10 +24,6 @@ from ..model.config import (
 )
 from .operations import Context, Operation, Stage
 
-#: Only `x86-64` and `x86-64-v3` carry a useful number of official binary
-#: packages; the other subarchitectures are nearly empty, so the interface
-#: offers those two. Which mirror serves them is `model/mirrors.py`.
-
 #: The release engineering key, pinned. A fingerprint that does not match this
 #: is a failed install, not a prompt to trust something new.
 RELENG_FINGERPRINT: Final[str] = "13EBBDBEDE7A12775DFDB1BABB572E0E2D182910"
@@ -693,7 +689,10 @@ def _repo_sync_uri(portage: PortageConfig) -> str:
 
 
 def _binhost_uri(portage: PortageConfig) -> str:
-    return mirrors.gentoozh_binhost(portage.mirrors.gentoo_zh)
+    return mirrors.gentoozh_binhost(
+        portage.mirrors.gentoo_zh,
+        unstable=portage.binhost.community is BinhostChannel.UNSTABLE,
+    )
 
 
 def _l10n(config: InstallConfig) -> tuple[str, ...]:

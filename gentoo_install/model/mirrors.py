@@ -219,8 +219,14 @@ def gentoozh(chosen: GentooZhMirror) -> Site:
     return _GENTOOZH[chosen]
 
 
-def gentoozh_binhost(chosen: GentooZhMirror, subarch: str = "x86-64") -> str:
-    return f"{gentoozh(chosen).distfiles}/binpkgs/{subarch}"
+def gentoozh_binhost(
+    chosen: GentooZhMirror, subarch: str = "x86-64", unstable: bool = False
+) -> str:
+    """The channel is a different path, not a different keyword file: stable
+    builds against the main tree's `amd64`, unstable against `~amd64`
+    throughout, and Portage refuses a binpkg whose dependencies do not match."""
+    where = "unstable/binpkgs" if unstable else "binpkgs"
+    return f"{gentoozh(chosen).distfiles}/{where}/{subarch}"
 
 
 def gentoozh_distfiles(chosen: GentooZhMirror) -> tuple[str, ...]:

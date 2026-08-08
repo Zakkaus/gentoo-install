@@ -1,10 +1,4 @@
-"""The target's own settings: locale, time, console, identity, mounts, users.
-
-Two things here are not obvious and cost an unbootable system when missed.
-`locale-gen` exits 0 having skipped a locale, so each one is verified against
-`locale -a` afterwards. An encrypted `/` or `/usr` needs `x-initrd.attach` in
-crypttab, or systemd waits forever for a device the initramfs already attached.
-"""
+"""The target's own settings: locale, time, console, identity, mounts, users."""
 
 from __future__ import annotations
 
@@ -365,9 +359,8 @@ class WriteNetworkConfig(Operation):
             lines += [f"Address={one}\n" for one in self.addresses]
             lines += [f"Gateway={one}\n" for one in self.gateways]
         else:
-            # Both families: DHCP=yes covers v4 and the v6 stateful case, and
-            # IPv6AcceptRA covers the stateless one, which is the common way a
-            # v6 network hands out a prefix.
+            # Router advertisements as well: that is how most v6 networks hand
+            # out a prefix, and DHCP=yes does not ask for one.
             lines += ["DHCP=yes\n", "IPv6AcceptRA=yes\n"]
         lines += [f"DNS={one}\n" for one in self.dns]
         return "".join(lines)
