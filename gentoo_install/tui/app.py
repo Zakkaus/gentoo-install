@@ -54,9 +54,11 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
                 label=context.translate(setting.label),
                 value=index,
                 detail=_drawn(setting, current, context),
-                disabled_because=""
-                if setting.edit
-                else context.translate("detected"),
+                # `unavailable` first: `nested()` reads it and this loop did
+                # not, so a top-level row carrying a reason would have opened a
+                # screen the nested path refuses.
+                disabled_because=setting.unavailable(current, context)
+                or ("" if setting.edit else context.translate("detected")),
                 style=style_of(setting, current, context),
             )
             for index, setting in enumerate(SETTINGS)
@@ -99,7 +101,7 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
                     return left
             continue
         editor = SETTINGS[chosen].edit
-        if editor is None:
+        if editor is None or SETTINGS[chosen].unavailable(current, context):
             continue
         context.visited.add(SETTINGS[chosen].key)
         edited = editor(screen, current, context)

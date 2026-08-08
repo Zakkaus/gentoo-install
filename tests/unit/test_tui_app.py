@@ -1555,3 +1555,26 @@ def test_remote_unlock_is_offered_once_both_hold() -> None:
     screen = FakeScreen(keys=["q"], lines=24, columns=110)
     screens.remote_unlock_screen(screen, both, at)
     assert "Unlock the root over SSH" in "\n".join(screen.frames[0])
+
+
+def test_the_main_menu_reads_the_same_precondition_the_nested_one_does() -> None:
+    """`nested()` consults `Setting.unavailable` when drawing and again before
+    dispatching; the top-level loop read it in neither place, so every fix that
+    added a reason to a top-level row would have done nothing."""
+    from dataclasses import replace as replaced
+
+    from gentoo_install.tui import app as tui_app
+    from gentoo_install.tui import settings as tui_settings
+
+    at = context()
+    blocked = tuple(
+        replaced(one, unavailable=lambda config, context: "not on this machine")
+        if one.key == "kernel"
+        else one
+        for one in tui_settings.SETTINGS
+    )
+    screen = FakeScreen(keys=["q", "KEY_DOWN", "\n"], lines=40, columns=110)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(tui_app, "SETTINGS", blocked)
+        tui_app.run(screen, config(), at)
+    assert "not on this machine" in "\n".join(screen.frames[0])
