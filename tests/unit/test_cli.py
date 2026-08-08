@@ -60,6 +60,10 @@ def test_an_install_stops_at_preflight_rather_than_touching_a_disk(
     assert "run as root" in printed or "not present" in printed
 
 
-def test_no_configuration_asks_for_one(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main([]) == EXIT_CONFIG
-    assert "--config" in capsys.readouterr().err
+def test_no_configuration_without_a_terminal_says_so(capsys: pytest.CaptureFixture[str]) -> None:
+    """With no --config the menu opens, and pytest is not a terminal: that has
+    to be an exit code with a sentence, not a curses traceback."""
+    code = main([])
+    said = capsys.readouterr().err
+    assert code == EXIT_PREFLIGHT
+    assert "pass --config FILE" in said

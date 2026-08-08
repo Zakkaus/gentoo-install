@@ -7,6 +7,7 @@ data could not be trusted, 4 says an operation did not finish.
 from __future__ import annotations
 
 import argparse
+import curses
 import shutil
 import sys
 from pathlib import Path
@@ -14,12 +15,16 @@ from typing import Iterable, Sequence
 
 from . import errors
 from .data import load_catalog
-from .exec import preflight
+from .exec import fetch, preflight
 from .exec.apply import Machine, apply
 from .exec.probe import Probe
 from .exec.runner import Runner
 from .log import Journal
-from .model.config import InstallConfig
+from .tui import app, screens
+from .tui.curses_screen import CursesScreen
+from .i18n import Catalog, tag_for
+from .model import templates
+from .model.config import DiskConfig, InstallConfig
 from .model.parse import load
 from .plan.build import DEFAULT_MIRROR, build
 from .plan.operations import Operation
@@ -48,6 +53,11 @@ def parser() -> argparse.ArgumentParser:
     )
     parsed.add_argument("--mirror", default=DEFAULT_MIRROR, help="where to fetch stage3 from")
     parsed.add_argument(
+        "--lang",
+        default="",
+        help="interface language, overriding what LC_ALL, LC_MESSAGES and LANG say",
+    )
+    parsed.add_argument(
         "--target", type=Path, default=Path("/mnt/gentoo"), help="where to mount the new system"
     )
     parsed.add_argument("--work", type=Path, default=WORK, help="where to keep the run's state")
@@ -74,9 +84,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 # every install needs whatever it is about to do.
                 print("\n".join(sorted(_absent(preflight.ALWAYS))))
                 return EXIT_OK
-            print("the menu is not written yet; pass --config FILE", file=sys.stderr)
-            return EXIT_CONFIG
-        config = load(arguments.config)
+            chosen = _from_menu(arguments)
+            if chosen is None:
+                print("cancelled", file=sys.stderr)
+                return EXIT_ABORTED
+            config = chosen
+        else:
+            config = load(arguments.config)
         if arguments.missing_commands:
             print("\n".join(sorted(_absent(preflight.required_commands(config)))))
             return EXIT_OK
@@ -148,3 +162,35 @@ def install(config: InstallConfig, operations: tuple[Operation, ...], arguments:
 
 def _absent(wanted: Iterable[str]) -> set[str]:
     return {command for command in wanted if shutil.which(command) is None}
+
+
+def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
+    """Walk the screens and return what the operator built, or None."""
+    runner = Runner(log=lambda line: None)
+    probe = Probe(runner=runner, work=arguments.work)
+    context = screens.Context(
+        translate=Catalog(tag_for(override=arguments.lang)),
+        disks=probe.disks(),
+        groups=load_catalog(),
+        hash_password=lambda password: fetch.password_hash(password, runner),
+    )
+    if not context.disks:
+        raise errors.DeviceNotFound("this machine reports no disk to install onto")
+    if not sys.stdout.isatty():
+        # Checked before curses starts: initialising it writes escape codes to
+        # the pipe before it discovers there is no terminal.
+        raise errors.PreflightFailed("the menu needs a terminal; pass --config FILE")
+    start = _blank(context.disks[0][0])
+    try:
+        finished = curses.wrapper(lambda window: app.run(CursesScreen(window), start, context))
+    except curses.error as error:
+        raise errors.PreflightFailed(
+            f"the menu needs a terminal and this is not one ({error}); pass --config FILE"
+        ) from error
+    return finished.config
+
+
+def _blank(disk: str) -> InstallConfig:
+    """What the first screen starts from: a layout the operator will replace."""
+    graph, root = templates.build(templates.Choice(disk=disk))
+    return InstallConfig(disk=DiskConfig(graph=graph, root=root))
