@@ -125,3 +125,13 @@ def test_an_install_still_names_what_is_missing(tmp_path: Path) -> None:
         path=only_python(tmp_path),
     )
     assert "missing commands:" in said
+
+
+def test_fedora_gets_the_package_that_actually_ships_sgdisk(tmp_path: Path) -> None:
+    """Fedora, RHEL and CentOS put `sgdisk` in gdisk and have no gptfdisk, so
+    `dnf install -y gptfdisk` stopped on Unable to find a match and installed
+    none of the other packages on the line either."""
+    arguments = ("--config", "tests/fixtures/vm-luks.toml")
+    for release in ("ID=fedora\n", 'ID=rocky\nID_LIKE="rhel centos fedora"\n'):
+        said = run(tmp_path, release, *arguments, path=only_python(tmp_path))
+        assert "gdisk" in said and "gptfdisk" not in said

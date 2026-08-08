@@ -57,7 +57,7 @@ package_for() {
 	command=$1
 	family=$2
 	case "$command:$family" in
-	sgdisk:debian | sgdisk:ubuntu) printf 'gdisk' ;;
+	sgdisk:debian | sgdisk:ubuntu | sgdisk:fedora | sgdisk:rhel | sgdisk:centos) printf 'gdisk' ;;
 	sgdisk:alpine) printf 'sgdisk' ;;
 	sgdisk:*) printf 'gptfdisk' ;;
 	partprobe:* | parted:*) printf 'parted' ;;
@@ -71,6 +71,10 @@ package_for() {
 	zpool:arch | zfs:arch) printf 'zfs-utils' ;;
 	udevadm:alpine) printf 'eudev' ;;
 	chroot:alpine | tar:alpine) printf '%s' "$command" ;;
+	# The busybox applets answer `which` and then reject the flags the chroot
+	# and the stage3 need, so Alpine installs the real ones.
+	mount:alpine | umount:alpine) printf 'util-linux' ;;
+	openssl:*) printf 'openssl' ;;
 	zpool:* | zfs:*) printf 'zfs' ;;
 	mkfs.xfs:*) printf 'xfsprogs' ;;
 	mkfs.f2fs:*) printf 'f2fs-tools' ;;
