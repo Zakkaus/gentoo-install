@@ -347,10 +347,20 @@ def main(argv: list[str] | None = None) -> int:
     workdir = WORKROOT / f"{medium.name}-{args.firmware}-{variant}"
     workdir.mkdir(parents=True, exist_ok=True)
     try:
-        claim(workdir)
+        held = claim(workdir)
     except RunInProgress as error:
         print(error, file=sys.stderr)
         return 1
+    try:
+        return _perform(args, medium, workdir)
+    finally:
+        # Released before returning, not at exit: `--and-boot` runs both halves
+        # in one process, and the second could not claim a lock the first was
+        # still holding.
+        os.close(held)
+
+
+def _perform(args: argparse.Namespace, medium: Medium, workdir: Path) -> int:
     ssh_port = args.ssh_port or free_port()
     key = ssh_keypair(workdir)
     result_disk = create_disk(workdir / "result.img")
