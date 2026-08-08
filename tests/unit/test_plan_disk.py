@@ -8,8 +8,10 @@ import pytest
 from gentoo_install.errors import InvalidLayout
 from gentoo_install.model.device import (
     DeviceGraph,
+    Existing,
     Filesystem,
     FilesystemType,
+    LogicalVolume,
     Luks,
     MdRaid,
     Mountpoint,
@@ -22,6 +24,7 @@ from gentoo_install.model.device import (
     Subvolume,
     Swap,
     TableType,
+    VolumeGroup,
     ZfsPool,
 )
 from gentoo_install.model.parse import load
@@ -255,3 +258,30 @@ def test_a_failed_run_can_be_started_again() -> None:
     ran = [argv[0] for argv in recorder.commands]
     assert ran[0] == "umount"
     assert ("cryptsetup", "close", "root") in recorder.commands
+
+
+def test_the_teardown_closes_each_device_before_the_one_it_sits_on() -> None:
+    """A fixed sequence of kinds gets one nesting wrong, and both occur: a
+    volume group on a container and a container on a logical volume."""
+    from gentoo_install.plan.disk import _teardown
+
+    base = [
+        Existing(id=i("d"), selector="/dev/vda", wipe=True),
+        PartitionTable(id=i("t"), disk=i("d"), table=TableType.GPT),
+        Partition(id=i("p"), table=i("t"), index=1, role=PartitionRole.LVM, size=None),
+    ]
+    on_luks = DeviceGraph.build([
+        *base,
+        Luks(id=i("c"), backing=i("p"), name="crypt"),
+        VolumeGroup(id=i("vg"), members=(i("c"),), name="vg"),
+        LogicalVolume(id=i("lv"), group=i("vg"), name="root", size=None),
+    ])
+    assert [one[0] for one in _teardown(on_luks)] == ["vgchange", "cryptsetup"]
+
+    on_lvm = DeviceGraph.build([
+        *base,
+        VolumeGroup(id=i("vg"), members=(i("p"),), name="vg"),
+        LogicalVolume(id=i("lv"), group=i("vg"), name="root", size=None),
+        Luks(id=i("c"), backing=i("lv"), name="crypt"),
+    ])
+    assert [one[0] for one in _teardown(on_lvm)] == ["cryptsetup", "vgchange"]

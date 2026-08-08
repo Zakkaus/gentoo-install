@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import Final
+from typing import Callable, Final, cast
 
 from ..errors import CommandFailed, InvalidLayout
 from ..model.config import InstallConfig
@@ -110,28 +110,21 @@ class ReleaseTarget(Operation):
     """
 
     stage: Stage = Stage.PARTITION
-    containers: tuple[str, ...]
-    arrays: tuple[str, ...]
-    groups: tuple[str, ...]
-    pools: tuple[str, ...]
+    #: One command per device, already in the order they have to run: whatever
+    #: is built on top comes first. Derived from the graph rather than from a
+    #: fixed sequence of kinds, because LVM on LUKS and LUKS on LVM need
+    #: opposite orders and both are describable.
+    steps: tuple[tuple[str, ...], ...]
 
     def describe(self) -> str:
         return "release anything a previous run of this configuration left mounted or open"
 
     def apply(self, context: Context) -> None:
         context.run(["umount", "--recursive", "--lazy", str(context.target)], check=False)
-        # Twice, because one order cannot suit both nestings: LVM on LUKS wants
-        # the group deactivated first, LUKS on LVM wants the container closed
-        # first, and a step whose turn has not come is a no-op either way.
-        for _ in range(2):
-            for pool in self.pools:
-                context.run(["zpool", "export", pool], check=False)
-            for group in self.groups:
-                context.run(["vgchange", "--activate", "n", group], check=False)
-            for name in self.containers:
-                context.run(["cryptsetup", "close", name], check=False)
-        for array in self.arrays:
-            context.run(["mdadm", "--stop", f"/dev/md/{array}"], check=False)
+        for argv in self.steps:
+            # check=False throughout: none of these existing is the normal case
+            # on a first run.
+            context.run(list(argv), check=False)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -534,12 +527,7 @@ def finish(config: InstallConfig) -> list[Operation]:
 def build(config: InstallConfig) -> list[Operation]:
     graph = config.disk.graph
     operations: list[Operation] = [
-        ReleaseTarget(
-            containers=tuple(node.name for node in graph.of_type(Luks)),
-            arrays=tuple(node.name for node in graph.of_type(MdRaid)),
-            groups=tuple(node.name for node in graph.of_type(VolumeGroup)),
-            pools=tuple(node.name for node in graph.of_type(ZfsPool)),
-        )
+        ReleaseTarget(steps=_teardown(graph))
     ]
     mounts: list[Operation] = []
     for node in topological(graph):
@@ -594,6 +582,30 @@ def _mount_depth(operation: Operation) -> int:
     if isinstance(operation, (Mount, MountZfsDataset)):
         return len(operation.path.parts)
     return 0
+
+
+#: What closes each kind of device, by the node that describes it.
+_CLOSE: Final[dict[type[Node], Callable[[Node], tuple[str, ...]]]] = {
+    ZfsPool: lambda node: ("zpool", "export", cast(ZfsPool, node).name),
+    VolumeGroup: lambda node: ("vgchange", "--activate", "n", cast(VolumeGroup, node).name),
+    Luks: lambda node: ("cryptsetup", "close", cast(Luks, node).name),
+    MdRaid: lambda node: ("mdadm", "--stop", f"/dev/md/{cast(MdRaid, node).name}"),
+}
+
+
+def _teardown(graph: DeviceGraph) -> tuple[tuple[str, ...], ...]:
+    """Close each device before the one it is built on.
+
+    The build order reversed, which is the only order that suits every nesting:
+    a volume group on a LUKS container and a container on a logical volume both
+    occur, and a fixed sequence of kinds gets one of them wrong.
+    """
+    steps: list[tuple[str, ...]] = []
+    for node in reversed(topological(graph)):
+        close = _CLOSE.get(type(node))
+        if close is not None:
+            steps.append(close(node))
+    return tuple(steps)
 
 
 def _disks_with_partitions(graph: DeviceGraph) -> tuple[DeviceId, ...]:
