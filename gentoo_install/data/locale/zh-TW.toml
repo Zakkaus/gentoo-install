@@ -63,3 +63,8 @@
 "A ZFS root cannot boot from GRUB. Which bootloader?" = "ZFS 根無法由 GRUB 開機，要用哪一個？"
 "adds the gentoo-zh overlay, the only one that has it" = "會加入 gentoo-zh overlay，只有那裡有"
 "no overlay, and the esp has to hold the kernel" = "不需要 overlay，但核心必須放在 esp 上"
+"Packages to install, separated by spaces" = "要安裝的套件，以空白分隔"
+"Not a package name" = "不是套件名稱"
+"Package groups" = "套件組"
+"Extra packages" = "額外套件"
+"on the disk now, will be erased" = "磁碟上現有的，將被清除"

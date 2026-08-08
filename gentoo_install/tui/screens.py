@@ -32,7 +32,7 @@ from ..model.config import (
 from ..model.device import FilesystemType, PartitionRole, TableType
 from ..model.size import Size
 from ..errors import GentooInstallError, ValidationFailed
-from ..model import manual
+from ..model import atoms, manual
 from ..model.templates import Choice, Layout, build
 from ..model.validate import validate
 from ..plan.packages import Catalog as Groups
@@ -980,3 +980,30 @@ def _edit_slice(
         filesystem=filesystem,
         mountpoint=mountpoint,
     )
+
+
+def extra_packages_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """Any atom the operator wants, typed in.
+
+    Only the syntax is checked here. Whether it resolves is a question for the
+    target's repositories, which `VerifyPackages` asks once the tree is synced;
+    the live medium often carries no repository at all.
+    """
+    translate = context.translate
+    while True:
+        typed = TextField(
+            title=translate("Packages to install, separated by spaces"),
+            value=" ".join(config.packages.extra),
+            footer=_footer(translate),
+        ).run(screen)
+        if not typed.chosen:
+            return Answer(typed.outcome)
+        good, bad = atoms.split(typed.unwrap())
+        if bad:
+            _say(screen, context, f"{translate('Not a package name')}: {' '.join(bad)}")
+            continue
+        return Answer(
+            Outcome.CHOSE, replace(config, packages=replace(config.packages, extra=good))
+        )

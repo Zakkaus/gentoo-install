@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from dataclasses import replace
 from pathlib import PurePosixPath
 from typing import Any
@@ -17,6 +19,7 @@ from gentoo_install.model.config import (
     PortageConfig,
     SystemConfig,
 )
+from gentoo_install.errors import ConfigError
 from gentoo_install.plan import portage
 from gentoo_install.plan.operations import Operation
 
@@ -252,3 +255,14 @@ def test_named_atoms_are_accepted_without_opening_the_whole_system() -> None:
         isinstance(operation, portage.AcceptTestingGlobally)
         for operation in portage.build(wanted, "https://distfiles.gentoo.org")
     )
+
+
+def test_a_package_name_that_matches_nothing_stops_before_the_disks_fill() -> None:
+    """Asked once the tree is synced: otherwise the run dies at the packages
+    stage, hours in and with the disks already written."""
+    recorder = Recorder(failures={"emerge"})
+    check = portage.VerifyPackages(packages=("app-editors/neovim", "not/real"))
+    with pytest.raises(ConfigError, match="no ebuild matches"):
+        check.apply(recorder)
+
+    portage.VerifyPackages(packages=("app-editors/neovim",)).apply(Recorder())

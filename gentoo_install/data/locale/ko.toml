@@ -63,3 +63,8 @@
 "A ZFS root cannot boot from GRUB. Which bootloader?" = "ZFS 루트는 GRUB으로 부팅할 수 없습니다. 어느 것을 쓰시겠습니까?"
 "adds the gentoo-zh overlay, the only one that has it" = "gentoo-zh 오버레이를 추가합니다. 여기에만 있습니다"
 "no overlay, and the esp has to hold the kernel" = "오버레이 불필요. 단 커널이 esp에 있어야 합니다"
+"Packages to install, separated by spaces" = "설치할 패키지, 공백으로 구분"
+"Not a package name" = "패키지 이름이 아닙니다"
+"Package groups" = "패키지 그룹"
+"Extra packages" = "추가 패키지"
+"on the disk now, will be erased" = "현재 디스크에 있으며 지워집니다"

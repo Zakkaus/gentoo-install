@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Final
 
-from ..errors import CommandFailed
+from ..errors import CommandFailed, ConfigError
 from ..model.config import (
     BinhostChannel,
     InitSystem,
@@ -396,6 +396,35 @@ class ConfigureBinhost(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
+class VerifyPackages(Operation):
+    """Every atom the operator typed has to resolve to an ebuild.
+
+    Asked here, right after the tree is synced and before anything is built: a
+    name that matches nothing otherwise stops the run at the packages stage,
+    hours in and with the disks already written.
+    """
+
+    stage: Stage = Stage.PORTAGE
+    packages: tuple[str, ...]
+
+    def describe(self) -> str:
+        return f"check that {' '.join(self.packages)} name real packages"
+
+    def apply(self, context: Context) -> None:
+        missing: list[str] = []
+        for atom in self.packages:
+            try:
+                context.run_in_target(["emerge", "--pretend", "--quiet", "--nodeps", "--", atom])
+            except CommandFailed:
+                missing.append(atom)
+        if missing:
+            raise ConfigError(
+                f"no ebuild matches {', '.join(missing)}; check the name, or add the "
+                "overlay that carries it"
+            )
+
+
+@dataclass(frozen=True, kw_only=True)
 class AcceptTestingPackages(Operation):
     """A third scope beside stable and global testing: named atoms only, so the
     rest of the system keeps the guarantee stable carries."""
@@ -471,6 +500,8 @@ def build(
             SyncRepository(name=overlay.name, location=location),
             AcceptOverlayKeywords(repository=overlay.name),
         ]
+    if config.packages.extra:
+        operations.append(VerifyPackages(packages=config.packages.extra))
     if portage.testing_packages:
         operations.append(AcceptTestingPackages(packages=portage.testing_packages))
     if _uses_binhost(portage):

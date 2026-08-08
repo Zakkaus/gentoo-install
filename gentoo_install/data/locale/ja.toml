@@ -63,3 +63,8 @@
 "A ZFS root cannot boot from GRUB. Which bootloader?" = "ZFS ルートは GRUB では起動できません。どちらを使いますか？"
 "adds the gentoo-zh overlay, the only one that has it" = "gentoo-zh オーバーレイを追加します。ここにしかありません"
 "no overlay, and the esp has to hold the kernel" = "オーバーレイ不要。ただしカーネルを esp に置く必要があります"
+"Packages to install, separated by spaces" = "インストールするパッケージ、空白区切り"
+"Not a package name" = "パッケージ名ではありません"
+"Package groups" = "パッケージグループ"
+"Extra packages" = "追加のパッケージ"
+"on the disk now, will be erased" = "現在ディスクにあります。消去されます"

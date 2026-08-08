@@ -125,6 +125,10 @@ def _applications(config: InstallConfig, context: Context) -> str:
     return ", ".join(config.packages.applications) or "none"
 
 
+def _extra(config: InstallConfig, context: Context) -> str:
+    return " ".join(config.packages.extra) or "none"
+
+
 def _erase(config: InstallConfig, context: Context) -> str:
     return "confirmed" if context.erase_confirmed else UNSET
 
@@ -156,7 +160,8 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("bootloader", "Bootloader", _bootloader, screens.bootloader_screen),
     Setting("binhost", "Binary packages", _binhost, screens.binhost_screen),
     Setting("desktop", "Desktop", lambda c, x: c.packages.desktop or "none", screens.desktop_screen),
-    Setting("packages", "Additional packages", _applications, screens.packages_screen),
+    Setting("packages", "Package groups", _applications, screens.packages_screen),
+    Setting("extra", "Extra packages", _extra, screens.extra_packages_screen),
     Setting("network", "Network configuration", _network, screens.networking_screen),
     Setting("sshd", "SSH server", lambda c, x: "on" if c.system.sshd else "off", screens.sshd_screen),
     Setting("erase", "Confirm erasing the drive", _erase, screens.erase_screen, required=True),
