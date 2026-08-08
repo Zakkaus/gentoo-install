@@ -539,9 +539,15 @@ class Mount(Operation):
         options = f" with {','.join(self.options)}" if self.options else ""
         return f"mount {self.source} at {self.path}{options}"
 
+    @property
+    def survives_a_reboot(self) -> bool:
+        return False
+
     def apply(self, context: Context) -> None:
         where = _under(context.target, self.path)
         context.run(["mkdir", "--parents", str(where)])
+        if context.is_mounted(str(where)):
+            return
         argv = ["mount"]
         if self.options:
             argv += ["--options", ",".join(self.options)]

@@ -97,6 +97,14 @@ class Context(Protocol):
     def device_uuid(self, device: DeviceId) -> str:
         """The UUID of a formatted device, for fstab and crypttab."""
 
+    def is_mounted(self, path: str) -> bool:
+        """Whether anything is mounted at that directory in the target.
+
+        Asked by a mount that a resumed run reaches for the second time: the
+        answer is state of the running machine, not of the disk.
+        """
+        return False
+
     def filesystem_type(self, device: DeviceId) -> str:
         """What is on the device now, as `blkid` names it. Empty for nothing."""
 
@@ -139,3 +147,15 @@ class Operation(ABC):
 
     @abstractmethod
     def apply(self, context: Context) -> None: ...
+
+    @property
+    def survives_a_reboot(self) -> bool:
+        """Whether finishing this once means a resumed run may skip it.
+
+        A partition table and a filesystem are on the disk. A mount is not: a
+        run that stopped, was rebooted and resumed would skip every mount and
+        unpack the stage3 into the live medium's own tmpfs until the machine
+        ran out of memory, with nothing in the log saying the target was never
+        mounted.
+        """
+        return True

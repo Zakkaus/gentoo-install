@@ -8,11 +8,14 @@ Starting again from the beginning throws all of that away.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from gentoo_install.exec.apply import completed
 from gentoo_install.log import Journal
+from gentoo_install.model.device import DeviceId
 from gentoo_install.plan.operations import Operation, Stage
+
+from .recorder import Recorder
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -154,3 +157,39 @@ def test_the_running_installer_says_where_it_is_and_how_long_it_has_taken() -> N
     counted = [line for line in said if line.startswith("[1/")]
     assert counted and f"[1/{len(operations)} 0:00:00]" in counted[0]
     assert any(line.startswith(f"[{len(operations)}/{len(operations)} ") for line in said)
+
+
+def test_a_resumed_run_mounts_again_rather_than_skipping() -> None:
+    """A mount is state of the running machine, not of the disk. Skipping it
+    after a reboot unpacks the stage3 into the live medium's own tmpfs until
+    the machine runs out of memory, with nothing in the log saying so."""
+    from gentoo_install.plan.disk import Mount
+    from gentoo_install.plan.operations import Stage
+
+    mount = Mount(
+        mountpoint=DeviceId("mnt"),
+        source=DeviceId("fs"),
+        path=PurePosixPath("/"),
+        options=(),
+    )
+    assert mount.survives_a_reboot is False
+    # Everything that writes to the disk stays skippable, or a resumed run
+    # partitions a disk it already installed onto.
+    from gentoo_install.plan.disk import WipeSignatures
+
+    assert WipeSignatures(device=DeviceId("part"), stage=Stage.PARTITION).survives_a_reboot
+
+
+def test_mounting_something_already_mounted_is_not_an_error() -> None:
+    """It runs again on a resume, so it has to be safe to run twice."""
+    from gentoo_install.plan.disk import Mount
+
+    recorder = Recorder()
+    recorder.mounts.add("/mnt/gentoo")
+    Mount(
+        mountpoint=DeviceId("mnt"),
+        source=DeviceId("fs"),
+        path=PurePosixPath("/"),
+        options=(),
+    ).apply(recorder)
+    assert not any(argv[0] == "mount" for argv in recorder.commands)

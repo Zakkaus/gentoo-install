@@ -64,6 +64,12 @@ class Recorder:
     def device_path(self, device: DeviceId) -> str:
         return f"/dev/mapper/{device}"
 
+    #: Directories the double reports as already mounted, for the resume path.
+    mounts: set[str] = field(default_factory=set)
+
+    def is_mounted(self, path: str) -> bool:
+        return path in self.mounts
+
     def passphrase(self, device: DeviceId) -> str:
         return "a passphrase"
 

@@ -152,6 +152,9 @@ class Machine:
     def degraded(self, what: str) -> bool:
         return what in self.given_up
 
+    def is_mounted(self, path: str) -> bool:
+        return self.runner.run(["findmnt", "--mountpoint", path], check=False).returncode == 0
+
     def containing_disk(self, device: DeviceId) -> str:
         """The whole disk a device sits on, which is what a bootloader wants.
 
@@ -245,7 +248,7 @@ def apply(
     opened = time.monotonic()
     for position, operation in enumerate(operations):
         counted = f"[{position + 1}/{total} {_elapsed(time.monotonic() - opened)}]"
-        if (position, operation.describe()) in finished:
+        if operation.survives_a_reboot and (position, operation.describe()) in finished:
             machine.runner.log(
                 f"{counted} [{operation.stage.value}] done earlier: {operation.describe()}"
             )
