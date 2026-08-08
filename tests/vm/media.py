@@ -34,6 +34,9 @@ class Medium:
     #: Set when the medium does not boot the dracut way. Alpine's initramfs
     #: takes `modules=` and finds its own media; it has no `root=live:`.
     boot_cmdline: tuple[str, ...] = ()
+    #: Run after login on a medium whose live user is not root. Debian's live
+    #: session logs in as `user`, and the installer needs root.
+    become_root: str = ""
 
     def cmdline(self) -> str:
         base = self.boot_cmdline or (
@@ -122,9 +125,10 @@ DEBIAN = Medium(
     kernel_in_iso="/live/vmlinuz",
     initrd_in_iso="/live/initrd.img",
     # The live session logs in as `user`; the installer needs root.
-    root_prompt=r"root@debian:",
+    root_prompt=r"user@debian:",
     login_user="user",
     login_password="live",
+    become_root="sudo -i",
     boot_cmdline=("boot=live", "components", "username=user"),
 )
 

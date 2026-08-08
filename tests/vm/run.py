@@ -164,6 +164,9 @@ def reach_shell(console: SerialConsole, medium: Medium) -> None:
         console.expect(medium.root_prompt, timeout=300.0)
     else:
         console.login(medium.login_user, medium.login_password, medium.root_prompt)
+    if medium.become_root:
+        console.send(medium.become_root)
+        console.expect(r"root@", timeout=60.0)
     pin_resolver(console)
 
 
