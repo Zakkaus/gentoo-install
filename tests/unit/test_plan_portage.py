@@ -178,3 +178,58 @@ def test_the_stage3_variant_follows_the_init_system() -> None:
     openrc = apply_all(replace(config(), system=SystemConfig(init=InitSystem.OPENRC))).commands
     assert any("systemd" in argv for argv in systemd if argv[0] == "fetch-stage3")
     assert any("openrc" in argv for argv in openrc if argv[0] == "fetch-stage3")
+
+
+def test_a_binhost_that_cannot_be_trusted_compiles_instead_of_stopping() -> None:
+    """The disks are written by the time trust is set up, so a keyring that
+    failed degrades to source rather than ending the run."""
+    recorder = Recorder(failures={"getuto"})
+    portage.PrepareBinhostTrust().apply(recorder)
+    assert recorder.degraded(portage.BINARY_PACKAGES)
+
+    portage.TrustBinhostKey(
+        binhost="gentoo-zh", fingerprint="0" * 40, key_path=PurePosixPath("/usr/share/key.asc")
+    ).apply(recorder)
+    assert ("gpg", "--homedir", "/etc/portage/gnupg", "--import", "/usr/share/key.asc") not in (
+        recorder.in_target
+    )
+
+    portage.ConfigureBinhost(name="gentoo-zh", sync_uri="https://example/", verify=True).apply(
+        recorder
+    )
+    assert PurePosixPath("/etc/portage/binrepos.conf/gentoo-zh.conf") not in recorder.files
+
+    portage.Emerge(packages=("sys-boot/grub",), summary="install the bootloader").apply(recorder)
+    emerge = next(argv for argv in recorder.in_target if argv[0] == "emerge")
+    assert "--usepkg=n" in emerge and "--getbinpkg=y" not in emerge
+
+
+def test_a_binhost_that_can_be_trusted_is_used() -> None:
+    recorder = Recorder()
+    portage.PrepareBinhostTrust().apply(recorder)
+    portage.Emerge(packages=("sys-boot/grub",), summary="install the bootloader").apply(recorder)
+    emerge = next(argv for argv in recorder.in_target if argv[0] == "emerge")
+    assert "--getbinpkg=y" in emerge and "--usepkg=n" not in emerge
+
+
+def test_a_failed_community_key_leaves_the_official_host_alone() -> None:
+    """The official host's key comes from `getuto`, so one community key that
+    could not be signed says nothing about it."""
+    recorder = Recorder(failures={"gpg"})
+    portage.TrustBinhostKey(
+        binhost="gentoo-zh", fingerprint="0" * 40, key_path=PurePosixPath("/usr/share/key.asc")
+    ).apply(recorder)
+    assert not recorder.degraded(portage.BINARY_PACKAGES)
+
+    portage.ConfigureBinhost(name="gentoo-zh", sync_uri="https://example/", verify=True).apply(
+        recorder
+    )
+    portage.ConfigureBinhost(name="gentoo", sync_uri="https://official/", verify=True).apply(
+        recorder
+    )
+    written = set(recorder.files)
+    assert PurePosixPath("/etc/portage/binrepos.conf/gentoo-zh.conf") not in written
+    assert PurePosixPath("/etc/portage/binrepos.conf/gentoo.conf") in written
+
+    portage.Emerge(packages=("sys-boot/grub",), summary="install the bootloader").apply(recorder)
+    assert "--getbinpkg=y" in next(argv for argv in recorder.in_target if argv[0] == "emerge")

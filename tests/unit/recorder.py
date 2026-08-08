@@ -6,6 +6,7 @@ argv it would run is how the flags get asserted without a disk.
 
 from __future__ import annotations
 
+from gentoo_install.errors import CommandFailed
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from typing import Sequence
@@ -22,6 +23,9 @@ class Recorder:
     stdin: list[str] = field(default_factory=list)
     #: What `run_in_target` returns, keyed by the first word of the command.
     replies: dict[str, str] = field(default_factory=dict)
+    #: Commands whose first word is here raise instead of returning.
+    failures: set[str] = field(default_factory=set)
+    given_up: set[str] = field(default_factory=set)
 
     def run(
         self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
@@ -33,6 +37,8 @@ class Recorder:
 
     def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
         self.in_target.append(tuple(argv))
+        if argv[0] in self.failures:
+            raise CommandFailed(f"{argv[0]} exited 1")
         return self.replies.get(argv[0], "1")
 
     def write(self, path: PurePosixPath, content: str, *, mode: int = 0o644) -> None:
@@ -55,6 +61,12 @@ class Recorder:
 
     def partition_index(self, device: DeviceId) -> int:
         return 1
+
+    def degrade(self, what: str, reason: str) -> None:
+        self.given_up.add(what)
+
+    def degraded(self, what: str) -> bool:
+        return what in self.given_up
 
     def jobs(self) -> int:
         return 4

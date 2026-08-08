@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Final
 
+from ..errors import CommandFailed
 from ..model.config import (
     BinhostChannel,
     InitSystem,
@@ -73,6 +74,17 @@ EMERGE_OPTIONS: Final[tuple[str, ...]] = (
     "--autounmask-write=y",
     "--autounmask-continue=y",
 )
+
+#: What a failed keyring degrades: every host at once, because none of them can
+#: be verified without it. Named once, because the operation that gives up and
+#: the operations that read the decision are three modules apart.
+BINARY_PACKAGES: Final[str] = "binary packages"
+
+
+def binhost_trust(name: str) -> str:
+    """What one host's own key degrades. The official host's key comes from
+    `getuto`, so a community key that failed must not switch it off too."""
+    return f"binary packages from {name}"
 
 #: `*/*-bin` is deliberately absent: it would exclude `gentoo-kernel-bin`, the
 #: one package this installer asks a binary host for.
@@ -288,7 +300,7 @@ class Emerge(Operation):
         argv = ["emerge", *EMERGE_OPTIONS]
         if self.oneshot:
             argv.append("--oneshot")
-        if self.binary_packages:
+        if self.binary_packages and not context.degraded(BINARY_PACKAGES):
             argv += BINPKG_OPTIONS
         else:
             argv.append("--usepkg=n")
@@ -306,7 +318,12 @@ class PrepareBinhostTrust(Operation):
         return "run getuto so Portage has a keyring to verify binary packages against"
 
     def apply(self, context: Context) -> None:
-        context.run_in_target(["getuto"])
+        try:
+            context.run_in_target(["getuto"])
+        except CommandFailed as error:
+            # Not fatal by design: the disks are already written by now, and
+            # compiling is the guaranteed path a binary host only shortens.
+            context.degrade(BINARY_PACKAGES, f"getuto left no keyring to verify against: {error}")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -315,13 +332,29 @@ class TrustBinhostKey(Operation):
     verification then fails the same way it fails with no key at all."""
 
     stage: Stage = Stage.PORTAGE
+    binhost: str
     fingerprint: str
     key_path: PurePosixPath
 
     def describe(self) -> str:
-        return f"import {self.fingerprint[-16:]} from {self.key_path} and locally sign it"
+        return (
+            f"import {self.fingerprint[-16:]} from {self.key_path} and locally sign it "
+            f"for {self.binhost}"
+        )
 
     def apply(self, context: Context) -> None:
+        if context.degraded(BINARY_PACKAGES):
+            return
+        try:
+            self._trust(context)
+        except CommandFailed as error:
+            # An imported but unsigned key fails verification exactly as a
+            # missing key does, so a half-done import degrades the same way.
+            context.degrade(
+                binhost_trust(self.binhost), f"{self.fingerprint[-16:]} is not trusted: {error}"
+            )
+
+    def _trust(self, context: Context) -> None:
         context.run_in_target(
             ["gpg", "--homedir", "/etc/portage/gnupg", "--import", str(self.key_path)]
         )
@@ -349,6 +382,10 @@ class ConfigureBinhost(Operation):
         return f"add {signed} binary package host {self.name} at {self.sync_uri}"
 
     def apply(self, context: Context) -> None:
+        if context.degraded(BINARY_PACKAGES) or context.degraded(binhost_trust(self.name)):
+            # Writing the host anyway would leave the installed system pulling
+            # binaries it cannot verify.
+            return
         stanza = (
             f"[{self.name}]\n"
             f"sync-uri = {self.sync_uri}\n"
@@ -424,7 +461,11 @@ def build(config: InstallConfig, mirror: str, use: tuple[str, ...] = ()) -> list
                 summary="install the key the community binary packages are signed with",
                 binary_packages=False,
             ),
-            TrustBinhostKey(fingerprint=GENTOOZH_FINGERPRINT, key_path=GENTOOZH_KEY),
+            TrustBinhostKey(
+                binhost="gentoo-zh",
+                fingerprint=GENTOOZH_FINGERPRINT,
+                key_path=GENTOOZH_KEY,
+            ),
             ConfigureBinhost(name="gentoo-zh", sync_uri=_binhost_uri(portage), verify=True),
         ]
     return operations

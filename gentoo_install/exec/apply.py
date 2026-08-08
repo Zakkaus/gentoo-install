@@ -41,6 +41,7 @@ class Machine:
     work: Path
     mountpoint: Path = Path("/mnt/gentoo")
     keys: dict[DeviceId, PurePosixPath] = field(default_factory=dict)
+    given_up: set[str] = field(default_factory=set)
 
     @property
     def target(self) -> PurePosixPath:
@@ -122,6 +123,15 @@ class Machine:
         staged = PurePosixPath(path)
         self.keys[device] = staged
         return staged
+
+    def degrade(self, what: str, reason: str) -> None:
+        self.given_up.add(what)
+        self.runner.log(f"WARNING: {what} is unavailable, so {reason}")
+        if self.runner.journal is not None:
+            self.runner.journal.degraded(what, reason)
+
+    def degraded(self, what: str) -> bool:
+        return what in self.given_up
 
     def containing_disk(self, device: DeviceId) -> str:
         """The whole disk a device sits on, which is what a bootloader wants.

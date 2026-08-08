@@ -38,7 +38,7 @@
   accept ~amd64 for packages from gentoo-zh only
   run getuto so Portage has a keyring to verify binary packages against
   install the key the community binary packages are signed with: emerge sec-keys/openpgp-keys-gentoozh, from source
-  import 38A0234EC16AD42E from /usr/share/openpgp-keys/gentoozh.asc and locally sign it
+  import 38A0234EC16AD42E from /usr/share/openpgp-keys/gentoozh.asc and locally sign it for gentoo-zh
   add verified binary package host gentoo-zh at https://mirrors.cernet.edu.cn/gentoo-zh/binpkgs/x86-64
 
 [system]

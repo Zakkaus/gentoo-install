@@ -102,6 +102,16 @@ class Context(Protocol):
         """The passphrase for an encrypted device, for a command that wants it
         on stdin rather than in a file."""
 
+    def degrade(self, what: str, reason: str) -> None:
+        """Record that `what` failed and the install continued without it.
+
+        A binary host whose trust could not be set up degrades to compiling
+        rather than stopping a run that has already written the disks.
+        """
+
+    def degraded(self, what: str) -> bool:
+        """Whether `what` was given up on earlier in this run."""
+
     def fetch_stage3(self, mirror: str, variant: str, fingerprint: str) -> PurePosixPath:
         """Download the newest stage3 of `variant`, check its signature against
         `fingerprint` and its digest, and return where it was written."""
