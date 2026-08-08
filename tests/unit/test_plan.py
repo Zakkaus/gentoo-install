@@ -18,6 +18,7 @@ from gentoo_install.model.config import (
     KernelSource,
     Overlay,
     PackagesConfig,
+    User,
     PortageConfig,
     SystemConfig,
 )
@@ -26,11 +27,13 @@ from gentoo_install.model.parse import load
 from gentoo_install.plan import disk as plan_disk
 from gentoo_install.plan.build import build
 from gentoo_install.plan.operations import Operation, Stage
+from gentoo_install.plan import packages as plan_packages
 from gentoo_install.plan.packages import Catalog, Group
 from gentoo_install.plan.portage import Emerge
 from gentoo_install.plan.render import render, summarise
 
 from .layouts import config, ext4_on_gpt, i, zfs_root
+from .recorder import Recorder
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 CATALOG: Catalog = {"console": Group(name="console", packages=("app-editors/vim",))}
@@ -192,3 +195,77 @@ def test_every_operation_describes_itself_in_one_line() -> None:
         for operation in build(load(path), load_catalog()):
             described = operation.describe()
             assert described and "\n" not in described, f"{type(operation).__name__} in {path.name}"
+
+
+def test_a_group_from_an_overlay_needs_that_overlay_selected() -> None:
+    """Otherwise the first sign is emerge failing an hour into an install that
+    has already partitioned the disks."""
+    catalog = load_catalog()
+    wanted = replace(
+        config(), packages=PackagesConfig(applications=("rime-ice",))
+    )
+    with pytest.raises(ConfigError, match="gentoo-zh"):
+        plan_packages.build(wanted, catalog)
+
+    with_overlay = replace(
+        wanted,
+        portage=replace(
+            wanted.portage,
+            overlays=(Overlay(name="gentoo-zh", sync_uri="https://example/overlay.git"),),
+        ),
+    )
+    assert plan_packages.build(with_overlay, catalog)
+
+
+def test_a_driver_group_adds_its_video_cards_and_its_drop_in() -> None:
+    catalog = load_catalog()
+    wanted = replace(config(), packages=PackagesConfig(applications=("nvidia",)))
+    assert plan_packages.required_video_cards(wanted, catalog) == ("nvidia",)
+    written = [
+        operation
+        for operation in plan_packages.build(wanted, catalog)
+        if isinstance(operation, plan_packages.WriteGroupFile)
+    ]
+    assert [str(entry.file.path) for entry in written] == ["/etc/modprobe.d/nvidia.conf"]
+
+
+def test_an_input_method_group_configures_fcitx_for_every_user() -> None:
+    """fcitx starts with no engine, so a desktop with the packages installed
+    still types latin until someone adds one by hand."""
+    catalog = load_catalog()
+    wanted = replace(
+        config(),
+        system=replace(config().system, users=(User(name="zakk"),)),
+        packages=PackagesConfig(applications=("fcitx5", "rime")),
+    )
+    recorder = Recorder()
+    for operation in plan_packages.build(wanted, catalog):
+        if isinstance(
+            operation,
+            (plan_packages.WriteInputMethodProfile, plan_packages.WriteInputMethodEnvironment),
+        ):
+            operation.apply(recorder)
+    written = {str(path): text for path, text in recorder.files.items()}
+    assert "DefaultIM=keyboard-us" in written["/home/zakk/.config/fcitx5/profile"]
+    assert "Name=rime" in written["/etc/skel/.config/fcitx5/profile"]
+    assert "luna_pinyin" in written["/home/zakk/.local/share/fcitx5/rime/default.custom.yaml"]
+    assert "gtk-im-module=fcitx" in written["/home/zakk/.config/gtk-4.0/settings.ini"]
+    assert "XMODIFIERS=@im=fcitx" in written["/etc/environment.d/90-input-method.conf"]
+
+
+def test_a_wayland_desktop_leaves_the_module_variables_unset() -> None:
+    """Setting them under a Wayland compositor makes the candidate window
+    blink, because the compositor already drives fcitx over text-input."""
+    catalog = load_catalog()
+    wanted = replace(
+        config(),
+        packages=PackagesConfig(desktop="plasma", applications=("fcitx5", "rime")),
+    )
+    recorder = Recorder()
+    for operation in plan_packages.build(wanted, catalog):
+        if isinstance(operation, plan_packages.WriteInputMethodEnvironment):
+            operation.apply(recorder)
+    written = "".join(recorder.files.values())
+    assert "XMODIFIERS=@im=fcitx" in written
+    assert "GTK_IM_MODULE" not in written and "QT_IM_MODULE=" not in written
+    assert "QT_IM_MODULES=" in written
