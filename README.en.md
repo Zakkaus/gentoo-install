@@ -2,66 +2,50 @@
 
 # gentoo-install
 
-A text installer that turns a machine into a bootable Gentoo system from any Linux live medium. It is driven by a menu or a configuration file, and a Chinese environment works out of the box with every part of it a switch you can turn off. It is the text counterpart of the Calamares installer on the Gig-OS Live ISO: no desktop, no mouse, and usable over a serial console or SSH.
+Installs a bootable Gentoo from any Linux live system. Driven by a menu or a
+configuration file, with a Chinese environment on by default and every part of
+it a switch.
 
-## Supported environments
+## Requirements
 
-The installer runs on a live system and installs Gentoo onto a target disk. These six live media were each booted and tested:
+Runs as root. Python 3.11 or newer, standard library only. Target is amd64.
 
-| Live system | Version | python3 | Has to be installed first |
-|---|---|---|---|
-| Gentoo minimal | 20260712 | 3.14.6 | nothing |
-| Arch | 2026.08.01 | 3.14.6 | nothing |
-| openSUSE Tumbleweed Rescue | current | 3.13.14 | nothing |
-| Fedora Workstation Live | 43 | 3.14.0 | `gptfdisk` |
-| Debian live standard | 13.6 | 3.13.5 | `dosfstools`, `gdisk` |
-| Alpine standard | 3.24.1 | none | `python3` and more |
+These live media were each tested. `bootstrap.sh` lists the missing commands and
+the install line for that distribution:
 
-Python 3.11 is the floor, set by `tomllib` in the standard library. The installer uses the standard library only and pulls in no third-party dependency. The target architecture is amd64.
-
-The launcher works out which commands are missing and prints the install line for that distribution, so you do not have to map them yourself.
-
-## Without cloning first
-
-The repository is public, so one line fetches and runs it. The same line works
-on every live system:
-
-```sh
-curl -fsSL https://github.com/Zakkaus/gentoo-install/archive/refs/heads/master.tar.gz | tar xz
-cd gentoo-install-master && ./bootstrap.sh
-```
-
-It needs `curl` and `tar`, which every live medium has; Alpine's busybox tar
-unpacks this archive too. Only stage3 needs GNU tar, and the installer checks
-for that itself.
+| Medium | python3 | Install first |
+|---|---|---|
+| Gentoo minimal 20260712 | 3.14.6 | nothing |
+| Arch 2026.08.01 | 3.14.6 | nothing |
+| openSUSE Tumbleweed Rescue | 3.13.14 | nothing |
+| Fedora Workstation Live 43 | 3.14.0 | `gptfdisk` |
+| Debian live 13.6 | 3.13.5 | `dosfstools`, `gdisk` |
+| Alpine 3.24.1 | none | `python3` and more |
 
 ## Usage
 
-The installer has to run as root. `bootstrap.sh` is the only entry point: it checks the Python version, lists the missing commands, then runs the installer.
-
-Read what the run would do, without touching a disk:
-
 ```sh
-./bootstrap.sh --dry-run --config tests/fixtures/vm-binpkg.toml
-```
-
-Install through the menu:
-
-```sh
+curl -fsSL https://github.com/Zakkaus/gentoo-install/archive/refs/heads/master.tar.gz | tar xz
+cd gentoo-install-master
 ./bootstrap.sh
 ```
 
-Install unattended from a configuration file:
+`bootstrap.sh` is the only entry point.
 
 ```sh
-./bootstrap.sh --config my-install.toml
+./bootstrap.sh                                       # menu
+./bootstrap.sh --config my-install.toml              # unattended
+./bootstrap.sh --dry-run --config my-install.toml    # print the operations only
+./bootstrap.sh --config my-install.toml --resume     # carry on from where it stopped
 ```
 
-The menu needs a real terminal; run into a pipe it reports so and points at `--config`. The interface language comes from `LC_ALL`, `LC_MESSAGES` and `LANG` in that order, and `--lang en` overrides it.
+The menu needs a real terminal. It asks for its language once; `--lang en` skips
+that.
 
 ## The configuration file
 
-The file is TOML and has to declare `config_version`. The disk section is a device graph: every device carries an `id`, devices refer to each other by `id`, and paths are resolved at run time, so a run that stops halfway resumes against the same devices.
+TOML, declaring `config_version`. The disk is a device graph: every device has
+an `id`, devices refer to each other by `id`, and paths are resolved at run time.
 
 ```toml
 config_version = 1
@@ -70,12 +54,10 @@ config_version = 1
 hostname = "gentoo"
 locale = "en_US.UTF-8"
 init = "systemd"
-# A crypt(3) hash, not a plaintext password. Produce one with openssl passwd -6.
-root_password_hash = "$6$..."
+root_password_hash = "$6$..."   # from openssl passwd -6, never a plaintext
 
 [portage]
-# The profile has to match the init system or validation refuses it.
-profile = "default/linux/amd64/23.0/systemd"
+profile = "default/linux/amd64/23.0/systemd"   # has to match the init
 
 [bootloader]
 kind = "grub"
@@ -91,44 +73,44 @@ selector = "/dev/disk/by-id/virtio-target0"
 wipe = true
 ```
 
-Complete examples are in `tests/fixtures/`, one per tested path.
+Examples are in `tests/fixtures/`. Parsing touches no hardware, so `--dry-run`
+validates a file on a machine without the target disk.
 
-Parsing a configuration touches no hardware, so `--dry-run` validates a file on a machine that does not have the target disk.
+## Tested
 
-## Tested install paths
-
-Each of these ten was installed, shut down, and booted again with the install medium removed. The check covers mounts, fstab, locale, enabled services and whether any unit failed.
+Each of these was installed, shut down, and booted again with the medium
+removed. The check covers mounts, fstab, locale, enabled services and failed
+units.
 
 - UEFI with `gentoo-kernel-bin`
 - A kernel built from a sources package
-- ZFS root with ZFSBootMenu, both plain and with native encryption
+- ZFS with ZFSBootMenu, plain and with native encryption
 - BIOS with MBR and openrc
 - systemd-boot
 - LUKS2 under btrfs subvolumes
 - LVM
 - mdraid RAID1
-- A KDE Plasma desktop with the Chinese environment
+- KDE Plasma with the Chinese environment
 
 ## The Chinese environment
 
-Locale, timezone, keyboard, mirrors, fonts and the input method are separate options rather than one bundle. Selecting an input method is what installs fcitx5 and rime and writes the configuration into `/etc/skel` and each user's home directory. Under a Wayland session `GTK_IM_MODULE` and `QT_IM_MODULE` are left unset, because the compositor drives fcitx over the text-input protocol and setting them makes the candidate window blink.
-
-An overlay is added only when it is selected. `gentoo-zh` and `gig` are independent choices, and selecting one also configures its keys and its `package.accept_keywords`.
+Locale, timezone, keyboard, mirrors, fonts and the input method are separate
+choices. Selecting an input method is what installs fcitx5 and rime and writes
+their configuration; under Wayland `GTK_IM_MODULE` and `QT_IM_MODULE` are left
+unset, because setting them makes the candidate window blink. An overlay is
+added only when it is selected.
 
 ## Binary packages
 
-`binpkg` is an option and compiling from source is always the guaranteed path. The official and community binary hosts are separate switches with separate keys. Any failure — an unreachable host, a missing signature, an untrusted key — degrades to compiling with a warning, and `install.jsonl` records where each package came from and the reason for every degradation.
+Optional; compiling is the guaranteed path. The official and gentoo-zh hosts are
+separate, with separate keys. Any failure degrades to compiling with a warning,
+and `install.jsonl` records where each package came from and why anything
+degraded.
 
 ## Exit codes
 
-| Code | Meaning |
-|---|---|
-| 0 | finished |
-| 1 | configuration error: parsing, validation, incompatible version |
-| 2 | a preflight check failed |
-| 3 | integrity check failed: GPG, checksum, fingerprint |
-| 4 | an external command failed, or a download did not complete |
-| 5 | the operator aborted |
+`0` finished, `1` configuration error, `2` preflight failed, `3` integrity check
+failed, `4` an external command failed, `5` aborted.
 
 ## Contributing
 
@@ -137,11 +119,12 @@ python3 -m mypy
 python3 -m pytest
 ```
 
-Both have to pass. A change touching partitioning, filesystems, chroot, the bootloader or binhost trust also needs one `tests/vm/run.py` run behind it:
+A change touching partitioning, filesystems, chroot, the bootloader or binhost
+trust also needs one VM run:
 
 ```sh
 python3 -m tests.vm.run --medium official-minimal --firmware uefi --install fixtures/vm-binpkg.toml
 python3 -m tests.vm.run --medium official-minimal --firmware uefi --install fixtures/vm-binpkg.toml --boot-installed
 ```
 
-The VM tests need `qemu-system-x86_64`, KVM, OVMF and `xorriso`. ISOs are cached under `lab/vm/`.
+Needs `qemu-system-x86_64`, KVM, OVMF and `xorriso`.
