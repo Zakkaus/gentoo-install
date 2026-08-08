@@ -110,13 +110,14 @@ def in_a_table() -> set[str]:
         GENTOOZH_CHANNELS,
         GRAPHICS,
         KERNELS,
+        LOGGERS,
         LICENSES,
         SYNC_METHODS,
     )
 
     tables = (
         KERNELS, LICENSES, GRAPHICS, DISPLAY_MANAGERS,
-        SYNC_METHODS, GENTOOZH_CHANNELS, BINHOSTS,
+        SYNC_METHODS, GENTOOZH_CHANNELS, BINHOSTS, LOGGERS,
     )
     found = {reason for table in tables for _, reason in table}
     # A mirror is drawn by its own name and where it is, both translated: a

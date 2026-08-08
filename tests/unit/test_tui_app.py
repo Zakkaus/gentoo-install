@@ -728,7 +728,9 @@ def test_colour_repeats_what_the_text_already_says() -> None:
     blocked row carry the same information."""
     at = context()
     blank = replace(config(), system=replace(config().system, root_password_hash=""))
-    screen = FakeScreen(keys=["q", "KEY_DOWN", "\n"], lines=30, columns=100)
+    # Tall enough for the install row: it is the one carrying the reason, and
+    # the menu scrolls once the list is longer than the screen.
+    screen = FakeScreen(keys=["q", "KEY_DOWN", "\n"], lines=40, columns=100)
     run(screen, blank, at)
     seen = "\n".join("\n".join(frame) for frame in screen.frames)
     assert "not set" in seen

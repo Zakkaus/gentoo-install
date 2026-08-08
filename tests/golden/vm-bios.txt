@@ -44,6 +44,10 @@
   install the network tools: emerge net-misc/netifrc net-misc/dhcpcd
   configure the wired interface for DHCP
   enable dhcpcd at boot
+  install the system logger: emerge app-admin/sysklogd
+  enable sysklogd at boot
+  install cron: emerge sys-process/cronie
+  enable cronie at boot
 
 [kernel]
   set sys-kernel/installkernel to dracut

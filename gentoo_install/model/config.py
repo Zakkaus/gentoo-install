@@ -97,6 +97,20 @@ class GentooZhMirror(Enum):
     HA = "ha"
 
 
+class Logger(Enum):
+    """What writes the system log.
+
+    systemd has journald built in, so `NONE` is the answer there. An openrc
+    system with `NONE` keeps no log at all, which is a choice and not a
+    default: the handbook names three and the installer offers those three.
+    """
+
+    NONE = "none"
+    SYSKLOGD = "sysklogd"
+    SYSLOG_NG = "syslog-ng"
+    METALOG = "metalog"
+
+
 class ConsoleFontSize(Enum):
     """Cell size of the console font. Every size here is one `sys-apps/kbd`
     ships a font for, so the choice never names a font the target lacks."""
@@ -155,6 +169,10 @@ class SystemConfig:
     users: tuple[User, ...] = ()
     #: Empty locks root, which is what a system with a sudo user wants.
     root_password_hash: str = ""
+    #: openrc has none until one is installed; systemd needs none.
+    logger: Logger = Logger.SYSKLOGD
+    #: `sys-process/cronie`, which both inits use. Off leaves no cron at all.
+    cron: bool = True
     sshd: bool = False
     #: Whether sshd accepts a password. Off means keys only, which is what the
     #: shipped configuration already does.

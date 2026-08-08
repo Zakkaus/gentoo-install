@@ -485,3 +485,47 @@ def test_openrc_reads_its_containers_from_conf_d_and_not_from_crypttab() -> None
     systemd = Recorder()
     system.WriteCrypttab(entries=entries, init=InitSystem.SYSTEMD).apply(systemd)
     assert "x-initrd.attach" in systemd.files[PurePosixPath("/etc/crypttab")]
+
+
+def test_openrc_gets_a_logger_and_cron_because_a_stage3_has_neither() -> None:
+    """An openrc install without these keeps no record of its own boot. The
+    handbook names three loggers; systemd carries journald and needs none."""
+    from gentoo_install.model.config import Logger
+
+    openrc = [one.describe() for one in system.build(static(init=InitSystem.OPENRC))]
+    assert any("app-admin/sysklogd" in one for one in openrc)
+    assert "enable sysklogd at boot" in openrc
+    assert any("sys-process/cronie" in one for one in openrc)
+
+    systemd = [one.describe() for one in system.build(static())]
+    assert not any("app-admin/" in one for one in systemd)
+    assert any("sys-process/cronie" in one for one in systemd)
+
+    quiet = static(init=InitSystem.OPENRC, logger=Logger.NONE, cron=False)
+    described = [one.describe() for one in system.build(quiet)]
+    assert not any("app-admin/" in one or "cronie" in one for one in described)
+
+
+def test_openrc_brings_up_the_storage_stack_it_has_a_service_for() -> None:
+    """systemd has generators; openrc has one service per kind, and without
+    them a volume group that does not carry the root never activates."""
+    from pathlib import Path
+
+    from gentoo_install.model.parse import load
+
+    # The fixture is already openrc; the systemd half has to be built from it.
+    lvm = load(Path("tests/fixtures/vm-lvm.toml"))
+    assert lvm.system.init is InitSystem.OPENRC
+    services = [
+        one.service for one in system.build(lvm) if isinstance(one, system.EnableService)
+    ]
+    assert "lvm" in services
+
+    systemd = replace(
+        lvm,
+        system=replace(lvm.system, init=InitSystem.SYSTEMD),
+        portage=replace(lvm.portage, profile="default/linux/amd64/23.0/systemd"),
+    )
+    assert "lvm" not in [
+        one.service for one in system.build(systemd) if isinstance(one, system.EnableService)
+    ]

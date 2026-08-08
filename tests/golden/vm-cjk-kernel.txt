@@ -46,6 +46,8 @@
   set the root password
   configure the wired interface for DHCP
   enable systemd-networkd at boot
+  install cron: emerge sys-process/cronie
+  enable cronie at boot
 
 [kernel]
   set sys-kernel/installkernel to dracut

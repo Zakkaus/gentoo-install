@@ -27,6 +27,7 @@ from .config import (
     KernelConfig,
     KernelSource,
     Keywords,
+    Logger,
     MirrorConfig,
     GentooZhMirror,
     MirrorRegion,
@@ -105,7 +106,8 @@ def _system(raw: Mapping[str, Any], at: str) -> SystemConfig:
         at,
         {
             "hostname", "timezone", "locales", "locale", "keymap", "console_cjk",
-            "console_font", "init", "sshd", "sshd_password_login", "users",
+            "console_font", "init", "logger", "cron", "sshd", "sshd_password_login",
+            "users",
             "root_password_hash",
             "zram", "hardware_clock_utc", "networking", "keymap_initramfs",
             "interface", "addresses", "gateways", "dns", "authorized_keys",
@@ -129,6 +131,8 @@ def _system(raw: Mapping[str, Any], at: str) -> SystemConfig:
         console_font=_enum(raw, "console_font", at, ConsoleFontSize, default.console_font),
         init=_enum(raw, "init", at, InitSystem, default.init),
         root_password_hash=_str(raw, "root_password_hash", at, default.root_password_hash),
+        logger=_enum(raw, "logger", at, Logger, default.logger),
+        cron=_bool(raw, "cron", at, default.cron),
         sshd=_bool(raw, "sshd", at, default.sshd),
         sshd_password_login=_bool(
             raw, "sshd_password_login", at, default.sshd_password_login

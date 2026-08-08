@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Final
 
-from ..model.config import Bootloader, InstallConfig, KernelSource, Keywords
+from ..model.config import Bootloader, InitSystem, InstallConfig, KernelSource, Keywords
 from ..plan.kernel import KERNEL_PACKAGES
 from ..model import mirrors
 from ..model.device import Existing, Luks, MdRaid, PartitionTable, VolumeGroup, ZfsPool
@@ -133,6 +133,18 @@ def _swap(config: InstallConfig, context: Context) -> str:
     if config.disk.graph.of_type(Swap):
         return "a partition"
     return "none"
+
+
+def _logger(config: InstallConfig, context: Context) -> str:
+    """systemd needs none, so the row says that rather than naming a package
+    the operator would then wonder why they have two of."""
+    if config.system.init is InitSystem.SYSTEMD:
+        return "journald"
+    return config.system.logger.value
+
+
+def _cron(config: InstallConfig, context: Context) -> str:
+    return "cronie" if config.system.cron else context.translate("none")
 
 
 def _kernel(config: InstallConfig, context: Context) -> str:
@@ -339,6 +351,8 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("storage", "Disk", _summary(DISK), nested("Disk", DISK), required=True),
     Setting("hostname", "Hostname", lambda c, x: c.system.hostname, screens.system_screen),
     Setting("init", "Init system", lambda c, x: c.system.init.value, screens.init_screen),
+    Setting("logger", "System logger", _logger, screens.logger_screen),
+    Setting("cron", "Cron", _cron, screens.cron_screen),
     Setting("profile", "Profile", lambda c, x: c.portage.profile, screens._profile_screen),
     Setting("compiler", "Compiler", _summary(COMPILER), nested("Compiler", COMPILER)),
     Setting("root", "Root password", _root, screens.root_password_screen, required=True),

@@ -25,6 +25,7 @@ from ..model.config import (
     InstallConfig,
     KernelSource,
     Keywords,
+    Logger,
     MirrorConfig,
     MirrorRegion,
     Networking,
@@ -1000,6 +1001,56 @@ def kernel_version_screen(
         return Answer(answer.outcome)
     return Answer(
         Outcome.CHOSE, replace(config, kernel=replace(config.kernel, version=answer.unwrap()[0]))
+    )
+
+
+#: What each logger costs. openrc has none after a stage3; systemd carries
+#: journald, so a second one would write the same lines twice.
+LOGGERS: tuple[tuple[Logger, str], ...] = (
+    (Logger.SYSKLOGD, "what the handbook installs"),
+    (Logger.SYSLOG_NG, "filters and remote destinations"),
+    (Logger.METALOG, "smaller, no remote logging"),
+    (Logger.NONE, "no system log at all"),
+)
+
+
+def logger_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
+    """Which system logger, which only openrc needs.
+
+    A stage3 has none, so an openrc install without this keeps no log of its
+    own boot. systemd carries journald and the row says so rather than
+    offering a second logger for the same lines.
+    """
+    translate = context.translate
+    if config.system.init is InitSystem.SYSTEMD:
+        _say(screen, context, translate("systemd logs to journald; no other logger is needed."))
+        return Answer(Outcome.BACK)
+    menu: Menu[Logger] = Menu(
+        title=translate("System logger"),
+        items=[
+            Item(label=one.value, value=one, detail=translate(reason)) for one, reason in LOGGERS
+        ],
+        footer=footer(translate),
+    )
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    return Answer(
+        Outcome.CHOSE, replace(config, system=replace(config.system, logger=answer.unwrap()[0]))
+    )
+
+
+def cron_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
+    translate = context.translate
+    asked = Confirm(
+        **answers(translate),
+        title=translate("Install a cron daemon?"),
+        footer=footer(translate),
+    ).run(screen)
+    if not asked.chosen:
+        return Answer(asked.outcome)
+    return Answer(
+        Outcome.CHOSE, replace(config, system=replace(config.system, cron=asked.unwrap()))
     )
 
 

@@ -8,10 +8,19 @@ from typing import Final
 
 from ..errors import InvalidLayout, LocaleMissing
 from ..model import compat
-from ..model.config import ConsoleFontSize, InitSystem, InstallConfig, Networking, SystemConfig, User
+from ..model.config import (
+    ConsoleFontSize,
+    InitSystem,
+    InstallConfig,
+    Logger,
+    Networking,
+    SystemConfig,
+    User,
+)
 from ..model.size import Size
 from ..model.device import (
     MdRaid,
+    Node,
     DeviceId,
     Filesystem,
     FilesystemType,
@@ -19,6 +28,7 @@ from ..model.device import (
     Mountpoint,
     Subvolume,
     Swap,
+    VolumeGroup,
     ZfsDataset,
 )
 from .operations import Context, Operation, Stage
@@ -696,6 +706,15 @@ def build(config: InstallConfig) -> list[Operation]:
         operations.append(
             EnableService(service=_network_service(system), init=system.init)
         )
+    operations += _logging(system)
+    if system.init is not InitSystem.SYSTEMD:
+        # openrc assembles the stack with a service per kind. The root comes up
+        # from the initramfs either way; anything else needs these.
+        operations += [
+            EnableService(service=service, init=system.init, runlevel="boot")
+            for kind, service in OPENRC_STORAGE
+            if config.disk.graph.of_type(kind)
+        ]
     return operations
 
 
@@ -821,6 +840,46 @@ def _sshd_service() -> str:
     """Both inits call it sshd. A parameter that changes nothing reads as
     though one of them might."""
     return "sshd"
+
+
+#: What each logger is called as a package and as a service. systemd needs
+#: none: journald is part of it.
+LOGGERS: Final[dict[Logger, tuple[str, str]]] = {
+    Logger.SYSKLOGD: ("app-admin/sysklogd", "sysklogd"),
+    Logger.SYSLOG_NG: ("app-admin/syslog-ng", "syslog-ng"),
+    Logger.METALOG: ("app-admin/metalog", "metalog"),
+}
+
+#: openrc brings up a storage stack with a service per kind; systemd has
+#: generators that need none. Service names read from each ebuild's newinitd.
+OPENRC_STORAGE: Final[tuple[tuple[type[Node], str], ...]] = (
+    (VolumeGroup, "lvm"),
+    (MdRaid, "mdraid"),
+)
+
+
+def _logging(system: SystemConfig) -> list[Operation]:
+    """A logger and a cron daemon, which openrc has neither of after a stage3.
+
+    systemd carries journald, so a logger there would be a second one writing
+    the same lines; `cronie` is the same package on both.
+    """
+    operations: list[Operation] = []
+    named = LOGGERS.get(system.logger)
+    if named is not None and system.init is not InitSystem.SYSTEMD:
+        atom, service = named
+        operations += [
+            Emerge(stage=Stage.SYSTEM, packages=(atom,), summary="install the system logger"),
+            EnableService(service=service, init=system.init),
+        ]
+    if system.cron:
+        operations += [
+            Emerge(
+                stage=Stage.SYSTEM, packages=("sys-process/cronie",), summary="install cron"
+            ),
+            EnableService(service="cronie", init=system.init),
+        ]
+    return operations
 
 
 def _needs_netifrc(system: SystemConfig) -> bool:
