@@ -11,6 +11,8 @@ import curses
 import os
 import shutil
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Final, Iterable, Sequence
 
@@ -87,6 +89,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         _require_root(arguments)
         if _needs_network(arguments):
+            # Before the reachability check: an unset clock makes every HTTPS
+            # request fail, and the message would name the network instead.
+            _check_the_clock()
             _require_network()
         if arguments.config is None:
             if arguments.missing_commands:
@@ -232,6 +237,27 @@ def _needs_network(arguments: argparse.Namespace) -> bool:
     if arguments.missing_commands:
         return False
     return not (arguments.dry_run and arguments.config is not None)
+
+
+def _check_the_clock() -> None:
+    """A clock far enough out makes every certificate look not-yet-valid.
+
+    Read over plain HTTP and set with `hwclock`, because a live medium carries
+    neither chrony nor ntpd. Reported and corrected rather than refused: the
+    machine is otherwise fine and the operator has nothing to fix by hand.
+    """
+    stamp = fetch.network_time()
+    if not stamp or abs(stamp - time.time()) < fetch.CLOCK_TOLERANCE:
+        return
+    when = datetime.fromtimestamp(stamp, tz=timezone.utc)
+    print(
+        f"warning: this machine's clock is more than a day out; setting it to {when:%F %T} UTC",
+        file=sys.stderr,
+    )
+    Runner(log=lambda line: None).run(
+        ["hwclock", "--utc", "--set", "--date", when.strftime("%Y-%m-%d %H:%M:%S")], check=False
+    )
+    Runner(log=lambda line: None).run(["hwclock", "--hctosys", "--utc"], check=False)
 
 
 def _require_network() -> None:

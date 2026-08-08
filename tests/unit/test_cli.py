@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+from typing import Sequence
 from pathlib import Path
 
 import pytest
@@ -180,3 +181,46 @@ def test_the_menu_names_openssl_before_it_asks_anything(
     from gentoo_install.model.parse import load
 
     assert "openssl" not in preflight.required_commands(load(FIXTURES / "ext4-bios.toml"))
+
+
+def _record_commands(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
+    """Every argv the runner is handed, with nothing run."""
+    from gentoo_install.exec.runner import Result, Runner
+
+    seen: list[tuple[str, ...]] = []
+
+    def remember(self: Runner, argv: Sequence[str], **rest: object) -> Result:
+        seen.append(tuple(argv))
+        return Result(argv=tuple(argv), returncode=0, stdout="", stderr="", seconds=0.0)
+
+    monkeypatch.setattr(Runner, "run", remember)
+    return seen
+
+
+def test_a_clock_a_year_out_is_corrected_before_the_network_is_blamed(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TLS refuses a certificate that is not yet valid, so an unset RTC failed
+    every HTTPS request and the message sent the operator to debug a working
+    network."""
+    import time
+
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    online(monkeypatch)
+    monkeypatch.setattr(fetch, "network_time", lambda: time.time() + 400 * 86400)
+    ran = _record_commands(monkeypatch)
+    main([])
+    said = capsys.readouterr().err
+    assert "clock is more than a day out" in said
+    assert any(argv[0] == "hwclock" for argv in ran)
+
+
+def test_a_clock_that_agrees_is_left_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    import time
+
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    online(monkeypatch)
+    monkeypatch.setattr(fetch, "network_time", lambda: time.time() + 5)
+    ran = _record_commands(monkeypatch)
+    main([])
+    assert not any(argv[0] == "hwclock" for argv in ran)

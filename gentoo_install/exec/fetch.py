@@ -11,6 +11,7 @@ import json
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
+from email.utils import parsedate_to_datetime
 from itertools import takewhile
 import urllib.error
 import urllib.request
@@ -161,6 +162,28 @@ GITWEB: Final[str] = "https://gitweb.gentoo.org/repo/gentoo.git/plain"
 
 #: The gentoo-zh overlay's file listing. Its packages are on no package site.
 OVERLAY_API: Final[str] = "https://api.github.com/repos/gentoo-zh/overlay/contents"
+
+
+#: Read over plain HTTP on purpose: a clock far enough out makes every TLS
+#: certificate look not-yet-valid, so HTTPS fails before the time can be read.
+CLOCK_URL: Final[str] = "http://distfiles.gentoo.org/"
+
+#: Beyond this the certificates start being refused, so it is worth saying.
+CLOCK_TOLERANCE: Final[float] = 24 * 3600.0
+
+
+def network_time() -> float:
+    """Seconds since the epoch from a `Date` header, or 0 when unread."""
+    try:
+        request = urllib.request.Request(CLOCK_URL, method="HEAD")
+        with urllib.request.urlopen(request, timeout=PROBE_TIMEOUT) as response:
+            stamp = response.headers.get("Date", "")
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return 0.0
+    try:
+        return parsedate_to_datetime(stamp).timestamp()
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def online() -> bool:
