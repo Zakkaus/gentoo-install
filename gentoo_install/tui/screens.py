@@ -298,11 +298,45 @@ def kernel_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     )
 
 
+#: The profile each desktop is built against. Verified against
+#: profiles.desc: a systemd variant is the same path plus /systemd.
+DESKTOP_PROFILES: dict[str, str] = {
+    "": "default/linux/amd64/23.0",
+    "console": "default/linux/amd64/23.0",
+    "plasma": "default/linux/amd64/23.0/desktop/plasma",
+}
+
+
+def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
+    """The desktop decides the profile as well as the packages, the same way
+    the init system does."""
+    translate = context.translate
+    items = [Item(label=name or "no desktop", value=name) for name in sorted(DESKTOP_PROFILES)]
+    menu: Menu[str] = Menu(
+        title=translate("Desktop and applications"), items=items, footer=_footer(translate)
+    )
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    desktop = answer.unwrap()[0]
+    profile = _profile_for(DESKTOP_PROFILES[desktop], config.system.init)
+    return Answer(
+        Outcome.CHOSE,
+        replace(
+            config,
+            packages=replace(config.packages, desktop=desktop),
+            portage=replace(config.portage, profile=profile),
+        ),
+    )
+
+
 def packages_screen(
     screen: Screen, config: InstallConfig, context: Context
 ) -> Answer[InstallConfig]:
     translate = context.translate
-    names = sorted(context.groups)
+    # A desktop is chosen on its own screen, because it also decides the
+    # profile; this one offers what can be added beside any of them.
+    names = sorted(name for name in context.groups if name not in DESKTOP_PROFILES)
     menu: Menu[str] = Menu(
         title=translate("Desktop and applications"),
         items=[Item(label=name, value=name) for name in names],
@@ -476,6 +510,7 @@ STEPS: tuple[Step, ...] = (
     binhost_screen,
     kernel_screen,
     bootloader_screen,
+    desktop_screen,
     packages_screen,
     sshd_screen,
     overview_screen,

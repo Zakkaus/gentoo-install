@@ -47,6 +47,7 @@ def test_the_whole_walk_produces_a_configuration_that_validates() -> None:
         "\n",                                   # official binary packages
         "\n",                                   # kernel source
         "\n",                                   # bootloader
+        "\n",                                   # no desktop
         "\n",                                   # no applications
         "\n",                                   # no sshd
         "\n",                                   # overview: scroll to the end
@@ -136,3 +137,22 @@ def test_choosing_openrc_moves_the_profile_off_systemd() -> None:
     assert finished.config.system.init.value == "openrc"
     assert "systemd" not in finished.config.portage.profile.split("/")
     validate(finished.config)
+
+
+def test_choosing_a_desktop_moves_the_profile_to_match() -> None:
+    """The profile decides what the packages are built against, so a desktop
+    on a plain profile builds a desktop against the wrong one."""
+    keys = ["KEY_DOWN", "KEY_DOWN", "\n"]
+    finished = run(FakeScreen(keys=keys), config(), context(), steps=(screens.desktop_screen,))
+    assert finished.config is not None
+    assert finished.config.packages.desktop == "plasma"
+    assert finished.config.portage.profile == "default/linux/amd64/23.0/desktop/plasma/systemd"
+    validate(finished.config)
+
+
+def test_the_desktop_is_not_offered_again_among_the_applications() -> None:
+    """It is chosen on its own screen; listing it twice lets the two disagree."""
+    screen = FakeScreen(keys=["\n"])
+    run(screen, config(), context(), steps=(screens.packages_screen,))
+    assert "plasma" not in screen.last
+    assert "firefox" in screen.last
