@@ -351,3 +351,13 @@ def test_global_testing_takes_the_unstable_binary_host_whatever_the_row_says() -
         )
         assert community_binhost(testing).endswith("/gentoo-zh/unstable/binpkgs/x86-64"), channel
 
+
+def test_the_menu_starts_on_this_machine_s_subarchitecture_and_a_mirror() -> None:
+    """`x86-64-v3` needs AVX2, so the row is offered only where it runs and
+    chosen where it does; the mirror row is required and started unanswered."""
+    from gentoo_install.cli import DEFAULT_SITE, _blank
+
+    assert _blank("/dev/vda", 4, (), supports_v3=True).portage.binhost.subarch == "x86-64-v3"
+    plain = _blank("/dev/vda", 4, (), supports_v3=False)
+    assert plain.portage.binhost.subarch == "x86-64"
+    assert plain.portage.mirrors.site == DEFAULT_SITE

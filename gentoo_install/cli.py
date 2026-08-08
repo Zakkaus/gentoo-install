@@ -28,11 +28,22 @@ from .tui import app, screens
 from .tui.curses_screen import CursesScreen, too_small
 from .i18n import Catalog, tag_for
 from .model import templates
-from .model.config import DiskConfig, Firmware, InstallConfig, PortageConfig
+from .model.config import (
+    Binhost,
+    DiskConfig,
+    Firmware,
+    InstallConfig,
+    MirrorConfig,
+    PortageConfig,
+)
 from .model.parse import load
 from .plan.build import DEFAULT_MIRROR, build
 from .plan.operations import Operation, Stage
 from .plan.render import render, summarise
+
+#: The site the global region lists first, so the mirror row starts answered
+#: rather than blocking the install until somebody opens it.
+DEFAULT_SITE: Final[str] = "gentoo"
 
 #: Everything a run needs to keep: the device map, the staged keys, the log.
 WORK = Path("/run/gentoo-install")
@@ -353,7 +364,9 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         # Checked before curses starts: initialising it writes escape codes to
         # the pipe before it discovers there is no terminal.
         raise errors.PreflightFailed("the menu needs a terminal; pass --config FILE")
-    start = _blank(context.disks[0][0], context.cores, context.cpu_flags)
+    start = _blank(
+        context.disks[0][0], context.cores, context.cpu_flags, context.supports_v3
+    )
 
     def walk(window: object) -> app.Finished:
         display = CursesScreen(window)
@@ -379,17 +392,26 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
     return finished.config
 
 
-def _blank(disk: str, cores: int, cpu_flags: tuple[str, ...]) -> InstallConfig:
+def _blank(
+    disk: str, cores: int, cpu_flags: tuple[str, ...], supports_v3: bool = False
+) -> InstallConfig:
     """What the menu starts from.
 
-    MAKEOPTS and CPU_FLAGS_X86 are filled in from this machine: both are right
-    for almost every install, and leaving them empty means the operator has to
-    know their own instruction set to get an ordinary build.
+    MAKEOPTS, CPU_FLAGS_X86 and the binary host's subarchitecture are filled in
+    from this machine: all three are right for almost every install, and
+    leaving them empty means the operator has to know their own instruction set
+    to get an ordinary build. The mirror is the official one rather than
+    nothing, so the row that blocks the install starts answered.
     """
     graph, root = templates.build(templates.Choice(disk=disk))
     return InstallConfig(
         disk=DiskConfig(graph=graph, root=root),
-        portage=PortageConfig(makeopts=f"-j{cores}", cpu_flags=cpu_flags),
+        portage=PortageConfig(
+            makeopts=f"-j{cores}",
+            cpu_flags=cpu_flags,
+            binhost=Binhost(subarch="x86-64-v3" if supports_v3 else "x86-64"),
+            mirrors=MirrorConfig(site=DEFAULT_SITE),
+        ),
     )
 
 
