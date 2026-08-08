@@ -1,0 +1,9 @@
+# The fcitx5 framework and the toolkit modules. `app-i18n/fcitx-gtk` and
+# `app-i18n/fcitx-qt` are separate packages: without them a Gtk or Qt
+# application has no way to reach fcitx at all.
+packages = [
+    "app-i18n/fcitx",
+    "app-i18n/fcitx-gtk",
+    "app-i18n/fcitx-qt",
+    "app-i18n/fcitx-configtool",
+]

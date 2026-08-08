@@ -1,9 +1,11 @@
 # KDE Plasma with SDDM. Wayland is the session Plasma 6 defaults to.
 packages = [
     "kde-plasma/plasma-meta",
+    "x11-misc/sddm",
     "x11-base/xorg-server",
     "kde-apps/konsole",
     "kde-apps/dolphin",
 ]
 services = ["sddm.service"]
-use = ["wayland", "qt6", "kcm", "networkmanager"]
+use = ["wayland", "qt6", "kcm", "networkmanager", "sddm"]
+wayland = true

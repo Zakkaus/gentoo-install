@@ -1,0 +1,3 @@
+# Audio. wireplumber is the session manager pipewire needs to route anything.
+packages = ["media-video/pipewire", "media-video/wireplumber"]
+use = ["pipewire", "screencast"]

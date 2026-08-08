@@ -1,0 +1,3 @@
+packages = ["net-wireless/bluez"]
+services = ["bluetooth.service"]
+use = ["bluetooth"]

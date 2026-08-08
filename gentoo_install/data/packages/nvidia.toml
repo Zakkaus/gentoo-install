@@ -1,0 +1,10 @@
+# The proprietary driver. nouveau is the default and needs no group: it is in
+# the kernel and only wants VIDEO_CARDS.
+packages = ["x11-drivers/nvidia-drivers"]
+video_cards = ["nvidia"]
+
+# Without modeset the proprietary driver gives a Wayland session no KMS and the
+# compositor falls back to software rendering or refuses to start.
+[[files]]
+path = "/etc/modprobe.d/nvidia.conf"
+content = "options nvidia-drm modeset=1\n"

@@ -1,0 +1,6 @@
+# Rime ICE, a maintained simplified Chinese schema. It exists only in the
+# gentoo-zh overlay, so selecting this group is what asks for that overlay.
+packages = ["app-i18n/rime-ice"]
+repositories = ["gentoo-zh"]
+input_method = "rime"
+schemas = ["rime_ice"]

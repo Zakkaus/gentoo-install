@@ -1,9 +1,0 @@
-# fcitx5 with rime. The schemas are chosen per language, not bundled together.
-packages = [
-    "app-i18n/fcitx",
-    "app-i18n/fcitx-rime",
-    "app-i18n/fcitx-configtool",
-    "app-i18n/rime-data",
-]
-use = ["cjk", "emoji"]
-repositories = ["gentoo-zh"]

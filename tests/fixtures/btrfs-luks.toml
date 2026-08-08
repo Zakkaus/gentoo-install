@@ -44,7 +44,7 @@ kernel_params = ["quiet"]
 
 [packages]
 desktop = "plasma"
-applications = ["fcitx5-rime", "noto-cjk", "flclash"]
+applications = ["fcitx5", "rime", "rime-ice", "noto-cjk", "flclash"]
 
 [disk]
 root = "mnt-root"

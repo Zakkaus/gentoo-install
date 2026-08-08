@@ -1,0 +1,5 @@
+# Rime through fcitx, with the schemas `app-i18n/rime-data` ships. Traditional
+# and bopomofo are here; the simplified schema is the separate rime-ice group.
+packages = ["app-i18n/fcitx-rime", "app-i18n/rime-data"]
+input_method = "rime"
+schemas = ["luna_pinyin", "terra_pinyin", "bopomofo"]

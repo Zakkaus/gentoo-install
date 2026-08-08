@@ -1,4 +1,5 @@
 # A proxy client, so a machine behind a restricted network can reach the
-# outside once the install finishes.
-packages = ["net-proxy/flclash"]
+# outside once the install finishes. The main tree has no flclash; the overlay
+# packages the prebuilt one.
+packages = ["net-proxy/flclash-bin"]
 repositories = ["gentoo-zh"]

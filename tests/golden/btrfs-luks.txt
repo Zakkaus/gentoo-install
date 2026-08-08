@@ -79,11 +79,15 @@
   install GRUB for uefi on the esp at /efi
 
 [packages]
-  install the plasma group: emerge kde-plasma/plasma-meta x11-base/xorg-server kde-apps/konsole kde-apps/dolphin
+  install the plasma group: emerge kde-plasma/plasma-meta x11-misc/sddm x11-base/xorg-server kde-apps/konsole kde-apps/dolphin
   enable sddm.service at boot
-  install the fcitx5-rime group: emerge app-i18n/fcitx app-i18n/fcitx-rime app-i18n/fcitx-configtool app-i18n/rime-data
+  install the fcitx5 group: emerge app-i18n/fcitx app-i18n/fcitx-gtk app-i18n/fcitx-qt app-i18n/fcitx-configtool
+  install the rime group: emerge app-i18n/fcitx-rime app-i18n/rime-data
+  install the rime-ice group: emerge app-i18n/rime-ice
   install the noto-cjk group: emerge media-fonts/noto-cjk media-fonts/noto media-libs/fontconfig
-  install the flclash group: emerge net-proxy/flclash
+  install the flclash group: emerge net-proxy/flclash-bin
+  set the input method environment in /etc/environment.d/90-input-method.conf: XMODIFIERS only, since the session is Wayland
+  configure fcitx with rime and luna_pinyin terra_pinyin bopomofo rime_ice for skel, zakk
 
 [finish]
   unmount everything under the target

@@ -1,0 +1,3 @@
+# The in-kernel driver. Nothing to install; it only names the VIDEO_CARDS
+# value, so the choice between the two drivers reads the same way.
+video_cards = ["nouveau"]

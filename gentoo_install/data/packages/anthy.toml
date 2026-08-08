@@ -1,0 +1,3 @@
+# Japanese input through fcitx. Separate from the Chinese schemas, so a user
+# can have one without the other.
+packages = ["app-i18n/fcitx-anthy", "app-i18n/anthy"]
