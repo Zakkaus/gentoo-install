@@ -238,8 +238,10 @@ def run_installer(console: SerialConsole, config: str, extra: str = "") -> None:
     console.run(f"mkdir -p {RESULT_DIR}")
     # tee, not a redirect: the serial console is the only way to watch a run
     # that takes half an hour, and a redirect makes it silent until it ends.
+    # Through the launcher, not python directly: that is the entry point an
+    # operator uses, so every run exercises it.
     console.run(
-        f"cd /mnt/driver && python3 -u -m gentoo_install --config {config} {extra} 2>&1 "
+        f"cd /mnt/driver && sh ./bootstrap.sh --config {config} {extra} 2>&1 "
         f"| tee {RESULT_DIR}/install.txt; echo ${{PIPESTATUS[0]}} > {RESULT_DIR}/install.rc",
         timeout=3600.0,
     )

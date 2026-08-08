@@ -43,6 +43,8 @@ def build(output: Path) -> Path:
     )
     for name in ("fixtures",):
         shutil.copytree(REPOSITORY / "tests" / name, staging / name)
+    # The launcher is what an operator runs, so the CD carries the same one.
+    shutil.copy2(REPOSITORY / "bootstrap.sh", staging / "bootstrap.sh")
     entry = staging / "install.sh"
     entry.write_text(ENTRY)
     entry.chmod(0o755)
