@@ -201,16 +201,25 @@ class Probe:
             found.append((self._stable_name(path), f"{size} {model}".strip()))
         return tuple(found)
 
+    #: Where udev keeps the names that survive the kernel renumbering disks.
+    BY_ID: ClassVar[Path] = Path("/dev/disk/by-id")
+
     def _stable_name(self, path: str) -> str:
-        links = self.runner.run(
-            ["find", "/dev/disk/by-id", "-lname", f"*/{path.rsplit('/', 1)[-1]}"], check=False
-        )
-        # The exit code first: the runner merges stderr into stdout, so a
-        # machine with no by-id directory would otherwise offer its error
-        # message to the operator as a disk name.
-        if links.returncode != 0:
+        """Read rather than shelled out to `find -lname`: that predicate is
+        GNU's, and busybox answers `unrecognized: -lname` on Alpine, which left
+        the configuration holding a `/dev/sda` that names a different disk once
+        another one is plugged in."""
+        wanted = path.rsplit("/", 1)[-1]
+        names: list[str] = []
+        try:
+            for entry in self.BY_ID.iterdir():
+                if not entry.is_symlink():
+                    continue
+                if Path(os.readlink(entry)).name == wanted:
+                    names.append(str(entry))
+        except OSError:
             return path
-        names = sorted(line.strip() for line in links.stdout.splitlines() if line.strip())
+        names.sort()
         # Prefer a by-id name that is not a wwn: a wwn is stable but says
         # nothing a person can recognise.
         for name in names:

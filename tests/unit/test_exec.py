@@ -439,3 +439,27 @@ def test_the_commands_whose_implementation_matters_are_the_ones_probed(tmp_path:
 
     preflight.check(present(), Watching(runner=runner(tmp_path), work=tmp_path))
     assert set(asked) == set(preflight.GNU_ONLY)
+
+
+def test_a_disk_is_named_by_id_without_shelling_out_to_find(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`find -lname` is a GNU predicate and busybox answers `unrecognized`, so
+    Alpine got `/dev/sda` written into the configuration; that name points at a
+    different disk as soon as another one is plugged in."""
+    by_id = tmp_path / "by-id"
+    by_id.mkdir()
+    (by_id / "wwn-0x5000c500").symlink_to("../../sda")
+    (by_id / "ata-ST8000_WWZ472M1").symlink_to("../../sda")
+    (by_id / "ata-OTHER_DISK").symlink_to("../../sdb")
+    monkeypatch.setattr(Probe, "BY_ID", by_id)
+
+    probe = probe_of(tmp_path)
+    # The wwn is stable and unreadable, so the model name wins.
+    assert probe._stable_name("/dev/sda") == str(by_id / "ata-ST8000_WWZ472M1")
+    assert probe._stable_name("/dev/sdb") == str(by_id / "ata-OTHER_DISK")
+    # A disk with no by-id name keeps its kernel name rather than borrowing one.
+    assert probe._stable_name("/dev/sdc") == "/dev/sdc"
+
+    monkeypatch.setattr(Probe, "BY_ID", tmp_path / "absent")
+    assert probe._stable_name("/dev/sda") == "/dev/sda"
