@@ -116,3 +116,42 @@ def test_a_profile_that_disagrees_with_the_init_is_refused() -> None:
 
     with pytest.raises(ValidationFailed, match="ending in /systemd"):
         validate(replace(openrc, system=replace(openrc.system, init=InitSystem.SYSTEMD)))
+
+
+def test_a_static_address_with_no_resolver_is_refused() -> None:
+    """The machine boots with an address and cannot resolve a name, which is
+    indistinguishable from a broken network to whoever gets it."""
+    from gentoo_install.model.validate import _network_problems
+
+    wanted = replace(
+        config(), system=replace(config().system, addresses=("192.0.2.10/24",), gateways=("192.0.2.1",))
+    )
+    assert any("resolve a name" in one for one in _network_problems(wanted))
+    answered = replace(wanted, system=replace(wanted.system, dns=("192.0.2.1",)))
+    assert _network_problems(answered) == []
+
+
+def test_a_static_address_needs_a_gateway_of_its_own_family() -> None:
+    """A v6 address with only a v4 gateway reaches nothing off its subnet, and
+    the reverse is the more common mistake."""
+    from gentoo_install.model.validate import _network_problems
+
+    system = replace(
+        config().system,
+        addresses=("192.0.2.10/24", "2001:db8::2/64"),
+        gateways=("192.0.2.1",),
+        dns=("192.0.2.1",),
+    )
+    problems = _network_problems(replace(config(), system=system))
+    assert len(problems) == 1
+    assert "2001:db8::2/64" in problems[0]
+
+    both = replace(system, gateways=("192.0.2.1", "fe80::1"))
+    assert _network_problems(replace(config(), system=both)) == []
+
+
+def test_dhcp_needs_neither_a_gateway_nor_a_resolver() -> None:
+    """They come from the lease, so demanding them would refuse the default."""
+    from gentoo_install.model.validate import _network_problems
+
+    assert _network_problems(config()) == []

@@ -6,6 +6,8 @@ one more failed run to learn about the next one.
 
 from __future__ import annotations
 
+import ipaddress
+
 import re
 from collections import Counter
 from pathlib import PurePosixPath
@@ -39,6 +41,7 @@ def validate(config: InstallConfig) -> None:
         *_reuse_problems(config),
         *_pool_problems(config),
         *_array_problems(config),
+        *_network_problems(config),
         *(rule.describe() for rule in compat.violations(config)),
     ]
     if problems:
@@ -77,6 +80,39 @@ def _array_problems(config: InstallConfig) -> list[str]:
         for array in config.disk.graph.of_type(MdRaid)
         if len(array.members) < array.level.minimum
     ]
+
+
+def _network_problems(config: InstallConfig) -> list[str]:
+    """A static address that reaches nothing is not a configured network.
+
+    Both checks fire only when an address was given: DHCP and router
+    advertisements supply the gateway and the resolvers themselves.
+    """
+    system = config.system
+    if not system.addresses:
+        return []
+    problems: list[str] = []
+    if not system.dns:
+        problems.append(
+            "the addresses are static and no resolver is named, so the installed system "
+            "has an address and no way to resolve a name"
+        )
+    for address in system.addresses:
+        family = _family_of(address)
+        if family and not any(_family_of(one) == family for one in system.gateways):
+            problems.append(
+                f"{address} has no gateway of its own family, so it reaches nothing off "
+                "its own subnet"
+            )
+    return problems
+
+
+def _family_of(address: str) -> int:
+    """4, 6, or 0 for something that is neither."""
+    try:
+        return ipaddress.ip_address(address.split("/")[0]).version
+    except ValueError:
+        return 0
 
 
 def _reuse_problems(config: InstallConfig) -> list[str]:
