@@ -394,3 +394,20 @@ def test_opening_another_row_does_not_replace_a_reused_table_with_a_wipe() -> No
     graph = answer.unwrap().disk.graph
     assert [one.wipe for one in graph.of_type(Existing)] == [False, False]
     assert not graph.of_type(Partition)
+
+
+def test_switching_the_disk_moves_a_hand_written_table_with_it() -> None:
+    """`_rebuild` reads `context.layout` and not `context.choice` once the table
+    is hand-written, so the old disk stayed in the graph and the install
+    partitioned the one the operator had just switched away from."""
+    at = context()
+    at.manual = True
+    at.layout.disk = at.choice.disk
+    at.layout.reused = [manual.Reused(selector=f"{at.choice.disk}-part1")]
+    first = at.choice.disk
+    answer = screens.disk_screen(FakeScreen(keys=["KEY_DOWN", "\n"], lines=24), config(), at)
+    assert at.choice.disk != first
+    assert at.layout.disk == at.choice.disk
+    # The kept rows named partitions of the disk that is no longer the target.
+    assert at.layout.reused == []
+    assert answer.outcome is Outcome.CHOSE
