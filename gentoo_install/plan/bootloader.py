@@ -95,6 +95,10 @@ class WriteGrubDefaults(Operation):
     #: Arrays the initramfs assembles. /etc/mdadm.conf alone is not enough:
     #: dracut assembles nothing without `rd.md.uuid` on the command line.
     arrays: tuple[DeviceId, ...] = ()
+    #: The initramfs keymap. An encrypted root asks for its passphrase there,
+    #: and dracut is built with hostonly_cmdline="no", so the command line is
+    #: the only thing that says which keyboard is attached.
+    keymap: str = ""
 
     def describe(self) -> str:
         extra = []
@@ -109,6 +113,7 @@ class WriteGrubDefaults(Operation):
         parameters = (
             *luks_parameters(context, self.luks),
             *array_parameters(context, self.arrays),
+            *keymap_parameters(self.keymap),
             *self.kernel_params,
         )
         lines = [
@@ -283,6 +288,7 @@ def build(config: InstallConfig) -> list[Operation]:
                 serial=_serial_console(config),
                 luks=initramfs_devices(config)[0],
                 arrays=initramfs_devices(config)[1],
+                keymap=_initramfs_keymap(config),
             ),
             InstallGrub(
                 firmware=config.bootloader.firmware, esp=esp, boot_device=config.disk.root
@@ -324,6 +330,11 @@ def luks_parameters(context: Context, devices: tuple[DeviceId, ...]) -> tuple[st
     return tuple(f"rd.luks.uuid={context.device_uuid(device)}" for device in devices)
 
 
+def keymap_parameters(keymap: str) -> tuple[str, ...]:
+    """`rd.vconsole.keymap`, so the passphrase prompt uses the right keyboard."""
+    return (f"rd.vconsole.keymap={keymap}",) if keymap else ()
+
+
 def initramfs_devices(config: InstallConfig) -> tuple[tuple[DeviceId, ...], tuple[DeviceId, ...]]:
     """The containers and arrays the initramfs has to be told about.
 
@@ -339,6 +350,15 @@ def initramfs_devices(config: InstallConfig) -> tuple[tuple[DeviceId, ...], tupl
 def array_parameters(context: Context, devices: tuple[DeviceId, ...]) -> tuple[str, ...]:
     """`rd.md.uuid` for each array the initramfs has to assemble."""
     return tuple(f"rd.md.uuid={context.array_uuid(device)}" for device in devices)
+
+
+def _initramfs_keymap(config: InstallConfig) -> str:
+    """Only when an encrypted device asks for a passphrase before the console
+    keymap is loaded, and only when it differs from the default."""
+    wanted = config.system.keymap_initramfs or config.system.keymap
+    if wanted == "us" or not compat.early_containers(config.disk.graph):
+        return ""
+    return wanted
 
 
 def _serial_console(config: InstallConfig) -> tuple[str, int] | None:

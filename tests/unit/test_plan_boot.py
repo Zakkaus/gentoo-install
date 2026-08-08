@@ -421,3 +421,24 @@ def test_a_module_that_builds_against_a_sources_kernel_waits_for_it() -> None:
     # that has been verified in a VM stays as it is.
     dist = [operation.describe() for operation in kernel.build(zfs)]
     assert any(line.startswith("install the storage tools:") and "sys-fs/zfs" in line for line in dist)
+
+
+def test_the_unlock_prompt_uses_the_keyboard_that_is_attached() -> None:
+    """An encrypted root asks for its passphrase before the console keymap is
+    loaded, so a keyboard that is not us cannot type one."""
+    from dataclasses import replace as _replace
+
+    encrypted = load(Path("tests/fixtures/vm-luks.toml"))
+    french = _replace(encrypted, system=_replace(encrypted.system, keymap="fr"))
+    recorder = Recorder()
+    for operation in bootloader.build(french):
+        if isinstance(operation, bootloader.WriteGrubDefaults):
+            operation.apply(recorder)
+    assert "rd.vconsole.keymap=fr" in recorder.files[PurePosixPath("/etc/default/grub")]
+
+    # Nothing is said when the keyboard is the default, or when nothing asks.
+    plain = Recorder()
+    for operation in bootloader.build(encrypted):
+        if isinstance(operation, bootloader.WriteGrubDefaults):
+            operation.apply(plain)
+    assert "rd.vconsole.keymap" not in plain.files[PurePosixPath("/etc/default/grub")]

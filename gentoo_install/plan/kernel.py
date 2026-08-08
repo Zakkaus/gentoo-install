@@ -26,7 +26,13 @@ from ..model.device import (
     ZfsDataset,
     ZfsPool,
 )
-from .bootloader import array_parameters, initramfs_devices, luks_parameters
+from .bootloader import (
+    array_parameters,
+    initramfs_devices,
+    keymap_parameters,
+    luks_parameters,
+)
+from .bootloader import _initramfs_keymap as bootloader_keymap
 from .operations import Context, Operation, Stage
 from .portage import Emerge
 
@@ -124,6 +130,7 @@ class WriteKernelCmdline(Operation):
     kernel_params: tuple[str, ...]
     luks: tuple[DeviceId, ...] = ()
     arrays: tuple[DeviceId, ...] = ()
+    keymap: str = ""
 
     def describe(self) -> str:
         named = self.dataset or str(self.root)
@@ -137,6 +144,7 @@ class WriteKernelCmdline(Operation):
         told = (
             *luks_parameters(context, self.luks),
             *array_parameters(context, self.arrays),
+            *keymap_parameters(self.keymap),
         )
         context.write(
             PurePosixPath("/etc/kernel/cmdline"),
@@ -319,6 +327,7 @@ def build(config: InstallConfig) -> list[Operation]:
                 dataset=dataset,
                 luks=initramfs_devices(config)[0],
                 arrays=initramfs_devices(config)[1],
+                keymap=bootloader_keymap(config),
                 kernel_params=(*extra, *config.bootloader.kernel_params),
             )
         )

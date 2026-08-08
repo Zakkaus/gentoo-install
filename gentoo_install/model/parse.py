@@ -103,7 +103,8 @@ def _system(raw: Mapping[str, Any], at: str) -> SystemConfig:
         {
             "hostname", "timezone", "locales", "locale", "keymap", "console_cjk",
             "console_font", "init", "sshd", "users", "root_password_hash",
-            "zram", "hardware_clock_utc", "networking",
+            "zram", "hardware_clock_utc", "networking", "keymap_initramfs",
+            "address", "gateway", "root_authorized_keys",
         },
     )
     default = SystemConfig()
@@ -113,6 +114,12 @@ def _system(raw: Mapping[str, Any], at: str) -> SystemConfig:
         locales=_strings(raw, "locales", at, default.locales),
         locale=_str(raw, "locale", at, default.locale),
         keymap=_str(raw, "keymap", at, default.keymap),
+        keymap_initramfs=_str(raw, "keymap_initramfs", at, default.keymap_initramfs),
+        address=_str(raw, "address", at, default.address),
+        gateway=_str(raw, "gateway", at, default.gateway),
+        root_authorized_keys=_strings(
+            raw, "root_authorized_keys", at, default.root_authorized_keys
+        ),
         console_cjk=_bool(raw, "console_cjk", at, default.console_cjk),
         console_font=_enum(raw, "console_font", at, ConsoleFontSize, default.console_font),
         init=_enum(raw, "init", at, InitSystem, default.init),

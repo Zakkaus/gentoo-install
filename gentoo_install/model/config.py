@@ -96,6 +96,16 @@ class SystemConfig:
     locale: str = "zh_CN.UTF-8"
     #: There is no `cn` keymap; a Chinese locale does not imply one.
     keymap: str = "us"
+    #: The keymap the initramfs uses. Empty follows `keymap`. It matters on its
+    #: own because an encrypted root asks for its passphrase there, and a
+    #: keyboard that is not us cannot type one it was never told about.
+    keymap_initramfs: str = ""
+    #: A static address in CIDR form, such as `192.0.2.10/24`. Empty is DHCP.
+    address: str = ""
+    gateway: str = ""
+    #: Public keys authorised for root, so a headless install is reachable
+    #: without a password on the console.
+    root_authorized_keys: tuple[str, ...] = ()
     #: The local console renders CJK itself, which needs a kernel carrying cjktty.
     console_cjk: bool = False
     console_font: ConsoleFontSize = ConsoleFontSize.SIZE_8X16
