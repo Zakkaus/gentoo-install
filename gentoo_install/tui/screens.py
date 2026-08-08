@@ -285,6 +285,12 @@ def _edit_reused(
                 label=translate("Mount point"),
                 value=_MOUNTPOINT,
                 detail=entry.mountpoint or translate("not mounted"),
+                # A type with no `FilesystemType` member, ntfs and exfat among
+                # them, has no fstab line to write, and taking a mount point
+                # for one dropped it without saying so.
+                disabled_because=(
+                    "" if entry.filesystem else translate("name the filesystem first")
+                ),
             ),
             Item(
                 label=translate("Filesystem"),

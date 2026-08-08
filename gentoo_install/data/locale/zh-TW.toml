@@ -162,9 +162,9 @@
 "the proprietary driver, which widens ACCEPT_LICENSE" = "專有驅動，會放寬 ACCEPT_LICENSE"
 "virtio-gpu, QXL and the VMware adapter" = "virtio-gpu、QXL 與 VMware 顯示卡"
 "a text console login" = "文字主控台登入"
-"the one Plasma expects" = "Plasma 搭配的那個"
-"the one GNOME expects" = "GNOME 搭配的那個"
-"the one Xfce expects" = "Xfce 搭配的那個"
+"the one Plasma expects" = "Plasma 預設搭配"
+"the one GNOME expects" = "GNOME 預設搭配"
+"the one Xfce expects" = "Xfce 預設搭配"
 "a console greeter" = "主控台登入程式"
 
 # 鏡像站名稱與地點
@@ -270,3 +270,4 @@
 "compressed in memory, no partition" = "記憶體中壓縮，不佔分割區"
 "Password for {user}" = "{user} 的密碼"
 "not set" = "尚未設定"
+"name the filesystem first" = "先指定檔案系統"

@@ -270,3 +270,4 @@
 "compressed in memory, no partition" = "メモリ内で圧縮、パーティション不要"
 "Password for {user}" = "{user} のパスワード"
 "not set" = "未設定"
+"name the filesystem first" = "先にファイルシステムを指定"

@@ -270,3 +270,4 @@
 "compressed in memory, no partition" = "메모리에서 압축, 파티션 없음"
 "Password for {user}" = "{user} 의 암호"
 "not set" = "설정 안 됨"
+"name the filesystem first" = "먼저 파일 시스템을 지정"
