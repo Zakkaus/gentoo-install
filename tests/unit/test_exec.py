@@ -369,3 +369,38 @@ def test_a_uuid_is_read_from_the_device_and_not_from_the_cache(tmp_path: Path) -
     assert probe.uuid_of("/dev/vdb2", DeviceId("rootfs")) == "1234-ABCD"
     called = next(argv for argv in seen if argv[0] == "blkid")
     assert "--probe" in called
+
+
+def test_the_disk_a_mirrored_root_boots_from_is_the_same_on_every_run(tmp_path: Path) -> None:
+    """`ancestors_of` is a frozenset and Python randomises string hashing per
+    process, so a RAID1 root answered with a different disk each run and
+    `grub-install` wrote the bootloader to whichever came out."""
+    from gentoo_install.exec.apply import Machine
+    from gentoo_install.model.device import MdRaid, RaidLevel
+    from gentoo_install.model.parse import load
+
+    layout = load(Path("tests/fixtures/vm-mdraid.toml"))
+    array = layout.disk.graph.of_type(MdRaid)[0]
+    assert array.level is RaidLevel.RAID1 and len(array.members) > 1
+
+    class Echoing(Probe):
+        """The selector back, so the test is about which node was picked and
+        not about which device nodes this machine happens to have."""
+
+        def resolve(self, device: DeviceId, selector: str) -> str:
+            return selector
+
+    probe = Echoing(runner=runner(tmp_path), work=tmp_path)
+    machine = Machine(
+        config=layout, runner=runner(tmp_path), probe=probe, work=tmp_path,
+        mountpoint=Path("/mnt/gentoo"),
+    )
+    graph = layout.disk.graph
+    first = next(
+        graph[one]
+        for one in sorted(graph.ancestors_of(array.id))
+        if isinstance(graph[one], Existing)
+    )
+    assert isinstance(first, Existing)
+    for _ in range(4):
+        assert machine.containing_disk(array.id) == first.selector

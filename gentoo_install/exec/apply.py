@@ -156,10 +156,12 @@ class Machine:
 
         Derived from the graph rather than from whichever disk the graph happens
         to yield first: a layout with a second disk would otherwise have its
-        bootloader written to the wrong one.
+        bootloader written to the wrong one. Sorted for the same reason
+        `bootloader.py` sorts: `ancestors_of` is a frozenset, so a mirrored root
+        answered with a different disk on every run.
         """
         graph = self.config.disk.graph
-        for parent in (device, *graph.ancestors_of(device)):
+        for parent in (device, *sorted(graph.ancestors_of(device))):
             node = graph[parent]
             if isinstance(node, Existing):
                 return self.probe.resolve(node.id, node.selector)
