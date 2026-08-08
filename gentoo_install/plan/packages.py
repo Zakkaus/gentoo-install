@@ -295,7 +295,7 @@ def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
     conflict = framework_conflict(config, catalog)
     if conflict:
         raise ValidationFailed(conflict)
-    operations: list[Operation] = _session_services(config)
+    operations: list[Operation] = []
     for group in groups(config, catalog):
         if group.packages:
             operations.append(
@@ -317,6 +317,9 @@ def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
             operations.append(
                 EnableService(stage=Stage.PACKAGES, service=service, init=config.system.init)
             )
+    # After the groups: `rc-update` refuses a service whose package is absent,
+    # and both of these arrive as dependencies of the desktop above.
+    operations += _session_services(config)
     operations += _input_method(config, catalog)
     if config.packages.extra:
         operations.append(
@@ -400,24 +403,39 @@ DISPLAY_MANAGER_INIT: Final[str] = "gui-libs/display-manager-init"
 DISPLAY_MANAGER_CONF: Final[PurePosixPath] = PurePosixPath("/etc/conf.d/display-manager")
 
 
-#: What a desktop needs running on openrc and gets from systemd for free.
-#: elogind's init script says `before xdm`, but openrc only orders services
-#: that are in a runlevel, so declaring it is not the same as enabling it.
-OPENRC_SESSION: Final[tuple[tuple[str, str], ...]] = (("dbus", "default"), ("elogind", "boot"))
+#: What a desktop needs running on openrc and gets from systemd for free, as
+#: package, service and runlevel. elogind's init script says `before xdm`, but
+#: openrc only orders services that are in a runlevel, so declaring it is not
+#: the same as enabling it; its ebuild warns against `default` for elogind.
+SESSION_PACKAGES: Final[tuple[tuple[str, str, str], ...]] = (
+    ("sys-apps/dbus", "dbus", "default"),
+    ("sys-auth/elogind", "elogind", "boot"),
+)
 
 
 def _session_services(config: InstallConfig) -> list[Operation]:
     """What a graphical session needs running before anything can start one.
 
-    Emitted for the desktop and not for the display manager: a desktop chosen
-    with no manager still needs dbus and elogind, and without them the machine
-    boots to a console with a desktop it cannot start.
+    Neither package is in a stage3 and neither is in `@system`: they arrive as
+    dependencies of the desktop, so both are merged here rather than left to
+    whichever group happens to pull them, and enabled after that merge.
     """
-    if config.system.init is InitSystem.SYSTEMD or not config.packages.desktop:
+    if config.system.init is InitSystem.SYSTEMD:
+        return []
+    if not (config.packages.desktop or config.packages.display_manager):
         return []
     return [
-        EnableService(stage=Stage.PACKAGES, service=service, init=config.system.init, runlevel=runlevel)
-        for service, runlevel in OPENRC_SESSION
+        Emerge(
+            stage=Stage.PACKAGES,
+            packages=tuple(atom for atom, _, _ in SESSION_PACKAGES),
+            summary="install the session bus and the seat manager",
+        ),
+        *(
+            EnableService(
+                stage=Stage.PACKAGES, service=service, init=config.system.init, runlevel=runlevel
+            )
+            for _, service, runlevel in SESSION_PACKAGES
+        ),
     ]
 
 

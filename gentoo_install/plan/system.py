@@ -676,7 +676,9 @@ class EnableService(Operation):
     runlevel: str = "default"
 
     def describe(self) -> str:
-        return f"enable {self.service} at boot"
+        if self.init is InitSystem.SYSTEMD:
+            return f"enable {self.service} at boot"
+        return f"enable {self.service} in the {self.runlevel} runlevel"
 
     def apply(self, context: Context) -> None:
         if self.init is InitSystem.SYSTEMD:

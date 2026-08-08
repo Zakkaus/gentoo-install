@@ -583,7 +583,7 @@ def test_an_openrc_storage_service_is_enabled_after_its_package_is_merged() -> N
         )
         described = [one.describe() for one in build(openrc, load_catalog())]
         merged = next(n for n, line in enumerate(described) if package in line)
-        enabled = next(n for n, line in enumerate(described) if line == f"enable {service} at boot")
+        enabled = next(n for n, line in enumerate(described) if line.startswith(f"enable {service} "))
         assert merged < enabled, fixture
 
 
@@ -616,7 +616,7 @@ def test_openrc_gets_a_logger_and_cron_because_a_stage3_has_neither() -> None:
 
     openrc = [one.describe() for one in system.build(static(init=InitSystem.OPENRC))]
     assert any("app-admin/sysklogd" in one for one in openrc)
-    assert "enable sysklogd at boot" in openrc
+    assert "enable sysklogd in the default runlevel" in openrc
     assert any("sys-process/cronie" in one for one in openrc)
 
     systemd = [one.describe() for one in system.build(static())]

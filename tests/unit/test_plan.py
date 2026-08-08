@@ -309,7 +309,7 @@ def test_a_display_manager_is_enabled_the_way_each_init_does_it() -> None:
 
     openrc = replace(wanted, system=replace(wanted.system, init=InitSystem.OPENRC))
     described = [one.describe() for one in plan_packages.build(openrc, catalog)]
-    assert "enable display-manager at boot" in described
+    assert "enable display-manager in the default runlevel" in described
     assert any("gui-libs/display-manager-init" in line for line in described)
 
 
@@ -385,12 +385,19 @@ def test_a_desktop_on_openrc_gets_the_session_services_systemd_provides() -> Non
         packages=PackagesConfig(desktop="plasma", display_manager="sddm"),
         system=replace(config().system, init=InitSystem.OPENRC),
     )
-    services = [
-        one.service
-        for one in plan_packages.build(openrc, catalog)
-        if isinstance(one, EnableService)
-    ]
-    assert services == ["dbus", "elogind", "display-manager"]
+    operations = plan_packages.build(openrc, catalog)
+    services = [one.service for one in operations if isinstance(one, EnableService)]
+    assert set(services) == {"dbus", "elogind", "display-manager"}
+
+    # Every one of them after the emerge that ships it: `rc-update` refuses a
+    # service whose package is absent, and neither dbus nor elogind is in a
+    # stage3 or in @system. This is the defect that stopped an openrc install
+    # at `rc-update add lvm boot`, in a second place.
+    described = [one.describe() for one in operations]
+    merged = next(at for at, one in enumerate(described) if "session bus" in one)
+    for name in ("dbus", "elogind"):
+        enabled = next(at for at, one in enumerate(described) if one.startswith(f"enable {name} "))
+        assert merged < enabled, name
 
     systemd = replace(openrc, system=replace(openrc.system, init=InitSystem.SYSTEMD))
     assert [
@@ -410,7 +417,7 @@ def test_an_openrc_desktop_gets_dbus_and_elogind_without_a_display_manager() -> 
     from gentoo_install.model.config import InitSystem
     from gentoo_install.model.parse import load
     from gentoo_install.plan.build import build
-    from gentoo_install.plan.packages import OPENRC_SESSION
+    from gentoo_install.plan.packages import SESSION_PACKAGES
     from gentoo_install.plan.system import EnableService
 
     desktop = load(_Path("tests/fixtures/vm-desktop.toml"))
@@ -423,14 +430,14 @@ def test_an_openrc_desktop_gets_dbus_and_elogind_without_a_display_manager() -> 
     enabled = {
         one.service for one in build(openrc, load_catalog()) if isinstance(one, EnableService)
     }
-    assert {service for service, _ in OPENRC_SESSION} <= enabled
+    assert {service for _, service, _ in SESSION_PACKAGES} <= enabled
 
     # No desktop, no session services: systemd needs none of this either.
     console = _replace(openrc, packages=_replace(openrc.packages, desktop="", applications=()))
     plain = {
         one.service for one in build(console, load_catalog()) if isinstance(one, EnableService)
     }
-    assert not {service for service, _ in OPENRC_SESSION} & plain
+    assert not {service for _, service, _ in SESSION_PACKAGES} & plain
 
 
 def test_each_rime_schema_is_a_group_the_operator_can_tick() -> None:
