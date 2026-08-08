@@ -673,6 +673,56 @@ def test_pinning_a_version_pins_the_atom_and_opens_its_keyword() -> None:
     assert not any("as testing" in line for line in loose)
 
 
+def test_a_plain_switch_flips_where_it_stands() -> None:
+    """A yes/no screen over a row that already reads `in use` asks the question
+    the row just answered. FakeScreen has no keys: any screen would block."""
+    at = context()
+    start = config()
+    blank = FakeScreen(keys=[], lines=20, columns=100)
+    measured = screens._edit_mirror(blank, at, start, screens._MEASURE)
+    assert measured is not None
+    assert measured.portage.mirrors.speed_test is not start.portage.mirrors.speed_test
+
+    files = screens._edit_mirror(blank, at, start, screens._DISTFILES)
+    assert files is not None
+    assert files.portage.mirrors.gentoo_distfiles is not start.portage.mirrors.gentoo_distfiles
+
+    added = screens._edit_mirror(blank, at, start, "guru")
+    assert added is not None
+    assert "guru" in {one.name for one in added.portage.overlays}
+    removed = screens._edit_mirror(blank, at, added, "guru")
+    assert removed is not None
+    assert "guru" not in {one.name for one in removed.portage.overlays}
+
+    cron = screens.cron_screen(blank, start, at)
+    assert cron.unwrap().system.cron is not start.system.cron
+    assert blank.frames == []
+
+
+def test_what_still_asks_before_it_changes() -> None:
+    """The line between the two: a switch flips, and anything that destroys
+    data, opens a second question, or starts the install asks first."""
+    import inspect
+
+    source = inspect.getsource(screens)
+    asked = {
+        "Format it, losing what is on it?",
+        "This erases every partition on the disk.",
+        "Encrypt the root filesystem?",
+        "Encrypt this partition?",
+        "Encrypt the pool?",
+        "Give this account sudo?",
+        "Use DHCP?",
+        "Unlock the root over SSH from the initramfs?",
+        "Install",
+    }
+    for title in asked:
+        assert title in source, title
+    # Eight call sites, nine titles: the slice screen words its question for a
+    # pool or for a partition.
+    assert source.count("Confirm(") == 8
+
+
 def test_a_zfs_root_is_offered_no_kernel_the_module_will_not_build_for() -> None:
     """`sys-fs/zfs-2.4.3` carries MODULES_KERNEL_MAX=7.0, so a 7.1 kernel leaves
     the pool with no module and the machine with no root."""

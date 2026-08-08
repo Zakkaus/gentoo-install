@@ -732,28 +732,16 @@ def _edit_mirror(
             config, portage=replace(portage, mirrors=replace(current, site=chosen.unwrap()[0]))
         )
     if field == _DISTFILES:
-        asked_files = Confirm(
-            **answers(translate),
-            title=translate("Write GENTOO_MIRRORS?"), footer=footer(translate)
-        ).run(screen)
-        if not asked_files.chosen:
-            return None
         return replace(
             config,
             portage=replace(
-                portage, mirrors=replace(current, gentoo_distfiles=asked_files.unwrap())
+                portage, mirrors=replace(current, gentoo_distfiles=not current.gentoo_distfiles)
             ),
         )
     if field == _MEASURE:
-        asked = Confirm(
-            **answers(translate),
-            title=translate("Measure the mirrors before installing?"), footer=footer(translate)
-        ).run(screen)
-        if not asked.chosen:
-            return None
         return replace(
             config,
-            portage=replace(portage, mirrors=replace(current, speed_test=asked.unwrap())),
+            portage=replace(portage, mirrors=replace(current, speed_test=not current.speed_test)),
         )
     if field == _SYNC:
         return _pick(
@@ -780,20 +768,14 @@ def _edit_mirror(
     if field == _ZH_SITE:
         return _edit_gentoozh(screen, context, config)
     if field == _ZH_DISTFILES:
-        asked_zh = Confirm(
-            **answers(translate),
-            title=translate("Add the gentoo-zh distfiles to GENTOO_MIRRORS?"),
-            footer=footer(translate),
-        ).run(screen)
-        if not asked_zh.chosen:
-            return None
         return replace(
             config,
             portage=replace(
-                portage, mirrors=replace(current, gentoo_zh_distfiles=asked_zh.unwrap())
+                portage,
+                mirrors=replace(current, gentoo_zh_distfiles=not current.gentoo_zh_distfiles),
             ),
         )
-    return _toggle_overlay(screen, context, config, field)
+    return _toggle_overlay(config, field)
 
 
 V = TypeVar("V")
@@ -914,18 +896,12 @@ def _edit_gentoozh(
     )
 
 
-def _toggle_overlay(
-    screen: Screen, context: Context, config: InstallConfig, name: str
-) -> InstallConfig | None:
-    translate = context.translate
-    asked = Confirm(
-        **answers(translate), title=f"{name}?", footer=footer(translate)
-    ).run(screen)
-    if not asked.chosen:
-        return None
+def _toggle_overlay(config: InstallConfig, name: str) -> InstallConfig:
+    """Flipped where it stands. A yes/no screen over a row that already reads
+    `in use` or `not used` asks the question the row just answered."""
     portage = config.portage
     kept = tuple(one for one in portage.overlays if one.name != name)
-    if asked.unwrap():
+    if len(kept) == len(portage.overlays):
         uri = next(where for offered, where in PLAIN_OVERLAYS if offered == name)
         kept = (*kept, Overlay(name=name, sync_uri=uri))
     return replace(config, portage=replace(portage, overlays=kept))
@@ -1078,16 +1054,9 @@ def logger_screen(screen: Screen, config: InstallConfig, context: Context) -> An
 
 
 def cron_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
-    translate = context.translate
-    asked = Confirm(
-        **answers(translate),
-        title=translate("Install a cron daemon?"),
-        footer=footer(translate),
-    ).run(screen)
-    if not asked.chosen:
-        return Answer(asked.outcome)
+    """Flipped where it stands: the row reads `in use` or `not used` already."""
     return Answer(
-        Outcome.CHOSE, replace(config, system=replace(config.system, cron=asked.unwrap()))
+        Outcome.CHOSE, replace(config, system=replace(config.system, cron=not config.system.cron))
     )
 
 
