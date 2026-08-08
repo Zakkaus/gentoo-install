@@ -430,17 +430,19 @@ class VerifyPackages(Operation):
     def describe(self) -> str:
         return f"check that {' '.join(self.packages)} name packages this system will install"
 
+
     def apply(self, context: Context) -> None:
         missing: list[str] = []
         refused: list[str] = []
         for atom in self.packages:
             probe = ["emerge", "--pretend", "--quiet", "--nodeps", "--", atom]
             output = context.run_in_target(probe, check=False)
-            if "license" not in output.lower() and _resolves(context, atom):
-                continue
-            # Told apart because the answers differ: one is a typo, the other
-            # is a licence the operator chose not to accept.
-            (refused if "license" in output.lower() else missing).append(atom)
+            if NO_EBUILD in output:
+                missing.append(atom)
+            elif LICENCE_MASKED in output:
+                # Told apart because the answers differ: one is a typo, the
+                # other is a licence the operator chose not to accept.
+                refused.append(atom)
         problems: list[str] = []
         if missing:
             problems.append(
@@ -456,12 +458,12 @@ class VerifyPackages(Operation):
             raise ConfigError("; ".join(problems))
 
 
-def _resolves(context: Context, atom: str) -> bool:
-    try:
-        context.run_in_target(["emerge", "--pretend", "--quiet", "--nodeps", "--", atom])
-    except CommandFailed:
-        return False
-    return True
+#: What Portage prints for an atom no ebuild matches, and for one every ebuild
+#: of which a licence masks. Taken from real `emerge --pretend --quiet` output:
+#: a substring test over the whole text matched the letters of `license` in a
+#: path or an atom and reported a typo as a licence refusal.
+NO_EBUILD: Final[str] = "there are no ebuilds to satisfy"
+LICENCE_MASKED: Final[str] = "license(s))"
 
 
 @dataclass(frozen=True, kw_only=True)

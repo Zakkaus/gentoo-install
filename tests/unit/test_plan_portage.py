@@ -263,13 +263,28 @@ def test_named_atoms_are_accepted_without_opening_the_whole_system() -> None:
     )
 
 
+#: Captured from `emerge --pretend --quiet --nodeps` on a synced tree. Invented
+#: output is what let a substring test over the whole text stand for years.
+NO_SUCH_PACKAGE = (
+    '\nemerge: there are no ebuilds to satisfy "app-misc/not-a-real-package".\n'
+    "\nemerge: searching for similar names... nothing similar found.\n"
+)
+LICENCE_REFUSED = (
+    '\n!!! All ebuilds that could satisfy "x11-drivers/nvidia-drivers" have been masked.\n'
+    "!!! One of the following masked packages is required to complete your request:\n"
+    "- x11-drivers/nvidia-drivers-610.57.04::gentoo (masked by: NVIDIA-2025 license(s))\n"
+    "A copy of the 'NVIDIA-2025' license is located at "
+    "'/var/db/repos/gentoo/licenses/NVIDIA-2025'.\n"
+)
+
+
 def test_a_package_name_that_matches_nothing_stops_before_the_disks_fill() -> None:
     """Asked once the tree is synced: otherwise the run dies at the packages
     stage, hours in and with the disks already written."""
-    recorder = Recorder(failures={"emerge"})
-    check = portage.VerifyPackages(packages=("app-editors/neovim", "not/real"))
+    recorder = Recorder()
+    recorder.replies["emerge"] = NO_SUCH_PACKAGE
     with pytest.raises(ConfigError, match="no ebuild matches"):
-        check.apply(recorder)
+        portage.VerifyPackages(packages=("app-misc/not-a-real-package",)).apply(recorder)
 
     portage.VerifyPackages(packages=("app-editors/neovim",)).apply(Recorder())
 
@@ -278,15 +293,30 @@ def test_a_package_the_licence_refuses_is_named_as_that_and_not_as_a_typo() -> N
     """The two have different answers: one is a name to correct, the other is
     ACCEPT_LICENSE to widen. Reporting both as "no ebuild matches" sends the
     operator hunting for a spelling mistake that is not there."""
-    recorder = Recorder(failures={"emerge"})
-    recorder.replies["emerge"] = (
-        "The following license changes are necessary to proceed:\n"
-        "#required by www-client/google-chrome\n"
-        ">=www-client/google-chrome-1 google-chrome"
-    )
-    check = portage.VerifyPackages(packages=("www-client/google-chrome",))
+    recorder = Recorder()
+    recorder.replies["emerge"] = LICENCE_REFUSED
     with pytest.raises(ConfigError, match="ACCEPT_LICENSE refuses"):
-        check.apply(recorder)
+        portage.VerifyPackages(packages=("x11-drivers/nvidia-drivers",)).apply(recorder)
+
+
+def test_the_word_license_in_a_path_is_not_a_licence_refusal() -> None:
+    """`license` appears in the licences directory Portage prints, in package
+    names, and in `ACCEPT_LICENSE` itself. Matching it anywhere in the output
+    reported a missing package as a licence the operator had refused."""
+    recorder = Recorder()
+    recorder.replies["emerge"] = (
+        "\n[ebuild  N     ] app-misc/license-tools-1.0::gentoo\n"
+        "A copy of the 'GPL-2' license is located at /usr/portage/licenses/GPL-2.\n"
+    )
+    portage.VerifyPackages(packages=("app-misc/license-tools",)).apply(recorder)
+
+
+def test_one_probe_per_package_and_not_two() -> None:
+    """It ran `emerge --pretend` twice for every atom that resolved, doubling
+    the cost of the check on a long list."""
+    recorder = Recorder()
+    portage.VerifyPackages(packages=("app-editors/neovim", "app-misc/tmux")).apply(recorder)
+    assert len([argv for argv in recorder.in_target if argv[0] == "emerge"]) == 2
 
 
 def test_the_licence_choice_is_not_undone_by_autounmask() -> None:
