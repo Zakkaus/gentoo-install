@@ -51,6 +51,8 @@
   set the root password
   configure the wired interface for DHCP
   enable systemd-networkd at boot
+  enable systemd-resolved at boot
+  point /etc/resolv.conf at systemd-resolved rather than the install medium's
   install cron: emerge sys-process/cronie
   enable cronie at boot
 

@@ -701,3 +701,31 @@ def test_every_logger_has_a_package_a_service_and_a_row() -> None:
         one for one in system.build(picked) if isinstance(one, Emerge) and "logger" in one.summary
     ]
     assert merged and merged[0].packages == ("app-admin/metalog",)
+
+
+def test_the_installed_system_resolves_with_its_own_nameservers() -> None:
+    """`PrepareChroot` copies the install medium's `/etc/resolv.conf` in and
+    nothing takes it out, and `systemd-networkd` publishes what it learns only
+    through `systemd-resolved`, so the DNS the operator typed reached nothing."""
+    static = with_system(
+        init=InitSystem.SYSTEMD,
+        networking=Networking.BUILTIN,
+        addresses=("192.0.2.10/24",),
+        gateways=("192.0.2.1",),
+        dns=("223.5.5.5",),
+    )
+    recorder = apply_all(static, generated=generated(static))
+    written = recorder.files[PurePosixPath("/etc/systemd/network/20-wired.network")]
+    assert "DNS=223.5.5.5" in written
+    assert ("systemctl", "enable", "systemd-resolved.service") in recorder.in_target
+    # `ln` also makes /etc/localtime, so the resolver link is picked out by name.
+    linked = next(
+        argv for argv in recorder.argv_starting("ln") if argv[-1] == "/etc/resolv.conf"
+    )
+    assert linked[-2] == "../run/systemd/resolve/stub-resolv.conf"
+
+    # netifrc writes resolv.conf itself, so openrc needs none of it.
+    openrc = with_system(init=InitSystem.OPENRC, addresses=("192.0.2.10/24",), dns=("223.5.5.5",))
+    plain = apply_all(openrc, generated=generated(openrc))
+    assert "dns_servers_" in plain.files[PurePosixPath("/etc/conf.d/net")]
+    assert not any("resolved" in " ".join(argv) for argv in plain.in_target)

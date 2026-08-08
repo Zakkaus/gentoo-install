@@ -334,6 +334,33 @@ class RequestNetworkUse(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
+class LinkResolvConf(Operation):
+    """Point the target's resolver at the one that will run on it.
+
+    `PrepareChroot` copies the installing system's `/etc/resolv.conf` in so the
+    emerges can resolve, and nothing takes it out again: the installed machine
+    booted with the live medium's nameservers. `systemd-networkd` publishes
+    what it learns only through `systemd-resolved`, so the DNS the operator
+    typed reached no program at all.
+    """
+
+    stage: Stage = Stage.SYSTEM
+    init: InitSystem
+
+    def describe(self) -> str:
+        return "point /etc/resolv.conf at systemd-resolved rather than the install medium's"
+
+    def apply(self, context: Context) -> None:
+        context.run_in_target(
+            [
+                "ln", "--symbolic", "--force", "--no-target-directory",
+                "../run/systemd/resolve/stub-resolv.conf",
+                "/etc/resolv.conf",
+            ]
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
 class WriteNetworkConfig(Operation):
     """A wired interface with DHCP. systemd-networkd does nothing without a
     `.network` file, so enabling the service alone leaves the system offline.
@@ -729,6 +756,13 @@ def build(config: InstallConfig) -> list[Operation]:
         operations.append(
             EnableService(service=_network_service(system), init=system.init)
         )
+        if system.init is InitSystem.SYSTEMD and system.networking is Networking.BUILTIN:
+            # netifrc writes resolv.conf itself; networkd hands what it knows
+            # to resolved and to nothing else.
+            operations += [
+                EnableService(service="systemd-resolved", init=system.init),
+                LinkResolvConf(init=system.init),
+            ]
     operations += _logging(system)
     if system.init is not InitSystem.SYSTEMD:
         # openrc assembles the stack with a service per kind. The root comes up
