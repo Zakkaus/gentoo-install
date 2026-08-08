@@ -1238,3 +1238,23 @@ def test_the_unlock_keyboard_offers_following_the_console() -> None:
     assert answer.unwrap().system.keymap_initramfs == ""
     assert "the same as the console" in "\n".join(screen.frames[0])
 
+
+def test_selecting_gentoo_zh_turns_its_binary_host_on() -> None:
+    """The host serves what that overlay builds, and `compat.py` refuses the
+    host without the overlay, so the two are one answer."""
+    from gentoo_install.model.config import BinhostChannel
+
+    assert config().portage.binhost.community is BinhostChannel.OFF
+    added = screens._with_gentoo_zh(config())
+    assert any(one.name == "gentoo-zh" for one in added.overlays)
+    assert added.binhost.community is BinhostChannel.STABLE
+
+    # A channel the operator already chose is left alone.
+    picked = replace(
+        config(),
+        portage=replace(
+            config().portage,
+            binhost=replace(config().portage.binhost, community=BinhostChannel.UNSTABLE),
+        ),
+    )
+    assert screens._with_gentoo_zh(picked).binhost.community is BinhostChannel.UNSTABLE

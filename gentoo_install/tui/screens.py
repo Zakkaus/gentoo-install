@@ -406,7 +406,12 @@ def _with_gentoo_zh(config: InstallConfig) -> PortageConfig:
         return config.portage
     where = mirrors.gentoozh(config.portage.mirrors.gentoo_zh).git
     added = (*config.portage.overlays, Overlay(name="gentoo-zh", sync_uri=where))
-    return replace(config.portage, overlays=added)
+    binhost = config.portage.binhost
+    if binhost.community is BinhostChannel.OFF:
+        # On with the overlay: the host serves what that overlay builds, and
+        # `compat.py` is what keeps the two from being set apart.
+        binhost = replace(binhost, community=BinhostChannel.STABLE)
+    return replace(config.portage, overlays=added, binhost=binhost)
 
 
 def erase_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
