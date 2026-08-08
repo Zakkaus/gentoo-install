@@ -936,3 +936,24 @@ def test_the_patched_kernel_leaves_console_cjk_alone() -> None:
     keys = [*down(2), "\n"]
     kept = screens.kernel_screen(FakeScreen(keys=keys, lines=30, columns=100), chinese, at).unwrap()
     assert kept.system.console_cjk
+
+
+def test_choosing_the_patched_kernel_turns_its_patch_on() -> None:
+    """`RequestCjkKernel` reads `system.console_cjk`, so picking
+    `sys-kernel/gentoo-cjk-kernel` after answering English wrote `-cjk` and
+    compiled the patch out of the package that exists for it."""
+    from gentoo_install.model.config import KernelSource
+    from gentoo_install.plan import kernel as plan_kernel
+
+    at = context()
+    english = screens.with_language(config(), "en")
+    assert english.system.console_cjk is False
+
+    keys = ["KEY_DOWN", "KEY_DOWN", "\n", "\n"]
+    chosen = screens.kernel_screen(FakeScreen(keys=keys, lines=24, columns=100), english, at)
+    picked = chosen.unwrap()
+    assert picked.kernel.source is KernelSource.CJK
+    assert picked.system.console_cjk is True
+    assert any(
+        "with cjk on" in one.describe() for one in plan_kernel.build(picked)
+    )

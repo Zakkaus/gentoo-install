@@ -1126,6 +1126,11 @@ def kernel_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     chosen = answer.unwrap()[0]
     changed = replace(config, kernel=replace(config.kernel, source=chosen))
     if chosen is KernelSource.CJK:
+        # cjk on with it, the mirror of the branch below: `RequestCjkKernel`
+        # reads this flag, so choosing the patched kernel and leaving the flag
+        # off wrote `-cjk` and compiled the patch out of the package that
+        # exists for it.
+        changed = replace(changed, system=replace(changed.system, console_cjk=True))
         # The package is in gentoo-zh and in no other repository, so choosing
         # it is consenting to that overlay rather than having it added quietly.
         return Answer(Outcome.CHOSE, replace(changed, portage=_with_gentoo_zh(changed)))
