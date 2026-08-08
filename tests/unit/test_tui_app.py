@@ -793,3 +793,24 @@ def test_opening_the_partitions_row_directly_marks_the_layout_manual() -> None:
     screen = FakeScreen(keys=[*down(3), "\n"], lines=30, columns=100)
     screens.partitions_screen(screen, config(), at)
     assert at.manual
+
+
+def test_a_profile_the_operator_picked_survives_choosing_a_desktop() -> None:
+    """The desktop overwrote it regardless, throwing away no-multilib and
+    anything else chosen on purpose."""
+    at = context()
+    # A fresh list each time: FakeScreen pops, so one list serves one screen.
+    def plasma() -> list[str]:
+        return [*down(4), "\n"]  # sorted: "", console, gnome, gnome-full, plasma
+
+    fresh = screens.desktop_screen(FakeScreen(keys=plasma(), lines=30), config(), at).unwrap()
+    assert fresh.packages.desktop == "plasma"
+    assert fresh.portage.profile.endswith("desktop/plasma/systemd")
+
+    chosen = replace(
+        config(),
+        portage=replace(config().portage, profile="default/linux/amd64/23.0/no-multilib/systemd"),
+    )
+    kept = screens.desktop_screen(FakeScreen(keys=plasma(), lines=30), chosen, at).unwrap()
+    assert kept.packages.desktop == "plasma"
+    assert kept.portage.profile == "default/linux/amd64/23.0/no-multilib/systemd"

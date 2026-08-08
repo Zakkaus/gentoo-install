@@ -441,6 +441,15 @@ def init_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     )
 
 
+def _profile_was_chosen(config: InstallConfig) -> bool:
+    """Whether the profile is something other than what the current desktop and
+    init imply, which is the only evidence the operator set it by hand."""
+    implied = DESKTOP_PROFILES.get(config.packages.desktop)
+    if implied is None:
+        return True
+    return config.portage.profile != _profile_for(implied, config.system.init)
+
+
 def _profile_for(profile: str, init: InitSystem) -> str:
     """The profile has to follow the init: a systemd profile has `systemd` as a
     path component, and the two disagreeing builds packages for the other."""
@@ -1088,15 +1097,22 @@ def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> A
     if not answer.chosen:
         return Answer(answer.outcome)
     desktop = answer.unwrap()[0]
-    profile = _profile_for(DESKTOP_PROFILES[desktop], config.system.init)
-    return Answer(
-        Outcome.CHOSE,
-        replace(
-            config,
-            packages=replace(config.packages, desktop=desktop),
-            portage=replace(config.portage, profile=profile),
-        ),
-    )
+    changed = replace(config, packages=replace(config.packages, desktop=desktop))
+    if not _profile_was_chosen(config):
+        # Only while the profile is still the one the last desktop implied.
+        # Overwriting it regardless threw away a profile the operator had
+        # picked on purpose, such as no-multilib.
+        return Answer(
+            Outcome.CHOSE,
+            replace(
+                changed,
+                portage=replace(
+                    config.portage,
+                    profile=_profile_for(DESKTOP_PROFILES[desktop], config.system.init),
+                ),
+            ),
+        )
+    return Answer(Outcome.CHOSE, changed)
 
 
 #: The graphics groups, in the order the menu lists them, and what each is
