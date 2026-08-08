@@ -127,6 +127,28 @@ def test_an_install_still_names_what_is_missing(tmp_path: Path) -> None:
     assert "missing commands:" in said
 
 
+def test_the_launcher_works_from_another_directory(tmp_path: Path) -> None:
+    """`python -m gentoo_install` takes `sys.path[0]` from the current
+    directory, so a launcher started by absolute path from elsewhere printed
+    `No module named gentoo_install`, and the swallowed failure read as a
+    machine with every tool already present."""
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    where = tmp_path / "os-release"
+    where.write_text("ID=debian\n")
+    finished = subprocess.run(
+        [SHELL, str(LAUNCHER), "--config", str(REPOSITORY / "tests/fixtures/vm-luks.toml")],
+        cwd=elsewhere,
+        env={"OS_RELEASE": str(where), "PATH": only_python(tmp_path)},
+        capture_output=True,
+        text=True,
+    )
+    said = finished.stdout + finished.stderr
+    assert "No module named" not in said
+    assert "missing commands:" in said
+    assert "apt-get install -y" in said
+
+
 def test_fedora_gets_the_package_that_actually_ships_sgdisk(tmp_path: Path) -> None:
     """Fedora, RHEL and CentOS put `sgdisk` in gdisk and have no gptfdisk, so
     `dnf install -y gptfdisk` stopped on Unable to find a match and installed

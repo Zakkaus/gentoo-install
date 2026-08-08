@@ -121,7 +121,16 @@ say "python: $python ($("$python" --version 2>&1))"
 # tools takes away the one way to check a file before reaching the target.
 case " $* " in
 *" --dry-run "*) missing="" ;;
-*) missing=$("$python" -m gentoo_install --missing-commands "$@" 2>/dev/null) || missing="" ;;
+*)
+	# PYTHONPATH rather than a cd: `--config` names a path the operator typed,
+	# which has to resolve against their directory and not against this script's.
+	if ! missing=$(PYTHONPATH=$HERE "$python" -m gentoo_install --missing-commands "$@" 2>&1); then
+		# Reported rather than read as an empty list: an unreadable tree and a
+		# machine with every tool present are not the same answer.
+		say "the installer could not list what is missing: $missing"
+		exit 1
+	fi
+	;;
 esac
 if [ -n "$missing" ]; then
 	packages=""
