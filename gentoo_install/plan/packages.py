@@ -119,8 +119,12 @@ class WriteInputMethodEnvironment(Operation):
     wayland: bool
 
     def describe(self) -> str:
-        how = "XMODIFIERS only, since the session is Wayland" if self.wayland else "all three"
-        return f"set the input method environment in {ENVIRONMENT_FILE[self.init]}: {how}"
+        named = (
+            "XMODIFIERS and QT_IM_MODULES, since the session is Wayland"
+            if self.wayland
+            else "XMODIFIERS, GTK_IM_MODULE and QT_IM_MODULE"
+        )
+        return f"set the input method environment in {ENVIRONMENT_FILE[self.init]}: {named}"
 
     def apply(self, context: Context) -> None:
         lines = ["XMODIFIERS=@im=fcitx"]
@@ -131,6 +135,10 @@ class WriteInputMethodEnvironment(Operation):
         else:
             lines += ["GTK_IM_MODULE=fcitx", "QT_IM_MODULE=fcitx"]
         context.write(ENVIRONMENT_FILE[self.init], "\n".join(lines) + "\n")
+        if self.init is InitSystem.OPENRC:
+            # env.d is a source directory: nothing reads it until env-update
+            # regenerates /etc/profile.env from it.
+            context.run_in_target(["env-update"])
 
 
 @dataclass(frozen=True, kw_only=True)

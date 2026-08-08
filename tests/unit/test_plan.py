@@ -8,6 +8,7 @@ import pytest
 from gentoo_install.data import load_catalog
 from gentoo_install.errors import ConfigError, ValidationFailed
 from gentoo_install.model.config import (
+    DiskConfig,
     Bootloader,
     BootloaderConfig,
     Firmware,
@@ -24,6 +25,7 @@ from gentoo_install.model.config import (
 )
 from gentoo_install.model.device import Node, Partition, PartitionRole
 from gentoo_install.model.parse import load
+from gentoo_install.model.validate import validate
 from gentoo_install.plan import disk as plan_disk
 from gentoo_install.plan.build import build
 
@@ -315,3 +317,58 @@ def test_no_group_names_a_systemd_unit_file() -> None:
     for group in load_catalog().values():
         for service in group.services:
             assert not service.endswith(".service"), (group.name, service)
+
+
+def test_a_zfs_root_is_not_refused_for_an_unrelated_encrypted_partition() -> None:
+    """`ROOT_ON_ZFS` is scoped to the root's ancestry and `LUKS` was not, so
+    the pair matched two devices that have nothing to do with each other."""
+    from gentoo_install.model.compat import Trait, traits_of
+    from gentoo_install.model.device import DeviceGraph, Luks, Partition, PartitionRole
+    from gentoo_install.model.size import Size
+
+    from .layouts import i, zfs_root
+
+    nodes = [*zfs_root()]
+    nodes += [
+        Partition(id=i("data"), table=i("table"), index=9, role=PartitionRole.DATA,
+                  size=Size.parse("1GiB")),
+        Luks(id=i("vault"), backing=i("data"), name="vault"),
+    ]
+    elsewhere = replace(config(nodes), disk=replace(config(nodes).disk, graph=DeviceGraph.build(nodes)))
+    assert Trait.LUKS not in traits_of(elsewhere)
+
+
+def test_remote_unlock_is_allowed_when_the_pool_itself_is_encrypted() -> None:
+    """ZFS native encryption prompts for a passphrase exactly as a container
+    does, and `early_containers` cannot see it."""
+    from gentoo_install.model.compat import Trait, traits_of
+    from gentoo_install.model.config import KernelConfig, RemoteUnlock
+    from gentoo_install.model.templates import Choice, Layout, build as build_template
+
+    graph, root = build_template(
+        Choice(disk="/dev/vda", layout=Layout.WHOLE_DISK_ZFS, passphrase_file="/run/keys/x")
+    )
+    encrypted = replace(
+        config(),
+        disk=DiskConfig(graph=graph, root=root),
+        kernel=KernelConfig(remote_unlock=RemoteUnlock(enabled=True)),
+        system=replace(config().system, authorized_keys=("ssh-ed25519 AAAA k",)),
+    )
+    assert Trait.NO_ENCRYPTED_CONTAINER not in traits_of(encrypted)
+
+
+def test_a_versioned_sources_atom_is_still_refused() -> None:
+    """The check matched a bare atom, so a version or a slot walked past a rule
+    that exists to stop an unbuildable kernel."""
+    from gentoo_install.model.config import KernelConfig
+
+    for atom in (
+        "sys-kernel/gentoo-sources",
+        "=sys-kernel/gentoo-sources-6.12.16",
+        "sys-kernel/gentoo-sources:6.12",
+        "=sys-kernel/gentoo-sources-6.12.16-r2",
+    ):
+        named = replace(config(), kernel=KernelConfig(package=atom))
+        with pytest.raises(ValidationFailed, match="source tree"):
+            validate(named)
+    validate(replace(config(), kernel=KernelConfig(package="=sys-kernel/gentoo-kernel-7.1.7-r1")))

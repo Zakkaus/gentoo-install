@@ -6,6 +6,7 @@ one more failed run to learn about the next one.
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from pathlib import PurePosixPath
 from typing import Final
@@ -61,11 +62,22 @@ def _reuse_problems(config: InstallConfig) -> list[str]:
     return problems
 
 
+def _package_name(atom: str) -> str:
+    """`=cat/pkg-1.2:3` reduced to `cat/pkg`.
+
+    Checked on the name, not the atom: a version or a slot otherwise walks past
+    a rule that exists to stop an unbuildable kernel.
+    """
+    bare = atom.lstrip("=<>~!").split(":", 1)[0]
+    bare = re.sub(r"-r\d+$", "", bare)
+    return re.sub(r"-\d[\w.]*$", "", bare)
+
+
 def _kernel_package_problems(config: InstallConfig) -> list[str]:
     """The installer configures and compiles no kernel of its own, so a
     `-sources` package would unpack a tree that nothing ever builds and leave
     the bootloader pointing at a `/boot` with no kernel in it."""
-    package = config.kernel.package
+    package = _package_name(config.kernel.package)
     if package and package.endswith("-sources"):
         return [
             f"{package} installs a source tree and no kernel; name a dist-kernel "

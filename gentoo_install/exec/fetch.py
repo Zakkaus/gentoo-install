@@ -15,7 +15,13 @@ import urllib.request
 from pathlib import Path
 from typing import Final
 
-from ..errors import CommandFailed, ConfigError, DownloadFailed, IntegrityError
+from ..errors import (
+    CommandFailed,
+    ConfigError,
+    DownloadFailed,
+    IntegrityError,
+    PreflightFailed,
+)
 from ..model import paste
 from ..model.device import DeviceId
 from .probe import RELEASE_KEY
@@ -121,7 +127,11 @@ def _import_release_key(runner: Runner) -> None:
     `preflight.py` is what checks the file exists, so a machine without it is
     stopped before the download rather than after it.
     """
-    runner.run(["gpg", "--quiet", "--import", str(RELEASE_KEY)], check=False)
+    result = runner.run(["gpg", "--quiet", "--import", str(RELEASE_KEY)], check=False)
+    if result.returncode != 0:
+        # Named here rather than left to the verification below, which would
+        # report a good signature as a bad one because the key never loaded.
+        raise PreflightFailed(f"{RELEASE_KEY} could not be imported: {result.stdout.strip()}")
 
 
 def text(url: str) -> str:

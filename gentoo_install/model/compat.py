@@ -156,7 +156,10 @@ def traits_of(config: InstallConfig) -> frozenset[Trait]:
 
     if _holds(graph, config.disk.root, (ZfsPool, ZfsDataset)):
         found.add(Trait.ROOT_ON_ZFS)
-    if graph.of_type(Luks):
+    if any(isinstance(node, Luks) for node in _chain(graph, config.disk.root)):
+        # Scoped to the root, like ROOT_ON_ZFS: the rules that name LUKS are
+        # about what carries `/`, and a graph-wide test paired a ZFS root with
+        # an encrypted partition that has nothing to do with it.
         found.add(Trait.LUKS)
 
     if config.bootloader.kind is Bootloader.GRUB:
@@ -197,7 +200,7 @@ def traits_of(config: InstallConfig) -> frozenset[Trait]:
         found.add(Trait.REMOTE_UNLOCK)
         if not config.system.authorized_keys:
             found.add(Trait.NO_AUTHORIZED_KEY)
-        if not early_containers(graph):
+        if not early_containers(graph) and not _encrypted_pool(graph, config.disk.root):
             found.add(Trait.NO_ENCRYPTED_CONTAINER)
     if config.kernel.source is KernelSource.CJK:
         found.add(Trait.CJK_KERNEL)
@@ -262,6 +265,14 @@ def esp_mount(graph: DeviceGraph) -> Mountpoint | None:
             if mount.path == path and _on_esp(graph, mount.id):
                 return mount
     return None
+
+
+def _encrypted_pool(graph: DeviceGraph, root: DeviceId) -> bool:
+    """Whether the root is a dataset of a pool with native encryption, which
+    prompts for a passphrase exactly as a LUKS container does."""
+    return any(
+        isinstance(node, ZfsPool) and node.encrypted for node in _chain(graph, root)
+    )
 
 
 def early_containers(graph: DeviceGraph) -> tuple[Luks, ...]:

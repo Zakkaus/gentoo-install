@@ -89,7 +89,7 @@
   install the rime-simplified group: emerge app-i18n/rime-data
   install the noto-cjk group: emerge media-fonts/noto-cjk media-fonts/noto media-libs/fontconfig
   install the flclash group: emerge net-proxy/flclash-bin
-  set the input method environment in /etc/environment.d/90-input-method.conf: XMODIFIERS only, since the session is Wayland
+  set the input method environment in /etc/environment.d/90-input-method.conf: XMODIFIERS and QT_IM_MODULES, since the session is Wayland
   configure fcitx with rime and luna_pinyin terra_pinyin bopomofo pinyin_simp for skel, zakk
 
 [finish]
