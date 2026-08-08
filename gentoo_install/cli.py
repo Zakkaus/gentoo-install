@@ -231,7 +231,10 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         if not arguments.lang:
             context.translate = Catalog(screens.language_screen(display, context))
             context.tag = context.translate.tag
-        return app.run(display, start, context)
+            chosen = screens.with_language(start, context.tag)
+        else:
+            chosen = screens.with_language(start, context.translate.tag)
+        return app.run(display, chosen, context)
 
     try:
         finished = curses.wrapper(walk)

@@ -4,7 +4,7 @@ from dataclasses import replace
 
 from gentoo_install.data import load_catalog
 from gentoo_install.i18n import Catalog
-from gentoo_install.model.config import Bootloader, InitSystem
+from gentoo_install.model.config import Bootloader, InitSystem, MirrorRegion
 from gentoo_install.model.validate import validate
 from gentoo_install.tui import screens, settings
 from gentoo_install.tui.app import run
@@ -342,3 +342,26 @@ def test_a_paste_needs_only_its_identifier() -> None:
     answer = screens.authorized_keys_screen(FakeScreen(keys=keys), config(), at)
     assert asked == ["https://paste.gentoozh.org/raw/hjq+353Jzfk"]
     assert answer.unwrap().system.authorized_keys == (GOOD_KEY,)
+
+
+def test_choosing_the_traditional_catalog_moves_the_defaults_with_it() -> None:
+    """Someone reading Traditional Chinese is in Taipei rather than Shanghai, and the CN
+    mirrors are the wrong side of a border for them."""
+    taiwan = screens.with_language(config(), "zh-TW")
+    assert taiwan.system.timezone == "Asia/Taipei"
+    assert taiwan.system.locale == "zh_TW.UTF-8"
+    assert taiwan.portage.mirrors.region is MirrorRegion.GLOBAL
+    china = screens.with_language(config(), "zh-CN")
+    assert china.system.timezone == "Asia/Shanghai"
+    assert china.system.locale == "zh_CN.UTF-8"
+    assert china.portage.mirrors.region is MirrorRegion.CN
+
+
+def test_every_interface_language_has_defaults_of_its_own() -> None:
+    """A language offered on the first screen and missing from the table leaves
+    the operator on someone else's timezone."""
+    offered = {tag for tag, _, _ in screens.INTERFACE_LANGUAGES}
+    assert offered == set(screens.LANGUAGE_DEFAULTS)
+    for tag, chosen in screens.LANGUAGE_DEFAULTS.items():
+        seeded = screens.with_language(config(), tag)
+        assert chosen.locale in seeded.system.locales, tag

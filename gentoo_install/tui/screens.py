@@ -8,7 +8,7 @@ validator never disagree about why something cannot be chosen.
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Callable, Final, Sequence
 
 from ..i18n import Catalog
@@ -1270,6 +1270,49 @@ INTERFACE_LANGUAGES: tuple[tuple[str, str, bool], ...] = (
     ("ja", "\u65e5\u672c\u8a9e", True),
     ("ko", "\ud55c\uad6d\uc5b4", True),
 )
+
+
+@dataclass(frozen=True)
+class LanguageDefaults:
+    """What picking an interface language pre-fills.
+
+    Someone reading Traditional Chinese is in Taipei rather than Shanghai and wants
+    `zh_TW.UTF-8`, and the CN mirrors are the wrong side of a border for them.
+    Every one of these stays a row the operator can change.
+    """
+
+    locale: str
+    timezone: str
+    mirror: MirrorRegion
+
+
+#: One row per interface language. Keyed by the same tags as the catalogs.
+LANGUAGE_DEFAULTS: Final[dict[str, LanguageDefaults]] = {
+    "en": LanguageDefaults("en_US.UTF-8", "UTC", MirrorRegion.GLOBAL),
+    "zh-CN": LanguageDefaults("zh_CN.UTF-8", "Asia/Shanghai", MirrorRegion.CN),
+    "zh-TW": LanguageDefaults("zh_TW.UTF-8", "Asia/Taipei", MirrorRegion.GLOBAL),
+    "ja": LanguageDefaults("ja_JP.UTF-8", "Asia/Tokyo", MirrorRegion.GLOBAL),
+    "ko": LanguageDefaults("ko_KR.UTF-8", "Asia/Seoul", MirrorRegion.GLOBAL),
+}
+
+
+def with_language(config: InstallConfig, tag: str) -> InstallConfig:
+    """The configuration as the chosen interface language leaves it."""
+    chosen = LANGUAGE_DEFAULTS.get(tag)
+    if chosen is None:
+        return config
+    locales = config.system.locales
+    if chosen.locale not in locales:
+        locales = (*locales, chosen.locale)
+    return replace(
+        config,
+        system=replace(
+            config.system, locale=chosen.locale, timezone=chosen.timezone, locales=locales
+        ),
+        portage=replace(
+            config.portage, mirrors=replace(config.portage.mirrors, region=chosen.mirror)
+        ),
+    )
 
 
 def language_screen(screen: Screen, context: Context) -> str:
