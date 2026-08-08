@@ -14,7 +14,7 @@ from typing import Final
 from ..errors import ValidationFailed
 from . import compat
 from .config import InitSystem, InstallConfig
-from .device import Existing, Filesystem, Mountpoint
+from .device import DeviceGraph, DeviceId, Existing, Filesystem, Mountpoint, Node
 from .size import Size
 
 _ROOT = PurePosixPath("/")
@@ -98,14 +98,37 @@ def _root_size_problems(config: InstallConfig) -> list[str]:
     root = graph.nodes.get(config.disk.root)
     if not isinstance(root, Mountpoint):
         return []
-    for node in (root, *(graph[parent] for parent in graph.ancestors_of(root.id))):
-        size = getattr(node, "size", None)
-        if isinstance(size, Size) and size < ROOT_MINIMUM:
-            return [
-                f"{node.id} carries / and is {size}, under the {ROOT_MINIMUM} a stage3, "
-                "a kernel and linux-firmware need"
-            ]
-    return []
+    node = _nearest_sized(graph, root.id)
+    if node is None:
+        return []
+    size = getattr(node, "size")
+    return [
+        f"{node.id} carries / and is {size}, under the {ROOT_MINIMUM} a stage3, "
+        "a kernel and linux-firmware need"
+    ] if size < ROOT_MINIMUM else []
+
+
+def _nearest_sized(graph: DeviceGraph, device: DeviceId) -> Node | None:
+    """The first node with a size, walking down from the mount point.
+
+    The nearest one, not every ancestor: a logical volume or an array is as
+    large as its members together, and testing each member refused a root that
+    is the right size for being built out of small ones.
+    """
+    seen: set[DeviceId] = set()
+    edge = [device]
+    while edge:
+        following: list[DeviceId] = []
+        for current in edge:
+            if current in seen or current not in graph.nodes:
+                continue
+            seen.add(current)
+            node = graph[current]
+            if isinstance(getattr(node, "size", None), Size):
+                return node
+            following.extend(node.inputs)
+        edge = following
+    return None
 
 
 def _profile_problems(config: InstallConfig) -> list[str]:
