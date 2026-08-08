@@ -145,7 +145,22 @@ ARCH = Medium(
     boot_cmdline=("archisobasedir=arch", "archisolabel=ARCH_202608"),
 )
 
+FEDORA = Medium(
+    name="fedora",
+    iso=ISO_CACHE / "fedora-workstation-live-43.iso",
+    volume_label="Fedora-WS-Live-43",
+    kernel_in_iso="/boot/x86_64/loader/linux",
+    initrd_in_iso="/boot/x86_64/loader/initrd",
+    root_prompt=r"liveuser@",
+    login_user="liveuser",
+    login_password=None,
+    become_root="sudo -i",
+    # Without this the live image starts GDM and the serial console never
+    # gets a shell.
+    extra_cmdline=("systemd.unit=multi-user.target",),
+)
+
 MEDIA = {
     medium.name: medium
-    for medium in (GIGOS, OFFICIAL_MINIMAL, ALPINE, DEBIAN, ARCH)
+    for medium in (GIGOS, OFFICIAL_MINIMAL, ALPINE, DEBIAN, ARCH, FEDORA)
 }
