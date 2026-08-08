@@ -263,6 +263,29 @@ class ConfigureRemoteUnlock(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
+class AcceptKernelVersion(Operation):
+    """A pinned version that is not stable on amd64.
+
+    Most kernel versions are `~amd64` for their first weeks, so pinning one is
+    normally pinning a testing version; without this the emerge stops on a
+    masked package after the disks are written.
+    """
+
+    stage: Stage = Stage.KERNEL
+    package: str
+    version: str
+
+    def describe(self) -> str:
+        return f"accept {self.package}-{self.version} as testing"
+
+    def apply(self, context: Context) -> None:
+        context.write(
+            PurePosixPath("/etc/portage/package.accept_keywords/kernel-version"),
+            f"={self.package}-{self.version} ~amd64\n",
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
 class RequestCjkKernel(Operation):
     """Keyword and USE for the patched dist-kernel.
 
@@ -398,6 +421,12 @@ def build(config: InstallConfig) -> list[Operation]:
             )
         )
     package = config.kernel.package or KERNEL_PACKAGES[config.kernel.source]
+    version = config.kernel.version
+    # `=atom-version` rather than a range: the operator chose one version off a
+    # list this machine read, so anything else is not what they picked.
+    atom = f"={package}-{version}" if version else package
+    if version:
+        operations.append(AcceptKernelVersion(package=package, version=version))
     if config.kernel.remote_unlock.enabled:
         unlock = config.kernel.remote_unlock
         operations += [
@@ -413,7 +442,7 @@ def build(config: InstallConfig) -> list[Operation]:
     operations.append(
         Emerge(
             stage=Stage.KERNEL,
-            packages=(package,),
+            packages=(atom,),
             summary="install the kernel",
             # A patched kernel is on no official binary host, and a sources
             # package has to be compiled in any case.

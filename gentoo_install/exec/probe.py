@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import re
 import shutil
 import time
 from dataclasses import dataclass, field
@@ -60,6 +61,24 @@ CPU_FLAGS: Final[dict[str, str]] = {
 }
 
 _NOT_A_REGION: Final[frozenset[str]] = frozenset({"right", "posix", "SystemV", "Etc"})
+
+
+def _stable_on_amd64(ebuild: Path) -> bool:
+    """`amd64` in KEYWORDS, not `~amd64`. A read that fails answers testing,
+    which is the safer of the two: it writes a keyword line that was already
+    unnecessary rather than omitting one that was needed."""
+    try:
+        for line in ebuild.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith("KEYWORDS="):
+                return "amd64" in line.split("=", 1)[1].strip('"\'').split()
+    except OSError:
+        return False
+    return False
+
+
+def _version_key(version: str) -> tuple[int, ...]:
+    """Numeric components, so 6.18.43 sorts above 6.6.148."""
+    return tuple(int(part) for part in re.findall(r"\d+", version))
 
 
 @dataclass
@@ -115,6 +134,28 @@ class Probe:
         if path is None:
             raise DeviceNotFound(f"{device} has no path yet; nothing has created it")
         return path
+
+    #: Where a repository keeps its ebuilds. Read rather than asked of portageq
+    #: because the installing system need not have portage at all.
+    REPOSITORIES: ClassVar[Path] = Path("/var/db/repos")
+
+    def kernel_versions(self, atom: str) -> tuple[tuple[str, bool], ...]:
+        """Versions of `atom` this machine can see, newest first.
+
+        Each carries whether it is stable on amd64, read from the ebuild's own
+        KEYWORDS: the list moves every week, so hardcoding it would be wrong by
+        the next sync. Empty when no repository is readable, which is the case
+        on a live medium that ships none.
+        """
+        category, _, name = atom.partition("/")
+        found: dict[str, bool] = {}
+        for repository in sorted(self.REPOSITORIES.glob("*")):
+            for ebuild in repository.glob(f"{category}/{name}/{name}-*.ebuild"):
+                version = ebuild.stem[len(name) + 1 :]
+                found[version] = _stable_on_amd64(ebuild)
+        return tuple(
+            (version, found[version]) for version in sorted(found, key=_version_key, reverse=True)
+        )
 
     def filesystem_type_of(self, path: str) -> str:
         """What is on the device now, as `blkid` names it. Empty for nothing.

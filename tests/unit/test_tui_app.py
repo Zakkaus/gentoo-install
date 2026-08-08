@@ -635,3 +635,46 @@ def test_the_reuse_layout_is_never_built_from_a_template() -> None:
 
     with pytest.raises(InvalidLayout, match="operator's table"):
         templates.build(templates.Choice(disk="/dev/vda", layout=templates.Layout.REUSE))
+
+
+def test_the_version_list_is_read_from_the_machine_and_not_held_here() -> None:
+    """It moves every week, so a table in the source would be wrong by the next
+    sync. A testing version is accepted for that atom alone."""
+    at = context()
+    at.kernel_versions = lambda atom: (("7.1.7", False), ("6.18.41", True))
+    screen = FakeScreen(keys=["KEY_DOWN", "\n"], lines=20, columns=100)
+    answer = screens.kernel_version_screen(screen, config(), at)
+    assert answer.unwrap().kernel.version == "7.1.7"
+    assert "~amd64" in screen.frames[0][3]
+    assert "amd64" in "\n".join(screen.frames[0])
+
+
+def test_a_medium_with_no_repository_asks_for_the_version_instead() -> None:
+    """The official minimal ISO ships none, and a list nobody can populate is
+    worse than a field."""
+    at = context()
+    at.kernel_versions = lambda atom: ()
+    screen = FakeScreen(keys=[*"6.18.43", "\n"], lines=20, columns=100)
+    answer = screens.kernel_version_screen(screen, config(), at)
+    assert answer.unwrap().kernel.version == "6.18.43"
+
+
+def test_pinning_a_version_pins_the_atom_and_opens_its_keyword() -> None:
+    """Most versions are ~amd64 for their first weeks, so pinning one is
+    normally pinning a testing version."""
+    from gentoo_install.plan import kernel as plan_kernel
+
+    pinned = replace(config(), kernel=replace(config().kernel, version="7.1.7"))
+    described = [one.describe() for one in plan_kernel.build(pinned)]
+    assert any("=sys-kernel/gentoo-kernel-7.1.7" in line for line in described)
+    assert any("accept sys-kernel/gentoo-kernel-7.1.7 as testing" in line for line in described)
+    loose = [one.describe() for one in plan_kernel.build(config())]
+    assert not any("as testing" in line for line in loose)
+
+
+def test_the_newest_row_pins_nothing() -> None:
+    at = context()
+    at.kernel_versions = lambda atom: (("7.1.7", False),)
+    pinned = replace(config(), kernel=replace(config().kernel, version="7.1.7"))
+    answer = screens.kernel_version_screen(FakeScreen(keys=["\n"], lines=20), pinned, at)
+    assert answer.unwrap().kernel.version == ""

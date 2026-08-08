@@ -250,6 +250,9 @@ class KernelConfig:
     #: Overrides the package the source implies, for one this installer does
     #: not name itself, such as a kernel from another overlay.
     package: str = ""
+    #: Pins the version. Empty leaves the choice to Portage, which takes the
+    #: newest the keywords allow.
+    version: str = ""
     #: Added to the ones the disk layout implies.
     dracut_modules: tuple[str, ...] = ()
     remote_unlock: RemoteUnlock = field(default_factory=RemoteUnlock)

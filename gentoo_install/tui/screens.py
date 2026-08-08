@@ -68,6 +68,7 @@ class Context:
             lambda disk: ((), "")
         ),
         fetch_text: Callable[[str], str] = lambda url: "",
+        kernel_versions: Callable[[str], tuple[tuple[str, bool], ...]] = lambda atom: (),
     ) -> None:
         self.translate = translate
         #: Selector and a human description, from `exec/probe.py`.
@@ -82,6 +83,10 @@ class Context:
         #: Reads a short document over the network, for a key someone pasted
         #: somewhere. Injected because this layer opens no connection.
         self.fetch_text = fetch_text
+        #: Versions of a kernel package this machine can see, newest first,
+        #: each with whether it is stable on amd64. Empty on a medium with no
+        #: repository, which is when the version is typed instead.
+        self.kernel_versions = kernel_versions
         #: Every zone the machine knows, from `exec/probe.py`.
         self.timezones = tuple(timezones)
         #: How this machine booted. The install defaults to the same, because
@@ -863,6 +868,54 @@ KERNELS: tuple[tuple[KernelSource, str], ...] = (
     (KernelSource.DIST_SOURCE, "built here"),
     (KernelSource.CJK, "built here, cjktty for CJK on the console, from gentoo-zh"),
 )
+
+
+def kernel_version_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """Which version, read from whatever repository this machine can see.
+
+    The list moves every week, so it is read rather than held here. A medium
+    that ships no repository has nothing to list, and the version is typed
+    instead; either way a testing version is accepted for that atom alone.
+    """
+    translate = context.translate
+    package = config.kernel.package or KERNEL_PACKAGES[config.kernel.source]
+    offered = context.kernel_versions(package)
+    if not offered:
+        typed = TextField(
+            title=f"{package}  {translate('version')}",
+            value=config.kernel.version,
+            placeholder=translate("empty for the newest the keywords allow"),
+            footer=footer(translate),
+        ).run(screen)
+        if not typed.chosen:
+            return Answer(typed.outcome)
+        return Answer(
+            Outcome.CHOSE, replace(config, kernel=replace(config.kernel, version=typed.unwrap().strip()))
+        )
+    items: list[Item[str]] = [
+        Item(
+            label=translate("newest"),
+            value="",
+            detail=translate("whatever the keywords allow at install time"),
+        )
+    ]
+    items += [
+        Item(
+            label=version,
+            value=version,
+            detail="amd64" if stable else translate("~amd64, accepted for this atom"),
+        )
+        for version, stable in offered
+    ]
+    menu: Menu[str] = Menu(title=package, items=items, footer=footer(translate))
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    return Answer(
+        Outcome.CHOSE, replace(config, kernel=replace(config.kernel, version=answer.unwrap()[0]))
+    )
 
 
 def keywords_screen(

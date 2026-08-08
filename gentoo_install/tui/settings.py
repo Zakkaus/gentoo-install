@@ -126,6 +126,10 @@ def _cpu_flags(config: InstallConfig, context: Context) -> str:
     return " ".join(config.portage.cpu_flags) or context.translate("what the profile sets")
 
 
+def _kernel_version(config: InstallConfig, context: Context) -> str:
+    return config.kernel.version or context.translate("newest")
+
+
 def _keywords(config: InstallConfig, context: Context) -> str:
     return "~amd64" if config.portage.keywords is Keywords.TESTING else "amd64"
 
@@ -293,6 +297,13 @@ COMPILER: Final[tuple[Setting, ...]] = (
     Setting("keywords", "Package keywords", _keywords, screens.keywords_screen),
 )
 
+#: The kernel and the version of it, which is read from a repository rather
+#: than held in a table: the list moves every week.
+KERNEL: Final[tuple[Setting, ...]] = (
+    Setting("source", "Package", _kernel, screens.kernel_screen),
+    Setting("version", "Version", _kernel_version, screens.kernel_version_screen),
+)
+
 #: Who reaches the machine over the network once it boots.
 SSH: Final[tuple[Setting, ...]] = (
     Setting("sshd", "SSH server", _sshd, screens.sshd_screen),
@@ -315,7 +326,7 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("compiler", "Compiler", _summary(COMPILER), nested("Compiler", COMPILER)),
     Setting("root", "Root password", _root, screens.root_password_screen, required=True),
     Setting("user", "User account", _user, screens.user_screen),
-    Setting("kernel", "Kernel", _kernel, screens.kernel_screen),
+    Setting("kernel", "Kernel", _summary(KERNEL), nested("Kernel", KERNEL)),
     Setting("bootloader", "Bootloader", _bootloader, screens.bootloader_screen),
     Setting("desktop", "Desktop", lambda c, x: c.packages.desktop or "none", screens.desktop_screen),
     Setting("graphics", "Graphics", _graphics, screens.graphics_screen),

@@ -236,11 +236,14 @@ def _overlay(raw: Mapping[str, Any], at: str) -> Overlay:
 
 
 def _kernel(raw: Mapping[str, Any], at: str) -> KernelConfig:
-    _reject_unknown(raw, at, {"source", "package", "dracut_modules", "remote_unlock"})
+    _reject_unknown(
+        raw, at, {"source", "package", "version", "dracut_modules", "remote_unlock"}
+    )
     default = KernelConfig()
     return KernelConfig(
         source=_enum(raw, "source", at, KernelSource, default.source),
         package=_str(raw, "package", at, default.package),
+        version=_str(raw, "version", at, default.version),
         dracut_modules=_strings(raw, "dracut_modules", at, default.dracut_modules),
         remote_unlock=_remote_unlock(
             _table(raw, "remote_unlock", at), f"{at}.remote_unlock"
