@@ -2164,8 +2164,11 @@ LANGUAGE_DEFAULTS: Final[dict[str, LanguageDefaults]] = {
     "en": LanguageDefaults("en_US.UTF-8", "UTC"),
     "zh-CN": LanguageDefaults("zh_CN.UTF-8", "Asia/Shanghai", True),
     "zh-TW": LanguageDefaults("zh_TW.UTF-8", "Asia/Taipei", True),
-    "ja": LanguageDefaults("ja_JP.UTF-8", "Asia/Tokyo"),
-    "ko": LanguageDefaults("ko_KR.UTF-8", "Asia/Seoul"),
+    # cjktty is what puts Chinese, Japanese and Korean on the console, so all
+    # four of those catalogs take the patched kernel and not only the two
+    # Chinese ones.
+    "ja": LanguageDefaults("ja_JP.UTF-8", "Asia/Tokyo", True),
+    "ko": LanguageDefaults("ko_KR.UTF-8", "Asia/Seoul", True),
 }
 
 

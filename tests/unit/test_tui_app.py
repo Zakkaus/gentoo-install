@@ -578,15 +578,20 @@ def test_a_chinese_interface_defaults_to_the_patched_kernel() -> None:
         validate(seeded)
 
 
-def test_other_languages_are_not_pulled_into_that_overlay() -> None:
-    """The patch covers their scripts too, but the overlay is a Chinese one and
-    defaulting into it is a decision they did not make."""
+def test_every_cjk_catalog_takes_the_patched_kernel_and_english_does_not() -> None:
+    """cjktty is what draws Chinese, Japanese and Korean on the console, so all
+    four of those catalogs need it; English has nothing to gain from the
+    overlay and is not defaulted into one."""
     from gentoo_install.model.config import KernelSource
 
-    for tag in ("en", "ja", "ko"):
+    for tag in ("zh-TW", "zh-CN", "ja", "ko"):
         seeded = screens.with_language(config(), tag)
-        assert seeded.kernel.source is not KernelSource.CJK_BIN, tag
-        assert seeded.portage.overlays == (), tag
+        assert seeded.kernel.source is KernelSource.CJK_BIN, tag
+        assert [one.name for one in seeded.portage.overlays] == ["gentoo-zh"], tag
+
+    english = screens.with_language(config(), "en")
+    assert english.kernel.source is not KernelSource.CJK_BIN
+    assert english.portage.overlays == ()
 
 
 def test_the_tree_row_names_the_address_the_chosen_method_uses() -> None:
