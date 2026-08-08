@@ -22,7 +22,7 @@ from .exec.probe import Probe
 from .exec.runner import Runner, write_file
 from .log import Journal
 from .tui import app, screens
-from .tui.curses_screen import CursesScreen
+from .tui.curses_screen import CursesScreen, too_small
 from .i18n import Catalog, tag_for
 from .model import templates
 from .model.config import DiskConfig, Firmware, InstallConfig, PortageConfig
@@ -277,6 +277,9 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
 
     def walk(window: object) -> app.Finished:
         display = CursesScreen(window)
+        cramped = too_small(display)
+        if cramped:
+            raise errors.PreflightFailed(cramped)
         # Asked before the menu: the environment says which language the
         # operator reads, not whether this terminal can draw it.
         if not arguments.lang:

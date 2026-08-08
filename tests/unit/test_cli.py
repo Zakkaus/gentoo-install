@@ -142,3 +142,22 @@ def test_an_unexpected_error_is_named_rather_than_traced(
     monkeypatch.setattr(cli, "load", boom)
     assert main(["--config", str(FIXTURES / "vm-binpkg.toml")]) == cli.EXIT_COMMAND
     assert "unexpected RuntimeError" in capsys.readouterr().err
+
+
+def test_a_terminal_too_small_for_the_interface_says_so_rather_than_drawing() -> None:
+    """`too_small` was written and never called, so a 60x20 console got a menu
+    with rows off the edge and no message saying why."""
+    from gentoo_install.tui.curses_screen import too_small
+    from gentoo_install.tui.widgets import MINIMUM_COLUMNS, MINIMUM_LINES
+
+    class Sized:
+        def __init__(self, lines: int, columns: int) -> None:
+            self.lines, self.columns = lines, columns
+
+        def size(self) -> tuple[int, int]:
+            return self.lines, self.columns
+
+    cramped = too_small(Sized(20, 60))  # type: ignore[arg-type]
+    assert "60x20" in cramped and f"{MINIMUM_COLUMNS}x{MINIMUM_LINES}" in cramped
+    assert too_small(Sized(MINIMUM_LINES, MINIMUM_COLUMNS)) == ""  # type: ignore[arg-type]
+    assert "too_small(display)" in Path("gentoo_install/cli.py").read_text()
