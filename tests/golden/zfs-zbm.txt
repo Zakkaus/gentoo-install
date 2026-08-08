@@ -77,6 +77,9 @@
   build ZFSBootMenu into /efi/EFI/zbm and boot zpcala/ROOT/gentoo/root from it
 
 [packages]
+  enable zfs-import-scan.service at boot
+  enable zfs-mount.service at boot
+  enable zfs.target at boot
   install the console group: emerge sys-apps/kbd app-editors/vim
 
 [finish]

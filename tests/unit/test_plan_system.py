@@ -625,3 +625,59 @@ def test_openrc_brings_up_the_storage_stack_it_has_a_service_for() -> None:
     assert "lvm" not in [
         one.service for one in system.build(systemd) if isinstance(one, system.EnableService)
     ]
+
+
+def test_a_pool_gets_the_services_that_import_it_and_mount_its_datasets() -> None:
+    """The initramfs brings up the root dataset and nothing else, so `/home` on
+    its own dataset came up empty on a system with no ZFS service enabled."""
+    from .layouts import zfs_root
+
+    on_zfs = replace(config(zfs_root()), system=SystemConfig(init=InitSystem.SYSTEMD))
+    units = [
+        one.service for one in system.build(on_zfs) if isinstance(one, system.EnableService)
+    ]
+    assert {"zfs-import-scan.service", "zfs-mount.service", "zfs.target"} <= set(units)
+
+    # `zfs.target.service` is not a unit, so a name with a suffix passes through.
+    recorder = Recorder()
+    system.EnableService(service="zfs.target", init=InitSystem.SYSTEMD).apply(recorder)
+    assert ("systemctl", "enable", "zfs.target") in recorder.in_target
+
+    openrc = replace(
+        config(zfs_root()),
+        system=SystemConfig(init=InitSystem.OPENRC),
+        portage=replace(config().portage, profile="default/linux/amd64/23.0"),
+    )
+    boot = [
+        one.service
+        for one in system.build(openrc)
+        if isinstance(one, system.EnableService) and one.runlevel == "boot"
+    ]
+    assert {"zfs-import", "zfs-mount"} <= set(boot)
+    # No pool, no services: a rule that fires on every layout is not a rule.
+    plain = [one.service for one in system.build(config()) if isinstance(one, system.EnableService)]
+    assert not any(name.startswith("zfs") for name in plain)
+
+
+def test_an_encrypted_pool_loads_its_key_between_import_and_mount() -> None:
+    """openrc's `zfs-mount` skips a dataset whose key is not loaded, and the
+    initramfs unlocked only the root one."""
+    from dataclasses import replace as _replace
+
+    from gentoo_install.model.device import ZfsPool
+
+    from .layouts import zfs_root
+
+    nodes = [
+        _replace(node, passphrase_file="/run/keys/pool") if isinstance(node, ZfsPool) else node
+        for node in zfs_root()
+    ]
+    encrypted = replace(
+        config(nodes),
+        system=SystemConfig(init=InitSystem.OPENRC),
+        portage=replace(config().portage, profile="default/linux/amd64/23.0"),
+    )
+    order = [
+        one.service for one in system.build(encrypted) if isinstance(one, system.EnableService)
+    ]
+    assert order.index("zfs-import") < order.index("zfs-load-key") < order.index("zfs-mount")

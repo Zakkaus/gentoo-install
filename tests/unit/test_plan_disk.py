@@ -285,3 +285,23 @@ def test_the_teardown_closes_each_device_before_the_one_it_sits_on() -> None:
         Luks(id=i("c"), backing=i("lv"), name="crypt"),
     ])
     assert [one[0] for one in _teardown(on_lvm)] == ["cryptsetup", "vgchange"]
+
+
+def test_only_the_boot_environment_is_left_unmounted_at_boot() -> None:
+    """`zfs mount -a` and `zfs-mount-generator` skip `canmount=noauto`, so a
+    `/home` dataset marked that way came up empty. The values follow the
+    dataset array of `calamares-settings-gig`'s `zfs.conf`."""
+    from pathlib import PurePosixPath
+
+    from gentoo_install.plan.disk import CreateDataset
+
+    holder = CreateDataset(dataset=i("ds"), name="rpool/ROOT", mountpoint=None)
+    root = CreateDataset(dataset=i("ds"), name="rpool/ROOT/gentoo", mountpoint=PurePosixPath("/"))
+    home = CreateDataset(
+        dataset=i("ds"), name="rpool/ROOT/gentoo/home", mountpoint=PurePosixPath("/home")
+    )
+    assert (holder.canmount(), root.canmount(), home.canmount()) == ("off", "noauto", "on")
+
+    recorder = Recorder()
+    home.apply(recorder)
+    assert "canmount=on" in recorder.only("zfs", "create")

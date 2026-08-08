@@ -70,5 +70,10 @@
   copy the installing system's hostid into the target so the pool imports
   build ZFSBootMenu into /efi/EFI/zbm and boot rpool/ROOT/gentoo from it
 
+[packages]
+  enable zfs-import-scan.service at boot
+  enable zfs-mount.service at boot
+  enable zfs.target at boot
+
 [finish]
   unmount everything under the target and export rpool

@@ -30,6 +30,7 @@ from ..model.device import (
     Swap,
     VolumeGroup,
     ZfsDataset,
+    ZfsPool,
 )
 from .operations import Context, Operation, Stage
 from .portage import Emerge
@@ -613,7 +614,10 @@ class EnableService(Operation):
 
     def apply(self, context: Context) -> None:
         if self.init is InitSystem.SYSTEMD:
-            context.run_in_target(["systemctl", "enable", f"{self.service}.service"])
+            # A name that already carries its unit suffix is passed through:
+            # `zfs.target.service` is not a unit and `systemctl enable` fails.
+            unit = self.service if "." in self.service else f"{self.service}.service"
+            context.run_in_target(["systemctl", "enable", unit])
         else:
             context.run_in_target(["rc-update", "add", self.service, self.runlevel])
 
@@ -736,6 +740,34 @@ def build(config: InstallConfig) -> list[Operation]:
             for kind, service in OPENRC_STORAGE
             if config.disk.graph.of_type(kind)
         ]
+    operations += _zfs_services(config)
+    return operations
+
+
+def _zfs_services(config: InstallConfig) -> list[Operation]:
+    """A pool imports and its datasets mount only if something does it.
+
+    The initramfs brings up the root dataset and nothing else, so `/home` on its
+    own dataset came up empty on a system that had never enabled a ZFS service.
+    """
+    pools = config.disk.graph.of_type(ZfsPool)
+    if not pools:
+        return []
+    init = config.system.init
+    operations: list[Operation] = [
+        EnableService(stage=STORAGE_SERVICE_STAGE, service=service, init=init, runlevel=runlevel)
+        for service, runlevel in ZFS_SERVICES[init]
+    ]
+    if init is InitSystem.OPENRC and any(pool.passphrase_file for pool in pools):
+        operations.insert(
+            1,
+            EnableService(
+                stage=STORAGE_SERVICE_STAGE,
+                service=ZFS_KEY_SERVICE,
+                init=init,
+                runlevel="boot",
+            ),
+        )
     return operations
 
 
@@ -881,6 +913,24 @@ OPENRC_STORAGE: Final[tuple[tuple[type[Node], str], ...]] = (
 #: `sys-fs/lvm2`, `sys-fs/mdadm` and `sys-fs/cryptsetup` are merged with the
 #: kernel stack, and `rc-update` refuses a service whose package is absent.
 STORAGE_SERVICE_STAGE: Final[Stage] = Stage.PACKAGES
+
+#: What each init needs enabled before a pool imports and its datasets mount.
+#: `-scan` rather than `-cache`: the install bakes no `zpool.cache`, and the
+#: cache service with no cache to read imports nothing. `zfs-mount.service` is
+#: `WantedBy=zfs.target`, so the target has to be enabled as well.
+ZFS_SERVICES: Final[dict[InitSystem, tuple[tuple[str, str], ...]]] = {
+    InitSystem.SYSTEMD: (
+        ("zfs-import-scan.service", "default"),
+        ("zfs-mount.service", "default"),
+        ("zfs.target", "default"),
+    ),
+    InitSystem.OPENRC: (("zfs-import", "boot"), ("zfs-mount", "boot")),
+}
+
+#: openrc unlocks a dataset the initramfs did not, between import and mount.
+#: systemd has no equivalent to enable: `zfs-mount-generator` writes a unit per
+#: pool at boot.
+ZFS_KEY_SERVICE: Final[str] = "zfs-load-key"
 
 
 def _logging(system: SystemConfig) -> list[Operation]:

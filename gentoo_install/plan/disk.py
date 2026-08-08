@@ -450,6 +450,15 @@ class CreateDataset(Operation):
         where = str(self.mountpoint) if self.mountpoint is not None else "none"
         return f"create dataset {self.name} as {self.dataset}, mountpoint {where}"
 
+    def canmount(self) -> str:
+        """`zfs mount -a` and `zfs-mount-generator` both skip `noauto`, which is
+        wanted for the boot environment and wrong for everything else: a
+        `/home` dataset marked `noauto` came up empty. The values are the ones
+        `calamares-settings-gig`'s `zfs.conf` gives its dataset array."""
+        if self.mountpoint is None:
+            return "off"
+        return "noauto" if self.mountpoint == PurePosixPath("/") else "on"
+
     def apply(self, context: Context) -> None:
         where = str(self.mountpoint) if self.mountpoint is not None else "none"
         # -p: a dataset three levels down needs its parents, and the layout
@@ -459,7 +468,7 @@ class CreateDataset(Operation):
                 "zfs", "create", "-p",
                 *DATASET_OPTIONS,
                 "-o", f"mountpoint={where}",
-                "-o", "canmount=noauto",
+                "-o", f"canmount={self.canmount()}",
                 self.name,
             ]
         )
