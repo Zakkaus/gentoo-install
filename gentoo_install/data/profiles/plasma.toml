@@ -1,4 +1,5 @@
-# KDE Plasma with SDDM. Wayland is the session Plasma 6 defaults to.
+# KDE Plasma, the session and nothing more. `plasma-full` adds the application
+# set; this is the choice between a desktop and a distribution's worth of it.
 packages = [
     "kde-plasma/plasma-meta",
     "x11-misc/sddm",

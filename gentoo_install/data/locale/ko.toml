@@ -68,3 +68,6 @@
 "Package groups" = "패키지 그룹"
 "Extra packages" = "추가 패키지"
 "on the disk now, will be erased" = "현재 디스크에 있으며 지워집니다"
+"the session only" = "세션만"
+"with the KDE application set" = "KDE 응용 프로그램 모음 포함"
+"with the GNOME application set" = "GNOME 응용 프로그램 모음 포함"

@@ -1,0 +1,5 @@
+# GNOME with the applications a GNOME release ships.
+packages = ["gnome-base/gnome", "x11-base/xorg-server"]
+services = ["gdm.service"]
+use = ["wayland", "gnome", "networkmanager", "gtk"]
+wayland = true

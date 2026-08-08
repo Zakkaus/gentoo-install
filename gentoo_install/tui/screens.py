@@ -88,6 +88,8 @@ class Context:
         #: `exec/probe.py` and are shown before anything is erased.
         self.existing: tuple[tuple[str, str, str], ...] = ()
         self.disk_size = ""
+        #: The catalog's tag, so the language screen can preselect it.
+        self.tag = translate.tag
         self._inspect = inspect_disk
         if self.choice.disk:
             self.inspect_disk(self.choice.disk)
@@ -383,6 +385,10 @@ DESKTOP_PROFILES: dict[str, str] = {
     "": "default/linux/amd64/23.0",
     "console": "default/linux/amd64/23.0",
     "plasma": "default/linux/amd64/23.0/desktop/plasma",
+    "plasma-full": "default/linux/amd64/23.0/desktop/plasma",
+    "gnome": "default/linux/amd64/23.0/desktop/gnome",
+    "gnome-full": "default/linux/amd64/23.0/desktop/gnome",
+    "xfce": "default/linux/amd64/23.0/desktop",
 }
 
 
@@ -390,7 +396,16 @@ def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> A
     """The desktop decides the profile as well as the packages, the same way
     the init system does."""
     translate = context.translate
-    items = [Item(label=name or "no desktop", value=name) for name in sorted(DESKTOP_PROFILES)]
+    detail = {
+        "plasma": translate("the session only"),
+        "plasma-full": translate("with the KDE application set"),
+        "gnome": translate("the session only"),
+        "gnome-full": translate("with the GNOME application set"),
+    }
+    items = [
+        Item(label=name or "no desktop", value=name, detail=detail.get(name, ""))
+        for name in sorted(DESKTOP_PROFILES)
+    ]
     menu: Menu[str] = Menu(
         title=translate("Desktop and applications"), items=items, footer=_footer(translate)
     )
@@ -1007,3 +1022,42 @@ def extra_packages_screen(
         return Answer(
             Outcome.CHOSE, replace(config, packages=replace(config.packages, extra=good))
         )
+
+
+#: What each interface language is called in itself, and what it needs to be
+#: readable. A console with no CJK font draws the last three as blank cells.
+INTERFACE_LANGUAGES: tuple[tuple[str, str, bool], ...] = (
+    ("en", "English", False),
+    ("zh-TW", "\u6b63\u9ad4\u4e2d\u6587", True),
+    ("zh-CN", "\u7b80\u4f53\u4e2d\u6587", True),
+    ("ja", "\u65e5\u672c\u8a9e", True),
+    ("ko", "\ud55c\uad6d\uc5b4", True),
+)
+
+
+def language_screen(screen: Screen, context: Context) -> str:
+    """Asked once, before the menu.
+
+    The environment says which language the operator reads; it does not say
+    whether this terminal can draw it. So the CJK entries carry the warning and
+    English stays first, reachable even when every other row is blank squares.
+    """
+    items = [
+        Item(
+            label=f"{name}  ({tag})",
+            value=tag,
+            detail="needs a cjktty kernel or a terminal with CJK fonts" if cjk else "",
+        )
+        for tag, name, cjk in INTERFACE_LANGUAGES
+    ]
+    start = next(
+        (index for index, (tag, _, _) in enumerate(INTERFACE_LANGUAGES) if tag == context.tag), 0
+    )
+    menu: Menu[str] = Menu(
+        title="Language / \u8a9e\u8a00 / \uc5b8\uc5b4",
+        items=items,
+        cursor=start,
+        footer="[enter] select",
+    )
+    answer = menu.run(screen)
+    return answer.unwrap()[0] if answer.chosen else context.tag

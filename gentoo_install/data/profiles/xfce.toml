@@ -1,0 +1,4 @@
+# Xfce with lightdm, which is what it is normally paired with.
+packages = ["xfce-base/xfce4-meta", "x11-misc/lightdm", "x11-base/xorg-server"]
+services = ["lightdm.service"]
+use = ["gtk", "networkmanager"]

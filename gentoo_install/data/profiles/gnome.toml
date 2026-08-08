@@ -1,0 +1,6 @@
+# GNOME without the full application set. `gnome-light` is the session and its
+# own tools; `gnome` adds the applications.
+packages = ["gnome-base/gnome-light", "x11-base/xorg-server"]
+services = ["gdm.service"]
+use = ["wayland", "gnome", "networkmanager", "gtk"]
+wayland = true

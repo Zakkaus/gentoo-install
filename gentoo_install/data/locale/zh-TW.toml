@@ -68,3 +68,6 @@
 "Package groups" = "套件組"
 "Extra packages" = "額外套件"
 "on the disk now, will be erased" = "磁碟上現有的，將被清除"
+"the session only" = "只有桌面本身"
+"with the KDE application set" = "含 KDE 應用程式集"
+"with the GNOME application set" = "含 GNOME 應用程式集"

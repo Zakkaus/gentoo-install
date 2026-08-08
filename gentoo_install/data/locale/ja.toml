@@ -68,3 +68,6 @@
 "Package groups" = "パッケージグループ"
 "Extra packages" = "追加のパッケージ"
 "on the disk now, will be erased" = "現在ディスクにあります。消去されます"
+"the session only" = "セッションのみ"
+"with the KDE application set" = "KDE アプリケーション一式を含む"
+"with the GNOME application set" = "GNOME アプリケーション一式を含む"
