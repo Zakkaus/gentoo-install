@@ -591,10 +591,6 @@ def build(config: InstallConfig) -> list[Operation]:
     ]
     if config.disk.graph.of_type(MdRaid):
         operations.append(WriteMdadmConf())
-    if system.authorized_keys:
-        operations.append(
-            WriteAuthorizedKeys(keys=system.authorized_keys, accounts=key_accounts(system))
-        )
     if system.zram is not None:
         operations += [
             Emerge(
@@ -621,6 +617,12 @@ def build(config: InstallConfig) -> list[Operation]:
                 password_hash=user.password_hash,
             )
         )
+    if system.authorized_keys:
+        # After the users: the file lands in a home directory and is chowned to
+        # an account, and both have to exist first.
+        operations.append(
+            WriteAuthorizedKeys(keys=system.authorized_keys, accounts=key_accounts(system))
+        )
     serial = _serial_console(config)
     if serial is not None and system.init is InitSystem.OPENRC:
         operations.append(EnableSerialGetty(port=serial[0], baud=serial[1]))
@@ -637,7 +639,7 @@ def build(config: InstallConfig) -> list[Operation]:
                 password_login=system.sshd_password_login,
                 root_login=system.sshd_root_login,
             ),
-            EnableService(service=_sshd_service(system.init), init=system.init),
+            EnableService(service=_sshd_service(), init=system.init),
         ]
     flags = _network_use(system)
     if flags:
@@ -786,7 +788,9 @@ def key_accounts(system: SystemConfig) -> tuple[tuple[str, str], ...]:
     return tuple(accounts)
 
 
-def _sshd_service(init: InitSystem) -> str:
+def _sshd_service() -> str:
+    """Both inits call it sshd. A parameter that changes nothing reads as
+    though one of them might."""
     return "sshd"
 
 
