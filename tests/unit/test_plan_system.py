@@ -272,7 +272,11 @@ def test_an_array_records_itself_where_the_initramfs_reads_it() -> None:
     ]
     assert len(written) == 1
     written[0].apply(recorder)
-    assert recorder.files[PurePosixPath("/etc/mdadm.conf")].startswith("ARRAY /dev/md/root")
+    conf = recorder.files[PurePosixPath("/etc/mdadm.conf")]
+    # Without an address `mdadm --monitor` exits with an error, and a healthy
+    # array then has a failed unit on every boot.
+    assert conf.startswith("MAILADDR root")
+    assert "ARRAY /dev/md/root" in conf
 
     assert not any(
         isinstance(operation, system.WriteMdadmConf) for operation in system.build(config())

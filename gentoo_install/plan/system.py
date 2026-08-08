@@ -375,7 +375,9 @@ class WriteMdadmConf(Operation):
         scanned = context.run(["mdadm", "--detail", "--scan"]).strip()
         if not scanned:
             raise InvalidLayout("mdadm reports no array to record in /etc/mdadm.conf")
-        context.write(PurePosixPath("/etc/mdadm.conf"), scanned + "\n")
+        # MAILADDR as well: `mdadm --monitor` exits with an error when it has
+        # nobody to alert, leaving a healthy array with a failed unit.
+        context.write(PurePosixPath("/etc/mdadm.conf"), f"MAILADDR root\n{scanned}\n")
 
 
 @dataclass(frozen=True, kw_only=True)
