@@ -61,4 +61,5 @@
   install GRUB for bios on the boot disk
 
 [finish]
+  delete the downloaded stage3 from /var/cache/gentoo-install
   unmount everything under the target

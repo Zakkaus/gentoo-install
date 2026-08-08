@@ -62,4 +62,5 @@
   install systemd-boot on the esp at /boot
 
 [finish]
+  delete the downloaded stage3 from /var/cache/gentoo-install
   unmount everything under the target

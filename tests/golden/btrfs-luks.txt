@@ -95,4 +95,5 @@
   configure fcitx with rime and luna_pinyin terra_pinyin bopomofo pinyin_simp for skel, zakk
 
 [finish]
+  delete the downloaded stage3 from /var/cache/gentoo-install
   unmount everything under the target

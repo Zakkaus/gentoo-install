@@ -54,6 +54,10 @@ TYPE_CODES: Final[dict[PartitionRole, str]] = {
 }
 
 #: `mkfs` for each filesystem, with the flags that make the result predictable.
+#: Where the stage3 is downloaded, relative to the target root. Named here
+#: because `exec/apply.py` writes it and `DiscardStage3` deletes it.
+STAGE3_CACHE: Final[str] = "var/cache/gentoo-install"
+
 MKFS: Final[dict[FilesystemType, tuple[str, ...]]] = {
     FilesystemType.EXT2: ("mkfs.ext2", "-F"),
     FilesystemType.EXT3: ("mkfs.ext3", "-F"),
@@ -512,6 +516,21 @@ class MountZfsDataset(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
+class DiscardStage3(Operation):
+    """The archive is downloaded onto the target because the work directory is
+    a tmpfs, so the installed system otherwise keeps a multi-gigabyte tarball,
+    its DIGESTS and the marker that says it was verified."""
+
+    stage: Stage = Stage.FINISH
+
+    def describe(self) -> str:
+        return f"delete the downloaded stage3 from /{STAGE3_CACHE}"
+
+    def apply(self, context: Context) -> None:
+        context.run_in_target(["rm", "--recursive", "--force", f"/{STAGE3_CACHE}"])
+
+
+@dataclass(frozen=True, kw_only=True)
 class UnmountTarget(Operation):
     """Leaving the target mounted keeps `/dev` and `/proc` bound into it, and
     the installing system then hangs at shutdown waiting for them."""
@@ -530,7 +549,11 @@ class UnmountTarget(Operation):
 
 
 def finish(config: InstallConfig) -> list[Operation]:
-    return [UnmountTarget(pools=tuple(pool.name for pool in config.disk.graph.of_type(ZfsPool)))]
+    return [
+        # Before the unmount, which is the last chance to write to the target.
+        DiscardStage3(),
+        UnmountTarget(pools=tuple(pool.name for pool in config.disk.graph.of_type(ZfsPool))),
+    ]
 
 
 def build(config: InstallConfig) -> list[Operation]:

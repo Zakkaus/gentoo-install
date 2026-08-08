@@ -305,3 +305,22 @@ def test_only_the_boot_environment_is_left_unmounted_at_boot() -> None:
     recorder = Recorder()
     home.apply(recorder)
     assert "canmount=on" in recorder.only("zfs", "create")
+
+
+def test_the_downloaded_stage3_does_not_ship_with_the_installed_system() -> None:
+    """The archive lands on the target because the work directory is a tmpfs,
+    so without this the machine keeps a multi-gigabyte tarball, its DIGESTS and
+    the marker saying it was verified."""
+    from gentoo_install.plan.disk import STAGE3_CACHE, DiscardStage3
+    from gentoo_install.plan.operations import Stage
+
+    operations = disk.finish(config())
+    discard = next(one for one in operations if isinstance(one, DiscardStage3))
+    assert discard.stage is Stage.FINISH
+    # Before the unmount: nothing can be written to the target after it.
+    assert operations.index(discard) < operations.index(
+        next(one for one in operations if isinstance(one, disk.UnmountTarget))
+    )
+    recorder = Recorder()
+    discard.apply(recorder)
+    assert recorder.only("rm")[-1] == f"/{STAGE3_CACHE}"

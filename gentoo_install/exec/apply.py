@@ -26,6 +26,7 @@ from ..model.device import (
     ZfsPool,
 )
 from ..log import Journal
+from ..plan.disk import STAGE3_CACHE
 from ..plan.operations import Operation
 from . import fetch
 from .probe import Probe
@@ -191,8 +192,9 @@ class Machine:
         """Downloaded onto the target, not into the work directory: that is a
         tmpfs on an install medium, and a stage3 there costs the memory the
         emerge is about to need."""
-        cache = self.mountpoint / "var/cache/gentoo-install"
-        return PurePosixPath(fetch.stage3(mirror, variant, fingerprint, cache, self.runner))
+        return PurePosixPath(
+            fetch.stage3(mirror, variant, fingerprint, self.mountpoint / STAGE3_CACHE, self.runner)
+        )
 
 
 def completed(journal: Journal | None) -> frozenset[tuple[int, str]]:

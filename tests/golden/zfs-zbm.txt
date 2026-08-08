@@ -83,4 +83,5 @@
   install the console group: emerge sys-apps/kbd app-editors/vim
 
 [finish]
+  delete the downloaded stage3 from /var/cache/gentoo-install
   unmount everything under the target and export zpcala
