@@ -649,9 +649,7 @@ def _mirror_fields(config: InstallConfig, translate: Catalog) -> list[Item[str]]
             # Unset until it is picked, the same as the row that opens this
             # screen: filling the blank in with the region's first site made
             # the two disagree about whether the question was answered.
-            detail=translate(next(one.name for one in mirrors.gentoo_sites(region) if one.key == site))
-            if chosen.site
-            else translate("not set"),
+            detail=_site_name(region, site, translate) if chosen.site else translate("not set"),
         ),
         Item(
             label=translate("Gentoo distfiles"),
@@ -716,6 +714,16 @@ def _mirror_fields(config: InstallConfig, translate: Catalog) -> list[Item[str]]
     ]
     rows.append(Item(label=translate("Done"), value=_DONE))
     return rows
+
+
+def _site_name(region: MirrorRegion, site: str, translate: Catalog) -> str:
+    """The chosen site's name, or `not set` when the region does not carry it.
+
+    The two are set together everywhere, and a bare `next` over a list that
+    does not hold it raised `StopIteration` out of the menu instead.
+    """
+    named = next((one.name for one in mirrors.gentoo_sites(region) if one.key == site), "")
+    return translate(named) if named else translate("not set")
 
 
 def _tree_source(
@@ -2163,7 +2171,14 @@ def with_language(config: InstallConfig, tag: str) -> InstallConfig:
             console_cjk=chosen.cjk_console,
         ),
         portage=replace(
-            config.portage, mirrors=replace(config.portage.mirrors, region=chosen.mirror)
+            config.portage,
+            mirrors=replace(
+                config.portage.mirrors,
+                region=chosen.mirror,
+                # With the region: a site of the region it left is not in the
+                # new list, and every lookup by key then finds nothing.
+                site=mirrors.gentoo_sites(chosen.mirror)[0].key,
+            ),
         ),
     )
     if not chosen.cjk_console:

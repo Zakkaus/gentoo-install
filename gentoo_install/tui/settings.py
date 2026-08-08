@@ -135,16 +135,15 @@ def _summary(rows: tuple[Setting, ...]) -> Callable[[InstallConfig, Context], st
     for all six and truncating them there says less than it costs."""
 
     def shown(config: InstallConfig, context: Context) -> str:
+        said = [row.value(config, context) for row in rows]
         room = max(20, context.columns - _MARGIN)
-        values = [row.value(config, context) for row in rows]
         taken: list[str] = []
-        for value in values:
-            candidate = ", ".join([*taken, value])
-            rest = len(values) - len(taken) - 1
-            if taken and width(candidate) + (4 if rest else 0) > room:
+        for value in said:
+            rest = len(said) - len(taken) - 1
+            if taken and width(", ".join([*taken, value])) + (4 if rest else 0) > room:
                 break
             taken.append(value)
-        left = len(values) - len(taken)
+        left = len(said) - len(taken)
         joined = ", ".join(taken)
         return f"{joined} +{left}" if left else joined
 

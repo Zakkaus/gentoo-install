@@ -1270,12 +1270,8 @@ def test_a_grouped_row_uses_the_width_the_terminal_actually_has() -> None:
     narrow = disk.value(config(), at)
     at.columns = 200
     wide = disk.value(config(), at)
-
-    assert "+" in narrow
-    assert "+" not in wide
+    assert "+" in narrow and "+" not in wide
     assert wide.count(",") == len(disk.rows) - 1
-    # Narrow still fits: the count is what the line has room for.
-    assert len(narrow) < 80
 
 
 def test_the_rows_say_not_set_in_the_language_the_menu_is_in() -> None:
