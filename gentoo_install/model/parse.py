@@ -31,6 +31,7 @@ from .config import (
     MirrorConfig,
     GentooZhMirror,
     MirrorRegion,
+    FirstBoot,
     Networking,
     Overlay,
     RemoteUnlock,
@@ -117,7 +118,7 @@ def _system(raw: Mapping[str, Any], at: str) -> SystemConfig:
             "console_font", "init", "logger", "cron", "sshd", "sshd_password_login",
             "users",
             "root_password_hash",
-            "zram", "hardware_clock_utc", "networking", "keymap_initramfs",
+            "zram", "hardware_clock_utc", "networking", "keymap_initramfs", "first_boot",
             "interface", "addresses", "gateways", "dns", "authorized_keys",
             "sshd_root_login",
         },
@@ -147,6 +148,7 @@ def _system(raw: Mapping[str, Any], at: str) -> SystemConfig:
         ),
         sshd_root_login=_bool(raw, "sshd_root_login", at, default.sshd_root_login),
         networking=_enum(raw, "networking", at, Networking, default.networking),
+        first_boot=_first_boot(_table(raw, "first_boot", at), f"{at}.first_boot"),
         zram=_size(raw, "zram", at),
         hardware_clock_utc=_bool(raw, "hardware_clock_utc", at, default.hardware_clock_utc),
         users=tuple(_user(entry, f"{at}.users[{n}]") for n, entry in enumerate(_tables(raw, "users", at))),
@@ -498,6 +500,15 @@ def _strings(raw: Mapping[str, Any], key: str, at: str, default: tuple[str, ...]
     if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
         raise ConfigError(f"{_at(key, at)} must be a list of strings")
     return tuple(value)
+
+
+def _first_boot(raw: Mapping[str, Any], at: str) -> FirstBoot:
+    _reject_unknown(raw, at, {"commands", "url"})
+    default = FirstBoot()
+    url = _str(raw, "url", at, default.url).strip()
+    if url and not url.startswith(("http://", "https://")):
+        raise ConfigError(f"{_at('url', at)} must be an http or https address")
+    return FirstBoot(commands=_strings(raw, "commands", at, default.commands), url=url)
 
 
 def _size(raw: Mapping[str, Any], key: str, at: str) -> Size | None:

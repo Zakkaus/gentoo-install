@@ -133,6 +133,26 @@ class User:
 
 
 @dataclass(frozen=True)
+class FirstBoot:
+    """What the installed system runs once, the first time it boots.
+
+    The script behind `url` is fetched while the installer still has a network
+    and written into the target, not fetched at first boot: a download that
+    fails then leaves a machine half-configured with nobody watching, and the
+    operator cannot see beforehand what is about to run as root.
+    """
+
+    #: Shell lines, run in order after the fetched script.
+    commands: tuple[str, ...] = ()
+    #: Where to fetch a script from. Empty for none.
+    url: str = ""
+
+    @property
+    def wanted(self) -> bool:
+        return bool(self.commands or self.url)
+
+
+@dataclass(frozen=True)
 class SystemConfig:
     hostname: str = "gentoo"
     timezone: str = "Asia/Shanghai"
@@ -183,6 +203,7 @@ class SystemConfig:
     #: exists, so refusing root here costs a headless machine nothing.
     sshd_root_login: bool = False
     networking: Networking = Networking.BUILTIN
+    first_boot: FirstBoot = field(default_factory=FirstBoot)
 
 
 @dataclass(frozen=True)

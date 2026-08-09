@@ -862,3 +862,58 @@ def test_nothing_is_mounted_on_var_tmp_when_the_row_is_off() -> None:
     plain = config(ext4_on_gpt())
     written = apply_all(plain, generated=generated(plain)).files[PurePosixPath("/etc/fstab")]
     assert "tmpfs" not in written
+
+
+def test_the_first_boot_script_is_fetched_while_the_installer_still_can() -> None:
+    """A download that fails at first boot leaves a machine half-configured
+    with nobody watching, and the operator cannot read beforehand what is
+    about to run as root."""
+    from gentoo_install.model.config import FirstBoot
+    from gentoo_install.plan.system import FIRST_BOOT_SCRIPT, FIRST_BOOT_UNIT
+
+    wanted = with_system(
+        first_boot=FirstBoot(commands=("emerge --sync",), url="https://example.com/setup.sh")
+    )
+    recorder = Recorder()
+    recorder.replies["locale"] = generated(wanted)
+    recorder.pages["https://example.com/setup.sh"] = "echo from the script\n"
+    for operation in system.build(wanted):
+        operation.apply(recorder)
+    written = recorder.files[FIRST_BOOT_SCRIPT]
+    assert ("fetch-text", "https://example.com/setup.sh") in recorder.commands
+    assert "echo from the script" in written
+    assert "emerge --sync" in written
+    # `set -e`, or a step that failed is indistinguishable from one that never
+    # ran; the removal is last, or a failure leaves nothing to look at.
+    assert written.splitlines()[1] == "set -e"
+    assert written.rstrip().endswith(f"rm -f {FIRST_BOOT_SCRIPT}")
+    assert recorder.modes[FIRST_BOOT_SCRIPT] == 0o700
+    assert "WantedBy=multi-user.target" in recorder.files[FIRST_BOOT_UNIT]
+
+
+def test_openrc_starts_it_through_local_d() -> None:
+    """systemd gets a unit; openrc runs every `/etc/local.d/*.start` through
+    the `local` service, which is enabled rather than assumed."""
+    from gentoo_install.model.config import FirstBoot, InitSystem
+    from gentoo_install.plan.system import FIRST_BOOT_OPENRC, EnableService
+
+    wanted = with_system(init=InitSystem.OPENRC, first_boot=FirstBoot(commands=("true",)))
+    built = system.build(wanted)
+    recorder = Recorder()
+    recorder.replies["locale"] = generated(wanted)
+    for operation in built:
+        operation.apply(recorder)
+    assert FIRST_BOOT_OPENRC in recorder.files
+    assert recorder.modes[FIRST_BOOT_OPENRC] == 0o755
+    assert any(
+        isinstance(one, EnableService) and one.service == "local" for one in built
+    )
+
+
+def test_nothing_is_written_when_no_first_boot_work_was_asked_for() -> None:
+    """A unit that runs an empty script is one more thing to explain."""
+    from gentoo_install.plan.system import FIRST_BOOT_SCRIPT
+
+    plain = config()
+    recorder = apply_all(plain, generated=generated(plain))
+    assert FIRST_BOOT_SCRIPT not in recorder.files

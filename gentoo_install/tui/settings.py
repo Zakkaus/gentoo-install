@@ -249,6 +249,18 @@ def _build_in_ram(config: InstallConfig, context: Context) -> str:
     return f"tmpfs {size.single_letter()}" if size is not None else context.translate("off")
 
 
+def _first_boot(config: InstallConfig, context: Context) -> str:
+    wanted = config.system.first_boot
+    if not wanted.wanted:
+        return context.translate("none")
+    parts = []
+    if wanted.url:
+        parts.append(wanted.url)
+    if wanted.commands:
+        parts.append(f"{len(wanted.commands)} {context.translate('commands')}")
+    return ", ".join(parts)
+
+
 def _cmdline(config: InstallConfig, context: Context) -> str:
     """What was typed, and how many parameters the layout adds to it. The count
     is the point: it says the line is longer than this row without listing a
@@ -609,6 +621,7 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("mirror", "Mirrors", _mirror, screens.mirror_screen, required=True),
     Setting("storage", "Disk", _summary(DISK), nested("Disk", DISK), required=True, rows=DISK),
     Setting("hostname", "Hostname", lambda c, x: c.system.hostname, screens.system_screen),
+    Setting("firstboot", "Run once at first boot", _first_boot, screens.first_boot_screen),
     Setting("system", "Init system", _summary(INIT), nested("Init system", INIT), rows=INIT),
     Setting("profile", "Profile", lambda c, x: c.portage.profile, screens._profile_screen),
     Setting(

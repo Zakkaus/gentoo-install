@@ -130,6 +130,14 @@ class Context(Protocol):
     def degraded(self, what: str) -> bool:
         """Whether `what` was given up on earlier in this run."""
 
+    def fetch_text(self, url: str) -> str:
+        """Read a URL while the installer still has a network.
+
+        A first-boot script is fetched here rather than by the machine that is
+        about to run it: a download that fails at first boot leaves it
+        half-configured with nobody watching.
+        """
+
     def fetch_stage3(self, mirror: str, variant: str, fingerprint: str) -> PurePosixPath:
         """Download the newest stage3 of `variant`, check its signature against
         `fingerprint` and its digest, and return where it was written."""

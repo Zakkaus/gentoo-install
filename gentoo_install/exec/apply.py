@@ -199,6 +199,10 @@ class Machine:
         self.runner.log(f"mirrors, fastest first: {', '.join(ranked)}")
         return ranked
 
+    def fetch_text(self, url: str) -> str:
+        self.runner.log(f"fetching {url}")
+        return fetch.text(url)
+
     def fetch_stage3(self, mirror: str, variant: str, fingerprint: str) -> PurePosixPath:
         """Downloaded onto the target, not into the work directory: that is a
         tmpfs on an install medium, and a stage3 there costs the memory the

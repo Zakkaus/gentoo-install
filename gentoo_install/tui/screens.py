@@ -17,6 +17,7 @@ from typing import Callable, Final, Sequence, TypeVar
 from ..i18n import Catalog, truncate
 from ..model import compat
 from ..model.config import (
+    FirstBoot,
     ConsoleFontSize,
     Binhost,
     BinhostChannel,
@@ -1902,6 +1903,55 @@ def build_in_ram_screen(
         Outcome.CHOSE,
         replace(config, portage=replace(config.portage, build_in_ram=answer.unwrap()[0])),
     )
+
+
+def first_boot_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """A script and some commands, run once the first time the system boots.
+
+    The script is fetched during the install, not at first boot: a download
+    that fails then leaves a machine half-configured with nobody watching, and
+    the operator cannot read beforehand what is about to run as root.
+    """
+    translate = context.translate
+    wanted = config.system.first_boot
+    fields = [
+        Field(
+            label=translate("Script address"),
+            value=wanted.url,
+            placeholder=translate("https://example.com/setup.sh, or empty for none"),
+        ),
+        Field(
+            label=translate("Commands"),
+            value=" ; ".join(wanted.commands),
+            placeholder=translate("separated by ; and run in order"),
+        ),
+    ]
+    message = ""
+    while True:
+        answered = Form(
+            title=translate("Run once at first boot"),
+            fields=fields,
+            footer=footer(translate),
+            done=translate("Done"),
+            message=message,
+        ).run(screen)
+        if not answered.chosen:
+            return Answer(answered.outcome)
+        url, typed = (one.strip() for one in answered.unwrap())
+        fields[0].value, fields[1].value = url, typed
+        if url and not url.startswith(("http://", "https://")):
+            message = translate("An address starts with http:// or https://")
+            continue
+        commands = tuple(one.strip() for one in typed.split(";") if one.strip())
+        return Answer(
+            Outcome.CHOSE,
+            replace(
+                config,
+                system=replace(config.system, first_boot=FirstBoot(commands=commands, url=url)),
+            ),
+        )
 
 
 def sshd_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:

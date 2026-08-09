@@ -6,7 +6,7 @@ argv it would run is how the flags get asserted without a disk.
 
 from __future__ import annotations
 
-from gentoo_install.errors import CommandFailed
+from gentoo_install.errors import CommandFailed, DownloadFailed
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from typing import Sequence
@@ -105,6 +105,16 @@ class Recorder:
     def rank_mirrors(self, candidates: tuple[str, ...]) -> tuple[str, ...]:
         self.commands.append(("rank-mirrors", *candidates))
         return tuple(reversed(candidates))
+
+    #: What `fetch_text` answers, by URL. A URL nobody staged raises, so a
+    #: test cannot pass by accident on an empty script.
+    pages: dict[str, str] = field(default_factory=dict)
+
+    def fetch_text(self, url: str) -> str:
+        self.commands.append(("fetch-text", url))
+        if url not in self.pages:
+            raise DownloadFailed(f"nothing staged for {url}")
+        return self.pages[url]
 
     def fetch_stage3(self, mirror: str, variant: str, fingerprint: str) -> PurePosixPath:
         self.commands.append(("fetch-stage3", mirror, variant, fingerprint))

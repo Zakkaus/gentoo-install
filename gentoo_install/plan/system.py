@@ -684,6 +684,93 @@ class SetHardwareClock(Operation):
         )
 
 
+#: Where the first-boot script goes. Under `/usr/local`, which is the tree the
+#: distribution never writes to, so nothing Portage installs collides with it.
+FIRST_BOOT_SCRIPT: Final[PurePosixPath] = PurePosixPath(
+    "/usr/local/sbin/gentoo-install-firstboot"
+)
+
+#: openrc runs every `/etc/local.d/*.start` through the `local` service, which
+#: is in the default runlevel already. systemd has no equivalent, so it gets a
+#: unit of its own.
+FIRST_BOOT_OPENRC: Final[PurePosixPath] = PurePosixPath(
+    "/etc/local.d/gentoo-install-firstboot.start"
+)
+FIRST_BOOT_UNIT: Final[PurePosixPath] = PurePosixPath(
+    "/etc/systemd/system/gentoo-install-firstboot.service"
+)
+
+
+@dataclass(frozen=True, kw_only=True)
+class WriteFirstBoot(Operation):
+    """The script the installed system runs once, and what starts it.
+
+    The remote part is fetched here, while the installer still has a network
+    and the operator is still watching. Fetching at first boot instead puts a
+    download nobody sees between a machine and being configured.
+
+    Ordered before the bootloader so a failed download stops the run while the
+    target is still mounted and the message still reaches the operator.
+    """
+
+    stage: Stage = Stage.SYSTEM
+    commands: tuple[str, ...]
+    url: str
+    init: InitSystem
+
+    def describe(self) -> str:
+        parts = []
+        if self.url:
+            parts.append(f"a script from {self.url}")
+        if self.commands:
+            parts.append(f"{len(self.commands)} commands")
+        return f"run {' and '.join(parts)} once, the first time the system boots"
+
+    def apply(self, context: Context) -> None:
+        fetched = context.fetch_text(self.url) if self.url else ""
+        # `set -e` and a log: this runs with nobody attached, and a step that
+        # failed silently is indistinguishable from one that never ran.
+        lines = [
+            "#!/bin/sh",
+            "set -e",
+            "exec >>/var/log/gentoo-install-firstboot.log 2>&1",
+            "echo \"first boot: $(date -Is)\"",
+        ]
+        if fetched:
+            lines += ["", fetched.rstrip("\n"), ""]
+        lines += list(self.commands)
+        # Last, and only on success: a script that removes itself before the
+        # commands run leaves no way to see what a failure was.
+        lines.append(f"rm -f {self._starter()}")
+        context.write(FIRST_BOOT_SCRIPT, "\n".join(lines) + "\n", mode=0o700)
+        if self.init is InitSystem.SYSTEMD:
+            context.write(
+                FIRST_BOOT_UNIT,
+                "[Unit]\n"
+                "Description=gentoo-install first boot\n"
+                f"ConditionPathExists={FIRST_BOOT_SCRIPT}\n"
+                "After=network-online.target\n"
+                "Wants=network-online.target\n"
+                "\n[Service]\n"
+                "Type=oneshot\n"
+                f"ExecStart={FIRST_BOOT_SCRIPT}\n"
+                "\n[Install]\n"
+                "WantedBy=multi-user.target\n",
+            )
+        else:
+            context.write(
+                FIRST_BOOT_OPENRC,
+                f"#!/bin/sh\n[ -x {FIRST_BOOT_SCRIPT} ] && {FIRST_BOOT_SCRIPT}\n",
+                mode=0o755,
+            )
+
+    def _starter(self) -> PurePosixPath:
+        """What the script deletes so it does not run again. The starter, not
+        itself: the log beside it names what ran, and a second boot finding no
+        starter is how `ConditionPathExists` and the openrc guard both stop."""
+        return FIRST_BOOT_SCRIPT
+
+
 @dataclass(frozen=True, kw_only=True)
 class EnableService(Operation):
     """The service by name, without a suffix: openrc has no `.service`, and a
@@ -723,6 +810,23 @@ def build(config: InstallConfig) -> list[Operation]:
         WriteFstab(entries=fstab_entries(config)),
         SetHardwareClock(utc=system.hardware_clock_utc, init=system.init),
     ]
+    if system.first_boot.wanted:
+        operations.append(
+            WriteFirstBoot(
+                commands=system.first_boot.commands,
+                url=system.first_boot.url,
+                init=system.init,
+            )
+        )
+        if system.init is InitSystem.SYSTEMD:
+            operations.append(
+                EnableService(service="gentoo-install-firstboot", init=system.init)
+            )
+        else:
+            # `local` runs every /etc/local.d/*.start. It is in the default
+            # runlevel on a stage3 already; adding it again is what makes that
+            # true rather than assumed.
+            operations.append(EnableService(service="local", init=system.init))
     if config.disk.graph.of_type(MdRaid):
         operations.append(WriteMdadmConf())
     if system.zram is not None:
