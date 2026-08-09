@@ -41,6 +41,11 @@ class Style(Enum):
     UNTOUCHED = "untouched"
 
 
+#: One character per style, drawn in the left margin. ASCII: a console with no
+#: CJK font and no box-drawing set still shows it.
+MARKS: Final[dict[Style, str]] = {Style.REQUIRED: "*", Style.UNTOUCHED: "~"}
+
+
 class Outcome(Enum):
     """Three states, not two: going back is not the same as cancelling, and
     neither is the same as choosing."""
@@ -190,6 +195,12 @@ class Menu(Generic[V]):
                 # After the value, not instead of it: a row that cannot be
                 # chosen still has to show what it settled on.
                 text = f"{text} - {item.disabled_because}"
+            # The marker is the signal and the colour repeats it: a serial
+            # console with no colour has to show the same thing, and a legend
+            # naming a mark nobody draws describes an interface that does not
+            # exist. In the left margin, so the labels stay aligned.
+            if item.style is not Style.PLAIN:
+                screen.write(row + 2, 0, MARKS[item.style], style=item.style)
             screen.write(
                 row + 2,
                 2,

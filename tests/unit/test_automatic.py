@@ -538,3 +538,23 @@ def test_the_erase_row_is_not_reported_as_a_field_to_fill_in() -> None:
     )
     said = app._blocked(ready, at)
     assert "Confirm erasing the drive: not confirmed" == said, said
+
+
+def test_the_legend_names_marks_the_rows_actually_carry() -> None:
+    """The footer said `* required` over a menu that drew no `*`, so it
+    described an interface that did not exist. The mark is the signal and the
+    colour repeats it: a serial console with no colour shows the same thing."""
+    from gentoo_install.tui import app
+    from gentoo_install.tui.widgets import MARKS, Style
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    at = context()
+    blank = replace(config(ext4_on_gpt()), system=replace(config().system, root_password_hash=""))
+    # `q` opens the leaving menu, and its first row is Back to the menu.
+    drawn = FakeScreen(keys=["q", "KEY_DOWN", "\n"], lines=40, columns=120)
+    app.run(drawn, blank, at)
+    page = "\n".join(drawn.frames[0])
+    for style, mark in MARKS.items():
+        assert f"\n{mark} " in page, f"the legend names {mark} and no row carries it"
+    assert MARKS[Style.REQUIRED] in page.split("\n")[-1]
