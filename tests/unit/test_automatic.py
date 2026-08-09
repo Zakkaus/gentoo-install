@@ -558,3 +558,65 @@ def test_the_legend_names_marks_the_rows_actually_carry() -> None:
     for style, mark in MARKS.items():
         assert f"\n{mark} " in page, f"the legend names {mark} and no row carries it"
     assert MARKS[Style.REQUIRED] in page.split("\n")[-1]
+
+
+def test_pipewire_puts_the_account_in_the_group_its_postinst_asks_for() -> None:
+    """`>=pipewire-0.3.66 uses the 'pipewire' group to manage permissions and
+    limits needed to function smoothly`, from the ebuild's own postinst. It is
+    the only package in the catalog that asks for a group the installer does
+    not already hand every account."""
+    from gentoo_install.model.config import User
+    from gentoo_install.plan import packages as plan_packages
+
+    catalog = load_catalog()
+    installation = replace(
+        config(ext4_on_gpt()),
+        packages=replace(config().packages, applications=("pipewire",)),
+        system=replace(config().system, users=(User(name="zakk"),)),
+    )
+    assert plan_packages.required_user_groups(installation, catalog) == ("pipewire",)
+    added = [
+        one
+        for one in plan_packages.build(installation, catalog)
+        if isinstance(one, plan_packages.AddUserToGroups)
+    ]
+    assert len(added) == 1
+    assert added[0].user == "zakk" and added[0].groups == ("pipewire",)
+    recorder = Recorder()
+    added[0].apply(recorder)
+    # `-a`, or usermod replaces every supplementary group and takes the account
+    # out of wheel.
+    assert recorder.in_target == [("usermod", "-aG", "pipewire", "zakk")]
+
+
+def test_a_group_every_account_already_gets_is_not_asked_for_again() -> None:
+    """nvidia's postinst says to be in `video`, and `plan/system.py` puts every
+    account there. Naming it again reads as something the installer does not
+    already do."""
+    from gentoo_install.plan import packages as plan_packages
+    from gentoo_install.plan.system import USER_GROUPS
+
+    catalog = load_catalog()
+    for name, group in catalog.items():
+        overlap = set(group.user_groups) & set(USER_GROUPS)
+        assert not overlap, f"{name} names {overlap}, which every account already has"
+
+
+def test_the_form_names_the_group_a_package_adds() -> None:
+    """The account is put in it whatever is typed, so the row says so rather
+    than an editable box holding a value it would discard."""
+    from tests.unit.test_tui_app import context
+
+    from tests.unit.fake_screen import FakeScreen
+
+    at = context()
+    with_audio = replace(
+        config(ext4_on_gpt()), packages=replace(config().packages, applications=("pipewire",))
+    )
+    drawn = FakeScreen(keys=["\x1b"], lines=24, columns=110)
+    screens.user_screen(drawn, with_audio, at)
+    assert "Extra groups (+pipewire)" in drawn.last
+    # And nothing to say when no chosen package asks for one.
+    plain = FakeScreen(keys=["\x1b"], lines=24, columns=110)
+    screens.user_screen(plain, config(ext4_on_gpt()), at)
+    assert "Extra groups (+" not in plain.last

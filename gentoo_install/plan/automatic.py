@@ -36,9 +36,10 @@ KEYMAP: Final[str] = "so the passphrase prompt uses the keyboard you chose"
 UNLOCK: Final[str] = "remote unlock needs the initramfs to have an address"
 GROUP_USE: Final[str] = "asked for by a group you chose"
 GROUP_CARD: Final[str] = "the graphics driver you chose needs it"
+GROUP_ACCOUNT: Final[str] = "a package you chose needs the account in it"
 
 REASONS: Final[tuple[str, ...]] = (
-    ROOT, ROOT_FROM_GRUB, ROOT_FROM_ZBM, WRITABLE, SUBVOLUME, CONTAINER, ARRAY, KEYMAP, UNLOCK, GROUP_USE, GROUP_CARD,
+    ROOT, ROOT_FROM_GRUB, ROOT_FROM_ZBM, WRITABLE, SUBVOLUME, CONTAINER, ARRAY, KEYMAP, UNLOCK, GROUP_USE, GROUP_CARD, GROUP_ACCOUNT,
 )
 
 
@@ -138,6 +139,20 @@ def video_cards(config: InstallConfig, catalog: Catalog) -> tuple[Added, ...]:
             added.append(
                 Added(value=card, because=GROUP_CARD, source=group.name)
             )
+    return tuple(added)
+
+
+def user_groups(config: InstallConfig, catalog: Catalog) -> tuple[Added, ...]:
+    """Groups the account is put in because of a package, not because it was
+    typed. `pipewire` is the only one today: its own postinst says the session
+    needs it for realtime scheduling."""
+    added: list[Added] = []
+    typed = set(config.system.users[0].groups) if config.system.users else set()
+    for group in groups(config, catalog):
+        for name in group.user_groups:
+            if name in typed or any(one.value == name for one in added):
+                continue
+            added.append(Added(value=name, because=GROUP_ACCOUNT, source=group.name))
     return tuple(added)
 
 

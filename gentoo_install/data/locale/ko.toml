@@ -369,3 +369,4 @@
 "An account with no password cannot log in" = "암호가 없는 계정은 로그인할 수 없습니다"
 "Not a group name" = "그룹 이름이 아닙니다"
 "not confirmed" = "확인되지 않음"
+"a package you chose needs the account in it" = "선택한 패키지가 계정의 소속을 요구합니다"

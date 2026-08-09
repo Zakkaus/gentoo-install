@@ -471,7 +471,7 @@ def user_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
         Field(label=translate("Type it again"), secret=True),
         Field(label=translate("sudo"), toggle=True, value="x" if existing and existing.sudo else ""),
         Field(
-            label=translate("Extra groups"),
+            label=_groups_label(config, context),
             value=" ".join(existing.groups) if existing else "",
             placeholder=translate("separated by spaces, such as plugdev kvm docker"),
         ),
@@ -513,6 +513,18 @@ def user_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
             ),
         )
         return Answer(Outcome.CHOSE, replace(config, system=replace(config.system, users=(user,))))
+
+
+def _groups_label(config: InstallConfig, context: Context) -> str:
+    """The row's label, naming what a chosen package already adds.
+
+    On the label rather than in the field: the account is put in them whatever
+    is typed here, so an editable box holding them would discard the answer it
+    appears to take.
+    """
+    given = [one.value for one in automatic_values.user_groups(config, context.groups)]
+    label = context.translate("Extra groups")
+    return f"{label} (+{' '.join(given)})" if given else label
 
 
 def _user_problem(

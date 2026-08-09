@@ -1,3 +1,7 @@
 # Audio. wireplumber is the session manager pipewire needs to route anything.
 packages = ["media-video/pipewire", "media-video/wireplumber"]
 use = ["pipewire", "screencast"]
+# `>=pipewire-0.3.66 uses the 'pipewire' group to manage permissions and limits
+# needed to function smoothly`, from the ebuild's own postinst. Without it the
+# session runs without realtime scheduling, which is audible as xruns.
+user_groups = ["pipewire"]

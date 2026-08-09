@@ -369,3 +369,4 @@
 "An account with no password cannot log in" = "パスワードのないアカウントはログインできません"
 "Not a group name" = "グループ名ではありません"
 "not confirmed" = "未確認"
+"a package you chose needs the account in it" = "選択したパッケージがアカウントの所属を必要とします"

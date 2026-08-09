@@ -56,6 +56,10 @@ class Group:
     files: tuple[GroupFile, ...] = ()
     #: package.use lines this group needs, written before anything merges.
     package_use: tuple[str, ...] = ()
+    #: Groups the account has to be in for this group's packages to work.
+    #: Added after the packages merge, because the `acct-group` that creates
+    #: them comes with the package.
+    user_groups: tuple[str, ...] = ()
     #: The input method engine this group provides, if it provides one.
     input_method: str = ""
     #: Which framework that engine belongs to. Two frameworks in one session
@@ -184,6 +188,28 @@ class WriteGroupUse(Operation):
             PurePosixPath(f"/etc/portage/package.use/{self.group}"),
             "".join(f"{line}\n" for line in self.lines),
         )
+
+
+@dataclass(frozen=True, kw_only=True)
+class AddUserToGroups(Operation):
+    """Put the account in the groups its packages need.
+
+    After the packages, not with the account: the `acct-group` that creates
+    each one is a dependency of the package, so `usermod` before the merge
+    fails on a group that does not exist yet.
+    """
+
+    stage: Stage = Stage.PACKAGES
+    user: str
+    groups: tuple[str, ...]
+
+    def describe(self) -> str:
+        return f"add {self.user} to {', '.join(self.groups)}"
+
+    def apply(self, context: Context) -> None:
+        # `-a` as well as `-G`: without it usermod replaces every supplementary
+        # group the account has, which takes it out of wheel.
+        context.run_in_target(["usermod", "-aG", ",".join(self.groups), self.user])
 
 
 #: The environment each framework needs, by framework, off Wayland and on it.
@@ -386,6 +412,11 @@ def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
     if conflict:
         raise ValidationFailed(conflict)
     operations: list[Operation] = []
+    extra_groups = required_user_groups(config, catalog)
+    if extra_groups and config.system.users:
+        operations.append(
+            AddUserToGroups(user=config.system.users[0].name, groups=extra_groups)
+        )
     for group in groups(config, catalog):
         if group.packages:
             operations.append(
@@ -466,6 +497,23 @@ def required_repositories(config: InstallConfig, catalog: Catalog) -> tuple[str,
         for repository in group.repositories:
             if repository not in wanted:
                 wanted.append(repository)
+    return tuple(wanted)
+
+
+def required_user_groups(config: InstallConfig, catalog: Catalog) -> tuple[str, ...]:
+    """Groups a chosen package group needs the account to be in.
+
+    Only what is not already handed to every account: `plan/system.py`'s
+    `USER_GROUPS` is the one table for that, and naming `video` again would
+    read as nvidia needing something the installer does not already do.
+    """
+    from .system import USER_GROUPS
+
+    wanted: list[str] = []
+    for group in groups(config, catalog):
+        for name in group.user_groups:
+            if name not in wanted and name not in USER_GROUPS:
+                wanted.append(name)
     return tuple(wanted)
 
 

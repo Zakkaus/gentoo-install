@@ -370,3 +370,4 @@
 "An account with no password cannot log in" = "没有密码的账号登录不了"
 "Not a group name" = "不是用户组名称"
 "not confirmed" = "尚未确认"
+"a package you chose needs the account in it" = "你选的软件包要求账号在里面"
