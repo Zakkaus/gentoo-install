@@ -582,6 +582,12 @@ def test_pipewire_puts_the_account_in_the_group_its_postinst_asks_for() -> None:
     ]
     assert len(added) == 1
     assert added[0].user == "zakk" and added[0].groups == ("pipewire",)
+    # After the merge that creates the group. `build` sorts stably by stage and
+    # these share one, so emission order is what reaches the machine, and
+    # `usermod` on a group no package has installed yet stops the run with the
+    # disks already written.
+    built = plan_packages.build(installation, catalog)
+    assert built.index(added[0]) == len(built) - 1, [type(one).__name__ for one in built]
     recorder = Recorder()
     added[0].apply(recorder)
     # `-a`, or usermod replaces every supplementary group and takes the account

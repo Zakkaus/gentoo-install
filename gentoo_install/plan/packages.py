@@ -412,11 +412,6 @@ def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
     if conflict:
         raise ValidationFailed(conflict)
     operations: list[Operation] = []
-    extra_groups = required_user_groups(config, catalog)
-    if extra_groups and config.system.users:
-        operations.append(
-            AddUserToGroups(user=config.system.users[0].name, groups=extra_groups)
-        )
     for group in groups(config, catalog):
         if group.packages:
             operations.append(
@@ -451,6 +446,14 @@ def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
                 packages=config.packages.extra,
                 summary="install the extra packages",
             )
+        )
+    extra_groups = required_user_groups(config, catalog)
+    if extra_groups and config.system.users:
+        # Last: `acct-group/<name>` is a dependency of the package that needs
+        # the group, so `usermod` before those merges fails on a group that
+        # does not exist and stops the install with the disks written.
+        operations.append(
+            AddUserToGroups(user=config.system.users[0].name, groups=extra_groups)
         )
     return operations
 
