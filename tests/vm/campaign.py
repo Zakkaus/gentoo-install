@@ -24,10 +24,12 @@ from typing import Final, Sequence
 WORKROOT: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/runs"
 LOGS: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/campaign"
 
-#: Measured rather than assumed: a guest given 8 GiB sits at about 6 GiB
-#: resident, so six of them is 36 GiB of the 60 this machine has. Raising it
-#: further would swap, and a swapping guest times out rather than failing.
-WORKERS: Final[int] = 6
+#: Measured rather than assumed: a guest sits at about 5.3 GiB resident, so
+#: five of them is 27 GiB beside a workstation already holding seventeen. Six
+#: was tried and a guest running a desktop install was killed by the host part
+#: way through, which reaches the log as `the guest closed the serial
+#: connection` and reads exactly like an installer defect.
+WORKERS: Final[int] = 5
 
 #: Long enough for a desktop install from source. The harness has its own
 #: per-step timeouts; this only stops a run that wedged entirely.
@@ -139,8 +141,16 @@ def perform(run: Run) -> Outcome:
     return Outcome(run, finished.returncode, time.monotonic() - started, log)
 
 
+#: What the log says when the guest went away rather than the install failing.
+#: Reported apart from a real failure: chasing it as a defect wastes the time
+#: the campaign exists to save.
+HOST_KILLED: Final[str] = "the guest closed the serial connection"
+
+
 def announce(outcome: Outcome) -> None:
     mark = "ok  " if outcome.passed else "FAIL"
+    if not outcome.passed and HOST_KILLED in outcome.log.read_text(errors="replace"):
+        mark = "HOST"
     print(f"{mark} {outcome.run.name:52} {outcome.seconds / 60:5.1f}m  {outcome.log}")
 
 
@@ -179,6 +189,12 @@ def main(argv: list[str] | None = None) -> int:
             break
 
     failed = [one for one in done if not one.passed]
+    killed = [one for one in failed if HOST_KILLED in one.log.read_text(errors="replace")]
+    if killed:
+        print(
+            f"\n{len(killed)} run(s) lost the guest rather than failing an install; "
+            "that is this machine running out of memory, not a defect"
+        )
     print(f"\n{len(done) - len(failed)}/{len(done)} passed")
     for one in failed:
         print(f"  {one.run.name}: exit {one.returncode}, {one.log}")
