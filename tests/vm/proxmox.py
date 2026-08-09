@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from .console import ConsoleTimeout, SerialConsole
+from .monitor import keys_for
 from .websocket import Framed, WebSocket, WebSocketError
 
 #: Where the secret lives. Read from the file at every call site; it never
@@ -598,6 +599,34 @@ def append_to_cmdline(console: SerialConsole, extra: str, timeout: float = 30.0)
 #: Gentoo medium has `search` above `linux` and one Ctrl-N landed on it, which
 #: booted the entry unedited with a broken search line and no serial output.
 _PLACED: Final[re.Pattern[bytes]] = re.compile(rb"\x1b\[(\d+);\d+H([^\x1b]*)")
+
+
+#: Where the `linux` line sits below `setparams` in the medium's own entry,
+#: for a guest whose GRUB cannot be read. The Gentoo minimal ISO puts `search`
+#: between them; a wrong count edits the wrong line, which is why the sighted
+#: path counts instead and this one is checked by whether the kernel then
+#: speaks.
+BLIND_DOWN: Final[int] = 2
+
+
+def append_to_cmdline_blind(
+    guest: Guest, console: SerialConsole, extra: str, down: int = BLIND_DOWN
+) -> None:
+    """The same edit on a guest whose GRUB writes only to VGA.
+
+    Under OVMF, GRUB inherits the firmware's serial console and the menu can
+    be read. Under SeaBIOS it switches to its own framebuffer terminal, so the
+    serial log stops at `Welcome to GRUB!` and the whole install reads as hung.
+    The keys go through the API instead, and the check is that the kernel
+    starts talking: with `console=ttyS0` on the command line it has to.
+    """
+    guest.send_keys(["e"])
+    time.sleep(1.5)
+    guest.send_keys(["ctrl-n"] * down + ["ctrl-e"])
+    time.sleep(0.5)
+    guest.send_keys(keys_for(f" {extra}"))
+    time.sleep(0.5)
+    guest.send_keys(["ctrl-x"])
 
 
 def _line_of_linux(screen: bytes) -> int:

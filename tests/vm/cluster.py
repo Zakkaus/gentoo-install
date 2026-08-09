@@ -34,7 +34,15 @@ from gentoo_install.model.parse import load
 from gentoo_install.model.serialise import to_toml
 from .console import ConsoleClosed, ConsoleTimeout, SerialConsole
 from .driver import build as build_driver
-from .proxmox import Api, Guest, GuestSpec, Node, ProxmoxError, append_to_cmdline
+from .proxmox import (
+    Api,
+    Guest,
+    GuestSpec,
+    Node,
+    ProxmoxError,
+    append_to_cmdline,
+    append_to_cmdline_blind,
+)
 from .results import ResultError, console_command, read_console
 
 REPOSITORY: Final[Path] = Path(__file__).resolve().parents[2]
@@ -300,7 +308,14 @@ def install_one(
         # Reset with the console attached: termproxy forwards only what arrives
         # after it, and the firmware is finished before it gets there.
         guest.reset()
-        append_to_cmdline(console, EXTRA_CMDLINE)
+        if job.uefi:
+            append_to_cmdline(console, EXTRA_CMDLINE)
+        else:
+            # SeaBIOS hands over to a GRUB that writes only to VGA, so the
+            # serial log stops at `Welcome to GRUB!` and there is no menu to
+            # read. The keys go through the API and the kernel appearing on
+            # the console is what says the edit landed.
+            append_to_cmdline_blind(guest, console, EXTRA_CMDLINE)
         console.expect(r"livecd .*#|localhost .*#", timeout=900.0)
         # The guest's own resolver is left alone. A local run pins one because
         # slirp reads the host's `/etc/resolv.conf` once at startup; the

@@ -317,3 +317,23 @@ def test_a_stuck_guest_is_stopped_and_not_deleted_by_the_sweep(tmp_path: Path) -
     inflight = {"vm-zfs": Running(guest=Quiet(), watch=watch)}
     _sweep(inflight)
     assert stopped == ["stopped"]
+
+
+def test_a_kernel_parameter_can_be_typed_through_sendkey() -> None:
+    """`console=ttyS0,115200` at a GRUB prompt on a BIOS guest: every
+    character needs a qemu key name, and `equal` and `comma` were missing."""
+    from tests.vm.monitor import keys_for
+
+    assert keys_for(" console=ttyS0,115200") == [
+        "spc", "c", "o", "n", "s", "o", "l", "e", "equal",
+        "t", "t", "y", "shift-s", "0", "comma", "1", "1", "5", "2", "0", "0",
+    ]
+
+
+def test_every_printable_ascii_character_has_a_key_name() -> None:
+    """A missing name is refused rather than sent as itself and dropped, so
+    the table has to cover what a passphrase or a command line can hold."""
+    from tests.vm.monitor import keys_for
+
+    printable = "".join(chr(code) for code in range(0x20, 0x7F))
+    assert len(keys_for(printable)) == len(printable)
