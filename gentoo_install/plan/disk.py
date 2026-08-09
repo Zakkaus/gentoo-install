@@ -571,10 +571,13 @@ class MountZfsDataset(Operation):
         return f"mount dataset {self.name} at {self.path}"
 
     def apply(self, context: Context) -> None:
-        # `zfs create` mounts a dataset the moment it is given a mountpoint, so
-        # mounting it again answers `filesystem already mounted` and stops the
-        # install. The same guard the block-device mount carries.
-        if context.is_mounted(str(self.path)):
+        # Asked of ZFS, not of the path. `zfs create` mounts a dataset the
+        # moment it is given a mountpoint, and mounting it again answers
+        # `filesystem already mounted` and stops the install. The mountpoint
+        # property carries the target prefix during an install, so checking
+        # `self.path` asked about a directory on the installing system.
+        if context.run(["zfs", "get", "-H", "-o", "value", "mounted", self.name],
+                       check=False).strip() == "yes":
             return
         context.run(["zfs", "mount", self.name])
 

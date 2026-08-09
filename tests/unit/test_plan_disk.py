@@ -462,11 +462,15 @@ def test_a_dataset_already_mounted_is_left_alone() -> None:
     where = PurePosixPath("/home")
     told = MountZfsDataset(mountpoint=i("mnt-home"), name="rpool/ROOT/gentoo/home", path=where)
 
+    # Asked of ZFS, not of the path: the mountpoint property carries the
+    # target prefix during an install, so `/home` names a directory on the
+    # installing system and says nothing about the dataset.
     fresh = Recorder()
+    fresh.replies["zfs"] = "no\n"
     told.apply(fresh)
     assert ("zfs", "mount", "rpool/ROOT/gentoo/home") in fresh.commands
 
     already = Recorder()
-    already.mounts.add(str(where))
+    already.replies["zfs"] = "yes\n"
     told.apply(already)
     assert not any(one[:2] == ("zfs", "mount") for one in already.commands)
