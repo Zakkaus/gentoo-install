@@ -404,3 +404,4 @@
 "An address starts with http:// or https://" = "주소는 http:// 또는 https:// 로 시작합니다"
 "give two partitions the zfs pool member purpose" = "두 파티션의 용도를 zfs pool 멤버로 지정하세요"
 "give a partition the raid array member purpose" = "파티션의 용도를 raid 어레이 멤버로 지정하세요"
+"an empty root password hash locks the account, so the installed system would boot with nothing that can log in" = "비어 있는 root 비밀번호 해시는 계정을 잠그므로, 설치된 시스템은 부팅해도 로그인할 방법이 없다"

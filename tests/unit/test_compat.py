@@ -175,7 +175,14 @@ def remote_unlock_of_an_unencrypted_root() -> InstallConfig:
     )
 
 
+def a_system_nothing_can_log_into() -> InstallConfig:
+    """No root password, no user and no key: the machine boots and refuses
+    every login. `zfs-zbm.toml` was this until a VM run reached its prompt."""
+    return replace(config(), system=SystemConfig())
+
+
 CASES: list[tuple[Callable[[], InstallConfig], Trait, Trait]] = [
+    (a_system_nothing_can_log_into, Trait.ROOT_LOCKED, Trait.NO_OTHER_LOGIN),
     (zfs_on_grub, Trait.ROOT_ON_ZFS, Trait.GRUB),
     (zfs_on_bios, Trait.ROOT_ON_ZFS, Trait.BIOS_BOOT),
     (zfs_over_luks, Trait.ROOT_ON_ZFS, Trait.LUKS),

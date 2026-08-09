@@ -57,7 +57,7 @@
   treat the hardware clock as UTC
   write /etc/crypttab for root
   create user zakk in users, wheel, audio, video, render, usb, input with no password
-  lock the root account
+  set the root password
   install sudo: emerge app-admin/sudo
   let the wheel group run sudo, with a password
   install sshd: emerge net-misc/openssh

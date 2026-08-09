@@ -5,6 +5,7 @@ from dataclasses import replace
 import pytest
 
 from gentoo_install.model.config import (
+    SystemConfig,
     Bootloader,
     BootloaderConfig,
     DiskConfig,
@@ -52,6 +53,10 @@ def configured(choice: Choice, kind: Bootloader, firmware: Firmware) -> InstallC
         portage=portage,
         kernel=KernelConfig(),
         bootloader=BootloaderConfig(kind=kind, firmware=firmware),
+        # A template answers the disk questions only; the root password is a
+        # required row the operator fills in, and `compat` refuses a system
+        # nothing can log into.
+        system=SystemConfig(root_password_hash="$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"),
     )
 
 

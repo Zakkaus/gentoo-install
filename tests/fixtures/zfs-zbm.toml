@@ -8,6 +8,7 @@ timezone = "Asia/Taipei"
 locales = ["en_US.UTF-8", "zh_TW.UTF-8"]
 locale = "zh_TW.UTF-8"
 init = "systemd"
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
 console_cjk = true
 console_font = "8x16"
 

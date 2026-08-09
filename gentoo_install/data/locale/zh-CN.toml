@@ -405,3 +405,4 @@
 "An address starts with http:// or https://" = "地址要以 http:// 或 https:// 开头"
 "give two partitions the zfs pool member purpose" = "把两个分区的用途设成 zfs pool 成员"
 "give a partition the raid array member purpose" = "把某个分区的用途设成 raid 阵列成员"
+"an empty root password hash locks the account, so the installed system would boot with nothing that can log in" = "空的 root 密码哈希会锁住账号，装好的系统开机后没有任何途径可以登录"

@@ -50,7 +50,7 @@
   write /etc/fstab with entries for /efi
   treat the hardware clock as UTC
   create user zakk in users, wheel, audio, video, render, usb, input with a password
-  lock the root account
+  set the root password
   install sudo: emerge app-admin/sudo
   let the wheel group run sudo, with a password
   configure the wired interface for DHCP

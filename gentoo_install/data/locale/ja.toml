@@ -404,3 +404,4 @@
 "An address starts with http:// or https://" = "アドレスは http:// か https:// で始まります"
 "give two partitions the zfs pool member purpose" = "二つのパーティションの用途を zfs pool メンバーにしてください"
 "give a partition the raid array member purpose" = "パーティションの用途を raid アレイメンバーにしてください"
+"an empty root password hash locks the account, so the installed system would boot with nothing that can log in" = "空の root パスワードハッシュはアカウントをロックするため、導入したシステムは起動してもログインする手段がない"

@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import PurePosixPath
 
 from gentoo_install.model.config import (
+    SystemConfig,
     Bootloader,
     BootloaderConfig,
     DiskConfig,
@@ -91,4 +92,7 @@ def config(nodes: list[Node] | None = None) -> InstallConfig:
         disk=DiskConfig(graph=DeviceGraph.build(nodes or ext4_on_gpt()), root=i("mnt-root")),
         kernel=KernelConfig(source=KernelSource.DIST_SOURCE),
         bootloader=BootloaderConfig(kind=Bootloader.GRUB, firmware=Firmware.UEFI),
+        # An empty hash locks root, and `compat` refuses a system nothing can
+        # log into. Every layout here is meant to be installable.
+        system=SystemConfig(root_password_hash="$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"),
     )

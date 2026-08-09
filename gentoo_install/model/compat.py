@@ -87,6 +87,8 @@ class Trait(Enum):
     NO_AUTHORIZED_KEY = "no authorised ssh key"
     NO_ENCRYPTED_CONTAINER = "no encrypted container to unlock"
     FONT_WITHOUT_CJK_GLYPHS = "a console font other than 8x16"
+    ROOT_LOCKED = "a locked root account"
+    NO_OTHER_LOGIN = "no user account with a password and no authorised ssh key"
 
 
 @dataclass(frozen=True)
@@ -100,6 +102,12 @@ class Rule:
 
 
 RULES: tuple[Rule, ...] = (
+    Rule(
+        Trait.ROOT_LOCKED,
+        Trait.NO_OTHER_LOGIN,
+        "an empty root password hash locks the account, so the installed system "
+        "would boot with nothing that can log in",
+    ),
     Rule(
         Trait.ROOT_ON_ZFS,
         Trait.GRUB,
@@ -183,6 +191,13 @@ RULES: tuple[Rule, ...] = (
 def traits_of(config: InstallConfig) -> frozenset[Trait]:
     graph = config.disk.graph
     found: set[Trait] = set()
+
+    if not config.system.root_password_hash:
+        found.add(Trait.ROOT_LOCKED)
+        # An account with an empty hash is locked too, so it is not a way in.
+        named = any(one.password_hash for one in config.system.users)
+        if not named and not config.system.authorized_keys:
+            found.add(Trait.NO_OTHER_LOGIN)
 
     if _holds(graph, config.disk.root, (ZfsPool, ZfsDataset)):
         found.add(Trait.ROOT_ON_ZFS)
