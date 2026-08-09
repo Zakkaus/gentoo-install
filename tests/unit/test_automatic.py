@@ -939,3 +939,28 @@ def test_every_package_a_group_names_exists_where_it_says() -> None:
                     f"{name} names {atom}, which only gentoo-zh has, "
                     "and declares no repository"
                 )
+
+
+def test_the_pam_stack_gets_the_seat_flag_the_manager_needs() -> None:
+    """`gnome-base/gdm` RDEPENDs `sys-auth/pambase[elogind?,systemd?]` and
+    refuses the merge without it; sddm and lightdm merge and start a session
+    that registers with no seat. The desktop profiles hide this with `elogind`
+    in global USE, and the `console` group is built against the base profile,
+    which has none."""
+    from gentoo_install.model.config import InitSystem
+    from gentoo_install.plan.packages import build as build_packages
+
+    catalog = load_catalog()
+    for init, flag in ((InitSystem.SYSTEMD, "systemd"), (InitSystem.OPENRC, "elogind")):
+        installation = replace(
+            config(ext4_on_gpt()),
+            system=replace(config().system, init=init),
+            packages=replace(config().packages, desktop="console", display_manager="gdm"),
+        )
+        written = [
+            line
+            for one in build_packages(installation, catalog)
+            for line in getattr(one, "lines", ())
+        ]
+        assert f"sys-auth/pambase {flag}" in written, (init, written)
+        assert f"gnome-base/gdm {flag}" in written, (init, written)

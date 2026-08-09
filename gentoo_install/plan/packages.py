@@ -600,14 +600,26 @@ SEAT_FLAG: Final[dict[InitSystem, str]] = {
 SEAT_FLAG_WANTED: Final[frozenset[str]] = frozenset({"sddm", "gdm", "lightdm"})
 
 
+#: `sys-auth/pambase` needs the seat flag too, or the PAM stack has no
+#: `pam_elogind.so` and the session it starts registers with no seat.
+#: `gnome-base/gdm` says so outright with `sys-auth/pambase[elogind?,systemd?]`
+#: and refuses the merge; sddm and lightdm merge and come up seatless. The
+#: desktop profiles hide this by putting `elogind` in global USE, but the
+#: `console` group is built against the base profile, which does not.
+PAM_BASE: Final[str] = "sys-auth/pambase"
+
+
 def _seat_flag(name: str, packages: Sequence[str], init: InitSystem) -> list[Operation]:
-    """The one atom of the group that is the manager itself takes the flag."""
+    """The manager's own atom takes the flag, and so does the PAM stack."""
     if name not in SEAT_FLAG_WANTED:
         return []
     atom = next((one for one in packages if one.rsplit("/", 1)[-1] == name), "")
     if not atom:
         return []
-    return [WriteGroupUse(group=name, lines=(f"{atom} {SEAT_FLAG[init]}",))]
+    flag = SEAT_FLAG[init]
+    return [
+        WriteGroupUse(group=name, lines=(f"{atom} {flag}", f"{PAM_BASE} {flag}"))
+    ]
 
 
 def _display_manager(name: str, packages: Sequence[str], init: InitSystem) -> list[Operation]:

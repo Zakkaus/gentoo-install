@@ -710,7 +710,9 @@ def test_a_display_manager_asks_for_the_seat_flag_its_init_provides() -> None:
             for one in plan_packages.build(wanted, catalog)
             if isinstance(one, plan_packages.WriteGroupUse) and one.group == "lightdm"
         ]
-        assert lines == [(f"x11-misc/lightdm {flag}",)], init
+        # The PAM stack takes the same flag: without it the session lightdm
+        # starts registers with no seat.
+        assert lines == [(f"x11-misc/lightdm {flag}", f"sys-auth/pambase {flag}")], init
 
 
 def test_the_greeter_is_not_given_a_flag_it_does_not_have() -> None:

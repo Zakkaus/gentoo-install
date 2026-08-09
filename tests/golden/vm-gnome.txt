@@ -30,7 +30,7 @@
   install git, which every later repository sync needs: emerge dev-vcs/git
   point repository gentoo at https://github.com/gentoo-mirror/gentoo.git, commit signatures verified
   sync repository gentoo
-  ask for gnome-base/gdm systemd for the gdm group
+  ask for gnome-base/gdm systemd; sys-auth/pambase systemd for the gdm group
 
 [system]
   generate and verify locales en_US.UTF-8
