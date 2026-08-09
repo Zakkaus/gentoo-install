@@ -90,6 +90,11 @@ class Vm:
             "-m", self.spec.memory,
             "-netdev", f"user,id=net0,hostfwd=tcp::{self.spec.ssh_port}-:22",
             "-device", "virtio-net-pci,netdev=net0",
+            # A guest fills its whole allocation with page cache and never
+            # hands it back, so four 8 GiB guests held 32 GiB of mostly cache
+            # and the fifth was killed. Free page reporting returns what the
+            # guest is not using; a kernel without it ignores the device.
+            "-device", "virtio-balloon,free-page-reporting=on",
             "-display", "none",
             "-monitor", "none",
             "-serial", f"unix:{self.serial_socket},server,nowait",
