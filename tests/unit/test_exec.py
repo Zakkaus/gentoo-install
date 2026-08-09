@@ -143,7 +143,7 @@ def test_every_filesystem_the_installer_can_make_has_a_required_command() -> Non
 
     assert set(MKFS) == set(FilesystemType)
 
-    from gentoo_install.model.parse import load
+    from gentoo_install.exec.config import load
 
     encrypted = preflight.required_commands(load(Path("tests/fixtures/btrfs-luks.toml")))
     assert {"cryptsetup", "mkfs.btrfs", "btrfs"} <= encrypted
@@ -416,7 +416,7 @@ def test_the_disk_a_mirrored_root_boots_from_is_the_same_on_every_run(tmp_path: 
     `grub-install` wrote the bootloader to whichever came out."""
     from gentoo_install.exec.apply import Machine
     from gentoo_install.model.device import MdRaid, RaidLevel
-    from gentoo_install.model.parse import load
+    from gentoo_install.exec.config import load
 
     layout = load(Path("tests/fixtures/vm-mdraid.toml"))
     array = layout.disk.graph.of_type(MdRaid)[0]
@@ -592,7 +592,7 @@ def test_a_medium_with_no_zfs_stops_before_the_disks_are_touched(
 ) -> None:
     """The installer runs off whatever medium is to hand, and most of them have
     no ZFS; `zpool create` finds that out after the disks are partitioned."""
-    from gentoo_install.model.parse import load
+    from gentoo_install.exec.config import load
 
     pooled = load(Path("tests/fixtures/vm-zfs.toml"))
     probe = probe_of(tmp_path)

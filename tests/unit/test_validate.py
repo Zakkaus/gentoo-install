@@ -9,7 +9,7 @@ from gentoo_install.errors import ValidationFailed
 from gentoo_install.model.config import InitSystem
 from gentoo_install.model.device import Mountpoint, Node, Partition, PartitionRole
 from gentoo_install.model.size import Size
-from gentoo_install.model.parse import load
+from gentoo_install.exec.config import load
 from gentoo_install.model.validate import validate
 
 from .layouts import encrypted_root, config, ext4_on_gpt, i, zfs_root

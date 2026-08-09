@@ -24,7 +24,7 @@ from gentoo_install.model.config import (
     SystemConfig,
 )
 from gentoo_install.model.device import Node, Partition, PartitionRole
-from gentoo_install.model.parse import load
+from gentoo_install.exec.config import load
 from gentoo_install.model.validate import validate
 from gentoo_install.plan import disk as plan_disk
 from gentoo_install.plan.system import EnableService
@@ -414,7 +414,7 @@ def test_an_openrc_desktop_gets_dbus_and_elogind_without_a_display_manager() -> 
 
     from gentoo_install.data import load_catalog
     from gentoo_install.model.config import InitSystem
-    from gentoo_install.model.parse import load
+    from gentoo_install.exec.config import load
     from gentoo_install.plan.build import build
     from gentoo_install.plan.packages import SESSION_PACKAGES
     from gentoo_install.plan.system import EnableService
@@ -447,7 +447,7 @@ def test_each_rime_schema_is_a_group_the_operator_can_tick() -> None:
     from pathlib import Path as _Path
 
     from gentoo_install.data import load_catalog
-    from gentoo_install.model.parse import load
+    from gentoo_install.exec.config import load
     from gentoo_install.plan.build import build
 
     catalog = load_catalog()
@@ -474,7 +474,7 @@ def test_every_engine_the_operator_picked_is_in_the_fcitx_profile() -> None:
     from pathlib import Path as _Path
 
     from gentoo_install.data import load_catalog
-    from gentoo_install.model.parse import load
+    from gentoo_install.exec.config import load
     from gentoo_install.plan.build import build
     from gentoo_install.plan.packages import WriteInputMethodProfile
 

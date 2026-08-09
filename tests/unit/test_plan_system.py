@@ -571,7 +571,7 @@ def test_an_openrc_storage_service_is_enabled_after_its_package_is_merged() -> N
     from pathlib import Path
 
     from gentoo_install.data import load_catalog
-    from gentoo_install.model.parse import load
+    from gentoo_install.exec.config import load
     from gentoo_install.plan.build import build
 
     for fixture, package, service in (
@@ -636,7 +636,7 @@ def test_openrc_brings_up_the_storage_stack_it_has_a_service_for() -> None:
     them a volume group that does not carry the root never activates."""
     from pathlib import Path
 
-    from gentoo_install.model.parse import load
+    from gentoo_install.exec.config import load
 
     # The fixture is already openrc; the systemd half has to be built from it.
     lvm = load(Path("tests/fixtures/vm-lvm.toml"))
@@ -819,7 +819,7 @@ def test_the_resolver_link_is_the_last_thing_written() -> None:
     from pathlib import Path as FilePath
 
     from gentoo_install.data import load_catalog as catalog_of
-    from gentoo_install.model.parse import load as load_config
+    from gentoo_install.exec.config import load as load_config
     from gentoo_install.plan.build import build as whole_plan
     from gentoo_install.plan.portage import Emerge
     from gentoo_install.plan.system import LinkResolvConf
@@ -927,7 +927,7 @@ def test_the_host_keys_exist_before_dracut_converts_them() -> None:
     from pathlib import Path as Where
 
     from gentoo_install.data import load_catalog
-    from gentoo_install.model.parse import load as load_config
+    from gentoo_install.exec.config import load as load_config
     from gentoo_install.plan.build import build as build_plan
 
     where = Where(__file__).resolve().parents[1] / "fixtures" / "vm-unlock.toml"

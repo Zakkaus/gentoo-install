@@ -30,7 +30,7 @@ from typing import Final, Protocol
 from gentoo_install.model.config import InstallConfig
 from gentoo_install.model.device import Existing
 from gentoo_install.model.config import MirrorRegion, Sync
-from gentoo_install.model.parse import load
+from gentoo_install.exec.config import load
 from gentoo_install.model.serialise import to_toml
 from .console import ConsoleClosed, ConsoleTimeout, SerialConsole
 from .driver import build as build_driver

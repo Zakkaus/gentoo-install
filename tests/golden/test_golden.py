@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from gentoo_install.data import load_catalog
-from gentoo_install.model.parse import load
+from gentoo_install.exec.config import load
 from gentoo_install.plan.build import build
 from gentoo_install.plan.render import render
 
