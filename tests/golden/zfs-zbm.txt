@@ -74,6 +74,7 @@
   install the tools that build a module for this kernel: emerge sys-fs/zfs, from source
   delete any kernel image in /boot that has no modules directory
   rebuild the initramfs from sys-kernel/gentoo-cjk-kernel-bin with the modules written above
+  check that a kernel image reached /boot or /efi
 
 [bootloader]
   install the bootloader: emerge sys-boot/zfsbootmenu sys-boot/efibootmgr

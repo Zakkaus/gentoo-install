@@ -48,10 +48,21 @@ def apply_boot(installation: InstallConfig) -> Recorder:
 
 
 def apply_kernel(installation: InstallConfig) -> Recorder:
-    recorder = Recorder()
+    # The `find` reply stands for a machine where the kernel did land.
+    # `test_a_kernel_that_never_reached_boot_stops_the_install` takes it away.
+    recorder = Recorder(replies={"find": "/boot/vmlinuz-6.18.41-gentoo-dist-bin\n"})
     for operation in kernel.build(installation):
         operation.apply(recorder)
     return recorder
+
+
+def test_a_kernel_that_never_reached_boot_stops_the_install() -> None:
+    """`kernel-install` reports success when a plugin exits 77, so an initramfs
+    dracut refused to build leaves /boot empty and every later step blind."""
+    recorder = Recorder(replies={"find": ""})
+    with pytest.raises(NothingToBoot):
+        for operation in kernel.build(config()):
+            operation.apply(recorder)
 
 
 def test_dracut_carries_a_module_for_each_layer_of_the_stack() -> None:

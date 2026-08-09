@@ -66,6 +66,7 @@
   tell dracut to carry crypt, btrfs
   delete any kernel image in /boot that has no modules directory
   rebuild the initramfs from sys-kernel/gentoo-kernel-bin with the modules written above
+  check that a kernel image reached /boot or /efi
 
 [bootloader]
   install the bootloader: emerge sys-boot/grub sys-boot/efibootmgr

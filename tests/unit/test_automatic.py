@@ -32,7 +32,7 @@ from .recorder import Recorder
 
 def command_line(installation: InstallConfig) -> str:
     """The one line this bootloader's entries are built from."""
-    recorder = Recorder()
+    recorder = Recorder(replies={"find": "/boot/vmlinuz-6.18.41-gentoo-dist-bin\n"})
     for operation in (*plan_bootloader.build(installation), *plan_kernel.build(installation)):
         operation.apply(recorder)
     for path, content in recorder.files.items():

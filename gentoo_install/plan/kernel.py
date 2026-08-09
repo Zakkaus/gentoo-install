@@ -12,7 +12,7 @@ from pathlib import PurePosixPath
 from typing import Final
 
 from ..model.config import Bootloader, InitSystem, InstallConfig, KernelSource
-from ..errors import InvalidLayout
+from ..errors import InvalidLayout, NothingToBoot
 from ..model import compat
 from ..model.device import (
     DeviceId,
@@ -511,6 +511,42 @@ class RemoveUnbootableKernels(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
+class RequireKernelImage(Operation):
+    """Stop here if no kernel image was written, rather than at the bootloader.
+
+    `kernel-install` runs its plugins in order and treats exit status 77 as
+    success, stopping the rest: dracut refusing to build -- "root is zfs, but
+    the zfs module is missing" -- leaves `emerge --config` returning 0 with no
+    image copied and nothing in the log that reads as a failure.
+
+    Both names, because both layouts are in use: `compat` writes
+    `<root>/vmlinuz-<version>` and `bls` writes `<root>/<token>/<version>/linux`.
+    """
+
+    stage: Stage = Stage.KERNEL
+    roots: tuple[str, ...]
+
+    def describe(self) -> str:
+        return f"check that a kernel image reached {' or '.join(self.roots)}"
+
+    def apply(self, context: Context) -> None:
+        for root in self.roots:
+            found = context.run_in_target(
+                ["find", root, "-maxdepth", "3", "-type", "f", "(", "-name", "vmlinuz-*", "-o",
+                 "-name", "linux", ")"],
+                check=False,
+            )
+            # A path, not a non-empty answer: the runner merges stderr into
+            # stdout, so `find: no such directory` would otherwise read as a hit.
+            if any(line.startswith(f"{root}/") for line in found.splitlines()):
+                return
+        raise NothingToBoot(
+            f"no kernel image under {' or '.join(self.roots)}; "
+            "kernel-install stopped on a plugin that exited 77"
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
 class RequestDistKernelModules(Operation):
     """An out-of-tree module builds against `/usr/src/linux` unless it is told
     the kernel is a dist-kernel, and a dist-kernel leaves no `.config` there:
@@ -666,6 +702,9 @@ def build(config: InstallConfig) -> list[Operation]:
     # under the name the package itself carries, which is the correct one.
     operations.append(RemoveUnbootableKernels())
     operations.append(RebuildInitramfs(package=package))
+    esp = compat.esp_mount(graph)
+    roots = (KERNEL_IMAGES, str(esp.path)) if esp is not None else (KERNEL_IMAGES,)
+    operations.append(RequireKernelImage(roots=roots))
     return operations
 
 

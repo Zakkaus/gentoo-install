@@ -55,6 +55,7 @@
   install the kernel: emerge sys-kernel/gentoo-kernel-bin
   delete any kernel image in /boot that has no modules directory
   rebuild the initramfs from sys-kernel/gentoo-kernel-bin with the modules written above
+  check that a kernel image reached /boot
 
 [bootloader]
   install the bootloader: emerge sys-boot/grub
