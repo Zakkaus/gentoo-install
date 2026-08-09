@@ -165,3 +165,25 @@ def test_a_size_that_is_not_a_whole_kib_rounds_up_rather_than_saying_bytes() -> 
 def test_the_readable_form_still_uses_the_full_iec_unit() -> None:
     """`parted` takes `MiB`, and so does a person reading the plan."""
     assert str(Size.parse("512MiB")) == "512MiB"
+
+
+@pytest.mark.parametrize(
+    ("literal", "expected"),
+    [
+        ("4.1MB", 4_100_000),
+        ("1.1GB", 1_100_000_000),
+        ("1.0001MB", 1_000_100),
+        ("2.5GiB", 2_684_354_560),
+        ("0.5MiB", 524_288),
+    ],
+)
+def test_a_decimal_size_is_exact(literal: str, expected: int) -> None:
+    """`float` multiplication left a fractional artifact, so `4.1MB` -- exactly
+    4,100,000 bytes -- was rejected as not a whole number of them."""
+    assert Size.parse(literal).bytes == expected
+
+
+def test_a_size_that_really_is_fractional_is_still_refused() -> None:
+    """Half a byte is not a size, and exact arithmetic must not make it one."""
+    with pytest.raises(InvalidSize):
+        Size.parse("1.5B")

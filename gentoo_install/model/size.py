@@ -7,6 +7,8 @@ confused number is only discovered after `mkfs`.
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import re
 from dataclasses import dataclass
 from enum import Enum
@@ -123,9 +125,12 @@ class Size:
             raise InvalidSize(f"size cannot be negative, got {self.bytes}")
 
     @classmethod
-    def of(cls, amount: float, unit: Unit) -> Size:
-        scaled = amount * unit.value
-        if scaled != int(scaled):
+    def of(cls, amount: Decimal | int | float, unit: Unit) -> Size:
+        """`Decimal`, not `float`: 4.1 MB is exactly 4,100,000 bytes, and
+        binary multiplication left a fractional artifact that the whole-byte
+        check then rejected."""
+        scaled = Decimal(str(amount)) * unit.value
+        if scaled != scaled.to_integral_value():
             raise InvalidSize(f"{amount}{unit.suffix} is not a whole number of bytes")
         return cls(int(scaled))
 
@@ -139,7 +144,7 @@ class Size:
         unit = _SUFFIXES.get(suffix)
         if unit is None:
             raise InvalidSize(f"{literal!r} uses an unknown unit {match['suffix']!r}")
-        return cls.of(float(match["number"]), unit)
+        return cls.of(Decimal(match["number"]), unit)
 
     @classmethod
     def from_sectors(cls, count: int, sector: SectorSize) -> Size:
