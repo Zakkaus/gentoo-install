@@ -77,6 +77,13 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         Run("fixtures/btrfs-luks.toml"),
         Run("fixtures/ext4-bios.toml", firmware="bios"),
         Run("fixtures/vm-cjk-kernel.toml"),
+        # The four nothing had ever installed: the only untested filesystem, a
+        # desktop on openrc, GNOME at all, and btrfs subvolumes without LUKS
+        # wrapped round them.
+        Run("fixtures/vm-xfs.toml"),
+        Run("fixtures/vm-btrfs.toml"),
+        Run("fixtures/vm-openrc-desktop.toml"),
+        Run("fixtures/vm-gnome.toml"),
     ),
     # One configuration, six media: this stage tests `bootstrap.sh` and
     # preflight, so the shortest fixture is the right one. Booted like every
