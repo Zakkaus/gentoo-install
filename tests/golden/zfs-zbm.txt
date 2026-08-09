@@ -60,7 +60,7 @@
   enable cronie at boot
 
 [kernel]
-  set sys-kernel/installkernel to dracut
+  set sys-kernel/installkernel to dracut, installing into /boot
   install the hook that puts a kernel in /boot: emerge sys-kernel/installkernel
   accept the linux-firmware licence
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware

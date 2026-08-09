@@ -131,16 +131,29 @@ class ConfigureInstallKernel(Operation):
 
     def describe(self) -> str:
         flags = " ".join(self._flags())
-        return f"set sys-kernel/installkernel to {flags}"
+        where = f", installing into {self.boot_root}" if self.boot_root else ""
+        return f"set sys-kernel/installkernel to {flags}{where}"
 
     def _flags(self) -> tuple[str, ...]:
         return ("dracut", "systemd", "systemd-boot") if self.boot_entries else ("dracut",)
+
+    #: ZFSBootMenu reads the kernel out of the boot environment's own `/boot`,
+    #: which is inside the pool. `kernel-install` otherwise picks the mounted
+    #: esp as `$BOOT` and writes `/efi/<entry-token>/<version>/`, so the pool
+    #: has no kernel and generate-zbm answers `Unable to find latest kernel`.
+    #: `BOOT_ROOT` in `install.conf` is what overrides it, per kernel-install(8).
+    boot_root: str = ""
 
     def apply(self, context: Context) -> None:
         context.write(
             PurePosixPath("/etc/portage/package.use/installkernel"),
             f"sys-kernel/installkernel {' '.join(self._flags())}\n",
         )
+        if self.boot_root:
+            context.write(
+                PurePosixPath("/etc/kernel/install.conf"),
+                f"BOOT_ROOT={self.boot_root}\n",
+            )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -515,7 +528,10 @@ def build(config: InstallConfig) -> list[Operation]:
     modules = dracut_modules(config)
     entries = config.bootloader.kind is Bootloader.SYSTEMD_BOOT
     operations: list[Operation] = [
-        ConfigureInstallKernel(boot_entries=entries),
+        ConfigureInstallKernel(
+            boot_entries=entries,
+            boot_root="/boot" if config.bootloader.kind is Bootloader.ZFSBOOTMENU else "",
+        ),
     ]
     if entries:
         root, dataset, extra = _root_parameters(config)

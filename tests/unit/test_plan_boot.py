@@ -890,3 +890,33 @@ def test_the_stray_kernel_is_deleted_before_the_package_reinstalls_one() -> None
     )
     rebuild = next(n for n, one in enumerate(built) if isinstance(one, RebuildInitramfs))
     assert removal < rebuild, [type(one).__name__ for one in built[removal - 1 : rebuild + 1]]
+
+
+def test_a_zfs_root_keeps_its_kernel_in_the_pool() -> None:
+    """ZFSBootMenu reads the kernel out of the boot environment's own `/boot`.
+    `kernel-install` otherwise takes the mounted esp as `$BOOT` and writes
+    `/efi/<entry-token>/<version>/`, so the pool has no kernel and generate-zbm
+    answers `Unable to find latest kernel`. `BOOT_ROOT` in install.conf is the
+    override, per kernel-install(8)."""
+    from gentoo_install.plan.kernel import ConfigureInstallKernel
+
+    for installation, wanted in (
+        (
+            replace(
+                config(zfs_root()),
+                bootloader=BootloaderConfig(
+                    kind=Bootloader.ZFSBOOTMENU, firmware=Firmware.UEFI
+                ),
+            ),
+            "/boot",
+        ),
+        (config(ext4_on_gpt()), ""),
+    ):
+        told = next(
+            one for one in kernel.build(installation) if isinstance(one, ConfigureInstallKernel)
+        )
+        assert told.boot_root == wanted, installation.bootloader.kind
+        recorder = Recorder()
+        told.apply(recorder)
+        written = recorder.files.get(PurePosixPath("/etc/kernel/install.conf"))
+        assert (written == "BOOT_ROOT=/boot\n") is bool(wanted)
