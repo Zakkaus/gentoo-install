@@ -347,10 +347,15 @@ def esp_mount(graph: DeviceGraph) -> Mountpoint | None:
 def _encrypted_esp(graph: DeviceGraph) -> bool:
     """Whether a container sits between the firmware and the esp.
 
-    Checked at every esp path rather than through `esp_mount`, because an
-    encrypted one is the case where that returns nothing and the operator is
-    told the esp is missing instead of that it cannot be read.
+    The mount that is the esp, not any mount at an esp path: a plain vfat esp
+    at `/efi` beside an unrelated encrypted `/boot` is a working layout and
+    scanning every esp path refused it. The scan stays as the fallback for a
+    layout with no esp mount at all, where saying the esp is missing would
+    send the operator looking for a partition that is there.
     """
+    chosen = esp_mount(graph)
+    if chosen is not None:
+        return any(isinstance(node, Luks) for node in _chain(graph, chosen.id))
     return any(
         mount.path in _ESP_PATHS
         and any(isinstance(node, Luks) for node in _chain(graph, mount.id))

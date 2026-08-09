@@ -362,3 +362,30 @@ def test_the_erase_row_and_the_in_use_check_read_the_same_rule() -> None:
 
     for source in (inspect.getsource(preflight._disks_at_risk), inspect.getsource(settings._erase)):
         assert "compat.destroyed(" in source, source
+
+
+def test_an_encrypted_boot_beside_a_plain_esp_is_a_working_layout() -> None:
+    """`/boot` is one of the paths an esp can take, so an unrelated encrypted
+    `/boot` beside a plain vfat esp at `/efi` was refused as an encrypted esp
+    while the firmware could read the esp perfectly well."""
+    from gentoo_install.model import compat
+    from gentoo_install.model.device import Luks, Partition, PartitionRole
+    from gentoo_install.model.size import Size
+
+    base = list(ext4_on_gpt())
+    top = max(one.index for one in base if isinstance(one, Partition))
+    beside = base + [
+        Partition(
+            id=i("bootpart"),
+            table=i("table"),
+            index=top + 1,
+            role=PartitionRole.DATA,
+            size=Size.parse("1GiB"),
+        ),
+        Luks(id=i("bootcrypt"), backing=i("bootpart"), name="boot"),
+        Filesystem(id=i("bootfs"), device=i("bootcrypt"), kind=FilesystemType.EXT4),
+        Mountpoint(id=i("mnt-boot"), source=i("bootfs"), path=PurePosixPath("/boot")),
+    ]
+    assert Trait.ESP_ENCRYPTED not in compat.traits_of(config(beside))
+    # And the real case still fires.
+    assert Trait.ESP_ENCRYPTED in compat.traits_of(an_encrypted_esp())
