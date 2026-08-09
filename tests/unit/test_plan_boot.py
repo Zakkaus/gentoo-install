@@ -875,3 +875,18 @@ def test_the_cjk_kernel_lifts_the_mask_its_dependency_carries() -> None:
         lifted[0].apply(recorder)
         written = recorder.files[PurePosixPath("/etc/portage/package.unmask/cjk-kernel")]
         assert written.strip() == "virtual/dist-kernel"
+
+
+def test_the_stray_kernel_is_deleted_before_the_package_reinstalls_one() -> None:
+    """Deleting last left `/boot` empty: the misnamed image `sys-fs/zfs`
+    leaves is often the only one there, and generate-zbm then answers
+    `Unable to find latest kernel`. `emerge --config` puts the image back
+    under the name the package carries, so the removal has to come first."""
+    from gentoo_install.plan.kernel import RebuildInitramfs, RemoveUnbootableKernels
+
+    built = kernel.build(config(zfs_root()))
+    removal = next(
+        n for n, one in enumerate(built) if isinstance(one, RemoveUnbootableKernels)
+    )
+    rebuild = next(n for n, one in enumerate(built) if isinstance(one, RebuildInitramfs))
+    assert removal < rebuild, [type(one).__name__ for one in built[removal - 1 : rebuild + 1]]

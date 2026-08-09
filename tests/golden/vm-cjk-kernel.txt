@@ -59,8 +59,8 @@
   unmask virtual/dist-kernel, which the cjk kernel depends on by revision
   install the storage tools: emerge sys-fs/dosfstools sys-fs/e2fsprogs
   install the kernel: emerge sys-kernel/gentoo-cjk-kernel, from source
-  rebuild the initramfs from sys-kernel/gentoo-cjk-kernel with the modules written above
   delete any kernel image in /boot that has no modules directory
+  rebuild the initramfs from sys-kernel/gentoo-cjk-kernel with the modules written above
 
 [bootloader]
   install the bootloader: emerge sys-boot/grub sys-boot/efibootmgr

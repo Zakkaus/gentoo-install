@@ -640,8 +640,12 @@ def build(config: InstallConfig) -> list[Operation]:
                 binary_packages=False,
             )
         )
-    operations.append(RebuildInitramfs(package=package))
+    # Delete first, then rebuild. The misnamed image `sys-fs/zfs` leaves is
+    # often the only one in /boot, so deleting it last left generate-zbm with
+    # `Unable to find latest kernel`. `emerge --config` reinstalls the image
+    # under the name the package itself carries, which is the correct one.
     operations.append(RemoveUnbootableKernels())
+    operations.append(RebuildInitramfs(package=package))
     return operations
 
 
