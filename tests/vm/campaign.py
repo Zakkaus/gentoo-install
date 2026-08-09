@@ -41,13 +41,16 @@ class Run:
     config: str
     medium: str = "official-minimal"
     firmware: str = "uefi"
+    #: Kill the installer partway and finish it with `--resume`.
+    interrupt: bool = False
     #: Boot what was installed and check it. Always: an install that exits 0
     #: is not an install that boots, and that is the whole question.
     boot: bool = True
 
     @property
     def name(self) -> str:
-        return f"{self.medium}-{self.firmware}-{Path(self.config).stem}"
+        how = "-interrupted" if self.interrupt else ""
+        return f"{self.medium}-{self.firmware}-{Path(self.config).stem}{how}"
 
     def argv(self) -> list[str]:
         argv = [
@@ -56,6 +59,8 @@ class Run:
             "--firmware", self.firmware,
             "--install", self.config,
         ]
+        if self.interrupt:
+            argv.append("--interrupt")
         return argv + ["--and-boot"] if self.boot else argv
 
 
@@ -87,6 +92,9 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         # sshd with a key that can reach it, and the initramfs daemon that
         # unlocks the root: `remote_unlock` was off in every other fixture.
         Run("fixtures/vm-unlock.toml"),
+        # The same configuration again, killed partway and finished with
+        # --resume: the one path nothing else reaches.
+        Run("fixtures/vm-binpkg.toml", interrupt=True),
     ),
     # One configuration, six media: this stage tests `bootstrap.sh` and
     # preflight, so the shortest fixture is the right one. Booted like every

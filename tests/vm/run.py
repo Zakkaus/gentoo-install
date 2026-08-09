@@ -266,6 +266,50 @@ def stage_passphrases(console: SerialConsole, installation: InstallConfig) -> No
         console.run(f"chmod 600 {source}")
 
 
+def interrupt_and_resume(console: SerialConsole, config: str) -> None:
+    """Kill a run partway, then finish it with `--resume`.
+
+    The one path nothing exercised. A resumed run skips what an earlier one
+    recorded as done, so anything recorded that did not survive -- a mount, an
+    open container -- is a stage3 unpacked into the live medium's own memory.
+
+    Killed at the stage3 rather than at a fixed time: it is the first operation
+    that takes long enough to interrupt reliably, and everything before it is
+    exactly the destructive part a resumed run must not repeat.
+    """
+    console.run("mkdir -p /mnt/driver")
+    console.run("mountpoint -q /mnt/driver || mount -o ro /dev/sr1 /mnt/driver")
+    console.run(f"mkdir -p {RESULT_DIR}")
+    # In the background, with a watcher that kills it once the log says the
+    # partitioning is behind us. `pkill -f` on the module name: bootstrap.sh
+    # execs python, so the shell's own pid is not what is running by then.
+    console.run(
+        f"cd /mnt/driver && (sh ./bootstrap.sh --no-shell --config {config} "
+        f"> {RESULT_DIR}/first.txt 2>&1 &) ; sleep 1"
+    )
+    console.run(
+        f"for _ in $(seq 1 240); do "
+        f"grep -q 'stage3' {RESULT_DIR}/first.txt && break; sleep 1; done; "
+        f"sleep 3; pkill -f gentoo_install; sleep 2; echo killed",
+        timeout=400.0,
+    )
+    console.run(f"grep -c . {RESULT_DIR}/first.txt || true")
+    # The resumed run has to reach the end on its own.
+    console.run(
+        f"cd /mnt/driver && {{ sh ./bootstrap.sh --no-shell --resume --config {config}; "
+        f"echo $? > {RESULT_DIR}/install.rc; }} 2>&1 | tee {RESULT_DIR}/install.txt",
+        timeout=3600.0,
+    )
+    console.run(f"cp /mnt/driver/{config} {RESULT_DIR}/config.toml 2>/dev/null || true")
+    console.run(f"cp /run/gentoo-install/install.jsonl {RESULT_DIR}/ 2>/dev/null || true")
+    # What the resumed run skipped, which is the whole question.
+    console.run(
+        f"grep -c 'done earlier' {RESULT_DIR}/install.txt > {RESULT_DIR}/skipped.txt || "
+        f"echo 0 > {RESULT_DIR}/skipped.txt"
+    )
+    console.run(collect_command(RESULT_DIR))
+
+
 def run_installer(console: SerialConsole, config: str, extra: str = "") -> None:
     """Run the installer from the driver CD and keep everything it printed."""
     console.run("mkdir -p /mnt/driver")
@@ -338,6 +382,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="after a successful --install, boot the disk it produced and check it; "
         "one invocation instead of two, which is what an unattended campaign needs",
+    )
+    parser.add_argument(
+        "--interrupt",
+        action="store_true",
+        help="kill the installer partway and finish it with --resume, which is the "
+        "one path nothing else exercises",
     )
     parser.add_argument("--interactive", action="store_true", help="hand the VM to a human over SSH")
     parser.add_argument("--keep", action="store_true", help="keep the run directory")
@@ -437,7 +487,10 @@ def _perform(args: argparse.Namespace, medium: Medium, workdir: Path) -> int:
                     return 0
                 return 0
 
-            if args.install:
+            if args.install and args.interrupt:
+                stage_passphrases(console, load(REPOSITORY / "tests" / args.install))
+                interrupt_and_resume(console, args.install)
+            elif args.install:
                 stage_passphrases(console, load(REPOSITORY / "tests" / args.install))
                 run_installer(console, args.install, "--dry-run" if args.dry_run else "")
             else:
@@ -552,6 +605,12 @@ def check_expected(results: dict[str, bytes], config: Path) -> int:
     failed = results.get("failed.txt", b"").decode("utf-8", "replace").strip()
     if failed:
         missing.append(f"systemd reports failed units: {failed.splitlines()[0]}")
+    skipped = results.get("skipped.txt", b"").decode("utf-8", "replace").strip()
+    if skipped and skipped.isdigit() and int(skipped) == 0:
+        # An interrupted run that resumed and repeated everything partitioned a
+        # disk it had already installed onto, which is what --resume exists to
+        # avoid; it passing quietly is worse than it failing.
+        missing.append("the resumed run skipped nothing an earlier one had finished")
     for problem in missing:
         print(f"FAIL {problem}", file=sys.stderr)
     if missing:
