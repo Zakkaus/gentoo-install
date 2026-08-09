@@ -943,3 +943,46 @@ def test_no_host_keys_are_made_for_a_system_with_no_sshd() -> None:
 
     plain = with_system(sshd=False)
     assert not [one for one in system.build(plain) if isinstance(one, GenerateHostKeys)]
+
+
+def test_remote_unlock_gets_host_keys_without_enabling_target_sshd() -> None:
+    """`dropbear_*_key="SYSTEM"` converts the target's own host keys, and they
+    were generated only under `system.sshd`. With sshd off the initramfs had
+    no host key and the machine stayed locked."""
+    from dataclasses import replace
+
+    from gentoo_install.data import load_catalog
+    from gentoo_install.model.config import KernelConfig, RemoteUnlock
+    from gentoo_install.plan.build import build
+
+    from .layouts import config, encrypted_root
+
+    base = config(encrypted_root())
+    installation = replace(
+        base,
+        system=replace(base.system, sshd=False, authorized_keys=("ssh-ed25519 AAAA test",)),
+        kernel=replace(KernelConfig(), remote_unlock=RemoteUnlock(enabled=True, interface="eth0")),
+    )
+    described = [one.describe() for one in build(installation, load_catalog())]
+    assert any("host keys" in one for one in described), described
+    # And no sshd service: the keys are an initramfs prerequisite, not a server.
+    assert not [one for one in described if "enable sshd" in one], described
+
+
+def test_the_unlock_key_always_reaches_root() -> None:
+    """dracut-crypt-ssh reads `/root/.ssh/authorized_keys` and nothing else, so
+    a key that went only to a sudo user left the machine locked before that
+    account existed."""
+    from dataclasses import replace
+
+    from gentoo_install.model.config import KernelConfig, RemoteUnlock, SystemConfig, User
+    from gentoo_install.plan.system import key_accounts
+
+    system = SystemConfig(
+        sshd_root_login=False,
+        users=(User(name="zakk", sudo=True, password_hash="$6$x$y"),),
+        authorized_keys=("ssh-ed25519 AAAA test",),
+    )
+    assert "root" not in {name for name, _ in key_accounts(system)}
+    assert "root" in {name for name, _ in key_accounts(system, unlocking=True)}
+    assert KernelConfig().remote_unlock == RemoteUnlock()

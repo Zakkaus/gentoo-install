@@ -890,11 +890,14 @@ def build(config: InstallConfig) -> list[Operation]:
                 password_hash=user.password_hash,
             )
         )
+    unlocking = config.kernel.remote_unlock.enabled
     if system.authorized_keys:
         # After the users: the file lands in a home directory and is chowned to
         # an account, and both have to exist first.
         operations.append(
-            WriteAuthorizedKeys(keys=system.authorized_keys, accounts=key_accounts(system))
+            WriteAuthorizedKeys(
+                keys=system.authorized_keys, accounts=key_accounts(system, unlocking)
+            )
         )
     serial = _serial_console(config)
     if serial is not None and system.init is InitSystem.OPENRC:
@@ -913,11 +916,24 @@ def build(config: InstallConfig) -> list[Operation]:
                 root_login=system.sshd_root_login,
             ),
             EnableService(service=_sshd_service(), init=system.init),
-            # Before Stage.KERNEL, where dracut runs: dracut-crypt-ssh converts
-            # these into dropbear's format and there is nothing to convert if
-            # sshd has not been started yet, which it has not.
-            GenerateHostKeys(remote_unlock=config.kernel.remote_unlock.enabled),
         ]
+    if system.sshd or unlocking:
+        # The host keys are an initramfs prerequisite, not an sshd feature:
+        # `dropbear_*_key="SYSTEM"` converts the target's own keys, and with
+        # sshd switched off there were none to convert and the machine stayed
+        # locked. The package comes with them and no service is enabled.
+        if not system.sshd:
+            operations.append(
+                Emerge(
+                    stage=Stage.SYSTEM,
+                    packages=("net-misc/openssh",),
+                    summary="install the host keys the initramfs unlock daemon converts",
+                )
+            )
+        # Before Stage.KERNEL, where dracut runs: dracut-crypt-ssh converts
+        # these into dropbear's format and there is nothing to convert if
+        # sshd has not been started yet, which it has not.
+        operations.append(GenerateHostKeys(remote_unlock=unlocking))
     flags = _network_use(system)
     if flags:
         operations.append(RequestNetworkUse(lines=flags))
@@ -1124,15 +1140,20 @@ def _serial_console(config: InstallConfig) -> tuple[str, int] | None:
     return None
 
 
-def key_accounts(system: SystemConfig) -> tuple[tuple[str, str], ...]:
+def key_accounts(system: SystemConfig, unlocking: bool = False) -> tuple[tuple[str, str], ...]:
     """Which accounts get the authorised keys, and their home directories.
 
     Every sudo user, plus root unless sshd refuses root and a sudo user exists
     to log in instead: a key that reaches no account leaves a headless machine
     with no way in.
+
+    `unlocking` always adds root: dracut-crypt-ssh reads
+    `/root/.ssh/authorized_keys` and nothing else, so a machine whose only key
+    went to a sudo user stayed locked before that account existed. The booted
+    system keeps `PermitRootLogin no` either way.
     """
     accounts = [(user.name, f"/home/{user.name}") for user in system.users if user.sudo]
-    if system.sshd_root_login or not accounts:
+    if system.sshd_root_login or not accounts or unlocking:
         accounts.insert(0, ("root", "/root"))
     return tuple(accounts)
 
