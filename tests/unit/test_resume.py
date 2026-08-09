@@ -32,13 +32,15 @@ class Noted(Operation):
 
 def journal_with(tmp_path: Path, entries: list[tuple[int, str, str]]) -> Journal:
     """`position` is what the run recorded, not the order of the lines: that is
-    the whole point of the field."""
+    the whole point of the field. The middle value is the operation's identity,
+    which is what a resumed run matches against."""
     journal = Journal(path=tmp_path / "install.jsonl")
-    for position, describe, status in entries:
+    for position, said, status in entries:
         journal.write(
             "operation",
             stage="packages",
-            describe=describe,
+            describe=said,
+            identity=said,
             seconds=0.1,
             status=status,
             position=position,
@@ -69,11 +71,12 @@ def test_a_second_resume_does_not_redo_what_the_first_one_finished(tmp_path: Pat
     path = tmp_path / "install.jsonl"
     journal = Journal(path=path)
 
-    def note(position: int, describe: str, status: str) -> None:
+    def note(position: int, said: str, status: str) -> None:
         journal.write(
             "operation",
             stage="partition",
-            describe=describe,
+            describe=said,
+            identity=said,
             seconds=0.1,
             status=status,
             position=position,
@@ -95,7 +98,12 @@ def test_an_entry_from_before_positions_were_recorded_is_ignored(tmp_path: Path)
     than skipping the wrong operation."""
     path = tmp_path / "install.jsonl"
     Journal(path=path).write(
-        "operation", stage="partition", describe="partition", seconds=0.1, status="done"
+        "operation",
+        stage="partition",
+        describe="partition",
+        identity="partition",
+        seconds=0.1,
+        status="done",
     )
     assert completed(Journal(path=path)) == frozenset()
 
@@ -114,6 +122,7 @@ def test_a_half_written_last_line_does_not_stop_the_replay(tmp_path: Path) -> No
         "operation",
         stage="partition",
         describe="partition",
+        identity="partition",
         seconds=0.1,
         status="done",
         position=0,
@@ -150,8 +159,10 @@ def test_the_running_installer_says_where_it_is_and_how_long_it_has_taken() -> N
     )
     # Every operation is reported as already done, so nothing runs and the
     # counter is all that is under test.
+    from gentoo_install.exec.apply import identity
+
     finished = frozenset(
-        (position, one.describe()) for position, one in enumerate(operations)
+        (position, identity(one)) for position, one in enumerate(operations)
     )
     apply(operations, machine, finished)
     counted = [line for line in said if line.startswith("[1/")]
@@ -193,3 +204,47 @@ def test_mounting_something_already_mounted_is_not_an_error() -> None:
         options=(),
     ).apply(recorder)
     assert not any(argv[0] == "mount" for argv in recorder.commands)
+
+
+def test_a_changed_implementation_is_not_skipped_by_an_old_journal() -> None:
+    """Commit `57f5ad3` changed `ConfigureInstallKernel` from writing
+    `/etc/kernel/install.conf` to writing a drop-in and left its `describe()`
+    alone, so a journal from before it let a resumed run skip the correction.
+    Identity covers the class's source for exactly that."""
+    from gentoo_install.exec.apply import identity
+
+    @dataclass(frozen=True, kw_only=True)
+    class Before(Operation):
+        stage: Stage = Stage.KERNEL
+        where: str = "/etc/kernel/install.conf"
+
+        def describe(self) -> str:
+            return "set the boot root"
+
+        def apply(self, context: object) -> None:
+            raise AssertionError("never run here")
+
+    @dataclass(frozen=True, kw_only=True)
+    class After(Operation):
+        stage: Stage = Stage.KERNEL
+        where: str = "/etc/kernel/install.conf"
+
+        def describe(self) -> str:
+            return "set the boot root"
+
+        def apply(self, context: object) -> None:
+            # The drop-in, not the file that shadows installkernel's own.
+            raise AssertionError("never run here")
+
+    old, new = Before(), After()
+    assert old.describe() == new.describe()
+    assert identity(old) != identity(new)
+
+
+def test_a_changed_payload_is_not_skipped_either() -> None:
+    """Two operations of the same class whose fields differ are different work,
+    however similar their descriptions read."""
+    from gentoo_install.exec.apply import identity
+
+    assert identity(Noted(text="emerge")) != identity(Noted(text="emerge plasma"))
+    assert identity(Noted(text="emerge")) == identity(Noted(text="emerge"))

@@ -6,9 +6,12 @@ This is the `Context` the plan layer declares. Everything it does goes through
 
 from __future__ import annotations
 
+import hashlib
+import inspect
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import astuple, dataclass, field, is_dataclass
+from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Sequence
 
@@ -229,6 +232,36 @@ class Machine:
         )
 
 
+@lru_cache(maxsize=None)
+def _implementation(kind: type[Operation]) -> str:
+    """A digest of the class that will perform the operation.
+
+    Position and description are not identity. Commit `57f5ad3` changed
+    `ConfigureInstallKernel` from writing `/etc/kernel/install.conf` to writing
+    a drop-in, and left its `describe()` alone: a journal from before it let a
+    resumed run skip the corrected implementation. The source is what changed,
+    so the source is what the identity has to cover.
+    """
+    try:
+        source = inspect.getsource(kind)
+    except (OSError, TypeError):
+        # Nothing to read is not evidence that nothing changed, so the name
+        # alone identifies it and the fields below still carry the payload.
+        source = ""
+    return hashlib.sha256(f"{kind.__qualname__}\n{source}".encode()).hexdigest()[:16]
+
+
+def identity(operation: Operation) -> str:
+    """What has to match for a journal entry to describe this operation.
+
+    Hashed rather than recorded: an operation's fields name key files and
+    device selectors, and the journal is copied into the installed system.
+    """
+    fields = repr(astuple(operation)) if is_dataclass(operation) else repr(operation)
+    together = f"{_implementation(type(operation))}\n{fields}"
+    return hashlib.sha256(together.encode()).hexdigest()[:16]
+
+
 def completed(journal: Journal | None) -> frozenset[tuple[int, str]]:
     """Operations a previous run finished, as position and description.
 
@@ -249,7 +282,7 @@ def completed(journal: Journal | None) -> frozenset[tuple[int, str]]:
         # An entry from before positions were recorded says nothing reliable
         # about where it sat, and redoing work is safer than skipping it.
         if isinstance(position, int):
-            done.add((position, str(entry.get("describe", ""))))
+            done.add((position, str(entry.get("identity", ""))))
     return frozenset(done)
 
 
@@ -269,7 +302,7 @@ def apply(
     opened = time.monotonic()
     for position, operation in enumerate(operations):
         counted = f"[{position + 1}/{total} {_elapsed(time.monotonic() - opened)}]"
-        if operation.survives_a_reboot and (position, operation.describe()) in finished:
+        if operation.survives_a_reboot and (position, identity(operation)) in finished:
             machine.runner.log(
                 f"{counted} [{operation.stage.value}] done earlier: {operation.describe()}"
             )
@@ -300,6 +333,7 @@ def _record(
         "operation",
         stage=operation.stage.value,
         describe=operation.describe(),
+        identity=identity(operation),
         seconds=round(time.monotonic() - started, 3),
         status=status,
         position=position,
