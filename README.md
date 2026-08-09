@@ -2,39 +2,47 @@ English | [正體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md) | [�
 
 # gentoo-install
 
-An installer that turns any running Linux live system into a bootable Gentoo machine. A menu or a configuration file drives it. The interface is available in English, Traditional Chinese, Simplified Chinese, Japanese and Korean.
+gentoo-install is an installer that installs an amd64 Gentoo system from a supported Linux live environment. An interactive menu or a TOML configuration file specifies the installation. The interface is available in English, Traditional Chinese, Simplified Chinese, Japanese and Korean.
 
-![The menu, showing every decision the installer makes](screenshot.png)
+![The menu showing the installation decisions](screenshot.png)
 
 ![The cjktty console rendering Simplified Chinese, Traditional Chinese, Japanese and Korean](cjk-console.png)
 
-## Features
+## Capabilities
 
-**Disks.** GPT and MBR. ext2/3/4, btrfs with subvolumes, xfs, f2fs, vfat, swap and zram. LUKS2, LVM and mdraid at raid0, raid1, raid5 or raid6. ZFS pools and datasets, including native encryption, mirrors and raidz. An existing partition table can be kept: each partition is separately assigned a mountpoint and a decision about formatting.
+**Storage.** The device graph supports GPT and MBR; ext2/3/4, btrfs subvolumes, xfs, f2fs and vfat; swap and zram; and LUKS2, LVM and mdraid. Existing partition tables can be retained, with a separate keep, format or delete decision for each partition.
 
-**Boot.** GRUB on UEFI and BIOS, systemd-boot, and ZFSBootMenu for a ZFS root. The initramfs is dracut, and its module list is derived from the device graph rather than listed by hand. The root can be unlocked over SSH from the initramfs.
+**Boot and system.** GRUB supports UEFI and BIOS, and systemd-boot supports UEFI. The installer configures systemd or OpenRC, dracut, locale, keyboard layout, timezone, hostname, DNS, static addresses and the selected network manager.
 
-**Kernel.** `sys-kernel/gentoo-kernel-bin` and `sys-kernel/gentoo-kernel` from `::gentoo`, and `sys-kernel/gentoo-cjk-kernel-bin` and `sys-kernel/gentoo-cjk-kernel` from the gentoo-zh overlay. The gentoo-zh pair carries [cjktty-patches](https://github.com/gentoo-zh/cjktty-patches), which renders Chinese, Japanese and Korean on the text console where a stock kernel draws blanks. The second screenshot above is `7.1.7-gentoo-dist` with that patch applied.
+**Desktop and language support.** GNOME, KDE Plasma and Xfce are available with gdm, sddm or lightdm. Graphics settings cover AMD, Intel, NVIDIA and virtual machines. The package catalog includes fcitx5, Rime, Anthy, Mozc, Hangul and CJK fonts. Patched kernels from gentoo-zh can render Chinese, Japanese and Korean on the Linux text console.
 
-**System.** systemd or OpenRC. NetworkManager with wpa_supplicant or iwd, systemd-networkd, or no networking. Static addresses, DNS, hostname and timezone. A script or command to run once at first boot, optionally fetched from a URL.
+**Portage.** The configuration covers the profile, `MAKEOPTS`, `USE`, `ACCEPT_KEYWORDS`, `L10N`, mirrors and repository synchronization. The gentoo-zh and gig overlays are opt-in. Official and gentoo-zh binary package sources have separate settings and keys.
 
-**Desktop.** GNOME, KDE Plasma and Xfce, with gdm, sddm, lightdm or greetd. Graphics for amdgpu, intel, nvidia, nouveau, radeon and virtual machines: `VIDEO_CARDS`, the USE flags a driver needs, and its kernel parameters are set together rather than left to the operator.
+**Plan and records.** A dry run and a real installation use the same operation plan. `install.log` records command output, and `install.jsonl` records operations, package sources and binary-package degradation reasons. The menu can upload a redacted configuration to `paste.gentoozh.org` and display the resulting page address as text and as a QR code.
 
-**Input methods.** fcitx5 and ibus. Rime with the Pinyin, Bopomofo, Cangjie, Wubi and Cantonese schemes; Anthy and Mozc for Japanese; Hangul for Korean. Fonts are a separate choice from the locale.
+## Verification status
 
-**Portage.** Profile, `MAKEOPTS`, `USE`, `ACCEPT_KEYWORDS`, `L10N`, mirror region and repository sync method. The gentoo-zh and gig overlays are opt-in, and selecting one also writes its keys and its `package.accept_keywords`. Binary packages come from the official host and from gentoo-zh, keyed separately.
+The last recorded end-to-end baseline covers selected UEFI and BIOS installations, systemd and OpenRC, ext4, btrfs, xfs, LUKS2, LVM, mdraid, Plasma and the official binhost. Each recorded run names its installer revision and boots the installed system before it counts as evidence.
 
-**Every feature has a dry run.** `--dry-run` prints the operation list that a real run would apply, from the same plan, so a print-only path cannot drift from the real one. An interrupted run resumes from its journal. `install.jsonl` records the source of every package and the reason for every fallback. A configuration can be exported to the pastebin or to a QR code on the console, with the password hashes removed.
+ZFS and ZFSBootMenu, initramfs SSH unlock, greetd desktop sessions and ibus outside GNOME are not part of that baseline at the current revision. Installation from the six non-default live media and binary-host failure fallback are also outside the baseline. Files under `tests/fixtures/` exercise the configuration model; their presence does not by itself establish end-to-end support.
 
 ## Requirements
 
-Root, an amd64 target, and Python 3.11 or newer. The standard library only.
+A real installation requires root privileges, an amd64 target and Python 3.11 or newer. A configuration-file dry run does not require root privileges. The installer has no third-party Python runtime dependency.
 
-Network access to `packages.gentoo.org` is required at start. Kernel versions and the kernel ceiling of `sys-fs/zfs` are read live, so no local ebuild tree is needed and the installer runs on the live systems of Alpine, Debian, openSUSE, Fedora and Arch as well as Gentoo. Without network access it stops, apart from `--missing-commands` and `--config` with `--dry-run`.
+Network access to `packages.gentoo.org` is required when the installer starts, except for `--missing-commands` and `--config FILE --dry-run`. Kernel versions and the maximum kernel version supported by `sys-fs/zfs` are read at run time.
 
-`bootstrap.sh` reads `/etc/os-release`, lists the commands the chosen layout needs and the machine lacks, and prints the install command for that distribution. It knows `apt-get`, `pacman`, `zypper`, `dnf`, `emerge` and `apk`.
+`bootstrap.sh` reads `/etc/os-release`, reports missing commands and prints a candidate package-manager command. It recognizes these distribution families: Debian and Ubuntu; Arch; openSUSE; Fedora, RHEL and CentOS; Gentoo; and Alpine. The printed command must be reviewed before it is run.
 
-## Usage
+## Safety
+
+A real run writes to the selected disks. A configuration-file run starts without a second erase confirmation; `wipe = true`, partition deletion and filesystem creation can destroy existing data.
+
+Before a real run, the disk selectors and every destructive operation must be checked in the dry-run output. Stable `/dev/disk/by-id/` selectors are preferable to names such as `/dev/sda`, and required data must have a separate backup.
+
+## Installation
+
+The following commands download the current `master` archive and open the menu:
 
 ```sh
 curl -fsSL https://github.com/Zakkaus/gentoo-install/archive/refs/heads/master.tar.gz | tar xz
@@ -42,58 +50,44 @@ cd gentoo-install-master
 ./bootstrap.sh
 ```
 
+The menu requires an interactive terminal of at least 80x24 cells. It asks for the interface language once; `--lang en` selects English without that question.
+
+The menu can save its answers as `my-install.toml` and exit. The configuration-file workflow below prints the complete plan before the real run:
+
 ```sh
-./bootstrap.sh                                       # the menu
-./bootstrap.sh --config my-install.toml              # unattended
-./bootstrap.sh --dry-run --config my-install.toml    # print the operations, touch nothing
-./bootstrap.sh --config my-install.toml --resume     # carry on from where a run stopped
-./bootstrap.sh --config my-install.toml --no-shell   # unmount at the end without asking
+./bootstrap.sh --config my-install.toml --dry-run
+./bootstrap.sh --config my-install.toml
+./bootstrap.sh --config my-install.toml --no-shell   # suppress the root-shell prompt
 ```
 
-The menu needs a real terminal at 80x24 or larger. The interface language is asked once at the start; `--lang en` skips that question.
+Before unmounting, an interactive run offers a root shell in the target after either success or failure. `--no-shell` suppresses that question.
 
-Before unmounting, whether the run finished or failed, the installer offers a root shell inside the new system. It offers it on failure as well, because whether the machine is still recoverable is the operator's judgement, and after the unmount the whole layout has to be mounted again by hand. `--no-shell` removes the question.
+## Resuming an interrupted run
 
-## Configuration file
+`--resume` skips operations recorded as complete in the journal:
 
-TOML. The first line declares `config_version`. The disk is a device graph: every device carries an `id`, devices refer to each other by `id`, and device paths are resolved at run time.
-
-```toml
-config_version = 1
-
-[system]
-hostname = "gentoo"
-locale = "zh_TW.UTF-8"
-init = "systemd"
-root_password_hash = "$6$..."   # from openssl passwd -6, never a plaintext password
-
-[portage]
-profile = "default/linux/amd64/23.0/systemd"   # has to agree with init
-
-[bootloader]
-kind = "grub"
-firmware = "uefi"
-
-[disk]
-root = "mnt-root"
-
-[[disk.devices]]
-kind = "existing"
-id = "disk"
-selector = "/dev/disk/by-id/virtio-target0"
-wipe = true
+```sh
+./bootstrap.sh --config my-install.toml --resume
 ```
 
-`tests/fixtures/` holds working examples covering UEFI, BIOS, LUKS2, LVM, mdraid, ZFS, btrfs subvolumes and desktops. Parsing touches no hardware, so a machine with no target disk can still check a configuration with `--dry-run`.
+Resume is limited to the same live session. The default journal is `/run/gentoo-install/install.jsonl`, so it does not survive a reboot. Each journal entry records a digest of the operation's implementation and of its own values, so an operation whose code or payload changed is performed again rather than skipped. The journal carries no digest of the configuration as a whole.
+
+## Configuration files
+
+Configuration files use TOML. The top-level `config_version` field selects the schema version. Storage is a device graph: every device has an `id`, devices refer to other devices by `id`, and selectors are resolved only during a real run.
+
+[`tests/fixtures/vm-binpkg.toml`](tests/fixtures/vm-binpkg.toml) is a complete UEFI and ext4 schema reference. Other files under [`tests/fixtures/`](tests/fixtures/) cover BIOS, LUKS2, LVM, mdraid, ZFS, btrfs subvolumes and desktops. They contain virtual-machine disk selectors and test credentials, so they must not be installed unchanged on a real machine.
+
+Parsing and planning do not probe storage hardware. A machine without the target disk can therefore check a configuration with `--dry-run`.
 
 ## Binary packages
 
-Optional, and never the only path. Building from source is the guaranteed one. The official binhost and the gentoo-zh binhost are separate options with separate keys. An unreachable host, a missing signature or an untrusted key falls back to compiling with a warning, and `install.jsonl` records the reason.
+Binary packages are optional. Disabling them keeps source builds available. The official binhost and the gentoo-zh binhost are separate options with separate trust configuration. The current end-to-end baseline does not cover an unreachable binhost, a missing signature or an untrusted key, so those degradation paths remain listed under verification status.
 
 ## Exit codes
 
-`0` finished, `1` configuration error, `2` preflight failed, `3` integrity check failed, `4` an external command failed, `5` aborted by the operator.
+`0` means completed, `1` means configuration error, `2` means preflight failure, `3` means integrity failure, `4` means external-command failure and `5` means operator abort.
 
 ## Contributing
 
-[CONTRIBUTING.md](CONTRIBUTING.md).
+[CONTRIBUTING.md](CONTRIBUTING.md) describes the development setup, architecture and required checks.

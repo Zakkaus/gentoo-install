@@ -2,39 +2,47 @@
 
 # gentoo-install
 
-稼働中の任意の Linux live システムから、起動可能な Gentoo を構築するインストーラ。メニューまたは設定ファイルで駆動する。インターフェイスは英語、繁体字中国語、簡体字中国語、日本語、韓国語に対応する。
+gentoo-install は、対応する Linux ライブ環境から amd64 Gentoo システムをインストールするインストーラである。インストール内容は対話式メニューまたは TOML 設定ファイルで指定する。インターフェイスは英語、繁体字中国語、簡体字中国語、日本語、韓国語で利用できる。
 
-![インストーラが決定する項目を一覧するメニュー](screenshot.png)
+![インストール内容の各項目を表示するメニュー](screenshot.png)
 
-![簡体字中国語・繁体字中国語・日本語・韓国語を描画する cjktty コンソール](cjk-console.png)
+![簡体字中国語、繁体字中国語、日本語、韓国語を表示する cjktty コンソール](cjk-console.png)
 
 ## 機能
 
-**ディスク。** GPT および MBR。ext2/3/4、subvolume を含む btrfs、xfs、f2fs、vfat、swap、zram。LUKS2、LVM、および raid0・raid1・raid5・raid6 の mdraid。ZFS の pool と dataset は、ネイティブ暗号化、mirror、raidz に対応する。既存のパーティションテーブルは維持できる。各パーティションに対してマウントポイントと再フォーマットの可否を個別に指定する。
+**ストレージ。** デバイスグラフは、GPT と MBR、ext2/3/4、subvolume を含む btrfs、xfs、f2fs、vfat、swap、zram、LUKS2、LVM、mdraid に対応する。既存のパーティションテーブルを維持し、パーティションごとに保持、フォーマット、削除を指定できる。
 
-**起動。** UEFI と BIOS の GRUB、systemd-boot、ZFS ルートには ZFSBootMenu。initramfs は dracut が生成し、そのモジュール一覧は手書きではなくデバイスグラフから導出される。ルートファイルシステムは initramfs の段階で SSH 経由により解錠できる。
+**起動とシステム。** GRUB は UEFI と BIOS に対応し、systemd-boot は UEFI に対応する。systemd または OpenRC、dracut、locale、キーボードレイアウト、タイムゾーン、ホスト名、DNS、静的アドレス、選択したネットワークマネージャを設定できる。
 
-**カーネル。** `::gentoo` の `sys-kernel/gentoo-kernel-bin` と `sys-kernel/gentoo-kernel`、および gentoo-zh overlay の `sys-kernel/gentoo-cjk-kernel-bin` と `sys-kernel/gentoo-cjk-kernel`。gentoo-zh の二つは [cjktty-patches](https://github.com/gentoo-zh/cjktty-patches) を適用しており、テキストコンソールに中国語・日本語・韓国語を表示する。標準のカーネルは同じ位置に空白を描画する。上の二枚目は当該パッチを適用した `7.1.7-gentoo-dist` である。
+**デスクトップと言語対応。** GNOME、KDE Plasma、Xfce は、gdm、sddm、lightdm と組み合わせて使用できる。グラフィックス設定は AMD、Intel、NVIDIA、仮想マシンに対応する。パッケージカタログには fcitx5、Rime、Anthy、Mozc、Hangul、CJK フォントが含まれる。gentoo-zh のパッチ適用済みカーネルは、Linux テキストコンソールに中国語、日本語、韓国語を表示できる。
 
-**システム。** systemd または OpenRC。wpa_supplicant もしくは iwd を伴う NetworkManager、systemd-networkd、またはネットワーク設定なし。静的アドレス、DNS、ホスト名、タイムゾーン。初回起動時に一度だけ実行するコマンドまたはスクリプトを指定でき、URL からの取得にも対応する。
+**Portage。** profile、`MAKEOPTS`、`USE`、`ACCEPT_KEYWORDS`、`L10N`、ミラー、リポジトリ同期方式を設定できる。gentoo-zh と gig の overlay は明示的に選択した場合のみ有効になる。公式と gentoo-zh のバイナリパッケージ取得元には、それぞれ独立した設定と鍵がある。
 
-**デスクトップ。** GNOME、KDE Plasma、Xfce。ディスプレイマネージャは gdm、sddm、lightdm、greetd。グラフィックスは amdgpu、intel、nvidia、nouveau、radeon、仮想マシンに対応し、`VIDEO_CARDS`、当該ドライバが必要とする USE フラグ、カーネルパラメータをまとめて設定する。操作者による補完を前提としない。
+**計画と記録。** dry run と実際のインストールは同じ操作計画を使用する。`install.log` はコマンド出力を記録し、`install.jsonl` は操作、パッケージの取得元、バイナリパッケージのフォールバック理由を記録する。メニューは機密情報を除去した設定を `paste.gentoozh.org` に送信し、そのページアドレスをテキストと QR コードで表示できる。
 
-**入力メソッド。** fcitx5 と ibus。Rime は拼音、注音、倉頡、五筆、粤拼の方式を提供する。日本語は Anthy と Mozc、韓国語は Hangul。フォントは locale とは独立した選択肢である。
+## 検証状況
 
-**Portage。** profile、`MAKEOPTS`、`USE`、`ACCEPT_KEYWORDS`、`L10N`、ミラー地域、リポジトリの同期方式。gentoo-zh と gig の overlay は任意選択であり、選択した場合はその鍵と `package.accept_keywords` も併せて書き込まれる。バイナリパッケージは公式ホストと gentoo-zh から取得し、鍵は別々に管理する。
+記録済みの最新エンドツーエンド検証ベースラインは、一部の UEFI と BIOS インストール、systemd、OpenRC、ext4、btrfs、xfs、LUKS2、LVM、mdraid、Plasma、公式 binhost を対象とする。各実行記録はインストーラのリビジョンを明示し、インストール済みシステムの起動を確認して初めて検証の根拠となる。
 
-**すべての機能に dry run がある。** `--dry-run` は同一の計画に基づき、実際の実行が適用する操作一覧を出力する。したがって出力のみの経路が実行経路と乖離することはない。中断したインストールはジャーナルから再開できる。`install.jsonl` は各パッケージの取得元と、ソースビルドへ切り替えた理由をすべて記録する。設定はパスワードハッシュを除去したうえで、pastebin またはコンソール上の QR コードへ出力できる。
+現在のリビジョンでは、ZFS と ZFSBootMenu、initramfs の SSH リモート解錠、greetd のデスクトップセッション、GNOME 以外での ibus は、このベースラインに含まれない。既定以外の 6 種類のライブメディアからのインストールと、binhost 障害時のフォールバックもベースライン外である。`tests/fixtures/` のファイルは設定モデルを検証するものであり、ファイルの存在だけではエンドツーエンド対応の根拠にならない。
 
 ## 要件
 
-root 権限、amd64 のターゲット、Python 3.11 以上。標準ライブラリのみを使用する。
+実際のインストールには root 権限、amd64 ターゲット、Python 3.11 以降が必要である。設定ファイルの dry run には root 権限を必要としない。Python 標準ライブラリ以外の実行時依存はない。
 
-起動時に `packages.gentoo.org` への接続を必要とする。カーネルの版と `sys-fs/zfs` が対応するカーネルの上限は実行時に取得するため、ローカルの ebuild ツリーは不要であり、Alpine、Debian、openSUSE、Fedora、Arch、Gentoo の live システム上で動作する。接続できない場合は停止する。例外は `--missing-commands` と、`--config` に `--dry-run` を伴う場合の二つである。
+インストーラの開始時に `packages.gentoo.org` への接続が必要である。ただし、`--missing-commands` と `--config FILE --dry-run` は例外である。カーネルバージョンと `sys-fs/zfs` が対応する最大カーネルバージョンは実行時に取得する。
 
-`bootstrap.sh` は `/etc/os-release` を読み、選択された構成が必要とし当該マシンに存在しないコマンドを列挙して、そのディストリビューションのインストールコマンドを出力する。`apt-get`、`pacman`、`zypper`、`dnf`、`emerge`、`apk` に対応する。
+`bootstrap.sh` は `/etc/os-release` を読み、不足しているコマンドを報告し、候補となるパッケージマネージャのコマンドを出力する。Debian と Ubuntu、Arch、openSUSE、Fedora、RHEL と CentOS、Gentoo、Alpine の各系統を識別する。出力されたコマンドは実行前に確認する必要がある。
 
-## 使用方法
+## 安全上の注意
+
+実際のインストールは選択したディスクに書き込む。設定ファイルからの実行は、消去を再確認せずに開始する。`wipe = true`、パーティションの削除、ファイルシステムの作成は既存データを破壊する可能性がある。
+
+実際のインストール前に、dry-run の出力でディスクセレクタとすべての破壊的操作を確認する必要がある。`/dev/sda` のような名前より、安定した `/dev/disk/by-id/` セレクタが望ましい。必要なデータは別の場所にバックアップする必要がある。
+
+## インストール
+
+現在の `master` アーカイブをダウンロードしてメニューを開く。
 
 ```sh
 curl -fsSL https://github.com/Zakkaus/gentoo-install/archive/refs/heads/master.tar.gz | tar xz
@@ -42,58 +50,44 @@ cd gentoo-install-master
 ./bootstrap.sh
 ```
 
+メニューには、画面サイズが 80x24 以上の対話型端末が必要である。開始時にインターフェイス言語の選択を一度求める。`--lang ja` を指定すると、この質問を省略して日本語を選択する。
+
+メニューは回答を `my-install.toml` に保存して終了できる。設定ファイルを使用する次の手順では、実際のインストール前に完全な計画を出力する。
+
 ```sh
-./bootstrap.sh                                       # メニュー
-./bootstrap.sh --config my-install.toml              # 無人実行
-./bootstrap.sh --dry-run --config my-install.toml    # 操作を出力し、ディスクには触れない
-./bootstrap.sh --config my-install.toml --resume     # 前回停止した位置から継続する
-./bootstrap.sh --config my-install.toml --no-shell   # 確認せずにアンマウントして終了する
+./bootstrap.sh --config my-install.toml --dry-run
+./bootstrap.sh --config my-install.toml
+./bootstrap.sh --config my-install.toml --no-shell   # root シェルを開く確認を省略
 ```
 
-メニューは実端末を必要とし、画面は 80x24 以上であること。インターフェイス言語は開始時に一度尋ねられる。`--lang ja` はこの質問を省略する。
+対話型インストールでは、成功時と失敗時のどちらでも、アンマウント前にターゲットシステム内で root シェルを開く選択肢を提示する。`--no-shell` はこの確認を省略する。
 
-アンマウントの前に、インストールの成否にかかわらず、新しいシステム内で root シェルを開く選択肢が提示される。失敗時にも提示される。機器が復旧可能かどうかは操作者の判断であり、アンマウント後に再度入るには構成全体を手動でマウントし直す必要があるためである。`--no-shell` はこの質問を取り除く。
+## 中断した実行の再開
+
+`--resume` は、ジャーナルで完了済みと記録された操作を省略する。
+
+```sh
+./bootstrap.sh --config my-install.toml --resume
+```
+
+再開は同じライブセッションに限られる。既定のジャーナルは `/run/gentoo-install/install.jsonl` にあるため、再起動後には残らない。ジャーナルの各項目はその操作の実装と自身の値のダイジェストを記録するため、コードまたは値が変更された操作は省略されずに再度実行される。設定全体のダイジェストは記録されない。
 
 ## 設定ファイル
 
-TOML。先頭行で `config_version` を宣言する。ディスクはデバイスグラフである。各デバイスは `id` を持ち、デバイスどうしは `id` で参照し合い、デバイスパスは実行時に解決される。
+設定ファイルは TOML 形式である。トップレベルの `config_version` フィールドがスキーマバージョンを指定する。ストレージはデバイスグラフで表す。各デバイスは `id` を持ち、デバイスはほかのデバイスを `id` で参照する。セレクタは実際のインストール時にのみ解決される。
 
-```toml
-config_version = 1
+[`tests/fixtures/vm-binpkg.toml`](tests/fixtures/vm-binpkg.toml) は、UEFI と ext4 を使用する完全なスキーマ参照例である。ほかの [`tests/fixtures/`](tests/fixtures/) ファイルは BIOS、LUKS2、LVM、mdraid、ZFS、btrfs subvolume、デスクトップを扱う。これらは仮想マシン用のディスクセレクタとテスト用認証情報を含むため、実機にそのまま使用してはならない。
 
-[system]
-hostname = "gentoo"
-locale = "ja_JP.UTF-8"
-init = "systemd"
-root_password_hash = "$6$..."   # openssl passwd -6 で生成する。平文は置かない
-
-[portage]
-profile = "default/linux/amd64/23.0/systemd"   # init と一致していること
-
-[bootloader]
-kind = "grub"
-firmware = "uefi"
-
-[disk]
-root = "mnt-root"
-
-[[disk.devices]]
-kind = "existing"
-id = "disk"
-selector = "/dev/disk/by-id/virtio-target0"
-wipe = true
-```
-
-`tests/fixtures/` に動作する例があり、UEFI、BIOS、LUKS2、LVM、mdraid、ZFS、btrfs subvolume、デスクトップを網羅する。解析はハードウェアに触れないため、ターゲットディスクを持たないマシンでも `--dry-run` で設定を検証できる。
+解析と計画ではストレージハードウェアを調査しないため、ターゲットディスクがないマシンでも `--dry-run` で設定を確認できる。
 
 ## バイナリパッケージ
 
-任意であり、唯一の経路となることはない。保証された経路はソースからのビルドである。公式 binhost と gentoo-zh の binhost は別個の選択肢であり、鍵も別々に管理する。ホストへ到達できない、署名が欠けている、鍵が信頼されていない、のいずれの場合も警告を出してビルドへ切り替え、`install.jsonl` に理由を記録する。
+バイナリパッケージは任意である。無効にした場合もソースからビルドできる。公式 binhost と gentoo-zh binhost は別々の選択肢であり、それぞれ独立した信頼設定を持つ。現在のエンドツーエンド検証ベースラインは、binhost に接続できない場合、署名がない場合、鍵が信頼されていない場合を対象としていない。これらのフォールバック経路は、検証状況の未検証項目として記載されている。
 
 ## 終了コード
 
-`0` 完了、`1` 設定の誤り、`2` preflight の失敗、`3` 完全性検証の失敗、`4` 外部コマンドの失敗、`5` 操作者による中止。
+`0` は完了、`1` は設定エラー、`2` は preflight の失敗、`3` は完全性検証の失敗、`4` は外部コマンドの失敗、`5` は操作者による中止を意味する。
 
 ## 開発への参加
 
-[CONTRIBUTING.md](CONTRIBUTING.md) を参照。
+開発環境、アーキテクチャ、必須の検査は [CONTRIBUTING.md](CONTRIBUTING.md) に記載されている。

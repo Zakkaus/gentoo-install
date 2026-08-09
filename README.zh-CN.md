@@ -2,39 +2,47 @@
 
 # gentoo-install
 
-从任何一套运行中的 Linux live 系统，把机器装成可引导 Gentoo 的安装器。以菜单或配置文件驱动。界面提供英文、繁体中文、简体中文、日本語与한국어。
+gentoo-install 是一个安装程序，可从受支持的 Linux live 环境安装 amd64 Gentoo 系统。安装内容由交互式菜单或 TOML 配置文件指定。界面提供英文、繁体中文、简体中文、日文和韩文。
 
-![菜单，列出安装器所做的每一项决定](screenshot.png)
+![显示各项安装决定的菜单](screenshot.png)
 
-![cjktty 控制台渲染简体中文、繁体中文、日文与韩文](cjk-console.png)
+![cjktty 控制台显示简体中文、繁体中文、日文和韩文](cjk-console.png)
 
 ## 功能
 
-**磁盘。** GPT 与 MBR。ext2/3/4、带 subvolume 的 btrfs、xfs、f2fs、vfat、swap 与 zram。LUKS2、LVM，以及 raid0、raid1、raid5、raid6 的 mdraid。ZFS pool 与 dataset，含原生加密、mirror 与 raidz。既有分区表可以沿用：逐个分区指定挂载点，并各自决定是否格式化。
+**存储设备。** 设备图支持 GPT 和 MBR、ext2/3/4、包含 subvolume 的 btrfs、xfs、f2fs、vfat、swap、zram、LUKS2、LVM 和 mdraid。可以保留现有分区表，并为每个分区分别指定保留、格式化或删除。
 
-**引导。** UEFI 与 BIOS 上的 GRUB、systemd-boot，ZFS 根则用 ZFSBootMenu。initramfs 由 dracut 生成，模块清单从设备图推导而非手动列出。根文件系统可在 initramfs 阶段以 SSH 解锁。
+**引导与系统。** GRUB 支持 UEFI 和 BIOS，systemd-boot 支持 UEFI。安装程序可配置 systemd 或 OpenRC、dracut、locale、键盘布局、时区、主机名、DNS、静态地址和所选的网络管理程序。
 
-**内核。** `::gentoo` 的 `sys-kernel/gentoo-kernel-bin` 与 `sys-kernel/gentoo-kernel`，以及 gentoo-zh overlay 的 `sys-kernel/gentoo-cjk-kernel-bin` 与 `sys-kernel/gentoo-cjk-kernel`。gentoo-zh 那一对带 [cjktty-patches](https://github.com/gentoo-zh/cjktty-patches)，能在文字控制台显示中文、日文与韩文，原版内核在同一位置画的是空白。上面第二张图是应用该补丁的 `7.1.7-gentoo-dist`。
+**桌面与语言支持。** GNOME、KDE Plasma 和 Xfce 可搭配 gdm、sddm 或 lightdm。图形设置涵盖 AMD、Intel、NVIDIA 和虚拟机。软件包目录包含 fcitx5、Rime、Anthy、Mozc、Hangul 和 CJK 字体。gentoo-zh 提供的补丁内核可在 Linux 文本控制台显示中文、日文和韩文。
 
-**系统。** systemd 或 OpenRC。NetworkManager 搭配 wpa_supplicant 或 iwd、systemd-networkd，或不设网络。静态地址、DNS、主机名与时区。首次开机执行一次的命令或脚本，可指定网址获取。
+**Portage。** 配置项包括 profile、`MAKEOPTS`、`USE`、`ACCEPT_KEYWORDS`、`L10N`、镜像和仓库同步方式。gentoo-zh 和 gig overlay 必须明确启用。官方与 gentoo-zh 的二进制软件包来源分别使用独立的设置和密钥。
 
-**桌面。** GNOME、KDE Plasma 与 Xfce，登录管理程序为 gdm、sddm、lightdm 或 greetd。显卡涵盖 amdgpu、intel、nvidia、nouveau、radeon 与虚拟机：`VIDEO_CARDS`、该驱动需要的 USE 标记与内核参数一并设置，不留给操作者自行补齐。
+**计划与记录。** dry run 和实际安装使用同一份操作计划。`install.log` 记录命令输出，`install.jsonl` 记录操作、软件包来源和二进制软件包降级原因。菜单可将移除敏感信息的配置上传至 `paste.gentoozh.org`，并以文本和 QR code 显示上传页面的网址。
 
-**输入法。** fcitx5 与 ibus。Rime 提供拼音、注音、仓颉、五笔与粤拼方案；日文为 Anthy 与 Mozc；韩文为 Hangul。字体与 locale 是两个各自独立的选项。
+## 验证状态
 
-**Portage。** profile、`MAKEOPTS`、`USE`、`ACCEPT_KEYWORDS`、`L10N`、镜像区域与仓库同步方式。gentoo-zh 与 gig overlay 为可选，选中时一并写入其密钥与 `package.accept_keywords`。二进制包来自官方主机与 gentoo-zh，密钥各自管理。
+最近一份有记录的端到端基准覆盖部分 UEFI 和 BIOS 安装、systemd、OpenRC、ext4、btrfs、xfs、LUKS2、LVM、mdraid、Plasma 和官方 binhost。每份有效记录都会标明安装程序修订版，并在安装完成的系统成功引导后才列为证据。
 
-**每一项功能都有 dry run。** `--dry-run` 依同一份计划打印实际执行会应用的操作清单，因此只打印不执行的路径无法与真正执行的路径分歧。中断的安装可依日志续装。`install.jsonl` 记录每个包的来源与每一次退回源码编译的原因。配置文件可导出到 pastebin 或控制台上的 QR code，密码哈希在导出前移除。
+当前修订版的基准尚未覆盖 ZFS 与 ZFSBootMenu、initramfs 的 SSH 远程解锁、greetd 桌面会话，以及 GNOME 以外的 ibus。从六种非默认 live 介质安装和 binhost 失败后的降级路径也未纳入。`tests/fixtures/` 下的文件只验证配置模型；文件存在并不表示对应组合已通过端到端验证。
 
-## 需求
+## 要求
 
-以 root 运行，目标架构 amd64，Python 3.11 以上，只用标准库。
+实际安装需要 root 权限、amd64 目标和 Python 3.11 或更高版本。使用配置文件执行 dry run 不需要 root 权限。安装程序没有第三方 Python 运行时依赖项。
 
-启动时需要能连上 `packages.gentoo.org`。内核版本与 `sys-fs/zfs` 的内核上限都是实时读取，因此本机不需要 ebuild 树，安装器也就能在 Alpine、Debian、openSUSE、Fedora、Arch 与 Gentoo 的 live 系统上运行。连不上就停止，只有 `--missing-commands` 以及 `--config` 加 `--dry-run` 两种离线答案例外。
+安装程序启动时需要连接 `packages.gentoo.org`，但 `--missing-commands` 和 `--config FILE --dry-run` 除外。内核版本和 `sys-fs/zfs` 支持的最高内核版本会在运行时读取。
 
-`bootstrap.sh` 读 `/etc/os-release`，列出所选布局需要而本机缺少的命令，并打印该发行版的安装命令。已知 `apt-get`、`pacman`、`zypper`、`dnf`、`emerge` 与 `apk`。
+`bootstrap.sh` 会读取 `/etc/os-release`、报告缺少的命令，并打印候选的软件包管理器命令。它可识别多个发行版系列，包括 Debian 和 Ubuntu、Arch、openSUSE、Fedora、RHEL 和 CentOS、Gentoo，以及 Alpine。打印的命令必须在执行前核对。
 
-## 使用
+## 安全事项
+
+实际安装会写入所选磁盘。使用配置文件运行时不会再次要求确认擦除磁盘；`wipe = true`、删除分区和创建文件系统都可能破坏现有数据。
+
+实际安装前，必须在 dry-run 输出中核对磁盘选择器和每项破坏性操作。稳定的 `/dev/disk/by-id/` 选择器优于 `/dev/sda` 之类的名称；需要保留的数据必须另有备份。
+
+## 安装
+
+以下命令会下载当前的 `master` 归档文件并打开菜单：
 
 ```sh
 curl -fsSL https://github.com/Zakkaus/gentoo-install/archive/refs/heads/master.tar.gz | tar xz
@@ -42,58 +50,44 @@ cd gentoo-install-master
 ./bootstrap.sh
 ```
 
+菜单需要至少 80 列、24 行的交互式终端。安装程序启动时会询问一次界面语言；`--lang zh-CN` 可直接选择简体中文。
+
+菜单可将答案保存为 `my-install.toml` 后退出。以下配置文件操作流程会先打印完整计划，再执行实际安装：
+
 ```sh
-./bootstrap.sh                                       # 菜单
-./bootstrap.sh --config my-install.toml              # 无人值守
-./bootstrap.sh --dry-run --config my-install.toml    # 只打印操作，不碰磁盘
-./bootstrap.sh --config my-install.toml --resume     # 从上次停下的地方继续
-./bootstrap.sh --config my-install.toml --no-shell   # 收尾不询问，直接卸载
+./bootstrap.sh --config my-install.toml --dry-run
+./bootstrap.sh --config my-install.toml
+./bootstrap.sh --config my-install.toml --no-shell   # 不询问是否打开 root shell
 ```
 
-菜单需要真终端，画面至少 80x24。界面语言在开场询问一次，`--lang zh-CN` 跳过这一问。
+交互式安装无论成功或失败，都会在卸载前提供在目标系统内打开 root shell 的选项。`--no-shell` 可跳过这项确认。
 
-卸载之前，无论安装完成或失败，安装器都会提供在新系统里打开 root shell 的选项。失败时同样提供：机器是否还能救回由操作者判断，而卸载之后要再进去就得把整个布局手动挂回来。`--no-shell` 移除这一问。
+## 从中断处继续
+
+`--resume` 会跳过日志中标记为完成的操作：
+
+```sh
+./bootstrap.sh --config my-install.toml --resume
+```
+
+继续执行仅限同一个 live 会话。默认日志位于 `/run/gentoo-install/install.jsonl`，重新启动后不会保留。日志的每一条记录该操作实现与自身字段的摘要，因此代码或字段更改过的操作会重新执行而不是跳过。日志不记录整份配置的摘要。
 
 ## 配置文件
 
-TOML，第一行声明 `config_version`。磁盘是一张设备图：每个设备带有 `id`，设备之间以 `id` 互相引用，设备路径到运行时才解析。
+配置文件使用 TOML。顶层 `config_version` 字段指定结构版本。存储设备以设备图表示：每个设备都有 `id`，设备通过其他设备的 `id` 建立引用，选择器仅在实际安装时解析。
 
-```toml
-config_version = 1
+[`tests/fixtures/vm-binpkg.toml`](tests/fixtures/vm-binpkg.toml) 是完整的 UEFI 和 ext4 结构参考。其他 [`tests/fixtures/`](tests/fixtures/) 文件覆盖 BIOS、LUKS2、LVM、mdraid、ZFS、btrfs subvolume 和桌面。这些文件使用虚拟机磁盘选择器和测试密码，不得原样用于实际机器的安装。
 
-[system]
-hostname = "gentoo"
-locale = "zh_CN.UTF-8"
-init = "systemd"
-root_password_hash = "$6$..."   # 由 openssl passwd -6 生成，不放明文
+解析与计划阶段不会探测存储硬件，因此没有目标磁盘的机器也能通过 `--dry-run` 检查配置。
 
-[portage]
-profile = "default/linux/amd64/23.0/systemd"   # 必须与 init 一致
+## 二进制软件包
 
-[bootloader]
-kind = "grub"
-firmware = "uefi"
-
-[disk]
-root = "mnt-root"
-
-[[disk.devices]]
-kind = "existing"
-id = "disk"
-selector = "/dev/disk/by-id/virtio-target0"
-wipe = true
-```
-
-`tests/fixtures/` 下有可用的示例，涵盖 UEFI、BIOS、LUKS2、LVM、mdraid、ZFS、btrfs subvolume 与桌面。解析不碰硬件，因此没有目标磁盘的机器也能以 `--dry-run` 检查一份配置文件。
-
-## 二进制包
-
-可选，而且从不是唯一路径。源码编译才是保证路径。官方 binhost 与 gentoo-zh binhost 是两个各自独立的选项，密钥分开管理。主机不可达、缺少签名或密钥不受信任，都退回编译并打印警告，`install.jsonl` 记下原因。
+二进制软件包是可选功能。关闭后仍可从源代码构建。官方 binhost 和 gentoo-zh binhost 是两个独立选项，并使用不同的信任配置。当前端到端基准尚未覆盖 binhost 无法连接、缺少签名或密钥不受信任的情况，因此这些降级路径仍列在验证状态中。
 
 ## 退出码
 
-`0` 完成、`1` 配置错误、`2` preflight 失败、`3` 完整性验证失败、`4` 外部命令失败、`5` 操作者中止。
+`0` 表示完成，`1` 表示配置错误，`2` 表示 preflight 失败，`3` 表示完整性验证失败，`4` 表示外部命令失败，`5` 表示操作者中止。
 
 ## 参与开发
 
-见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+[CONTRIBUTING.md](CONTRIBUTING.md) 介绍开发环境、架构和必要检查。
