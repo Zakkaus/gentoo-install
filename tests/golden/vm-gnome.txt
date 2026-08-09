@@ -73,6 +73,7 @@
   enable gdm at boot
   install the noto-cjk group: emerge media-fonts/noto-cjk media-fonts/noto media-libs/fontconfig
   install the pipewire group: emerge media-video/pipewire media-video/wireplumber
+  enable pipewire.socket, pipewire-pulse.socket, wireplumber.service for every user
 
 [finish]
   delete the downloaded stage3 from /var/cache/gentoo-install

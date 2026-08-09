@@ -5,3 +5,7 @@ use = ["pipewire", "screencast"]
 # needed to function smoothly`, from the ebuild's own postinst. Without it the
 # session runs without realtime scheduling, which is audible as xruns.
 user_groups = ["pipewire"]
+# The ebuild: "the out-of-the-box experience is automatic on OpenRC, while it
+# needs manual intervention on systemd". Without these the packages merge and
+# nothing starts them, so the desktop has no sound server.
+user_services = ["pipewire.socket", "pipewire-pulse.socket", "wireplumber.service"]

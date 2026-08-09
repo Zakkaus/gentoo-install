@@ -56,6 +56,9 @@ class Group:
     files: tuple[GroupFile, ...] = ()
     #: package.use lines this group needs, written before anything merges.
     package_use: tuple[str, ...] = ()
+    #: Units every user's own systemd instance has to start. openrc has no
+    #: equivalent: what it needs is a system service, which `services` covers.
+    user_services: tuple[str, ...] = ()
     #: Groups the account has to be in for this group's packages to work.
     #: Added after the packages merge, because the `acct-group` that creates
     #: them comes with the package.
@@ -195,6 +198,30 @@ class WriteGroupUse(Operation):
             PurePosixPath(f"/etc/portage/package.use/{self.group}"),
             "".join(f"{line}\n" for line in self.lines),
         )
+
+
+@dataclass(frozen=True, kw_only=True)
+class EnableUserUnits(Operation):
+    """Enable units in every user's own systemd instance.
+
+    `systemctl --global`, because `--user` needs that user's instance running
+    and none is during an install. `media-video/pipewire` says it outright:
+    "the out-of-the-box experience is automatic on OpenRC, while it needs
+    manual intervention on systemd", so without this the packages are merged
+    and nothing starts them.
+    """
+
+    stage: Stage = Stage.PACKAGES
+    group: str
+    units: tuple[str, ...]
+
+    def describe(self) -> str:
+        return f"enable {', '.join(self.units)} for every user"
+
+    def apply(self, context: Context) -> None:
+        # `--force`: wireplumber's own postinst says so, because the symlink it
+        # replaces belongs to the session manager it supersedes.
+        context.run_in_target(["systemctl", "--global", "--force", "enable", *self.units])
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -436,6 +463,10 @@ def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
             )
         if group.package_use:
             operations.append(WriteGroupUse(group=group.name, lines=group.package_use))
+        if group.user_services and config.system.init is InitSystem.SYSTEMD:
+            operations.append(
+                EnableUserUnits(group=group.name, units=group.user_services)
+            )
         for wanted in group.files:
             operations.append(WriteGroupFile(group=group.name, file=wanted))
         if group.display_manager:

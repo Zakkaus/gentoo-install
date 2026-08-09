@@ -20,7 +20,7 @@ KEYS: Final[frozenset[str]] = frozenset(
         "packages", "services", "use", "repositories", "video_cards", "files",
         "input_method", "schemas", "wayland", "package_use", "accept_license",
         "display_manager", "profile", "input_framework", "input_method_launcher",
-        "wayland_files", "user_groups",
+        "wayland_files", "user_groups", "user_services",
     }
 )
 
@@ -68,6 +68,7 @@ def _load(path: Path) -> Group:
         wayland=_flag(raw, "wayland", path),
         package_use=_strings(raw, "package_use", path),
         user_groups=_strings(raw, "user_groups", path),
+        user_services=_strings(raw, "user_services", path),
     )
 
 

@@ -964,3 +964,44 @@ def test_the_pam_stack_gets_the_seat_flag_the_manager_needs() -> None:
         ]
         assert f"sys-auth/pambase {flag}" in written, (init, written)
         assert f"gnome-base/gdm {flag}" in written, (init, written)
+
+
+def test_pipewire_is_started_on_systemd_and_left_to_openrc() -> None:
+    """The ebuild says it outright: "the out-of-the-box experience is automatic
+    on OpenRC, while it needs manual intervention on systemd". Without the
+    enable the packages merge and the desktop has no sound server.
+
+    `--global`, not `--user`: no user instance is running during an install.
+    """
+    from gentoo_install.model.config import InitSystem
+    from gentoo_install.plan.packages import EnableUserUnits
+    from gentoo_install.plan.packages import build as build_packages
+
+    catalog = load_catalog()
+    for init, wanted in ((InitSystem.SYSTEMD, True), (InitSystem.OPENRC, False)):
+        installation = replace(
+            config(ext4_on_gpt()),
+            system=replace(config().system, init=init),
+            packages=replace(config().packages, applications=("pipewire",)),
+        )
+        told = [
+            one
+            for one in build_packages(installation, catalog)
+            if isinstance(one, EnableUserUnits)
+        ]
+        assert bool(told) is wanted, init
+        if not told:
+            continue
+        recorder = Recorder()
+        told[0].apply(recorder)
+        assert recorder.in_target == [
+            (
+                "systemctl",
+                "--global",
+                "--force",
+                "enable",
+                "pipewire.socket",
+                "pipewire-pulse.socket",
+                "wireplumber.service",
+            )
+        ]
