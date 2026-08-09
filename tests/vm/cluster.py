@@ -95,6 +95,13 @@ NODE_HEADROOM_BYTES: Final[int] = 4 * 1024**3
 WATCH_EVERY: Final[float] = 600.0
 WATCH_STRIKES: Final[int] = 3
 
+#: How long the schedule waits before looking at capacity again while jobs are
+#: still queued. A node's free memory lags what is actually running on it, so
+#: the first look after a guest is deleted can still read it as full: with only
+#: the watchdog's interval to fall back on, five free slots sat unused for ten
+#: minutes with eighteen jobs waiting.
+POLL_WHILE_QUEUED: Final[float] = 20.0
+
 #: Nothing this harness runs takes three hours, and a run that does is holding
 #: a node's memory rather than testing anything.
 RUN_CEILING: Final[float] = 3 * 3600.0
@@ -422,6 +429,7 @@ def run(
     #: the same moment both read 9304 as free and the second was refused with
     #: `VM 9304 already exists on node 'infra-node5'`.
     handed: set[int] = set()
+    swept = time.monotonic()
 
     try:
         while waiting or running:
@@ -448,10 +456,13 @@ def run(
                 print(f"→ {job.name} on {node.name} ({len(waiting)} waiting)", flush=True)
             try:
                 # Collected one at a time, never as a set: a fixture that takes
-                # an hour must not hold back one that took six minutes.
-                outcome = done.get(timeout=WATCH_EVERY)
+                # an hour must not hold back one that took six minutes. Waiting
+                # jobs shorten the wait, because capacity frees between looks.
+                outcome = done.get(timeout=POLL_WHILE_QUEUED if waiting else WATCH_EVERY)
             except queue.Empty:
-                _sweep(inflight)
+                if time.monotonic() - swept >= WATCH_EVERY:
+                    _sweep(inflight)
+                    swept = time.monotonic()
                 continue
             finished.append(outcome)
             running.pop(outcome.name, None)
