@@ -741,7 +741,7 @@ def test_the_input_method_variables_reach_a_session_a_display_manager_starts() -
     assert str(ENVIRONMENT_FILE[InitSystem.SYSTEMD]) == "/etc/environment"
     recorder = Recorder()
     WriteInputMethodEnvironment(
-        init=InitSystem.SYSTEMD, framework="fcitx", wayland=False
+        init=InitSystem.SYSTEMD, framework="fcitx", session=plan_packages.Session.X11
     ).apply(recorder)
     written = {str(path): text for path, text in recorder.files.items()}
     assert "XMODIFIERS=@im=fcitx" in written["/etc/environment"]

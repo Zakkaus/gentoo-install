@@ -2140,6 +2140,7 @@ def overview_screen(screen: Screen, config: InstallConfig, context: Context) -> 
         *automatic_values.video_cards(config, context.groups),
         *automatic_values.use_flags(config, context.groups),
         *automatic_values.user_groups(config, context.groups),
+        *automatic_values.environment(config, context.groups),
         *automatic_values.kernel_parameters(config),
     )
     if given:

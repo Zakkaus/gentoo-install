@@ -37,9 +37,10 @@ UNLOCK: Final[str] = "remote unlock needs the initramfs to have an address"
 GROUP_USE: Final[str] = "asked for by a group you chose"
 GROUP_CARD: Final[str] = "the graphics driver you chose needs it"
 GROUP_ACCOUNT: Final[str] = "a package you chose needs the account in it"
+INPUT_SESSION: Final[str] = "the input method needs it in this session"
 
 REASONS: Final[tuple[str, ...]] = (
-    ROOT, ROOT_FROM_GRUB, ROOT_FROM_ZBM, WRITABLE, SUBVOLUME, CONTAINER, ARRAY, KEYMAP, UNLOCK, GROUP_USE, GROUP_CARD, GROUP_ACCOUNT,
+    ROOT, ROOT_FROM_GRUB, ROOT_FROM_ZBM, WRITABLE, SUBVOLUME, CONTAINER, ARRAY, KEYMAP, UNLOCK, GROUP_USE, GROUP_CARD, GROUP_ACCOUNT, INPUT_SESSION,
 )
 
 
@@ -153,6 +154,21 @@ def user_groups(config: InstallConfig, catalog: Catalog) -> tuple[Added, ...]:
                 continue
             added.append(Added(value=name, because=GROUP_ACCOUNT, source=group.name))
     return tuple(added)
+
+
+def environment(config: InstallConfig, catalog: Catalog) -> tuple[Added, ...]:
+    """The input-method variables the installer writes for the session chosen.
+
+    Shown because they are not the same everywhere and the operator cannot
+    guess them: Plasma drives fcitx itself and a toolkit variable there makes
+    the candidate window blink, while mutter needs `QT_IM_MODULE`.
+    """
+    from .packages import input_environment
+
+    lines = input_environment(config, catalog)
+    return tuple(
+        Added(value=line, because=INPUT_SESSION, source="") for line in lines
+    )
 
 
 def _root_value(config: InstallConfig) -> str:

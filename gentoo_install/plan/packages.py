@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import PurePosixPath
 from typing import Final, Mapping, Sequence
 
@@ -272,17 +273,54 @@ class AddUserToGroups(Operation):
         context.run_in_target(["usermod", "-aG", ",".join(self.groups), self.user])
 
 
-#: The environment each framework needs, by framework, off Wayland and on it.
-#: fcitx on Wayland deliberately sets neither toolkit variable: KWin drives it
-#: over text-input and setting them makes the candidate window blink. ibus has
-#: no such path and needs them in both sessions.
-INPUT_ENVIRONMENT: Final[dict[tuple[str, bool], tuple[str, ...]]] = {
-    ("fcitx", False): ("XMODIFIERS=@im=fcitx", "GTK_IM_MODULE=fcitx", "QT_IM_MODULE=fcitx"),
+class Session(Enum):
+    """Which of the three input-method situations a session is in.
+
+    From the Fcitx project's own Wayland page: the answer is not the same for
+    every compositor, and keying only on Wayland gave GNOME the KWin answer.
+    """
+
+    X11 = "x11"
+    #: The compositor starts fcitx over `input-method-v2` and drives it over
+    #: text-input: Plasma, through its Virtual keyboard KCM. Setting a toolkit
+    #: variable here makes the candidate window blink.
+    WAYLAND_DRIVEN = "wayland-driven"
+    #: Every other Wayland session. mutter has no text-input-v2 and Qt 5 runs
+    #: under XWayland there, so Qt reaches fcitx only through its own module.
+    WAYLAND_PLAIN = "wayland-plain"
+
+
+#: The environment each framework needs in each session.
+#: `GTK_IM_MODULE` stays unset in both Wayland rows: Gtk 3 and Gtk 4 use
+#: text-input-v3, and forcing the module is what the Fcitx page warns against.
+INPUT_ENVIRONMENT: Final[dict[tuple[str, Session], tuple[str, ...]]] = {
+    ("fcitx", Session.X11): (
+        "XMODIFIERS=@im=fcitx",
+        "GTK_IM_MODULE=fcitx",
+        "QT_IM_MODULE=fcitx",
+    ),
     # Qt 6.7 and later take a fallback list, which covers a toolkit that ships
     # no fcitx module without breaking the ones that do.
-    ("fcitx", True): ("XMODIFIERS=@im=fcitx", 'QT_IM_MODULES="wayland;fcitx;ibus"'),
-    ("ibus", False): ("XMODIFIERS=@im=ibus", "GTK_IM_MODULE=ibus", "QT_IM_MODULE=ibus"),
-    ("ibus", True): ("XMODIFIERS=@im=ibus", "GTK_IM_MODULE=ibus", "QT_IM_MODULE=ibus"),
+    ("fcitx", Session.WAYLAND_DRIVEN): (
+        "XMODIFIERS=@im=fcitx",
+        'QT_IM_MODULES="wayland;fcitx;ibus"',
+    ),
+    ("fcitx", Session.WAYLAND_PLAIN): (
+        "XMODIFIERS=@im=fcitx",
+        "QT_IM_MODULE=fcitx",
+        'QT_IM_MODULES="wayland;fcitx;ibus"',
+    ),
+    ("ibus", Session.X11): ("XMODIFIERS=@im=ibus", "GTK_IM_MODULE=ibus", "QT_IM_MODULE=ibus"),
+    ("ibus", Session.WAYLAND_DRIVEN): (
+        "XMODIFIERS=@im=ibus",
+        "GTK_IM_MODULE=ibus",
+        "QT_IM_MODULE=ibus",
+    ),
+    ("ibus", Session.WAYLAND_PLAIN): (
+        "XMODIFIERS=@im=ibus",
+        "GTK_IM_MODULE=ibus",
+        "QT_IM_MODULE=ibus",
+    ),
 }
 
 
@@ -333,19 +371,19 @@ class AppendWaylandFlags(Operation):
 
 @dataclass(frozen=True, kw_only=True)
 class WriteInputMethodEnvironment(Operation):
-    """`XMODIFIERS` always, the other two only off Wayland.
+    """`XMODIFIERS` always; which toolkit variables follow it is per session.
 
-    A Wayland compositor drives fcitx over the text-input protocol, and setting
-    `GTK_IM_MODULE` or `QT_IM_MODULE` there makes the candidate window blink.
+    Plasma drives fcitx over text-input and a toolkit variable there makes the
+    candidate window blink. mutter does not, so GNOME needs `QT_IM_MODULE`.
     """
 
     stage: Stage = Stage.PACKAGES
     init: InitSystem
     framework: str
-    wayland: bool
+    session: Session
 
     def _lines(self) -> tuple[str, ...]:
-        return INPUT_ENVIRONMENT[(self.framework, self.wayland)]
+        return INPUT_ENVIRONMENT[(self.framework, self.session)]
 
     def describe(self) -> str:
         named = ", ".join(one.split("=")[0] for one in self._lines())
@@ -758,9 +796,17 @@ def _input_method(config: InstallConfig, catalog: Catalog) -> list[Operation]:
         return []
     framework = _framework(chosen)
     wayland = any(group.wayland for group in chosen)
+    # The launcher is the desktop saying it starts the input method itself,
+    # which is what makes the toolkit variables wrong rather than merely
+    # unnecessary. Only Plasma declares one.
+    driven = any(group.input_method_launcher for group in chosen)
+    if not wayland:
+        session = Session.X11
+    else:
+        session = Session.WAYLAND_DRIVEN if driven else Session.WAYLAND_PLAIN
     operations: list[Operation] = [
         WriteInputMethodEnvironment(
-            init=config.system.init, framework=framework, wayland=wayland
+            init=config.system.init, framework=framework, session=session
         )
     ]
     if framework == "fcitx":
@@ -791,6 +837,18 @@ def _input_method(config: InstallConfig, catalog: Catalog) -> list[Operation]:
                 AppendWaylandFlags(group=group.name, file=one) for one in group.wayland_files
             ]
     return operations
+
+
+def input_environment(config: InstallConfig, catalog: Catalog) -> tuple[str, ...]:
+    """The lines `WriteInputMethodEnvironment` will write, for the panel.
+
+    Derived here rather than restated there: `plan/automatic.py` exists so the
+    operator sees what the installer adds, and a second list would drift.
+    """
+    for one in _input_method(config, catalog):
+        if isinstance(one, WriteInputMethodEnvironment):
+            return INPUT_ENVIRONMENT[(one.framework, one.session)]
+    return ()
 
 
 def _framework(chosen: Sequence[Group]) -> str:

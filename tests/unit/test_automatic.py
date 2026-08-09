@@ -169,6 +169,7 @@ def test_every_reason_used_is_in_the_table_the_catalog_reads() -> None:
             *automatic.kernel_parameters(installation),
             *automatic.use_flags(installation, catalog),
             *automatic.video_cards(installation, catalog),
+            *automatic.environment(installation, catalog),
         )
     }
     assert used <= set(automatic.REASONS), sorted(used - set(automatic.REASONS))
@@ -1118,3 +1119,48 @@ def test_an_engine_selected_alone_still_gets_its_framework() -> None:
         chosen = {one.name for one in groups(installation, catalog)}
         wanted = FRAMEWORK_GROUPS[catalog[name].input_framework]
         assert wanted in chosen, (name, sorted(chosen))
+
+
+def test_the_input_method_environment_follows_the_compositor() -> None:
+    """From the Fcitx project's Wayland page: Plasma starts fcitx itself over
+    `input-method-v2`, and a toolkit variable there makes the candidate window
+    blink; mutter has no text-input-v2 and Qt 5 runs under XWayland, so GNOME
+    needs `QT_IM_MODULE`. Keying only on Wayland gave GNOME the KWin answer."""
+    from dataclasses import replace
+
+    from gentoo_install.plan.packages import input_environment
+
+    catalog = load_catalog()
+
+    def written(desktop: str) -> set[str]:
+        installation = replace(
+            config(ext4_on_gpt()),
+            packages=replace(
+                config().packages, desktop=desktop, applications=("fcitx5", "rime")
+            ),
+        )
+        return set(input_environment(installation, catalog))
+
+    plasma, gnome, console = written("plasma"), written("gnome"), written("")
+    assert "QT_IM_MODULE=fcitx" not in plasma, plasma
+    assert "GTK_IM_MODULE=fcitx" not in plasma, plasma
+    assert "QT_IM_MODULE=fcitx" in gnome, gnome
+    assert "GTK_IM_MODULE=fcitx" not in gnome, gnome
+    # No Wayland session at all: the toolkit modules are the only path.
+    assert {"GTK_IM_MODULE=fcitx", "QT_IM_MODULE=fcitx"} <= console, console
+    for said in (plasma, gnome, console):
+        assert "XMODIFIERS=@im=fcitx" in said, said
+
+
+def test_the_panel_names_the_input_method_variables_it_will_write() -> None:
+    """They are not the same on every desktop and the operator cannot guess
+    them, so the summary has to say which ones the install adds."""
+    from dataclasses import replace
+
+    catalog = load_catalog()
+    installation = replace(
+        config(ext4_on_gpt()),
+        packages=replace(config().packages, desktop="plasma", applications=("fcitx5", "rime")),
+    )
+    shown = {one.value for one in automatic.environment(installation, catalog)}
+    assert "XMODIFIERS=@im=fcitx" in shown, shown
