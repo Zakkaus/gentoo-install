@@ -251,9 +251,18 @@ def rewrite_fixtures(
 
 
 def free_slots(api: Api) -> list[Node]:
-    """Nodes with room for one more guest, most free first."""
-    need = GUEST_MEMORY_MIB * 1024**2 + NODE_HEADROOM_BYTES
-    return [one for one in api.nodes() if one.free_bytes >= need]
+    """One entry per guest the cluster can hold, most free node first.
+
+    A node appears as many times as it has room for, not once: returning one
+    slot per node capped a six-node cluster with 51 GiB spare at three guests
+    at a time, and the queue behind them was twenty deep.
+    """
+    need = GUEST_MEMORY_MIB * 1024**2
+    slots: list[Node] = []
+    for node in api.nodes():
+        room = node.free_bytes - NODE_HEADROOM_BYTES
+        slots += [node] * max(0, int(room // need))
+    return slots
 
 
 class Stoppable(Protocol):

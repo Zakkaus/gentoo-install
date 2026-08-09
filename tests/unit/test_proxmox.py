@@ -364,3 +364,25 @@ def test_every_dispatched_job_answers_exactly_once(
     assert (answered.name, answered.verdict) == ("vm-lvm", Verdict.ERROR)
     assert "WebSocketError" in answered.detail
     assert done.empty(), "one job, one answer"
+
+
+def test_a_node_offers_a_slot_for_every_guest_it_can_hold() -> None:
+    """One slot per node capped a six-node cluster with 51 GiB spare at three
+    guests at a time, with twenty jobs queued behind them."""
+    from tests.vm import cluster
+    from tests.vm.cluster import GUEST_MEMORY_MIB, NODE_HEADROOM_BYTES, free_slots
+    from tests.vm.proxmox import Node
+
+    guest = GUEST_MEMORY_MIB * 1024**2
+
+    class Counted(Api):
+        def nodes(self) -> list[Node]:
+            return [
+                Node(name="big", free_bytes=NODE_HEADROOM_BYTES + guest * 3, cores=4),
+                Node(name="one", free_bytes=NODE_HEADROOM_BYTES + guest, cores=4),
+                Node(name="none", free_bytes=NODE_HEADROOM_BYTES + guest - 1, cores=4),
+            ]
+
+    names = [node.name for node in free_slots(Counted(host="nowhere.invalid"))]
+    assert names == ["big", "big", "big", "one"]
+    assert "none" not in names, "the headroom is left free on every node"
