@@ -750,3 +750,37 @@ def test_a_pastebin_that_refuses_leaves_the_overview_standing() -> None:
         at,
     )
     assert answer.outcome is Outcome.BACK
+
+
+def test_opening_the_mirror_screen_and_changing_nothing_answers_it() -> None:
+    """The row is required so nobody installs from a mirror they never looked
+    at, and opening the screen is looking at it. Leaving the site unset made
+    the row say `required` after it had been answered."""
+    from gentoo_install.tui import settings
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    at = context()
+    before = config(ext4_on_gpt())
+    assert settings._mirror(before, at) == settings.UNSET
+    # Down to Done and enter, touching nothing.
+    after = screens.mirror_screen(
+        FakeScreen(keys=["KEY_DOWN"] * 12 + ["\n"], lines=30, columns=110), before, at
+    ).unwrap()
+    at.visited.add("mirror")
+    row = next(one for one in settings.SETTINGS if one.key == "mirror")
+    assert settings._mirror(after, at) != settings.UNSET
+    assert settings.settled(row, after, at)
+
+
+def test_the_mirror_screen_shows_the_site_it_would_adopt() -> None:
+    """Saying `not set` and then taking that site on the way out was the screen
+    keeping the value it was about to use to itself."""
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    drawn = FakeScreen(keys=["q"], lines=30, columns=110)
+    screens.mirror_screen(drawn, config(ext4_on_gpt()), context())
+    line = next(one for one in drawn.last.splitlines() if "Gentoo mirror" in one)
+    assert "not set" not in line
+    assert "(default)" in line

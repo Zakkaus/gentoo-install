@@ -631,10 +631,36 @@ def mirror_screen(screen: Screen, config: InstallConfig, context: Context) -> An
             return Answer(answer.outcome)
         field = answer.unwrap()[0]
         if field == _DONE:
-            return Answer(Outcome.CHOSE, current)
+            return Answer(Outcome.CHOSE, _with_a_site(current))
         changed = _edit_mirror(screen, context, current, field)
         if changed is not None:
             current = changed
+
+
+def _default_site(region: MirrorRegion, translate: Catalog) -> str:
+    """What `_with_a_site` would adopt, drawn before it does."""
+    offered = mirrors.gentoo_sites(region)
+    return translate(offered[0].name) if offered else translate("none")
+
+
+def _with_a_site(config: InstallConfig) -> InstallConfig:
+    """The region's first mirror, for an operator who opened this screen and
+    changed nothing.
+
+    The row is required so that nobody installs from a mirror they never
+    looked at, and opening the screen is looking at it. Leaving it unset
+    instead made the row say `required` after it had been answered, which is
+    the interface calling the operator wrong.
+    """
+    chosen = config.portage.mirrors
+    if chosen.site:
+        return config
+    offered = mirrors.gentoo_sites(chosen.region)
+    if not offered:
+        return config
+    return replace(
+        config, portage=replace(config.portage, mirrors=replace(chosen, site=offered[0].key))
+    )
 
 
 def _mirror_fields(config: InstallConfig, translate: Catalog) -> list[Item[str]]:
@@ -649,10 +675,13 @@ def _mirror_fields(config: InstallConfig, translate: Catalog) -> list[Item[str]]
         Item(
             label=translate("Gentoo mirror"),
             value=_SITE,
-            # Unset until it is picked, the same as the row that opens this
-            # screen: filling the blank in with the region's first site made
-            # the two disagree about whether the question was answered.
-            detail=_site_name(region, site, translate) if chosen.site else translate("not set"),
+            # The region's first site while none is picked, marked as the
+            # default rather than as an answer. Saying `not set` here and then
+            # adopting it on the way out was the screen keeping the value it
+            # was about to use to itself.
+            detail=_site_name(region, site, translate)
+            if chosen.site
+            else f"{_default_site(region, translate)} ({translate('default')})",
         ),
         Item(
             label=translate("Gentoo distfiles"),
