@@ -165,6 +165,21 @@ def test_a_uefi_configuration_on_a_bios_boot_is_fatal(tmp_path: Path) -> None:
     assert any("booted by BIOS" in reason for reason in report.fatal)
 
 
+def test_thirty_two_bit_efi_firmware_is_fatal_for_an_amd64_install(tmp_path: Path) -> None:
+    """An x86_64 CPU can boot through 32-bit EFI. Only `/sys/firmware/efi` was
+    read, so the install finished and the firmware then refused the amd64 EFI
+    executable it was handed."""
+    report = preflight.inspect(config(), described(efi_bits=32), probe_of(tmp_path))
+    assert any("32-bit EFI" in reason for reason in report.fatal), report.fatal
+
+
+def test_efi_width_the_kernel_does_not_publish_is_not_a_failure(tmp_path: Path) -> None:
+    """`fw_platform_size` arrived in Linux 4.4, and a machine older than that
+    is not evidence of a 32-bit platform."""
+    report = preflight.inspect(config(), described(efi_bits=0), probe_of(tmp_path))
+    assert not [reason for reason in report.fatal if "EFI" in reason], report.fatal
+
+
 def test_a_bios_configuration_on_a_uefi_boot_is_only_a_warning(tmp_path: Path) -> None:
     on_bios = replace(
         present(), bootloader=BootloaderConfig(kind=Bootloader.GRUB, firmware=Firmware.BIOS)

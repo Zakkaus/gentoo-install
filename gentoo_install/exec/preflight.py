@@ -267,6 +267,13 @@ def inspect(
         fatal.append("the configuration boots by UEFI and this machine booted by BIOS")
     if not wants_uefi and machine.uefi:
         warnings.append("the configuration boots by BIOS on a machine that booted by UEFI")
+    if wants_uefi and machine.efi_bits == 32:
+        # Fatal rather than a warning: the install would finish and the
+        # firmware would then refuse the amd64 executable it was handed.
+        fatal.append(
+            "this machine booted through 32-bit EFI firmware, which cannot load "
+            "the amd64 EFI executables an amd64 install writes"
+        )
 
     missing = sorted(required_commands(config) - machine.commands)
     if missing:

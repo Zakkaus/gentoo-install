@@ -22,6 +22,17 @@ from ..model.device import DeviceId
 from .runner import Runner
 
 EFI_MARKER: Final[Path] = Path("/sys/firmware/efi")
+
+#: Published since Linux 4.4. Absent on an older kernel, which is why an
+#: unreadable value is not treated as a failure.
+EFI_WIDTH: Final[Path] = EFI_MARKER / "fw_platform_size"
+
+
+def _efi_bits() -> int:
+    try:
+        return int(EFI_WIDTH.read_text().strip())
+    except (OSError, ValueError):
+        return 0
 #: Where both install media keep the release engineering public key.
 RELEASE_KEY: Final[Path] = Path("/usr/share/openpgp-keys/gentoo-release.asc")
 MEMINFO: Final[Path] = Path("/proc/meminfo")
@@ -41,6 +52,11 @@ class Machine:
     #: What `--version` said, for the commands whose implementation matters.
     #: A busybox applet satisfies `which` and then rejects the flags.
     versions: Mapping[str, str] = field(default_factory=dict)
+    #: The width of the EFI firmware, from `fw_platform_size`. Zero when the
+    #: machine did not boot by EFI or the kernel is too old to publish it: 32
+    #: is the case that matters, because amd64 EFI executables do not load on
+    #: it and the install would finish and never boot.
+    efi_bits: int = 0
 
 
 #: What the kernel calls a CPU feature, and what portage calls it. Only the
@@ -94,6 +110,7 @@ class Probe:
         return Machine(
             architecture=platform.machine(),
             uefi=EFI_MARKER.is_dir(),
+            efi_bits=_efi_bits(),
             root=os.geteuid() == 0,
             memory_bytes=self._memory(),
             commands=frozenset(name for name in wanted if shutil.which(name) is not None),
