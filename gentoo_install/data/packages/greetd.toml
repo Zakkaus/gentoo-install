@@ -6,6 +6,11 @@ display_manager = "greetd"
 # The ebuild's own /etc/greetd/config.toml runs `agreety`, so tuigreet was
 # installed and never reached. `vt = 7` and `user = "greetd"` are what the
 # ebuild's patch sets, and this file replaces the whole thing.
+#
+# `--sessions` and `--xsessions` rather than `--cmd`: the command was
+# `/bin/bash`, so logging in opened a shell instead of the desktop that was
+# installed beside it. Pointing tuigreet at the session directories lets each
+# desktop's own .desktop file name its command, whichever one is selected.
 [[files]]
 path = "/etc/greetd/config.toml"
 content = """
@@ -13,6 +18,6 @@ content = """
 vt = 7
 
 [default_session]
-command = "tuigreet --time --remember --cmd /bin/bash"
+command = "tuigreet --time --remember --remember-session --sessions /usr/share/wayland-sessions --xsessions /usr/share/xsessions"
 user = "greetd"
 """

@@ -977,6 +977,18 @@ def test_a_group_whose_package_is_testing_only_says_so() -> None:
             )
 
 
+def test_greetd_starts_the_desktop_rather_than_a_shell() -> None:
+    """Its command was `tuigreet --cmd /bin/bash`, so a successful login opened
+    a shell beside the desktop that had just been installed. tuigreet reads the
+    session directories instead, and each desktop's own .desktop names its
+    command."""
+    written = load_catalog()["greetd"].files
+    config = next(one for one in written if one.path.name == "config.toml")
+    assert "/bin/bash" not in config.content
+    assert "--sessions /usr/share/wayland-sessions" in config.content
+    assert "--xsessions /usr/share/xsessions" in config.content
+
+
 def test_the_pam_stack_gets_the_seat_flag_the_manager_needs() -> None:
     """`gnome-base/gdm` RDEPENDs `sys-auth/pambase[elogind?,systemd?]` and
     refuses the merge without it; sddm and lightdm merge and start a session
