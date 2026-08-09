@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import struct
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -238,3 +239,49 @@ def test_a_truncated_archive_is_refused() -> None:
     said = f"{CONSOLE_OPEN}\r\n{encoded[: len(encoded) // 2]}\r\n{CONSOLE_CLOSE}\r\n".encode()
     with pytest.raises(ResultError):
         read_console(said)
+
+
+def test_the_watchdog_counts_quiet_looks_not_elapsed_time(tmp_path: Path) -> None:
+    """A slow mirror and a dead guest take the same wall-clock; only one of
+    them is still writing to the console."""
+    from tests.vm.cluster import WATCH_STRIKES, Watchdog
+
+    log = tmp_path / "run.log"
+    log.write_bytes(b"booting\n")
+    watch = Watchdog(log=log)
+    # Read into locals: mypy narrows a property and never widens it again,
+    # because it cannot see `moved()` changing what `stuck` answers.
+    first = (watch.moved(), watch.stuck)
+    quiet = [watch.moved() for _ in range(WATCH_STRIKES)]
+    after = watch.stuck
+    # One more byte and it is alive again: a build that prints once an hour
+    # must not be ended for the silence before it.
+    log.write_bytes(b"booting\nunpacking\n")
+    revived = (watch.moved(), watch.stuck)
+
+    assert first == (True, False), "the first look sees the whole log"
+    assert quiet == [False] * WATCH_STRIKES
+    assert after is True
+    assert revived == (True, False)
+
+
+def test_a_stuck_guest_is_stopped_and_not_deleted_by_the_sweep(tmp_path: Path) -> None:
+    """Stopping is what wakes the worker blocked on its console; the worker
+    then reports and deletes. A sweep that deleted would race it."""
+    from tests.vm.cluster import WATCH_STRIKES, Running, Watchdog, _sweep
+
+    stopped: list[str] = []
+
+    class Quiet:
+        def stop(self) -> None:
+            stopped.append("stopped")
+
+        def destroy(self) -> None:
+            raise AssertionError("the sweep must not delete a guest")
+
+    log = tmp_path / "quiet.log"
+    log.write_bytes(b"")
+    watch = Watchdog(log=log, strikes=WATCH_STRIKES - 1)
+    inflight = {"vm-zfs": Running(guest=Quiet(), watch=watch)}
+    _sweep(inflight)
+    assert stopped == ["stopped"]
