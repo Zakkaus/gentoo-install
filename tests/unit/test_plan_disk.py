@@ -451,3 +451,22 @@ def test_the_lvm_check_names_the_binaries_the_plan_runs() -> None:
 
     wanted = preflight.required_commands(load(Path("tests/fixtures/vm-lvm.toml")))
     assert {"pvcreate", "vgcreate", "lvcreate"} <= wanted
+
+
+def test_a_dataset_already_mounted_is_left_alone() -> None:
+    """`zfs create` mounts a dataset the moment it is given a mountpoint, so
+    `zfs mount` on it answers `filesystem already mounted` and stops the
+    install. zfs-zbm reached that on `zpcala/ROOT/gentoo/home`."""
+    from gentoo_install.plan.disk import MountZfsDataset
+
+    where = PurePosixPath("/home")
+    told = MountZfsDataset(mountpoint=i("mnt-home"), name="rpool/ROOT/gentoo/home", path=where)
+
+    fresh = Recorder()
+    told.apply(fresh)
+    assert ("zfs", "mount", "rpool/ROOT/gentoo/home") in fresh.commands
+
+    already = Recorder()
+    already.mounts.add(str(where))
+    told.apply(already)
+    assert not any(one[:2] == ("zfs", "mount") for one in already.commands)
