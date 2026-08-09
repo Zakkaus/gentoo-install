@@ -66,11 +66,12 @@ def binhost_trust(name: str) -> str:
 
 #: `*/*-bin` is deliberately absent: it would exclude `gentoo-kernel-bin`, the
 #: one package this installer asks a binary host for.
+BINPKG_EXCLUDED: Final[str] = "acct-*/* virtual/*"
 BINPKG_OPTIONS: Final[tuple[str, ...]] = (
     "--getbinpkg=y",
     "--binpkg-changed-deps=y",
     "--usepkg-exclude",
-    "acct-*/* virtual/*",
+    BINPKG_EXCLUDED,
 )
 
 
@@ -325,13 +326,22 @@ class Emerge(Operation):
             argv.append("--oneshot")
         if self.only_if_absent:
             argv.append("--noreplace")
-        if self.binary_packages and not context.degraded(BINARY_PACKAGES):
+        if context.degraded(BINARY_PACKAGES):
+            # `FEATURES=getbinpkg` in make.conf keeps fetching remote binaries
+            # under `--usepkg=n`, so both are needed to reach the source path
+            # a degraded binhost has to fall back to.
+            argv += ["--usepkg=n", "--getbinpkg=n"]
+        elif self.binary_packages:
             argv += BINPKG_OPTIONS
         else:
-            # `FEATURES=getbinpkg` in make.conf keeps fetching remote binaries
-            # under `--usepkg=n`, so an out-of-tree module built against
-            # another kernel arrives in place of one built against this one.
-            argv += ["--usepkg=n", "--getbinpkg=n"]
+            # These packages only. Turning binaries off wholesale builds the
+            # whole dependency tree here too: `sys-apps/systemd` pulled in
+            # gtk+, cups and 21 more, and died on a circular dependency.
+            # `--usepkg-exclude` also blocks the remote copy under `-g`.
+            argv += [
+                *BINPKG_OPTIONS[:-1],
+                f"{BINPKG_EXCLUDED} {' '.join(self.packages)}",
+            ]
         context.run_in_target([*argv, "--", *self.packages])
 
 

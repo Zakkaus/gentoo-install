@@ -221,6 +221,38 @@ def test_a_binhost_that_can_be_trusted_is_used() -> None:
     assert "--getbinpkg=y" in emerge and "--usepkg=n" not in emerge
 
 
+def test_a_package_built_here_still_takes_its_dependencies_from_the_host() -> None:
+    """`binary_packages=False` means this atom carries a flag the host's build
+    lacks, not that the machine has to compile everything under it: turning
+    binaries off wholesale pulled gtk+, cups and 21 more into a systemd
+    rebuild and died on a circular dependency between docutils and pillow."""
+    recorder = Recorder()
+    portage.PrepareBinhostTrust().apply(recorder)
+    portage.Emerge(
+        packages=("sys-apps/systemd",),
+        summary="rebuild systemd with the unlock generator",
+        binary_packages=False,
+    ).apply(recorder)
+    emerge = next(argv for argv in recorder.in_target if argv[0] == "emerge")
+    assert "--getbinpkg=y" in emerge
+    assert "--usepkg=n" not in emerge
+    excluded = emerge[emerge.index("--usepkg-exclude") + 1]
+    assert "sys-apps/systemd" in excluded.split()
+    # The standing exclusions stay: one option, one value, and a second
+    # `--usepkg-exclude` would replace this list rather than extend it.
+    assert "virtual/*" in excluded.split()
+
+
+def test_a_degraded_binhost_reaches_the_source_path_at_all() -> None:
+    """`FEATURES=getbinpkg` in make.conf outlives `--usepkg=n`, so a host that
+    cannot be verified still served every package until both were passed."""
+    recorder = Recorder()
+    recorder.given_up.add(portage.BINARY_PACKAGES)
+    portage.Emerge(packages=("sys-boot/grub",), summary="install the bootloader").apply(recorder)
+    emerge = next(argv for argv in recorder.in_target if argv[0] == "emerge")
+    assert "--usepkg=n" in emerge and "--getbinpkg=n" in emerge
+
+
 def test_a_failed_community_key_leaves_the_official_host_alone() -> None:
     """The official host's key comes from `getuto`, so one community key that
     could not be signed says nothing about it."""
