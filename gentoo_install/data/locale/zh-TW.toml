@@ -371,3 +371,5 @@
 "Not a group name" = "不是群組名稱"
 "not confirmed" = "尚未確認"
 "a package you chose needs the account in it" = "你選的套件要求帳號在裡面"
+"A saved configuration is here. Load it?" = "這個目錄有存下來的設定，要載入嗎"
+"Start from scratch" = "從頭開始"

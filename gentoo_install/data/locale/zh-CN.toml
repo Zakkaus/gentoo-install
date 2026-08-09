@@ -371,3 +371,5 @@
 "Not a group name" = "不是用户组名称"
 "not confirmed" = "尚未确认"
 "a package you chose needs the account in it" = "你选的软件包要求账号在里面"
+"A saved configuration is here. Load it?" = "这个目录有存下来的配置，要加载吗"
+"Start from scratch" = "从头开始"

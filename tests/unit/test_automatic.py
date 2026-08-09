@@ -620,3 +620,62 @@ def test_the_form_names_the_group_a_package_adds() -> None:
     plain = FakeScreen(keys=["\x1b"], lines=24, columns=110)
     screens.user_screen(plain, config(ext4_on_gpt()), at)
     assert "Extra groups (+" not in plain.last
+
+
+def test_a_configuration_beside_the_installer_is_offered_and_not_loaded() -> None:
+    """A file called `my-install.toml` next to the installer is very likely the
+    operator's own answers from before a reboot, and just as likely someone
+    else's example. Offered, so neither is assumed."""
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    at = context()
+    at.configs_here = ("my-install.toml",)
+    theirs = replace(config(ext4_on_gpt()), system=replace(config().system, hostname="loaded"))
+    at.load_config = lambda name: theirs
+    # Down to the file and enter.
+    picked = screens.saved_config_screen(
+        FakeScreen(keys=["KEY_DOWN", "\n"], lines=24, columns=100), config(ext4_on_gpt()), at
+    )
+    assert picked.unwrap().system.hostname == "loaded"
+    # The first row starts from scratch, so the answers behind it are kept.
+    kept = screens.saved_config_screen(
+        FakeScreen(keys=["\n"], lines=24, columns=100), config(ext4_on_gpt()), at
+    )
+    assert kept.unwrap().system.hostname == config().system.hostname
+
+
+def test_no_file_beside_the_installer_asks_nothing() -> None:
+    """The usual run has an empty directory, and a screen that appeared anyway
+    would be one keypress before every install."""
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    at = context()
+    # No keys at all: FakeScreen raises if the widget asks for one.
+    answer = screens.saved_config_screen(
+        FakeScreen(keys=[], lines=24, columns=100), config(ext4_on_gpt()), at
+    )
+    assert answer.unwrap() == config(ext4_on_gpt())
+
+
+def test_a_file_that_will_not_parse_goes_back_to_the_list() -> None:
+    """One unreadable file says nothing about the other beside it, and leaving
+    the installer over it loses the language the operator just chose."""
+    from gentoo_install.errors import ConfigError
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    def refuse(name: str) -> InstallConfig:
+        raise ConfigError("line 3: not a size literal")
+
+    at = context()
+    at.configs_here = ("broken.toml",)
+    at.load_config = refuse
+    # Pick it, acknowledge the message, then start from scratch.
+    answer = screens.saved_config_screen(
+        FakeScreen(keys=["KEY_DOWN", "\n", "\n", "\n"], lines=24, columns=100),
+        config(ext4_on_gpt()),
+        at,
+    )
+    assert answer.unwrap() == config(ext4_on_gpt())

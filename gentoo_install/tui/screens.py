@@ -53,7 +53,7 @@ from ..plan import kernel as plan_kernel
 from ..plan.kernel import KERNEL_PACKAGES
 from ..plan.portage import community_binhost
 from ..model.size import ZERO, Size
-from ..errors import GentooInstallError, ValidationFailed
+from ..errors import ConfigError, GentooInstallError, ValidationFailed
 from ..model import atoms, manual, mirrors, paste, sshkey
 from ..model.templates import Choice, Layout, build
 from ..model.validate import validate
@@ -104,6 +104,11 @@ class Context:
         zfs_kernel_max: str = "",
         save_config: Callable[[InstallConfig, str], str] = lambda config, name: "",
         publish_config: Callable[[InstallConfig], str] = lambda config: "",
+        #: Configuration files sitting where the installer was started, and how
+        #: to read one. An operator who saved their answers and rebooted should
+        #: not have to retype them or remember the `--config` flag.
+        configs_here: Sequence[str] = (),
+        load_config: Callable[[str], InstallConfig] | None = None,
         zfs_unavailable: str = "",
     ) -> None:
         self.translate = translate
@@ -129,6 +134,11 @@ class Context:
         #: Sends the configuration to the pastebin and returns the address.
         #: Injected because this layer opens no connection.
         self.publish_config = publish_config
+        self.configs_here = tuple(configs_here)
+        #: Defaulted to a refusal rather than to a blank configuration: a
+        #: double that silently answers with defaults would let the screen
+        #: report a load that never happened.
+        self.load_config: Callable[[str], InstallConfig] = load_config or _cannot_load
         #: Why this live system cannot make a pool, or empty when it can. Every
         #: row that would produce one is drawn with this as its reason, because
         #: the medium the installer runs from is often not a Gentoo one.
@@ -1847,6 +1857,44 @@ def sshd_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
             system=replace(config.system, sshd=running, sshd_password_login=password),
         ),
     )
+
+
+def _cannot_load(name: str) -> InstallConfig:
+    raise ConfigError(f"this installer was built with no way to read {name}")
+
+
+def saved_config_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """Offer the configurations sitting where the installer was started.
+
+    Asked rather than loaded: a file called `my-install.toml` next to the
+    installer is very likely the operator's own answers from before a reboot,
+    and it is just as likely to be someone else's example. Nothing is offered
+    when the directory holds none, so the usual run is unchanged.
+    """
+    translate = context.translate
+    if not context.configs_here:
+        return Answer(Outcome.CHOSE, config)
+    items: list[Item[str]] = [
+        Item(label=translate("Start from scratch"), value="")
+    ]
+    items += [Item(label=name, value=name) for name in context.configs_here]
+    while True:
+        menu: Menu[str] = Menu(
+            title=translate("A saved configuration is here. Load it?"),
+            items=items,
+            footer=footer(translate),
+        )
+        answer = menu.run(screen)
+        if not answer.chosen or not answer.unwrap()[0]:
+            return Answer(Outcome.CHOSE, config)
+        try:
+            return Answer(Outcome.CHOSE, context.load_config(answer.unwrap()[0]))
+        except GentooInstallError as error:
+            # Back to the list rather than out of the installer: the file being
+            # unreadable says nothing about the other one beside it.
+            _say(screen, context, str(error).splitlines()[-1].strip())
 
 
 def overview_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:

@@ -472,6 +472,8 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         save_config=_save_config,
         publish_config=_publish_config,
         zfs_unavailable=probe.zfs_support(),
+        configs_here=_configs_here(),
+        load_config=lambda name: load(Path(name)),
     )
     if not context.disks:
         raise errors.DeviceNotFound("this machine reports no disk to install onto")
@@ -500,7 +502,10 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
             chosen = screens.with_language(start, context.tag)
         else:
             chosen = screens.with_language(start, context.translate.tag)
-        return app.run(display, chosen, context)
+        # Before the menu and after the language: the question has to be
+        # readable, and loading a file replaces every answer behind it.
+        offered = screens.saved_config_screen(display, chosen, context)
+        return app.run(display, offered.unwrap() if offered.chosen else chosen, context)
 
     try:
         finished = curses.wrapper(walk)
@@ -571,6 +576,20 @@ def _publish_config(config: InstallConfig) -> str:
     address is public and a hash is where an offline attack starts.
     """
     return fetch.upload(to_toml(config, publishing=True), paste.export_for("config"))
+
+
+def _configs_here() -> tuple[str, ...]:
+    """Configuration files in the directory the installer was started from.
+
+    Every `.toml`, not only the name the save row offers: an operator who
+    called theirs something else still wants it found. Whether one parses is
+    the loading screen's problem, because a file that does not is worth a
+    message rather than being hidden.
+    """
+    try:
+        return tuple(sorted(one.name for one in Path.cwd().glob("*.toml") if one.is_file()))
+    except OSError:
+        return ()
 
 
 def _save_config(config: InstallConfig, name: str) -> str:

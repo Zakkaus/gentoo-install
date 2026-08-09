@@ -370,3 +370,5 @@
 "Not a group name" = "그룹 이름이 아닙니다"
 "not confirmed" = "확인되지 않음"
 "a package you chose needs the account in it" = "선택한 패키지가 계정의 소속을 요구합니다"
+"A saved configuration is here. Load it?" = "저장된 설정이 있습니다. 불러올까요"
+"Start from scratch" = "처음부터 시작"

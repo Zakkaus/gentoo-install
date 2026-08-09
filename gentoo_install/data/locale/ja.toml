@@ -370,3 +370,5 @@
 "Not a group name" = "グループ名ではありません"
 "not confirmed" = "未確認"
 "a package you chose needs the account in it" = "選択したパッケージがアカウントの所属を必要とします"
+"A saved configuration is here. Load it?" = "保存された設定があります。読み込みますか"
+"Start from scratch" = "最初から始める"
