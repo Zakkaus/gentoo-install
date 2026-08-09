@@ -241,6 +241,10 @@ class PortageConfig:
     #: Detected from /proc/cpuinfo when the interface fills it in. Empty means
     #: the profile's own value stands.
     cpu_flags: tuple[str, ...] = ()
+    #: A tmpfs over /var/tmp/portage of this size, or None to build on disk.
+    #: Off by default: a build that outgrows the tmpfs fails on ENOSPC, and how
+    #: much a machine can spare is not derivable from how much it has.
+    build_in_ram: Size | None = None
     mirrors: MirrorConfig = field(default_factory=MirrorConfig)
     binhost: Binhost = field(default_factory=Binhost)
     overlays: tuple[Overlay, ...] = ()

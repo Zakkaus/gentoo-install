@@ -181,18 +181,27 @@ class WriteMachineId(Operation):
         context.write(PurePosixPath("/etc/machine-id"), value.replace("-", "") + "\n")
 
 
-@dataclass(frozen=True)
+#: Where portage builds. `PORTAGE_TMPDIR` is the parent, and portage makes
+#: `portage/` under it, so the tmpfs goes on the directory the build actually
+#: fills rather than on all of /var/tmp.
+PORTAGE_TMPDIR: Final[PurePosixPath] = PurePosixPath("/var/tmp/portage")
+
+
+@dataclass(frozen=True, kw_only=True)
 class FstabEntry:
     """A line of fstab. The device is still an id here; `apply` turns it into a
     UUID, because a UUID survives the disk being renumbered and `/dev/sda2` does
     not."""
 
-    device: DeviceId
     path: PurePosixPath
     kind: str
     options: tuple[str, ...]
     dump: int
     check: int
+    device: DeviceId | None = None
+    #: The first field written as it is, for a filesystem that has no device to
+    #: take a UUID from. `tmpfs` is the whole source of a tmpfs line.
+    source: str = ""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -210,8 +219,13 @@ class WriteFstab(Operation):
         lines = ["# device\tmountpoint\ttype\toptions\tdump\tpass"]
         for entry in self.entries:
             options = ",".join(entry.options) or "defaults"
+            where = (
+                entry.source
+                if entry.device is None
+                else f"UUID={context.device_uuid(entry.device)}"
+            )
             lines.append(
-                f"UUID={context.device_uuid(entry.device)}\t{entry.path}\t{entry.kind}\t"
+                f"{where}\t{entry.path}\t{entry.kind}\t"
                 f"{options}\t{entry.dump}\t{entry.check}"
             )
         context.write(PurePosixPath("/etc/fstab"), "\n".join(lines) + "\n")
@@ -885,6 +899,28 @@ def fstab_entries(config: InstallConfig) -> tuple[FstabEntry, ...]:
                     check=_check_order(mount.path),
                 )
             )
+    if config.portage.build_in_ram is not None:
+        # Exactly the line a Gentoo desktop carries for this: portage is 250:250
+        # and needs to write into it, and nothing under it is ever executed or
+        # a device node.
+        entries.append(
+            FstabEntry(
+                source="tmpfs",
+                path=PORTAGE_TMPDIR,
+                kind="tmpfs",
+                options=(
+                    f"size={config.portage.build_in_ram.single_letter()}",
+                    "uid=250",
+                    "gid=250",
+                    "mode=0775",
+                    "noatime",
+                    "nodev",
+                    "nosuid",
+                ),
+                dump=0,
+                check=0,
+            )
+        )
     for swap in graph.of_type(Swap):
         entries.append(
             FstabEntry(

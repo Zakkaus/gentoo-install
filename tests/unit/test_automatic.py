@@ -253,3 +253,33 @@ def test_a_choice_that_changes_nothing_asks_nothing() -> None:
     # No keys at all: FakeScreen raises if the widget asks for one.
     answer = screens.settle(FakeScreen(keys=[], lines=30), at, before, before)
     assert answer.unwrap() == before
+
+
+def test_a_driver_row_says_what_it_will_add_before_it_is_chosen() -> None:
+    """Three places name the same values: the row, the confirmation, and the
+    USE row afterwards. This is the earliest, and the only one an operator
+    comparing two drivers reads without picking one."""
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    drawn = FakeScreen(keys=["q"], lines=30, columns=110)
+    screens.graphics_screen(drawn, config(ext4_on_gpt()), context())
+    assert "nvidia  proprietary" in drawn.last
+    assert "(+nvidia)" in drawn.last
+    assert "(+amdgpu radeonsi)" in drawn.last
+    # The row that installs nothing and names no card adds nothing to say.
+    assert "none  no driver package" in drawn.last
+    assert "no driver package: i915, amdgpu, radeon and nouveau are in the kernel (+" not in drawn.last
+
+
+def test_a_desktop_row_says_it_brings_wayland() -> None:
+    """`wayland` is a global flag every package reads, including
+    nvidia-drivers, whose IUSE carries it. An operator choosing Plasma is
+    choosing that too."""
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    drawn = FakeScreen(keys=["q"], lines=30, columns=120)
+    screens.desktop_screen(drawn, config(ext4_on_gpt()), context())
+    assert "plasma  the session only (+wayland qt6 kcm networkmanager)" in drawn.last
+    assert "gnome  the session only (+wayland gnome networkmanager gtk)" in drawn.last

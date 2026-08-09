@@ -1146,7 +1146,14 @@ def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> A
         "gnome-full": translate("with the GNOME application set"),
     }
     items = [
-        Item(label=name or "no desktop", value=name, detail=detail.get(name, ""))
+        Item(
+            label=name or "no desktop",
+            value=name,
+            # Plasma and GNOME both bring `wayland`, and the operator reads
+            # that here rather than after choosing.
+            detail=detail.get(name, "")
+            + _adds(config, context, lambda packages, one: replace(packages, desktop=one), name),
+        )
         for name in sorted(desktop_profiles(context.groups))
     ]
     menu: Menu[str] = Menu(
@@ -1269,6 +1276,7 @@ def graphics_screen(
         "Graphics",
         GRAPHICS,
         lambda packages, name: replace(packages, graphics=name),
+        say_what_it_adds=True,
     )
     if not chosen.chosen:
         return chosen
@@ -1312,6 +1320,7 @@ def _one_group(
     offered: tuple[tuple[str, str], ...],
     apply: Callable[[PackagesConfig, str], PackagesConfig],
     unavailable: Callable[[str], str] = lambda name: "",
+    say_what_it_adds: bool = False,
 ) -> Answer[InstallConfig]:
     """A row that holds one group name, drawn from a table of them."""
     translate = context.translate
@@ -1321,7 +1330,9 @@ def _one_group(
             Item(
                 label=name or translate("none"),
                 value=name,
-                detail=translate(reason),
+                detail=translate(reason) + _adds(config, context, apply, name)
+                if say_what_it_adds
+                else translate(reason),
                 disabled_because=unavailable(name),
             )
             for name, reason in offered
@@ -1334,6 +1345,27 @@ def _one_group(
     return Answer(
         Outcome.CHOSE, replace(config, packages=apply(config.packages, answer.unwrap()[0]))
     )
+
+
+def _adds(
+    config: InstallConfig,
+    context: Context,
+    apply: Callable[[PackagesConfig, str], PackagesConfig],
+    name: str,
+) -> str:
+    """What choosing this row would put in `make.conf`, on the row itself.
+
+    `settle` asks the same question after the choice, and the panel lists the
+    values on the USE row afterwards. This is the third place, and the earliest
+    one: an operator comparing `nouveau` against `nvidia` reads what each costs
+    without having to pick one to find out.
+    """
+    would = replace(config, packages=apply(config.packages, name))
+    added = (
+        *_new(automatic_values.video_cards, config, would, context.groups),
+        *_new(automatic_values.use_flags, config, would, context.groups),
+    )
+    return f" (+{' '.join(added)})" if added else ""
 
 
 def packages_screen(
