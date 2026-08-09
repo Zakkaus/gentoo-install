@@ -29,9 +29,37 @@ cd /mnt/driver
 exec python3 -m gentoo_install --no-shell "$@"
 """
 
+#: The name of the compressed payload on a packed CD, and where it is unpacked.
+PAYLOAD = "driver.tar.gz"
+UNPACKED = "/tmp/gentoo-install-driver"
 
-def build(output: Path) -> Path:
-    """Write an ISO holding the installer package and return its path."""
+#: The launcher on a packed CD. Uncompressed the tree is 1.6 MiB and the ISO
+#: around it 1.4 MiB, which the cluster's ingress refuses with `413 Request
+#: Entity Too Large`; compressed it is 236 KiB and the ISO fits under the
+#: limit. Unpacked to tmpfs rather than run from the CD, because the installer
+#: writes nothing there but Python still wants somewhere to put bytecode.
+PACKED_ENTRY = f"""#!/bin/sh
+set -e
+mkdir -p /mnt/driver {UNPACKED}
+mountpoint -q /mnt/driver || mount -o ro /dev/sr1 /mnt/driver
+tar xzf /mnt/driver/{PAYLOAD} -C {UNPACKED}
+cd {UNPACKED}
+# Through the launcher, because that is the entry point an operator uses and
+# every run should exercise it.
+exec sh ./bootstrap.sh --no-shell "$@"
+"""
+
+
+def build(output: Path, packed: bool = False, fixtures: Path | None = None) -> Path:
+    """Write an ISO holding the installer package and return its path.
+
+    `packed` puts the tree in a tarball instead of loose files. A local run
+    mounts the CD directly; a run on the cluster has to upload it through an
+    ingress that refuses anything near a megabyte.
+
+    `fixtures` replaces the configurations the CD carries, which is how the
+    cluster runs the same set against a different mirror region.
+    """
     if shutil.which("xorriso") is None:
         raise MediaError("xorriso is not installed, so the driver CD cannot be built")
     staging = output.parent / "driver"
@@ -43,13 +71,28 @@ def build(output: Path) -> Path:
         staging / "gentoo_install",
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
     )
-    for name in ("fixtures",):
-        shutil.copytree(REPOSITORY / "tests" / name, staging / name)
+    shutil.copytree(fixtures or REPOSITORY / "tests" / "fixtures", staging / "fixtures")
     # The launcher is what an operator runs, so the CD carries the same one.
     shutil.copy2(REPOSITORY / "bootstrap.sh", staging / "bootstrap.sh")
     entry = staging / "install.sh"
     entry.write_text(ENTRY)
     entry.chmod(0o755)
+
+    if packed:
+        payload = output.parent / PAYLOAD
+        packing = subprocess.run(
+            ["tar", "czf", str(payload), "-C", str(staging), "."],
+            capture_output=True,
+            text=True,
+        )
+        if packing.returncode != 0:
+            raise MediaError(f"the driver payload was not packed: {packing.stderr.strip()}")
+        shutil.rmtree(staging)
+        staging.mkdir(parents=True)
+        shutil.move(str(payload), staging / PAYLOAD)
+        entry = staging / "install.sh"
+        entry.write_text(PACKED_ENTRY)
+        entry.chmod(0o755)
 
     output.unlink(missing_ok=True)
     result = subprocess.run(

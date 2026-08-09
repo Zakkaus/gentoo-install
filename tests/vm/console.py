@@ -8,7 +8,7 @@ import socket
 import time
 from pathlib import Path
 from types import TracebackType
-from typing import IO, Iterator, Self
+from typing import IO, Iterator, Protocol, Self
 
 _ANSI = re.compile(
     rb"\x1b\[[0-9;?]*[a-zA-Z]"
@@ -35,10 +35,60 @@ def strip_ansi(data: bytes) -> bytes:
 PASSWORD_PROMPT = r"[Pp]assword:|密码：|密碼："
 
 
-class SerialConsole:
-    """Reads and writes a QEMU unix-socket serial port, with expect semantics."""
+class Channel(Protocol):
+    """What a console needs of its transport, and nothing more.
 
-    def __init__(self, sock: socket.socket, log: IO[bytes], errors: Path | None = None) -> None:
+    A local run reads a unix socket; a run on the cluster reads a websocket,
+    because the node's serial socket is a file on the node and port 22 is
+    closed there. The expect logic is the same either way, so the transport is
+    the only thing that differs.
+    """
+
+    def recv(self, size: int) -> bytes:
+        """Whatever has arrived, or empty on a timeout. Empty is not the end;
+        `closed` is."""
+
+    def sendall(self, data: bytes) -> None: ...
+
+    def close(self) -> None: ...
+
+    @property
+    def closed(self) -> bool:
+        """Whether the far end hung up. A transport that cannot tell says no."""
+
+
+class _Socket:
+    """A unix socket as a `Channel`. `recv` on a timeout is empty, not an error."""
+
+    def __init__(self, sock: socket.socket) -> None:
+        self._sock = sock
+
+    def recv(self, size: int) -> bytes:
+        try:
+            chunk = self._sock.recv(size)
+        except TimeoutError:
+            return b""
+        if not chunk:
+            self._closed = True
+        return chunk
+
+    def sendall(self, data: bytes) -> None:
+        self._sock.sendall(data)
+
+    def close(self) -> None:
+        self._sock.close()
+
+    _closed = False
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+
+class SerialConsole:
+    """Reads and writes a serial port, with expect semantics."""
+
+    def __init__(self, sock: Channel, log: IO[bytes], errors: Path | None = None) -> None:
         self._sock = sock
         self._log = log
         #: Where qemu wrote its own stderr. It names whatever killed it, and
@@ -60,7 +110,7 @@ class SerialConsole:
                 time.sleep(0.2)
                 continue
             sock.settimeout(1.0)
-            return cls(sock, log_path.open("wb"), path.parent / "qemu.err")
+            return cls(_Socket(sock), log_path.open("wb"), path.parent / "qemu.err")
         raise ConsoleTimeout(f"{path} never accepted a connection")
 
     def expect(self, pattern: str, timeout: float) -> bytes:
@@ -82,6 +132,11 @@ class SerialConsole:
     def send(self, line: str) -> None:
         self._sock.sendall(line.encode() + b"\n")
 
+    def send_raw(self, keys: str) -> None:
+        """Exactly these bytes, with no newline. GRUB's editor acts on the
+        keystroke itself, and a trailing newline there is an extra line."""
+        self._sock.sendall(keys.encode())
+
     def run(self, command: str, timeout: float = 120.0) -> None:
         """Run a shell command and wait for it to finish.
 
@@ -102,12 +157,14 @@ class SerialConsole:
         self.expect(prompt, timeout=60.0)
 
     def _read_once(self) -> None:
-        try:
-            chunk = self._sock.recv(4096)
-        except TimeoutError:
-            return
+        chunk = self._sock.recv(4096)
         if not chunk:
-            raise ConsoleClosed(self._why_closed())
+            # Empty means nothing arrived before the read timed out, which is
+            # what an idle console looks like. Only the transport knows the
+            # difference between idle and hung up.
+            if self._sock.closed:
+                raise ConsoleClosed(self._why_closed())
+            return
         self._log.write(chunk)
         self._log.flush()
         self._buffer += chunk
@@ -119,6 +176,25 @@ class SerialConsole:
             said = lines[-1] if lines else ""
         closed = "the guest closed the serial connection"
         return f"{closed}: {said}" if said else closed
+
+    def snapshot(self, seconds: float) -> bytes:
+        """Everything that arrives in this window, escape codes included.
+
+        `expect` trims the buffer to what follows its match, which loses the
+        top of a screen the caller still has to read. A full-screen redraw has
+        to be taken whole.
+        """
+        got = bytearray(self._buffer)
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            before = len(self._buffer)
+            try:
+                self._read_once()
+            except ConsoleClosed:
+                break
+            got += self._buffer[before:]
+        self._buffer = b""
+        return bytes(got)
 
     def drain(self, seconds: float) -> None:
         """Read and discard for a while.

@@ -4,7 +4,13 @@ import socket
 
 import pytest
 
-from tests.vm.console import ConsoleClosed, ConsoleTimeout, SerialConsole, strip_ansi
+from tests.vm.console import (
+    ConsoleClosed,
+    ConsoleTimeout,
+    SerialConsole,
+    _Socket,
+    strip_ansi,
+)
 
 
 def make_console(chunks: list[bytes]) -> tuple[SerialConsole, socket.socket]:
@@ -12,7 +18,7 @@ def make_console(chunks: list[bytes]) -> tuple[SerialConsole, socket.socket]:
     for chunk in chunks:
         writer.sendall(chunk)
     reader.settimeout(0.1)
-    return SerialConsole(reader, open("/dev/null", "wb")), writer
+    return SerialConsole(_Socket(reader), open("/dev/null", "wb")), writer
 
 
 def test_strip_ansi_removes_colour_and_title_sequences() -> None:
