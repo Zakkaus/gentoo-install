@@ -784,3 +784,24 @@ def test_the_mirror_screen_shows_the_site_it_would_adopt() -> None:
     line = next(one for one in drawn.last.splitlines() if "Gentoo mirror" in one)
     assert "not set" not in line
     assert "(default)" in line
+
+
+def test_password_login_does_not_let_root_in_by_itself() -> None:
+    """The row said `root included` and the installer wrote
+    `PermitRootLogin no`: root is a second row, and it starts off."""
+    from gentoo_install.plan.system import WriteSshdConfig
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    at = context()
+    # Down twice to `password login`, enter.
+    chosen = screens.sshd_screen(
+        FakeScreen(keys=["KEY_DOWN", "KEY_DOWN", "\n"], lines=24), config(ext4_on_gpt()), at
+    ).unwrap()
+    assert chosen.system.sshd_password_login is True
+    assert chosen.system.sshd_root_login is False
+    recorder = Recorder()
+    WriteSshdConfig(password_login=True, root_login=False).apply(recorder)
+    written = recorder.files[PurePosixPath("/etc/ssh/sshd_config.d/50-gentoo-install.conf")]
+    assert "PermitRootLogin no" in written
+    assert "PasswordAuthentication yes" in written

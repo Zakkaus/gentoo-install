@@ -13,6 +13,7 @@ import shutil
 import sys
 import time
 from datetime import datetime, timezone
+import tomllib
 from pathlib import Path
 from typing import Callable, Final, Iterable, Sequence
 
@@ -38,7 +39,7 @@ from .model.config import (
     MirrorRegion,
     PortageConfig,
 )
-from .model.parse import load
+from .model.parse import TOP_LEVEL, load
 from .model.serialise import to_toml
 from .plan.build import DEFAULT_MIRROR, build
 from .plan.operations import Operation, Stage
@@ -581,15 +582,35 @@ def _publish_config(config: InstallConfig) -> str:
 def _configs_here() -> tuple[str, ...]:
     """Configuration files in the directory the installer was started from.
 
-    Every `.toml`, not only the name the save row offers: an operator who
-    called theirs something else still wants it found. Whether one parses is
-    the loading screen's problem, because a file that does not is worth a
-    message rather than being hidden.
+    Any name, not only the one the save row offers, because an operator who
+    called theirs something else still wants it found. But not any `.toml`: a
+    directory with a `pyproject.toml` in it offered that, and the menu answered
+    with `the top level has unknown keys: project, tool`.
+
+    The test is whether the file holds a table this configuration has. A real
+    one with a mistake inside still does, so it is offered and its error is
+    shown; a file belonging to something else has none and is not ours to
+    mention.
     """
+    found: list[str] = []
     try:
-        return tuple(sorted(one.name for one in Path.cwd().glob("*.toml") if one.is_file()))
+        candidates = sorted(one for one in Path.cwd().glob("*.toml") if one.is_file())
     except OSError:
         return ()
+    for path in candidates:
+        try:
+            held = tomllib.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+            # Unreadable, so its tables cannot be looked at. Offered anyway
+            # when it carries the name this installer writes: that one is the
+            # operator's own, and hiding a file they hand-edited into a syntax
+            # error tells them nothing.
+            if path.name == app.SAVE_AS:
+                found.append(path.name)
+            continue
+        if set(held) & (TOP_LEVEL - {"config_version"}):
+            found.append(path.name)
+    return tuple(found)
 
 
 def _save_config(config: InstallConfig, name: str) -> str:

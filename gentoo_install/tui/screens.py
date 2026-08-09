@@ -1920,7 +1920,9 @@ def sshd_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
             Item(
                 label=translate("password login"),
                 value=(True, True),
-                detail=translate("root included"),
+                # Not `root included`: `sshd_root_login` is a row of its own
+                # and starts off, so `PermitRootLogin no` is what gets written.
+                detail=translate("root is a row of its own"),
             ),
         ],
         footer=footer(translate),

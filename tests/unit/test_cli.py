@@ -416,3 +416,34 @@ def test_releasing_reports_a_failure_rather_than_raising(tmp_path: Path) -> None
     recorder = Recorder(failures={"umount"})
     cli._release((UnmountTarget(pools=()),), recorder, said.append)  # type: ignore[arg-type]
     assert said and "warning" in said[0]
+
+
+def test_only_files_that_could_be_our_configuration_are_offered(tmp_path: Path) -> None:
+    """Every `.toml` was offered, so a directory holding a `pyproject.toml`
+    answered `the top level has unknown keys: project, tool`.
+
+    The test is whether the file holds a table this configuration has. One of
+    ours with a wrong value inside still does, and is offered so its error is
+    shown rather than the file being hidden.
+    """
+    import os
+
+    from gentoo_install.cli import _configs_here
+    from gentoo_install.tui.app import SAVE_AS
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "x"\n[tool.mypy]\nstrict = true\n')
+    (tmp_path / "elsewhere.toml").write_text("[whatever]\nx = 1\n")
+    (tmp_path / "notes.txt").write_text("hello")
+    (tmp_path / "wrong-value.toml").write_text("config_version = 1\n[system]\nhostname = 5\n")
+    # Unreadable, and named the way this installer writes one: the operator
+    # hand-edited their own file into a syntax error and needs to be told.
+    (tmp_path / SAVE_AS).write_text("[disk\nbroken =\n")
+    # Unreadable and not ours, so there is nothing to say about it.
+    (tmp_path / "theirs.toml").write_text("[oops\n")
+
+    here = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        assert _configs_here() == (SAVE_AS, "wrong-value.toml")
+    finally:
+        os.chdir(here)

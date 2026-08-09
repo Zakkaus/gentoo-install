@@ -10,7 +10,7 @@ from __future__ import annotations
 import tomllib
 from enum import Enum
 from pathlib import Path, PurePosixPath
-from typing import Any, Mapping, Sequence, TypeVar
+from typing import Any, Final, Mapping, Sequence, TypeVar
 
 from ..errors import ConfigError
 from .config import (
@@ -69,6 +69,13 @@ from .size import Size
 E = TypeVar("E", bound=Enum)
 
 
+#: The tables a configuration file holds. Named here so the menu can tell one
+#: of ours from the `pyproject.toml` that happens to sit in the same directory.
+TOP_LEVEL: Final[frozenset[str]] = frozenset(
+    {"config_version", "disk", "system", "portage", "kernel", "bootloader", "packages"}
+)
+
+
 def load(path: Path) -> InstallConfig:
     try:
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
@@ -89,7 +96,7 @@ def parse(raw: Mapping[str, Any]) -> InstallConfig:
     if version < CONFIG_VERSION:
         raise ConfigError(f"config_version {version} has no migration to {CONFIG_VERSION}")
 
-    _reject_unknown(raw, "", {"config_version", "disk", "system", "portage", "kernel", "bootloader", "packages"})
+    _reject_unknown(raw, "", set(TOP_LEVEL))
     return InstallConfig(
         config_version=version,
         disk=_disk(_table(raw, "disk", "", required=True), "disk"),

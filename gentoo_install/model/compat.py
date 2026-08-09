@@ -105,7 +105,11 @@ RULES: tuple[Rule, ...] = (
         "an EFI executable has to live on a vfat esp mounted in the target",
     ),
     Rule(Trait.SYSTEMD_BOOT, Trait.BIOS_BOOT, "systemd-boot has no BIOS implementation"),
-    Rule(Trait.SYSTEMD_BOOT, Trait.KERNEL_OFF_ESP, "it cannot read ext4 or btrfs"),
+    Rule(
+        Trait.SYSTEMD_BOOT,
+        Trait.KERNEL_OFF_ESP,
+        "it reads only the esp, so the kernel has to be on it: mount the esp at /boot",
+    ),
     Rule(
         Trait.ESP_ON_MDRAID,
         Trait.ESP_MDRAID_SUPERBLOCK_AT_START,
