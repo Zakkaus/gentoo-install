@@ -513,3 +513,56 @@ def test_an_exit_that_is_not_a_named_error_still_releases_and_keeps_the_log() ->
     raised = source.index("raise unexpected")
     assert caught < kept < raised, "the log is kept before the exception leaves"
     assert caught < released < raised, "the machine is released before it leaves"
+
+
+def test_a_release_that_fails_does_not_stop_the_ones_after_it(tmp_path: Path) -> None:
+    """The loop caught only `GentooInstallError`, so one release raising
+    `OSError` left the containers open, the arrays assembled and the pools
+    imported: exactly the state this path exists to undo."""
+    from dataclasses import dataclass
+
+    from gentoo_install import cli
+    from gentoo_install.plan.operations import Operation, Stage
+
+    ran: list[str] = []
+
+    @dataclass(frozen=True, kw_only=True)
+    class Releasing(Operation):
+        stage: Stage = Stage.FINISH
+        name: str
+        raises: BaseException | None = None
+
+        @property
+        def releases_the_machine(self) -> bool:
+            return True
+
+        def describe(self) -> str:
+            return self.name
+
+        def apply(self, context: object) -> None:
+            ran.append(self.name)
+            if self.raises is not None:
+                raise self.raises
+
+    said: list[str] = []
+    closing = (
+        Releasing(name="close the container", raises=OSError("device busy")),
+        Releasing(name="stop the array"),
+        Releasing(name="export the pool"),
+    )
+    from gentoo_install.exec.apply import Machine
+    from gentoo_install.exec.probe import Probe
+    from gentoo_install.exec.runner import Runner
+
+    from .layouts import config
+
+    runner = Runner(log=lambda line: None)
+    machine = Machine(
+        config=config(),
+        runner=runner,
+        probe=Probe(runner=runner, work=tmp_path),
+        work=tmp_path,
+    )
+    cli._release(closing, machine, said.append)
+    assert ran == ["close the container", "stop the array", "export the pool"]
+    assert any("device busy" in one for one in said), said

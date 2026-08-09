@@ -287,7 +287,10 @@ def _release(
             continue
         try:
             operation.apply(machine)
-        except GentooInstallError as error:
+        except (GentooInstallError, OSError) as error:
+            # `OSError` too: one release raising it left the LUKS containers
+            # open, the arrays assembled and the pools imported, because this
+            # loop stopped at the first thing it did not name.
             record(f"warning: {operation.describe()}: {error}")
 
 
