@@ -250,6 +250,7 @@
 "separated by spaces" = "空白区切り"
 "Address" = "アドレス"
 "no networking" = "ネットワークなし"
+"assigned by the network manager" = "ネットワークマネージャーが割り当て"
 "Remote unlock" = "リモート解錠"
 "Unlock the root over SSH from the initramfs?" = "initramfs から SSH でルートを解錠しますか？"
 "Port" = "ポート"

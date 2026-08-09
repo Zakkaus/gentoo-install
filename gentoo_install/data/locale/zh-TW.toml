@@ -250,6 +250,7 @@
 "separated by spaces" = "以空白分隔"
 "Address" = "網路位址"
 "no networking" = "無網路"
+"assigned by the network manager" = "由網路管理程式指派"
 "Remote unlock" = "遠端解鎖"
 "Unlock the root over SSH from the initramfs?" = "要在 initramfs 以 SSH 解鎖根檔案系統嗎？"
 "Port" = "埠"

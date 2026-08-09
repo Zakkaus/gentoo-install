@@ -1633,3 +1633,17 @@ def test_the_main_menu_reads_the_same_precondition_the_nested_one_does() -> None
         patch.setattr(tui_app, "SETTINGS", blocked)
         tui_app.run(screen, config(), at)
     assert "not on this machine" in "\n".join(screen.frames[0])
+
+def test_the_address_row_says_something_the_manager_row_did_not() -> None:
+    """`Network` drew `networkmanager-wpa, networkmanager-wpa`: the address row
+    answered with the manager's name, which the row beside it already carried,
+    so the group summary spent both its slots on one fact."""
+    from dataclasses import replace
+
+    from gentoo_install.model.config import Networking, SystemConfig
+
+    for manager in Networking:
+        installation = replace(config(), system=SystemConfig(networking=manager))
+        named = settings.shown_value(settings.NETWORK[0], installation, context())
+        address = settings.shown_value(settings.NETWORK[1], installation, context())
+        assert named != address, manager

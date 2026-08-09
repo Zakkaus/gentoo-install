@@ -308,7 +308,9 @@ def _address(config: InstallConfig, context: Context) -> str:
     if system.networking is Networking.NONE:
         return context.translate("no networking")
     if system.networking is not Networking.BUILTIN:
-        return str(system.networking.value)
+        # Not the manager's name: the row beside this one already carries it,
+        # and the summary drew `networkmanager-wpa, networkmanager-wpa`.
+        return context.translate("assigned by the network manager")
     if not system.addresses:
         return "DHCP"
     where = system.interface or "auto"
