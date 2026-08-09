@@ -30,7 +30,7 @@ root = "mnt-root"
 [[disk.devices]]
 kind = "existing"
 id = "disk"
-selector = "/dev/disk/by-id/virtio-target"
+selector = "/dev/disk/by-id/virtio-target0"
 wipe = true
 
 [[disk.devices]]

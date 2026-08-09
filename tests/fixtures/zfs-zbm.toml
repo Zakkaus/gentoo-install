@@ -48,7 +48,7 @@ root = "mnt-root"
 [[disk.devices]]
 kind = "existing"
 id = "disk"
-selector = "/dev/disk/by-id/virtio-target"
+selector = "/dev/disk/by-id/virtio-target0"
 wipe = true
 
 [[disk.devices]]
@@ -85,6 +85,7 @@ id = "pool"
 vdevs = ["poolpart"]
 name = "zpcala"
 encrypted = true
+passphrase_file = "/run/gentoo-install-keys/pool"
 
 [[disk.devices]]
 kind = "dataset"

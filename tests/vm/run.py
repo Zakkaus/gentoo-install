@@ -90,7 +90,11 @@ INSTALLED = (
         "resolver",
         "readlink -f /etc/resolv.conf; "
         "test -s /etc/resolv.conf && echo RESOLVCONF-OK || echo RESOLVCONF-EMPTY; "
-        "getent hosts gentoo.org >/dev/null 2>&1 && echo RESOLVES || echo NORESOLVE",
+        # Up to thirty seconds: dhcpcd writes the file when its lease arrives,
+        # and asking the moment the login prompt appears asks too early.
+        "for _ in $(seq 1 15); do getent hosts gentoo.org >/dev/null 2>&1 && break; sleep 2; done; "
+        "getent hosts gentoo.org >/dev/null 2>&1 && echo RESOLVES || echo NORESOLVE; "
+        "sed -n '1,4p' /etc/resolv.conf",
     ),
     # Needs no network, and fails outright on a profile the tree cannot read:
     # the first thing to break if a profile is changed and @world never rebuilt.

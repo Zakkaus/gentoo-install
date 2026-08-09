@@ -389,7 +389,14 @@ class RebuildInitramfs(Operation):
 def _version_in(name: str) -> str | None:
     """The kernel version a file in /boot is named for, or None for a name
     this does not recognise. Unrecognised is left alone: /boot holds the
-    bootloader's own files and they are nobody's to delete."""
+    bootloader's own files and they are nobody's to delete.
+
+    `.old` is one of those names. installkernel keeps the previous image under
+    it, and its version is the one it had, so matching it against the modules
+    that are installed now would delete every backup there is.
+    """
+    if name.endswith(".old"):
+        return None
     for prefix, suffix in IMAGE_NAMES:
         if name.startswith(prefix) and name.endswith(suffix):
             return name[len(prefix) : len(name) - len(suffix) or None]

@@ -6,6 +6,7 @@ process it drove, so nothing else in the run can notice a failure for it.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from tests.vm.run import verdict
@@ -41,3 +42,36 @@ def test_the_campaign_covers_every_vm_fixture() -> None:
     named = {Path(run.config).name for runs in STAGES.values() for run in runs}
     available = {path.name for path in (root / "fixtures").glob("*.toml")}
     assert available - named == set(), sorted(available - named)
+
+
+def test_every_fixture_names_a_disk_the_harness_creates() -> None:
+    """Three of them named `virtio-target` with no number, from before the
+    harness numbered the serials, so preflight refused them twenty seconds in
+    and they had never once installed anything."""
+    from gentoo_install.model.device import Existing
+    from gentoo_install.model.parse import load
+
+    root = Path(__file__).resolve().parents[1]
+    for path in sorted((root / "fixtures").glob("*.toml")):
+        for disk in load(path).disk.graph.of_type(Existing):
+            # `virtio-targetN` is what `tests/vm/qemu.py` gives each target
+            # disk as its serial, and udev makes the by-id name from that.
+            assert re.fullmatch(
+                r"/dev/(disk/by-id/virtio-target\d+|null)", disk.selector
+            ), f"{path.name}: {disk.selector}"
+
+
+def test_every_encrypted_fixture_names_where_its_passphrase_lives() -> None:
+    """`stage_passphrases` writes one file per node that names a path. A node
+    encrypted without one fails preflight before the disks are touched, which
+    is right, and means the fixture could never run."""
+    from gentoo_install.model.device import Luks, ZfsPool
+    from gentoo_install.model.parse import load
+
+    root = Path(__file__).resolve().parents[1]
+    for path in sorted((root / "fixtures").glob("*.toml")):
+        graph = load(path).disk.graph
+        for node in graph.of_type(Luks):
+            assert node.passphrase_file, f"{path.name}: {node.id}"
+        for pool in graph.of_type(ZfsPool):
+            assert not pool.encrypted or pool.passphrase_file, f"{path.name}: {pool.id}"
