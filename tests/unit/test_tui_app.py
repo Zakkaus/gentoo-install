@@ -255,7 +255,9 @@ def test_every_repository_choice_is_on_the_mirror_screen() -> None:
 def test_choosing_zfs_asks_before_adding_the_overlay() -> None:
     """ZFSBootMenu is in gentoo-zh and in no other repository, so choosing it
     is consenting to that overlay rather than having it added silently."""
-    zfs = ["KEY_DOWN", "KEY_DOWN", "KEY_DOWN", "\n"]
+    # Two, not three: the cursor starts on the row the configuration already
+    # holds, and the default filesystem is xfs, which is the second row.
+    zfs = ["KEY_DOWN", "KEY_DOWN", "\n"]
     screen = FakeScreen(keys=[*zfs, "\n"])
     answer = screens.layout_screen(screen, config(), context())
     assert answer.unwrap().bootloader.kind is Bootloader.ZFSBOOTMENU
@@ -267,7 +269,9 @@ def test_choosing_zfs_asks_before_adding_the_overlay() -> None:
 
 def test_declining_the_overlay_leaves_zfs_on_systemd_boot() -> None:
     """The other bootloader a ZFS root can use, and it needs no overlay."""
-    zfs = ["KEY_DOWN", "KEY_DOWN", "KEY_DOWN", "\n"]
+    # Two, not three: the cursor starts on the row the configuration already
+    # holds, and the default filesystem is xfs, which is the second row.
+    zfs = ["KEY_DOWN", "KEY_DOWN", "\n"]
     answer = screens.layout_screen(FakeScreen(keys=[*zfs, "KEY_DOWN", "\n"]), config(), context())
     assert answer.unwrap().bootloader.kind is Bootloader.SYSTEMD_BOOT
     assert answer.unwrap().portage.overlays == ()

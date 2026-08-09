@@ -67,7 +67,11 @@ class Choice:
     firmware: Firmware = Firmware.UEFI
     #: None follows the firmware: GPT for UEFI, MBR for BIOS.
     table: TableType | None = None
-    filesystem: FilesystemType = FilesystemType.EXT4
+    #: xfs rather than ext4: `mkfs.xfs` needs no tuning to be right on a
+    #: modern disk, every bootloader here reads it, and it is the one the
+    #: enterprise distributions default to. It cannot be shrunk, which is the
+    #: cost, and the row offers ext4 for anyone who wants that.
+    filesystem: FilesystemType = FilesystemType.XFS
     swap: Size | None = None
     #: A path on the installing system, never the passphrase. Empty means the
     #: layout is not encrypted.

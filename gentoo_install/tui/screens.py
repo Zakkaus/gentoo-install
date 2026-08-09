@@ -287,8 +287,19 @@ def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> An
             detail=translate("one table: keep, format, delete or add each partition"),
         ),
     ]
+    # On the row the configuration already holds, so enter keeps what is set
+    # rather than choosing whichever filesystem happens to be listed first.
+    here = next(
+        (
+            index
+            for index, item in enumerate(items)
+            if item.value[0] is context.choice.layout
+            and item.value[1] is context.choice.filesystem
+        ),
+        0,
+    )
     menu: Menu[tuple[Layout | None, FilesystemType]] = Menu(
-        title=translate("Layout"), items=items, footer=footer(translate)
+        title=translate("Layout"), items=items, footer=footer(translate), cursor=here
     )
     answer = menu.run(screen)
     if not answer.chosen:

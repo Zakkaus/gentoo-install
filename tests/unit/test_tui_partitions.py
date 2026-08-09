@@ -968,3 +968,20 @@ def test_a_hand_built_zfs_root_is_asked_which_bootloader() -> None:
     assert answer.chosen
     assert answer.unwrap().bootloader.kind is Bootloader.ZFSBOOTMENU
     assert [one.name for one in answer.unwrap().portage.overlays] == ["gentoo-zh"]
+
+
+def test_the_layout_row_opens_on_what_is_already_set() -> None:
+    """Enter on this screen keeps the filesystem the configuration holds. It
+    opened on whichever row was listed first, so an operator who pressed enter
+    twice changed a setting they were looking at."""
+    from gentoo_install.model.device import Filesystem, FilesystemType
+    from gentoo_install.tui import screens
+
+    at = context()
+    kept = screens.layout_screen(FakeScreen(keys=["\n"], lines=26), config(), at).unwrap()
+    chosen = [
+        one.kind
+        for one in kept.disk.graph.of_type(Filesystem)
+        if one.kind is not FilesystemType.VFAT
+    ]
+    assert chosen == [at.choice.filesystem]
