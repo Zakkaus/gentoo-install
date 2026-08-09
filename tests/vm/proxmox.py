@@ -142,7 +142,16 @@ class Api:
             raise ProxmoxError(f"{method} {path} did not answer: {error}") from error
 
     def wait(self, node: str, upid: str, patience: float = 1800.0) -> None:
-        """Block until a task finishes, and raise unless it finished cleanly."""
+        """Block until a task finishes, and raise unless it finished cleanly.
+
+        The node comes out of the UPID rather than from the caller: a task
+        started through the load balancer runs on whichever backend answered,
+        and asking the wrong node for its status is a 500 on a task that is
+        running perfectly well.
+        """
+        parts = upid.split(":")
+        if len(parts) > 1 and parts[0] == "UPID" and parts[1]:
+            node = parts[1]
         quoted = urllib.parse.quote(upid, safe="")
         deadline = time.monotonic() + patience
         while time.monotonic() < deadline:
@@ -329,7 +338,12 @@ class Guest:
             # OVMF keeps nothing: the second boot would find no entry.
             options["efidisk0"] = f"{DISK_STORAGE}:1,efitype=4m,pre-enrolled-keys=0"
         for index, size in enumerate(self.spec.target_gib):
-            options[f"virtio{index}"] = f"{DISK_STORAGE}:{size},discard=on"
+            # `serial=` is what puts the disk under `/dev/disk/by-id/`, and
+            # the fixtures name their targets there. Without it preflight
+            # answers `virtio-target0 is not present on this machine`.
+            options[f"virtio{index}"] = (
+                f"{DISK_STORAGE}:{size},discard=on,serial=target{index}"
+            )
         options["ide2"] = f"{ISO_STORAGE}:iso/{self.spec.iso},media=cdrom"
         if self.spec.driver_iso:
             options["ide3"] = f"{ISO_STORAGE}:iso/{self.spec.driver_iso},media=cdrom"

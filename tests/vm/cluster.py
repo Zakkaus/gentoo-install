@@ -20,14 +20,17 @@ import queue
 import sys
 import threading
 import time
-from dataclasses import dataclass, field
+import urllib.request
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
 from typing import Final, Protocol
 
 from gentoo_install.model.config import InstallConfig
 from gentoo_install.model.device import Existing
+from gentoo_install.model.config import MirrorRegion
 from gentoo_install.model.parse import load
+from gentoo_install.model.serialise import to_toml
 from .console import ConsoleClosed, ConsoleTimeout, SerialConsole
 from .driver import build as build_driver
 from .proxmox import Api, Guest, GuestSpec, Node, ProxmoxError, append_to_cmdline
@@ -39,8 +42,29 @@ WORKROOT: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/cluster"
 #: Where the guest gathers what the run produced before it is read back.
 RESULT_DIR: Final[str] = "/tmp/gentoo-install-results"
 
-#: The medium every fixture installs from unless it names another.
-DEFAULT_ISO: Final[str] = "install-amd64-minimal-20260712T170110Z.iso"
+#: Where the media come from, in the order they are tried. The cluster is in
+#: China, so a node reaches these far faster than an upload from the
+#: workstation would, and the bytes never cross the workstation's link.
+#:
+#: `mirrors.ustc.edu.cn` is not among them: it answers `403 Forbidden` to
+#: Proxmox's downloader, which is wget, while serving the same URL to anything
+#: else. The installer reads it happily; only this path has to avoid it.
+MIRRORS: Final[tuple[str, ...]] = (
+    "https://mirrors.tuna.tsinghua.edu.cn/gentoo",
+    "https://mirror.nju.edu.cn/gentoo",
+    "https://distfiles.gentoo.org",
+)
+
+AUTOBUILDS: Final[str] = "releases/amd64/autobuilds"
+
+#: The pointer file beside the medium, which is Gentoo's own signed output and
+#: identical on every mirror. Read rather than hardcoded: `local` storage is
+#: per node, so a name that only one node happens to hold is not a default.
+MINIMAL_POINTER: Final[str] = "latest-install-amd64-minimal.txt"
+
+#: Filled in from the pointer file when a run starts. The placeholder is what a
+#: `Job` carries until then, so a fixture can still name a medium of its own.
+DEFAULT_ISO: Final[str] = "minimal"
 
 #: Kernel parameters the medium's own GRUB entry lacks. Without the console the
 #: kernel says nothing on the serial port and every run reads as hung.
@@ -120,6 +144,69 @@ class Watchdog:
         return self.strikes >= WATCH_STRIKES
 
 
+def current_minimal() -> tuple[str, tuple[str, ...]]:
+    """The current minimal ISO's name and every URL that serves it."""
+    for mirror in MIRRORS:
+        pointer = f"{mirror}/{AUTOBUILDS}/{MINIMAL_POINTER}"
+        try:
+            with urllib.request.urlopen(pointer, timeout=30.0) as answer:
+                said = answer.read().decode("utf-8", "replace")
+        except OSError:
+            continue
+        for line in said.splitlines():
+            first = line.strip().split(" ")[0]
+            if first.endswith(".iso"):
+                return first.rsplit("/", 1)[-1], tuple(
+                    f"{one}/{AUTOBUILDS}/{first}" for one in MIRRORS
+                )
+    raise SystemExit("no mirror named an install medium")
+
+
+def prepare(
+    api: Api, node: str, medium: str, urls: tuple[str, ...], driver_path: Path, driver: str
+) -> None:
+    """Put the medium and the driver CD on one node's `local` storage.
+
+    `local` is per node, not shared: a guest built on a node without the medium
+    is refused with `volume 'local:iso/...' does not exist`, which is what the
+    first cluster run hit.
+    """
+    if medium not in api.isos(node):
+        last = ""
+        for url in urls:
+            try:
+                api.fetch_iso(node, url, medium)
+                break
+            except ProxmoxError as error:
+                last = str(error)
+        else:
+            raise ProxmoxError(f"no mirror served {medium} to {node}: {last}")
+    if driver not in api.isos(node):
+        api.upload_iso(node, driver_path, driver)
+
+
+def rewrite_fixtures(jobs: list[Job], into: Path, region: MirrorRegion) -> Path:
+    """Write each fixture out again with its mirror region replaced.
+
+    Through the parser and the writer, not a text substitution: a fixture that
+    cannot survive the round trip is a defect worth failing on here rather than
+    an hour into an install.
+
+    The cluster is in China, and a `global` fixture syncs the tree from
+    `github.com/gentoo-mirror/gentoo.git`, which answered `SSL_read:
+    unexpected eof while reading` there. Running the set against `cn` is both
+    what works and what the operators of that network actually use.
+    """
+    into.mkdir(parents=True, exist_ok=True)
+    for job in jobs:
+        config = load(job.fixture)
+        moved = replace(
+            config, portage=replace(config.portage, mirrors=replace(config.portage.mirrors, region=region))
+        )
+        (into / job.fixture.name).write_text(to_toml(moved))
+    return into
+
+
 def free_slots(api: Api) -> list[Node]:
     """Nodes with room for one more guest, most free first."""
     need = GUEST_MEMORY_MIB * 1024**2 + NODE_HEADROOM_BYTES
@@ -180,12 +267,19 @@ def install_one(
         guest.reset()
         append_to_cmdline(console, EXTRA_CMDLINE)
         console.expect(r"livecd .*#|localhost .*#", timeout=900.0)
-        console.run("printf 'nameserver 223.5.5.5\\nnameserver 1.1.1.1\\n' > /etc/resolv.conf")
+        # The guest's own resolver is left alone. A local run pins one because
+        # slirp reads the host's `/etc/resolv.conf` once at startup; the
+        # cluster hands out a real configuration, and it is IPv6 with DNS64.
+        # Writing IPv4 resolvers over it left every mirror unreachable:
+        # `Failed to connect to mirrors.tuna.tsinghua.edu.cn:443 after 111 ms`.
         console.run("mkdir -p /mnt/driver")
         console.run("mountpoint -q /mnt/driver || mount -o ro /dev/sr1 /mnt/driver")
         console.run(f"mkdir -p {RESULT_DIR}")
+        # tee, not a redirect: the serial console is the only way to watch a
+        # run that takes half an hour, and it is what the watchdog reads to
+        # tell a slow mirror from a dead guest.
         console.run(
-            f"cd /mnt/driver && {{ sh ./bootstrap.sh --no-shell --config {job.fixture.name}; "
+            f"{{ sh /mnt/driver/install.sh --config fixtures/{job.fixture.name}; "
             f"echo $? > {RESULT_DIR}/install.rc; }} 2>&1 | tee {RESULT_DIR}/install.txt",
             timeout=RUN_CEILING,
         )
@@ -214,15 +308,28 @@ def install_one(
             print(f"{job.name}: the guest was not removed: {error}", file=sys.stderr)
 
 
-def run(jobs: list[Job], workdir: Path, limit: int = 0) -> list[Outcome]:
+def run(
+    jobs: list[Job],
+    workdir: Path,
+    limit: int = 0,
+    stamp: int = 0,
+    region: MirrorRegion = MirrorRegion.CN,
+) -> list[Outcome]:
     """Every job, collected one at a time as each finishes.
 
     `limit` caps how many run at once; zero asks the cluster what fits.
     """
     api = Api()
     workdir.mkdir(parents=True, exist_ok=True)
-    driver_path = build_driver(workdir / "driver.iso")
-    driver = ""
+    # Packed: the ingress refuses the 1.4 MiB loose-file CD with `413`.
+    driver_path = build_driver(
+        workdir / "driver.iso",
+        packed=True,
+        fixtures=rewrite_fixtures(jobs, workdir / "fixtures", region),
+    )
+    driver = f"gi-driver-{stamp}.iso"
+    medium, urls = current_minimal()
+    prepared: set[str] = set()
     done: queue.Queue[Outcome] = queue.Queue()
     waiting = list(jobs)
     running: dict[str, threading.Thread] = {}
@@ -239,11 +346,12 @@ def run(jobs: list[Job], workdir: Path, limit: int = 0) -> list[Outcome]:
                 slots = slots[: max(0, limit - len(running))]
             while waiting and slots:
                 node = slots.pop(0)
-                if not driver:
-                    driver = api.upload_iso(
-                        node.name, driver_path, f"gi-driver-{int(time.time())}.iso"
-                    )
+                if node.name not in prepared:
+                    prepare(api, node.name, medium, urls, driver_path, driver)
+                    prepared.add(node.name)
                 job = waiting.pop(0)
+                if job.iso == DEFAULT_ISO:
+                    job = replace(job, iso=medium)
                 thread = threading.Thread(target=one, args=(node.name, job), daemon=True)
                 running[job.name] = thread
                 thread.start()
@@ -263,9 +371,8 @@ def run(jobs: list[Job], workdir: Path, limit: int = 0) -> list[Outcome]:
                 flush=True,
             )
     finally:
-        if driver:
-            for node in api.nodes():
-                api.remove_iso(node.name, driver)
+        for name in prepared:
+            api.remove_iso(name, driver)
     return finished
 
 
@@ -316,9 +423,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("fixtures", nargs="+", help="fixture names, without .toml")
     parser.add_argument("--limit", type=int, default=0, help="how many guests at once")
     parser.add_argument("--workdir", type=Path, default=WORKROOT)
+    parser.add_argument(
+        "--region",
+        choices=[one.value for one in MirrorRegion],
+        default=MirrorRegion.CN.value,
+        help="which mirror region every fixture is rewritten to use",
+    )
     args = parser.parse_args(argv)
 
-    outcomes = run(fixtures(args.fixtures), args.workdir, args.limit)
+    outcomes = run(
+        fixtures(args.fixtures),
+        args.workdir,
+        args.limit,
+        int(time.time()),
+        MirrorRegion(args.region),
+    )
     passed = [one for one in outcomes if one.verdict is Verdict.OK]
     print(f"\n{len(passed)}/{len(outcomes)} passed")
     for one in outcomes:
