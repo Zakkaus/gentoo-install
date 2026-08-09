@@ -95,6 +95,10 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         # The same configuration again, killed partway and finished with
         # --resume: the one path nothing else reaches.
         Run("fixtures/vm-binpkg.toml", interrupt=True),
+        # A mirrored pool across two disks, and the third filesystem member no
+        # fixture had ever made.
+        Run("fixtures/vm-zfs-mirror.toml"),
+        Run("fixtures/vm-f2fs.toml"),
     ),
     # One configuration, six media: this stage tests `bootstrap.sh` and
     # preflight, so the shortest fixture is the right one. Booted like every

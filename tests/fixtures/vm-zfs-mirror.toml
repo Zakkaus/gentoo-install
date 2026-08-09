@@ -1,0 +1,118 @@
+# A ZFS mirror across two disks. `ZfsTopology.MIRROR` and a layout holding
+# more than one disk both had unit tests and nothing else: no fixture ever
+# gave `zpool create` a second vdev, so the keyword that makes the pool
+# redundant was never once on a command line that ran.
+#
+# The root hash below is `install`, produced by `openssl passwd -6`.
+config_version = 1
+
+[system]
+hostname = "mirrorbox"
+timezone = "UTC"
+locales = ["en_US.UTF-8"]
+locale = "en_US.UTF-8"
+init = "systemd"
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
+
+[portage]
+profile = "default/linux/amd64/23.0/systemd"
+makeopts = "-j4"
+
+[portage.binhost]
+official = true
+community = "off"
+
+# sys-boot/zfsbootmenu is in this overlay and in no other repository.
+[[portage.overlays]]
+name = "gentoo-zh"
+sync_uri = "https://github.com/gentoo-zh/overlay.git"
+
+[kernel]
+source = "dist-bin"
+
+[bootloader]
+kind = "zfsbootmenu"
+firmware = "uefi"
+kernel_params = ["console=ttyS0,115200"]
+
+[disk]
+root = "mnt-root"
+
+[[disk.devices]]
+kind = "existing"
+id = "disk"
+selector = "/dev/disk/by-id/virtio-target0"
+wipe = true
+
+[[disk.devices]]
+kind = "table"
+id = "table"
+disk = "disk"
+table = "gpt"
+
+[[disk.devices]]
+kind = "partition"
+id = "esp"
+table = "table"
+index = 1
+role = "esp"
+size = "512MiB"
+
+[[disk.devices]]
+kind = "partition"
+id = "poolpart"
+table = "table"
+index = 2
+role = "data"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "espfs"
+device = "esp"
+type = "vfat"
+label = "ESP"
+
+[[disk.devices]]
+kind = "existing"
+id = "disk2"
+selector = "/dev/disk/by-id/virtio-target1"
+wipe = true
+
+[[disk.devices]]
+kind = "table"
+id = "table2"
+disk = "disk2"
+table = "gpt"
+
+[[disk.devices]]
+kind = "partition"
+id = "poolpart2"
+table = "table2"
+index = 1
+role = "zfs"
+
+[[disk.devices]]
+kind = "zpool"
+id = "pool"
+vdevs = ["poolpart", "poolpart2"]
+name = "rpool"
+topology = "mirror"
+
+[[disk.devices]]
+kind = "dataset"
+id = "ds-root"
+pool = "pool"
+name = "ROOT/gentoo"
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-root"
+source = "ds-root"
+path = "/"
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-esp"
+source = "espfs"
+path = "/efi"
+options = ["umask=0077"]
