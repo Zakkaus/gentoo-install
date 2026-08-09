@@ -403,6 +403,21 @@ def _version_in(name: str) -> str | None:
     return None
 
 
+def _version_inside(context: Context, name: str) -> str | None:
+    """What the image says it is, or None when nothing said.
+
+    `file` answers `Linux kernel x86 boot executable bzImage, version 6.18.41
+    -gentoo-dist-bin (...)`. None rather than a guess: an unreadable answer is
+    not evidence that the image is wrong, and deleting the only kernel on that
+    basis leaves nothing to boot.
+    """
+    said = context.run_in_target(["file", "--brief", f"{KERNEL_IMAGES}/{name}"], check=False)
+    words = said.split()
+    if "version" not in words:
+        return None
+    return words[words.index("version") + 1] if len(words) > words.index("version") + 1 else None
+
+
 @dataclass(frozen=True, kw_only=True)
 class RemoveUnbootableKernels(Operation):
     """Delete a kernel image in /boot that has no modules to go with it.
@@ -414,8 +429,14 @@ class RemoveUnbootableKernels(Operation):
     kernel it can see -- "ignoring inconsistent versions" -- and GRUB would
     have offered the operator an entry that cannot boot.
 
-    A modules directory is the authority: an image whose version has none
-    loads no driver and reaches no root.
+    Two tests, because one image failed only the second. An image whose
+    version has no modules directory loads no driver and reaches no root. An
+    image whose file name disagrees with the version string inside it is the
+    one `generate-zbm` names in that message: `sys-fs/zfs` also leaves
+    `/lib/modules/<wrong version>` behind, so the modules test passes and the
+    kernel is still refused.
+
+    `file` reads the string. It is in `@system`, so a stage3 has it.
     """
 
     stage: Stage = Stage.KERNEL
@@ -433,7 +454,12 @@ class RemoveUnbootableKernels(Operation):
             return
         for name in (line.strip() for line in listed.splitlines()):
             version = _version_in(name)
-            if version is None or version in versions:
+            if version is None:
+                continue
+            inside = _version_inside(context, name)
+            # Only a disagreement, never an unknown: `file` answering nothing
+            # is not evidence, and this is the last chance to keep a kernel.
+            if version in versions and inside in (None, version):
                 continue
             context.run_in_target(["rm", "--force", f"{KERNEL_IMAGES}/{name}"])
 

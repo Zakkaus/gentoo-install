@@ -724,6 +724,10 @@ def test_a_kernel_with_no_modules_is_deleted_and_nothing_else_is() -> None:
 
     def listing(argv: Sequence[str], **rest: object) -> str:
         wanted = list(argv)
+        if wanted[0] == "file":
+            # Every image here holds the prebuilt kernel; the stray one carries
+            # the wrong name, which is the whole defect.
+            return f"Linux kernel x86 boot executable bzImage, version {kept} (builder@host)"
         if wanted[-1] == "/lib/modules":
             return f"{kept}\n"
         return "\n".join(
@@ -756,6 +760,53 @@ def test_a_kernel_with_no_modules_is_deleted_and_nothing_else_is() -> None:
         f"/boot/kernel-{stray}",
         f"/boot/initramfs-{stray}.img",
     ]
+
+
+def test_an_image_whose_name_disagrees_with_its_contents_is_deleted() -> None:
+    """The case `generate-zbm` names: `sys-fs/zfs` leaves both a wrongly named
+    image and a matching `/lib/modules` entry, so the modules test alone passes
+    and the kernel is still refused with `ignoring inconsistent versions`."""
+    recorder = Recorder()
+    named = "6.18.41-gentoo-dist"
+    inside = "6.18.41-gentoo-dist-bin"
+    removed: list[str] = []
+
+    def answering(argv: Sequence[str], **rest: object) -> str:
+        wanted = [str(one) for one in argv]
+        if wanted[0] == "rm":
+            removed.append(wanted[-1])
+            return ""
+        if wanted[0] == "file":
+            return f"Linux kernel x86 boot executable bzImage, version {inside} (b@h)"
+        if wanted[-1] == "/lib/modules":
+            # zfs built its module against the wrong version, so this passes.
+            return f"{named}\n{inside}\n"
+        return f"kernel-{named}\n"
+
+    recorder.run_in_target = answering  # type: ignore[method-assign]
+    kernel.RemoveUnbootableKernels().apply(recorder)
+    assert removed == [f"/boot/kernel-{named}"]
+
+
+def test_an_unreadable_image_is_left_alone() -> None:
+    """`file` answering nothing is not evidence the image is wrong, and it may
+    be the only kernel there is."""
+    recorder = Recorder()
+    version = "6.18.41-gentoo-dist-bin"
+    calls: list[str] = []
+
+    def answering(argv: Sequence[str], **rest: object) -> str:
+        wanted = [str(one) for one in argv]
+        calls.append(wanted[0])
+        if wanted[0] == "file":
+            return ""
+        if wanted[-1] == "/lib/modules":
+            return f"{version}\n"
+        return f"kernel-{version}\n"
+
+    recorder.run_in_target = answering  # type: ignore[method-assign]
+    kernel.RemoveUnbootableKernels().apply(recorder)
+    assert "rm" not in calls
 
 
 def test_nothing_is_deleted_when_no_modules_directory_can_be_read() -> None:
