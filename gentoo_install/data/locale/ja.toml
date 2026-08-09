@@ -250,7 +250,6 @@
 "separated by spaces" = "空白区切り"
 "Address" = "アドレス"
 "no networking" = "ネットワークなし"
-"assigned by the network manager" = "ネットワークマネージャーが割り当て"
 "Remote unlock" = "リモート解錠"
 "Unlock the root over SSH from the initramfs?" = "initramfs から SSH でルートを解錠しますか？"
 "Port" = "ポート"
@@ -406,3 +405,4 @@
 "give a partition the raid array member purpose" = "パーティションの用途を raid アレイメンバーにしてください"
 "an empty root password hash locks the account, so the installed system would boot with nothing that can log in" = "空の root パスワードハッシュはアカウントをロックするため、導入したシステムは起動してもログインする手段がない"
 "the input method needs it in this session" = "このセッションの入力メソッドが必要とする"
+"via" = "経由"

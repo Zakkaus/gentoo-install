@@ -1338,9 +1338,9 @@ def test_the_erase_question_fits_eighty_columns() -> None:
 
 
 def test_the_address_row_says_what_the_machine_will_come_up_with() -> None:
-    """Only the init's own manager reads the address fields, so a static
-    address under NetworkManager was drawn as though it were in effect and
-    nothing wrote it anywhere."""
+    """`WriteNetworkConfig` writes a mode-0600 NetworkManager keyfile from the
+    same fields, so answering with the manager's name hid an address the
+    install was about to configure."""
     from gentoo_install.model.config import Networking
 
     at = context()
@@ -1348,15 +1348,24 @@ def test_the_address_row_says_what_the_machine_will_come_up_with() -> None:
         one for group in settings.SETTINGS for one in group.rows if one.key == "address"
     )
     typed = replace(
-        config().system, addresses=("192.0.2.10/24",), interface="eth0"
+        config().system,
+        addresses=("192.0.2.10/24",),
+        interface="eth0",
+        gateways=("192.0.2.1",),
+        dns=("192.0.2.53",),
     )
     for chosen in Networking:
         shown = address.value(replace(config(), system=replace(typed, networking=chosen)), at)
-        if chosen is Networking.BUILTIN:
-            assert shown == "eth0: 192.0.2.10/24"
-        else:
-            assert "192.0.2.10" not in shown, chosen
+        if chosen is Networking.NONE:
+            assert shown == at.translate("no networking")
+            continue
+        assert "192.0.2.10/24" in shown, (chosen, shown)
+        assert "192.0.2.1" in shown, (chosen, shown)
+        assert "192.0.2.53" in shown, (chosen, shown)
 
+    # DHCP says so rather than showing an empty list.
+    dhcp = replace(config(), system=replace(config().system, networking=Networking.BUILTIN))
+    assert address.value(dhcp, at) == "DHCP"
 
 def test_a_password_is_typed_twice_before_it_is_hashed() -> None:
     """The field is masked, so a typo is found out at the first login of a

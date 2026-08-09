@@ -250,7 +250,6 @@
 "separated by spaces" = "공백으로 구분"
 "Address" = "주소"
 "no networking" = "네트워크 없음"
-"assigned by the network manager" = "네트워크 관리자가 할당"
 "Remote unlock" = "원격 잠금 해제"
 "Unlock the root over SSH from the initramfs?" = "initramfs 에서 SSH로 루트를 잠금 해제하시겠습니까?"
 "Port" = "포트"
@@ -406,3 +405,4 @@
 "give a partition the raid array member purpose" = "파티션의 용도를 raid 어레이 멤버로 지정하세요"
 "an empty root password hash locks the account, so the installed system would boot with nothing that can log in" = "비어 있는 root 비밀번호 해시는 계정을 잠그므로, 설치된 시스템은 부팅해도 로그인할 방법이 없다"
 "the input method needs it in this session" = "이 세션의 입력기가 필요로 함"
+"via" = "경유"

@@ -299,22 +299,25 @@ def _unlock_keymap(config: InstallConfig, context: Context) -> str:
 
 
 def _address(config: InstallConfig, context: Context) -> str:
-    """What the machine will come up with, not what was typed here.
+    """What the machine will come up with.
 
-    Only the init's own manager reads these fields, so a static address under
-    NetworkManager was drawn as though it were in effect and nothing wrote it.
+    Every manager, not only the built-in one: `WriteNetworkConfig` writes a
+    mode-0600 NetworkManager keyfile from the same fields, so answering with
+    the manager's name hid an address the install was about to configure. The
+    row beside this one carries the manager, so this one never repeats it.
     """
     system = config.system
     if system.networking is Networking.NONE:
         return context.translate("no networking")
-    if system.networking is not Networking.BUILTIN:
-        # Not the manager's name: the row beside this one already carries it,
-        # and the summary drew `networkmanager-wpa, networkmanager-wpa`.
-        return context.translate("assigned by the network manager")
     if not system.addresses:
         return "DHCP"
     where = system.interface or "auto"
-    return f"{where}: {', '.join(system.addresses)}"
+    said = f"{where}: {', '.join(system.addresses)}"
+    if system.gateways:
+        said += f"  {context.translate('via')} {', '.join(system.gateways)}"
+    if system.dns:
+        said += f"  DNS {', '.join(system.dns)}"
+    return said
 
 
 def _remote_unlock(config: InstallConfig, context: Context) -> str:

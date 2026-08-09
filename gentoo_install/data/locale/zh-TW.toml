@@ -250,7 +250,6 @@
 "separated by spaces" = "以空白分隔"
 "Address" = "網路位址"
 "no networking" = "無網路"
-"assigned by the network manager" = "由網路管理程式指派"
 "Remote unlock" = "遠端解鎖"
 "Unlock the root over SSH from the initramfs?" = "要在 initramfs 以 SSH 解鎖根檔案系統嗎？"
 "Port" = "埠"
@@ -407,3 +406,4 @@
 "give a partition the raid array member purpose" = "把某個分割區的用途設成 raid 陣列成員"
 "an empty root password hash locks the account, so the installed system would boot with nothing that can log in" = "空的 root 密碼雜湊會鎖住帳號，裝好的系統開機後沒有任何途徑可以登入"
 "the input method needs it in this session" = "這個工作階段的輸入法需要它"
+"via" = "經由"
