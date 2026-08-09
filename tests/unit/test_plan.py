@@ -745,3 +745,14 @@ def test_the_input_method_variables_reach_a_session_a_display_manager_starts() -
     ).apply(recorder)
     written = {str(path): text for path, text in recorder.files.items()}
     assert "XMODIFIERS=@im=fcitx" in written["/etc/environment"]
+
+
+def test_the_anthy_group_names_no_backend_of_its_own() -> None:
+    """`fcitx-anthy-5.1.10` depends on `app-i18n/anthy-unicode` and 5.1.8 and
+    older on `app-i18n/anthy`. Naming either one here merges a second Japanese
+    input backend that the fcitx actually installed does not address."""
+    from gentoo_install.data import load_catalog
+
+    group = load_catalog()["anthy"]
+    assert group.packages == ("app-i18n/fcitx-anthy",)
+    assert not any(name.endswith(("/anthy", "/anthy-unicode")) for name in group.packages)
