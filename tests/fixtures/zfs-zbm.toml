@@ -32,10 +32,6 @@ name = "gentoo-zh"
 sync_uri = "https://github.com/gentoo-zh/overlay.git"
 
 [kernel]
-# The only fixture that builds the cjk kernel rather than taking the
-# prebuilt one. `cjk-bin` is what the Chinese interface defaults to and
-# what the other two use, so this is the one run that covers the source
-# path at all.
 source = "cjk-bin"
 
 [bootloader]
