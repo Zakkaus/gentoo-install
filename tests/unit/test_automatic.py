@@ -8,7 +8,7 @@ so these tests read both and compare, rather than asserting a list by hand.
 from __future__ import annotations
 
 from dataclasses import replace
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -281,7 +281,7 @@ def test_a_desktop_row_says_it_brings_wayland() -> None:
 
     drawn = FakeScreen(keys=["q"], lines=30, columns=120)
     screens.desktop_screen(drawn, config(ext4_on_gpt()), context())
-    assert "plasma  the session only (+wayland qt6 kcm networkmanager)" in drawn.last
+    assert "plasma  the session only (+wayland qt6 networkmanager)" in drawn.last
     assert "gnome  the session only (+wayland gnome networkmanager gtk)" in drawn.last
 
 
@@ -354,3 +354,41 @@ def test_every_screen_that_picks_a_group_carrying_use_confirms_it() -> None:
             continue
         source = inspect.getsource(getattr(screens, name))
         assert "settle(" in source, f"{name} picks a group that sets make.conf and never asks"
+
+
+#: The Gentoo tree, when this machine has one. The group files are edited here,
+#: so the check runs where the mistake is made.
+_USE_DESC = Path("/var/db/repos/gentoo/profiles/use.desc")
+_USE_LOCAL_DESC = Path("/var/db/repos/gentoo/profiles/use.local.desc")
+
+
+@pytest.mark.skipif(not _USE_DESC.is_file(), reason="no Gentoo tree on this machine")
+def test_a_group_declares_only_flags_more_than_one_package_can_use() -> None:
+    """`use` reaches `make.conf`, which applies to every package. A flag that
+    exactly one package declares belongs in `package_use` beside it.
+
+    Not "absent from use.desc": `pipewire` is local too, and 31 packages
+    declare it, which is why the desktop profile sets it globally. `kcm` is
+    declared by one, `app-i18n/fcitx-configtool`. It sat in the plasma group,
+    where it matched nothing, and was missing whenever fcitx5 was chosen with
+    GNOME or Xfce.
+    """
+    global_flags = {
+        line.split(" - ")[0]
+        for line in _USE_DESC.read_text().splitlines()
+        if line and not line.startswith("#")
+    }
+    owners: dict[str, int] = {}
+    for line in _USE_LOCAL_DESC.read_text().splitlines():
+        if not line or line.startswith("#") or ":" not in line.split(" - ")[0]:
+            continue
+        owners[line.split(" - ")[0].split(":")[1]] = (
+            owners.get(line.split(" - ")[0].split(":")[1], 0) + 1
+        )
+    for name, group in load_catalog().items():
+        wrong = [
+            flag
+            for flag in group.use
+            if flag.lstrip("-") not in global_flags and owners.get(flag.lstrip("-"), 0) == 1
+        ]
+        assert not wrong, f"{name} puts {wrong} in USE; one package declares them"

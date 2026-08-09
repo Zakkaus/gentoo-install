@@ -10,4 +10,9 @@ packages = [
     "app-i18n/fcitx-qt",
     "app-i18n/fcitx-configtool",
 ]
+# `kcm` is a local flag of one package, not a global one: use.local.desc has
+# `app-i18n/fcitx-configtool:kcm` and use.desc has no `kcm` at all. It sat in
+# the plasma group, where it matched nothing and was missing whenever fcitx5
+# was chosen with another desktop.
+package_use = ["app-i18n/fcitx-configtool kcm"]
 input_framework = "fcitx"

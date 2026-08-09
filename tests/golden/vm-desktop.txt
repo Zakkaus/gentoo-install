@@ -30,6 +30,7 @@
   sync repository gentoo
   run getuto so Portage has a keyring to verify binary packages against
   add verified binary package host gentoo at https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64
+  ask for app-i18n/fcitx-configtool kcm for the fcitx5 group
   ask for app-i18n/rime-data extra for the rime-simplified group
 
 [system]

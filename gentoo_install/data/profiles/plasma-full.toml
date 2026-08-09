@@ -5,7 +5,7 @@ packages = [
     "kde-apps/kde-apps-meta",
     "x11-base/xorg-server",
 ]
-use = ["wayland", "qt6", "kcm", "networkmanager"]
+use = ["wayland", "qt6", "networkmanager"]
 wayland = true
 profile = "default/linux/amd64/23.0/desktop/plasma"
 
