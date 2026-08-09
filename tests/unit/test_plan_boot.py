@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
+from typing import Sequence
 
 import pytest
 
@@ -721,8 +722,8 @@ def test_a_kernel_with_no_modules_is_deleted_and_nothing_else_is() -> None:
     kept = "6.18.41-gentoo-dist-bin"
     stray = "6.18.41-gentoo-dist"
 
-    def listing(argv: object, **rest: object) -> str:
-        wanted = list(argv)  # type: ignore[call-overload]
+    def listing(argv: Sequence[str], **rest: object) -> str:
+        wanted = list(argv)
         if wanted[-1] == "/lib/modules":
             return f"{kept}\n"
         return "\n".join(
@@ -742,8 +743,8 @@ def test_a_kernel_with_no_modules_is_deleted_and_nothing_else_is() -> None:
     removed: list[tuple[str, ...]] = []
     real = listing
 
-    def watched(argv: object, **rest: object) -> str:
-        wanted = tuple(str(one) for one in argv)  # type: ignore[call-overload]
+    def watched(argv: Sequence[str], **rest: object) -> str:
+        wanted = tuple(str(one) for one in argv)
         if wanted[0] == "rm":
             removed.append(wanted)
             return ""
@@ -763,8 +764,8 @@ def test_nothing_is_deleted_when_no_modules_directory_can_be_read() -> None:
     recorder = Recorder()
     calls: list[tuple[str, ...]] = []
 
-    def answering(argv: object, **rest: object) -> str:
-        wanted = tuple(str(one) for one in argv)  # type: ignore[call-overload]
+    def answering(argv: Sequence[str], **rest: object) -> str:
+        wanted = tuple(str(one) for one in argv)
         calls.append(wanted)
         return "kernel-6.18.41-gentoo-dist\n" if wanted[-1] == "/boot" else ""
 
