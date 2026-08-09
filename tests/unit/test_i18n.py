@@ -138,6 +138,12 @@ def in_a_table() -> set[str]:
     found |= {one.value for one in Trait}
     found |= {one.reason for one in RULES}
     found.add("{when} excludes {excludes}")
+    # The overview counts the operations per stage, and each stage name is
+    # drawn: the whole line was English at the top of a translated screen.
+    from gentoo_install.plan.operations import Stage
+
+    found |= {one.value for one in Stage}
+    found.add("{count} operations")
     # The panel translates `Added.because` through a variable, so the reasons
     # are read from the table that declares them.
     from gentoo_install.plan.automatic import REASONS
@@ -181,6 +187,11 @@ def displayed() -> set[str]:
             if called == "translate" and node.args and isinstance(node.args[0], ast.Constant):
                 found.add(str(node.args[0].value))
             if called == "Setting" and len(node.args) > 1:
+                if isinstance(node.args[1], ast.Constant):
+                    found.add(str(node.args[1].value))
+            # `footer(translate, "Start writing to the disks")`: the string
+            # names what enter does on that screen and is translated inside.
+            if called == "footer" and len(node.args) > 1:
                 if isinstance(node.args[1], ast.Constant):
                     found.add(str(node.args[1].value))
     return found

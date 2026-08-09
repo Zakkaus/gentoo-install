@@ -710,8 +710,10 @@ def test_the_overview_names_the_values_nobody_typed() -> None:
 
 
 def test_the_overview_exports_without_taking_the_key_that_installs() -> None:
-    """Enter on the overview means go ahead. A row that took that keypress for
-    itself would publish instead of installing."""
+    """The overview has two rows that do something: the first starts the
+    install and the second exports. Enter used to proceed from whichever row
+    the cursor happened to be on, so reading the operation list and pressing
+    enter started an install."""
     from tests.unit.fake_screen import FakeScreen
     from tests.unit.test_tui_app import context
 
@@ -724,17 +726,24 @@ def test_the_overview_exports_without_taking_the_key_that_installs() -> None:
     at = context()
     at.publish_config = publish
     installation = config(ext4_on_gpt())
-    # Enter straight away, then No to the install confirmation.
+    # The cursor opens on `Start the installation`; No to the confirmation.
     accepted = screens.overview_screen(
         FakeScreen(keys=["\n", "\n"], lines=60, columns=130), installation, at
     )
-    assert sent == [], "enter on the overview published instead of proceeding"
+    assert sent == [], "the first row published instead of installing"
     assert accepted.outcome is Outcome.BACK
 
-    # Up to the export row, enter, a key to leave the address, then cancel.
+    # One row down is the export, then a key to leave the address, then cancel.
     screens.overview_screen(
-        FakeScreen(keys=["KEY_UP", "\n", "\n", "q"], lines=60, columns=130), installation, at
+        FakeScreen(keys=["KEY_DOWN", "\n", "\n", "q"], lines=60, columns=130), installation, at
     )
+    assert len(sent) == 1
+
+    # And a row of the summary answers nothing: the screen stays rather than
+    # starting an install because the cursor was resting on a value.
+    reading = FakeScreen(keys=["KEY_DOWN", "KEY_DOWN", "\n", "q"], lines=60, columns=130)
+    stayed = screens.overview_screen(reading, installation, at)
+    assert stayed.outcome is Outcome.CANCELLED
     assert len(sent) == 1
 
 

@@ -57,6 +57,8 @@ from ..plan import automatic as automatic_values
 from ..plan import kernel as plan_kernel
 from ..plan.kernel import KERNEL_PACKAGES
 from ..plan.portage import community_binhost
+from ..plan.operations import Operation
+from ..plan.render import counts
 from ..model.size import ZERO, Size
 from ..errors import ConfigError, GentooInstallError, ValidationFailed
 from ..model import atoms, manual, mirrors, paste, qr, sshkey
@@ -249,10 +251,12 @@ def answers(translate: Catalog) -> Answers:
     return {"no": translate("No"), "yes": translate("Yes")}
 
 
-def footer(translate: Catalog) -> str:
+def footer(translate: Catalog, enter: str = "Continue") -> str:
+    """What each key does here. `enter` names the action of this screen: the
+    overview said `Continue` on the screen where enter starts the install."""
     return "  ".join(
         (
-            f"[enter] {translate('Continue')}",
+            f"[enter] {translate(enter)}",
             f"[backspace] {translate('Back')}",
             f"[q] {translate('Cancel')}",
         )
@@ -2140,6 +2144,25 @@ def show_address(screen: Screen, context: Context, url: str) -> None:
     screen.key()
 
 
+#: The two rows of the overview that do something. Everything else is a value
+#: to read, and pressing enter on one of those keeps the screen.
+_INSTALL: Final[int] = 2
+_EXPORT: Final[int] = 1
+
+
+def _counted(operations: Sequence[Operation], translate: Catalog) -> str:
+    """`76 operations: partition 6, format 1, ...`, translated.
+
+    `plan/render.py` builds the English form for a log, and the menu drew that
+    string as it stood: a Chinese overview opened with a line of English.
+    """
+    counted = counts(operations)
+    parts = [f"{translate(stage.value)} {count}" for stage, count in counted.items()]
+    return "{}: {}".format(
+        translate("{count} operations").format(count=sum(counted.values())), ", ".join(parts)
+    )
+
+
 def overview_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
     """Everything that is about to happen, then one confirmation.
 
@@ -2147,7 +2170,6 @@ def overview_screen(screen: Screen, config: InstallConfig, context: Context) -> 
     something the installer will not do.
     """
     from ..plan.build import build as plan_build
-    from ..plan.render import summarise
     from .settings import SETTINGS, UNSET
 
     translate = context.translate
@@ -2196,35 +2218,49 @@ def overview_screen(screen: Screen, config: InstallConfig, context: Context) -> 
     # The operation list itself, so the screen cannot describe something the
     # installer will not do.
     items += [Item(label=operation.describe(), value=0) for operation in operations]
-    # First, so it is reachable without walking the operation list, and the
-    # cursor starts below it: enter on this screen means `go ahead`, and a row
-    # that took that keypress for itself would export instead of installing.
+    # Two actions at the top, and everything below them is a value to read.
+    # Enter used to start the install from whichever row the cursor happened
+    # to be on, so an operator scrolling the operation list started one by
+    # reading it, and the only labelled row exported to a pastebin instead.
     items.insert(
         0,
         Item(
             label=translate("Send the configuration to the pastebin"),
-            value=1,
+            value=_EXPORT,
             detail=translate("public, without the password hashes"),
+        ),
+    )
+    items.insert(
+        0,
+        Item(
+            label=translate("Start the installation"),
+            value=_INSTALL,
+            detail=translate("everything below is what it will do"),
         ),
     )
     while True:
         menu: Menu[int] = Menu(
-            title=f"{translate('Overview')}: {summarise(operations)}",
+            title=f"{translate('Overview')}: {_counted(operations, translate)}",
             items=items,
-            footer=footer(translate),
-            cursor=1,
+            footer=footer(translate, "Choose a row"),
         )
         answer = menu.run(screen)
         if not answer.chosen:
             return Answer(answer.outcome)
-        if answer.unwrap()[0] != 1:
+        chosen = answer.unwrap()[0]
+        if chosen == _INSTALL:
             break
+        if chosen != _EXPORT:
+            # A row of the summary: it answers nothing, so the screen stays.
+            continue
         try:
             show_address(screen, context, context.publish_config(config))
         except GentooInstallError as error:
             _say(screen, context, str(error))
     question = Confirm(
-        **answers(translate), title=translate("Install"), footer=footer(translate)
+        **answers(translate),
+        title=translate("Install"),
+        footer=footer(translate, "Start writing to the disks"),
     )
     confirmed = question.run(screen)
     if not confirmed.chosen:

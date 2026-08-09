@@ -23,10 +23,17 @@ def render(operations: Sequence[Operation]) -> str:
     return "\n".join(lines)
 
 
-def summarise(operations: Iterable[Operation]) -> str:
+def counts(operations: Iterable[Operation]) -> dict[Stage, int]:
+    """How many operations each stage holds, in the order they first appear."""
     counted: dict[Stage, int] = {}
     for operation in operations:
         counted[operation.stage] = counted.get(operation.stage, 0) + 1
-    total = sum(counted.values())
+    return counted
+
+
+def summarise(operations: Iterable[Operation]) -> str:
+    """The English form, for a log. The menu builds its own from `counts`:
+    this layer has no catalog and the whole line was drawn untranslated."""
+    counted = counts(operations)
     parts = [f"{stage.value} {count}" for stage, count in counted.items()]
-    return f"{total} operations: {', '.join(parts)}"
+    return f"{sum(counted.values())} operations: {', '.join(parts)}"
