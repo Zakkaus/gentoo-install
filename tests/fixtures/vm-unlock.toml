@@ -1,0 +1,127 @@
+# Remote unlock over ssh from the initramfs, on an encrypted root.
+#
+# Nothing had ever enabled it: seventeen fixtures, `remote_unlock` off in
+# every one and not a single authorised key between them, so sshd was
+# installed seventeen times with nobody able to log in. This one exercises
+# `sys-kernel/dracut-crypt-ssh`, the `crypt-ssh` and `network` dracut
+# modules, and the `rd.neednet=1 ip=` pair the command line needs.
+#
+# The root hash below is `install`, produced by `openssl passwd -6`.
+config_version = 1
+
+[system]
+hostname = "unlockbox"
+timezone = "Asia/Taipei"
+locales = ["en_US.UTF-8", "zh_TW.UTF-8"]
+locale = "zh_TW.UTF-8"
+init = "systemd"
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
+
+sshd = true
+authorized_keys = ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB+85deBslaLOMFw71dx23wo7fFT76GVcEyQS9IdVvvT installer@example"]
+
+[kernel.remote_unlock]
+enabled = true
+port = 2222
+address = "192.0.2.10/24"
+gateway = "192.0.2.1"
+interface = "eth0"
+
+[portage]
+profile = "default/linux/amd64/23.0/systemd"
+makeopts = "-j4"
+
+[portage.binhost]
+official = true
+community = "off"
+
+[kernel]
+source = "dist-bin"
+
+[bootloader]
+kind = "grub"
+firmware = "uefi"
+kernel_params = ["console=ttyS0,115200"]
+
+[disk]
+root = "mnt-root"
+
+[[disk.devices]]
+kind = "existing"
+id = "disk"
+selector = "/dev/disk/by-id/virtio-target0"
+wipe = true
+
+[[disk.devices]]
+kind = "table"
+id = "table"
+disk = "disk"
+table = "gpt"
+
+[[disk.devices]]
+kind = "partition"
+id = "esp"
+table = "table"
+index = 1
+role = "esp"
+size = "512MiB"
+
+[[disk.devices]]
+kind = "partition"
+id = "cryptroot"
+table = "table"
+index = 2
+role = "data"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "espfs"
+device = "esp"
+type = "vfat"
+label = "ESP"
+
+[[disk.devices]]
+kind = "luks"
+id = "root-luks"
+backing = "cryptroot"
+name = "root"
+passphrase_file = "/run/gentoo-install-keys/root"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "rootfs"
+device = "root-luks"
+type = "btrfs"
+
+[[disk.devices]]
+kind = "subvolume"
+id = "sub-root"
+filesystem = "rootfs"
+name = "@"
+
+[[disk.devices]]
+kind = "subvolume"
+id = "sub-home"
+filesystem = "rootfs"
+name = "@home"
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-root"
+source = "sub-root"
+path = "/"
+options = ["compress=zstd:1"]
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-home"
+source = "sub-home"
+path = "/home"
+options = ["compress=zstd:1"]
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-esp"
+source = "espfs"
+path = "/efi"
+options = ["umask=0077"]

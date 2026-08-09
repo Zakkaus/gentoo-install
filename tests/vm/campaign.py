@@ -84,6 +84,9 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         Run("fixtures/vm-btrfs.toml"),
         Run("fixtures/vm-openrc-desktop.toml"),
         Run("fixtures/vm-gnome.toml"),
+        # sshd with a key that can reach it, and the initramfs daemon that
+        # unlocks the root: `remote_unlock` was off in every other fixture.
+        Run("fixtures/vm-unlock.toml"),
     ),
     # One configuration, six media: this stage tests `bootstrap.sh` and
     # preflight, so the shortest fixture is the right one. Booted like every
