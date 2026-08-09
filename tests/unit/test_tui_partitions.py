@@ -492,11 +492,15 @@ def test_a_reuse_layout_is_not_asked_to_confirm_an_erase_it_will_not_do() -> Non
         Mountpoint(id=i("mnt-root"), source=i("keptfs"), path=PurePosixPath("/")),
     ]
     reused = config(kept)
-    assert settings.unanswered(reused, at).count("Confirm erasing the drive") == 0
+    assert "Confirm erasing the drive" not in [
+        one.label for one in settings.unanswered(reused, at)
+    ]
 
     # A layout that does erase still has to be confirmed.
     at.erase_confirmed = False
-    assert "Confirm erasing the drive" in settings.unanswered(config(), at)
+    assert "Confirm erasing the drive" in [
+        one.label for one in settings.unanswered(config(), at)
+    ]
 
 
 def test_the_encryption_row_reads_the_graph_and_not_the_answer_given_to_it() -> None:

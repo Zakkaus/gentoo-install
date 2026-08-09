@@ -296,6 +296,12 @@ class Field:
     value: str = ""
     #: Drawn inside the box while it is empty.
     placeholder: str = ""
+    #: Drawn as asterisks. A password read over a shoulder is the reason, and
+    #: it is why one is typed twice on the same screen rather than once.
+    secret: bool = False
+    #: A tick rather than a box to type in. `value` is `"x"` when it is on, so
+    #: a form still answers with one list of strings.
+    toggle: bool = False
 
 
 @dataclass
@@ -311,6 +317,10 @@ class Form:
     fields: list[Field]
     footer: str = ""
     done: str = "Done"
+    #: Drawn under the title, for a form the caller re-ran because one of the
+    #: answers was wrong. Re-running with the values kept is the point: an
+    #: operator who mistyped the second password should not lose the first.
+    message: str = ""
 
     def run(self, screen: Screen) -> Answer[list[str]]:
         typed = [list(field.value) for field in self.fields]
@@ -332,15 +342,23 @@ class Form:
                 if cursor == len(self.fields):
                     return Answer(Outcome.CHOSE, ["".join(one) for one in typed])
                 cursor += 1
+            elif pressed == " " and cursor < len(self.fields) and self.fields[cursor].toggle:
+                typed[cursor] = [] if typed[cursor] else ["x"]
+                touched = True
             elif pressed in ("\x7f", "KEY_BACKSPACE"):
-                if cursor < len(self.fields) and typed[cursor]:
+                if cursor < len(self.fields) and typed[cursor] and not self.fields[cursor].toggle:
                     typed[cursor].pop()
                     touched = True
                 elif not touched:
                     return Answer(Outcome.BACK)
             elif pressed in CANCEL:
                 return Answer(Outcome.CANCELLED)
-            elif len(pressed) == 1 and pressed.isprintable() and cursor < len(self.fields):
+            elif (
+                len(pressed) == 1
+                and pressed.isprintable()
+                and cursor < len(self.fields)
+                and not self.fields[cursor].toggle
+            ):
                 typed[cursor].append(pressed)
                 touched = True
 
@@ -348,14 +366,26 @@ class Form:
         lines, columns = screen.size()
         screen.clear()
         screen.write(0, 0, truncate(self.title, columns))
+        offset = 2
+        if self.message:
+            screen.write(1, 2, truncate(self.message, columns - 2), style=Style.REQUIRED)
+            offset = 3
         widest = max((width(field.label) for field in self.fields), default=0)
         room = columns - widest - 10
         for index, field in enumerate(self.fields):
-            row = index + 2
+            row = index + offset
             if row >= lines - 1:
                 break
             screen.write(row, 2, field.label)
-            shown = "".join(typed[index])
+            if field.toggle:
+                screen.write(
+                    row,
+                    widest + 4,
+                    f"[{'x' if typed[index] else ' '}]",
+                    highlight=index == cursor,
+                )
+                continue
+            shown = "*" * len(typed[index]) if field.secret else "".join(typed[index])
             while width(shown) > room - 1:
                 shown = shown[1:]
             inside = truncate(field.placeholder, room) if not shown else shown
@@ -367,7 +397,7 @@ class Form:
                 f"[ {inside}{' ' * max(0, room - width(inside))} ]",
                 highlight=index == cursor,
             )
-        end = min(len(self.fields) + 3, lines - 2)
+        end = min(len(self.fields) + offset + 1, lines - 2)
         screen.write(end, 2, self.done, highlight=cursor == len(self.fields))
         if self.footer:
             screen.write(lines - 1, 0, truncate(self.footer, columns))

@@ -50,6 +50,10 @@ class Setting:
     #: are groups is one fact: `unanswered` walked its own list of three and
     #: missed the fourth, which would have reported `Kernel` for a row inside.
     rows: tuple[Setting, ...] = ()
+    #: What the Install row says when this one is missing. `still needs an
+    #: answer` is wrong for a confirmation: there is no field to fill, and the
+    #: operator is being asked to agree to something.
+    missing: str = "still needs an answer"
     #: Why this row cannot be opened right now, or empty when it can. A row
     #: whose answer the rest of the configuration has already settled is drawn
     #: with the reason rather than opening a screen that changes nothing.
@@ -622,11 +626,18 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("extra", "Extra packages", _extra, screens.extra_packages_screen),
     Setting("networking", "Network", _summary(NETWORK), nested("Network", NETWORK), rows=NETWORK),
     Setting("ssh", "SSH", _summary(SSH), nested("SSH", SSH), rows=SSH),
-    Setting("erase", "Confirm erasing the drive", _erase, screens.erase_screen, required=True),
+    Setting(
+        "erase",
+        "Confirm erasing the drive",
+        _erase,
+        screens.erase_screen,
+        required=True,
+        missing="not confirmed",
+    ),
 )
 
 
-def unanswered(config: InstallConfig, context: Context) -> tuple[str, ...]:
+def unanswered(config: InstallConfig, context: Context) -> tuple[Setting, ...]:
     """Required rows still showing nothing, which is what blocks the install.
 
     A grouped row is named by whichever row behind it is missing: `Disk` says
@@ -635,17 +646,15 @@ def unanswered(config: InstallConfig, context: Context) -> tuple[str, ...]:
     behind it being: `Compiler` has a usable value for every row and still has
     to be looked at.
     """
-    named: list[str] = []
+    named: list[Setting] = []
     for group in SETTINGS:
         behind = [
-            row.label
-            for row in group.rows
-            if row.required and not settled(row, config, context)
+            row for row in group.rows if row.required and not settled(row, config, context)
         ]
         if any(row.required for row in group.rows):
             # The rows carry the requirement, so the group is not named as
             # well: `Disk, Drive` reads as two missing answers and is one.
             named += behind
         elif group.required and not settled(group, config, context):
-            named.append(group.label)
+            named.append(group)
     return tuple(named)

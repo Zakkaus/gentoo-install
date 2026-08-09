@@ -8,6 +8,7 @@ validator never disagree about why something cannot be chosen.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
 from enum import Enum
 from itertools import takewhile
@@ -451,40 +452,92 @@ def root_password_screen(
 
 
 def user_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
-    """One normal account with sudo, or none.
+    """One normal account, on one screen.
+
+    Five answers that are read together: three screens in a row meant the
+    operator confirmed a password before seeing whether the account gets sudo,
+    and a mismatch threw away the name as well. A wrong answer redraws the
+    same form with a line saying what was wrong and everything else kept.
 
     An empty name leaves the system with root only, which is a choice a server
     install makes deliberately.
     """
     translate = context.translate
-    named = TextField(
-        title=translate("User name, or empty for root only"), footer=footer(translate)
-    ).run(screen)
-    if not named.chosen:
-        return Answer(named.outcome)
-    name = named.unwrap().strip()
-    if not name:
-        return Answer(Outcome.CHOSE, replace(config, system=replace(config.system, users=())))
-    # One string with the name in it, not a fragment plus the name: the relation
-    # the label exists to state does not survive concatenation in a language
-    # that puts the possessive first.
-    password = _ask_password(screen, context, translate("Password for {user}").format(user=name))
-    if password is None:
-        return Answer(Outcome.BACK)
-    granted = Confirm(
-        **answers(translate),
-        title=translate("Give this account sudo?"), footer=footer(translate)
-    ).run(screen)
-    if not granted.chosen:
-        return Answer(granted.outcome)
-    user = User(
-        name=name,
-        # No list here: `plan/system.py:USER_GROUPS` is the one table, and
-        # naming `wheel` again put a account that declined sudo back in it.
-        sudo=granted.unwrap(),
-        password_hash=context.hash_password(password),
-    )
-    return Answer(Outcome.CHOSE, replace(config, system=replace(config.system, users=(user,))))
+    existing = config.system.users[0] if config.system.users else None
+    fields = [
+        Field(label=translate("User name"), value=existing.name if existing else "",
+              placeholder=translate("empty for root only")),
+        Field(label=translate("Password"), secret=True),
+        Field(label=translate("Type it again"), secret=True),
+        Field(label=translate("sudo"), toggle=True, value="x" if existing and existing.sudo else ""),
+        Field(
+            label=translate("Extra groups"),
+            value=" ".join(existing.groups) if existing else "",
+            placeholder=translate("plugdev kvm docker, separated by spaces"),
+        ),
+    ]
+    message = ""
+    while True:
+        answered = Form(
+            title=translate("User account"),
+            fields=fields,
+            footer=footer(translate),
+            done=translate("Done"),
+            message=message,
+        ).run(screen)
+        if not answered.chosen:
+            return Answer(answered.outcome)
+        name, first, again, sudo, extra = answered.unwrap()
+        # The values are put back before anything is rejected, so a form redrawn
+        # with a message is the one the operator was looking at.
+        fields[0].value, fields[3].value, fields[4].value = name, sudo, extra
+        name = name.strip()
+        if not name:
+            return Answer(Outcome.CHOSE, replace(config, system=replace(config.system, users=())))
+        wrong = _user_problem(name, first, again, extra, existing, translate)
+        if wrong:
+            message = wrong
+            continue
+        groups, _ = atoms.split_use_flags(extra)
+        user = User(
+            name=name,
+            # `plan/system.py:USER_GROUPS` is the one table for what every
+            # account gets, so `wheel` is not named again here: an account that
+            # declined sudo was put back in it.
+            groups=groups,
+            sudo=bool(sudo),
+            password_hash=(
+                context.hash_password(first)
+                if first
+                else (existing.password_hash if existing else "")
+            ),
+        )
+        return Answer(Outcome.CHOSE, replace(config, system=replace(config.system, users=(user,))))
+
+
+def _user_problem(
+    name: str, first: str, again: str, extra: str, existing: User | None, translate: Catalog
+) -> str:
+    """Why the form cannot be accepted, in the words the operator reads.
+
+    Returned rather than raised: a wrong answer redraws the form, and a screen
+    that exits to the menu loses the four answers that were right.
+    """
+    if not USER_NAME.match(name):
+        return translate("A user name is lowercase, starts with a letter, and has no spaces")
+    if first != again:
+        return translate("The two do not match.")
+    if not first and not (existing and existing.password_hash):
+        return translate("An account with no password cannot log in")
+    _, bad = atoms.split_use_flags(extra)
+    if bad:
+        return f"{translate('Not a group name')}: {' '.join(bad)}"
+    return ""
+
+
+#: What `useradd` accepts, which is what the account has to match before the
+#: install runs rather than after: NAME_REGEX in shadow's login.defs.
+USER_NAME: Final[re.Pattern[str]] = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 
 
 #: One row of the mirror screen. The Gentoo rows come first and the overlay

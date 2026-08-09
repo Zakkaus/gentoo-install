@@ -24,6 +24,7 @@ from gentoo_install.model.config import (
 )
 from gentoo_install.plan import automatic, bootloader as plan_bootloader, kernel as plan_kernel
 from gentoo_install.tui import screens
+from gentoo_install.tui.widgets import Answer
 
 from .layouts import config, encrypted_root, ext4_on_gpt, zfs_root
 from .recorder import Recorder
@@ -443,3 +444,97 @@ def test_the_blocked_row_lists_as_many_names_as_the_terminal_fits() -> None:
     assert "+" not in wide, wide
     assert "+" in narrow, narrow
     assert len(wide) > len(narrow)
+
+
+def _account(
+    keys: list[str], at: screens.Context, start: InstallConfig | None = None
+) -> Answer[InstallConfig]:
+    from tests.unit.fake_screen import FakeScreen
+
+    return screens.user_screen(
+        FakeScreen(keys=keys, lines=24, columns=100),
+        config(ext4_on_gpt()) if start is None else start,
+        at,
+    )
+
+
+def test_the_account_is_one_form_and_a_wrong_answer_keeps_the_others() -> None:
+    """Three screens in a row meant the operator confirmed a password before
+    seeing whether the account gets sudo, and a mismatch threw away the name."""
+    from tests.unit.test_tui_app import context
+
+    at = context()
+    down = "KEY_DOWN"
+    keys = [
+        # Name, two passwords that differ, tick sudo, groups, Done.
+        *"zakk", down, *"one", down, *"two", down, " ", down, *"plugdev kvm", down, "\n",
+        # Redrawn with the message: the name, sudo and the groups are still
+        # there, so only the two passwords are retyped. Enter moves to the next
+        # field and submits only from the Done row, so the last one is reached
+        # first.
+        down, *"same", down, *"same", down, down, down, "\n",
+    ]
+    user = _account(keys, at).unwrap().system.users[0]
+    assert user.name == "zakk"
+    assert user.sudo is True
+    assert user.groups == ("plugdev", "kvm")
+    assert user.password_hash == "$6$test$4"
+
+
+def test_a_name_useradd_would_refuse_is_refused_on_the_form() -> None:
+    """`useradd` rejects it after the disk has been partitioned, which is an
+    hour too late to ask again."""
+    from tests.unit.test_tui_app import context
+
+    at = context()
+    down = "KEY_DOWN"
+    keys = [
+        *"Zakk 1", down, *"same", down, *"same", down, down, down, "\n",
+        # The name is still in the field, so it is corrected rather than
+        # retyped from an empty form.
+        *["\x7f"] * 6, *"zakk",
+        down, *"same", down, *"same", down, down, down, "\n",
+    ]
+    assert _account(keys, at).unwrap().system.users[0].name == "zakk"
+
+
+def test_an_account_with_no_password_is_refused() -> None:
+    """It cannot log in, and the operator who left the field empty meant to
+    skip the account, which the empty name does."""
+    from tests.unit.test_tui_app import context
+
+    at = context()
+    down = "KEY_DOWN"
+    # Rejected, so the form is redrawn with the message and the operator
+    # leaves it rather than the screen exiting on their behalf. Escape, not
+    # `q`: in a form `q` is a character a group name can contain.
+    keys = [*"zakk", down, down, down, down, down, "\n", "\x1b"]
+    assert not _account(keys, at).chosen
+
+
+def test_no_account_at_all_is_still_one_keypress() -> None:
+    """A server install leaves the system with root only."""
+    from tests.unit.test_tui_app import context
+
+    at = context()
+    keys = ["KEY_DOWN"] * 5 + ["\n"]
+    assert _account(keys, context()).unwrap().system.users == ()
+
+
+def test_the_erase_row_is_not_reported_as_a_field_to_fill_in() -> None:
+    """There is nothing to type: the operator is being asked to agree."""
+    from gentoo_install.tui import app, settings
+    from tests.unit.test_tui_app import context
+
+    at = context()
+    at.columns = 200
+    at.visited.update(one.key for group in settings.SETTINGS for one in (group, *group.rows))
+    ready = replace(
+        config(ext4_on_gpt()),
+        system=replace(config().system, root_password_hash="$6$t$x"),
+        portage=replace(
+            config().portage, mirrors=replace(config().portage.mirrors, site="tuna")
+        ),
+    )
+    said = app._blocked(ready, at)
+    assert "Confirm erasing the drive: not confirmed" == said, said

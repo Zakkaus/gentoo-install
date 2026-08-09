@@ -142,8 +142,13 @@ def _legend(config: InstallConfig, context: Context) -> str:
 _MARGIN: Final[int] = 30
 
 
-def _as_many_as_fit(names: list[str], context: Context) -> str:
-    """The names that fit on this terminal, and how many did not."""
+def _as_many_as_fit(names: list[str], context: Context, *, extra: int = 0) -> str:
+    """The names that fit on this terminal, and how many did not.
+
+    `extra` counts what was left out before this call, so the number the
+    operator reads is everything still unanswered rather than everything
+    dropped from one list.
+    """
     room = max(20, context.columns - _MARGIN)
     taken: list[str] = []
     for name in names:
@@ -151,7 +156,7 @@ def _as_many_as_fit(names: list[str], context: Context) -> str:
         if taken and width(", ".join([*taken, name])) + (4 if rest else 0) > room:
             break
         taken.append(name)
-    left = len(names) - len(taken)
+    left = len(names) - len(taken) + extra
     joined = ", ".join(taken)
     return f"{joined} +{left}" if left else joined
 
@@ -226,9 +231,34 @@ def _blocked(config: InstallConfig, context: Context) -> str:
     counting the rest was the same on an 80-column console and on a 200-column
     one, so a screen wide enough to list all four still said `+3`.
     """
-    missing = [context.translate(label) for label in unanswered(config, context)]
+    missing = unanswered(config, context)
     if missing:
-        return f"{_as_many_as_fit(missing, context)}: {context.translate('still needs an answer')}"
+        # One segment per reason: a confirmation nobody agreed to is not a
+        # field nobody filled in, and saying so in one sentence made the two
+        # read as one list with a stray count on the end.
+        reasons: list[str] = []
+        for one in missing:
+            if one.missing not in reasons:
+                reasons.append(one.missing)
+        segments = [
+            "{}: {}".format(
+                ", ".join(
+                    context.translate(one.label) for one in missing if one.missing == reason
+                ),
+                context.translate(reason),
+            )
+            for reason in reasons
+        ]
+        whole = "; ".join(segments)
+        if width(whole) <= max(20, context.columns - _MARGIN):
+            return whole
+        # Too narrow for all of it: the names of the first reason, then a count
+        # of everything else still unanswered.
+        first = [one for one in missing if one.missing == reasons[0]]
+        labels = [context.translate(one.label) for one in first]
+        left = len(missing) - len(first)
+        said = _as_many_as_fit(labels, context, extra=left)
+        return f"{said}: {context.translate(reasons[0])}"
     try:
         # The whole plan, not `validate` alone: a group whose packages live in
         # an overlay nobody selected raises from `plan.build`, and the row that

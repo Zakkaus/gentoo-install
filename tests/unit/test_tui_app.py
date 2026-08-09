@@ -561,8 +561,9 @@ def test_a_grouped_row_shows_its_own_rows_and_comes_back() -> None:
 def test_a_grouped_row_names_the_row_behind_it_that_is_missing() -> None:
     """`Disk` says nothing about which of its six the operator has not reached."""
     blank = replace(config(), system=replace(config().system, root_password_hash=""))
-    assert "Root password" in settings.unanswered(blank, context())
-    assert "Drive" in settings.unanswered(blank, context()) or config().disk.graph
+    named = [one.label for one in settings.unanswered(blank, context())]
+    assert "Root password" in named
+    assert "Drive" in named or config().disk.graph
 
 
 def test_more_than_one_driver_can_be_ticked_and_not_in_the_application_list() -> None:
@@ -851,16 +852,16 @@ def test_what_still_asks_before_it_changes() -> None:
         "Encrypt this partition?",
         "Encrypt the pool?",
         "Encrypt this array?",
-        "Give this account sudo?",
         "Use DHCP?",
         "Unlock the root over SSH from the initramfs?",
         "Install",
     }
     for title in asked:
         assert title in source, title
-    # Eight call sites, nine titles: the slice screen words its question for a
-    # pool or for a partition.
-    assert source.count("Confirm(") == 8
+    # Seven call sites, eight titles: the slice screen words its question for a
+    # pool or for a partition. sudo left the list when the account became one
+    # form: a tick beside the other four answers, not a screen of its own.
+    assert source.count("Confirm(") == 7
     # `settle` asks the same kind of question with three answers rather than
     # two, because the third opens the row the values land on.
     assert "This choice also sets" in source
@@ -1166,7 +1167,7 @@ def test_a_required_row_inside_any_group_is_named_by_its_own_label() -> None:
     # Every group row's members are reachable, and no group row is walked itself.
     at = context()
     blank = replace(config(), system=replace(config().system, root_password_hash=""))
-    named = settings.unanswered(blank, at)
+    named = [one.label for one in settings.unanswered(blank, at)]
     assert "Root password" in named
     # A group is named only when it is required and nothing behind it is, so
     # `Disk` never stands in for the `Drive` row that is actually missing.
@@ -1333,8 +1334,13 @@ def test_a_password_is_typed_twice_before_it_is_hashed() -> None:
     answer = screens.root_password_screen(FakeScreen(keys=keys, lines=24), config(), at)
     assert answer.unwrap().system.root_password_hash == "$6$test$5"
 
-    account = [*"zakk", "\n", *"one", "\n", *"two", "\n", "\n", *"same", "\n", *"same", "\n", "\n"]
-    made = screens.user_screen(FakeScreen(keys=account, lines=24), config(), at)
+    # One form: the two passwords differ, so it redraws with a message and the
+    # name is still there. Down to the second field, fix it, then Done.
+    account = [
+        *"zakk", "KEY_DOWN", *"one", "KEY_DOWN", *"two", "KEY_DOWN", "KEY_DOWN", "KEY_DOWN", "\n",
+        "KEY_DOWN", *"same", "KEY_DOWN", *"same", "KEY_DOWN", "KEY_DOWN", "KEY_DOWN", "\n",
+    ]
+    made = screens.user_screen(FakeScreen(keys=account, lines=24, columns=100), config(), at)
     user = made.unwrap().system.users[0]
     assert user.name == "zakk" and user.password_hash == "$6$test$4"
 
@@ -1450,7 +1456,7 @@ def test_a_required_row_has_to_be_opened_and_not_only_filled_in() -> None:
         if one.required
     ]
     named = settings.unanswered(ready, at)
-    assert {one.label for one in required} <= set(named)
+    assert {one.label for one in required} <= {one.label for one in named}
     at.visited.update(one.key for one in required)
     assert settings.unanswered(ready, at) == ()
 

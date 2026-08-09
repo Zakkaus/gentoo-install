@@ -136,6 +136,13 @@ def in_a_table() -> set[str]:
     found |= set(REASONS)
     # The share names are drawn through a variable for the same reason.
     found |= {name for name, _ in RAM_SHARES}
+    # `Setting.missing` is drawn through a variable: a confirmation says
+    # something other than that a field is empty.
+    from gentoo_install.tui.settings import SETTINGS
+
+    found |= {
+        one.missing for group in SETTINGS for one in (group, *group.rows) if one.required
+    }
     found |= set(STATUS_REASONS.values())
     # A mirror is drawn by its own name and where it is, both translated: a
     # Chinese interface listing "Nanjing University" reads half-finished.

@@ -186,8 +186,11 @@ def test_declining_sudo_in_the_menu_keeps_the_account_out_of_wheel() -> None:
         groups=load_catalog(),
         hash_password=lambda password: "$6$t$x",
     )
-    # A name, a password twice, then No to sudo.
-    keys = [*"zakk", "\n", *"secret", "\n", *"secret", "\n", "\n"]
+    # One form: name, the password twice, sudo left unticked, then Done.
+    keys = [
+        *"zakk", "KEY_DOWN", *"secret", "KEY_DOWN", *"secret",
+        "KEY_DOWN", "KEY_DOWN", "KEY_DOWN", "\n",
+    ]
     answer = screens.user_screen(FakeScreen(keys=keys, lines=24, columns=100), config(), at)
     plain = answer.unwrap().system.users[0]
     assert plain.sudo is False
