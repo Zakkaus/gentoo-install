@@ -24,11 +24,12 @@ import urllib.request
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
+from collections.abc import Callable
 from typing import Final, Protocol
 
 from gentoo_install.model.config import InstallConfig
 from gentoo_install.model.device import Existing
-from gentoo_install.model.config import MirrorRegion
+from gentoo_install.model.config import MirrorRegion, Sync
 from gentoo_install.model.parse import load
 from gentoo_install.model.serialise import to_toml
 from .console import ConsoleClosed, ConsoleTimeout, SerialConsole
@@ -122,18 +123,36 @@ class Job:
     disks: int = 1
 
 
+#: Below this, over a whole ten-minute look, the guest is not working: a
+#: stage3 download that is merely slow still moved several megabytes, and the
+#: slowest this network has served one is 40 KiB/s, which is 24 MiB.
+QUIET_BYTES: Final[int] = 1024 * 1024
+
+
 @dataclass
 class Watchdog:
-    """Whether a guest is still producing output."""
+    """Whether a guest is still doing anything.
+
+    The console alone is not enough. An install spends minutes downloading a
+    stage3 and says nothing at all while it does, so a watchdog reading only
+    the serial log ends the guests that are working hardest. The guest's own
+    counters are what separate a slow transfer from a dead machine.
+    """
 
     log: Path
+    counters: Callable[[], int]
     strikes: int = 0
     _seen: int = field(default=0, init=False)
+    _moved: int = field(default=0, init=False)
 
     def moved(self) -> bool:
         size = self.log.stat().st_size if self.log.exists() else 0
-        if size > self._seen:
-            self._seen = size
+        traffic = self.counters()
+        talking = size > self._seen
+        working = traffic - self._moved >= QUIET_BYTES
+        self._seen = max(self._seen, size)
+        self._moved = max(self._moved, traffic)
+        if talking or working:
             self.strikes = 0
             return True
         self.strikes += 1
@@ -185,23 +204,39 @@ def prepare(
         api.upload_iso(node, driver_path, driver)
 
 
-def rewrite_fixtures(jobs: list[Job], into: Path, region: MirrorRegion) -> Path:
-    """Write each fixture out again with its mirror region replaced.
+def rewrite_fixtures(
+    jobs: list[Job], into: Path, region: MirrorRegion, sync: Sync
+) -> Path:
+    """Write each fixture out again with its mirror region and sync replaced.
 
     Through the parser and the writer, not a text substitution: a fixture that
     cannot survive the round trip is a defect worth failing on here rather than
     an hour into an install.
 
-    The cluster is in China, and a `global` fixture syncs the tree from
-    `github.com/gentoo-mirror/gentoo.git`, which answered `SSL_read:
-    unexpected eof while reading` there. Running the set against `cn` is both
-    what works and what the operators of that network actually use.
+    Both defaults come from what this network measured, not from what a
+    Chinese cluster is assumed to look like. Its guests have a ULA address and
+    reach the world through NAT64, and from inside one:
+
+    - `github.com` never connects, so the default `git` sync cannot be used
+      and `rsync` is what the fixtures run with here;
+    - `mirrors.tuna.tsinghua.edu.cn` connects but transfers at 128 KiB/s,
+      which is an hour for one stage3;
+    - `distfiles.gentoo.org`, a CDN, is the fast one, so `global` is the
+      region that finishes.
+
+    The node itself has none of these limits: it fetched a 1 GiB ISO from
+    tuna in the same run. Only the guest network is this shape.
     """
     into.mkdir(parents=True, exist_ok=True)
     for job in jobs:
         config = load(job.fixture)
         moved = replace(
-            config, portage=replace(config.portage, mirrors=replace(config.portage.mirrors, region=region))
+            config,
+            portage=replace(
+                config.portage,
+                sync=sync,
+                mirrors=replace(config.portage.mirrors, region=region),
+            ),
         )
         (into / job.fixture.name).write_text(to_toml(moved))
     return into
@@ -255,7 +290,7 @@ def install_one(
             driver_iso=driver,
         ),
     )
-    watch = Watchdog(log=log)
+    watch = Watchdog(log=log, counters=lambda: guest.transferred())
     if inflight is not None:
         inflight[job.name] = Running(guest=guest, watch=watch)
     try:
@@ -313,7 +348,8 @@ def run(
     workdir: Path,
     limit: int = 0,
     stamp: int = 0,
-    region: MirrorRegion = MirrorRegion.CN,
+    region: MirrorRegion = MirrorRegion.GLOBAL,
+    sync: Sync = Sync.RSYNC,
 ) -> list[Outcome]:
     """Every job, collected one at a time as each finishes.
 
@@ -325,7 +361,7 @@ def run(
     driver_path = build_driver(
         workdir / "driver.iso",
         packed=True,
-        fixtures=rewrite_fixtures(jobs, workdir / "fixtures", region),
+        fixtures=rewrite_fixtures(jobs, workdir / "fixtures", region, sync),
     )
     driver = f"gi-driver-{stamp}.iso"
     medium, urls = current_minimal()
@@ -426,8 +462,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--region",
         choices=[one.value for one in MirrorRegion],
-        default=MirrorRegion.CN.value,
+        default=MirrorRegion.GLOBAL.value,
         help="which mirror region every fixture is rewritten to use",
+    )
+    parser.add_argument(
+        "--sync",
+        choices=[one.value for one in Sync],
+        default=Sync.RSYNC.value,
+        help="how every fixture syncs the tree; git needs github, which this network lacks",
     )
     args = parser.parse_args(argv)
 
@@ -437,6 +479,7 @@ def main(argv: list[str] | None = None) -> int:
         args.limit,
         int(time.time()),
         MirrorRegion(args.region),
+        Sync(args.sync),
     )
     passed = [one for one in outcomes if one.verdict is Verdict.OK]
     print(f"\n{len(passed)}/{len(outcomes)} passed")

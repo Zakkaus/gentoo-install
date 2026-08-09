@@ -369,6 +369,21 @@ class Guest:
             self.node, self.api.call("POST", f"/nodes/{self.node}/qemu/{self.vmid}/status/reset")
         )
 
+    def transferred(self) -> int:
+        """Bytes this guest has received and written since it started.
+
+        What the watchdog reads when the console is silent: an install
+        downloading a stage3 prints nothing for minutes, and ending it for
+        that would end the guests doing the most work.
+        """
+        try:
+            status = self.api.call("GET", f"/nodes/{self.node}/qemu/{self.vmid}/status/current")
+        except ProxmoxError:
+            # One unanswered request is not evidence about the guest, and a
+            # watchdog that raises here stops the whole schedule.
+            return 0
+        return int(status.get("netin", 0)) + int(status.get("diskwrite", 0))
+
     def running(self) -> bool:
         status = self.api.call("GET", f"/nodes/{self.node}/qemu/{self.vmid}/status/current")
         return str(status.get("status")) == "running"
