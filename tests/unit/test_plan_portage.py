@@ -402,3 +402,20 @@ def test_the_menu_starts_on_this_machine_s_subarchitecture_and_a_mirror() -> Non
         assert _blank("/dev/vda", 4, (), country=outside).portage.mirrors.region is (
             MirrorRegion.GLOBAL
         ), outside
+
+
+def test_the_keyring_exists_before_the_first_binary_package_is_fetched() -> None:
+    """`make.conf` carries `FEATURES=getbinpkg`, so the first emerge already
+    fetches binary packages. With `getuto` after it, a profile carrying
+    `binpkg-request-signature` refuses the merge, and one without it installs a
+    package nothing verified."""
+    from gentoo_install.data import load_catalog
+    from gentoo_install.plan.build import build as build_plan
+
+    described = [one.describe() for one in build_plan(config(), load_catalog())]
+    keyring = next(n for n, one in enumerate(described) if "getuto" in one)
+    host = next(n for n, one in enumerate(described) if "binary package host" in one)
+    first = next(n for n, one in enumerate(described) if one.startswith("install git"))
+    written = next(n for n, one in enumerate(described) if "make.conf" in one)
+    assert written < keyring < first, described[written : first + 1]
+    assert host < first, described[host : first + 1]

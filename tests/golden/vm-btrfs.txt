@@ -26,13 +26,13 @@
 [portage]
   write /etc/portage/make.conf with MAKEOPTS, INPUT_DEVICES, ACCEPT_LICENSE, L10N, FEATURES; 2 mirrors in the configured order, 5 appended
   create the three autounmask files emerge writes its decisions into
+  run getuto so Portage has a keyring to verify binary packages against
+  add verified binary package host gentoo at https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64
   fetch the first ebuild repository snapshot with emerge-webrsync
   select profile default/linux/amd64/23.0/systemd
   install git, which every later repository sync needs: emerge dev-vcs/git
   point repository gentoo at https://github.com/gentoo-mirror/gentoo.git, commit signatures verified
   sync repository gentoo
-  run getuto so Portage has a keyring to verify binary packages against
-  add verified binary package host gentoo at https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64
 
 [system]
   generate and verify locales en_US.UTF-8, zh_TW.UTF-8

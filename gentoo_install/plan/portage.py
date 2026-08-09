@@ -517,6 +517,28 @@ def build(
             appended=_appended_distfiles(portage),
         ),
         CreateAutounmaskFiles(),
+    ]
+    if _uses_binhost(portage):
+        # Before the first emerge, not after it. `make.conf` above already
+        # carries `FEATURES=getbinpkg`, so `emerge dev-vcs/git` fetches binary
+        # packages; without the keyring a profile with
+        # `binpkg-request-signature` refuses the merge, and without it a
+        # package is installed unverified three operations before the trust
+        # setup that exists to prevent exactly that.
+        operations.append(PrepareBinhostTrust())
+    if portage.binhost.official:
+        # Written rather than left to the stage3's default, because that names
+        # the profile's baseline and the subarchitecture is a choice here.
+        operations.append(
+            ConfigureBinhost(
+                name="gentoo",
+                sync_uri=mirrors.gentoo_binhost(
+                    portage.mirrors.region, portage.mirrors.site, portage.binhost.subarch
+                ),
+                verify=True,
+            )
+        )
+    operations += [
         WebrsyncRepository(),
         SelectProfile(profile=portage.profile),
     ]
@@ -576,20 +598,6 @@ def build(
         operations.append(AcceptTestingPackages(packages=portage.testing_packages))
     if config.packages.extra:
         operations.append(VerifyPackages(packages=config.packages.extra))
-    if _uses_binhost(portage):
-        operations.append(PrepareBinhostTrust())
-    if portage.binhost.official:
-        # Written rather than left to the stage3's default, because that names
-        # the profile's baseline and the subarchitecture is a choice here.
-        operations.append(
-            ConfigureBinhost(
-                name="gentoo",
-                sync_uri=mirrors.gentoo_binhost(
-                    portage.mirrors.region, portage.mirrors.site, portage.binhost.subarch
-                ),
-                verify=True,
-            )
-        )
     if portage.binhost.community is not BinhostChannel.OFF:
         operations += [
             Emerge(
