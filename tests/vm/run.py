@@ -397,6 +397,11 @@ def main(argv: list[str] | None = None) -> int:
         "one path nothing else exercises",
     )
     parser.add_argument("--interactive", action="store_true", help="hand the VM to a human over SSH")
+    parser.add_argument(
+        "--cpus",
+        type=int,
+        help="vCPUs for the guest, which is what its MAKEOPTS is derived from",
+    )
     parser.add_argument("--keep", action="store_true", help="keep the run directory")
     args = parser.parse_args(argv)
 
@@ -458,6 +463,7 @@ def _perform(args: argparse.Namespace, medium: Medium, workdir: Path) -> int:
     spec = VmSpec(
         medium=medium,
         workdir=workdir,
+        **({"cpus": args.cpus} if args.cpus else {}),
         firmware=Firmware(args.firmware),
         ssh_port=ssh_port,
         disks=(result_disk,),

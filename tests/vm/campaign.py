@@ -17,6 +17,7 @@ import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Semaphore
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Sequence
@@ -30,6 +31,12 @@ LOGS: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/campaign"
 #: way through, which reaches the log as `the guest closed the serial
 #: connection` and reads exactly like an installer defect.
 WORKERS: Final[int] = 5
+
+#: What the machine can carry at once, in the units `Run.weight` counts. Six
+#: light guests, or three that build a kernel from source, or a mix. Flat
+#: counting put five compile jobs on the machine at once and left it with two
+#: of them for the last forty minutes while everything else waited.
+CAPACITY: Final[int] = 6
 
 #: Long enough for a desktop install from source. The harness has its own
 #: per-step timeouts; this only stops a run that wedged entirely.
@@ -48,6 +55,16 @@ class Run:
     #: Boot what was installed and check it. Always: an install that exits 0
     #: is not an install that boots, and that is the whole question.
     boot: bool = True
+    #: vCPUs, and through the guest's own MAKEOPTS how fast it compiles. Left
+    #: at zero for a run that installs binary packages: more cores do nothing
+    #: for a download, and they would be taken from a run that is compiling.
+    cpus: int = 0
+    #: What this costs the machine, against `CAPACITY`. Two for a run that
+    #: compiles a kernel or a desktop: those saturate their vCPUs for half an
+    #: hour, and packing them beside each other makes every one of them slower
+    #: without finishing any sooner. One for a run that installs binary
+    #: packages, which spends its time on the network and the disk.
+    weight: int = 1
 
     @property
     def name(self) -> str:
@@ -61,6 +78,8 @@ class Run:
             "--firmware", self.firmware,
             "--install", self.config,
         ]
+        if self.cpus:
+            argv += ["--cpus", str(self.cpus)]
         if self.interrupt:
             argv.append("--interrupt")
         return argv + ["--and-boot"] if self.boot else argv
@@ -71,7 +90,7 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
     "blocking": (
         Run("fixtures/vm-binpkg.toml"),
         Run("fixtures/vm-bios.toml", firmware="bios"),
-        Run("fixtures/vm-desktop.toml"),
+        Run("fixtures/vm-desktop.toml", weight=2, cpus=10),
         Run("fixtures/vm-zfs.toml"),
     ),
     "matrix": (
@@ -80,17 +99,17 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         Run("fixtures/vm-mdraid.toml"),
         Run("fixtures/vm-sdboot.toml"),
         Run("fixtures/vm-zfs-encrypted.toml"),
-        Run("fixtures/zfs-zbm.toml"),
-        Run("fixtures/btrfs-luks.toml"),
-        Run("fixtures/ext4-bios.toml", firmware="bios"),
-        Run("fixtures/vm-cjk-kernel.toml"),
+        Run("fixtures/zfs-zbm.toml", weight=2, cpus=10),
+        Run("fixtures/btrfs-luks.toml", weight=2, cpus=10),
+        Run("fixtures/ext4-bios.toml", firmware="bios", weight=2, cpus=10),
+        Run("fixtures/vm-cjk-kernel.toml", weight=2, cpus=10),
         # The four nothing had ever installed: the only untested filesystem, a
         # desktop on openrc, GNOME at all, and btrfs subvolumes without LUKS
         # wrapped round them.
         Run("fixtures/vm-xfs.toml"),
         Run("fixtures/vm-btrfs.toml"),
-        Run("fixtures/vm-openrc-desktop.toml"),
-        Run("fixtures/vm-gnome.toml"),
+        Run("fixtures/vm-openrc-desktop.toml", weight=2, cpus=10),
+        Run("fixtures/vm-gnome.toml", weight=2, cpus=10),
         # Three more nothing had ever installed: raidz needs a third disk,
         # which no other fixture asks for; zram was set by none of them; and
         # GRUB opening the container itself to read /boot only happens on an
@@ -171,9 +190,26 @@ def parallel(runs: Sequence[Run]) -> list[Outcome]:
     stayed unreported behind one that takes forty, and nobody could start on
     it until the whole batch was done.
     """
+    room = Semaphore(CAPACITY)
+
+    def carried(one: Run) -> Outcome:
+        # Held for the whole run, released whatever happened: a run that raised
+        # while holding two units would shrink the machine for the rest of the
+        # campaign.
+        for _ in range(one.weight):
+            room.acquire()
+        try:
+            return perform(one)
+        finally:
+            for _ in range(one.weight):
+                room.release()
+
+    # Heaviest first. Started last, a run that compiles a kernel is the only
+    # thing left on the machine for its final half hour.
+    ordered = sorted(runs, key=lambda one: -one.weight)
     done: list[Outcome] = []
-    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        waiting = [pool.submit(perform, one) for one in runs]
+    with ThreadPoolExecutor(max_workers=len(ordered) or 1) as pool:
+        waiting = [pool.submit(carried, one) for one in ordered]
         for finished in as_completed(waiting):
             outcome = finished.result()
             announce(outcome)

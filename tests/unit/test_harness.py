@@ -120,3 +120,29 @@ def test_a_guest_runs_behind_whoever_is_at_the_keyboard() -> None:
     # is extracting a stage3 while something else touches the disk.
     if "ionice" in _YIELDING:
         assert "-c" in _YIELDING and "2" in _YIELDING
+
+
+def test_the_machine_is_packed_by_weight_rather_than_by_count() -> None:
+    """A run that compiles a kernel and one that unpacks binary packages cost
+    the machine ten times differently. Counting guests put five compile jobs on
+    it at once and then left two of them alone for the last forty minutes."""
+    from tests.vm.campaign import CAPACITY, STAGES
+
+    runs = [one for stage in STAGES.values() for one in stage]
+    heavy = [one for one in runs if one.weight > 1]
+    assert heavy, "nothing is marked as compiling, so the weight does nothing"
+    assert all(one.cpus > 5 for one in heavy), "a compile job with the default cores"
+    assert all(one.cpus == 0 for one in runs if one.weight == 1)
+    # Three compile jobs at once, or six light ones. More than three saturates
+    # the host's threads and every one of them takes longer.
+    assert CAPACITY // max(one.weight for one in heavy) == 3
+
+
+def test_a_heavier_run_asks_for_the_cores_on_the_command_line() -> None:
+    """The guest derives its MAKEOPTS from the vCPU count, so the weight has to
+    reach `run.py` rather than only the scheduler."""
+    from tests.vm.campaign import Run
+
+    argv = Run("fixtures/vm-cjk-kernel.toml", weight=2, cpus=10).argv()
+    assert "--cpus" in argv and argv[argv.index("--cpus") + 1] == "10"
+    assert "--cpus" not in Run("fixtures/vm-binpkg.toml").argv()
