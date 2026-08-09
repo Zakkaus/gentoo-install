@@ -165,7 +165,13 @@ class Menu(Generic[V]):
         return Answer(Outcome.CHOSE, [self.items[cursor].value])
 
     def _toggle(self, cursor: int) -> None:
-        if self.items[cursor].disabled_because:
+        """Removing a selected row is always allowed; adding one is not.
+
+        A choice can be disabled after it was made -- an application from an
+        overlay the operator then removed -- and refusing the keystroke left
+        them holding an invalid selection with no way to drop it.
+        """
+        if self.items[cursor].disabled_because and cursor not in self.selected:
             return
         self.selected.symmetric_difference_update({cursor})
 
@@ -181,7 +187,9 @@ class Menu(Generic[V]):
         candidate = cursor
         while 0 <= candidate + by < len(self.items):
             candidate += by
-            if not self.items[candidate].disabled_because:
+            # A selected row is reachable even when disabled, or the operator
+            # cannot put the cursor on the choice they have to undo.
+            if not self.items[candidate].disabled_because or candidate in self.selected:
                 return candidate
         return cursor
 

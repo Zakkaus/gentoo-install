@@ -233,3 +233,40 @@ def test_a_form_takes_the_back_its_footer_offers() -> None:
     answer = filled.run(FakeScreen(keys=["KEY_BACKSPACE", "KEY_DOWN", "KEY_DOWN", "\n"]))
     assert answer.outcome is Outcome.CHOSE
     assert answer.unwrap()[0] == "22"
+
+
+def test_a_choice_that_became_invalid_can_still_be_dropped() -> None:
+    """An application from an overlay the operator then removed leaves a
+    selected row disabled. Space refused the keystroke and the cursor skipped
+    the row, so the invalid choice could not be undone without putting the
+    overlay back."""
+    menu: Menu[str] = Menu(
+        title="Applications",
+        items=[
+            Item(label="vim", value="vim"),
+            Item(label="wechat", value="wechat", disabled_because="needs gentoo-zh"),
+            Item(label="mpv", value="mpv"),
+        ],
+        multiple=True,
+        selected={1},
+    )
+    # Down from the first row reaches the disabled row, because it is selected.
+    assert menu._step(0, 1) == 1
+    menu._toggle(1)
+    assert menu.selected == set()
+    # And it cannot be selected again while it is disabled.
+    menu._toggle(1)
+    assert menu.selected == set()
+
+
+def test_the_cursor_still_skips_a_disabled_row_nobody_chose() -> None:
+    menu: Menu[str] = Menu(
+        title="Applications",
+        items=[
+            Item(label="vim", value="vim"),
+            Item(label="wechat", value="wechat", disabled_because="needs gentoo-zh"),
+            Item(label="mpv", value="mpv"),
+        ],
+        multiple=True,
+    )
+    assert menu._step(0, 1) == 2
