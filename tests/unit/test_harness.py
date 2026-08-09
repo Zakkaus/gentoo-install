@@ -146,3 +146,21 @@ def test_a_heavier_run_asks_for_the_cores_on_the_command_line() -> None:
     argv = Run("fixtures/vm-cjk-kernel.toml", weight=2, cpus=10).argv()
     assert "--cpus" in argv and argv[argv.index("--cpus") + 1] == "10"
     assert "--cpus" not in Run("fixtures/vm-binpkg.toml").argv()
+
+
+def test_every_configuration_the_campaign_runs_reaches_the_serial_port() -> None:
+    """The harness reads the installed system over `-serial`, so a kernel that
+    was never told about ttyS0 prints to tty0 and the boot check waits out its
+    timeout against an empty buffer, ten minutes after a clean install."""
+    import tomllib
+
+    from tests.vm.campaign import STAGES
+
+    root = Path(__file__).resolve().parents[1]
+    for stage, runs in STAGES.items():
+        for run in runs:
+            held = tomllib.loads((root / run.config).read_text())
+            params = held.get("bootloader", {}).get("kernel_params", [])
+            assert any(one.startswith("console=ttyS0") for one in params), (
+                f"{stage}: {run.config}"
+            )

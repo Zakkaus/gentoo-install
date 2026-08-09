@@ -40,7 +40,7 @@ source = "cjk-bin"
 [bootloader]
 kind = "grub"
 firmware = "uefi"
-kernel_params = ["quiet"]
+kernel_params = ["console=ttyS0,115200"]
 
 [packages]
 desktop = "plasma"

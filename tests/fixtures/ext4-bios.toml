@@ -23,6 +23,7 @@ source = "dist-bin"
 [bootloader]
 kind = "grub"
 firmware = "bios"
+kernel_params = ["console=ttyS0,115200"]
 
 [disk]
 root = "mnt-root"

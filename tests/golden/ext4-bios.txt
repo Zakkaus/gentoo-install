@@ -37,6 +37,7 @@
   give the target its own machine id
   write /etc/fstab with entries for /, swap
   treat the hardware clock as UTC
+  start a login on ttyS0 at 115200 baud
   set the root password
   install the network tools: emerge net-misc/netifrc net-misc/dhcpcd
   configure the wired interface for DHCP
@@ -59,7 +60,7 @@
 
 [bootloader]
   install the bootloader: emerge sys-boot/grub
-  write /etc/default/grub with cmdline empty
+  write /etc/default/grub with cmdline console=ttyS0,115200, its menu on ttyS0
   install GRUB for bios on the boot disk
 
 [finish]

@@ -41,7 +41,7 @@ source = "cjk-bin"
 [bootloader]
 kind = "zfsbootmenu"
 firmware = "uefi"
-kernel_params = ["quiet"]
+kernel_params = ["console=ttyS0,115200", "quiet"]
 
 [packages]
 desktop = "console"
