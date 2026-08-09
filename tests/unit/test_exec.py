@@ -933,6 +933,89 @@ def test_a_disk_holding_an_imported_pool_is_in_use(tmp_path: Path) -> None:
     assert not probe._in_an_imported_pool(f"{tmp_path}/disk2")
 
 
+def test_the_targets_own_half_finished_pool_is_not_somebody_elses_disk(tmp_path: Path) -> None:
+    """A run that stopped partway leaves its own pool imported with the install
+    target as its altroot. Reading that as a disk in use made the next attempt
+    impossible: `zpool list` answered `rpool ... ONLINE /mnt/gentoo` while
+    preflight refused the very disk the operator was installing onto."""
+
+    class Answering(Runner):
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            said = ""
+            if argv[0] == "zpool":
+                said = (
+                    "rpool\t30.5G\t2.1G\t28.4G\t-\t-\t0%\t6%\t1.00x\tONLINE\t/mnt/gentoo\n"
+                    f"\t{tmp_path}/disk1p3\t30.5G\t-\t-\t-\t-\t-\t-\t-\tONLINE\t-\n"
+                )
+            return Result(argv=tuple(argv), returncode=0, stdout=said, stderr="", seconds=0.0)
+
+    probe = Probe(runner=Answering(log=lambda line: None), work=tmp_path)
+    disk = f"{tmp_path}/disk1"
+    assert probe._in_an_imported_pool(disk, "/mnt/gentoo") is False
+    # Without the target named, it is still a pool holding somebody's data.
+    assert probe._in_an_imported_pool(disk) is True
+
+
+def test_a_second_pool_elsewhere_still_stops_the_run(tmp_path: Path) -> None:
+    """The altroot is read per pool, so the install's own pool being ignored
+    must not carry over to the next pool listed after it."""
+
+    class Answering(Runner):
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            said = ""
+            if argv[0] == "zpool":
+                said = (
+                    "rpool\t30G\t2G\t28G\t-\t-\t0%\t6%\t1.00x\tONLINE\t/mnt/gentoo\n"
+                    f"\t{tmp_path}/disk1p3\t30G\t-\t-\t-\t-\t-\t-\t-\tONLINE\t-\n"
+                    "tank\t6.5T\t589G\t5.9T\t-\t-\t4%\t8%\t1.00x\tONLINE\t-\n"
+                    f"\t{tmp_path}/disk2p2\t6.5T\t-\t-\t-\t-\t-\t-\t-\tONLINE\t-\n"
+                )
+            return Result(argv=tuple(argv), returncode=0, stdout=said, stderr="", seconds=0.0)
+
+    probe = Probe(runner=Answering(log=lambda line: None), work=tmp_path)
+    assert probe._in_an_imported_pool(f"{tmp_path}/disk2", "/mnt/gentoo") is True
+
+
+def test_a_longer_disk_name_is_not_a_partition_of_a_shorter_one(tmp_path: Path) -> None:
+    """`/dev/sdaa` starts with `/dev/sda`, so a prefix test alone read the
+    twenty-seventh disk as a partition of the first."""
+
+    class Answering(Runner):
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            said = ""
+            if argv[0] == "zpool":
+                said = (
+                    "tank\t6.5T\t1G\t6.4T\t-\t-\t0%\t1%\t1.00x\tONLINE\t-\n"
+                    f"\t{tmp_path}/sdaa1\t6.5T\t-\t-\t-\t-\t-\t-\t-\tONLINE\t-\n"
+                )
+            return Result(argv=tuple(argv), returncode=0, stdout=said, stderr="", seconds=0.0)
+
+    probe = Probe(runner=Answering(log=lambda line: None), work=tmp_path)
+    assert probe._in_an_imported_pool(f"{tmp_path}/sda") is False
+    assert probe._in_an_imported_pool(f"{tmp_path}/sdaa") is True
+
+
 def test_a_machine_with_no_zpool_command_is_not_called_busy(tmp_path: Path) -> None:
     """`zpool` is absent on most live media, and that is not evidence."""
 
