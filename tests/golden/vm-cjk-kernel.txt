@@ -56,6 +56,7 @@
   accept the linux-firmware licence
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
   accept sys-kernel/gentoo-cjk-kernel as testing, with cjk on
+  unmask virtual/dist-kernel, which the cjk kernel depends on by revision
   install the storage tools: emerge sys-fs/dosfstools sys-fs/e2fsprogs
   install the kernel: emerge sys-kernel/gentoo-cjk-kernel, from source
   rebuild the initramfs from sys-kernel/gentoo-cjk-kernel with the modules written above

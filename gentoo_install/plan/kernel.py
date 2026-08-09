@@ -321,6 +321,35 @@ class ConfigureRemoteUnlock(Operation):
         )
 
 
+#: What `gentoo-cjk-kernel` and its `-bin` twin PDEPEND on:
+#: `=virtual/dist-kernel-${PV}-r100`. The `-r100` revision exists only in
+#: gentoo-zh, and gentoo-zh masked its own `virtual/dist-kernel` on 2026-08-09
+#: because it is incompatible with `::gentoo`'s. So the cjk kernels now need
+#: the mask lifted, and `::gentoo`'s unrevisioned copy cannot stand in.
+CJK_MASKED: Final[str] = "virtual/dist-kernel"
+
+
+@dataclass(frozen=True, kw_only=True)
+class UnmaskCjkDistKernel(Operation):
+    """Lift gentoo-zh's mask on the virtual the cjk kernel depends on.
+
+    Written before the kernel merges. Without it the emerge stops on a masked
+    package with the disks already partitioned, which is the failure every
+    other keyword and licence operation here exists to move earlier.
+    """
+
+    stage: Stage = Stage.KERNEL
+
+    def describe(self) -> str:
+        return f"unmask {CJK_MASKED}, which the cjk kernel depends on by revision"
+
+    def apply(self, context: Context) -> None:
+        context.write(
+            PurePosixPath("/etc/portage/package.unmask/cjk-kernel"),
+            f"{CJK_MASKED}\n",
+        )
+
+
 @dataclass(frozen=True, kw_only=True)
 class AcceptKernelVersion(Operation):
     """A pinned version that is not stable on amd64.
@@ -554,6 +583,7 @@ def build(config: InstallConfig) -> list[Operation]:
         ]
     if config.kernel.source in CJK_KERNELS:
         operations.append(RequestCjkKernel(package=package, cjk=config.system.console_cjk))
+        operations.append(UnmaskCjkDistKernel())
     # Two orderings pull opposite ways, and both are real. The userland the
     # initramfs embeds has to exist before the kernel is merged, because the
     # kernel's own postinst runs dracut and it dies on a module whose tool is

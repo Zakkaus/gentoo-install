@@ -76,6 +76,7 @@
   accept the linux-firmware licence
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
   accept sys-kernel/gentoo-cjk-kernel as testing, with cjk off
+  unmask virtual/dist-kernel, which the cjk kernel depends on by revision
   install the storage tools: emerge sys-fs/cryptsetup sys-fs/btrfs-progs sys-fs/dosfstools
   install the kernel: emerge sys-kernel/gentoo-cjk-kernel, from source
   tell dracut to carry crypt, btrfs

@@ -843,3 +843,35 @@ def test_the_initramfs_parameters_reach_every_grub_entry() -> None:
     )
     assert "rd.luks.uuid=" in every
     assert "quiet" in default and "rd.luks.uuid=" not in default
+
+
+def test_the_cjk_kernel_lifts_the_mask_its_dependency_carries() -> None:
+    """`gentoo-cjk-kernel` PDEPENDs on `=virtual/dist-kernel-${PV}-r100`. That
+    revision exists only in gentoo-zh, and gentoo-zh masked its own
+    `virtual/dist-kernel` because it is incompatible with `::gentoo`'s, whose
+    copy carries no `-r100`. Without the unmask the emerge stops on a masked
+    package with the disks already partitioned."""
+    from gentoo_install.model.config import KernelSource
+    from gentoo_install.plan.kernel import UnmaskCjkDistKernel
+
+    for source, wanted in (
+        (KernelSource.CJK_BIN, True),
+        (KernelSource.CJK, True),
+        (KernelSource.DIST_BIN, False),
+    ):
+        installation = replace(
+            config(), kernel=replace(KernelConfig(), source=source)
+        )
+        built = kernel.build(installation)
+        lifted = [one for one in built if isinstance(one, UnmaskCjkDistKernel)]
+        assert bool(lifted) is wanted, source
+        if not lifted:
+            continue
+        merged = next(
+            n for n, one in enumerate(built) if "install the kernel" in one.describe()
+        )
+        assert built.index(lifted[0]) < merged, "the mask is lifted after the merge"
+        recorder = Recorder()
+        lifted[0].apply(recorder)
+        written = recorder.files[PurePosixPath("/etc/portage/package.unmask/cjk-kernel")]
+        assert written.strip() == "virtual/dist-kernel"
