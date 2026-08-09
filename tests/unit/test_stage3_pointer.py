@@ -77,3 +77,38 @@ def test_the_variant_picks_the_pointer(monkeypatch: pytest.MonkeyPatch, variant:
     monkeypatch.setattr(fetch, "_read", record)
     fetch._newest(f"https://distfiles.gentoo.org/x/current-stage3-amd64-{variant}", variant)
     assert asked[0].endswith(f"latest-stage3-amd64-{variant}.txt")
+
+
+def test_one_lost_request_does_not_declare_the_machine_offline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """This check guards the whole run. A link that answered five runs in a
+    row timed out on the sixth, and the install stopped before it started."""
+    asked: list[int] = []
+
+    def flaky(url: str) -> str:
+        asked.append(1)
+        if len(asked) < fetch.ONLINE_TRIES:
+            raise DownloadFailed("timed out")
+        return "{}"
+
+    monkeypatch.setattr(fetch, "_read", flaky)
+    monkeypatch.setattr(fetch, "ONLINE_PAUSE", 0.0)
+    assert fetch.online() is True
+    assert len(asked) == fetch.ONLINE_TRIES
+
+
+def test_a_machine_with_no_network_is_still_reported_offline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Retrying must not turn a real absence of network into a slow yes."""
+    asked: list[int] = []
+
+    def never(url: str) -> str:
+        asked.append(1)
+        raise DownloadFailed("no route to host")
+
+    monkeypatch.setattr(fetch, "_read", never)
+    monkeypatch.setattr(fetch, "ONLINE_PAUSE", 0.0)
+    assert fetch.online() is False
+    assert len(asked) == fetch.ONLINE_TRIES

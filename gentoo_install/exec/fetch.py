@@ -291,17 +291,29 @@ def egress_country() -> str:
     return ""
 
 
+#: How many times the site is asked before the machine is called offline, and
+#: how long to wait between. One attempt was enough to stop an install on a
+#: link that answered five runs in a row and timed out on the sixth; the check
+#: guards the whole run, so a single lost packet must not decide it.
+ONLINE_TRIES: Final[int] = 3
+ONLINE_PAUSE: Final[float] = 2.0
+
+
 def online() -> bool:
     """Whether the package site answers.
 
     Asked of the site the install reads rather than of any host: a machine
     behind a portal resolves names and still cannot fetch an ebuild.
     """
-    try:
-        _read(f"{PACKAGES_API}/sys-kernel/gentoo-kernel-bin.json")
-    except DownloadFailed:
-        return False
-    return True
+    for attempt in range(ONLINE_TRIES):
+        try:
+            _read(f"{PACKAGES_API}/sys-kernel/gentoo-kernel-bin.json")
+        except DownloadFailed:
+            if attempt + 1 < ONLINE_TRIES:
+                time.sleep(ONLINE_PAUSE)
+            continue
+        return True
+    return False
 
 
 def package_versions(atom: str) -> tuple[tuple[str, bool], ...]:
