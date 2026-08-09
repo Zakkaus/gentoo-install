@@ -1074,3 +1074,22 @@ def test_a_group_whose_two_inits_name_a_service_differently_says_both() -> None:
         )
         described = [one.describe() for one in build_packages(installation, catalog)]
         assert any(one.startswith(said) for one in described), (init, described)
+
+
+def test_pipewire_asks_for_its_sound_server_without_a_desktop() -> None:
+    """`sound-server` is in IUSE without a `+`, and only
+    `targets/desktop/package.use` turns it on. Selected without a desktop, the
+    ebuild comments out the pipewire-pulse launcher line while the group still
+    enables `pipewire-pulse.socket`."""
+    from dataclasses import replace
+
+    from gentoo_install.plan.packages import build as build_packages
+
+    installation = replace(
+        config(ext4_on_gpt()),
+        packages=replace(config().packages, desktop="", applications=("pipewire",)),
+    )
+    written = [
+        line for one in build_packages(installation, load_catalog()) for line in getattr(one, "lines", ())
+    ]
+    assert "media-video/pipewire sound-server" in written, written

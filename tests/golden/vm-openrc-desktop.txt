@@ -31,6 +31,7 @@
   point repository gentoo at https://github.com/gentoo-mirror/gentoo.git, commit signatures verified
   sync repository gentoo
   ask for x11-misc/lightdm elogind; sys-auth/pambase elogind for the lightdm group
+  ask for media-video/pipewire sound-server for the pipewire group
 
 [system]
   generate and verify locales en_US.UTF-8

@@ -1,6 +1,11 @@
 # Audio. wireplumber is the session manager pipewire needs to route anything.
 packages = ["media-video/pipewire", "media-video/wireplumber"]
 use = ["pipewire", "screencast"]
+# `sound-server` is in IUSE without a `+`, and only `targets/desktop/package.use`
+# turns it on. Selected without a desktop, the ebuild comments out the
+# pipewire-pulse launcher line, so `pipewire-pulse.socket` below starts a
+# server that was built disabled.
+package_use = ["media-video/pipewire sound-server"]
 # `>=pipewire-0.3.66 uses the 'pipewire' group to manage permissions and limits
 # needed to function smoothly`, from the ebuild's own postinst. Without it the
 # session runs without realtime scheduling, which is audible as xruns.
