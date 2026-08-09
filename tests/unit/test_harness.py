@@ -318,7 +318,7 @@ def test_a_passphrase_becomes_the_keys_the_monitor_understands() -> None:
     # Refused rather than dropped: an unnamed character would be sent as
     # itself and silently ignored, and the guest would wait for ever.
     with pytest.raises(MonitorError):
-        keys_for("wide中")
+        keys_for("wide\u4e2d")
 
 
 def test_the_guest_offers_a_monitor_socket() -> None:
