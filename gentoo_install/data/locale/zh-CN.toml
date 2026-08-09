@@ -383,7 +383,7 @@
 "it imports a pool and boots a dataset from it, so it needs ZFS" = "它导入 pool 并从数据集启动，所以需要 ZFS"
 "an EFI executable has to live on a vfat esp mounted in the target" = "EFI 可执行文件要放在目标系统挂载的 vfat esp 上"
 "systemd-boot has no BIOS implementation" = "systemd-boot 没有 BIOS 实现"
-"it reads only the esp, so the kernel has to be on it: mount the esp at /boot" = "systemd-boot 只能读取 esp，因此内核必须位于 esp：请将 esp 挂载到 /boot"
+"it reads vfat and nothing else, so a separate /boot on another filesystem holds a kernel it cannot load" = "它只能读取 vfat，因此独立挂载在其他文件系统上的 /boot，其中的内核它无法加载"
 "firmware reads a member as a plain vfat partition, and only 0.90 and 1.0 keep the superblock at the end of the member" = "固件把成员当成普通 vfat 分区读，只有 0.90 与 1.0 把 superblock 放在成员尾部"
 "GRUB stage 1.5 needs somewhere to live" = "GRUB stage 1.5 需要存放空间"
 "cjktty patches the kernel VT layer, which no official kernel carries; sys-kernel/gentoo-cjk-kernel is the one that does" = "cjktty 修补内核 VT 层，官方内核都没有这份补丁，只有 sys-kernel/gentoo-cjk-kernel 有"

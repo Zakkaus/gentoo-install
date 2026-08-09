@@ -137,7 +137,7 @@ RULES: tuple[Rule, ...] = (
     Rule(
         Trait.SYSTEMD_BOOT,
         Trait.KERNEL_OFF_ESP,
-        "it reads only the esp, so the kernel has to be on it: mount the esp at /boot",
+        "it reads vfat and nothing else, so a separate /boot on another filesystem holds a kernel it cannot load",
     ),
     Rule(
         Trait.ESP_ON_MDRAID,
@@ -225,8 +225,18 @@ def traits_of(config: InstallConfig) -> frozenset[Trait]:
         found.add(Trait.NO_MOUNTED_ESP)
     if _encrypted_esp(graph):
         found.add(Trait.ESP_ENCRYPTED)
+    # Where `kernel-install` writes, which is `$BOOT_ROOT`: the XBOOTLDR
+    # partition at /boot when there is one, and the esp otherwise. bootctl(1):
+    # "/efi/, /boot/, and /boot/efi/ are checked in turn. It is recommended to
+    # mount the ESP to /efi/". So an esp at /efi with /boot an ordinary
+    # directory on the root is the recommended layout, and refusing it made
+    # systemd-boot unselectable from the default one. A separate /boot is only
+    # a problem when the loader cannot read it: it has a vfat driver and no
+    # other.
     boot = _covering_mount(graph, _BOOT)
-    if boot is None or not _on_esp(graph, boot.id):
+    esp = esp_mount(graph)
+    separate = boot is not None and boot.path == _BOOT and (esp is None or boot.id != esp.id)
+    if esp is None or (separate and boot is not None and not _is_vfat(graph, boot.id)):
         found.add(Trait.KERNEL_OFF_ESP)
 
     for array in graph.of_type(MdRaid):
@@ -286,6 +296,13 @@ def _nodes_under(graph: DeviceGraph, device: DeviceId, kind: type[T]) -> tuple[T
 
 def _holds(graph: DeviceGraph, device: DeviceId, kinds: tuple[type[Node], ...]) -> bool:
     return any(isinstance(node, kinds) for node in _chain(graph, device))
+
+
+def _is_vfat(graph: DeviceGraph, device: DeviceId) -> bool:
+    """Whether the mount's filesystem is one systemd-boot can read."""
+    return any(
+        one.kind is FilesystemType.VFAT for one in _nodes_under(graph, device, Filesystem)
+    )
 
 
 def _on_esp(graph: DeviceGraph, device: DeviceId) -> bool:

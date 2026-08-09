@@ -86,7 +86,30 @@ def systemd_boot_on_bios() -> InstallConfig:
 
 
 def systemd_boot_with_the_kernel_on_ext4() -> InstallConfig:
-    return boots(config(), Bootloader.SYSTEMD_BOOT, Firmware.UEFI)
+    """A separate ext4 /boot, which is the case the loader really cannot read.
+
+    An esp at `/efi` with `/boot` an ordinary directory is bootctl's own
+    recommendation and no longer counts: `kernel-install` writes to the esp
+    there, and refusing it made systemd-boot unselectable from the default
+    layout.
+    """
+    from gentoo_install.model.device import Partition, PartitionRole
+    from gentoo_install.model.size import Size
+
+    nodes = list(ext4_on_gpt())
+    top = max(one.index for one in nodes if isinstance(one, Partition))
+    nodes += [
+        Partition(
+            id=i("bootpart"),
+            table=i("table"),
+            index=top + 1,
+            role=PartitionRole.DATA,
+            size=Size.parse("1GiB"),
+        ),
+        Filesystem(id=i("bootfs"), device=i("bootpart"), kind=FilesystemType.EXT4),
+        Mountpoint(id=i("mnt-boot"), source=i("bootfs"), path=PurePosixPath("/boot")),
+    ]
+    return boots(config(nodes), Bootloader.SYSTEMD_BOOT, Firmware.UEFI)
 
 
 def mirrored_esp() -> list[Node]:
@@ -389,3 +412,39 @@ def test_an_encrypted_boot_beside_a_plain_esp_is_a_working_layout() -> None:
     assert Trait.ESP_ENCRYPTED not in compat.traits_of(config(beside))
     # And the real case still fires.
     assert Trait.ESP_ENCRYPTED in compat.traits_of(an_encrypted_esp())
+
+
+def test_systemd_boot_is_installable_on_the_layout_the_installer_offers() -> None:
+    """bootctl(1): "/efi/, /boot/, and /boot/efi/ are checked in turn. It is
+    recommended to mount the ESP to /efi/." The rule demanded the esp at
+    `/boot`, so the loader could not be chosen from the default layout at all
+    and the row's own reason told the operator to do something the menu does
+    not offer."""
+    from gentoo_install.model.validate import validate
+
+    validate(boots(config(), Bootloader.SYSTEMD_BOOT, Firmware.UEFI))
+
+
+def test_a_separate_vfat_boot_is_still_readable() -> None:
+    """systemd-boot has a vfat driver, so an XBOOTLDR partition it can read is
+    not the failing case."""
+    from gentoo_install.model import compat
+    from gentoo_install.model.device import Partition, PartitionRole
+    from gentoo_install.model.size import Size
+
+    nodes = list(ext4_on_gpt())
+    top = max(one.index for one in nodes if isinstance(one, Partition))
+    nodes += [
+        Partition(
+            id=i("bootpart"),
+            table=i("table"),
+            index=top + 1,
+            role=PartitionRole.DATA,
+            size=Size.parse("1GiB"),
+        ),
+        Filesystem(id=i("bootfs"), device=i("bootpart"), kind=FilesystemType.VFAT),
+        Mountpoint(id=i("mnt-boot"), source=i("bootfs"), path=PurePosixPath("/boot")),
+    ]
+    assert Trait.KERNEL_OFF_ESP not in compat.traits_of(
+        boots(config(nodes), Bootloader.SYSTEMD_BOOT, Firmware.UEFI)
+    )

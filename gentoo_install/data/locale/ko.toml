@@ -382,7 +382,7 @@
 "it imports a pool and boots a dataset from it, so it needs ZFS" = "풀을 가져와 데이터셋에서 부팅하므로 ZFS 가 필요합니다"
 "an EFI executable has to live on a vfat esp mounted in the target" = "EFI 실행 파일은 대상에 마운트된 vfat esp 에 있어야 합니다"
 "systemd-boot has no BIOS implementation" = "systemd-boot 에는 BIOS 구현이 없습니다"
-"it reads only the esp, so the kernel has to be on it: mount the esp at /boot" = "esp 만 읽으므로 커널이 esp 에 있어야 합니다. esp 를 /boot 에 마운트하세요"
+"it reads vfat and nothing else, so a separate /boot on another filesystem holds a kernel it cannot load" = "vfat만 읽을 수 있으므로, 다른 파일 시스템에 따로 마운트한 /boot의 커널은 불러올 수 없습니다."
 "firmware reads a member as a plain vfat partition, and only 0.90 and 1.0 keep the superblock at the end of the member" = "펌웨어는 멤버를 일반 vfat 파티션으로 읽으며 superblock 을 끝에 두는 것은 0.90 과 1.0 뿐입니다"
 "GRUB stage 1.5 needs somewhere to live" = "GRUB stage 1.5 를 둘 공간이 필요합니다"
 "cjktty patches the kernel VT layer, which no official kernel carries; sys-kernel/gentoo-cjk-kernel is the one that does" = "cjktty 는 커널 VT 계층을 패치하며 공식 커널에는 없고 sys-kernel/gentoo-cjk-kernel 에만 있습니다"

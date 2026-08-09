@@ -361,33 +361,12 @@ def _zfs_bootloader(screen: Screen, config: InstallConfig, context: Context) -> 
         return config
     kind = answer.unwrap()[0]
     if kind is Bootloader.SYSTEMD_BOOT:
-        # And the esp moves to /boot: systemd-boot reads only the esp, so the
-        # kernel has to be on it. Changing the bootloader alone returned a
-        # configuration `validate` refuses, from the screen offering it.
-        return replace(
-            config,
-            bootloader=replace(config.bootloader, kind=kind),
-            disk=replace(config.disk, graph=_esp_at_boot(config.disk.graph)),
-        )
+        return replace(config, bootloader=replace(config.bootloader, kind=kind))
     return replace(
         config,
         bootloader=replace(config.bootloader, kind=kind),
         portage=_with_gentoo_zh(config),
     )
-
-
-def _esp_at_boot(graph: DeviceGraph) -> DeviceGraph:
-    """The same layout with the esp mounted at /boot rather than /efi."""
-    where = compat.esp_mount(graph)
-    if where is None or where.path == PurePosixPath("/boot"):
-        return graph
-    moved = [
-        replace(node, path=PurePosixPath("/boot"))
-        if isinstance(node, Mountpoint) and node.id == where.id
-        else node
-        for node in graph.nodes.values()
-    ]
-    return DeviceGraph.build(moved)
 
 
 def _with_gentoo_zh(config: InstallConfig) -> PortageConfig:
