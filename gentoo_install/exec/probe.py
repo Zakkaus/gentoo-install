@@ -496,8 +496,11 @@ class Probe:
         # destructive operation, and a machine it cannot read is one it cannot
         # clear. busybox `swapon` has no `--show`, and answering no there let a
         # run repartition a disk holding an active swap.
+        # `MOUNTPOINTS`, not `MOUNTPOINT`: the singular column shows one of
+        # them, so a filesystem mounted both under the install target and
+        # somewhere else reported only the target and read as free.
         listed = self.runner.run(
-            ["lsblk", "--noheadings", "--output", "MOUNTPOINT", disk], check=False
+            ["lsblk", "--noheadings", "--output", "MOUNTPOINTS", disk], check=False
         )
         if listed.returncode != 0:
             return True
@@ -508,10 +511,39 @@ class Probe:
         ]
         if elsewhere:
             return True
+        if self._in_an_imported_pool(disk):
+            return True
         swap = self.runner.run(["swapon", "--noheadings", "--show=NAME"], check=False)
         if swap.returncode != 0:
             return True
         return any(line.strip().startswith(disk) for line in swap.stdout.splitlines())
+
+    def _in_an_imported_pool(self, disk: str) -> bool:
+        """Whether any partition of `disk` is a vdev of an imported ZFS pool.
+
+        A `zfs_member` partition carries no block-device mountpoint even while
+        its datasets provide `/` and `/home`, so every mountpoint column reads
+        blank and the disk looks free. Checked on the review host: the vdevs of
+        the pool holding its root had empty `MOUNTPOINTS`.
+        """
+        listed = self.runner.run(
+            ["zpool", "list", "-v", "-H", "-P"], check=False
+        )
+        if listed.returncode != 0:
+            # No pools and no `zpool` are the same answer here: nothing this
+            # command can tell us. `zpool` missing is the common case on a
+            # medium without ZFS, and it is not evidence that a disk is busy.
+            return False
+        whole = Path(disk).resolve()
+        for line in listed.stdout.splitlines():
+            for field in line.split():
+                if not field.startswith("/"):
+                    continue
+                vdev = Path(field)
+                real = vdev.resolve() if vdev.exists() else vdev
+                if real == whole or str(real).startswith(str(whole)):
+                    return True
+        return False
 
     def save(self) -> None:
         """Written beside the target and renamed over it, so a run that dies

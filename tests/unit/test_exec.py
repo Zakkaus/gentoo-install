@@ -879,3 +879,52 @@ def test_a_reused_partition_gets_its_number_from_the_machine(tmp_path: Path) -> 
         work=tmp_path,
     )
     assert machine.partition_index(DeviceId("part")) == 3
+
+
+def test_a_disk_holding_an_imported_pool_is_in_use(tmp_path: Path) -> None:
+    """A `zfs_member` partition carries no block-device mountpoint even while
+    its datasets provide `/` and `/home`, so every mountpoint column read blank
+    and preflight would authorise repartitioning the running system's disk."""
+
+    class Answering(Runner):
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            if argv[0] == "zpool":
+                said = (
+                    "rpool\t912G\t753G\t159G\t-\t-\t53%\t82%\t1.00x\tONLINE\t-\n"
+                    "\tmirror-0\t912G\t-\t-\t-\t-\t-\t-\t-\tONLINE\t-\n"
+                    f"\t{tmp_path}/disk1p3\t915G\t-\t-\t-\t-\t-\t-\t-\tONLINE\t-\n"
+                )
+            else:
+                said = ""
+            return Result(argv=tuple(argv), returncode=0, stdout=said, stderr="", seconds=0.0)
+
+    probe = Probe(runner=Answering(log=lambda line: None), work=tmp_path)
+    assert probe._in_an_imported_pool(f"{tmp_path}/disk1")
+    assert not probe._in_an_imported_pool(f"{tmp_path}/disk2")
+
+
+def test_a_machine_with_no_zpool_command_is_not_called_busy(tmp_path: Path) -> None:
+    """`zpool` is absent on most live media, and that is not evidence."""
+
+    class Failing(Runner):
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            return Result(
+                argv=tuple(argv), returncode=127, stdout="zpool: not found", stderr="", seconds=0.0
+            )
+
+    probe = Probe(runner=Failing(log=lambda line: None), work=tmp_path)
+    assert not probe._in_an_imported_pool("/dev/sda")
