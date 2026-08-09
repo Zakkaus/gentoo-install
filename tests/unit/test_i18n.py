@@ -129,6 +129,15 @@ def in_a_table() -> set[str]:
     from gentoo_install.model.manual import STATUS_REASONS
 
     found |= {one.value for one in STATUS_REASONS}
+    # Every compatibility rule reaches the screen as one sentence, and each
+    # half of it is translated: the trait names were not keys, so a Chinese
+    # interface drew `root on ZFS excludes BIOS boot` in English in front of a
+    # translated reason.
+    from gentoo_install.model.compat import RULES, Trait
+
+    found |= {one.value for one in Trait}
+    found |= {one.reason for one in RULES}
+    found.add("{when} excludes {excludes}")
     # The panel translates `Added.because` through a variable, so the reasons
     # are read from the table that declares them.
     from gentoo_install.plan.automatic import REASONS
@@ -221,3 +230,33 @@ def test_no_row_is_greyed_out_with_a_string_the_catalog_never_saw() -> None:
                 continue
             literal = _shown(node.value)
             assert not literal, f"{module.name}: disabled_because={literal} is not translated"
+
+
+def test_a_rule_is_translated_whole_and_not_half() -> None:
+    """`root on ZFS excludes BIOS boot:` was drawn in English in front of a
+    translated reason: the reason was a catalog key and the trait names were
+    not."""
+    from gentoo_install.model.compat import RULES, Trait
+
+    said = Catalog("zh-TW")
+    for rule in RULES:
+        drawn = rule.describe(said)
+        # The template first: it is what carried the English `excludes`.
+        assert " excludes " not in drawn, drawn
+        # Then each half, unless the catalog keeps the term as it stands.
+        # `LUKS` and `GRUB` are the names of the things themselves.
+        for trait in (rule.when, rule.excludes):
+            if said(trait.value) == trait.value:
+                continue
+            assert trait.value not in drawn, (trait, drawn)
+
+
+def test_the_blocked_row_reads_the_table_rather_than_the_exception() -> None:
+    """`validate` builds its message in English for a log, and that message
+    reached the one row the operator reads."""
+    import inspect
+
+    from gentoo_install.tui import app
+
+    source = inspect.getsource(app._blocked)
+    assert "describe(context.translate)" in source, source

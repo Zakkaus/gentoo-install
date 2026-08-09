@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Final
 
 from ..i18n import width
+from ..model import compat
 from ..model.config import InstallConfig
 from ..errors import GentooInstallError
 from ..plan.build import build
@@ -259,6 +260,13 @@ def _blocked(config: InstallConfig, context: Context) -> str:
         left = len(missing) - len(first)
         said = _as_many_as_fit(labels, context, extra=left)
         return f"{said}: {context.translate(reasons[0])}"
+    # Asked of the table rather than read off the exception: `validate` builds
+    # its message in English for a log, and this row is the one the operator
+    # reads. `root on ZFS excludes BIOS boot:` was drawn in English in front of
+    # a translated reason.
+    broken = compat.violations(config)
+    if broken:
+        return broken[0].describe(context.translate)
     try:
         # The whole plan, not `validate` alone: a group whose packages live in
         # an overlay nobody selected raises from `plan.build`, and the row that

@@ -9,6 +9,7 @@ once and read twice.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable
 from enum import Enum
 from pathlib import PurePosixPath
 
@@ -98,8 +99,19 @@ class Rule:
     excludes: Trait
     reason: str
 
-    def describe(self) -> str:
-        return f"{self.when.value} excludes {self.excludes.value}: {self.reason}"
+    def describe(self, translate: Callable[[str], str] = str) -> str:
+        """The whole sentence, every part of it translatable.
+
+        The trait names were not catalog keys, so a Chinese interface drew
+        `root on ZFS excludes BIOS boot:` in English in front of a translated
+        reason. `str` as the default keeps the English for a log.
+        """
+        return "{}: {}".format(
+            translate("{when} excludes {excludes}").format(
+                when=translate(self.when.value), excludes=translate(self.excludes.value)
+            ),
+            translate(self.reason),
+        )
 
 
 RULES: tuple[Rule, ...] = (
