@@ -447,3 +447,21 @@ def test_only_files_that_could_be_our_configuration_are_offered(tmp_path: Path) 
         assert _configs_here() == (SAVE_AS, "wrong-value.toml")
     finally:
         os.chdir(here)
+
+
+def test_the_address_handed_over_carries_no_extension() -> None:
+    """The extension asks wastebin to highlight the paste. An 8.7 MB install
+    log answered 408 after five seconds every time; the same address without
+    the extension answered 200, and a small paste highlights fine either way.
+    An install log is the large case, so the address a person is handed is the
+    one that opens."""
+    from gentoo_install.model import paste
+
+    assert paste.page_url("/IOARIoCd1Yo.log") == "https://paste.gentoozh.org/IOARIoCd1Yo"
+    assert paste.page_url("IOARIoCd1Yo.toml") == "https://paste.gentoozh.org/IOARIoCd1Yo"
+    # Nothing to strip, and no trailing dot left behind.
+    assert paste.page_url("/abc") == "https://paste.gentoozh.org/abc"
+    # The extension still reaches the server, because it is what the paste is
+    # stored with; only the address the person reads drops it.
+    assert {one.extension for one in paste.EXPORTS} == {"log", "toml"}
+

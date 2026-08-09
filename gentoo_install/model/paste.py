@@ -75,8 +75,18 @@ def payload(text: str, export: Export, expires: int = EXPIRES) -> bytes:
 
 
 def page_url(path: str) -> str:
-    """The address a person opens, from the path the server answered with."""
-    return f"{BASE}/{path.lstrip('/')}"
+    """The address a person opens, from the path the server answered with.
+
+    Without the extension the server put on it. `POST /` answers
+    `/<id>.<ext>`, and that address asks wastebin to highlight the paste: an
+    8.7 MB install log answered 408 after five seconds every time, while the
+    same address without the extension answered 200. A small paste highlights
+    fine, so the size is what decides it and an install log is the large case.
+
+    The extension still goes in the request, because it is what the paste is
+    stored with. Only the address a person is handed drops it.
+    """
+    return f"{BASE}/{path.lstrip('/').rsplit('.', 1)[0]}"
 
 
 def url_for(identifier: str) -> str:

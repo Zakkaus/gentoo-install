@@ -86,7 +86,9 @@ def _section(name: str, value: object, prefix: str = "", *, publishing: bool = F
     path = f"{prefix}{name}"
     keys: list[str] = []
     nested: list[str] = []
-    for field in fields(value):  # type: ignore[arg-type]
+    if not is_dataclass(value) or isinstance(value, type):
+        raise TypeError(f"{path} is not a dataclass instance")
+    for field in fields(value):
         held = getattr(value, field.name)
         if is_dataclass(held) and not isinstance(held, type):
             nested += _section(field.name, held, f"{path}.", publishing=publishing)
@@ -127,10 +129,9 @@ def _array_of_tables(path: str, held: tuple[Any, ...], *, publishing: bool = Fal
 
 def _empty(factory: object) -> object:
     """What a default_factory produces, or a sentinel when there is none."""
-    try:
-        return factory()  # type: ignore[operator]
-    except TypeError:
+    if not callable(factory):
         return _NOTHING
+    return factory()
 
 
 class _Nothing:
