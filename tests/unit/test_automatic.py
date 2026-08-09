@@ -1093,3 +1093,28 @@ def test_pipewire_asks_for_its_sound_server_without_a_desktop() -> None:
         line for one in build_packages(installation, load_catalog()) for line in getattr(one, "lines", ())
     ]
     assert "media-video/pipewire sound-server" in written, written
+
+
+def test_an_engine_selected_alone_still_gets_its_framework() -> None:
+    """`rime` on its own merged `app-i18n/fcitx-rime` and nothing else: no
+    `app-i18n/fcitx`, no `fcitx-gtk` and no `fcitx-qt`, so no Gtk or Qt
+    application could reach the engine that had just been installed."""
+    from dataclasses import replace
+
+    from gentoo_install.plan.packages import FRAMEWORK_GROUPS, groups
+
+    catalog = load_catalog()
+    engines = [
+        name
+        for name, group in catalog.items()
+        if group.input_method and group.input_framework
+    ]
+    assert engines, "the catalog offers no input method"
+    for name in engines:
+        installation = replace(
+            config(ext4_on_gpt()),
+            packages=replace(config().packages, applications=(name,)),
+        )
+        chosen = {one.name for one in groups(installation, catalog)}
+        wanted = FRAMEWORK_GROUPS[catalog[name].input_framework]
+        assert wanted in chosen, (name, sorted(chosen))

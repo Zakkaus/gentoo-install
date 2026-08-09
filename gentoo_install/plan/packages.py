@@ -552,7 +552,31 @@ def groups(config: InstallConfig, catalog: Catalog) -> tuple[Group, ...]:
         if group is None:
             raise ConfigError(f"no package group named {name!r}; the catalog has {_known(catalog)}")
         found.append(group)
-    return tuple(found)
+    return tuple((*found, *_frameworks_behind(found, catalog)))
+
+
+#: The group that provides each input framework: the runtime, the toolkit
+#: modules and the configuration tool. An engine group ships only the engine.
+FRAMEWORK_GROUPS: Final[dict[str, str]] = {"fcitx": "fcitx5", "ibus": "ibus"}
+
+
+def _frameworks_behind(chosen: Sequence[Group], catalog: Catalog) -> tuple[Group, ...]:
+    """The framework each selected engine needs, when it was not selected too.
+
+    `rime` on its own merged `app-i18n/fcitx-rime` and nothing else: no
+    `app-i18n/fcitx`, and no `fcitx-gtk` or `fcitx-qt`, so no Gtk or Qt
+    application could reach the engine that had just been installed.
+    """
+    have = {group.name for group in chosen}
+    wanted: list[Group] = []
+    for group in chosen:
+        name = FRAMEWORK_GROUPS.get(group.input_framework, "")
+        if not name or name in have or name in {one.name for one in wanted}:
+            continue
+        framework = catalog.get(name)
+        if framework is not None:
+            wanted.append(framework)
+    return tuple(wanted)
 
 
 def _check_repositories(config: InstallConfig, catalog: Catalog) -> None:
