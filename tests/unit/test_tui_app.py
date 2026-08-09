@@ -615,12 +615,15 @@ def test_the_proprietary_driver_widens_the_licences_it_needs() -> None:
     assert plan_packages.required_licenses(plain, load_catalog()) == ("@FREE",)
 
 
-def test_the_nvidia_drop_in_does_not_collide_with_the_one_the_ebuild_installs() -> None:
+def test_the_nvidia_group_writes_no_file_of_its_own() -> None:
     """x11-drivers/nvidia-drivers ships /etc/modprobe.d/nvidia.conf itself and
-    adds it to dracut's install_items; writing over it is a collision."""
+    adds it to dracut's install_items. 595.84 removed the modeset line from it
+    because the driver defaults to `nvidia-drm.modeset=1` regardless, so a
+    drop-in of ours would set a default and a second file would collide."""
     nvidia = load_catalog()["nvidia"]
-    assert [str(one.path) for one in nvidia.files] == ["/etc/modprobe.d/nvidia-modeset.conf"]
-    assert "modeset=1" in nvidia.files[0].content
+    assert nvidia.files == ()
+    assert nvidia.video_cards == ("nvidia",)
+    assert nvidia.package_use == ("x11-drivers/nvidia-drivers dist-kernel",)
 
 
 def test_a_chinese_interface_defaults_to_the_patched_kernel() -> None:

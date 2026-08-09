@@ -235,7 +235,7 @@ def test_a_group_from_an_overlay_needs_that_overlay_selected() -> None:
     assert plan_packages.build(with_overlay, catalog)
 
 
-def test_a_driver_group_adds_its_video_cards_and_its_drop_in() -> None:
+def test_a_driver_group_adds_its_video_cards_and_writes_no_file() -> None:
     catalog = load_catalog()
     wanted = replace(config(), packages=PackagesConfig(applications=("nvidia",)))
     assert plan_packages.required_video_cards(wanted, catalog) == ("nvidia",)
@@ -244,11 +244,10 @@ def test_a_driver_group_adds_its_video_cards_and_its_drop_in() -> None:
         for operation in plan_packages.build(wanted, catalog)
         if isinstance(operation, plan_packages.WriteGroupFile)
     ]
-    # Not `nvidia.conf`: that is the file the ebuild installs, and writing our
-    # own over it is a collision rather than a configuration.
-    assert [str(entry.file.path) for entry in written] == [
-        "/etc/modprobe.d/nvidia-modeset.conf"
-    ]
+    # Nothing at all. `nvidia.conf` is the ebuild's, and a second drop-in of
+    # ours would have set `modeset=1`, which 595.84 removed from that file
+    # because the driver now defaults to it.
+    assert written == []
     assert plan_packages.required_licenses(wanted, catalog) == (
         "@FREE",
         "@BINARY-REDISTRIBUTABLE",

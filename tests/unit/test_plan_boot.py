@@ -36,7 +36,7 @@ from gentoo_install.model.parse import load
 from gentoo_install.model.validate import validate
 from gentoo_install.plan import bootloader, kernel
 
-from .layouts import config, ext4_on_gpt, i, zfs_root
+from .layouts import config, encrypted_root, ext4_on_gpt, i, zfs_root
 from .recorder import Recorder
 
 
@@ -772,3 +772,23 @@ def test_nothing_is_deleted_when_no_modules_directory_can_be_read() -> None:
     recorder.run_in_target = answering  # type: ignore[method-assign]
     kernel.RemoveUnbootableKernels().apply(recorder)
     assert not any(one[0] == "rm" for one in calls)
+
+
+def test_the_initramfs_parameters_reach_every_grub_entry() -> None:
+    """`GRUB_CMDLINE_LINUX_DEFAULT` reaches only the default entry. A recovery
+    entry built without `rd.luks.uuid` waits for a device that never appears,
+    so what the initramfs needs to find the root goes in `GRUB_CMDLINE_LINUX`
+    and the operator's own parameters go in the other."""
+    installation = replace(
+        config(encrypted_root()),
+        bootloader=BootloaderConfig(kind=Bootloader.GRUB, kernel_params=("quiet",)),
+    )
+    grub = apply_boot(installation).files[PurePosixPath("/etc/default/grub")]
+    every = next(
+        line for line in grub.splitlines() if line.startswith("GRUB_CMDLINE_LINUX=")
+    )
+    default = next(
+        line for line in grub.splitlines() if line.startswith("GRUB_CMDLINE_LINUX_DEFAULT=")
+    )
+    assert "rd.luks.uuid=" in every
+    assert "quiet" in default and "rd.luks.uuid=" not in default

@@ -5,15 +5,13 @@
 # module is built once and never rebuilt, so the next kernel upgrade leaves
 # the machine at a console with no driver.
 #
-# No `blacklist nouveau` here: the ebuild's own /etc/modprobe.d/nvidia.conf
-# does it and adds itself to dracut's install_items. modeset is written the
-# way calamares-settings-gig writes it, in modprobe.d rather than on the
-# kernel command line, because a drop-in survives a bootloader change.
+# Nothing else is written. The ebuild's own /etc/modprobe.d/nvidia.conf
+# blacklists nouveau and adds itself to dracut's install_items, and since
+# 595.84 it carries no modeset line at all: "nvidia-drm.modeset=1 was removed
+# from nvidia.conf because it is now default enabled regardless". A drop-in
+# of ours would set what the driver already defaults to, and no kernel
+# parameter is needed either.
 packages = ["x11-drivers/nvidia-drivers"]
 package_use = ["x11-drivers/nvidia-drivers dist-kernel"]
 video_cards = ["nvidia"]
 accept_license = ["@BINARY-REDISTRIBUTABLE"]
-
-[[files]]
-path = "/etc/modprobe.d/nvidia-modeset.conf"
-content = "options nvidia_drm modeset=1\n"

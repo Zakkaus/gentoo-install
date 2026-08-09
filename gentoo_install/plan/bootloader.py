@@ -115,14 +115,19 @@ class WriteGrubDefaults(Operation):
         return f"write /etc/default/grub with cmdline {' '.join(self.kernel_params) or 'empty'}{listed}"
 
     def apply(self, context: Context) -> None:
-        parameters = (
+        # `GRUB_CMDLINE_LINUX` reaches every entry and `_DEFAULT` only the
+        # default one, so what the initramfs needs to find the root at all goes
+        # in the first: a recovery entry with no `rd.luks.uuid` waits for a
+        # device that never appears. Recovery is disabled below, which made the
+        # split invisible rather than unnecessary.
+        needed = (
             *luks_parameters(context, self.luks),
             *array_parameters(context, self.arrays),
             *keymap_parameters(self.keymap),
-            *self.kernel_params,
         )
         lines = [
-            f'GRUB_CMDLINE_LINUX_DEFAULT="{" ".join(parameters)}"',
+            f'GRUB_CMDLINE_LINUX="{" ".join(needed)}"',
+            f'GRUB_CMDLINE_LINUX_DEFAULT="{" ".join(self.kernel_params)}"',
             "GRUB_TIMEOUT=5",
             "GRUB_DISABLE_RECOVERY=true",
         ]

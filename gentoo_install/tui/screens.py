@@ -1180,13 +1180,13 @@ def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> A
 #: for. Kept out of the applications list: a driver is one choice, not a set of
 #: things to tick.
 GRAPHICS: tuple[tuple[str, str], ...] = (
-    ("", "the in-kernel driver, which is all Intel and AMD usually need"),
+    ("", "no driver package: i915, amdgpu, radeon and nouveau are in the kernel"),
     ("intel", "i915 and xe, with the firmware they need"),
     ("amdgpu", "GCN 1.2 and newer"),
     ("radeon", "AMD up to Sea Islands"),
     ("nouveau", "the in-kernel NVIDIA driver"),
-    ("nvidia", "the proprietary driver, which widens ACCEPT_LICENSE"),
-    ("virtual-machine", "virtio-gpu, QXL and the VMware adapter"),
+    ("nvidia", "proprietary, widens ACCEPT_LICENSE, and blacklists nouveau itself"),
+    ("virtual-machine", "virtio-gpu, QXL and VMware, with fbdev left as the fallback"),
 )
 
 #: The display managers. A desktop no longer names one, because which login

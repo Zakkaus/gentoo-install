@@ -387,7 +387,12 @@ def _user(config: InstallConfig, context: Context) -> str:
 
 
 def _graphics(config: InstallConfig, context: Context) -> str:
-    return config.packages.graphics or context.translate("none")
+    """The driver, then what it makes `VIDEO_CARDS`. The second half is the
+    part that decides which Mesa drivers get built, and it is not derivable
+    from the first: `radeon` alone would drop Sea Islands."""
+    chosen = config.packages.graphics or context.translate("none")
+    cards = [one.value for one in automatic_values.video_cards(config, context.groups)]
+    return f"{chosen} ({' '.join(cards)})" if cards else chosen
 
 
 def _display_manager(config: InstallConfig, context: Context) -> str:

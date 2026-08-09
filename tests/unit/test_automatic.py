@@ -37,9 +37,15 @@ def command_line(installation: InstallConfig) -> str:
         if path.name == "cmdline":
             return content.strip()
     grub = recorder.files.get(PurePosixPath("/etc/default/grub"), "")
-    for line in grub.splitlines():
-        if line.startswith("GRUB_CMDLINE_LINUX_DEFAULT="):
-            return line.partition("=")[2].strip('"')
+    # Both variables: `GRUB_CMDLINE_LINUX` reaches every entry and `_DEFAULT`
+    # only the default one, and an entry boots with the two concatenated.
+    both = [
+        line.partition("=")[2].strip('"')
+        for line in grub.splitlines()
+        if line.startswith(("GRUB_CMDLINE_LINUX=", "GRUB_CMDLINE_LINUX_DEFAULT="))
+    ]
+    if both:
+        return " ".join(both)
     raise AssertionError("no command line was written")
 
 
