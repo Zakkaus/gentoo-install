@@ -477,6 +477,7 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
     context = screens.Context(
         translate=Catalog(tag_for(override=arguments.lang)),
         disks=probe.disks(),
+        names_for=probe.names_for,
         groups=load_catalog(),
         hash_password=lambda password: fetch.password_hash(password, runner),
         stage_passphrase=lambda text: _stage_passphrase(text, arguments.work),

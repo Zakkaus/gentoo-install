@@ -254,6 +254,22 @@ class Probe:
     #: Where udev keeps the names that survive the kernel renumbering disks.
     BY_ID: ClassVar[Path] = Path("/dev/disk/by-id")
 
+    def names_for(self, selector: str) -> tuple[str, ...]:
+        """Every spelling of one device the operator might reasonably type.
+
+        The selector, its last component, and the kernel name it resolves to
+        with its own last component. The installer renames a disk to its
+        `/dev/disk/by-id/` form, and an operator looking at `lsblk` types
+        `/dev/sda`, which the erase confirmation refused.
+        """
+        found = {selector, selector.rsplit("/", 1)[-1]}
+        try:
+            real = Path(selector).resolve()
+        except OSError:
+            return tuple(sorted(found))
+        found |= {str(real), real.name}
+        return tuple(sorted(found))
+
     def _stable_name(self, path: str) -> str:
         """Read rather than shelled out to `find -lname`: that predicate is
         GNU's, and busybox answers `unrecognized: -lname` on Alpine, which left

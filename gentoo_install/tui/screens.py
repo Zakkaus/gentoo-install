@@ -102,6 +102,10 @@ class Context:
         inspect_disk: Callable[[str], tuple[tuple[tuple[str, str, str], ...], str]] = (
             lambda disk: ((), "")
         ),
+        #: Every spelling of one device, for the erase confirmation. The
+        #: default answers with the selector alone: only the machine knows
+        #: which kernel name it resolves to today.
+        names_for: Callable[[str], tuple[str, ...]] = lambda selector: (selector,),
         fetch_text: Callable[[str], str] = lambda url: "",
         kernel_versions: Callable[[str], tuple[tuple[str, bool], ...]] = lambda atom: (),
         keymaps: Callable[[], tuple[tuple[str, str], ...]] = lambda: (),
@@ -196,6 +200,8 @@ class Context:
         #: Whether `ld.so` says this CPU runs x86-64-v3 binaries.
         self.supports_v3 = supports_v3
         self._inspect = inspect_disk
+        #: Every spelling of one device, for the erase confirmation.
+        self.names_for = names_for
         self._inspected: dict[str, tuple[tuple[tuple[str, str, str], ...], str]] = {}
         if self.choice.disk:
             self.inspect_disk(self.choice.disk)
@@ -408,9 +414,9 @@ def erase_screen(screen: Screen, config: InstallConfig, context: Context) -> Ans
 def _confirm_one(screen: Screen, context: Context, disk: str) -> Answer[InstallConfig] | None:
     """None once this selector is confirmed; an outcome to return otherwise."""
     translate = context.translate
-    # The short form as well: the operator reads the name off this screen and
-    # a `/dev/disk/by-id/` selector is sixty characters of it.
-    accepted = {disk, disk.rsplit("/", 1)[-1]}
+    # Every name this disk answers to: the selector the installer chose, its
+    # last component, and the `/dev/sda` an operator reads off `lsblk`.
+    accepted = {disk, disk.rsplit("/", 1)[-1], *context.names_for(disk)}
     while True:
         # On its own line, not inside the field: a placeholder is drawn where a
         # value would be, and an operator pressed enter on what looked like a

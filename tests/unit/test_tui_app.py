@@ -1846,6 +1846,25 @@ def test_the_erase_field_is_visibly_empty_before_anything_is_typed() -> None:
     assert field.split("[", 1)[1].strip(" ]") == "_", field
 
 
+def test_the_kernel_name_confirms_the_same_disk() -> None:
+    """The installer renames a disk to its `/dev/disk/by-id/` form, and an
+    operator reading `lsblk` types `/dev/sda`. Refusing it told them the name
+    of their own disk was wrong."""
+    from gentoo_install.model import compat
+
+    at = context()
+    at.confirmed.clear()
+    named = compat.destroyed(config().disk.graph)[0].selector
+    at.names_for = lambda selector: (selector, "/dev/sda", "sda")
+    for typed in ("/dev/sda", "sda"):
+        at.confirmed.clear()
+        answer = screens.erase_screen(
+            FakeScreen(keys=[*typed, "\n"], lines=24, columns=100), config(), at
+        )
+        assert answer.outcome is Outcome.CHOSE, typed
+        assert at.confirmed == {named}, typed
+
+
 def test_the_short_form_of_a_selector_confirms_the_same_disk() -> None:
     """A `/dev/disk/by-id/` selector is sixty characters read off the screen,
     and its last component names the same disk."""
