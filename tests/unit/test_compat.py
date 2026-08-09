@@ -314,3 +314,51 @@ def test_the_bootloader_is_installed_where_the_esp_is_actually_mounted() -> None
     installed = [one for one in recorder.in_target if one and one[0] == "grub-install"]
     assert installed, recorder.in_target
     assert all("--efi-directory=/boot/efi" in one for one in installed), installed
+
+
+def test_formatting_a_partition_the_operator_kept_counts_as_destruction() -> None:
+    """`Existing.wipe` is false and no table is rewritten, so both the erase
+    confirmation and the in-use check read a format-only reuse layout as
+    harmless while `mkfs` runs over the operator's data."""
+    from pathlib import PurePosixPath
+
+    from gentoo_install.model import compat
+    from gentoo_install.model.device import (
+        DeviceGraph,
+        DeviceId,
+        Existing,
+        Filesystem,
+        FilesystemType,
+        Mountpoint,
+    )
+
+    kept = [
+        Existing(id=DeviceId("part"), selector="/dev/sda2", wipe=False),
+        Filesystem(
+            id=DeviceId("fs"), device=DeviceId("part"), kind=FilesystemType.EXT4, create=False
+        ),
+        Mountpoint(id=DeviceId("root"), source=DeviceId("fs"), path=PurePosixPath("/")),
+    ]
+    assert not compat.destroyed(DeviceGraph.build(kept))
+
+    formatted = [
+        Existing(id=DeviceId("part"), selector="/dev/sda2", wipe=False),
+        Filesystem(
+            id=DeviceId("fs"), device=DeviceId("part"), kind=FilesystemType.EXT4, create=True
+        ),
+        Mountpoint(id=DeviceId("root"), source=DeviceId("fs"), path=PurePosixPath("/")),
+    ]
+    named = compat.destroyed(DeviceGraph.build(formatted))
+    assert [one.selector for one in named] == ["/dev/sda2"]
+
+
+def test_the_erase_row_and_the_in_use_check_read_the_same_rule() -> None:
+    """Two lists of destructive targets drift, and the one that drifted was the
+    preflight copy: it named the disk only when a table was written."""
+    import inspect
+
+    from gentoo_install.exec import preflight
+    from gentoo_install.tui import settings
+
+    for source in (inspect.getsource(preflight._disks_at_risk), inspect.getsource(settings._erase)):
+        assert "compat.destroyed(" in source, source

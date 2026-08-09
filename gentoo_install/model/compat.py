@@ -21,6 +21,7 @@ from .config import (
     KernelSource,
 )
 from .device import (
+    Existing,
     T,
     DeviceGraph,
     DeviceId,
@@ -305,6 +306,33 @@ def _on_esp(graph: DeviceGraph, device: DeviceId) -> bool:
     # keying on it made ticking `format` turn an esp into something else.
     return any(
         one.kind is FilesystemType.VFAT for one in _nodes_under(graph, device, Filesystem)
+    )
+
+
+def destroyed(graph: DeviceGraph) -> tuple[Existing, ...]:
+    """Every device the operator already had whose content this plan destroys.
+
+    Three ways, and only the first was counted. A wiped disk is obvious. A
+    table written from scratch or with an entry removed loses what those
+    entries described. And a filesystem created on an `Existing` device is
+    `mkfs` over whatever was there: the disk-level `wipe` is false, no table
+    is rewritten, and both the confirmation row and the in-use check read the
+    layout as harmless.
+    """
+    tables = {
+        table.disk
+        for table in graph.of_type(PartitionTable)
+        if table.create or table.remove
+    }
+    formatted = {
+        node.device
+        for node in graph.of_type(Filesystem)
+        if node.create and isinstance(graph[node.device], Existing)
+    }
+    return tuple(
+        disk
+        for disk in graph.of_type(Existing)
+        if disk.wipe or disk.id in tables or disk.id in formatted
     )
 
 

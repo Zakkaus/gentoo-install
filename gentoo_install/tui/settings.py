@@ -23,7 +23,7 @@ from ..model.config import (
     Networking,
 )
 from ..plan.kernel import CJK_KERNELS, KERNEL_PACKAGES
-from ..model import mirrors
+from ..model import compat, mirrors
 from ..model.device import Existing, Luks, MdRaid, PartitionTable, VolumeGroup, ZfsPool
 from ..plan import automatic as automatic_values
 from . import screens
@@ -493,13 +493,13 @@ def _extra(config: InstallConfig, context: Context) -> str:
 
 
 def _erase(config: InstallConfig, context: Context) -> str:
-    """Answered already when the layout writes no partition table.
+    """Answered already when the layout destroys nothing the operator had.
 
-    A reuse layout produces only `Existing(wipe=False)` nodes, so demanding the
-    disk name for an erase that will not happen blocked an install that erases
-    nothing.
+    `compat.destroyed` and not `Existing.wipe`: formatting a partition the
+    operator kept is `mkfs` over their data with no disk-level wipe and no
+    rewritten table, and this row read that layout as harmless.
     """
-    if not any(node.wipe for node in config.disk.graph.of_type(Existing)):
+    if not compat.destroyed(config.disk.graph):
         return context.translate("nothing is erased")
     return context.translate("confirmed") if context.erase_confirmed else UNSET
 

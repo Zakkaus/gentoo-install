@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Final
 
 from ..errors import DeviceNotFound, PreflightFailed
+from ..model import compat
 from ..model.config import Firmware, InstallConfig
 from ..model.device import (
     DeviceGraph,
@@ -137,22 +138,13 @@ def required_commands(config: InstallConfig) -> frozenset[str]:
 
 
 def _disks_at_risk(graph: DeviceGraph) -> list[Existing]:
-    """Every disk this run writes a partition table on.
+    """Every device this run destroys the content of.
 
-    Not `wipe` alone: a table edited in place carries `wipe=False`, and
-    deleting an entry from a disk whose other partition is mounted is exactly
-    the case the mount check exists for.
+    The same rule the confirmation row reads, so the two cannot disagree: a
+    wiped disk, a table written or edited, and a filesystem created on a
+    device the operator kept.
     """
-    edited = {
-        table.disk
-        for table in graph.of_type(PartitionTable)
-        if table.create or table.remove
-    }
-    return [
-        disk
-        for disk in graph.of_type(Existing)
-        if disk.wipe or disk.id in edited
-    ]
+    return list(compat.destroyed(graph))
 
 
 def _busybox_problems(machine: Machine) -> list[str]:
