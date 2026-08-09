@@ -155,9 +155,13 @@ def _busybox_problems(machine: Machine) -> list[str]:
         version = machine.versions.get(command)
         if version is None or wanted in version:
             continue
-        problems.append(
-            f"{command} is not {wanted} ({version.splitlines()[0][:60]}); {reason}"
-        )
+        if not version:
+            problems.append(
+                f"{command} answered nothing to --version, so it cannot be shown "
+                f"to be {wanted}; {reason}"
+            )
+            continue
+        problems.append(f"{command} is not {wanted} ({version[:60]}); {reason}")
     return problems
 
 

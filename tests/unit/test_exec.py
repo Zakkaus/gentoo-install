@@ -992,3 +992,39 @@ def test_an_edited_table_counts_what_it_keeps(tmp_path: Path) -> None:
     probe = Probe(runner=Answering(log=lambda line: None), work=tmp_path)
     problems = check._capacity_problems(installation, probe)
     assert problems, "18 GiB kept plus 4 GiB new does not fit 20 GiB"
+
+
+def test_a_command_that_answers_nothing_is_named_rather_than_crashing(tmp_path: Path) -> None:
+    """`versions()` discarded the exit status, so a command present on PATH
+    that exits nonzero with no output reached `splitlines()[0]` and raised
+    IndexError where a named preflight problem belongs."""
+    said = preflight._busybox_problems(described(versions={"tar": ""}))
+    assert any("answered nothing" in one for one in said), said
+
+    wrong = preflight._busybox_problems(described(versions={"tar": "tar (busybox) 1.36"}))
+    assert any("is not GNU tar" in one or "is not" in one for one in wrong), wrong
+
+
+def test_a_version_probe_records_only_a_successful_reply(tmp_path: Path) -> None:
+    class Answering(Runner):
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            failed = argv[0] == "sh"
+            return Result(
+                argv=tuple(argv),
+                returncode=1 if failed else 0,
+                stdout="" if failed else "GNU coreutils 9.5\nmore\n",
+                stderr="",
+                seconds=0.0,
+            )
+
+    probe = Probe(runner=Answering(log=lambda line: None), work=tmp_path)
+    said = probe.versions(["sh", "cat"])
+    assert said["sh"] == ""
+    assert said["cat"] == "GNU coreutils 9.5"

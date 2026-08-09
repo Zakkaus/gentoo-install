@@ -95,11 +95,20 @@ class Probe:
     resolved: dict[DeviceId, str] = field(default_factory=dict)
 
     def versions(self, wanted: Iterable[str]) -> dict[str, str]:
+        """What each command answers to `--version`, first line only.
+
+        Empty for a command that is on PATH and answered nothing or exited
+        nonzero. The exit code was discarded, so an empty reply reached
+        `_busybox_problems` and `splitlines()[0]` raised `IndexError` instead
+        of naming a command whose implementation could not be checked.
+        """
         found: dict[str, str] = {}
         for command in wanted:
             if shutil.which(command) is None:
                 continue
-            found[command] = self.runner.run([command, "--version"], check=False).stdout
+            said = self.runner.run([command, "--version"], check=False)
+            lines = said.stdout.splitlines() if said.returncode == 0 else []
+            found[command] = lines[0] if lines else ""
         return found
 
     def machine(
