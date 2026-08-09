@@ -15,6 +15,7 @@ from ..model.config import InstallConfig
 from ..errors import GentooInstallError
 from ..plan.build import build
 from .screens import Context, overview_screen
+from .screens import _say as say
 from .settings import SETTINGS, UNSET, Setting, style_of, unanswered
 from .widgets import Item, Menu, Outcome, Screen, TextField
 
@@ -161,17 +162,8 @@ def _publishing(screen: Screen, config: InstallConfig, context: Context) -> Fini
     try:
         return Finished(None, published=context.publish_config(config))
     except GentooInstallError as error:
-        _told(screen, context, str(error))
+        say(screen, context, str(error))
         return None
-
-
-def _told(screen: Screen, context: Context, message: str) -> None:
-    """One line and an acknowledgement, for something with no other answer."""
-    Menu(
-        title=message,
-        items=[Item(label=context.translate("Continue"), value=True)],
-        footer=context.translate("Cancel"),
-    ).run(screen)
 
 
 def _saving(screen: Screen, config: InstallConfig, context: Context) -> Finished | None:

@@ -40,8 +40,8 @@ class Run:
     config: str
     medium: str = "official-minimal"
     firmware: str = "uefi"
-    #: Boot what was installed and check it. Off only where the fixture is
-    #: there to exercise the installer rather than the system it produces.
+    #: Boot what was installed and check it. Always: an install that exits 0
+    #: is not an install that boots, and that is the whole question.
     boot: bool = True
 
     @property
@@ -78,9 +78,11 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         Run("fixtures/vm-cjk-kernel.toml"),
     ),
     # One configuration, six media: this stage tests `bootstrap.sh` and
-    # preflight, not the install, so the shortest fixture is the right one.
+    # preflight, so the shortest fixture is the right one. Booted like every
+    # other run, because an install performed from a foreign medium still has
+    # to produce a system that starts.
     "media": tuple(
-        Run("fixtures/vm-binpkg.toml", medium=one, boot=False)
+        Run("fixtures/vm-binpkg.toml", medium=one)
         for one in ("gigos", "alpine", "debian", "arch", "fedora", "opensuse")
     ),
 }

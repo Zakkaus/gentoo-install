@@ -22,7 +22,7 @@ from ..model.config import (
     Keywords,
     Networking,
 )
-from ..plan.kernel import KERNEL_PACKAGES
+from ..plan.kernel import CJK_KERNELS, KERNEL_PACKAGES
 from ..model import mirrors
 from ..model.device import Existing, Luks, MdRaid, PartitionTable, VolumeGroup, ZfsPool
 from . import screens
@@ -171,11 +171,6 @@ def _summary(rows: tuple[Setting, ...]) -> Callable[[InstallConfig, Context], st
         return f"{joined} +{left}" if left else joined
 
     return shown
-
-
-def _shown(config: InstallConfig, context: Context) -> str:
-    """A row with nothing to edit still has to say what it settled on."""
-    return _firmware(config, context)
 
 
 def _swap(config: InstallConfig, context: Context) -> str:
@@ -429,7 +424,7 @@ def _erase(config: InstallConfig, context: Context) -> str:
 def _cjk_kernel_only(config: InstallConfig, context: Context) -> str:
     """A font with CJK glyphs draws nothing without the patch that lets the
     console show them, so the size is a choice only under that kernel."""
-    if config.kernel.source not in (KernelSource.CJK_BIN, KernelSource.CJK):
+    if config.kernel.source not in CJK_KERNELS:
         return context.translate("only the cjk kernel draws CJK on the console")
     return ""
 
