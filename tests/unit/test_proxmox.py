@@ -190,3 +190,51 @@ def test_a_client_frame_is_masked() -> None:
     assert frame[1] & 0x80, "the mask bit has to be set"
     mask = frame[2:6]
     assert bytes(b ^ mask[n % 4] for n, b in enumerate(frame[6:])) == b"hi"
+
+
+def _archive(files: dict[str, bytes]) -> str:
+    import base64 as b64
+    import io
+    import tarfile
+
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for name, data in files.items():
+            entry = tarfile.TarInfo(f"./{name}")
+            entry.size = len(data)
+            archive.addfile(entry, io.BytesIO(data))
+    return b64.b64encode(buffer.getvalue()).decode()
+
+
+def test_results_come_back_through_the_console() -> None:
+    """The guest's disks are on shared storage the workstation cannot read and
+    the API downloads no volume, so the console is the only channel back."""
+    from tests.vm.results import CONSOLE_CLOSE, CONSOLE_OPEN, console_command, read_console
+
+    encoded = _archive({"install.log": b"ok\n", "exit.txt": b"0\n"})
+    wrapped = "\r\n".join(encoded[at : at + 80] for at in range(0, len(encoded), 80))
+    # The shell echoes the command, so the markers appear twice; the terminal
+    # wraps the one line base64 wrote, so the payload arrives in pieces.
+    said = (
+        f"root@livecd ~ # {console_command('/tmp/results')}\r\n"
+        f"{CONSOLE_OPEN}\r\n{wrapped}\r\n\r\n{CONSOLE_CLOSE}\r\nroot@livecd ~ # "
+    ).encode()
+    assert read_console(said) == {"install.log": b"ok\n", "exit.txt": b"0\n"}
+
+
+def test_a_console_with_no_archive_is_an_error_not_an_empty_result() -> None:
+    from tests.vm.results import ResultError, read_console
+
+    with pytest.raises(ResultError, match="no result archive"):
+        read_console(b"root@livecd ~ # the install died here")
+
+
+def test_a_truncated_archive_is_refused() -> None:
+    """A guest killed mid-transfer answers half a stream, and half a tar read
+    as an empty result would report a passing run."""
+    from tests.vm.results import CONSOLE_CLOSE, CONSOLE_OPEN, ResultError, read_console
+
+    encoded = _archive({"install.log": b"ok\n"})
+    said = f"{CONSOLE_OPEN}\r\n{encoded[: len(encoded) // 2]}\r\n{CONSOLE_CLOSE}\r\n".encode()
+    with pytest.raises(ResultError):
+        read_console(said)

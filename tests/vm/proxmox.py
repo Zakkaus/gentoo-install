@@ -24,6 +24,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final
@@ -196,6 +197,60 @@ class Api:
     def isos(self, node: str) -> list[str]:
         content = self.call("GET", f"/nodes/{node}/storage/{ISO_STORAGE}/content?content=iso")
         return sorted(str(one["volid"]).split("/")[-1] for one in content)
+
+    def upload_iso(self, node: str, path: Path, name: str) -> str:
+        """Put a file on a node's `local` storage and answer its name there.
+
+        `iso` because that is what the endpoint takes: `snippets` is refused
+        with `value 'snippets' does not have a value in the enumeration 'iso,
+        vztmpl, import'`. The driver CD really is an ISO; nothing else here
+        pretends to be one.
+        """
+        boundary = "----" + uuid.uuid4().hex
+        body = (
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="content"\r\n\r\niso\r\n'
+        ).encode()
+        body += (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="filename"; filename="{name}"\r\n'
+            "Content-Type: application/octet-stream\r\n\r\n"
+        ).encode()
+        body += path.read_bytes() + b"\r\n"
+        body += f"--{boundary}--\r\n".encode()
+        request = urllib.request.Request(
+            f"https://{self.host}/api2/json/nodes/{node}/storage/{ISO_STORAGE}/upload",
+            data=body,
+            method="POST",
+        )
+        request.add_header("Authorization", f"PVEAPIToken={TOKEN_ID}={_secret()}")
+        request.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+        if self.affinity:
+            request.add_header("Cookie", self.affinity)
+        try:
+            with urllib.request.urlopen(
+                request, timeout=600.0, context=self._context
+            ) as answer:
+                upid = json.load(answer).get("data")
+        except urllib.error.HTTPError as error:
+            said = error.read().decode("utf-8", "replace").strip()[:300]
+            raise ProxmoxError(f"{name} was not uploaded: {error.code} {said}") from error
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
+            raise ProxmoxError(f"{name} was not uploaded: {error}") from error
+        if isinstance(upid, str) and upid.startswith("UPID"):
+            self.wait(node, upid, patience=600.0)
+        return name
+
+    def remove_iso(self, node: str, name: str) -> None:
+        """Drop an uploaded file. A driver CD per run fills a 33 GiB store."""
+        try:
+            self.call(
+                "DELETE", f"/nodes/{node}/storage/{ISO_STORAGE}/content/{ISO_STORAGE}:iso/{name}"
+            )
+        except ProxmoxError:
+            # Already gone, or the store is busy. Not worth failing a run whose
+            # install already finished.
+            pass
 
     def fetch_iso(self, node: str, url: str, filename: str) -> None:
         """Have the node download an install medium itself.
