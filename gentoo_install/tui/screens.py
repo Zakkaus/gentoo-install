@@ -983,7 +983,11 @@ def bootloader_screen(
         candidate = replace(config, bootloader=replace(config.bootloader, kind=kind))
         broken = [one for one in compat.violations(candidate) if one not in shared]
         items.append(
-            Item(label=kind.value, value=kind, disabled_because=broken[0].reason if broken else "")
+            Item(
+                label=kind.value,
+                value=kind,
+                disabled_because=translate(broken[0].reason) if broken else "",
+            )
         )
     menu: Menu[Bootloader] = Menu(
         title=translate("Bootloader"), items=items, footer=footer(translate)
@@ -2161,7 +2165,7 @@ def console_font_screen(
             Item(
                 label=size.value,
                 value=size,
-                disabled_because=broken[0].reason if broken else "",
+                disabled_because=context.translate(broken[0].reason) if broken else "",
             )
         )
     answer = Menu(
@@ -3560,7 +3564,7 @@ def remote_unlock_screen(
     )
     blocking = compat.violations(candidate)
     if blocking and not unlock.enabled:
-        _say(screen, context, blocking[0].reason)
+        _say(screen, context, context.translate(blocking[0].reason))
         return Answer(Outcome.BACK)
     asked = Confirm(
         **answers(translate),

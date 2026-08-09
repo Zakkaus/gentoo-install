@@ -136,6 +136,11 @@ def in_a_table() -> set[str]:
     found |= set(REASONS)
     # The share names are drawn through a variable for the same reason.
     found |= {name for name, _ in RAM_SHARES}
+    # Every compatibility refusal is drawn through `Rule.reason`, which is a
+    # variable: the menu said why in English inside a translated screen.
+    from gentoo_install.model.compat import RULES
+
+    found |= {rule.reason for rule in RULES}
     # `Setting.missing` is drawn through a variable: a confirmation says
     # something other than that a field is empty.
     from gentoo_install.tui.settings import SETTINGS
