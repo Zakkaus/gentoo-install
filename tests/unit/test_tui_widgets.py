@@ -129,8 +129,23 @@ def test_a_text_field_draws_somewhere_to_type() -> None:
     screen = FakeScreen(keys=["2", "0", "G", "\n"])
     assert field.run(screen).unwrap() == "20G"
     first, last = screen.frames[0], screen.frames[-1]
-    assert any("[ 512MiB" in line for line in first), first
+    # The caret comes first while the field is empty: drawn without one, a
+    # placeholder cannot be told from a value already entered.
+    assert any("[ _512MiB" in line for line in first), first
     assert any("[ 20G_" in line for line in last), last
+
+
+def test_a_field_naming_an_exact_answer_keeps_the_box_empty() -> None:
+    """`detail` is drawn on its own line. The erase screen used `placeholder`
+    for the disk selector, so the box looked filled in and an operator pressed
+    enter on it."""
+    field = TextField(title="Type the disk name", detail="/dev/disk/by-id/wwn-0x5000")
+    screen = FakeScreen(keys=["\n"])
+    field.run(screen)
+    drawn = [line for line in screen.frames[0] if line.strip()]
+    assert any(line.strip() == "/dev/disk/by-id/wwn-0x5000" for line in drawn), drawn
+    box = next(line for line in drawn if line.lstrip().startswith("["))
+    assert box.split("[", 1)[1].strip(" ]") == "_", box
 
 
 def test_a_masked_field_shows_the_caret_and_not_the_characters() -> None:

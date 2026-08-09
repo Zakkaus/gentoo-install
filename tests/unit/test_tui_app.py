@@ -1826,3 +1826,37 @@ def test_the_zfs_bootloader_prompt_returns_only_installable_answers() -> None:
             FakeScreen(keys=keys, lines=24, columns=100), start, at
         )
         validate(answered)
+
+
+def test_the_erase_field_is_visibly_empty_before_anything_is_typed() -> None:
+    """The selector was drawn inside the box as a placeholder, where it is
+    indistinguishable from a value already entered: an operator pressed enter
+    on what looked like a filled field and was told it was the wrong name."""
+    from gentoo_install.model import compat
+
+    at = context()
+    at.confirmed.clear()
+    screen = FakeScreen(keys=["KEY_BACKSPACE"], lines=24, columns=100)
+    screens.erase_screen(screen, config(), at)
+    drawn = [line for line in screen.frames[0] if line.strip()]
+    named = compat.destroyed(config().disk.graph)[0].selector
+    # The name to type is on its own line, and the field holds only the caret.
+    assert any(line.strip() == named for line in drawn), drawn
+    field = next(line for line in drawn if line.lstrip().startswith("["))
+    assert field.split("[", 1)[1].strip(" ]") == "_", field
+
+
+def test_the_short_form_of_a_selector_confirms_the_same_disk() -> None:
+    """A `/dev/disk/by-id/` selector is sixty characters read off the screen,
+    and its last component names the same disk."""
+    from gentoo_install.model import compat
+
+    at = context()
+    at.confirmed.clear()
+    named = compat.destroyed(config().disk.graph)[0].selector
+    short = named.rsplit("/", 1)[-1]
+    answer = screens.erase_screen(
+        FakeScreen(keys=[*short, "\n"], lines=24, columns=100), config(), at
+    )
+    assert answer.outcome is Outcome.CHOSE
+    assert at.confirmed == {named}

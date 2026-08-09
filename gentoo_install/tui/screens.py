@@ -408,16 +408,20 @@ def erase_screen(screen: Screen, config: InstallConfig, context: Context) -> Ans
 def _confirm_one(screen: Screen, context: Context, disk: str) -> Answer[InstallConfig] | None:
     """None once this selector is confirmed; an outcome to return otherwise."""
     translate = context.translate
+    # The short form as well: the operator reads the name off this screen and
+    # a `/dev/disk/by-id/` selector is sixty characters of it.
+    accepted = {disk, disk.rsplit("/", 1)[-1]}
     while True:
-        # The selector goes in the field rather than the title: together they
-        # are three sentences and a `/dev/disk/by-id/` path, and 80 columns
-        # truncated away the one saying what to type.
+        # On its own line, not inside the field: a placeholder is drawn where a
+        # value would be, and an operator pressed enter on what looked like a
+        # field already filled in.
         question = Confirm(
             **answers(translate),
             title=f"{translate('This erases every partition on the disk.')} "
             f"{translate('Type the disk name to confirm.')}",
             phrase=disk,
-            placeholder=disk,
+            also=tuple(accepted - {disk}),
+            detail=disk,
             footer=footer(translate),
         )
         answer = question.run(screen)

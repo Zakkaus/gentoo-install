@@ -242,6 +242,11 @@ class TextField:
     #: Drawn inside the field while it is empty, so a field that takes an
     #: unusual value still says what that value looks like.
     placeholder: str = ""
+    #: Drawn on its own line above the field. What has to be typed exactly
+    #: belongs here and not in `placeholder`: a placeholder is drawn inside the
+    #: box, where it is indistinguishable from a value already entered, and an
+    #: operator pressed enter on what looked like a filled field.
+    detail: str = ""
 
     def run(self, screen: Screen) -> Answer[str]:
         typed = list(self.value)
@@ -276,8 +281,15 @@ class TextField:
         shown = "*" * len(typed) if self.masked else "".join(typed)
         while width(shown) > room - 1:
             shown = shown[1:]
-        inside = truncate(self.placeholder, room) if not typed else f"{shown}_"
-        screen.write(2, 2, f"[ {inside}{' ' * (room - width(inside))} ]", highlight=True)
+        row = 2
+        if self.detail:
+            screen.write(row, 0, truncate(self.detail, columns))
+            row += 2
+        # The caret in both states, so an empty field never reads as a full
+        # one. A placeholder is a hint about the shape of the answer and is
+        # drawn only when there is no `detail` naming the exact string.
+        inside = f"{shown}_" if typed else f"_{truncate(self.placeholder, room - 1)}"
+        screen.write(row, 2, f"[ {inside}{' ' * (room - width(inside))} ]", highlight=True)
         if self.footer:
             screen.write(lines - 1, 0, truncate(self.footer, columns))
         screen.show()
@@ -293,6 +305,12 @@ class Confirm:
     #: Drawn inside the field, so the phrase to type is visible without the
     #: title having to carry it.
     placeholder: str = ""
+    #: Drawn above the field. `phrase` uses this rather than `placeholder`:
+    #: the exact string has to be readable while the field still looks empty.
+    detail: str = ""
+    #: Other spellings of the same answer. A `/dev/disk/by-id/` selector is
+    #: sixty characters and its last component names the same disk.
+    also: tuple[str, ...] = ()
     footer: str = ""
     #: The two answers, already translated by the caller. Defaulted so a test
     #: needs no catalog, and passed in everywhere the operator will read them.
@@ -305,11 +323,14 @@ class Confirm:
     def run(self, screen: Screen) -> Answer[bool]:
         if self.phrase:
             typed = TextField(
-                title=self.title, footer=self.footer, placeholder=self.placeholder
+                title=self.title,
+                footer=self.footer,
+                placeholder=self.placeholder,
+                detail=self.detail,
             ).run(screen)
             if not typed.chosen:
                 return Answer(typed.outcome)
-            return Answer(Outcome.CHOSE, typed.unwrap() == self.phrase)
+            return Answer(Outcome.CHOSE, typed.unwrap() in {self.phrase, *self.also})
         menu: Menu[bool] = Menu(
             title=self.title,
             items=[Item(label=self.no, value=False), Item(label=self.yes, value=True)],
