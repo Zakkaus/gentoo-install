@@ -1,1 +1,4 @@
+# Both versions the tree carries are `~amd64` only, so the default stable
+# channel masks it and Portage says so in the package stage.
 packages = ["media-video/obs-studio"]
+accept_keywords = ["media-video/obs-studio ~amd64"]

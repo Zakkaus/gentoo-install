@@ -56,6 +56,10 @@ class Group:
     files: tuple[GroupFile, ...] = ()
     #: package.use lines this group needs, written before anything merges.
     package_use: tuple[str, ...] = ()
+    #: package.accept_keywords lines this group needs. An atom the tree carries
+    #: only under `~amd64` is masked on the default stable channel, and Portage
+    #: says so in the package stage, an hour after the disks were written.
+    accept_keywords: tuple[str, ...] = ()
     #: Units every user's own systemd instance has to start. openrc has no
     #: equivalent: what it needs is a system service, which `services` covers.
     user_services: tuple[str, ...] = ()
@@ -179,6 +183,24 @@ KWIN_DEFAULTS: Final[PurePosixPath] = PurePosixPath("/etc/xdg/kwinrc")
 
 #: New users get the same input method as the ones the installer creates.
 SKELETON: Final[PurePosixPath] = PurePosixPath("/etc/skel")
+
+
+@dataclass(frozen=True, kw_only=True)
+class WriteGroupKeywords(Operation):
+    """Written in the portage phase, for the same reason as the USE flags."""
+
+    stage: Stage = Stage.PORTAGE
+    group: str
+    lines: tuple[str, ...]
+
+    def describe(self) -> str:
+        return f"accept {'; '.join(self.lines)} for the {self.group} group"
+
+    def apply(self, context: Context) -> None:
+        context.write(
+            PurePosixPath(f"/etc/portage/package.accept_keywords/{self.group}"),
+            "".join(f"{line}\n" for line in self.lines),
+        )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -463,6 +485,10 @@ def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
             )
         if group.package_use:
             operations.append(WriteGroupUse(group=group.name, lines=group.package_use))
+        if group.accept_keywords:
+            operations.append(
+                WriteGroupKeywords(group=group.name, lines=group.accept_keywords)
+            )
         if group.user_services and config.system.init is InitSystem.SYSTEMD:
             operations.append(
                 EnableUserUnits(group=group.name, units=group.user_services)

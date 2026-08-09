@@ -941,6 +941,42 @@ def test_every_package_a_group_names_exists_where_it_says() -> None:
                 )
 
 
+@pytest.mark.skipif(
+    not all(one.is_dir() for one in _TREES.values()), reason="no Gentoo trees on this machine"
+)
+def test_a_group_whose_package_is_testing_only_says_so() -> None:
+    """`media-video/obs-studio` carries `~amd64` in every version the tree has,
+    so the default stable channel masks it and Portage says so in the package
+    stage, an hour after the disks were written. A group naming such an atom
+    has to declare the acceptance itself."""
+    import re
+
+    keywords = re.compile(r'^\s*KEYWORDS="([^"]*)"', re.MULTILINE)
+    for name, group in load_catalog().items():
+        accepted = {line.split()[0] for line in group.accept_keywords}
+        for atom in group.packages:
+            where = atom.split(":")[0]
+            # `::gentoo` only: selecting an overlay writes `*/*::<repo> ~amd64`,
+            # so everything in it is already accepted.
+            directory = _TREES["gentoo"] / where
+            if not directory.is_dir():
+                continue
+            said = [
+                match.group(1)
+                for ebuild in directory.glob("*.ebuild")
+                if not ebuild.name.endswith("-9999.ebuild")
+                for match in keywords.finditer(ebuild.read_text(errors="replace"))
+            ]
+            if not said:
+                continue
+            if any("amd64" in one.split() for one in said):
+                continue
+            assert where in accepted, (
+                f"{name} names {atom}, which the tree carries only under testing "
+                "keywords, and declares no accept_keywords line"
+            )
+
+
 def test_the_pam_stack_gets_the_seat_flag_the_manager_needs() -> None:
     """`gnome-base/gdm` RDEPENDs `sys-auth/pambase[elogind?,systemd?]` and
     refuses the merge without it; sddm and lightdm merge and start a session
