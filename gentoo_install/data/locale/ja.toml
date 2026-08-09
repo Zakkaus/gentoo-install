@@ -348,3 +348,8 @@
 "grub-mkconfig derives this one, and mounts the root read-only" = "grub-mkconfig が導出し、ルートを読み取り専用でマウント"
 "ZFSBootMenu boots whichever dataset it is pointed at" = "ZFSBootMenu が指定されたデータセットを起動"
 "This choice also sets" = "この選択が同時に設定する項目"
+"Build in RAM" = "メモリ上でビルド"
+"build on disk" = "ディスク上でビルド"
+"of this machine" = "のメモリ"
+"a quarter" = "四分の一"
+"half" = "半分"

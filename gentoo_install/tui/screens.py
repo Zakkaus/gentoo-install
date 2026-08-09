@@ -51,7 +51,7 @@ from ..plan import automatic as automatic_values
 from ..plan import kernel as plan_kernel
 from ..plan.kernel import KERNEL_PACKAGES
 from ..plan.portage import community_binhost
-from ..model.size import Size
+from ..model.size import ZERO, Size
 from ..errors import GentooInstallError, ValidationFailed
 from ..model import atoms, manual, mirrors, paste, sshkey
 from ..model.templates import Choice, Layout, build
@@ -90,6 +90,7 @@ class Context:
         timezones: Sequence[str] = (),
         firmware: Firmware = Firmware.UEFI,
         cores: int = 1,
+        memory: Size = ZERO,
         cpu_flags: Sequence[str] = (),
         supports_v3: bool = False,
         inspect_disk: Callable[[str], tuple[tuple[tuple[str, str, str], ...], str]] = (
@@ -172,6 +173,7 @@ class Context:
         #: This machine's core count and instruction set, for the rows that
         #: recommend a value rather than asking for one blind.
         self.cores = cores
+        self.memory = memory
         self.cpu_flags = tuple(cpu_flags)
         #: Whether `ld.so` says this CPU runs x86-64-v3 binaries.
         self.supports_v3 = supports_v3
@@ -1644,6 +1646,54 @@ def swap_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     context.choice = replace(context.choice, swap=partition)
     changed = _rebuild(config, context)
     return Answer(Outcome.CHOSE, replace(changed, system=replace(changed.system, zram=zram)))
+
+
+#: The fractions of this machine's memory offered as a build tmpfs. Not fixed
+#: sizes: 16GiB is most of a 24GiB laptop and a quarter of this workstation,
+#: and the useful question is how much of the machine to give up.
+RAM_SHARES: tuple[tuple[str, int], ...] = (("a quarter", 4), ("half", 2))
+
+#: Under this, the tmpfs is not worth offering: a Chromium or Rust build fills
+#: it and fails on ENOSPC after an hour, which is worse than building on disk.
+LEAST_RAM: Final[Size] = Size(8 * 1024**3)
+
+
+def build_in_ram_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """A tmpfs over /var/tmp/portage, off unless it is asked for.
+
+    Off by default because the failure is bad and late: a build that outgrows
+    the tmpfs dies on ENOSPC, and how much a machine can spare is not derivable
+    from how much it has. The sizes offered are shares of this machine's own
+    memory rather than fixed numbers.
+    """
+    translate = context.translate
+    items: list[Item[Size | None]] = [
+        Item(label=translate("off"), value=None, detail=translate("build on disk")),
+    ]
+    for name, divisor in RAM_SHARES:
+        share = Size(context.memory.bytes // divisor)
+        if share >= LEAST_RAM:
+            items.append(
+                Item(
+                    label=share.single_letter(),
+                    value=share,
+                    detail=f"{translate(name)} {translate('of this machine')}",
+                )
+            )
+    menu: Menu[Size | None] = Menu(
+        title=translate("Build in RAM"),
+        items=items,
+        footer=footer(translate),
+    )
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    return Answer(
+        Outcome.CHOSE,
+        replace(config, portage=replace(config.portage, build_in_ram=answer.unwrap()[0])),
+    )
 
 
 def sshd_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:

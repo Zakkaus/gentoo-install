@@ -224,6 +224,11 @@ def _bootloader(config: InstallConfig, context: Context) -> str:
     return f"{config.bootloader.kind.value}, {config.bootloader.firmware.value}"
 
 
+def _build_in_ram(config: InstallConfig, context: Context) -> str:
+    size = config.portage.build_in_ram
+    return f"tmpfs {size.single_letter()}" if size is not None else context.translate("off")
+
+
 def _cmdline(config: InstallConfig, context: Context) -> str:
     """What was typed, and how many parameters the layout adds to it. The count
     is the point: it says the line is longer than this row without listing a
@@ -484,6 +489,7 @@ COMPILER: Final[tuple[Setting, ...]] = (
     Setting("license", "Licenses", _license, screens.license_screen),
     Setting("keywords", "Package keywords", _keywords, screens.keywords_screen),
     Setting("use", "USE flags", _use, screens.use_flags_screen),
+    Setting("ram", "Build in RAM", _build_in_ram, screens.build_in_ram_screen),
 )
 
 #: The bootloader and what it puts on the command line. One row was enough

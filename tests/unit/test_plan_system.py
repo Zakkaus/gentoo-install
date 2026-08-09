@@ -830,3 +830,32 @@ def test_the_resolver_link_is_the_last_thing_written() -> None:
         at for at, one in enumerate(operations) if one.describe().startswith("unmount")
     )
     assert last_merge < linked < unmounted
+
+
+def test_building_in_ram_writes_a_tmpfs_portage_can_write_into() -> None:
+    """portage runs as 250:250 and has to create directories under it, so an
+    entry with default options gives root-only 1777 and the first build fails
+    on EACCES. `size=` is the whole point of the row: without it a tmpfs takes
+    half of memory and a Chromium build takes the machine down."""
+    installation = replace(
+        config(ext4_on_gpt()),
+        portage=replace(config().portage, build_in_ram=Size(16 * 1024**3)),
+    )
+    written = apply_all(installation, generated=generated(installation)).files[
+        PurePosixPath("/etc/fstab")
+    ]
+    line = next(one for one in written.splitlines() if "tmpfs" in one)
+    fields = line.split("\t")
+    assert fields[0] == "tmpfs" and fields[1] == "/var/tmp/portage"
+    options = fields[3].split(",")
+    assert "size=16G" in options
+    assert "uid=250" in options and "gid=250" in options and "mode=0775" in options
+    assert "nodev" in options and "nosuid" in options
+
+
+def test_nothing_is_mounted_on_var_tmp_when_the_row_is_off() -> None:
+    """Off is the default: a build that outgrows the tmpfs dies on ENOSPC an
+    hour in, which is worse than building on disk."""
+    plain = config(ext4_on_gpt())
+    written = apply_all(plain, generated=generated(plain)).files[PurePosixPath("/etc/fstab")]
+    assert "tmpfs" not in written

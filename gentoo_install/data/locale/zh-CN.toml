@@ -349,3 +349,8 @@
 "grub-mkconfig derives this one, and mounts the root read-only" = "由 grub-mkconfig 推导，并以只读挂载根"
 "ZFSBootMenu boots whichever dataset it is pointed at" = "ZFSBootMenu 启动时自己选定数据集"
 "This choice also sets" = "这个选择同时设定"
+"Build in RAM" = "在内存里编译"
+"build on disk" = "在磁盘上编译"
+"of this machine" = "的内存"
+"a quarter" = "四分之一"
+"half" = "一半"

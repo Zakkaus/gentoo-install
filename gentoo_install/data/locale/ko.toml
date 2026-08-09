@@ -348,3 +348,8 @@
 "grub-mkconfig derives this one, and mounts the root read-only" = "grub-mkconfig 가 도출하며 루트를 읽기 전용으로 마운트"
 "ZFSBootMenu boots whichever dataset it is pointed at" = "ZFSBootMenu 가 지정된 데이터셋을 부팅"
 "This choice also sets" = "이 선택이 함께 설정하는 항목"
+"Build in RAM" = "메모리에서 빌드"
+"build on disk" = "디스크에서 빌드"
+"of this machine" = "의 메모리"
+"a quarter" = "사분의 일"
+"half" = "절반"

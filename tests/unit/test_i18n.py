@@ -107,6 +107,7 @@ def in_a_table() -> set[str]:
     from gentoo_install.plan.system import LOGGERS
     from gentoo_install.tui.screens import (
         BINHOSTS,
+        RAM_SHARES,
         DISPLAY_MANAGERS,
         GENTOOZH_CHANNELS,
         GRAPHICS,
@@ -133,6 +134,8 @@ def in_a_table() -> set[str]:
     from gentoo_install.plan.automatic import REASONS
 
     found |= set(REASONS)
+    # The share names are drawn through a variable for the same reason.
+    found |= {name for name, _ in RAM_SHARES}
     found |= set(STATUS_REASONS.values())
     # A mirror is drawn by its own name and where it is, both translated: a
     # Chinese interface listing "Nanjing University" reads half-finished.

@@ -24,6 +24,7 @@ from .exec.apply import Machine, apply, completed
 from .exec.probe import Probe
 from .exec.runner import Runner, write_file
 from .log import Journal
+from .model.size import Size
 from .tui import app, screens
 from .tui.curses_screen import CursesScreen, too_small
 from .i18n import Catalog, tag_for
@@ -465,6 +466,7 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         timezone_here=probe.timezone_here(),
         zfs_kernel_max=fetch.zfs_kernel_max(),
         cores=probe.cores(),
+        memory=Size(probe.machine().memory_bytes),
         cpu_flags=probe.cpu_flags(),
         supports_v3=probe.supports_v3(),
         save_config=_save_config,
