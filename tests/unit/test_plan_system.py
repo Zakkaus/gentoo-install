@@ -917,3 +917,29 @@ def test_nothing_is_written_when_no_first_boot_work_was_asked_for() -> None:
     plain = config()
     recorder = apply_all(plain, generated=generated(plain))
     assert FIRST_BOOT_SCRIPT not in recorder.files
+
+
+def test_the_host_keys_exist_before_dracut_converts_them() -> None:
+    """`net-misc/openssh` makes none at merge time and sshd makes them the
+    first time it starts, which is after this install ends. `dracut-crypt-ssh`
+    reads them at initramfs build time, so with none the remote-unlock daemon
+    comes up with a key the operator's client has never seen."""
+    from pathlib import Path as Where
+
+    from gentoo_install.data import load_catalog
+    from gentoo_install.model.parse import load as load_config
+    from gentoo_install.plan.build import build as build_plan
+
+    where = Where(__file__).resolve().parents[1] / "fixtures" / "vm-unlock.toml"
+    described = [one.describe() for one in build_plan(load_config(where), load_catalog())]
+    keys = next(n for n, one in enumerate(described) if "host keys" in one)
+    dracut = next(n for n, one in enumerate(described) if "rebuild the initramfs" in one)
+    assert keys < dracut, described[keys : dracut + 1]
+
+
+def test_no_host_keys_are_made_for_a_system_with_no_sshd() -> None:
+    """`ssh-keygen` comes with openssh, which that system does not install."""
+    from gentoo_install.plan.system import GenerateHostKeys
+
+    plain = with_system(sshd=False)
+    assert not [one for one in system.build(plain) if isinstance(one, GenerateHostKeys)]

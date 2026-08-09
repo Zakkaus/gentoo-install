@@ -772,6 +772,30 @@ class WriteFirstBoot(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
+class GenerateHostKeys(Operation):
+    """Create the target's ssh host keys while the installer can still see it.
+
+    `net-misc/openssh` makes none at merge time; sshd makes them the first time
+    it starts, which is after this install has ended. `dracut-crypt-ssh` reads
+    them at initramfs build time to convert into dropbear's format, so with
+    none the remote-unlock daemon comes up with a key the operator's client has
+    never seen and refuses the host.
+    """
+
+    stage: Stage = Stage.SYSTEM
+    remote_unlock: bool = False
+
+    def describe(self) -> str:
+        wanted = " so the initramfs and sshd present the same host" if self.remote_unlock else ""
+        return f"generate the ssh host keys{wanted}"
+
+    def apply(self, context: Context) -> None:
+        # `-A` makes only what is missing, so a resumed run leaves the keys a
+        # previous pass created and the client's known_hosts stays right.
+        context.run_in_target(["ssh-keygen", "-A"])
+
+
+@dataclass(frozen=True, kw_only=True)
 class EnableService(Operation):
     """The service by name, without a suffix: openrc has no `.service`, and a
     unit name handed to `rc-update` fails with the disks already written."""
@@ -889,6 +913,10 @@ def build(config: InstallConfig) -> list[Operation]:
                 root_login=system.sshd_root_login,
             ),
             EnableService(service=_sshd_service(), init=system.init),
+            # Before Stage.KERNEL, where dracut runs: dracut-crypt-ssh converts
+            # these into dropbear's format and there is nothing to convert if
+            # sshd has not been started yet, which it has not.
+            GenerateHostKeys(remote_unlock=config.kernel.remote_unlock.enabled),
         ]
     flags = _network_use(system)
     if flags:

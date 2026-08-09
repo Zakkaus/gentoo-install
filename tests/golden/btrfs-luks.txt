@@ -63,6 +63,7 @@
   install sshd: emerge net-misc/openssh
   ssh password login: off, root: off
   enable sshd at boot
+  generate the ssh host keys
   configure the wired interface for DHCP
   enable systemd-networkd at boot
   enable systemd-resolved at boot
