@@ -223,3 +223,43 @@ def test_every_storage_command_names_its_real_provider() -> None:
                 ["sh", "-c", script, "_", command, family], capture_output=True, text=True
             ).stdout.strip()
             assert said == wanted[command], (command, family, said)
+
+
+def test_arch_is_not_told_to_install_a_package_it_cannot_reach() -> None:
+    """`zfs-utils` is in archzfs, a third-party repository a stock live image
+    has not configured, so `pacman -S zfs-utils` answers `target not found`.
+    Naming it reads as an instruction that works."""
+    import subprocess
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[2] / "bootstrap.sh").read_text()
+    start = source.index("package_for()")
+    script = source[start : source.index("\n}\n", start) + 3] + '\npackage_for "$1" "$2"\n'
+
+    for command in ("zpool", "zfs"):
+        said = subprocess.run(
+            ["sh", "-c", script, "_", command, "arch"], capture_output=True, text=True
+        ).stdout.strip()
+        assert said == "", (command, said)
+
+
+def test_arch_is_told_what_it_cannot_supply_instead_of_a_failing_command(
+    tmp_path: Path,
+) -> None:
+    """On a stock Arch image with nothing but python on PATH, the launcher
+    names every missing command. The zfs pair has no official package, so the
+    line for them says so rather than putting them in a `pacman` command that
+    answers `target not found`."""
+    said = run(
+        tmp_path,
+        "ID=arch\n",
+        "--config",
+        "tests/fixtures/vm-zfs.toml",
+        path=only_python(tmp_path),
+    )
+    assert "missing commands:" in said
+    assert "this system has no package for:" in said
+    for command in ("zpool", "zfs"):
+        assert command in said.split("this system has no package for:")[1].splitlines()[0]
+    installs = [line for line in said.splitlines() if line.startswith("run: pacman")]
+    assert not any("zfs-utils" in line for line in installs), installs

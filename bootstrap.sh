@@ -71,9 +71,12 @@ package_for() {
 	lvm:* | pvcreate:* | vgcreate:* | lvcreate:*) printf 'lvm2' ;;
 	gpg:*) printf 'gnupg' ;;
 	zpool:debian | zfs:debian | zpool:ubuntu | zfs:ubuntu) printf 'zfsutils-linux' ;;
-	# archzfs is a third-party repository, so there is nothing to name here;
-	# `probe.zfs_support()` refuses the layout before this would matter.
-	zpool:arch | zfs:arch) printf 'zfs-utils' ;;
+	# Nothing official provides these on Arch: `zfs-utils` is in archzfs, a
+	# third-party repository the medium has not configured, and `pacman -S
+	# zfs-utils` on a stock image answers `target not found`. Empty, so the
+	# launcher says the medium cannot supply them instead of printing a
+	# command that fails.
+	zpool:arch | zfs:arch) ;;
 	udevadm:alpine) printf 'eudev' ;;
 	udevadm:debian | udevadm:ubuntu) printf 'udev' ;;
 	udevadm:fedora | udevadm:rhel | udevadm:centos) printf 'systemd-udev' ;;
@@ -163,8 +166,13 @@ case " $* " in
 esac
 if [ -n "$missing" ]; then
 	packages=""
+	unavailable=""
 	for command in $missing; do
 		package=$(package_for "$command" "$family")
+		if [ -z "$package" ]; then
+			unavailable="$unavailable $command"
+			continue
+		fi
 		# Two commands often come from one package; naming it twice reads as
 		# though the operator has to install it twice.
 		case " $packages " in
@@ -173,10 +181,13 @@ if [ -n "$missing" ]; then
 		esac
 	done
 	say "missing commands:$(printf ' %s' $missing)"
-	if manager=$(install_command "$family"); then
+	if [ -n "$unavailable" ]; then
+		say "this system has no package for:$unavailable"
+	fi
+	if [ -n "$packages" ] && manager=$(install_command "$family"); then
 		say "run: $manager$packages"
 	else
-		say "install the packages providing them, then run this again"
+		say "install what provides them, then run this again"
 	fi
 	exit 1
 fi
