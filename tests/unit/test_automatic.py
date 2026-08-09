@@ -144,7 +144,7 @@ def test_the_automatic_use_flags_are_the_ones_make_conf_gets() -> None:
     catalog = load_catalog()
     installation = replace(
         config(ext4_on_gpt()),
-        packages=replace(config().packages, desktop="plasma", graphics="nvidia"),
+        packages=replace(config().packages, desktop="plasma", graphics=("nvidia",)),
     )
     shown = {one.value for one in automatic.use_flags(installation, catalog)}
     assert shown == set(required_use(installation, catalog))
@@ -156,7 +156,7 @@ def test_every_reason_used_is_in_the_table_the_catalog_reads() -> None:
     catalog = load_catalog()
     installation = replace(
         config(encrypted_root()),
-        packages=replace(config().packages, desktop="plasma", graphics="nvidia"),
+        packages=replace(config().packages, desktop="plasma", graphics=("nvidia",)),
         system=replace(SystemConfig(), keymap="de", keymap_initramfs="de"),
         kernel=replace(
             KernelConfig(), remote_unlock=RemoteUnlock(enabled=True, interface="eth0")
@@ -221,7 +221,7 @@ def test_confirming_a_driver_pins_what_it_adds_into_the_configuration() -> None:
 
     at = context()
     before = config(ext4_on_gpt())
-    after = replace(before, packages=replace(before.packages, graphics="nvidia"))
+    after = replace(before, packages=replace(before.packages, graphics=("nvidia",)))
     answer = screens.settle(FakeScreen(keys=[*down(1), "\n"], lines=30), at, before, after)
     pinned = answer.unwrap()
     assert pinned.portage.video_cards == ("nvidia",)
@@ -237,7 +237,7 @@ def test_declining_the_side_effects_cancels_the_choice() -> None:
 
     at = context()
     before = config(ext4_on_gpt())
-    after = replace(before, packages=replace(before.packages, graphics="nvidia"))
+    after = replace(before, packages=replace(before.packages, graphics=("nvidia",)))
     answer = screens.settle(FakeScreen(keys=["\n"], lines=30), at, before, after)
     assert answer.unwrap() == before
 
@@ -267,9 +267,9 @@ def test_a_driver_row_says_what_it_will_add_before_it_is_chosen() -> None:
     assert "nvidia  proprietary" in drawn.last
     assert "(+nvidia)" in drawn.last
     assert "(+amdgpu radeonsi)" in drawn.last
-    # The row that installs nothing and names no card adds nothing to say.
-    assert "none  no driver package" in drawn.last
-    assert "no driver package: i915, amdgpu, radeon and nouveau are in the kernel (+" not in drawn.last
+    # No `none` row: nothing ticked is what leaves the kernel to pick, so a
+    # row saying so would be a second way to say the same thing.
+    assert "none" not in drawn.last
 
 
 def test_a_desktop_row_says_it_brings_wayland() -> None:
@@ -283,3 +283,27 @@ def test_a_desktop_row_says_it_brings_wayland() -> None:
     screens.desktop_screen(drawn, config(ext4_on_gpt()), context())
     assert "plasma  the session only (+wayland qt6 kcm networkmanager)" in drawn.last
     assert "gnome  the session only (+wayland gnome networkmanager gtk)" in drawn.last
+
+
+def test_a_hybrid_machine_can_name_more_than_one_card() -> None:
+    """An AMD laptop with an NVIDIA card carries `amdgpu radeonsi nvidia`, and
+    the driver row offers one group. What is typed here is added to what the
+    group contributes, not replaced by it."""
+    from gentoo_install.plan.packages import required_video_cards
+
+    catalog = load_catalog()
+    installation = replace(
+        config(ext4_on_gpt()),
+        packages=replace(config().packages, graphics=("amdgpu",)),
+        portage=replace(config().portage, video_cards=("nvidia",)),
+    )
+    assert required_video_cards(installation, catalog) == ("nvidia", "amdgpu", "radeonsi")
+
+
+def test_input_devices_is_never_left_empty_by_default() -> None:
+    """make.conf replaces the profile's INPUT_DEVICES rather than adding to it,
+    so a machine installed with the row untouched would have no pointer."""
+    from gentoo_install.plan.portage import make_conf
+
+    written = dict(make_conf(config(ext4_on_gpt()), (), (), ()))
+    assert written["INPUT_DEVICES"] == "libinput"

@@ -353,3 +353,8 @@
 "of this machine" = "のメモリ"
 "a quarter" = "四分の一"
 "half" = "半分"
+"VIDEO_CARDS" = "VIDEO_CARDS"
+"INPUT_DEVICES" = "INPUT_DEVICES"
+"Values to add, separated by spaces" = "追加する値、空白区切り"
+"Not a VIDEO_CARDS value" = "VIDEO_CARDS の値ではありません"
+"Not an INPUT_DEVICES value" = "INPUT_DEVICES の値ではありません"

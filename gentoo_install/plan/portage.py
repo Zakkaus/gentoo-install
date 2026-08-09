@@ -647,6 +647,8 @@ def make_conf(
     wanted_cards = video_cards or portage.video_cards
     if wanted_cards:
         settings.append(("VIDEO_CARDS", " ".join(wanted_cards)))
+    if portage.input_devices:
+        settings.append(("INPUT_DEVICES", " ".join(portage.input_devices)))
     settings += [
         ("ACCEPT_LICENSE", " ".join(licenses or portage.accept_license)),
         ("L10N", " ".join(_l10n(config))),

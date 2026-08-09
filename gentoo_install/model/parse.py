@@ -167,7 +167,7 @@ def _portage(raw: Mapping[str, Any], at: str) -> PortageConfig:
         at,
         {
             "profile", "keywords", "sync", "testing_packages", "makeopts", "common_flags", "use", "video_cards",
-            "accept_license", "cpu_flags", "build_in_ram", "mirrors", "binhost", "overlays",
+            "accept_license", "cpu_flags", "build_in_ram", "input_devices", "mirrors", "binhost", "overlays",
         },
     )
     default = PortageConfig()
@@ -180,6 +180,7 @@ def _portage(raw: Mapping[str, Any], at: str) -> PortageConfig:
         common_flags=_str(raw, "common_flags", at, default.common_flags),
         use=_strings(raw, "use", at, default.use),
         video_cards=_strings(raw, "video_cards", at, default.video_cards),
+        input_devices=_strings(raw, "input_devices", at, default.input_devices),
         accept_license=_strings(raw, "accept_license", at, default.accept_license),
         cpu_flags=_strings(raw, "cpu_flags", at, default.cpu_flags),
         build_in_ram=_size(raw, "build_in_ram", at),
@@ -276,7 +277,7 @@ def _packages(raw: Mapping[str, Any], at: str) -> PackagesConfig:
         desktop=_str(raw, "desktop", at, default.desktop),
         applications=_strings(raw, "applications", at, default.applications),
         extra=_strings(raw, "extra", at, default.extra),
-        graphics=_str(raw, "graphics", at, default.graphics),
+        graphics=_strings(raw, "graphics", at, default.graphics),
         display_manager=_str(raw, "display_manager", at, default.display_manager),
     )
 

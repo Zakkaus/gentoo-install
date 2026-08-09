@@ -353,3 +353,8 @@
 "of this machine" = "의 메모리"
 "a quarter" = "사분의 일"
 "half" = "절반"
+"VIDEO_CARDS" = "VIDEO_CARDS"
+"INPUT_DEVICES" = "INPUT_DEVICES"
+"Values to add, separated by spaces" = "추가할 값, 공백으로 구분"
+"Not a VIDEO_CARDS value" = "VIDEO_CARDS 값이 아닙니다"
+"Not an INPUT_DEVICES value" = "INPUT_DEVICES 값이 아닙니다"

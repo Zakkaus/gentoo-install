@@ -399,7 +399,7 @@ def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
 def groups(config: InstallConfig, catalog: Catalog) -> tuple[Group, ...]:
     names = [
         config.packages.desktop,
-        config.packages.graphics,
+        *config.packages.graphics,
         config.packages.display_manager,
         *config.packages.applications,
     ]

@@ -237,6 +237,10 @@ class PortageConfig:
     common_flags: str = "-O2 -pipe"
     use: tuple[str, ...] = ()
     video_cards: tuple[str, ...] = ()
+    #: `INPUT_DEVICES`. libinput is what every current desktop reads; the
+    #: profile's own value is replaced outright by make.conf, so an empty
+    #: tuple here would leave a machine with no pointer driver.
+    input_devices: tuple[str, ...] = ("libinput",)
     accept_license: tuple[str, ...] = ("@FREE",)
     #: Detected from /proc/cpuinfo when the interface fills it in. Empty means
     #: the profile's own value stands.
@@ -307,8 +311,11 @@ class PackagesConfig:
     desktop: str = ""
     #: Group names under `data/packages/`.
     applications: tuple[str, ...] = ()
-    #: The graphics driver group, empty for whatever the kernel picks.
-    graphics: str = ""
+    #: The graphics driver groups. More than one because a hybrid machine has
+    #: more than one adapter: an AMD laptop with an NVIDIA card needs
+    #: `amdgpu radeonsi nvidia` in VIDEO_CARDS, and one group names two of
+    #: those. Empty for whatever the kernel picks.
+    graphics: tuple[str, ...] = ()
     #: The display manager group, empty for a console login.
     display_manager: str = ""
     #: Merged verbatim after everything else.

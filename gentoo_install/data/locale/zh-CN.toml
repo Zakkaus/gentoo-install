@@ -354,3 +354,8 @@
 "of this machine" = "的内存"
 "a quarter" = "四分之一"
 "half" = "一半"
+"VIDEO_CARDS" = "VIDEO_CARDS"
+"INPUT_DEVICES" = "INPUT_DEVICES"
+"Values to add, separated by spaces" = "要加入的值，以空格分隔"
+"Not a VIDEO_CARDS value" = "不是 VIDEO_CARDS 的值"
+"Not an INPUT_DEVICES value" = "不是 INPUT_DEVICES 的值"

@@ -395,9 +395,21 @@ def _graphics(config: InstallConfig, context: Context) -> str:
     """The driver, then what it makes `VIDEO_CARDS`. The second half is the
     part that decides which Mesa drivers get built, and it is not derivable
     from the first: `radeon` alone would drop Sea Islands."""
-    chosen = config.packages.graphics or context.translate("none")
+    chosen = " ".join(config.packages.graphics) or context.translate("none")
     cards = [one.value for one in automatic_values.video_cards(config, context.groups)]
     return f"{chosen} ({' '.join(cards)})" if cards else chosen
+
+
+def _video_cards(config: InstallConfig, context: Context) -> str:
+    every = [
+        *config.portage.video_cards,
+        *(one.value for one in automatic_values.video_cards(config, context.groups)),
+    ]
+    return " ".join(every) or context.translate("none")
+
+
+def _input_devices(config: InstallConfig, context: Context) -> str:
+    return " ".join(config.portage.input_devices) or context.translate("none")
 
 
 def _display_manager(config: InstallConfig, context: Context) -> str:
@@ -549,6 +561,8 @@ DESKTOP: Final[tuple[Setting, ...]] = (
         screens.desktop_screen,
     ),
     Setting("graphics", "Graphics", _graphics, screens.graphics_screen),
+    Setting("cards", "VIDEO_CARDS", _video_cards, screens.video_cards_screen),
+    Setting("input", "INPUT_DEVICES", _input_devices, screens.input_devices_screen),
     Setting("dm", "Display manager", _display_manager, screens.display_manager_screen),
 )
 

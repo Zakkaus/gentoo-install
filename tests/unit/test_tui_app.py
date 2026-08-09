@@ -565,17 +565,21 @@ def test_a_grouped_row_names_the_row_behind_it_that_is_missing() -> None:
     assert "Drive" in settings.unanswered(blank, context()) or config().disk.graph
 
 
-def test_the_driver_is_one_choice_and_not_a_row_to_tick() -> None:
-    """A machine has one graphics driver, so ticking two in the applications
-    list would put two VIDEO_CARDS values in make.conf."""
+def test_more_than_one_driver_can_be_ticked_and_not_in_the_application_list() -> None:
+    """A hybrid machine has two adapters: an AMD laptop with an NVIDIA card
+    needs `amdgpu radeonsi nvidia`, which one group cannot name. The drivers
+    are still their own screen, so none of them is a row in Applications."""
     at = context()
-    # Down to nvidia, enter, then down-enter on the confirmation that lists
-    # what the choice puts in make.conf.
+    # Rows: intel, amdgpu, radeon, nouveau, nvidia, virtual-machine. Down to
+    # amdgpu and tick, down to nvidia and tick, enter, yes to the confirmation.
     answer = screens.graphics_screen(
-        FakeScreen(keys=[*down(5), "\n", *down(1), "\n"], lines=30), config(), at
+        FakeScreen(keys=[*down(1), " ", *down(3), " ", "\n", *down(1), "\n"], lines=30),
+        config(),
+        at,
     )
-    assert answer.unwrap().packages.graphics == "nvidia"
-    assert answer.unwrap().portage.video_cards == ("nvidia",)
+    chosen = answer.unwrap()
+    assert chosen.packages.graphics == ("amdgpu", "nvidia")
+    assert chosen.portage.video_cards == ("amdgpu", "radeonsi", "nvidia")
     offered = FakeScreen(keys=["q"], lines=30, columns=100)
     screens.packages_screen(offered, config(), at)
     for name, _ in screens.GRAPHICS:
@@ -614,9 +618,9 @@ def test_the_proprietary_driver_widens_the_licences_it_needs() -> None:
     it and the emerge dies an hour into the install."""
     from gentoo_install.plan import packages as plan_packages
 
-    chosen = replace(config(), packages=replace(config().packages, graphics="nvidia"))
+    chosen = replace(config(), packages=replace(config().packages, graphics=("nvidia",)))
     assert "@BINARY-REDISTRIBUTABLE" in plan_packages.required_licenses(chosen, load_catalog())
-    plain = replace(config(), packages=replace(config().packages, graphics="nouveau"))
+    plain = replace(config(), packages=replace(config().packages, graphics=("nouveau",)))
     assert plan_packages.required_licenses(plain, load_catalog()) == ("@FREE",)
 
 

@@ -1270,19 +1270,37 @@ DISPLAY_MANAGERS: tuple[tuple[str, str], ...] = (
 def graphics_screen(
     screen: Screen, config: InstallConfig, context: Context
 ) -> Answer[InstallConfig]:
-    """Which driver, which is what VIDEO_CARDS and the firmware follow."""
-    chosen = _one_group(
-        screen,
-        config,
-        context,
-        "Graphics",
-        GRAPHICS,
-        lambda packages, name: replace(packages, graphics=name),
-        say_what_it_adds=True,
+    """Which drivers, which is what VIDEO_CARDS and the firmware follow.
+
+    More than one can be ticked: a hybrid machine has more than one adapter,
+    and an AMD laptop with an NVIDIA card needs `amdgpu radeonsi nvidia`. Each
+    row says what it adds, so the line the ticks build is readable before any
+    of them is pressed.
+    """
+    translate = context.translate
+    named = tuple((name, reason) for name, reason in GRAPHICS if name)
+    items = [
+        Item(
+            label=name,
+            value=name,
+            detail=translate(reason)
+            + _adds(config, context, lambda packages, one: replace(packages, graphics=(one,)), name),
+        )
+        for name, reason in named
+    ]
+    ticked = set(config.packages.graphics)
+    menu: Menu[str] = Menu(
+        title=translate("Graphics"),
+        items=items,
+        multiple=True,
+        selected={index for index, item in enumerate(items) if item.value in ticked},
+        footer=footer(translate),
     )
-    if not chosen.chosen:
-        return chosen
-    return settle(screen, context, config, chosen.unwrap())
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    chosen = replace(config, packages=replace(config.packages, graphics=tuple(answer.unwrap())))
+    return settle(screen, context, config, chosen)
 
 
 def display_manager_screen(
@@ -2767,6 +2785,59 @@ def use_flags_screen(
         return Answer(answer.outcome)
     return Answer(
         Outcome.CHOSE, replace(config, portage=replace(config.portage, use=answer.unwrap()))
+    )
+
+
+def video_cards_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """`VIDEO_CARDS` on top of what the driver choice contributes.
+
+    A hybrid machine needs more than one: an AMD laptop with an NVIDIA card
+    carries `amdgpu radeonsi nvidia`, and the driver row offers one group. The
+    values are USE_EXPAND flags, so they are checked as flags.
+    """
+    answer = _typed_beside_automatic(
+        screen,
+        context,
+        title=context.translate("VIDEO_CARDS"),
+        prompt=context.translate("Values to add, separated by spaces"),
+        typed=config.portage.video_cards,
+        automatic=automatic_values.video_cards(config, context.groups),
+        accepts=atoms.split_use_flags,
+        rejected=context.translate("Not a VIDEO_CARDS value"),
+    )
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    return Answer(
+        Outcome.CHOSE,
+        replace(config, portage=replace(config.portage, video_cards=answer.unwrap())),
+    )
+
+
+def input_devices_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """`INPUT_DEVICES`, which make.conf replaces outright rather than adds to.
+
+    Emptying it leaves a machine with no pointer driver, so `libinput` is the
+    default rather than something the operator has to know to type.
+    """
+    answer = _typed_beside_automatic(
+        screen,
+        context,
+        title=context.translate("INPUT_DEVICES"),
+        prompt=context.translate("Values to add, separated by spaces"),
+        typed=config.portage.input_devices,
+        automatic=(),
+        accepts=atoms.split_use_flags,
+        rejected=context.translate("Not an INPUT_DEVICES value"),
+    )
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    return Answer(
+        Outcome.CHOSE,
+        replace(config, portage=replace(config.portage, input_devices=answer.unwrap())),
     )
 
 

@@ -625,7 +625,7 @@ def test_the_nvidia_module_is_built_against_the_dist_kernel() -> None:
     with no driver. The same reason `sys-fs/zfs` carries the flag."""
     catalog = load_catalog()
     assert catalog["nvidia"].package_use == ("x11-drivers/nvidia-drivers dist-kernel",)
-    wanted = replace(config(), packages=PackagesConfig(graphics="nvidia"))
+    wanted = replace(config(), packages=PackagesConfig(graphics=("nvidia",)))
     # The whole plan, so the stage sort applies: the request is written in the
     # portage phase and the merge happens in the packages one.
     described = [one.describe() for one in build(wanted, catalog)]
