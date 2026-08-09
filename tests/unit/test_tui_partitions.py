@@ -497,7 +497,7 @@ def test_a_reuse_layout_is_not_asked_to_confirm_an_erase_it_will_not_do() -> Non
     ]
 
     # A layout that does erase still has to be confirmed.
-    at.erase_confirmed = False
+    at.confirmed.clear()
     assert "Confirm erasing the drive" in [
         one.label for one in settings.unanswered(config(), at)
     ]

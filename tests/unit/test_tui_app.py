@@ -19,6 +19,7 @@ from gentoo_install.model.config import (
 from gentoo_install.model import manual
 from gentoo_install.model.device import FilesystemType
 from gentoo_install.model.validate import validate
+from gentoo_install.model import compat
 from gentoo_install.tui import screens, settings
 from gentoo_install.tui.app import run
 from gentoo_install.tui.widgets import Outcome
@@ -148,7 +149,7 @@ def test_install_is_blocked_while_something_required_is_missing() -> None:
 
 def test_install_hands_back_the_configuration() -> None:
     at = context()
-    at.erase_confirmed = True
+    at.confirmed = {one.selector for one in compat.destroyed(config().disk.graph)}
     # A required row is answered when it has been opened: the mirror and the
     # disk start on a value read from this machine, and an install that erases
     # a drive nobody looked at is what the requirement exists to prevent.
@@ -179,7 +180,7 @@ def test_the_install_row_shows_every_operation_before_it_starts() -> None:
     """`overview_screen` was written and never wired: choosing Install went
     straight to partitioning the disk with no list and no confirmation."""
     at = context()
-    at.erase_confirmed = True
+    at.confirmed = {one.selector for one in compat.destroyed(config().disk.graph)}
     # A required row is answered when it has been opened: the mirror and the
     # disk start on a value read from this machine, and an install that erases
     # a drive nobody looked at is what the requirement exists to prevent.
@@ -981,9 +982,9 @@ def test_choosing_a_disk_again_takes_back_the_erase_confirmation() -> None:
     """The operator typed the name of the disk they were looking at. Carrying
     that to another one unblocks the install for a disk nobody agreed to."""
     at = context()
-    at.erase_confirmed = True
+    at.confirmed = {one.selector for one in compat.destroyed(config().disk.graph)}
     screens.disk_screen(FakeScreen(keys=["KEY_DOWN", "\n"]), config(), at)
-    assert not at.erase_confirmed
+    assert not at.confirmed
     assert settings.SETTINGS[row("Confirm erasing the drive")].value(config(), at) == "not set"
 
 
@@ -1266,7 +1267,7 @@ def test_a_bad_port_keeps_the_address_that_was_typed_beside_it() -> None:
     """The form dropped out to the menu, so an operator who mistyped the port
     retyped the address as well."""
     at = context()
-    at.erase_confirmed = True
+    at.confirmed = {one.selector for one in compat.destroyed(config().disk.graph)}
     # An encrypted root as well as a key: with neither there is no passphrase
     # prompt to reach, and the screen says so instead of asking.
     with_key = replace(
@@ -1309,13 +1310,14 @@ def test_a_phrase_that_is_not_the_disk_name_says_so_and_asks_again() -> None:
     """It stored False and returned to the menu, so a trailing space read as a
     refusal and the row went back to unset with nothing explaining why."""
     at = context()
-    disk = at.choice.disk
+    # The selector the graph will destroy, which is what the screen now names.
+    disk = compat.destroyed(config().disk.graph)[0].selector
     # A wrong name, the message, then the right one.
     keys = [*"/dev/sda", "\n", "\n", *disk, "\n"]
     screen = FakeScreen(keys=keys, lines=24, columns=80)
     answer = screens.erase_screen(screen, config(), at)
     assert answer.outcome is Outcome.CHOSE
-    assert at.erase_confirmed is True
+    assert at.confirmed
     seen = "\n".join("\n".join(frame) for frame in screen.frames)
     assert "That is not the name of this disk." in seen
 
@@ -1331,7 +1333,8 @@ def test_the_erase_question_fits_eighty_columns() -> None:
     assert "Type the disk name to confirm." in title
     assert len(title.rstrip()) <= 80
     # The name to type is in the field instead of the title.
-    assert at.choice.disk in "\n".join(screen.frames[0])
+    named = compat.destroyed(config().disk.graph)[0].selector
+    assert named in "\n".join(screen.frames[0])
 
 
 def test_the_address_row_says_what_the_machine_will_come_up_with() -> None:
@@ -1472,7 +1475,7 @@ def test_a_required_row_has_to_be_opened_and_not_only_filled_in() -> None:
     """The mirror and the disk start on a value read from this machine, so a
     check for `UNSET` alone let an install erase a drive nobody looked at."""
     at = context()
-    at.erase_confirmed = True
+    at.confirmed = {one.selector for one in compat.destroyed(config().disk.graph)}
     ready = replace(
         config(),
         system=replace(config().system, root_password_hash="$6$test$x"),
@@ -1745,3 +1748,56 @@ def test_reopening_a_setting_and_accepting_keeps_what_it_held() -> None:
         if setting.value(after, at) != setting.value(held, at):
             wrong.append(setting.label)
     assert not wrong, wrong
+
+
+def test_confirming_one_disk_does_not_authorise_a_second() -> None:
+    """`erase_confirmed` was a single flag and the prompt named
+    `context.choice.disk`, so a second disk added in manual partitioning was
+    destroyed under a confirmation that never mentioned it."""
+    from dataclasses import replace
+    from pathlib import PurePosixPath
+
+    from gentoo_install.model import compat
+    from gentoo_install.model.config import DiskConfig
+    from gentoo_install.model.device import (
+        DeviceGraph,
+        DeviceId,
+        Existing,
+        Filesystem,
+        FilesystemType,
+        Mountpoint,
+        Partition,
+        PartitionRole,
+        PartitionTable,
+        TableType,
+    )
+    from gentoo_install.model.size import Size
+
+    nodes = [
+        Existing(id=DeviceId("first"), selector="/dev/disk/by-id/one", wipe=True),
+        PartitionTable(id=DeviceId("t1"), disk=DeviceId("first"), table=TableType.GPT),
+        Partition(
+            id=DeviceId("p1"),
+            table=DeviceId("t1"),
+            index=1,
+            role=PartitionRole.DATA,
+            size=Size(8 * 1024**3),
+        ),
+        Filesystem(id=DeviceId("fs1"), device=DeviceId("p1"), kind=FilesystemType.EXT4),
+        Mountpoint(id=DeviceId("root"), source=DeviceId("fs1"), path=PurePosixPath("/")),
+        Existing(id=DeviceId("second"), selector="/dev/disk/by-id/two", wipe=True),
+        PartitionTable(id=DeviceId("t2"), disk=DeviceId("second"), table=TableType.GPT),
+    ]
+    two = replace(
+        config(), disk=DiskConfig(graph=DeviceGraph.build(nodes), root=DeviceId("root"))
+    )
+    at = context()
+    named = [one.selector for one in compat.destroyed(two.disk.graph)]
+    assert set(named) == {"/dev/disk/by-id/one", "/dev/disk/by-id/two"}
+
+    at.confirmed = {"/dev/disk/by-id/one"}
+    row = next(one for one in settings.SETTINGS if one.key == "erase")
+    assert settings.shown_value(row, two, at) != at.translate("confirmed")
+
+    at.confirmed = set(named)
+    assert settings.shown_value(row, two, at) == at.translate("confirmed")

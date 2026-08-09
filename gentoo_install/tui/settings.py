@@ -499,9 +499,12 @@ def _erase(config: InstallConfig, context: Context) -> str:
     operator kept is `mkfs` over their data with no disk-level wipe and no
     rewritten table, and this row read that layout as harmless.
     """
-    if not compat.destroyed(config.disk.graph):
+    targets = {one.selector for one in compat.destroyed(config.disk.graph)}
+    if not targets:
         return context.translate("nothing is erased")
-    return context.translate("confirmed") if context.erase_confirmed else UNSET
+    # Every one of them: a layout can destroy content on more than one device,
+    # and confirming the first authorised a second the prompt never named.
+    return context.translate("confirmed") if targets <= context.confirmed else UNSET
 
 
 def _cjk_kernel_only(config: InstallConfig, context: Context) -> str:

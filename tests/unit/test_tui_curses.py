@@ -176,6 +176,7 @@ from gentoo_install.i18n import Catalog
 from gentoo_install.model.parse import load
 from gentoo_install.plan.build import build
 from gentoo_install.model import mirrors
+from gentoo_install.model import compat
 from gentoo_install.tui import app, screens
 from gentoo_install.tui.curses_screen import CursesScreen
 from gentoo_install.tui.settings import SETTINGS
@@ -208,7 +209,7 @@ def main(window):
     # What an operator does by opening each row and typing the disk name. The
     # per-screen behaviour is covered against the fake screen; what is under
     # test here is the whole loop on a real terminal.
-    context.erase_confirmed = True
+    context.confirmed = {one.selector for one in compat.destroyed(started.disk.graph)}
     context.visited.update(one.key for one in SETTINGS)
     for one in SETTINGS:
         context.visited.update(row.key for row in (one.rows or ()))

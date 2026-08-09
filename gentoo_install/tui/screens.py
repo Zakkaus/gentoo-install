@@ -166,9 +166,11 @@ class Context:
         #: Kept so a disk screen can rebuild the graph when one answer changes,
         #: rather than editing a graph it did not build.
         self.choice = Choice(disk=disks[0][0] if disks else "", firmware=firmware)
-        #: Erasing a drive is confirmed by typing its name, and the menu shows
-        #: whether that has been done rather than asking again at the end.
-        self.erase_confirmed = False
+        #: Selectors whose destruction the operator confirmed by typing the
+        #: name. A set rather than one flag: a layout can destroy content on
+        #: more than one device, and a single flag confirmed for the first
+        #: disk authorised a second one the prompt never named.
+        self.confirmed: set[str] = set()
         #: Keys of the rows the operator has opened. An optional row never
         #: opened is running on a default nobody chose, which the menu says in
         #: colour as well as in the value it shows.
@@ -267,7 +269,7 @@ def disk_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     # Cleared with the disk: the operator typed the name of the one they were
     # looking at, and carrying that confirmation to another unblocks the
     # install for a disk nobody agreed to erase.
-    context.erase_confirmed = False
+    context.confirmed.clear()
     context.inspect_disk(picked)
     return Answer(Outcome.CHOSE, _rebuild(config, context))
 
@@ -384,9 +386,25 @@ def _with_gentoo_zh(config: InstallConfig) -> PortageConfig:
 
 
 def erase_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
-    """The one screen with no default: the disk name has to be typed."""
+    """The one screen with no default: each name has to be typed.
+
+    Every device `compat.destroyed` names, not `context.choice.disk`: a second
+    disk added in manual partitioning was destroyed under a confirmation that
+    named the first one.
+    """
     translate = context.translate
-    disk = context.choice.disk
+    for target in compat.destroyed(config.disk.graph):
+        if target.selector in context.confirmed:
+            continue
+        answered = _confirm_one(screen, context, target.selector)
+        if answered is not None:
+            return answered
+    return Answer(Outcome.CHOSE, config)
+
+
+def _confirm_one(screen: Screen, context: Context, disk: str) -> Answer[InstallConfig] | None:
+    """None once this selector is confirmed; an outcome to return otherwise."""
+    translate = context.translate
     while True:
         # The selector goes in the field rather than the title: together they
         # are three sentences and a `/dev/disk/by-id/` path, and 80 columns
@@ -403,8 +421,8 @@ def erase_screen(screen: Screen, config: InstallConfig, context: Context) -> Ans
         if not answer.chosen:
             return Answer(answer.outcome)
         if answer.unwrap():
-            context.erase_confirmed = True
-            return Answer(Outcome.CHOSE, config)
+            context.confirmed.add(disk)
+            return None
         # Said rather than swallowed: a trailing space read as a refusal, and
         # the row went back to unset with nothing explaining why.
         _say(screen, context, translate("That is not the name of this disk."))
@@ -2510,7 +2528,8 @@ def _act_on(screen: Screen, context: Context, row: _Row) -> None:
     if row.kind is _RowKind.ADD_DISK:
         added = _pick_another_disk(screen, context)
         if added is not None:
-            context.layout.disks.append(manual.Disk(selector=added))
+            held, _ = context.contents(added)
+            context.layout.disks.append(_seeded_disk(added, held))
         return
     disk = context.layout.disks[row.disk]
     if row.kind is _RowKind.DISK:
@@ -2616,25 +2635,39 @@ def _seed(context: Context) -> manual.Layout:
         return manual.suggest(
             context.choice.disk, context.choice.firmware, _template_filesystem(context.choice)
         )
-    seeded = manual.Layout(
+    return manual.Layout(
         disks=[
-            manual.Disk(
-                selector=context.choice.disk, table=context.choice.table or TableType.GPT
+            _seeded_disk(
+                context.choice.disk,
+                context.existing,
+                context.choice.table or TableType.GPT,
             )
         ]
     )
-    for index, (selector, _, kind) in enumerate(context.existing, start=1):
-        seeded.disks[0].slices.append(
+
+
+def _seeded_disk(
+    selector: str, held: Sequence[tuple[str, str, str]], table: TableType = TableType.GPT
+) -> manual.Disk:
+    """A disk with what the machine says is already on it, kept.
+
+    Every disk, not only the first: a second one was appended empty, so a disk
+    with partitions was drawn as blank and the rows added beside them rewrote
+    its table.
+    """
+    disk = manual.Disk(selector=selector, table=table)
+    for index, (where, _, kind) in enumerate(held, start=1):
+        disk.slices.append(
             manual.Slice(
                 index=index,
                 role=PartitionRole.DATA,
                 size=None,
                 filesystem=_known(kind),
                 status=manual.SliceStatus.KEEP,
-                selector=selector,
+                selector=where,
             )
         )
-    return seeded
+    return disk
 
 
 _LEVEL: Final[str] = "level"
