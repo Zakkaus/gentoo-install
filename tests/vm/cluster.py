@@ -279,6 +279,7 @@ def install_one(
     driver: str,
     workdir: Path,
     inflight: dict[str, Running] | None = None,
+    vmid: int = 0,
 ) -> Outcome:
     """Build a guest, install into it, read the result, delete the guest."""
     started = time.monotonic()
@@ -287,7 +288,7 @@ def install_one(
     guest = Guest(
         api=api,
         node=node,
-        vmid=api.free_vmid(),
+        vmid=vmid or api.free_vmid(),
         spec=GuestSpec(
             name=f"gi-{job.name}"[:63],
             iso=job.iso,
@@ -363,6 +364,7 @@ def answer_once(
     driver: str,
     workdir: Path,
     inflight: dict[str, Running],
+    vmid: int = 0,
 ) -> None:
     """Run one job and put exactly one outcome on the queue, whatever happens.
 
@@ -372,7 +374,7 @@ def answer_once(
     with an empty cluster and a job still queued.
     """
     try:
-        done.put(install_one(api, node, job, driver, workdir, inflight))
+        done.put(install_one(api, node, job, driver, workdir, inflight, vmid))
     except BaseException as error:
         done.put(
             Outcome(job.name, Verdict.ERROR, 0.0, f"{type(error).__name__}: {error}"[:300])
@@ -407,6 +409,10 @@ def run(
     running: dict[str, threading.Thread] = {}
     inflight: dict[str, Running] = {}
     finished: list[Outcome] = []
+    #: Handed out here, not in the worker. Two threads asking the cluster at
+    #: the same moment both read 9304 as free and the second was refused with
+    #: `VM 9304 already exists on node 'infra-node5'`.
+    handed: set[int] = set()
 
     try:
         while waiting or running:
@@ -421,9 +427,11 @@ def run(
                 job = waiting.pop(0)
                 if job.iso == DEFAULT_ISO:
                     job = replace(job, iso=medium)
+                vmid = api.free_vmid(frozenset(handed))
+                handed.add(vmid)
                 thread = threading.Thread(
                     target=answer_once,
-                    args=(done, api, node.name, job, driver, workdir, inflight),
+                    args=(done, api, node.name, job, driver, workdir, inflight, vmid),
                     daemon=True,
                 )
                 running[job.name] = thread

@@ -601,32 +601,58 @@ def append_to_cmdline(console: SerialConsole, extra: str, timeout: float = 30.0)
 _PLACED: Final[re.Pattern[bytes]] = re.compile(rb"\x1b\[(\d+);\d+H([^\x1b]*)")
 
 
-#: Where the `linux` line sits below `setparams` in the medium's own entry,
-#: for a guest whose GRUB cannot be read. The Gentoo minimal ISO puts `search`
-#: between them; a wrong count edits the wrong line, which is why the sighted
-#: path counts instead and this one is checked by whether the kernel then
-#: speaks.
-BLIND_DOWN: Final[int] = 2
+#: The only thing a SeaBIOS guest's GRUB says on the serial port. It prints
+#: this, clears the terminal and switches to its own framebuffer, so this is
+#: where the keys have to start and there is nothing further to read.
+BIOS_GRUB: Final[str] = r"Welcome to GRUB|GNU GRUB|Booting from DVD"
+
+#: Which line below `setparams` the keys move to, tried in this order. The
+#: Gentoo minimal ISO puts `search` between `setparams` and `linux`, so two is
+#: right for it; a medium that lacks it needs one. Nothing can be read to
+#: decide, so each is tried and checked.
+BIOS_DOWN: Final[tuple[int, ...]] = (2, 1, 3)
+
+#: What the kernel prints once `console=ttyS0` is on its command line, and the
+#: proof that the edit landed on the right line.
+KERNEL_SPEAKS: Final[str] = r"Linux version|Command line:|\[    0\.000000\]"
 
 
 def append_to_cmdline_blind(
-    guest: Guest, console: SerialConsole, extra: str, down: int = BLIND_DOWN
+    guest: Guest, console: SerialConsole, extra: str, patience: float = 60.0
 ) -> None:
     """The same edit on a guest whose GRUB writes only to VGA.
 
-    Under OVMF, GRUB inherits the firmware's serial console and the menu can
-    be read. Under SeaBIOS it switches to its own framebuffer terminal, so the
-    serial log stops at `Welcome to GRUB!` and the whole install reads as hung.
-    The keys go through the API instead, and the check is that the kernel
-    starts talking: with `console=ttyS0` on the command line it has to.
+    Under OVMF, GRUB inherits the firmware's serial console and the menu can be
+    read. Under SeaBIOS it clears the terminal and switches to its own
+    framebuffer, so the serial log stops at `Welcome to GRUB!` and the whole
+    install reads as hung. The keys go through the API instead.
+
+    Nothing can be read back, so the check is the kernel itself: with
+    `console=ttyS0` on the command line it has to speak. A count that landed on
+    the wrong line leaves it silent, and the guest is reset and tried again.
     """
-    guest.send_keys(["e"])
-    time.sleep(1.5)
-    guest.send_keys(["ctrl-n"] * down + ["ctrl-e"])
-    time.sleep(0.5)
-    guest.send_keys(keys_for(f" {extra}"))
-    time.sleep(0.5)
-    guest.send_keys(["ctrl-x"])
+    console.expect(BIOS_GRUB, timeout=300.0)
+    last = ""
+    for attempt, down in enumerate(BIOS_DOWN):
+        # GRUB prints its banner before the menu is up; keys sent into that gap
+        # are dropped and the entry boots unedited.
+        time.sleep(4.0)
+        guest.send_keys(["e"])
+        time.sleep(2.0)
+        guest.send_keys(["ctrl-n"] * down + ["ctrl-e"])
+        time.sleep(1.0)
+        guest.send_keys(keys_for(f" {extra}"))
+        time.sleep(1.0)
+        guest.send_keys(["ctrl-x"])
+        try:
+            console.expect(KERNEL_SPEAKS, timeout=patience)
+            return
+        except ConsoleTimeout as error:
+            last = str(error)[:200]
+        if attempt + 1 < len(BIOS_DOWN):
+            guest.reset()
+            console.expect(BIOS_GRUB, timeout=300.0)
+    raise ProxmoxError(f"the kernel never spoke after editing GRUB blind: {last}")
 
 
 def _line_of_linux(screen: bytes) -> int:
