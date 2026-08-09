@@ -451,3 +451,30 @@ def test_the_keyring_exists_before_the_first_binary_package_is_fetched() -> None
     written = next(n for n, one in enumerate(described) if "make.conf" in one)
     assert written < keyring < first, described[written : first + 1]
     assert host < first, described[host : first + 1]
+
+
+def test_the_stage3_comes_from_the_mirror_the_operator_chose() -> None:
+    """Only `--mirror` was read, so choosing USTC set the mirror for every
+    later fetch and still downloaded the stage3 itself, several hundred
+    megabytes of it, from `distfiles.gentoo.org`."""
+    from dataclasses import replace
+
+    from gentoo_install.data import load_catalog
+    from gentoo_install.model.config import MirrorConfig, MirrorRegion
+    from gentoo_install.plan.build import DEFAULT_MIRROR, build, stage3_mirror
+
+    from .layouts import config
+
+    chosen = replace(
+        config(),
+        portage=replace(
+            config().portage, mirrors=MirrorConfig(region=MirrorRegion.CN, site="ustc")
+        ),
+    )
+    assert stage3_mirror(chosen) == "https://mirrors.ustc.edu.cn/gentoo"
+    described = " ".join(one.describe() for one in build(chosen, load_catalog()))
+    assert "mirrors.ustc.edu.cn" in described
+    assert "distfiles.gentoo.org" not in described
+
+    # No site chosen: the official one, which is what the flag defaults to.
+    assert stage3_mirror(config()) == DEFAULT_MIRROR
