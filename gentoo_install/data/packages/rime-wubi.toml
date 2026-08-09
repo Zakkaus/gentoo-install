@@ -1,5 +1,8 @@
 # Wubi 86. `rime-wubi` is in the ebuild's PKGS_EXTRA, so the flag comes too.
-packages = ["app-i18n/rime-data"]
+# `app-i18n/rime-data` installs data files and nothing else, so a schema
+# chosen on its own left fcitx naming an addon that was not on disk and
+# falling back to `keyboard-us`. The engine comes with it.
+packages = ["app-i18n/fcitx-rime", "app-i18n/rime-data"]
 package_use = ["app-i18n/rime-data extra"]
 input_framework = "fcitx"
 input_method = "rime"

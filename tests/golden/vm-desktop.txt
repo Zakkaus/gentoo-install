@@ -71,7 +71,7 @@
   install the plasma group: emerge kde-plasma/plasma-meta x11-base/xorg-server kde-apps/konsole kde-apps/dolphin
   install the fcitx5 group: emerge app-i18n/fcitx app-i18n/fcitx-gtk app-i18n/fcitx-qt app-i18n/fcitx-configtool
   install the rime group: emerge app-i18n/fcitx-rime app-i18n/rime-data
-  install the rime-simplified group: emerge app-i18n/rime-data
+  install the rime-simplified group: emerge app-i18n/fcitx-rime app-i18n/rime-data
   install the noto-cjk group: emerge media-fonts/noto-cjk media-fonts/noto media-libs/fontconfig
   install the pipewire group: emerge media-video/pipewire media-video/wireplumber
   set XMODIFIERS, QT_IM_MODULES in /etc/environment.d/90-input-method.conf for fcitx

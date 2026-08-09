@@ -2,7 +2,10 @@
 # rime-ice, but only as a 9999 live ebuild with no keywords, which
 # `*/*::gentoo-zh ~amd64` cannot unmask and which would build from git HEAD at
 # install time.
-packages = ["app-i18n/rime-data"]
+# `app-i18n/rime-data` installs data files and nothing else, so a schema
+# chosen on its own left fcitx naming an addon that was not on disk and
+# falling back to `keyboard-us`. The engine comes with it.
+packages = ["app-i18n/fcitx-rime", "app-i18n/rime-data"]
 package_use = ["app-i18n/rime-data extra"]
 input_framework = "fcitx"
 input_method = "rime"

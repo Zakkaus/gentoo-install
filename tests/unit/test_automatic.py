@@ -873,3 +873,14 @@ def test_a_greeter_with_no_seat_flag_is_not_handed_one() -> None:
             for line in getattr(one, "lines", ())
         ]
         assert any("elogind" in one or "systemd" in one for one in written) is wanted, manager
+
+
+def test_every_rime_schema_installs_the_engine_that_reads_it() -> None:
+    """`app-i18n/rime-data` installs data files and nothing else. A schema
+    chosen on its own wrote `Name=rime` into the fcitx profile for an addon
+    that was not on disk, and fcitx fell back to `keyboard-us`."""
+    catalog = load_catalog()
+    schemas = [name for name in catalog if name.startswith("rime")]
+    assert len(schemas) >= 5, schemas
+    for name in schemas:
+        assert "app-i18n/fcitx-rime" in catalog[name].packages, name
