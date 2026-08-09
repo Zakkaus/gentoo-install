@@ -318,10 +318,7 @@ def install_one(
             f"echo $? > {RESULT_DIR}/install.rc; }} 2>&1 | tee {RESULT_DIR}/install.txt",
             timeout=RUN_CEILING,
         )
-        console.run(f"cp /run/gentoo-install/install.jsonl {RESULT_DIR}/ 2>/dev/null || true")
-        console.send(console_command(RESULT_DIR))
-        said = console.snapshot(120.0)
-        files = read_console(said)
+        files = collect(guest, console, log)
         code = files.get("install.rc", b"").strip()
         if code != b"0":
             return Outcome(job.name, Verdict.FAIL, time.monotonic() - started,
@@ -410,6 +407,38 @@ def run(
         for name in prepared:
             api.remove_iso(name, driver)
     return finished
+
+
+#: How many times the results are asked for again on a fresh console.
+COLLECT_TRIES: Final[int] = 3
+
+
+def collect(guest: Guest, console: SerialConsole, log: Path) -> dict[str, bytes]:
+    """Read the result archive back, reopening the console if it has gone.
+
+    A `termproxy` session does not survive an install: one that ran 36 minutes
+    was dropped in the second after the installer printed `installed 53
+    operations`, and the run was recorded as a failure although everything it
+    was testing had worked. The guest is still up and the archive is still on
+    it, so the answer is another console, not another install.
+    """
+    last: Exception | None = None
+    for attempt in range(COLLECT_TRIES):
+        try:
+            console.run(
+                f"cp /run/gentoo-install/install.jsonl {RESULT_DIR}/ 2>/dev/null || true"
+            )
+            console.send(console_command(RESULT_DIR))
+            return read_console(console.snapshot(180.0))
+        except (ConsoleClosed, ConsoleTimeout, ResultError) as error:
+            last = error
+            if attempt + 1 == COLLECT_TRIES:
+                break
+            console = SerialConsole(guest.console(), log.open("ab"))
+            # A newline first: the fresh console shows nothing until the shell
+            # is asked for a prompt, and `run` waits for its own marker.
+            console.send("")
+    raise ResultError(f"the results could not be read back: {last}")
 
 
 def _sweep(inflight: dict[str, Running]) -> None:
