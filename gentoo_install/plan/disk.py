@@ -597,6 +597,10 @@ class UnmountTarget(Operation):
     stage: Stage = Stage.FINISH
     pools: tuple[str, ...]
 
+    @property
+    def releases_the_machine(self) -> bool:
+        return True
+
     def describe(self) -> str:
         exported = f" and export {', '.join(self.pools)}" if self.pools else ""
         return f"unmount everything under the target{exported}"

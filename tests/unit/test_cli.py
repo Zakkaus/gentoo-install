@@ -385,3 +385,34 @@ def test_an_unattended_run_is_asked_nothing_on_the_way_out(
     arguments = argparse.Namespace(no_shell=True, target=tmp_path)
     cli._offer_a_paste(arguments, tmp_path, lambda line: None, True)
     assert asked == []
+
+
+def test_a_failed_run_only_releases_the_machine(tmp_path: Path) -> None:
+    """A run that stopped before the stage3 was unpacked has no target to
+    configure, so `chroot ... ln` exited 127 and that error replaced the
+    download timeout the operator actually needed to see."""
+    from gentoo_install.plan.disk import UnmountTarget
+    from gentoo_install.plan.system import LinkResolvConf
+    from gentoo_install.model.config import InitSystem
+
+    from .recorder import Recorder
+
+    said: list[str] = []
+    recorder = Recorder()
+    closing = (LinkResolvConf(init=InitSystem.SYSTEMD), UnmountTarget(pools=()))
+    cli._release(closing, recorder, said.append)  # type: ignore[arg-type]
+    assert any(argv[0] == "umount" for argv in recorder.commands)
+    assert not recorder.in_target
+    assert said == []
+
+
+def test_releasing_reports_a_failure_rather_than_raising(tmp_path: Path) -> None:
+    """The exception that matters is the one already on its way out."""
+    from gentoo_install.plan.disk import UnmountTarget
+
+    from .recorder import Recorder
+
+    said: list[str] = []
+    recorder = Recorder(failures={"umount"})
+    cli._release((UnmountTarget(pools=()),), recorder, said.append)  # type: ignore[arg-type]
+    assert said and "warning" in said[0]

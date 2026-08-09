@@ -149,6 +149,17 @@ class Operation(ABC):
     def apply(self, context: Context) -> None: ...
 
     @property
+    def releases_the_machine(self) -> bool:
+        """Whether this still runs once the install has already failed.
+
+        The closing stage has to unmount either way. The rest of it configures
+        the installed system, and a run that stopped before the stage3 was
+        unpacked has no installed system to configure: those operations then
+        fail inside an empty chroot and their error replaces the real one.
+        """
+        return False
+
+    @property
     def survives_a_reboot(self) -> bool:
         """Whether finishing this once means a resumed run may skip it.
 

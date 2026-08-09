@@ -231,7 +231,14 @@ def install(config: InstallConfig, operations: tuple[Operation, ...], arguments:
         try:
             _offer_a_paste(arguments, work, record, failed is not None)
             _offer_a_shell(arguments, machine, record, failed is not None)
-            apply(closing, machine, finished if failed is None else frozenset())
+            if failed is None:
+                apply(closing, machine, finished)
+            else:
+                # Only what releases the machine. The rest configures a target
+                # that a run stopping before the stage3 never populated, and
+                # `chroot: failed to run command 'ln'` then replaced the real
+                # failure in the message the operator reads.
+                _release(closing, machine, record)
         finally:
             # In `finally`: the log of a run that failed is the one worth
             # keeping, and it is the one a reboot would otherwise destroy.
@@ -245,6 +252,23 @@ def install(config: InstallConfig, operations: tuple[Operation, ...], arguments:
             f"{counted.get('compiled', 0)} compiled"
         )
     return EXIT_OK
+
+
+def _release(
+    closing: tuple[Operation, ...], machine: Machine, record: Callable[[str], None]
+) -> None:
+    """Unmount and let go, whatever else went wrong.
+
+    Each on its own, and none of them fatal: the install has already failed and
+    the exception that matters is the one being carried out of here.
+    """
+    for operation in closing:
+        if not operation.releases_the_machine:
+            continue
+        try:
+            operation.apply(machine)
+        except GentooInstallError as error:
+            record(f"warning: {operation.describe()}: {error}")
 
 
 def _unattended(arguments: argparse.Namespace) -> bool:
