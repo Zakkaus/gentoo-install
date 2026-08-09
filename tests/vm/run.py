@@ -76,8 +76,11 @@ INSTALLED = (
     ("hostname", "cat /etc/hostname || cat /etc/conf.d/hostname"),
     (
         "inputmethod",
+        # `/etc/environment` is where the systemd plan writes: it appends there
+        # rather than replacing a drop-in, and this check still read the
+        # drop-in, so it could not see the file the install had written.
         "cat /etc/skel/.config/fcitx5/profile 2>/dev/null; "
-        "cat /etc/environment.d/90-input-method.conf /etc/env.d/90input-method 2>/dev/null",
+        "cat /etc/environment /etc/env.d/90input-method 2>/dev/null",
     ),
     (
         "kernel",

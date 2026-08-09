@@ -252,3 +252,23 @@ def test_bootstrap_names_a_package_for_every_command_preflight_wants() -> None:
             if said == command and not allowed:
                 wrong.append(f"{command}:{family}")
     assert not wrong, wrong
+
+
+def test_the_installed_checks_read_the_files_the_plan_writes() -> None:
+    """The input-method check read a drop-in after the plan moved to
+    `/etc/environment`, so it could not see the file the install had written
+    and reported a mismatch on a correct system for every desktop run."""
+    from gentoo_install.plan.packages import ENVIRONMENT_FILE
+    from tests.vm.run import INSTALLED
+
+    asked = dict(INSTALLED)["inputmethod"]
+    missing = [str(one) for one in ENVIRONMENT_FILE.values() if str(one) not in asked]
+    assert not missing, (missing, asked)
+    # And nothing the plan stopped writing: a path left behind reads as
+    # coverage while the check answers with nothing.
+    named = {
+        word
+        for word in asked.replace(";", " ").split()
+        if word.startswith("/etc/") and "fcitx5" not in word
+    }
+    assert named == {str(one) for one in ENVIRONMENT_FILE.values()}, named
