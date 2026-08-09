@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from types import TracebackType
-from typing import Self
+from typing import Final, Self
 
 from .media import Medium
 
@@ -19,6 +19,17 @@ OVMF_VARS = Path("/usr/share/edk2-ovmf/OVMF_VARS.fd")
 class Firmware(Enum):
     UEFI = "uefi"
     BIOS = "bios"
+
+
+#: What runs the guest behind whatever the person at the keyboard is doing.
+#: Empty when `nice` or `ionice` is absent: a missing scheduler tool is not a
+#: reason to refuse to test.
+_YIELDING: Final[tuple[str, ...]] = tuple(
+    part
+    for tool, arguments in (("nice", ("-n", "10")), ("ionice", ("-c", "2", "-n", "7")))
+    if shutil.which(tool)
+    for part in (tool, *arguments)
+)
 
 
 class QemuError(Exception):
@@ -64,7 +75,13 @@ class Vm:
         self._process = subprocess.Popen(self._argv(), stdout=subprocess.DEVNULL, stderr=errors)
 
     def _argv(self) -> list[str]:
+        # The workstation is somebody's desktop while this runs. `nice` keeps
+        # five guests from making the compositor stutter, and the best-effort
+        # I/O class at its lowest priority does the same for the disk without
+        # the idle class's habit of starving a guest that is extracting a
+        # stage3. Neither slows a run that has the machine to itself.
         argv = [
+            *_YIELDING,
             "qemu-system-x86_64",
             "-enable-kvm",
             "-cpu", "host",

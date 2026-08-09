@@ -99,3 +99,24 @@ def test_naming_a_fixture_that_does_not_exist_says_which_do() -> None:
         named(["vm-raidz", "vm-typo"])
     assert "vm-typo" in str(refused.value)
     assert "vm-raidz" in str(refused.value)
+
+
+def test_a_guest_runs_behind_whoever_is_at_the_keyboard() -> None:
+    """The workstation is somebody's desktop while a campaign runs. Five guests
+    at the default priority make the compositor stutter."""
+    from tests.vm.qemu import _YIELDING, Firmware, VmSpec, Vm
+    from tests.vm.media import MEDIA
+
+    spec = VmSpec(
+        medium=MEDIA["official-minimal"],
+        workdir=Path("/tmp"),
+        firmware=Firmware.UEFI,
+        ssh_port=2222,
+    )
+    argv = Vm(spec)._argv()
+    assert argv[: len(_YIELDING)] == list(_YIELDING)
+    assert argv[len(_YIELDING)] == "qemu-system-x86_64"
+    # Best-effort at its lowest, not the idle class: idle starves a guest that
+    # is extracting a stage3 while something else touches the disk.
+    if "ionice" in _YIELDING:
+        assert "-c" in _YIELDING and "2" in _YIELDING
