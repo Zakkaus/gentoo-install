@@ -928,3 +928,29 @@ def test_a_zfs_root_keeps_its_kernel_in_the_pool() -> None:
         # The file installkernel ships carries layout= and initrd_generator=,
         # and the first one found wins rather than the two merging.
         assert PurePosixPath("/etc/kernel/install.conf") not in recorder.files
+
+
+def test_bootctl_is_not_rebuilt_for_flags_it_already_has() -> None:
+    """`sys-kernel/installkernel[systemd-boot]` RDEPENDs
+    `sys-apps/systemd[boot(-)]`, so the kernel stage has already pulled it in
+    and a plain atom at the bootloader stage is `[ebuild R]`. One passing run
+    spent 132 seconds rebuilding it with the flags it had.
+
+    The operation stays: nothing else guarantees `bootctl` when the provider is
+    `sys-apps/systemd-utils` on openrc.
+    """
+    from gentoo_install.plan.portage import Emerge
+
+    installation = replace(
+        config(),
+        bootloader=BootloaderConfig(kind=Bootloader.SYSTEMD_BOOT, firmware=Firmware.UEFI),
+    )
+    merge = next(
+        one
+        for one in bootloader.build(installation)
+        if isinstance(one, Emerge) and "bootctl" in one.summary
+    )
+    assert merge.only_if_absent
+    recorder = Recorder()
+    merge.apply(recorder)
+    assert any("--noreplace" in one for one in recorder.in_target[0])

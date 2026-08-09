@@ -309,6 +309,11 @@ class Emerge(Operation):
     summary: str
     oneshot: bool = False
     binary_packages: bool = True
+    #: Install only what is absent. For a package an earlier operation already
+    #: pulled in, a plain atom is `[ebuild R]` and portage rebuilds it: one
+    #: run spent 132 seconds rebuilding `sys-apps/systemd` at the bootloader
+    #: stage with the same flags it had been built with at the kernel stage.
+    only_if_absent: bool = False
 
     def describe(self) -> str:
         how = "" if self.binary_packages else ", from source"
@@ -318,6 +323,8 @@ class Emerge(Operation):
         argv = ["emerge", *EMERGE_OPTIONS]
         if self.oneshot:
             argv.append("--oneshot")
+        if self.only_if_absent:
+            argv.append("--noreplace")
         if self.binary_packages and not context.degraded(BINARY_PACKAGES):
             argv += BINPKG_OPTIONS
         else:

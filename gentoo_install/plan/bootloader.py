@@ -312,7 +312,18 @@ def build(config: InstallConfig) -> list[Operation]:
         provider = BOOTCTL_PACKAGE[config.system.init]
         operations += [
             RequestBootctl(package=provider),
-            Emerge(stage=Stage.BOOTLOADER, packages=(provider,), summary="install bootctl"),
+            # `--noreplace`: `sys-kernel/installkernel[systemd-boot]` RDEPENDs
+            # `sys-apps/systemd[boot(-)]`, so the kernel stage has already
+            # pulled it in and a plain atom here is `[ebuild R]`. One run spent
+            # 132 seconds rebuilding it with the flags it already had. The
+            # operation stays, because nothing else guarantees `bootctl` when
+            # the provider is `systemd-utils`.
+            Emerge(
+                stage=Stage.BOOTLOADER,
+                packages=(provider,),
+                summary="install bootctl",
+                only_if_absent=True,
+            ),
             InstallSystemdBoot(esp=esp),
         ]
     elif kind is Bootloader.ZFSBOOTMENU and esp is not None and esp_device is not None:
