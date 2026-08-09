@@ -230,21 +230,30 @@ def install(config: InstallConfig, operations: tuple[Operation, ...], arguments:
         closing = tuple(one for one in operations if one.stage is Stage.FINISH)
         body = tuple(one for one in operations if one.stage is not Stage.FINISH)
         failed: GentooInstallError | None = None
+        # `BaseException`, not `Exception`: an ENOSPC on the live medium or a
+        # Ctrl-C left mounts, arrays and imported pools open and the failure
+        # log on a tmpfs that goes with the reboot. Nothing is swallowed --
+        # whatever came out is raised again below.
+        unexpected: BaseException | None = None
         try:
             apply(body, machine, finished)
         except GentooInstallError as error:
             failed = error
             record(f"the install stopped: {error}")
+        except BaseException as error:
+            unexpected = error
+            record(f"the install stopped: {type(error).__name__}: {error}")
+        stopped = failed is not None or unexpected is not None
         try:
-            _offer_a_paste(arguments, work, record, failed is not None)
-            _offer_a_shell(arguments, machine, record, failed is not None)
+            _offer_a_paste(arguments, work, record, stopped)
+            _offer_a_shell(arguments, machine, record, stopped)
         finally:
             # Before the closing stage and in `finally`: that stage unmounts
             # the target, so a copy made after it lands on the install medium's
             # tmpfs and goes with the reboot, which is what this exists to
             # prevent. The log of a run that failed is the one worth keeping.
             _keep_the_log(work, arguments.target, record)
-        if failed is None:
+        if not stopped:
             apply(closing, machine, finished)
         else:
             # Only what releases the machine. The rest configures a target that
@@ -252,6 +261,8 @@ def install(config: InstallConfig, operations: tuple[Operation, ...], arguments:
             # `chroot: failed to run command 'ln'` then replaced the real
             # failure in the message the operator reads.
             _release(closing, machine, record)
+        if unexpected is not None:
+            raise unexpected
         if failed is not None:
             raise failed
         counted = journal.counts()

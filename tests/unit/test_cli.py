@@ -495,3 +495,21 @@ def test_an_unmounted_target_is_reported_rather_than_written_to(tmp_path: Path) 
     _keep_the_log(tmp_path, tmp_path / "target", said.append)
     assert said and "not mounted" in said[0]
     assert not (tmp_path / "target").exists()
+
+
+def test_an_exit_that_is_not_a_named_error_still_releases_and_keeps_the_log() -> None:
+    """An ENOSPC on the live medium or a Ctrl-C left mounts, arrays and
+    imported pools open and the failure log on a tmpfs that goes with the
+    reboot, because only `GentooInstallError` was caught."""
+    import inspect
+
+    from gentoo_install import cli
+
+    source = inspect.getsource(cli.install)
+    assert "except BaseException as error:" in source, "only named errors are caught"
+    caught = source.index("except BaseException as error:")
+    kept = source.index("_keep_the_log(")
+    released = source.index("_release(closing, machine, record)")
+    raised = source.index("raise unexpected")
+    assert caught < kept < raised, "the log is kept before the exception leaves"
+    assert caught < released < raised, "the machine is released before it leaves"
