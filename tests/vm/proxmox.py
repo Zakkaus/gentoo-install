@@ -410,9 +410,29 @@ class Guest:
         into.write_text(raw)
         return into
 
+    #: Between keystrokes, and how many times one is repeated. Every key is a
+    #: separate request over a new TLS connection, and twenty of them in a row
+    #: were answered `Remote end closed connection without response`; a dropped
+    #: key silently corrupts a command line nothing can read back.
+    KEY_PAUSE: Final[float] = 0.12
+    KEY_TRIES: Final[int] = 4
+
     def send_keys(self, keys: list[str]) -> None:
         for key in keys:
-            self.api.call("PUT", f"/nodes/{self.node}/qemu/{self.vmid}/sendkey", key=key)
+            last = ""
+            for attempt in range(self.KEY_TRIES):
+                try:
+                    self.api.call(
+                        "PUT", f"/nodes/{self.node}/qemu/{self.vmid}/sendkey", key=key
+                    )
+                    break
+                except ProxmoxError as error:
+                    last = str(error)
+                    self.api.affinity = ""
+                    time.sleep(0.5 * (attempt + 1))
+            else:
+                raise ProxmoxError(f"{key!r} was not delivered to vm {self.vmid}: {last}")
+            time.sleep(self.KEY_PAUSE)
 
     def stop(self) -> None:
         if not self._booted:
