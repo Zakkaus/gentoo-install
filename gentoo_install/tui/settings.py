@@ -16,6 +16,7 @@ from typing import Callable, Final
 
 from ..model.config import (
     Bootloader,
+    Firewall,
     InitSystem,
     InstallConfig,
     KernelSource,
@@ -282,6 +283,11 @@ def _use(config: InstallConfig, context: Context) -> str:
 
 def _network(config: InstallConfig, context: Context) -> str:
     return config.system.networking.value
+
+
+def _firewall(config: InstallConfig, context: Context) -> str:
+    name: str = config.system.firewall.value
+    return context.translate("none") if config.system.firewall is Firewall.NONE else name
 
 
 def _unlock_keymap(config: InstallConfig, context: Context) -> str:
@@ -618,6 +624,7 @@ DESKTOP: Final[tuple[Setting, ...]] = (
 NETWORK: Final[tuple[Setting, ...]] = (
     Setting("network", "Network configuration", _network, screens.networking_screen),
     Setting("address", "Address", _address, screens.address_screen),
+    Setting("firewall", "Firewall", _firewall, screens.firewall_screen),
 )
 
 #: The menu, flat and in the order it is drawn. One row per decision.

@@ -264,3 +264,58 @@ def test_a_partition_number_to_remove_is_above_zero_and_named_once(value: list[i
             device["remove"] = value
     with pytest.raises(ConfigError, match="partition numbers"):
         parse(raw)
+
+
+def test_the_parser_knows_every_field_the_writer_emits(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A field added to a config dataclass reaches `to_toml` by reflection and
+    reaches the parser only by hand. `firewall` was written and then rejected
+    as an unknown key, so a configuration the installer exported would not load
+    back. Each section's allowed set has to be the dataclass, whole.
+    """
+    from dataclasses import fields
+
+    from gentoo_install.model import parse as parser
+    from gentoo_install.model.config import (
+        Binhost,
+        BootloaderConfig,
+        FirstBoot,
+        KernelConfig,
+        MirrorConfig,
+        Overlay,
+        PackagesConfig,
+        PortageConfig,
+        RemoteUnlock,
+        SystemConfig,
+        User,
+    )
+
+    sections: tuple[tuple[Any, Any], ...] = (
+        (parser._system, SystemConfig),
+        (parser._user, User),
+        (parser._portage, PortageConfig),
+        (parser._mirrors, MirrorConfig),
+        (parser._remote_unlock, RemoteUnlock),
+        (parser._binhost, Binhost),
+        (parser._overlay, Overlay),
+        (parser._kernel, KernelConfig),
+        (parser._bootloader, BootloaderConfig),
+        (parser._packages, PackagesConfig),
+        (parser._first_boot, FirstBoot),
+    )
+    known: set[str] = set()
+    monkeypatch.setattr(
+        parser, "_reject_unknown", lambda raw, at, allowed: known.update(allowed)
+    )
+    unreachable: list[str] = []
+    for reader, holds in sections:
+        known.clear()
+        try:
+            reader({}, "x")
+        except ConfigError:
+            # A required key missing is not what this test reads; the allowed
+            # set was recorded before any value was looked at.
+            pass
+        missing = {one.name for one in fields(holds)} - known
+        if missing:
+            unreachable.append(f"{holds.__name__}: {', '.join(sorted(missing))}")
+    assert not unreachable, unreachable

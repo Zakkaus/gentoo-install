@@ -26,6 +26,7 @@ from ..model.config import (
     Bootloader,
     BootloaderConfig,
     DiskConfig,
+    Firewall,
     Firmware,
     GentooZhMirror,
     InitSystem,
@@ -2071,6 +2072,16 @@ def sshd_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     if not answer.chosen:
         return Answer(answer.outcome)
     running, password = answer.unwrap()[0]
+    if running and config.system.firewall is Firewall.NONE:
+        _say(
+            screen,
+            context,
+            translate(
+                "An SSH server answers the whole network. A firewall is worth "
+                "installing with it; the Firewall row under Network does that and "
+                "writes no rules, so the policy stays the operator's."
+            ),
+        )
     return Answer(
         Outcome.CHOSE,
         replace(
@@ -2446,6 +2457,46 @@ def networking_screen(
     return Answer(
         Outcome.CHOSE,
         replace(config, system=replace(config.system, networking=answer.unwrap()[0])),
+    )
+
+
+def firewall_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """Which packet filter to merge. The package and nothing else: no service
+    is enabled and no rule is written, so the choice changes what is installed
+    and not what the machine answers."""
+    translate = context.translate
+    # Each call written out, not `translate(detail[choice])`: the catalog test
+    # reads literal arguments, and a lookup by variable ships untranslated.
+    detail = {
+        Firewall.NONE: translate("no packet filter is installed"),
+        Firewall.IPTABLES: translate("the older one, for a rule set that already exists"),
+        Firewall.NFTABLES: translate("one table for both families, and what a new rule set uses"),
+    }
+    items = [Item(label=choice.value, value=choice, detail=detail[choice]) for choice in Firewall]
+    menu: Menu[Firewall] = Menu(
+        title=translate("Firewall"),
+        items=items,
+        footer=footer(translate),
+        current=config.system.firewall,
+    )
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    chosen = answer.unwrap()[0]
+    if chosen is not Firewall.NONE:
+        _say(
+            screen,
+            context,
+            translate(
+                "Both ship an empty rule set, and the installer writes none: a "
+                "policy it chose could drop port 22, and a machine reached only "
+                "over SSH would then need a console to be reached at all."
+            ),
+        )
+    return Answer(
+        Outcome.CHOSE, replace(config, system=replace(config.system, firewall=chosen))
     )
 
 

@@ -98,6 +98,16 @@ class GentooZhMirror(Enum):
     HA = "ha"
 
 
+class Firewall(Enum):
+    """Which packet filter is installed. Nothing is enabled and no rule is
+    written: an empty rule set is what both of these ship, and choosing an
+    operator's policy for them is not the installer's decision to make."""
+
+    NONE = "none"
+    NFTABLES = "nftables"
+    IPTABLES = "iptables"
+
+
 class Logger(Enum):
     """What writes the system log.
 
@@ -203,6 +213,10 @@ class SystemConfig:
     #: exists, so refusing root here costs a headless machine nothing.
     sshd_root_login: bool = False
     networking: Networking = Networking.BUILTIN
+    #: The package only. No service is enabled and no rule is written, so a
+    #: machine reachable over ssh stays reachable until its operator says
+    #: otherwise.
+    firewall: Firewall = Firewall.NONE
     first_boot: FirstBoot = field(default_factory=FirstBoot)
 
 
