@@ -350,7 +350,9 @@ def _firmware(config: InstallConfig, context: Context) -> str:
 
 
 def _drive(config: InstallConfig, context: Context) -> str:
-    disks = [node.selector.rsplit("/", 1)[-1] for node in config.disk.graph.of_type(Existing)]
+    """The kernel name, not the selector: the configuration keeps the stable
+    `/dev/disk/by-id/` one and nobody reads sixty characters of it."""
+    disks = [context.shown_as(node.selector) for node in config.disk.graph.of_type(Existing)]
     return ", ".join(disks) if disks else UNSET
 
 

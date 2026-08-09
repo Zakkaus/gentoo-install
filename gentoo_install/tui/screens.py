@@ -206,6 +206,21 @@ class Context:
         if self.choice.disk:
             self.inspect_disk(self.choice.disk)
 
+    def shown_as(self, selector: str) -> str:
+        """What to call a device on screen.
+
+        The configuration keeps the `/dev/disk/by-id/` selector, because a
+        kernel name is assigned at probe time and one saved today installs
+        somewhere else after the next reboot. Nobody reads sixty characters of
+        it: the screen says `/dev/sda`, which is what `lsblk` says too.
+        """
+        paths = [
+            one
+            for one in self.names_for(selector)
+            if one.startswith("/dev/") and one != selector
+        ]
+        return min(paths, key=len) if paths else selector.rsplit("/", 1)[-1]
+
     def inspect_disk(self, disk: str) -> None:
         self.existing, self.disk_size = self.contents(disk)
 
@@ -262,7 +277,13 @@ def disk_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
         raise LookupError("no disk to install onto")
     menu: Menu[str] = Menu(
         title=translate("Disks"),
-        items=[Item(label=name, value=name, detail=detail) for name, detail in context.disks],
+        items=[
+            # Labelled by the kernel name and valued by the selector: the
+            # configuration needs the stable one and the operator reads the
+            # short one.
+            Item(label=context.shown_as(name), value=name, detail=f"{detail}  {name}")
+            for name, detail in context.disks
+        ],
         footer=footer(translate),
         current=context.choice.disk,
     )
@@ -417,6 +438,7 @@ def _confirm_one(screen: Screen, context: Context, disk: str) -> Answer[InstallC
     # Every name this disk answers to: the selector the installer chose, its
     # last component, and the `/dev/sda` an operator reads off `lsblk`.
     accepted = {disk, disk.rsplit("/", 1)[-1], *context.names_for(disk)}
+    shown = context.shown_as(disk)
     while True:
         # On its own line, not inside the field: a placeholder is drawn where a
         # value would be, and an operator pressed enter on what looked like a
@@ -425,9 +447,9 @@ def _confirm_one(screen: Screen, context: Context, disk: str) -> Answer[InstallC
             **answers(translate),
             title=f"{translate('This erases every partition on the disk.')} "
             f"{translate('Type the disk name to confirm.')}",
-            phrase=disk,
-            also=tuple(accepted - {disk}),
-            detail=disk,
+            phrase=shown,
+            also=tuple(accepted - {shown}),
+            detail=shown,
             footer=footer(translate),
         )
         answer = question.run(screen)

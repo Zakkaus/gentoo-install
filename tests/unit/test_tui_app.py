@@ -1332,8 +1332,9 @@ def test_the_erase_question_fits_eighty_columns() -> None:
     title = next(line for line in screen.frames[0] if line.strip())
     assert "Type the disk name to confirm." in title
     assert len(title.rstrip()) <= 80
-    # The name to type is in the field instead of the title.
-    named = compat.destroyed(config().disk.graph)[0].selector
+    # The name to type is in the field instead of the title, and it is the
+    # short one: the configuration keeps the selector, the screen does not.
+    named = at.shown_as(compat.destroyed(config().disk.graph)[0].selector)
     assert named in "\n".join(screen.frames[0])
 
 
@@ -1839,7 +1840,7 @@ def test_the_erase_field_is_visibly_empty_before_anything_is_typed() -> None:
     screen = FakeScreen(keys=["KEY_BACKSPACE"], lines=24, columns=100)
     screens.erase_screen(screen, config(), at)
     drawn = [line for line in screen.frames[0] if line.strip()]
-    named = compat.destroyed(config().disk.graph)[0].selector
+    named = at.shown_as(compat.destroyed(config().disk.graph)[0].selector)
     # The name to type is on its own line, and the field holds only the caret.
     assert any(line.strip() == named for line in drawn), drawn
     field = next(line for line in drawn if line.lstrip().startswith("["))
@@ -1879,3 +1880,45 @@ def test_the_short_form_of_a_selector_confirms_the_same_disk() -> None:
     )
     assert answer.outcome is Outcome.CHOSE
     assert at.confirmed == {named}
+
+
+def test_a_disk_is_shown_by_its_kernel_name_and_stored_by_its_selector() -> None:
+    """The configuration keeps `/dev/disk/by-id/...` because a kernel name is
+    assigned at probe time and one saved today installs somewhere else after
+    the next reboot. Nobody reads sixty characters of it: `lsblk` says
+    `/dev/sda` and so should every screen."""
+    from dataclasses import replace
+
+    from gentoo_install.model.config import DiskConfig
+    from gentoo_install.model.device import DeviceGraph, Existing
+
+    from .layouts import ext4_on_gpt, i
+
+    named = "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi0"
+    nodes = [
+        replace(one, selector=named) if isinstance(one, Existing) else one
+        for one in ext4_on_gpt()
+    ]
+    installation = replace(
+        config(), disk=DiskConfig(graph=DeviceGraph.build(nodes), root=i("mnt-root"))
+    )
+    at = context()
+    at.names_for = lambda selector: (selector, "/dev/sda", selector.rsplit("/", 1)[-1], "sda")
+
+    row = next(
+        one
+        for group in settings.SETTINGS
+        for one in (group.rows or (group,))
+        if one.key == "disk"
+    )
+    assert settings.shown_value(row, installation, at) == "/dev/sda"
+
+    at.confirmed.clear()
+    screen = FakeScreen(keys=["KEY_BACKSPACE"], lines=24, columns=100)
+    screens.erase_screen(screen, installation, at)
+    drawn = [line.strip() for line in screen.frames[0] if line.strip()]
+    assert "/dev/sda" in drawn, drawn
+    assert named not in drawn, drawn
+
+    # And the configuration still holds the stable one.
+    assert [one.selector for one in installation.disk.graph.of_type(Existing)] == [named]
