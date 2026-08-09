@@ -27,7 +27,7 @@ import urllib.request
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Protocol
 
 from .console import ConsoleClosed, ConsoleTimeout, SerialConsole
 from .monitor import keys_for
@@ -607,8 +607,7 @@ def append_to_cmdline(console: SerialConsole, extra: str, timeout: float = 30.0)
     landed on it, and the entry booted unchanged with a broken search line.
     """
     hold_the_menu(console)
-    console.send_raw("e")
-    screen = console.snapshot(min(timeout, 5.0))
+    screen = _editor_screen(console, timeout)
     down = _line_of_linux(screen)
     console.send_raw(GRUB_NEXT_LINE * down + GRUB_END_OF_LINE)
     time.sleep(0.5)
@@ -679,6 +678,38 @@ def append_to_cmdline_blind(
             guest.reset()
             console = SerialConsole(guest.console(), log.open("ab"))
     raise ProxmoxError(f"the kernel never spoke after editing GRUB blind: {last}")
+
+
+class Editable(Protocol):
+    """What opening GRUB's editor needs of a console: keys in, screen out."""
+
+    def send_raw(self, keys: str) -> None: ...
+
+    def snapshot(self, seconds: float) -> bytes: ...
+
+
+def _editor_screen(console: Editable, timeout: float) -> bytes:
+    """Press `e` until GRUB draws the entry, and answer with that screen.
+
+    One press is not enough. The menu redraws itself when its countdown is
+    stopped, and a snapshot taken into that redraw holds the menu rather than
+    the editor: a run read `no GRUB entry to edit on this screen` off a
+    countdown line eight seconds from booting.
+    """
+    deadline = time.monotonic() + timeout
+    seen = b""
+    console.send_raw("e")
+    while time.monotonic() < deadline:
+        seen = console.snapshot(3.0)
+        if b"setparams" in seen:
+            return seen
+        # ESC first, and only then `e` again: in the editor it discards the
+        # edits and returns to the menu, and in the menu it does nothing. A
+        # bare second `e` would type the letter into the command line.
+        console.send_raw("\x1b")
+        time.sleep(0.5)
+        console.send_raw("e")
+    raise ProxmoxError(f"GRUB never opened its editor: {seen[-400:]!r}")
 
 
 def _line_of_linux(screen: bytes) -> int:

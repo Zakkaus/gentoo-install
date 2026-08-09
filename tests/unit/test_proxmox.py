@@ -386,3 +386,32 @@ def test_a_node_offers_a_slot_for_every_guest_it_can_hold() -> None:
     names = [node.name for node in free_slots(Counted(host="nowhere.invalid"))]
     assert names == ["big", "big", "big", "one"]
     assert "none" not in names, "the headroom is left free on every node"
+
+
+def test_the_editor_is_reopened_with_escape_not_a_second_e() -> None:
+    """A bare second `e` types the letter into the command line. ESC discards
+    the edits in the editor and does nothing in the menu, so it is safe in
+    both, and one run read `no GRUB entry to edit on this screen` off a
+    countdown line eight seconds from booting."""
+    from tests.vm.proxmox import _editor_screen
+
+    class Slow:
+        """Answers the menu once, then the editor."""
+
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+            self.screens = [
+                b"\x1b[54;01H   The highlighted entry will be executed automatically in 8s.",
+                GENTOO_EDITOR,
+            ]
+
+        def send_raw(self, keys: str) -> None:
+            self.sent.append(keys)
+
+        def snapshot(self, seconds: float) -> bytes:
+            return self.screens.pop(0) if self.screens else b""
+
+    console = Slow()
+    screen = _editor_screen(console, 30.0)
+    assert b"setparams" in screen
+    assert console.sent == ["e", "\x1b", "e"]
