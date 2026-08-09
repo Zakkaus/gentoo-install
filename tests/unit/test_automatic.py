@@ -307,3 +307,24 @@ def test_input_devices_is_never_left_empty_by_default() -> None:
 
     written = dict(make_conf(config(ext4_on_gpt()), (), (), ()))
     assert written["INPUT_DEVICES"] == "libinput"
+
+
+def test_the_confirmation_can_open_the_row_the_values_landed_on() -> None:
+    """The USE row is elsewhere in the menu. An operator who wants to look at
+    what was just added would otherwise leave, find it, and try to remember
+    what they were checking."""
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context, down
+
+    at = context()
+    before = config(ext4_on_gpt())
+    after = replace(before, packages=replace(before.packages, desktop="plasma"))
+    # Down twice to "Yes, and open", enter; then q out of the USE row it opens.
+    answer = screens.settle(
+        FakeScreen(keys=[*down(2), "\n", "q"], lines=30, columns=110), at, before, after
+    )
+    pinned = answer.unwrap()
+    assert "wayland" in pinned.portage.use
+    # Cancelling the row it opened keeps the pinned values rather than undoing
+    # the choice that produced them.
+    assert pinned.packages.desktop == "plasma"

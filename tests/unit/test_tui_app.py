@@ -851,15 +851,15 @@ def test_what_still_asks_before_it_changes() -> None:
         "Use DHCP?",
         "Unlock the root over SSH from the initramfs?",
         "Install",
-        # Not destructive, but it moves VIDEO_CARDS, USE and the profile, which
-        # the operator would otherwise meet in the installed system.
-        "This choice also sets",
     }
     for title in asked:
         assert title in source, title
-    # Nine call sites, ten titles: the slice screen words its question for a
+    # Eight call sites, nine titles: the slice screen words its question for a
     # pool or for a partition.
-    assert source.count("Confirm(") == 9
+    assert source.count("Confirm(") == 8
+    # `settle` asks the same kind of question with three answers rather than
+    # two, because the third opens the row the values land on.
+    assert "This choice also sets" in source
 
 
 def test_a_zfs_root_is_offered_no_kernel_the_module_will_not_build_for() -> None:

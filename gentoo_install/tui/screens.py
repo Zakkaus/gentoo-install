@@ -1211,25 +1211,40 @@ def settle(
         lines.append(f"USE: {' '.join(flags)}")
     if profile:
         lines.append(f"{translate('Profile')}: {profile}")
-    asked = Confirm(
+    # Three answers rather than two. The row the values land on is somewhere
+    # else in the menu, and an operator who wants to look at them now would
+    # otherwise have to leave, find it, and remember what they were checking.
+    where = use_flags_screen if flags else video_cards_screen
+    named = translate("USE flags") if flags else translate("VIDEO_CARDS")
+    asked: Menu[str] = Menu(
         title=f"{translate('This choice also sets')} — {', '.join(lines)}",
-        footer=footer(translate),
-        no=translate("No"),
-        yes=translate("Yes"),
-    ).run(screen)
-    if not asked.chosen or not asked.unwrap():
-        return Answer(Outcome.BACK, before)
-    return Answer(
-        Outcome.CHOSE,
-        replace(
-            after,
-            portage=replace(
-                after.portage,
-                use=(*after.portage.use, *flags),
-                video_cards=(*after.portage.video_cards, *cards),
+        items=[
+            Item(label=translate("No"), value="no"),
+            Item(label=translate("Yes"), value="yes"),
+            Item(
+                label=f"{translate('Yes, and open')} {named}",
+                value="open",
+                detail=translate("to add to them or turn one off"),
             ),
+        ],
+        footer=footer(translate),
+    )
+    answered = asked.run(screen)
+    if not answered.chosen or answered.unwrap()[0] == "no":
+        return Answer(Outcome.BACK, before)
+    pinned = replace(
+        after,
+        portage=replace(
+            after.portage,
+            use=(*after.portage.use, *flags),
+            video_cards=(*after.portage.video_cards, *cards),
         ),
     )
+    if answered.unwrap()[0] == "open":
+        opened = where(screen, pinned, context)
+        if opened.chosen:
+            return Answer(Outcome.CHOSE, opened.unwrap())
+    return Answer(Outcome.CHOSE, pinned)
 
 
 def _new(

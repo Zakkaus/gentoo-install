@@ -359,3 +359,5 @@
 "Values to add, separated by spaces" = "要加入的值，以空格分隔"
 "Not a VIDEO_CARDS value" = "不是 VIDEO_CARDS 的值"
 "Not an INPUT_DEVICES value" = "不是 INPUT_DEVICES 的值"
+"Yes, and open" = "是，并打开"
+"to add to them or turn one off" = "可以再加，也可以关掉其中一个"
