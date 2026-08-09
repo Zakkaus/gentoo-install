@@ -9,6 +9,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 from tests.vm.run import verdict
 
 
@@ -301,3 +303,33 @@ def test_a_machine_whose_memory_cannot_be_read_is_not_stalled_on() -> None:
         campaign.wait_for_room(lambda line: None)
     finally:
         campaign.available_bytes = original
+
+
+def test_a_passphrase_becomes_the_keys_the_monitor_understands() -> None:
+    """GRUB unlocks an encrypted BIOS disk before it reads `grub.cfg`, so its
+    prompt is on the VGA console whatever `GRUB_TERMINAL` says and `sendkey`
+    is the only way to answer it."""
+    from tests.vm.monitor import MonitorError, keys_for
+
+    assert keys_for("install-disk") == [
+        "i", "n", "s", "t", "a", "l", "l", "minus", "d", "i", "s", "k",
+    ]
+    assert keys_for("Ab.1_/") == ["shift-a", "b", "dot", "1", "shift-minus", "slash"]
+    # Refused rather than dropped: an unnamed character would be sent as
+    # itself and silently ignored, and the guest would wait for ever.
+    with pytest.raises(MonitorError):
+        keys_for("wide中")
+
+
+def test_the_guest_offers_a_monitor_socket() -> None:
+    """Without one there is no way past GRUB's own prompt on a BIOS install
+    with an encrypted disk, and the run times out on an empty serial log."""
+    from tests.vm.qemu import Firmware, Vm, VmSpec
+    from tests.vm.media import MEDIA
+
+    spec = VmSpec(
+        medium=MEDIA["official-minimal"], workdir=Path("/tmp"), firmware=Firmware.BIOS
+    )
+    argv = Vm(spec)._argv()
+    assert "-monitor" in argv
+    assert "none" not in argv[argv.index("-monitor") + 1]

@@ -22,7 +22,7 @@ from pathlib import Path, PurePosixPath
 
 from gentoo_install.data import load_catalog
 from gentoo_install.model import compat
-from gentoo_install.model.config import Bootloader, InitSystem, InstallConfig
+from gentoo_install.model.config import Firmware as BootFirmware, Bootloader, InitSystem, InstallConfig
 from gentoo_install.model.device import (
     Existing,
     Filesystem,
@@ -37,6 +37,7 @@ from gentoo_install.model.parse import load
 from gentoo_install.plan.system import _network_service as network_service
 
 from .console import PASSWORD_PROMPT, SerialConsole
+from .monitor import type_text
 from .driver import REPOSITORY, build as build_driver
 from .media import MEDIA, Medium
 from .qemu import Firmware, Vm, VmSpec
@@ -53,6 +54,10 @@ INSTALLED_PASSWORD = "install"
 #: The disk passphrase, which is not the root password: zfs takes at least
 #: eight characters, and a real install does not reuse one for the other.
 DISK_PASSPHRASE = "install-disk"
+
+#: How long SeaBIOS and GRUB take to reach the cryptomount prompt. Measured on
+#: this machine at about twenty seconds; the extra ten is for a loaded host.
+GRUB_PROMPT_SECONDS = 30.0
 RESULT_DIR = "/run/vm-result"
 
 #: What the installed system has to show, as (result file, pattern). A check
@@ -228,8 +233,18 @@ def pin_resolver(console: SerialConsole) -> None:
 PASSPHRASE_PROMPT = r"[Ee]nter passphrase|Please enter passphrase|password for"
 
 
-def unlock_and_login(console: SerialConsole, installation: InstallConfig) -> None:
-    """Answer every passphrase prompt on the way to a login."""
+def unlock_and_login(
+    console: SerialConsole, installation: InstallConfig, monitor: Path | None = None
+) -> None:
+    """Answer every passphrase prompt on the way to a login.
+
+    `monitor` is qemu's monitor socket. GRUB unlocks an encrypted BIOS disk
+    before it reads `grub.cfg`, so that prompt is on the VGA console whatever
+    `GRUB_TERMINAL` says and the serial port stays silent: proved with a
+    screendump reading `Enter passphrase for hd0,msdos2` beside an empty
+    serial log. Typing it through the monitor is what gets past GRUB; every
+    prompt after it, dracut's included, is on the serial port.
+    """
     graph = installation.disk.graph
     encrypted = bool(graph.of_type(Luks)) or any(
         pool.encrypted for pool in graph.of_type(ZfsPool)
@@ -239,6 +254,12 @@ def unlock_and_login(console: SerialConsole, installation: InstallConfig) -> Non
         return
     # Bounded: a wrong passphrase makes the prompt come back, and each one
     # re-arms the timeout, so an unbounded loop would never fail.
+    if monitor is not None and installation.bootloader.firmware is BootFirmware.BIOS:
+        # Blind, because there is nothing to wait for: GRUB's prompt never
+        # reaches this console. A wrong guess costs one retry at the next
+        # prompt, which is on the serial port and is waited for below.
+        time.sleep(GRUB_PROMPT_SECONDS)
+        type_text(monitor, DISK_PASSPHRASE)
     for _ in range(5):
         seen = console.expect(rf"{PASSPHRASE_PROMPT}|login:", timeout=300.0)
         if b"login:" in seen:
@@ -483,7 +504,7 @@ def _perform(args: argparse.Namespace, medium: Medium, workdir: Path) -> int:
         with SerialConsole.connect(vm.serial_socket, vm.serial_log) as console:
             if args.boot_installed:
                 expected = load(REPOSITORY / "tests" / args.install)
-                unlock_and_login(console, expected)
+                unlock_and_login(console, expected, vm.monitor_socket)
                 print(f"[{time.monotonic() - started:5.1f}s] logged into the installed system")
                 check_installed(console, expected)
                 power_off(console, vm)

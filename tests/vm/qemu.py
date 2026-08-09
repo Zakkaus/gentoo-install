@@ -61,6 +61,7 @@ class Vm:
     def __init__(self, spec: VmSpec) -> None:
         self.spec = spec
         self.serial_socket = spec.workdir / "serial.sock"
+        self.monitor_socket = spec.workdir / "monitor.sock"
         self.serial_log = spec.workdir / "serial.log"
         self._process: subprocess.Popen[bytes] | None = None
 
@@ -69,6 +70,7 @@ class Vm:
             raise QemuError("qemu-system-x86_64 is not installed")
         self.spec.workdir.mkdir(parents=True, exist_ok=True)
         self.serial_socket.unlink(missing_ok=True)
+        self.monitor_socket.unlink(missing_ok=True)
         # QEMU's stderr goes to a file, not a pipe: nobody reads the pipe, so a chatty
         # or failing QEMU would fill the buffer and block.
         errors = (self.spec.workdir / "qemu.err").open("wb")
@@ -96,7 +98,12 @@ class Vm:
             # guest is not using; a kernel without it ignores the device.
             "-device", "virtio-balloon,free-page-reporting=on",
             "-display", "none",
-            "-monitor", "none",
+            # A monitor socket, not `none`: GRUB's own passphrase prompt for an
+            # encrypted BIOS disk happens before it reads grub.cfg, so it is on
+            # the VGA console whatever `GRUB_TERMINAL` says, and `sendkey` is
+            # the only way in. Proved by screendump: `Enter passphrase for
+            # hd0,msdos2` with an empty serial log.
+            "-monitor", f"unix:{self.monitor_socket},server,nowait",
             "-serial", f"unix:{self.serial_socket},server,nowait",
         ]
         if not self.spec.boot_installed:
@@ -154,6 +161,7 @@ class Vm:
             self._process.kill()
             self._process.wait(timeout=30)
         self.serial_socket.unlink(missing_ok=True)
+        self.monitor_socket.unlink(missing_ok=True)
 
     def __enter__(self) -> Self:
         self.start()
