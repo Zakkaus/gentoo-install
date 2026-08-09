@@ -63,17 +63,18 @@ def stage3(mirror: str, variant: str, fingerprint: str, work: Path, runner: Runn
     that digest is recomputed here, because an empty marker beside a replaced
     or corrupted archive was an integrity check that verified nothing.
     """
-    base = f"{mirror.rstrip('/')}/{STAGE3_PATH}/current-stage3-amd64-{variant}"
-    name = _newest(base, variant)
+    builds = f"{mirror.rstrip('/')}/{STAGE3_PATH}"
+    where = _newest(builds, variant)
+    name = where.rsplit("/", 1)[-1]
     work.mkdir(parents=True, exist_ok=True)
     archive = work / name
     marker = work / f"{name}.verified"
     if marker.is_file() and archive.is_file() and _marker_matches(marker, archive, fingerprint):
         return archive
 
-    _download(f"{base}/{name}", archive)
+    _download(f"{builds}/{where}", archive)
     digests = work / f"{name}.DIGESTS"
-    _download(f"{base}/{name}.DIGESTS", digests)
+    _download(f"{builds}/{where}.DIGESTS", digests)
     _import_release_key(runner, work)
     _verify_signature(digests, fingerprint, runner)
     _verify_digest(archive, digests)
@@ -146,8 +147,8 @@ def passphrase_for(device: DeviceId, source: str) -> str:
     return passphrase
 
 
-def _newest(base: str, variant: str) -> str:
-    """The current archive's name, from the pointer file beside it.
+def _newest(builds: str, variant: str) -> str:
+    """The current archive's path under `releases/amd64/autobuilds`.
 
     `latest-stage3-amd64-<variant>.txt`, not the directory index: an index is
     a mirror's own HTML and every mirror writes it differently. USTC links
@@ -155,24 +156,28 @@ def _newest(base: str, variant: str) -> str:
     page found nothing there and every install from a Chinese mirror stopped
     with `lists no stage3 archive`.
 
-    Each entry is `<timestamp>/<name> <size>`, inside a PGP-signed block. The
-    signature is not checked here: the DIGESTS file is, and it is what decides
-    whether the bytes are the right ones.
+    The path, not the bare name. Each entry is `<timestamp>/<name> <size>`,
+    and the dated directory is where the file stays; `current-stage3-amd64-*`
+    is a symlink that moves when a build is published, and downloading through
+    it answered `404 Not Found` for an archive the pointer had just named.
+
+    The signature around the entries is not checked here: the DIGESTS file is,
+    and it is what decides whether the bytes are the right ones.
     """
-    pointer = f"{base.rsplit('/', 1)[0]}/latest-stage3-amd64-{variant}.txt"
-    names: list[str] = []
+    pointer = f"{builds}/latest-stage3-amd64-{variant}.txt"
+    paths: list[str] = []
     for line in _read(pointer).splitlines():
         said = line.strip()
         if not said or said.startswith(("#", "-----", "Hash:")):
             continue
         first = said.split()[0]
         if first.endswith(".tar.xz"):
-            names.append(first.rsplit("/", 1)[-1])
-    if not names:
+            paths.append(first)
+    if not paths:
         # DownloadFailed, not IntegrityError: the file arrived and named
         # nothing, which is a mirror mid-sync rather than data to distrust.
         raise DownloadFailed(f"{pointer} names no stage3 archive")
-    return sorted(names)[-1]
+    return sorted(paths)[-1]
 
 
 #: Gentoo's own keyring, which carries the release signing key. Fetched when

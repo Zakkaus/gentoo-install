@@ -24,12 +24,17 @@ iQFPBAEBCAA5FiEEU05CCatJ7uHBnZYWLERpXbn2BD0FAmp4ljAbFIAAAAAABAAO
 -----END PGP SIGNATURE-----
 """
 
-BASE = "https://mirrors.ustc.edu.cn/gentoo/releases/amd64/autobuilds/current-stage3-amd64-systemd"
+BASE = "https://mirrors.ustc.edu.cn/gentoo/releases/amd64/autobuilds"
 
 
-def test_reads_the_name_out_of_the_pointer(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_reads_the_dated_path_out_of_the_pointer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The path, not the bare name: `current-stage3-amd64-*` is a symlink that
+    moves when a build is published, and downloading through it answered `404
+    Not Found` for an archive the pointer had just named."""
     monkeypatch.setattr(fetch, "_read", lambda url: POINTER)
-    assert fetch._newest(BASE, "systemd") == "stage3-amd64-systemd-20260802T163058Z.tar.xz"
+    assert fetch._newest(BASE, "systemd") == (
+        "20260802T163058Z/stage3-amd64-systemd-20260802T163058Z.tar.xz"
+    )
 
 
 def test_asks_for_the_pointer_beside_the_directory(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -41,10 +46,7 @@ def test_asks_for_the_pointer_beside_the_directory(monkeypatch: pytest.MonkeyPat
 
     monkeypatch.setattr(fetch, "_read", record)
     fetch._newest(BASE, "systemd")
-    assert asked == [
-        "https://mirrors.ustc.edu.cn/gentoo/releases/amd64/autobuilds"
-        "/latest-stage3-amd64-systemd.txt"
-    ]
+    assert asked == [f"{BASE}/latest-stage3-amd64-systemd.txt"]
 
 
 def test_an_index_page_is_not_what_it_reads(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -75,7 +77,7 @@ def test_the_variant_picks_the_pointer(monkeypatch: pytest.MonkeyPatch, variant:
         return POINTER.replace("systemd", variant)
 
     monkeypatch.setattr(fetch, "_read", record)
-    fetch._newest(f"https://distfiles.gentoo.org/x/current-stage3-amd64-{variant}", variant)
+    fetch._newest("https://distfiles.gentoo.org/releases/amd64/autobuilds", variant)
     assert asked[0].endswith(f"latest-stage3-amd64-{variant}.txt")
 
 
