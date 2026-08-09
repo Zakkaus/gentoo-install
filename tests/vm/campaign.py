@@ -25,17 +25,17 @@ from typing import Final, Sequence
 WORKROOT: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/runs"
 LOGS: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/campaign"
 
-#: Measured rather than assumed: a guest sits at about 5.3 GiB resident, so
-#: five of them is 27 GiB beside a workstation already holding seventeen. Six
-#: was tried and a guest running a desktop install was killed by the host part
-#: way through, which reaches the log as `the guest closed the serial
-#: connection` and reads exactly like an installer defect.
-WORKERS: Final[int] = 5
+#: How many guests at once, which is a memory limit and nothing else. Measured
+#: on this machine: `-m 8G` reaches 8.1 GiB resident, and the workstation holds
+#: about 22 GiB, so five leaves earlyoom under its threshold and it sends
+#: SIGTERM to qemu. `WORKERS` used to say five and was never wired to anything.
+GUESTS: Final[int] = 4
 
-#: What the machine can carry at once, in the units `Run.weight` counts. Six
-#: light guests, or three that build a kernel from source, or a mix. Flat
-#: counting put five compile jobs on the machine at once and left it with two
-#: of them for the last forty minutes while everything else waited.
+#: What the machine can carry at once in CPU terms, in the units `Run.weight`
+#: counts. Separate from `GUESTS` because the two limits are different
+#: resources: a compile saturates its vCPUs without costing more memory than
+#: a download does. Flat counting put five compile jobs on at once and left
+#: the machine with two of them for the last forty minutes.
 CAPACITY: Final[int] = 6
 
 #: Long enough for a desktop install from source. The harness has its own
@@ -203,11 +203,13 @@ def parallel(runs: Sequence[Run]) -> list[Outcome]:
     it until the whole batch was done.
     """
     room = Semaphore(CAPACITY)
+    seats = Semaphore(GUESTS)
 
     def carried(one: Run) -> Outcome:
         # Held for the whole run, released whatever happened: a run that raised
         # while holding two units would shrink the machine for the rest of the
         # campaign.
+        seats.acquire()
         for _ in range(one.weight):
             room.acquire()
         try:
@@ -215,6 +217,7 @@ def parallel(runs: Sequence[Run]) -> list[Outcome]:
         finally:
             for _ in range(one.weight):
                 room.release()
+            seats.release()
 
     # Heaviest first. Started last, a run that compiles a kernel is the only
     # thing left on the machine for its final half hour.

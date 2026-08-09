@@ -38,9 +38,13 @@ PASSWORD_PROMPT = r"[Pp]assword:|密码：|密碼："
 class SerialConsole:
     """Reads and writes a QEMU unix-socket serial port, with expect semantics."""
 
-    def __init__(self, sock: socket.socket, log: IO[bytes]) -> None:
+    def __init__(self, sock: socket.socket, log: IO[bytes], errors: Path | None = None) -> None:
         self._sock = sock
         self._log = log
+        #: Where qemu wrote its own stderr. It names whatever killed it, and
+        #: without reading it a guest earlyoom took looks like an install that
+        #: hung: three rounds were diagnosed by inference instead.
+        self._errors = errors
         self._buffer = b""
         self._tokens: Iterator[int] = itertools.count(1)
 
@@ -56,7 +60,7 @@ class SerialConsole:
                 time.sleep(0.2)
                 continue
             sock.settimeout(1.0)
-            return cls(sock, log_path.open("wb"))
+            return cls(sock, log_path.open("wb"), path.parent / "qemu.err")
         raise ConsoleTimeout(f"{path} never accepted a connection")
 
     def expect(self, pattern: str, timeout: float) -> bytes:
@@ -103,10 +107,18 @@ class SerialConsole:
         except TimeoutError:
             return
         if not chunk:
-            raise ConsoleClosed("the guest closed the serial connection")
+            raise ConsoleClosed(self._why_closed())
         self._log.write(chunk)
         self._log.flush()
         self._buffer += chunk
+
+    def _why_closed(self) -> str:
+        said = ""
+        if self._errors is not None and self._errors.exists():
+            lines = self._errors.read_text(errors="replace").strip().splitlines()
+            said = lines[-1] if lines else ""
+        closed = "the guest closed the serial connection"
+        return f"{closed}: {said}" if said else closed
 
     def drain(self, seconds: float) -> None:
         """Read and discard for a while.
