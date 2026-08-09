@@ -165,6 +165,27 @@ def test_a_uefi_configuration_on_a_bios_boot_is_fatal(tmp_path: Path) -> None:
     assert any("booted by BIOS" in reason for reason in report.fatal)
 
 
+def test_a_uefi_boot_without_efivarfs_is_fatal(tmp_path: Path) -> None:
+    """`/sys/firmware/efi` existing says the kernel booted through EFI; it does
+    not say the variables can be written. `efibootmgr --create` is what the
+    ZFSBootMenu install runs, and GRUB's own NVRAM entry needs the same."""
+    report = preflight.inspect(config(), described(efi_variables=False), probe_of(tmp_path))
+    assert any("efivarfs" in reason for reason in report.fatal), report.fatal
+
+    fine = preflight.inspect(config(), described(efi_variables=True), probe_of(tmp_path))
+    assert not [one for one in fine.fatal if "efivarfs" in one], fine.fatal
+
+
+def test_a_bios_configuration_needs_no_firmware_variables(tmp_path: Path) -> None:
+    """Nothing writes an EFI variable on a BIOS install, so their absence is
+    not a reason to refuse one."""
+    on_bios = replace(
+        present(), bootloader=BootloaderConfig(kind=Bootloader.GRUB, firmware=Firmware.BIOS)
+    )
+    report = preflight.inspect(on_bios, described(efi_variables=False), probe_of(tmp_path))
+    assert not [one for one in report.fatal if "efivarfs" in one], report.fatal
+
+
 def test_thirty_two_bit_efi_firmware_is_fatal_for_an_amd64_install(tmp_path: Path) -> None:
     """An x86_64 CPU can boot through 32-bit EFI. Only `/sys/firmware/efi` was
     read, so the install finished and the firmware then refused the amd64 EFI

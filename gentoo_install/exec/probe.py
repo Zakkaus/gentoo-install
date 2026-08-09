@@ -27,6 +27,24 @@ EFI_MARKER: Final[Path] = Path("/sys/firmware/efi")
 #: unreadable value is not treated as a failure.
 EFI_WIDTH: Final[Path] = EFI_MARKER / "fw_platform_size"
 
+#: Where the firmware's boot entries are. `/sys/firmware/efi` existing says
+#: the kernel booted through EFI; it does not say the variables can be
+#: written, and `efibootmgr --create` is what ZFSBootMenu's install runs.
+EFI_VARIABLES: Final[Path] = EFI_MARKER / "efivars"
+
+
+def _efi_variables() -> bool:
+    """Whether efivarfs is mounted and populated.
+
+    Non-empty, not merely present: the mount point exists as an empty
+    directory when efivarfs was never mounted, and the install then reaches
+    `efibootmgr` and fails with the disks already written.
+    """
+    try:
+        return any(EFI_VARIABLES.iterdir())
+    except OSError:
+        return False
+
 
 def _efi_bits() -> int:
     try:
@@ -52,6 +70,8 @@ class Machine:
     #: What `--version` said, for the commands whose implementation matters.
     #: A busybox applet satisfies `which` and then rejects the flags.
     versions: Mapping[str, str] = field(default_factory=dict)
+    #: Whether the firmware's variables can be read and written.
+    efi_variables: bool = False
     #: The width of the EFI firmware, from `fw_platform_size`. Zero when the
     #: machine did not boot by EFI or the kernel is too old to publish it: 32
     #: is the case that matters, because amd64 EFI executables do not load on
@@ -120,6 +140,7 @@ class Probe:
             architecture=platform.machine(),
             uefi=EFI_MARKER.is_dir(),
             efi_bits=_efi_bits(),
+            efi_variables=_efi_variables(),
             root=os.geteuid() == 0,
             memory_bytes=self._memory(),
             commands=frozenset(name for name in wanted if shutil.which(name) is not None),

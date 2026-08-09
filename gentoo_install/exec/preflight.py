@@ -285,6 +285,14 @@ def inspect(
         fatal.append("the configuration boots by UEFI and this machine booted by BIOS")
     if not wants_uefi and machine.uefi:
         warnings.append("the configuration boots by BIOS on a machine that booted by UEFI")
+    if wants_uefi and machine.uefi and not machine.efi_variables:
+        # Fatal: `efibootmgr --create` is what the ZFSBootMenu install runs,
+        # and GRUB's `--bootloader-id` entry needs the same. The operator can
+        # mount it, so the message says which command.
+        fatal.append(
+            "the firmware variables are not readable: mount efivarfs with "
+            "`mount -t efivarfs efivarfs /sys/firmware/efi/efivars` before installing"
+        )
     if wants_uefi and machine.efi_bits == 32:
         # Fatal rather than a warning: the install would finish and the
         # firmware would then refuse the amd64 executable it was handed.
