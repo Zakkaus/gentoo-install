@@ -275,7 +275,7 @@ def test_an_input_method_group_configures_fcitx_for_every_user() -> None:
     assert "Name=rime" in written["/etc/skel/.config/fcitx5/profile"]
     assert "luna_pinyin" in written["/home/zakk/.local/share/fcitx5/rime/default.custom.yaml"]
     assert "gtk-im-module=fcitx" in written["/home/zakk/.config/gtk-4.0/settings.ini"]
-    assert "XMODIFIERS=@im=fcitx" in written["/etc/environment.d/90-input-method.conf"]
+    assert "XMODIFIERS=@im=fcitx" in written["/etc/environment"]
 
 
 def test_a_wayland_desktop_leaves_the_module_variables_unset() -> None:
@@ -597,8 +597,8 @@ def test_ibus_gets_its_own_environment_and_no_fcitx_profile() -> None:
         plan_packages.WriteInputMethodProfile,
     )
     written = {str(path): text for path, text in recorder.files.items()}
-    assert "XMODIFIERS=@im=ibus" in written["/etc/environment.d/90-input-method.conf"]
-    assert "GTK_IM_MODULE=ibus" in written["/etc/environment.d/90-input-method.conf"]
+    assert "XMODIFIERS=@im=ibus" in written["/etc/environment"]
+    assert "GTK_IM_MODULE=ibus" in written["/etc/environment"]
     assert not any("fcitx5/profile" in name for name in written)
 
 
@@ -726,3 +726,20 @@ def test_the_greeter_is_not_given_a_flag_it_does_not_have() -> None:
         if isinstance(one, plan_packages.WriteGroupUse) and one.group == "lightdm"
     )
     assert "greeter" not in written
+
+
+def test_the_input_method_variables_reach_a_session_a_display_manager_starts() -> None:
+    """`environment.d(5)` under APPLICABILITY: those files reach what
+    `systemd --user` starts. A session sddm, lightdm or greetd launches is a
+    `systemd.scope`, so `XMODIFIERS` never arrived and the candidate window
+    never appeared. `pam_env` reads `/etc/environment` at every PAM login."""
+    from gentoo_install.model.config import InitSystem
+    from gentoo_install.plan.packages import ENVIRONMENT_FILE, WriteInputMethodEnvironment
+
+    assert str(ENVIRONMENT_FILE[InitSystem.SYSTEMD]) == "/etc/environment"
+    recorder = Recorder()
+    WriteInputMethodEnvironment(
+        init=InitSystem.SYSTEMD, framework="fcitx", wayland=False
+    ).apply(recorder)
+    written = {str(path): text for path, text in recorder.files.items()}
+    assert "XMODIFIERS=@im=fcitx" in written["/etc/environment"]

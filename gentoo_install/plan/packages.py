@@ -98,8 +98,15 @@ Catalog = Mapping[str, Group]
 
 #: Where a session reads environment variables: systemd at user-session start,
 #: openrc through `env-update` into /etc/profile.env.
+#: Where the input-method variables go, per init.
+#:
+#: `/etc/environment` on systemd, not `/etc/environment.d/`. The latter reaches
+#: only what `systemd --user` starts, and `environment.d(5)` says so under
+#: APPLICABILITY; a session sddm, lightdm or greetd launches is a
+#: `systemd.scope`, so the variables never arrived. `pam_env` reads
+#: `/etc/environment` at every PAM login, which is every graphical one.
 ENVIRONMENT_FILE: Final[dict[InitSystem, PurePosixPath]] = {
-    InitSystem.SYSTEMD: PurePosixPath("/etc/environment.d/90-input-method.conf"),
+    InitSystem.SYSTEMD: PurePosixPath("/etc/environment"),
     InitSystem.OPENRC: PurePosixPath("/etc/env.d/90input-method"),
 }
 
@@ -292,7 +299,13 @@ class WriteInputMethodEnvironment(Operation):
         return f"set {named} in {ENVIRONMENT_FILE[self.init]} for {self.framework}"
 
     def apply(self, context: Context) -> None:
-        context.write(ENVIRONMENT_FILE[self.init], "\n".join(self._lines()) + "\n")
+        where = ENVIRONMENT_FILE[self.init]
+        if self.init is InitSystem.SYSTEMD:
+            # Appended: `/etc/environment` is a file other things write into,
+            # unlike the drop-in this used to replace.
+            context.append(where, "\n".join(self._lines()) + "\n")
+        else:
+            context.write(where, "\n".join(self._lines()) + "\n")
         if self.init is InitSystem.OPENRC:
             # env.d is a source directory: nothing reads it until env-update
             # regenerates /etc/profile.env from it.
