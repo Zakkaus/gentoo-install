@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from email.utils import parsedate_to_datetime
@@ -51,10 +50,6 @@ PROBE_TIMEOUT: Final[float] = 5.0
 PROBE_WORKERS: Final[int] = 8
 
 
-#: The mirror's index is HTML; this is the link to a tarball in it.
-_ENTRY = re.compile(r'href="(stage3-amd64-[\w.\-]+\.tar\.xz)"')
-
-
 #: The marker's format. A marker written by an older installer says nothing
 #: about the bytes beside it, so it is refused rather than trusted.
 MARKER_SCHEMA: Final[str] = "gentoo-install-stage3-1"
@@ -69,7 +64,7 @@ def stage3(mirror: str, variant: str, fingerprint: str, work: Path, runner: Runn
     or corrupted archive was an integrity check that verified nothing.
     """
     base = f"{mirror.rstrip('/')}/{STAGE3_PATH}/current-stage3-amd64-{variant}"
-    name = _newest(base)
+    name = _newest(base, variant)
     work.mkdir(parents=True, exist_ok=True)
     archive = work / name
     marker = work / f"{name}.verified"
@@ -151,12 +146,32 @@ def passphrase_for(device: DeviceId, source: str) -> str:
     return passphrase
 
 
-def _newest(base: str) -> str:
-    names: set[str] = {str(name) for name in _ENTRY.findall(_read(f"{base}/"))}
+def _newest(base: str, variant: str) -> str:
+    """The current archive's name, from the pointer file beside it.
+
+    `latest-stage3-amd64-<variant>.txt`, not the directory index: an index is
+    a mirror's own HTML and every mirror writes it differently. USTC links
+    each file by an absolute path, so the pattern that matched Gentoo's own
+    page found nothing there and every install from a Chinese mirror stopped
+    with `lists no stage3 archive`.
+
+    Each entry is `<timestamp>/<name> <size>`, inside a PGP-signed block. The
+    signature is not checked here: the DIGESTS file is, and it is what decides
+    whether the bytes are the right ones.
+    """
+    pointer = f"{base.rsplit('/', 1)[0]}/latest-stage3-amd64-{variant}.txt"
+    names: list[str] = []
+    for line in _read(pointer).splitlines():
+        said = line.strip()
+        if not said or said.startswith(("#", "-----", "Hash:")):
+            continue
+        first = said.split()[0]
+        if first.endswith(".tar.xz"):
+            names.append(first.rsplit("/", 1)[-1])
     if not names:
-        # DownloadFailed, not IntegrityError: the index arrived and held
+        # DownloadFailed, not IntegrityError: the file arrived and named
         # nothing, which is a mirror mid-sync rather than data to distrust.
-        raise DownloadFailed(f"{base} lists no stage3 archive")
+        raise DownloadFailed(f"{pointer} names no stage3 archive")
     return sorted(names)[-1]
 
 
