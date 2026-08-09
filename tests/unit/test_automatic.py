@@ -899,3 +899,43 @@ def test_greetd_is_pointed_at_the_greeter_it_installs() -> None:
     # a console something else already owns.
     assert 'user = "greetd"' in written["/etc/greetd/config.toml"]
     assert "vt = 7" in written["/etc/greetd/config.toml"]
+
+
+#: Where a group's packages may come from. GURU is unreviewed and its ebuilds
+#: come and go, so anything `::gentoo` lacks is packaged in gentoo-zh instead.
+ALLOWED_REPOSITORIES = frozenset({"gentoo-zh", "gig"})
+
+_TREES = {
+    "gentoo": Path("/var/db/repos/gentoo"),
+    "gentoo-zh": Path("/var/db/repos/gentoo-zh"),
+}
+
+
+def test_no_group_takes_a_package_from_an_overlay_we_do_not_ship() -> None:
+    """An installer that stops an hour in because a GURU ebuild moved is worse
+    than not offering the package."""
+    for name, group in load_catalog().items():
+        wrong = set(group.repositories) - ALLOWED_REPOSITORIES
+        assert not wrong, f"{name} takes packages from {sorted(wrong)}"
+
+
+@pytest.mark.skipif(
+    not all(one.is_dir() for one in _TREES.values()), reason="no Gentoo trees on this machine"
+)
+def test_every_package_a_group_names_exists_where_it_says() -> None:
+    """A group that names an atom no repository carries fails at emerge time,
+    an hour into an install that has already partitioned the disks. A group
+    whose packages are all in `::gentoo` should declare no overlay, and one
+    that needs gentoo-zh has to say so.
+    """
+    for name, group in load_catalog().items():
+        for atom in group.packages:
+            where = atom.split(":")[0]
+            in_gentoo = (_TREES["gentoo"] / where).is_dir()
+            in_overlay = (_TREES["gentoo-zh"] / where).is_dir()
+            assert in_gentoo or in_overlay, f"{name} names {atom}, which neither tree has"
+            if not in_gentoo:
+                assert "gentoo-zh" in group.repositories, (
+                    f"{name} names {atom}, which only gentoo-zh has, "
+                    "and declares no repository"
+                )
