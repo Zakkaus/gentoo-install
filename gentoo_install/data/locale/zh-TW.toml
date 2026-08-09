@@ -348,3 +348,4 @@
 "the graphics driver you chose needs it" = "選定的顯示卡驅動需要"
 "grub-mkconfig derives this one, and mounts the root read-only" = "由 grub-mkconfig 推導，並以唯讀掛載根"
 "ZFSBootMenu boots whichever dataset it is pointed at" = "ZFSBootMenu 開機時自己選定資料集"
+"This choice also sets" = "這個選擇同時設定"

@@ -1161,19 +1161,77 @@ def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> A
         # Only while the profile is still the one the last desktop implied.
         # Overwriting it regardless threw away a profile the operator had
         # picked on purpose, such as no-multilib.
-        return Answer(
-            Outcome.CHOSE,
-            replace(
-                changed,
-                portage=replace(
-                    config.portage,
-                    profile=_profile_for(
-                        desktop_profiles(context.groups)[desktop], config.system.init
-                    ),
+        changed = replace(
+            changed,
+            portage=replace(
+                config.portage,
+                profile=_profile_for(
+                    desktop_profiles(context.groups)[desktop], config.system.init
                 ),
             ),
         )
-    return Answer(Outcome.CHOSE, changed)
+    return settle(screen, context, config, changed)
+
+
+def settle(
+    screen: Screen, context: Context, before: InstallConfig, after: InstallConfig
+) -> Answer[InstallConfig]:
+    """Confirm what a choice changes outside its own row, then write it down.
+
+    Choosing a driver or a desktop moves `VIDEO_CARDS`, `USE` and the profile.
+    Deriving those silently at build time meant the operator met them for the
+    first time in the installed system, so they are listed here and, once
+    confirmed, put into the configuration as the operator's own values. Pinned
+    rather than left derived: a value in `portage.use` survives a later change
+    to the desktop, and `automatic.use_flags` stops reporting a flag that is
+    already there, so nothing appears twice.
+
+    Declining cancels the choice. The flags are not optional extras that come
+    with it; they are what makes it work.
+    """
+    flags = _new(automatic_values.use_flags, before, after, context.groups)
+    cards = _new(automatic_values.video_cards, before, after, context.groups)
+    profile = after.portage.profile if after.portage.profile != before.portage.profile else ""
+    if not (flags or cards or profile):
+        return Answer(Outcome.CHOSE, after)
+    translate = context.translate
+    lines = []
+    if cards:
+        lines.append(f"VIDEO_CARDS: {' '.join(cards)}")
+    if flags:
+        lines.append(f"USE: {' '.join(flags)}")
+    if profile:
+        lines.append(f"{translate('Profile')}: {profile}")
+    asked = Confirm(
+        title=f"{translate('This choice also sets')} — {', '.join(lines)}",
+        footer=footer(translate),
+        no=translate("No"),
+        yes=translate("Yes"),
+    ).run(screen)
+    if not asked.chosen or not asked.unwrap():
+        return Answer(Outcome.BACK, before)
+    return Answer(
+        Outcome.CHOSE,
+        replace(
+            after,
+            portage=replace(
+                after.portage,
+                use=(*after.portage.use, *flags),
+                video_cards=(*after.portage.video_cards, *cards),
+            ),
+        ),
+    )
+
+
+def _new(
+    derive: Callable[[InstallConfig, Groups], tuple[automatic_values.Added, ...]],
+    before: InstallConfig,
+    after: InstallConfig,
+    groups: Groups,
+) -> tuple[str, ...]:
+    """What the change added, in order, without what was already there."""
+    had = {one.value for one in derive(before, groups)} | set(before.portage.use)
+    return tuple(one.value for one in derive(after, groups) if one.value not in had)
 
 
 #: The graphics groups, in the order the menu lists them, and what each is
@@ -1204,7 +1262,7 @@ def graphics_screen(
     screen: Screen, config: InstallConfig, context: Context
 ) -> Answer[InstallConfig]:
     """Which driver, which is what VIDEO_CARDS and the firmware follow."""
-    return _one_group(
+    chosen = _one_group(
         screen,
         config,
         context,
@@ -1212,6 +1270,9 @@ def graphics_screen(
         GRAPHICS,
         lambda packages, name: replace(packages, graphics=name),
     )
+    if not chosen.chosen:
+        return chosen
+    return settle(screen, context, config, chosen.unwrap())
 
 
 def display_manager_screen(

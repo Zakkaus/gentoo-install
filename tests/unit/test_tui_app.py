@@ -569,8 +569,13 @@ def test_the_driver_is_one_choice_and_not_a_row_to_tick() -> None:
     """A machine has one graphics driver, so ticking two in the applications
     list would put two VIDEO_CARDS values in make.conf."""
     at = context()
-    answer = screens.graphics_screen(FakeScreen(keys=[*down(5), "\n"], lines=30), config(), at)
+    # Down to nvidia, enter, then down-enter on the confirmation that lists
+    # what the choice puts in make.conf.
+    answer = screens.graphics_screen(
+        FakeScreen(keys=[*down(5), "\n", *down(1), "\n"], lines=30), config(), at
+    )
     assert answer.unwrap().packages.graphics == "nvidia"
+    assert answer.unwrap().portage.video_cards == ("nvidia",)
     offered = FakeScreen(keys=["q"], lines=30, columns=100)
     screens.packages_screen(offered, config(), at)
     for name, _ in screens.GRAPHICS:
@@ -842,12 +847,15 @@ def test_what_still_asks_before_it_changes() -> None:
         "Use DHCP?",
         "Unlock the root over SSH from the initramfs?",
         "Install",
+        # Not destructive, but it moves VIDEO_CARDS, USE and the profile, which
+        # the operator would otherwise meet in the installed system.
+        "This choice also sets",
     }
     for title in asked:
         assert title in source, title
-    # Eight call sites, nine titles: the slice screen words its question for a
+    # Nine call sites, ten titles: the slice screen words its question for a
     # pool or for a partition.
-    assert source.count("Confirm(") == 8
+    assert source.count("Confirm(") == 9
 
 
 def test_a_zfs_root_is_offered_no_kernel_the_module_will_not_build_for() -> None:
@@ -1007,7 +1015,9 @@ def test_a_profile_the_operator_picked_survives_choosing_a_desktop() -> None:
     at = context()
     # A fresh list each time: FakeScreen pops, so one list serves one screen.
     def plasma() -> list[str]:
-        return [*down(4), "\n"]  # sorted: "", console, gnome, gnome-full, plasma
+        # sorted: "", console, gnome, gnome-full, plasma; then yes to the
+        # confirmation naming the profile the desktop moves to.
+        return [*down(4), "\n", *down(1), "\n"]
 
     fresh = screens.desktop_screen(FakeScreen(keys=plasma(), lines=30), config(), at).unwrap()
     assert fresh.packages.desktop == "plasma"

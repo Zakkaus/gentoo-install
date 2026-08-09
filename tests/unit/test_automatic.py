@@ -23,6 +23,7 @@ from gentoo_install.model.config import (
     SystemConfig,
 )
 from gentoo_install.plan import automatic, bootloader as plan_bootloader, kernel as plan_kernel
+from gentoo_install.tui import screens
 
 from .layouts import config, encrypted_root, ext4_on_gpt, zfs_root
 from .recorder import Recorder
@@ -208,3 +209,47 @@ def test_a_word_that_is_not_a_use_flag_is_refused(flag: str) -> None:
     and a flag beginning with one silently does nothing."""
     good, _ = atoms.split_use_flags(flag)
     assert flag not in good
+
+
+def test_confirming_a_driver_pins_what_it_adds_into_the_configuration() -> None:
+    """Once pinned, the value is the operator's own: it survives a later
+    change to the desktop, and `use_flags` stops reporting a flag that is
+    already in `portage.use`, so the panel never lists it twice."""
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context, down
+    from gentoo_install.tui import screens
+
+    at = context()
+    before = config(ext4_on_gpt())
+    after = replace(before, packages=replace(before.packages, graphics="nvidia"))
+    answer = screens.settle(FakeScreen(keys=[*down(1), "\n"], lines=30), at, before, after)
+    pinned = answer.unwrap()
+    assert pinned.portage.video_cards == ("nvidia",)
+    assert automatic.video_cards(pinned, at.groups) == ()
+
+
+def test_declining_the_side_effects_cancels_the_choice() -> None:
+    """The flags are not extras that come with the driver; they are what makes
+    it work. Keeping the choice and dropping them would install nvidia-drivers
+    with no `nvidia` in VIDEO_CARDS."""
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    at = context()
+    before = config(ext4_on_gpt())
+    after = replace(before, packages=replace(before.packages, graphics="nvidia"))
+    answer = screens.settle(FakeScreen(keys=["\n"], lines=30), at, before, after)
+    assert answer.unwrap() == before
+
+
+def test_a_choice_that_changes_nothing_asks_nothing() -> None:
+    """`nouveau` names a VIDEO_CARDS value and installs nothing, but a screen
+    that asked anyway would train the operator to press yes."""
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    at = context()
+    before = config(ext4_on_gpt())
+    # No keys at all: FakeScreen raises if the widget asks for one.
+    answer = screens.settle(FakeScreen(keys=[], lines=30), at, before, before)
+    assert answer.unwrap() == before
