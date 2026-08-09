@@ -281,7 +281,7 @@ def disk_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
             # Labelled by the kernel name and valued by the selector: the
             # configuration needs the stable one and the operator reads the
             # short one.
-            Item(label=context.shown_as(name), value=name, detail=f"{detail}  {name}")
+            Item(label=context.shown_as(name), value=name, detail=detail)
             for name, detail in context.disks
         ],
         footer=footer(translate),
@@ -2497,7 +2497,7 @@ def _partition_rows(context: Context) -> list[Item[_Row]]:
     for position, disk in enumerate(context.layout.disks):
         items.append(
             Item(
-                label=disk.selector.rsplit("/", 1)[-1],
+                label=context.shown_as(disk.selector),
                 value=_Row(_RowKind.DISK, position),
                 detail=f"{disk.table.value}  {_capacity(context, disk)}",
             )
@@ -2626,7 +2626,9 @@ def _edit_disk(screen: Screen, context: Context, position: int) -> None:
             ),
             Item(label=translate("Done"), value=_DONE),
         ]
-        answer = Menu(title=disk.selector, items=items, footer=footer(translate)).run(screen)
+        answer = Menu(
+            title=context.shown_as(disk.selector), items=items, footer=footer(translate)
+        ).run(screen)
         if not answer.chosen or answer.unwrap()[0] == _DONE:
             return
         if answer.unwrap()[0] == _DROP:

@@ -1922,3 +1922,42 @@ def test_a_disk_is_shown_by_its_kernel_name_and_stored_by_its_selector() -> None
 
     # And the configuration still holds the stable one.
     assert [one.selector for one in installation.disk.graph.of_type(Existing)] == [named]
+
+
+def test_no_screen_prints_the_by_id_selector() -> None:
+    """The selector is what the configuration stores, not what a person reads:
+    sixty characters of `scsi-0QEMU_QEMU_HARDDISK_drive-scsi0` said nothing
+    `lsblk` does not say in eight."""
+    from dataclasses import replace
+
+    from gentoo_install.model.config import DiskConfig
+    from gentoo_install.model.device import DeviceGraph, Existing
+
+    from .layouts import ext4_on_gpt, i
+
+    named = "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi0"
+    nodes = [
+        replace(one, selector=named) if isinstance(one, Existing) else one
+        for one in ext4_on_gpt()
+    ]
+    installation = replace(
+        config(), disk=DiskConfig(graph=DeviceGraph.build(nodes), root=i("mnt-root"))
+    )
+    at = context()
+    at.disks = [(named, "32G QEMU HARDDISK")]
+    at.choice = replace(at.choice, disk=named)
+    at.names_for = lambda selector: (selector, "/dev/sda", selector.rsplit("/", 1)[-1], "sda")
+
+    for name, keys in (
+        ("erase", ["KEY_BACKSPACE"]),
+        ("disks", ["q"]),
+    ):
+        screen = FakeScreen(keys=keys, lines=30, columns=120)
+        at.confirmed.clear()
+        if name == "erase":
+            screens.erase_screen(screen, installation, at)
+        else:
+            screens.disk_screen(screen, installation, at)
+        drawn = "\n".join("\n".join(frame) for frame in screen.frames)
+        assert named not in drawn, (name, drawn)
+        assert "/dev/sda" in drawn, (name, drawn)
