@@ -12,7 +12,7 @@ from gentoo_install.model.size import Size
 from gentoo_install.model.parse import load
 from gentoo_install.model.validate import validate
 
-from .layouts import config, ext4_on_gpt, i, zfs_root
+from .layouts import encrypted_root, config, ext4_on_gpt, i, zfs_root
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
@@ -155,3 +155,42 @@ def test_dhcp_needs_neither_a_gateway_nor_a_resolver() -> None:
     from gentoo_install.model.validate import _network_problems
 
     assert _network_problems(config()) == []
+
+
+@pytest.mark.parametrize("address", ["192.0.2.10/99", "not-an-address", "999.1.1.1/24"])
+def test_a_static_address_that_is_not_an_address_is_refused(address: str) -> None:
+    """`_family_of` answered 0 for anything unparsable and every check then
+    skipped it, so the string reached dracut's `ip=` parameter as written."""
+    from gentoo_install.model.config import Networking
+
+    installation = replace(
+        config(),
+        system=replace(
+            config().system,
+            networking=Networking.BUILTIN,
+            interface="eth0",
+            addresses=(address,),
+            gateways=("192.0.2.1",),
+            dns=("192.0.2.1",),
+        ),
+    )
+    with pytest.raises(ValidationFailed):
+        validate(installation)
+
+
+@pytest.mark.parametrize("port", [0, -1, 65536, 99999])
+def test_a_remote_unlock_port_outside_the_range_is_refused(port: int) -> None:
+    """`dropbear_port` took any integer, and the initramfs then failed to start
+    with the disks already encrypted."""
+    from gentoo_install.model.config import KernelConfig, RemoteUnlock
+
+    installation = replace(
+        config(encrypted_root()),
+        system=replace(config().system, authorized_keys=("ssh-ed25519 AAAA test",)),
+        kernel=replace(
+            KernelConfig(),
+            remote_unlock=RemoteUnlock(enabled=True, port=port, interface="eth0"),
+        ),
+    )
+    with pytest.raises(ValidationFailed):
+        validate(installation)

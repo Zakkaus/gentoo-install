@@ -42,6 +42,7 @@ def validate(config: InstallConfig) -> None:
         *_pool_problems(config),
         *_array_problems(config),
         *_network_problems(config),
+        *_unlock_problems(config),
         *(rule.describe() for rule in compat.violations(config)),
     ]
     if problems:
@@ -89,9 +90,23 @@ def _network_problems(config: InstallConfig) -> list[str]:
     advertisements supply the gateway and the resolvers themselves.
     """
     system = config.system
-    if not system.addresses:
-        return []
     problems: list[str] = []
+    # Read before anything else uses them: `_family_of` answers 0 for a string
+    # that is not an address at all, and every check below then skipped it, so
+    # `not-an-address` and `192.0.2.10/99` reached dracut's `ip=` parameter.
+    for address in system.addresses:
+        try:
+            ipaddress.ip_interface(address)
+        except ValueError:
+            problems.append(f"{address!r} is not an address with a prefix length")
+    for named, where in (("gateway", system.gateways), ("resolver", system.dns)):
+        for one in where:
+            try:
+                ipaddress.ip_address(one)
+            except ValueError:
+                problems.append(f"{one!r} is not an address, so it is not a {named}")
+    if problems or not system.addresses:
+        return problems
     if not system.dns:
         problems.append(
             "the addresses are static and no resolver is named, so the installed system "
@@ -104,6 +119,26 @@ def _network_problems(config: InstallConfig) -> list[str]:
                 f"{address} has no gateway of its own family, so it reaches nothing off "
                 "its own subnet"
             )
+    return problems
+
+
+def _unlock_problems(config: InstallConfig) -> list[str]:
+    """The initramfs ssh daemon's port, checked here so the menu and a
+    configuration file share the rule. `dropbear_port` took any integer, and
+    the initramfs then failed to start with the disks already encrypted."""
+    unlock = config.kernel.remote_unlock
+    if not unlock.enabled:
+        return []
+    problems: list[str] = []
+    if not 1 <= unlock.port <= 65535:
+        problems.append(f"the remote unlock port {unlock.port} is not between 1 and 65535")
+    for named, value in (("address", unlock.address), ("gateway", unlock.gateway)):
+        if not value:
+            continue
+        try:
+            ipaddress.ip_interface(value) if named == "address" else ipaddress.ip_address(value)
+        except ValueError:
+            problems.append(f"the remote unlock {named} {value!r} is not an address")
     return problems
 
 
