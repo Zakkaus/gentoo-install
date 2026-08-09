@@ -272,3 +272,32 @@ def test_the_installed_checks_read_the_files_the_plan_writes() -> None:
         if word.startswith("/etc/") and "fcitx5" not in word
     }
     assert named == {str(one) for one in ENVIRONMENT_FILE.values()}, named
+
+
+def test_a_guest_waits_until_the_machine_has_room_for_it() -> None:
+    """A fixed count cannot know what else the machine is doing: one campaign
+    ran beside an editor and a test suite and lost sixteen of twenty-four
+    guests to earlyoom, which reads as an installer defect in every log."""
+    import tests.vm.campaign as campaign
+
+    said: list[str] = []
+    answers = iter([1024**3, 2 * 1024**3, campaign.GUEST_BYTES + campaign.HEADROOM_BYTES])
+    original = campaign.available_bytes
+    campaign.available_bytes = lambda: next(answers)
+    try:
+        campaign.wait_for_room(said.append, patience=0.0)
+    finally:
+        campaign.available_bytes = original
+    assert said and "waiting for memory" in said[0], said
+
+
+def test_a_machine_whose_memory_cannot_be_read_is_not_stalled_on() -> None:
+    """No measurement is not a reason to wait for ever."""
+    import tests.vm.campaign as campaign
+
+    original = campaign.available_bytes
+    campaign.available_bytes = lambda: 0
+    try:
+        campaign.wait_for_room(lambda line: None)
+    finally:
+        campaign.available_bytes = original

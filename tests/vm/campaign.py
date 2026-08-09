@@ -20,16 +20,59 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Semaphore
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, Sequence
+from typing import Callable, Final, Sequence
 
 WORKROOT: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/runs"
 LOGS: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/campaign"
 
-#: How many guests at once, which is a memory limit and nothing else. Measured
-#: on this machine: `-m 8G` reaches 8.1 GiB resident, and the workstation holds
-#: about 22 GiB, so five leaves earlyoom under its threshold and it sends
-#: SIGTERM to qemu. `WORKERS` used to say five and was never wired to anything.
+#: The most guests the machine may ever hold, whatever memory says. A ceiling
+#: rather than the limit: `_room_for_a_guest` is what usually decides.
 GUESTS: Final[int] = 4
+
+#: What one guest costs, measured: `-m 8G` reaches 8.1 GiB resident.
+GUEST_BYTES: Final[int] = 9 * 1024**3
+
+#: What has to be left over after the new guest. earlyoom on this machine
+#: kills below 6% of 60 GiB, and it prefers `qemu-system`, so the guest is
+#: what dies. The margin is above that with room for the desktop to grow.
+HEADROOM_BYTES: Final[int] = 8 * 1024**3
+
+#: How long to wait before looking at memory again.
+PATIENCE: Final[float] = 30.0
+
+
+def available_bytes() -> int:
+    """`MemAvailable`, which is what earlyoom watches too."""
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) * 1024
+    except OSError:
+        pass
+    return 0
+
+
+def wait_for_room(log: Callable[[str], None] = print, patience: float = PATIENCE) -> None:
+    """Block until another guest fits.
+
+    A fixed count cannot know what else the machine is doing. One campaign ran
+    beside an editor and a test suite and lost sixteen of twenty-four guests to
+    earlyoom, which reads as an installer defect in every one of those logs.
+    An unreadable `/proc/meminfo` means no measurement and no waiting: a
+    machine this cannot read is not one it should stall on.
+    """
+    said = False
+    while True:
+        free = available_bytes()
+        if not free or free >= GUEST_BYTES + HEADROOM_BYTES:
+            return
+        if not said:
+            log(
+                f"waiting for memory: {free // 1024**3} GiB available, "
+                f"{(GUEST_BYTES + HEADROOM_BYTES) // 1024**3} GiB wanted"
+            )
+            said = True
+        time.sleep(patience)
 
 #: What the machine can carry at once in CPU terms, in the units `Run.weight`
 #: counts. Separate from `GUESTS` because the two limits are different
@@ -210,6 +253,9 @@ def parallel(runs: Sequence[Run]) -> list[Outcome]:
         # while holding two units would shrink the machine for the rest of the
         # campaign.
         seats.acquire()
+        # After the seat and before the run: the ceiling bounds how many can
+        # ever be waiting, and this decides whether one more fits right now.
+        wait_for_room()
         for _ in range(one.weight):
             room.acquire()
         try:
