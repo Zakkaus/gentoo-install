@@ -13,7 +13,7 @@ from gentoo_install.errors import (
     IntegrityError,
     PreflightFailed,
 )
-from gentoo_install.exec import fetch, preflight
+from gentoo_install.exec import apply, fetch, preflight
 from gentoo_install.exec.probe import Machine as ProbedMachine
 from gentoo_install.exec.probe import Probe
 from gentoo_install.exec.runner import Result, Runner, under
@@ -752,3 +752,60 @@ def test_an_empty_or_foreign_marker_is_not_evidence(tmp_path: Path) -> None:
     ):
         marker.write_text(said)
         assert not fetch._marker_matches(marker, archive, key), said
+
+
+def test_a_symlink_in_the_target_cannot_reach_the_live_system(tmp_path: Path) -> None:
+    """`target / path` is a lexical join, so an absolute symlink under the
+    target -- shipped by a stage3 or left on a reused filesystem -- made the
+    installer write to the live system as root."""
+    from gentoo_install.exec.runner import TargetEscape
+
+    target = tmp_path / "mnt"
+    (target / "etc").mkdir(parents=True)
+    sentinel = tmp_path / "sentinel"
+    sentinel.write_text("the live system")
+    (target / "etc/example").symlink_to(sentinel)
+
+    probe = probe_of(tmp_path)
+    machine = apply.Machine(
+        config=config(), probe=probe, runner=probe.runner, work=tmp_path, mountpoint=target
+    )
+    with pytest.raises(TargetEscape):
+        machine.write(PurePosixPath("/etc/example"), "written by the installer")
+    assert sentinel.read_text() == "the live system"
+
+
+def test_a_symlinked_parent_directory_cannot_reach_the_live_system(tmp_path: Path) -> None:
+    """The final component is not the only way out: a directory on the way can
+    be the symlink."""
+    from gentoo_install.exec.runner import TargetEscape
+
+    target = tmp_path / "mnt"
+    target.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (target / "etc").symlink_to(outside)
+
+    probe = probe_of(tmp_path)
+    machine = apply.Machine(
+        config=config(), probe=probe, runner=probe.runner, work=tmp_path, mountpoint=target
+    )
+    with pytest.raises(TargetEscape):
+        machine.write(PurePosixPath("/etc/example"), "written by the installer")
+    assert not (outside / "example").exists()
+
+
+def test_an_ordinary_file_in_the_target_is_still_written_and_read(tmp_path: Path) -> None:
+    target = tmp_path / "mnt"
+    target.mkdir()
+    probe = probe_of(tmp_path)
+    machine = apply.Machine(
+        config=config(), probe=probe, runner=probe.runner, work=tmp_path, mountpoint=target
+    )
+    machine.write(PurePosixPath("/etc/portage/make.conf"), 'USE="x"\n', mode=0o600)
+    written = target / "etc/portage/make.conf"
+    assert written.read_text() == 'USE="x"\n'
+    assert written.stat().st_mode & 0o777 == 0o600
+    machine.append(PurePosixPath("/etc/portage/make.conf"), 'FEATURES="y"\n')
+    assert machine.read(PurePosixPath("/etc/portage/make.conf")).endswith('FEATURES="y"\n')
+    assert machine.read(PurePosixPath("/etc/nothing-here")) == ""

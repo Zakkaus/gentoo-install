@@ -30,7 +30,7 @@ from ..plan.disk import STAGE3_CACHE
 from ..plan.operations import Operation
 from . import fetch
 from .probe import Probe
-from .runner import Runner, under, write_file
+from .runner import Runner, open_in_target, under, write_file
 
 
 @dataclass
@@ -58,22 +58,32 @@ class Machine:
         return self.runner.in_target(self.mountpoint).run(argv, check=check).stdout
 
     def write(self, path: PurePosixPath, content: str, *, mode: int = 0o644) -> None:
-        write_file(under(self.mountpoint, path), content, mode)
+        # The mode is set at open time: writing first and narrowing afterwards
+        # leaves a secret readable for the interval in between.
+        handle = open_in_target(
+            self.mountpoint, path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode, parents=True
+        )
+        with os.fdopen(handle, "w") as opened:
+            opened.write(content)
+        os.chmod(under(self.mountpoint, path), mode, follow_symlinks=False)
 
     def read(self, path: PurePosixPath) -> str:
         """Empty for a file that is not there, which is the normal case before
         the stage3 is unpacked. Any other failure is raised: swallowing it made
         `merge` replace the stage3's make.conf instead of editing it."""
         try:
-            return under(self.mountpoint, path).read_text()
-        except FileNotFoundError:
+            handle = open_in_target(self.mountpoint, path, os.O_RDONLY)
+        except (FileNotFoundError, NotADirectoryError):
             return ""
+        with os.fdopen(handle, "r") as opened:
+            return opened.read()
 
     def append(self, path: PurePosixPath, content: str) -> None:
-        where = under(self.mountpoint, path)
-        where.parent.mkdir(parents=True, exist_ok=True)
-        with where.open("a") as handle:
-            handle.write(content)
+        handle = open_in_target(
+            self.mountpoint, path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, parents=True
+        )
+        with os.fdopen(handle, "a") as opened:
+            opened.write(content)
 
     def device_path(self, device: DeviceId) -> str:
         """An id becomes a path here and nowhere else.

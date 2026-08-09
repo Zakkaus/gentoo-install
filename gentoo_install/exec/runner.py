@@ -7,6 +7,7 @@ it would also be deciding, on its own, what a failure means.
 
 from __future__ import annotations
 
+import errno
 import os
 import re
 import shlex
@@ -201,6 +202,50 @@ def _kill_group(process: subprocess.Popen[str]) -> None:
         os.killpg(os.getpgid(process.pid), signal.SIGKILL)
     except (ProcessLookupError, PermissionError):
         process.kill()
+
+
+class TargetEscape(Exception):
+    """A path inside the target resolved to something outside it."""
+
+
+def open_in_target(
+    target: Path, path: PurePosixPath, flags: int, mode: int = 0o644, *, parents: bool = False
+) -> int:
+    """Open a target-absolute path with every component rooted in the target.
+
+    `target / path` is a lexical join, so one absolute symlink under the target
+    -- shipped by a stage3, or left on a filesystem the operator reused -- makes
+    the installer write to the live system as root. Each component is opened
+    with `O_NOFOLLOW` against its parent's descriptor instead, so a symlink
+    anywhere on the way is refused rather than followed.
+    """
+    parts = path.relative_to("/").parts
+    if not parts:
+        raise TargetEscape(f"{path} names the target itself, not a file in it")
+    handle = os.open(target, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for name in parts[:-1]:
+            if parents:
+                try:
+                    os.mkdir(name, 0o755, dir_fd=handle)
+                except FileExistsError:
+                    pass
+            try:
+                step = os.open(
+                    name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=handle
+                )
+            except OSError as error:
+                raise TargetEscape(f"{path}: {name} is not a directory in the target") from error
+            os.close(handle)
+            handle = step
+        try:
+            return os.open(parts[-1], flags | os.O_NOFOLLOW, mode, dir_fd=handle)
+        except OSError as error:
+            if error.errno in (errno.ELOOP, errno.EMLINK):
+                raise TargetEscape(f"{path} is a symlink in the target") from error
+            raise
+    finally:
+        os.close(handle)
 
 
 def under(target: Path, path: PurePosixPath) -> Path:
