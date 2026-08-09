@@ -25,6 +25,7 @@ from ..model.config import (
 from ..plan.kernel import CJK_KERNELS, KERNEL_PACKAGES
 from ..model import mirrors
 from ..model.device import Existing, Luks, MdRaid, PartitionTable, VolumeGroup, ZfsPool
+from ..plan import automatic as automatic_values
 from . import screens
 from .screens import Context, Step, footer
 from ..i18n import width
@@ -221,6 +222,25 @@ def _compiler(config: InstallConfig, context: Context) -> str:
 
 def _bootloader(config: InstallConfig, context: Context) -> str:
     return f"{config.bootloader.kind.value}, {config.bootloader.firmware.value}"
+
+
+def _cmdline(config: InstallConfig, context: Context) -> str:
+    """What was typed, and how many parameters the layout adds to it. The count
+    is the point: it says the line is longer than this row without listing a
+    UUID nobody can read at a glance."""
+    added = len(automatic_values.kernel_parameters(config))
+    typed = " ".join(config.bootloader.kernel_params)
+    if not typed:
+        return f"{added} {context.translate('from the layout')}"
+    return f"{typed} +{added}"
+
+
+def _use(config: InstallConfig, context: Context) -> str:
+    added = len(automatic_values.use_flags(config, context.groups))
+    typed = " ".join(config.portage.use)
+    if not typed:
+        return f"{added} {context.translate('from the groups you chose')}" if added else UNSET
+    return f"{typed} +{added}" if added else typed
 
 
 def _network(config: InstallConfig, context: Context) -> str:
@@ -458,6 +478,14 @@ COMPILER: Final[tuple[Setting, ...]] = (
     Setting("cpu_flags", "CPU flags", _cpu_flags, screens.cpu_flags_screen),
     Setting("license", "Licenses", _license, screens.license_screen),
     Setting("keywords", "Package keywords", _keywords, screens.keywords_screen),
+    Setting("use", "USE flags", _use, screens.use_flags_screen),
+)
+
+#: The bootloader and what it puts on the command line. One row was enough
+#: while the parameters were derived from the disk alone.
+BOOT: Final[tuple[Setting, ...]] = (
+    Setting("kind", "Bootloader", _bootloader, screens.bootloader_screen),
+    Setting("cmdline", "Kernel command line", _cmdline, screens.kernel_cmdline_screen),
 )
 
 #: The kernel and the version of it, which is read from a repository rather
@@ -534,7 +562,7 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("root", "Root password", _root, screens.root_password_screen, required=True),
     Setting("user", "User account", _user, screens.user_screen),
     Setting("kernel", "Kernel", _summary(KERNEL), nested("Kernel", KERNEL), rows=KERNEL),
-    Setting("bootloader", "Bootloader", _bootloader, screens.bootloader_screen),
+    Setting("bootloader", "Bootloader", _summary(BOOT), nested("Bootloader", BOOT), rows=BOOT),
     Setting("environment", "Desktop environment", _summary(DESKTOP), nested("Desktop environment", DESKTOP), rows=DESKTOP),
     Setting("packages", "Applications", _applications, screens.packages_screen),
     Setting("extra", "Extra packages", _extra, screens.extra_packages_screen),

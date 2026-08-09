@@ -1,6 +1,6 @@
-"""Whether a string looks like a package atom.
+"""Whether a word the operator typed has the shape its destination needs.
 
-Syntax only. Whether the atom resolves to an ebuild is a question for the
+Syntax only. Whether an atom resolves to an ebuild is a question for the
 target's repositories, and `plan/portage.py` asks it there once the tree is
 synced: the live medium often carries no repository at all.
 """
@@ -8,6 +8,7 @@ synced: the live medium often carries no repository at all.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from typing import Final
 
 #: `category/name`, with the optional trailing `:slot` and `::repository` that
@@ -24,8 +25,46 @@ def looks_like_an_atom(text: str) -> bool:
 
 def split(text: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """The atoms in `text`, and the words that are not atoms."""
+    return _split(text, looks_like_an_atom)
+
+
+#: A USE flag as PMS defines it: alphanumeric first, then the four punctuation
+#: characters Portage allows. `-` in front turns one off and `-*` clears the
+#: inherited set, so both are accepted here and nowhere else.
+_USE_FLAG: Final[re.Pattern[str]] = re.compile(r"^-?[A-Za-z0-9][A-Za-z0-9+_@-]*$")
+
+#: What `/etc/default/grub` cannot carry. That file is a shell script sourced
+#: by `grub-mkconfig`, and the parameters are written inside a double-quoted
+#: assignment, so a quote ends the value early and `$(`, backtick or `\`
+#: reaches the shell. The kernel would not accept any of them either.
+_SHELL_CHARACTERS: Final[str] = "\"'`$\\"
+
+
+def looks_like_a_use_flag(text: str) -> bool:
+    return text == "-*" or bool(_USE_FLAG.match(text))
+
+
+def split_use_flags(text: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """The USE flags in `text`, and the words that are not."""
+    return _split(text, looks_like_a_use_flag)
+
+
+def looks_like_a_kernel_parameter(text: str) -> bool:
+    """A bare flag or `key=value`. Length is the kernel's problem; what is
+    rejected here is anything that would escape the file it is written into."""
+    return bool(text) and not any(character in text for character in _SHELL_CHARACTERS)
+
+
+def split_kernel_parameters(text: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """The kernel parameters in `text`, and the words that cannot be written."""
+    return _split(text, looks_like_a_kernel_parameter)
+
+
+def _split(
+    text: str, accepts: Callable[[str], bool]
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
     good: list[str] = []
     bad: list[str] = []
     for word in text.split():
-        (good if looks_like_an_atom(word) else bad).append(word)
+        (good if accepts(word) else bad).append(word)
     return tuple(good), tuple(bad)

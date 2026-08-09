@@ -297,7 +297,7 @@ def build(config: InstallConfig) -> list[Operation]:
                 serial=_serial_console(config),
                 luks=initramfs_devices(config)[0],
                 arrays=initramfs_devices(config)[1],
-                keymap=_initramfs_keymap(config),
+                keymap=initramfs_keymap(config),
             ),
             InstallGrub(
                 firmware=config.bootloader.firmware, esp=esp, boot_device=config.disk.root
@@ -412,7 +412,7 @@ def array_parameters(context: Context, devices: tuple[DeviceId, ...]) -> tuple[s
     return tuple(f"rd.md.uuid={context.array_uuid(device)}" for device in devices)
 
 
-def _initramfs_keymap(config: InstallConfig) -> str:
+def initramfs_keymap(config: InstallConfig) -> str:
     """Only when an encrypted device asks for a passphrase before the console
     keymap is loaded, and only when it differs from the default."""
     wanted = config.system.keymap_initramfs or config.system.keymap

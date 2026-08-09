@@ -32,7 +32,7 @@ from .bootloader import (
     keymap_parameters,
     luks_parameters,
 )
-from .bootloader import _initramfs_keymap as bootloader_keymap
+from .bootloader import initramfs_keymap as bootloader_keymap
 from .bootloader import unlock_parameters
 from .operations import Context, Operation, Stage
 from .portage import Emerge

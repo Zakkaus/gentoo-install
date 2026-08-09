@@ -1137,7 +1137,7 @@ def test_a_required_row_inside_any_group_is_named_by_its_own_label() -> None:
     from dataclasses import replace as _replace
 
     groups = [one for one in settings.SETTINGS if one.rows]
-    assert len(groups) == 7
+    assert len(groups) == 8
     # Every group row's members are reachable, and no group row is walked itself.
     at = context()
     blank = replace(config(), system=replace(config().system, root_password_hash=""))

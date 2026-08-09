@@ -47,6 +47,7 @@ from ..model.device import (
     ZfsPool,
     ZfsTopology,
 )
+from ..plan import automatic as automatic_values
 from ..plan import kernel as plan_kernel
 from ..plan.kernel import KERNEL_PACKAGES
 from ..plan.portage import community_binhost
@@ -2508,6 +2509,122 @@ def extra_packages_screen(
         return Answer(
             Outcome.CHOSE, replace(config, packages=replace(config.packages, extra=good))
         )
+
+
+def _typed_beside_automatic(
+    screen: Screen,
+    context: Context,
+    *,
+    title: str,
+    prompt: str,
+    typed: tuple[str, ...],
+    automatic: tuple[automatic_values.Added, ...],
+    accepts: Callable[[str], tuple[tuple[str, ...], tuple[str, ...]]],
+    rejected: str,
+) -> Answer[tuple[str, ...]]:
+    """One editable list, and under it what the installer adds by itself.
+
+    The automatic rows are drawn disabled with their reason: an operator who
+    can see that `root=` and `rd.luks.uuid=` are already handled stops adding a
+    second copy of them, and one who cannot see it finds them in the installed
+    system with nothing to attribute them to.
+    """
+    translate = context.translate
+    while True:
+        items: list[Item[str]] = [
+            Item(
+                label=prompt,
+                value="edit",
+                detail=" ".join(typed) or translate("none"),
+            )
+        ]
+        items += [
+            Item(
+                label=one.value,
+                value="",
+                disabled_because=translate("added for you"),
+                detail=(
+                    f"{translate(one.because)} ({one.source})"
+                    if one.source
+                    else translate(one.because)
+                ),
+            )
+            for one in automatic
+        ]
+        menu: Menu[str] = Menu(title=title, items=items, footer=footer(translate))
+        answer = menu.run(screen)
+        if not answer.chosen:
+            return Answer(answer.outcome)
+        entered = TextField(
+            title=prompt,
+            value=" ".join(typed),
+            footer=footer(translate),
+        ).run(screen)
+        if not entered.chosen:
+            continue
+        good, bad = accepts(entered.unwrap())
+        if bad:
+            _say(screen, context, f"{rejected}: {' '.join(bad)}")
+            continue
+        return Answer(Outcome.CHOSE, good)
+
+
+def kernel_cmdline_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """Parameters appended to every boot entry, beside the ones derived from
+    the disk layout.
+
+    All three bootloaders read the same list: GRUB writes it into
+    `GRUB_CMDLINE_LINUX_DEFAULT`, systemd-boot into `/etc/kernel/cmdline`, and
+    ZFSBootMenu into the pool's `org.zfsbootmenu:commandline`. Nothing here
+    depends on which one is installed.
+    """
+    answer = _typed_beside_automatic(
+        screen,
+        context,
+        title=context.translate("Kernel command line"),
+        prompt=context.translate("Parameters to append, separated by spaces"),
+        typed=config.bootloader.kernel_params,
+        automatic=automatic_values.kernel_parameters(config),
+        accepts=atoms.split_kernel_parameters,
+        rejected=context.translate(
+            "A kernel parameter cannot contain a quote, a backslash or $"
+        ),
+    )
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    return Answer(
+        Outcome.CHOSE,
+        replace(config, bootloader=replace(config.bootloader, kernel_params=answer.unwrap())),
+    )
+
+
+def use_flags_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """`USE` in `make.conf`, beside what the chosen groups already ask for.
+
+    A flag typed here is appended after the profile's own, so `-foo` turns off
+    something the profile set. The groups' flags are listed rather than merged
+    into the field: an operator who deletes `wayland` from a field that was
+    pre-filled with it has silently overridden their desktop.
+    """
+    answer = _typed_beside_automatic(
+        screen,
+        context,
+        title=context.translate("USE flags"),
+        prompt=context.translate("Flags to add, separated by spaces"),
+        typed=config.portage.use,
+        automatic=automatic_values.use_flags(config, context.groups),
+        accepts=atoms.split_use_flags,
+        rejected=context.translate("Not a USE flag"),
+    )
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    return Answer(
+        Outcome.CHOSE, replace(config, portage=replace(config.portage, use=answer.unwrap()))
+    )
 
 
 #: What each interface language is called in itself, and what it needs to be

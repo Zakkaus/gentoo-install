@@ -128,6 +128,11 @@ def in_a_table() -> set[str]:
     from gentoo_install.model.manual import STATUS_REASONS
 
     found |= {one.value for one in STATUS_REASONS}
+    # The panel translates `Added.because` through a variable, so the reasons
+    # are read from the table that declares them.
+    from gentoo_install.plan.automatic import REASONS
+
+    found |= set(REASONS)
     found |= set(STATUS_REASONS.values())
     # A mirror is drawn by its own name and where it is, both translated: a
     # Chinese interface listing "Nanjing University" reads half-finished.
