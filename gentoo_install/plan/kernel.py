@@ -141,7 +141,6 @@ class ConfigureInstallKernel(Operation):
     #: which is inside the pool. `kernel-install` otherwise picks the mounted
     #: esp as `$BOOT` and writes `/efi/<entry-token>/<version>/`, so the pool
     #: has no kernel and generate-zbm answers `Unable to find latest kernel`.
-    #: `BOOT_ROOT` in `install.conf` is what overrides it, per kernel-install(8).
     boot_root: str = ""
 
     def apply(self, context: Context) -> None:
@@ -150,8 +149,13 @@ class ConfigureInstallKernel(Operation):
             f"sys-kernel/installkernel {' '.join(self._flags())}\n",
         )
         if self.boot_root:
+            # A drop-in, never `/etc/kernel/install.conf`. kernel-install(8):
+            # "The first of the files that is found will be used", so writing
+            # the main file shadowed the one `sys-kernel/installkernel` ships
+            # and took `layout=compat` and `initrd_generator=dracut` with it.
+            # The next kernel merge then died on `No initrd_generator=`.
             context.write(
-                PurePosixPath("/etc/kernel/install.conf"),
+                PurePosixPath("/etc/kernel/install.conf.d/50-gentoo-install.conf"),
                 f"BOOT_ROOT={self.boot_root}\n",
             )
 

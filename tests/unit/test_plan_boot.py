@@ -896,8 +896,13 @@ def test_a_zfs_root_keeps_its_kernel_in_the_pool() -> None:
     """ZFSBootMenu reads the kernel out of the boot environment's own `/boot`.
     `kernel-install` otherwise takes the mounted esp as `$BOOT` and writes
     `/efi/<entry-token>/<version>/`, so the pool has no kernel and generate-zbm
-    answers `Unable to find latest kernel`. `BOOT_ROOT` in install.conf is the
-    override, per kernel-install(8)."""
+    answers `Unable to find latest kernel`.
+
+    A drop-in, never the main file: kernel-install(8) says "the first of the
+    files that is found will be used", so `/etc/kernel/install.conf` shadowed
+    the one `sys-kernel/installkernel` ships and the next kernel merge died on
+    `No initrd_generator=`.
+    """
     from gentoo_install.plan.kernel import ConfigureInstallKernel
 
     for installation, wanted in (
@@ -918,5 +923,8 @@ def test_a_zfs_root_keeps_its_kernel_in_the_pool() -> None:
         assert told.boot_root == wanted, installation.bootloader.kind
         recorder = Recorder()
         told.apply(recorder)
-        written = recorder.files.get(PurePosixPath("/etc/kernel/install.conf"))
-        assert (written == "BOOT_ROOT=/boot\n") is bool(wanted)
+        drop_in = PurePosixPath("/etc/kernel/install.conf.d/50-gentoo-install.conf")
+        assert (recorder.files.get(drop_in) == "BOOT_ROOT=/boot\n") is bool(wanted)
+        # The file installkernel ships carries layout= and initrd_generator=,
+        # and the first one found wins rather than the two merging.
+        assert PurePosixPath("/etc/kernel/install.conf") not in recorder.files
