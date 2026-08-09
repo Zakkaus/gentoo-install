@@ -182,6 +182,11 @@ def _keep_the_log(work: Path, target: Path, record: Callable[[str], None]) -> No
     The work directory is a tmpfs on an install medium, so a reboot takes the
     log of the run that failed with it, which is the one anybody would want.
     """
+    if not target.is_mount():
+        # Nothing else can tell the difference: the copy succeeds either way
+        # and the file is on the medium's tmpfs rather than on the disk.
+        record(f"warning: {target} is not mounted, so the log was not kept there")
+        return
     kept = target / "var/log/gentoo-install"
     try:
         kept.mkdir(parents=True, exist_ok=True)
@@ -233,18 +238,20 @@ def install(config: InstallConfig, operations: tuple[Operation, ...], arguments:
         try:
             _offer_a_paste(arguments, work, record, failed is not None)
             _offer_a_shell(arguments, machine, record, failed is not None)
-            if failed is None:
-                apply(closing, machine, finished)
-            else:
-                # Only what releases the machine. The rest configures a target
-                # that a run stopping before the stage3 never populated, and
-                # `chroot: failed to run command 'ln'` then replaced the real
-                # failure in the message the operator reads.
-                _release(closing, machine, record)
         finally:
-            # In `finally`: the log of a run that failed is the one worth
-            # keeping, and it is the one a reboot would otherwise destroy.
+            # Before the closing stage and in `finally`: that stage unmounts
+            # the target, so a copy made after it lands on the install medium's
+            # tmpfs and goes with the reboot, which is what this exists to
+            # prevent. The log of a run that failed is the one worth keeping.
             _keep_the_log(work, arguments.target, record)
+        if failed is None:
+            apply(closing, machine, finished)
+        else:
+            # Only what releases the machine. The rest configures a target that
+            # a run stopping before the stage3 never populated, and
+            # `chroot: failed to run command 'ln'` then replaced the real
+            # failure in the message the operator reads.
+            _release(closing, machine, record)
         if failed is not None:
             raise failed
         counted = journal.counts()

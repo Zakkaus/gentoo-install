@@ -465,3 +465,33 @@ def test_the_address_handed_over_carries_no_extension() -> None:
     # stored with; only the address the person reads drops it.
     assert {one.extension for one in paste.EXPORTS} == {"log", "toml"}
 
+
+def test_the_log_is_kept_before_the_target_is_unmounted() -> None:
+    """`Stage.FINISH` unmounts, so a copy made after it lands on the install
+    medium's tmpfs and goes with the reboot.
+
+    Found on a machine this installer had installed: `/var/log/gentoo-install`
+    was not there at all, and the copy had reported success.
+    """
+    import inspect
+
+    from gentoo_install import cli
+
+    source = inspect.getsource(cli.install)
+    kept = source.index("_keep_the_log(")
+    closing = source.index("apply(closing, machine, finished)")
+    released = source.index("_release(closing, machine, record)")
+    assert kept < closing, "the log is copied after the closing stage unmounts"
+    assert kept < released, "the log is copied after the failure path unmounts"
+
+
+def test_an_unmounted_target_is_reported_rather_than_written_to(tmp_path: Path) -> None:
+    """The copy succeeds either way; only the mount says whether the file
+    reached the disk or the tmpfs under it."""
+    from gentoo_install.cli import _keep_the_log
+
+    said: list[str] = []
+    (tmp_path / "install.log").write_text("something\n")
+    _keep_the_log(tmp_path, tmp_path / "target", said.append)
+    assert said and "not mounted" in said[0]
+    assert not (tmp_path / "target").exists()
