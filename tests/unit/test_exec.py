@@ -712,3 +712,43 @@ def test_the_bootloader_disk_of_a_reused_partition_is_the_disk(tmp_path: Path) -
     probe.disk_of = disk_of  # type: ignore[method-assign]
     assert machine.containing_disk(DeviceId("root")) == "/dev/sda"
     assert asked == ["part"]
+
+
+def test_a_verification_marker_only_covers_the_bytes_it_was_written_for(tmp_path: Path) -> None:
+    """The marker used to be an empty file named after the archive, so replacing
+    or corrupting the archive after a verified run let the next one extract it
+    unchecked."""
+    from gentoo_install.exec import fetch
+
+    archive = tmp_path / "stage3-amd64-systemd-1.tar.xz"
+    archive.write_bytes(b"the verified bytes")
+    marker = tmp_path / f"{archive.name}.verified"
+    key = "13EBBDBEDE7A12775DFDB1BABB572E0E2D182910"
+    marker.write_text(
+        f"{fetch.MARKER_SCHEMA}\n{archive.name}\n{fetch._sha512(archive)}\n{key.lower()}\n"
+    )
+    assert fetch._marker_matches(marker, archive, key)
+
+    archive.write_bytes(b"different bytes entirely")
+    assert not fetch._marker_matches(marker, archive, key)
+
+
+def test_an_empty_or_foreign_marker_is_not_evidence(tmp_path: Path) -> None:
+    """An empty marker is what an older installer wrote and what anyone can
+    copy, and a marker naming another archive or another key covers neither."""
+    from gentoo_install.exec import fetch
+
+    archive = tmp_path / "stage3-amd64-systemd-1.tar.xz"
+    archive.write_bytes(b"the verified bytes")
+    marker = tmp_path / f"{archive.name}.verified"
+    key = "13EBBDBEDE7A12775DFDB1BABB572E0E2D182910"
+    digest = fetch._sha512(archive)
+
+    for said in (
+        "",
+        f"{fetch.MARKER_SCHEMA}\nother.tar.xz\n{digest}\n{key.lower()}\n",
+        f"{fetch.MARKER_SCHEMA}\n{archive.name}\n{digest}\ndeadbeef\n",
+        f"older-schema\n{archive.name}\n{digest}\n{key.lower()}\n",
+    ):
+        marker.write_text(said)
+        assert not fetch._marker_matches(marker, archive, key), said

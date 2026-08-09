@@ -55,17 +55,25 @@ PROBE_WORKERS: Final[int] = 8
 _ENTRY = re.compile(r'href="(stage3-amd64-[\w.\-]+\.tar\.xz)"')
 
 
+#: The marker's format. A marker written by an older installer says nothing
+#: about the bytes beside it, so it is refused rather than trusted.
+MARKER_SCHEMA: Final[str] = "gentoo-install-stage3-1"
+
+
 def stage3(mirror: str, variant: str, fingerprint: str, work: Path, runner: Runner) -> Path:
     """Download the newest stage3 of `variant`, verify it, return where it is.
 
-    A `.verified` marker beside the archive means a previous run already checked
-    it, so an interrupted install does not download several gigabytes again.
+    A `.verified` marker beside the archive lets an interrupted install skip a
+    download of several gigabytes. It names the digest it was written for and
+    that digest is recomputed here, because an empty marker beside a replaced
+    or corrupted archive was an integrity check that verified nothing.
     """
     base = f"{mirror.rstrip('/')}/{STAGE3_PATH}/current-stage3-amd64-{variant}"
     name = _newest(base)
     work.mkdir(parents=True, exist_ok=True)
     archive = work / name
-    if (work / f"{name}.verified").is_file() and archive.is_file():
+    marker = work / f"{name}.verified"
+    if marker.is_file() and archive.is_file() and _marker_matches(marker, archive, fingerprint):
         return archive
 
     _download(f"{base}/{name}", archive)
@@ -74,8 +82,29 @@ def stage3(mirror: str, variant: str, fingerprint: str, work: Path, runner: Runn
     _import_release_key(runner, work)
     _verify_signature(digests, fingerprint, runner)
     _verify_digest(archive, digests)
-    (work / f"{name}.verified").write_text("")
+    marker.write_text(
+        f"{MARKER_SCHEMA}\n{name}\n{_sha512(archive)}\n{fingerprint.lower()}\n"
+    )
     return archive
+
+
+def _marker_matches(marker: Path, archive: Path, fingerprint: str) -> bool:
+    """Whether the marker was written for exactly these bytes and this key."""
+    said = marker.read_text().splitlines()
+    if len(said) != 4 or said[0] != MARKER_SCHEMA:
+        return False
+    schema, name, digest, key = said
+    return name == archive.name and key == fingerprint.lower() and digest == _sha512(archive)
+
+
+def _sha512(path: Path) -> str:
+    """Streamed: a stage3 is a quarter of a gigabyte and the live medium's root
+    is a tmpfs, so reading it whole costs memory the install still needs."""
+    reader = hashlib.sha512()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            reader.update(block)
+    return reader.hexdigest()
 
 
 def rank_mirrors(candidates: tuple[str, ...]) -> tuple[str, ...]:
@@ -393,7 +422,7 @@ def _signing_key(status: str) -> str | None:
 
 def _verify_digest(archive: Path, digests: Path) -> None:
     wanted = _expected_sha512(digests, archive.name)
-    got = hashlib.sha512(archive.read_bytes()).hexdigest()
+    got = _sha512(archive)
     if got != wanted:
         raise IntegrityError(f"{archive.name} has SHA512 {got}, the DIGESTS file says {wanted}")
 
