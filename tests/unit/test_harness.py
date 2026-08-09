@@ -75,3 +75,27 @@ def test_every_encrypted_fixture_names_where_its_passphrase_lives() -> None:
             assert node.passphrase_file, f"{path.name}: {node.id}"
         for pool in graph.of_type(ZfsPool):
             assert not pool.encrypted or pool.passphrase_file, f"{path.name}: {pool.id}"
+
+
+def test_named_picks_runs_out_of_any_stage() -> None:
+    """Testing four configurations again should be this harness with an
+    argument, not a shell loop written for one afternoon and thrown away."""
+    from tests.vm.campaign import named
+
+    picked = named(["vm-raidz", "ext4-bios"])
+    assert [Path(one.config).stem for one in picked] == ["vm-raidz", "ext4-bios"]
+    # The firmware travels with the run, so a caller naming a BIOS fixture does
+    # not have to remember to say so.
+    assert picked[1].firmware == "bios"
+
+
+def test_naming_a_fixture_that_does_not_exist_says_which_do() -> None:
+    """A typo otherwise runs nothing and reports success."""
+    import pytest
+
+    from tests.vm.campaign import named
+
+    with pytest.raises(SystemExit) as refused:
+        named(["vm-raidz", "vm-typo"])
+    assert "vm-typo" in str(refused.value)
+    assert "vm-raidz" in str(refused.value)

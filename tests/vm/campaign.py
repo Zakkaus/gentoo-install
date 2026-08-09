@@ -16,7 +16,7 @@ import io
 import subprocess
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Sequence
@@ -164,13 +164,34 @@ def announce(outcome: Outcome) -> None:
 def parallel(runs: Sequence[Run]) -> list[Outcome]:
     """Every run to the end. They are independent, and one failure is not a
     reason to leave the rest unknown: the point of a campaign is to learn
-    everything one pass can teach before anything is changed."""
+    everything one pass can teach before anything is changed.
+
+    Announced as each finishes rather than in the order they were submitted.
+    `pool.map` yields in submission order, so a run that failed in one minute
+    stayed unreported behind one that takes forty, and nobody could start on
+    it until the whole batch was done.
+    """
     done: list[Outcome] = []
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        for outcome in pool.map(perform, runs):
+        waiting = [pool.submit(perform, one) for one in runs]
+        for finished in as_completed(waiting):
+            outcome = finished.result()
             announce(outcome)
             done.append(outcome)
     return done
+
+
+def named(wanted: Sequence[str]) -> list[Run]:
+    """The runs whose fixture carries one of these names.
+
+    So that testing four configurations again is this harness with an argument
+    rather than a shell loop written for one afternoon and thrown away.
+    """
+    by_name = {Path(one.config).stem: one for runs in STAGES.values() for one in runs}
+    missing = [one for one in wanted if one not in by_name]
+    if missing:
+        raise SystemExit(f"no fixture named {', '.join(missing)}; have {', '.join(sorted(by_name))}")
+    return [by_name[one] for one in wanted]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -179,11 +200,20 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--stage", choices=sorted(STAGES), action="append")
     parser.add_argument(
+        "--only",
+        action="append",
+        metavar="FIXTURE",
+        help="run just these, by fixture name, from whichever stage holds them",
+    )
+    parser.add_argument(
         "--keep-going",
         action="store_true",
         help="run the later stages even when a blocking one failed",
     )
     args = parser.parse_args(argv)
+    if args.only:
+        outcomes = parallel(named(args.only))
+        return 0 if all(one.passed for one in outcomes) else 1
     wanted = args.stage or list(STAGES)
 
     done: list[Outcome] = []
