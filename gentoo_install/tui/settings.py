@@ -97,7 +97,7 @@ def nested(title: str, rows: tuple[Setting, ...]) -> Step:
                 Item(
                     label=context.translate(row.label),
                     value=index,
-                    detail=row.value(current, context),
+                    detail=shown_value(row, current, context),
                     disabled_because=row.unavailable(current, context)
                     or ("" if row.edit else context.translate("detected")),
                     style=style_of(row, current, context),
@@ -146,7 +146,22 @@ _MARGIN: Final[int] = 34
 #: group names what is set and says so when nothing is.
 QUIET: Final[tuple[str, ...]] = (
     "none", "off", "not used", "nothing is erased", "nothing is unlocked at boot", "default",
+    UNSET,
 )
+
+
+def shown_value(setting: Setting, config: InstallConfig, context: Context) -> str:
+    """A row's value as the operator reads it.
+
+    `UNSET` is the sentinel `style_of` compares against, so it is translated
+    here rather than by each value function. A required row says `required`
+    instead: both are drawn red, and `not set` reads as a state that can be
+    left alone.
+    """
+    value = setting.value(config, context)
+    if value != UNSET:
+        return value
+    return context.translate("required" if setting.required else UNSET)
 
 
 def _summary(rows: tuple[Setting, ...]) -> Callable[[InstallConfig, Context], str]:
@@ -156,7 +171,7 @@ def _summary(rows: tuple[Setting, ...]) -> Callable[[InstallConfig, Context], st
 
     def shown(config: InstallConfig, context: Context) -> str:
         quiet = {context.translate(one) for one in QUIET}
-        values = [row.value(config, context) for row in rows]
+        values = [shown_value(row, config, context) for row in rows]
         said = [one for one in values if one not in quiet]
         if not said:
             return context.translate("nothing set")
@@ -409,6 +424,13 @@ def _video_cards(config: InstallConfig, context: Context) -> str:
 
 
 def _input_devices(config: InstallConfig, context: Context) -> str:
+    """`default` rather than `libinput` while it is untouched, so the group
+    above does not summarise itself as `Desktop environment  libinput` when
+    nothing in it has been chosen."""
+    from ..model.config import PortageConfig
+
+    if config.portage.input_devices == PortageConfig().input_devices:
+        return context.translate("default")
     return " ".join(config.portage.input_devices) or context.translate("none")
 
 
@@ -583,7 +605,14 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("hostname", "Hostname", lambda c, x: c.system.hostname, screens.system_screen),
     Setting("system", "Init system", _summary(INIT), nested("Init system", INIT), rows=INIT),
     Setting("profile", "Profile", lambda c, x: c.portage.profile, screens._profile_screen),
-    Setting("compiler", "Compiler", _summary(COMPILER), nested("Compiler", COMPILER), rows=COMPILER),
+    Setting(
+        "compiler",
+        "Compiler",
+        _summary(COMPILER),
+        nested("Compiler", COMPILER),
+        required=True,
+        rows=COMPILER,
+    ),
     Setting("root", "Root password", _root, screens.root_password_screen, required=True),
     Setting("user", "User account", _user, screens.user_screen),
     Setting("kernel", "Kernel", _summary(KERNEL), nested("Kernel", KERNEL), rows=KERNEL),
@@ -601,11 +630,22 @@ def unanswered(config: InstallConfig, context: Context) -> tuple[str, ...]:
     """Required rows still showing nothing, which is what blocks the install.
 
     A grouped row is named by whichever row behind it is missing: `Disk` says
-    nothing about which of its six the operator has not reached.
+    nothing about which of its six the operator has not reached. The group
+    itself is walked too, because a group can be required without any one row
+    behind it being: `Compiler` has a usable value for every row and still has
+    to be looked at.
     """
-    walked = [one for group in SETTINGS for one in (group.rows or (group,))]
-    return tuple(
-        setting.label
-        for setting in walked
-        if setting.required and not settled(setting, config, context)
-    )
+    named: list[str] = []
+    for group in SETTINGS:
+        behind = [
+            row.label
+            for row in group.rows
+            if row.required and not settled(row, config, context)
+        ]
+        if any(row.required for row in group.rows):
+            # The rows carry the requirement, so the group is not named as
+            # well: `Disk, Drive` reads as two missing answers and is one.
+            named += behind
+        elif group.required and not settled(group, config, context):
+            named.append(group.label)
+    return tuple(named)

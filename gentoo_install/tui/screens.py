@@ -57,7 +57,7 @@ from ..model import atoms, manual, mirrors, paste, sshkey
 from ..model.templates import Choice, Layout, build
 from ..model.validate import validate
 from ..plan.packages import Catalog as Groups
-from ..plan.packages import framework_conflict
+from ..plan.packages import driver_conflict, framework_conflict
 from ..plan import system as plan_system
 from .widgets import (
     MINIMUM_COLUMNS,
@@ -1224,7 +1224,7 @@ def settle(
             Item(
                 label=f"{translate('Yes, and open')} {named}",
                 value="open",
-                detail=translate("to add to them or turn one off"),
+                detail=translate("editable"),
             ),
         ],
         footer=footer(translate),
@@ -1304,18 +1304,27 @@ def graphics_screen(
         for name, reason in named
     ]
     ticked = set(config.packages.graphics)
-    menu: Menu[str] = Menu(
-        title=translate("Graphics"),
-        items=items,
-        multiple=True,
-        selected={index for index, item in enumerate(items) if item.value in ticked},
-        footer=footer(translate),
-    )
-    answer = menu.run(screen)
-    if not answer.chosen:
-        return Answer(answer.outcome)
-    chosen = replace(config, packages=replace(config.packages, graphics=tuple(answer.unwrap())))
-    return settle(screen, context, config, chosen)
+    while True:
+        menu: Menu[str] = Menu(
+            title=translate("Graphics"),
+            items=items,
+            multiple=True,
+            selected={index for index, item in enumerate(items) if item.value in ticked},
+            footer=footer(translate),
+        )
+        answer = menu.run(screen)
+        if not answer.chosen:
+            return Answer(answer.outcome)
+        chosen = replace(
+            config, packages=replace(config.packages, graphics=tuple(answer.unwrap()))
+        )
+        # Checked here rather than at the Install row: the conflict is between
+        # two ticks on this screen and this is where either can be unticked.
+        clash = driver_conflict(chosen, context.groups)
+        if not clash:
+            return settle(screen, context, config, chosen)
+        ticked = set(answer.unwrap())
+        _say(screen, context, translate(clash))
 
 
 def display_manager_screen(

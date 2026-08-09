@@ -11,13 +11,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
+from ..i18n import width
 from ..model.config import InstallConfig
 from ..errors import GentooInstallError
 from ..plan.build import build
 from .screens import Context, overview_screen
 from .screens import _say as say
-from .settings import SETTINGS, UNSET, Setting, style_of, unanswered
-from .widgets import Item, Menu, Outcome, Screen, TextField
+from .settings import SETTINGS, UNSET, Setting, shown_value, style_of, unanswered
+from .widgets import Item, Menu, Outcome, Screen, Style, TextField
 
 
 #: The default name for a saved configuration, offered as the field's example.
@@ -79,6 +80,7 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
                 (
                     f"[enter] {context.translate('Continue')}",
                     f"[q] {context.translate('Cancel')}",
+                    _legend(current, context),
                 )
             ),
         )
@@ -119,11 +121,45 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
             current = edited.unwrap()
 
 
+def _legend(config: InstallConfig, context: Context) -> str:
+    """What the two colours mean, on the line that has room for it.
+
+    Only the colours in use: a legend for red on a menu with nothing red is one
+    more thing to read. The words repeat what each row already says, because a
+    console with no colour has to convey the same thing.
+    """
+    shown = [style_of(one, config, context) for one in SETTINGS]
+    parts = []
+    if Style.REQUIRED in shown:
+        parts.append(f"* {context.translate('required')}")
+    if Style.UNTOUCHED in shown:
+        parts.append(f"~ {context.translate('never opened')}")
+    return "  ".join(parts)
+
+
+#: Room the Install row's own label and the reason need, so the names are
+#: measured against what is left rather than against the whole line.
+_MARGIN: Final[int] = 30
+
+
+def _as_many_as_fit(names: list[str], context: Context) -> str:
+    """The names that fit on this terminal, and how many did not."""
+    room = max(20, context.columns - _MARGIN)
+    taken: list[str] = []
+    for name in names:
+        rest = len(names) - len(taken) - 1
+        if taken and width(", ".join([*taken, name])) + (4 if rest else 0) > room:
+            break
+        taken.append(name)
+    left = len(names) - len(taken)
+    joined = ", ".join(taken)
+    return f"{joined} +{left}" if left else joined
+
+
 def _drawn(setting: Setting, config: InstallConfig, context: Context) -> str:
-    """A row's value as the operator reads it. `UNSET` is the sentinel
-    `style_of` compares against, so it is translated here and not there."""
-    value = setting.value(config, context)
-    return context.translate(value) if value == UNSET else value
+    """A row's value as the operator reads it, the same way a grouped row
+    renders the rows behind it."""
+    return shown_value(setting, config, context)
 
 
 def _leaving(screen: Screen, config: InstallConfig, context: Context) -> Finished | None:
@@ -186,13 +222,13 @@ def _saving(screen: Screen, config: InstallConfig, context: Context) -> Finished
 def _blocked(config: InstallConfig, context: Context) -> str:
     """Why the install cannot start, in the row that would start it.
 
-    One row named and the rest counted: every name would run past 80 columns
-    and the reason itself is what gets truncated away.
+    As many names as the terminal has room for, then a count. Naming one and
+    counting the rest was the same on an 80-column console and on a 200-column
+    one, so a screen wide enough to list all four still said `+3`.
     """
     missing = [context.translate(label) for label in unanswered(config, context)]
     if missing:
-        rest = f" +{len(missing) - 1}" if len(missing) > 1 else ""
-        return f"{missing[0]}{rest}: {context.translate('still needs an answer')}"
+        return f"{_as_many_as_fit(missing, context)}: {context.translate('still needs an answer')}"
     try:
         # The whole plan, not `validate` alone: a group whose packages live in
         # an overlay nobody selected raises from `plan.build`, and the row that

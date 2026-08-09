@@ -359,4 +359,6 @@
 "Not a VIDEO_CARDS value" = "VIDEO_CARDS の値ではありません"
 "Not an INPUT_DEVICES value" = "INPUT_DEVICES の値ではありません"
 "Yes, and open" = "はい、そして開く"
-"to add to them or turn one off" = "追加も、一つを無効にすることもできます"
+"editable" = "編集できます"
+"required" = "必須"
+"never opened" = "未確認"

@@ -360,4 +360,6 @@
 "Not a VIDEO_CARDS value" = "不是 VIDEO_CARDS 的值"
 "Not an INPUT_DEVICES value" = "不是 INPUT_DEVICES 的值"
 "Yes, and open" = "是，並開啟"
-"to add to them or turn one off" = "可以再加，也可以關掉其中一個"
+"editable" = "可自行編輯"
+"required" = "必填"
+"never opened" = "未開啟過"

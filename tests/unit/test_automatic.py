@@ -392,3 +392,54 @@ def test_a_group_declares_only_flags_more_than_one_package_can_use() -> None:
             if flag.lstrip("-") not in global_flags and owners.get(flag.lstrip("-"), 0) == 1
         ]
         assert not wrong, f"{name} puts {wrong} in USE; one package declares them"
+
+
+def test_the_two_nvidia_drivers_cannot_both_be_ticked() -> None:
+    """nvidia-drivers writes `blacklist nouveau` into its own modprobe.d file,
+    so a machine with both ticked installs one driver that cannot load."""
+    from gentoo_install.errors import ValidationFailed
+    from gentoo_install.plan import packages as plan_packages
+
+    catalog = load_catalog()
+    both = replace(
+        config(ext4_on_gpt()),
+        packages=replace(config().packages, graphics=("nouveau", "nvidia")),
+    )
+    assert plan_packages.driver_conflict(both, catalog)
+    with pytest.raises(ValidationFailed):
+        plan_packages.build(both, catalog)
+    # Two AMD generations are not the same card, so those two stay allowed.
+    amd = replace(
+        config(ext4_on_gpt()),
+        packages=replace(config().packages, graphics=("amdgpu", "radeon")),
+    )
+    assert plan_packages.driver_conflict(amd, catalog) == ""
+
+
+def test_every_exclusive_pair_names_two_groups_that_exist() -> None:
+    """A pair naming a group the catalog does not have can never fire, which
+    reads as coverage and is not."""
+    from gentoo_install.plan.packages import EXCLUSIVE_DRIVERS
+
+    catalog = load_catalog()
+    assert EXCLUSIVE_DRIVERS
+    for one, other, reason in EXCLUSIVE_DRIVERS:
+        assert one in catalog and other in catalog, (one, other)
+        assert reason.strip()
+
+
+def test_the_blocked_row_lists_as_many_names_as_the_terminal_fits() -> None:
+    """Naming one and counting the rest said `+3` on a 200-column console as
+    readily as on an 80-column one."""
+    from gentoo_install.tui import app
+    from tests.unit.test_tui_app import context
+
+    at = context()
+    blank = replace(config(ext4_on_gpt()), system=replace(config().system, root_password_hash=""))
+    at.columns = 200
+    wide = app._blocked(blank, at)
+    at.columns = 60
+    narrow = app._blocked(blank, at)
+    assert "+" not in wide, wide
+    assert "+" in narrow, narrow
+    assert len(wide) > len(narrow)

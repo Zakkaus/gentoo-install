@@ -359,4 +359,6 @@
 "Not a VIDEO_CARDS value" = "VIDEO_CARDS 값이 아닙니다"
 "Not an INPUT_DEVICES value" = "INPUT_DEVICES 값이 아닙니다"
 "Yes, and open" = "예, 그리고 열기"
-"to add to them or turn one off" = "추가하거나 하나를 끌 수 있습니다"
+"editable" = "편집할 수 있습니다"
+"required" = "필수"
+"never opened" = "열어본 적 없음"

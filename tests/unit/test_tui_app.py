@@ -151,7 +151,7 @@ def test_install_hands_back_the_configuration() -> None:
     at.visited.update(
         one.key
         for group in settings.SETTINGS
-        for one in (group.rows or (group,))
+        for one in (group.rows if any(r.required for r in group.rows) else (group,))
         if one.required
     )
     ready = replace(
@@ -182,7 +182,7 @@ def test_the_install_row_shows_every_operation_before_it_starts() -> None:
     at.visited.update(
         one.key
         for group in settings.SETTINGS
-        for one in (group.rows or (group,))
+        for one in (group.rows if any(r.required for r in group.rows) else (group,))
         if one.required
     )
     ready = replace(
@@ -944,11 +944,15 @@ def test_colour_repeats_what_the_text_already_says() -> None:
     blank = replace(config(), system=replace(config().system, root_password_hash=""))
     # Tall enough for the install row: it is the one carrying the reason, and
     # the menu scrolls once the list is longer than the screen.
-    screen = FakeScreen(keys=["q", "KEY_DOWN", "\n"], lines=40, columns=100)
+    # Wide enough for the reason: at 100 columns the row is truncated to
+    # `still needs an ans`, which is the behaviour under test being cut off.
+    screen = FakeScreen(keys=["q", "KEY_DOWN", "\n"], lines=40, columns=130)
     run(screen, blank, at)
     seen = "\n".join("\n".join(frame) for frame in screen.frames)
-    assert "not set" in seen
+    assert "required" in seen
     assert "still needs an answer" in seen
+    # The legend names the colours in use, on the line that has room for it.
+    assert "* required" in seen
 
 
 def test_choosing_a_disk_again_takes_back_the_erase_confirmation() -> None:
@@ -1164,7 +1168,10 @@ def test_a_required_row_inside_any_group_is_named_by_its_own_label() -> None:
     blank = replace(config(), system=replace(config().system, root_password_hash=""))
     named = settings.unanswered(blank, at)
     assert "Root password" in named
-    assert not {one.label for one in groups} & set(named)
+    # A group is named only when it is required and nothing behind it is, so
+    # `Disk` never stands in for the `Drive` row that is actually missing.
+    carrying = {one.label for one in groups if any(r.required for r in one.rows)}
+    assert not carrying & set(named)
 
     for group in groups:
         for row in group.rows:
@@ -1414,9 +1421,14 @@ def test_the_rows_say_not_set_in_the_language_the_menu_is_in() -> None:
     at = context()
     at.translate = Catalog("zh-TW")
     blank = replace(config(), system=replace(config().system, root_password_hash=""))
+    # An optional row, because a required one says `required` instead: both
+    # are drawn red and `not set` reads as a state that can be left alone.
+    use = next(one for one in settings.COMPILER if one.key == "use")
+    assert use.value(blank, at) == settings.UNSET
+    assert _drawn(use, blank, at) == at.translate(settings.UNSET) != settings.UNSET
     root = next(one for one in settings.SETTINGS if one.key == "root")
     assert root.value(blank, at) == settings.UNSET
-    assert _drawn(root, blank, at) == at.translate(settings.UNSET) != settings.UNSET
+    assert _drawn(root, blank, at) == at.translate("required")
 
 
 def test_a_required_row_has_to_be_opened_and_not_only_filled_in() -> None:
@@ -1429,10 +1441,12 @@ def test_a_required_row_has_to_be_opened_and_not_only_filled_in() -> None:
         system=replace(config().system, root_password_hash="$6$test$x"),
         portage=replace(config().portage, mirrors=replace(config().portage.mirrors, site="tuna")),
     )
+    # The group itself counts when nothing behind it is required: `Compiler`
+    # has a usable value on every row and still has to be looked at.
     required = [
         one
         for group in settings.SETTINGS
-        for one in (group.rows or (group,))
+        for one in (group.rows if any(r.required for r in group.rows) else (group,))
         if one.required
     ]
     named = settings.unanswered(ready, at)

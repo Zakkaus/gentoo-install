@@ -329,6 +329,34 @@ class WriteInputMethodProfile(Operation):
         return f"patch:\n  schema_list:\n{listed}"
 
 
+#: Driver groups that cannot be installed together, and why. Two drivers for
+#: the same adapter, not two adapters: `amdgpu` and `radeon` cover different
+#: AMD generations and a machine can hold one card of each, so they are not
+#: here.
+EXCLUSIVE_DRIVERS: tuple[tuple[str, str, str], ...] = (
+    (
+        "nouveau",
+        "nvidia",
+        "nouveau and nvidia drive the same card, and nvidia-drivers blacklists "
+        "nouveau in its own modprobe.d file, so ticking both installs one that "
+        "cannot load",
+    ),
+)
+
+
+def driver_conflict(config: InstallConfig, catalog: Catalog) -> str:
+    """Why the ticked drivers cannot be installed together, or empty.
+
+    Read by `build` and by the screen that offers them, the way `compat.py` is
+    read by the validator and by the menu.
+    """
+    ticked = set(config.packages.graphics)
+    for one, other, reason in EXCLUSIVE_DRIVERS:
+        if one in ticked and other in ticked:
+            return reason
+    return ""
+
+
 def framework_conflict(config: InstallConfig, catalog: Catalog) -> str:
     """Why the chosen groups cannot be installed together, or empty.
 
@@ -354,7 +382,7 @@ def framework_conflict(config: InstallConfig, catalog: Catalog) -> str:
 
 def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
     _check_repositories(config, catalog)
-    conflict = framework_conflict(config, catalog)
+    conflict = framework_conflict(config, catalog) or driver_conflict(config, catalog)
     if conflict:
         raise ValidationFailed(conflict)
     operations: list[Operation] = []
