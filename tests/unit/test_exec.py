@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
-from typing import Iterable
+from typing import Iterable, Sequence
 
 import pytest
 
@@ -716,17 +716,29 @@ def test_the_bootloader_disk_of_a_reused_partition_is_the_disk(tmp_path: Path) -
     reused = replace(
         base(), disk=DiskConfig(graph=DeviceGraph.build(nodes), root=DeviceId("root"))
     )
-    probe = probe_of(tmp_path)
-    machine = Machine(config=reused, probe=probe, runner=probe.runner, work=tmp_path)
-    asked: list[str] = []
+    # A real Probe over a runner that answers `lsblk`, not a monkeypatched
+    # `disk_of`: patching the method under test hid that the production path
+    # asked for a cached path `resolve()` never writes.
+    asked: list[list[str]] = []
 
-    def disk_of(device: DeviceId) -> str:
-        asked.append(str(device))
-        return "/dev/sda"
+    class Answering(Runner):
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            asked.append(list(argv))
+            said = "sda\n" if argv[0] == "lsblk" and "PKNAME" in argv else ""
+            return Result(argv=tuple(argv), returncode=0, stdout=said, stderr="", seconds=0.0)
 
-    probe.disk_of = disk_of  # type: ignore[method-assign]
+    answering = Answering(log=lambda line: None)
+    probe = Probe(runner=answering, work=tmp_path)
+    machine = Machine(config=reused, probe=probe, runner=answering, work=tmp_path)
     assert machine.containing_disk(DeviceId("root")) == "/dev/sda"
-    assert asked == ["part"]
+    assert any("PKNAME" in argv for argv in asked), asked
 
 
 def test_a_verification_marker_only_covers_the_bytes_it_was_written_for(tmp_path: Path) -> None:
@@ -824,3 +836,46 @@ def test_an_ordinary_file_in_the_target_is_still_written_and_read(tmp_path: Path
     machine.append(PurePosixPath("/etc/portage/make.conf"), 'FEATURES="y"\n')
     assert machine.read(PurePosixPath("/etc/portage/make.conf")).endswith('FEATURES="y"\n')
     assert machine.read(PurePosixPath("/etc/nothing-here")) == ""
+
+
+def test_a_reused_partition_gets_its_number_from_the_machine(tmp_path: Path) -> None:
+    """A reused esp carries no index: the operator named a device, not a
+    number. `partition_index` refused it, so ZFSBootMenu on an existing esp
+    failed with `is not a partition`."""
+    from gentoo_install.exec.apply import Machine
+    from gentoo_install.model.config import DiskConfig
+    from gentoo_install.model.device import DeviceGraph, DeviceId, Filesystem, FilesystemType, Mountpoint
+
+    from .layouts import config as base
+
+    nodes = [
+        Existing(id=DeviceId("part"), selector="/dev/null", wipe=False),
+        Filesystem(
+            id=DeviceId("fs"), device=DeviceId("part"), kind=FilesystemType.VFAT, create=False
+        ),
+        Mountpoint(id=DeviceId("root"), source=DeviceId("fs"), path=PurePosixPath("/")),
+    ]
+    reused = replace(
+        base(), disk=DiskConfig(graph=DeviceGraph.build(nodes), root=DeviceId("root"))
+    )
+
+    class Answering(Runner):
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            said = "3\n" if argv[0] == "lsblk" and "PARTN" in argv else ""
+            return Result(argv=tuple(argv), returncode=0, stdout=said, stderr="", seconds=0.0)
+
+    answering = Answering(log=lambda line: None)
+    machine = Machine(
+        config=reused,
+        probe=Probe(runner=answering, work=tmp_path),
+        runner=answering,
+        work=tmp_path,
+    )
+    assert machine.partition_index(DeviceId("part")) == 3

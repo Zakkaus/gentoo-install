@@ -175,10 +175,31 @@ class Probe:
 
     def disk_of(self, device: DeviceId) -> str:
         """The whole disk a partition sits on, which is what a bootloader wants."""
-        path = self.path_of(device)
+        return self.disk_of_path(self.path_of(device))
+
+    def disk_of_path(self, path: str) -> str:
+        """The same answer for a path already in hand.
+
+        `resolve()` deliberately caches nothing, so a reused partition has no
+        entry for `path_of` to find and asking by id raised `DeviceNotFound`
+        at bootloader installation.
+        """
         result = self.runner.run(["lsblk", "--noheadings", "--output", "PKNAME", path])
         parent = result.stdout.strip().splitlines()
         return f"/dev/{parent[0].strip()}" if parent and parent[0].strip() else path
+
+    def partition_number_of_path(self, path: str) -> int:
+        """Which entry in its table this partition is.
+
+        Asked of the machine because a reused partition carries no index in the
+        configuration: the operator named a device, not a number.
+        """
+        result = self.runner.run(["lsblk", "--noheadings", "--output", "PARTN", path])
+        said = result.stdout.strip().splitlines()
+        number = said[0].strip() if said else ""
+        if not number.isdigit():
+            raise DeviceNotFound(f"lsblk gave no partition number for {path}")
+        return int(number)
 
     def wait_for(self, path: str, seconds: float = 15.0) -> str:
         """Wait for a device node to appear.

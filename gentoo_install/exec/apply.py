@@ -186,14 +186,21 @@ class Machine:
             # A reused partition is an `Existing` too, and its selector names
             # the partition. `grub-install /dev/sda2` writes into a partition
             # boot sector or refuses outright, so the parent decides.
-            return self.probe.disk_of(node.id)
+            return self.probe.disk_of_path(path)
         raise InvalidLayout(f"nothing under {device} is a disk this installer can boot from")
 
     def partition_index(self, device: DeviceId) -> int:
         node = self.config.disk.graph[device]
-        if not isinstance(node, Partition):
-            raise InvalidLayout(f"{device} is not a partition, so it has no number")
-        return node.index
+        if isinstance(node, Partition):
+            return node.index
+        # A reused partition carries no index: the operator named a device, so
+        # the number comes from the machine. Refusing here left ZFSBootMenu on
+        # an existing esp failing with `is not a partition`.
+        if isinstance(node, Existing):
+            return self.probe.partition_number_of_path(
+                self.probe.resolve(node.id, node.selector)
+            )
+        raise InvalidLayout(f"{device} is not a partition, so it has no number")
 
     def jobs(self) -> int:
         return os.cpu_count() or 1
