@@ -172,11 +172,23 @@ def perform(run: Run) -> Outcome:
 #: the campaign exists to save.
 HOST_KILLED: Final[str] = "the guest closed the serial connection"
 
+#: What the log says when the same configuration was already being run. Also
+#: not a defect: two overlapping campaigns name the same fixture, and reading
+#: that as a failed install sent one round chasing a ZFS bug that was a lock.
+ALREADY_RUNNING: Final[str] = "another run holds"
+
+
+def mark_for(outcome: Outcome) -> str:
+    if outcome.passed:
+        return "ok  "
+    said = outcome.log.read_text(errors="replace")
+    if HOST_KILLED in said:
+        return "HOST"
+    return "LOCK" if ALREADY_RUNNING in said else "FAIL"
+
 
 def announce(outcome: Outcome) -> None:
-    mark = "ok  " if outcome.passed else "FAIL"
-    if not outcome.passed and HOST_KILLED in outcome.log.read_text(errors="replace"):
-        mark = "HOST"
+    mark = mark_for(outcome)
     print(f"{mark} {outcome.run.name:52} {outcome.seconds / 60:5.1f}m  {outcome.log}")
 
 
@@ -247,22 +259,36 @@ def main(argv: list[str] | None = None) -> int:
         help="run the later stages even when a blocking one failed",
     )
     args = parser.parse_args(argv)
-    if args.only:
-        outcomes = parallel(named(args.only))
-        return 0 if all(one.passed for one in outcomes) else 1
-    wanted = args.stage or list(STAGES)
-
     done: list[Outcome] = []
-    for stage in wanted:
-        print(f"--- {stage} ({len(STAGES[stage])} runs)")
-        outcomes = parallel(STAGES[stage])
-        done += outcomes
-        if not args.keep_going and any(not one.passed for one in outcomes) and stage == "blocking":
-            print("the blocking stage failed; the rest would prove nothing")
-            break
+    if args.only:
+        done = list(parallel(named(args.only)))
+    else:
+        for stage in args.stage or list(STAGES):
+            print(f"--- {stage} ({len(STAGES[stage])} runs)")
+            outcomes = parallel(STAGES[stage])
+            done += outcomes
+            if (
+                not args.keep_going
+                and any(not one.passed for one in outcomes)
+                and stage == "blocking"
+            ):
+                print("the blocking stage failed; the rest would prove nothing")
+                break
+    return report(done)
 
+
+def report(done: Sequence[Outcome]) -> int:
+    """Print the summary and leave a copy on disk. An unattended run is
+    launched into a pipe nobody keeps, and the per-run logs alone do not say
+    which configurations were in the round."""
     failed = [one for one in done if not one.passed]
-    killed = [one for one in failed if HOST_KILLED in one.log.read_text(errors="replace")]
+    killed = [one for one in failed if mark_for(one) == "HOST"]
+    locked = [one for one in failed if mark_for(one) == "LOCK"]
+    if locked:
+        print(
+            f"\n{len(locked)} run(s) never started: another campaign held the same "
+            "configuration, so nothing about them was tested"
+        )
     if killed:
         print(
             f"\n{len(killed)} run(s) lost the guest rather than failing an install; "
@@ -271,6 +297,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\n{len(done) - len(failed)}/{len(done)} passed")
     for one in failed:
         print(f"  {one.run.name}: exit {one.returncode}, {one.log}")
+    lines = [f"{mark_for(one)} {one.run.name}" for one in done]
+    lines.append(f"{len(done) - len(failed)}/{len(done)} passed")
+    (LOGS / "summary.txt").write_text("\n".join(lines) + "\n")
     return 1 if failed else 0
 
 
