@@ -884,3 +884,18 @@ def test_every_rime_schema_installs_the_engine_that_reads_it() -> None:
     assert len(schemas) >= 5, schemas
     for name in schemas:
         assert "app-i18n/fcitx-rime" in catalog[name].packages, name
+
+
+def test_greetd_is_pointed_at_the_greeter_it_installs() -> None:
+    """The ebuild's own `/etc/greetd/config.toml` runs `agreety`, so
+    `gui-apps/tuigreet` was installed and never reached."""
+    catalog = load_catalog()
+    greetd = catalog["greetd"]
+    assert "gui-apps/tuigreet" in greetd.packages
+    written = {str(one.path): one.content for one in greetd.files}
+    assert "/etc/greetd/config.toml" in written
+    assert "tuigreet" in written["/etc/greetd/config.toml"]
+    # The user and the vt the ebuild's patch sets, or greetd starts as root on
+    # a console something else already owns.
+    assert 'user = "greetd"' in written["/etc/greetd/config.toml"]
+    assert "vt = 7" in written["/etc/greetd/config.toml"]

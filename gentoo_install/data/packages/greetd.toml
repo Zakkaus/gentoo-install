@@ -2,3 +2,17 @@
 # screen of its own.
 packages = ["gui-libs/greetd", "gui-apps/tuigreet"]
 display_manager = "greetd"
+
+# The ebuild's own /etc/greetd/config.toml runs `agreety`, so tuigreet was
+# installed and never reached. `vt = 7` and `user = "greetd"` are what the
+# ebuild's patch sets, and this file replaces the whole thing.
+[[files]]
+path = "/etc/greetd/config.toml"
+content = """
+[terminal]
+vt = 7
+
+[default_session]
+command = "tuigreet --time --remember --cmd /bin/bash"
+user = "greetd"
+"""
