@@ -404,8 +404,10 @@ def run(
                 flush=True,
             )
     finally:
-        for name in prepared:
-            api.remove_iso(name, driver)
+        for node_name in prepared:
+            said = api.remove_iso(node_name, driver)
+            if said:
+                print(f"{driver} stayed on {node_name}: {said}", file=sys.stderr)
     return finished
 
 

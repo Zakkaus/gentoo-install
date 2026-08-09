@@ -250,16 +250,21 @@ class Api:
             self.wait(node, upid, patience=600.0)
         return name
 
-    def remove_iso(self, node: str, name: str) -> None:
-        """Drop an uploaded file. A driver CD per run fills a 33 GiB store."""
+    def remove_iso(self, node: str, name: str) -> str:
+        """Drop an uploaded file, and answer why if it stayed.
+
+        A driver CD per run fills a 33 GiB store, so a failure here matters,
+        but it must not fail a run whose install already finished. The reason
+        is returned rather than swallowed: the first one left a file behind
+        and said nothing at all.
+        """
         try:
             self.call(
                 "DELETE", f"/nodes/{node}/storage/{ISO_STORAGE}/content/{ISO_STORAGE}:iso/{name}"
             )
-        except ProxmoxError:
-            # Already gone, or the store is busy. Not worth failing a run whose
-            # install already finished.
-            pass
+        except ProxmoxError as error:
+            return str(error)
+        return ""
 
     def fetch_iso(self, node: str, url: str, filename: str) -> None:
         """Have the node download an install medium itself.
