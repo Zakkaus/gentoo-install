@@ -328,3 +328,29 @@ def test_the_confirmation_can_open_the_row_the_values_landed_on() -> None:
     # Cancelling the row it opened keeps the pinned values rather than undoing
     # the choice that produced them.
     assert pinned.packages.desktop == "plasma"
+
+
+def test_every_screen_that_picks_a_group_carrying_use_confirms_it() -> None:
+    """Four screens choose groups and three of them carried USE. `sddm`,
+    `pipewire` and `bluetooth` were each added silently, so the operator met
+    them in `make.conf` afterwards.
+
+    Read from the catalog rather than listed here: a group given a USE flag
+    later has to fail this rather than slip through.
+    """
+    import inspect
+
+    catalog = load_catalog()
+    carries = {name for name, group in catalog.items() if group.use or group.video_cards}
+    assert carries, "the catalog is meant to have groups that set make.conf"
+    picks = {
+        "desktop_screen": set(catalog),
+        "graphics_screen": {name for name, _ in screens.GRAPHICS if name},
+        "display_manager_screen": {name for name, _ in screens.DISPLAY_MANAGERS if name},
+        "packages_screen": set(catalog),
+    }
+    for name, chooses in picks.items():
+        if not (chooses & carries):
+            continue
+        source = inspect.getsource(getattr(screens, name))
+        assert "settle(" in source, f"{name} picks a group that sets make.conf and never asks"

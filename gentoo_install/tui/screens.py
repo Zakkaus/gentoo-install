@@ -1324,7 +1324,7 @@ def display_manager_screen(
     # A manager with no desktop installs a login screen that has no session to
     # start, so every entry but `none` says to pick a desktop first.
     without = "" if config.packages.desktop else context.translate("choose a desktop first")
-    return _one_group(
+    chosen = _one_group(
         screen,
         config,
         context,
@@ -1332,7 +1332,11 @@ def display_manager_screen(
         DISPLAY_MANAGERS,
         lambda packages, name: replace(packages, display_manager=name),
         unavailable=lambda name: without if name else "",
+        say_what_it_adds=True,
     )
+    if not chosen.chosen:
+        return chosen
+    return settle(screen, context, config, chosen.unwrap())
 
 
 def _needs_an_overlay(
@@ -1422,7 +1426,15 @@ def packages_screen(
         Item(
             label=name,
             value=name,
-            detail=" ".join(context.groups[name].packages),
+            detail=" ".join(context.groups[name].packages)
+            + _adds(
+                config,
+                context,
+                lambda packages, one: replace(
+                    packages, applications=(*packages.applications, one)
+                ),
+                name,
+            ),
             disabled_because=_needs_an_overlay(context.groups[name].repositories, have, translate),
         )
         for name in names
@@ -1445,7 +1457,7 @@ def packages_screen(
         # two ticks on this screen and this is where either can be unticked.
         clash = framework_conflict(edited, context.groups)
         if not clash:
-            return Answer(Outcome.CHOSE, edited)
+            return settle(screen, context, config, edited)
         chosen_already = set(chosen)
         _say(screen, context, clash)
 

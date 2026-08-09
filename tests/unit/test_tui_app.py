@@ -598,8 +598,12 @@ def test_a_desktop_no_longer_picks_the_login_screen_for_the_operator() -> None:
     # With a desktop chosen: a manager on its own is a login screen with no
     # session, so the rows are only offered once there is something to start.
     chosen = replace(config(), packages=replace(config().packages, desktop="plasma"))
-    answer = screens.display_manager_screen(FakeScreen(keys=["KEY_DOWN", "\n"]), chosen, at)
+    # sddm carries USE=sddm, so the choice confirms before it is taken.
+    answer = screens.display_manager_screen(
+        FakeScreen(keys=["KEY_DOWN", "\n", "KEY_DOWN", "\n"]), chosen, at
+    )
     assert answer.unwrap().packages.display_manager == "sddm"
+    assert "sddm" in answer.unwrap().portage.use
 
 
 def test_a_login_screen_is_not_offered_without_a_desktop_to_start() -> None:
@@ -607,7 +611,7 @@ def test_a_login_screen_is_not_offered_without_a_desktop_to_start() -> None:
     screen = FakeScreen(keys=["q"], lines=24, columns=100)
     screens.display_manager_screen(screen, config(), at)
     drawn = "\n".join(screen.frames[0])
-    assert "sddm  the one Plasma expects - choose a desktop first" in drawn
+    assert "sddm  the one Plasma expects (+sddm) - choose a desktop first" in drawn
     # `none` stays selectable: it is the answer that needs no desktop.
     assert "none  a text console login" in drawn
     assert "console login - choose" not in drawn
