@@ -1,18 +1,40 @@
-正體中文 | [简体中文](README.zh-CN.md) | [English](README.en.md)
+English | [正體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
 
 # gentoo-install
 
-從任何一套 Linux live 系統把機器裝成可開機的 Gentoo 的安裝器。選單或設定檔驅動，中文環境預設開啟，每一項都可以關掉。
+An installer that turns any running Linux live system into a bootable Gentoo machine. A menu or a configuration file drives it. The interface is available in English, Traditional Chinese, Simplified Chinese, Japanese and Korean.
 
-## 需求
+![The menu, showing every decision the installer makes](screenshot.png)
 
-以 root 執行，目標架構 amd64。Python 3.11 以上，只用標準庫。
+![The cjktty console rendering Simplified Chinese, Traditional Chinese, Japanese and Korean](cjk-console.png)
 
-啟動時需要能連上 `packages.gentoo.org`。核心版本與 `sys-fs/zfs` 的核心上限都是即時讀取的，因此安裝器不需要本機有 ebuild 樹，也就能在 Alpine、Debian、openSUSE、Fedora 與 Arch 的 live 系統上執行。連不上就停，只有 `--missing-commands` 與「`--config` 加 `--dry-run`」這兩種離線答案例外。
+## Features
 
-`bootstrap.sh` 讀 `/etc/os-release` 判斷發行版，列出這套版面缺少的指令，並印出該發行版的安裝指令。支援 `apt-get`、`pacman`、`zypper`、`dnf`、`emerge` 與 `apk`。
+**Disks.** GPT and MBR. ext2/3/4, btrfs with subvolumes, xfs, f2fs, vfat, swap and zram. LUKS2, LVM and mdraid at raid0, raid1, raid5 or raid6. ZFS pools and datasets, including native encryption, mirrors and raidz. An existing partition table can be kept: each partition is separately assigned a mountpoint and a decision about formatting.
 
-## 使用
+**Boot.** GRUB on UEFI and BIOS, systemd-boot, and ZFSBootMenu for a ZFS root. The initramfs is dracut, and its module list is derived from the device graph rather than listed by hand. The root can be unlocked over SSH from the initramfs.
+
+**Kernel.** `sys-kernel/gentoo-kernel-bin` and `sys-kernel/gentoo-kernel` from `::gentoo`, and `sys-kernel/gentoo-cjk-kernel-bin` and `sys-kernel/gentoo-cjk-kernel` from the gentoo-zh overlay. The gentoo-zh pair carries [cjktty-patches](https://github.com/gentoo-zh/cjktty-patches), which renders Chinese, Japanese and Korean on the text console where a stock kernel draws blanks. The second screenshot above is `7.1.7-gentoo-dist` with that patch applied.
+
+**System.** systemd or OpenRC. NetworkManager with wpa_supplicant or iwd, systemd-networkd, or no networking. Static addresses, DNS, hostname and timezone. A script or command to run once at first boot, optionally fetched from a URL.
+
+**Desktop.** GNOME, KDE Plasma and Xfce, with gdm, sddm, lightdm or greetd. Graphics for amdgpu, intel, nvidia, nouveau, radeon and virtual machines: `VIDEO_CARDS`, the USE flags a driver needs, and its kernel parameters are set together rather than left to the operator.
+
+**Input methods.** fcitx5 and ibus. Rime with the Pinyin, Bopomofo, Cangjie, Wubi and Cantonese schemes; Anthy and Mozc for Japanese; Hangul for Korean. Fonts are a separate choice from the locale.
+
+**Portage.** Profile, `MAKEOPTS`, `USE`, `ACCEPT_KEYWORDS`, `L10N`, mirror region and repository sync method. The gentoo-zh and gig overlays are opt-in, and selecting one also writes its keys and its `package.accept_keywords`. Binary packages come from the official host and from gentoo-zh, keyed separately.
+
+**Every feature has a dry run.** `--dry-run` prints the operation list that a real run would apply, from the same plan, so a print-only path cannot drift from the real one. An interrupted run resumes from its journal. `install.jsonl` records the source of every package and the reason for every fallback. A configuration can be exported to the pastebin or to a QR code on the console, with the password hashes removed.
+
+## Requirements
+
+Root, an amd64 target, and Python 3.11 or newer. The standard library only.
+
+Network access to `packages.gentoo.org` is required at start. Kernel versions and the kernel ceiling of `sys-fs/zfs` are read live, so no local ebuild tree is needed and the installer runs on the live systems of Alpine, Debian, openSUSE, Fedora and Arch as well as Gentoo. Without network access it stops, apart from `--missing-commands` and `--config` with `--dry-run`.
+
+`bootstrap.sh` reads `/etc/os-release`, lists the commands the chosen layout needs and the machine lacks, and prints the install command for that distribution. It knows `apt-get`, `pacman`, `zypper`, `dnf`, `emerge` and `apk`.
+
+## Usage
 
 ```sh
 curl -fsSL https://github.com/Zakkaus/gentoo-install/archive/refs/heads/master.tar.gz | tar xz
@@ -21,20 +43,20 @@ cd gentoo-install-master
 ```
 
 ```sh
-./bootstrap.sh                                       # 選單
-./bootstrap.sh --config my-install.toml              # 無人值守
-./bootstrap.sh --dry-run --config my-install.toml    # 只印操作，不碰磁碟
-./bootstrap.sh --config my-install.toml --resume     # 從上次停下的地方繼續
-./bootstrap.sh --config my-install.toml --no-shell   # 收尾不問，直接卸載
+./bootstrap.sh                                       # the menu
+./bootstrap.sh --config my-install.toml              # unattended
+./bootstrap.sh --dry-run --config my-install.toml    # print the operations, touch nothing
+./bootstrap.sh --config my-install.toml --resume     # carry on from where a run stopped
+./bootstrap.sh --config my-install.toml --no-shell   # unmount at the end without asking
 ```
 
-選單需要真終端機，畫面至少 80x24。介面語言開場問一次，`--lang zh-TW` 跳過這一問。
+The menu needs a real terminal at 80x24 or larger. The interface language is asked once at the start; `--lang en` skips that question.
 
-安裝結束或中途失敗時，卸載之前會問一次要不要在目標系統裡開一個 root shell。失敗時同樣會問：機器還救不救得回來由操作者判斷，而卸載之後要再進去得把整個版面手動掛回來。`--no-shell` 關掉這一問。
+Before unmounting, whether the run finished or failed, the installer offers a root shell inside the new system. It offers it on failure as well, because whether the machine is still recoverable is the operator's judgement, and after the unmount the whole layout has to be mounted again by hand. `--no-shell` removes the question.
 
-## 設定檔
+## Configuration file
 
-TOML，第一行宣告 `config_version`。磁碟是一張裝置圖：每個裝置有自己的 `id`，彼此以 `id` 引用，裝置路徑到執行時才解析。
+TOML. The first line declares `config_version`. The disk is a device graph: every device carries an `id`, devices refer to each other by `id`, and device paths are resolved at run time.
 
 ```toml
 config_version = 1
@@ -43,10 +65,10 @@ config_version = 1
 hostname = "gentoo"
 locale = "zh_TW.UTF-8"
 init = "systemd"
-root_password_hash = "$6$..."   # openssl passwd -6 產生，不放明文
+root_password_hash = "$6$..."   # from openssl passwd -6, never a plaintext password
 
 [portage]
-profile = "default/linux/amd64/23.0/systemd"   # 必須與 init 一致
+profile = "default/linux/amd64/23.0/systemd"   # has to agree with init
 
 [bootloader]
 kind = "grub"
@@ -62,38 +84,16 @@ selector = "/dev/disk/by-id/virtio-target0"
 wipe = true
 ```
 
-`tests/fixtures/` 下有十三份可用的範例，涵蓋 UEFI、BIOS、LUKS2、LVM、mdraid、ZFS 與桌面。解析不碰硬體，所以沒有目標磁碟的機器也能用 `--dry-run` 驗一份設定檔。
+`tests/fixtures/` holds working examples covering UEFI, BIOS, LUKS2, LVM, mdraid, ZFS, btrfs subvolumes and desktops. Parsing touches no hardware, so a machine with no target disk can still check a configuration with `--dry-run`.
 
-## 支援的版面
+## Binary packages
 
-分割表 GPT 與 MBR。檔案系統 ext2/3/4、btrfs（含 subvolume）、xfs、f2fs、vfat、swap 與 zram。堆疊 LUKS2、LVM、mdraid，以及 ZFS pool 與 dataset，含原生加密。開機載入器 GRUB、systemd-boot，ZFS 根走 ZFSBootMenu。既有分割區可以沿用：整張分割表不重寫，逐個分割區決定掛在哪裡、要不要格式化。
+Optional, and never the only path. Building from source is the guaranteed one. The official binhost and the gentoo-zh binhost are separate options with separate keys. An unreachable host, a missing signature or an untrusted key falls back to compiling with a warning, and `install.jsonl` records the reason.
 
-## 中文環境
+## Exit codes
 
-locale、時區、鍵盤、鏡像、字型與輸入法是六個各自獨立的選項。選了輸入法才安裝 fcitx5 與 rime 並寫入設定；Wayland 下不設 `GTK_IM_MODULE` 與 `QT_IM_MODULE`，設了候選字窗會閃爍。rime 的方案一個一組：`luna_pinyin` 隨引擎一起來，`bopomofo`、`cangjie5`、`wubi86`、`jyut6ping3` 各自勾選。overlay 只在選中時加入。
+`0` finished, `1` configuration error, `2` preflight failed, `3` integrity check failed, `4` an external command failed, `5` aborted by the operator.
 
-主控台要顯示 CJK 需要 `sys-kernel/gentoo-cjk-kernel`，它帶 cjktty 補丁，在 gentoo-zh 裡。選了那個核心才能選 16x32 的主控台字型。
+## Contributing
 
-## 二進位套件
-
-可選，原始碼編譯是保證路徑。官方 binhost 與 gentoo-zh 分開，金鑰各自管理。取得金鑰、驗簽或下載任何一步失敗都降級為編譯並印出警告，`install.jsonl` 記下每個套件的來源與每一次降級的原因。
-
-## 退出碼
-
-`0` 完成、`1` 設定錯誤、`2` preflight 失敗、`3` 完整性驗證失敗、`4` 外部指令失敗、`5` 使用者中止。
-
-## 參與開發
-
-```sh
-python3 -m mypy
-python3 -m pytest
-```
-
-改動分割、檔案系統、chroot、開機載入器或 binhost 信任的，另外需要一次 VM 實測：
-
-```sh
-python3 -m tests.vm.run --medium official-minimal --firmware uefi --install fixtures/vm-binpkg.toml
-python3 -m tests.vm.run --medium official-minimal --firmware uefi --install fixtures/vm-binpkg.toml --boot-installed
-```
-
-需要 `qemu-system-x86_64`、KVM、OVMF 與 `xorriso`。
+[CONTRIBUTING.md](CONTRIBUTING.md).
