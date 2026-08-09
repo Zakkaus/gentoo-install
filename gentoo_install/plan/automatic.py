@@ -57,8 +57,7 @@ class Added:
     #: name and a pool name are identifiers, so none of them is translated.
     source: str = ""
     #: Whether the installer writes this one. `grub-mkconfig` composes `root=`
-    #: and `ro` itself from the filesystem it probes, so GRUB gets neither from
-    #: us; showing them anyway is right, because the entry still carries them.
+    #: and `ro` from the filesystem it probes, so GRUB takes neither from here.
     written_here: bool = True
 
 
@@ -66,7 +65,7 @@ def kernel_parameters(config: InstallConfig) -> tuple[Added, ...]:
     """Everything the boot entry carries that the operator did not type.
 
     Split by bootloader because the three do not divide the work the same way:
-    systemd-boot reads a command line we write in full, GRUB composes `root=`
+    systemd-boot reads a command line written here in full, GRUB composes `root=`
     and `ro` in `10_linux` and takes only the rest from `/etc/default/grub`,
     and ZFSBootMenu finds the dataset itself.
     """

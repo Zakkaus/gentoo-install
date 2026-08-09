@@ -573,9 +573,6 @@ SSH: Final[tuple[Setting, ...]] = (
     Setting("unlock", "Remote unlock", _remote_unlock, screens.remote_unlock_screen),
 )
 
-#: The menu, flat and in the order it is drawn. One row per decision: nesting
-#: hides a choice behind a heading nobody opens, and `archinstall` reaches the
-#: same conclusion.
 def _journald_only(config: InstallConfig, context: Context) -> str:
     """systemd logs to journald and merges no other logger, so the row has
     nothing to offer until the init is openrc."""
@@ -613,6 +610,7 @@ NETWORK: Final[tuple[Setting, ...]] = (
     Setting("address", "Address", _address, screens.address_screen),
 )
 
+#: The menu, flat and in the order it is drawn. One row per decision.
 SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("firmware", "Firmware", _firmware, None),
     Setting("keymap", "Keyboard layout", lambda c, x: c.system.keymap, screens.keymap_screen),

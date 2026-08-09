@@ -596,8 +596,7 @@ def _configs_here() -> tuple[str, ...]:
 
     The test is whether the file holds a table this configuration has. A real
     one with a mistake inside still does, so it is offered and its error is
-    shown; a file belonging to something else has none and is not ours to
-    mention.
+    shown; a file belonging to something else holds none of them.
     """
     found: list[str] = []
     try:

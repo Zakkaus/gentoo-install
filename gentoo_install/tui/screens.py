@@ -256,7 +256,6 @@ def disk_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     # `_rebuild` reads the layout rather than the choice when the table was
     # hand-written, so leaving this behind partitioned the disk the operator
     # switched away from. The kept rows name partitions of that disk and go too.
-    # The rows name partitions of the disk that is no longer the target.
     context.layout = manual.Layout()
     # Cleared with the disk: the operator typed the name of the one they were
     # looking at, and carrying that confirmation to another unblocks the
@@ -978,7 +977,7 @@ def _edit_gentoozh(
 
 def _toggle_overlay(config: InstallConfig, name: str) -> InstallConfig:
     """Flipped where it stands. A yes/no screen over a row that already reads
-    `in use` or `not used` asks the question the row just answered."""
+    `in use` or `not used` asks what the row has answered."""
     portage = config.portage
     kept = tuple(one for one in portage.overlays if one.name != name)
     if len(kept) == len(portage.overlays):
@@ -1228,8 +1227,6 @@ def kernel_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     return Answer(Outcome.CHOSE, changed)
 
 
-#: The profile each desktop is built against. Verified against
-#: profiles.desc: a systemd variant is the same path plus /systemd.
 #: What a machine with no desktop is built against. Every other answer names
 #: its own profile in `data/profiles/<name>.toml`.
 BASE_PROFILE: Final[str] = "default/linux/amd64/23.0"
@@ -1541,10 +1538,8 @@ def packages_screen(
     screen: Screen, config: InstallConfig, context: Context
 ) -> Answer[InstallConfig]:
     translate = context.translate
-    # A desktop is chosen on its own screen, because it also decides the
-    # profile; this one offers what can be added beside any of them.
-    # A desktop, a driver and a display manager are each one choice of their
-    # own, so none of them is a row to tick here.
+    # A desktop, a driver and a display manager each decide something else as
+    # well, so each has its own screen and none is a row to tick here.
     elsewhere = (
         set(desktop_profiles(context.groups))
         | {name for name, _ in GRAPHICS}
@@ -2001,7 +1996,7 @@ def saved_config_screen(
 
     Asked rather than loaded: a file called `my-install.toml` next to the
     installer is very likely the operator's own answers from before a reboot,
-    and it is just as likely to be someone else's example. Nothing is offered
+    and as likely to be someone else's example. Nothing is offered
     when the directory holds none, so the usual run is unchanged.
     """
     translate = context.translate

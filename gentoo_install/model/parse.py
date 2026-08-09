@@ -70,8 +70,8 @@ from .size import Size
 E = TypeVar("E", bound=Enum)
 
 
-#: The tables a configuration file holds. Named here so the menu can tell one
-#: of ours from the `pyproject.toml` that happens to sit in the same directory.
+#: The tables a configuration file holds. Named here so the menu can tell a
+#: configuration from the `pyproject.toml` sitting in the same directory.
 TOP_LEVEL: Final[frozenset[str]] = frozenset(
     {"config_version", "disk", "system", "portage", "kernel", "bootloader", "packages"}
 )
