@@ -257,7 +257,7 @@ def _first_boot(config: InstallConfig, context: Context) -> str:
     if wanted.url:
         parts.append(wanted.url)
     if wanted.commands:
-        parts.append(f"{len(wanted.commands)} {context.translate('commands')}")
+        parts.append(context.translate("Commands: {count}").format(count=len(wanted.commands)))
     return ", ".join(parts)
 
 

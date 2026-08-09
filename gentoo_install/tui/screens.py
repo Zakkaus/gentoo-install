@@ -1217,7 +1217,7 @@ def keywords_screen(
                 label="~amd64",
                 value=Keywords.TESTING,
                 detail=translate(
-                    "the ~amd64 unstable channel, so fewer packages match a binary host"
+                    "the ~amd64 testing channel, so fewer packages are available from a binhost"
                 ),
             ),
         ],
@@ -2726,7 +2726,7 @@ def _edit_array_field(screen: Screen, context: Context, field: str, members: int
                     value=one,
                     disabled_because=""
                     if members >= one.minimum
-                    else f"{translate('needs at least')} {one.minimum}",
+                    else translate("needs at least {count}").format(count=one.minimum),
                 )
                 for one in RaidLevel
             ],
@@ -2801,7 +2801,7 @@ def _pool_topology(
             detail=translate("no redundancy") if one is ZfsTopology.STRIPE else "",
             disabled_because=""
             if members >= one.minimum
-            else f"{translate('needs at least')} {one.minimum}",
+            else translate("needs at least {count}").format(count=one.minimum),
         )
         for one in ZfsTopology
     ]

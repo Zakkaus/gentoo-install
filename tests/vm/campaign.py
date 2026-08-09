@@ -265,16 +265,20 @@ def main(argv: list[str] | None = None) -> int:
     done: list[Outcome] = []
     if args.only:
         done = list(parallel(named(args.only)))
+    elif args.keep_going:
+        # One pool, not one stage at a time. The stage barrier exists so a
+        # failed blocking stage can stop the rest, and `--keep-going` has
+        # already said not to: waiting for it left three of four seats idle
+        # for the half hour the desktop build takes.
+        wanted = args.stage or list(STAGES)
+        print(f"--- {', '.join(wanted)} ({sum(len(STAGES[one]) for one in wanted)} runs)")
+        done = list(parallel([run for stage in wanted for run in STAGES[stage]]))
     else:
         for stage in args.stage or list(STAGES):
             print(f"--- {stage} ({len(STAGES[stage])} runs)")
             outcomes = parallel(STAGES[stage])
             done += outcomes
-            if (
-                not args.keep_going
-                and any(not one.passed for one in outcomes)
-                and stage == "blocking"
-            ):
+            if any(not one.passed for one in outcomes) and stage == "blocking":
                 print("the blocking stage failed; the rest would prove nothing")
                 break
     return report(done)
