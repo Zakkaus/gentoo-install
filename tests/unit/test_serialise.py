@@ -125,3 +125,25 @@ def test_a_size_is_written_as_a_literal_and_not_as_a_table() -> None:
     assert 'build_in_ram = "8GiB"' in written
     assert "[system.zram]" not in written
     assert parse(tomllib.loads(written)) == held
+
+
+@pytest.mark.parametrize(
+    "said",
+    [
+        "first\nsecond",
+        "tab\there",
+        "ret\rurn",
+        "bell\x07",
+        "del\x7f",
+        'quote"and\\slash',
+        "form\ffeed",
+        "back\bspace",
+    ],
+)
+def test_a_control_character_survives_the_round_trip(said: str) -> None:
+    """The encoder escaped only backslash and quote, so a value carrying a
+    newline produced TOML that `tomllib` refused to read back."""
+    from .layouts import config
+
+    held = replace(config(), system=replace(config().system, hostname=said))
+    assert _round_trip(held).system.hostname == said

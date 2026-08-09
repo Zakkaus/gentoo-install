@@ -174,4 +174,32 @@ def _value(held: Any) -> str:
         return str(held)
     if isinstance(held, (tuple, list)):
         return "[" + ", ".join(_value(one) for one in held) + "]"
-    return '"' + str(held).replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return _quoted(str(held))
+
+
+#: The escapes a TOML basic string defines by name. Everything else below
+#: U+0020 takes the \\uXXXX form: a bare control character makes the file
+#: unparsable, and a hostname carrying a newline produced one.
+_ESCAPES: Final[dict[str, str]] = {
+    "\\": "\\\\",
+    '"': '\\"',
+    "\b": "\\b",
+    "\t": "\\t",
+    "\n": "\\n",
+    "\f": "\\f",
+    "\r": "\\r",
+}
+
+
+def _quoted(said: str) -> str:
+    out = ['"']
+    for char in said:
+        named = _ESCAPES.get(char)
+        if named is not None:
+            out.append(named)
+        elif char < "\u0020" or char == "\u007f":
+            out.append(f"\\u{ord(char):04X}")
+        else:
+            out.append(char)
+    out.append('"')
+    return "".join(out)
