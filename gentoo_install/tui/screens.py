@@ -1405,7 +1405,7 @@ GRAPHICS: tuple[tuple[str, str], ...] = (
 DISPLAY_MANAGERS: tuple[tuple[str, str], ...] = (
     ("", "a text console login"),
     ("sddm", "the one Plasma expects"),
-    ("gdm", "the one GNOME expects"),
+    ("gdm", "the one GNOME expects, and it installs gnome-shell whatever you run"),
     ("lightdm", "the one Xfce expects"),
     ("greetd", "a console greeter"),
 )

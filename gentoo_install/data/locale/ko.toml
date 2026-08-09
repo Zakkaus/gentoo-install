@@ -175,7 +175,7 @@
 "virtio-gpu, QXL and VMware, with fbdev left as the fallback" = "virtio-gpu, QXL, VMware. 대체 수단으로 fbdev 를 남깁니다"
 "a text console login" = "텍스트 콘솔 로그인"
 "the one Plasma expects" = "Plasma 가 기대하는 것"
-"the one GNOME expects" = "GNOME 이 기대하는 것"
+"the one GNOME expects, and it installs gnome-shell whatever you run" = "GNOME 가 기대하는 것. 무엇을 쓰든 gnome-shell 을 설치합니다"
 "the one Xfce expects" = "Xfce 가 기대하는 것"
 "a console greeter" = "콘솔 그리터"
 

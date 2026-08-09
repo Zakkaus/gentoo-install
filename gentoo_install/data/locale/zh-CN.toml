@@ -175,7 +175,7 @@
 "virtio-gpu, QXL and VMware, with fbdev left as the fallback" = "virtio-gpu、QXL 与 VMware，保留 fbdev 作为退路"
 "a text console login" = "文本控制台登录"
 "the one Plasma expects" = "Plasma 默认搭配"
-"the one GNOME expects" = "GNOME 默认搭配"
+"the one GNOME expects, and it installs gnome-shell whatever you run" = "GNOME 用的那一个，而且不管你跑什么都会装 gnome-shell"
 "the one Xfce expects" = "Xfce 默认搭配"
 "a console greeter" = "控制台上的显示管理器"
 
