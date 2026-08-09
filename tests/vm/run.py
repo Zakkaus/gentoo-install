@@ -57,7 +57,12 @@ RESULT_DIR = "/run/vm-result"
 #: emergency shell, so each of these decides the exit code.
 #: Where a kernel image lives depends on the layout the bootloader wants, so
 #: the pattern comes from the configuration in `_from_config`.
-EXPECTED: tuple[tuple[str, str], ...] = ()
+EXPECTED: tuple[tuple[str, str], ...] = (
+    # A run once left /etc/resolv.conf pointing at a socket that only exists
+    # once the system is up, which took DNS away from every emerge after it.
+    ("resolver", r"^RESOLVCONF-OK$"),
+    ("portage", r"^EMERGE-OK$"),
+)
 
 #: What a system installed by this installer has to be able to answer.
 INSTALLED = (
@@ -76,6 +81,18 @@ INSTALLED = (
         "uname -r; find /boot -maxdepth 4 -type f "
         r"\( -name 'vmlinuz*' -o -name 'kernel-*' -o -name linux -o -name '*.conf' \) | sort",
     ),
+    # `test -s` rather than a name lookup: a dangling symlink is the defect
+    # this catches, and live DNS in a guest is not something to make a verdict
+    # depend on. The lookup is collected beside it for the report.
+    (
+        "resolver",
+        "readlink -f /etc/resolv.conf; "
+        "test -s /etc/resolv.conf && echo RESOLVCONF-OK || echo RESOLVCONF-EMPTY; "
+        "getent hosts gentoo.org >/dev/null 2>&1 && echo RESOLVES || echo NORESOLVE",
+    ),
+    # Needs no network, and fails outright on a profile the tree cannot read:
+    # the first thing to break if a profile is changed and @world never rebuilt.
+    ("portage", "emerge --info >/dev/null 2>&1 && echo EMERGE-OK || echo EMERGE-FAIL"),
 )
 
 #: Asking systemd's questions of an openrc system gets "command not found",
