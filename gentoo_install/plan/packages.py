@@ -489,17 +489,6 @@ def _check_repositories(config: InstallConfig, catalog: Catalog) -> None:
             )
 
 
-def required_repositories(config: InstallConfig, catalog: Catalog) -> tuple[str, ...]:
-    """What the selected groups need, so the interface can say so before the
-    user commits instead of failing at emerge time."""
-    wanted: list[str] = []
-    for group in groups(config, catalog):
-        for repository in group.repositories:
-            if repository not in wanted:
-                wanted.append(repository)
-    return tuple(wanted)
-
-
 def required_user_groups(config: InstallConfig, catalog: Catalog) -> tuple[str, ...]:
     """Groups a chosen package group needs the account to be in.
 
