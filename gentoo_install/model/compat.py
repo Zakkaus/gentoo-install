@@ -45,7 +45,14 @@ _BOOT = PurePosixPath("/boot")
 _ROOT = PurePosixPath("/")
 _USR = PurePosixPath("/usr")
 #: Where an esp is mounted in the target, in the order the installer prefers.
-_ESP_PATHS = (PurePosixPath("/efi"), PurePosixPath("/boot"))
+#: Where an esp is mounted, in the order the handbook and the installers use.
+#: `/boot/efi` is what `calamares-settings-gig` mounts, so a layout the GUI
+#: installer produces has to be one this validator accepts.
+_ESP_PATHS = (
+    PurePosixPath("/efi"),
+    PurePosixPath("/boot"),
+    PurePosixPath("/boot/efi"),
+)
 
 
 class Trait(Enum):
@@ -60,6 +67,7 @@ class Trait(Enum):
     UEFI_BOOT = "UEFI boot"
     BIOS_BOOT = "BIOS boot"
     NO_MOUNTED_ESP = "no mounted esp"
+    ESP_ENCRYPTED = "an encrypted esp"
     KERNEL_OFF_ESP = "kernel and initramfs off the esp"
     ESP_ON_MDRAID = "esp on mdraid"
     ESP_MDRAID_SUPERBLOCK_AT_START = "mdraid metadata 1.1 or 1.2 under the esp"
@@ -103,6 +111,12 @@ RULES: tuple[Rule, ...] = (
         Trait.UEFI_BOOT,
         Trait.NO_MOUNTED_ESP,
         "an EFI executable has to live on a vfat esp mounted in the target",
+    ),
+    Rule(
+        Trait.UEFI_BOOT,
+        Trait.ESP_ENCRYPTED,
+        "firmware reads the esp itself and cannot open a LUKS container, so an "
+        "encrypted one never boots",
     ),
     Rule(Trait.SYSTEMD_BOOT, Trait.BIOS_BOOT, "systemd-boot has no BIOS implementation"),
     Rule(
@@ -187,6 +201,8 @@ def traits_of(config: InstallConfig) -> frozenset[Trait]:
 
     if esp_mount(graph) is None:
         found.add(Trait.NO_MOUNTED_ESP)
+    if _encrypted_esp(graph):
+        found.add(Trait.ESP_ENCRYPTED)
     boot = _covering_mount(graph, _BOOT)
     if boot is None or not _on_esp(graph, boot.id):
         found.add(Trait.KERNEL_OFF_ESP)
@@ -277,6 +293,20 @@ def esp_mount(graph: DeviceGraph) -> Mountpoint | None:
             if mount.path == path and _on_esp(graph, mount.id):
                 return mount
     return None
+
+
+def _encrypted_esp(graph: DeviceGraph) -> bool:
+    """Whether a container sits between the firmware and the esp.
+
+    Checked at every esp path rather than through `esp_mount`, because an
+    encrypted one is the case where that returns nothing and the operator is
+    told the esp is missing instead of that it cannot be read.
+    """
+    return any(
+        mount.path in _ESP_PATHS
+        and any(isinstance(node, Luks) for node in _chain(graph, mount.id))
+        for mount in graph.of_type(Mountpoint)
+    )
 
 
 def _encrypted_pool(graph: DeviceGraph, root: DeviceId) -> bool:

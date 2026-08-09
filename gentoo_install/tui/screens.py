@@ -2778,6 +2778,14 @@ def _slice_fields(
             label=translate("Encryption"),
             value=_ENCRYPTION,
             detail=translate("on") if entry.passphrase_file else translate("off"),
+            # Refused here rather than at the Install row: firmware reads the
+            # esp itself and cannot open a container, so the layout never boots
+            # and there is no reason to let it be built one partition at a time.
+            disabled_because=(
+                translate("firmware cannot open a container to read the esp")
+                if purpose.role is PartitionRole.ESP
+                else ""
+            ),
         ),
         Item(
             label=translate("What happens to it"),

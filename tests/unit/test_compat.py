@@ -6,7 +6,7 @@ from typing import Callable
 
 import pytest
 
-from gentoo_install.model.compat import RULES, Trait, excluded_by, traits_of, violations
+from gentoo_install.model.compat import RULES, Trait, esp_mount, excluded_by, traits_of, violations
 from gentoo_install.model.config import (
     Binhost,
     BinhostChannel,
@@ -65,6 +65,20 @@ def zfs_over_luks() -> InstallConfig:
 
 def uefi_without_an_esp() -> InstallConfig:
     return config([node for node in ext4_on_gpt() if node.id != i("mnt-esp")])
+
+
+def an_encrypted_esp() -> InstallConfig:
+    """A LUKS container between the firmware and the esp. The operator can
+    build it a partition at a time, and nothing about it ever boots."""
+    from gentoo_install.model.device import Luks
+
+    nodes = [node for node in ext4_on_gpt() if node.id not in (i("espfs"), i("mnt-esp"))]
+    nodes += [
+        Luks(id=i("espcrypt"), backing=i("esp"), name="esp"),
+        Filesystem(id=i("espfs"), device=i("espcrypt"), kind=FilesystemType.VFAT, label="ESP"),
+        Mountpoint(id=i("mnt-esp"), source=i("espfs"), path=PurePosixPath("/efi")),
+    ]
+    return config(nodes)
 
 
 def systemd_boot_on_bios() -> InstallConfig:
@@ -166,6 +180,7 @@ CASES: list[tuple[Callable[[], InstallConfig], Trait, Trait]] = [
     (zfs_on_bios, Trait.ROOT_ON_ZFS, Trait.BIOS_BOOT),
     (zfs_over_luks, Trait.ROOT_ON_ZFS, Trait.LUKS),
     (uefi_without_an_esp, Trait.UEFI_BOOT, Trait.NO_MOUNTED_ESP),
+    (an_encrypted_esp, Trait.UEFI_BOOT, Trait.ESP_ENCRYPTED),
     (systemd_boot_on_bios, Trait.SYSTEMD_BOOT, Trait.BIOS_BOOT),
     (systemd_boot_with_the_kernel_on_ext4, Trait.SYSTEMD_BOOT, Trait.KERNEL_OFF_ESP),
     (esp_on_a_mirror, Trait.ESP_ON_MDRAID, Trait.ESP_MDRAID_SUPERBLOCK_AT_START),
@@ -257,3 +272,38 @@ def test_an_mbr_boot_disk_needs_no_bios_boot_partition() -> None:
 def test_a_root_id_no_node_defines_yields_no_trait_rather_than_raising() -> None:
     broken = replace(config(), disk=replace(config().disk, root=i("absent")))
     assert Trait.ROOT_ON_ZFS not in traits_of(broken)
+
+
+def test_an_esp_at_boot_efi_is_a_layout_this_installer_accepts() -> None:
+    """`calamares-settings-gig` mounts it there, and the GUI installer's
+    layouts are the parity bar. Only `/efi` and `/boot` were accepted, so a
+    layout the operator can build a partition at a time was refused with
+    `an EFI executable has to live on a vfat esp mounted in the target`."""
+    nodes = [node for node in ext4_on_gpt() if node.id != i("mnt-esp")]
+    nodes.append(
+        Mountpoint(id=i("mnt-esp"), source=i("espfs"), path=PurePosixPath("/boot/efi"))
+    )
+    there = config(nodes)
+    assert violations(there) == ()
+    mount = esp_mount(there.disk.graph)
+    assert mount is not None and str(mount.path) == "/boot/efi"
+
+
+def test_the_bootloader_is_installed_where_the_esp_is_actually_mounted() -> None:
+    """Accepting the path is not the same as using it: `grub-install` takes an
+    `--efi-directory`, and a hardcoded one writes the executable somewhere the
+    firmware does not read."""
+    from tests.unit.recorder import Recorder
+
+    from gentoo_install.plan import bootloader as plan_bootloader
+
+    nodes = [node for node in ext4_on_gpt() if node.id != i("mnt-esp")]
+    nodes.append(
+        Mountpoint(id=i("mnt-esp"), source=i("espfs"), path=PurePosixPath("/boot/efi"))
+    )
+    recorder = Recorder()
+    for operation in plan_bootloader.build(config(nodes)):
+        operation.apply(recorder)
+    installed = [one for one in recorder.in_target if one and one[0] == "grub-install"]
+    assert installed, recorder.in_target
+    assert all("--efi-directory=/boot/efi" in one for one in installed), installed

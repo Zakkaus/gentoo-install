@@ -392,3 +392,5 @@
 "cjktty ships CJK glyphs for 8x16 and 16x32 only" = "cjktty 가 제공하는 CJK 글리프는 8x16 과 16x32 뿐입니다"
 "sys-boot/zfsbootmenu is in that overlay and in no other repository, so the emerge fails once the disks have already been partitioned" = "sys-boot/zfsbootmenu 은 그 overlay 에만 있어 디스크를 나눈 뒤에 emerge 가 실패합니다"
 "the key its packages are signed with comes from that overlay, and without it nothing from the host verifies" = "패키지 서명 키가 그 overlay 에서 오므로 없으면 호스트의 어떤 것도 검증되지 않습니다"
+"firmware cannot open a container to read the esp" = "펌웨어는 esp 를 읽을 때 컨테이너를 열 수 없습니다"
+"firmware reads the esp itself and cannot open a LUKS container, so an encrypted one never boots" = "펌웨어는 esp 를 직접 읽으며 LUKS 컨테이너를 열 수 없으므로 암호화된 esp 는 부팅되지 않습니다"
