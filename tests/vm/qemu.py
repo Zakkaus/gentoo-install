@@ -31,7 +31,10 @@ class VmSpec:
     workdir: Path
     firmware: Firmware = Firmware.UEFI
     memory: str = "8G"
-    cpus: int = 4
+    #: MAKEOPTS in the guest is derived from this, so it decides how fast the
+    #: packages a fixture compiles are built. Five leaves 32 threads covering
+    #: six guests at once.
+    cpus: int = 5
     ssh_port: int = 2222
     disks: tuple[Path, ...] = ()
     #: Built from the working tree each run and mounted as the second CD.

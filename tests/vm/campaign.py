@@ -23,9 +23,10 @@ from typing import Final, Sequence
 WORKROOT: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/runs"
 LOGS: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/campaign"
 
-#: Four at 8 GiB each, beside a workstation already holding seventeen. Six
-#: starts using swap, and a swapping VM times out rather than failing.
-WORKERS: Final[int] = 4
+#: Measured rather than assumed: a guest given 8 GiB sits at about 6 GiB
+#: resident, so six of them is 36 GiB of the 60 this machine has. Raising it
+#: further would swap, and a swapping guest times out rather than failing.
+WORKERS: Final[int] = 6
 
 #: Long enough for a desktop install from source. The harness has its own
 #: per-step timeouts; this only stops a run that wedged entirely.
