@@ -709,3 +709,65 @@ def test_a_tool_that_builds_no_module_is_installed_before_the_kernel() -> None:
     tool = next(at for at, one in enumerate(described) if "sys-fs/cryptsetup" in one)
     installed = next(at for at, one in enumerate(described) if one.startswith("install the kernel"))
     assert tool < installed
+
+
+def test_a_kernel_with_no_modules_is_deleted_and_nothing_else_is() -> None:
+    """`sys-fs/zfs` reinstalls the initramfs from its own postinst under a
+    version it reads off /usr/src/linux, which is `-gentoo-dist` where the
+    prebuilt kernel is `-gentoo-dist-bin`, so a second image appears under a
+    name that cannot boot. generate-zbm then refuses every kernel it sees."""
+    recorder = Recorder()
+    recorder.replies["ls"] = ""
+    kept = "6.18.41-gentoo-dist-bin"
+    stray = "6.18.41-gentoo-dist"
+
+    def listing(argv: object, **rest: object) -> str:
+        wanted = list(argv)  # type: ignore[call-overload]
+        if wanted[-1] == "/lib/modules":
+            return f"{kept}\n"
+        return "\n".join(
+            (
+                f"kernel-{kept}",
+                f"initramfs-{kept}.img",
+                f"System.map-{kept}",
+                f"kernel-{stray}",
+                f"initramfs-{stray}.img",
+                "grub",
+                "efi",
+                "amd-uc.img",
+            )
+        )
+
+    recorder.run_in_target = listing  # type: ignore[method-assign]
+    removed: list[tuple[str, ...]] = []
+    real = listing
+
+    def watched(argv: object, **rest: object) -> str:
+        wanted = tuple(str(one) for one in argv)  # type: ignore[call-overload]
+        if wanted[0] == "rm":
+            removed.append(wanted)
+            return ""
+        return real(argv, **rest)
+
+    recorder.run_in_target = watched  # type: ignore[method-assign]
+    kernel.RemoveUnbootableKernels().apply(recorder)
+    assert [one[-1] for one in removed] == [
+        f"/boot/kernel-{stray}",
+        f"/boot/initramfs-{stray}.img",
+    ]
+
+
+def test_nothing_is_deleted_when_no_modules_directory_can_be_read() -> None:
+    """Deleting on no evidence is worse than leaving an image that may be the
+    only one there is."""
+    recorder = Recorder()
+    calls: list[tuple[str, ...]] = []
+
+    def answering(argv: object, **rest: object) -> str:
+        wanted = tuple(str(one) for one in argv)  # type: ignore[call-overload]
+        calls.append(wanted)
+        return "kernel-6.18.41-gentoo-dist\n" if wanted[-1] == "/boot" else ""
+
+    recorder.run_in_target = answering  # type: ignore[method-assign]
+    kernel.RemoveUnbootableKernels().apply(recorder)
+    assert not any(one[0] == "rm" for one in calls)

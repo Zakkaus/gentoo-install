@@ -58,6 +58,7 @@
   install the storage tools: emerge sys-fs/dosfstools sys-fs/xfsprogs
   install the kernel: emerge sys-kernel/gentoo-kernel-bin
   rebuild the initramfs from sys-kernel/gentoo-kernel-bin with the modules written above
+  delete any kernel image in /boot that has no modules directory
 
 [bootloader]
   install the bootloader: emerge sys-boot/grub sys-boot/efibootmgr

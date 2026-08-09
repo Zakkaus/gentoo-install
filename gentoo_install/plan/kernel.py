@@ -60,6 +60,22 @@ REMOTE_UNLOCK_MODULES: Final[tuple[str, ...]] = ("crypt-ssh", "network")
 #: Both take the `cjk` flag and both are keyworded `~amd64` in gentoo-zh.
 CJK_KERNELS: Final[tuple[KernelSource, ...]] = (KernelSource.CJK_BIN, KernelSource.CJK)
 
+#: Where installkernel's default layout puts the images, and how each name is
+#: built: a prefix, the kernel version, a suffix. The bls layout systemd-boot
+#: uses is a directory per entry instead, so nothing there matches and nothing
+#: there is touched.
+KERNEL_IMAGES: Final[str] = "/boot"
+IMAGE_NAMES: Final[tuple[tuple[str, str], ...]] = (
+    ("kernel-", ""),
+    ("vmlinuz-", ""),
+    ("initramfs-", ".img"),
+    ("System.map-", ""),
+    ("config-", ""),
+)
+
+#: One directory per kernel that can actually load a driver.
+MODULE_DIRECTORY: Final[str] = "/lib/modules"
+
 #: The cjk USE flag of the patched kernels, which merges the
 #: patch's own `cjk.config`. It is on by default, so only turning it off has
 #: to be written.
@@ -370,6 +386,51 @@ class RebuildInitramfs(Operation):
         context.run_in_target(["emerge", "--config", self.package])
 
 
+def _version_in(name: str) -> str | None:
+    """The kernel version a file in /boot is named for, or None for a name
+    this does not recognise. Unrecognised is left alone: /boot holds the
+    bootloader's own files and they are nobody's to delete."""
+    for prefix, suffix in IMAGE_NAMES:
+        if name.startswith(prefix) and name.endswith(suffix):
+            return name[len(prefix) : len(name) - len(suffix) or None]
+    return None
+
+
+@dataclass(frozen=True, kw_only=True)
+class RemoveUnbootableKernels(Operation):
+    """Delete a kernel image in /boot that has no modules to go with it.
+
+    `sys-fs/zfs` reinstalls the initramfs from its own postinst, and the
+    version it computes off `/usr/src/linux` is `-gentoo-dist` where the
+    prebuilt kernel is `-gentoo-dist-bin`, so kernel-install copies the image
+    a second time under the wrong name. `generate-zbm` then refuses every
+    kernel it can see -- "ignoring inconsistent versions" -- and GRUB would
+    have offered the operator an entry that cannot boot.
+
+    A modules directory is the authority: an image whose version has none
+    loads no driver and reaches no root.
+    """
+
+    stage: Stage = Stage.KERNEL
+
+    def describe(self) -> str:
+        return "delete any kernel image in /boot that has no modules directory"
+
+    def apply(self, context: Context) -> None:
+        listed = context.run_in_target(["ls", "-1", KERNEL_IMAGES], check=False)
+        known = context.run_in_target(["ls", "-1", MODULE_DIRECTORY], check=False)
+        versions = {line.strip() for line in known.splitlines() if line.strip()}
+        if not versions:
+            # Nothing to compare against: deleting on no evidence is worse
+            # than leaving an image that may be the only one.
+            return
+        for name in (line.strip() for line in listed.splitlines()):
+            version = _version_in(name)
+            if version is None or version in versions:
+                continue
+            context.run_in_target(["rm", "--force", f"{KERNEL_IMAGES}/{name}"])
+
+
 @dataclass(frozen=True, kw_only=True)
 class RequestDistKernelModules(Operation):
     """An out-of-tree module builds against `/usr/src/linux` unless it is told
@@ -517,6 +578,7 @@ def build(config: InstallConfig) -> list[Operation]:
             )
         )
     operations.append(RebuildInitramfs(package=package))
+    operations.append(RemoveUnbootableKernels())
     return operations
 
 

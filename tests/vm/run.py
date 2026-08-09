@@ -31,7 +31,9 @@ from gentoo_install.model.device import (
     ZfsDataset,
     ZfsPool,
 )
+from gentoo_install.model.config import Networking
 from gentoo_install.model.parse import load
+from gentoo_install.plan.system import _network_service as network_service
 
 from .console import PASSWORD_PROMPT, SerialConsole
 from .driver import REPOSITORY, build as build_driver
@@ -550,8 +552,11 @@ def _from_config(config: Path) -> list[tuple[str, str]]:
         expected = [("hostname", f"^{name}$")]
     else:
         expected = [("hostname", f'hostname="{name}"')]
-    network = "systemd-networkd" if installation.system.init is InitSystem.SYSTEMD else "dhcpcd"
-    expected.append(("units", re.escape(network)))
+    # From the same function the plan enables, not guessed from the init: a
+    # desktop brings NetworkManager and the init's own manager stays off, so
+    # asserting `systemd-networkd` failed a system that was correct.
+    if installation.system.networking is not Networking.NONE:
+        expected.append(("units", re.escape(network_service(installation.system))))
     if installation.bootloader.kind is Bootloader.SYSTEMD_BOOT:
         # bls: /boot/<entry-token>/<version>/linux, with an entry naming it.
         expected += [
