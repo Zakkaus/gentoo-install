@@ -21,6 +21,7 @@ KEYS: Final[frozenset[str]] = frozenset(
         "input_method", "schemas", "wayland", "package_use", "accept_license",
         "display_manager", "profile", "input_framework", "input_method_launcher",
         "wayland_files", "user_groups", "user_services", "accept_keywords",
+        "systemd_services",
     }
 )
 
@@ -53,6 +54,7 @@ def _load(path: Path) -> Group:
         name=path.stem,
         packages=_strings(raw, "packages", path),
         services=_strings(raw, "services", path),
+        systemd_services=_strings(raw, "systemd_services", path),
         use=_strings(raw, "use", path),
         repositories=_strings(raw, "repositories", path),
         video_cards=_strings(raw, "video_cards", path),

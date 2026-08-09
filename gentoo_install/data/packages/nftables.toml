@@ -1,2 +1,6 @@
+# The ebuild installs `nftables-load.service` and an OpenRC init script named
+# `nftables`. No `nftables.service` exists, so enabling that name under systemd
+# fails after the package is already merged.
 packages = ["net-firewall/nftables"]
 services = ["nftables"]
+systemd_services = ["nftables-load"]

@@ -38,6 +38,10 @@ class Group:
     name: str
     packages: tuple[str, ...] = ()
     services: tuple[str, ...] = ()
+    #: Services under systemd, when the two inits name them differently. The
+    #: nftables ebuild installs `nftables-load.service` and an OpenRC init
+    #: called `nftables`, and no `nftables.service` exists at all.
+    systemd_services: tuple[str, ...] = ()
     use: tuple[str, ...] = ()
     #: Repositories the packages come from. Selecting the group is what asks for
     #: them; an overlay is never added behind the user's back.
@@ -499,7 +503,12 @@ def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
             operations += _display_manager(
                 group.display_manager, group.packages, config.system.init
             )
-        for service in group.services:
+        named = (
+            group.systemd_services
+            if group.systemd_services and config.system.init is InitSystem.SYSTEMD
+            else group.services
+        )
+        for service in named:
             # In this stage, not the system one: the unit does not exist until
             # the package that ships it is merged.
             operations.append(

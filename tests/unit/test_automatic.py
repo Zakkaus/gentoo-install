@@ -1053,3 +1053,24 @@ def test_pipewire_is_started_on_systemd_and_left_to_openrc() -> None:
                 "wireplumber.service",
             )
         ]
+
+
+def test_a_group_whose_two_inits_name_a_service_differently_says_both() -> None:
+    """The nftables ebuild installs `nftables-load.service` and an OpenRC init
+    named `nftables`, and no `nftables.service` exists: enabling that name
+    under systemd failed after the package was already merged."""
+    from dataclasses import replace
+
+    from gentoo_install.model.config import InitSystem
+    from gentoo_install.plan.packages import build as build_packages
+
+    catalog = load_catalog()
+    wanted = {InitSystem.OPENRC: "enable nftables ", InitSystem.SYSTEMD: "enable nftables-load "}
+    for init, said in wanted.items():
+        installation = replace(
+            config(ext4_on_gpt()),
+            system=replace(config().system, init=init),
+            packages=replace(config().packages, applications=("nftables",)),
+        )
+        described = [one.describe() for one in build_packages(installation, catalog)]
+        assert any(one.startswith(said) for one in described), (init, described)
