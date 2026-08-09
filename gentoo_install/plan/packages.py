@@ -581,10 +581,16 @@ SEAT_FLAG: Final[dict[InitSystem, str]] = {
 }
 
 
+#: Display managers whose `REQUIRED_USE` is `^^ ( elogind systemd )`. Read from
+#: their ebuilds: `gui-libs/greetd` has `IUSE="selinux"` and nothing else, so a
+#: seat flag written for it is a line Portage warns about and drops.
+SEAT_FLAG_WANTED: Final[frozenset[str]] = frozenset({"sddm", "gdm", "lightdm"})
+
+
 def _seat_flag(name: str, packages: Sequence[str], init: InitSystem) -> list[Operation]:
-    """The one atom of the group that is the manager itself takes the flag; a
-    greeter that has no such flag would be a package.use line Portage warns
-    about and ignores."""
+    """The one atom of the group that is the manager itself takes the flag."""
+    if name not in SEAT_FLAG_WANTED:
+        return []
     atom = next((one for one in packages if one.rsplit("/", 1)[-1] == name), "")
     if not atom:
         return []
@@ -660,7 +666,9 @@ def _input_method(config: InstallConfig, catalog: Catalog) -> list[Operation]:
         )
     if wayland:
         for group in chosen:
-            if group.input_method_launcher:
+            # The launcher names fcitx's own desktop entry, so a session that
+            # chose ibus was telling KWin to exec a file no package installed.
+            if group.input_method_launcher and framework == "fcitx":
                 operations.append(
                     ConfigureKwinInputMethod(launcher=group.input_method_launcher)
                 )

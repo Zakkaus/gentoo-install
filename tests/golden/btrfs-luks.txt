@@ -43,7 +43,7 @@
   import 38A0234EC16AD42E from /usr/share/openpgp-keys/gentoozh.asc and locally sign it for gentoo-zh
   add verified binary package host gentoo-zh at https://distfiles.gentoozh.org/binpkgs/x86-64
   ask for sys-apps/systemd[cryptsetup], which provides the unlock generator
-  ask for app-i18n/fcitx-configtool kcm for the fcitx5 group
+  ask for app-i18n/fcitx-configtool kcm for the plasma group
   ask for app-i18n/rime-data extra for the rime-simplified group
 
 [system]

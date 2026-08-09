@@ -811,3 +811,65 @@ def test_password_login_does_not_let_root_in_by_itself() -> None:
     written = recorder.files[PurePosixPath("/etc/ssh/sshd_config.d/50-gentoo-install.conf")]
     assert "PermitRootLogin no" in written
     assert "PasswordAuthentication yes" in written
+
+
+def test_the_kcm_flag_follows_plasma_and_not_the_input_method() -> None:
+    """`app-i18n/fcitx-configtool[kcm]` pulls nine kde-frameworks packages and
+    libplasma. Declared by the fcitx5 group it installed Plasma beside GNOME;
+    declared by plasma it reaches the package only where those already are."""
+    from gentoo_install.plan.packages import build as build_packages
+
+    catalog = load_catalog()
+    for desktop, wanted in (("gnome", False), ("plasma", True)):
+        installation = replace(
+            config(ext4_on_gpt()),
+            packages=replace(
+                config().packages, desktop=desktop, applications=("fcitx5", "rime")
+            ),
+        )
+        written = [
+            line
+            for one in build_packages(installation, catalog)
+            for line in getattr(one, "lines", ())
+        ]
+        assert any("fcitx-configtool kcm" in one for one in written) is wanted, desktop
+
+
+def test_kwin_is_not_pointed_at_a_launcher_ibus_never_installs() -> None:
+    """The launcher is fcitx's own desktop entry, so Plasma with ibus told KWin
+    to exec a file no package puts on disk."""
+    from gentoo_install.plan.packages import ConfigureKwinInputMethod
+    from gentoo_install.plan.packages import build as build_packages
+
+    catalog = load_catalog()
+    for engine, wanted in (("fcitx5", True), ("ibus", False)):
+        installation = replace(
+            config(ext4_on_gpt()),
+            packages=replace(
+                config().packages, desktop="plasma", applications=(engine, "rime")
+                if engine == "fcitx5"
+                else (engine,),
+            ),
+        )
+        built = build_packages(installation, catalog)
+        told = any(isinstance(one, ConfigureKwinInputMethod) for one in built)
+        assert told is wanted, engine
+
+
+def test_a_greeter_with_no_seat_flag_is_not_handed_one() -> None:
+    """`gui-libs/greetd` has `IUSE="selinux"`, so the line was one Portage warns
+    about and drops."""
+    from gentoo_install.plan.packages import build as build_packages
+
+    catalog = load_catalog()
+    for manager, wanted in (("sddm", True), ("greetd", False)):
+        installation = replace(
+            config(ext4_on_gpt()),
+            packages=replace(config().packages, desktop="plasma", display_manager=manager),
+        )
+        written = [
+            line
+            for one in build_packages(installation, catalog)
+            for line in getattr(one, "lines", ())
+        ]
+        assert any("elogind" in one or "systemd" in one for one in written) is wanted, manager
