@@ -164,3 +164,44 @@ def test_every_configuration_the_campaign_runs_reaches_the_serial_port() -> None
             assert any(one.startswith("console=ttyS0") for one in params), (
                 f"{stage}: {run.config}"
             )
+
+
+def test_replacing_an_iso_at_the_same_path_re_extracts_it(tmp_path: Path) -> None:
+    """A rolling release keeps its filename, so keying the cache by name left
+    the previous kernel in place and the campaign reported a new matrix while
+    booting the old medium."""
+    import tests.vm.media as media
+
+    extracted: list[Path] = []
+
+    def fake_extract(iso: Path, files: dict[str, Path]) -> None:
+        extracted.append(iso)
+        for target in files.values():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(iso.read_bytes())
+
+    iso = tmp_path / "rolling.iso"
+    iso.write_bytes(b"the first build")
+    medium = media.Medium(
+        name="rolling",
+        iso=iso,
+        volume_label="rolling",
+        kernel_in_iso="/boot/kernel",
+        initrd_in_iso="/boot/initrd",
+        root_prompt="# ",
+    )
+    original_cache, original_extract = media.CACHE, media._extract
+    media.CACHE = tmp_path / "cache"
+    media._extract = fake_extract
+    try:
+        kernel, _ = medium.boot_files()
+        assert kernel.read_bytes() == b"the first build"
+        medium.boot_files()
+        assert len(extracted) == 1, "an unchanged ISO was extracted twice"
+
+        iso.write_bytes(b"the second build entirely")
+        kernel, _ = medium.boot_files()
+        assert len(extracted) == 2, "a replaced ISO was served from the cache"
+        assert kernel.read_bytes() == b"the second build entirely"
+    finally:
+        media.CACHE, media._extract = original_cache, original_extract

@@ -426,6 +426,9 @@ def main(argv: list[str] | None = None) -> int:
     workdir = WORKROOT / f"{medium.name}-{args.firmware}-{variant}"
     workdir.mkdir(parents=True, exist_ok=True)
     print(f"installer revision: {_revision()}", flush=True)
+    # The medium too: a rolling release keeps its filename, so a result
+    # that names only the medium does not say which build it booted.
+    print(f"medium: {medium.name} {medium.source_stamp()[:16]}", flush=True)
     try:
         held = claim(workdir)
     except RunInProgress as error:

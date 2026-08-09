@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -46,16 +47,55 @@ class Medium:
         return " ".join((*base, "console=ttyS0,115200", *self.extra_cmdline))
 
     def boot_files(self) -> tuple[Path, Path]:
+        """The kernel and initrd of this medium, extracted once and cached.
+
+        Keyed by content, not by filename: a rolling release keeps its name, so
+        replacing `opensuse-tumbleweed-rescue.iso` left the previous kernel and
+        initramfs in the cache and the campaign reported a new matrix while
+        booting the old medium.
+        """
         if not self.iso.is_file():
             raise MediaError(f"{self.iso} does not exist")
-        # Keyed by ISO filename so a new build never boots the previous extraction.
         target = CACHE / self.name / self.iso.stem
         kernel = target / "kernel"
         initrd = target / "initrd"
-        if not (kernel.is_file() and initrd.is_file()):
+        stamp = target / "source"
+        wanted = self.source_stamp()
+        if not (kernel.is_file() and initrd.is_file()) or _read(stamp) != wanted:
             target.mkdir(parents=True, exist_ok=True)
+            stamp.unlink(missing_ok=True)
             _extract(self.iso, {self.kernel_in_iso: kernel, self.initrd_in_iso: initrd})
+            stamp.write_text(wanted)
         return kernel, initrd
+
+    def source_stamp(self) -> str:
+        """What identifies the ISO's content, for the cache and for the record
+        a campaign result carries. The digest is what actually decides; size and
+        mtime only keep a gigabyte from being hashed on every run."""
+        state = self.iso.stat()
+        quick = CACHE / self.name / f"{self.iso.stem}.quick"
+        seen = _read(quick).split()
+        if len(seen) == 3 and seen[0] == str(state.st_size) and seen[1] == str(state.st_mtime_ns):
+            return seen[2]
+        digest = _sha256(self.iso)
+        quick.parent.mkdir(parents=True, exist_ok=True)
+        quick.write_text(f"{state.st_size} {state.st_mtime_ns} {digest}")
+        return digest
+
+
+def _read(path: Path) -> str:
+    try:
+        return path.read_text().strip()
+    except OSError:
+        return ""
+
+
+def _sha256(path: Path) -> str:
+    reader = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            reader.update(block)
+    return reader.hexdigest()
 
 
 def _extract(iso: Path, files: dict[str, Path]) -> None:
