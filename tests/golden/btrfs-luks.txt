@@ -72,12 +72,12 @@
   set sys-kernel/installkernel to dracut
   install the hook that puts a kernel in /boot: emerge sys-kernel/installkernel
   rebuild systemd with the unlock generator: emerge sys-apps/systemd, from source
-  tell dracut to carry crypt, btrfs
   accept the linux-firmware licence
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
   accept sys-kernel/gentoo-cjk-kernel as testing, with cjk off
-  install the kernel: emerge sys-kernel/gentoo-cjk-kernel, from source
   install the storage tools: emerge sys-fs/cryptsetup sys-fs/btrfs-progs sys-fs/dosfstools
+  install the kernel: emerge sys-kernel/gentoo-cjk-kernel, from source
+  tell dracut to carry crypt, btrfs
   rebuild the initramfs from sys-kernel/gentoo-cjk-kernel with the modules written above
 
 [bootloader]

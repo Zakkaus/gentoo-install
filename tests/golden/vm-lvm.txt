@@ -61,12 +61,12 @@
 [kernel]
   set sys-kernel/installkernel to dracut
   install the hook that puts a kernel in /boot: emerge sys-kernel/installkernel
-  tell dracut to carry lvm
   accept the linux-firmware licence
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
-  install the kernel: emerge sys-kernel/gentoo-kernel-bin
   install the storage tools: emerge sys-fs/dosfstools sys-fs/e2fsprogs
   install the storage tools that need a flag the default build lacks: emerge sys-fs/lvm2, from source
+  install the kernel: emerge sys-kernel/gentoo-kernel-bin
+  tell dracut to carry lvm
   rebuild the initramfs from sys-kernel/gentoo-kernel-bin with the modules written above
 
 [bootloader]

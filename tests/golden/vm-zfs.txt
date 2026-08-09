@@ -57,12 +57,13 @@
 [kernel]
   set sys-kernel/installkernel to dracut
   install the hook that puts a kernel in /boot: emerge sys-kernel/installkernel
-  tell dracut to carry zfs
   accept the linux-firmware licence
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
+  install the storage tools: emerge sys-fs/dosfstools
   install the kernel: emerge sys-kernel/gentoo-kernel-bin
+  tell dracut to carry zfs
   tell sys-fs/zfs to build against the dist-kernel
-  install the storage tools: emerge sys-fs/zfs sys-fs/dosfstools
+  install the tools that build a module for this kernel: emerge sys-fs/zfs, from source
   rebuild the initramfs from sys-kernel/gentoo-kernel-bin with the modules written above
 
 [bootloader]

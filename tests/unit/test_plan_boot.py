@@ -378,9 +378,10 @@ def test_a_stack_tool_gets_the_use_flag_dracut_needs() -> None:
     asked = next(index for index, line in enumerate(described) if "sys-fs/lvm2[lvm]" in line)
     built = next(index for index, line in enumerate(described) if "need a flag" in line)
     installed = next(index for index, line in enumerate(described) if "install the kernel" in line)
-    # The request first, then the kernel, then the tool built against it: a
-    # module package merged before the kernel builds against a different one.
-    assert asked < installed < built
+    # The request, then the tool, then the kernel: lvm2 ships `dmsetup`, and
+    # the kernel's postinst runs dracut, which dies on a module whose tool is
+    # not there yet. lvm2 builds no kernel module, so nothing wants it later.
+    assert asked < built < installed
     assert "from source" in described[built]
     # The binary host builds the default USE, so this one cannot come from it.
     assert "sys-fs/lvm2" not in next(
@@ -679,9 +680,13 @@ def test_the_kernel_is_merged_before_anything_that_builds_a_module_for_it() -> N
     described = [one.describe() for one in kernel.build(zfs_installation())]
     kernel_at = next(at for at, one in enumerate(described) if one.startswith("install the kernel"))
     module = next(at for at, one in enumerate(described) if "build against the dist-kernel" in one)
-    tools = next(at for at, one in enumerate(described) if "install the storage tools" in one)
+    built = next(at for at, one in enumerate(described) if "build a module for this kernel" in one)
     initramfs = next(at for at, one in enumerate(described) if one.startswith("rebuild the initramfs"))
-    assert kernel_at < module < tools < initramfs
+    # sys-fs/zfs builds a kernel module, so it waits for the kernel; the dracut
+    # module list is written after it too, or the kernel's own postinst asks
+    # for a zfs module whose userland is not installed yet.
+    listed = next(at for at, one in enumerate(described) if one == "tell dracut to carry zfs")
+    assert kernel_at < listed < module < built < initramfs
 
 
 def test_the_zfs_key_is_set_from_the_installing_system() -> None:
@@ -692,3 +697,15 @@ def test_the_zfs_key_is_set_from_the_installing_system() -> None:
         if isinstance(operation, kernel.StoreZfsKey):
             operation.apply(recorder)
     assert recorder.commands and not recorder.in_target
+
+
+def test_a_tool_that_builds_no_module_is_installed_before_the_kernel() -> None:
+    """The kernel's postinst runs dracut, and dracut dies on a module whose
+    tool is absent: `dmsetup: command not found`, then `Module 'lvm' cannot be
+    installed`, then `Kernel install failed`. Caught by a VM run."""
+    described = [
+        one.describe() for one in kernel.build(load(Path("tests/fixtures/vm-luks.toml")))
+    ]
+    tool = next(at for at, one in enumerate(described) if "sys-fs/cryptsetup" in one)
+    installed = next(at for at, one in enumerate(described) if one.startswith("install the kernel"))
+    assert tool < installed

@@ -430,11 +430,6 @@ def build(config: InstallConfig) -> list[Operation]:
                 binary_packages=False,
             ),
         ]
-    if modules:
-        operations.append(WriteDracutModules(modules=modules))
-    pool = _pool_the_initramfs_may_carry(config)
-    if pool is not None:
-        operations.append(StoreZfsKey(pool=pool.id, name=pool.name))
     operations += [
         AcceptFirmwareLicence(),
         Emerge(
@@ -465,10 +460,36 @@ def build(config: InstallConfig) -> list[Operation]:
         ]
     if config.kernel.source in CJK_KERNELS:
         operations.append(RequestCjkKernel(package=package, cjk=config.system.console_cjk))
-    # Before the storage tools, not after: sys-fs/zfs and its kind depend on
-    # `virtual/dist-kernel`, and merging one while the chosen kernel is still
-    # masked satisfies that virtual with a second kernel and builds the module
-    # for that one instead.
+    # Two orderings pull opposite ways, and both are real. The userland the
+    # initramfs embeds has to exist before the kernel is merged, because the
+    # kernel's own postinst runs dracut and it dies on a module whose tool is
+    # missing: `dmsetup: command not found` then `Module 'lvm' cannot be
+    # installed`. A package that builds a *kernel module* has to come after,
+    # or it builds against whichever kernel Portage picks for
+    # `virtual/dist-kernel` rather than the one being installed.
+    #
+    # So the tools split by `StackTool.modules`, and the dracut module list is
+    # written after the kernel: the postinst run then asks for nothing that is
+    # not there yet, and `RebuildInitramfs` at the end builds the real one.
+    building = set(_module_builders(config))
+    tools = tuple(one for one in storage_packages(config) if one not in building)
+    flagged_now = tuple((one, use) for one, use in flagged if one not in building)
+    plain = tuple(one for one in tools if one not in {atom for atom, _ in flagged_now})
+    if plain:
+        operations.append(
+            Emerge(stage=Stage.KERNEL, packages=plain, summary="install the storage tools")
+        )
+    if flagged_now:
+        # From source: the binary host builds the default USE, and a binary
+        # package without the flag would be installed over the request above.
+        operations.append(
+            Emerge(
+                stage=Stage.KERNEL,
+                packages=tuple(one for one, _ in flagged_now),
+                summary="install the storage tools that need a flag the default build lacks",
+                binary_packages=False,
+            )
+        )
     operations.append(
         Emerge(
             stage=Stage.KERNEL,
@@ -479,28 +500,34 @@ def build(config: InstallConfig) -> list[Operation]:
             binary_packages=config.kernel.source is KernelSource.DIST_BIN,
         )
     )
-    modules = _out_of_tree_modules(config)
     if modules:
-        operations.append(RequestDistKernelModules(packages=modules))
-    tools = storage_packages(config)
-    plain = tuple(name for name in tools if name not in {atom for atom, _ in flagged})
-    if plain:
-        operations.append(
-            Emerge(stage=Stage.KERNEL, packages=plain, summary="install the storage tools")
-        )
-    if flagged:
-        # From source: the binary host builds the default USE, and a binary
-        # package without the flag would be installed over the request above.
+        operations.append(WriteDracutModules(modules=modules))
+    pool = _pool_the_initramfs_may_carry(config)
+    if pool is not None:
+        operations.append(StoreZfsKey(pool=pool.id, name=pool.name))
+    out_of_tree = _out_of_tree_modules(config)
+    if out_of_tree:
+        operations.append(RequestDistKernelModules(packages=out_of_tree))
         operations.append(
             Emerge(
                 stage=Stage.KERNEL,
-                packages=tuple(atom for atom, _ in flagged),
-                summary="install the storage tools that need a flag the default build lacks",
+                packages=tuple(sorted(building)),
+                summary="install the tools that build a module for this kernel",
                 binary_packages=False,
             )
         )
     operations.append(RebuildInitramfs(package=package))
     return operations
+
+
+def _module_builders(config: InstallConfig) -> tuple[str, ...]:
+    """Tools that build a kernel module, so they wait for the kernel."""
+    wanted: list[str] = []
+    for module in dracut_modules(config):
+        tool = STACK_PACKAGES.get(module)
+        if tool is not None and tool.modules and tool.atom not in wanted:
+            wanted.append(tool.atom)
+    return tuple(wanted)
 
 
 def _pool_the_initramfs_may_carry(config: InstallConfig) -> ZfsPool | None:
