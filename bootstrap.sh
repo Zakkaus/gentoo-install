@@ -92,6 +92,11 @@ package_for() {
 	blockdev:alpine | swapon:alpine | swapoff:alpine | mkswap:alpine)
 		printf 'util-linux-misc'
 		;;
+	# Debian and Ubuntu keep swapoff in the mount package, and Fedora keeps
+	# both swap tools in util-linux-core. Neither split is guessable, and the
+	# generic util-linux row below is wrong for both.
+	swapoff:debian | swapoff:ubuntu) printf 'mount' ;;
+	mkswap:fedora | swapoff:fedora) printf 'util-linux-core' ;;
 	openssl:*) printf 'openssl' ;;
 	zpool:* | zfs:*) printf 'zfs' ;;
 	mkfs.xfs:*) printf 'xfsprogs' ;;

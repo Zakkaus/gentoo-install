@@ -183,3 +183,43 @@ def test_no_distribution_is_told_to_install_a_package_named_chroot(tmp_path: Pat
         line = next(one for one in said.splitlines() if one.startswith("run: "))
         assert "chroot" not in line, release
         assert "coreutils" in line, release
+
+
+#: The provider of each storage command per distribution family, from the
+#: distributions' own file lists. The splits are not guessable: Debian keeps
+#: `swapoff` in `mount`, Fedora keeps both swap tools in `util-linux-core`,
+#: and Alpine keeps them in `util-linux-misc`.
+PROVIDERS = {
+    "debian": {"lvm": "lvm2", "mkswap": "util-linux", "swapoff": "mount"},
+    "ubuntu": {"lvm": "lvm2", "mkswap": "util-linux", "swapoff": "mount"},
+    "arch": {"lvm": "lvm2", "mkswap": "util-linux", "swapoff": "util-linux"},
+    "opensuse": {"lvm": "lvm2", "mkswap": "util-linux", "swapoff": "util-linux"},
+    "fedora": {"lvm": "lvm2", "mkswap": "util-linux-core", "swapoff": "util-linux-core"},
+    "rhel": {"lvm": "lvm2", "mkswap": "util-linux", "swapoff": "util-linux"},
+    "centos": {"lvm": "lvm2", "mkswap": "util-linux", "swapoff": "util-linux"},
+    "gentoo": {"lvm": "lvm2", "mkswap": "util-linux", "swapoff": "util-linux"},
+    "alpine": {"lvm": "lvm2", "mkswap": "util-linux-misc", "swapoff": "util-linux-misc"},
+}
+
+
+def test_every_storage_command_names_its_real_provider() -> None:
+    """All five reached the fallback and were printed as package names, so an
+    LVM or swap install was told to install `pvcreate` and `mkswap`."""
+    import subprocess
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[2] / "bootstrap.sh").read_text()
+    start = source.index("package_for()")
+    script = source[start : source.index("\n}\n", start) + 3] + '\npackage_for "$1" "$2"\n'
+
+    for family, wanted in PROVIDERS.items():
+        for command in ("pvcreate", "vgcreate", "lvcreate"):
+            said = subprocess.run(
+                ["sh", "-c", script, "_", command, family], capture_output=True, text=True
+            ).stdout.strip()
+            assert said == wanted["lvm"], (command, family, said)
+        for command in ("mkswap", "swapoff"):
+            said = subprocess.run(
+                ["sh", "-c", script, "_", command, family], capture_output=True, text=True
+            ).stdout.strip()
+            assert said == wanted[command], (command, family, said)
