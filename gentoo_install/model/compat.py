@@ -39,7 +39,13 @@ from .device import (
 )
 
 #: Sizes the cjktty patch carries CJK glyphs for. Any other size draws garbage.
-CJK_FONT_SIZES = frozenset({ConsoleFontSize.SIZE_8X16, ConsoleFontSize.SIZE_16X32})
+#:
+#: One, not two. `sys-kernel/gentoo-cjk-kernel` writes
+#: `# CONFIG_FONT_CJK_32x32 is not set` and says why: the 32x32 font the patch
+#: ships is empty. A 16x32 Latin font pairs with that one, so choosing it with
+#: CJK on gives a console with no CJK glyphs, which is what the option exists
+#: to provide.
+CJK_FONT_SIZES = frozenset({ConsoleFontSize.SIZE_8X16})
 
 _BOOT = PurePosixPath("/boot")
 _ROOT = PurePosixPath("/")
@@ -80,7 +86,7 @@ class Trait(Enum):
     REMOTE_UNLOCK = "unlocking the root over ssh"
     NO_AUTHORIZED_KEY = "no authorised ssh key"
     NO_ENCRYPTED_CONTAINER = "no encrypted container to unlock"
-    FONT_WITHOUT_CJK_GLYPHS = "a console font other than 8x16 or 16x32"
+    FONT_WITHOUT_CJK_GLYPHS = "a console font other than 8x16"
 
 
 @dataclass(frozen=True)
@@ -157,7 +163,7 @@ RULES: tuple[Rule, ...] = (
     Rule(
         Trait.CONSOLE_CJK,
         Trait.FONT_WITHOUT_CJK_GLYPHS,
-        "cjktty ships CJK glyphs for 8x16 and 16x32 only",
+        "the cjk kernel builds CONFIG_FONT_CJK_16x16 alone, which pairs with the 8x16 font, because the 32x32 font the patch ships is empty",
     ),
     Rule(
         Trait.ZFSBOOTMENU,

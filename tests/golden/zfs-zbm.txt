@@ -44,7 +44,7 @@
   generate and verify locales en_US.UTF-8, zh_TW.UTF-8
   set the system locale to zh_TW.UTF-8
   set the timezone to Asia/Taipei
-  set the console keymap to us and its font to latarcyrheb-sun32
+  set the console keymap to us and its font to default8x16
   set the hostname to zfsbox
   give the target its own machine id
   write /etc/fstab with entries for /efi

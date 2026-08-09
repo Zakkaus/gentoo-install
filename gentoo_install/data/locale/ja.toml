@@ -389,7 +389,7 @@
 "dracut-crypt-ssh authorises /root/.ssh/authorized_keys, so with none the initramfs runs an ssh daemon nobody can log into" = "dracut-crypt-ssh は /root/.ssh/authorized_keys を参照するため、鍵がないと initramfs は誰もログインできない ssh を動かします"
 "there is no passphrase prompt to reach: the root is not encrypted" = "到達すべきパスフレーズ入力がありません。ルートは暗号化されていません"
 "sys-kernel/gentoo-cjk-kernel is in that overlay and in no other repository, so the emerge fails once the disks have been partitioned" = "sys-kernel/gentoo-cjk-kernel はその overlay にしかなく、ディスクを分割した後で emerge が失敗します"
-"cjktty ships CJK glyphs for 8x16 and 16x32 only" = "cjktty が持つ CJK グリフは 8x16 と 16x32 だけです"
+"the cjk kernel builds CONFIG_FONT_CJK_16x16 alone, which pairs with the 8x16 font, because the 32x32 font the patch ships is empty" = "cjk カーネルは CONFIG_FONT_CJK_16x16 のみを有効にし、8x16 フォントと組みます。パッチが持つ 32x32 フォントが空だからです"
 "sys-boot/zfsbootmenu is in that overlay and in no other repository, so the emerge fails once the disks have already been partitioned" = "sys-boot/zfsbootmenu はその overlay にしかなく、ディスクを分割した後で emerge が失敗します"
 "the key its packages are signed with comes from that overlay, and without it nothing from the host verifies" = "パッケージの署名鍵はその overlay から来るため、無ければホストからのものは何も検証できません"
 "firmware cannot open a container to read the esp" = "ファームウェアは esp を読むときコンテナを開けません"

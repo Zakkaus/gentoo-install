@@ -389,7 +389,7 @@
 "dracut-crypt-ssh authorises /root/.ssh/authorized_keys, so with none the initramfs runs an ssh daemon nobody can log into" = "dracut-crypt-ssh 는 /root/.ssh/authorized_keys 를 사용하므로 키가 없으면 initramfs 는 아무도 로그인할 수 없는 ssh 를 실행합니다"
 "there is no passphrase prompt to reach: the root is not encrypted" = "도달할 암호 구절 입력이 없습니다. 루트가 암호화되지 않았습니다"
 "sys-kernel/gentoo-cjk-kernel is in that overlay and in no other repository, so the emerge fails once the disks have been partitioned" = "sys-kernel/gentoo-cjk-kernel 은 그 overlay 에만 있어 디스크를 나눈 뒤에 emerge 가 실패합니다"
-"cjktty ships CJK glyphs for 8x16 and 16x32 only" = "cjktty 가 제공하는 CJK 글리프는 8x16 과 16x32 뿐입니다"
+"the cjk kernel builds CONFIG_FONT_CJK_16x16 alone, which pairs with the 8x16 font, because the 32x32 font the patch ships is empty" = "cjk 커널은 CONFIG_FONT_CJK_16x16 만 빌드하며 8x16 글꼴과 짝을 이룹니다. 패치가 제공하는 32x32 글꼴이 비어 있기 때문입니다"
 "sys-boot/zfsbootmenu is in that overlay and in no other repository, so the emerge fails once the disks have already been partitioned" = "sys-boot/zfsbootmenu 은 그 overlay 에만 있어 디스크를 나눈 뒤에 emerge 가 실패합니다"
 "the key its packages are signed with comes from that overlay, and without it nothing from the host verifies" = "패키지 서명 키가 그 overlay 에서 오므로 없으면 호스트의 어떤 것도 검증되지 않습니다"
 "firmware cannot open a container to read the esp" = "펌웨어는 esp 를 읽을 때 컨테이너를 열 수 없습니다"

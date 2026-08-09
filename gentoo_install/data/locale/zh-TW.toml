@@ -390,7 +390,7 @@
 "dracut-crypt-ssh authorises /root/.ssh/authorized_keys, so with none the initramfs runs an ssh daemon nobody can log into" = "dracut-crypt-ssh 認的是 /root/.ssh/authorized_keys，一把公鑰都沒有的話 initramfs 會跑一個沒人登得進去的 ssh 服務"
 "there is no passphrase prompt to reach: the root is not encrypted" = "沒有密語提示可以連上去，根沒有加密"
 "sys-kernel/gentoo-cjk-kernel is in that overlay and in no other repository, so the emerge fails once the disks have been partitioned" = "sys-kernel/gentoo-cjk-kernel 只在那個 overlay 裡，別的儲存庫都沒有，所以 emerge 會在磁碟分割完之後才失敗"
-"cjktty ships CJK glyphs for 8x16 and 16x32 only" = "cjktty 只帶 8x16 與 16x32 兩種 CJK 字形"
+"the cjk kernel builds CONFIG_FONT_CJK_16x16 alone, which pairs with the 8x16 font, because the 32x32 font the patch ships is empty" = "cjk 核心只建 CONFIG_FONT_CJK_16x16，它配的是 8x16 字型，因為補丁附的 32x32 字型是空的"
 "sys-boot/zfsbootmenu is in that overlay and in no other repository, so the emerge fails once the disks have already been partitioned" = "sys-boot/zfsbootmenu 只在那個 overlay 裡，別的儲存庫都沒有，所以 emerge 會在磁碟分割完之後才失敗"
 "the key its packages are signed with comes from that overlay, and without it nothing from the host verifies" = "簽署那些套件的金鑰來自那個 overlay，沒有它就無法驗證該主機的任何套件"
 "firmware cannot open a container to read the esp" = "韌體讀 esp 時打不開加密容器"
