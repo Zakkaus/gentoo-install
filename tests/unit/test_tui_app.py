@@ -1810,3 +1810,19 @@ def test_confirming_one_disk_does_not_authorise_a_second() -> None:
 
     at.confirmed = set(named)
     assert settings.shown_value(row, two, at) == at.translate("confirmed")
+
+
+def test_the_zfs_bootloader_prompt_returns_only_installable_answers() -> None:
+    """It changed the bootloader and left the esp at `/efi`, so choosing
+    systemd-boot returned a configuration `validate` refuses -- from the very
+    screen that offered it. The old test asserted the enum and the overlay and
+    never validated."""
+    from gentoo_install.model.validate import validate
+
+    at = context()
+    start = config(zfs_root())
+    for keys in (["\n"], ["KEY_DOWN", "\n"]):
+        answered = screens._zfs_bootloader(
+            FakeScreen(keys=keys, lines=24, columns=100), start, at
+        )
+        validate(answered)
