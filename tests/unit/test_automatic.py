@@ -1164,3 +1164,51 @@ def test_the_panel_names_the_input_method_variables_it_will_write() -> None:
     )
     shown = {one.value for one in automatic.environment(installation, catalog)}
     assert "XMODIFIERS=@im=fcitx" in shown, shown
+
+
+def test_every_account_gets_the_group_its_packages_need() -> None:
+    """Only `users[0]` was put in `pipewire`, so the second person on the
+    machine had no realtime scheduling and heard the difference."""
+    from dataclasses import replace
+
+    from gentoo_install.model.config import User
+    from gentoo_install.plan.packages import AddUserToGroups, build as build_packages
+
+    installation = replace(
+        config(ext4_on_gpt()),
+        system=replace(
+            config().system,
+            users=(
+                User(name="first", sudo=True, password_hash="$6$x$y"),
+                User(name="second", password_hash="$6$x$y"),
+            ),
+        ),
+        packages=replace(config().packages, applications=("pipewire",)),
+    )
+    added = {
+        one.user: one.groups
+        for one in build_packages(installation, load_catalog())
+        if isinstance(one, AddUserToGroups)
+    }
+    assert added == {"first": ("pipewire",), "second": ("pipewire",)}
+
+
+def test_a_group_somebody_typed_is_not_reported_as_automatic() -> None:
+    """The summary counted only the first account's typed groups, so a group
+    the second person had asked for read as one the installer added."""
+    from dataclasses import replace
+
+    from gentoo_install.model.config import User
+
+    installation = replace(
+        config(ext4_on_gpt()),
+        system=replace(
+            config().system,
+            users=(
+                User(name="first", sudo=True, password_hash="$6$x$y", groups=("pipewire",)),
+            ),
+        ),
+        packages=replace(config().packages, applications=("pipewire",)),
+    )
+    shown = {one.value for one in automatic.user_groups(installation, load_catalog())}
+    assert "pipewire" not in shown, shown

@@ -147,7 +147,10 @@ def user_groups(config: InstallConfig, catalog: Catalog) -> tuple[Added, ...]:
     typed. `pipewire` is the only one today: its own postinst says the session
     needs it for realtime scheduling."""
     added: list[Added] = []
-    typed = set(config.system.users[0].groups) if config.system.users else set()
+    # Every account's typed groups, because the plan adds the group to every
+    # account: counting only the first one reported a group as automatic for
+    # somebody who had typed it.
+    typed = {name for user in config.system.users for name in user.groups}
     for group in groups(config, catalog):
         for name in group.user_groups:
             if name in typed or any(one.value == name for one in added):

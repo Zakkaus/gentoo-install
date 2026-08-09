@@ -565,13 +565,14 @@ def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
             )
         )
     extra_groups = required_user_groups(config, catalog)
-    if extra_groups and config.system.users:
-        # Last: `acct-group/<name>` is a dependency of the package that needs
-        # the group, so `usermod` before those merges fails on a group that
-        # does not exist and stops the install with the disks written.
-        operations.append(
-            AddUserToGroups(user=config.system.users[0].name, groups=extra_groups)
-        )
+    # Every account, not the first one: two people on one machine both use the
+    # sound server, and only the first was put in `pipewire`.
+    #
+    # Last: `acct-group/<name>` is a dependency of the package that needs the
+    # group, so `usermod` before those merges fails on a group that does not
+    # exist and stops the install with the disks written.
+    for account in config.system.users if extra_groups else ():
+        operations.append(AddUserToGroups(user=account.name, groups=extra_groups))
     return operations
 
 
