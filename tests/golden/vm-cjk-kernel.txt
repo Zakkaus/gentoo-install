@@ -55,12 +55,12 @@
   install the hook that puts a kernel in /boot: emerge sys-kernel/installkernel
   accept the linux-firmware licence
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
-  accept sys-kernel/gentoo-cjk-kernel as testing, with cjk on
+  accept sys-kernel/gentoo-cjk-kernel-bin as testing, with cjk on
   unmask virtual/dist-kernel, which the cjk kernel depends on by revision
   install the storage tools: emerge sys-fs/dosfstools sys-fs/e2fsprogs
-  install the kernel: emerge sys-kernel/gentoo-cjk-kernel, from source
+  install the kernel: emerge sys-kernel/gentoo-cjk-kernel-bin, from source
   delete any kernel image in /boot that has no modules directory
-  rebuild the initramfs from sys-kernel/gentoo-cjk-kernel with the modules written above
+  rebuild the initramfs from sys-kernel/gentoo-cjk-kernel-bin with the modules written above
 
 [bootloader]
   install the bootloader: emerge sys-boot/grub sys-boot/efibootmgr

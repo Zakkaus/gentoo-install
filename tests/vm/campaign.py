@@ -99,10 +99,10 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         Run("fixtures/vm-mdraid.toml"),
         Run("fixtures/vm-sdboot.toml"),
         Run("fixtures/vm-zfs-encrypted.toml"),
-        Run("fixtures/zfs-zbm.toml", weight=2, cpus=10),
-        Run("fixtures/btrfs-luks.toml", weight=2, cpus=10),
+        Run("fixtures/zfs-zbm.toml"),
+        Run("fixtures/btrfs-luks.toml"),
         Run("fixtures/ext4-bios.toml", firmware="bios", weight=2, cpus=10),
-        Run("fixtures/vm-cjk-kernel.toml", weight=2, cpus=10),
+        Run("fixtures/vm-cjk-kernel.toml"),
         # The four nothing had ever installed: the only untested filesystem, a
         # desktop on openrc, GNOME at all, and btrfs subvolumes without LUKS
         # wrapped round them.

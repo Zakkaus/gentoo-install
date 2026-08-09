@@ -53,7 +53,10 @@ def test_the_fixture_parses_into_every_section() -> None:
     assert config.portage.binhost.community is BinhostChannel.STABLE
     assert config.portage.overlays[0].name == "gentoo-zh"
 
-    assert config.kernel.source is KernelSource.CJK
+    # `cjk-bin`, not `cjk`: no fixture builds a kernel from source. An hour of
+    # compiling per run covered a path the Chinese interface does not default
+    # to, and the prebuilt one is what an operator actually installs.
+    assert config.kernel.source is KernelSource.CJK_BIN
     assert config.bootloader.kind is Bootloader.GRUB
     assert config.packages.desktop == "plasma"
 
