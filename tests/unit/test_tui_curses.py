@@ -237,3 +237,51 @@ def test_the_whole_menu_produces_a_plan_under_curses() -> None:
     assert result.get("blocked") == "", result
     assert result.get("cancelled") is False, result
     assert result["operations"] > 20
+
+
+#: The account form, which is where `Field.secret` and `Field.toggle` are
+#: drawn. `FakeScreen` proves what the widget decides; it proves nothing about
+#: what curses puts on the terminal.
+ACCOUNT = r"""
+import curses
+
+from gentoo_install.tui.widgets import Field, Form
+
+
+def main(window):
+    from gentoo_install.tui.curses_screen import CursesScreen
+
+    screen = CursesScreen(window)
+    fields = [
+        Field(label="name", value=""),
+        Field(label="password", secret=True),
+        Field(label="sudo", toggle=True),
+    ]
+    answered = Form(title="account", fields=fields, footer="[q]", message="try again").run(screen)
+    answer["values"] = answered.unwrap() if answered.chosen else None
+    answer["outcome"] = answered.outcome.value
+
+
+curses.wrapper(main)
+"""
+
+
+def test_the_account_form_runs_under_a_real_terminal() -> None:
+    """A masked field and a tick, drawn by curses rather than by the double.
+
+    The toggle takes a space, which every other widget treats as a character,
+    so the two share a key and only a real run shows which one gets it.
+    """
+    # Enter moves to the next field and submits only from Done, so the last
+    # key is what accepts the form.
+    result = drive("zakk\nsecret\n \n\n", ACCOUNT)
+    assert result.get("error") is None, result.get("error")
+    assert result["values"] == ["zakk", "secret", "x"]
+
+
+def test_a_form_message_does_not_push_the_done_row_off_the_screen() -> None:
+    """The message is drawn above the fields, so everything below it moves down
+    by one. A form that put Done past the last line could not be submitted."""
+    result = drive("\n\n\n\n", ACCOUNT)
+    assert result.get("error") is None, result.get("error")
+    assert result["values"] == ["", "", ""]
