@@ -122,9 +122,20 @@ class Menu(Generic[V]):
     #: Where the highlight starts, and where it was left. A menu re-entered
     #: after editing a row has to come back to that row.
     cursor: int = 0
+    #: The value the configuration holds now. Reopening a selector and pressing
+    #: enter without navigating has to answer with what was already set, and
+    #: without this the first row won: encryption enabled became disabled, and
+    #: a second disk became the first.
+    current: V | None = None
 
     def run(self, screen: Screen) -> Answer[list[V]]:
         cursor = self.cursor if 0 <= self.cursor < len(self.items) else self._first_enabled()
+        if not self.cursor and self.current is not None:
+            here = next(
+                (at for at, one in enumerate(self.items) if one.value == self.current), None
+            )
+            if here is not None:
+                cursor = here
         if self.items[cursor].disabled_because:
             cursor = self._first_enabled()
         while True:
@@ -279,6 +290,9 @@ class Confirm:
     #: needs no catalog, and passed in everywhere the operator will read them.
     no: str = "No"
     yes: str = "Yes"
+    #: What the configuration says now, so pressing enter without navigating
+    #: keeps it. Without this every yes/no screen answered No.
+    current: bool = False
 
     def run(self, screen: Screen) -> Answer[bool]:
         if self.phrase:
@@ -292,6 +306,7 @@ class Confirm:
             title=self.title,
             items=[Item(label=self.no, value=False), Item(label=self.yes, value=True)],
             footer=self.footer,
+            current=self.current,
         )
         answer = menu.run(screen)
         if not answer.chosen:

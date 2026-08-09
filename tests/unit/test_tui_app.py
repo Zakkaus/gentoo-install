@@ -220,15 +220,28 @@ def test_erasing_the_drive_is_a_row_that_has_to_be_confirmed() -> None:
 def test_the_timezone_list_is_every_zone_the_machine_knows() -> None:
     """A hand-picked shortlist is not a timezone chooser, and six hundred rows
     do not fit a console, so the area comes first."""
-    screen = FakeScreen(keys=["KEY_DOWN", "\n", "KEY_DOWN", "\n"])
+    # Both menus open on what the configuration holds, `Asia/Shanghai`, so one
+    # step down in the city list is the next Asian zone.
+    screen = FakeScreen(keys=["\n", "KEY_DOWN", "\n"])
     answer = screens.timezone_screen(screen, config(), context())
     assert answer.outcome is Outcome.CHOSE
     assert answer.unwrap().system.timezone == "Asia/Taipei"
 
 
+def test_reopening_the_timezone_and_accepting_keeps_it() -> None:
+    """Two menus, and both used to start at their first row: reopening a
+    configured timezone and pressing enter twice moved the machine to UTC."""
+    answer = screens.timezone_screen(FakeScreen(keys=["\n", "\n"]), config(), context())
+    assert answer.unwrap().system.timezone == "Asia/Shanghai"
+
+
 def test_choosing_utc_needs_no_second_screen() -> None:
     """It has no area, so asking for a city after it would be an empty list."""
-    answer = screens.timezone_screen(FakeScreen(keys=["\n"]), config(), context())
+    from dataclasses import replace
+
+    here = config()
+    utc = replace(here, system=replace(here.system, timezone="UTC"))
+    answer = screens.timezone_screen(FakeScreen(keys=["\n"]), utc, context())
     assert answer.unwrap().system.timezone == "UTC"
 
 
@@ -1068,7 +1081,9 @@ def test_choosing_a_kernel_without_cjktty_turns_console_cjk_off_and_says_so() ->
     chinese = screens.with_language(config(), "zh-TW")
     assert chinese.system.console_cjk
 
-    screen = FakeScreen(keys=["\n", "\n"], lines=30, columns=100)
+    # A Chinese interface holds `cjk-bin`, so the menu opens there and reaching
+    # a kernel without the patch takes two steps up.
+    screen = FakeScreen(keys=["KEY_UP", "KEY_UP", "\n", "\n"], lines=30, columns=100)
     plain = screens.kernel_screen(screen, chinese, at).unwrap()
     assert plain.kernel.source is KernelSource.DIST_BIN
     assert not plain.system.console_cjk
@@ -1095,7 +1110,9 @@ def test_choosing_the_patched_kernel_turns_its_patch_on() -> None:
     english = screens.with_language(config(), "en")
     assert english.system.console_cjk is False
 
-    keys = ["KEY_DOWN", "KEY_DOWN", "\n", "\n"]
+    # The menu opens on what the configuration holds, `dist-source`, so one
+    # step down is the prebuilt patched kernel.
+    keys = ["KEY_DOWN", "\n", "\n"]
     chosen = screens.kernel_screen(FakeScreen(keys=keys, lines=24, columns=100), english, at)
     picked = chosen.unwrap()
     assert picked.kernel.source is KernelSource.CJK_BIN
@@ -1487,10 +1504,12 @@ def test_the_timezone_can_follow_the_machine_the_installer_is_running_on() -> No
     drawn = "\n".join(screen.frames[0])
     assert "follow the BIOS" in drawn and "Australia/Melbourne" in drawn
 
-    # Unreadable on this medium: the row is absent rather than empty.
+    # Unreadable on this medium: the row is absent rather than empty, and the
+    # area menu opens on the configured zone instead.
     at.timezone_here = ""
-    plain = FakeScreen(keys=["\n"], lines=24, columns=90)
-    assert screens.timezone_screen(plain, config(), at).unwrap().system.timezone == "UTC"
+    plain = FakeScreen(keys=["\n", "\n"], lines=24, columns=90)
+    kept = screens.timezone_screen(plain, config(), at).unwrap()
+    assert kept.system.timezone == "Asia/Shanghai"
     assert "follow the BIOS" not in "\n".join(plain.frames[0])
 
 
@@ -1647,3 +1666,82 @@ def test_the_address_row_says_something_the_manager_row_did_not() -> None:
         named = settings.shown_value(settings.NETWORK[0], installation, context())
         address = settings.shown_value(settings.NETWORK[1], installation, context())
         assert named != address, manager
+
+
+def test_reopening_a_setting_and_accepting_keeps_what_it_held() -> None:
+    """Press enter on a selector without navigating and the configuration must
+    come back unchanged. Most menus started on their first row, so reopening
+    turned encryption off, moved the root to the first disk and set root SSH
+    login to allowed."""
+    from dataclasses import replace
+
+    from gentoo_install.model.config import (
+        Bootloader,
+        BootloaderConfig,
+        ConsoleFontSize,
+        InitSystem,
+        Keywords,
+        KernelConfig,
+        KernelSource,
+        MirrorRegion,
+        Networking,
+        RemoteUnlock,
+        SystemConfig,
+    )
+
+    at = context()
+    base = config()
+    # One non-default value per setting the menu can reach. The first row of
+    # each of these menus is a different value, so an ignored current value
+    # shows up as a change.
+    held = replace(
+        base,
+        system=replace(
+            base.system,
+            init=InitSystem.OPENRC,
+            console_font=ConsoleFontSize.SIZE_8X8,
+            networking=Networking.NETWORKMANAGER_IWD,
+            sshd=True,
+            sshd_root_login=True,
+        ),
+        kernel=replace(
+            KernelConfig(),
+            source=KernelSource.CJK_BIN,
+            remote_unlock=RemoteUnlock(enabled=True, interface="eth0"),
+        ),
+        bootloader=BootloaderConfig(kind=Bootloader.SYSTEMD_BOOT, firmware=base.bootloader.firmware),
+        # The profile follows the init, and an inconsistent pair would make the
+        # profile screen change it for a reason that is not this one.
+        portage=replace(
+            base.portage, keywords=Keywords.TESTING, profile="default/linux/amd64/23.0"
+        ),
+    )
+    # Three rows answer a different question and are not selectors:
+    # `Cron` flips where it stands, `Drive` reads `context.choice` rather than
+    # the configuration, and `Bootloader` cannot keep a kind the layout forbids.
+    flipped = {"Cron", "Drive", "Bootloader"}
+    wrong: list[str] = []
+    reachable = [
+        one
+        for group in settings.SETTINGS
+        for one in (group.rows or (group,))
+        if one.edit is not None and not one.rows
+    ]
+    for setting in reachable:
+        if setting.label in flipped:
+            continue
+        edit = setting.edit
+        assert edit is not None
+        screen = FakeScreen(keys=["\n"], lines=40, columns=120)
+        try:
+            answer = edit(screen, held, at)
+        except Exception:  # a screen this configuration cannot open
+            continue
+        if not answer.chosen:
+            continue
+        # The row's own value, not the whole configuration: the locale screen
+        # deliberately rewrites `system.locales` whichever entry is chosen.
+        after = answer.unwrap()
+        if setting.value(after, at) != setting.value(held, at):
+            wrong.append(setting.label)
+    assert not wrong, wrong

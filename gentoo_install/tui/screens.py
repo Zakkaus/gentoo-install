@@ -12,11 +12,12 @@ import re
 from dataclasses import dataclass, replace
 from enum import Enum
 from itertools import takewhile
-from typing import Callable, Final, Sequence, TypeVar
+from typing import Callable, Final, Sequence, TypeVar, TypedDict
 
 from ..i18n import Catalog, truncate
 from ..model import compat
 from ..model.config import (
+    SystemConfig,
     FirstBoot,
     ConsoleFontSize,
     Binhost,
@@ -211,7 +212,12 @@ class Context:
         return known
 
 
-def answers(translate: Catalog) -> dict[str, str]:
+class Answers(TypedDict):
+    no: str
+    yes: str
+
+
+def answers(translate: Catalog) -> Answers:
     """The yes and no a `Confirm` shows. Every one of them reads them from the
     catalog, so a translated interface does not answer in English."""
     return {"no": translate("No"), "yes": translate("Yes")}
@@ -247,6 +253,7 @@ def disk_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
         title=translate("Disks"),
         items=[Item(label=name, value=name, detail=detail) for name, detail in context.disks],
         footer=footer(translate),
+        current=context.choice.disk,
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -1030,7 +1037,10 @@ def bootloader_screen(
             )
         )
     menu: Menu[Bootloader] = Menu(
-        title=translate("Bootloader"), items=items, footer=footer(translate)
+        title=translate("Bootloader"),
+        items=items,
+        footer=footer(translate),
+        current=config.bootloader.kind,
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -1149,6 +1159,7 @@ def logger_screen(screen: Screen, config: InstallConfig, context: Context) -> An
             for one, choice in plan_system.LOGGERS.items()
         ],
         footer=footer(translate),
+        current=config.system.logger,
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -1193,6 +1204,7 @@ def keywords_screen(
             ),
         ],
         footer=footer(translate),
+        current=config.portage.keywords,
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -1214,6 +1226,7 @@ def kernel_screen(screen: Screen, config: InstallConfig, context: Context) -> An
             for source, reason in KERNELS
         ],
         footer=footer(translate),
+        current=config.kernel.source,
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -1645,6 +1658,7 @@ def locale_screen(screen: Screen, config: InstallConfig, context: Context) -> An
         title=translate("System language"),
         items=[Item(label=f"{name}  {label}", value=name) for name, label in LOCALES],
         footer=footer(translate),
+        current=config.system.locale,
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -1685,7 +1699,18 @@ def timezone_screen(screen: Screen, config: InstallConfig, context: Context) -> 
             ),
         )
     chosen_area: Menu[str] = Menu(
-        title=translate("Timezone"), items=items, footer=footer(translate)
+        title=translate("Timezone"),
+        items=items,
+        footer=footer(translate),
+        # The BIOS row when the medium read one and the configuration still
+        # holds the built-in default: the operator is standing next to the
+        # machine and that guess is usually right. Anything the operator or a
+        # configuration file actually chose wins over it.
+        current=(
+            ""
+            if context.timezone_here and config.system.timezone == SystemConfig().timezone
+            else config.system.timezone.split("/", 1)[0]
+        ),
     )
     picked = chosen_area.run(screen)
     if not picked.chosen:
@@ -1705,6 +1730,7 @@ def timezone_screen(screen: Screen, config: InstallConfig, context: Context) -> 
         title=area,
         items=[Item(label=zone.split("/", 1)[1], value=zone) for zone in within],
         footer=footer(translate),
+        current=config.system.timezone,
     )
     answer = city.run(screen)
     if not answer.chosen:
@@ -1982,6 +2008,7 @@ def sshd_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
             ),
         ],
         footer=footer(translate),
+        current=(config.system.sshd, config.system.sshd_password_login),
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -2163,6 +2190,7 @@ def _profile_screen(screen: Screen, config: InstallConfig, context: Context) -> 
         title=context.translate("Portage"),
         items=[Item(label=profile, value=profile) for profile in wanted],
         footer=footer(context.translate),
+        current=config.portage.profile,
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -2317,7 +2345,10 @@ def networking_screen(
         Item(label=choice.value, value=choice, detail=detail[choice]) for choice in Networking
     ]
     menu: Menu[Networking] = Menu(
-        title=translate("Network configuration"), items=items, footer=footer(translate)
+        title=translate("Network configuration"),
+        items=items,
+        footer=footer(translate),
+        current=config.system.networking,
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -3351,14 +3382,24 @@ def makeopts_screen(screen: Screen, config: InstallConfig, context: Context) -> 
         for jobs in dict.fromkeys(offered)
     ]
     menu: Menu[str] = Menu(
-        title=translate("Compile jobs"), items=items, footer=footer(translate)
+        title=translate("Compile jobs"),
+        items=items,
+        footer=footer(translate),
+        # Empty means follow the machine, which is the first row. Passing the
+        # empty string matched no row, so reopening this screen and accepting
+        # pinned a number the operator had deliberately left unpinned.
+        current=config.portage.makeopts or f"-j{cores}",
     )
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
+    picked = answer.unwrap()[0]
+    # The machine's own count is stored as nothing at all, which is what
+    # "follow this machine" means: a configuration saved with `-j32` builds
+    # with 32 jobs on a laptop with four cores.
+    jobs = "" if picked == f"-j{cores}" else picked
     return Answer(
-        Outcome.CHOSE,
-        replace(config, portage=replace(config.portage, makeopts=answer.unwrap()[0])),
+        Outcome.CHOSE, replace(config, portage=replace(config.portage, makeopts=jobs))
     )
 
 
@@ -3672,6 +3713,7 @@ def remote_unlock_screen(
         **answers(translate),
         title=translate("Unlock the root over SSH from the initramfs?"),
         footer=footer(translate),
+        current=config.kernel.remote_unlock.enabled,
     ).run(screen)
     if not asked.chosen:
         return Answer(asked.outcome)
