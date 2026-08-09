@@ -17,6 +17,7 @@ import socket
 import subprocess
 import sys
 import time
+from collections.abc import Sequence
 from pathlib import Path, PurePosixPath
 
 from gentoo_install.data import load_catalog
@@ -473,9 +474,15 @@ def _perform(args: argparse.Namespace, medium: Medium, workdir: Path) -> int:
                 print(f"[{time.monotonic() - started:5.1f}s] logged into the installed system")
                 check_installed(console, expected)
                 power_off(console, vm)
-                return report(
+                code = report(
                     result_disk, keep=args.keep, assertions=REPOSITORY / "tests" / args.install
                 )
+                if code == 0:
+                    # The boot check is the last reader of the target disk, and
+                    # one campaign left 80 GiB of them behind. A failed run
+                    # keeps its disk: that is the only copy of what went wrong.
+                    _discard(targets, keep=args.keep)
+                return code
             reach_shell(console, medium)
             print(f"[{time.monotonic() - started:5.1f}s] root shell on serial")
 
@@ -523,6 +530,14 @@ def power_off(console: SerialConsole, vm: Vm) -> None:
         except subprocess.TimeoutExpired:
             continue
     print("guest did not power off, killing it", file=sys.stderr)
+
+
+def _discard(targets: Sequence[Path], *, keep: bool) -> None:
+    """Drop the disks the guest was installed onto once nothing reads them."""
+    if keep:
+        return
+    for path in targets:
+        path.unlink(missing_ok=True)
 
 
 def report(
