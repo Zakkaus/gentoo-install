@@ -31,6 +31,7 @@ from .tui.curses_screen import CursesScreen, too_small
 from .i18n import Catalog, tag_for
 from .model import mirrors, paste, qr, templates
 from .model.config import (
+    BootloaderConfig,
     Binhost,
     DiskConfig,
     Firmware,
@@ -509,6 +510,7 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         context.cpu_flags,
         context.supports_v3,
         fetch.egress_country(),
+        context.firmware,
     )
 
     def walk(window: object) -> app.Finished:
@@ -558,6 +560,7 @@ def _blank(
     cpu_flags: tuple[str, ...],
     supports_v3: bool = False,
     country: str = "",
+    firmware: Firmware = Firmware.UEFI,
 ) -> InstallConfig:
     """What the menu starts from.
 
@@ -567,10 +570,14 @@ def _blank(
     to get an ordinary build. The mirror is the official one rather than
     nothing, so the row that blocks the install starts answered.
     """
-    graph, root = templates.build(templates.Choice(disk=disk))
+    # The firmware this machine booted through, not the default: the row said
+    # `uefi - detected` on a machine that booted BIOS, and the template built
+    # an esp and a GPT for a firmware that cannot read either.
+    graph, root = templates.build(templates.Choice(disk=disk, firmware=firmware))
     region = _region(country)
     return InstallConfig(
         disk=DiskConfig(graph=graph, root=root),
+        bootloader=BootloaderConfig(firmware=firmware),
         portage=PortageConfig(
             makeopts=f"-j{cores}",
             cpu_flags=cpu_flags,

@@ -566,3 +566,33 @@ def test_a_release_that_fails_does_not_stop_the_ones_after_it(tmp_path: Path) ->
     cli._release(closing, machine, said.append)
     assert ran == ["close the container", "stop the array", "export the pool"]
     assert any("device busy" in one for one in said), said
+
+
+def test_the_menu_starts_from_the_firmware_the_machine_booted() -> None:
+    """`_blank` took `BootloaderConfig`'s default, so a machine that booted
+    BIOS opened the menu on a row reading `uefi - detected` and a template
+    holding a GPT and an esp its firmware cannot read. The detection reached
+    only `context.firmware`."""
+    from gentoo_install.cli import _blank
+    from gentoo_install.model.config import Firmware
+    from gentoo_install.model.device import Mountpoint, PartitionTable, TableType
+    from gentoo_install.model import compat
+
+    for firmware, table, esp in (
+        (Firmware.UEFI, TableType.GPT, True),
+        (Firmware.BIOS, TableType.MBR, False),
+    ):
+        started = _blank("/dev/disk/by-id/example", 4, (), firmware=firmware)
+        assert started.bootloader.firmware is firmware
+        tables = [one.table for one in started.disk.graph.of_type(PartitionTable)]
+        assert tables == [table], (firmware, tables)
+        mounted = {str(one.path) for one in started.disk.graph.of_type(Mountpoint)}
+        assert ("/efi" in mounted) is esp, (firmware, mounted)
+        # Only the storage rules: the menu is what asks for a root password,
+        # so the blank configuration is deliberately not installable yet.
+        broken = [
+            one
+            for one in compat.violations(started)
+            if one.when is not compat.Trait.ROOT_LOCKED
+        ]
+        assert not broken, broken
