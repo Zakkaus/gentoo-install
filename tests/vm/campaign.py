@@ -3,9 +3,10 @@
     python3 -m tests.vm.campaign --stage blocking
     python3 -m tests.vm.campaign            # every stage, in order
 
-Stage one is sequential: each of its runs would make the ones after it
-meaningless if it failed. The rest go four at a time, which is what 60 GiB
-holds at the 8 GiB a VM is given.
+Every stage runs its own configurations at once; the stages themselves are
+ordered, and a failure in the first one stops the rest unless `--keep-going`
+says otherwise. Six at a time is what 60 GiB holds at the 8 GiB a guest is
+given, measured rather than assumed.
 """
 
 from __future__ import annotations
@@ -121,21 +122,10 @@ def announce(outcome: Outcome) -> None:
     print(f"{mark} {outcome.run.name:52} {outcome.seconds / 60:5.1f}m  {outcome.log}")
 
 
-def sequential(runs: Sequence[Run]) -> list[Outcome]:
-    """Stop at the first failure: the rest would prove nothing."""
-    done: list[Outcome] = []
-    for run in runs:
-        outcome = perform(run)
-        announce(outcome)
-        done.append(outcome)
-        if not outcome.passed:
-            break
-    return done
-
-
 def parallel(runs: Sequence[Run]) -> list[Outcome]:
-    """Every run to the end: these are independent, and one failure is not a
-    reason to leave the other nine unknown."""
+    """Every run to the end. They are independent, and one failure is not a
+    reason to leave the rest unknown: the point of a campaign is to learn
+    everything one pass can teach before anything is changed."""
     done: list[Outcome] = []
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
         for outcome in pool.map(perform, runs):
@@ -160,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
     done: list[Outcome] = []
     for stage in wanted:
         print(f"--- {stage} ({len(STAGES[stage])} runs)")
-        outcomes = sequential(STAGES[stage]) if stage == "blocking" else parallel(STAGES[stage])
+        outcomes = parallel(STAGES[stage])
         done += outcomes
         if not args.keep_going and any(not one.passed for one in outcomes) and stage == "blocking":
             print("the blocking stage failed; the rest would prove nothing")
