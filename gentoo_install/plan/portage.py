@@ -328,7 +328,10 @@ class Emerge(Operation):
         if self.binary_packages and not context.degraded(BINARY_PACKAGES):
             argv += BINPKG_OPTIONS
         else:
-            argv.append("--usepkg=n")
+            # `FEATURES=getbinpkg` in make.conf keeps fetching remote binaries
+            # under `--usepkg=n`, so an out-of-tree module built against
+            # another kernel arrives in place of one built against this one.
+            argv += ["--usepkg=n", "--getbinpkg=n"]
         context.run_in_target([*argv, "--", *self.packages])
 
 
