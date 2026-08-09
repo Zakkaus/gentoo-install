@@ -32,7 +32,7 @@ from gentoo_install.model.device import (
     ZfsPool,
 )
 from gentoo_install.model.size import Size
-from gentoo_install.model.parse import load
+from gentoo_install.exec.config import load
 from gentoo_install.model.validate import validate
 from gentoo_install.plan import bootloader, kernel
 from gentoo_install.plan.portage import Emerge

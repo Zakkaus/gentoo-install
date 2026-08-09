@@ -111,7 +111,7 @@ def test_a_size_is_written_as_a_literal_and_not_as_a_table() -> None:
     """`Size` is a frozen dataclass, so the writer recursed into it and
     produced `[system.zram]`, which the parser then refused. A saved
     configuration holding zram or a build tmpfs could not be loaded back."""
-    from gentoo_install.model.parse import load
+    from gentoo_install.exec.config import load
     from gentoo_install.model.size import Size
 
     started = load(Path(__file__).resolve().parents[1] / "fixtures" / "vm-binpkg.toml")

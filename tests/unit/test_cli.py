@@ -13,7 +13,7 @@ from gentoo_install.exec import fetch
 from gentoo_install.exec.runner import Runner
 from gentoo_install.cli import EXIT_CONFIG, EXIT_OK, EXIT_PREFLIGHT, main
 from gentoo_install.errors import ConfigError
-from gentoo_install.model.parse import load
+from gentoo_install.exec.config import load
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
@@ -182,7 +182,7 @@ def test_the_menu_names_openssl_before_it_asks_anything(
     assert main([]) == EXIT_PREFLIGHT
     assert "the menu needs openssl" in capsys.readouterr().err
     # A file carries its hashes, so an install from one needs none of it.
-    from gentoo_install.model.parse import load
+    from gentoo_install.exec.config import load
 
     assert "openssl" not in preflight.required_commands(load(FIXTURES / "ext4-bios.toml"))
 

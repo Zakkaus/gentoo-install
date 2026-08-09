@@ -27,7 +27,7 @@ from gentoo_install.model.device import (
     VolumeGroup,
     ZfsPool,
 )
-from gentoo_install.model.parse import load
+from gentoo_install.exec.config import load
 from gentoo_install.model.size import Size
 from gentoo_install.plan import disk
 from gentoo_install.plan.operations import Stage
@@ -437,7 +437,7 @@ def test_a_swap_partition_makes_preflight_ask_for_mkswap() -> None:
     """`MakeSwap` runs it, and only filesystems contributed to the list, so a
     medium without it passed and died after the disks were partitioned."""
     from gentoo_install.exec import preflight
-    from gentoo_install.model.parse import load
+    from gentoo_install.exec.config import load
 
     wanted = preflight.required_commands(load(Path("tests/fixtures/vm-bios.toml")))
     assert {"mkswap", "swapoff"} <= wanted
@@ -447,7 +447,7 @@ def test_the_lvm_check_names_the_binaries_the_plan_runs() -> None:
     """A medium carrying lvm2 as one multicall binary without its symlinks
     passed on `lvm` and then died at `pvcreate`."""
     from gentoo_install.exec import preflight
-    from gentoo_install.model.parse import load
+    from gentoo_install.exec.config import load
 
     wanted = preflight.required_commands(load(Path("tests/fixtures/vm-lvm.toml")))
     assert {"pvcreate", "vgcreate", "lvcreate"} <= wanted

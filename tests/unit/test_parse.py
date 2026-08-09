@@ -27,7 +27,8 @@ from gentoo_install.model.device import (
     RaidMetadata,
     Subvolume,
 )
-from gentoo_install.model.parse import load, parse
+from gentoo_install.exec.config import load
+from gentoo_install.model.parse import parse
 from gentoo_install.model.size import Size
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"

@@ -78,16 +78,6 @@ TOP_LEVEL: Final[frozenset[str]] = frozenset(
 )
 
 
-def load(path: Path) -> InstallConfig:
-    try:
-        raw = tomllib.loads(path.read_text(encoding="utf-8"))
-    except tomllib.TOMLDecodeError as error:
-        raise ConfigError(f"{path}: {error}") from error
-    except OSError as error:
-        raise ConfigError(f"{path}: {error}") from error
-    return parse(raw)
-
-
 def parse(raw: Mapping[str, Any]) -> InstallConfig:
     version = _int(raw, "config_version", "", default=CONFIG_VERSION)
     if version > CONFIG_VERSION:

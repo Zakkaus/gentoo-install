@@ -51,7 +51,7 @@ def test_every_fixture_names_a_disk_the_harness_creates() -> None:
     harness numbered the serials, so preflight refused them twenty seconds in
     and they had never once installed anything."""
     from gentoo_install.model.device import Existing
-    from gentoo_install.model.parse import load
+    from gentoo_install.exec.config import load
 
     root = Path(__file__).resolve().parents[1]
     for path in sorted((root / "fixtures").glob("*.toml")):
@@ -68,7 +68,7 @@ def test_every_encrypted_fixture_names_where_its_passphrase_lives() -> None:
     encrypted without one fails preflight before the disks are touched, which
     is right, and means the fixture could never run."""
     from gentoo_install.model.device import Luks, ZfsPool
-    from gentoo_install.model.parse import load
+    from gentoo_install.exec.config import load
 
     root = Path(__file__).resolve().parents[1]
     for path in sorted((root / "fixtures").glob("*.toml")):

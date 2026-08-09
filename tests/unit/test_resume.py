@@ -140,7 +140,7 @@ def test_the_running_installer_says_where_it_is_and_how_long_it_has_taken() -> N
     from gentoo_install.exec.runner import Runner
     from gentoo_install.plan.build import build
     from gentoo_install.data import load_catalog
-    from gentoo_install.model.parse import load
+    from gentoo_install.exec.config import load
     from gentoo_install.exec.apply import Machine
 
     assert _elapsed(0) == "0:00:00"

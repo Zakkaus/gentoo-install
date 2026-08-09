@@ -33,7 +33,7 @@ from gentoo_install.model.device import (
     ZfsPool,
 )
 from gentoo_install.model.config import Networking
-from gentoo_install.model.parse import load
+from gentoo_install.exec.config import load
 from gentoo_install.plan.system import _network_service as network_service
 
 from .console import PASSWORD_PROMPT, SerialConsole

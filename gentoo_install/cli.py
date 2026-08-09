@@ -40,7 +40,8 @@ from .model.config import (
     MirrorRegion,
     PortageConfig,
 )
-from .model.parse import TOP_LEVEL, load
+from .exec.config import load
+from .model.parse import TOP_LEVEL
 from .model.serialise import to_toml
 from .plan.build import DEFAULT_MIRROR, build
 from .plan.operations import Operation, Stage

@@ -173,7 +173,7 @@ from pathlib import Path
 
 from gentoo_install.data import load_catalog
 from gentoo_install.i18n import Catalog
-from gentoo_install.model.parse import load
+from gentoo_install.exec.config import load
 from gentoo_install.plan.build import build
 from gentoo_install.model import mirrors
 from gentoo_install.model import compat
