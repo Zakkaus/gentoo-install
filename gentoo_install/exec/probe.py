@@ -461,6 +461,25 @@ class Probe:
         text = listed.stdout.strip().splitlines()
         return int(text[0]) if text and text[0].strip().isdigit() else 0
 
+    def partition_sizes(self, disk: str) -> dict[int, int]:
+        """Every partition on the disk now, by number, in bytes.
+
+        A table the operator edits rather than rewrites keeps partitions the
+        configuration never names, and their space is claimed just as much as
+        a new partition's.
+        """
+        listed = self.runner.run(
+            ["lsblk", "--bytes", "--noheadings", "--output", "PARTN,SIZE", disk], check=False
+        )
+        if listed.returncode != 0:
+            raise DeviceNotFound(f"lsblk could not read the partitions of {disk}")
+        found: dict[int, int] = {}
+        for line in listed.stdout.splitlines():
+            fields = line.split()
+            if len(fields) == 2 and fields[0].isdigit() and fields[1].isdigit():
+                found[int(fields[0])] = int(fields[1])
+        return found
+
     def _zone_table(self, path: Path) -> tuple[str, ...]:
         try:
             text = path.read_text(encoding="utf-8")

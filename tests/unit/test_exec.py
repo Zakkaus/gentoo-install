@@ -185,13 +185,15 @@ def test_a_bios_configuration_on_a_uefi_boot_is_only_a_warning(tmp_path: Path) -
         present(), bootloader=BootloaderConfig(kind=Bootloader.GRUB, firmware=Firmware.BIOS)
     )
     report = preflight.inspect(on_bios, described(uefi=True), probe_of(tmp_path))
-    assert not report.fatal
+    assert not [one for one in report.fatal if "boot" in one], report.fatal
     assert report.warnings
 
 
 def test_little_memory_warns_instead_of_stopping(tmp_path: Path) -> None:
     report = preflight.inspect(present(), described(memory_bytes=2 * 1024**3), probe_of(tmp_path))
-    assert not report.fatal
+    # Only about memory: `present()` points its disk at /dev/null, which
+    # reports no size, and an unreadable capacity is fatal on its own.
+    assert not [one for one in report.fatal if "memory" in one], report.fatal
     assert any("tmpfs" in warning for warning in report.warnings)
 
 
@@ -928,3 +930,65 @@ def test_a_machine_with_no_zpool_command_is_not_called_busy(tmp_path: Path) -> N
 
     probe = Probe(runner=Failing(log=lambda line: None), work=tmp_path)
     assert not probe._in_an_imported_pool("/dev/sda")
+
+
+def test_a_disk_that_reports_no_size_stops_the_run(tmp_path: Path) -> None:
+    """`disk_bytes` answers 0 for a nonzero exit, empty output or nonnumeric
+    text, and the check used to skip on that: `wipefs` and `sgdisk --zap-all`
+    then ran before anything discovered the layout did not fit."""
+    report = preflight.inspect(present(), described(), probe_of(tmp_path))
+    assert any("did not report a size" in one for one in report.fatal), report.fatal
+
+
+def test_an_edited_table_counts_what_it_keeps(tmp_path: Path) -> None:
+    """`claimed` summed only the new partitions, so a 4 GiB addition beside a
+    retained 18 GiB partition fitted a 20 GiB disk on paper."""
+    from gentoo_install.exec import preflight as check
+    from gentoo_install.model.config import DiskConfig
+    from gentoo_install.model.device import (
+        DeviceGraph,
+        DeviceId,
+        Partition,
+        PartitionRole,
+        PartitionTable,
+        TableType,
+    )
+    from gentoo_install.model.size import Size
+
+    twenty = 20 * 1024**3
+    nodes = [
+        Existing(id=DeviceId("disk"), selector="/dev/null", wipe=False),
+        PartitionTable(
+            id=DeviceId("table"), disk=DeviceId("disk"), table=TableType.GPT, create=False
+        ),
+        Partition(
+            id=DeviceId("new"),
+            table=DeviceId("table"),
+            index=2,
+            role=PartitionRole.DATA,
+            size=Size(4 * 1024**3),
+        ),
+    ]
+    installation = replace(
+        config(), disk=DiskConfig(graph=DeviceGraph.build(nodes), root=DeviceId("new"))
+    )
+
+    class Answering(Runner):
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            said = ""
+            if argv[0] == "lsblk" and "SIZE" in argv and "PARTN,SIZE" not in argv:
+                said = f"{twenty}\n"
+            elif argv[0] == "lsblk" and "PARTN,SIZE" in argv:
+                said = f"1 {18 * 1024**3}\n"
+            return Result(argv=tuple(argv), returncode=0, stdout=said, stderr="", seconds=0.0)
+
+    probe = Probe(runner=Answering(log=lambda line: None), work=tmp_path)
+    problems = check._capacity_problems(installation, probe)
+    assert problems, "18 GiB kept plus 4 GiB new does not fit 20 GiB"

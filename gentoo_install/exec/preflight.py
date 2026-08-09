@@ -220,17 +220,39 @@ def _capacity_problems(config: InstallConfig, probe: Probe) -> list[str]:
         if not isinstance(disk, Existing):
             continue
         try:
-            capacity = probe.disk_bytes(probe.resolve(disk.id, disk.selector))
+            path = probe.resolve(disk.id, disk.selector)
+            capacity = probe.disk_bytes(path)
         except DeviceNotFound:
             # Already reported by the loop that resolves every wiped disk.
             continue
         if not capacity:
+            # Fatal, not skipped: this table is about to be rewritten, and a
+            # capacity the machine would not report is not permission to write
+            # it. Skipping let `wipefs` run before `sgdisk` found no room.
+            problems.append(
+                f"{disk.selector} did not report a size, so the layout on {table.id} "
+                "cannot be checked against it"
+            )
             continue
         claimed = sum(
             one.size.bytes
             for one in graph.of_type(Partition)
             if one.table == table.id and one.size is not None
         )
+        if not table.create:
+            # An edited table keeps every partition the configuration does not
+            # remove, and their space is claimed as much as a new one's.
+            try:
+                present = probe.partition_sizes(path)
+            except DeviceNotFound:
+                problems.append(
+                    f"{disk.selector} did not report its partitions, so what {table.id} "
+                    "keeps cannot be counted"
+                )
+                continue
+            claimed += sum(
+                size for number, size in present.items() if number not in table.remove
+            )
         usable = Size(capacity)
         if table.table is TableType.GPT:
             usable = usable.gpt_last_usable(SectorSize(512))
