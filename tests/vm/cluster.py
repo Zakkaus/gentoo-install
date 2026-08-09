@@ -316,7 +316,7 @@ def install_one(
             # serial log stops at `Welcome to GRUB!` and there is no menu to
             # read. The keys go through the API and the kernel appearing on
             # the console is what says the edit landed.
-            append_to_cmdline_blind(guest, console, EXTRA_CMDLINE)
+            console = append_to_cmdline_blind(guest, console, log, EXTRA_CMDLINE)
         console.expect(r"livecd .*#|localhost .*#", timeout=900.0)
         # The guest's own resolver is left alone. A local run pins one because
         # slirp reads the host's `/etc/resolv.conf` once at startup; the

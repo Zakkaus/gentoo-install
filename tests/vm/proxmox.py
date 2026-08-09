@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final
 
-from .console import ConsoleTimeout, SerialConsole
+from .console import ConsoleClosed, ConsoleTimeout, SerialConsole
 from .monitor import keys_for
 from .websocket import Framed, WebSocket, WebSocketError
 
@@ -325,11 +325,14 @@ class Guest:
             "ostype": "l26",
             "machine": "q35",
             "scsihw": "virtio-scsi-single",
-            # The console, and the only one: `vga: serial0` makes the firmware
-            # and the bootloader write here too, which is where a BIOS install
-            # says what it is waiting for.
             "serial0": "socket",
-            "vga": "serial0",
+            # Under OVMF the serial port is the whole display, and the firmware
+            # and GRUB both write to it. SeaBIOS hands over to a GRUB that wants
+            # a framebuffer, and with no VGA device to find it stopped writing
+            # anywhere at all: the log ended at `Welcome to GRUB!` and the
+            # console was dropped. A BIOS guest gets a real VGA to draw on and
+            # keeps the serial port for the kernel.
+            "vga": "serial0" if self.spec.uefi else "std",
             "net0": "virtio,bridge=vmbr0",
             "onboot": 0,
             # Free page reporting hands memory back that a guest filled with
@@ -621,10 +624,11 @@ def append_to_cmdline(console: SerialConsole, extra: str, timeout: float = 30.0)
 _PLACED: Final[re.Pattern[bytes]] = re.compile(rb"\x1b\[(\d+);\d+H([^\x1b]*)")
 
 
-#: The only thing a SeaBIOS guest's GRUB says on the serial port. It prints
-#: this, clears the terminal and switches to its own framebuffer, so this is
-#: where the keys have to start and there is nothing further to read.
-BIOS_GRUB: Final[str] = r"Welcome to GRUB|GNU GRUB|Booting from DVD"
+#: How long a SeaBIOS guest takes from reset to a GRUB menu waiting for a key.
+#: Nothing announces it: the firmware and GRUB both draw on the VGA this guest
+#: has, and the serial port stays silent until the kernel is told to use it.
+#: The medium's menu waits ten seconds, so this has to land inside that.
+BIOS_MENU_DELAY: Final[float] = 12.0
 
 #: Which line below `setparams` the keys move to, tried in this order. The
 #: Gentoo minimal ISO puts `search` between `setparams` and `linux`, so two is
@@ -638,8 +642,8 @@ KERNEL_SPEAKS: Final[str] = r"Linux version|Command line:|\[    0\.000000\]"
 
 
 def append_to_cmdline_blind(
-    guest: Guest, console: SerialConsole, extra: str, patience: float = 60.0
-) -> None:
+    guest: Guest, console: SerialConsole, log: Path, extra: str, patience: float = 60.0
+) -> SerialConsole:
     """The same edit on a guest whose GRUB writes only to VGA.
 
     Under OVMF, GRUB inherits the firmware's serial console and the menu can be
@@ -651,12 +655,11 @@ def append_to_cmdline_blind(
     `console=ttyS0` on the command line it has to speak. A count that landed on
     the wrong line leaves it silent, and the guest is reset and tried again.
     """
-    console.expect(BIOS_GRUB, timeout=300.0)
     last = ""
     for attempt, down in enumerate(BIOS_DOWN):
-        # GRUB prints its banner before the menu is up; keys sent into that gap
-        # are dropped and the entry boots unedited.
-        time.sleep(4.0)
+        # Timed, not read: this guest's GRUB draws on VGA and says nothing on
+        # the serial port, so there is no menu to wait for.
+        time.sleep(BIOS_MENU_DELAY)
         guest.send_keys(["e"])
         time.sleep(2.0)
         guest.send_keys(["ctrl-n"] * down + ["ctrl-e"])
@@ -666,12 +669,15 @@ def append_to_cmdline_blind(
         guest.send_keys(["ctrl-x"])
         try:
             console.expect(KERNEL_SPEAKS, timeout=patience)
-            return
-        except ConsoleTimeout as error:
+            return console
+        except (ConsoleTimeout, ConsoleClosed) as error:
             last = str(error)[:200]
         if attempt + 1 < len(BIOS_DOWN):
+            # A reset drops the console with it, so the next attempt reads a
+            # new one: the first guest to take a second attempt reported `the
+            # guest closed the serial connection` a minute in.
             guest.reset()
-            console.expect(BIOS_GRUB, timeout=300.0)
+            console = SerialConsole(guest.console(), log.open("ab"))
     raise ProxmoxError(f"the kernel never spoke after editing GRUB blind: {last}")
 
 
