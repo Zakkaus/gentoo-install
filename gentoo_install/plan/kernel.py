@@ -679,32 +679,41 @@ def build(config: InstallConfig) -> list[Operation]:
                 binary_packages=False,
             )
         )
-    operations.append(
-        Emerge(
-            stage=Stage.KERNEL,
-            packages=(atom,),
-            summary="install the kernel",
-            # The two prebuilt ones only: a source package has to be compiled
-            # in any case, and the patched pair is on no official binary host.
-            binary_packages=config.kernel.source is KernelSource.DIST_BIN,
+    out_of_tree = _out_of_tree_modules(config)
+    if out_of_tree:
+        operations.append(RequestDistKernelModules(packages=out_of_tree))
+    # The two prebuilt ones only: a source package has to be compiled in any
+    # case, and the patched pair is on no official binary host.
+    prebuilt = config.kernel.source is KernelSource.DIST_BIN
+    if out_of_tree:
+        # One emerge, because `sys-fs/zfs[dist-kernel-cap]` caps
+        # `virtual/dist-kernel` and resolving the two separately installed a
+        # kernel above the cap first: Portage then pulled a second one into
+        # its own slot, and `emerge --config <package>` had two to choose
+        # between and stopped with "Please use a specific atom".
+        operations.append(
+            Emerge(
+                stage=Stage.KERNEL,
+                packages=(atom, *sorted(building)),
+                summary="install the kernel and the tools that build a module for it",
+                source_only=tuple(sorted(building)) if prebuilt else (),
+                binary_packages=prebuilt,
+            )
         )
-    )
+    else:
+        operations.append(
+            Emerge(
+                stage=Stage.KERNEL,
+                packages=(atom,),
+                summary="install the kernel",
+                binary_packages=prebuilt,
+            )
+        )
     if modules:
         operations.append(WriteDracutModules(modules=modules))
     pool = _pool_the_initramfs_may_carry(config)
     if pool is not None:
         operations.append(StoreZfsKey(pool=pool.id, name=pool.name))
-    out_of_tree = _out_of_tree_modules(config)
-    if out_of_tree:
-        operations.append(RequestDistKernelModules(packages=out_of_tree))
-        operations.append(
-            Emerge(
-                stage=Stage.KERNEL,
-                packages=tuple(sorted(building)),
-                summary="install the tools that build a module for this kernel",
-                binary_packages=False,
-            )
-        )
     # Delete first, then rebuild. The misnamed image `sys-fs/zfs` leaves is
     # often the only one in /boot, so deleting it last left generate-zbm with
     # `Unable to find latest kernel`. `emerge --config` reinstalls the image

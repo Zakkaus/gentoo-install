@@ -35,6 +35,7 @@ from gentoo_install.model.size import Size
 from gentoo_install.model.parse import load
 from gentoo_install.model.validate import validate
 from gentoo_install.plan import bootloader, kernel
+from gentoo_install.plan.portage import Emerge
 
 from .layouts import config, encrypted_root, ext4_on_gpt, i, zfs_root
 from .recorder import Recorder
@@ -172,6 +173,26 @@ def test_zfs_is_told_to_build_against_a_dist_kernel() -> None:
     assert "sys-fs/zfs" in described and "dist-kernel" in described
     # 2.4.1 absorbed the module and blocks every older kmod.
     assert "sys-fs/zfs-kmod" not in described
+
+
+def test_the_kernel_and_its_module_are_resolved_in_one_emerge() -> None:
+    """`sys-fs/zfs[dist-kernel-cap]` caps `virtual/dist-kernel`. Resolved
+    separately, the kernel merges above the cap and Portage pulls a second one
+    into its own slot; `emerge --config <package>` then has two candidates and
+    stops with "Please use a specific atom"."""
+    prebuilt = replace(config(zfs_root()), kernel=KernelConfig(source=KernelSource.DIST_BIN))
+    operations = kernel.build(prebuilt)
+    merging = [
+        one
+        for one in operations
+        if isinstance(one, Emerge) and any("gentoo-kernel" in p for p in one.packages)
+    ]
+    assert len(merging) == 1, [one.describe() for one in merging]
+    assert "sys-fs/zfs" in merging[0].packages
+    # The kernel still comes prebuilt; only the module is built here.
+    assert merging[0].source_only == ("sys-fs/zfs",)
+    told = next(n for n, o in enumerate(operations) if "dist-kernel" in o.describe())
+    assert told < operations.index(merging[0])
 
 
 def test_the_patched_kernel_needs_the_flag_too() -> None:
@@ -690,15 +711,13 @@ def test_the_kernel_is_merged_before_anything_that_builds_a_module_for_it() -> N
     the chosen kernel is still masked, Portage satisfies that virtual with a
     second kernel and builds zfs.ko for the one that will not boot."""
     described = [one.describe() for one in kernel.build(zfs_installation())]
-    kernel_at = next(at for at, one in enumerate(described) if one.startswith("install the kernel"))
-    module = next(at for at, one in enumerate(described) if "build against the dist-kernel" in one)
-    built = next(at for at, one in enumerate(described) if "build a module for this kernel" in one)
+    merged = next(at for at, one in enumerate(described) if one.startswith("install the kernel"))
+    told = next(at for at, one in enumerate(described) if "build against the dist-kernel" in one)
     initramfs = next(at for at, one in enumerate(described) if one.startswith("rebuild the initramfs"))
-    # sys-fs/zfs builds a kernel module, so it waits for the kernel; the dracut
-    # module list is written after it too, or the kernel's own postinst asks
-    # for a zfs module whose userland is not installed yet.
+    # The dracut module list is written after the merge, or the kernel's own
+    # postinst asks for a zfs module whose userland is not installed yet.
     listed = next(at for at, one in enumerate(described) if one == "tell dracut to carry zfs")
-    assert kernel_at < listed < module < built < initramfs
+    assert told < merged < listed < initramfs
 
 
 def test_the_zfs_key_is_set_from_the_installing_system() -> None:

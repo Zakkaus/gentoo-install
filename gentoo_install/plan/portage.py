@@ -310,6 +310,12 @@ class Emerge(Operation):
     summary: str
     oneshot: bool = False
     binary_packages: bool = True
+    #: Which of `packages` have to be built here when the rest may come from a
+    #: binary host. Empty means `binary_packages` decides for all of them. One
+    #: emerge naming a kernel and the module built against it needs both
+    #: answers at once, and Portage has to resolve them together or it picks a
+    #: kernel the module's own version cap forbids.
+    source_only: tuple[str, ...] = ()
     #: Install only what is absent. For a package an earlier operation already
     #: pulled in, a plain atom is `[ebuild R]` and portage rebuilds it: one
     #: run spent 132 seconds rebuilding `sys-apps/systemd` at the bootloader
@@ -317,8 +323,16 @@ class Emerge(Operation):
     only_if_absent: bool = False
 
     def describe(self) -> str:
-        how = "" if self.binary_packages else ", from source"
+        built = self._built_here()
+        how = f", building {' '.join(built)} here" if built else ""
+        if built == self.packages:
+            how = ", from source"
         return f"{self.summary}: emerge {' '.join(self.packages)}{how}"
+
+    def _built_here(self) -> tuple[str, ...]:
+        if self.source_only:
+            return self.source_only
+        return () if self.binary_packages else self.packages
 
     def apply(self, context: Context) -> None:
         argv = ["emerge", *EMERGE_OPTIONS]
@@ -331,17 +345,14 @@ class Emerge(Operation):
             # under `--usepkg=n`, so both are needed to reach the source path
             # a degraded binhost has to fall back to.
             argv += ["--usepkg=n", "--getbinpkg=n"]
-        elif self.binary_packages:
-            argv += BINPKG_OPTIONS
-        else:
+        elif built := self._built_here():
             # These packages only. Turning binaries off wholesale builds the
             # whole dependency tree here too: `sys-apps/systemd` pulled in
             # gtk+, cups and 21 more, and died on a circular dependency.
             # `--usepkg-exclude` also blocks the remote copy under `-g`.
-            argv += [
-                *BINPKG_OPTIONS[:-1],
-                f"{BINPKG_EXCLUDED} {' '.join(self.packages)}",
-            ]
+            argv += [*BINPKG_OPTIONS[:-1], f"{BINPKG_EXCLUDED} {' '.join(built)}"]
+        else:
+            argv += BINPKG_OPTIONS
         context.run_in_target([*argv, "--", *self.packages])
 
 

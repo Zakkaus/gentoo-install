@@ -60,10 +60,9 @@
   accept the linux-firmware licence
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
   install the storage tools: emerge sys-fs/dosfstools
-  install the kernel: emerge sys-kernel/gentoo-kernel-bin
-  tell dracut to carry zfs
   tell sys-fs/zfs to build against the dist-kernel
-  install the tools that build a module for this kernel: emerge sys-fs/zfs, from source
+  install the kernel and the tools that build a module for it: emerge sys-kernel/gentoo-kernel-bin sys-fs/zfs, building sys-fs/zfs here
+  tell dracut to carry zfs
   delete any kernel image in /boot that has no modules directory
   rebuild the initramfs from sys-kernel/gentoo-kernel-bin with the modules written above
   check that a kernel image reached /boot or /efi

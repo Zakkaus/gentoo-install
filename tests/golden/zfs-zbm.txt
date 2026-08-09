@@ -67,11 +67,10 @@
   accept sys-kernel/gentoo-cjk-kernel-bin as testing, with cjk on
   unmask virtual/dist-kernel, which the cjk kernel depends on by revision
   install the storage tools: emerge sys-fs/dosfstools
-  install the kernel: emerge sys-kernel/gentoo-cjk-kernel-bin, from source
+  tell sys-fs/zfs to build against the dist-kernel
+  install the kernel and the tools that build a module for it: emerge sys-kernel/gentoo-cjk-kernel-bin sys-fs/zfs, from source
   tell dracut to carry zfs
   put the zpcala key in /etc/zfs/zpcala.key so only ZFSBootMenu asks for it
-  tell sys-fs/zfs to build against the dist-kernel
-  install the tools that build a module for this kernel: emerge sys-fs/zfs, from source
   delete any kernel image in /boot that has no modules directory
   rebuild the initramfs from sys-kernel/gentoo-cjk-kernel-bin with the modules written above
   check that a kernel image reached /boot or /efi
