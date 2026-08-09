@@ -205,3 +205,50 @@ def test_replacing_an_iso_at_the_same_path_re_extracts_it(tmp_path: Path) -> Non
         assert kernel.read_bytes() == b"the second build entirely"
     finally:
         media.CACHE, media._extract = original_cache, original_extract
+
+
+def test_bootstrap_names_a_package_for_every_command_preflight_wants() -> None:
+    """`package_for` fell through to printing the command itself, so an LVM or
+    swap install was told to install packages named `pvcreate` and `mkswap`,
+    which no distribution has."""
+    import subprocess
+
+    from gentoo_install.exec import preflight
+
+    root = Path(__file__).resolve().parents[2]
+    source = (root / "bootstrap.sh").read_text()
+    start = source.index("package_for()")
+    body = source[start : source.index("\n}\n", start) + 3]
+    script = body + '\npackage_for "$1" "$2"\n'
+
+    wanted = {
+        command
+        for group in (
+            preflight.ALWAYS,
+            preflight.MENU_ONLY,
+            *preflight.BY_FEATURE.values(),
+            *preflight.EXTRA_FILESYSTEM_COMMANDS.values(),
+        )
+        for command in group
+    }
+    # These are the commands a distribution really does name its package after.
+    # Commands a distribution really does name a package after. Alpine splits
+    # util-linux into one package per tool, so each of those is its own name
+    # there and nowhere else.
+    itself = {"cryptsetup", "mdadm", "parted", "btrfs", "tar", "sgdisk", "zfs", "openssl"}
+    split_on_alpine = {"mount", "umount", "lsblk", "blkid", "findmnt", "wipefs"}
+    # Debian keeps mount and umount in a package of that name.
+    named_that = {("mount", "debian"), ("umount", "debian")}
+    wrong: list[str] = []
+    for command in sorted(wanted - itself):
+        for family in ("gentoo", "alpine", "debian", "arch", "fedora", "opensuse"):
+            said = subprocess.run(
+                ["sh", "-c", script, "_", command, family], capture_output=True, text=True
+            ).stdout.strip()
+            allowed = (family == "alpine" and command in split_on_alpine) or (
+                command,
+                family,
+            ) in named_that
+            if said == command and not allowed:
+                wrong.append(f"{command}:{family}")
+    assert not wrong, wrong

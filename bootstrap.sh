@@ -65,7 +65,10 @@ package_for() {
 	mkfs.btrfs:* | btrfs:*) printf 'btrfs-progs' ;;
 	cryptsetup:*) printf 'cryptsetup' ;;
 	mdadm:*) printf 'mdadm' ;;
-	lvm:*) printf 'lvm2' ;;
+	# The multicall name and the three binaries the operations invoke: all of
+	# them come from lvm2, and the three reached the fallback and were printed
+	# as package names no distribution has.
+	lvm:* | pvcreate:* | vgcreate:* | lvcreate:*) printf 'lvm2' ;;
 	gpg:*) printf 'gnupg' ;;
 	zpool:debian | zfs:debian | zpool:ubuntu | zfs:ubuntu) printf 'zfsutils-linux' ;;
 	# archzfs is a third-party repository, so there is nothing to name here;
@@ -82,14 +85,21 @@ package_for() {
 	# named on its own.
 	mount:alpine | umount:alpine | lsblk:alpine | blkid:alpine | findmnt:alpine \
 		| wipefs:alpine) printf '%s' "$command" ;;
-	blockdev:alpine | swapon:alpine) printf 'util-linux-misc' ;;
+	# Debian keeps mount and umount in a package of their own; everywhere
+	# else they come from util-linux and the fallback printed `mount`.
+	mount:debian | umount:debian | mount:ubuntu | umount:ubuntu) printf 'mount' ;;
+	mount:* | umount:*) printf 'util-linux' ;;
+	blockdev:alpine | swapon:alpine | swapoff:alpine | mkswap:alpine)
+		printf 'util-linux-misc'
+		;;
 	openssl:*) printf 'openssl' ;;
 	zpool:* | zfs:*) printf 'zfs' ;;
 	mkfs.xfs:*) printf 'xfsprogs' ;;
 	mkfs.f2fs:*) printf 'f2fs-tools' ;;
 	mkfs.ext4:* | mkfs.ext2:* | mkfs.ext3:*) printf 'e2fsprogs' ;;
 	tar:*) printf 'tar' ;;
-	wipefs:* | blkid:* | lsblk:* | findmnt:* | blockdev:* | swapon:*) printf 'util-linux' ;;
+	wipefs:* | blkid:* | lsblk:* | findmnt:* | blockdev:* | swapon:* | swapoff:* \
+		| mkswap:*) printf 'util-linux' ;;
 	# No distribution ships a package named after either of these.
 	chroot:* | hostid:*) printf 'coreutils' ;;
 	*) printf '%s' "$command" ;;
