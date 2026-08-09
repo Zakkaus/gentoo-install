@@ -186,7 +186,11 @@ class GenerateHostId(Operation):
     system's. `zgenhostid -f` alone writes a fresh random one, so the value is
     read from the installing system and written into the target."""
 
-    stage: Stage = Stage.BOOTLOADER
+    #: The kernel stage, not the bootloader one: dracut's zfs module copies
+    #: `/etc/hostid` into the initramfs, so writing it after `RebuildInitramfs`
+    #: left the image without it and the pool imported under a hostid the
+    #: target does not have.
+    stage: Stage = Stage.KERNEL
 
     def describe(self) -> str:
         return "copy the installing system's hostid into the target so the pool imports"
@@ -337,7 +341,6 @@ def build(config: InstallConfig) -> list[Operation]:
                 packages=(BOOTCTL_PACKAGE[config.system.init],),
                 summary="install the EFI stub generate-zbm builds around",
             ),
-            GenerateHostId(),
             InstallZfsBootMenu(
                 pool=pool,
                 dataset=_root_dataset(config, pool),

@@ -32,6 +32,7 @@ from .bootloader import (
     keymap_parameters,
     luks_parameters,
 )
+from .bootloader import GenerateHostId
 from .bootloader import initramfs_keymap as bootloader_keymap
 from .bootloader import unlock_parameters
 from .operations import Context, Operation, Stage
@@ -718,6 +719,12 @@ def build(config: InstallConfig) -> list[Operation]:
     # often the only one in /boot, so deleting it last left generate-zbm with
     # `Unable to find latest kernel`. `emerge --config` reinstalls the image
     # under the name the package itself carries, which is the correct one.
+    # Any pool, not only a root one: a data pool created under the installing
+    # system's hostid asks for a forced import on the target without this, and
+    # the bootloader stage was too late for a root pool because the initramfs
+    # is built here.
+    if graph.of_type(ZfsPool):
+        operations.append(GenerateHostId())
     operations.append(RemoveUnbootableKernels())
     operations.append(RebuildInitramfs(package=package))
     esp = compat.esp_mount(graph)

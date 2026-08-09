@@ -71,6 +71,7 @@
   install the kernel and the tools that build a module for it: emerge sys-kernel/gentoo-cjk-kernel-bin sys-fs/zfs, from source
   tell dracut to carry zfs
   put the zpcala key in /etc/zfs/zpcala.key so only ZFSBootMenu asks for it
+  copy the installing system's hostid into the target so the pool imports
   delete any kernel image in /boot that has no modules directory
   rebuild the initramfs from sys-kernel/gentoo-cjk-kernel-bin with the modules written above
   check that a kernel image reached /boot or /efi
@@ -78,7 +79,6 @@
 [bootloader]
   install the bootloader: emerge sys-boot/zfsbootmenu sys-boot/efibootmgr
   install the EFI stub generate-zbm builds around: emerge sys-apps/systemd
-  copy the installing system's hostid into the target so the pool imports
   build ZFSBootMenu into /efi/EFI/zbm and boot zpcala/ROOT/gentoo/root from it
 
 [packages]

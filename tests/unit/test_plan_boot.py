@@ -308,7 +308,6 @@ def test_zfsbootmenu_sets_bootfs_and_writes_both_efi_paths() -> None:
     for operation in bootloader.build(zfs):
         operation.apply(recorder)
     assert recorder.only("zpool", "set")[2].startswith("bootfs=zpcala/")
-    assert recorder.argv_starting("zgenhostid")
     installed = recorder.only("install", "-D", "-m0644")
     assert installed[-1].endswith("EFI/BOOT/BOOTX64.EFI")
     assert "config.yaml" in str(list(recorder.files)[0]) or any(
@@ -317,11 +316,25 @@ def test_zfsbootmenu_sets_bootfs_and_writes_both_efi_paths() -> None:
 
 
 def test_the_pool_keeps_its_hostid_or_it_will_not_import() -> None:
-    recorder = Recorder()
-    recorder.replies["find"] = "/efi/EFI/zbm/kernel.EFI\n"
-    for operation in bootloader.build(zfs_installation()):
-        operation.apply(recorder)
-    assert recorder.argv_starting("zgenhostid")
+    """In the kernel stage and before the initramfs: dracut's zfs module copies
+    `/etc/hostid` into the image, so writing it afterwards left the image
+    without one."""
+    described = [one.describe() for one in kernel.build(zfs_installation())]
+    merged = next(at for at, one in enumerate(described) if "sys-fs/zfs" in one and "emerge" in one)
+    hostid = next(at for at, one in enumerate(described) if "hostid" in one)
+    initramfs = next(at for at, one in enumerate(described) if one.startswith("rebuild the initramfs"))
+    assert merged < hostid < initramfs, described
+
+
+def test_a_pool_that_is_not_the_root_gets_a_hostid_too() -> None:
+    """A data pool is created under the installing system's hostid as well, and
+    without a matching one the target asks for a forced import."""
+    from gentoo_install.model.device import ZfsPool
+
+    installation = config(zfs_root())
+    assert installation.disk.graph.of_type(ZfsPool)
+    described = [one.describe() for one in kernel.build(installation)]
+    assert [one for one in described if "hostid" in one], described
 
 
 def test_systemd_boot_gets_boot_entries_and_a_command_line() -> None:
