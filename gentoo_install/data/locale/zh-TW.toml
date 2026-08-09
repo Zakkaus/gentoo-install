@@ -365,7 +365,7 @@
 "Password" = "密碼"
 "sudo" = "sudo"
 "Extra groups" = "額外群組"
-"plugdev kvm docker, separated by spaces" = "plugdev kvm docker，以空白分隔"
+"separated by spaces, such as plugdev kvm docker" = "以空白分隔，例如 plugdev kvm docker"
 "A user name is lowercase, starts with a letter, and has no spaces" = "使用者名稱是小寫、字母開頭、不含空白"
 "An account with no password cannot log in" = "沒有密碼的帳號登入不了"
 "Not a group name" = "不是群組名稱"

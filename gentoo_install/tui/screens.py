@@ -473,7 +473,7 @@ def user_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
         Field(
             label=translate("Extra groups"),
             value=" ".join(existing.groups) if existing else "",
-            placeholder=translate("plugdev kvm docker, separated by spaces"),
+            placeholder=translate("separated by spaces, such as plugdev kvm docker"),
         ),
     ]
     message = ""

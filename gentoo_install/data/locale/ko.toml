@@ -364,7 +364,7 @@
 "Password" = "암호"
 "sudo" = "sudo"
 "Extra groups" = "추가 그룹"
-"plugdev kvm docker, separated by spaces" = "plugdev kvm docker, 공백으로 구분"
+"separated by spaces, such as plugdev kvm docker" = "공백으로 구분, 예를 들어 plugdev kvm docker"
 "A user name is lowercase, starts with a letter, and has no spaces" = "사용자 이름은 소문자, 영문자로 시작, 공백 없음"
 "An account with no password cannot log in" = "암호가 없는 계정은 로그인할 수 없습니다"
 "Not a group name" = "그룹 이름이 아닙니다"
