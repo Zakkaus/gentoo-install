@@ -10,6 +10,7 @@ from ..errors import InvalidLayout, LocaleMissing
 from ..model import compat
 from ..model.config import (
     ConsoleFontSize,
+    Firewall,
     InitSystem,
     InstallConfig,
     Logger,
@@ -972,6 +973,7 @@ def build(config: InstallConfig) -> list[Operation]:
                 LinkResolvConf(init=system.init),
             ]
     operations += _logging(system)
+    operations += _firewall(system)
     if system.init is not InitSystem.SYSTEMD:
         # openrc assembles the stack with a service per kind. The root comes up
         # from the initramfs either way; anything else needs these.
@@ -1229,6 +1231,31 @@ ZFS_SERVICES: Final[dict[InitSystem, tuple[tuple[str, str], ...]]] = {
 #: systemd has no equivalent to enable: `zfs-mount-generator` writes a unit per
 #: pool at boot.
 ZFS_KEY_SERVICE: Final[str] = "zfs-load-key"
+
+
+#: The package each choice merges. Both ship an empty rule set and neither
+#: service is enabled here, so nothing about the machine's reachability
+#: changes: the operator writes the policy after the install.
+FIREWALLS: Final[dict[Firewall, str]] = {
+    Firewall.NONE: "",
+    Firewall.NFTABLES: "net-firewall/nftables",
+    Firewall.IPTABLES: "net-firewall/iptables",
+}
+
+
+def _firewall(system: SystemConfig) -> list[Operation]:
+    """Merge the packet filter and stop there.
+
+    No `EnableService` and no rule file. A rule set written by the installer
+    is a security policy nobody asked for, and one that closes port 22 on a
+    machine reached only over ssh needs a console to undo.
+    """
+    package = FIREWALLS[system.firewall]
+    if not package:
+        return []
+    return [
+        Emerge(stage=Stage.SYSTEM, packages=(package,), summary="install the firewall package")
+    ]
 
 
 def _logging(system: SystemConfig) -> list[Operation]:

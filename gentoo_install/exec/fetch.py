@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from email.utils import parsedate_to_datetime
@@ -51,10 +50,6 @@ PROBE_TIMEOUT: Final[float] = 5.0
 PROBE_WORKERS: Final[int] = 8
 
 
-#: The mirror's index is HTML; this is the link to a tarball in it.
-_ENTRY = re.compile(r'href="(stage3-amd64-[\w.\-]+\.tar\.xz)"')
-
-
 #: The marker's format. A marker written by an older installer says nothing
 #: about the bytes beside it, so it is refused rather than trusted.
 MARKER_SCHEMA: Final[str] = "gentoo-install-stage3-1"
@@ -68,17 +63,18 @@ def stage3(mirror: str, variant: str, fingerprint: str, work: Path, runner: Runn
     that digest is recomputed here, because an empty marker beside a replaced
     or corrupted archive was an integrity check that verified nothing.
     """
-    base = f"{mirror.rstrip('/')}/{STAGE3_PATH}/current-stage3-amd64-{variant}"
-    name = _newest(base)
+    builds = f"{mirror.rstrip('/')}/{STAGE3_PATH}"
+    where = _newest(builds, variant)
+    name = where.rsplit("/", 1)[-1]
     work.mkdir(parents=True, exist_ok=True)
     archive = work / name
     marker = work / f"{name}.verified"
     if marker.is_file() and archive.is_file() and _marker_matches(marker, archive, fingerprint):
         return archive
 
-    _download(f"{base}/{name}", archive)
+    _download(f"{builds}/{where}", archive)
     digests = work / f"{name}.DIGESTS"
-    _download(f"{base}/{name}.DIGESTS", digests)
+    _download(f"{builds}/{where}.DIGESTS", digests)
     _import_release_key(runner, work)
     _verify_signature(digests, fingerprint, runner)
     _verify_digest(archive, digests)
@@ -151,13 +147,37 @@ def passphrase_for(device: DeviceId, source: str) -> str:
     return passphrase
 
 
-def _newest(base: str) -> str:
-    names: set[str] = {str(name) for name in _ENTRY.findall(_read(f"{base}/"))}
-    if not names:
-        # DownloadFailed, not IntegrityError: the index arrived and held
+def _newest(builds: str, variant: str) -> str:
+    """The current archive's path under `releases/amd64/autobuilds`.
+
+    `latest-stage3-amd64-<variant>.txt`, not the directory index: an index is
+    a mirror's own HTML and every mirror writes it differently. USTC links
+    each file by an absolute path, so the pattern that matched Gentoo's own
+    page found nothing there and every install from a Chinese mirror stopped
+    with `lists no stage3 archive`.
+
+    The path, not the bare name. Each entry is `<timestamp>/<name> <size>`,
+    and the dated directory is where the file stays; `current-stage3-amd64-*`
+    is a symlink that moves when a build is published, and downloading through
+    it answered `404 Not Found` for an archive the pointer had just named.
+
+    The signature around the entries is not checked here: the DIGESTS file is,
+    and it is what decides whether the bytes are the right ones.
+    """
+    pointer = f"{builds}/latest-stage3-amd64-{variant}.txt"
+    paths: list[str] = []
+    for line in _read(pointer).splitlines():
+        said = line.strip()
+        if not said or said.startswith(("#", "-----", "Hash:")):
+            continue
+        first = said.split()[0]
+        if first.endswith(".tar.xz"):
+            paths.append(first)
+    if not paths:
+        # DownloadFailed, not IntegrityError: the file arrived and named
         # nothing, which is a mirror mid-sync rather than data to distrust.
-        raise DownloadFailed(f"{base} lists no stage3 archive")
-    return sorted(names)[-1]
+        raise DownloadFailed(f"{pointer} names no stage3 archive")
+    return sorted(paths)[-1]
 
 
 #: Gentoo's own keyring, which carries the release signing key. Fetched when
@@ -276,17 +296,29 @@ def egress_country() -> str:
     return ""
 
 
+#: How many times the site is asked before the machine is called offline, and
+#: how long to wait between. One attempt was enough to stop an install on a
+#: link that answered five runs in a row and timed out on the sixth; the check
+#: guards the whole run, so a single lost packet must not decide it.
+ONLINE_TRIES: Final[int] = 3
+ONLINE_PAUSE: Final[float] = 2.0
+
+
 def online() -> bool:
     """Whether the package site answers.
 
     Asked of the site the install reads rather than of any host: a machine
     behind a portal resolves names and still cannot fetch an ebuild.
     """
-    try:
-        _read(f"{PACKAGES_API}/sys-kernel/gentoo-kernel-bin.json")
-    except DownloadFailed:
-        return False
-    return True
+    for attempt in range(ONLINE_TRIES):
+        try:
+            _read(f"{PACKAGES_API}/sys-kernel/gentoo-kernel-bin.json")
+        except DownloadFailed:
+            if attempt + 1 < ONLINE_TRIES:
+                time.sleep(ONLINE_PAUSE)
+            continue
+        return True
+    return False
 
 
 def package_versions(atom: str) -> tuple[tuple[str, bool], ...]:

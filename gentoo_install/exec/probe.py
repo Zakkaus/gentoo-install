@@ -46,6 +46,24 @@ def _efi_variables() -> bool:
         return False
 
 
+def _under(path: str, root: str) -> bool:
+    """Whether `path` is `root` or sits inside it."""
+    return path == root or path.startswith(f"{root.rstrip('/')}/")
+
+
+def _partition_of(node: str, disk: str) -> bool:
+    """Whether `node` is `disk` or one of its partitions.
+
+    A prefix test alone reads `/dev/sdaa` as a partition of `/dev/sda`, so the
+    remainder has to be a partition suffix: a number, or `p` and a number for
+    the nvme and mmc spelling.
+    """
+    if node == disk:
+        return True
+    rest = node[len(disk):] if node.startswith(disk) else ""
+    return rest.removeprefix("p").isdigit() if rest else False
+
+
 def _efi_bits() -> int:
     try:
         return int(EFI_WIDTH.read_text().strip())
@@ -572,41 +590,55 @@ class Probe:
         elsewhere = [
             where
             for where in (line.strip() for line in listed.stdout.splitlines())
-            if where and not (ignoring and (where == ignoring or where.startswith(f"{ignoring}/")))
+            if where and not (ignoring and _under(where, ignoring))
         ]
         if elsewhere:
             return True
-        if self._in_an_imported_pool(disk):
+        if self._in_an_imported_pool(disk, ignoring):
             return True
         swap = self.runner.run(["swapon", "--noheadings", "--show=NAME"], check=False)
         if swap.returncode != 0:
             return True
-        return any(line.strip().startswith(disk) for line in swap.stdout.splitlines())
+        return any(_partition_of(line.strip(), disk) for line in swap.stdout.splitlines())
 
-    def _in_an_imported_pool(self, disk: str) -> bool:
-        """Whether any partition of `disk` is a vdev of an imported ZFS pool.
+    def _in_an_imported_pool(self, disk: str, ignoring: str = "") -> bool:
+        """Whether any partition of `disk` is a vdev of an imported ZFS pool
+        that is not this install's own.
 
         A `zfs_member` partition carries no block-device mountpoint even while
         its datasets provide `/` and `/home`, so every mountpoint column reads
-        blank and the disk looks free. Checked on the review host: the vdevs of
-        the pool holding its root had empty `MOUNTPOINTS`.
+        blank and the disk looks free.
+
+        `ignoring` is the install target. A run that stopped halfway leaves its
+        own pool imported with the target as its altroot, and reading that as
+        somebody else's disk made the next attempt impossible: `zpool list`
+        answered `rpool ... ONLINE /mnt/gentoo` and preflight refused the disk
+        the operator was installing onto.
         """
-        listed = self.runner.run(
-            ["zpool", "list", "-v", "-H", "-P"], check=False
-        )
+        listed = self.runner.run(["zpool", "list", "-v", "-H", "-P"], check=False)
         if listed.returncode != 0:
             # No pools and no `zpool` are the same answer here: nothing this
             # command can tell us. `zpool` missing is the common case on a
             # medium without ZFS, and it is not evidence that a disk is busy.
             return False
-        whole = Path(disk).resolve()
+        whole = str(Path(disk).resolve())
+        ours = False
         for line in listed.stdout.splitlines():
+            if not line.startswith(("\t", " ")):
+                # A pool line. Its last field is the altroot, and `-` when the
+                # pool was imported without one.
+                fields = line.split()
+                where = fields[-1] if fields else "-"
+                ours = bool(ignoring) and where != "-" and _under(where, ignoring)
+                continue
+            if ours:
+                continue
             for field in line.split():
                 if not field.startswith("/"):
                     continue
                 vdev = Path(field)
-                real = vdev.resolve() if vdev.exists() else vdev
-                if real == whole or str(real).startswith(str(whole)):
+                real = str(vdev.resolve() if vdev.exists() else vdev)
+                if _partition_of(real, whole):
                     return True
         return False
 

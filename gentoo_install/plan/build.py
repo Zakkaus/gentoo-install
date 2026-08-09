@@ -26,11 +26,18 @@ def stage3_mirror(config: InstallConfig, fallback: str = DEFAULT_MIRROR) -> str:
     Only `--mirror` was read, so choosing USTC set the mirror for every later
     fetch and downloaded the several hundred megabytes of the stage3 itself
     from `distfiles.gentoo.org`, which is the slow one from China.
+
+    An empty `site` means the region's first, which is what the field's own
+    documentation says and what a configuration that names only a region
+    holds. Reading it as `no choice was made` sent every region-only install
+    back to `distfiles.gentoo.org`: a run from the cluster in China fetched
+    the stage3 there with `cn` selected.
     """
     chosen = config.portage.mirrors.site
+    offered = mirrors.gentoo_sites(config.portage.mirrors.region)
     if not chosen:
-        return fallback
-    for site in mirrors.gentoo_sites(config.portage.mirrors.region):
+        return offered[0].distfiles if offered else fallback
+    for site in offered:
         if site.key == chosen:
             return site.distfiles
     return fallback

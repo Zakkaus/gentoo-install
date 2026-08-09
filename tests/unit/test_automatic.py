@@ -810,9 +810,11 @@ def test_password_login_does_not_let_root_in_by_itself() -> None:
     from tests.unit.test_tui_app import context
 
     at = context()
-    # Down twice to `password login`, enter.
+    # Down twice to `password login`, enter, then acknowledge the firewall hint.
     chosen = screens.sshd_screen(
-        FakeScreen(keys=["KEY_DOWN", "KEY_DOWN", "\n"], lines=24), config(ext4_on_gpt()), at
+        FakeScreen(keys=["KEY_DOWN", "KEY_DOWN", "\n", "\n"], lines=24),
+        config(ext4_on_gpt()),
+        at,
     ).unwrap()
     assert chosen.system.sshd_password_login is True
     assert chosen.system.sshd_root_login is False
@@ -821,6 +823,81 @@ def test_password_login_does_not_let_root_in_by_itself() -> None:
     written = recorder.files[PurePosixPath("/etc/ssh/sshd_config.d/50-gentoo-install.conf")]
     assert "PermitRootLogin no" in written
     assert "PasswordAuthentication yes" in written
+
+
+def test_turning_on_sshd_with_no_firewall_says_so() -> None:
+    """The hint is the whole feature: the installer opens a port to the network
+    and never writes a rule, so the operator has to be told which of those two
+    the installer did."""
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    at = context()
+    screen = FakeScreen(keys=["KEY_DOWN", "\n", "\n"], lines=24)
+    chosen = screens.sshd_screen(screen, config(ext4_on_gpt()), at).unwrap()
+    assert chosen.system.sshd is True
+    assert any("firewall" in line.lower() for frame in screen.frames for line in frame)
+
+
+def test_no_ssh_server_gets_no_firewall_hint() -> None:
+    """Nothing is exposed, so there is nothing to advise about."""
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    screen = FakeScreen(keys=["\n"], lines=24)
+    chosen = screens.sshd_screen(screen, config(ext4_on_gpt()), context()).unwrap()
+    assert chosen.system.sshd is False
+    assert not any("firewall" in line.lower() for frame in screen.frames for line in frame)
+
+
+def test_choosing_a_firewall_installs_the_package_and_writes_no_rule() -> None:
+    """A rule set the installer chose could drop port 22, and a machine reached
+    only over ssh would then need a console. So: the package, and nothing."""
+    from gentoo_install.model.config import Firewall
+    from gentoo_install.plan.portage import Emerge
+    from gentoo_install.plan.system import build as build_system
+
+    at = config(ext4_on_gpt())
+    picked = replace(at, system=replace(at.system, firewall=Firewall.NFTABLES))
+    operations = build_system(picked)
+    merges = [
+        one
+        for one in operations
+        if isinstance(one, Emerge) and "net-firewall/nftables" in one.packages
+    ]
+    assert len(merges) == 1
+    described = " ".join(one.describe() for one in operations)
+    assert "nftables" not in described.replace(merges[0].describe(), "")
+    assert not any(
+        type(one).__name__ == "EnableService" and "nftables" in one.describe()
+        for one in operations
+    )
+
+
+def test_the_firewall_row_and_the_package_group_name_the_same_atom() -> None:
+    """`data/packages/nftables.toml` already names `net-firewall/nftables` for
+    the operator who asks for it as an application. Two spellings of one atom
+    is how one of them goes stale, so this holds them together. The group
+    enables the service and the firewall row does not: the row exists to
+    install a filter without changing what the machine answers."""
+    from gentoo_install.data import load_catalog
+    from gentoo_install.model.config import Firewall
+    from gentoo_install.plan.system import FIREWALLS
+
+    group = load_catalog()["nftables"]
+    assert FIREWALLS[Firewall.NFTABLES] in group.packages
+    assert group.services, "the application group is the one that enables it"
+
+
+def test_no_firewall_merges_no_firewall_package() -> None:
+    from gentoo_install.plan.portage import Emerge
+    from gentoo_install.plan.system import build as build_system
+
+    operations = build_system(config(ext4_on_gpt()))
+    assert not any(
+        isinstance(one, Emerge) and any("net-firewall/" in name for name in one.packages)
+        for one in operations
+    )
 
 
 def test_the_kcm_flag_follows_plasma_and_not_the_input_method() -> None:
