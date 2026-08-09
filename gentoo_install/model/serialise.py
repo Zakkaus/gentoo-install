@@ -90,7 +90,9 @@ def _section(name: str, value: object, prefix: str = "", *, publishing: bool = F
         raise TypeError(f"{path} is not a dataclass instance")
     for field in fields(value):
         held = getattr(value, field.name)
-        if is_dataclass(held) and not isinstance(held, type):
+        # `Size` is a frozen dataclass and a scalar in the file, so recursing
+        # into it wrote `[system.zram]` and the parser refused its own output.
+        if is_dataclass(held) and not isinstance(held, type) and not isinstance(held, Size):
             nested += _section(field.name, held, f"{path}.", publishing=publishing)
             continue
         if held is None or held == field.default or held == _empty(field.default_factory):

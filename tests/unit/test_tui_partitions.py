@@ -578,8 +578,9 @@ def test_a_table_nobody_edits_says_what_it_does_with_the_partition_table() -> No
 
 
 def test_the_pool_topology_row_appears_once_there_is_something_to_join() -> None:
-    """A pool of one has nothing to mirror, and `validate` refuses several
-    joined as a stripe, so the row is exactly as wide as the choice is real."""
+    """A pool of one has nothing to mirror, so the row cannot be opened. It is
+    still drawn, with the purpose to set: hidden, mirroring was unreachable to
+    anyone who did not already know it was there."""
     from gentoo_install.model.device import ZfsTopology
 
     at = context()
@@ -602,14 +603,18 @@ def test_the_pool_topology_row_appears_once_there_is_something_to_join() -> None
         return made
 
     at.layout = one_disk(slices(1), disk=at.choice.disk)
-    single = FakeScreen(keys=["q"], lines=24, columns=100)
+    single = FakeScreen(keys=["q"], lines=24, columns=110)
     screens.partitions_screen(single, config(), at)
-    assert "Pool topology" not in "\n".join(single.frames[0])
+    drawn = "\n".join(single.frames[0])
+    assert "Pool topology" in drawn
+    assert "zfs pool member purpose" in drawn
 
     at.layout = one_disk(slices(2), disk=at.choice.disk)
-    pair = FakeScreen(keys=["q"], lines=24, columns=100)
+    pair = FakeScreen(keys=["q"], lines=24, columns=110)
     screens.partitions_screen(pair, config(), at)
-    assert "Pool topology" in "\n".join(pair.frames[0])
+    opened = "\n".join(pair.frames[0])
+    assert "Pool topology" in opened
+    assert "zfs pool member purpose" not in opened
 
 
 def test_a_topology_this_many_devices_cannot_make_says_how_many_it_needs() -> None:
@@ -857,15 +862,19 @@ def test_an_encrypted_array_puts_luks_between_it_and_the_filesystem() -> None:
     validate(config_from(graph, root))
 
 
-def test_the_array_row_appears_once_a_row_is_marked_a_member() -> None:
+def test_the_array_row_says_what_to_set_before_it_can_be_opened() -> None:
+    """Absent until a partition carried the purpose, an array was something an
+    operator could only find by already knowing about it."""
     at = opened()
     at.choice = replace(at.choice, disk="/dev/vda")
     at.layout = manual.suggest("/dev/vda", Firmware.UEFI)
-    assert "RAID array" not in [item.label for item in screens._partition_rows(at)]
+    shut = next(one for one in screens._partition_rows(at) if one.label == "RAID array")
+    assert "raid array member purpose" in shut.disabled_because
 
     at.layout = mirrored()
-    labels = [item.label for item in screens._partition_rows(at)]
-    assert "RAID array" in labels
+    open_now = next(one for one in screens._partition_rows(at) if one.label == "RAID array")
+    assert open_now.disabled_because == ""
+    assert open_now.detail
 
 
 def test_a_level_the_members_cannot_make_is_shown_with_what_it_needs() -> None:
@@ -985,3 +994,19 @@ def test_the_layout_row_opens_on_what_is_already_set() -> None:
         if one.kind is not FilesystemType.VFAT
     ]
     assert chosen == [at.choice.filesystem]
+
+
+def test_raid_and_the_pool_topology_are_visible_before_they_are_reachable() -> None:
+    """Both rows appeared only once a partition happened to carry the right
+    purpose, so neither feature could be found by anyone who did not already
+    know it was there. Drawn always, with the reason when they cannot open."""
+    from gentoo_install.tui import screens
+
+    at = context()
+    at.manual = True
+    drawn = FakeScreen(keys=["q"], lines=30, columns=118)
+    screens.partitions_screen(drawn, config(), at)
+    assert "RAID array" in drawn.last
+    assert "raid array member purpose" in drawn.last
+    assert "Pool topology" in drawn.last
+    assert "zfs pool member purpose" in drawn.last

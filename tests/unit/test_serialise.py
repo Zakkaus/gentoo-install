@@ -105,3 +105,23 @@ def test_every_secret_field_the_model_has_is_in_the_table() -> None:
         if "password" in field.name and field.name.endswith("hash")
     }
     assert named == SECRET
+
+
+def test_a_size_is_written_as_a_literal_and_not_as_a_table() -> None:
+    """`Size` is a frozen dataclass, so the writer recursed into it and
+    produced `[system.zram]`, which the parser then refused. A saved
+    configuration holding zram or a build tmpfs could not be loaded back."""
+    from gentoo_install.model.parse import load
+    from gentoo_install.model.size import Size
+
+    started = load(Path(__file__).resolve().parents[1] / "fixtures" / "vm-binpkg.toml")
+    held = replace(
+        started,
+        system=replace(started.system, zram=Size.parse("2GiB")),
+        portage=replace(started.portage, build_in_ram=Size.parse("8GiB")),
+    )
+    written = to_toml(held)
+    assert 'zram = "2GiB"' in written
+    assert 'build_in_ram = "8GiB"' in written
+    assert "[system.zram]" not in written
+    assert parse(tomllib.loads(written)) == held

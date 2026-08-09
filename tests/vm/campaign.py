@@ -91,6 +91,13 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         Run("fixtures/vm-btrfs.toml"),
         Run("fixtures/vm-openrc-desktop.toml"),
         Run("fixtures/vm-gnome.toml"),
+        # Three more nothing had ever installed: raidz needs a third disk,
+        # which no other fixture asks for; zram was set by none of them; and
+        # GRUB opening the container itself to read /boot only happens on an
+        # encrypted BIOS disk.
+        Run("fixtures/vm-raidz.toml"),
+        Run("fixtures/vm-zram.toml"),
+        Run("fixtures/vm-bios-luks.toml", firmware="bios"),
         # sshd with a key that can reach it, and the initramfs daemon that
         # unlocks the root: `remote_unlock` was off in every other fixture.
         Run("fixtures/vm-unlock.toml"),

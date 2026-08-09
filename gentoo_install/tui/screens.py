@@ -2431,24 +2431,31 @@ def _partition_rows(context: Context) -> list[Item[_Row]]:
         )
     if _unused_disks(context):
         items.append(Item(label=translate("Add a disk"), value=_Row(_RowKind.ADD_DISK)))
-    if len(_pool_members(context)) > 1:
-        # Only with more than one member: a pool of one has nothing to mirror,
-        # and `validate` refuses several joined as a stripe.
-        items.append(
-            Item(
-                label=translate("Pool topology"),
-                value=_Row(_RowKind.TOPOLOGY),
-                detail=context.layout.topology.value,
-            )
+    # Both rows are drawn whether or not they can be opened. Hidden until a
+    # partition happened to carry the right purpose, the two features were
+    # unreachable to anyone who did not already know they existed.
+    pool = len(_pool_members(context))
+    items.append(
+        Item(
+            label=translate("Pool topology"),
+            value=_Row(_RowKind.TOPOLOGY),
+            detail=context.layout.topology.value if pool > 1 else "",
+            disabled_because=(
+                "" if pool > 1 else translate("give two partitions the zfs pool member purpose")
+            ),
         )
-    if _array_members(context):
-        items.append(
-            Item(
-                label=translate("RAID array"),
-                value=_Row(_RowKind.ARRAY),
-                detail=_array_summary(context),
-            )
+    )
+    array = len(_array_members(context))
+    items.append(
+        Item(
+            label=translate("RAID array"),
+            value=_Row(_RowKind.ARRAY),
+            detail=_array_summary(context) if array else "",
+            disabled_because=(
+                "" if array else translate("give a partition the raid array member purpose")
+            ),
         )
+    )
     items.append(Item(label=translate("Done"), value=_Row(_RowKind.DONE)))
     return items
 

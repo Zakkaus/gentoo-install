@@ -402,3 +402,5 @@
 "separated by ; and run in order" = "以 ; 分隔，依序执行"
 "commands" = "条命令"
 "An address starts with http:// or https://" = "地址要以 http:// 或 https:// 开头"
+"give two partitions the zfs pool member purpose" = "把两个分区的用途设成 zfs pool 成员"
+"give a partition the raid array member purpose" = "把某个分区的用途设成 raid 阵列成员"
