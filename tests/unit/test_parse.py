@@ -250,3 +250,17 @@ def test_an_empty_device_list_is_rejected() -> None:
 def test_a_broken_file_reports_the_path() -> None:
     with pytest.raises(ConfigError, match="no-such-file"):
         load(FIXTURES / "no-such-file.toml")
+
+
+@pytest.mark.parametrize("value", [[True], [False], [-1], [0], [1, 1]])
+def test_a_partition_number_to_remove_is_above_zero_and_named_once(value: list[int]) -> None:
+    """`bool` is an `int`, so `remove = [true]` passed the type check and asked
+    for partition 1 to be deleted. Zero and negatives are not partition
+    numbers, and a repeat asks twice for one deletion."""
+    raw = fixture()
+    for device in raw["disk"]["devices"]:
+        if device["kind"] == "table":
+            device["create"] = False
+            device["remove"] = value
+    with pytest.raises(ConfigError, match="partition numbers"):
+        parse(raw)

@@ -325,10 +325,21 @@ def _table_node(raw: Mapping[str, Any], at: str) -> Node:
 
 
 def _indexes(raw: Mapping[str, Any], key: str, at: str) -> tuple[int, ...]:
-    """Entry numbers to remove from a table that is not written from scratch."""
+    """Entry numbers to remove from a table that is not written from scratch.
+
+    `bool` is an `int` in Python, so `remove = [true]` passed the type check and
+    deleted partition 1. Numbering starts at 1 and a repeat asks twice for the
+    same deletion, so both are refused rather than carried to `sgdisk`.
+    """
     value = raw.get(key, [])
-    if not isinstance(value, list) or not all(isinstance(one, int) for one in value):
-        raise ConfigError(f"{at}.{key} must be a list of partition numbers")
+    wrong = f"{at}.{key} must be a list of partition numbers, each 1 or greater and named once"
+    if not isinstance(value, list):
+        raise ConfigError(wrong)
+    for one in value:
+        if isinstance(one, bool) or not isinstance(one, int) or one < 1:
+            raise ConfigError(wrong)
+    if len(set(value)) != len(value):
+        raise ConfigError(wrong)
     return tuple(int(one) for one in value)
 
 
