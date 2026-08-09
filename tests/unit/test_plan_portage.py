@@ -476,5 +476,16 @@ def test_the_stage3_comes_from_the_mirror_the_operator_chose() -> None:
     assert "mirrors.ustc.edu.cn" in described
     assert "distfiles.gentoo.org" not in described
 
-    # No site chosen: the official one, which is what the flag defaults to.
+    # No site chosen: the region's first, which is what an empty `site` means.
+    # Reading it as `no choice was made` sent every configuration that named
+    # only a region back to Gentoo's own mirror, and a run from China fetched
+    # the stage3 there with `cn` selected.
+    region_only = replace(
+        config(),
+        portage=replace(config().portage, mirrors=MirrorConfig(region=MirrorRegion.CN)),
+    )
+    assert stage3_mirror(region_only) == "https://mirrors.tuna.tsinghua.edu.cn/gentoo"
+
+    # Nothing chosen at all is still the official one, which is the region's
+    # first as well as what the flag defaults to.
     assert stage3_mirror(config()) == DEFAULT_MIRROR
