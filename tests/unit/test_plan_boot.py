@@ -50,7 +50,7 @@ def apply_boot(installation: InstallConfig) -> Recorder:
 def apply_kernel(installation: InstallConfig) -> Recorder:
     # The `find` reply stands for a machine where the kernel did land.
     # `test_a_kernel_that_never_reached_boot_stops_the_install` takes it away.
-    recorder = Recorder(replies={"find": "/boot/vmlinuz-6.18.41-gentoo-dist-bin\n"})
+    recorder = Recorder(replies={"find": "/boot/kernel-6.18.41-gentoo-dist-bin\n"})
     for operation in kernel.build(installation):
         operation.apply(recorder)
     return recorder

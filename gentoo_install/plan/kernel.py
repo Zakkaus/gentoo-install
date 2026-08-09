@@ -73,6 +73,12 @@ IMAGE_NAMES: Final[tuple[tuple[str, str], ...]] = (
     ("config-", ""),
 )
 
+#: What a kernel image is called where it lands, as `find -name` patterns.
+#: `installkernel`'s `90-compat.install` writes `kernel-<version>`, the
+#: traditional name is `vmlinuz-<version>`, and the bls layout writes
+#: `<boot root>/<entry token>/<version>/linux`.
+IMAGE_PATTERNS: Final[tuple[str, ...]] = ("kernel-*", "vmlinuz-*", "linux")
+
 #: One directory per kernel that can actually load a driver.
 MODULE_DIRECTORY: Final[str] = "/lib/modules"
 
@@ -519,8 +525,9 @@ class RequireKernelImage(Operation):
     the zfs module is missing" -- leaves `emerge --config` returning 0 with no
     image copied and nothing in the log that reads as a failure.
 
-    Both names, because both layouts are in use: `compat` writes
-    `<root>/vmlinuz-<version>` and `bls` writes `<root>/<token>/<version>/linux`.
+    Every name in `IMAGE_PATTERNS`, because a check that looks for one layout
+    stops a good install: the first version of this asked for `vmlinuz-*` and
+    `linux`, and `compat` had written `kernel-<version>`.
     """
 
     stage: Stage = Stage.KERNEL
@@ -531,9 +538,11 @@ class RequireKernelImage(Operation):
 
     def apply(self, context: Context) -> None:
         for root in self.roots:
+            names: list[str] = []
+            for pattern in IMAGE_PATTERNS:
+                names += ["-o", "-name", pattern]
             found = context.run_in_target(
-                ["find", root, "-maxdepth", "3", "-type", "f", "(", "-name", "vmlinuz-*", "-o",
-                 "-name", "linux", ")"],
+                ["find", root, "-maxdepth", "3", "-type", "f", "(", *names[1:], ")"],
                 check=False,
             )
             # A path, not a non-empty answer: the runner merges stderr into
