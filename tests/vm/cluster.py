@@ -355,6 +355,30 @@ def install_one(
             print(f"{job.name}: the guest was not removed: {error}", file=sys.stderr)
 
 
+def answer_once(
+    done: "queue.Queue[Outcome]",
+    api: Api,
+    node: str,
+    job: Job,
+    driver: str,
+    workdir: Path,
+    inflight: dict[str, Running],
+) -> None:
+    """Run one job and put exactly one outcome on the queue, whatever happens.
+
+    A worker that dies without answering leaves its name in the running set
+    for ever and the schedule never ends: a `WebSocketError` out of a dropped
+    console was outside the handled set, and a run sat idle for half an hour
+    with an empty cluster and a job still queued.
+    """
+    try:
+        done.put(install_one(api, node, job, driver, workdir, inflight))
+    except BaseException as error:
+        done.put(
+            Outcome(job.name, Verdict.ERROR, 0.0, f"{type(error).__name__}: {error}"[:300])
+        )
+
+
 def run(
     jobs: list[Job],
     workdir: Path,
@@ -384,9 +408,6 @@ def run(
     inflight: dict[str, Running] = {}
     finished: list[Outcome] = []
 
-    def one(node: str, job: Job) -> None:
-        done.put(install_one(api, node, job, driver, workdir, inflight))
-
     try:
         while waiting or running:
             slots = free_slots(api)
@@ -400,7 +421,11 @@ def run(
                 job = waiting.pop(0)
                 if job.iso == DEFAULT_ISO:
                     job = replace(job, iso=medium)
-                thread = threading.Thread(target=one, args=(node.name, job), daemon=True)
+                thread = threading.Thread(
+                    target=answer_once,
+                    args=(done, api, node.name, job, driver, workdir, inflight),
+                    daemon=True,
+                )
                 running[job.name] = thread
                 thread.start()
                 print(f"→ {job.name} on {node.name} ({len(waiting)} waiting)", flush=True)

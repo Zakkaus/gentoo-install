@@ -337,3 +337,30 @@ def test_every_printable_ascii_character_has_a_key_name() -> None:
 
     printable = "".join(chr(code) for code in range(0x20, 0x7F))
     assert len(keys_for(printable)) == len(printable)
+
+
+def test_every_dispatched_job_answers_exactly_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A worker that dies without answering leaves its name in the running set
+    for ever and the schedule never ends. One run sat idle for half an hour
+    with an empty cluster and a job still queued, because `WebSocketError` out
+    of a dropped console was outside the handled set."""
+    import queue as queueing
+
+    from tests.vm import cluster
+    from tests.vm.cluster import Job, Outcome, Verdict, answer_once
+    from tests.vm.websocket import WebSocketError
+
+    def explode(*rest: object) -> Outcome:
+        raise WebSocketError("the connection broke")
+
+    monkeypatch.setattr(cluster, "install_one", explode)
+    done: queueing.Queue[Outcome] = queueing.Queue()
+    job = Job(name="vm-lvm", fixture=tmp_path / "vm-lvm.toml")
+    answer_once(done, Api(host="nowhere.invalid"), "infra-node3", job, "d.iso", tmp_path, {})
+
+    answered = done.get_nowait()
+    assert (answered.name, answered.verdict) == ("vm-lvm", Verdict.ERROR)
+    assert "WebSocketError" in answered.detail
+    assert done.empty(), "one job, one answer"
