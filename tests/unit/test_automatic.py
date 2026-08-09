@@ -24,7 +24,7 @@ from gentoo_install.model.config import (
 )
 from gentoo_install.plan import automatic, bootloader as plan_bootloader, kernel as plan_kernel
 from gentoo_install.tui import screens
-from gentoo_install.tui.widgets import Answer
+from gentoo_install.tui.widgets import Answer, Outcome
 
 from .layouts import config, encrypted_root, ext4_on_gpt, zfs_root
 from .recorder import Recorder
@@ -679,3 +679,74 @@ def test_a_file_that_will_not_parse_goes_back_to_the_list() -> None:
         at,
     )
     assert answer.unwrap() == config(ext4_on_gpt())
+
+
+def test_the_overview_names_the_values_nobody_typed() -> None:
+    """The last screen before the disk is written. `VIDEO_CARDS`, the USE the
+    groups asked for, the group the account joins and the command line are all
+    derived, so they appear nowhere the operator typed something."""
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    at = context()
+    installation = replace(
+        config(ext4_on_gpt()),
+        packages=replace(config().packages, applications=("pipewire",), graphics=("nvidia",)),
+        bootloader=replace(config().bootloader, kernel_params=("quiet",)),
+    )
+    drawn = FakeScreen(keys=["q"], lines=120, columns=130)
+    screens.overview_screen(drawn, installation, at)
+    page = drawn.last
+    assert "added for you" in page
+    for value in ("nvidia", "pipewire", "screencast", "root=UUID="):
+        assert value in page, value
+
+
+def test_the_overview_exports_without_taking_the_key_that_installs() -> None:
+    """Enter on the overview means go ahead. A row that took that keypress for
+    itself would publish instead of installing."""
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    sent: list[InstallConfig] = []
+
+    def publish(one: InstallConfig) -> str:
+        sent.append(one)
+        return "https://paste.example/abc"
+
+    at = context()
+    at.publish_config = publish
+    installation = config(ext4_on_gpt())
+    # Enter straight away, then No to the install confirmation.
+    accepted = screens.overview_screen(
+        FakeScreen(keys=["\n", "\n"], lines=60, columns=130), installation, at
+    )
+    assert sent == [], "enter on the overview published instead of proceeding"
+    assert accepted.outcome is Outcome.BACK
+
+    # Up to the export row, enter, a key to leave the address, then cancel.
+    screens.overview_screen(
+        FakeScreen(keys=["KEY_UP", "\n", "\n", "q"], lines=60, columns=130), installation, at
+    )
+    assert len(sent) == 1
+
+
+def test_a_pastebin_that_refuses_leaves_the_overview_standing() -> None:
+    """The address is a convenience. Losing every answer because the network
+    is down is not a trade the operator agreed to."""
+    from gentoo_install.errors import GentooInstallError
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    def refuse(one: InstallConfig) -> str:
+        raise GentooInstallError("paste.gentoozh.org did not answer")
+
+    at = context()
+    at.publish_config = refuse
+    # Export, acknowledge the failure, then enter and No.
+    answer = screens.overview_screen(
+        FakeScreen(keys=["KEY_UP", "\n", "\n", "\n", "\n"], lines=60, columns=130),
+        config(ext4_on_gpt()),
+        at,
+    )
+    assert answer.outcome is Outcome.BACK

@@ -7,6 +7,7 @@ import pytest
 from gentoo_install.data import load_catalog
 from gentoo_install.errors import ConfigError
 from gentoo_install.i18n import Catalog
+from gentoo_install.model.size import Size
 from gentoo_install.model.config import (
     Bootloader,
     InitSystem,
@@ -51,6 +52,9 @@ def context() -> screens.Context:
         hash_password=lambda password: f"$6$test${len(password)}",
         stage_passphrase=staged,
         timezones=("UTC", "Asia/Shanghai", "Asia/Taipei", "Europe/London"),
+        # The rows that offer a share of memory have nothing to offer at zero,
+        # which is not the machine any of these tests is about.
+        memory=Size(16 * 1024**3),
     )
 
 
@@ -966,9 +970,10 @@ def test_choosing_a_disk_again_takes_back_the_erase_confirmation() -> None:
     assert settings.SETTINGS[row("Confirm erasing the drive")].value(config(), at) == "not set"
 
 
-def test_swap_is_one_choice_and_not_two_that_accumulate() -> None:
-    """Picking a partition and then zram left the operator with both, from a
-    menu that presents them as alternatives."""
+def test_a_swap_partition_and_zram_are_two_rows_and_not_alternatives() -> None:
+    """One list said the operator had to choose. A machine can hold a partition
+    for hibernation and zram for the pressure it meets while running, so the
+    two are separate rows and setting one leaves the other alone."""
     at = context()
     from gentoo_install.model.device import Swap
 
@@ -976,12 +981,17 @@ def test_swap_is_one_choice_and_not_two_that_accumulate() -> None:
     assert partition.system.zram is None
     assert partition.disk.graph.of_type(Swap)
 
-    zram = screens.swap_screen(FakeScreen(keys=[*down(3), "\n"]), partition, at).unwrap()
-    assert zram.system.zram is not None
-    assert not zram.disk.graph.of_type(Swap)
+    both = screens.zram_screen(
+        FakeScreen(keys=["KEY_DOWN", "\n"], lines=24), partition, at
+    ).unwrap()
+    assert both.system.zram is not None
+    assert both.disk.graph.of_type(Swap), "choosing zram removed the partition"
 
-    none = screens.swap_screen(FakeScreen(keys=["\n"]), zram, at).unwrap()
-    assert none.system.zram is None and not none.disk.graph.of_type(Swap)
+    off = screens.zram_screen(FakeScreen(keys=["\n"], lines=24), both, at).unwrap()
+    assert off.system.zram is None and off.disk.graph.of_type(Swap)
+
+    none = screens.swap_screen(FakeScreen(keys=["\n"]), off, at).unwrap()
+    assert not none.disk.graph.of_type(Swap)
 
 
 def test_backing_out_of_a_group_keeps_what_was_edited_inside_it() -> None:

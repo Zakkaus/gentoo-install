@@ -196,11 +196,12 @@ def _summary(rows: tuple[Setting, ...]) -> Callable[[InstallConfig, Context], st
 def _swap(config: InstallConfig, context: Context) -> str:
     from ..model.device import Swap
 
-    if config.system.zram is not None:
-        return f"zram {config.system.zram}"
-    if config.disk.graph.of_type(Swap):
-        return "a partition"
-    return context.translate("none")
+    return "a partition" if config.disk.graph.of_type(Swap) else context.translate("none")
+
+
+def _zram(config: InstallConfig, context: Context) -> str:
+    size = config.system.zram
+    return size.single_letter() if size is not None else context.translate("off")
 
 
 def _logger(config: InstallConfig, context: Context) -> str:
@@ -515,6 +516,7 @@ DISK: Final[tuple[Setting, ...]] = (
         "keymap_initramfs", "Keyboard at unlock", _unlock_keymap, screens.initramfs_keymap_screen
     ),
     Setting("swap", "Swap", _swap, screens.swap_screen),
+    Setting("zram", "zram", _zram, screens.zram_screen),
 )
 
 #: How the target builds. Read together, so shown together.

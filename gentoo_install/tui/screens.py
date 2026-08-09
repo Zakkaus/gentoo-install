@@ -14,7 +14,7 @@ from enum import Enum
 from itertools import takewhile
 from typing import Callable, Final, Sequence, TypeVar
 
-from ..i18n import Catalog
+from ..i18n import Catalog, truncate
 from ..model import compat
 from ..model.config import (
     ConsoleFontSize,
@@ -54,7 +54,7 @@ from ..plan.kernel import KERNEL_PACKAGES
 from ..plan.portage import community_binhost
 from ..model.size import ZERO, Size
 from ..errors import ConfigError, GentooInstallError, ValidationFailed
-from ..model import atoms, manual, mirrors, paste, sshkey
+from ..model import atoms, manual, mirrors, paste, qr, sshkey
 from ..model.templates import Choice, Layout, build
 from ..model.validate import validate
 from ..plan.packages import Catalog as Groups
@@ -1275,8 +1275,9 @@ def settle(
     """
     flags = _new(automatic_values.use_flags, before, after, context.groups)
     cards = _new(automatic_values.video_cards, before, after, context.groups)
+    joins = _new(automatic_values.user_groups, before, after, context.groups)
     profile = after.portage.profile if after.portage.profile != before.portage.profile else ""
-    if not (flags or cards or profile):
+    if not (flags or cards or joins or profile):
         return Answer(Outcome.CHOSE, after)
     translate = context.translate
     lines = []
@@ -1284,6 +1285,11 @@ def settle(
         lines.append(f"VIDEO_CARDS: {' '.join(cards)}")
     if flags:
         lines.append(f"USE: {' '.join(flags)}")
+    if joins:
+        # Not pinned into the account: `AddUserToGroups` derives them from the
+        # same catalog at build time, so the account is put in them whether or
+        # not one exists when the driver is chosen.
+        lines.append(f"{translate('Extra groups')}: {' '.join(joins)}")
     if profile:
         lines.append(f"{translate('Profile')}: {profile}")
     # Three answers rather than two. The row the values land on is somewhere
@@ -1328,8 +1334,14 @@ def _new(
     after: InstallConfig,
     groups: Groups,
 ) -> tuple[str, ...]:
-    """What the change added, in order, without what was already there."""
-    had = {one.value for one in derive(before, groups)} | set(before.portage.use)
+    """What the change added, in order, without what was already there.
+
+    Only what the same function said before. Unioning `portage.use` as well
+    crossed two namespaces: `pipewire` is both a USE flag and the group its
+    ebuild asks the account to join, so pinning the flag hid the group. Each
+    `derive` already drops what the operator typed.
+    """
+    had = {one.value for one in derive(before, groups)}
     return tuple(one.value for one in derive(after, groups) if one.value not in had)
 
 
@@ -1757,24 +1769,55 @@ def swap_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
         Item(label=translate("none"), value=""),
         Item(label="4GiB", value="4GiB", detail=translate("a partition")),
         Item(label="8GiB", value="8GiB", detail=translate("a partition")),
-        Item(
-            label="zram 4GiB",
-            value="zram:4GiB",
-            detail=translate("compressed in memory, no partition"),
-        ),
     ]
     menu: Menu[str] = Menu(title=translate("Swap"), items=items, footer=footer(translate))
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
     chosen = answer.unwrap()[0]
-    # One exclusive choice, so each row clears the other kind. Setting only its
-    # own left an operator who tried both with a swap partition and zram.
-    zram = Size.parse(chosen.removeprefix("zram:")) if chosen.startswith("zram:") else None
-    partition = Size.parse(chosen) if chosen and not chosen.startswith("zram:") else None
-    context.choice = replace(context.choice, swap=partition)
-    changed = _rebuild(config, context)
-    return Answer(Outcome.CHOSE, replace(changed, system=replace(changed.system, zram=zram)))
+    context.choice = replace(context.choice, swap=Size.parse(chosen) if chosen else None)
+    return Answer(Outcome.CHOSE, _rebuild(config, context))
+
+
+def zram_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
+    """Compressed swap in memory, off unless it is asked for.
+
+    Its own row rather than a fourth entry under Swap: the two are not
+    alternatives. A machine can hold a swap partition for hibernation and zram
+    for the pressure it meets while running, and offering them as one list said
+    otherwise.
+
+    The sizes are shares of this machine's memory. zram is compressed, so a
+    quarter of RAM holds more than a quarter of RAM.
+    """
+    translate = context.translate
+    items: list[Item[Size | None]] = [
+        Item(label=translate("off"), value=None, detail=translate("no zram device")),
+    ]
+    for name, divisor in RAM_SHARES:
+        share = Size(context.memory.bytes // divisor)
+        if share.bytes:
+            items.append(
+                Item(
+                    label=share.single_letter(),
+                    value=share,
+                    detail=f"{translate(name)} {translate('of this machine')}",
+                )
+            )
+    if len(items) == 1:
+        # Only `off` is left, which is not a question. This machine reported no
+        # memory, so there is no share of it to offer.
+        _say(screen, context, translate("this machine reports no memory to share"))
+        return Answer(Outcome.BACK)
+    menu: Menu[Size | None] = Menu(
+        title=translate("zram"), items=items, footer=footer(translate)
+    )
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    return Answer(
+        Outcome.CHOSE, replace(config, system=replace(config.system, zram=answer.unwrap()[0]))
+    )
 
 
 #: The fractions of this machine's memory offered as a build tmpfs. Not fixed
@@ -1811,6 +1854,9 @@ def build_in_ram_screen(
                     detail=f"{translate(name)} {translate('of this machine')}",
                 )
             )
+    if len(items) == 1:
+        _say(screen, context, translate("this machine has too little memory to build in it"))
+        return Answer(Outcome.BACK)
     menu: Menu[Size | None] = Menu(
         title=translate("Build in RAM"),
         items=items,
@@ -1897,6 +1943,32 @@ def saved_config_screen(
             _say(screen, context, str(error).splitlines()[-1].strip())
 
 
+def show_address(screen: Screen, context: Context, url: str) -> None:
+    """The address as a code and as text, on the screen the operator is on.
+
+    The machine showing this has no browser and no way to copy a line off its
+    console. Drawn here rather than after curses exits, because the operator
+    asked for it from the overview and is going back to the overview.
+    """
+    lines, columns = screen.size()
+    drawn = []
+    try:
+        drawn = qr.halved(qr.encode(url))
+    except GentooInstallError:
+        # Too long for the versions the encoder covers. The address still is
+        # the answer, and it is printed either way.
+        drawn = []
+    if drawn and (len(drawn[0]) > columns or len(drawn) + 4 > lines):
+        drawn = []
+    screen.clear()
+    screen.write(0, 0, truncate(url, columns))
+    for index, line in enumerate(drawn):
+        screen.write(index + 2, 0, line)
+    screen.write(min(len(drawn) + 3, lines - 1), 0, context.translate("Continue"))
+    screen.show()
+    screen.key()
+
+
 def overview_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
     """Everything that is about to happen, then one confirmation.
 
@@ -1928,18 +2000,57 @@ def overview_screen(screen: Screen, config: InstallConfig, context: Context) -> 
                     value=0,
                 )
             )
+    given = (
+        *automatic_values.video_cards(config, context.groups),
+        *automatic_values.use_flags(config, context.groups),
+        *automatic_values.user_groups(config, context.groups),
+        *automatic_values.kernel_parameters(config),
+    )
+    if given:
+        # Named here as well as on their own rows: this is the last screen
+        # before the disk is written, and these are the values nobody typed.
+        items.append(Item(label=f"— {translate('added for you')} —", value=0))
+        items += [
+            Item(
+                label=f"  {one.value}",
+                value=0,
+                detail=f"{translate(one.because)} ({one.source})"
+                if one.source
+                else translate(one.because),
+            )
+            for one in given
+        ]
     items.append(Item(label=f"— {translate('Operations')} —", value=0))
     # The operation list itself, so the screen cannot describe something the
     # installer will not do.
     items += [Item(label=operation.describe(), value=0) for operation in operations]
-    menu: Menu[int] = Menu(
-        title=f"{translate('Overview')}: {summarise(operations)}",
-        items=items,
-        footer=footer(translate),
+    # First, so it is reachable without walking the operation list, and the
+    # cursor starts below it: enter on this screen means `go ahead`, and a row
+    # that took that keypress for itself would export instead of installing.
+    items.insert(
+        0,
+        Item(
+            label=translate("Send the configuration to the pastebin"),
+            value=1,
+            detail=translate("public, without the password hashes"),
+        ),
     )
-    answer = menu.run(screen)
-    if not answer.chosen:
-        return Answer(answer.outcome)
+    while True:
+        menu: Menu[int] = Menu(
+            title=f"{translate('Overview')}: {summarise(operations)}",
+            items=items,
+            footer=footer(translate),
+            cursor=1,
+        )
+        answer = menu.run(screen)
+        if not answer.chosen:
+            return Answer(answer.outcome)
+        if answer.unwrap()[0] != 1:
+            break
+        try:
+            show_address(screen, context, context.publish_config(config))
+        except GentooInstallError as error:
+            _say(screen, context, str(error))
     question = Confirm(
         **answers(translate), title=translate("Install"), footer=footer(translate)
     )
