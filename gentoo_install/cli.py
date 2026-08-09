@@ -120,7 +120,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             if arguments.missing_commands:
                 # Nothing to derive a layout from, so answer for the commands
                 # every install needs whatever it is about to do.
-                print("\n".join(sorted(_absent((*preflight.ALWAYS, *preflight.MENU_ONLY)))))
+                print(
+                    "\n".join(
+                        sorted(
+                            _absent(
+                                (*preflight.ALWAYS, *preflight.MENU_ONLY),
+                                _probe_for(arguments),
+                            )
+                        )
+                    )
+                )
                 return EXIT_OK
             chosen = _from_menu(arguments)
             if chosen is None:
@@ -130,7 +139,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             config = load(arguments.config)
         if arguments.missing_commands:
-            print("\n".join(sorted(_absent(preflight.required_commands(config)))))
+            print(
+                "\n".join(
+                    sorted(_absent(preflight.required_commands(config), _probe_for(arguments)))
+                )
+            )
             return EXIT_OK
         operations = build(config, load_catalog(), mirror=arguments.mirror)
         if arguments.dry_run:
@@ -391,8 +404,35 @@ def _offer_a_shell(
     record("the shell exited; unmounting")
 
 
-def _absent(wanted: Iterable[str]) -> set[str]:
-    return {command for command in wanted if shutil.which(command) is None}
+def _absent(wanted: Iterable[str], probe: Probe | None = None) -> set[str]:
+    """What this machine cannot run for the install.
+
+    Absent from PATH, or present as an implementation the install cannot use.
+    busybox provides `tar`, `mount`, `umount`, `blkid` and `swapon` without the
+    options every one of them is called with; counting those as installed left
+    the launcher with no package to offer and the preflight refusing the run
+    after the disks were already partitioned.
+    """
+    names = list(wanted)
+    missing = {command for command in names if shutil.which(command) is None}
+    if probe is None:
+        return missing
+    judged = [
+        command
+        for command in names
+        if command in preflight.GNU_ONLY and command not in missing
+    ]
+    versions = probe.versions(judged)
+    for command in judged:
+        if preflight.GNU_ONLY[command][0] not in versions.get(command, ""):
+            missing.add(command)
+    return missing
+
+
+def _probe_for(arguments: argparse.Namespace) -> Probe:
+    """A probe that says nothing: `--missing-commands` writes one command per
+    line and the launcher reads every line of it."""
+    return Probe(runner=Runner(log=lambda line: None), work=arguments.work)
 
 
 #: The overlay that carries the patched kernel. Its packages are on no package

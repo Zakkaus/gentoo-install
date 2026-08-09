@@ -596,3 +596,34 @@ def test_the_menu_starts_from_the_firmware_the_machine_booted() -> None:
             if one.when is not compat.Trait.ROOT_LOCKED
         ]
         assert not broken, broken
+
+
+def test_a_busybox_applet_counts_as_a_missing_command(tmp_path: Path) -> None:
+    """busybox provides `tar` without `--xattrs` and `mount` without
+    `--rbind`. Reporting them as installed left the launcher with no package
+    to offer and the preflight refusing the run after the disks were already
+    partitioned."""
+    from gentoo_install.cli import _absent
+    from gentoo_install.exec.probe import Probe
+    from gentoo_install.exec.runner import Result, Runner
+
+    class Busybox(Runner):
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            said = f"{argv[0]} (BusyBox v1.36.1) multi-call binary"
+            return Result(argv=tuple(argv), returncode=0, stdout=said, stderr="", seconds=0.0)
+
+    probe = Probe(runner=Busybox(log=lambda line: None), work=tmp_path)
+    # Only commands actually on this PATH can be judged; the rest are absent
+    # either way and say nothing about the implementation check.
+    present = [name for name in ("tar", "mount", "blkid") if shutil.which(name)]
+    said = _absent(present, probe)
+    assert set(present) <= said, (present, said)
+    # Without a probe the old answer stands: on PATH is enough.
+    assert not _absent(present)
