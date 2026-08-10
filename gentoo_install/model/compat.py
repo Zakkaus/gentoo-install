@@ -36,7 +36,9 @@ from .device import (
     Partition,
     PartitionRole,
     PartitionTable,
+    Swap,
     TableType,
+    VolumeGroup,
     ZfsDataset,
     ZfsPool,
 )
@@ -367,16 +369,67 @@ def destroyed(graph: DeviceGraph) -> tuple[Existing, ...]:
         for table in graph.of_type(PartitionTable)
         if table.create or table.remove
     }
-    formatted = {
-        node.device
-        for node in graph.of_type(Filesystem)
-        if node.create and isinstance(graph[node.device], Existing)
-    }
+    written: set[DeviceId] = set()
+    for node in graph.nodes.values():
+        for device in _writes_over(node):
+            written |= _existing_beneath(graph, device)
     return tuple(
         disk
         for disk in graph.of_type(Existing)
-        if disk.wipe or disk.id in tables or disk.id in formatted
+        if disk.wipe or disk.id in tables or disk.id in written
     )
+
+
+def _writes_over(node: Node) -> tuple[DeviceId, ...]:
+    """What this node puts a new signature on, or nothing.
+
+    One place, so an operation that destroys content cannot be added without
+    the confirmation and the in-use check seeing it.
+    """
+    if isinstance(node, Filesystem) and node.create:
+        return (node.device,)
+    if isinstance(node, Luks):
+        # `CreateLuks` runs `luksFormat`, which overwrites the header and the
+        # data that was there.
+        return (node.backing,)
+    if isinstance(node, Swap):
+        # `mkswap` writes a signature over whatever was there.
+        return (node.device,)
+    if isinstance(node, (MdRaid, VolumeGroup)):
+        return tuple(node.members)
+    if isinstance(node, ZfsPool):
+        return tuple(node.vdevs)
+    return ()
+
+
+def _existing_beneath(graph: DeviceGraph, device: DeviceId) -> set[DeviceId]:
+    """The devices the operator already had that sit under `device`.
+
+    Followed rather than tested one level down: an encrypted `format` of a
+    retained partition is `Existing -> Luks -> Filesystem`, and reading only
+    the filesystem's own device found `Luks` and reported nothing destroyed.
+    The erase row then said the layout was harmless and preflight never asked
+    whether the partition was mounted, while `luksFormat` overwrote it.
+    """
+    found: set[DeviceId] = set()
+    seen: set[DeviceId] = set()
+    edge = [device]
+    while edge:
+        at = edge.pop()
+        if at in seen or at not in graph.nodes:
+            continue
+        seen.add(at)
+        node = graph[at]
+        if isinstance(node, Existing):
+            found.add(node.id)
+            continue
+        if isinstance(node, Partition):
+            # Stop here. What happens to a partition's content is the table's
+            # question, and climbing through it to the disk would say the
+            # whole drive is erased when one partition is being formatted.
+            continue
+        edge.extend(node.inputs)
+    return found
 
 
 def esp_mount(graph: DeviceGraph) -> Mountpoint | None:

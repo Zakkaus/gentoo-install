@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 from pathlib import PurePosixPath
 from typing import Callable
 
 import pytest
 
+from gentoo_install.model import compat
 from gentoo_install.model.compat import RULES, Trait, esp_mount, excluded_by, traits_of, violations
 from gentoo_install.model.config import (
     Binhost,
@@ -23,9 +25,11 @@ from gentoo_install.model.config import (
     SystemConfig,
 )
 from gentoo_install.model.device import (
+    DeviceGraph,
     Existing,
     Filesystem,
     FilesystemType,
+    LogicalVolume,
     Luks,
     MdRaid,
     Mountpoint,
@@ -35,7 +39,10 @@ from gentoo_install.model.device import (
     PartitionTable,
     RaidLevel,
     RaidMetadata,
+    Swap,
     TableType,
+    VolumeGroup,
+    ZfsDataset,
     ZfsPool,
 )
 from gentoo_install.model.size import Size
@@ -519,3 +526,89 @@ def test_a_mirror_with_no_ipv6_is_refused_on_an_ipv6_only_machine() -> None:
     for site in mirrors.GENTOO_SITES:
         if site.ipv6:
             assert not _unreachable_here(site, machine(ipv4=False)), site.key
+
+
+def _under(*nodes: Node) -> list[Node]:
+    """One retained partition, whatever is layered on it, and a root mount."""
+    return [Existing(id=i("part"), selector="/dev/sda2", wipe=False), *nodes]
+
+
+#: One layout per entry in `compat._writes_over`, each destroying `/dev/sda2`
+#: without setting `wipe` and without rewriting a table.
+OVER_A_KEPT_PARTITION: dict[str, list[Node]] = {
+    "filesystem": _under(
+        Filesystem(id=i("fs"), device=i("part"), kind=FilesystemType.EXT4, create=True),
+        Mountpoint(id=i("root"), source=i("fs"), path=PurePosixPath("/")),
+    ),
+    "luks": _under(
+        Luks(id=i("crypt"), backing=i("part"), name="root", passphrase_file="/run/key"),
+        Filesystem(id=i("fs"), device=i("crypt"), kind=FilesystemType.EXT4, create=True),
+        Mountpoint(id=i("root"), source=i("fs"), path=PurePosixPath("/")),
+    ),
+    "swap": _under(Swap(id=i("swap"), device=i("part"))),
+    "mdraid": _under(
+        MdRaid(id=i("md"), members=(i("part"),), level=RaidLevel.RAID1, name="md0"),
+        Filesystem(id=i("fs"), device=i("md"), kind=FilesystemType.EXT4, create=True),
+        Mountpoint(id=i("root"), source=i("fs"), path=PurePosixPath("/")),
+    ),
+    "lvm": _under(
+        VolumeGroup(id=i("vg"), members=(i("part"),), name="vg0"),
+        LogicalVolume(id=i("lv"), group=i("vg"), name="root", size=None),
+        Filesystem(id=i("fs"), device=i("lv"), kind=FilesystemType.EXT4, create=True),
+        Mountpoint(id=i("root"), source=i("fs"), path=PurePosixPath("/")),
+    ),
+    "zfs": _under(
+        ZfsPool(id=i("pool"), vdevs=(i("part"),), name="rpool"),
+        ZfsDataset(id=i("ds"), pool=i("pool"), name="rpool/ROOT"),
+        Mountpoint(id=i("root"), source=i("ds"), path=PurePosixPath("/")),
+    ),
+}
+
+
+@pytest.mark.parametrize("layout", sorted(OVER_A_KEPT_PARTITION), ids=lambda one: one)
+def test_every_way_of_writing_over_a_kept_device_names_it(layout: str) -> None:
+    """`Existing -> Luks -> Filesystem` named nothing: the filesystem's own
+    device was `Luks`, not the partition, so the erase confirmation called an
+    encrypted reuse harmless and preflight never asked whether it was mounted
+    while `luksFormat` overwrote it. Each entry that puts a signature on a
+    device the operator kept has to name that device."""
+    named = compat.destroyed(DeviceGraph.build(OVER_A_KEPT_PARTITION[layout]))
+    assert [one.selector for one in named] == ["/dev/sda2"]
+
+
+def test_the_cases_cover_every_entry_in_the_write_table() -> None:
+    """An entry added to `_writes_over` without a layout here is one nothing
+    proves, and it reads as covered."""
+    import inspect
+
+    in_table = set(re.findall(r"isinstance\(node, \(?([\w, ]+)\)?\)", inspect.getsource(compat._writes_over)))
+    named = {one.strip() for group in in_table for one in group.split(",")}
+    exercised = {
+        type(node).__name__
+        for layout in OVER_A_KEPT_PARTITION.values()
+        for node in layout
+    }
+    assert named - exercised == set(), named - exercised
+
+
+def test_writing_over_a_partition_this_plan_creates_does_not_condemn_the_disk() -> None:
+    """The walk stops at a `Partition`: a filesystem on a partition the plan
+    creates is the table's business, and climbing to the disk would tell the
+    operator a whole drive is erased when one partition is being formatted."""
+    kept = replace(
+        config(ext4_on_gpt()),
+        disk=replace(
+            config(ext4_on_gpt()).disk,
+            graph=DeviceGraph.build(
+                [
+                    replace(node, wipe=False)
+                    if isinstance(node, Existing)
+                    else replace(node, create=False, remove=())
+                    if isinstance(node, PartitionTable)
+                    else node
+                    for node in ext4_on_gpt()
+                ]
+            ),
+        ),
+    )
+    assert compat.destroyed(kept.disk.graph) == ()
