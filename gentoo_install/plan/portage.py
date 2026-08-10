@@ -7,6 +7,7 @@ before a key can be imported, an imported key stays untrusted until `lsign`, and
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Final, Sequence
@@ -262,6 +263,13 @@ class WebrsyncRepository(Operation):
         context.run_in_target(["emerge-webrsync"])
 
 
+#: How many times a repository sync is attempted, and how long between them.
+#: A mirror rewriting its Manifests is the transient case; two more attempts a
+#: minute apart cover it without walking around a mismatch that is real.
+SYNC_TRIES: Final[int] = 3
+SYNC_PAUSE: Final[float] = 30.0
+
+
 @dataclass(frozen=True, kw_only=True)
 class SyncRepository(Operation):
     """A directory holding a copy that git did not create makes `emerge --sync`
@@ -276,8 +284,32 @@ class SyncRepository(Operation):
 
     def apply(self, context: Context) -> None:
         context.run_in_target(["rm", "--recursive", "--force", str(self.location)])
-        context.run_in_target(["emerge", "--sync", self.name])
+        self._sync(context)
         context.run_in_target(["chown", "--recursive", "portage:portage", str(self.location)])
+
+    def _sync(self, context: Context) -> None:
+        """`emerge --sync`, retried on a mirror that is mid-update.
+
+        Three of eight guests stopped in the same minute with `Manifest
+        mismatch for gui-apps/Manifest.gz __size__: expected: 5745, have:
+        5746`. Portage quarantined the download and refused, which is correct:
+        the snapshot it fetched was incomplete, not the tree corrupted. The
+        same command a minute later reads a whole one.
+
+        The same mirror, and a bounded number of times: a mismatch that is not
+        transient has to stop the install rather than be walked around.
+        """
+        last: CommandFailed | None = None
+        for attempt in range(SYNC_TRIES):
+            try:
+                context.run_in_target(["emerge", "--sync", self.name])
+                return
+            except CommandFailed as failed:
+                last = failed
+                if attempt + 1 < SYNC_TRIES:
+                    time.sleep(SYNC_PAUSE * (attempt + 1))
+        assert last is not None
+        raise last
 
 
 @dataclass(frozen=True, kw_only=True)

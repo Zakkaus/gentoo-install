@@ -527,3 +527,49 @@ def test_every_offered_region_resolves_a_stage3_source() -> None:
     for region in MirrorRegion:
         carrying = [one for one in mirrors.gentoo_sites(region) if one.releases]
         assert carrying, region
+
+
+def test_a_mirror_rewriting_its_manifests_is_retried_rather_than_fatal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Three of eight cluster guests stopped in the same minute with `Manifest
+    mismatch for gui-apps/Manifest.gz __size__: expected: 5745, have: 5746`.
+    Portage quarantined an incomplete snapshot and refused, which is right;
+    stopping an install that had already partitioned the disks is not.
+    """
+    from typing import Sequence
+
+    from gentoo_install.errors import CommandFailed
+    from gentoo_install.plan import portage as plan_portage
+
+    from .recorder import Recorder
+
+    class Flaky(Recorder):
+        """Refuses the first `refusals` syncs the way a mirror mid-update does."""
+
+        refusals: int = 2
+        attempts: int = 0
+
+        def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
+            if tuple(argv[:2]) == ("emerge", "--sync"):
+                self.attempts += 1
+                if self.refusals:
+                    self.refusals -= 1
+                    raise CommandFailed("emerge --sync gentoo exited 1: Manifest mismatch")
+            return super().run_in_target(argv, check=check)
+
+    operation = plan_portage.SyncRepository(
+        name="gentoo", location=PurePosixPath("/var/db/repos/gentoo")
+    )
+    monkeypatch.setattr(plan_portage, "SYNC_PAUSE", 0.0)
+    recorder = Flaky()
+    operation.apply(recorder)
+    assert recorder.attempts == 3, recorder.attempts
+    synced = [one for one in recorder.in_target if tuple(one[:2]) == ("emerge", "--sync")]
+    assert len(synced) == 1, "the one that worked"
+
+    # Not walked around: a mismatch that keeps coming back stops the install.
+    stubborn = Flaky()
+    stubborn.refusals = plan_portage.SYNC_TRIES
+    with pytest.raises(CommandFailed):
+        operation.apply(stubborn)
