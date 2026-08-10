@@ -686,3 +686,16 @@ def test_no_marker_appears_in_the_command_that_prints_it() -> None:
     for command in (console_command("/tmp/results"), cluster.NETWORK_PROBE):
         for marker in watched:
             assert marker not in command, f"{marker} appears whole in {command[:80]!r}"
+
+
+def test_the_nodes_are_asked_for_a_medium_in_china_first() -> None:
+    """The cluster is in China and a gibibyte from Gentoo's own mirror is slow
+    enough to be worth avoiding. `mirrors.ustc.edu.cn` is absent on purpose: it
+    answers 403 to wget, which is what Proxmox downloads with."""
+    from tests.vm.cluster import MIRRORS
+
+    assert MIRRORS[-1] == "https://distfiles.gentoo.org", "the fallback comes last"
+    chinese = [one for one in MIRRORS if one.endswith(".cn/gentoo")]
+    assert len(chinese) >= 4, MIRRORS
+    assert all(one in MIRRORS[: len(chinese)] for one in chinese), "and they come first"
+    assert not any("ustc" in one for one in MIRRORS), "USTC refuses wget"

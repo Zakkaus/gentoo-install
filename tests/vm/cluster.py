@@ -58,12 +58,19 @@ RESULT_DIR: Final[str] = "/tmp/gentoo-install-results"
 #: China, so a node reaches these far faster than an upload from the
 #: workstation would, and the bytes never cross the workstation's link.
 #:
-#: `mirrors.ustc.edu.cn` is not among them: it answers `403 Forbidden` to
-#: Proxmox's downloader, which is wget, while serving the same URL to anything
-#: else. The installer reads it happily; only this path has to avoid it.
+#: `mirrors.ustc.edu.cn` is not among them, and it is the fastest of the set
+#: from these nodes. It answers `403 Forbidden` to Proxmox's downloader, which
+#: is wget, while serving the same URL to anything else. Measured again on
+#: 2026-08-10: `Wget/1.21.4` gets 403 from USTC and 206 from tuna, nju, zju
+#: and hust. The installer reads USTC happily; only this path has to avoid it.
 MIRRORS: Final[tuple[str, ...]] = (
     "https://mirrors.tuna.tsinghua.edu.cn/gentoo",
     "https://mirror.nju.edu.cn/gentoo",
+    "https://mirrors.zju.edu.cn/gentoo",
+    "https://mirrors.hust.edu.cn/gentoo",
+    "https://mirrors.bfsu.edu.cn/gentoo",
+    # Last, and only if every Chinese mirror refused: the nodes are in China
+    # and a gibibyte from here is slow enough to be worth avoiding.
     "https://distfiles.gentoo.org",
 )
 
