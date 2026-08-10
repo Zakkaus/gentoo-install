@@ -30,6 +30,12 @@ class Site:
     distfiles: str
     git: str = ""
     rsync: str = ""
+    #: Whether the site answers over IPv6. False for a site with no AAAA
+    #: record, and for one that publishes an AAAA and does not answer on it:
+    #: an IPv6-only machine cannot install from either, and the menu says so
+    #: rather than letting the operator find out when the stage3 does not
+    #: arrive. Measured with `python3 -m tests.mirrors_probe`.
+    ipv6: bool = True
     #: Whether the site serves `releases/`, which is where the stage3 comes
     #: from. False for a site that carries the files and not the archives:
     #: `mirror.xtom.com.hk` answers 200 for `releases/amd64/autobuilds/` and
@@ -85,8 +91,8 @@ GENTOO_SITES: Final[tuple[Site, ...]] = (
     Site("sustech", "SUSTech", "Shenzhen", "https://mirrors.sustech.edu.cn/gentoo"),
     Site("hit", "HIT", "Harbin", "https://mirrors.hit.edu.cn/gentoo"),
     Site("lzu", "Lanzhou University", "Lanzhou", "https://mirror.lzu.edu.cn/gentoo"),
-    Site("aliyun", "Aliyun", "China, CDN", "https://mirrors.aliyun.com/gentoo"),
-    Site("netease", "NetEase 163", "China, CDN", "https://mirrors.163.com/gentoo"),
+    Site("aliyun", "Aliyun", "China, CDN", "https://mirrors.aliyun.com/gentoo", ipv6=False),  # no AAAA record
+    Site("netease", "NetEase 163", "China, CDN", "https://mirrors.163.com/gentoo", ipv6=False),  # no AAAA record
     # Federated: it answers with a 302 to whichever member is nearest, so one
     # address covers all three services and needs no measurement of its own.
     Site(
@@ -104,14 +110,16 @@ GENTOO_SITES: Final[tuple[Site, ...]] = (
         "xtom-hk", "xTom", "Hong Kong", "https://mirror.xtom.com.hk/gentoo",
         releases=False,
     ),
-    Site("rackspace-hk", "Rackspace", "Hong Kong", "https://mirror.rackspace.com/gentoo"),
+    Site("rackspace-hk", "Rackspace", "Hong Kong", "https://mirror.rackspace.com/gentoo", ipv6=False),  # no AAAA record
     # http, not https: the only address this one answers on.
-    Site("aditsu-hk", "aditsu", "Hong Kong", "http://gentoo.aditsu.net:8000"),
+    Site("aditsu-hk", "aditsu", "Hong Kong", "http://gentoo.aditsu.net:8000", ipv6=False),  # no AAAA record
     Site(
         "nchc-tw", "NCHC", "Taiwan",
         "http://ftp.twaren.net/Linux/Gentoo",
         rsync="rsync://ftp.twaren.net/gentoo-portage",
         releases=False,
+        # It publishes an AAAA record and does not answer on it.
+        ipv6=False,
     ),
     Site("cicku-tw", "CICKU", "Taiwan", "https://tw.mirrors.cicku.me/gentoo"),
     Site("freedif-sg", "Freedif", "Singapore", "https://mirror.freedif.org/gentoo"),

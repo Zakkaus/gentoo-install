@@ -122,8 +122,17 @@ class Context:
         configs_here: Sequence[str] = (),
         load_config: Callable[[str], InstallConfig] | None = None,
         zfs_unavailable: str = "",
+        #: Whether this machine has a routable address of each family. A
+        #: mirror with no AAAA record cannot be reached from an IPv6-only
+        #: machine, and the menu says so rather than letting the operator find
+        #: out when the stage3 does not arrive. Both true by default: a
+        #: machine that cannot be read refuses nothing.
+        ipv4: bool = True,
+        ipv6: bool = True,
     ) -> None:
         self.translate = translate
+        self.ipv4 = ipv4
+        self.ipv6 = ipv6
         #: Selector and a human description, from `exec/probe.py`.
         self.disks = disks
         self.groups = groups
@@ -684,6 +693,19 @@ PLAIN_OVERLAYS: tuple[tuple[str, str], ...] = (
 )
 
 
+def _unreachable_here(site: mirrors.Site, context: Context) -> str:
+    """Why this machine cannot fetch from a site, or empty.
+
+    An IPv6-only machine reaches four of the mirrors on this list not at all:
+    they publish no AAAA record, and one publishes an AAAA and does not answer
+    on it. Saying so here is the difference between choosing another and
+    finding out when the stage3 does not arrive.
+    """
+    if site.ipv6 or context.ipv4:
+        return ""
+    return context.translate("this machine has no IPv4 and the mirror has no IPv6")
+
+
 def mirror_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
     """Where every repository comes from, and which of them are used at all.
 
@@ -876,6 +898,7 @@ def _edit_mirror(
                     label=translate(one.name),
                     value=one.key,
                     detail=f"{translate(one.area)}  {one.distfiles}",
+                    disabled_because=_unreachable_here(one, context),
                 )
                 for one in offered
             ],

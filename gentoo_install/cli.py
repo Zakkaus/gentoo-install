@@ -546,6 +546,7 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
     """Walk the screens and return what the operator built, or None."""
     runner = Runner(log=lambda line: None)
     probe = Probe(runner=runner, work=arguments.work)
+    has_ipv4, has_ipv6 = probe.address_families()
     # Checked before the first screen: the menu hashes a password with
     # `openssl`, and finding it absent at that point throws away every answer.
     lacking = _absent(preflight.MENU_ONLY)
@@ -553,6 +554,8 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         raise errors.PreflightFailed(f"the menu needs {', '.join(sorted(lacking))}")
     context = screens.Context(
         translate=Catalog(tag_for(override=arguments.lang)),
+        ipv4=has_ipv4,
+        ipv6=has_ipv6,
         disks=probe.disks(),
         names_for=probe.names_for,
         groups=load_catalog(),

@@ -459,3 +459,4 @@
 "{count} authorised" = "{count} 件を許可"
 "manual, {count} partitions" = "手動、{count} 個のパーティション"
 "{flags} (stage3 default)" = "{flags}（stage3 の既定値）"
+"this machine has no IPv4 and the mirror has no IPv6" = "このマシンに IPv4 がなく、このミラーに IPv6 がありません"
