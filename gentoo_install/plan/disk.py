@@ -752,12 +752,19 @@ class UnmountTarget(Operation):
         the next boot."""
         last: CommandFailed | None = None
         for attempt in range(EXPORT_TRIES):
+            # The last attempt forces. A live environment running `zed` holds
+            # the pool open for as long as it runs, so waiting never clears it:
+            # Gig-OS failed all six plain attempts where the same fixture on a
+            # medium without `zed` succeeded on the second. Forcing is bounded
+            # here because the target tree was unmounted a moment ago and the
+            # only datasets left attached are the ones this run created.
+            forced = attempt + 1 == EXPORT_TRIES
             try:
-                context.run(["zpool", "export", pool])
+                context.run(["zpool", "export", *(["-f"] if forced else []), pool])
                 return
             except CommandFailed as failed:
                 last = failed
-                if attempt + 1 < EXPORT_TRIES:
+                if not forced:
                     context.run(["sleep", f"{EXPORT_PAUSE:g}"])
         assert last is not None
         raise last
