@@ -41,5 +41,26 @@ def test_every_fixture_has_a_golden_file() -> None:
 
 
 @pytest.mark.parametrize("name", fixtures())
-def test_planning_the_same_configuration_twice_gives_the_same_text(name: str) -> None:
-    assert plan_text(name) == plan_text(name)
+def test_the_order_devices_are_written_in_does_not_change_the_plan(name: str) -> None:
+    """Two equivalent inputs, not one input twice: comparing `plan_text(name)`
+    with itself passes for any deterministic implementation, including one
+    that returns an empty plan, and it holds nothing that could differ.
+
+    The device list's order is what an operator changes by editing a
+    configuration file, and the plan is derived from the graph rather than
+    from that order, so reversing it has to answer the same text.
+    """
+    from dataclasses import replace
+
+    from gentoo_install.model.device import DeviceGraph
+
+    installation = load(FIXTURES / f"{name}.toml")
+    backwards = replace(
+        installation,
+        disk=replace(
+            installation.disk,
+            graph=DeviceGraph.build(list(reversed(list(installation.disk.graph.nodes.values())))),
+        ),
+    )
+    catalog = load_catalog()
+    assert render(build(backwards, catalog)) == render(build(installation, catalog))

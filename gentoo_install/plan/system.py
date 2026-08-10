@@ -1018,7 +1018,12 @@ def _zfs_services(config: InstallConfig) -> list[Operation]:
 def fstab_entries(config: InstallConfig) -> tuple[FstabEntry, ...]:
     graph = config.disk.graph
     entries: list[FstabEntry] = []
-    for mount in sorted(graph.of_type(Mountpoint), key=lambda node: len(node.path.parts)):
+    # Depth first so a nested mount follows its parent, then the path itself:
+    # `/efi` and `/home` are the same depth and reading them in graph order
+    # made fstab depend on how the devices happen to be written.
+    for mount in sorted(
+        graph.of_type(Mountpoint), key=lambda node: (len(node.path.parts), str(node.path))
+    ):
         source = graph[mount.source]
         if isinstance(source, ZfsDataset):
             # A dataset carries its mountpoint property; fstab would fight it.

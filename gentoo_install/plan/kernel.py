@@ -812,8 +812,13 @@ def storage_packages(config: InstallConfig) -> tuple[str, ...]:
         tool = STACK_PACKAGES.get(module)
         if tool is not None and tool.atom not in wanted:
             wanted.append(tool.atom)
-    for filesystem in graph.of_type(Filesystem):
-        package = FILESYSTEM_PACKAGES[filesystem.kind]
+    # Sorted, unlike the dracut modules above whose order is a dependency
+    # order: these come from a set of filesystem kinds and reading them in
+    # graph order made the plan depend on how the devices happen to be written
+    # in the configuration file.
+    for package in sorted(
+        {FILESYSTEM_PACKAGES[one.kind] for one in graph.of_type(Filesystem)}
+    ):
         if package not in wanted:
             wanted.append(package)
     return tuple(wanted)

@@ -712,12 +712,15 @@ def _teardown(graph: DeviceGraph) -> tuple[tuple[str, ...], ...]:
 
 
 def _disks_with_partitions(graph: DeviceGraph) -> tuple[DeviceId, ...]:
-    disks: list[DeviceId] = []
+    """Sorted, because nothing orders one disk's probe against another's and
+    graph order made the plan depend on how the devices happen to be written
+    in the configuration file."""
+    disks: set[DeviceId] = set()
     for partition in graph.of_type(Partition):
         table = graph[partition.table]
-        if isinstance(table, PartitionTable) and table.disk not in disks:
-            disks.append(table.disk)
-    return tuple(disks)
+        if isinstance(table, PartitionTable):
+            disks.add(table.disk)
+    return tuple(sorted(disks))
 
 
 def _operations_for(graph: DeviceGraph, node: Node) -> list[Operation]:
