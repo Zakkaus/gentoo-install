@@ -26,6 +26,7 @@ from .device import (
     Node,
     Partition,
     PartitionTable,
+    TableType,
     ZfsPool,
     ZfsTopology,
 )
@@ -309,4 +310,26 @@ def _partition_index_problems(graph: DeviceGraph) -> list[str]:
         for index, count in sorted(Counter(indexes).items()):
             if count > 1:
                 problems.append(f"{count} partitions on {table.id} take index {index}")
+        problems += _mbr_index_problems(table, indexes)
     return problems
+
+
+def _mbr_index_problems(table: PartitionTable, indexes: list[int]) -> list[str]:
+    """Indexes `parted` will not honour on a table written from scratch.
+
+    `parted mkpart` takes no partition number: it assigns the lowest free one.
+    A new MBR table whose configuration asks for index 3 alone therefore gets
+    partition 1, `parted` reports success, and the executor waits for a node
+    ending in 3 that the kernel cannot expose — with the table and partition 1
+    already written. GPT is not affected: `sgdisk --new=N:...` is given the
+    number.
+    """
+    if table.table is not TableType.MBR or not table.create or not indexes:
+        return []
+    wanted = sorted(indexes)
+    if wanted != list(range(1, len(wanted) + 1)):
+        return [
+            f"{table.id} is a new mbr table and asks for indexes {wanted}; "
+            "parted assigns the lowest free number, so they have to be 1 upwards"
+        ]
+    return []

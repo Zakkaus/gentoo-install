@@ -7,7 +7,13 @@ import pytest
 
 from gentoo_install.errors import ValidationFailed
 from gentoo_install.model.config import InitSystem, InstallConfig
-from gentoo_install.model.device import Mountpoint, Node, Partition, PartitionRole
+from gentoo_install.model.device import (
+    Mountpoint,
+    Node,
+    Partition,
+    PartitionRole,
+    PartitionTable,
+)
 from gentoo_install.model.size import Size
 from gentoo_install.exec.config import load
 from gentoo_install.model.validate import validate
@@ -297,3 +303,46 @@ def test_a_remote_unlock_pair_of_one_family_is_a_working_configuration() -> None
                 ),
             )
         )
+
+
+def test_a_new_mbr_table_whose_indexes_parted_cannot_honour_is_refused() -> None:
+    """`parted mkpart` takes no partition number and assigns the lowest free
+    one, so a new MBR table asking for index 3 alone gets partition 1: parted
+    reports success and the executor waits for a node ending in 3 that the
+    kernel cannot expose, with the table and partition 1 already written.
+
+    Measured: `parted --script --align optimal <image> mkpart primary 1MiB
+    65MiB` on a fresh msdos label produced `1:1.00MiB:65.0MiB`.
+    """
+    from gentoo_install.model.device import TableType
+
+    nodes = [
+        node
+        for node in ext4_on_gpt()
+        if not isinstance(node, Partition) or node.id != i("esp")
+    ]
+    nodes = [
+        replace(node, table=TableType.MBR)
+        if isinstance(node, PartitionTable)
+        else replace(node, index=3)
+        if isinstance(node, Partition)
+        else node
+        for node in nodes
+    ]
+    nodes = [node for node in nodes if not isinstance(node, Mountpoint) or node.path != PurePosixPath("/efi")]
+    nodes = [node for node in nodes if node.id != i("espfs")]
+    with pytest.raises(ValidationFailed) as refused:
+        validate(config(nodes))
+    # Named, not merely refused: stripping the esp to reach an MBR layout
+    # gives this configuration other problems, and a test that only asks for
+    # `ValidationFailed` passes with the index rule removed.
+    assert "parted assigns the lowest free number" in str(refused.value), refused.value
+
+
+def test_an_mbr_table_numbered_from_one_is_a_working_layout() -> None:
+    """`ext4-bios.toml` is exactly this, and it installs."""
+    from pathlib import Path as _Path
+
+    from gentoo_install.exec.config import load as _load
+
+    validate(_load(_Path("tests/fixtures/ext4-bios.toml")))
