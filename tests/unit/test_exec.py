@@ -1561,3 +1561,26 @@ def test_a_probed_array_reaches_the_rule_that_refuses_it(tmp_path: Path) -> None
         before, _probe_answering(tmp_path, MDADM_EXPORT.replace("1.2", "1.0"), 0)
     )
     assert compat.Trait.ESP_MDRAID_SUPERBLOCK_AT_START not in compat.traits_of(older)
+
+
+def test_a_command_that_is_not_installed_answers_when_failure_is_an_answer() -> None:
+    """`check=False` says a failure is an answer, and a medium without the
+    command is one of them. `zpool` is absent on the Arch live image, and
+    asking whether a disk belongs to an imported pool stopped an install that
+    used no ZFS at all: `command: zpool is not installed`, exit 4, before a
+    single partition was written.
+    """
+    from gentoo_install.errors import CommandFailed
+    from gentoo_install.exec.runner import Runner
+
+    said: list[str] = []
+    runner = Runner(log=said.append)
+
+    answer = runner.run(["definitely-not-a-command-here"], check=False)
+    assert answer.returncode == 127, answer
+    assert "not installed" in answer.stdout
+
+    # With `check=True` it is still a fault: a command the install needs and
+    # cannot find has to stop the run.
+    with pytest.raises(CommandFailed, match="not installed"):
+        runner.run(["definitely-not-a-command-here"])
