@@ -160,13 +160,31 @@ def a_configuration() -> InstallConfig:
 
 @pytest.mark.parametrize("seed", range(300))
 def test_a_random_configuration_is_planned_or_refused_and_never_crashes(seed: int) -> None:
+    """Refusing is `validate`'s job alone.
+
+    Both calls sat in one `try` and any `GentooInstallError` counted as a
+    refusal, so a `build()` that raised `InvalidLayout` for every valid ZFS,
+    LUKS or mdraid configuration was recorded as the rules working, and the
+    ext4 seeds carried the hit count on their own.
+    """
+    from gentoo_install.plan.packages import driver_conflict, framework_conflict
+
     random.seed(seed)
     catalog = load_catalog()
+    wanted = a_configuration()
     try:
-        wanted = a_configuration()
         validate(wanted)
-        operations = build(wanted, catalog)
     except GentooInstallError:
+        return
+    try:
+        operations = build(wanted, catalog)
+    except GentooInstallError as refused:
+        # `build` may refuse two catalog rules `validate` cannot see: they read
+        # the package catalog, and the model layer does not. Any other refusal
+        # of a configuration that validated is the finding, and one `try`
+        # around both calls hid it.
+        named = framework_conflict(wanted, catalog) or driver_conflict(wanted, catalog)
+        assert named and named == str(refused), refused
         return
     assert operations, "a configuration that validated produced no operations"
 
@@ -181,8 +199,8 @@ def test_the_seeds_reach_the_plan_often_enough_to_mean_anything() -> None:
     planned = 0
     for seed in range(300):
         random.seed(seed)
+        wanted = a_configuration()
         try:
-            wanted = a_configuration()
             validate(wanted)
             build(wanted, catalog)
         except GentooInstallError:
