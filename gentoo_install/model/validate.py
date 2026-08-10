@@ -24,6 +24,8 @@ from .device import (
     MdRaid,
     Mountpoint,
     Node,
+    Partition,
+    PartitionTable,
     ZfsPool,
     ZfsTopology,
 )
@@ -274,4 +276,28 @@ def _layout_problems(config: InstallConfig) -> list[str]:
         if count > 1:
             problems.append(f"{count} devices are mounted at {path}")
 
+    problems += _partition_index_problems(graph)
+    return problems
+
+
+def _partition_index_problems(graph: DeviceGraph) -> list[str]:
+    """Indexes that `sgdisk` accepts and the executor cannot then find.
+
+    Both are refused here because `CreatePartitionTable` has already run
+    `sgdisk --zap-all` by the time either shows: index 0 means *allocate one*
+    to `sgdisk`, which answers success having made partition 1, and the
+    executor then waits for a node ending in 0 that the kernel cannot expose.
+    A repeated index fails the second `--new` with exit 4 and leaves half a
+    table on a disk whose own table is already gone.
+    """
+    problems: list[str] = []
+    for table in graph.of_type(PartitionTable):
+        indexes = [
+            node.index for node in graph.of_type(Partition) if node.table == table.id
+        ]
+        for index in sorted(one for one in set(indexes) if one < 1):
+            problems.append(f"partition index {index} on {table.id} is below 1")
+        for index, count in sorted(Counter(indexes).items()):
+            if count > 1:
+                problems.append(f"{count} partitions on {table.id} take index {index}")
     return problems

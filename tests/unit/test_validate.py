@@ -6,7 +6,7 @@ from pathlib import Path, PurePosixPath
 import pytest
 
 from gentoo_install.errors import ValidationFailed
-from gentoo_install.model.config import InitSystem
+from gentoo_install.model.config import InitSystem, InstallConfig
 from gentoo_install.model.device import Mountpoint, Node, Partition, PartitionRole
 from gentoo_install.model.size import Size
 from gentoo_install.exec.config import load
@@ -194,3 +194,55 @@ def test_a_remote_unlock_port_outside_the_range_is_refused(port: int) -> None:
     )
     with pytest.raises(ValidationFailed):
         validate(installation)
+
+
+def _with_indexes(nodes: list[Node], indexes: dict[str, int]) -> InstallConfig:
+    edited = [
+        replace(node, index=indexes[str(node.id)])
+        if isinstance(node, Partition) and str(node.id) in indexes
+        else node
+        for node in nodes
+    ]
+    return config(edited)
+
+
+@pytest.mark.parametrize(
+    "indexes",
+    [
+        pytest.param({"esp": 0}, id="zero"),
+        pytest.param({"esp": -1}, id="negative"),
+        pytest.param({"esp": 2}, id="duplicate"),
+    ],
+)
+def test_a_partition_index_sgdisk_cannot_honour_is_refused(indexes: dict[str, int]) -> None:
+    """`CreatePartitionTable` runs `sgdisk --zap-all` first, so both of these
+    are found with the operator's table already gone.
+
+    Zero means *allocate one* to `sgdisk`: it answers success having made
+    partition 1, and the executor then waits for a node ending in 0 that the
+    kernel cannot expose. A repeated index fails the second `--new` with exit
+    4 and leaves half a table behind.
+    """
+    with pytest.raises(ValidationFailed):
+        validate(_with_indexes(ext4_on_gpt(), indexes))
+
+
+def test_the_same_index_on_two_tables_is_a_working_layout() -> None:
+    """Every disk numbers its own partitions, so two tables both holding a
+    partition 1 is what two disks look like, and the check is per table."""
+    from gentoo_install.model.device import (
+        Existing,
+        Filesystem,
+        FilesystemType,
+        PartitionTable,
+        TableType,
+    )
+
+    second = [
+        Existing(id=i("disk2"), selector="/dev/disk/by-id/virtio-home", wipe=True),
+        PartitionTable(id=i("table2"), disk=i("disk2"), table=TableType.GPT),
+        Partition(id=i("homepart"), table=i("table2"), index=1, role=PartitionRole.DATA, size=None),
+        Filesystem(id=i("homefs"), device=i("homepart"), kind=FilesystemType.EXT4),
+        Mountpoint(id=i("mnt-home"), source=i("homefs"), path=PurePosixPath("/home")),
+    ]
+    validate(config([*ext4_on_gpt(), *second]))
