@@ -155,13 +155,16 @@ def test_a_family_with_no_route_is_retried_over_ipv4(monkeypatch: pytest.MonkeyP
 
 def test_an_ordinary_failure_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
     """A 404 is the same over either family, and asking twice hides it."""
+    import email.message
     import urllib.error
 
     tried: list[int] = []
 
     def missing(url: str) -> str:
         tried.append(1)
-        raise DownloadFailed("404") from urllib.error.HTTPError(url, 404, "gone", {}, None)
+        raise DownloadFailed("404") from urllib.error.HTTPError(
+            url, 404, "gone", email.message.Message(), None
+        )
 
     monkeypatch.setattr(fetch, "_read_once", missing)
     with pytest.raises(DownloadFailed):

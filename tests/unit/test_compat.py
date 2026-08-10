@@ -482,3 +482,40 @@ def test_a_reused_array_under_the_esp_meets_the_firmware_rule() -> None:
     assert Trait.ESP_MDRAID_SUPERBLOCK_AT_START in at_start
     assert Trait.ESP_ON_MDRAID in at_end
     assert Trait.ESP_MDRAID_SUPERBLOCK_AT_START not in at_end
+
+
+def test_a_mirror_with_no_ipv6_is_refused_on_an_ipv6_only_machine() -> None:
+    """Four of the mirrors publish no AAAA record and one publishes an AAAA it
+    does not answer on. An IPv6-only machine reaches none of them, and finding
+    that out when the stage3 does not arrive is an hour lost."""
+    from dataclasses import replace as _replace
+
+    from gentoo_install.data import load_catalog
+    from gentoo_install.i18n import Catalog
+    from gentoo_install.model import mirrors
+    from gentoo_install.tui.screens import Context, _unreachable_here
+
+    def machine(ipv4: bool) -> Context:
+        return Context(
+            translate=Catalog("en"),
+            disks=(),
+            groups=load_catalog(),
+            hash_password=lambda text: "",
+            ipv4=ipv4,
+            ipv6=True,
+        )
+
+    without_v6 = [one for one in mirrors.GENTOO_SITES if not one.ipv6]
+    assert {one.key for one in without_v6} == {
+        "aliyun",
+        "netease",
+        "rackspace-hk",
+        "aditsu-hk",
+        "nchc-tw",
+    }
+    for site in without_v6:
+        assert _unreachable_here(site, machine(ipv4=False)), site.key
+        assert not _unreachable_here(site, machine(ipv4=True)), site.key
+    for site in mirrors.GENTOO_SITES:
+        if site.ipv6:
+            assert not _unreachable_here(site, machine(ipv4=False)), site.key

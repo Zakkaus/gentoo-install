@@ -459,3 +459,4 @@
 "{count} authorised" = "{count}개 승인됨"
 "manual, {count} partitions" = "수동, 파티션 {count}개"
 "{flags} (stage3 default)" = "{flags}(stage3 기본값)"
+"this machine has no IPv4 and the mirror has no IPv6" = "이 시스템에 IPv4가 없고 이 미러에 IPv6가 없습니다"

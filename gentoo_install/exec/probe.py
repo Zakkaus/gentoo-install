@@ -294,6 +294,25 @@ class Probe:
     #: Where udev keeps the names that survive the kernel renumbering disks.
     BY_ID: ClassVar[Path] = Path("/dev/disk/by-id")
 
+    def address_families(self) -> tuple[bool, bool]:
+        """Whether this machine has a routable IPv4 and a routable IPv6.
+
+        A global address, not a loopback or a link-local one: a host with only
+        `fe80::` reaches nothing, and a host with only a ULA reaches nothing
+        outside its own NAT64. Read so the menu can refuse a mirror this
+        machine cannot fetch from rather than let the operator discover it
+        when the stage3 does not arrive.
+        """
+        listed = self.runner.run(
+            ["ip", "-oneline", "address", "show", "scope", "global"], check=False
+        )
+        if listed.returncode != 0:
+            # Nothing readable, so nothing is refused.
+            return True, True
+        has4 = " inet " in listed.stdout
+        has6 = " inet6 " in listed.stdout
+        return has4 or not has6, has6 or not has4
+
     def mdraid_metadata(self, selector: str) -> str:
         """The metadata version an array already on the machine carries.
 

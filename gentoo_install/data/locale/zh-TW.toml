@@ -460,3 +460,4 @@
 "{count} authorised" = "已授權 {count} 把"
 "manual, {count} partitions" = "手動，{count} 個分割區"
 "{flags} (stage3 default)" = "{flags}（stage3 預設值）"
+"this machine has no IPv4 and the mirror has no IPv6" = "本機沒有 IPv4，而這個鏡像沒有 IPv6"
