@@ -1047,6 +1047,14 @@ def run(
 
     `limit` caps how many run at once; zero asks the cluster what fits.
     """
+    # Before the cluster is touched. Every map below is keyed by name, so a
+    # repeated one had the second guest overwrite the first's bookkeeping, one
+    # result ended the loop while the other was still running, and `1/1 passed`
+    # was printed for two jobs. The check was in `main`, which left every
+    # other caller of `run` — the tests among them — able to do it.
+    repeated = sorted({one.name for one in jobs if [j.name for j in jobs].count(one.name) > 1})
+    if repeated:
+        raise ProxmoxError(f"named more than once: {repeated}")
     workdir = confined(workdir)
     api = Api()
     workdir.mkdir(parents=True, exist_ok=True)
@@ -1705,10 +1713,8 @@ def main(argv: list[str] | None = None) -> int:
 
     repeated = sorted({one for one in args.fixtures if args.fixtures.count(one) > 1})
     if repeated:
-        # Refused rather than deduplicated: every map below is keyed by name,
-        # so the second guest overwrote the first's bookkeeping, one result
-        # ended the loop while the other was still running, and `1/1 passed`
-        # was printed for two jobs.
+        # Named here as well so the operator reads it before the cluster is
+        # asked anything; `run` refuses it too, for every other caller.
         print(f"named more than once: {repeated}", file=sys.stderr)
         return 1
 

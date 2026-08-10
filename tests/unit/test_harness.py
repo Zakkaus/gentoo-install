@@ -1137,3 +1137,21 @@ def test_a_bios_guest_whose_grub_speaks_is_read_before_it_is_typed_at_blind(
     cluster._edit_bios_cmdline(cast("Any", Guest()), cast("Any", Link()))
     assert read == ["blind"]
     assert reset == ["reset", "reopen"]
+
+
+def test_run_refuses_a_repeated_job_name_before_it_touches_the_cluster() -> None:
+    """Every map in the scheduler is keyed by name, so a repeated one had the
+    second guest overwrite the first's bookkeeping, one result end the loop
+    while the other was still running, and `1/1 passed` printed for two jobs.
+    The check lived in `main`, which left every other caller able to do it."""
+    from tests.vm import cluster
+    from tests.vm.proxmox import ProxmoxError
+
+    twice = [
+        cluster.Job("vm-lvm", Path("tests/fixtures/vm-lvm.toml")),
+        cluster.Job("vm-lvm", Path("tests/fixtures/vm-lvm.toml")),
+    ]
+    with pytest.raises(ProxmoxError) as raised:
+        cluster.run(twice, Path("/nonexistent"))
+    assert "named more than once" in str(raised.value)
+    assert "vm-lvm" in str(raised.value)
