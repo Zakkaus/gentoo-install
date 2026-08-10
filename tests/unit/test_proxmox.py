@@ -530,18 +530,31 @@ def test_the_archive_is_waited_for_rather_than_timed() -> None:
     assert "snapshot(" not in source, "a fixed window cannot tell short from unfinished"
 
 
-def test_an_echoed_command_is_not_read_as_the_archive() -> None:
-    """The shell echoes the line, so both markers appear before any output. A
-    reader that stops at the first pair decodes the command itself."""
-    from tests.vm.results import CONSOLE_CLOSE, CONSOLE_OPEN, ResultError, read_console
+def test_neither_marker_appears_in_the_command_the_shell_echoes() -> None:
+    """The shell echoes the line it was given. A reader waiting for the closing
+    marker matched the echo and returned before the archive had started, and
+    every run failed in ninety seconds with `the console result is not
+    base64`."""
+    from tests.vm.results import CONSOLE_CLOSE, CONSOLE_OPEN, console_command
 
-    echoed = (
-        f"root@livecd ~ # echo {CONSOLE_OPEN}; tar cz -C /tmp . | base64 -w0; "
-        f"echo; echo {CONSOLE_CLOSE}\r\n"
-    ).encode()
-    with pytest.raises(ResultError):
-        read_console(echoed)
+    said = console_command("/tmp/results")
+    assert CONSOLE_OPEN not in said
+    assert CONSOLE_CLOSE not in said
 
-    encoded = _archive({"install.rc": b"0\n"})
-    whole = echoed + f"{CONSOLE_OPEN}\r\n{encoded}\r\n{CONSOLE_CLOSE}\r\n".encode()
-    assert read_console(whole) == {"install.rc": b"0\n"}
+
+def test_the_command_a_real_shell_runs_produces_a_readable_archive(tmp_path: Path) -> None:
+    """Run against a real `sh`, with the echo in front of it the way a console
+    carries one: the markers have to survive `printf` and still be found."""
+    import subprocess
+
+    from tests.vm.results import console_command, read_console
+
+    (tmp_path / "install.rc").write_bytes(b"0\n")
+    (tmp_path / "install.txt").write_bytes(b"installed 53 operations\n")
+    command = console_command(str(tmp_path))
+    printed = subprocess.run(["sh", "-c", command], capture_output=True).stdout
+    said = f"root@livecd ~ # {command}\r\n".encode() + printed
+    assert read_console(said) == {
+        "install.rc": b"0\n",
+        "install.txt": b"installed 53 operations\n",
+    }
