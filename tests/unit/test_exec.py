@@ -20,7 +20,7 @@ from gentoo_install.exec.runner import Result, Runner, under
 from gentoo_install.model.config import Bootloader, BootloaderConfig, Firmware, InstallConfig
 from gentoo_install.model.device import DeviceId, Existing, Node
 
-from .layouts import config, ext4_on_gpt, i
+from .layouts import config, encrypted_root, ext4_on_gpt, i
 
 
 def runner(tmp_path: Path) -> Runner:
@@ -424,15 +424,42 @@ def test_a_short_zfs_passphrase_is_caught_before_the_disk_is_touched(tmp_path: P
             bootloader=BootloaderConfig(kind=Bootloader.ZFSBOOTMENU, firmware=Firmware.UEFI),
         )
 
+    probe = probe_of(tmp_path)
     key = tmp_path / "key"
     key.write_text("1234567")
-    problems = preflight._passphrase_problems(with_key(str(key)))
+    problems = preflight._passphrase_problems(with_key(str(key)), probe)
     assert len(problems) == 1 and "at least 8" in problems[0]
 
     key.write_text("12345678")
-    assert preflight._passphrase_problems(with_key(str(key))) == []
-    assert "cannot be read" in preflight._passphrase_problems(with_key(str(tmp_path / "gone")))[0]
-    assert "names no passphrase_file" in preflight._passphrase_problems(with_key(""))[0]
+    assert preflight._passphrase_problems(with_key(str(key)), probe) == []
+    missing = preflight._passphrase_problems(with_key(str(tmp_path / "gone")), probe)
+    assert "cannot be read" in missing[0]
+    assert "names no passphrase_file" in preflight._passphrase_problems(with_key(""), probe)[0]
+
+
+def test_the_passphrase_report_comes_from_the_probe_and_not_from_the_host(
+    tmp_path: Path,
+) -> None:
+    """Two hosts, one with `/keys/root` present and one without, gave different
+    reports for the same configuration and the same probe: preflight opened the
+    path itself. Everything it decides has to come from its declared inputs."""
+    from gentoo_install.model.device import Luks
+
+    class Answering(Probe):
+        def passphrase(self, source: str) -> tuple[str, str]:
+            return ("hunter22", "") if source == "/keys/root" else ("", "no such file")
+
+    from gentoo_install.model.device import DeviceGraph
+
+    nodes = [
+        replace(one, passphrase_file="/keys/root") if isinstance(one, Luks) else one
+        for one in encrypted_root()
+    ]
+    whole = config(encrypted_root())
+    named = replace(whole, disk=replace(whole.disk, graph=DeviceGraph.build(nodes)))
+    fake = Answering(runner=Runner(log=lambda line: None), work=tmp_path)
+    assert preflight._passphrase_problems(named, fake) == []
+    assert not Path("/keys/root").exists(), "the answer came from the probe, not the host"
 
 
 def test_a_uuid_is_read_from_the_device_and_not_from_the_cache(tmp_path: Path) -> None:
