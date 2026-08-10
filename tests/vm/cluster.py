@@ -76,6 +76,12 @@ from .workdir import WorkdirError, confined
 REPOSITORY: Final[Path] = Path(__file__).resolve().parents[2]
 WORKROOT: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/cluster"
 
+#: Outside any one round's work directory: the ISO stays on the node between
+#: rounds, so the record of what was uploaded has to outlive the round that
+#: uploaded it. A fresh work directory otherwise met its own upload as
+#: `already exists on infra-node5 without its signed SHA-512 record`.
+MEDIUM_TRUST: Final[Path] = WORKROOT / "medium-trust"
+
 #: Where the guest gathers what the run produced before it is read back.
 RESULT_DIR: Final[str] = "/tmp/gentoo-install-results"
 
@@ -343,9 +349,9 @@ def _medium_name(name: str, sha512: str) -> str:
     return f"{Path(name).stem}-{sha512[:20]}.iso"
 
 
-def current_minimal(workdir: Path) -> tuple[str, tuple[str, ...], str]:
+def current_minimal() -> tuple[str, tuple[str, ...], str]:
     """The verified current minimal ISO, its mirrors and signed SHA-512."""
-    trust = workdir / "medium-trust"
+    trust = MEDIUM_TRUST
     trust.mkdir(parents=True, exist_ok=True)
     key = RELEASE_KEY
     if not key.is_file():
@@ -1051,7 +1057,7 @@ def run(
     )
     revision = revision_identity(driver_path)
     driver = remote_name(driver_path)
-    medium, urls, medium_sha512 = current_minimal(workdir)
+    medium, urls, medium_sha512 = current_minimal()
     prepared: set[str] = set()
     done: queue.Queue[Outcome] = queue.Queue()
     waiting = list(jobs)
@@ -1115,7 +1121,7 @@ def run(
                         medium,
                         urls,
                         medium_sha512,
-                        workdir / "medium-trust",
+                        MEDIUM_TRUST,
                         driver_path,
                         driver,
                     )

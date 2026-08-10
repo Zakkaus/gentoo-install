@@ -721,7 +721,7 @@ def test_zero_cluster_capacity_returns_an_error_after_a_deadline(
     monkeypatch.setattr(
         cluster,
         "current_minimal",
-        lambda path: ("minimal-deadbeef.iso", ("https://invalid/iso",), "0" * 128),
+        lambda: ("minimal-deadbeef.iso", ("https://invalid/iso",), "0" * 128),
     )
     monkeypatch.setattr(clock, "monotonic", lambda: now[0])
     monkeypatch.setattr(clock, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds))
@@ -732,6 +732,22 @@ def test_zero_cluster_capacity_returns_an_error_after_a_deadline(
     assert outcome[0].verdict is cluster.Verdict.ERROR
     assert outcome[0].phase is cluster.Phase.SCHEDULE
     assert now[0] == cluster.CAPACITY_PATIENCE
+
+
+def test_the_record_of_an_uploaded_medium_outlives_the_round_that_uploaded_it() -> None:
+    """The ISO stays on the node between rounds, so a per-round work directory
+    met its own upload as `already exists without its signed SHA-512 record`
+    and the round could not start."""
+    from tests.vm import cluster
+
+    import inspect
+
+    assert cluster.MEDIUM_TRUST.parent == cluster.WORKROOT
+    # Deriving it from a round's work directory is what the parameter allowed.
+    assert not inspect.signature(cluster.current_minimal).parameters
+    assert "trust" not in inspect.signature(cluster.prepare).parameters or (
+        list(inspect.signature(cluster.prepare).parameters)[5] == "trust"
+    )
 
 
 def test_reconcile_removes_only_an_expired_locally_leased_guest(
