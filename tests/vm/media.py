@@ -176,7 +176,9 @@ ALPINE = Medium(
     # /dev with mdev, so a partition node never appears. The package list is
     # every command `preflight.required_commands` asks for across the whole
     # fixture set, resolved against Alpine's own APKINDEX rather than found one
-    # failed run at a time.
+    # failed run at a time. `gpg-agent` is the exception the derivation cannot
+    # see: nothing declares it as a command, and gpg answers `probably not
+    # installed` at the first signature it checks.
     prepare=(
         # The live session leaves every interface down, so apk answered
         # `DNS: transient error` on a guest whose network was never started.
@@ -186,7 +188,7 @@ ALPINE = Medium(
         "https://mirrors.ustc.edu.cn/alpine/v3.24/community\n' > /etc/apk/repositories",
         "apk update",
         "apk add python3 blkid btrfs-progs coreutils cryptsetup dosfstools "
-        "e2fsprogs eudev f2fs-tools findmnt gpg lsblk lvm2 mdadm mount parted "
+        "e2fsprogs eudev f2fs-tools findmnt gpg gpg-agent lsblk lvm2 mdadm mount parted "
         "sgdisk tar umount util-linux-misc wipefs xfsprogs xz zfs",
         "setup-devd udev",
     ),
