@@ -57,6 +57,17 @@ def test_two_devices_on_one_path_are_named() -> None:
         validate(config(nodes))
 
 
+def test_a_mountpoint_cannot_escape_the_installation_target() -> None:
+    nodes = [
+        replace(node, path=PurePosixPath("/../outside"))
+        if isinstance(node, Mountpoint) and node.id == i("mnt-esp")
+        else node
+        for node in ext4_on_gpt()
+    ]
+    with pytest.raises(ValidationFailed, match=r"mountpoint mnt-esp uses /\.\./outside"):
+        validate(config(nodes))
+
+
 def test_a_layout_problem_and_a_broken_rule_are_reported_in_one_message() -> None:
     nodes = zfs_root()
     nodes.append(Mountpoint(id=i("mnt-esp-again"), source=i("espfs"), path=PurePosixPath("/efi")))

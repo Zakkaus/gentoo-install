@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import PurePosixPath
+from types import MappingProxyType
 from typing import Iterable, Mapping, NewType, TypeVar
 
 from ..errors import DeviceCycle, DuplicateDeviceId, UnknownDeviceId
@@ -319,26 +320,31 @@ class Mountpoint(Node):
         return (self.source,)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class DeviceGraph:
-    """A validated graph. Construct through `build`, which is the only place
-    that checks it; holding an instance means the checks passed."""
+    """A validated graph whose nodes cannot change after construction."""
 
     nodes: Mapping[DeviceId, Node]
 
-    @classmethod
-    def build(cls, nodes: Iterable[Node]) -> DeviceGraph:
+    def __init__(self, nodes: Iterable[Node] | Mapping[DeviceId, Node]) -> None:
+        source = nodes.values() if isinstance(nodes, Mapping) else nodes
         by_id: dict[DeviceId, Node] = {}
-        for node in nodes:
+        for node in source:
             if node.id in by_id:
                 raise DuplicateDeviceId(f"two nodes claim the id {node.id!r}")
             by_id[node.id] = node
         for node in by_id.values():
             for parent in node.inputs:
                 if parent not in by_id:
-                    raise UnknownDeviceId(f"{node.id!r} is built from {parent!r}, which no node defines")
+                    raise UnknownDeviceId(
+                        f"{node.id!r} is built from {parent!r}, which no node defines"
+                    )
         _reject_cycles(by_id)
-        return cls(nodes=by_id)
+        object.__setattr__(self, "nodes", MappingProxyType(by_id))
+
+    @classmethod
+    def build(cls, nodes: Iterable[Node]) -> DeviceGraph:
+        return cls(nodes=nodes)
 
     def __getitem__(self, device: DeviceId) -> Node:
         try:

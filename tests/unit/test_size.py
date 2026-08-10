@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
 from gentoo_install.errors import InvalidSize, UnalignedSize
 from gentoo_install.model.size import (
     DEFAULT_ALIGNMENT,
-    GPT_RESERVED_SECTORS,
     SECTOR_512,
     SECTOR_4K,
     SectorSize,
@@ -49,6 +50,12 @@ def test_a_bare_m_suffix_is_binary_because_partitioning_tools_read_it_that_way()
 def test_negative_sizes_are_rejected_at_construction() -> None:
     with pytest.raises(InvalidSize):
         Size(-1)
+
+
+@pytest.mark.parametrize("value", [True, cast(int, 1.5), cast(int, float("nan"))])
+def test_sizes_are_whole_byte_counts_at_runtime(value: int) -> None:
+    with pytest.raises(InvalidSize, match="whole number of bytes"):
+        Size(value)
 
 
 def test_arithmetic_keeps_the_type_and_refuses_to_go_negative() -> None:
@@ -104,8 +111,8 @@ def test_sector_size_must_be_a_positive_multiple_of_512() -> None:
 
 def test_gpt_tail_is_reserved_on_both_sector_sizes() -> None:
     device = Size.parse("1GiB")
-    assert device.gpt_last_usable(SECTOR_512) == device - Size(GPT_RESERVED_SECTORS * 512)
-    assert device.gpt_last_usable(SECTOR_4K) == device - Size(GPT_RESERVED_SECTORS * 4096)
+    assert device.gpt_last_usable(SECTOR_512) == device - Size(33 * 512)
+    assert device.gpt_last_usable(SECTOR_4K) == device - Size(5 * 4096)
 
 
 def test_a_partition_ending_inside_the_backup_gpt_does_not_fit() -> None:

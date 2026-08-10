@@ -43,6 +43,17 @@ class Stage(Enum):
         return list(Stage).index(self)
 
 
+class CommandOutput(str):
+    """Command text with the exit status retained for callers that inspect it."""
+
+    returncode: int
+
+    def __new__(cls, stdout: str, returncode: int) -> CommandOutput:
+        output = super().__new__(cls, stdout)
+        output.returncode = returncode
+        return output
+
+
 class Context(Protocol):
     """Everything an operation is allowed to do to a machine.
 

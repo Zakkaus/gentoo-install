@@ -30,7 +30,7 @@ from ..model.device import (
 )
 from ..log import Journal
 from ..plan.disk import STAGE3_CACHE
-from ..plan.operations import Operation
+from ..plan.operations import CommandOutput, Operation
 from . import fetch
 from .probe import Probe
 from .runner import Runner, open_in_target, under, write_file
@@ -58,7 +58,8 @@ class Machine:
         return self.runner.run(argv, check=check, input_text=input_text).stdout
 
     def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
-        return self.runner.in_target(self.mountpoint).run(argv, check=check).stdout
+        result = self.runner.in_target(self.mountpoint).run(argv, check=check)
+        return CommandOutput(result.stdout, result.returncode)
 
     def write(self, path: PurePosixPath, content: str, *, mode: int = 0o644) -> None:
         # The mode is set at open time: writing first and narrowing afterwards

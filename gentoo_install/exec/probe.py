@@ -7,6 +7,7 @@ than only against the one running the tests.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import platform
@@ -51,11 +52,54 @@ def _efi_variables() -> bool:
 #: `scope global`, so counting it as an IPv4 network told an IPv6-only guest
 #: it had one: 169.254.0.0/16 reaches the link and nothing beyond it.
 _LINK_LOCAL_V4: Final[str] = "169.254."
+_ULA_V6: Final[ipaddress.IPv6Network] = ipaddress.IPv6Network("fc00::/7")
 
 
 def _link_local_v4(line: str) -> bool:
     after = line.split(" inet ", 1)[1] if " inet " in line else ""
     return after.strip().startswith(_LINK_LOCAL_V4)
+
+
+def _ipv6_address(line: str) -> ipaddress.IPv6Address | None:
+    fields = line.split()
+    try:
+        address = ipaddress.ip_interface(fields[fields.index("inet6") + 1]).ip
+    except (ValueError, IndexError):
+        return None
+    return address if isinstance(address, ipaddress.IPv6Address) else None
+
+
+def _display_block_size(size: int) -> str:
+    for unit, suffix in (
+        (1024**5, "P"),
+        (1024**4, "T"),
+        (1024**3, "G"),
+        (1024**2, "M"),
+        (1024, "K"),
+    ):
+        if size >= unit:
+            value = size / unit
+            return f"{value:.1f}".removesuffix(".0") + suffix
+    return f"{size}B"
+
+
+def _lsblk_children(value: object) -> tuple[tuple[str, str, str], ...]:
+    if not isinstance(value, Mapping):
+        return ()
+    children = value.get("children")
+    if not isinstance(children, list):
+        return ()
+    found: list[tuple[str, str, str]] = []
+    for child in children:
+        if not isinstance(child, Mapping):
+            continue
+        name, size, filesystem = child.get("name"), child.get("size"), child.get("fstype")
+        if isinstance(name, str) and isinstance(size, int) and not isinstance(size, bool):
+            found.append(
+                (name, _display_block_size(size), filesystem if isinstance(filesystem, str) else "")
+            )
+        found.extend(_lsblk_children(child))
+    return tuple(found)
 
 
 def _under(path: str, root: str) -> bool:
@@ -327,7 +371,9 @@ class Probe:
         has4 = any(
             " inet " in line and not _link_local_v4(line) for line in listed.stdout.splitlines()
         )
-        return has4, " inet6 " in listed.stdout
+        addresses6 = (_ipv6_address(line) for line in listed.stdout.splitlines())
+        has6 = any(address is not None and address not in _ULA_V6 for address in addresses6)
+        return has4, has6
 
     def mdraid_metadata(self, selector: str) -> str:
         """The metadata version an array already on the machine carries.
@@ -555,17 +601,29 @@ class Probe:
         to see what is on it, and sizes are guesswork without the total.
         """
         listed = self.runner.run(
-            ["lsblk", "--noheadings", "--paths", "--output", "NAME,SIZE,FSTYPE", disk],
+            [
+                "lsblk",
+                "--json",
+                "--bytes",
+                "--paths",
+                "--output",
+                "NAME,SIZE,FSTYPE,TYPE",
+                disk,
+            ],
             check=False,
         )
         if listed.returncode != 0:
             return ()
-        found: list[tuple[str, str, str]] = []
-        for line in listed.stdout.splitlines()[1:]:
-            fields = line.split()
-            if len(fields) >= 2:
-                found.append((fields[0].lstrip("`|-\u2500\u2514\u251c "), fields[1], fields[2] if len(fields) > 2 else ""))
-        return tuple(found)
+        try:
+            document: object = json.loads(listed.stdout)
+        except json.JSONDecodeError:
+            return ()
+        if not isinstance(document, Mapping):
+            return ()
+        roots = document.get("blockdevices")
+        if not isinstance(roots, list):
+            return ()
+        return tuple(row for root in roots for row in _lsblk_children(root))
 
     def disk_size(self, disk: str) -> str:
         listed = self.runner.run(

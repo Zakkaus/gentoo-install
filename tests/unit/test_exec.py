@@ -19,6 +19,7 @@ from gentoo_install.exec.probe import Probe
 from gentoo_install.exec.runner import Result, Runner, under
 from gentoo_install.model.config import Bootloader, BootloaderConfig, Firmware, InstallConfig
 from gentoo_install.model.device import DeviceId, Existing, Node
+from gentoo_install.plan.operations import CommandOutput
 
 from .layouts import config, encrypted_root, ext4_on_gpt, i
 
@@ -116,6 +117,40 @@ def test_output_arrives_line_by_line_rather_than_at_the_end(tmp_path: Path) -> N
 
 def test_a_failure_can_be_asked_for_rather_than_raised(tmp_path: Path) -> None:
     assert runner(tmp_path).run(["false"], check=False).returncode == 1
+
+
+def test_a_target_command_keeps_its_nonzero_status(tmp_path: Path) -> None:
+    class Answering(Runner):
+        def in_target(self, target: Path) -> Runner:
+            return self
+
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            return Result(
+                argv=tuple(argv),
+                returncode=3,
+                stdout="masked by package.mask\n",
+                stderr="",
+                seconds=0.0,
+            )
+
+    answering = Answering(log=lambda line: None)
+    machine = apply.Machine(
+        config=config(),
+        runner=answering,
+        probe=Probe(runner=answering, work=tmp_path),
+        work=tmp_path,
+    )
+    output = machine.run_in_target(["emerge", "--pretend"], check=False)
+    assert isinstance(output, CommandOutput)
+    assert output.returncode == 3
+    assert output == "masked by package.mask\n"
 
 
 def test_a_dry_run_runs_nothing(tmp_path: Path) -> None:
@@ -1348,10 +1383,57 @@ def test_a_dhcp_autoconfigured_address_is_not_an_ipv4_network(tmp_path: Path) ->
         "2: enp0s2    inet6 fd00:5:5:0:55e7:9198:bb2f:8b85/64 scope global dynamic\n"
     )
     probe = Probe(runner=Saying(measured), work=tmp_path)
-    assert probe.address_families() == (False, True)
+    assert probe.address_families() == (False, False)
 
     routable = "2: enp0s2    inet 10.0.2.15/24 brd 10.0.2.255 scope global\n"
     assert Probe(runner=Saying(routable), work=tmp_path).address_families() == (True, False)
+
+    public6 = "2: enp0s2    inet6 2001:4860:4860::8888/64 scope global dynamic\n"
+    assert Probe(runner=Saying(public6), work=tmp_path).address_families() == (False, True)
+
+
+def test_partition_rows_are_read_from_nested_lsblk_json(tmp_path: Path) -> None:
+    sample = """{
+      "blockdevices": [{
+        "name": "/dev/vda", "size": 68719476736, "fstype": null, "type": "disk",
+        "children": [{
+          "name": "/dev/vda1", "size": 17179869184, "fstype": null, "type": "part",
+          "children": [{
+            "name": "/dev/mapper/root", "size": 17179869184,
+            "fstype": "ext4", "type": "crypt"
+          }]
+        }]
+      }]
+    }"""
+
+    class Saying(Runner):
+        command: tuple[str, ...] = ()
+
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            self.command = tuple(argv)
+            return Result(argv=tuple(argv), returncode=0, stdout=sample, stderr="", seconds=0.0)
+
+    said = Saying(log=lambda line: None)
+    assert Probe(runner=said, work=tmp_path).partitions("/dev/vda") == (
+        ("/dev/vda1", "16G", ""),
+        ("/dev/mapper/root", "16G", "ext4"),
+    )
+    assert said.command == (
+        "lsblk",
+        "--json",
+        "--bytes",
+        "--paths",
+        "--output",
+        "NAME,SIZE,FSTYPE,TYPE",
+        "/dev/vda",
+    )
 
 
 def test_a_medium_with_no_zone_data_still_offers_every_timezone(
