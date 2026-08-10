@@ -584,6 +584,7 @@ def test_a_pool_still_busy_after_the_lazy_unmount_is_exported_on_a_later_try(
     follows it read `cannot export 'rpool': pool is busy` on a guest whose
     install had otherwise finished."""
     from gentoo_install.errors import CommandFailed
+    from gentoo_install.plan.operations import CommandOutput
 
     class Busy(Recorder):
         refusals: int = 2
@@ -605,27 +606,52 @@ def test_a_pool_still_busy_after_the_lazy_unmount_is_exported_on_a_later_try(
     # Plain before lazy: a lazy unmount leaves the datasets mounted as far as
     # the kernel is concerned and `zpool export` then reads `pool is busy` for
     # as long as the references last.
-    ordered = Busy()
+    class Clean(Busy):
+        """`findmnt` finds nothing: the plain unmount cleared the target."""
+
+        mounted: bool = False
+
+        def run(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> str:
+            if argv[0] == "findmnt":
+                return CommandOutput("/mnt/gentoo" if self.mounted else "", 0 if self.mounted else 1)
+            return super().run(argv, check=check, input_text=input_text)
+
+    ordered = Clean()
     ordered.refusals = 0
     operation.apply(ordered)
     unmounts = [one for one in ordered.commands if one and one[0] == "umount"]
     assert unmounts == [("umount", "--recursive", "/mnt/gentoo")], unmounts
 
-    recorder = Busy()
+    # The lazy fallback runs on what is still mounted, not on an exit code: a
+    # recursive unmount that cleared everything but one already-gone submount
+    # still exits 1, and the fallback then raised `not mounted` on a finished
+    # install.
+    held = Clean()
+    held.mounted = True
+    held.refusals = 0
+    operation.apply(held)
+    assert [one for one in held.commands if one and one[0] == "umount"] == [
+        ("umount", "--recursive", "/mnt/gentoo"),
+        ("umount", "--recursive", "--lazy", "/mnt/gentoo"),
+    ]
+
+    recorder = Clean()
     operation.apply(recorder)
     assert recorder.attempts == 3, recorder.attempts
     assert recorder.argv_starting("sleep") == (("sleep", "0"), ("sleep", "0"))
 
     # A live environment running `zed` holds the pool for as long as it runs,
     # so the last attempt forces rather than waiting again.
-    zed = Busy()
+    zed = Clean()
     zed.refusals = disk.EXPORT_TRIES - 1
     operation.apply(zed)
     assert zed.commands[-1] == ("zpool", "export", "-f", "rpool"), zed.commands[-1]
 
     # A pool that refuses even that stops the install: an unexported pool needs
     # `zpool import -f` on the next boot.
-    stubborn = Busy()
+    stubborn = Clean()
     stubborn.refusals = disk.EXPORT_TRIES
     with pytest.raises(CommandFailed):
         operation.apply(stubborn)
