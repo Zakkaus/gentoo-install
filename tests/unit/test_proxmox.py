@@ -861,3 +861,48 @@ def test_a_connection_reset_is_a_dropped_console_and_not_a_dead_run() -> None:
     after, why = framed.closed, framed.why_closed
     assert (before, after) == (False, True), "a reset has to look like a closed connection"
     assert "reset" in why.lower(), why
+
+
+def test_a_guest_that_compiles_is_given_a_whole_node() -> None:
+    """Every guest got two cores and four gibibytes, so an hour of `emerge`
+    ran with the same share as a six-minute binary-package install and the
+    cluster sat idle beside a deep queue. What makes a run long is compiling,
+    and the configuration is what says whether it does."""
+    from tests.vm.cluster import GUEST_CORES, GUEST_MEMORY_MIB, HEAVY_CORES, HEAVY_MEMORY_MIB
+    from tests.vm.cluster import fixtures as cluster_fixtures
+
+    weights = {one.name: one for one in cluster_fixtures(
+        ["vm-binpkg", "vm-zfs", "vm-desktop", "vm-gnome", "ext4-bios"]
+    )}
+    for name in ("vm-desktop", "vm-gnome", "ext4-bios"):
+        job = weights[name]
+        assert job.heavy, name
+        assert (job.cores, job.memory_mib) == (HEAVY_CORES, HEAVY_MEMORY_MIB), name
+    for name in ("vm-binpkg", "vm-zfs"):
+        job = weights[name]
+        assert not job.heavy, name
+        assert (job.cores, job.memory_mib) == (GUEST_CORES, GUEST_MEMORY_MIB), name
+
+
+def test_a_node_with_one_light_slot_left_is_not_given_a_heavy_guest() -> None:
+    """A heavy guest asks for twice the memory, so a slot list built from the
+    light size does not answer for it."""
+    from tests.vm.cluster import GUEST_MEMORY_MIB, NODE_HEADROOM_BYTES, room_for
+    from tests.vm.cluster import fixtures as cluster_fixtures
+    from tests.vm.proxmox import Node
+
+    light, heavy = cluster_fixtures(["vm-binpkg", "vm-desktop"])
+    one_slot = Node(
+        name="infra-node1",
+        free_bytes=NODE_HEADROOM_BYTES + GUEST_MEMORY_MIB * 1024**2,
+        cores=4,
+    )
+    assert room_for(one_slot, light)
+    assert not room_for(one_slot, heavy)
+
+    two_slots = Node(
+        name="infra-node2",
+        free_bytes=NODE_HEADROOM_BYTES + 2 * GUEST_MEMORY_MIB * 1024**2,
+        cores=4,
+    )
+    assert room_for(two_slots, heavy)

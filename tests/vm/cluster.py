@@ -107,6 +107,14 @@ GUEST_MEMORY_MIB: Final[int] = 4096
 GUEST_CORES: Final[int] = 2
 TARGET_GIB: Final[int] = 40
 
+#: What a guest that compiles is given instead. A source kernel or a desktop
+#: is an hour of `emerge` where a binary-package fixture is six minutes, and
+#: giving both the same two cores left the cluster idle while the queue was
+#: deep. A node has four cores, so a heavy guest takes all of them and the
+#: node carries one; the memory is what `MAKEOPTS -j4` needs to link.
+HEAVY_MEMORY_MIB: Final[int] = 8192
+HEAVY_CORES: Final[int] = 4
+
 #: Left free on every node whatever else is scheduled. A node with nothing
 #: spare stops answering, and this cluster runs other people's machines.
 NODE_HEADROOM_BYTES: Final[int] = 2 * 1024**3
@@ -167,6 +175,17 @@ class Job:
     iso: str = DEFAULT_ISO
     uefi: bool = True
     disks: int = 1
+    #: Read from the fixture rather than listed beside it: what makes a run
+    #: long is compiling, and the configuration is what says whether it does.
+    heavy: bool = False
+
+    @property
+    def memory_mib(self) -> int:
+        return HEAVY_MEMORY_MIB if self.heavy else GUEST_MEMORY_MIB
+
+    @property
+    def cores(self) -> int:
+        return HEAVY_CORES if self.heavy else GUEST_CORES
 
 
 #: Below this, over a whole ten-minute look, the guest is not working: a
@@ -411,6 +430,18 @@ def free_slots(api: Api, placed: Mapping[str, int] | None = None) -> list[Node]:
     return slots
 
 
+def room_for(node: Node, job: Job, placed: Mapping[str, int] | None = None) -> bool:
+    """Whether this node can carry this job now.
+
+    A heavy guest asks for twice the memory, so a slot list built from the
+    light size does not answer for it: eight of them were dispatched onto
+    nodes with room for four and the last four were killed by the hypervisor.
+    """
+    held = (placed or {}).get(node.name, 0) * GUEST_MEMORY_MIB * 1024**2
+    room = node.free_bytes - NODE_HEADROOM_BYTES - held
+    return room >= job.memory_mib * 1024**2
+
+
 class Stoppable(Protocol):
     """All the sweep needs of a guest. Stopping is what wakes the worker that
     is blocked reading its console; deleting is the worker's own job, and a
@@ -447,8 +478,8 @@ def install_one(
         spec=GuestSpec(
             name=f"gi-{job.name}"[:63],
             iso=job.iso,
-            memory_mib=GUEST_MEMORY_MIB,
-            cores=GUEST_CORES,
+            memory_mib=job.memory_mib,
+            cores=job.cores,
             target_gib=tuple(TARGET_GIB for _ in range(job.disks)),
             uefi=job.uefi,
             driver_iso=driver,
@@ -592,12 +623,24 @@ def run(
             if limit:
                 slots = slots[: max(0, limit - len(running))]
             while waiting and slots:
+                # The first job this node has room for, not the first job:
+                # a heavy guest wants twice the memory, and taking it from a
+                # node with one light slot left is how the hypervisor came to
+                # kill it. A light job behind it still goes now.
+                index = next(
+                    (at for at, one in enumerate(waiting) if room_for(slots[0], one, placed)),
+                    None,
+                )
+                if index is None:
+                    break
                 node = slots.pop(0)
                 if node.name not in prepared:
                     prepare(api, node.name, medium, urls, driver_path, driver)
                     prepared.add(node.name)
-                job = waiting.pop(0)
-                placed[node.name] += 1
+                job = waiting.pop(index)
+                # Two light slots for a heavy guest, so the arithmetic below
+                # keeps counting in one unit.
+                placed[node.name] += 2 if job.heavy else 1
                 where[job.name] = node.name
                 if job.iso == DEFAULT_ISO:
                     job = replace(job, iso=medium)
@@ -627,7 +670,10 @@ def run(
             running.pop(outcome.name, None)
             gone = where.pop(outcome.name, "")
             if gone:
-                placed[gone] -= 1
+                # The same unit it was taken in, or a node loses a slot for
+                # every heavy guest that finished on it.
+                weight = next((2 if one.heavy else 1 for one in jobs if one.name == outcome.name), 1)
+                placed[gone] -= weight
             print(
                 f"{outcome.verdict.value:6} {outcome.name:34} {outcome.seconds / 60:5.1f}m "
                 f"{outcome.detail}",
@@ -928,6 +974,15 @@ def _sweep(inflight: dict[str, Running]) -> None:
             print(f"{name}: the stuck guest would not stop: {error}", file=sys.stderr)
 
 
+def _compiles(config: InstallConfig) -> bool:
+    """Whether this configuration spends an hour in `emerge` rather than six
+    minutes: a kernel built from source, a desktop, or no binary host at all.
+    """
+    if config.kernel.source.value.endswith("-bin"):
+        return bool(config.packages.desktop) or not config.portage.binhost.official
+    return True
+
+
 def fixtures(names: list[str]) -> list[Job]:
     found: list[Job] = []
     for name in names:
@@ -941,6 +996,7 @@ def fixtures(names: list[str]) -> list[Job]:
                 fixture=path,
                 uefi=config.bootloader.firmware.value != "bios",
                 disks=max(1, len(config.disk.graph.of_type(Existing))),
+                heavy=_compiles(config),
             )
         )
     return found
