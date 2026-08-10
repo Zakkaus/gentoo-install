@@ -465,10 +465,19 @@ def free_slots(api: Api, placed: Mapping[str, int] | None = None) -> list[Node]:
     """
     need = GUEST_MEMORY_MIB * 1024**2
     held = placed or {}
-    slots: list[Node] = []
+    per_node: list[list[Node]] = []
     for node in api.nodes():
         room = node.free_bytes - NODE_HEADROOM_BYTES - held.get(node.name, 0) * need
-        slots += [node] * max(0, int(room // need))
+        per_node.append([node] * max(0, int(room // need)))
+    # One from each node in turn, rather than a node's whole share before the
+    # next one is touched: five guests went onto `infra-node5` and left the
+    # other five idle, so one node carried every build while the shared
+    # storage lock and its four cores were contended by all of them.
+    slots: list[Node] = []
+    for index in range(max((len(one) for one in per_node), default=0)):
+        for one in per_node:
+            if index < len(one):
+                slots.append(one[index])
     return slots
 
 
