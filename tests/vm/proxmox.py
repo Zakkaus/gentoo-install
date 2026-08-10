@@ -180,7 +180,17 @@ class Api:
         try:
             with self._opener.open(request, timeout=API_TIMEOUT) as answer:
                 remembered = self._remember(answer.headers)
-                return json.load(answer).get("data"), remembered or affinity
+                said = json.load(answer)
+                data = said.get("data")
+                reason = str(said.get("message", "")).strip()
+                # 200 with `data: null` and a `message` is how this API reports
+                # `invalid bootorder: device 'virtio0' does not exist`, and
+                # reading only `data` threw that away: four finished installs
+                # were reported as a request that never started. A success
+                # answers `{"data": null}` with no message at all.
+                if data is None and reason:
+                    raise ProxmoxError(f"{method} {path} answered {reason}")
+                return data, remembered or affinity
         except urllib.error.HTTPError as error:
             # The reason, not only the body: Proxmox answers `500` with
             # `{"data":null}` and puts what went wrong in the status line.
@@ -459,12 +469,15 @@ class Guest:
         for. `order=virtio0` is what makes the firmware try the target rather
         than the CD it was built with.
         """
-        self.api.wait(
-            self.node,
-            self.api.call(
-                "PUT", f"/nodes/{self.node}/qemu/{self.vmid}/config", boot="order=virtio0"
-            ),
+        upid = self.api.call(
+            "PUT", f"/nodes/{self.node}/qemu/{self.vmid}/config", boot="order=virtio0"
         )
+        # A config change the API applies then and there answers `data: null`;
+        # only a deferred one comes back as a task. Waiting on the empty answer
+        # ended four installs that had already finished and collected their
+        # results.
+        if upid:
+            self.api.wait(self.node, upid)
 
     def reset(self) -> None:
         """Boot the firmware again with somebody already reading.
