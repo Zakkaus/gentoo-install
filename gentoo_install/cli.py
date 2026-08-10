@@ -479,9 +479,10 @@ def _require_mirror(config: InstallConfig, fallback: str) -> None:
     network where the chosen mirror answered and that site did not.
     """
     mirror = stage3_mirror(config, fallback)
-    if not fetch.mirror_online(mirror, variant_of(config)):
+    said = fetch.why_mirror_unreachable(mirror, variant_of(config))
+    if said:
         raise errors.PreflightFailed(
-            f"this machine cannot reach {mirror}; the install fetches its stage3 there"
+            f"this machine cannot reach {mirror}; the install fetches its stage3 there: {said}"
         )
 
 
