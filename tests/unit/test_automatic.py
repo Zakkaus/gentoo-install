@@ -321,15 +321,56 @@ def test_the_confirmation_can_open_the_row_the_values_landed_on() -> None:
     at = context()
     before = config(ext4_on_gpt())
     after = replace(before, packages=replace(before.packages, desktop="plasma"))
-    # Down twice to "Yes, and open", enter; then q out of the USE row it opens.
+    # Down twice to "Yes, and open", enter; then backspace out of the USE row.
     answer = screens.settle(
-        FakeScreen(keys=[*down(2), "\n", "q"], lines=30, columns=110), at, before, after
+        FakeScreen(keys=[*down(2), "\n", "KEY_BACKSPACE"], lines=30, columns=110),
+        at,
+        before,
+        after,
     )
     pinned = answer.unwrap()
     assert "wayland" in pinned.portage.use
-    # Cancelling the row it opened keeps the pinned values rather than undoing
-    # the choice that produced them.
+    # Backspace is local: leaving the row it opened keeps the pinned values
+    # rather than undoing the choice that produced them.
     assert pinned.packages.desktop == "plasma"
+
+
+def test_cancelling_the_row_it_opened_cancels_the_choice() -> None:
+    """`q` reaches the application's leave confirmation. Reading it as `keep
+    what was pinned` committed a desktop and a profile the operator had just
+    refused."""
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context, down
+
+    before = config(ext4_on_gpt())
+    after = replace(before, packages=replace(before.packages, desktop="plasma"))
+    answer = screens.settle(
+        FakeScreen(keys=[*down(2), "\n", "q"], lines=30, columns=110),
+        context(),
+        before,
+        after,
+    )
+    from gentoo_install.tui.widgets import Outcome
+
+    assert answer.outcome is Outcome.CANCELLED
+    assert answer.value is None
+
+
+def test_a_profile_only_change_offers_no_row_to_open() -> None:
+    """With no flags and no cards, the third answer read `Yes, and open
+    VIDEO_CARDS`, which edits a value the choice did not touch."""
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context, down
+
+    before = config(ext4_on_gpt())
+    after = replace(
+        before, portage=replace(before.portage, profile="default/linux/amd64/23.0/no-multilib")
+    )
+    screen = FakeScreen(keys=[*down(1), "\n"], lines=30, columns=110)
+    answer = screens.settle(screen, context(), before, after)
+    assert answer.unwrap().portage.profile.endswith("no-multilib")
+    drawn = " ".join(line for frame in screen.frames for line in frame)
+    assert "VIDEO_CARDS" not in drawn, drawn
 
 
 def test_every_screen_that_picks_a_group_carrying_use_confirms_it() -> None:
