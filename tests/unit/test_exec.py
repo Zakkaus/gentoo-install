@@ -1209,3 +1209,83 @@ def test_a_version_probe_records_only_a_successful_reply(tmp_path: Path) -> None
     said = probe.versions(["sh", "cat"])
     assert said["sh"] == ""
     assert said["cat"] == "GNU coreutils 9.5"
+
+
+def test_a_machine_with_no_global_address_is_not_reported_as_dual_stack(
+    tmp_path: Path,
+) -> None:
+    """A guest whose interface is still coming up has neither family.
+    Answering `both` there was a probe that could not be wrong: an IPv6-only
+    machine looked exactly like a dual-stack one, and the check meant to catch
+    it passed on every machine."""
+
+    class Saying(Runner):
+        def __init__(self, said: str) -> None:
+            super().__init__(log=lambda line: None)
+            self.said = said
+
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            return Result(argv=tuple(argv), returncode=0, stdout=self.said, stderr="", seconds=0.0)
+
+    nothing = Probe(runner=Saying(""), work=tmp_path)
+    assert nothing.address_families() == (False, False)
+
+    only6 = Probe(runner=Saying("2: eth0    inet6 2001:db8::2/64 scope global\n"), work=tmp_path)
+    assert only6.address_families() == (False, True)
+
+    only4 = Probe(runner=Saying("2: eth0    inet 10.0.2.15/24 scope global\n"), work=tmp_path)
+    assert only4.address_families() == (True, False)
+
+    class Absent(Runner):
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            return Result(argv=tuple(argv), returncode=127, stdout="", stderr="", seconds=0.0)
+
+    # Unreadable is not the same as absent: a caller that refuses a mirror on
+    # this must not act on a command that did not run.
+    unreadable = Probe(runner=Absent(log=lambda line: None), work=tmp_path)
+    assert unreadable.address_families() == (True, True)
+
+
+def test_a_dhcp_autoconfigured_address_is_not_an_ipv4_network(tmp_path: Path) -> None:
+    """dhcpcd gives itself 169.254.0.0/16 when it finds no server, and `ip`
+    reports that as `scope global`. Counting it told an IPv6-only guest it had
+    IPv4, so the menu offered mirrors that guest could not reach."""
+
+    class Saying(Runner):
+        def __init__(self, said: str) -> None:
+            super().__init__(log=lambda line: None)
+            self.said = said
+
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            return Result(argv=tuple(argv), returncode=0, stdout=self.said, stderr="", seconds=0.0)
+
+    measured = (
+        "2: enp0s2    inet 169.254.62.131/16 brd 169.254.255.255 scope global noprefixroute\n"
+        "2: enp0s2    inet6 fd00:5:5:0:55e7:9198:bb2f:8b85/64 scope global dynamic\n"
+    )
+    probe = Probe(runner=Saying(measured), work=tmp_path)
+    assert probe.address_families() == (False, True)
+
+    routable = "2: enp0s2    inet 10.0.2.15/24 brd 10.0.2.255 scope global\n"
+    assert Probe(runner=Saying(routable), work=tmp_path).address_families() == (True, False)

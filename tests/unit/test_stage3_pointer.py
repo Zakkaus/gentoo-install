@@ -172,13 +172,50 @@ def test_an_ordinary_failure_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> 
     assert len(tried) == 1
 
 
-def test_only_ipv4_is_resolved_inside_the_fallback() -> None:
-    """The fallback is what makes the second attempt different; if it resolved
-    the same addresses it would fail the same way."""
+def test_one_family_at_a_time_inside_the_fallback() -> None:
+    """The fallback is what makes the next attempt different; if it resolved
+    the same addresses it would fail the same way. Both directions, because an
+    IPv6-only machine has no IPv4 route and retrying IPv4 is no retry."""
     import socket
 
-    with fetch._over_ipv4():
-        families = {one[0] for one in socket.getaddrinfo("localhost", 80)}
-    assert families == {socket.AF_INET}
-    # Restored afterwards, or every later request in this process is v4 only.
+    for family in (socket.AF_INET, socket.AF_INET6):
+        with fetch._over(family):
+            found = {one[0] for one in socket.getaddrinfo("localhost", 80)}
+        assert found == {family}
+    # Restored afterwards, or every later request in this process is pinned.
     assert socket.getaddrinfo("localhost", 80, socket.AF_INET6, socket.SOCK_STREAM)
+    assert socket.getaddrinfo("localhost", 80, socket.AF_INET, socket.SOCK_STREAM)
+
+
+def test_both_families_are_tried_after_a_route_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An IPv6-only machine is the case a fall back to IPv4 alone cannot
+    serve: the family that failed is the only one it has."""
+    import errno
+    import socket
+    import urllib.error
+
+    seen: list[int] = []
+    real = socket.getaddrinfo
+
+    def watching(host: object, port: object, family: int = 0, *rest: object) -> object:
+        seen.append(family)
+        raise OSError(errno.ENETUNREACH, "Network is unreachable")
+
+    def failing(url: str) -> str:
+        try:
+            socket.getaddrinfo("example.invalid", 443)
+        except OSError:
+            pass
+        raise DownloadFailed("unreachable") from urllib.error.URLError(
+            OSError(errno.ENETUNREACH, "Network is unreachable")
+        )
+
+    monkeypatch.setattr(socket, "getaddrinfo", watching)
+    monkeypatch.setattr(fetch, "_read_once", failing)
+    with pytest.raises(DownloadFailed):
+        fetch._read("https://example.invalid/x")
+    assert socket.AF_INET in seen and socket.AF_INET6 in seen, seen
+    assert socket.getaddrinfo is watching, "the resolver is put back each time"
+    monkeypatch.setattr(socket, "getaddrinfo", real)

@@ -454,27 +454,36 @@ def _unroutable(error: BaseException) -> bool:
 
 
 @contextlib.contextmanager
-def _over_ipv4() -> Iterator[None]:
-    """Resolve names to IPv4 only, for one attempt.
+def _over(family: int) -> Iterator[None]:
+    """Resolve names to one address family, for one attempt.
 
-    Python has no per-request address family. A mirror with an AAAA record is
-    tried over IPv6 first, and on a network whose IPv6 goes no further than a
-    NAT64 gateway that answers `Network is unreachable` at once — which is
-    what twenty cluster runs stopped on, while `curl` fetched the same URL
-    from the same guest a second earlier.
+    Python has no per-request address family. A mirror with both records is
+    tried over whichever the resolver puts first, and on a network whose other
+    family goes nowhere that answers `Network is unreachable` at once: twenty
+    cluster runs stopped there while `curl` fetched the same URL from the same
+    guest a second earlier.
+
+    Both directions, not only a fall back to IPv4. An IPv6-only machine has no
+    IPv4 route at all, and retrying the family that just failed is no retry.
     """
     real = socket.getaddrinfo
 
-    def only_v4(
-        host: Any, port: Any, family: int = 0, type: int = 0, proto: int = 0, flags: int = 0
+    def only_this(
+        host: Any, port: Any, ignored: int = 0, type: int = 0, proto: int = 0, flags: int = 0
     ) -> Any:
-        return real(host, port, socket.AF_INET, type, proto, flags)
+        return real(host, port, family, type, proto, flags)
 
-    setattr(socket, "getaddrinfo", only_v4)
+    setattr(socket, "getaddrinfo", only_this)
     try:
         yield
     finally:
         setattr(socket, "getaddrinfo", real)
+
+
+#: Tried in turn after a failure that named no route. Both, because the
+#: machine may have only one of them and the resolver may have offered the
+#: other first.
+_FAMILIES: Final[tuple[int, ...]] = (socket.AF_INET, socket.AF_INET6)
 
 
 def _read(url: str) -> str:
@@ -483,9 +492,14 @@ def _read(url: str) -> str:
     except DownloadFailed as first:
         if not _unroutable(first.__cause__ or first):
             raise
-    # The family had no route, so the other one is worth one attempt.
-    with _over_ipv4():
-        return _read_once(url)
+        last = first
+    for family in _FAMILIES:
+        try:
+            with _over(family):
+                return _read_once(url)
+        except DownloadFailed as again:
+            last = again
+    raise last
 
 
 def _read_once(url: str) -> str:
@@ -510,8 +524,15 @@ def _download(url: str, target: Path) -> None:
     except DownloadFailed as first:
         if not _unroutable(first.__cause__ or first):
             raise
-    with _over_ipv4():
-        _download_once(url, target)
+        last = first
+    for family in _FAMILIES:
+        try:
+            with _over(family):
+                _download_once(url, target)
+                return
+        except DownloadFailed as again:
+            last = again
+    raise last
 
 
 def _download_once(url: str, target: Path) -> None:
