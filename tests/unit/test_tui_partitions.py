@@ -904,9 +904,10 @@ def test_a_medium_with_no_zfs_offers_no_zfs_layout() -> None:
     """Alpine and Debian live images carry none, and the installer is meant to
     run from them; the row says why rather than failing at zpool create."""
     at = without_zfs()
-    screen = FakeScreen(keys=["q"], lines=24, columns=100)
+    # `automatic` first: the filesystem list is the screen after it.
+    screen = FakeScreen(keys=["\n", "q"], lines=24, columns=100)
     screens.layout_screen(screen, config(), at)
-    drawn = "\n".join(screen.frames[0])
+    drawn = "\n".join(screen.frames[1])
     assert "zfs  with ZFSBootMenu - this live system has no zpool" in drawn
 
 
@@ -987,7 +988,7 @@ def test_the_layout_row_opens_on_what_is_already_set() -> None:
     from gentoo_install.tui import screens
 
     at = context()
-    kept = screens.layout_screen(FakeScreen(keys=["\n"], lines=26), config(), at).unwrap()
+    kept = screens.layout_screen(FakeScreen(keys=["\n", "\n"], lines=26), config(), at).unwrap()
     chosen = [
         one.kind
         for one in kept.disk.graph.of_type(Filesystem)
@@ -1056,3 +1057,19 @@ def test_an_edited_table_keeps_the_numbers_the_disk_gave_out() -> None:
     ])
     graph, _ = manual.build(layout)
     assert [one.index for one in graph.of_type(Partition)] == [3]
+
+
+def test_who_lays_the_disk_out_is_asked_before_what_goes_on_it() -> None:
+    """One list held both questions: four filesystems and `manual` side by
+    side, as if `manual` were a fifth filesystem. It is the other question,
+    and a list that mixes them offers the automatic path as a default nobody
+    was shown an alternative to."""
+    from gentoo_install.tui import screens
+
+    at = context()
+    first = FakeScreen(keys=["q"], lines=24, columns=100)
+    screens.layout_screen(first, config(), at)
+    drawn = "\n".join(first.frames[0])
+    assert "automatic" in drawn and "manual" in drawn
+    for filesystem in ("ext4", "xfs", "btrfs"):
+        assert filesystem not in drawn, f"{filesystem} belongs to the next question"
