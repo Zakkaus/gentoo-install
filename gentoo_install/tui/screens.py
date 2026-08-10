@@ -2181,11 +2181,12 @@ def sshd_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
                 detail=translate("no password is accepted"),
             ),
             Item(
+                # No detail: the one it had said `root is a row of its own`,
+                # which describes this menu rather than what the option does.
+                # `sshd_root_login` is that row and starts off, so
+                # `PermitRootLogin no` is written whichever of these is picked.
                 label=translate("password login"),
                 value=(True, True),
-                # Not `root included`: `sshd_root_login` is a row of its own
-                # and starts off, so `PermitRootLogin no` is what gets written.
-                detail=translate("root is a row of its own"),
             ),
         ],
         footer=footer(translate),
