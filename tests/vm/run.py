@@ -240,6 +240,11 @@ def reach_shell(console: SerialConsole, medium: Medium) -> None:
         console.send(medium.become_root)
         console.expect(r"root@", timeout=60.0)
     pin_resolver(console)
+    for command in medium.prepare:
+        # `bootstrap.sh` prints the package manager line and stops rather than
+        # running it, which is what an operator wants and what left every
+        # Debian run at `missing commands: mkfs.vfat sgdisk`.
+        console.run(command, timeout=600.0)
 
 
 def pin_resolver(console: SerialConsole) -> None:

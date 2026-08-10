@@ -32,6 +32,11 @@ class Medium:
     login_user: str | None = None
     login_password: str | None = None
     extra_cmdline: tuple[str, ...] = ()
+    #: What to run before the installer, for a medium that ships without a
+    #: command preflight needs. `bootstrap.sh` prints the package manager line
+    #: and stops rather than running it, which is what an operator wants and
+    #: what left every Debian run at `missing commands: mkfs.vfat sgdisk`.
+    prepare: tuple[str, ...] = ()
     #: Set when the medium does not boot the dracut way. Alpine's initramfs
     #: takes `modules=` and finds its own media; it has no `root=live:`.
     boot_cmdline: tuple[str, ...] = ()
@@ -171,6 +176,8 @@ DEBIAN = Medium(
     login_password="live",
     become_root="sudo -i",
     boot_cmdline=("boot=live", "components", "username=user"),
+    # `mkfs.vfat` and `sgdisk` are what preflight found missing on 13.6.0.
+    prepare=("apt-get update -qq", "apt-get install -y dosfstools gdisk"),
 )
 
 ARCH = Medium(
