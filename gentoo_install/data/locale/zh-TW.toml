@@ -238,7 +238,7 @@
 "SSH" = "SSH"
 "detected" = "已偵測"
 "a snapshot from GENTOO_MIRRORS" = "透過 GENTOO_MIRRORS 取得快照"
-"what emerge --sync has always done" = "emerge --sync 的預設方式"
+"what emerge --sync has always done" = "emerge --sync 一直以來採用的方式"
 "prebuilt" = "預先建置"
 "built here" = "本機建置"
 "built here, cjktty for CJK on the console, from gentoo-zh" = "本機建置，來自 gentoo-zh；cjktty 用於在主控台顯示 CJK"

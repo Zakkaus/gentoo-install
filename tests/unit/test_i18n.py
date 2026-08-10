@@ -323,7 +323,7 @@ KEPT_IN_ENGLISH: frozenset[str] = frozenset(
 
 
 def test_the_panel_shows_no_untranslated_prose_under_a_chinese_catalog() -> None:
-    """`交換空間 a partition` and `-j1 (this machine)` reached the panel: the
+    """`a partition` and `(this machine)` reached a translated panel: the
     strings were built without `translate`, so the catalog completeness test
     never saw them — it collects what is passed to `translate` and these were
     not passed to anything."""
@@ -353,3 +353,27 @@ def test_the_panel_shows_no_untranslated_prose_under_a_chinese_catalog() -> None
             if unknown:
                 leaked.append(f"{row.key}: {shown!r}")
     assert not leaked, leaked
+
+
+def test_no_catalog_shows_a_particle_the_writer_had_not_chosen() -> None:
+    """Korean picks its subject and object particles by the sound of the word
+    before them, and the compatibility message printed both candidates in
+    brackets rather than one of them: the operator read a sentence with
+    `(wa)` and `(neun)` left in it.
+
+    A value interpolates a word the catalog cannot see, so the sentence has to
+    be one that needs no particle chosen at all.
+    """
+    import re
+    import tomllib
+    from pathlib import Path
+
+    # Codepoints, not literals: no file under tests/ holds a wide character.
+    # A Hangul syllable immediately before `(` is a particle candidate.
+    candidates = re.compile("[\uac00-\ud7a3]\\(")
+    for catalog in sorted(Path("gentoo_install/data/locale").glob("*.toml")):
+        said = tomllib.loads(catalog.read_text())["strings"]
+        for source, value in said.items():
+            if "{" not in source:
+                continue
+            assert not candidates.search(value), f"{catalog.name}: {source}"

@@ -82,7 +82,7 @@
 
 # Bootloader and overlays
 "A ZFS root cannot boot from GRUB. Which bootloader?" = "ZFS ルートは GRUB では起動できません。どちらを使いますか？"
-"adds the gentoo-zh overlay, the only one that has it" = "gentoo-zh オーバーレイの追加が必要"
+"adds the gentoo-zh overlay, the only one that has it" = "これを提供する唯一の gentoo-zh オーバーレイを追加します"
 "no overlay, and the esp has to hold the kernel" = "オーバーレイ不要、カーネルは esp に配置"
 
 # Packages
