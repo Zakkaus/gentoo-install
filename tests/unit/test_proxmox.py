@@ -709,7 +709,7 @@ def test_the_probe_runs_before_the_guest_is_touched() -> None:
         if line.strip() and not line.strip().startswith("#")
     ]
     probe = next(at for at, line in enumerate(code) if "NETWORK_PROBE" in line)
-    ask = next(at for at, line in enumerate(code) if "ASK_FOR_IPV4" in line)
+    ask = next(at for at, line in enumerate(code) if "link.run(configure" in line)
     assert probe < ask, "the medium gets its chance before anything is raised"
     assert "ip -4 route show default" in cluster.ASK_FOR_IPV4
 
@@ -1279,3 +1279,39 @@ def test_the_guest_asks_for_an_address_on_every_pass() -> None:
     # And the burst is spread: thirteen leases inside one minute is what the
     # server could not answer.
     assert cluster.STAGGER >= 20.0, cluster.STAGGER
+
+
+def test_a_guest_is_given_an_address_rather_than_asking_for_one() -> None:
+    """The DHCP server on this network runs on a Raspberry Pi that also routes
+    and answers intermittently under load: the same node offered 10.31.0.201
+    on one attempt and printed `soliciting a DHCP lease` then `timed out` on
+    the next. Thirteen guests asking at once is what it could not serve.
+
+    Each guest takes an address derived from its VMID instead, after checking
+    that nothing on the segment already answers to it. Measured on a guest:
+    10.31.0.108 with `default via 10.31.0.254`, and the mirror answered 200.
+    """
+    from tests.vm.cluster import (
+        GUEST_GATEWAY,
+        GUEST_RESOLVERS,
+        configure_statically,
+        static_address,
+    )
+    from tests.vm.proxmox import VMID_FIRST, VMID_LAST
+
+    assert static_address(VMID_FIRST) == "10.31.0.100"
+    assert static_address(VMID_LAST) == "10.31.0.199"
+    # One address per guest, and no two the same.
+    every = {static_address(one) for one in range(VMID_FIRST, VMID_LAST + 1)}
+    assert len(every) == VMID_LAST - VMID_FIRST + 1
+
+    command = configure_statically("10.31.0.113")
+    assert "\n" not in command, "one line: this goes to a serial console"
+    # Probed before it is taken: an address somebody else holds is a collision
+    # with a real machine, so that guest asks the DHCP server instead.
+    assert "arping -D" in command
+    assert command.index("arping -D") < command.index("addr add")
+    assert "dhcpcd" in command, "the fallback is still there"
+    assert f"via {GUEST_GATEWAY}" in command
+    for one in GUEST_RESOLVERS:
+        assert f"nameserver {one}" in command
