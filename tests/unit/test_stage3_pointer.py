@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from gentoo_install.errors import DownloadFailed
@@ -79,6 +81,17 @@ def test_the_variant_picks_the_pointer(monkeypatch: pytest.MonkeyPatch, variant:
     monkeypatch.setattr(fetch, "_read", record)
     fetch._newest("https://distfiles.gentoo.org/releases/amd64/autobuilds", variant)
     assert asked[0].endswith(f"latest-stage3-amd64-{variant}.txt")
+
+
+def test_the_pause_between_attempts_grows(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A fixed two seconds was not enough spread: twelve guests starting
+    together each failed every attempt inside ninety seconds against a host
+    that was answering."""
+    slept: list[float] = []
+    monkeypatch.setattr(fetch, "_read", lambda url: (_ for _ in ()).throw(DownloadFailed("no")))
+    monkeypatch.setattr(time, "sleep", slept.append)
+    assert fetch.reachable("https://example.invalid/x") is False
+    assert slept == [2.0, 4.0, 8.0, 16.0], slept
 
 
 def test_one_lost_request_does_not_declare_the_machine_offline(

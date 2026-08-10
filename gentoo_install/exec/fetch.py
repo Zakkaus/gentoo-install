@@ -296,11 +296,14 @@ def egress_country() -> str:
     return ""
 
 
-#: How many times the site is asked before the machine is called offline, and
-#: how long to wait between. One attempt was enough to stop an install on a
-#: link that answered five runs in a row and timed out on the sixth; the check
-#: guards the whole run, so a single lost packet must not decide it.
-ONLINE_TRIES: Final[int] = 3
+#: How many times the address is asked before the machine is called offline,
+#: and the first pause between attempts, which doubles. The check guards the
+#: whole run, so a single lost packet must not decide it, and a fixed two
+#: seconds was not enough spread: twelve guests starting together each failed
+#: three attempts inside ninety seconds against a host that was answering.
+#: Five attempts back off 2, 4, 8 and 16 seconds, half a minute in all, which
+#: is nothing beside the install it is guarding.
+ONLINE_TRIES: Final[int] = 5
 ONLINE_PAUSE: Final[float] = 2.0
 
 
@@ -315,7 +318,7 @@ def reachable(url: str) -> bool:
             _read(url)
         except DownloadFailed:
             if attempt + 1 < ONLINE_TRIES:
-                time.sleep(ONLINE_PAUSE)
+                time.sleep(ONLINE_PAUSE * 2**attempt)
             continue
         return True
     return False
