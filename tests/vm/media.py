@@ -184,7 +184,10 @@ ALPINE = Medium(
         "printf 'https://mirrors.ustc.edu.cn/alpine/v3.24/main\n"
         "https://mirrors.ustc.edu.cn/alpine/v3.24/community\n' > /etc/apk/repositories",
         "apk update",
-        "apk add python3 e2fsprogs dosfstools sgdisk",
+        # The list preflight itself printed, plus the interpreter it needs
+        # before it can print anything.
+        "apk add python3 e2fsprogs dosfstools sgdisk blkid findmnt gnupg "
+        "lsblk mount util-linux-misc tar eudev umount wipefs",
     ),
 )
 
