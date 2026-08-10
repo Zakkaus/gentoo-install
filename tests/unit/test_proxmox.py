@@ -1141,3 +1141,67 @@ def test_a_guest_is_asked_for_an_address_on_the_first_pass() -> None:
     source = inspect.getsource(cluster.wait_for_network)
     assert "NETWORK_PATIENCE / 2" not in source, "the request is not delayed any more"
     assert "ASK_FOR_IPV4" in source
+
+
+def test_the_keymap_question_is_answered_rather_than_waited_out() -> None:
+    """The official minimal medium asks `Load keymap (Enter for default):` and
+    waits for a key. Nothing answered it: two guests on one round sat there
+    while the run spent its patience waiting for a prompt that was one
+    keystroke away."""
+    from tests.vm.cluster import Reconnecting, reach_prompt
+
+    class Asking:
+        """Asks once, then gives a prompt."""
+
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+            self.asked = False
+
+        def send(self, line: str) -> None:
+            self.sent.append(line)
+
+        def send_raw(self, keys: str) -> None:
+            self.sent.append(keys)
+
+        def snapshot(self, seconds: float) -> bytes:
+            return b""
+
+        def expect(self, pattern: str, timeout: float) -> bytes:
+            if not self.asked:
+                self.asked = True
+                return b"Load keymap (Enter for default): "
+            return b"livecd ~ # "
+
+        @property
+        def closed(self) -> bool:
+            return False
+
+    console = Asking()
+    reach_prompt(Reconnecting(lambda: console, tries=1), patience=30.0)
+    assert console.sent == [""], console.sent
+
+    class Ready:
+        """Gives a prompt straight away, and must not be sent anything."""
+
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+
+        def send(self, line: str) -> None:
+            self.sent.append(line)
+
+        def send_raw(self, keys: str) -> None:
+            self.sent.append(keys)
+
+        def snapshot(self, seconds: float) -> bytes:
+            return b""
+
+        def expect(self, pattern: str, timeout: float) -> bytes:
+            return b"livecd ~ # "
+
+        @property
+        def closed(self) -> bool:
+            return False
+
+    quiet = Ready()
+    reach_prompt(Reconnecting(lambda: quiet, tries=1), patience=30.0)
+    assert quiet.sent == [], quiet.sent

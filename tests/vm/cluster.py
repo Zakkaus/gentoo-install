@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import itertools
 import queue
+import re
 import sys
 import threading
 import time
@@ -334,6 +335,32 @@ ASK_FOR_IPV4: Final[str] = (
 )
 
 
+#: What the official minimal medium asks before it hands over a shell, and
+#: what answers it. Nothing answered: two guests on one round sat at `Load
+#: keymap (Enter for default):` while the run spent its patience waiting for a
+#: prompt that was one keystroke away.
+KEYMAP_QUESTION: Final[str] = r"Load keymap|keymap \(Enter for default\)"
+
+#: How long the medium is given to reach a shell, question or no question.
+PROMPT_PATIENCE: Final[float] = 900.0
+
+
+def reach_prompt(link: Reconnecting, patience: float = PROMPT_PATIENCE) -> None:
+    """Wait for a root prompt, answering the medium's questions on the way."""
+    deadline = time.monotonic() + patience
+    while time.monotonic() < deadline:
+        said = link.expect(
+            rf"livecd .*#|localhost .*#|{KEYMAP_QUESTION}",
+            timeout=max(30.0, deadline - time.monotonic()),
+        )
+        if not re.search(KEYMAP_QUESTION.encode(), said):
+            return  # The prompt matched, which is what this waits for.
+        # The default is what every fixture wants, and the question waits for
+        # a key rather than answering itself.
+        link.send("")
+    raise ConsoleTimeout(f"the medium did not reach a shell in {patience:.0f}s")
+
+
 def wait_for_network(link: Reconnecting) -> None:
     """Configure the guest's interface, then wait until it can reach a mirror.
 
@@ -529,7 +556,7 @@ def install_one(
             # read. The keys go through the API and the kernel appearing on
             # the console is what says the edit landed.
             append_to_cmdline_blind(guest, link, EXTRA_CMDLINE)
-        link.expect(r"livecd .*#|localhost .*#", timeout=900.0)
+        reach_prompt(link)
         # The guest's own resolver is left alone. A local run pins one because
         # slirp reads the host's `/etc/resolv.conf` once at startup; the
         # cluster hands out a real configuration, and it is IPv6 with DNS64.
