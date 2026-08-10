@@ -467,3 +467,6 @@
 "{flags} (stage3 default)" = "{flags}（stage3 預設值）"
 "this machine has no IPv4 and the mirror has no IPv6" = "本機沒有 IPv4，而這個鏡像沒有 IPv6"
 "builtin" = "init 系統內建"
+"How is this disk laid out?" = "這顆磁碟由誰排版面？"
+"automatic" = "自動"
+"the installer writes the table" = "安裝器寫這張分割表"

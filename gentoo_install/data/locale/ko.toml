@@ -466,3 +466,6 @@
 "{flags} (stage3 default)" = "{flags}(stage3 기본값)"
 "this machine has no IPv4 and the mirror has no IPv6" = "이 시스템에 IPv4가 없고 이 미러에 IPv6가 없습니다"
 "builtin" = "init 시스템 내장"
+"How is this disk laid out?" = "이 디스크의 배치를 정하는 주체"
+"automatic" = "자동"
+"the installer writes the table" = "설치 프로그램이 테이블을 작성"

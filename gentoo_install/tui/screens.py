@@ -321,6 +321,44 @@ def disk_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
 
 
 def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
+    """Who lays the disk out, and only then what goes on it.
+
+    One list held both questions: four filesystems and `manual` side by side,
+    as if `manual` were a fifth filesystem. It is the other question, and
+    asking it first is what makes the automatic path a path rather than a
+    default nobody was offered an alternative to.
+    """
+    translate = context.translate
+    by_hand = context.choice.layout is Layout.REUSE
+    how = Menu[bool](
+        title=translate("How is this disk laid out?"),
+        items=[
+            Item(
+                label=translate("automatic"),
+                value=False,
+                detail=translate("the installer writes the table"),
+            ),
+            Item(
+                label=translate("manual"),
+                value=True,
+                detail=translate("one table: keep, format, delete or add each partition"),
+            ),
+        ],
+        footer=footer(translate),
+        current=by_hand,
+    ).run(screen)
+    if not how.chosen:
+        return Answer(how.outcome)
+    if how.unwrap()[0]:
+        context.manual = False
+        return partitions_screen(screen, config, context)
+    return _template_screen(screen, config, context)
+
+
+def _template_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """What the installer writes when it lays the disk out itself."""
     translate = context.translate
     items: list[Item[tuple[Layout | None, FilesystemType]]] = [
         Item(label="ext4", value=(Layout.WHOLE_DISK, FilesystemType.EXT4)),
@@ -335,11 +373,6 @@ def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> An
             value=(Layout.WHOLE_DISK_ZFS, FilesystemType.EXT4),
             detail=translate("with ZFSBootMenu"),
             disabled_because=context.zfs_unavailable,
-        ),
-        Item(
-            label=translate("manual"),
-            value=(None, FilesystemType.EXT4),
-            detail=translate("one table: keep, format, delete or add each partition"),
         ),
     ]
     # On the row the configuration already holds, so enter keeps what is set

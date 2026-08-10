@@ -269,9 +269,9 @@ def test_every_repository_choice_is_on_the_mirror_screen() -> None:
 def test_choosing_zfs_asks_before_adding_the_overlay() -> None:
     """ZFSBootMenu is in gentoo-zh and in no other repository, so choosing it
     is consenting to that overlay rather than having it added silently."""
-    # Two, not three: the cursor starts on the row the configuration already
-    # holds, and the default filesystem is xfs, which is the second row.
-    zfs = ["KEY_DOWN", "KEY_DOWN", "\n"]
+    # `automatic` first, then two down: the cursor starts on the row the
+    # configuration already holds, and the default filesystem is xfs.
+    zfs = ["\n", "KEY_DOWN", "KEY_DOWN", "\n"]
     screen = FakeScreen(keys=[*zfs, "\n"])
     answer = screens.layout_screen(screen, config(), context())
     assert answer.unwrap().bootloader.kind is Bootloader.ZFSBOOTMENU
@@ -283,9 +283,8 @@ def test_choosing_zfs_asks_before_adding_the_overlay() -> None:
 
 def test_declining_the_overlay_leaves_zfs_on_systemd_boot() -> None:
     """The other bootloader a ZFS root can use, and it needs no overlay."""
-    # Two, not three: the cursor starts on the row the configuration already
-    # holds, and the default filesystem is xfs, which is the second row.
-    zfs = ["KEY_DOWN", "KEY_DOWN", "\n"]
+    # `automatic` first, then two down to the zfs row.
+    zfs = ["\n", "KEY_DOWN", "KEY_DOWN", "\n"]
     answer = screens.layout_screen(FakeScreen(keys=[*zfs, "KEY_DOWN", "\n"]), config(), context())
     assert answer.unwrap().bootloader.kind is Bootloader.SYSTEMD_BOOT
     assert answer.unwrap().portage.overlays == ()
@@ -2122,7 +2121,7 @@ def test_cancelling_the_zfs_bootloader_question_undoes_the_layout() -> None:
     # Two rows down is the ZFS layout; enter opens the bootloader question and
     # escape leaves it. A third down lands past the row and cancels the menu
     # itself, which answers CANCELLED whether the fix is there or not.
-    keys = ["KEY_DOWN", "KEY_DOWN", "\n", "\x1b"]
+    keys = ["\n", "KEY_DOWN", "KEY_DOWN", "\n", "\x1b"]
     answer = screens.layout_screen(FakeScreen(keys=keys, lines=24, columns=100), start, at)
 
     assert answer.outcome is Answered.BACK, answer.outcome
