@@ -387,6 +387,12 @@ def configure_statically(address: str) -> str:
     # a serial console, and a literal break there is two commands.
     resolvers = "".join(f"nameserver {one}\\n" for one in GUEST_RESOLVERS)
     return (
+        # Nothing at all once there is a default route. Without this guard the
+        # second pass probed the address the first pass had taken, `arping -D`
+        # answered that something holds it — this guest — and the DHCP branch
+        # then tore the working configuration down again. Four guests spent
+        # their whole window doing that to themselves.
+        "ip -4 route show default | grep -q . || { "
         'for one in /sys/class/net/e*; do dev=$(basename "$one"); ip link set "$dev" up; '
         f'if arping -D -c 2 -w 3 -I "$dev" {address} >/dev/null 2>&1; then '
         f'ip -4 addr add {address}/{GUEST_PREFIX} dev "$dev" 2>/dev/null; '
@@ -394,7 +400,7 @@ def configure_statically(address: str) -> str:
         "else "
         'dhcpcd -x "$dev" >/dev/null 2>&1; pkill -x dhcpcd >/dev/null 2>&1; '
         'dhcpcd -4 --noarp -w -t 45 "$dev" >/dev/null 2>&1 || true; '
-        "fi; done; "
+        "fi; done; }; "
         f"printf '{resolvers}' > /etc/resolv.conf; "
         "ip -4 route show default | grep -q . || true"
     )

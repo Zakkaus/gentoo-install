@@ -1315,3 +1315,26 @@ def test_a_guest_is_given_an_address_rather_than_asking_for_one() -> None:
     assert f"via {GUEST_GATEWAY}" in command
     for one in GUEST_RESOLVERS:
         assert f"nameserver {one}" in command
+
+
+def test_a_guest_leaves_its_own_address_alone_on_the_next_pass() -> None:
+    """The request runs on every pass, so the second one probed the address
+    the first had taken: `arping -D` answered that something holds it — this
+    guest — and the DHCP branch then tore the working configuration down.
+    Four guests spent their whole window doing that to themselves.
+
+    Measured from a probe on the segment: 10.31.0.101, .105, .106, .110, .111
+    and .120 all answered as taken, and every one of them was a guest of the
+    round that was running.
+    """
+    import subprocess
+
+    from tests.vm.cluster import configure_statically
+
+    command = configure_statically("10.31.0.113")
+    assert subprocess.run(["bash", "-n", "-c", command], capture_output=True).returncode == 0
+    # The guard comes first, and nothing else runs when a route is already there.
+    assert command.startswith("ip -4 route show default | grep -q . || {"), command[:80]
+    assert command.index("arping") > command.index("|| {")
+    # `exit` would end the login shell this runs in, not just the command.
+    assert "exit 0" not in command
