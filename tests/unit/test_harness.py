@@ -871,6 +871,8 @@ def test_a_medium_that_lacks_a_command_installs_it_before_the_installer_runs() -
     assert MEDIA["debian"].prepare, "13.6.0 ships without mkfs.vfat and sgdisk"
     assert any("dosfstools" in one for one in MEDIA["debian"].prepare)
     assert any("gdisk" in one for one in MEDIA["debian"].prepare)
+    assert MEDIA["fedora"].prepare, "43 ships without sgdisk"
+    assert any("gdisk" in one for one in MEDIA["fedora"].prepare)
     # A medium that carries everything is sent nothing.
     assert MEDIA["official-minimal"].prepare == ()
 
