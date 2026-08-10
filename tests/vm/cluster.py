@@ -138,7 +138,13 @@ WATCH_STRIKES: Final[int] = 3
 #: Between starting one guest and the next. They all reach for the same mirror
 #: in their first minute, and twelve starting together each failed the
 #: reachability check against a host that was answering.
-STAGGER: Final[float] = 8.0
+#:
+#: Twenty rather than eight, because the DHCP server on this network runs on a
+#: Raspberry Pi acting as the router, and thirteen guests asking for a lease
+#: inside one minute is what made it answer some and not others: the same node
+#: offered 10.31.0.201 on one attempt and printed `soliciting a DHCP lease`
+#: then `timed out` on the next, minutes apart.
+STAGGER: Final[float] = 20.0
 
 #: How long the schedule waits before looking at capacity again while jobs are
 #: still queued. A node's free memory lags what is actually running on it, so
@@ -337,7 +343,11 @@ ASK_FOR_IPV4: Final[str] = (
     # in `probing address 10.31.0.201/24` until dhcpcd gives up. Measured on
     # two nodes: `-w -t 25` timed out on both, `--noarp -w -t 90` leased
     # 10.31.0.203 and 10.31.0.201 with `default via 10.31.0.254`.
-    'dhcpcd -4 --noarp -w -t 90 "$dev" >/dev/null 2>&1 || true; done; }; '
+    # Any daemon from an earlier attempt is stopped first: dhcpcd that finds
+    # one running prints `sending commands to dhcpcd process` and returns at
+    # once, so every later attempt took no time and asked for nothing.
+    'dhcpcd -x "$dev" >/dev/null 2>&1; pkill -x dhcpcd >/dev/null 2>&1; '
+    'dhcpcd -4 --noarp -w -t 45 "$dev" >/dev/null 2>&1 || true; done; }; '
     "ip -4 route show default | grep -q . || true"
 )
 
@@ -383,10 +393,13 @@ def wait_for_network(link: Reconnecting) -> None:
         said = link.expect(rf"{NETWORK_UP}|{NETWORK_DONE}", timeout=180.0)
         if NETWORK_UP.encode() in said:
             return
-        if not asked:
-            asked = True
-            link.run(ASK_FOR_IPV4, timeout=120.0)
-            continue
+        # Every pass, not once: this cluster's DHCP server answers
+        # intermittently. One guest was offered 10.31.0.201 on one attempt and
+        # got `soliciting a DHCP lease` then `timed out` on the next, from the
+        # same node minutes apart. Asking once meant a guest that hit a quiet
+        # moment spent the whole window with no address at all.
+        link.run(ASK_FOR_IPV4, timeout=120.0)
+        asked = True
         time.sleep(NETWORK_PAUSE)
     # What the guest actually had, into the log this run leaves behind. Eight
     # cluster guests failed here on one round and the log held nothing but
