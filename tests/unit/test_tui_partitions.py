@@ -1073,3 +1073,25 @@ def test_who_lays_the_disk_out_is_asked_before_what_goes_on_it() -> None:
     assert "automatic" in drawn and "manual" in drawn
     for filesystem in ("ext4", "xfs", "btrfs"):
         assert filesystem not in drawn, f"{filesystem} belongs to the next question"
+
+
+def test_the_partitions_row_says_what_the_template_writes() -> None:
+    """The row answered `default`, which names nothing: an operator asking
+    what a template does to their disk was told that it is the default one.
+    The partitions are in the graph by the time the row is drawn, and the
+    mount points reach them through subvolumes, containers and pools."""
+    from pathlib import Path
+
+    from gentoo_install.exec.config import load
+    from gentoo_install.tui import settings
+
+    at = context()
+    at.manual = False
+    for fixture, wanted in (
+        ("vm-binpkg", "/efi 512MiB, / the rest"),
+        ("vm-btrfs", "/efi 512MiB, / /home the rest"),
+        ("vm-zfs", "/efi 512MiB, / the rest"),
+        ("vm-luks", "/efi 512MiB, / /home the rest"),
+    ):
+        shown = settings._partitions(load(Path(f"tests/fixtures/{fixture}.toml")), at)
+        assert shown == wanted, f"{fixture}: {shown}"

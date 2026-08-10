@@ -1489,7 +1489,10 @@ def test_a_grouped_row_uses_the_width_the_terminal_actually_has() -> None:
     at.columns = 200
     wide = disk.value(config(), at)
     assert "+" not in wide
-    assert wide.count(",") == len(said) - 1
+    # Every field, not a comma count: one of them lists the partitions and
+    # carries commas of its own.
+    for one in said:
+        assert one in wide, one
 
     at.columns = 40
     narrow = disk.value(config(), at)

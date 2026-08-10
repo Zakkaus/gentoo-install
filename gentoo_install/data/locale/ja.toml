@@ -294,7 +294,6 @@
 "set" = "設定済み"
 "confirmed" = "確認済み"
 "prebuilt, cjktty for CJK on the console, from gentoo-zh" = "ビルド済み、gentoo-zh の cjktty 入り"
-"the layout row writes this table" = "レイアウト行が決める"
 "A new partition table" = "新しいパーティションテーブル"
 "follow the BIOS" = "BIOS に従う"
 "the one already on the disk" = "ディスク上の既存テーブル"
@@ -469,3 +468,5 @@
 "How is this disk laid out?" = "このディスクの配置を決めるのは"
 "automatic" = "自動"
 "the installer writes the table" = "インストーラーがテーブルを書く"
+"the rest" = "残り全体"
+"written by the template" = "テンプレートが書く"

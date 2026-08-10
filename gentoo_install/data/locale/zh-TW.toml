@@ -294,7 +294,6 @@
 "set" = "已設定"
 "confirmed" = "已確認"
 "prebuilt, cjktty for CJK on the console, from gentoo-zh" = "預先建置，來自 gentoo-zh；cjktty 用於在主控台顯示 CJK"
-"the layout row writes this table" = "由磁碟配置列決定"
 "A new partition table" = "新的分割表"
 "follow the BIOS" = "跟隨 BIOS"
 "the one already on the disk" = "磁碟上原有的分割表"
@@ -470,3 +469,5 @@
 "How is this disk laid out?" = "這顆磁碟由誰排版面？"
 "automatic" = "自動"
 "the installer writes the table" = "安裝器寫這張分割表"
+"the rest" = "剩餘空間"
+"written by the template" = "由樣板寫出"

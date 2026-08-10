@@ -25,7 +25,19 @@ from ..model.config import (
 )
 from ..plan.kernel import CJK_KERNELS, KERNEL_PACKAGES
 from ..model import compat, mirrors
-from ..model.device import Existing, Luks, MdRaid, PartitionTable, VolumeGroup, ZfsPool
+from ..model.device import (
+    DeviceGraph,
+    DeviceId,
+    Existing,
+    Filesystem,
+    Luks,
+    MdRaid,
+    Mountpoint,
+    Partition,
+    PartitionTable,
+    VolumeGroup,
+    ZfsPool,
+)
 from ..plan import automatic as automatic_values
 from . import screens
 from .screens import Context, Step, footer
@@ -431,15 +443,55 @@ def _template_writes_the_table(config: InstallConfig, context: Context) -> str:
     """
     if context.manual:
         return ""
-    return context.translate("the layout row writes this table")
+    # Named for what it is rather than for a row: the row it used to point at
+    # was renamed when the layout question was split in two.
+    return context.translate("written by the template")
 
 
 def _partitions(config: InstallConfig, context: Context) -> str:
     if not context.manual:
-        return context.translate("default")
+        return _written_table(config, context)
     return ", ".join(
         entry.describe().split("  ")[1] for entry in context.layout.slices
     ) or context.translate("none")
+
+
+def _written_table(config: InstallConfig, context: Context) -> str:
+    """The table the template produces, read off the graph it built.
+
+    The row said `default`, which names nothing: an operator asking what a
+    template does to their disk was told that it is the default one. The
+    partitions are already in the graph by the time this row is drawn.
+    """
+    graph = config.disk.graph
+    written: list[str] = []
+    for partition in sorted(graph.of_type(Partition), key=lambda one: one.index):
+        # Every mount point that ends up on this partition, not the one
+        # directly above it: a btrfs root reaches it through a subvolume and an
+        # encrypted one through a container, and both answered with the
+        # filesystem's own name where a path belongs.
+        paths = sorted(
+            str(one.path)
+            for one in graph.of_type(Mountpoint)
+            if _rests_on(graph, one.id, partition.id)
+        )
+        size = str(partition.size) if partition.size else context.translate("the rest")
+        written.append(f"{' '.join(paths) or partition.role.value} {size}")
+    return ", ".join(written) or context.translate("none")
+
+
+def _rests_on(graph: DeviceGraph, above: DeviceId, below: DeviceId) -> bool:
+    seen: set[DeviceId] = set()
+    frontier = [above]
+    while frontier:
+        current = frontier.pop()
+        if current in seen or current not in graph.nodes:
+            continue
+        seen.add(current)
+        if current == below:
+            return True
+        frontier.extend(graph[current].inputs)
+    return False
 
 
 def _encryption(config: InstallConfig, context: Context) -> str:
