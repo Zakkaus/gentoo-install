@@ -58,6 +58,27 @@ def zfs_on_grub() -> InstallConfig:
     return config(zfs_root())
 
 
+def a_kernel_on_zfs_under_grub() -> InstallConfig:
+    """An ext4 root with `/boot` on its own pool. Every rule was read from the
+    root's device chain, so this passed all of them and GRUB then could not
+    read the pool the kernel was on."""
+    from gentoo_install.model.device import ZfsDataset
+
+    return boots(
+        config(
+            [
+                *ext4_on_gpt(),
+                Existing(id=i("bootdisk"), selector="/dev/disk/by-id/virtio-boot", wipe=True),
+                ZfsPool(id=i("bpool"), vdevs=(i("bootdisk"),), name="bpool"),
+                ZfsDataset(id=i("ds-boot"), pool=i("bpool"), name="BOOT/gentoo"),
+                Mountpoint(id=i("mnt-boot"), source=i("ds-boot"), path=PurePosixPath("/boot")),
+            ]
+        ),
+        Bootloader.GRUB,
+        Firmware.UEFI,
+    )
+
+
 def zfs_on_bios() -> InstallConfig:
     return boots(config(zfs_root()), Bootloader.ZFSBOOTMENU, Firmware.BIOS)
 
@@ -215,6 +236,7 @@ def a_system_nothing_can_log_into() -> InstallConfig:
 CASES: list[tuple[Callable[[], InstallConfig], Trait, Trait]] = [
     (a_system_nothing_can_log_into, Trait.ROOT_LOCKED, Trait.NO_OTHER_LOGIN),
     (zfs_on_grub, Trait.ROOT_ON_ZFS, Trait.GRUB),
+    (a_kernel_on_zfs_under_grub, Trait.BOOT_ON_ZFS, Trait.GRUB),
     (zfs_on_bios, Trait.ROOT_ON_ZFS, Trait.BIOS_BOOT),
     (zfs_over_luks, Trait.ROOT_ON_ZFS, Trait.LUKS),
     (uefi_without_an_esp, Trait.UEFI_BOOT, Trait.NO_MOUNTED_ESP),
