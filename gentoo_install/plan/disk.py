@@ -752,6 +752,7 @@ class UnmountTarget(Operation):
         if self._still_mounted(context):
             context.run(["umount", "--recursive", "--lazy", str(context.target)])
         for pool in self.pools:
+            self._unmount_datasets(context, pool)
             self._export(context, pool)
 
     def _still_mounted(self, context: Context) -> bool:
@@ -759,6 +760,24 @@ class UnmountTarget(Operation):
             ["findmnt", "--mountpoint", str(context.target)], check=False
         )
         return isinstance(found, CommandOutput) and found.returncode == 0
+
+    def _unmount_datasets(self, context: Context, pool: str) -> None:
+        """Unmount the pool's own datasets, deepest first.
+
+        Unmounting the target tree is not enough. A live environment that
+        imported the pool itself mounts each dataset at its `mountpoint`
+        property rather than under the altroot, so those mounts are outside
+        `/mnt/gentoo` and `zpool export` reads `pool is busy` with the target
+        already clear: Gig-OS failed there where gentoo-cjk did not.
+        """
+        listed = context.run(
+            ["zfs", "list", "-H", "-o", "name", "-r", pool], check=False
+        )
+        if isinstance(listed, CommandOutput) and listed.returncode != 0:
+            return
+        names = [one.strip() for one in str(listed).splitlines() if one.strip()]
+        for name in sorted(names, key=lambda one: one.count("/"), reverse=True):
+            context.run(["zfs", "unmount", name], check=False)
 
     def _export(self, context: Context, pool: str) -> None:
         """`umount --lazy` detaches the tree and returns before the last

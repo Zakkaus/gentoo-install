@@ -616,6 +616,8 @@ def test_a_pool_still_busy_after_the_lazy_unmount_is_exported_on_a_later_try(
         ) -> str:
             if argv[0] == "findmnt":
                 return CommandOutput("/mnt/gentoo" if self.mounted else "", 0 if self.mounted else 1)
+            if tuple(argv[:2]) == ("zfs", "list"):
+                return CommandOutput("rpool\nrpool/ROOT\nrpool/ROOT/gentoo\nrpool/home\n", 0)
             return super().run(argv, check=check, input_text=input_text)
 
     ordered = Clean()
@@ -641,6 +643,14 @@ def test_a_pool_still_busy_after_the_lazy_unmount_is_exported_on_a_later_try(
     operation.apply(recorder)
     assert recorder.attempts == 3, recorder.attempts
     assert recorder.argv_starting("sleep") == (("sleep", "0"), ("sleep", "0"))
+
+    # The pool's own datasets are unmounted first, deepest before shallowest: a
+    # live environment that imported the pool mounts them at their `mountpoint`
+    # property, which is outside the target tree the unmount above cleared.
+    unmounted = [one[2] for one in recorder.commands if tuple(one[:2]) == ("zfs", "unmount")]
+    assert unmounted == ["rpool/ROOT/gentoo", "rpool/ROOT", "rpool/home", "rpool"] or (
+        unmounted[0] == "rpool/ROOT/gentoo" and unmounted[-1] == "rpool"
+    ), unmounted
 
     # A live environment running `zed` holds the pool for as long as it runs,
     # so the last attempt forces rather than waiting again.
