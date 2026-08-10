@@ -984,3 +984,44 @@ def test_a_removed_guest_gives_its_vmid_back(monkeypatch: pytest.MonkeyPatch) ->
     )
     died = done.get_nowait()
     assert died.vmid == 9308 and not died.removed
+
+
+def test_the_walk_does_not_escape_out_of_a_row_that_never_opened(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Escape on the main menu leaves the installer. A walk that pressed it
+    after a press which opened nothing ended on its first row, and the review
+    of that recording reported no findings because there was one screen."""
+    from typing import Any, cast
+
+    from tests.vm import tui
+
+    class Console:
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+            self.asked = 0
+
+        def run(self, line: str, timeout: float = 0.0) -> str:
+            return ""
+
+        def send_raw(self, keys: str) -> None:
+            self.sent.append(keys)
+
+        def expect(self, pattern: str, timeout: float) -> bytes:
+            self.asked += 1
+            return b"gentoo-install"
+
+        def snapshot(self, seconds: float) -> bytes:
+            # The same screen every time: the row never opens.
+            return b"gentoo-install\r\nstorage\r\n"
+
+    import time as clock
+
+    monkeypatch.setattr(clock, "sleep", lambda seconds: None)
+    monkeypatch.setattr(tui, "_ROWS", 3)
+    console = Console()
+    seen = tui.walk(cast("Any", console), "en")
+
+    assert console.asked == 1, "the menu is waited for, not slept through"
+    assert "\x1b" not in console.sent, console.sent
+    assert any("opened nothing" in one.what for one in seen.findings), seen.findings

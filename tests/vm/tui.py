@@ -76,6 +76,11 @@ def cells(line: str) -> int:
     return width(line)
 
 
+#: How long the menu is waited for. The interpreter starts, reads the driver
+#: archive and probes the disks before it draws anything.
+MENU_PATIENCE: Final[float] = 180.0
+
+
 def _open_menu(console: SerialConsole, lang: str) -> None:
     console.run("mkdir -p /mnt/driver")
     console.run("mountpoint -q /mnt/driver || mount -o ro /dev/sr1 /mnt/driver")
@@ -93,9 +98,11 @@ def walk(console: SerialConsole, lang: str) -> Walk:
     """Open every row of the menu and read what the terminal shows."""
     seen = Walk()
     _open_menu(console, lang)
-    # The shell echoes the launch line and it is longer than the console is
-    # wide, so it is read and discarded before the first screen is measured.
-    time.sleep(8.0)
+    # Waited for rather than slept through: a walk that sent its first keys on
+    # a timer had them land on the shell, and the escape that followed reached
+    # the main menu, where escape means leave. The recording then held one
+    # screen and the review of it reported nothing.
+    console.expect(r"gentoo-install", timeout=MENU_PATIENCE)
     console.snapshot(REDRAW_SECONDS)
     console.send_raw("\x1b[B")
     time.sleep(0.5)
@@ -118,8 +125,14 @@ def walk(console: SerialConsole, lang: str) -> Walk:
         for line in opened:
             if cells(line) > COLUMNS:
                 seen.note(f"row {step} opened", f"{cells(line)} cells: {line!r}")
-        console.send_raw("\x1b")
-        time.sleep(0.5)
+        # Only when the row actually opened. Escape on the main menu leaves the
+        # installer, so sending it after a press that opened nothing ends the
+        # walk on its first row.
+        if opened != drawn:
+            console.send_raw("\x1b")
+            time.sleep(0.5)
+        else:
+            seen.note(f"row {step}", "enter opened nothing")
         console.send_raw("\x1b[B")
         time.sleep(0.3)
     return seen
