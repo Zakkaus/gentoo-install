@@ -320,6 +320,16 @@ def wait_for_network(link: Reconnecting) -> None:
                 "dhcpcd -w -t 20 >/dev/null 2>&1; }; true",
                 timeout=90.0,
             )
+    # What the guest actually had, into the log this run leaves behind. Eight
+    # cluster guests failed here on one round and the log held nothing but
+    # `Could not connect to server`, so nothing said whether the medium never
+    # configured an interface or the cluster gave it no route.
+    for question in (
+        "ip -oneline address show",
+        "ip -4 route show default; ip -6 route show default",
+        "cat /etc/resolv.conf",
+    ):
+        link.run(question, timeout=60.0)
     raise ConsoleTimeout(f"the guest had no network after {NETWORK_PATIENCE:.0f}s")
 
 
