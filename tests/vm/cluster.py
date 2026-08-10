@@ -1212,6 +1212,10 @@ def run(
                 flush=True,
             )
     finally:
+        # Before the ISO: a worker still reading a console has the driver CD
+        # attached, and removing it under a running guest is what the first
+        # closing path did.
+        _abandon(inflight, running)
         for node_name in prepared:
             said = api.remove_iso(node_name, driver)
             if said:
@@ -1539,6 +1543,40 @@ def collect(guest: Guest, link: "Reconnecting", log: Path) -> dict[str, bytes]:
                 break
             link.reopen()
     raise ResultError(f"the results could not be read back: {last}")
+
+
+#: How long the closing path waits for a worker to notice its guest was
+#: stopped. The worker is blocked reading a console, and closing that console
+#: is what wakes it, so this covers the read timeout and not an install.
+ABANDON_PATIENCE: Final[float] = 120.0
+
+
+def _abandon(inflight: dict[str, Running], running: dict[str, threading.Thread]) -> None:
+    """Stop and remove every guest still running when the schedule ends.
+
+    The workers stay daemon threads, so one wedged on a console cannot hold the
+    interpreter open; that makes this the only path that reclaims their guests.
+    Without it a scheduler that raised in `free_slots`, `prepare` or the
+    bookkeeping left its guests running and holding memory the cluster's own
+    machines need, and nothing ever removed them.
+    """
+    held = list(inflight.items())
+    if not held:
+        return
+    for name, one in held:
+        print(f"! ending {name}: the schedule is closing", file=sys.stderr)
+        try:
+            one.guest.stop()
+        except ProxmoxError as error:
+            print(f"  {name} was not stopped: {error}", file=sys.stderr)
+    # Joined rather than deleted here: each worker removes its own guest in its
+    # own `finally`, and stopping the guest is what lets it get there. Deleting
+    # from this thread would race the worker still holding the console.
+    deadline = time.monotonic() + ABANDON_PATIENCE
+    for thread in running.values():
+        thread.join(timeout=max(0.0, deadline - time.monotonic()))
+    for name in inflight:
+        print(f"  {name} outlived the schedule; remove it by hand", file=sys.stderr)
 
 
 def _sweep(inflight: dict[str, Running]) -> None:

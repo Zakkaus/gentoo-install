@@ -894,3 +894,43 @@ def test_a_medium_that_lacks_a_command_installs_it_before_the_installer_runs() -
 
     source = inspect.getsource(vm_run.reach_shell)
     assert "medium.prepare" in source
+
+
+def test_a_schedule_that_ends_early_stops_the_guests_it_left_running() -> None:
+    """The workers are daemon threads, so a scheduler that raised in
+    `free_slots`, `prepare` or its own bookkeeping left its guests running and
+    holding memory the cluster's own machines need."""
+    import threading
+
+    from tests.vm import cluster
+
+    class Guest:
+        def __init__(self) -> None:
+            self.stopped = False
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    quiet = cluster.Watchdog(log=Path("/nonexistent"), counters=lambda: None)
+    guests = {name: Guest() for name in ("vm-lvm", "vm-xfs")}
+    inflight = {
+        name: cluster.Running(guest=guest, watch=quiet) for name, guest in guests.items()
+    }
+
+    joined: list[str] = []
+
+    class Worker(threading.Thread):
+        def __init__(self, name: str) -> None:
+            super().__init__(daemon=True)
+            self.label = name
+
+        def join(self, timeout: float | None = None) -> None:
+            joined.append(self.label)
+            inflight.pop(self.label, None)
+
+    running: dict[str, threading.Thread] = {name: Worker(name) for name in guests}
+    cluster._abandon(inflight, running)
+
+    assert all(guest.stopped for guest in guests.values()), guests
+    assert sorted(joined) == ["vm-lvm", "vm-xfs"]
+    assert not inflight, "each worker removes its own guest once the console closes"
