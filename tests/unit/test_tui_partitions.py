@@ -1095,3 +1095,41 @@ def test_the_partitions_row_says_what_the_template_writes() -> None:
     ):
         shown = settings._partitions(load(Path(f"tests/fixtures/{fixture}.toml")), at)
         assert shown == wanted, f"{fixture}: {shown}"
+
+
+def test_the_partitions_row_lists_a_hand_written_table() -> None:
+    """The row read as a bare comma. It sliced `Slice.describe()`, whose first
+    column is padded to ten characters, so splitting on two spaces answered
+    with the padding: every partition contributed an empty string."""
+    from gentoo_install.model.device import FilesystemType, PartitionRole
+    from gentoo_install.model.size import Size
+    from gentoo_install.tui import settings
+
+    at = context()
+    at.manual = True
+    at.layout = manual.Layout(
+        disks=[
+            manual.Disk(
+                selector="/dev/vda",
+                slices=[
+                    manual.Slice(
+                        index=1,
+                        role=PartitionRole.ESP,
+                        size=Size.parse("1GiB"),
+                        filesystem=FilesystemType.VFAT,
+                        mountpoint="/efi",
+                    ),
+                    manual.Slice(
+                        index=2,
+                        role=PartitionRole.DATA,
+                        size=None,
+                        filesystem=FilesystemType.XFS,
+                        mountpoint="/",
+                    ),
+                ],
+            )
+        ]
+    )
+    shown = settings._partitions(config(), at)
+    assert shown == "/efi 1GiB, / the rest", shown
+    assert shown.strip(", ")
