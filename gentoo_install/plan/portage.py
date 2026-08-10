@@ -790,5 +790,28 @@ def _l10n(config: InstallConfig) -> tuple[str, ...]:
     return tuple(tags)
 
 
+#: The stage3 Gentoo publishes for each profile target, by the profile path
+#: segment that names it. Order matters: `no-multilib` is checked before the
+#: plain base, and `desktop` covers `desktop/plasma` and `desktop/gnome`, for
+#: which Gentoo publishes no stage3 of their own.
+STAGE3_BY_PROFILE: tuple[tuple[str, str], ...] = (
+    ("/no-multilib", "nomultilib"),
+    ("/desktop", "desktop"),
+)
+
+
 def variant_of(config: InstallConfig) -> str:
-    return "systemd" if config.system.init is InitSystem.SYSTEMD else "openrc"
+    """The stage3 that matches the chosen profile and init system.
+
+    `eselect profile set` is all the installer runs, and a profile switch
+    removes nothing: a no-multilib profile on a multilib stage3 keeps every
+    32-bit ABI and package the tarball came with, which is not the complete
+    64-bit environment the option offers. Gentoo publishes a tarball built
+    for each of these targets, so the right one is fetched instead.
+    """
+    init = "systemd" if config.system.init is InitSystem.SYSTEMD else "openrc"
+    profile = config.portage.profile
+    for segment, target in STAGE3_BY_PROFILE:
+        if segment in profile:
+            return f"{target}-{init}"
+    return init
