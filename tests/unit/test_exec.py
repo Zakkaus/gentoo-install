@@ -267,12 +267,24 @@ def test_a_bios_configuration_on_a_uefi_boot_is_only_a_warning(tmp_path: Path) -
     assert report.warnings
 
 
-def test_little_memory_warns_instead_of_stopping(tmp_path: Path) -> None:
-    report = preflight.inspect(present(), described(memory_bytes=2 * 1024**3), probe_of(tmp_path))
+def test_little_memory_warns_only_when_the_build_wants_it(tmp_path: Path) -> None:
+    """The warning fired on every machine under 8 GiB, including the ones
+    building on disk, where how much memory there is decides nothing."""
+    from gentoo_install.model.size import Size
+
+    small = described(memory_bytes=2 * 1024**3)
+    on_disk = replace(present(), portage=replace(present().portage, build_in_ram=None))
+    report = preflight.inspect(on_disk, small, probe_of(tmp_path))
     # Only about memory: `present()` points its disk at /dev/null, which
     # reports no size, and an unreadable capacity is fatal on its own.
     assert not [one for one in report.fatal if "memory" in one], report.fatal
-    assert any("tmpfs" in warning for warning in report.warnings)
+    assert not [one for one in report.warnings if "tmpfs" in one], report.warnings
+
+    in_ram = replace(
+        present(), portage=replace(present().portage, build_in_ram=Size.parse("1GiB"))
+    )
+    asked = preflight.inspect(in_ram, small, probe_of(tmp_path))
+    assert any("tmpfs" in warning for warning in asked.warnings), asked.warnings
 
 
 def test_a_digests_file_without_the_archive_is_an_integrity_error(tmp_path: Path) -> None:
@@ -1584,3 +1596,78 @@ def test_a_command_that_is_not_installed_answers_when_failure_is_an_answer() -> 
     # cannot find has to stop the run.
     with pytest.raises(CommandFailed, match="not installed"):
         runner.run(["definitely-not-a-command-here"])
+
+
+def test_a_disk_too_small_to_hold_a_gentoo_is_refused_before_it_is_written(
+    tmp_path: Path,
+) -> None:
+    """`validate` compares the root's own size, and a whole-disk layout gives
+    the root what is left, so it carries none and nothing was compared. The
+    disk is what has to be big enough: an install into 8 GiB runs out during
+    linux-firmware, an hour after the disks are written."""
+    from gentoo_install.model.size import Size
+    from gentoo_install.model.validate import ROOT_MINIMUM
+
+    class Small(Probe):
+        capacity: int = 8 * 1024**3
+
+        def versions(self, wanted: Iterable[str]) -> dict[str, str]:
+            return {}
+
+        def disk_bytes(self, disk: str) -> int:
+            return self.capacity
+
+        def path_of(self, device: DeviceId) -> str:
+            return "/dev/vda"
+
+    probe = Small(runner=runner(tmp_path), work=tmp_path)
+    report = preflight.check(present(), probe)
+    assert any("carries /" in one and "under the" in one for one in report.fatal), report.fatal
+
+    # A disk with room says nothing.
+    probe.capacity = ROOT_MINIMUM.bytes * 4
+    assert not [
+        one for one in preflight.check(present(), probe).fatal if "carries /" in one
+    ]
+    assert Size(probe.capacity) > ROOT_MINIMUM
+
+
+def test_a_build_tmpfs_the_machine_cannot_spare_is_refused(tmp_path: Path) -> None:
+    """The size is the operator's, so it is comparable before anything runs: a
+    build that outgrows its tmpfs fails on ENOSPC after hours of compiling.
+    The warning it replaces fired on every machine under 8 GiB, including the
+    ones building on disk, where how much memory there is decides nothing."""
+    from dataclasses import replace as replaced
+
+    from gentoo_install.exec import probe as probe_module
+    from gentoo_install.model.size import Size
+
+    class Sized(Probe):
+        held: int = 4 * 1024**3
+
+        def versions(self, wanted: Iterable[str]) -> dict[str, str]:
+            return {}
+
+        def machine(
+            self, wanted: frozenset[str] = frozenset(), judged: Iterable[str] = ()
+        ) -> probe_module.Machine:
+            return replaced(super().machine(wanted, judged), memory_bytes=self.held)
+
+    probe = Sized(runner=runner(tmp_path), work=tmp_path)
+    config = present()
+    on_disk = replaced(config, portage=replaced(config.portage, build_in_ram=None))
+    assert not [
+        one for one in preflight.check(on_disk, probe).warnings if "memory" in one
+    ], "nothing is built in memory, so how much there is decides nothing"
+
+    greedy = replaced(
+        config, portage=replaced(config.portage, build_in_ram=Size.parse("8GiB"))
+    )
+    assert any("nothing would be left" in one for one in preflight.check(greedy, probe).fatal)
+
+    tight = replaced(
+        config, portage=replaced(config.portage, build_in_ram=Size.parse("3GiB"))
+    )
+    assert any(
+        "for the compiler and its sources" in one for one in preflight.check(tight, probe).fatal
+    )

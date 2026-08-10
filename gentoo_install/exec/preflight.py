@@ -22,6 +22,7 @@ from ..model.device import (
     FilesystemType,
     Luks,
     MdRaid,
+    Mountpoint,
     Partition,
     PartitionTable,
     TableType,
@@ -29,6 +30,7 @@ from ..model.device import (
     ZfsPool,
 )
 from ..model.size import DEFAULT_ALIGNMENT, SectorSize, Size
+from ..model.validate import ROOT_MINIMUM
 from ..plan.disk import MKFS
 from .probe import RELEASE_KEY, Machine, Probe
 
@@ -272,7 +274,69 @@ def _capacity_problems(config: InstallConfig, probe: Probe) -> list[str]:
                 f"{disk.selector} holds {Size(capacity)} and {table.id} claims "
                 f"{Size(claimed)} in fixed sizes, which does not fit"
             )
+        # The root of a whole-disk layout takes what is left, so it carries no
+        # size and `validate._root_size_problems` has nothing to compare. The
+        # disk itself is what has to be big enough, and an install into 8 GiB
+        # runs out during linux-firmware, an hour after the disks are written.
+        if _carries_the_root(graph, table.id) and usable.bytes < ROOT_MINIMUM.bytes:
+            problems.append(
+                f"{disk.selector} holds {Size(capacity)} and carries /, under the "
+                f"{ROOT_MINIMUM} a stage3, a kernel and linux-firmware need"
+            )
     return problems
+
+
+#: What the build needs outside the tmpfs: the compiler, the sources it has
+#: open, and the page cache under them.
+RAM_HEADROOM: Final[int] = 2 * 1024**3
+
+
+def _memory_problems(config: InstallConfig, machine: Machine) -> list[str]:
+    """A tmpfs the machine cannot spare is a failure this can see coming.
+
+    The size is the operator's, so it is comparable before anything runs: a
+    build that outgrows its tmpfs fails on ENOSPC after hours of compiling.
+    """
+    wanted = config.portage.build_in_ram
+    if wanted is None or not machine.memory_bytes:
+        return []
+    held = Size(machine.memory_bytes)
+    if wanted.bytes >= machine.memory_bytes:
+        return [
+            f"the build tmpfs is {wanted} and this machine has {held}, "
+            "so nothing would be left to build with"
+        ]
+    if machine.memory_bytes - wanted.bytes < RAM_HEADROOM:
+        return [
+            f"the build tmpfs is {wanted} of {held}, leaving "
+            f"{Size(machine.memory_bytes - wanted.bytes)} for the compiler and its sources"
+        ]
+    return []
+
+
+def _carries_the_root(graph: DeviceGraph, table: str) -> bool:
+    """Whether `/` ends up on a partition of this table.
+
+    Walked rather than assumed: the root may sit under LUKS, a volume group or
+    a pool, and each of those hides the partition it was built from.
+    """
+    root = next(
+        (one for one in graph.of_type(Mountpoint) if str(one.path) == "/"), None
+    )
+    if root is None:
+        return False
+    seen: set[str] = set()
+    frontier = [root.id]
+    while frontier:
+        current = frontier.pop()
+        if current in seen or current not in graph.nodes:
+            continue
+        seen.add(current)
+        node = graph[current]
+        if isinstance(node, Partition) and node.table == table:
+            return True
+        frontier.extend(node.inputs)
+    return False
 
 
 def check(config: InstallConfig, probe: Probe, target: str = "/mnt/gentoo") -> Report:
@@ -346,8 +410,16 @@ def inspect(
             f"{RELEASE_KEY} is absent, so the release key is fetched before the stage3 is verified"
         )
 
-    if machine.memory_bytes and machine.memory_bytes < TMPFS_MINIMUM:
+    fatal.extend(_memory_problems(config, machine))
+    if (
+        config.portage.build_in_ram is not None
+        and machine.memory_bytes
+        and machine.memory_bytes < TMPFS_MINIMUM
+    ):
+        # Only when a tmpfs was asked for. The warning fired on every machine
+        # under 8 GiB, including the ones building on disk, where how much
+        # memory there is decides nothing.
         warnings.append(
-            f"{machine.memory_bytes // 1024**3} GiB of memory: build in /var/tmp rather than a tmpfs"
+            f"{Size(machine.memory_bytes)} of memory: build in /var/tmp rather than a tmpfs"
         )
     return Report(fatal=tuple(fatal), warnings=tuple(warnings))
