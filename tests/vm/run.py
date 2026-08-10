@@ -437,6 +437,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.boot_installed and not args.install:
         print("--boot-installed needs the same --install argument as the run it checks", file=sys.stderr)
         return 1
+    if args.install:
+        wanted = load(REPOSITORY / "tests" / args.install).bootloader.firmware.value
+        if wanted != args.firmware:
+            # Refused here rather than after the install: a BIOS layout booted
+            # with UEFI firmware reaches the EDK2 shell, and the run spends
+            # forty minutes installing before it fails at `never matched
+            # 'login:'` with a `Shell>` prompt in the log.
+            print(
+                f"{args.install} installs for {wanted} and --firmware says {args.firmware}",
+                file=sys.stderr,
+            )
+            return 1
     variant = Path(args.install).stem if args.install else "probe"
     workdir = WORKROOT / f"{medium.name}-{args.firmware}-{variant}"
     workdir.mkdir(parents=True, exist_ok=True)

@@ -333,3 +333,26 @@ def test_the_guest_offers_a_monitor_socket() -> None:
     argv = Vm(spec)._argv()
     assert "-monitor" in argv
     assert "none" not in argv[argv.index("-monitor") + 1]
+
+
+def test_the_campaign_gives_every_run_the_firmware_its_fixture_installs_for() -> None:
+    """A BIOS layout booted with UEFI firmware reaches the EDK2 shell, and the
+    run spends forty minutes installing before it fails at `never matched
+    'login:'` with `Shell>` in the log."""
+    from pathlib import Path
+
+    from gentoo_install.exec.config import load
+    from tests.vm.campaign import STAGES
+
+    for runs in STAGES.values():
+        for run in runs:
+            wanted = load(Path("tests") / run.config).bootloader.firmware.value
+            assert run.firmware == wanted, f"{run.config} installs for {wanted}"
+
+
+def test_a_run_whose_firmware_contradicts_its_fixture_is_refused() -> None:
+    """Refused before the medium boots, not after the install."""
+    from tests.vm.run import main
+
+    assert main(["--install", "fixtures/vm-bios.toml", "--firmware", "uefi"]) == 1
+    assert main(["--install", "fixtures/vm-binpkg.toml", "--firmware", "bios"]) == 1
