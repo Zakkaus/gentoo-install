@@ -494,3 +494,24 @@ def test_a_short_command_is_sent_again_after_a_reconnect() -> None:
     link = Reconnecting(lambda: opens.pop(0), tries=3)
     link.run("mkdir -p /mnt/driver")
     assert [one for one in sent if "mkdir" in one].__len__() == 2
+
+
+def test_guests_already_placed_are_subtracted_from_what_a_node_reports() -> None:
+    """A guest's memory is allocated lazily, so a node with eleven freshly
+    started still reported 13.8 GiB free. Reading that alone dispatched twenty
+    guests wanting 120 GiB onto a cluster with 71, on hardware running other
+    people's machines."""
+    from tests.vm.cluster import GUEST_MEMORY_MIB, NODE_HEADROOM_BYTES, free_slots
+    from tests.vm.proxmox import Node
+
+    guest = GUEST_MEMORY_MIB * 1024**2
+
+    class Lagging(Api):
+        def nodes(self) -> list[Node]:
+            return [Node(name="one", free_bytes=NODE_HEADROOM_BYTES + guest * 3, cores=4)]
+
+    api = Lagging(host="nowhere.invalid")
+    assert len(free_slots(api)) == 3
+    assert len(free_slots(api, {"one": 2})) == 1
+    assert free_slots(api, {"one": 3}) == []
+    assert free_slots(api, {"one": 9}) == [], "never negative"
