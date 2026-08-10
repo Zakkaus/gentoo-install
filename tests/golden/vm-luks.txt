@@ -7,7 +7,8 @@
   reread the partition table of disk and wait for its nodes
 
 [array]
-  format cryptroot as LUKS2 and open it as /dev/mapper/root
+  format cryptroot as LUKS2
+  open cryptroot as /dev/mapper/root
 
 [format]
   make a vfat filesystem on esp as espfs labelled ESP

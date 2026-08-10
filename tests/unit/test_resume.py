@@ -7,6 +7,8 @@ Starting again from the beginning throws all of that away.
 
 from __future__ import annotations
 
+import pytest
+
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -284,3 +286,54 @@ def test_an_emerge_after_a_resume_still_builds_from_source(tmp_path: Path) -> No
     Emerge(packages=("app-editors/nano",), summary="editor", binary_packages=True).apply(recorder)
     merged = " ".join(" ".join(one) for one in recorder.in_target)
     assert "--usepkg=n" in merged and "--getbinpkg=n" in merged, merged
+
+
+#: Every fixture with storage a reboot takes down, and the operation that has
+#: to put it back. One table, so a storage kind cannot be added with a
+#: creation step and no activation step.
+REESTABLISHED: tuple[tuple[str, str], ...] = (
+    ("vm-luks", "OpenLuks"),
+    ("vm-mdraid", "AssembleMdRaid"),
+    ("vm-lvm", "ActivateVolumeGroup"),
+    ("vm-zfs", "ImportZpool"),
+)
+
+
+@pytest.mark.parametrize(("fixture", "operation"), REESTABLISHED, ids=lambda one: str(one))
+def test_a_resumed_run_re_establishes_what_a_reboot_takes_away(
+    fixture: str, operation: str
+) -> None:
+    """The failure cleanup unmounts the target and exports the pool, so a
+    resume that skipped the creation had no container, no array, no volume
+    group and no pool: `/mnt/gentoo` was the live medium's own directory and
+    every chroot command ran against the installing system.
+
+    The creation stays skippable — it wrote a header the disk still has — and
+    the activation beside it does not.
+    """
+    from pathlib import Path
+
+    from gentoo_install.data import load_catalog
+    from gentoo_install.exec.config import load
+    from gentoo_install.plan import build as plan
+
+    operations = plan.build(load(Path("tests/fixtures") / f"{fixture}.toml"), load_catalog())
+    by_name = {type(one).__name__: one for one in operations}
+    assert operation in by_name, sorted(by_name)
+    assert by_name[operation].survives_a_reboot is False
+    assert by_name["PrepareChroot"].survives_a_reboot is False
+
+
+def test_every_kind_of_storage_that_needs_activation_has_a_fixture_here() -> None:
+    """An activation operation with no fixture in the table above is one
+    nothing proves, and it reads as covered."""
+    from gentoo_install.plan import disk as plan_disk
+
+    named = {name for _, name in REESTABLISHED}
+    defined = {
+        name
+        for name in dir(plan_disk)
+        if name.startswith(("Open", "Assemble", "Activate", "Import"))
+        and isinstance(getattr(plan_disk, name), type)
+    }
+    assert defined - named == set(), defined - named

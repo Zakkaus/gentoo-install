@@ -12,6 +12,7 @@
 
 [array]
   create raid1 array /dev/md/root as array from member0, member1, metadata 1.2
+  assemble /dev/md/root from member0, member1
 
 [format]
   make a vfat filesystem on esp as espfs labelled ESP

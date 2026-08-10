@@ -301,7 +301,7 @@ class CreateLuks(Operation):
     name: str
 
     def describe(self) -> str:
-        return f"format {self.backing} as LUKS2 and open it as /dev/mapper/{self.name}"
+        return f"format {self.backing} as LUKS2"
 
     def apply(self, context: Context) -> None:
         path = context.device_path(self.backing)
@@ -319,7 +319,95 @@ class CreateLuks(Operation):
                 path,
             ]
         )
-        context.run(["cryptsetup", "open", "--type", "luks2", "--key-file", key, path, self.name])
+
+
+@dataclass(frozen=True, kw_only=True)
+class OpenLuks(Operation):
+    """Open a container that already exists, or leave an open one alone.
+
+    Separate from `CreateLuks` because the two outlive different things: the
+    header is on the disk and a resumed run must not write another, while the
+    mapping is process state that a failure cleanup or a reboot takes away.
+    Skipping both left `/dev/mapper/root` absent and every later stage
+    addressing a target that was never assembled.
+    """
+
+    stage: Stage = Stage.ARRAY
+    container: DeviceId
+    backing: DeviceId
+    name: str
+
+    def describe(self) -> str:
+        return f"open {self.backing} as /dev/mapper/{self.name}"
+
+    @property
+    def survives_a_reboot(self) -> bool:
+        return False
+
+    def apply(self, context: Context) -> None:
+        # `dmsetup ls` exits 0 with `No devices found` when there are none, so
+        # its output answers without a second exit code to read.
+        listed = context.run(["dmsetup", "ls", "--target", "crypt"])
+        if any(line.split() and line.split()[0] == self.name for line in listed.splitlines()):
+            return
+        context.run(
+            [
+                "cryptsetup", "open",
+                "--type", "luks2",
+                "--key-file", str(context.key_file(self.container)),
+                context.device_path(self.backing),
+                self.name,
+            ]
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class AssembleMdRaid(Operation):
+    """Assemble an array that already exists, or leave a running one alone."""
+
+    stage: Stage = Stage.ARRAY
+    array: DeviceId
+    members: tuple[DeviceId, ...]
+    name: str
+
+    def describe(self) -> str:
+        return f"assemble /dev/md/{self.name} from {', '.join(self.members)}"
+
+    @property
+    def survives_a_reboot(self) -> bool:
+        return False
+
+    def apply(self, context: Context) -> None:
+        listed = context.run(["mdadm", "--detail", "--scan"])
+        if f"/dev/md/{self.name}" in listed:
+            return
+        context.run(
+            [
+                "mdadm",
+                "--assemble",
+                f"/dev/md/{self.name}",
+                *(context.device_path(member) for member in self.members),
+            ]
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class ActivateVolumeGroup(Operation):
+    """Bring the group's volumes up. `vgchange` on an active group is a no-op."""
+
+    stage: Stage = Stage.ARRAY
+    group: DeviceId
+    name: str
+
+    def describe(self) -> str:
+        return f"activate volume group {self.name}"
+
+    @property
+    def survives_a_reboot(self) -> bool:
+        return False
+
+    def apply(self, context: Context) -> None:
+        context.run(["vgchange", "--activate", "y", self.name])
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -496,6 +584,35 @@ class CreateZpool(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
+class ImportZpool(Operation):
+    """Import a pool that already exists, or leave an imported one alone.
+
+    The failure cleanup exports the pool, so a resumed run that skipped
+    `CreateZpool` had no pool at all and every dataset mount below it
+    addressed the live medium's own filesystem.
+    """
+
+    stage: Stage = Stage.ZFS
+    pool: DeviceId
+    name: str
+
+    def describe(self) -> str:
+        return f"import zpool {self.name} under {self.pool}"
+
+    @property
+    def survives_a_reboot(self) -> bool:
+        return False
+
+    def apply(self, context: Context) -> None:
+        # Listed rather than imported blindly: `zpool import` on a pool that
+        # is already imported fails, and its failure is not an answer here.
+        listed = context.run(["zpool", "list", "-H", "-o", "name"])
+        if self.name in listed.split():
+            return
+        context.run(["zpool", "import", "-N", "-f", "-R", str(context.target), self.name])
+
+
+@dataclass(frozen=True, kw_only=True)
 class CreateDataset(Operation):
     stage: Stage = Stage.ZFS
     dataset: DeviceId
@@ -566,6 +683,10 @@ class MountZfsDataset(Operation):
     mountpoint: DeviceId
     name: str
     path: PurePosixPath
+
+    @property
+    def survives_a_reboot(self) -> bool:
+        return False
 
     def describe(self) -> str:
         return f"mount dataset {self.name} at {self.path}"
@@ -755,12 +876,19 @@ def _operations_for(graph: DeviceGraph, node: Node) -> list[Operation]:
                 level=node.level,
                 metadata=node.metadata,
                 name=node.name,
-            )
+            ),
+            AssembleMdRaid(array=node.id, members=node.members, name=node.name),
         ]
     if isinstance(node, Luks):
-        return [CreateLuks(container=node.id, backing=node.backing, name=node.name)]
+        return [
+            CreateLuks(container=node.id, backing=node.backing, name=node.name),
+            OpenLuks(container=node.id, backing=node.backing, name=node.name),
+        ]
     if isinstance(node, VolumeGroup):
-        return [CreateVolumeGroup(group=node.id, members=node.members, name=node.name)]
+        return [
+            CreateVolumeGroup(group=node.id, members=node.members, name=node.name),
+            ActivateVolumeGroup(group=node.id, name=node.name),
+        ]
     if isinstance(node, LogicalVolume):
         group = _expect(graph, node.group, VolumeGroup)
         return [
@@ -790,7 +918,8 @@ def _operations_for(graph: DeviceGraph, node: Node) -> list[Operation]:
                 name=node.name,
                 topology=node.topology,
                 encrypted=node.encrypted,
-            )
+            ),
+            ImportZpool(pool=node.id, name=node.name),
         ]
     if isinstance(node, ZfsDataset):
         pool = _expect(graph, node.pool, ZfsPool)

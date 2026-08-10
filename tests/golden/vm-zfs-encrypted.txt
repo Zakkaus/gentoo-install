@@ -11,6 +11,7 @@
 
 [zfs]
   create zpool rpool as pool from poolpart as a stripe with native encryption
+  import zpool rpool under pool
   create dataset rpool/ROOT/gentoo as ds-root, mountpoint /
 
 [mount]
