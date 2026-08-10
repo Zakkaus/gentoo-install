@@ -56,7 +56,10 @@ def drive(keys: str, source: str) -> dict[str, Any]:
         answer: dict[str, Any] = {}
         try:
             exec(compile(source, "<driver>", "exec"), {"answer": answer, "keys": keys})
-        except BaseException as error:  # noqa: BLE001 - reported, then the child dies
+        # Everything, including SystemExit and KeyboardInterrupt: this is a
+        # forked child whose only way to report is the pipe below, and an
+        # exception escaping here would leave the parent reading an empty one.
+        except BaseException as error:
             answer = {"error": f"{type(error).__name__}: {error}"}
         finally:
             with os.fdopen(write_end, "w") as handle:

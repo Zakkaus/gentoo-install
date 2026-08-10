@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import curses
-from typing import Any
+from typing import Protocol, Any
 
 from .widgets import MINIMUM_COLUMNS, MINIMUM_LINES, Style
 
@@ -61,7 +61,14 @@ class CursesScreen:
         return str(self._window.getkey())
 
 
-def too_small(screen: CursesScreen) -> str:
+class Sized(Protocol):
+    """Anything that can say how big it is. A protocol, so the size check can
+    be exercised without a terminal."""
+
+    def size(self) -> tuple[int, int]: ...
+
+
+def too_small(screen: Sized) -> str:
     lines, columns = screen.size()
     if lines >= MINIMUM_LINES and columns >= MINIMUM_COLUMNS:
         return ""
