@@ -684,31 +684,31 @@ def test_every_question_asked_inside_names_what_would_fail_it() -> None:
         assert wanted, f"{name} compares against nothing"
 
 
-def test_the_link_is_left_alone_until_the_medium_has_had_its_chance() -> None:
-    """The medium runs NetworkManager, and an interface raised from outside it
-    is one NetworkManager then leaves alone: `ip link set up` at the start was
-    enough to stop it configuring the guest, and `curl` answered `Could not
-    connect to server` in ten milliseconds where before it had reached the
-    mirror. A medium with no manager still needs the ask, so it happens late
-    and once."""
+def test_the_probe_runs_before_the_guest_is_touched() -> None:
+    """An interface raised from outside NetworkManager is one it then leaves
+    alone: `ip link set up` before the medium had its chance stopped it
+    configuring the guest, and `curl` answered `Could not connect to server`
+    in ten milliseconds where before it had reached the mirror.
+
+    So the probe goes first and the request follows immediately after it comes
+    back empty — not after half the patience, which is what left seventeen of
+    twenty-four guests waiting for an address nothing would hand them. The
+    request is guarded on there being no IPv4 default route, so a medium whose
+    own manager configured one is still left alone.
+    """
     import inspect
 
     from tests.vm import cluster
 
-    # Comments name the same commands, so only the code is read: the first
-    # mention of `ip link set` in this function is the sentence explaining why
-    # it is not done first.
     code = [
         line
         for line in inspect.getsource(cluster.wait_for_network).splitlines()
         if line.strip() and not line.strip().startswith("#")
     ]
-    polled = next(at for at, line in enumerate(code) if "NETWORK_PROBE" in line)
-    raised = next(at for at, line in enumerate(code) if "ip link set" in line)
-    assert polled < raised, "poll first; touch the link only if nothing happens"
-    whole = "\n".join(code)
-    assert "NetworkManager" in whole, "and never when the medium has a manager"
-    assert "asked = True" in whole, "once, not on every pass"
+    probe = next(at for at, line in enumerate(code) if "NETWORK_PROBE" in line)
+    ask = next(at for at, line in enumerate(code) if "ASK_FOR_IPV4" in line)
+    assert probe < ask, "the medium gets its chance before anything is raised"
+    assert "ip -4 route show default" in cluster.ASK_FOR_IPV4
 
 
 def test_no_marker_appears_in_the_command_that_prints_it() -> None:
@@ -1115,3 +1115,29 @@ def test_a_create_held_off_by_the_storage_lock_is_tried_again(
     with pytest.raises(ProxmoxError, match="no space"):
         Guest(api=other, node="infra-node1", vmid=9300, spec=GuestSpec(name="x", iso="x")).create()
     assert other.attempts == 1, other.attempts
+
+
+def test_a_guest_is_asked_for_an_address_on_the_first_pass() -> None:
+    """This cluster's guest network carries a ULA IPv6 prefix advertised by
+    something that is not the hypervisor and offers no way out of itself. The
+    addresses that reach a mirror come from DHCPv4, and nothing asked for one
+    until half the patience had gone — and then only when NetworkManager was
+    absent. Seventeen of twenty-four guests in one round waited out the whole
+    fifteen minutes for an address nothing was going to hand them.
+
+    Measured: `dhcpcd -4 ens18` answered `leased 10.31.0.230` with `default
+    via 10.31.0.254`, and `curl` returned 200 immediately after.
+    """
+    import inspect
+
+    from tests.vm import cluster
+
+    assert "dhcpcd -4" in cluster.ASK_FOR_IPV4, cluster.ASK_FOR_IPV4
+    # Only when there is none: a medium whose own manager configured a route
+    # is left alone, which is what stopped the ones that do have a manager.
+    assert "ip -4 route show default" in cluster.ASK_FOR_IPV4
+    assert "NetworkManager" not in cluster.ASK_FOR_IPV4, "the manager is not the question"
+
+    source = inspect.getsource(cluster.wait_for_network)
+    assert "NETWORK_PATIENCE / 2" not in source, "the request is not delayed any more"
+    assert "ASK_FOR_IPV4" in source
