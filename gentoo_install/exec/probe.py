@@ -293,6 +293,19 @@ class Probe:
     #: Where udev keeps the names that survive the kernel renumbering disks.
     BY_ID: ClassVar[Path] = Path("/dev/disk/by-id")
 
+    def passphrase(self, source: str) -> tuple[str, str]:
+        """What a passphrase file holds, and why it could not be read.
+
+        Exactly one of the two is empty. Asked of the probe rather than opened
+        where it is judged: preflight is meant to be reproducible from its
+        declared inputs, and reading a host path directly made the same
+        configuration and the same probe answer differently on two machines.
+        """
+        try:
+            return Path(source).read_text().strip("\n"), ""
+        except OSError as error:
+            return "", str(error)
+
     def names_for(self, selector: str) -> tuple[str, ...]:
         """Every spelling of one device the operator might reasonably type.
 

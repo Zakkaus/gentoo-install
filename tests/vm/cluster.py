@@ -82,15 +82,18 @@ DEFAULT_ISO: Final[str] = "minimal"
 #: kernel says nothing on the serial port and every run reads as hung.
 EXTRA_CMDLINE: Final[str] = "console=ttyS0,115200"
 
-#: What a guest is given. Four cores is a node's whole complement, so three
-#: leaves the node able to answer the API while a build runs.
-GUEST_MEMORY_MIB: Final[int] = 6144
-GUEST_CORES: Final[int] = 3
+#: What a guest is given. Four gibibytes rather than six, so the three nodes
+#: with about 6 GiB spare can each take one instead of none: the installer
+#: warns below 5 GiB and builds in `/var/tmp` rather than a tmpfs, which is
+#: slower and correct. Two cores of a node's four leaves it able to answer the
+#: API while a build runs.
+GUEST_MEMORY_MIB: Final[int] = 4096
+GUEST_CORES: Final[int] = 2
 TARGET_GIB: Final[int] = 40
 
-#: Left free on every node. A node with nothing spare stops answering, and the
-#: cluster runs other people's machines.
-NODE_HEADROOM_BYTES: Final[int] = 4 * 1024**3
+#: Left free on every node whatever else is scheduled. A node with nothing
+#: spare stops answering, and this cluster runs other people's machines.
+NODE_HEADROOM_BYTES: Final[int] = 2 * 1024**3
 
 #: How often the watchdog looks, and how many quiet looks end a guest. Ten
 #: minutes because a stage3 extract and a kernel build both write progress more

@@ -165,11 +165,15 @@ def _busybox_problems(machine: Machine) -> list[str]:
     return problems
 
 
-def _passphrase_problems(config: InstallConfig) -> list[str]:
+def _passphrase_problems(config: InstallConfig, probe: Probe) -> list[str]:
     """Read every passphrase file before the first disk is touched.
 
     `zpool create` rejects a short passphrase only once the pool's vdevs have
     been partitioned, which leaves the disk wiped and the install stopped.
+
+    Through the probe, because everything preflight decides has to come from
+    its declared inputs: opening the path here made the same configuration and
+    the same probe answer differently on two machines.
     """
     problems: list[str] = []
     graph = config.disk.graph
@@ -185,10 +189,9 @@ def _passphrase_problems(config: InstallConfig) -> list[str]:
         if not source:
             problems.append(f"{device} is encrypted but names no passphrase_file")
             continue
-        try:
-            passphrase = Path(source).read_text().strip("\n")
-        except OSError as error:
-            problems.append(f"{device}: {source} cannot be read: {error}")
+        passphrase, unreadable = probe.passphrase(source)
+        if unreadable:
+            problems.append(f"{device}: {source} cannot be read: {unreadable}")
             continue
         if not passphrase:
             problems.append(f"{device}: {source} is empty")
@@ -323,7 +326,7 @@ def inspect(
         if unusable:
             fatal.append(f"{unusable}, and this configuration makes a pool")
 
-    fatal += _passphrase_problems(config)
+    fatal += _passphrase_problems(config, probe)
     fatal += _capacity_problems(config, probe)
 
     if not machine.release_key:
