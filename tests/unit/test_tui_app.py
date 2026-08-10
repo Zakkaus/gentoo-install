@@ -1038,10 +1038,12 @@ def test_a_swap_partition_and_zram_are_two_rows_and_not_alternatives() -> None:
     assert both.system.zram is not None
     assert both.disk.graph.of_type(Swap), "choosing zram removed the partition"
 
-    off = screens.zram_screen(FakeScreen(keys=["\n"], lines=24), both, at).unwrap()
+    # `off` and `none` are one row up from where the cursor starts: each menu
+    # opens on the value it holds, so enter alone keeps it.
+    off = screens.zram_screen(FakeScreen(keys=["KEY_UP", "\n"], lines=24), both, at).unwrap()
     assert off.system.zram is None and off.disk.graph.of_type(Swap)
 
-    none = screens.swap_screen(FakeScreen(keys=["\n"]), off, at).unwrap()
+    none = screens.swap_screen(FakeScreen(keys=["KEY_UP", "\n"]), off, at).unwrap()
     assert not none.disk.graph.of_type(Swap)
 
 

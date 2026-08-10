@@ -1375,7 +1375,10 @@ def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> A
         for name in sorted(desktop_profiles(context.groups))
     ]
     menu: Menu[str] = Menu(
-        title=translate("Desktop and applications"), items=items, footer=footer(translate)
+        title=translate("Desktop and applications"),
+        items=items,
+        current=config.packages.desktop,
+        footer=footer(translate),
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -1950,7 +1953,12 @@ def swap_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
         Item(label="4GiB", value="4GiB", detail=translate("a partition")),
         Item(label="8GiB", value="8GiB", detail=translate("a partition")),
     ]
-    menu: Menu[str] = Menu(title=translate("Swap"), items=items, footer=footer(translate))
+    menu: Menu[str] = Menu(
+        title=translate("Swap"),
+        items=items,
+        current=str(context.choice.swap) if context.choice.swap else "",
+        footer=footer(translate),
+    )
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
@@ -1990,7 +1998,10 @@ def zram_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
         _say(screen, context, translate("this machine reports no memory to share"))
         return Answer(Outcome.BACK)
     menu: Menu[Size | None] = Menu(
-        title=translate("zram"), items=items, footer=footer(translate)
+        title=translate("zram"),
+        items=items,
+        current=config.system.zram,
+        footer=footer(translate),
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -2040,6 +2051,7 @@ def build_in_ram_screen(
     menu: Menu[Size | None] = Menu(
         title=translate("Build in RAM"),
         items=items,
+        current=config.portage.build_in_ram,
         footer=footer(translate),
     )
     answer = menu.run(screen)
@@ -2363,7 +2375,10 @@ def table_screen(screen: Screen, config: InstallConfig, context: Context) -> Ans
     translate = context.translate
     items = [Item(label=table.value, value=table) for table in TableType]
     menu: Menu[TableType] = Menu(
-        title=translate("Partition table"), items=items, footer=footer(translate)
+        title=translate("Partition table"),
+        items=items,
+        current=context.choice.table,
+        footer=footer(translate),
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -3566,7 +3581,10 @@ def license_screen(screen: Screen, config: InstallConfig, context: Context) -> A
         Item(label=value, value=value, detail=translate(reason)) for value, reason in LICENSES
     ]
     menu: Menu[str] = Menu(
-        title=translate("Licenses to accept"), items=items, footer=footer(translate)
+        title=translate("Licenses to accept"),
+        items=items,
+        current=" ".join(config.portage.accept_license),
+        footer=footer(translate),
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -3647,7 +3665,10 @@ def compile_flags_screen(
         Item(label=translate("Type them"), value=""),
     ]
     menu: Menu[str] = Menu(
-        title=translate("Compiler flags"), items=items, footer=footer(translate)
+        title=translate("Compiler flags"),
+        items=items,
+        current=config.portage.common_flags,
+        footer=footer(translate),
     )
     answer = menu.run(screen)
     if not answer.chosen:
