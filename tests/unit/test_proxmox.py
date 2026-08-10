@@ -669,12 +669,20 @@ def test_the_link_is_left_alone_until_the_medium_has_had_its_chance() -> None:
 
     from tests.vm import cluster
 
-    source = inspect.getsource(cluster.wait_for_network)
-    polled = source.index("NETWORK_PROBE")
-    raised = source.index("ip link set")
+    # Comments name the same commands, so only the code is read: the first
+    # mention of `ip link set` in this function is the sentence explaining why
+    # it is not done first.
+    code = [
+        line
+        for line in inspect.getsource(cluster.wait_for_network).splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    polled = next(at for at, line in enumerate(code) if "NETWORK_PROBE" in line)
+    raised = next(at for at, line in enumerate(code) if "ip link set" in line)
     assert polled < raised, "poll first; touch the link only if nothing happens"
-    assert "NetworkManager" in source, "and never when the medium has a manager"
-    assert "asked = True" in source, "once, not on every pass"
+    whole = "\n".join(code)
+    assert "NetworkManager" in whole, "and never when the medium has a manager"
+    assert "asked = True" in whole, "once, not on every pass"
 
 
 def test_no_marker_appears_in_the_command_that_prints_it() -> None:
