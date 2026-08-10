@@ -19,7 +19,7 @@ from typing import ClassVar, Final, Iterable, Mapping
 
 from ..errors import CommandFailed, DeviceNotFound
 from ..model.config import InstallConfig
-from ..model.device import DeviceGraph, DeviceId, Existing
+from ..model.device import DeviceGraph, DeviceId, Existing, Extent, PartitionTable
 from .runner import Runner
 
 EFI_MARKER: Final[Path] = Path("/sys/firmware/efi")
@@ -350,6 +350,32 @@ class Probe:
             if name.strip() == "MD_METADATA" and value.strip():
                 return value.strip()
         return ""
+
+    def free_extents(self, disk: str) -> tuple[Extent, ...]:
+        """Where the disk has no partition now, in bytes.
+
+        `parted --machine ... unit B print free` prints one line per extent,
+        occupied and free alike, and marks the free ones in its filesystem
+        field. The number field repeats on those lines and means nothing, so
+        the marker is what they are read by.
+        """
+        listed = self.runner.run(
+            ["parted", "--machine", "--script", disk, "unit", "B", "print", "free"],
+            check=False,
+        )
+        if listed.returncode != 0:
+            raise DeviceNotFound(f"parted could not read the table of {disk}")
+        found: list[Extent] = []
+        for line in listed.stdout.splitlines():
+            fields = line.strip().rstrip(";").split(":")
+            if len(fields) < 5 or fields[4] != "free":
+                continue
+            try:
+                start, end = int(fields[1].rstrip("B")), int(fields[2].rstrip("B"))
+            except ValueError:
+                continue
+            found.append(Extent(start=start, end=end))
+        return tuple(found)
 
     def passphrase(self, source: str) -> tuple[str, str]:
         """What a passphrase file holds, and why it could not be read.
@@ -773,15 +799,38 @@ def with_probed_facts(config: InstallConfig, probe: Probe) -> InstallConfig:
     """
     graph = config.disk.graph
     reused = [one for one in graph.of_type(Existing) if not one.mdraid_metadata]
-    if not reused:
-        return config
     known = {one.id: probe.mdraid_metadata(one.selector) for one in reused}
-    if not any(known.values()):
+    free = _free_extents(graph, probe)
+    if not any(known.values()) and not free:
         return config
     nodes = [
         replace(one, mdraid_metadata=known[one.id])
         if isinstance(one, Existing) and known.get(one.id)
+        else replace(one, free_extents=free[one.id])
+        if isinstance(one, PartitionTable) and one.id in free
         else one
         for one in graph.nodes.values()
     ]
     return replace(config, disk=replace(config.disk, graph=DeviceGraph.build(nodes)))
+
+
+def _free_extents(graph: DeviceGraph, probe: Probe) -> dict[DeviceId, tuple[Extent, ...]]:
+    """Where each edited table has room, read from the disk it is on.
+
+    Only tables the plan does not write from scratch: a new table's whole disk
+    is free, and `sgdisk --new=N:0` finds the room itself on GPT. An MBR
+    partition is given an explicit start, computed from the model's own
+    partitions alone, so an added one landed at 1MiB on top of a retained one.
+    """
+    found: dict[DeviceId, tuple[Extent, ...]] = {}
+    for table in graph.of_type(PartitionTable):
+        if table.create or table.free_extents:
+            continue
+        disk = graph.nodes.get(table.disk)
+        if not isinstance(disk, Existing):
+            continue
+        try:
+            found[table.id] = probe.free_extents(probe.resolve(disk.id, disk.selector))
+        except DeviceNotFound:
+            continue
+    return found

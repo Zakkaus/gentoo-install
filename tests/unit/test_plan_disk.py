@@ -5,10 +5,14 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
+from typing import Sequence
+
 from gentoo_install.errors import InvalidLayout
 from gentoo_install.model.device import (
     DeviceGraph,
+    DeviceId,
     Existing,
+    Extent,
     Filesystem,
     FilesystemType,
     LogicalVolume,
@@ -474,3 +478,100 @@ def test_a_dataset_already_mounted_is_left_alone() -> None:
     already.replies["zfs"] = "yes\n"
     told.apply(already)
     assert not any(one[:2] == ("zfs", "mount") for one in already.commands)
+
+
+#: What `parted --machine --script <disk> unit B print free` printed for a
+#: 4 GiB MBR image holding one 1 GiB partition at 1MiB, captured on this
+#: machine. Kept whole: the free lines repeat the number `1`, so the marker in
+#: the fifth field is what they have to be read by.
+PARTED_PRINT_FREE: str = """BYT;
+/home/zakk/.cache/mbrtest/disk.img:4294967296B:file:512:512:msdos::;
+1:16384B:1048575B:1032192B:free;
+1:1048576B:1074790399B:1073741824B:::;
+1:1074790400B:4294967295B:3220176896B:free;
+"""
+
+
+def _edited_mbr(free: tuple[Extent, ...], size: Size | None = None) -> DeviceGraph:
+    """One retained partition on the disk, one added by the configuration."""
+    from pathlib import PurePosixPath
+
+    return DeviceGraph.build(
+        [
+            Existing(id=DeviceId("d"), selector="/dev/null", wipe=False),
+            PartitionTable(
+                id=DeviceId("t"),
+                disk=DeviceId("d"),
+                table=TableType.MBR,
+                create=False,
+                free_extents=free,
+            ),
+            Partition(
+                id=DeviceId("new"),
+                table=DeviceId("t"),
+                index=2,
+                role=PartitionRole.DATA,
+                size=size if size is not None else Size(1024**3),
+            ),
+            Filesystem(id=DeviceId("fs"), device=DeviceId("new"), kind=FilesystemType.EXT4),
+            Mountpoint(id=DeviceId("m"), source=DeviceId("fs"), path=PurePosixPath("/")),
+        ]
+    )
+
+
+def test_a_partition_added_to_an_edited_mbr_goes_after_the_ones_on_the_disk() -> None:
+    """A retained partition is not a model node, so summing the model's own
+    gave 1MiB and `parted` answered `the closest location we can manage is
+    1048kB to 1048kB` — after the removals in the same plan had already been
+    committed."""
+    from gentoo_install.exec.probe import Probe
+    from gentoo_install.exec.runner import Result, Runner
+    from gentoo_install.plan.disk import _start_of
+
+    class Answering(Runner):
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            said = PARTED_PRINT_FREE if argv[0] == "parted" else ""
+            return Result(argv=tuple(argv), returncode=0, stdout=said, stderr="", seconds=0.0)
+
+    read = Probe(runner=Answering(log=lambda line: None), work=Path("/tmp"))
+    free = read.free_extents("/dev/null")
+    assert free == (Extent(start=16384, end=1048575), Extent(start=1074790400, end=4294967295)), free
+
+    graph = _edited_mbr(free)
+    added = next(one for one in graph.of_type(Partition) if one.id == DeviceId("new"))
+    start = _start_of(graph, added)
+    # The retained partition ends at 1074790399, so anything at or below it
+    # overlaps what the operator kept.
+    assert start.bytes > 1074790399, start
+    assert start.is_aligned(), start
+
+
+def test_a_partition_that_fits_no_free_extent_is_refused_before_anything_runs() -> None:
+    """Refused while the table is unchanged: the removals of the same plan run
+    first and stay committed when a later creation fails."""
+    from gentoo_install.errors import InvalidLayout
+    from gentoo_install.plan.disk import _start_of
+
+    graph = _edited_mbr((Extent(start=1048576, end=2097151),), size=Size(4 * 1024**3))
+    added = next(one for one in graph.of_type(Partition) if one.id == DeviceId("new"))
+    with pytest.raises(InvalidLayout):
+        _start_of(graph, added)
+
+
+def test_a_table_written_from_scratch_still_starts_at_the_first_offset() -> None:
+    """`free_extents` is empty for a new table, and `sgdisk --new=N:0` finds
+    the room itself on GPT, so nothing about that path changes."""
+    from gentoo_install.plan.disk import FIRST_OFFSET, _start_of
+
+    graph = DeviceGraph.build(ext4_on_gpt())
+    first = next(
+        one for one in graph.of_type(Partition) if one.index == 1
+    )
+    assert _start_of(graph, first) == FIRST_OFFSET
