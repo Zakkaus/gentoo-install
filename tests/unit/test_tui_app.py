@@ -1878,6 +1878,7 @@ def test_the_zfs_bootloader_prompt_returns_only_installable_answers() -> None:
         answered = screens._zfs_bootloader(
             FakeScreen(keys=keys, lines=24, columns=100), start, at
         )
+        assert answered is not None, "neither key cancels"
         validate(answered)
 
 
@@ -2100,3 +2101,28 @@ def test_a_reopened_selector_starts_on_what_is_already_set() -> None:
             seen[title] = any(one.arg == "current" for one in node.keywords)
     assert set(seen) == WANTED, f"a selector was renamed or removed: {sorted(seen)}"
     assert all(seen.values()), sorted(one for one, has in seen.items() if not has)
+
+
+def test_cancelling_the_zfs_bootloader_question_undoes_the_layout() -> None:
+    """The layout is written and the graph rebuilt before the question is
+    asked, so cancelling it committed a ZFS root with GRUB — a combination
+    `model/compat.py` refuses and no later screen would have offered a way
+    out of."""
+    from gentoo_install.model.config import Bootloader
+    from gentoo_install.model.device import ZfsPool
+    from gentoo_install.tui.widgets import Outcome as Answered
+
+    from .layouts import ext4_on_gpt
+
+    at = context()
+    start = config(ext4_on_gpt())
+    assert not list(start.disk.graph.of_type(ZfsPool))
+    before = at.choice
+
+    # Down to the ZFS row, enter, then escape out of the bootloader question.
+    keys = ["KEY_DOWN", "KEY_DOWN", "KEY_DOWN", "\n", "\x1b"]
+    answer = screens.layout_screen(FakeScreen(keys=keys, lines=24, columns=100), start, at)
+
+    assert answer.outcome is not Answered.CHOSE, answer.outcome
+    assert at.choice == before, "the choice goes back with the layout"
+    assert start.bootloader.kind is not Bootloader.ZFSBOOTMENU

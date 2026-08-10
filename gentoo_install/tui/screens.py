@@ -360,13 +360,21 @@ def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     if not answer.chosen:
         return Answer(answer.outcome)
     layout, filesystem = answer.unwrap()[0]
+    was_manual, was_choice = context.manual, context.choice
     context.manual = False
     if layout is None:
         return partitions_screen(screen, config, context)
     context.choice = replace(context.choice, layout=layout, filesystem=filesystem)
     changed = _rebuild(config, context)
     if layout is Layout.WHOLE_DISK_ZFS:
-        changed = _zfs_bootloader(screen, changed, context)
+        picked = _zfs_bootloader(screen, changed, context)
+        if picked is None:
+            # Cancelling the question undoes the layout that raised it. The
+            # graph was already rebuilt and the choice already written, so
+            # both go back: leaving them committed a ZFS root with GRUB.
+            context.manual, context.choice = was_manual, was_choice
+            return Answer(Outcome.BACK)
+        changed = picked
     return Answer(Outcome.CHOSE, changed)
 
 
@@ -376,7 +384,9 @@ def _known(kind: str) -> FilesystemType | None:
     return next((one for one in FilesystemType if one.value == kind), None)
 
 
-def _zfs_bootloader(screen: Screen, config: InstallConfig, context: Context) -> InstallConfig:
+def _zfs_bootloader(
+    screen: Screen, config: InstallConfig, context: Context
+) -> InstallConfig | None:
     """A ZFS root cannot use GRUB, so this asks which of the two that remain.
 
     ZFSBootMenu lives in the gentoo-zh overlay and in no other repository, so
@@ -402,7 +412,10 @@ def _zfs_bootloader(screen: Screen, config: InstallConfig, context: Context) -> 
         current=config.bootloader.kind,
     ).run(screen)
     if not answer.chosen:
-        return config
+        # None rather than the configuration handed in: that one already holds
+        # the ZFS layout, and returning it committed a ZFS root with GRUB,
+        # which the compatibility table refuses.
+        return None
     kind = answer.unwrap()[0]
     if kind is Bootloader.SYSTEMD_BOOT:
         return replace(config, bootloader=replace(config.bootloader, kind=kind))
@@ -2643,7 +2656,13 @@ def partitions_screen(
                 # boot from GRUB, and ZFSBootMenu needs the overlay adding.
                 # Without this every bootloader row was greyed and the table
                 # had no way out.
-                built = _zfs_bootloader(screen, built, context)
+                picked = _zfs_bootloader(screen, built, context)
+                if picked is None:
+                    # Back to the editor rather than out of it: the table the
+                    # operator drew is still there, and a ZFS root with GRUB
+                    # is what committing this would have written.
+                    continue
+                built = picked
             return Answer(Outcome.CHOSE, built)
         _act_on(screen, context, row)
 
