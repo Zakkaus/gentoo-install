@@ -24,12 +24,12 @@ import time
 import urllib.request
 from dataclasses import dataclass, field, replace
 from enum import Enum
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from collections.abc import Callable
 from typing import Final, Protocol
 
 from gentoo_install.model.config import InstallConfig
-from gentoo_install.model.device import Existing
+from gentoo_install.model.device import Existing, Luks, ZfsPool
 from gentoo_install.model.config import MirrorRegion, Sync
 from gentoo_install.exec.config import load
 from gentoo_install.model.serialise import to_toml
@@ -221,6 +221,29 @@ def prepare(
         api.upload_iso(node, driver_path, driver)
 
 
+#: The disk passphrase these runs use. Not a root password: zfs takes at least
+#: eight characters, and a real install does not reuse one for the other.
+DISK_PASSPHRASE: Final[str] = "install-disk"
+
+
+def stage_passphrases(link: Reconnecting, installation: InstallConfig) -> None:
+    """Put the passphrases where the layout says they are.
+
+    An operator does this by hand before an unattended install. Without it an
+    encrypted layout stops at `pool: /run/gentoo-install-keys/pool cannot be
+    read`, which is the installer refusing correctly and the harness not having
+    done its part.
+    """
+    graph = installation.disk.graph
+    wanted = [node.passphrase_file for node in graph.of_type(Luks) if node.passphrase_file]
+    wanted += [node.passphrase_file for node in graph.of_type(ZfsPool) if node.passphrase_file]
+    for source in wanted:
+        parent = PurePosixPath(source).parent
+        link.run(f"mkdir -p {parent} && chmod 700 {parent}")
+        link.run(f"printf '%s' '{DISK_PASSPHRASE}' > {source}")
+        link.run(f"chmod 600 {source}")
+
+
 def rewrite_fixtures(
     jobs: list[Job], into: Path, region: MirrorRegion, sync: Sync
 ) -> Path:
@@ -343,6 +366,7 @@ def install_one(
         # cluster hands out a real configuration, and it is IPv6 with DNS64.
         # Writing IPv4 resolvers over it left every mirror unreachable:
         # `Failed to connect to mirrors.tuna.tsinghua.edu.cn:443 after 111 ms`.
+        stage_passphrases(link, load(job.fixture))
         link.run("mkdir -p /mnt/driver")
         link.run("mountpoint -q /mnt/driver || mount -o ro /dev/sr1 /mnt/driver")
         link.run(f"mkdir -p {RESULT_DIR}")
