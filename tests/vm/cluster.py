@@ -235,6 +235,37 @@ def prepare(
 DISK_PASSPHRASE: Final[str] = "install-disk"
 
 
+#: How long a guest is given to bring its interface up and resolve a name.
+NETWORK_PATIENCE: Final[float] = 300.0
+
+#: Between attempts. A guest that has just reached a shell is still running
+#: dhcpcd, and the installer's own reachability check is what fails: five
+#: attempts thirty seconds apart against a host that was answering.
+NETWORK_PAUSE: Final[float] = 10.0
+
+
+def wait_for_network(link: Reconnecting) -> None:
+    """Wait until the guest can fetch from the mirror before installing.
+
+    Reaching a root shell says the medium booted, not that the interface is
+    up. Starting the installer there made its own reachability check fail
+    within ninety seconds of boot, and the run stopped before the first disk
+    was touched.
+    """
+    deadline = time.monotonic() + NETWORK_PATIENCE
+    probe = (
+        "curl -sS -o /dev/null --max-time 20 "
+        "https://distfiles.gentoo.org/releases/amd64/autobuilds/"
+        "latest-stage3-amd64-systemd.txt && echo NETWORK_UP || echo NETWORK_DOWN"
+    )
+    while time.monotonic() < deadline:
+        link.send(probe)
+        if b"NETWORK_UP" in link.expect(r"NETWORK_UP|NETWORK_DOWN", timeout=60.0):
+            return
+        time.sleep(NETWORK_PAUSE)
+    raise ConsoleTimeout(f"the guest had no network after {NETWORK_PATIENCE:.0f}s")
+
+
 def stage_passphrases(link: Reconnecting, installation: InstallConfig) -> None:
     """Put the passphrases where the layout says they are.
 
@@ -382,6 +413,7 @@ def install_one(
         # cluster hands out a real configuration, and it is IPv6 with DNS64.
         # Writing IPv4 resolvers over it left every mirror unreachable:
         # `Failed to connect to mirrors.tuna.tsinghua.edu.cn:443 after 111 ms`.
+        wait_for_network(link)
         stage_passphrases(link, load(job.fixture))
         link.run("mkdir -p /mnt/driver")
         link.run("mountpoint -q /mnt/driver || mount -o ro /dev/sr1 /mnt/driver")

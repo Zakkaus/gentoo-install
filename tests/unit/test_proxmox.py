@@ -558,3 +558,72 @@ def test_the_command_a_real_shell_runs_produces_a_readable_archive(tmp_path: Pat
         "install.rc": b"0\n",
         "install.txt": b"installed 53 operations\n",
     }
+
+
+def test_the_installer_does_not_start_before_the_guest_has_a_network() -> None:
+    """Reaching a root shell says the medium booted, not that the interface is
+    up. Starting there made the installer's own reachability check fail within
+    ninety seconds of boot, and the run stopped before the first disk was
+    touched."""
+    import inspect
+
+    from tests.vm import cluster
+
+    source = inspect.getsource(cluster.install_one)
+    ran = source.index("install.sh")
+    waited = source.index("wait_for_network")
+    assert waited < ran, "the wait has to come before the installer"
+
+
+def test_the_network_wait_gives_up_rather_than_hanging(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unattended schedule cannot hold a slot for a guest whose interface
+    never came up."""
+    from tests.vm import cluster
+    from tests.vm.console import ConsoleTimeout
+
+    asked: list[str] = []
+
+    class Down:
+        def send(self, line: str) -> None:
+            asked.append(line)
+
+        def send_raw(self, keys: str) -> None:
+            asked.append(keys)
+
+        def snapshot(self, seconds: float) -> bytes:
+            return b""
+
+        def expect(self, pattern: str, timeout: float) -> bytes:
+            return b"NETWORK_DOWN"
+
+    monkeypatch.setattr(cluster, "NETWORK_PATIENCE", 0.3)
+    monkeypatch.setattr(cluster, "NETWORK_PAUSE", 0.05)
+    link = cluster.Reconnecting(Down, tries=1)
+    with pytest.raises(ConsoleTimeout, match="no network"):
+        cluster.wait_for_network(link)
+    assert asked, "it asked at least once before giving up"
+
+
+def test_the_network_wait_returns_as_soon_as_the_guest_answers() -> None:
+    from tests.vm import cluster
+
+    tries: list[int] = []
+
+    class Late:
+        def send(self, line: str) -> None:
+            tries.append(1)
+
+        def send_raw(self, keys: str) -> None:
+            pass
+
+        def snapshot(self, seconds: float) -> bytes:
+            return b""
+
+        def expect(self, pattern: str, timeout: float) -> bytes:
+            return b"NETWORK_DOWN" if len(tries) < 3 else b"NETWORK_UP"
+
+    link = cluster.Reconnecting(Late, tries=1)
+    cluster.wait_for_network(link)
+    assert len(tries) == 3
