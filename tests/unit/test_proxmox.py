@@ -418,6 +418,10 @@ def test_the_editor_is_reopened_with_escape_not_a_second_e() -> None:
         def expect(self, pattern: str, timeout: float) -> bytes:
             raise AssertionError("the editor is read by snapshot, not by expect")
 
+        @property
+        def closed(self) -> bool:
+            return False
+
     console = Slow()
     screen = _editor_screen(console, 30.0)
     assert b"setparams" in screen
@@ -446,6 +450,10 @@ def test_a_long_install_is_never_sent_twice_after_a_reconnect() -> None:
 
         def snapshot(self, seconds: float) -> bytes:
             return b""
+
+        @property
+        def closed(self) -> bool:
+            return False
 
         def expect(self, pattern: str, timeout: float) -> bytes:
             if self.drops:
@@ -485,6 +493,10 @@ def test_a_short_command_is_sent_again_after_a_reconnect() -> None:
 
         def snapshot(self, seconds: float) -> bytes:
             return b""
+
+        @property
+        def closed(self) -> bool:
+            return False
 
         def expect(self, pattern: str, timeout: float) -> bytes:
             if self.drop:
@@ -596,6 +608,10 @@ def test_the_network_wait_gives_up_rather_than_hanging(
         def snapshot(self, seconds: float) -> bytes:
             return b""
 
+        @property
+        def closed(self) -> bool:
+            return False
+
         def expect(self, pattern: str, timeout: float) -> bytes:
             return b"NETWORK_DOWN"
 
@@ -621,6 +637,10 @@ def test_the_network_wait_returns_as_soon_as_the_guest_answers() -> None:
 
         def snapshot(self, seconds: float) -> bytes:
             return b""
+
+        @property
+        def closed(self) -> bool:
+            return False
 
         def expect(self, pattern: str, timeout: float) -> bytes:
             return b"NETWORK_DOWN" if len(tries) < 3 else b"NETWORK_UP"
@@ -784,6 +804,10 @@ def test_an_encrypted_disk_is_unlocked_before_a_login_is_waited_for(
         def snapshot(self, seconds: float) -> bytes:
             return b""
 
+        @property
+        def closed(self) -> bool:
+            return False
+
         def expect(self, pattern: str, timeout: float) -> bytes:
             if DISK_PASSPHRASE in self.sent:
                 return b"gentoo login:"
@@ -935,3 +959,50 @@ def test_a_broken_pipe_is_a_dropped_console_and_not_a_dead_run() -> None:
     assert "pipe" in why.lower(), why
     # A second write on a closed connection is not an error either.
     framed.send(b"again")
+
+
+def test_a_command_is_delivered_after_the_console_was_dropped() -> None:
+    """A write to a dropped connection is discarded rather than raised, which
+    is what the transport should do — and it left the command unsent:
+    `wait_for_network` put its probe into a closed socket and then waited
+    fifteen minutes for output that was never going to come. Eight guests
+    failed that way in one round."""
+    from tests.vm.cluster import Reconnecting
+
+    opened: list["Dropping"] = []
+
+    class Dropping:
+        """Closed until it is opened again, like a console after a reset."""
+
+        def __init__(self, alive: bool) -> None:
+            self.alive = alive
+            self.sent: list[str] = []
+
+        def send(self, line: str) -> None:
+            if self.alive:
+                self.sent.append(line)
+
+        def send_raw(self, keys: str) -> None:
+            self.send(keys)
+
+        def snapshot(self, seconds: float) -> bytes:
+            return b""
+
+        def expect(self, pattern: str, timeout: float) -> bytes:
+            return b""
+
+        @property
+        def closed(self) -> bool:
+            return not self.alive
+
+    def open_console() -> Dropping:
+        one = Dropping(alive=len(opened) > 0)
+        opened.append(one)
+        return one
+
+    link = Reconnecting(open_console, tries=4)
+    link.send("probe me")
+    assert len(opened) == 2, "the closed console has to be replaced before the write"
+    # `reopen` sends an empty line first, to make the shell draw a prompt.
+    assert opened[1].sent == ["", "probe me"]
+    assert opened[0].sent == [], "nothing goes into the dropped one"

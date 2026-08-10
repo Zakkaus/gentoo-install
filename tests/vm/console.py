@@ -199,6 +199,15 @@ class SerialConsole:
         closed = "the guest closed the serial connection"
         return f"{closed}: {said}" if said else closed
 
+    @property
+    def closed(self) -> bool:
+        """Whether the transport under this console has hung up.
+
+        A write to a dropped connection is discarded rather than raised, so a
+        caller that has to deliver a command asks first and reopens.
+        """
+        return self._sock.closed
+
     def snapshot(self, seconds: float) -> bytes:
         """Everything that arrives in this window, escape codes included.
 
