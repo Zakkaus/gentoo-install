@@ -429,3 +429,44 @@ def test_every_fixture_has_a_boot_check_that_can_fail() -> None:
         empty = [one for one, _, value in checks if not value]
         assert not empty, f"{fixture.name}: {empty}"
         assert len(checks) >= 4, f"{fixture.name}: {checks}"
+
+
+def test_a_fixture_named_twice_is_refused_before_any_guest_is_built() -> None:
+    """Every map in the schedule is keyed by job name, so the second guest
+    overwrote the first's bookkeeping: one outcome ended the loop while the
+    other was still running, `1/1 passed` was printed for two jobs, and the
+    second guest could outlive the process."""
+    from tests.vm.cluster import main
+
+    assert main(["vm-lvm", "vm-lvm"]) == 1
+
+
+def test_a_run_that_collected_fewer_results_than_it_dispatched_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A worker that died without answering left its job with no outcome, and
+    the verdict compared passes against the outcomes that arrived rather than
+    against the jobs that were asked for: two dispatched, one returned, `1/1
+    passed` and exit 0."""
+    from typing import Any
+
+    from tests.vm import cluster
+
+    def one_result(jobs: list[Any], *args: Any, **kwargs: Any) -> list[cluster.Outcome]:
+        return [
+            cluster.Outcome(
+                name=jobs[0].name, verdict=cluster.Verdict.OK, seconds=1.0, detail=""
+            )
+        ]
+
+    monkeypatch.setattr(cluster, "run", one_result)
+    assert cluster.main(["vm-lvm", "vm-xfs"]) == 1
+    # And the ordinary case still passes, so this is not failing on everything.
+    def both(jobs: list[Any], *args: Any, **kwargs: Any) -> list[cluster.Outcome]:
+        return [
+            cluster.Outcome(name=one.name, verdict=cluster.Verdict.OK, seconds=1.0, detail="")
+            for one in jobs
+        ]
+
+    monkeypatch.setattr(cluster, "run", both)
+    assert cluster.main(["vm-lvm", "vm-xfs"]) == 0

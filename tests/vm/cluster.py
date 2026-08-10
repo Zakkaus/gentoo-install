@@ -1088,8 +1088,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    repeated = sorted({one for one in args.fixtures if args.fixtures.count(one) > 1})
+    if repeated:
+        # Refused rather than deduplicated: every map below is keyed by name,
+        # so the second guest overwrote the first's bookkeeping, one result
+        # ended the loop while the other was still running, and `1/1 passed`
+        # was printed for two jobs.
+        print(f"named more than once: {repeated}", file=sys.stderr)
+        return 1
+
+    jobs = fixtures(args.fixtures)
     outcomes = run(
-        fixtures(args.fixtures),
+        jobs,
         args.workdir,
         args.limit,
         int(time.time()),
@@ -1097,11 +1107,17 @@ def main(argv: list[str] | None = None) -> int:
         Sync(args.sync),
     )
     passed = [one for one in outcomes if one.verdict is Verdict.OK]
-    print(f"\n{len(passed)}/{len(outcomes)} passed")
+    print(f"\n{len(passed)}/{len(jobs)} passed")
     for one in outcomes:
         if one.verdict is not Verdict.OK:
             print(f"  {one.verdict.value} {one.name}: {one.detail} ({one.log})")
-    return 0 if len(passed) == len(outcomes) else 1
+    # Against what was asked for, not against what came back: a worker that
+    # died without answering left its job with no outcome at all, and a run
+    # that collected fewer results than it dispatched still exited 0.
+    missing = sorted({one.name for one in jobs} - {one.name for one in outcomes})
+    for name in missing:
+        print(f"  no result {name}", file=sys.stderr)
+    return 0 if len(passed) == len(jobs) else 1
 
 
 if __name__ == "__main__":
