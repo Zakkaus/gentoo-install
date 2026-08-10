@@ -1838,3 +1838,17 @@ def test_a_request_that_started_no_task_is_named_rather_than_crashed() -> None:
     with pytest.raises(ProxmoxError) as raised:
         api.wait("infra-node4", "")
     assert "did not start" in str(raised.value)
+
+
+def test_the_cluster_certificate_is_verified() -> None:
+    """An administrator token for seventy-nine machines went to whatever
+    answered on port 443. The comment justifying that said the cluster serves a
+    certificate its own CA signed; it is issued by Let's Encrypt and the
+    default context verifies it."""
+    import ssl
+
+    from tests.vm.proxmox import _certificates
+
+    context = _certificates()
+    assert context.verify_mode is ssl.CERT_REQUIRED
+    assert context.check_hostname is True

@@ -108,14 +108,15 @@ def _transient(error: ProxmoxError) -> bool:
 
 
 def _certificates() -> ssl.SSLContext:
-    """The cluster serves a certificate its own CA signed, and that CA is not
-    in the workstation's store. Verification is off for this host alone; the
-    token is what authenticates, and it never leaves this process except in a
-    header on this connection."""
-    context = ssl.create_default_context()
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE
-    return context
+    """The system trust store, verified.
+
+    The comment this replaced said the cluster serves a certificate its own CA
+    signed. It does not: `pve.infra.plz.ac` is issued by Let's Encrypt and the
+    default context verifies it. Turning verification off sent an
+    administrator token for a cluster of seventy-nine machines to whatever
+    answered on port 443.
+    """
+    return ssl.create_default_context()
 
 
 def _secret() -> str:
