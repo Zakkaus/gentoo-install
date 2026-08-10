@@ -17,8 +17,11 @@ from __future__ import annotations
 
 import argparse
 import itertools
+import json
+import os
 import queue
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -53,7 +56,7 @@ from .console import (
     ConsoleTimeout,
     SerialConsole,
 )
-from .driver import build as build_driver
+from .driver import build as build_driver, digest as driver_digest, remote_name
 from .monitor import keys_for
 from .proxmox import (
     Api,
@@ -68,6 +71,7 @@ from .proxmox import (
     append_to_cmdline_blind,
 )
 from .results import CONSOLE_CLOSE, ResultError, console_command, read_console
+from .workdir import WorkdirError, confined
 
 REPOSITORY: Final[Path] = Path(__file__).resolve().parents[2]
 WORKROOT: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/cluster"
@@ -105,6 +109,10 @@ MINIMAL_POINTER: Final[str] = "latest-install-amd64-minimal.txt"
 #: Filled in from the pointer file when a run starts. The placeholder is what a
 #: `Job` carries until then, so a fixture can still name a medium of its own.
 DEFAULT_ISO: Final[str] = "minimal"
+
+RELENG_FINGERPRINT: Final[str] = "13EBBDBEDE7A12775DFDB1BABB572E0E2D182910"
+RELEASE_KEY: Final[Path] = Path("/usr/share/openpgp-keys/gentoo-release.asc")
+RELEASE_KEYRING: Final[str] = "https://qa-reports.gentoo.org/output/service-keys.gpg"
 
 #: Kernel parameters the medium's own GRUB entry lacks. Without the console the
 #: kernel says nothing on the serial port and every run reads as hung.
@@ -163,6 +171,9 @@ RUN_CEILING: Final[float] = 3 * 3600.0
 #: builds the initramfs cache and, on openrc, runs every service in order.
 BOOT_PATIENCE: Final[float] = 600.0
 
+#: A cluster with no room must produce a result rather than poll for ever.
+CAPACITY_PATIENCE: Final[float] = 120.0
+
 
 class Verdict(Enum):
     """How one guest ended. `STUCK` is separate from `FAIL` on purpose: a
@@ -173,6 +184,16 @@ class Verdict(Enum):
     FAIL = "FAIL"
     STUCK = "STUCK"
     ERROR = "ERROR"
+
+
+class Phase(Enum):
+    """The operation that produced an outcome."""
+
+    SCHEDULE = "schedule"
+    CREATE = "create"
+    BOOT_LIVE = "boot-live"
+    INSTALL = "install"
+    BOOT_INSTALLED = "boot-installed"
 
 
 @dataclass
@@ -186,6 +207,8 @@ class Outcome:
     #: slot held: the memory is still allocated, and handing it back put the
     #: next guest onto a node that had no room for it.
     removed: bool = True
+    phase: Phase = Phase.SCHEDULE
+    revision: str = ""
 
 
 @dataclass
@@ -227,7 +250,7 @@ class Watchdog:
     """
 
     log: Path
-    counters: Callable[[], int]
+    counters: Callable[[], int | None]
     strikes: int = 0
     _seen: int = field(default=0, init=False)
     _moved: int = field(default=0, init=False)
@@ -236,8 +259,12 @@ class Watchdog:
         size = self.log.stat().st_size if self.log.exists() else 0
         traffic = self.counters()
         talking = size > self._seen
-        working = traffic - self._moved >= QUIET_BYTES
         self._seen = max(self._seen, size)
+        if traffic is None:
+            if talking:
+                self.strikes = 0
+            return True
+        working = traffic - self._moved >= QUIET_BYTES
         self._moved = max(self._moved, traffic)
         if talking or working:
             self.strikes = 0
@@ -250,8 +277,81 @@ class Watchdog:
         return self.strikes >= WATCH_STRIKES
 
 
-def current_minimal() -> tuple[str, tuple[str, ...]]:
-    """The current minimal ISO's name and every URL that serves it."""
+def _download(url: str, target: Path) -> None:
+    try:
+        with urllib.request.urlopen(url, timeout=30.0) as answer:
+            target.write_bytes(answer.read())
+    except OSError as error:
+        raise ProxmoxError(f"{url} did not answer: {error}") from error
+
+
+def _signing_key(status: str) -> str | None:
+    for line in status.splitlines():
+        fields = line.split()
+        if len(fields) >= 3 and fields[:2] == ["[GNUPG:]", "VALIDSIG"]:
+            return fields[-1]
+    return None
+
+
+def verify_release_signature(digests: Path, key: Path, home: Path) -> None:
+    """Verify Gentoo's digest signature against the pinned primary key."""
+    home.mkdir(mode=0o700, parents=True, exist_ok=True)
+    imported = subprocess.run(
+        ["gpg", "--batch", "--homedir", str(home), "--import", str(key)],
+        capture_output=True,
+        text=True,
+    )
+    if imported.returncode != 0:
+        raise ProxmoxError(f"the Gentoo release key could not be imported: {imported.stderr[:200]}")
+    verified = subprocess.run(
+        [
+            "gpg",
+            "--batch",
+            "--homedir",
+            str(home),
+            "--status-fd",
+            "1",
+            "--verify",
+            str(digests),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    signed = _signing_key(verified.stdout)
+    if verified.returncode != 0 or signed is None:
+        raise ProxmoxError(f"the signature on {digests.name} does not verify")
+    if signed.upper() != RELENG_FINGERPRINT:
+        raise ProxmoxError(
+            f"{digests.name} is signed by {signed}, not the pinned {RELENG_FINGERPRINT}"
+        )
+
+
+def _expected_sha512(digests: Path, name: str) -> str:
+    rows = digests.read_text().splitlines()
+    for index, row in enumerate(rows):
+        if row.strip().upper().startswith("# SHA512"):
+            for candidate in rows[index + 1 :]:
+                fields = candidate.split()
+                if len(fields) == 2 and Path(fields[1]).name == name:
+                    digest = fields[0].lower()
+                    if re.fullmatch(r"[0-9a-f]{128}", digest):
+                        return digest
+    raise ProxmoxError(f"{digests.name} has no SHA512 line for {name}")
+
+
+def _medium_name(name: str, sha512: str) -> str:
+    return f"{Path(name).stem}-{sha512[:20]}.iso"
+
+
+def current_minimal(workdir: Path) -> tuple[str, tuple[str, ...], str]:
+    """The verified current minimal ISO, its mirrors and signed SHA-512."""
+    trust = workdir / "medium-trust"
+    trust.mkdir(parents=True, exist_ok=True)
+    key = RELEASE_KEY
+    if not key.is_file():
+        key = trust / "service-keys.gpg"
+        if not key.is_file():
+            _download(RELEASE_KEYRING, key)
     for mirror in MIRRORS:
         pointer = f"{mirror}/{AUTOBUILDS}/{MINIMAL_POINTER}"
         try:
@@ -262,14 +362,32 @@ def current_minimal() -> tuple[str, tuple[str, ...]]:
         for line in said.splitlines():
             first = line.strip().split(" ")[0]
             if first.endswith(".iso"):
-                return first.rsplit("/", 1)[-1], tuple(
-                    f"{one}/{AUTOBUILDS}/{first}" for one in MIRRORS
-                )
+                original = first.rsplit("/", 1)[-1]
+                digests = trust / f"{original}.DIGESTS"
+                last = ""
+                for source in MIRRORS:
+                    try:
+                        _download(f"{source}/{AUTOBUILDS}/{first}.DIGESTS", digests)
+                        verify_release_signature(digests, key, trust / "gnupg")
+                        sha512 = _expected_sha512(digests, original)
+                        return _medium_name(original, sha512), tuple(
+                            f"{one}/{AUTOBUILDS}/{first}" for one in MIRRORS
+                        ), sha512
+                    except ProxmoxError as error:
+                        last = str(error)
+                raise ProxmoxError(f"no mirror served trusted digests for {original}: {last}")
     raise SystemExit("no mirror named an install medium")
 
 
 def prepare(
-    api: Api, node: str, medium: str, urls: tuple[str, ...], driver_path: Path, driver: str
+    api: Api,
+    node: str,
+    medium: str,
+    urls: tuple[str, ...],
+    sha512: str,
+    trust: Path,
+    driver_path: Path,
+    driver: str,
 ) -> None:
     """Put the medium and the driver CD on one node's `local` storage.
 
@@ -277,18 +395,43 @@ def prepare(
     is refused with `volume 'local:iso/...' does not exist`, which is what the
     first cluster run hit.
     """
-    if medium not in api.isos(node):
+    stamp = trust / "remote" / node / f"{medium}.sha512"
+    if medium in api.isos(node):
+        try:
+            recorded = stamp.read_text().strip()
+        except OSError:
+            recorded = ""
+        if recorded != sha512:
+            raise ProxmoxError(
+                f"{medium} already exists on {node} without its signed SHA-512 record"
+            )
+    else:
         last = ""
         for url in urls:
             try:
-                api.fetch_iso(node, url, medium)
+                api.fetch_iso(node, url, medium, sha512)
                 break
             except ProxmoxError as error:
                 last = str(error)
         else:
             raise ProxmoxError(f"no mirror served {medium} to {node}: {last}")
-    if driver not in api.isos(node):
+        stamp.parent.mkdir(parents=True, exist_ok=True)
+        stamp.write_text(sha512)
+    driver_sha256 = driver_digest(driver_path)
+    driver_stamp = trust / "remote" / node / f"{driver}.sha256"
+    if driver in api.isos(node):
+        try:
+            recorded_driver = driver_stamp.read_text().strip()
+        except OSError:
+            recorded_driver = ""
+        if recorded_driver != driver_sha256:
+            raise ProxmoxError(
+                f"{driver} already exists on {node} without its driver SHA-256 record"
+            )
+    else:
         api.upload_iso(node, driver_path, driver)
+        driver_stamp.parent.mkdir(parents=True, exist_ok=True)
+        driver_stamp.write_text(driver_sha256)
 
 
 
@@ -539,6 +682,100 @@ def rewrite_fixtures(
     return into
 
 
+@dataclass(frozen=True)
+class Lease:
+    node: str
+    vmid: int
+    nonce: str
+    pid: int
+
+
+def _lease_path(workdir: Path, lease: Lease) -> Path:
+    return workdir / "leases" / f"{lease.vmid}-{lease.nonce}.json"
+
+
+def _write_lease(workdir: Path, lease: Lease) -> Path:
+    path = _lease_path(workdir, lease)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".new")
+    temporary.write_text(json.dumps(lease.__dict__, sort_keys=True))
+    temporary.replace(path)
+    return path
+
+
+def _read_lease(path: Path) -> Lease | None:
+    try:
+        raw = json.loads(path.read_text())
+        if not isinstance(raw, dict):
+            return None
+        node = raw.get("node")
+        vmid = raw.get("vmid")
+        nonce = raw.get("nonce")
+        pid = raw.get("pid")
+        if not isinstance(node, str) or not isinstance(vmid, int):
+            return None
+        if not isinstance(nonce, str) or not nonce or not isinstance(pid, int):
+            return None
+        return Lease(node, vmid, nonce, pid)
+    except (OSError, ValueError):
+        return None
+
+
+def _pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def reconcile(api: Api, workdir: Path) -> None:
+    """Remove expired guests only when a local lease supplies their nonce."""
+    owned = set(api.ours())
+    directory = workdir / "leases"
+    for path in sorted(directory.glob("*.json")):
+        lease = _read_lease(path)
+        if lease is None or _pid_alive(lease.pid):
+            continue
+        if (lease.node, lease.vmid) not in owned:
+            continue
+        guest = Guest(
+            api,
+            lease.node,
+            lease.vmid,
+            GuestSpec(name="expired-lease", iso="", nonce=lease.nonce),
+        )
+        guest.destroy()
+        path.unlink()
+
+
+def revision_identity(driver: Path) -> str:
+    """Git state and exact driver bytes represented by a campaign outcome."""
+
+    def ask(argv: list[str]) -> str:
+        try:
+            result = subprocess.run(
+                argv, cwd=REPOSITORY, capture_output=True, text=True
+            )
+        except OSError:
+            return ""
+        return result.stdout.strip() if result.returncode == 0 else ""
+
+    described = ask(["git", "describe", "--always", "--dirty"]) or "unknown"
+    changed = len(ask(["git", "status", "--short"]).splitlines())
+    return f"{described} dirty={changed} driver-sha256={driver_digest(driver)}"
+
+
+def trusted_revision(identity: str) -> bool:
+    """Whether an outcome identifies a clean tree or an explicit test identity."""
+    dirty = re.search(r"(?:^| )dirty=(\d+)(?: |$)", identity)
+    return bool(identity) and (dirty is None or dirty.group(1) == "0")
+
+
 def free_slots(api: Api, placed: Mapping[str, int] | None = None) -> list[Node]:
     """One entry per guest the cluster can still hold, most free node first.
 
@@ -612,6 +849,8 @@ def install_one(
     workdir: Path,
     inflight: dict[str, Running] | None = None,
     vmid: int = 0,
+    nonce: str = "",
+    revision: str = "",
 ) -> Outcome:
     """Build a guest, install into it, read the result, delete the guest."""
     started = time.monotonic()
@@ -631,16 +870,18 @@ def install_one(
             driver_iso=driver,
             # This run's own mark, so a second campaign that picked the same
             # free VMID cannot delete the guest this one built.
-            nonce=f"gi-{uuid.uuid4().hex[:12]}",
+            nonce=nonce or f"gi-{uuid.uuid4().hex[:12]}",
         ),
     )
+    phase = Phase.CREATE
     watch = Watchdog(log=log, counters=lambda: guest.transferred())
     if inflight is not None:
         inflight[job.name] = Running(guest=guest, watch=watch)
     try:
         guest.create()
         guest.start()
-        log.write_bytes(b"")
+        phase = Phase.BOOT_LIVE
+        log.write_text(f"installer revision: {revision}\n")
         link = Reconnecting.to(guest, log)
         console = link.console
         # Reset with the console attached: termproxy forwards only what arrives
@@ -670,6 +911,7 @@ def install_one(
         # tell a slow mirror from a dead guest.
         # `wait_for`, not `run`: a console dropped mid-install is reopened and
         # listened to again, never handed the command a second time.
+        phase = Phase.INSTALL
         link.wait_for(
             f"{{ sh /mnt/driver/install.sh --config fixtures/{job.fixture.name}; "
             f"echo $? > {RESULT_DIR}/install.rc; }} 2>&1 | tee {RESULT_DIR}/install.txt",
@@ -678,20 +920,59 @@ def install_one(
         files = collect(guest, link, log)
         code = files.get("install.rc", b"").strip()
         if code != b"0":
-            return Outcome(job.name, Verdict.FAIL, time.monotonic() - started,
-                           f"the installer exited {code!r}", log)
+            return Outcome(
+                job.name,
+                Verdict.FAIL,
+                time.monotonic() - started,
+                f"the installer exited {code!r}",
+                log,
+                phase=phase,
+                revision=revision,
+            )
         # The install finishing is half the question. The other half is whether
         # the machine it produced comes up and carries what was asked for, and
         # nothing in the log above can answer that.
+        phase = Phase.BOOT_INSTALLED
         wrong = boot_and_check(guest, link, log, load(job.fixture))
         if wrong:
-            return Outcome(job.name, Verdict.FAIL, time.monotonic() - started, wrong, log)
-        return Outcome(job.name, Verdict.OK, time.monotonic() - started, log=log)
+            return Outcome(
+                job.name,
+                Verdict.FAIL,
+                time.monotonic() - started,
+                wrong,
+                log,
+                phase=phase,
+                revision=revision,
+            )
+        return Outcome(
+            job.name,
+            Verdict.OK,
+            time.monotonic() - started,
+            log=log,
+            phase=phase,
+            revision=revision,
+        )
     except (ConsoleTimeout, ConsoleClosed) as error:
-        verdict = Verdict.STUCK if watch.stuck else Verdict.FAIL
-        return Outcome(job.name, verdict, time.monotonic() - started, str(error)[:300], log)
+        verdict = Verdict.STUCK if watch.stuck else Verdict.ERROR
+        return Outcome(
+            job.name,
+            verdict,
+            time.monotonic() - started,
+            str(error)[:300],
+            log,
+            phase=phase,
+            revision=revision,
+        )
     except (ProxmoxError, ResultError, OSError) as error:
-        return Outcome(job.name, Verdict.ERROR, time.monotonic() - started, str(error)[:300], log)
+        return Outcome(
+            job.name,
+            Verdict.ERROR,
+            time.monotonic() - started,
+            str(error)[:300],
+            log,
+            phase=phase,
+            revision=revision,
+        )
     finally:
         if inflight is not None:
             inflight.pop(job.name, None)
@@ -714,6 +995,9 @@ def answer_once(
     workdir: Path,
     inflight: dict[str, Running],
     vmid: int = 0,
+    nonce: str = "",
+    lease_path: Path | None = None,
+    revision: str = "",
 ) -> None:
     """Run one job and put exactly one outcome on the queue, whatever happens.
 
@@ -723,11 +1007,23 @@ def answer_once(
     with an empty cluster and a job still queued.
     """
     try:
-        outcome = install_one(api, node, job, driver, workdir, inflight, vmid)
-        done.put(replace(outcome, removed=outcome.name not in LEFT_BEHIND))
+        outcome = install_one(
+            api, node, job, driver, workdir, inflight, vmid, nonce, revision
+        )
+        outcome = replace(outcome, removed=outcome.name not in LEFT_BEHIND)
+        if outcome.removed and lease_path is not None:
+            lease_path.unlink(missing_ok=True)
+        done.put(outcome)
     except BaseException as error:
         done.put(
-            Outcome(job.name, Verdict.ERROR, 0.0, f"{type(error).__name__}: {error}"[:300])
+            Outcome(
+                job.name,
+                Verdict.ERROR,
+                0.0,
+                f"{type(error).__name__}: {error}"[:300],
+                removed=False,
+                revision=revision,
+            )
         )
 
 
@@ -743,16 +1039,19 @@ def run(
 
     `limit` caps how many run at once; zero asks the cluster what fits.
     """
+    workdir = confined(workdir)
     api = Api()
     workdir.mkdir(parents=True, exist_ok=True)
+    reconcile(api, workdir)
     # Packed: the ingress refuses the 1.4 MiB loose-file CD with `413`.
     driver_path = build_driver(
         workdir / "driver.iso",
         packed=True,
         fixtures=rewrite_fixtures(jobs, workdir / "fixtures", region, sync),
     )
-    driver = f"gi-driver-{stamp}.iso"
-    medium, urls = current_minimal()
+    revision = revision_identity(driver_path)
+    driver = remote_name(driver_path)
+    medium, urls, medium_sha512 = current_minimal(workdir)
     prepared: set[str] = set()
     done: queue.Queue[Outcome] = queue.Queue()
     waiting = list(jobs)
@@ -768,12 +1067,35 @@ def run(
     handed: set[int] = set()
     placed: Counter[str] = Counter()
     swept = time.monotonic()
+    capacity_since: float | None = None
 
     try:
         while waiting or running:
             slots = free_slots(api, placed)
             if limit:
                 slots = slots[: max(0, limit - len(running))]
+            if waiting and not running and not slots:
+                now = time.monotonic()
+                if capacity_since is None:
+                    capacity_since = now
+                waited = now - capacity_since
+                if waited >= CAPACITY_PATIENCE:
+                    for job in waiting:
+                        finished.append(
+                            Outcome(
+                                job.name,
+                                Verdict.ERROR,
+                                waited,
+                                f"the cluster had no capacity for {waited:.0f}s",
+                                phase=Phase.SCHEDULE,
+                                revision=revision,
+                            )
+                        )
+                    waiting.clear()
+                    break
+                time.sleep(min(POLL_WHILE_QUEUED, CAPACITY_PATIENCE - waited))
+                continue
+            capacity_since = None
             while waiting and slots:
                 # The first job this node has room for, not the first job:
                 # a heavy guest wants twice the memory, and taking it from a
@@ -787,7 +1109,16 @@ def run(
                     break
                 node = slots.pop(0)
                 if node.name not in prepared:
-                    prepare(api, node.name, medium, urls, driver_path, driver)
+                    prepare(
+                        api,
+                        node.name,
+                        medium,
+                        urls,
+                        medium_sha512,
+                        workdir / "medium-trust",
+                        driver_path,
+                        driver,
+                    )
                     prepared.add(node.name)
                 job = waiting.pop(index)
                 # Two light slots for a heavy guest, so the arithmetic below
@@ -798,9 +1129,25 @@ def run(
                     job = replace(job, iso=medium)
                 vmid = api.free_vmid(frozenset(handed))
                 handed.add(vmid)
+                nonce = f"gi-{uuid.uuid4().hex[:12]}"
+                lease = _write_lease(
+                    workdir, Lease(node.name, vmid, nonce, os.getpid())
+                )
                 thread = threading.Thread(
                     target=answer_once,
-                    args=(done, api, node.name, job, driver, workdir, inflight, vmid),
+                    args=(
+                        done,
+                        api,
+                        node.name,
+                        job,
+                        driver,
+                        workdir,
+                        inflight,
+                        vmid,
+                        nonce,
+                        lease,
+                        revision,
+                    ),
                     daemon=True,
                 )
                 running[job.name] = thread
@@ -832,6 +1179,7 @@ def run(
                             0.0,
                             "the worker ended without reporting",
                             removed=False,
+                            revision=revision,
                         )
                     )
                 continue
@@ -1242,7 +1590,13 @@ def fixtures(names: list[str]) -> list[Job]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("fixtures", nargs="+", help="fixture names, without .toml")
-    parser.add_argument("--limit", type=int, default=0, help="how many guests at once")
+    def nonnegative(value: str) -> int:
+        limit = int(value)
+        if limit < 0:
+            raise argparse.ArgumentTypeError("--limit cannot be negative")
+        return limit
+
+    parser.add_argument("--limit", type=nonnegative, default=0, help="how many guests at once")
     parser.add_argument("--workdir", type=Path, default=WORKROOT)
     parser.add_argument(
         "--region",
@@ -1258,6 +1612,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    try:
+        workdir = confined(args.workdir)
+    except WorkdirError as error:
+        print(error, file=sys.stderr)
+        return 1
+
     repeated = sorted({one for one in args.fixtures if args.fixtures.count(one) > 1})
     if repeated:
         # Refused rather than deduplicated: every map below is keyed by name,
@@ -1270,16 +1630,20 @@ def main(argv: list[str] | None = None) -> int:
     jobs = fixtures(args.fixtures)
     outcomes = run(
         jobs,
-        args.workdir,
+        workdir,
         args.limit,
         int(time.time()),
         MirrorRegion(args.region),
         Sync(args.sync),
     )
-    passed = [one for one in outcomes if one.verdict is Verdict.OK]
+    passed = [
+        one
+        for one in outcomes
+        if one.verdict is Verdict.OK and trusted_revision(one.revision)
+    ]
     print(f"\n{len(passed)}/{len(jobs)} passed")
     for one in outcomes:
-        if one.verdict is not Verdict.OK:
+        if one.verdict is not Verdict.OK or not trusted_revision(one.revision):
             print(f"  {one.verdict.value} {one.name}: {one.detail} ({one.log})")
     # Against what was asked for, not against what came back: a worker that
     # died without answering left its job with no outcome at all, and a run

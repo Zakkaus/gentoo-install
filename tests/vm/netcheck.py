@@ -29,6 +29,7 @@ from typing import Final
 
 from .console import SerialConsole
 from .driver import build as build_driver
+from .workdir import WorkdirError, confined
 from .media import MEDIA
 from .qemu import Firmware, Vm, VmSpec
 
@@ -129,6 +130,7 @@ def _check(console: SerialConsole, families: str, driver: str) -> Result:
 
 
 def run(families: str, workdir: Path) -> Result:
+    workdir = confined(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
     medium = MEDIA["official-minimal"]
     driver_iso = build_driver(workdir / "driver.iso", packed=True)
@@ -158,12 +160,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workdir", type=Path, default=WORKROOT)
     args = parser.parse_args(argv)
 
+    try:
+        workdir = confined(args.workdir)
+    except WorkdirError as error:
+        print(error, file=sys.stderr)
+        return 1
+
     wanted = args.families or sorted(EXPECTED)
     results: list[Result] = []
     for families in wanted:
         started = time.monotonic()
         print(f"→ {families}", flush=True)
-        found = run(families, args.workdir)
+        found = run(families, workdir)
         results.append(found)
         mark = "ok  " if found.good else "FAIL"
         print(f"{mark} {families:5} {(time.monotonic() - started) / 60:4.1f}m", flush=True)

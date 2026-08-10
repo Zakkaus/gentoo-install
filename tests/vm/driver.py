@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import tempfile
+import hashlib
 from pathlib import Path
 
 from .media import MediaError
@@ -62,51 +64,66 @@ def build(output: Path, packed: bool = False, fixtures: Path | None = None) -> P
     """
     if shutil.which("xorriso") is None:
         raise MediaError("xorriso is not installed, so the driver CD cannot be built")
-    staging = output.parent / "driver"
-    if staging.exists():
-        shutil.rmtree(staging)
-    staging.mkdir(parents=True)
-    shutil.copytree(
-        REPOSITORY / "gentoo_install",
-        staging / "gentoo_install",
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-    )
-    shutil.copytree(fixtures or REPOSITORY / "tests" / "fixtures", staging / "fixtures")
-    # The launcher is what an operator runs, so the CD carries the same one.
-    shutil.copy2(REPOSITORY / "bootstrap.sh", staging / "bootstrap.sh")
-    entry = staging / "install.sh"
-    entry.write_text(ENTRY)
-    entry.chmod(0o755)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    scratch = Path(tempfile.mkdtemp(prefix=".driver-", dir=output.parent))
+    source = scratch / "source"
+    image = source
+    try:
+        shutil.copytree(
+            REPOSITORY / "gentoo_install",
+            source / "gentoo_install",
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+        )
+        shutil.copytree(fixtures or REPOSITORY / "tests" / "fixtures", source / "fixtures")
+        # The launcher is what an operator runs, so the CD carries the same one.
+        shutil.copy2(REPOSITORY / "bootstrap.sh", source / "bootstrap.sh")
+        entry = source / "install.sh"
+        entry.write_text(ENTRY)
+        entry.chmod(0o755)
 
-    if packed:
-        payload = output.parent / PAYLOAD
-        packing = subprocess.run(
-            ["tar", "czf", str(payload), "-C", str(staging), "."],
+        if packed:
+            image = scratch / "image"
+            image.mkdir()
+            payload = image / PAYLOAD
+            packing = subprocess.run(
+                ["tar", "czf", str(payload), "-C", str(source), "."],
+                capture_output=True,
+                text=True,
+            )
+            if packing.returncode != 0:
+                raise MediaError(f"the driver payload was not packed: {packing.stderr.strip()}")
+            entry = image / "install.sh"
+            entry.write_text(PACKED_ENTRY)
+            entry.chmod(0o755)
+
+        output.unlink(missing_ok=True)
+        result = subprocess.run(
+            [
+                "xorriso", "-as", "mkisofs",
+                "-volid", LABEL,
+                "-output", str(output),
+                "-quiet",
+                str(image),
+            ],
             capture_output=True,
             text=True,
         )
-        if packing.returncode != 0:
-            raise MediaError(f"the driver payload was not packed: {packing.stderr.strip()}")
-        shutil.rmtree(staging)
-        staging.mkdir(parents=True)
-        shutil.move(str(payload), staging / PAYLOAD)
-        entry = staging / "install.sh"
-        entry.write_text(PACKED_ENTRY)
-        entry.chmod(0o755)
+        if result.returncode != 0:
+            raise MediaError(f"xorriso failed: {result.stderr.strip()}")
+        return output
+    finally:
+        shutil.rmtree(scratch)
 
-    output.unlink(missing_ok=True)
-    result = subprocess.run(
-        [
-            "xorriso", "-as", "mkisofs",
-            "-volid", LABEL,
-            "-output", str(output),
-            "-quiet",
-            str(staging),
-        ],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise MediaError(f"xorriso failed: {result.stderr.strip()}")
-    shutil.rmtree(staging)
-    return output
+
+def digest(path: Path) -> str:
+    """SHA-256 identity of a completed driver image."""
+    reader = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            reader.update(block)
+    return reader.hexdigest()
+
+
+def remote_name(path: Path) -> str:
+    """Content-addressed name used on node-local ISO storage."""
+    return f"gi-driver-{digest(path)[:20]}.iso"
