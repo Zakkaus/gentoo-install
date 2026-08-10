@@ -130,7 +130,6 @@
 "keys only" = "僅接受公鑰"
 "no password is accepted" = "不接受密碼登入"
 "password login" = "允許密碼登入"
-"root is a row of its own" = "root 單獨一列"
 "Root login over SSH" = "root 以 SSH 登入"
 "Let root log in over SSH?" = "允許 root 以 SSH 登入嗎？"
 "allowed" = "允許"

@@ -130,7 +130,6 @@
 "keys only" = "公開鍵のみ"
 "no password is accepted" = "パスワードは受け付けません"
 "password login" = "パスワードログインを許可"
-"root is a row of its own" = "root は別の行です"
 "Root login over SSH" = "SSH での root ログイン"
 "Let root log in over SSH?" = "SSH での root ログインを許可しますか？"
 "allowed" = "許可"
