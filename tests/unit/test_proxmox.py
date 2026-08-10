@@ -1011,3 +1011,67 @@ def test_a_command_is_delivered_after_the_console_was_dropped() -> None:
     # `reopen` sends an empty line first, to make the shell draw a prompt.
     assert opened[1].sent == ["", "probe me"]
     assert opened[0].sent == [], "nothing goes into the dropped one"
+
+
+def test_removing_a_guest_needs_the_range_the_tag_and_this_run_s_own_mark() -> None:
+    """The tag is ours to write, so it is not evidence on its own: a machine
+    outside the range that carries it would have been deleted, and two
+    campaigns that picked the same free VMID in the same second could each
+    delete the other's guest.
+
+    This token administers a cluster running other people's work.
+    """
+    from typing import Any
+
+    from tests.vm.proxmox import TAG, VMID_FIRST, Api, Guest, GuestSpec, ProxmoxError
+
+    class Answering(Api):
+        def __init__(self, tags: str) -> None:
+            self.tags = tags
+            self.deleted: list[int] = []
+
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            if method == "GET" and path.endswith("/config"):
+                return {"tags": self.tags}
+            if method == "DELETE":
+                self.deleted.append(int(path.rsplit("/", 1)[1]))
+            return "UPID:x"
+
+        def wait(self, node: str, upid: str, patience: float = 1800.0) -> None:
+            return None
+
+    def guest(api: Api, vmid: int, nonce: str) -> Guest:
+        return Guest(
+            api=api,
+            node="infra-node1",
+            vmid=vmid,
+            spec=GuestSpec(name="x", iso="x", nonce=nonce),
+        )
+
+    # Outside the range, however it is tagged.
+    api = Answering(f"{TAG};gi-abc")
+    with pytest.raises(ProxmoxError, match="outside"):
+        guest(api, 9002, "gi-abc").destroy()
+    assert api.deleted == []
+
+    # In range and tagged, but built by another run.
+    api = Answering(f"{TAG};gi-someone-else")
+    with pytest.raises(ProxmoxError, match="not the guest this run built"):
+        guest(api, VMID_FIRST, "gi-abc").destroy()
+    assert api.deleted == []
+
+    # In range, tagged, and ours.
+    api = Answering(f"{TAG};gi-abc")
+    guest(api, VMID_FIRST, "gi-abc").destroy()
+    assert api.deleted == [VMID_FIRST]
+
+
+def test_every_cluster_guest_is_built_with_a_mark_of_its_own() -> None:
+    """A guest with no nonce falls back to the tag alone, which is the state
+    this rule exists to leave behind."""
+    import inspect
+
+    from tests.vm import cluster
+
+    source = inspect.getsource(cluster.install_one)
+    assert "nonce=" in source, "the campaign has to mark the guests it builds"
