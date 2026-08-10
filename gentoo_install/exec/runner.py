@@ -72,7 +72,20 @@ class Runner:
         try:
             output, returncode = self._stream(full, input_text, timeout)
         except FileNotFoundError as error:
-            raise CommandFailed(f"{full[0]} is not installed") from error
+            if check:
+                raise CommandFailed(f"{full[0]} is not installed") from error
+            # `check=False` says a failure is an answer, and a medium without
+            # the command is one of the answers: the Arch live image carries
+            # no `zpool`, and asking whether a disk belongs to a pool stopped
+            # an install that used no ZFS at all.
+            self.log(f"| {full[0]} is not installed")
+            return Result(
+                argv=full,
+                returncode=127,
+                stdout=f"{full[0]} is not installed",
+                stderr="",
+                seconds=time.monotonic() - started,
+            )
         result = Result(
             argv=full,
             returncode=returncode,
