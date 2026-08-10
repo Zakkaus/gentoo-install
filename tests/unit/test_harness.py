@@ -1025,3 +1025,15 @@ def test_the_walk_does_not_escape_out_of_a_row_that_never_opened(
     assert console.asked == 1, "the menu is waited for, not slept through"
     assert "\x1b" not in console.sent, console.sent
     assert any("opened nothing" in one.what for one in seen.findings), seen.findings
+
+
+def test_a_carriage_return_ends_a_line_the_walk_measures() -> None:
+    """curses moves the cursor between rows with a bare carriage return, so
+    joining on newlines alone made the whole screen one line and the width
+    check reported a 597-cell menu that is 24 rows of at most 80."""
+    from tests.vm.tui import cells, rendered
+
+    screen = b"\x1b[H\x1b[Jgentoo-install\r  keyboard  us\r  locale  zh_TW.UTF-8\r"
+    lines = rendered(screen)
+    assert lines[:3] == ["gentoo-install", "  keyboard  us", "  locale  zh_TW.UTF-8"]
+    assert max(cells(one) for one in lines) <= 80
