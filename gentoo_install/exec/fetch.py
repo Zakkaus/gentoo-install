@@ -307,26 +307,46 @@ ONLINE_TRIES: Final[int] = 5
 ONLINE_PAUSE: Final[float] = 2.0
 
 
+def why_unreachable(url: str) -> str:
+    """Empty when the URL answers, and why it did not otherwise.
+
+    The reason is carried out, not discarded. `cannot reach X` sent a run to
+    look at the network when the answer was a certificate the medium could not
+    verify, and a whole campaign was diagnosed twice over for want of one
+    sentence.
+    """
+    said = ""
+    for attempt in range(ONLINE_TRIES):
+        try:
+            _read(url)
+        except DownloadFailed as error:
+            said = str(error)
+            if attempt + 1 < ONLINE_TRIES:
+                time.sleep(ONLINE_PAUSE * 2**attempt)
+            continue
+        return ""
+    return said
+
+
 def reachable(url: str) -> bool:
     """Whether a URL answers, tried `ONLINE_TRIES` times.
 
     Asked of the address the run will actually read rather than of any host: a
     machine behind a portal resolves names and still cannot fetch anything.
     """
-    for attempt in range(ONLINE_TRIES):
-        try:
-            _read(url)
-        except DownloadFailed:
-            if attempt + 1 < ONLINE_TRIES:
-                time.sleep(ONLINE_PAUSE * 2**attempt)
-            continue
-        return True
-    return False
+    return not why_unreachable(url)
 
 
 def online() -> bool:
     """Whether the package site answers. The menu reads every version from it."""
     return reachable(f"{PACKAGES_API}/sys-kernel/gentoo-kernel-bin.json")
+
+
+def why_mirror_unreachable(mirror: str, variant: str) -> str:
+    """Empty when the mirror answers, and why it did not otherwise."""
+    return why_unreachable(
+        f"{mirror.rstrip('/')}/{STAGE3_PATH}/latest-stage3-amd64-{variant}.txt"
+    )
 
 
 def mirror_online(mirror: str, variant: str) -> bool:

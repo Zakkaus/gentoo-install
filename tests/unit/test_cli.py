@@ -638,11 +638,11 @@ def test_a_configured_install_checks_its_mirror_and_not_the_package_site(
     not."""
     asked: list[str] = []
 
-    def reachable(url: str) -> bool:
+    def why(url: str) -> str:
         asked.append(url)
-        return True
+        return ""
 
-    monkeypatch.setattr(fetch, "reachable", reachable)
+    monkeypatch.setattr(fetch, "why_unreachable", why)
     monkeypatch.setattr(cli, "_check_the_clock", lambda: None)
     monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
     code = main(["--config", "tests/fixtures/btrfs-luks.toml", "--dry-run"])
@@ -660,7 +660,13 @@ def test_the_mirror_check_names_the_mirror_it_could_not_reach(
     from gentoo_install import errors
     from gentoo_install.exec.config import load
 
-    monkeypatch.setattr(fetch, "reachable", lambda url: False)
+    monkeypatch.setattr(
+        fetch, "why_unreachable", lambda url: "certificate verify failed: unable to get issuer"
+    )
     config = load(Path("tests/fixtures/btrfs-luks.toml"))
-    with pytest.raises(errors.PreflightFailed, match="tuna"):
+    with pytest.raises(errors.PreflightFailed, match="tuna") as raised:
         cli._require_mirror(config, DEFAULT_MIRROR)
+    # The reason is carried out, not discarded: `cannot reach X` sent a run to
+    # look at the network when the answer was a certificate the medium could
+    # not verify.
+    assert "certificate verify failed" in str(raised.value)
