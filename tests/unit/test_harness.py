@@ -518,19 +518,14 @@ def test_a_worker_that_ends_without_reporting_becomes_an_error() -> None:
     handler can see. A thread that ends any other way left its name in the
     running set for ever and the schedule never finished: one round sat idle
     for half an hour with an empty cluster and a job still queued."""
-    import inspect
+    import threading
 
-    from tests.vm import cluster
+    from tests.vm.cluster import _unanswered
 
-    source = inspect.getsource(cluster.run)
-    assert "thread.is_alive()" in source, "the scheduler has to notice a dead worker"
-    assert "the worker ended without reporting" in source
-    # And the outcome it makes does not hand the node's slot back, because
-    # nothing proved the guest was removed.
-    gone = cluster.Outcome(
-        "x", cluster.Verdict.ERROR, 0.0, "the worker ended without reporting", removed=False
-    )
-    assert gone.removed is False
+    ended = threading.Thread(target=lambda: None)
+    ended.start()
+    ended.join()
+    assert _unanswered({"vm-lvm": ended}, nothing_queued=True) == ["vm-lvm"]
 
 
 def test_unknown_telemetry_does_not_make_a_quiet_guest_stuck(tmp_path: Path) -> None:
