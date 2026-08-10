@@ -13,12 +13,13 @@ import platform
 import re
 import shutil
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import ClassVar, Final, Iterable, Mapping
 
-from ..errors import DeviceNotFound
-from ..model.device import DeviceId
+from ..errors import CommandFailed, DeviceNotFound
+from ..model.config import InstallConfig
+from ..model.device import DeviceGraph, DeviceId, Existing
 from .runner import Runner
 
 EFI_MARKER: Final[Path] = Path("/sys/firmware/efi")
@@ -292,6 +293,28 @@ class Probe:
 
     #: Where udev keeps the names that survive the kernel renumbering disks.
     BY_ID: ClassVar[Path] = Path("/dev/disk/by-id")
+
+    def mdraid_metadata(self, selector: str) -> str:
+        """The metadata version an array already on the machine carries.
+
+        Empty when the device is not an array. The model cannot read a
+        superblock, so a reused RAID1 esp met no compatibility rule at all
+        until this was injected before validation, although firmware cannot
+        read a member whose superblock sits at the start.
+        """
+        try:
+            said = self.runner.run(["mdadm", "--detail", "--export", selector], check=False)
+        except (CommandFailed, OSError):
+            # A medium without mdadm says nothing about a superblock, and that
+            # is not a reason to stop: the array rule simply does not fire.
+            return ""
+        if said.returncode != 0:
+            return ""
+        for line in said.stdout.splitlines():
+            name, _, value = line.partition("=")
+            if name.strip() == "MD_METADATA" and value.strip():
+                return value.strip()
+        return ""
 
     def passphrase(self, source: str) -> tuple[str, str]:
         """What a passphrase file holds, and why it could not be read.
@@ -682,3 +705,27 @@ class Probe:
             if line.startswith("MemTotal:"):
                 return int(line.split()[1]) * 1024
         return 0
+
+
+def with_probed_facts(config: InstallConfig, probe: Probe) -> InstallConfig:
+    """Fill in what only the machine can say, before anything validates it.
+
+    The model stays parseable without the hardware, so a reused device carries
+    a selector and nothing else. Its mdraid metadata is read here: a reused
+    RAID1 esp with a superblock at the start met no compatibility rule at all
+    without it, and firmware cannot read such a member.
+    """
+    graph = config.disk.graph
+    reused = [one for one in graph.of_type(Existing) if not one.mdraid_metadata]
+    if not reused:
+        return config
+    known = {one.id: probe.mdraid_metadata(one.selector) for one in reused}
+    if not any(known.values()):
+        return config
+    nodes = [
+        replace(one, mdraid_metadata=known[one.id])
+        if isinstance(one, Existing) and known.get(one.id)
+        else one
+        for one in graph.nodes.values()
+    ]
+    return replace(config, disk=replace(config.disk, graph=DeviceGraph.build(nodes)))

@@ -23,6 +23,7 @@ from .config import (
 )
 from .device import (
     Existing,
+    RaidMetadata,
     T,
     DeviceGraph,
     DeviceId,
@@ -256,6 +257,19 @@ def traits_of(config: InstallConfig) -> frozenset[Trait]:
             continue
         found.add(Trait.ESP_ON_MDRAID)
         if array.metadata.superblock_at_start:
+            found.add(Trait.ESP_MDRAID_SUPERBLOCK_AT_START)
+    # A reused array is `Existing` and carries no `MdRaid` node, so the loop
+    # above never sees it, and `_on_esp` cannot answer for it either: that
+    # reads what a device is built from, and a reused array is built from
+    # nothing this model knows. The evidence is above it instead — the esp
+    # mount is what stands on it. The probe writes the metadata version.
+    mounted = esp_mount(graph)
+    beneath = {node.id for node in _chain(graph, mounted.id)} if mounted else set()
+    for reused in graph.of_type(Existing):
+        if not reused.mdraid_metadata or reused.id not in beneath:
+            continue
+        found.add(Trait.ESP_ON_MDRAID)
+        if RaidMetadata(reused.mdraid_metadata).superblock_at_start:
             found.add(Trait.ESP_MDRAID_SUPERBLOCK_AT_START)
 
     for table in _nodes_under(graph, config.disk.root, PartitionTable):

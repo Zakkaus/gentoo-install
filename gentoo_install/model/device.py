@@ -110,6 +110,12 @@ class Existing(Node):
 
     selector: str
     wipe: bool = False
+    #: The mdraid metadata version this device already carries, when it is an
+    #: array being reused. Empty for anything else, and filled in by the probe
+    #: before validation: the model cannot read a superblock, and without it a
+    #: reused RAID1 esp with metadata 1.1 or 1.2 met no rule at all, although
+    #: firmware cannot read a member whose superblock is at the start.
+    mdraid_metadata: str = ""
 
 
 @dataclass(frozen=True)

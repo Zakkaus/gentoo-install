@@ -23,6 +23,7 @@ from gentoo_install.model.config import (
     SystemConfig,
 )
 from gentoo_install.model.device import (
+    Existing,
     Filesystem,
     FilesystemType,
     Luks,
@@ -448,3 +449,36 @@ def test_a_separate_vfat_boot_is_still_readable() -> None:
     assert Trait.KERNEL_OFF_ESP not in compat.traits_of(
         boots(config(nodes), Bootloader.SYSTEMD_BOOT, Firmware.UEFI)
     )
+
+
+def reused_esp(metadata: str) -> list[Node]:
+    """An esp on an array already assembled on the machine.
+
+    `Existing` and nothing else: the model cannot read a superblock, so the
+    version is injected by the probe before validation.
+    """
+    nodes: list[Node] = [
+        node
+        for node in ext4_on_gpt()
+        if node.id not in {i("espfs"), i("mnt-esp"), i("esp")}
+    ]
+    nodes += [
+        Existing(id=i("esp"), selector="/dev/md0", mdraid_metadata=metadata),
+        Filesystem(id=i("espfs"), device=i("esp"), kind=FilesystemType.VFAT),
+        Mountpoint(id=i("mnt-esp"), source=i("espfs"), path=PurePosixPath("/efi")),
+    ]
+    return nodes
+
+
+def test_a_reused_array_under_the_esp_meets_the_firmware_rule() -> None:
+    """An esp the plan creates carries an `MdRaid` node; a reused one is
+    `Existing` and carries nothing, so a RAID1 esp with metadata 1.1 or 1.2
+    met no rule at all although firmware cannot read a member whose superblock
+    sits at the start."""
+    at_start = traits_of(config(reused_esp("1.2")))
+    at_end = traits_of(config(reused_esp("1.0")))
+
+    assert Trait.ESP_ON_MDRAID in at_start
+    assert Trait.ESP_MDRAID_SUPERBLOCK_AT_START in at_start
+    assert Trait.ESP_ON_MDRAID in at_end
+    assert Trait.ESP_MDRAID_SUPERBLOCK_AT_START not in at_end
