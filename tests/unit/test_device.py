@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import PurePosixPath
+from typing import MutableMapping, cast
 
 import pytest
 
@@ -142,3 +143,16 @@ def test_nodes_are_frozen_so_a_validated_graph_cannot_be_edited() -> None:
     graph = DeviceGraph.build(btrfs_on_luks())
     with pytest.raises(AttributeError):
         setattr(graph[i("rootfs")], "id", i("other"))
+
+
+def test_a_validated_graph_cannot_have_nodes_inserted() -> None:
+    graph = DeviceGraph.build(btrfs_on_luks())
+    mutable = cast(MutableMapping[DeviceId, Node], graph.nodes)
+    with pytest.raises(TypeError):
+        mutable[i("loop")] = Luks(id=i("loop"), backing=i("loop"), name="loop")
+
+
+def test_the_public_constructor_validates_unknown_references() -> None:
+    nodes = {i("table"): PartitionTable(id=i("table"), disk=i("absent"), table=TableType.GPT)}
+    with pytest.raises(UnknownDeviceId, match="absent"):
+        DeviceGraph(nodes=nodes)

@@ -21,7 +21,7 @@ from gentoo_install.model.config import (
 )
 from gentoo_install.errors import ConfigError
 from gentoo_install.plan import portage
-from gentoo_install.plan.operations import Operation
+from gentoo_install.plan.operations import CommandOutput, Operation
 
 from .layouts import config
 from .recorder import Recorder
@@ -308,6 +308,11 @@ LICENCE_REFUSED = (
     "A copy of the 'NVIDIA-2025' license is located at "
     "'/var/db/repos/gentoo/licenses/NVIDIA-2025'.\n"
 )
+PACKAGE_MASKED = (
+    '\n!!! All ebuilds that could satisfy "app-text/catdoc" have been masked.\n'
+    "!!! One of the following masked packages is required to complete your request:\n"
+    "- app-text/catdoc-0.95-r1::gentoo (masked by: package.mask)\n"
+)
 
 
 def test_a_package_name_that_matches_nothing_stops_before_the_disks_fill() -> None:
@@ -329,6 +334,13 @@ def test_a_package_the_licence_refuses_is_named_as_that_and_not_as_a_typo() -> N
     recorder.replies["emerge"] = LICENCE_REFUSED
     with pytest.raises(ConfigError, match="ACCEPT_LICENSE refuses"):
         portage.VerifyPackages(packages=("x11-drivers/nvidia-drivers",)).apply(recorder)
+
+
+def test_an_unclassified_nonzero_package_probe_is_rejected() -> None:
+    recorder = Recorder()
+    recorder.replies["emerge"] = CommandOutput(PACKAGE_MASKED, 1)
+    with pytest.raises(ConfigError, match=r"app-text/catdoc: All ebuilds.*masked"):
+        portage.VerifyPackages(packages=("app-text/catdoc",)).apply(recorder)
 
 
 def test_the_word_license_in_a_path_is_not_a_licence_refusal() -> None:
@@ -565,6 +577,7 @@ def test_a_mirror_rewriting_its_manifests_is_retried_rather_than_fatal(
     recorder = Flaky()
     operation.apply(recorder)
     assert recorder.attempts == 3, recorder.attempts
+    assert recorder.argv_starting("sleep") == (("sleep", "0"), ("sleep", "0"))
     synced = [one for one in recorder.in_target if tuple(one[:2]) == ("emerge", "--sync")]
     assert len(synced) == 1, "the one that worked"
 

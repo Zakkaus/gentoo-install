@@ -282,7 +282,14 @@ def _layout_problems(config: InstallConfig) -> list[str]:
     elif root.path != _ROOT:
         problems.append(f"disk.root is mounted at {root.path}, not at /")
 
-    for path, count in Counter(mount.path for mount in graph.of_type(Mountpoint)).items():
+    mountpoints = graph.of_type(Mountpoint)
+    for mount in mountpoints:
+        if not mount.path.is_absolute() or ".." in mount.path.parts:
+            problems.append(
+                f"mountpoint {mount.id} uses {mount.path}, which does not stay inside the target"
+            )
+
+    for path, count in Counter(mount.path for mount in mountpoints).items():
         if count > 1:
             problems.append(f"{count} devices are mounted at {path}")
 

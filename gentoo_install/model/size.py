@@ -90,9 +90,8 @@ _IEC_LADDER: Final[tuple[Unit, ...]] = (
 #: and `parted` pick, and it keeps 4K-native and RAID-backed devices aligned too.
 DEFAULT_ALIGNMENT: Final[int] = 1024 * 1024
 
-#: A GPT reserves LBA 1 for the header and LBAs 2..33 for the partition array, at
-#: both ends of the device. Anything overlapping the trailing copy is unbootable.
-GPT_RESERVED_SECTORS: Final[int] = 33
+#: The default GPT holds 128 entries of 128 bytes.
+GPT_PARTITION_ARRAY_BYTES: Final[int] = 128 * 128
 
 
 @dataclass(frozen=True, order=True)
@@ -121,6 +120,8 @@ class Size:
     bytes: int
 
     def __post_init__(self) -> None:
+        if isinstance(self.bytes, bool) or not isinstance(self.bytes, int):
+            raise InvalidSize(f"size must be a whole number of bytes, got {self.bytes!r}")
         if self.bytes < 0:
             raise InvalidSize(f"size cannot be negative, got {self.bytes}")
 
@@ -176,7 +177,8 @@ class Size:
 
     def gpt_last_usable(self, sector: SectorSize) -> Size:
         """Offset one past the last byte a partition may occupy on this device."""
-        reserved = Size.from_sectors(GPT_RESERVED_SECTORS, sector)
+        array_sectors = (GPT_PARTITION_ARRAY_BYTES + sector.value - 1) // sector.value
+        reserved = Size.from_sectors(array_sectors + 1, sector)
         if self.bytes < reserved.bytes:
             raise InvalidSize(f"{self} is too small to hold a GPT")
         return Size(self.bytes - reserved.bytes)

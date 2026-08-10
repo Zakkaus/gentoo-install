@@ -7,7 +7,6 @@ before a key can be imported, an imported key stays untrusted until `lsign`, and
 
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Final, Sequence
@@ -23,7 +22,7 @@ from ..model.config import (
     PortageConfig,
     Sync,
 )
-from .operations import Context, Operation, Stage
+from .operations import CommandOutput, Context, Operation, Stage
 
 #: The release engineering key, pinned. A fingerprint that does not match this
 #: is a failed install, not a prompt to trust something new.
@@ -324,7 +323,7 @@ class SyncRepository(Operation):
             except CommandFailed as failed:
                 last = failed
                 if attempt + 1 < SYNC_TRIES:
-                    time.sleep(SYNC_PAUSE * (attempt + 1))
+                    context.run(["sleep", f"{SYNC_PAUSE * (attempt + 1):g}"])
         assert last is not None
         raise last
 
@@ -521,6 +520,7 @@ class VerifyPackages(Operation):
     def apply(self, context: Context) -> None:
         missing: list[str] = []
         refused: list[str] = []
+        rejected: list[str] = []
         for atom in self.packages:
             probe = ["emerge", "--pretend", "--quiet", "--nodeps", "--", atom]
             output = context.run_in_target(probe, check=False)
@@ -530,6 +530,12 @@ class VerifyPackages(Operation):
                 # Told apart because the answers differ: one is a typo, the
                 # other is a licence the operator chose not to accept.
                 refused.append(atom)
+            elif isinstance(output, CommandOutput) and output.returncode != 0:
+                detail = next(
+                    (line.strip().removeprefix("!!! ") for line in output.splitlines() if line.strip()),
+                    "no output",
+                )
+                rejected.append(f"{atom}: {detail}")
         problems: list[str] = []
         if missing:
             problems.append(
@@ -541,6 +547,8 @@ class VerifyPackages(Operation):
                 f"ACCEPT_LICENSE refuses {', '.join(refused)}; widen it on the compiler "
                 "screen, or drop the package"
             )
+        if rejected:
+            problems.append(f"emerge --pretend rejected {'; '.join(rejected)}")
         if problems:
             raise ConfigError("; ".join(problems))
 
