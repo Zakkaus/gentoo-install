@@ -199,6 +199,12 @@ class Api:
         and asking the wrong node for its status is a 500 on a task that is
         running perfectly well.
         """
+        if not upid:
+            # The API answers an accepted request with the task id, and a
+            # `data: null` where one belongs is a request that did not start.
+            # Splitting it raised `AttributeError: 'NoneType'`, which the
+            # worker reported instead of the failure that caused it.
+            raise ProxmoxError(f"{node} answered without a task id; the request did not start")
         parts = upid.split(":")
         if len(parts) > 1 and parts[0] == "UPID" and parts[1]:
             node = parts[1]

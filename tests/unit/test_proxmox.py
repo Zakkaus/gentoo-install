@@ -1826,3 +1826,16 @@ def test_the_address_range_avoids_the_machines_already_on_the_segment() -> None:
     assert "n=155;" in command, command
     # Bounded: the walk stops rather than running off the end of the network.
     assert "-le 249" in command, command
+
+
+def test_a_request_that_started_no_task_is_named_rather_than_crashed() -> None:
+    """The API answers an accepted request with its task id, and a `data: null`
+    where one belongs is a request that never started. Splitting it raised
+    `AttributeError: 'NoneType' object has no attribute 'split'`, and the
+    worker reported that instead of the failure behind it."""
+    from tests.vm.proxmox import Api, ProxmoxError
+
+    api = Api.__new__(Api)
+    with pytest.raises(ProxmoxError) as raised:
+        api.wait("infra-node4", "")
+    assert "did not start" in str(raised.value)
