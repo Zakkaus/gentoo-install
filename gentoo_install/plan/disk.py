@@ -970,11 +970,20 @@ def _dataset_mountpoint(graph: DeviceGraph, dataset: DeviceId) -> PurePosixPath 
 
 
 def _start_of(graph: DeviceGraph, partition: Partition) -> Size:
-    """Where an MBR partition begins: after every partition with a lower index.
+    """Where an MBR partition begins.
 
-    A partition with no size takes the rest of the disk, so anything after it has
-    no start to compute; `validate.py` rejects that layout.
+    On a table written from scratch, after every partition with a lower index.
+    A partition with no size takes the rest of the disk, so anything after it
+    has no start to compute; `validate.py` rejects that layout.
+
+    On a table the operator edits, after the partitions the disk already has:
+    those are not model nodes and summing the model's own gave 1MiB, which
+    `parted` refused with `the closest location we can manage is 1048kB` after
+    the removals in the same plan had already been committed.
     """
+    table = graph[partition.table]
+    if isinstance(table, PartitionTable) and table.free_extents:
+        return _into_free_space(graph, table, partition)
     start = FIRST_OFFSET
     for sibling in sorted(graph.of_type(Partition), key=lambda node: node.index):
         if sibling.table != partition.table or sibling.index >= partition.index:
@@ -983,6 +992,36 @@ def _start_of(graph: DeviceGraph, partition: Partition) -> Size:
             return start
         start = (start + sibling.size).align_up()
     return start
+
+
+def _into_free_space(graph: DeviceGraph, table: PartitionTable, partition: Partition) -> Size:
+    """The first free extent with room for this partition and the ones before it.
+
+    Every added partition of one table is placed in extent order, so two of
+    them do not both take the start of the same gap.
+    """
+    added = [
+        one
+        for one in sorted(graph.of_type(Partition), key=lambda node: node.index)
+        if one.table == table.id
+    ]
+    cursor = {extent.start: Size(extent.start).align_up() for extent in table.free_extents}
+    for one in added:
+        for extent in table.free_extents:
+            at = cursor[extent.start]
+            wanted = one.size.bytes if one.size is not None else 0
+            if at.bytes + wanted > extent.end + 1:
+                continue
+            if one.id == partition.id:
+                return at
+            cursor[extent.start] = (at + one.size).align_up() if one.size else at
+            break
+        else:
+            if one.id == partition.id:
+                raise InvalidLayout(
+                    f"{partition.id} does not fit any free extent of {table.id}"
+                )
+    raise InvalidLayout(f"{partition.id} does not fit any free extent of {table.id}")
 
 
 def _expect(graph: DeviceGraph, device: DeviceId, kind: type[T]) -> T:

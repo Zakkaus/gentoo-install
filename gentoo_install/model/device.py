@@ -119,6 +119,18 @@ class Existing(Node):
 
 
 @dataclass(frozen=True)
+class Extent:
+    """A byte range on a disk, `end` inclusive, as `parted` reports one."""
+
+    start: int
+    end: int
+
+    @property
+    def size(self) -> int:
+        return self.end - self.start + 1
+
+
+@dataclass(frozen=True)
 class PartitionTable(Node):
     disk: DeviceId
     table: TableType
@@ -130,6 +142,12 @@ class PartitionTable(Node):
     #: is an edit to the table, so it belongs to the table and not to a node of
     #: its own: the partition it names stops existing.
     remove: tuple[int, ...] = ()
+    #: Where the disk has no partition now, in bytes, filled in by the probe
+    #: before validation. Empty for a table written from scratch, and empty in
+    #: a configuration file: the model cannot read a partition table, and
+    #: without this an added partition on an edited table was placed at 1MiB
+    #: on top of one the operator kept.
+    free_extents: tuple[Extent, ...] = ()
 
     @property
     def inputs(self) -> tuple[DeviceId, ...]:
