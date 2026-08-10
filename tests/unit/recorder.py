@@ -7,6 +7,7 @@ argv it would run is how the flags get asserted without a disk.
 from __future__ import annotations
 
 from gentoo_install.errors import CommandFailed, DownloadFailed
+from gentoo_install.plan.operations import CommandOutput
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
@@ -44,7 +45,9 @@ class Recorder:
             self.stdin.append(input_text)
         if argv[0] in self.failures:
             raise CommandFailed(f"{argv[0]} exited 1")
-        return self.replies.get(argv[0], "")
+        # A CommandOutput, the way the real runner answers: a double returning
+        # a bare str hides every caller that reads the exit code for itself.
+        return CommandOutput(self.replies.get(argv[0], ""), 0)
 
     def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
         """`check=False` returns the output and raises nothing, the way the real

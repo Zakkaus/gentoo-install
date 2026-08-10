@@ -602,6 +602,15 @@ def test_a_pool_still_busy_after_the_lazy_unmount_is_exported_on_a_later_try(
     monkeypatch.setattr(disk, "EXPORT_PAUSE", 0.0)
     operation = disk.UnmountTarget(pools=("rpool",))
 
+    # Plain before lazy: a lazy unmount leaves the datasets mounted as far as
+    # the kernel is concerned and `zpool export` then reads `pool is busy` for
+    # as long as the references last.
+    ordered = Busy()
+    ordered.refusals = 0
+    operation.apply(ordered)
+    unmounts = [one for one in ordered.commands if one and one[0] == "umount"]
+    assert unmounts == [("umount", "--recursive", "/mnt/gentoo")], unmounts
+
     recorder = Busy()
     operation.apply(recorder)
     assert recorder.attempts == 3, recorder.attempts
