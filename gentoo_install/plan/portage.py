@@ -249,6 +249,14 @@ class ConfigureRepository(Operation):
         )
 
 
+#: Where gemato refreshes the release key from before it checks the snapshot
+#: signature. Not the default `keys.gentoo.org`: a guest on the Proxmox
+#: cluster resolved it to 85.143.112.91 and then reached nothing there, while
+#: `keys.openpgp.org` answered 200 and serves the same key by fingerprint.
+#: The key and the signature are unchanged; only the refresh moves.
+KEY_SERVER: Final[str] = "hkps://keys.openpgp.org"
+
+
 @dataclass(frozen=True, kw_only=True)
 class WebrsyncRepository(Operation):
     """The first sync cannot be a git sync: a stage3 has no `dev-vcs/git`, and
@@ -260,7 +268,16 @@ class WebrsyncRepository(Operation):
         return "fetch the first ebuild repository snapshot with emerge-webrsync"
 
     def apply(self, context: Context) -> None:
-        context.run_in_target(["emerge-webrsync"])
+        # `emerge-webrsync` verifies the snapshot with gemato, which refreshes
+        # the release key before checking the signature. Its default keyserver
+        # is unreachable on some networks: a cluster guest resolved
+        # `keys.gentoo.org` to 85.143.112.91 and then got nothing from it,
+        # so every install stopped at `No keyserver available`. Pointing the
+        # refresh at a keyserver that answers changes where the same key comes
+        # from and verifies exactly as before.
+        context.run_in_target(
+            ["env", f"PORTAGE_GPG_KEY_SERVER={KEY_SERVER}", "emerge-webrsync"]
+        )
 
 
 #: How many times a repository sync is attempted, and how long between them.
