@@ -1067,6 +1067,20 @@ def test_a_screen_is_replayed_into_a_grid_rather_than_flattened() -> None:
     stale = b"\x1b[2J\x1b[1;1Hlonger text here\x1b[1;5H\x1b[Kx"
     assert rendered(stale)[0] == "longx"
 
+    # curses moves a row at a time far more often than it jumps. Without the
+    # relative moves the grid held the previous screen's rows, and a real
+    # recording showed `Mirrors` and `Disk` on the disk submenu.
+    moved = (
+        b"\x1b[2J\x1b[1;1HDisk\r\x1b[2Bfirst\x1b[K\r\x1b[1Bsecond\x1b[K"
+        b"\r\x1b[1B\x1b[Kthird\x1b[2Aover"
+    )
+    drawn = rendered(moved)
+    assert drawn[0] == "Disk"
+    # Moving up keeps the column, which is why `over` lands after `first`.
+    assert drawn[2] == "firstover", drawn[2]
+    assert drawn[3] == "second"
+    assert drawn[4] == "third"
+
 
 def test_a_worker_that_answered_and_exited_is_not_reported_twice() -> None:
     """The schedule reported `vm-xfs` twice: once with the error it raised,

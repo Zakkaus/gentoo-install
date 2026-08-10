@@ -86,6 +86,19 @@ def rendered(said: bytes) -> list[str]:
             elif letter == "K":
                 if 0 <= row < LINES:
                     del grid[row][column:]
+            elif letter in "ABCD":
+                # curses moves a row at a time far more often than it jumps:
+                # without these the grid held the previous screen's rows and
+                # the width check measured a menu nobody drew.
+                step = int(arguments[0]) if arguments else 1
+                if letter == "A":
+                    row -= step
+                elif letter == "B":
+                    row += step
+                elif letter == "C":
+                    column += step
+                else:
+                    column = max(0, column - step)
             continue
         found = _OTHER_ESCAPE.match(text, at)
         if found:
