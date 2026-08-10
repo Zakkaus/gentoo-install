@@ -22,7 +22,7 @@ from .errors import GentooInstallError
 from .data import load_catalog
 from .exec import fetch, preflight
 from .exec.apply import Machine, already_degraded, apply, completed
-from .exec.probe import Probe
+from .exec.probe import Probe, with_probed_facts
 from .exec.runner import Runner, write_file
 from .log import Journal
 from .model.size import Size
@@ -151,6 +151,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             return EXIT_OK
         if _needs_network(arguments):
             _require_mirror(config, arguments.mirror)
+        if not arguments.dry_run:
+            # Before the plan is derived, because `build` validates: a reused
+            # esp on an array carries its metadata version only after the
+            # machine has been asked for it. Not on a dry run, which is meant
+            # to answer on a machine that has none of the hardware.
+            config = with_probed_facts(
+                config, Probe(runner=Runner(log=lambda line: None), work=arguments.work)
+            )
         operations = build(config, load_catalog(), mirror=arguments.mirror)
         if arguments.dry_run:
             print(render(operations), end="")
