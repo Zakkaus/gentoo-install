@@ -457,3 +457,6 @@
 "one table for both families, and what a new rule set uses" = "两种地址族共用一张表，新规则采用这套"
 "An SSH server answers the whole network. A firewall is worth installing with it; the Firewall row under Network does that and writes no rules, so the policy stays the operator's." = "SSH 服务对整个网络开放。建议一并安装防火墙；网络区块的防火墙那一列只安装软件包、不写规则，策略仍由操作者决定。"
 "Both ship an empty rule set, and the installer writes none: a policy it chose could drop port 22, and a machine reached only over SSH would then need a console to be reached at all." = "两者默认的规则集都是空的，安装器也不会写入任何规则：安装器代为决定的策略可能挡掉 22 端口，只能通过 SSH 连上的机器届时需要控制台才能访问。"
+"{count} authorised" = "已授权 {count} 把"
+"manual, {count} partitions" = "手动，{count} 个分区"
+"{flags} (stage3 default)" = "{flags}（stage3 默认值）"

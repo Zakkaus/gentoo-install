@@ -271,3 +271,32 @@ def test_the_blocked_row_reads_the_table_rather_than_the_exception() -> None:
 
     source = inspect.getsource(app._blocked)
     assert "describe(context.translate)" in source, source
+
+
+def test_no_setting_row_shows_an_untranslated_english_word() -> None:
+    """A row's value is drawn beside a translated label. `2 authorised`,
+    `manual, 3 partitions` and `-O2 -pipe (stage3 default)` were English in the
+    middle of a translated menu, because they were built with an f-string
+    instead of a catalog template.
+
+    Read from the source rather than by rendering: a row whose value depends on
+    a probed machine cannot be produced here, and the defect is the literal.
+    """
+    import ast
+    from pathlib import Path
+
+    settings = Path(__file__).resolve().parents[2] / "gentoo_install/tui/settings.py"
+    tree = ast.parse(settings.read_text())
+    #: Words that are prose rather than an identifier, a unit or an acronym.
+    prose = {"authorised", "partitions", "default", "none", "manual", "unset", "and"}
+    offenders: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.JoinedStr):
+            continue
+        for piece in node.values:
+            if not isinstance(piece, ast.Constant) or not isinstance(piece.value, str):
+                continue
+            for word in piece.value.replace("(", " ").replace(",", " ").split():
+                if word.lower() in prose:
+                    offenders.append(f"line {node.lineno}: {piece.value!r}")
+    assert not offenders, offenders
