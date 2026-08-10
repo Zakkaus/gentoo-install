@@ -693,7 +693,7 @@ def test_no_marker_appears_in_the_command_that_prints_it() -> None:
     from tests.vm import cluster
     from tests.vm.results import CONSOLE_CLOSE, CONSOLE_OPEN, console_command
 
-    watched = (cluster.NETWORK_UP, cluster.NETWORK_DOWN, CONSOLE_OPEN, CONSOLE_CLOSE)
+    watched = (cluster.NETWORK_UP, cluster.NETWORK_DONE, CONSOLE_OPEN, CONSOLE_CLOSE)
     for command in (console_command("/tmp/results"), cluster.NETWORK_PROBE):
         for marker in watched:
             assert marker not in command, f"{marker} appears whole in {command[:80]!r}"

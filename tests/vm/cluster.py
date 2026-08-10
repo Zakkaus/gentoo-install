@@ -246,8 +246,11 @@ def prepare(
 DISK_PASSPHRASE: Final[str] = "install-disk"
 
 
-#: How long a guest is given to bring its interface up and resolve a name.
-NETWORK_PATIENCE: Final[float] = 300.0
+#: How long a guest is given to reach a mirror. Generous, because the link
+#: this cluster gives its guests is not steady: eight mirrors answered nothing
+#: for two minutes and the same guests had fetched a stage3 that morning.
+#: Waiting costs a slot; giving up costs the whole run and its diagnosis.
+NETWORK_PATIENCE: Final[float] = 900.0
 
 #: Between attempts. A guest that has just reached a shell is still running
 #: dhcpcd, and the installer's own reachability check is what fails: five
@@ -259,12 +262,21 @@ NETWORK_PAUSE: Final[float] = 10.0
 #: reader waiting for `NETWORK_UP` matched that echo and returned on the first
 #: pass with no address on the interface at all.
 NETWORK_UP: Final[str] = "NETWORK_UP"
-NETWORK_DOWN: Final[str] = "NETWORK_DOWN"
+#: Printed when every target was tried and none answered. Not `DOWN`, because
+#: the loop prints it after `UP` as well and a reader has to tell them apart.
+NETWORK_DONE: Final[str] = "NETWORK_DONE"
+#: Several mirrors, and any one of them answering is enough. Asking only
+#: Gentoo's own said `down` on a network where four Chinese mirrors were
+#: answering, and asking only a Chinese one would say the same the other way.
+NETWORK_TARGETS: Final[tuple[str, ...]] = tuple(
+    f"{one}/{AUTOBUILDS}/latest-stage3-amd64-systemd.txt" for one in MIRRORS
+)
 NETWORK_PROBE: Final[str] = (
-    "curl -sS -o /dev/null --max-time 20 "
-    "https://distfiles.gentoo.org/releases/amd64/autobuilds/"
-    "latest-stage3-amd64-systemd.txt "
-    "&& printf 'NETWORK_%s\\n' UP || printf 'NETWORK_%s\\n' DOWN"
+    "for one in "
+    + " ".join(NETWORK_TARGETS)
+    + "; do curl -sS -o /dev/null --max-time 15 \"$one\" && { "
+    "printf 'NETWORK_%s\\n' UP; break; }; done; "
+    "printf 'NETWORK_%s\\n' DONE"
 )
 
 
@@ -287,7 +299,8 @@ def wait_for_network(link: Reconnecting) -> None:
     asked = False
     while time.monotonic() < deadline:
         link.send(NETWORK_PROBE)
-        if NETWORK_UP.encode() in link.expect(rf"{NETWORK_UP}|{NETWORK_DOWN}", timeout=60.0):
+        said = link.expect(rf"{NETWORK_UP}|{NETWORK_DONE}", timeout=180.0)
+        if NETWORK_UP.encode() in said:
             return
         time.sleep(NETWORK_PAUSE)
         if time.monotonic() > deadline - NETWORK_PATIENCE / 2 and not asked:
