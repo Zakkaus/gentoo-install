@@ -32,15 +32,23 @@ def stage3_mirror(config: InstallConfig, fallback: str = DEFAULT_MIRROR) -> str:
     holds. Reading it as `no choice was made` sent every region-only install
     back to `distfiles.gentoo.org`: a run from the cluster in China fetched
     the stage3 there with `cn` selected.
+
+    Only sites that carry `releases/` are considered, whichever was chosen: an
+    install told to use one that does not stopped with no stage3 at all.
     """
     chosen = config.portage.mirrors.site
-    offered = mirrors.gentoo_sites(config.portage.mirrors.region)
+    offered = [
+        site for site in mirrors.gentoo_sites(config.portage.mirrors.region) if site.releases
+    ]
     if not chosen:
         return offered[0].distfiles if offered else fallback
     for site in offered:
         if site.key == chosen:
             return site.distfiles
-    return fallback
+    # The site was chosen for its distfiles and does not carry `releases/`.
+    # Falling back is the only way the stage3 arrives at all: xTom answers 404
+    # for the pointer file and `ftp.twaren.net` answers 403 to this downloader.
+    return offered[0].distfiles if offered else fallback
 
 
 def build(config: InstallConfig, catalog: packages.Catalog, *, mirror: str = DEFAULT_MIRROR) -> tuple[Operation, ...]:

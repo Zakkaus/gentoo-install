@@ -30,6 +30,13 @@ class Site:
     distfiles: str
     git: str = ""
     rsync: str = ""
+    #: Whether the site serves `releases/`, which is where the stage3 comes
+    #: from. False for a site that carries the files and not the archives:
+    #: `mirror.xtom.com.hk` answers 200 for `releases/amd64/autobuilds/` and
+    #: 404 for the pointer file inside it, and `ftp.twaren.net` answers 403 to
+    #: this installer's own downloader while serving a browser. An install told
+    #: to use either one stopped with no stage3.
+    releases: bool = True
 
 
 #: The main tree. Taken from the project's own mirror list; the git and rsync
@@ -37,11 +44,13 @@ class Site:
 #: to every host, because the paths do not follow one: USTC serves git at
 #: `/gentoo.git` and rsync from another hostname entirely.
 GENTOO_SITES: Final[tuple[Site, ...]] = (
+    # No git column: `/git/gentoo-portage.git`, `/git/gentoo.git` and
+    # `/gentoo-portage.git` were each asked and none of them answered. A sync
+    # method falls back to a site that has it rather than to a dead address.
     Site(
         "tuna", "Tsinghua TUNA", "Beijing",
         "https://mirrors.tuna.tsinghua.edu.cn/gentoo",
-        "https://mirrors.tuna.tsinghua.edu.cn/git/gentoo-portage.git",
-        "rsync://mirrors.tuna.tsinghua.edu.cn/gentoo-portage",
+        rsync="rsync://mirrors.tuna.tsinghua.edu.cn/gentoo-portage",
     ),
     Site(
         "bfsu", "BFSU", "Beijing",
@@ -58,7 +67,6 @@ GENTOO_SITES: Final[tuple[Site, ...]] = (
     Site(
         "zju", "Zhejiang University", "Hangzhou",
         "https://mirrors.zju.edu.cn/gentoo",
-        "https://mirrors.zju.edu.cn/git/gentoo-portage.git",
     ),
     Site(
         "nju", "Nanjing University", "Nanjing",
@@ -68,7 +76,6 @@ GENTOO_SITES: Final[tuple[Site, ...]] = (
     Site(
         "sdu", "Shandong University", "Qingdao",
         "https://mirrors.sdu.edu.cn/gentoo",
-        "https://mirrors.sdu.edu.cn/git/gentoo-portage.git",
     ),
     Site(
         "hust", "HUST", "Wuhan",
@@ -93,7 +100,10 @@ GENTOO_SITES: Final[tuple[Site, ...]] = (
         "https://hippocamp.cn.ext.planetunix.net/pub/gentoo",
         rsync="rsync://hippocamp.cn.ext.planetunix.net/gentoo-portage",
     ),
-    Site("xtom-hk", "xTom", "Hong Kong", "https://mirror.xtom.com.hk/gentoo"),
+    Site(
+        "xtom-hk", "xTom", "Hong Kong", "https://mirror.xtom.com.hk/gentoo",
+        releases=False,
+    ),
     Site("rackspace-hk", "Rackspace", "Hong Kong", "https://mirror.rackspace.com/gentoo"),
     # http, not https: the only address this one answers on.
     Site("aditsu-hk", "aditsu", "Hong Kong", "http://gentoo.aditsu.net:8000"),
@@ -101,6 +111,7 @@ GENTOO_SITES: Final[tuple[Site, ...]] = (
         "nchc-tw", "NCHC", "Taiwan",
         "http://ftp.twaren.net/Linux/Gentoo",
         rsync="rsync://ftp.twaren.net/gentoo-portage",
+        releases=False,
     ),
     Site("cicku-tw", "CICKU", "Taiwan", "https://tw.mirrors.cicku.me/gentoo"),
     Site("freedif-sg", "Freedif", "Singapore", "https://mirror.freedif.org/gentoo"),

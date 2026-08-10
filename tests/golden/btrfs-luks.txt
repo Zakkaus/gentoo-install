@@ -34,7 +34,7 @@
   fetch the first ebuild repository snapshot with emerge-webrsync
   select profile default/linux/amd64/23.0/desktop/systemd
   install git, which every later repository sync needs: emerge dev-vcs/git
-  point repository gentoo at https://mirrors.tuna.tsinghua.edu.cn/git/gentoo-portage.git, commit signatures verified
+  point repository gentoo at https://mirrors.bfsu.edu.cn/git/gentoo-portage.git, commit signatures verified
   sync repository gentoo
   point repository gentoo-zh at https://mirrors.cernet.edu.cn/gentoo-zh.git
   sync repository gentoo-zh
