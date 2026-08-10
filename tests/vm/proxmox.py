@@ -854,6 +854,11 @@ class Reopenable(Protocol):
     def reopen(self) -> None: ...
 
 
+#: How long the menu itself is waited for. GRUB's own countdown is ten
+#: seconds, and a console that attaches after it has expired never sees one.
+MENU_PATIENCE: Final[float] = 30.0
+
+
 def _editor_screen(console: Line, timeout: float) -> bytes:
     """Press `e` until GRUB draws the entry, and answer with that screen.
 
@@ -863,10 +868,24 @@ def _editor_screen(console: Line, timeout: float) -> bytes:
     countdown line eight seconds from booting.
     """
     deadline = time.monotonic() + timeout
+    # GRUB stops its countdown on the first key it receives, so that key has to
+    # arrive while the menu is on the screen. A run sent `e` before the menu was
+    # drawn, the press was discarded, and the entry booted ten seconds later
+    # with the harness still waiting for an editor.
+    try:
+        console.expect(r"GNU GRUB", timeout=max(1.0, min(timeout, MENU_PATIENCE)))
+    except ProxmoxError:
+        pass
+    # ESC rather than an arrow: it halts the countdown, and unlike an arrow it
+    # cannot move the selection off the entry the guest is meant to boot.
+    console.send_raw("\x1b")
+    time.sleep(0.5)
     seen = b""
+    everything = b""
     console.send_raw("e")
     while time.monotonic() < deadline:
         seen = console.snapshot(3.0)
+        everything += seen
         if b"setparams" in seen:
             return seen
         # ESC first, and only then `e` again: in the editor it discards the
@@ -875,7 +894,9 @@ def _editor_screen(console: Line, timeout: float) -> bytes:
         console.send_raw("\x1b")
         time.sleep(0.5)
         console.send_raw("e")
-    raise ProxmoxError(f"GRUB never opened its editor: {seen[-400:]!r}")
+    # The whole read, not the last snapshot: the last one is empty on a guest
+    # that booted while the loop was still pressing, which says nothing.
+    raise ProxmoxError(f"GRUB never opened its editor: {everything[-400:]!r}")
 
 
 def _line_of_linux(screen: bytes) -> int:

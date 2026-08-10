@@ -580,7 +580,8 @@ def test_the_editor_is_reopened_with_escape_not_a_second_e() -> None:
             self.sent.append(line)
 
         def expect(self, pattern: str, timeout: float) -> bytes:
-            raise AssertionError("the editor is read by snapshot, not by expect")
+            assert pattern == "GNU GRUB", pattern
+            return b"GNU GRUB  version 2.14"
 
         @property
         def closed(self) -> bool:
@@ -589,7 +590,45 @@ def test_the_editor_is_reopened_with_escape_not_a_second_e() -> None:
     console = Slow()
     screen = _editor_screen(console, 30.0)
     assert b"setparams" in screen
-    assert console.sent == ["e", "\x1b", "e"]
+    # The leading ESC halts the countdown: GRUB stops it on the first key it
+    # receives, and a run whose `e` arrived before the menu was drawn watched
+    # the entry boot ten seconds later.
+    assert console.sent == ["\x1b", "e", "\x1b", "e"]
+
+
+def test_the_countdown_is_halted_before_the_first_e_is_sent() -> None:
+    """A guest whose menu is never waited for boots the default entry: the
+    press that would have stopped the countdown arrived before the menu."""
+    from tests.vm.proxmox import _editor_screen
+
+    class Menu:
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+            self.asked = False
+
+        def send_raw(self, keys: str) -> None:
+            # Everything before the menu is drawn is discarded, which is what
+            # the guest's firmware does with it.
+            if self.asked:
+                self.sent.append(keys)
+
+        def snapshot(self, seconds: float) -> bytes:
+            return GENTOO_EDITOR if self.sent else b""
+
+        def send(self, line: str) -> None:
+            self.sent.append(line)
+
+        def expect(self, pattern: str, timeout: float) -> bytes:
+            self.asked = True
+            return b"GNU GRUB  version 2.14"
+
+        @property
+        def closed(self) -> bool:
+            return False
+
+    console = Menu()
+    assert b"setparams" in _editor_screen(console, 30.0)
+    assert console.sent[0] == "\x1b", console.sent
 
 
 def test_a_long_install_is_never_sent_twice_after_a_reconnect() -> None:
