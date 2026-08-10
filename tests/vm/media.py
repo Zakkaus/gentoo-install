@@ -187,7 +187,10 @@ ALPINE = Medium(
         # The list preflight itself printed, plus the interpreter it needs
         # before it can print anything.
         "apk add python3 e2fsprogs dosfstools sgdisk blkid findmnt gnupg "
-        "lsblk mount util-linux-misc tar eudev umount wipefs",
+        "lsblk mount util-linux-misc tar eudev parted umount wipefs",
+        # The live session populates /dev with mdev, so a partition node never
+        # appeared and every install stopped at `/dev/vdb2 did not appear`.
+        "setup-devd udev",
     ),
 )
 
