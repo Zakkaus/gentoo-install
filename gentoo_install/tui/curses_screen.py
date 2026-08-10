@@ -58,7 +58,16 @@ class CursesScreen:
         self._window.refresh()
 
     def key(self) -> str:
-        return str(self._window.getkey())
+        pressed = str(self._window.getkey())
+        if pressed == "KEY_RESIZE":
+            # curses keeps the size it started with until it is told to look
+            # again, so `size()` kept answering 80x24 after the window grew
+            # and every list stayed the height it had when the menu opened.
+            # The widgets treat an unknown key as one to redraw on, which is
+            # what makes the new size take effect.
+            curses.update_lines_cols()
+            self._window.erase()
+        return pressed
 
 
 class Sized(Protocol):
