@@ -1852,3 +1852,44 @@ def test_the_cluster_certificate_is_verified() -> None:
     context = _certificates()
     assert context.verify_mode is ssl.CERT_REQUIRED
     assert context.check_hostname is True
+
+
+def test_an_error_carried_in_a_two_hundred_is_not_thrown_away() -> None:
+    """This API reports `invalid bootorder: device 'virtio0' does not exist` as
+    HTTP 200 with `data: null` and the reason in `message`. Reading only `data`
+    turned that into `answered without a task id` on four installs that had
+    finished and collected their results. A success answers `{"data": null}`
+    with no message at all."""
+    import io
+    import json
+
+    from tests.vm.proxmox import Api, ProxmoxError
+
+    class Answer(io.BytesIO):
+        headers: dict[str, str] = {}
+
+        def __enter__(self) -> "Answer":
+            return self
+
+        def __exit__(self, *unused: object) -> None:
+            return None
+
+    class Opener:
+        def __init__(self, body: dict[str, object]) -> None:
+            self.body = body
+
+        def open(self, request: object, timeout: float = 0.0) -> Answer:
+            return Answer(json.dumps(self.body).encode())
+
+    api = Api.__new__(Api)
+    api.host = "pve.invalid"
+    api.affinity = ""
+
+    api._opener = Opener({"data": None, "message": "invalid bootorder\n"})  # type: ignore[assignment]
+    with pytest.raises(ProxmoxError) as raised:
+        api.call("PUT", "/nodes/n/qemu/9300/config", boot="order=virtio0")
+    assert "invalid bootorder" in str(raised.value)
+
+    # A config change applied then and there says nothing, and that is success.
+    api._opener = Opener({"data": None})  # type: ignore[assignment]
+    assert api.call("PUT", "/nodes/n/qemu/9300/config", description="x") is None
