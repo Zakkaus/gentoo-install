@@ -1771,7 +1771,15 @@ def test_reopening_a_setting_and_accepting_keeps_what_it_held() -> None:
     # `Cron` flips where it stands, `Drive` reads `context.choice` rather than
     # the configuration, and `Bootloader` cannot keep a kind the layout forbids.
     flipped = {"Cron", "Drive", "Bootloader"}
+    # Four screens enter is not an answer to, named rather than caught: an
+    # `except Exception: continue` around the call meant every screen could
+    # raise on enter and this test still passed with an empty list.
+    # `Mirrors` and `SSH public keys` toggle entries and leave on cancel,
+    # `Partitions` is a table editor, and `Confirm erasing the drive` wants
+    # the disk name typed.
+    not_an_answer = {"Mirrors", "Partitions", "SSH public keys", "Confirm erasing the drive"}
     wrong: list[str] = []
+    opened: list[str] = []
     reachable = [
         one
         for group in settings.SETTINGS
@@ -1779,15 +1787,16 @@ def test_reopening_a_setting_and_accepting_keeps_what_it_held() -> None:
         if one.edit is not None and not one.rows
     ]
     for setting in reachable:
-        if setting.label in flipped:
+        if setting.label in flipped or setting.label in not_an_answer:
             continue
         edit = setting.edit
         assert edit is not None
-        screen = FakeScreen(keys=["\n"], lines=40, columns=120)
-        try:
-            answer = edit(screen, held, at)
-        except Exception:  # a screen this configuration cannot open
-            continue
+        # Enough for the longest of these: `User account` asks for a name and
+        # a password twice. A screen that wants more asks for a key the test
+        # did not supply and fails, which is what the caught exception hid.
+        screen = FakeScreen(keys=["\n"] * 8, lines=40, columns=120)
+        answer = edit(screen, held, at)
+        opened.append(setting.label)
         if not answer.chosen:
             continue
         # The row's own value, not the whole configuration: the locale screen
@@ -1796,6 +1805,7 @@ def test_reopening_a_setting_and_accepting_keeps_what_it_held() -> None:
         if setting.value(after, at) != setting.value(held, at):
             wrong.append(setting.label)
     assert not wrong, wrong
+    assert len(opened) > 5, opened
 
 
 def test_confirming_one_disk_does_not_authorise_a_second() -> None:

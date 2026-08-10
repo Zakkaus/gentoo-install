@@ -547,7 +547,7 @@ def _perform(args: argparse.Namespace, medium: Medium, workdir: Path) -> int:
                 probe(console)
             power_off(console, vm)
 
-    return report(result_disk, keep=args.keep)
+    return report(result_disk, keep=args.keep, installed=bool(args.install and not args.dry_run))
 
 
 def power_off(console: SerialConsole, vm: Vm) -> None:
@@ -600,13 +600,13 @@ def _discard(targets: Sequence[Path], *, keep: bool) -> None:
 
 
 def report(
-    result_disk: Path, *, keep: bool, assertions: Path | None = None
+    result_disk: Path, *, keep: bool, assertions: Path | None = None, installed: bool = False
 ) -> int:
     results = read_disk(result_disk)
     for name in sorted(results):
         print(f"--- {name} ---")
         print(results[name].decode("utf-8", "replace").rstrip())
-    code = verdict(results, assertions)
+    code = verdict(results, assertions, installed=installed)
     if not keep:
         result_disk.unlink(missing_ok=True)
     return code
@@ -663,7 +663,9 @@ def _from_config(config: Path) -> list[tuple[str, str]]:
     return expected
 
 
-def verdict(results: dict[str, bytes], assertions: Path | None) -> int:
+def verdict(
+    results: dict[str, bytes], assertions: Path | None, *, installed: bool = False
+) -> int:
     """Turn everything the run left behind into one exit code."""
     code = check_expected(results, assertions) if assertions is not None else 0
     installer = results.get("install.rc", b"").decode("utf-8", "replace").strip()
@@ -671,6 +673,13 @@ def verdict(results: dict[str, bytes], assertions: Path | None) -> int:
     # a run that stopped at the bootloader printed its failure and exited 0.
     if installer not in ("", "0"):
         print(f"FAIL the installer exited {installer}", file=sys.stderr)
+        code = 1
+    if installed and installer == "":
+        # An absent code is an answer on a run that installed: the installer
+        # was killed before it wrote one, or the archive lost it. Either way
+        # nothing here says the install finished, and reporting success is how
+        # a run that never completed became a green verdict.
+        print("FAIL the run installed and collected no install.rc", file=sys.stderr)
         code = 1
     return code
 

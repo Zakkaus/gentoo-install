@@ -24,6 +24,14 @@ def test_a_run_that_collected_no_exit_code_is_not_called_a_failure() -> None:
     assert verdict({}, None) == 0
 
 
+def test_a_run_that_installed_and_collected_no_exit_code_is_a_failure() -> None:
+    """The same `verdict` serves both modes, so an install whose archive lost
+    `install.rc` — or whose installer was killed before writing one — reported
+    success on a run that proves nothing finished."""
+    assert verdict({}, None, installed=True) == 1
+    assert verdict({"install.rc": b"0\n"}, None, installed=True) == 0
+
+
 def test_every_configuration_the_campaign_names_exists() -> None:
     """A stage naming a fixture that was renamed fails half an hour in, after
     the medium has booted, rather than at the first line."""
