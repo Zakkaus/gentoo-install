@@ -24,6 +24,7 @@ from typing import Final
 
 from .console import SerialConsole
 from .driver import build as build_driver
+from .run import create_target
 from .media import MEDIA
 from .qemu import Firmware, Vm, VmSpec
 from .workdir import WorkdirError, confined
@@ -151,6 +152,10 @@ def main(argv: list[str] | None = None) -> int:
     workdir.mkdir(parents=True, exist_ok=True)
     medium = MEDIA[args.medium]
     driver_iso = build_driver(workdir / "driver.iso", packed=True)
+    # A guest with no disk to install onto never reaches the menu: the two
+    # recordings this walk produced returned to the shell before any screen was
+    # drawn, and the review of them found nothing because there was nothing.
+    target = create_target(workdir / "target.qcow2")
     spec = VmSpec(
         medium=medium,
         workdir=workdir,
@@ -158,6 +163,7 @@ def main(argv: list[str] | None = None) -> int:
         memory="2G",
         cpus=2,
         driver_iso=driver_iso,
+        targets=(target,),
     )
     with Vm(spec) as machine:
         with SerialConsole.connect(machine.serial_socket, machine.serial_log) as console:
