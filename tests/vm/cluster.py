@@ -16,6 +16,7 @@ what separates a slow mirror from a dead guest.
 from __future__ import annotations
 
 import argparse
+import itertools
 import queue
 import sys
 import threading
@@ -40,6 +41,7 @@ from .proxmox import (
     GuestSpec,
     Node,
     ProxmoxError,
+    Line,
     append_to_cmdline,
     append_to_cmdline_blind,
 )
@@ -321,36 +323,40 @@ def install_one(
     try:
         guest.create()
         guest.start()
-        console = SerialConsole(guest.console(), log.open("wb"))
+        log.write_bytes(b"")
+        link = Reconnecting.to(guest, log)
+        console = link.console
         # Reset with the console attached: termproxy forwards only what arrives
         # after it, and the firmware is finished before it gets there.
         guest.reset()
         if job.uefi:
-            append_to_cmdline(console, EXTRA_CMDLINE)
+            append_to_cmdline(link, EXTRA_CMDLINE)
         else:
             # SeaBIOS hands over to a GRUB that writes only to VGA, so the
             # serial log stops at `Welcome to GRUB!` and there is no menu to
             # read. The keys go through the API and the kernel appearing on
             # the console is what says the edit landed.
-            console = append_to_cmdline_blind(guest, console, log, EXTRA_CMDLINE)
-        console.expect(r"livecd .*#|localhost .*#", timeout=900.0)
+            append_to_cmdline_blind(guest, link, EXTRA_CMDLINE)
+        link.expect(r"livecd .*#|localhost .*#", timeout=900.0)
         # The guest's own resolver is left alone. A local run pins one because
         # slirp reads the host's `/etc/resolv.conf` once at startup; the
         # cluster hands out a real configuration, and it is IPv6 with DNS64.
         # Writing IPv4 resolvers over it left every mirror unreachable:
         # `Failed to connect to mirrors.tuna.tsinghua.edu.cn:443 after 111 ms`.
-        console.run("mkdir -p /mnt/driver")
-        console.run("mountpoint -q /mnt/driver || mount -o ro /dev/sr1 /mnt/driver")
-        console.run(f"mkdir -p {RESULT_DIR}")
+        link.run("mkdir -p /mnt/driver")
+        link.run("mountpoint -q /mnt/driver || mount -o ro /dev/sr1 /mnt/driver")
+        link.run(f"mkdir -p {RESULT_DIR}")
         # tee, not a redirect: the serial console is the only way to watch a
         # run that takes half an hour, and it is what the watchdog reads to
         # tell a slow mirror from a dead guest.
-        console.run(
+        # `wait_for`, not `run`: a console dropped mid-install is reopened and
+        # listened to again, never handed the command a second time.
+        link.wait_for(
             f"{{ sh /mnt/driver/install.sh --config fixtures/{job.fixture.name}; "
             f"echo $? > {RESULT_DIR}/install.rc; }} 2>&1 | tee {RESULT_DIR}/install.txt",
             timeout=RUN_CEILING,
         )
-        files = collect(guest, console, log)
+        files = collect(guest, link, log)
         code = files.get("install.rc", b"").strip()
         if code != b"0":
             return Outcome(job.name, Verdict.FAIL, time.monotonic() - started,
@@ -482,8 +488,90 @@ def run(
 #: How many times the results are asked for again on a fresh console.
 COLLECT_TRIES: Final[int] = 3
 
+#: How many times a dropped console is reopened before a run is given up on.
+RECONNECT_TRIES: Final[int] = 4
 
-def collect(guest: Guest, console: SerialConsole, log: Path) -> dict[str, bytes]:
+
+class Reconnecting:
+    """A console that opens another one when the cluster drops it.
+
+    A `termproxy` session does not survive an install, and under a full
+    schedule it does not always survive a boot: three guests reported `the
+    guest closed the serial connection` a minute in, with the kernel visibly
+    running in what the log had already captured. The guest is fine; only the
+    connection to it is gone.
+
+    `run` re-sends its command after a reconnect, because the shell never
+    received it. `wait_for` does not: the command is already running in the
+    guest, and sending it again would start a second install.
+    """
+
+    def __init__(self, open_console: Callable[[], Line], tries: int = RECONNECT_TRIES) -> None:
+        self._open = open_console
+        self._tries = tries
+        self._marks = itertools.count(1)
+        self.console: Line = open_console()
+
+    @classmethod
+    def to(cls, guest: Guest, log: Path, tries: int = RECONNECT_TRIES) -> Reconnecting:
+        return cls(lambda: SerialConsole(guest.console(), log.open("ab")), tries)
+
+    def reopen(self) -> None:
+        self.console = self._open()
+        # The reopened console shows nothing until the shell is asked for a
+        # prompt, and every wait below is looking for text.
+        self.console.send("")
+
+    def expect(self, pattern: str, timeout: float) -> bytes:
+        for attempt in range(self._tries):
+            try:
+                return self.console.expect(pattern, timeout)
+            except ConsoleClosed:
+                if attempt + 1 == self._tries:
+                    raise
+                self.reopen()
+        raise ConsoleClosed("the console could not be reopened")
+
+    def run(self, command: str, timeout: float = 120.0) -> None:
+        for attempt in range(self._tries):
+            token = next(self._marks)
+            self.console.send(f"{command}; echo MARK_{token}_DONE")
+            try:
+                self.console.expect(rf"MARK_{token}_DONE", timeout)
+                return
+            except ConsoleClosed:
+                if attempt + 1 == self._tries:
+                    raise
+                self.reopen()
+
+    def wait_for(self, command: str, timeout: float) -> None:
+        """Send a command once and wait for it however long it takes.
+
+        Reconnecting does not re-send it: an install that is already running
+        would be started a second time on a target it has half written.
+        """
+        token = next(self._marks)
+        self.console.send(f"{command}; echo MARK_{token}_DONE")
+        for attempt in range(self._tries):
+            try:
+                self.console.expect(rf"MARK_{token}_DONE", timeout)
+                return
+            except ConsoleClosed:
+                if attempt + 1 == self._tries:
+                    raise
+                self.reopen()
+
+    def send(self, line: str) -> None:
+        self.console.send(line)
+
+    def send_raw(self, keys: str) -> None:
+        self.console.send_raw(keys)
+
+    def snapshot(self, seconds: float) -> bytes:
+        return self.console.snapshot(seconds)
+
+
+def collect(guest: Guest, link: "Reconnecting", log: Path) -> dict[str, bytes]:
     """Read the result archive back, reopening the console if it has gone.
 
     A `termproxy` session does not survive an install: one that ran 36 minutes
@@ -495,19 +583,14 @@ def collect(guest: Guest, console: SerialConsole, log: Path) -> dict[str, bytes]
     last: Exception | None = None
     for attempt in range(COLLECT_TRIES):
         try:
-            console.run(
-                f"cp /run/gentoo-install/install.jsonl {RESULT_DIR}/ 2>/dev/null || true"
-            )
-            console.send(console_command(RESULT_DIR))
-            return read_console(console.snapshot(180.0))
+            link.run(f"cp /run/gentoo-install/install.jsonl {RESULT_DIR}/ 2>/dev/null || true")
+            link.send(console_command(RESULT_DIR))
+            return read_console(link.snapshot(180.0))
         except (ConsoleClosed, ConsoleTimeout, ResultError) as error:
             last = error
             if attempt + 1 == COLLECT_TRIES:
                 break
-            console = SerialConsole(guest.console(), log.open("ab"))
-            # A newline first: the fresh console shows nothing until the shell
-            # is asked for a prompt, and `run` waits for its own marker.
-            console.send("")
+            link.reopen()
     raise ResultError(f"the results could not be read back: {last}")
 
 
