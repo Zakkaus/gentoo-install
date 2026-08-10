@@ -1094,3 +1094,46 @@ def test_no_fixture_asks_for_more_jobs_than_a_test_guest_has() -> None:
         makeopts = str(settings.get("portage", {}).get("makeopts", ""))
         for jobs in re.findall(r"-[jl](\d+)", makeopts):
             assert int(jobs) <= allowed, f"{fixture.name} asks for {makeopts}"
+
+
+def test_a_bios_guest_whose_grub_speaks_is_read_before_it_is_typed_at_blind(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The blind path exists for a GRUB that writes only to VGA. The official
+    minimal ISO answers `starting serial terminal on interface serial0` and can
+    be read; typing at it blind landed on no line and three fixtures ended at
+    `the kernel never spoke after editing GRUB blind`."""
+    from typing import Any, cast
+
+    from tests.vm import cluster
+
+    read: list[str] = []
+    monkeypatch.setattr(cluster, "append_to_cmdline", lambda link, extra: read.append("read"))
+    monkeypatch.setattr(
+        cluster, "append_to_cmdline_blind", lambda guest, link, extra: read.append("blind")
+    )
+    cluster._edit_bios_cmdline(cast("Any", object()), cast("Any", object()))
+    assert read == ["read"], "a menu that can be read is not typed at blind"
+
+    # A GRUB that says nothing still gets the blind attempt, from a menu the
+    # failed one did not touch.
+    reset: list[str] = []
+
+    class Guest:
+        def reset(self) -> None:
+            reset.append("reset")
+
+    class Link:
+        def reopen(self) -> None:
+            reset.append("reopen")
+
+    from tests.vm.console import ConsoleTimeout
+
+    def silent(link: object, extra: str) -> None:
+        raise ConsoleTimeout("never matched")
+
+    read.clear()
+    monkeypatch.setattr(cluster, "append_to_cmdline", silent)
+    cluster._edit_bios_cmdline(cast("Any", Guest()), cast("Any", Link()))
+    assert read == ["blind"]
+    assert reset == ["reset", "reopen"]

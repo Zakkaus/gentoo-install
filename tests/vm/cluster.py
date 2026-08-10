@@ -899,11 +899,7 @@ def install_one(
         if job.uefi:
             append_to_cmdline(link, EXTRA_CMDLINE)
         else:
-            # SeaBIOS hands over to a GRUB that writes only to VGA, so the
-            # serial log stops at `Welcome to GRUB!` and there is no menu to
-            # read. The keys go through the API and the kernel appearing on
-            # the console is what says the edit landed.
-            append_to_cmdline_blind(guest, link, EXTRA_CMDLINE)
+            _edit_bios_cmdline(guest, link)
         reach_prompt(link)
         # The guest's own resolver is left alone. A local run pins one because
         # slirp reads the host's `/etc/resolv.conf` once at startup; the
@@ -1586,6 +1582,28 @@ def _abandon(inflight: dict[str, Running], running: dict[str, threading.Thread])
         thread.join(timeout=max(0.0, deadline - time.monotonic()))
     for name in inflight:
         print(f"  {name} outlived the schedule; remove it by hand", file=sys.stderr)
+
+
+def _edit_bios_cmdline(guest: Guest, link: "Reconnecting") -> None:
+    """Read the menu when GRUB speaks on the serial port, and type blind if not.
+
+    SeaBIOS hands over to a GRUB that on some media writes only to VGA, which
+    is why the blind path exists at all. The official minimal ISO answers
+    `starting serial terminal on interface serial0` and can be read, and typing
+    at it blind landed on no line: `vm-bios`, `vm-bios-luks` and `ext4-bios`
+    all ended at `the kernel never spoke after editing GRUB blind` with that
+    line in the log.
+    """
+    try:
+        append_to_cmdline(link, EXTRA_CMDLINE)
+        return
+    except (ProxmoxError, ConsoleTimeout, ConsoleClosed):
+        pass
+    # The half-finished edit goes with the reset, so the blind attempt starts
+    # from a menu nobody has touched.
+    guest.reset()
+    link.reopen()
+    append_to_cmdline_blind(guest, link, EXTRA_CMDLINE)
 
 
 def _unanswered(running: dict[str, threading.Thread], nothing_queued: bool) -> list[str]:
