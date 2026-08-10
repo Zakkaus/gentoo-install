@@ -1491,9 +1491,13 @@ def settle(
     # and open VIDEO_CARDS`, which edits a value this choice did not touch.
     where = use_flags_screen if flags else video_cards_screen if cards else None
     named = translate("USE flags") if flags else translate("VIDEO_CARDS")
+    # Yes first and preselected. Declining cancels the desktop the operator
+    # just chose, and these values are what makes it work rather than extras
+    # that come with it, so the cursor starting on `No` offered the refusal as
+    # the default answer to a question the choice itself had already implied.
     items = [
-        Item(label=translate("No"), value="no"),
         Item(label=translate("Yes"), value="yes"),
+        Item(label=translate("No"), value="no"),
     ]
     if where is not None:
         # The row the values land on is somewhere else in the menu, and an
@@ -1510,6 +1514,7 @@ def settle(
         title=f"{translate('This choice also sets')} — {', '.join(lines)}",
         items=items,
         footer=footer(translate),
+        current="yes",
     )
     answered = asked.run(screen)
     if not answered.chosen or answered.unwrap()[0] == "no":

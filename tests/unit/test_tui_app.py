@@ -626,9 +626,10 @@ def test_more_than_one_driver_can_be_ticked_and_not_in_the_application_list() ->
     are still their own screen, so none of them is a row in Applications."""
     at = context()
     # Rows: intel, amdgpu, radeon, nouveau, nvidia, virtual-machine. Down to
-    # amdgpu and tick, down to nvidia and tick, enter, yes to the confirmation.
+    # amdgpu and tick, down to nvidia and tick, enter, then the confirmation,
+    # which opens on `Yes`.
     answer = screens.graphics_screen(
-        FakeScreen(keys=[*down(1), " ", *down(3), " ", "\n", *down(1), "\n"], lines=30),
+        FakeScreen(keys=[*down(1), " ", *down(3), " ", "\n", "\n"], lines=30),
         config(),
         at,
     )
@@ -653,9 +654,10 @@ def test_a_desktop_no_longer_picks_the_login_screen_for_the_operator() -> None:
     # With a desktop chosen: a manager on its own is a login screen with no
     # session, so the rows are only offered once there is something to start.
     chosen = replace(config(), packages=replace(config().packages, desktop="plasma"))
-    # sddm carries USE=sddm, so the choice confirms before it is taken.
+    # sddm carries USE=sddm, so the choice confirms before it is taken, and
+    # the confirmation opens on `Yes`.
     answer = screens.display_manager_screen(
-        FakeScreen(keys=["KEY_DOWN", "\n", "KEY_DOWN", "\n"]), chosen, at
+        FakeScreen(keys=["KEY_DOWN", "\n", "\n"]), chosen, at
     )
     assert answer.unwrap().packages.display_manager == "sddm"
     assert "sddm" in answer.unwrap().portage.use
@@ -1090,9 +1092,10 @@ def test_a_profile_the_operator_picked_survives_choosing_a_desktop() -> None:
     at = context()
     # A fresh list each time: FakeScreen pops, so one list serves one screen.
     def plasma() -> list[str]:
-        # sorted: "", console, gnome, gnome-full, plasma; then yes to the
-        # confirmation naming the profile the desktop moves to.
-        return [*down(4), "\n", *down(1), "\n"]
+        # sorted: "", console, gnome, gnome-full, plasma; then the
+        # confirmation naming the profile the desktop moves to, which opens
+        # on `Yes`.
+        return [*down(4), "\n", "\n"]
 
     fresh = screens.desktop_screen(FakeScreen(keys=plasma(), lines=30), config(), at).unwrap()
     assert fresh.packages.desktop == "plasma"
@@ -2130,3 +2133,18 @@ def test_cancelling_the_zfs_bootloader_question_undoes_the_layout() -> None:
     assert answer.outcome is Answered.BACK, answer.outcome
     assert at.choice == before, "the choice goes back with the layout"
     assert start.bootloader.kind is not Bootloader.ZFSBOOTMENU
+
+
+def test_the_values_a_choice_brings_are_accepted_by_pressing_enter() -> None:
+    """Declining cancels the desktop the operator just chose, and these values
+    are what makes it work rather than extras that come with it. The cursor
+    started on `No`, which offered the refusal as the default answer to a
+    question the choice itself had already implied."""
+    at = context()
+    # Down to plasma, enter, then enter again on the confirmation without
+    # navigating: the answer that takes the choice is the one under the cursor.
+    keys = [*down(4), "\n", "\n"]
+    answer = screens.desktop_screen(FakeScreen(keys=keys, lines=30), config(), at)
+
+    assert answer.unwrap().packages.desktop == "plasma"
+    assert answer.unwrap().portage.profile.endswith("desktop/plasma/systemd")
