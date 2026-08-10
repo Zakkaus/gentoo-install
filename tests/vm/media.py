@@ -151,6 +151,18 @@ OFFICIAL_MINIMAL = Medium(
     extra_cmdline=("rd.live.dir=/", "rd.live.squashimg=image.squashfs", "cdroot", "nodhcp"),
 )
 
+GENTOO_CJK = Medium(
+    name="gentoo-cjk",
+    iso=ISO_CACHE / "gentoo-cjk-minimal-7.1.7-gentoo-cjk-dist-bin.iso",
+    # Built from the official installcd spec, so it keeps that spec's volume
+    # label; the kernel carries the CJK console fonts and zfs.
+    volume_label="Gentoo-amd64-20260712",
+    kernel_in_iso="/boot/gentoo",
+    initrd_in_iso="/boot/gentoo.igz",
+    root_prompt=r"livecd ~ #",
+    extra_cmdline=("rd.live.dir=/", "rd.live.squashimg=image.squashfs", "cdroot", "nodhcp"),
+)
+
 ALPINE = Medium(
     name="alpine",
     iso=ISO_CACHE / "alpine-standard-3.24.1-x86_64.iso",
@@ -162,6 +174,9 @@ ALPINE = Medium(
     login_user="root",
     login_password=None,
     boot_cmdline=("modules=loop,squashfs,sd-mod,usb-storage",),
+    # Alpine ships no interpreter at all, so preflight reports `found: none`
+    # before it can check the version.
+    prepare=("apk add python3 e2fsprogs dosfstools sgdisk",),
 )
 
 DEBIAN = Medium(
@@ -225,5 +240,14 @@ OPENSUSE = Medium(
 
 MEDIA = {
     medium.name: medium
-    for medium in (GIGOS, OFFICIAL_MINIMAL, ALPINE, DEBIAN, ARCH, FEDORA, OPENSUSE)
+    for medium in (
+        GIGOS,
+        OFFICIAL_MINIMAL,
+        GENTOO_CJK,
+        ALPINE,
+        DEBIAN,
+        ARCH,
+        FEDORA,
+        OPENSUSE,
+    )
 }
