@@ -1205,3 +1205,31 @@ def test_the_keymap_question_is_answered_rather_than_waited_out() -> None:
     quiet = Ready()
     reach_prompt(Reconnecting(lambda: quiet, tries=1), patience=30.0)
     assert quiet.sent == [], quiet.sent
+
+
+def test_slots_are_offered_one_node_at_a_time() -> None:
+    """A node's whole share came before the next node was touched, so five
+    guests went onto `infra-node5` and left the other five idle: one node
+    carried every build, and its four cores and the shared storage lock were
+    contended by all of them."""
+    from typing import Any
+
+    from tests.vm.cluster import GUEST_MEMORY_MIB, NODE_HEADROOM_BYTES, free_slots
+    from tests.vm.proxmox import Api, Node
+
+    def node(name: str, guests: int) -> Node:
+        return Node(
+            name=name,
+            free_bytes=NODE_HEADROOM_BYTES + guests * GUEST_MEMORY_MIB * 1024**2,
+            cores=4,
+        )
+
+    class Cluster(Api):
+        def __init__(self) -> None:
+            pass
+
+        def nodes(self) -> list[Node]:
+            return [node("a", 3), node("b", 1), node("c", 2)]
+
+    order = [one.name for one in free_slots(Cluster())]
+    assert order == ["a", "b", "c", "a", "c", "a"], order
