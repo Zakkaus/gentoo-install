@@ -225,7 +225,11 @@ def _keep_the_log(work: Path, target: Path, record: Callable[[str], None]) -> No
     except OSError as error:
         record(f"warning: the log could not be copied to {kept}: {error}")
         return
-    record(f"the log of this run is in {kept}")
+    # Both paths. `kept` is inside the target and the target is unmounted a
+    # moment later, so on a stopped install the only readable copy is the one
+    # in the work directory, and an operator told about the other went looking
+    # in an empty mount point.
+    record(f"the log of this run is in {kept}, and until the next reboot in {work}")
 
 
 def install(config: InstallConfig, operations: tuple[Operation, ...], arguments: argparse.Namespace) -> int:
@@ -336,6 +340,16 @@ def _unattended(arguments: argparse.Namespace) -> bool:
 
 
 def _asked(question: str) -> bool:
+    """No when nobody can answer.
+
+    A question printed at a stdin that is not a terminal is answered `No` by
+    the empty line `readline` returns at once, so the prompt flashes past and
+    the operator reads it as an offer that was never made. `--config` alone
+    does not settle this: a run started by hand from a script has a terminal
+    for its output and none for its input.
+    """
+    if not sys.stdin.isatty():
+        return False
     print(f"{question} [y/N] ", end="")
     sys.stdout.flush()
     try:
@@ -388,6 +402,12 @@ def _offer_a_paste(
     if _unattended(arguments):
         return
     outcome = "the install stopped" if stopped else "the install finished"
+    if not sys.stdin.isatty():
+        # Said rather than asked. The question needs an answer this run cannot
+        # be given, and an operator who wants the log on the pastebin can send
+        # it themselves; the address is what they are missing.
+        record(f"{outcome}. the log to publish is {work / 'install.log'}")
+        return
     if not _asked(f"{outcome}. send the log to {paste.HOST}, which is public?"):
         return
     source = work / "install.log"
