@@ -285,6 +285,12 @@ class WebrsyncRepository(Operation):
 SYNC_TRIES: Final[int] = 3
 SYNC_PAUSE: Final[float] = 30.0
 
+#: Portage's own default is 180, and a mirror that queues rather than refuses
+#: spends longer than that before it sends a byte: USTC answers `Upstream
+#: mirrors4 has reached the maximum number of 60 connections. Your request is
+#: being queued.` and rsync was killed at position 3 of 4.
+RSYNC_TIMEOUT: Final[int] = 900
+
 
 @dataclass(frozen=True, kw_only=True)
 class SyncRepository(Operation):
@@ -318,7 +324,9 @@ class SyncRepository(Operation):
         last: CommandFailed | None = None
         for attempt in range(SYNC_TRIES):
             try:
-                context.run_in_target(["emerge", "--sync", self.name])
+                context.run_in_target(
+                    ["env", f"RSYNC_TIMEOUT={RSYNC_TIMEOUT}", "emerge", "--sync", self.name]
+                )
                 return
             except CommandFailed as failed:
                 last = failed
