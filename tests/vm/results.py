@@ -44,10 +44,17 @@ def console_command(directory: str) -> str:
     cannot read, and the API offers no way to download a volume, so the console
     is the only channel back. Compressed first: an install log is megabytes and
     base64 adds a third again.
+
+    Neither marker appears whole in the command. The shell echoes the line it
+    was given, so a reader waiting for the closing marker matched the echo and
+    returned before the archive had started: every run failed in ninety seconds
+    with `the console result is not base64`.
     """
+    stem, opened = CONSOLE_OPEN.rsplit("_", 1)
+    closed = CONSOLE_CLOSE.rsplit("_", 1)[1]
     return (
-        f"echo {CONSOLE_OPEN}; tar cz -C {directory} . | base64 -w0; "
-        f"echo; echo {CONSOLE_CLOSE}"
+        f"printf '{stem}_%s\\n' {opened}; tar cz -C {directory} . | base64 -w0; "
+        f"echo; printf '{stem}_%s\\n' {closed}"
     )
 
 
