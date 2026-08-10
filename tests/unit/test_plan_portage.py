@@ -573,3 +573,40 @@ def test_a_mirror_rewriting_its_manifests_is_retried_rather_than_fatal(
     stubborn.refusals = plan_portage.SYNC_TRIES
     with pytest.raises(CommandFailed):
         operation.apply(stubborn)
+def test_the_stage3_matches_the_profile_and_not_only_the_init_system() -> None:
+    """`eselect profile set` is all the installer runs, and a profile switch
+    removes nothing: a no-multilib profile on a multilib stage3 keeps every
+    32-bit ABI and package the tarball came with, so what the option calls a
+    complete 64-bit environment is not one.
+
+    Every profile the menu offers, and the tarball Gentoo publishes for it.
+    """
+    from dataclasses import replace as replaced
+
+    from gentoo_install.model.config import InitSystem
+    from gentoo_install.plan.portage import variant_of
+    from gentoo_install.tui.screens import PROFILES
+
+    wanted = {
+        "default/linux/amd64/23.0": "openrc",
+        "default/linux/amd64/23.0/systemd": "systemd",
+        "default/linux/amd64/23.0/desktop": "desktop-openrc",
+        "default/linux/amd64/23.0/desktop/systemd": "desktop-systemd",
+        "default/linux/amd64/23.0/desktop/plasma": "desktop-openrc",
+        "default/linux/amd64/23.0/desktop/plasma/systemd": "desktop-systemd",
+        "default/linux/amd64/23.0/desktop/gnome": "desktop-openrc",
+        "default/linux/amd64/23.0/desktop/gnome/systemd": "desktop-systemd",
+        "default/linux/amd64/23.0/no-multilib": "nomultilib-openrc",
+        "default/linux/amd64/23.0/no-multilib/systemd": "nomultilib-systemd",
+    }
+    assert set(wanted) == set(PROFILES), "a profile was added with no stage3 named for it"
+
+    base = config()
+    for profile, variant in wanted.items():
+        init = InitSystem.SYSTEMD if profile.endswith("systemd") else InitSystem.OPENRC
+        installation = replaced(
+            base,
+            portage=replaced(base.portage, profile=profile),
+            system=replaced(base.system, init=init),
+        )
+        assert variant_of(installation) == variant, profile
