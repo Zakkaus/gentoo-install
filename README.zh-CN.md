@@ -30,7 +30,9 @@ gentoo-install 是一个系统安装程序，支持在兼容的 Linux Live 环�
 
 实际安装需要 root 权限、amd64 架构和 Python 3.11 或更高版本。使用配置文件执行 dry run 不需要 root 权限。安装程序没有第三方 Python 运行时依赖项。
 
-安装程序启动时需要连接 `packages.gentoo.org`，但 `--missing-commands` 和 `--config FILE --dry-run` 除外。内核版本和 `sys-fs/zfs` 支持的最高内核版本会在运行时读取。
+菜单从 `packages.gentoo.org` 读取每个版本，因此需要连接该站点。使用配置文件安装时需要连接的是该配置指定的镜像；`--missing-commands` 和 `--config FILE --dry-run` 两者都不需要。内核版本和 `sys-fs/zfs` 支持的最高内核版本会在运行时读取。
+
+两种地址族有其一即可。请求因地址族无路由而失败时会改用 IPv4 重试；镜像列表记录了仅提供 IPv4 的站点，因此在没有 IPv4 地址的机器上，菜单会拒绝这些站点。
 
 `bootstrap.sh` 会读取 `/etc/os-release`、报告缺少的命令，并显示候选的软件包管理器命令。它可识别多个发行版系列，包括 Debian 和 Ubuntu、Arch、openSUSE、Fedora、RHEL 和 CentOS、Gentoo，以及 Alpine。显示的命令必须在执行前核对。
 

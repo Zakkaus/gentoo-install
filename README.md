@@ -30,7 +30,9 @@ ZFS and ZFSBootMenu, initramfs SSH unlock, greetd desktop sessions and ibus outs
 
 A real installation requires root privileges, an amd64 target and Python 3.11 or newer. A configuration-file dry run does not require root privileges. The installer has no third-party Python runtime dependency.
 
-Network access to `packages.gentoo.org` is required when the installer starts, except for `--missing-commands` and `--config FILE --dry-run`. Kernel versions and the maximum kernel version supported by `sys-fs/zfs` are read at run time.
+The menu reads every version from `packages.gentoo.org` and requires network access to it. An installation from a configuration file requires the mirror that configuration names instead; `--missing-commands` and `--config FILE --dry-run` require neither. Kernel versions and the maximum kernel version supported by `sys-fs/zfs` are read at run time.
+
+Either address family is enough. A request that fails because the family has no route is retried over IPv4, and the mirror list records the sites that answer on IPv4 only, so the menu refuses them on a machine with no IPv4 address.
 
 `bootstrap.sh` reads `/etc/os-release`, reports missing commands and prints a candidate package-manager command. It recognizes these distribution families: Debian and Ubuntu; Arch; openSUSE; Fedora, RHEL and CentOS; Gentoo; and Alpine. The printed command must be reviewed before it is run.
 
