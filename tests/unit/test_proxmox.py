@@ -1077,7 +1077,9 @@ def test_every_cluster_guest_is_built_with_a_mark_of_its_own() -> None:
     assert "nonce=" in source, "the campaign has to mark the guests it builds"
 
 
-def test_a_create_held_off_by_the_storage_lock_is_tried_again() -> None:
+def test_a_create_held_off_by_the_storage_lock_is_tried_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Thirteen guests built at once contend on `ceph-pve`, and one round lost
     a fixture to `cfs-lock 'storage-ceph-pve' error: got lock request
     timeout`. The lock belongs to another create and is gone in seconds; a
@@ -1103,7 +1105,7 @@ def test_a_create_held_off_by_the_storage_lock_is_tried_again() -> None:
                 raise ProxmoxError(self.message)
 
     lock = "ended with \"unable to create VM 9313 - cfs-lock 'storage-ceph-pve' error: got lock request timeout\""
-    proxmox.CREATE_PAUSE = 0.0
+    monkeypatch.setattr(proxmox, "CREATE_PAUSE", 0.0)
     api = Contended(refusals=2, message=lock)
     Guest(api=api, node="infra-node1", vmid=9300, spec=GuestSpec(name="x", iso="x")).create()
     assert api.attempts == 3, api.attempts
