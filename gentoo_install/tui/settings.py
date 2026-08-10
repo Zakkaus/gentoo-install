@@ -211,7 +211,9 @@ def _summary(rows: tuple[Setting, ...]) -> Callable[[InstallConfig, Context], st
 def _swap(config: InstallConfig, context: Context) -> str:
     from ..model.device import Swap
 
-    return "a partition" if config.disk.graph.of_type(Swap) else context.translate("none")
+    if config.disk.graph.of_type(Swap):
+        return context.translate("a partition")
+    return context.translate("none")
 
 
 def _zram(config: InstallConfig, context: Context) -> str:
@@ -315,7 +317,10 @@ def _unlock_keymap(config: InstallConfig, context: Context) -> str:
     if not graph.of_type(Luks) and not config.kernel.remote_unlock.enabled:
         return context.translate("nothing is unlocked at boot")
     chosen = config.system.keymap_initramfs
-    return chosen if chosen else f"{config.system.keymap} (same as the console)"
+    if chosen:
+        return chosen
+    same = context.translate("same as the console")
+    return f"{config.system.keymap} ({same})"
 
 
 def _address(config: InstallConfig, context: Context) -> str:
@@ -364,7 +369,7 @@ def _mirror(config: InstallConfig, context: Context) -> str:
     if not chosen.site:
         return UNSET
     overlays = [overlay.name for overlay in config.portage.overlays]
-    measured = ", measured" if chosen.speed_test else ""
+    measured = f", {context.translate('measured')}" if chosen.speed_test else ""
     return f"{chosen.site}{measured}" + (f", {', '.join(overlays)}" if overlays else "")
 
 
@@ -510,7 +515,9 @@ def _license(config: InstallConfig, context: Context) -> str:
 
 
 def _makeopts(config: InstallConfig, context: Context) -> str:
-    return config.portage.makeopts or f"-j{context.cores} (this machine)"
+    if config.portage.makeopts:
+        return config.portage.makeopts
+    return f"-j{context.cores} ({context.translate('this machine')})"
 
 
 def _cflags(config: InstallConfig, context: Context) -> str:
