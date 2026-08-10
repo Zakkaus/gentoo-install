@@ -1289,3 +1289,32 @@ def test_a_dhcp_autoconfigured_address_is_not_an_ipv4_network(tmp_path: Path) ->
 
     routable = "2: enp0s2    inet 10.0.2.15/24 brd 10.0.2.255 scope global\n"
     assert Probe(runner=Saying(routable), work=tmp_path).address_families() == (True, False)
+
+
+def test_a_medium_with_no_zone_data_still_offers_every_timezone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A live medium that ships no `/usr/share/zoneinfo` left the menu showing
+    `UTC` and nothing else, so the operator could not choose a timezone at all.
+    The choice belongs to the target, which gets `sys-libs/timezone-data`."""
+    from gentoo_install.exec import probe as probing
+
+    probe = Probe(runner=Runner(log=lambda line: None), work=tmp_path)
+
+    absent = tmp_path / "gone"
+    monkeypatch.setattr(probing, "Path", lambda one="": absent if one == "/usr/share/zoneinfo" else Path(one))
+    offered = probe.timezones()
+    assert len(offered) > 300, len(offered)
+    for named in ("UTC", "Asia/Taipei", "Asia/Shanghai", "Asia/Tokyo", "Asia/Seoul"):
+        assert named in offered, named
+
+
+def test_an_empty_zoneinfo_tree_falls_back_too(tmp_path: Path) -> None:
+    """The directory exists, both tables are missing and nothing is under it:
+    that is what the report showed, and every branch answered nothing."""
+    from gentoo_install.exec.probe import _carried_timezones
+
+    carried = _carried_timezones()
+    assert carried[0] == "UTC"
+    assert all("/" in one for one in carried[1:])
+    assert len(set(carried)) == len(carried), "no name twice"

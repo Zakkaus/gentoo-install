@@ -425,14 +425,17 @@ class Probe:
         return named if named in self.timezones() else ""
 
     def timezones(self) -> tuple[str, ...]:
-        """Every zone this machine knows, as `Area/City`.
+        """Every zone the installed system will know, as `Area/City`.
 
-        Read from the tree rather than a list in the source: a hand-picked
-        selection is not a timezone chooser, and the names change.
+        Read from this machine's tree when it has one, because that is the
+        freshest list. A medium without `/usr/share/zoneinfo` falls back to
+        the copy this installer carries: the choice belongs to the target,
+        which gets `sys-libs/timezone-data`, and a live medium that shipped
+        no zone data left the menu offering `UTC` and nothing else.
         """
         root = Path("/usr/share/zoneinfo")
         if not root.is_dir():
-            return ()
+            return _carried_timezones()
         # zone1970.tab lists the canonical zones, one per line, and reading it
         # is both faster and closer to what the operator expects than walking a
         # tree full of aliases.
@@ -449,7 +452,10 @@ class Probe:
             for city in sorted(area.rglob("*")):
                 if city.is_file():
                     found.append(str(city.relative_to(root)))
-        return ("UTC", *found)
+        # An empty tree is the case that produced the report: the directory
+        # exists, both tables are missing and there is nothing under it, so
+        # every branch above answered nothing and the menu offered `UTC` alone.
+        return ("UTC", *found) if found else _carried_timezones()
 
     def cpu_flags(self) -> tuple[str, ...]:
         """`CPU_FLAGS_X86` for this machine, from /proc/cpuinfo.
@@ -740,6 +746,21 @@ class Probe:
             if line.startswith("MemTotal:"):
                 return int(line.split()[1]) * 1024
         return 0
+
+
+#: The zone names this installer carries, for a medium whose own tree is
+#: absent or empty. Generated from `zone1970.tab`; the list moves once or
+#: twice a year and the target's `sys-libs/timezone-data` is what has to
+#: accept the name, not the medium.
+_CARRIED: Final[Path] = Path(__file__).resolve().parent.parent / "data" / "timezones.txt"
+
+
+def _carried_timezones() -> tuple[str, ...]:
+    try:
+        said = _CARRIED.read_text(encoding="utf-8")
+    except OSError:
+        return ("UTC",)
+    return ("UTC", *(line for line in said.split() if "/" in line))
 
 
 def with_probed_facts(config: InstallConfig, probe: Probe) -> InstallConfig:
