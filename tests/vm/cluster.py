@@ -25,7 +25,8 @@ import urllib.request
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path, PurePosixPath
-from collections.abc import Callable
+from collections import Counter
+from collections.abc import Callable, Mapping
 from typing import Final, Protocol
 
 from gentoo_install.model.config import InstallConfig
@@ -282,17 +283,24 @@ def rewrite_fixtures(
     return into
 
 
-def free_slots(api: Api) -> list[Node]:
-    """One entry per guest the cluster can hold, most free node first.
+def free_slots(api: Api, placed: Mapping[str, int] | None = None) -> list[Node]:
+    """One entry per guest the cluster can still hold, most free node first.
 
     A node appears as many times as it has room for, not once: returning one
     slot per node capped a six-node cluster with 51 GiB spare at three guests
-    at a time, and the queue behind them was twenty deep.
+    at a time, with the queue twenty deep.
+
+    `placed` is what this schedule has already put on each node, and it is
+    subtracted from what the node reports. A guest's memory is allocated
+    lazily, so a node with eleven of them freshly started still reported 13.8
+    GiB free: reading that alone dispatched twenty guests wanting 120 GiB onto
+    a cluster with 71, on hardware that is running other people's machines.
     """
     need = GUEST_MEMORY_MIB * 1024**2
+    held = placed or {}
     slots: list[Node] = []
     for node in api.nodes():
-        room = node.free_bytes - NODE_HEADROOM_BYTES
+        room = node.free_bytes - NODE_HEADROOM_BYTES - held.get(node.name, 0) * need
         slots += [node] * max(0, int(room // need))
     return slots
 
@@ -454,16 +462,20 @@ def run(
     waiting = list(jobs)
     running: dict[str, threading.Thread] = {}
     inflight: dict[str, Running] = {}
+    #: Which node each running job was put on, so its slot is given back when
+    #: the job answers.
+    where: dict[str, str] = {}
     finished: list[Outcome] = []
     #: Handed out here, not in the worker. Two threads asking the cluster at
     #: the same moment both read 9304 as free and the second was refused with
     #: `VM 9304 already exists on node 'infra-node5'`.
     handed: set[int] = set()
+    placed: Counter[str] = Counter()
     swept = time.monotonic()
 
     try:
         while waiting or running:
-            slots = free_slots(api)
+            slots = free_slots(api, placed)
             if limit:
                 slots = slots[: max(0, limit - len(running))]
             while waiting and slots:
@@ -472,6 +484,8 @@ def run(
                     prepare(api, node.name, medium, urls, driver_path, driver)
                     prepared.add(node.name)
                 job = waiting.pop(0)
+                placed[node.name] += 1
+                where[job.name] = node.name
                 if job.iso == DEFAULT_ISO:
                     job = replace(job, iso=medium)
                 vmid = api.free_vmid(frozenset(handed))
@@ -496,6 +510,9 @@ def run(
                 continue
             finished.append(outcome)
             running.pop(outcome.name, None)
+            gone = where.pop(outcome.name, "")
+            if gone:
+                placed[gone] -= 1
             print(
                 f"{outcome.verdict.value:6} {outcome.name:34} {outcome.seconds / 60:5.1f}m "
                 f"{outcome.detail}",
