@@ -294,7 +294,6 @@
 "set" = "설정됨"
 "confirmed" = "확인됨"
 "prebuilt, cjktty for CJK on the console, from gentoo-zh" = "사전 빌드, gentoo-zh의 cjktty 포함"
-"the layout row writes this table" = "레이아웃 행이 정함"
 "A new partition table" = "새 파티션 테이블"
 "follow the BIOS" = "BIOS를 따름"
 "the one already on the disk" = "디스크의 기존 테이블"
@@ -469,3 +468,5 @@
 "How is this disk laid out?" = "이 디스크의 배치를 정하는 주체"
 "automatic" = "자동"
 "the installer writes the table" = "설치 프로그램이 테이블을 작성"
+"the rest" = "나머지 전체"
+"written by the template" = "템플릿이 작성"
