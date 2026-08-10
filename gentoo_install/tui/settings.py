@@ -298,7 +298,13 @@ def _use(config: InstallConfig, context: Context) -> str:
 
 
 def _network(config: InstallConfig, context: Context) -> str:
-    return config.system.networking.value
+    # The NetworkManager values name a package and stay as they are. `builtin`
+    # describes what the init already has, and untranslated it read as an
+    # implementation value in a Chinese interface.
+    if config.system.networking is Networking.BUILTIN:
+        return context.translate("what the init system already has")
+    named: str = config.system.networking.value
+    return named
 
 
 def _firewall(config: InstallConfig, context: Context) -> str:
