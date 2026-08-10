@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 import struct
 import urllib.request
 from pathlib import Path
@@ -693,10 +694,47 @@ def test_no_marker_appears_in_the_command_that_prints_it() -> None:
     from tests.vm import cluster
     from tests.vm.results import CONSOLE_CLOSE, CONSOLE_OPEN, console_command
 
-    watched = (cluster.NETWORK_UP, cluster.NETWORK_DONE, CONSOLE_OPEN, CONSOLE_CLOSE)
-    for command in (console_command("/tmp/results"), cluster.NETWORK_PROBE):
+    watched = (
+        cluster.NETWORK_UP,
+        cluster.NETWORK_DONE,
+        CONSOLE_OPEN,
+        CONSOLE_CLOSE,
+        cluster._begin(7),
+        cluster._done(7),
+    )
+    commands = (
+        console_command("/tmp/results"),
+        cluster.NETWORK_PROBE,
+        cluster._marked("findmnt --output TARGET,SOURCE,FSTYPE", 7),
+    )
+    for command in commands:
         for marker in watched:
             assert marker not in command, f"{marker} appears whole in {command[:80]!r}"
+
+
+def test_a_command_answers_with_what_it_printed_and_not_with_its_own_echo() -> None:
+    """`findmnt --noheadings --list --output TARGET,SOURCE,FSTYPE` was checked
+    for `/`, and the echo of that command carries one. A guest whose `findmnt`
+    printed nothing passed the mount check on the echoed line alone.
+
+    Run against a real `sh` with the echo in front of it, the way a console
+    carries one.
+    """
+    import subprocess
+
+    from tests.vm import cluster
+
+    command = cluster._marked("findmnt --output TARGET,SOURCE,FSTYPE", 7)
+    # `sh -x`-free: the echo is what a terminal adds, so it is written here.
+    said = subprocess.run(
+        ["sh", "-c", f"printf '%s\n' {shlex.quote(command)}; {command}"],
+        capture_output=True,
+        check=False,
+    ).stdout
+    answer = said.split(cluster._begin(7).encode())[-1]
+    answer = answer.split(cluster._done(7).encode())[0]
+    assert b"findmnt" not in answer, answer
+    assert b"TARGET,SOURCE,FSTYPE" not in answer, answer
 
 
 def test_the_nodes_are_asked_for_a_medium_in_china_first() -> None:

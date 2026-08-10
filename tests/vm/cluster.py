@@ -640,6 +640,28 @@ COLLECT_PATIENCE: Final[float] = 900.0
 RECONNECT_TRIES: Final[int] = 4
 
 
+#: What says a command started and what says it finished. Neither appears
+#: whole in the line the console is given: the shell echoes that line back,
+#: and a reader waiting for the end marker matched the echo and returned
+#: before the command had run. `printf` assembles them in the guest instead.
+_BEGIN_TEXT: Final[str] = "MARK_{token}_BEGIN"
+_DONE_TEXT: Final[str] = "MARK_{token}_DONE"
+
+
+def _marked(command: str, token: int) -> str:
+    return (
+        f"printf 'MARK_%s_BEGIN\\n' {token}; {command}; printf 'MARK_%s_DONE\\n' {token}"
+    )
+
+
+def _begin(token: int) -> str:
+    return _BEGIN_TEXT.format(token=token)
+
+
+def _done(token: int) -> str:
+    return _DONE_TEXT.format(token=token)
+
+
 class Reconnecting:
     """A console that opens another one when the cluster drops it.
 
@@ -683,9 +705,9 @@ class Reconnecting:
     def run(self, command: str, timeout: float = 120.0) -> None:
         for attempt in range(self._tries):
             token = next(self._marks)
-            self.console.send(f"{command}; echo MARK_{token}_DONE")
+            self.console.send(_marked(command, token))
             try:
-                self.console.expect(rf"MARK_{token}_DONE", timeout)
+                self.console.expect(_done(token), timeout)
                 return
             except ConsoleClosed:
                 if attempt + 1 == self._tries:
@@ -699,10 +721,10 @@ class Reconnecting:
         would be started a second time on a target it has half written.
         """
         token = next(self._marks)
-        self.console.send(f"{command}; echo MARK_{token}_DONE")
+        self.console.send(_marked(command, token))
         for attempt in range(self._tries):
             try:
-                self.console.expect(rf"MARK_{token}_DONE", timeout)
+                self.console.expect(_done(token), timeout)
                 return
             except ConsoleClosed:
                 if attempt + 1 == self._tries:
@@ -710,23 +732,25 @@ class Reconnecting:
                 self.reopen()
 
     def expect_output(self, command: str, timeout: float = 120.0) -> bytes:
-        """Run a command and answer with what it printed.
+        """Run a command and answer with what it printed, and nothing else.
 
-        `run` only waits for the marker; a check on the installed system has
-        to read the reply. The marker is still what says the command finished,
-        so a command that prints nothing is not mistaken for one that hung.
+        Between the two markers, not up to the last one: the shell echoes the
+        line it was given, so what came back began with the command itself.
+        `findmnt --output TARGET,SOURCE,FSTYPE` was checked for `/` and the
+        echo of that command carries one, so the check passed on a guest whose
+        `findmnt` printed nothing at all.
         """
-        token = next(self._marks)
-        self.console.send(f"{command}; echo MARK_{token}_DONE")
         for attempt in range(self._tries):
+            token = next(self._marks)
+            self.console.send(_marked(command, token))
             try:
-                said = self.console.expect(rf"MARK_{token}_DONE", timeout)
-                return said
+                self.console.expect(_begin(token), timeout)
+                said = self.console.expect(_done(token), timeout)
+                return said.split(_DONE_TEXT.format(token=token).encode())[0]
             except ConsoleClosed:
                 if attempt + 1 == self._tries:
                     raise
                 self.reopen()
-                self.console.send(f"{command}; echo MARK_{token}_DONE")
         raise ConsoleClosed("the console could not be reopened")
 
     def send(self, line: str) -> None:
