@@ -16,6 +16,7 @@
 "Encrypt the pool?" = "이 pool을 암호화하시겠습니까?"
 "Passphrase" = "패스프레이즈"
 "Passphrase again" = "패스프레이즈 다시 입력"
+"At least {count} characters." = "{count}자 이상이어야 합니다."
 "The passphrase is too short." = "패스프레이즈가 너무 짧습니다."
 "The two do not match." = "두 입력이 일치하지 않습니다."
 "Leave without installing?" = "설치하지 않고 나가시겠습니까?"

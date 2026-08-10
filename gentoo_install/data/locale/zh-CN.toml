@@ -16,6 +16,7 @@
 "Encrypt the pool?" = "要加密此 pool 吗？"
 "Passphrase" = "密码短语"
 "Passphrase again" = "再次输入密码短语"
+"At least {count} characters." = "至少 {count} 个字符。"
 "The passphrase is too short." = "密码短语太短。"
 "The two do not match." = "两次输入不一致。"
 "Leave without installing?" = "放弃安装并离开？"
