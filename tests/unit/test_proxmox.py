@@ -1251,6 +1251,31 @@ def test_the_dhcp_request_skips_the_arp_probe_and_waits_long_enough() -> None:
     from tests.vm.cluster import ASK_FOR_IPV4
 
     assert "--noarp" in ASK_FOR_IPV4, ASK_FOR_IPV4
-    assert "-t 90" in ASK_FOR_IPV4, ASK_FOR_IPV4
+    assert "-t 45" in ASK_FOR_IPV4, ASK_FOR_IPV4
     assert '"$dev"' in ASK_FOR_IPV4, "the interface has to be named"
     assert "ip -4 route show default" in ASK_FOR_IPV4, "and only when there is none"
+
+
+def test_the_guest_asks_for_an_address_on_every_pass() -> None:
+    """This network's DHCP server runs on a Raspberry Pi that also routes, and
+    it answers intermittently: the same node offered 10.31.0.201 on one
+    attempt and printed `soliciting a DHCP lease` then `timed out` on the
+    next, minutes apart. Asking once meant a guest that hit a quiet moment
+    spent its whole window with no address.
+
+    A daemon left by an earlier attempt is stopped first, because dhcpcd that
+    finds one running prints `sending commands to dhcpcd process` and returns
+    at once — which is why the log showed the marker pair with no delay.
+    """
+    import inspect
+
+    from tests.vm import cluster
+
+    assert "dhcpcd -x" in cluster.ASK_FOR_IPV4, cluster.ASK_FOR_IPV4
+    assert "--noarp" in cluster.ASK_FOR_IPV4
+    source = inspect.getsource(cluster.wait_for_network)
+    assert "if not asked:" not in source, "the request is no longer a one-shot"
+    assert source.count("ASK_FOR_IPV4") == 1
+    # And the burst is spread: thirteen leases inside one minute is what the
+    # server could not answer.
+    assert cluster.STAGGER >= 20.0, cluster.STAGGER
