@@ -411,7 +411,86 @@ def test_the_editor_is_reopened_with_escape_not_a_second_e() -> None:
         def snapshot(self, seconds: float) -> bytes:
             return self.screens.pop(0) if self.screens else b""
 
+        def send(self, line: str) -> None:
+            self.sent.append(line)
+
+        def expect(self, pattern: str, timeout: float) -> bytes:
+            raise AssertionError("the editor is read by snapshot, not by expect")
+
     console = Slow()
     screen = _editor_screen(console, 30.0)
     assert b"setparams" in screen
     assert console.sent == ["e", "\x1b", "e"]
+
+
+def test_a_long_install_is_never_sent_twice_after_a_reconnect() -> None:
+    """A console dropped mid-install is reopened and listened to again. Handing
+    the command over a second time would start another install on a target the
+    first one has half written."""
+    from tests.vm.cluster import Reconnecting
+    from tests.vm.console import ConsoleClosed
+
+    sent: list[str] = []
+    opened: list[int] = []
+
+    class Flaky:
+        def __init__(self, drops: int) -> None:
+            self.drops = drops
+
+        def send(self, line: str) -> None:
+            sent.append(line)
+
+        def send_raw(self, keys: str) -> None:
+            sent.append(keys)
+
+        def snapshot(self, seconds: float) -> bytes:
+            return b""
+
+        def expect(self, pattern: str, timeout: float) -> bytes:
+            if self.drops:
+                self.drops -= 1
+                raise ConsoleClosed("the guest closed the serial connection")
+            return b"MARK_1_DONE"
+
+    def open_console() -> Flaky:
+        opened.append(1)
+        return Flaky(drops=1 if len(opened) < 3 else 0)
+
+    link = Reconnecting(open_console, tries=4)
+    link.wait_for("sh install.sh", timeout=5.0)
+
+    commands = [one for one in sent if "install.sh" in one]
+    assert len(commands) == 1, commands
+    assert len(opened) == 3, "one open, then one per drop"
+
+
+def test_a_short_command_is_sent_again_after_a_reconnect() -> None:
+    """The shell never received it, so waiting for its marker would wait for
+    ever."""
+    from tests.vm.cluster import Reconnecting
+    from tests.vm.console import ConsoleClosed
+
+    sent: list[str] = []
+
+    class Once:
+        def __init__(self, drop: bool) -> None:
+            self.drop = drop
+
+        def send(self, line: str) -> None:
+            sent.append(line)
+
+        def send_raw(self, keys: str) -> None:
+            sent.append(keys)
+
+        def snapshot(self, seconds: float) -> bytes:
+            return b""
+
+        def expect(self, pattern: str, timeout: float) -> bytes:
+            if self.drop:
+                raise ConsoleClosed("dropped")
+            return b"done"
+
+    opens = [Once(drop=True), Once(drop=False)]
+    link = Reconnecting(lambda: opens.pop(0), tries=3)
+    link.run("mkdir -p /mnt/driver")
+    assert [one for one in sent if "mkdir" in one].__len__() == 2

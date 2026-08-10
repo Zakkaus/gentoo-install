@@ -581,7 +581,7 @@ GRUB_HOLD: Final[str] = "\x0e\x10"
 GRUB_COUNTDOWN: Final[str] = r"highlighted entry|GNU GRUB|Minimal BASH-like"
 
 
-def hold_the_menu(console: SerialConsole, timeout: float = 300.0) -> bytes:
+def hold_the_menu(console: Line, timeout: float = 300.0) -> bytes:
     """Wait for GRUB's menu and stop its countdown.
 
     Waiting first, rather than pressing early: a key sent before the menu is
@@ -593,7 +593,7 @@ def hold_the_menu(console: SerialConsole, timeout: float = 300.0) -> bytes:
     return seen
 
 
-def append_to_cmdline(console: SerialConsole, extra: str, timeout: float = 30.0) -> None:
+def append_to_cmdline(console: Line, extra: str, timeout: float = 30.0) -> None:
     """Add kernel parameters to the highlighted GRUB entry and boot it.
 
     The medium's own entry writes to the firmware console and says nothing more
@@ -641,8 +641,8 @@ KERNEL_SPEAKS: Final[str] = r"Linux version|Command line:|\[    0\.000000\]"
 
 
 def append_to_cmdline_blind(
-    guest: Guest, console: SerialConsole, log: Path, extra: str, patience: float = 60.0
-) -> SerialConsole:
+    guest: Guest, link: "Reopenable", extra: str, patience: float = 60.0
+) -> None:
     """The same edit on a guest whose GRUB writes only to VGA.
 
     Under OVMF, GRUB inherits the firmware's serial console and the menu can be
@@ -654,6 +654,7 @@ def append_to_cmdline_blind(
     `console=ttyS0` on the command line it has to speak. A count that landed on
     the wrong line leaves it silent, and the guest is reset and tried again.
     """
+    console = link.console
     last = ""
     for attempt, down in enumerate(BIOS_DOWN):
         # Timed, not read: this guest's GRUB draws on VGA and says nothing on
@@ -668,7 +669,7 @@ def append_to_cmdline_blind(
         guest.send_keys(["ctrl-x"])
         try:
             console.expect(KERNEL_SPEAKS, timeout=patience)
-            return console
+            return
         except (ConsoleTimeout, ConsoleClosed) as error:
             last = str(error)[:200]
         if attempt + 1 < len(BIOS_DOWN):
@@ -676,19 +677,38 @@ def append_to_cmdline_blind(
             # new one: the first guest to take a second attempt reported `the
             # guest closed the serial connection` a minute in.
             guest.reset()
-            console = SerialConsole(guest.console(), log.open("ab"))
+            link.reopen()
+            console = link.console
     raise ProxmoxError(f"the kernel never spoke after editing GRUB blind: {last}")
 
 
-class Editable(Protocol):
-    """What opening GRUB's editor needs of a console: keys in, screen out."""
+class Line(Protocol):
+    """What driving a guest needs of a console: keys in, text out.
+
+    A protocol rather than `SerialConsole`, because a cluster run drives a
+    console that reopens itself when the cluster drops it, and because a test
+    can then script one.
+    """
+
+    def send(self, line: str) -> None: ...
 
     def send_raw(self, keys: str) -> None: ...
 
     def snapshot(self, seconds: float) -> bytes: ...
 
+    def expect(self, pattern: str, timeout: float) -> bytes: ...
 
-def _editor_screen(console: Editable, timeout: float) -> bytes:
+
+class Reopenable(Protocol):
+    """A console that can be replaced with another one to the same guest. A
+    reset drops the console with it, and the next attempt needs a live one."""
+
+    console: Line
+
+    def reopen(self) -> None: ...
+
+
+def _editor_screen(console: Line, timeout: float) -> bytes:
     """Press `e` until GRUB draws the entry, and answer with that screen.
 
     One press is not enough. The menu redraws itself when its countdown is
