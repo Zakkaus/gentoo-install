@@ -119,6 +119,13 @@ class PrepareChroot(Operation):
 
     stage: Stage = Stage.CHROOT
 
+    @property
+    def survives_a_reboot(self) -> bool:
+        # The failure cleanup unmounts the target recursively, this included,
+        # so a resumed run that skipped it ran every chroot command against
+        # the live medium's own /proc, /sys and /dev.
+        return False
+
     def describe(self) -> str:
         return "mount proc, sys, dev and run into the target and copy resolv.conf"
 

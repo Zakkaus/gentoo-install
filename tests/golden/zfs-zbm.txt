@@ -11,6 +11,7 @@
 
 [zfs]
   create zpool zpcala as pool from poolpart as a stripe with native encryption
+  import zpool zpcala under pool
   create dataset zpcala/ROOT/gentoo/home as ds-home, mountpoint /home
   create dataset zpcala/ROOT/gentoo/root as ds-root, mountpoint /
 

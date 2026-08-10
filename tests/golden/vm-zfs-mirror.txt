@@ -15,6 +15,7 @@
 
 [zfs]
   create zpool rpool as pool from poolpart, poolpart2 as a mirror
+  import zpool rpool under pool
   create dataset rpool/ROOT/gentoo as ds-root, mountpoint /
 
 [mount]
