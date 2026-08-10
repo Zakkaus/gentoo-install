@@ -744,11 +744,21 @@ class UnmountTarget(Operation):
         # concerned, so `zpool export` reads `pool is busy` for as long as the
         # references last and `-f` does not clear it either: Gig-OS failed
         # every attempt including the forced one.
-        plain = context.run(["umount", "--recursive", str(context.target)], check=False)
-        if not isinstance(plain, CommandOutput) or plain.returncode != 0:
+        context.run(["umount", "--recursive", str(context.target)], check=False)
+        # Judged by what is still mounted, not by the exit code: a recursive
+        # unmount that cleared everything but one already-gone submount still
+        # exits 1, and the lazy fallback then met an empty target and raised
+        # `umount: /mnt/gentoo: not mounted` on a finished install.
+        if self._still_mounted(context):
             context.run(["umount", "--recursive", "--lazy", str(context.target)])
         for pool in self.pools:
             self._export(context, pool)
+
+    def _still_mounted(self, context: Context) -> bool:
+        found = context.run(
+            ["findmnt", "--mountpoint", str(context.target)], check=False
+        )
+        return isinstance(found, CommandOutput) and found.returncode == 0
 
     def _export(self, context: Context, pool: str) -> None:
         """`umount --lazy` detaches the tree and returns before the last
