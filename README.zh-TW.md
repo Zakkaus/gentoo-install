@@ -2,7 +2,7 @@
 
 # gentoo-install
 
-gentoo-install 是一套安裝器，可從受支援的 Linux live 環境安裝 amd64 Gentoo 系統。安裝內容由互動式選單或 TOML 設定檔指定。介面提供英文、正體中文、簡體中文、日文與韓文。
+gentoo-install 是一套系統安裝器，可在相容的 Linux live 環境中安裝 amd64 架構的 Gentoo 系統。安裝內容以互動式選單或 TOML 設定檔指定。介面提供英文、正體中文、簡體中文、日文與韓文。
 
 ![顯示各項安裝決定的選單](screenshot.png)
 
@@ -10,15 +10,15 @@ gentoo-install 是一套安裝器，可從受支援的 Linux live 環境安裝 a
 
 ## 功能
 
-**儲存裝置。** 裝置圖支援 GPT 與 MBR、ext2/3/4、含 subvolume 的 btrfs、xfs、f2fs、vfat、swap、zram、LUKS2、LVM 與 mdraid。既有分割表可以保留，每個分割區可分別指定保留、格式化或刪除。
+**儲存裝置** 裝置圖支援 GPT 與 MBR 分割表。檔案系統支援 ext2/3/4、xfs、f2fs、vfat 以及含 subvolume 的 btrfs，另有 swap、zram、LUKS2 加密、LVM 與 mdraid。既有分割表可以保留，每個分割區可分別指定保留、格式化或刪除。
 
-**開機與系統。** GRUB 支援 UEFI 與 BIOS，systemd-boot 支援 UEFI。安裝器可設定 systemd 或 OpenRC、dracut、locale、鍵盤配置、時區、主機名稱、DNS、靜態位址與所選的網路管理程式。
+**開機與系統** 開機載入器可選 GRUB 或 systemd-boot，其中 GRUB 支援 UEFI 與 BIOS，systemd-boot 支援 UEFI。安裝器另可設定 systemd 或 OpenRC、dracut、locale、鍵盤配置、時區、主機名稱、DNS、靜態位址與所選的網路管理程式。
 
-**桌面與語言支援。** GNOME、KDE Plasma 與 Xfce 可搭配 gdm、sddm 或 lightdm。圖形設定涵蓋 AMD、Intel、NVIDIA 與虛擬機。套件目錄包含 fcitx5、Rime、Anthy、Mozc、Hangul 與 CJK 字型。gentoo-zh 提供的修補核心可在 Linux 文字主控台顯示中文、日文與韓文。
+**桌面與語言支援** 桌面可選 GNOME、KDE Plasma 與 Xfce，並搭配 gdm、sddm 或 lightdm。圖形設定涵蓋 AMD、Intel、NVIDIA 與虛擬機。套件目錄包含 fcitx5、Rime、Anthy、Mozc、Hangul 與 CJK 字型。gentoo-zh 提供的修補核心可在 Linux 文字主控台顯示中文、日文與韓文。
 
-**Portage。** 設定項目包含 profile、`MAKEOPTS`、`USE`、`ACCEPT_KEYWORDS`、`L10N`、鏡像與儲存庫同步方式。gentoo-zh 與 gig overlay 必須明確啟用。官方與 gentoo-zh 的二進位套件來源各有獨立設定與金鑰。
+**Portage** 設定項目包含 profile、`MAKEOPTS`、`USE`、`ACCEPT_KEYWORDS`、`L10N`、鏡像與儲存庫同步方式。gentoo-zh 與 gig overlay 必須明確啟用。官方與 gentoo-zh 的二進位套件來源各有獨立設定與金鑰。
 
-**計畫與記錄。** dry run 與實際安裝使用同一份操作計畫。`install.log` 記錄指令輸出，`install.jsonl` 記錄操作、套件來源與二進位套件降級原因。選單可將移除敏感資料的設定上傳至 `paste.gentoozh.org`，並以文字與 QR code 顯示上傳頁面的網址。
+**計畫與記錄** dry run 與實際安裝使用同一份操作序列。記錄方面，`install.log` 記錄指令輸出，`install.jsonl` 記錄操作、套件來源與二進位套件降級原因。選單可將移除敏感資料的設定上傳至 `paste.gentoozh.org`，並以文字與 QR 碼顯示上傳頁面的網址。
 
 ## 驗證狀態
 
