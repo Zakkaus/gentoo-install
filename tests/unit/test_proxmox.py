@@ -1236,3 +1236,21 @@ def test_slots_are_offered_one_node_at_a_time() -> None:
 
     order = [one.name for one in free_slots(Cluster())]
     assert order == ["a", "b", "c", "a", "c", "a"], order
+
+
+def test_the_dhcp_request_skips_the_arp_probe_and_waits_long_enough() -> None:
+    """The server offers an address within a second and the handshake then
+    stalls in `probing address 10.31.0.201/24` until dhcpcd gives up, so a
+    guest that had been offered a lease still came up with nothing. Measured
+    on two nodes: `-w -t 25` timed out on both, `--noarp -w -t 90` leased
+    10.31.0.203 and 10.31.0.201 with `default via 10.31.0.254`.
+
+    The interface is named, too: a bare `dhcpcd -4 -w` returned at once when
+    one was already running, so the wait was never taken.
+    """
+    from tests.vm.cluster import ASK_FOR_IPV4
+
+    assert "--noarp" in ASK_FOR_IPV4, ASK_FOR_IPV4
+    assert "-t 90" in ASK_FOR_IPV4, ASK_FOR_IPV4
+    assert '"$dev"' in ASK_FOR_IPV4, "the interface has to be named"
+    assert "ip -4 route show default" in ASK_FOR_IPV4, "and only when there is none"
