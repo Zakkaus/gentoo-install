@@ -853,3 +853,26 @@ def test_parallel_driver_builds_do_not_share_staging(
         built = [future.result(timeout=30.0) for future in futures]
     assert all(path.is_file() for path in built)
     assert driver.remote_name(built[0]) != driver.remote_name(built[1])
+
+
+def test_a_medium_that_lacks_a_command_installs_it_before_the_installer_runs() -> None:
+    """`bootstrap.sh` prints the package manager line and stops rather than
+    running it, which is what an operator wants: the command has to be read
+    before it is run. Every Debian run therefore ended at `missing commands:
+    mkfs.vfat sgdisk`, exit 1, before anything was attempted.
+
+    The medium declares what it lacks, and `reach_shell` installs it.
+    """
+    import inspect
+
+    from tests.vm import run as vm_run
+    from tests.vm.media import MEDIA
+
+    assert MEDIA["debian"].prepare, "13.6.0 ships without mkfs.vfat and sgdisk"
+    assert any("dosfstools" in one for one in MEDIA["debian"].prepare)
+    assert any("gdisk" in one for one in MEDIA["debian"].prepare)
+    # A medium that carries everything is sent nothing.
+    assert MEDIA["official-minimal"].prepare == ()
+
+    source = inspect.getsource(vm_run.reach_shell)
+    assert "medium.prepare" in source
