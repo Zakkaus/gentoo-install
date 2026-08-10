@@ -537,7 +537,7 @@ def build(
     portage = config.portage
     gentoo = PurePosixPath("/var/db/repos/gentoo")
     operations: list[Operation] = [
-        InstallStage3(mirror=mirror, variant=_variant(config)),
+        InstallStage3(mirror=mirror, variant=variant_of(config)),
         PrepareChroot(),
     ]
     operations += [
@@ -751,5 +751,5 @@ def _l10n(config: InstallConfig) -> tuple[str, ...]:
     return tuple(tags)
 
 
-def _variant(config: InstallConfig) -> str:
+def variant_of(config: InstallConfig) -> str:
     return "systemd" if config.system.init is InitSystem.SYSTEMD else "openrc"
