@@ -305,6 +305,10 @@ def test_no_setting_row_shows_an_untranslated_english_word() -> None:
 #: Words a translated panel may still show: identifiers the ecosystem uses,
 #: package atoms, device names and command flags. Everything else in a row's
 #: value is prose, and prose belongs in the catalog.
+#: Words a translated row may keep. Every one is a proper noun, a filesystem,
+#: a package or a literal the system itself prints. `builtin` was here and is
+#: not one of those: it describes what the init already has, and the allowance
+#: is what let the network row read `builtin` in a Chinese interface.
 KEPT_IN_ENGLISH: frozenset[str] = frozenset(
     {
         "gentoo", "grub", "efi", "uefi", "bios", "zfs", "luks", "lvm", "mdraid", "utf",
@@ -314,7 +318,7 @@ KEPT_IN_ENGLISH: frozenset[str] = frozenset(
         "plasma", "gnome", "xfce", "sddm", "gdm", "lightdm", "greetd", "amd", "intel",
         "nvidia", "nouveau", "none", "true", "false", "auto", "cronie", "tmpfs", "dist",
         "stage", "bin", "cjk", "default", "console", "linux", "amd64", "desktop",
-        "multilib", "virtio", "target", "disk", "whole", "builtin", "profile", "kernel",
+        "multilib", "virtio", "target", "disk", "whole", "init", "profile", "kernel",
         "sys", "asia", "utc", "taipei", "shanghai", "tokyo", "seoul", "zfsbootmenu",
         "networkmanager", "iwd", "wpa", "supplicant", "guru", "gig", "rsync", "git",
         "webrsync", "official", "community", "off", "cpu", "flags", "ram",
