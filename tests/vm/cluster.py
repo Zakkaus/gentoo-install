@@ -829,11 +829,17 @@ def room_for(node: Node, job: Job, placed: Mapping[str, int] | None = None) -> b
 
 
 class Stoppable(Protocol):
-    """All the sweep needs of a guest. Stopping is what wakes the worker that
-    is blocked reading its console; deleting is the worker's own job, and a
-    sweep that deleted would race it."""
+    """What the sweep and the closing path need of a guest.
+
+    Stopping is what wakes the worker blocked reading its console. During the
+    schedule deleting is the worker's own job and a sweep that deleted would
+    race it; once the closing path has joined the workers there is nobody left
+    to race, and a guest still held there is one nothing else will remove.
+    """
 
     def stop(self) -> None: ...
+
+    def destroy(self) -> None: ...
 
 
 @dataclass
@@ -1588,8 +1594,15 @@ def _abandon(inflight: dict[str, Running], running: dict[str, threading.Thread])
     deadline = time.monotonic() + ABANDON_PATIENCE
     for thread in running.values():
         thread.join(timeout=max(0.0, deadline - time.monotonic()))
-    for name in inflight:
-        print(f"  {name} outlived the schedule; remove it by hand", file=sys.stderr)
+    # After the join, not before: a worker that was going to remove its own
+    # guest has had its chance, and what is left is what nothing else will
+    # remove. Reporting it and walking away left guests running on the cluster.
+    for name, one in list(inflight.items()):
+        try:
+            one.guest.destroy()
+            print(f"  {name} removed by the closing path", file=sys.stderr)
+        except ProxmoxError as error:
+            print(f"  {name} outlived the schedule: {error}", file=sys.stderr)
 
 
 def _edit_bios_cmdline(guest: Guest, link: "Reconnecting") -> None:
