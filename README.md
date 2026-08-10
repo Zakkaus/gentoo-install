@@ -4,7 +4,7 @@ English | [正體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md) | [�
 
 <!-- fact: identity -->
 
-gentoo-install is an installer that installs an amd64 Gentoo system from a recognized Linux live environment. An interactive menu or a TOML configuration file specifies the installation. The interface is available in English, Traditional Chinese, Simplified Chinese, Japanese and Korean.
+gentoo-install runs in a Linux live environment to install an amd64 Gentoo system. An interactive menu or a TOML configuration file specifies the installation. The interface is available in English, Traditional Chinese, Simplified Chinese, Japanese and Korean.
 
 ![The menu showing the installation decisions](screenshot.png)
 
@@ -30,7 +30,7 @@ The system configuration can configure zram independently of the device graph an
 
 <!-- fact: desktop-language -->
 
-**Desktop and language support.** GNOME, KDE Plasma and Xfce are available with gdm, sddm or lightdm. Graphics settings cover AMD, Intel, NVIDIA and virtual machines. The package catalog includes fcitx5, Rime, Anthy, Mozc, Hangul and CJK fonts. Patched kernels from gentoo-zh can render Chinese, Japanese and Korean on the Linux text console.
+**Desktop and language support.** GNOME, KDE Plasma and Xfce are available with gdm, sddm or lightdm. Graphics settings cover AMD, Intel, NVIDIA and virtual machines. The package catalog includes fcitx5, Rime, Anthy, Mozc, Hangul and CJK fonts. The kernel choices include `sys-kernel/gentoo-cjk-kernel-bin` and `sys-kernel/gentoo-cjk-kernel`, both of which carry the cjktty patch.
 
 <!-- fact: portage -->
 
@@ -38,7 +38,7 @@ The system configuration can configure zram independently of the device graph an
 
 <!-- fact: plan-records -->
 
-**Plan and records.** A dry run and a real installation use the same operation plan. `install.log` records command output, and `install.jsonl` records operations, package sources and binary-package degradation reasons. The menu can upload a redacted configuration to `paste.gentoozh.org` and display the resulting page address as text and as a QR code.
+**Plan and records.** A dry run prints an operation plan without probing storage hardware. A real installation uses the same planner after adding probed mdraid metadata for reused devices, so hardware-dependent validation can change the result. `install.log` records command output, and `install.jsonl` records operations, package sources and binary-package degradation reasons. Before uploading a configuration to `paste.gentoozh.org`, the menu replaces only `password_hash` and `root_password_hash` values with `removed-before-publishing`; the other configuration values remain in the upload. The menu displays the resulting page address as text and as a QR code.
 
 ## Verification status
 
@@ -48,7 +48,11 @@ Historical end-to-end records used the amd64 Gentoo minimal ISO at installer rev
 
 <!-- fact: verification-current -->
 
-No revision-tagged end-to-end run currently verifies the current installer revision. Every implemented installation-and-boot combination is therefore currently unverified end to end, including all storage, boot, desktop, live-medium and binhost combinations described above. ext2 and ext3 additionally have no focused automated configuration test. Files under `tests/fixtures/` exercise the configuration model; their presence does not establish an end-to-end installation and boot result.
+Revision-tagged end-to-end records dated 2026-08-11 cover one installation and boot from each of Arch Linux, openSUSE, Debian, Fedora and a self-built gentoo-cjk minimal ISO. The gentoo-cjk record uses ZFS and ZFSBootMenu; the other four use ext4. A run counts as current evidence only when its recorded revision matches the installer, its installation exit code is `0`, the installed system boots and the post-boot configuration checks pass.
+
+Other implemented combinations remain unverified end to end. Current evidence does not cover initramfs SSH unlock, greetd desktop sessions or ibus outside GNOME. It also does not cover the official Gentoo minimal ISO, Alpine or Gig-OS live media, or binary-host failure fallback.
+
+CJK text-console rendering has no current verification evidence. ext2 and ext3 additionally have no focused automated configuration test. Files under `tests/fixtures/` exercise the configuration model; their presence does not establish an end-to-end installation and boot result.
 
 <!-- fact: verification-network -->
 
@@ -66,7 +70,7 @@ The menu reads Gentoo main-tree package versions from `packages.gentoo.org` and 
 
 <!-- fact: requirements-network-filter -->
 
-The menu rejects a mirror when none of the detected address families match the mirror's declared IPv4 or IPv6 availability.
+The menu disables recorded IPv4-only Gentoo mirrors when the live environment has IPv6 but no IPv4.
 
 <!-- fact: requirements-bootstrap -->
 
@@ -117,7 +121,7 @@ Before unmounting, an interactive run offers a root shell in the target after ei
 
 <!-- fact: resume-behavior -->
 
-`--resume` skips operations recorded as complete in the journal:
+`--resume` skips an operation recorded as complete only when its journal position and identity match the current plan and its effect is marked as surviving a reboot:
 
 ```sh
 ./bootstrap.sh --config my-install.toml --resume
@@ -125,7 +129,7 @@ Before unmounting, an interactive run offers a root shell in the target after ei
 
 <!-- fact: resume-limits -->
 
-Resume is limited to the same live session, the same installer revision and the same configuration file. The default journal is `/run/gentoo-install/install.jsonl`, so it does not survive a reboot. Each entry records a digest of that operation's own class source and of its own field values, so an operation whose class or fields changed is performed again rather than skipped. A change to a shared helper or constant is outside that digest, and the journal carries no digest of the configuration as a whole, so resuming across a different revision or configuration is not supported.
+Resume is limited to the same live session, the same installer revision and the same configuration file. The default journal is `/run/gentoo-install/install.jsonl`, so it does not survive a reboot. Each operation record contains an identity derived from that operation's class source and field values, so an operation whose identity changed is performed again rather than skipped. A change to a shared helper or constant is outside that identity, and the journal carries no digest of the configuration as a whole, so a different revision or configuration is outside the documented resume scope.
 
 ## Configuration files
 
@@ -145,13 +149,13 @@ Parsing and planning do not probe storage hardware. A machine without the target
 
 <!-- fact: binary-packages -->
 
-Binary packages are optional. Disabling them keeps source builds available. The official binhost and the gentoo-zh binhost are separate options with separate trust configuration. No current end-to-end evidence covers an unreachable binhost, a missing signature or an untrusted key, so those degradation paths remain listed under verification status.
+Binary packages are optional. Disabling them keeps source builds available. The official binhost and the gentoo-zh binhost are separate options with separate trust configuration. No current end-to-end evidence covers an unreachable binhost, a missing signature or an untrusted key; these degradation paths remain unverified.
 
 ## Exit codes
 
 <!-- fact: exit-codes -->
 
-After the Python CLI successfully parses its arguments, `0` means completed, `1` means configuration error, `2` means preflight failure, `3` means integrity failure, `4` means external-command failure and `5` means operator abort. Before that point, `argparse` uses `2` for invalid arguments, while `bootstrap.sh` uses `1` for launcher failures such as an insufficient Python version, missing commands or insufficient privileges.
+For `gentoo-install`, `0` means successful completion and `1` means configuration error. `2` means an `argparse` usage error or preflight failure, and `3` means integrity failure. `4` means download, external-command, OS or uncategorized installer failure, and `5` means operator abort. `bootstrap.sh` can also exit `1` before the Python CLI starts when its Python, required-command or root checks fail.
 
 ## Contributing
 

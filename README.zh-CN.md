@@ -4,7 +4,7 @@
 
 <!-- fact: identity -->
 
-gentoo-install 是一个系统安装程序，用于在能识别的 Linux live 环境中安装 amd64 架构的 Gentoo 系统。安装内容由交互式菜单或 TOML 配置文件指定。程序界面提供英文、繁体中文、简体中文、日文和韩文。
+gentoo-install 在 Linux live 环境中运行，用于安装 amd64 架构的 Gentoo 系统。安装内容由交互式菜单或 TOML 配置文件指定。程序界面提供英文、繁体中文、简体中文、日文和韩文。
 
 ![显示各项安装决定的菜单](screenshot.png)
 
@@ -30,7 +30,7 @@ gentoo-install 是一个系统安装程序，用于在能识别的 Linux live �
 
 <!-- fact: desktop-language -->
 
-**桌面与语言支持** 桌面可以选择 GNOME、KDE Plasma 和 Xfce，并搭配 GDM、SDDM 或 LightDM。图形设置涵盖 AMD、Intel、NVIDIA 和虚拟机。软件包目录包含 Fcitx 5、Rime、Anthy、Mozc、Hangul 和 CJK 字体。gentoo-zh 提供的补丁内核可在 Linux 文本控制台显示中文、日文和韩文。
+**桌面与语言支持** 桌面可以选择 GNOME、KDE Plasma 和 Xfce，并搭配 GDM、SDDM 或 LightDM。图形设置涵盖 AMD、Intel、NVIDIA 和虚拟机。软件包目录包含 Fcitx 5、Rime、Anthy、Mozc、Hangul 和 CJK 字体。内核选项包括 `sys-kernel/gentoo-cjk-kernel-bin` 和 `sys-kernel/gentoo-cjk-kernel`，两者都包含 cjktty 补丁。
 
 <!-- fact: portage -->
 
@@ -38,7 +38,7 @@ gentoo-install 是一个系统安装程序，用于在能识别的 Linux live �
 
 <!-- fact: plan-records -->
 
-**计划与记录** dry run 和实际安装使用同一份操作序列。日志 `install.log` 记录命令输出，`install.jsonl` 记录操作、软件包来源和二进制软件包降级原因。菜单可将移除敏感信息的配置上传至 `paste.gentoozh.org`，并以文本和 QR 码显示上传页面的网址。
+**计划与记录** dry run 会在不探测存储硬件的情况下显示操作计划。实际安装使用相同的规划器，但会先加入从复用设备探测到的 mdraid 元数据，因此依赖硬件的验证结果可能不同。`install.log` 记录命令输出，`install.jsonl` 记录操作、软件包来源和二进制软件包降级原因。菜单将配置上传至 `paste.gentoozh.org` 前，只会把 `password_hash` 和 `root_password_hash` 的值替换为 `removed-before-publishing`；其他配置值仍会上传。菜单会以文本和 QR 码显示上传页面的网址。
 
 ## 验证状态
 
@@ -48,7 +48,11 @@ gentoo-install 是一个系统安装程序，用于在能识别的 Linux live �
 
 <!-- fact: verification-current -->
 
-目前没有带修订版标记的端到端运行可以验证当前安装程序修订版。因此，上述所有存储、引导、桌面、live 介质和 binhost 组合目前都尚未完成端到端验证。ext2 和 ext3 也没有针对其配置的自动化测试。`tests/fixtures/` 下的文件只验证配置模型；文件存在并不表示对应组合已完成端到端安装和引导验证。
+2026 年 8 月 11 日的端到端记录均标有安装程序修订版，覆盖从 Arch Linux、openSUSE、Debian、Fedora 和自行构建的 gentoo-cjk minimal ISO 各安装并引导一次。gentoo-cjk 记录使用 ZFS 和 ZFSBootMenu，其余四条记录使用 ext4。只有在记录的修订版与安装程序匹配、安装退出码为 `0`、已安装系统成功引导，且引导后配置检查通过时，该次运行才算当前证据。
+
+其他已实现组合仍未完成端到端验证。当前证据未覆盖 initramfs SSH 解锁、greetd 桌面会话或 GNOME 以外的 ibus。当前证据也未覆盖官方 Gentoo minimal ISO、Alpine 或 Gig-OS live 介质，以及 binhost 失败时的降级。
+
+CJK 文本控制台显示目前没有验证证据。ext2 和 ext3 也没有针对其配置的自动化测试。`tests/fixtures/` 下的文件只验证配置模型；文件存在并不表示对应组合已完成端到端安装和引导验证。
 
 <!-- fact: verification-network -->
 
@@ -66,7 +70,7 @@ gentoo-install 是一个系统安装程序，用于在能识别的 Linux live �
 
 <!-- fact: requirements-network-filter -->
 
-检测到的地址族与镜像声明的 IPv4 或 IPv6 可用性均不匹配时，菜单会拒绝该镜像。
+live 环境有 IPv6 但没有 IPv4 时，菜单会停用记录中标为仅可通过 IPv4 访问的 Gentoo 镜像。
 
 <!-- fact: requirements-bootstrap -->
 
@@ -117,7 +121,7 @@ cd gentoo-install-master
 
 <!-- fact: resume-behavior -->
 
-`--resume` 会跳过日志中标记为完成的操作：
+`--resume` 只会跳过位置和标识均与当前计划匹配，且效果标记为重新启动后仍然存在的已完成操作：
 
 ```sh
 ./bootstrap.sh --config my-install.toml --resume
@@ -125,7 +129,7 @@ cd gentoo-install-master
 
 <!-- fact: resume-limits -->
 
-继续执行仅限同一个 live 会话、同一个安装程序修订版与同一份配置文件。默认日志位于 `/run/gentoo-install/install.jsonl`，重新启动后不会保留。日志的每一条记录包含该操作类的源代码与该操作自身字段的摘要，因此类或字段更改过的操作会重新执行而不是跳过。共用辅助函数或常量的更改不在该摘要覆盖范围内，日志也不记录整份配置的摘要，因此跨修订版或跨配置文件的续装不受支持。
+继续执行仅限同一个 live 会话、同一个安装程序修订版与同一份配置文件。默认日志位于 `/run/gentoo-install/install.jsonl`，重新启动后不会保留。每条操作记录都包含根据该操作类源代码和字段值生成的标识；标识变化的操作会重新执行而不是跳过。共用辅助函数或常量的更改不在该标识覆盖范围内，日志也不记录整份配置的摘要，因此不同修订版或配置文件不在续装的文档约定范围内。
 
 ## 配置文件
 
@@ -145,13 +149,13 @@ cd gentoo-install-master
 
 <!-- fact: binary-packages -->
 
-二进制软件包属于可选功能。关闭后仍可从源代码构建。官方 binhost 和 gentoo-zh binhost 是两个独立选项，并使用不同的信任配置。目前没有端到端证据覆盖 binhost 无法连接、缺少签名或密钥不受信任的情况，因此这些降级路径仍列在验证状态中。
+二进制软件包属于可选功能。关闭后仍可从源代码构建。官方 binhost 和 gentoo-zh binhost 是两个独立选项，并使用不同的信任配置。目前没有端到端证据覆盖 binhost 无法连接、缺少签名或密钥不受信任的情况；这些降级路径仍未验证。
 
 ## 退出码
 
 <!-- fact: exit-codes -->
 
-Python CLI 成功解析参数后，以下退出码对照才适用。`0` 表示完成，`1` 表示配置错误，`2` 表示 preflight 失败。`3` 表示完整性验证失败，`4` 表示外部命令失败，`5` 表示操作者中止。在此之前，`argparse` 以 `2` 表示无效参数。`bootstrap.sh` 则以 `1` 表示 Python 版本不足、缺少命令或权限不足等启动程序失败。
+对于 `gentoo-install`，`0` 表示成功完成，`1` 表示配置错误。`2` 表示 `argparse` 用法错误或 preflight 失败，`3` 表示完整性验证失败。`4` 表示下载、外部命令、操作系统或未分类的安装程序失败，`5` 表示操作者中止。Python CLI 启动前，如果 Python、必要命令或 root 权限检查失败，`bootstrap.sh` 也可能以 `1` 退出。
 
 ## 参与开发
 

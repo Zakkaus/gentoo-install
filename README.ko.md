@@ -4,7 +4,7 @@
 
 <!-- fact: identity -->
 
-gentoo-install은 인식 대상 Linux 라이브 환경에서 amd64 아키텍처의 Gentoo 시스템을 설치하는 시스템 설치 도구다. 설치 내용은 대화형 메뉴 또는 TOML 설정 파일로 지정할 수 있다. 프로그램 인터페이스는 영어, 번체 중국어, 간체 중국어, 일본어, 한국어를 제공한다.
+gentoo-install은 Linux 라이브 환경에서 실행되어 amd64 아키텍처의 Gentoo 시스템을 설치하는 시스템 설치 도구다. 설치 내용은 대화형 메뉴 또는 TOML 설정 파일로 지정할 수 있다. 프로그램 인터페이스는 영어, 번체 중국어, 간체 중국어, 일본어, 한국어를 제공한다.
 
 ![설치 과정의 선택 항목을 보여 주는 메뉴](screenshot.png)
 
@@ -30,7 +30,7 @@ gentoo-install은 인식 대상 Linux 라이브 환경에서 amd64 아키텍처�
 
 <!-- fact: desktop-language -->
 
-**데스크톱 및 언어 지원** 설치 도구에서는 GNOME, KDE Plasma, Xfce를 선택하고 GDM, SDDM, LightDM 중 하나와 조합할 수 있다. 그래픽 설정은 AMD, Intel, NVIDIA, 가상 머신을 지원한다. 패키지 카탈로그에는 Fcitx 5, Rime, Anthy, Mozc, Hangul, CJK 글꼴이 포함된다. gentoo-zh에서 제공하는 패치된 커널은 Linux 텍스트 콘솔에 중국어, 일본어, 한국어를 표시할 수 있다.
+**데스크톱 및 언어 지원** 설치 도구에서는 GNOME, KDE Plasma, Xfce를 선택하고 GDM, SDDM, LightDM 중 하나와 조합할 수 있다. 그래픽 설정은 AMD, Intel, NVIDIA, 가상 머신을 지원한다. 패키지 카탈로그에는 Fcitx 5, Rime, Anthy, Mozc, Hangul, CJK 글꼴이 포함된다. 커널 선택 항목에는 cjktty 패치가 적용된 `sys-kernel/gentoo-cjk-kernel-bin`과 `sys-kernel/gentoo-cjk-kernel`이 포함된다.
 
 <!-- fact: portage -->
 
@@ -38,7 +38,7 @@ gentoo-install은 인식 대상 Linux 라이브 환경에서 amd64 아키텍처�
 
 <!-- fact: plan-records -->
 
-**계획 및 기록** dry run과 실제 설치는 동일한 일련의 작업을 사용한다. `install.log`는 명령 출력을 기록하고, `install.jsonl`은 작업, 패키지 소스, 바이너리 패키지에서 소스 빌드로 전환한 사유를 기록한다. 메뉴는 민감한 정보를 제거한 설정을 `paste.gentoozh.org`에 업로드하고, 업로드된 페이지의 주소를 텍스트와 QR 코드로 표시할 수 있다.
+**계획 및 기록** dry run은 저장 장치 하드웨어를 조사하지 않고 작업 계획을 표시한다. 실제 설치는 재사용 장치에서 조사한 mdraid 메타데이터를 추가한 뒤 같은 planner를 사용하므로 하드웨어에 의존하는 검증 결과가 달라질 수 있다. `install.log`는 명령 출력을 기록하고, `install.jsonl`은 작업, 패키지 소스, 바이너리 패키지에서 소스 빌드로 전환한 사유를 기록한다. 메뉴는 설정을 `paste.gentoozh.org`에 업로드하기 전에 `password_hash`와 `root_password_hash` 값만 `removed-before-publishing`으로 바꾼다. 다른 설정값은 업로드에 남는다. 메뉴는 업로드된 페이지의 주소를 텍스트와 QR 코드로 표시한다.
 
 ## 검증 상태
 
@@ -48,7 +48,11 @@ gentoo-install은 인식 대상 Linux 라이브 환경에서 amd64 아키텍처�
 
 <!-- fact: verification-current -->
 
-현재 설치 도구 리비전을 검증하는 리비전 표기 엔드투엔드 실행 기록은 없다. 따라서 위에서 설명한 모든 저장 장치, 부팅, 데스크톱, 라이브 미디어, binhost 조합은 현재 리비전에서 엔드투엔드 검증을 거치지 않았다. ext2와 ext3에는 해당 설정을 다루는 자동화 테스트도 없다. `tests/fixtures/`의 파일은 설정 모델만 검증하며 해당 조합의 설치와 부팅을 입증하지 않는다.
+2026년 8월 11일 자 리비전 표기 엔드투엔드 기록은 Arch Linux, openSUSE, Debian, Fedora, 자체 빌드한 gentoo-cjk minimal ISO에서 각각 한 번 설치하고 부팅한 결과를 다룬다. gentoo-cjk 기록은 ZFS와 ZFSBootMenu를 사용하며, 나머지 네 건은 ext4를 사용한다. 기록된 리비전이 설치 도구와 일치하고 설치 종료 코드가 `0`이며 설치한 시스템이 부팅되고 부팅 후 설정 검사를 통과한 실행만 현재 증거로 인정된다.
+
+그 밖의 구현된 조합은 엔드투엔드 검증을 거치지 않았다. 현재 증거는 initramfs SSH 잠금 해제, greetd 데스크톱 세션, GNOME 외부의 ibus를 다루지 않는다. 공식 Gentoo minimal ISO, Alpine 또는 Gig-OS 라이브 미디어, binhost 장애 시 전환도 다루지 않는다.
+
+CJK 텍스트 콘솔 표시에도 현재 검증 증거가 없다. ext2와 ext3에는 해당 설정을 다루는 자동화 테스트도 없다. `tests/fixtures/`의 파일은 설정 모델만 검증하며 해당 조합의 설치와 부팅을 입증하지 않는다.
 
 <!-- fact: verification-network -->
 
@@ -66,7 +70,7 @@ IPv4 전용, IPv6 전용, 듀얼 스택 VM 검사는 디스크에 접근하기 �
 
 <!-- fact: requirements-network-filter -->
 
-감지된 주소 계열이 미러에서 사용 가능하다고 선언된 IPv4 또는 IPv6와 모두 일치하지 않으면 메뉴가 해당 미러를 거부한다.
+라이브 환경에 IPv6가 있고 IPv4가 없으면 메뉴는 기록상 IPv4 전용인 Gentoo 미러를 비활성화한다.
 
 <!-- fact: requirements-bootstrap -->
 
@@ -117,7 +121,7 @@ cd gentoo-install-master
 
 <!-- fact: resume-behavior -->
 
-`--resume`은 저널에서 완료된 것으로 기록된 작업을 건너뛴다.
+`--resume`은 저널의 위치와 식별자가 현재 계획과 일치하고 재부팅 후에도 효과가 유지된다고 표시된 완료 작업만 건너뛴다.
 
 ```sh
 ./bootstrap.sh --config my-install.toml --resume
@@ -125,7 +129,7 @@ cd gentoo-install-master
 
 <!-- fact: resume-limits -->
 
-재개는 동일한 라이브 세션, 동일한 설치 프로그램 리비전, 동일한 설정 파일로 제한된다. 기본 저널은 `/run/gentoo-install/install.jsonl`에 있으므로 재부팅 후에는 남아 있지 않는다. 저널의 각 항목은 해당 작업 클래스의 소스와 해당 작업 자체의 필드에 대한 다이제스트를 기록하므로, 클래스나 필드가 변경된 작업은 건너뛰지 않고 다시 수행된다. 공용 헬퍼나 상수의 변경은 그 다이제스트의 범위 밖이며 저널은 설정 전체의 다이제스트도 기록하지 않으므로, 리비전이나 설정 파일을 넘나드는 재개는 지원되지 않는다.
+재개는 동일한 라이브 세션, 동일한 설치 프로그램 리비전, 동일한 설정 파일로 제한된다. 기본 저널은 `/run/gentoo-install/install.jsonl`에 있으므로 재부팅 후에는 남아 있지 않는다. 각 작업 기록에는 해당 작업 클래스의 소스와 필드 값에서 만든 식별자가 포함된다. 식별자가 바뀐 작업은 건너뛰지 않고 다시 수행된다. 공용 헬퍼나 상수의 변경은 그 식별자의 범위 밖이며 저널은 설정 전체의 다이제스트도 기록하지 않으므로, 다른 리비전이나 설정 파일은 문서화된 재개 범위에 포함되지 않는다.
 
 ## 설정 파일
 
@@ -145,13 +149,13 @@ cd gentoo-install-master
 
 <!-- fact: binary-packages -->
 
-바이너리 패키지는 선택 사항이다. 비활성화해도 소스에서 빌드할 수 있다. 공식 binhost와 gentoo-zh binhost는 별도의 선택 사항이며 각각 독립된 신뢰 설정을 사용한다. binhost에 연결할 수 없거나 서명이 없거나 키를 신뢰할 수 없는 경우를 다루는 현재 엔드투엔드 증거는 없다. 따라서 binhost 실패 시 소스 빌드로 전환하는 경로는 검증 상태의 미검증 항목으로 남아 있다.
+바이너리 패키지는 선택 사항이다. 비활성화해도 소스에서 빌드할 수 있다. 공식 binhost와 gentoo-zh binhost는 별도의 선택 사항이며 각각 독립된 신뢰 설정을 사용한다. binhost에 연결할 수 없거나 서명이 없거나 키를 신뢰할 수 없는 경우를 다루는 현재 엔드투엔드 증거는 없으며, 이 전환 경로는 검증되지 않았다.
 
 ## 종료 코드
 
 <!-- fact: exit-codes -->
 
-Python CLI가 인수를 정상적으로 해석한 뒤에는 `0`은 완료, `1`은 설정 오류, `2`는 preflight 실패, `3`은 무결성 검증 실패, `4`는 외부 명령 실패, `5`는 운영자 중단을 의미한다. 그 전에는 잘못된 인수에 대해 `argparse`가 `2`를 사용한다. `bootstrap.sh`는 Python 버전 부족, 명령 누락, 권한 부족과 같은 실행기 실패에 `1`을 사용한다.
+`gentoo-install`에서 `0`은 정상 완료, `1`은 설정 오류를 의미한다. `2`는 `argparse` 사용법 오류 또는 preflight 실패, `3`은 무결성 검증 실패를 의미한다. `4`는 다운로드, 외부 명령, OS 또는 분류되지 않은 설치 도구 실패, `5`는 운영자 중단을 의미한다. Python CLI가 시작되기 전에 Python, 필수 명령 또는 root 권한 검사가 실패하면 `bootstrap.sh`도 `1`로 종료될 수 있다.
 
 ## 기여
 
