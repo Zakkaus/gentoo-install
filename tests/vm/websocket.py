@@ -80,6 +80,8 @@ class WebSocket:
         self._sock = sock
         self._buffer = bytearray()
         self._closed = False
+        #: Why it closed, for the reader that reports a dropped console.
+        self._why = ""
 
     @classmethod
     def connect(
@@ -143,7 +145,13 @@ class WebSocket:
         except (TimeoutError, ssl.SSLWantReadError):
             return self._take()
         except OSError as error:
-            raise WebSocketError(f"the connection broke: {error}") from error
+            # Closed, not raised: a reset is one more way for this connection
+            # to end, and the reader above reopens a closed one. Raised, it
+            # went past every `except ConsoleClosed` and ended two cluster
+            # guests at zero minutes with their installs running.
+            self._closed = True
+            self._why = f"the connection broke: {error}"
+            return self._take()
         if not chunk:
             self._closed = True
             return self._take()
@@ -153,6 +161,10 @@ class WebSocket:
     @property
     def closed(self) -> bool:
         return self._closed
+
+    @property
+    def why_closed(self) -> str:
+        return self._why
 
     def _take(self) -> bytes:
         out = bytearray()

@@ -818,3 +818,46 @@ def test_an_encrypted_disk_is_unlocked_before_a_login_is_waited_for(
     console = Silent()
     assert cluster._unlock(console, Reconnecting(lambda: console, tries=1), plain) == ""
     assert console.sent == [], "a plain disk was sent a passphrase"
+
+
+def test_a_connection_reset_is_a_dropped_console_and_not_a_dead_run() -> None:
+    """`WebSocketError` went past every `except ConsoleClosed`, so a TCP reset
+    ended two cluster guests at zero minutes with their installs running and
+    the schedule recorded `ERROR` for a machine that was fine.
+
+    Driven through the real `Framed.read`, so the transport decides.
+    """
+    from tests.vm.websocket import WebSocket
+
+    class Resetting:
+        """A socket that answers one frame and then resets."""
+
+        def __init__(self) -> None:
+            self.reads = 0
+
+        def recv(self, size: int) -> bytes:
+            self.reads += 1
+            if self.reads == 1:
+                # One unmasked text frame carrying `hello`.
+                return b"\x81\x05hello"
+            raise ConnectionResetError(104, "Connection reset by peer")
+
+        def sendall(self, data: bytes) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+        def settimeout(self, seconds: float | None) -> None:
+            return None
+
+    sock = Resetting()
+    framed = WebSocket(sock)
+    assert framed.read() == b"hello"
+    # Read into locals: mypy narrows a property it has seen tested, and the
+    # whole point here is that this one changes.
+    before = framed.closed
+    assert framed.read() == b""
+    after, why = framed.closed, framed.why_closed
+    assert (before, after) == (False, True), "a reset has to look like a closed connection"
+    assert "reset" in why.lower(), why
