@@ -21,7 +21,7 @@ from . import errors
 from .errors import GentooInstallError
 from .data import load_catalog
 from .exec import fetch, preflight
-from .exec.apply import Machine, apply, completed
+from .exec.apply import Machine, already_degraded, apply, completed
 from .exec.probe import Probe
 from .exec.runner import Runner, write_file
 from .log import Journal
@@ -243,6 +243,14 @@ def install(config: InstallConfig, operations: tuple[Operation, ...], arguments:
             config=config, runner=runner, probe=probe, work=work, mountpoint=arguments.target
         )
         finished = completed(journal) if arguments.resume else frozenset()
+        if arguments.resume:
+            # Replayed before anything runs. The operation that recorded an
+            # unusable binary host has already completed and is skipped, so
+            # without this the next `Emerge` asked that host for packages the
+            # earlier run had declared untrusted.
+            for what in sorted(already_degraded(journal)):
+                machine.given_up.add(what)
+                record(f"resuming: {what} was already unavailable")
         if finished:
             record(f"resuming: {len(finished)} operations were finished by an earlier run")
         # The closing stage unmounts, so the target has to still be mounted

@@ -248,3 +248,39 @@ def test_a_changed_payload_is_not_skipped_either() -> None:
 
     assert identity(Noted(text="emerge")) != identity(Noted(text="emerge plasma"))
     assert identity(Noted(text="emerge")) == identity(Noted(text="emerge"))
+
+
+def test_a_resume_gives_up_on_what_the_first_run_gave_up_on(tmp_path: Path) -> None:
+    """The operation that recorded an unusable binary host has already
+    completed and is skipped, so a resumed run rebuilt an empty `given_up` and
+    the next `Emerge` asked that host for packages the earlier run had
+    declared untrusted. The record of where each package came from then
+    changed across the resume boundary."""
+    from gentoo_install.exec.apply import already_degraded
+    from gentoo_install.log import Journal
+
+    journal = Journal(tmp_path / "install.jsonl")
+    journal.degraded("binary packages", "the host answered no signature")
+    journal.write("operation", position=0, description="merge", status="done")
+
+    assert already_degraded(journal) == {"binary packages"}
+    assert already_degraded(None) == set()
+
+
+def test_an_emerge_after_a_resume_still_builds_from_source(tmp_path: Path) -> None:
+    """The whole point of restoring it: `BINPKG_OPTIONS` on a host the first
+    run refused would fetch exactly what it refused."""
+    from gentoo_install.exec.apply import already_degraded
+    from gentoo_install.log import Journal
+    from gentoo_install.plan.portage import BINARY_PACKAGES, Emerge
+    from tests.unit.recorder import Recorder
+
+    journal = Journal(tmp_path / "install.jsonl")
+    journal.degraded(BINARY_PACKAGES, "the key was never signed")
+
+    recorder = Recorder()
+    for what in already_degraded(journal):
+        recorder.given_up.add(what)
+    Emerge(packages=("app-editors/nano",), summary="editor", binary_packages=True).apply(recorder)
+    merged = " ".join(" ".join(one) for one in recorder.in_target)
+    assert "--usepkg=n" in merged and "--getbinpkg=n" in merged, merged
