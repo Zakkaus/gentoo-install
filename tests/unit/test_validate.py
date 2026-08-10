@@ -246,3 +246,54 @@ def test_the_same_index_on_two_tables_is_a_working_layout() -> None:
         Mountpoint(id=i("mnt-home"), source=i("homefs"), path=PurePosixPath("/home")),
     ]
     validate(config([*ext4_on_gpt(), *second]))
+@pytest.mark.parametrize(
+    ("address", "gateway"),
+    [
+        pytest.param("192.0.2.10/24", "2001:db8::1", id="v4-address-v6-gateway"),
+        pytest.param("2001:db8::10/64", "192.0.2.1", id="v6-address-v4-gateway"),
+    ],
+)
+def test_a_remote_unlock_gateway_of_another_family_is_refused(
+    address: str, gateway: str
+) -> None:
+    """Both go into one dracut `ip=` stanza, so the initramfs is configured
+    with a client of one family and a gateway of the other and routes nowhere.
+    The machine waiting for its passphrase is then reachable only from the
+    console, which is the one thing remote unlock exists to avoid."""
+    from gentoo_install.model.config import KernelConfig, RemoteUnlock
+
+    installation = replace(
+        config(encrypted_root()),
+        system=replace(config().system, authorized_keys=("ssh-ed25519 AAAA test",)),
+        kernel=replace(
+            KernelConfig(),
+            remote_unlock=RemoteUnlock(
+                enabled=True, port=222, interface="eth0", address=address, gateway=gateway
+            ),
+        ),
+    )
+    with pytest.raises(ValidationFailed):
+        validate(installation)
+
+
+def test_a_remote_unlock_pair_of_one_family_is_a_working_configuration() -> None:
+    """The fixture ships an IPv4 pair, and an IPv6 pair is the same shape."""
+    from gentoo_install.model.config import KernelConfig, RemoteUnlock
+
+    for address, gateway in (("192.0.2.10/24", "192.0.2.1"), ("2001:db8::10/64", "2001:db8::1")):
+        validate(
+            replace(
+                config(encrypted_root()),
+                system=replace(config().system, authorized_keys=("ssh-ed25519 AAAA test",)),
+                kernel=replace(
+                    KernelConfig(),
+                    remote_unlock=RemoteUnlock(
+                        enabled=True,
+                        port=222,
+                        interface="eth0",
+                        address=address,
+                        gateway=gateway,
+                    ),
+                ),
+            )
+        )
