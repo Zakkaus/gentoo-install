@@ -61,7 +61,7 @@ from ..plan.portage import community_binhost
 from ..plan.operations import Operation
 from ..plan.render import counts
 from ..model.size import ZERO, Size
-from ..errors import ConfigError, GentooInstallError, ValidationFailed
+from ..errors import ConfigError, DeviceNotFound, GentooInstallError, ValidationFailed
 from ..model import atoms, manual, mirrors, paste, qr, sshkey
 from ..model.templates import Choice, Layout, build
 from ..model.validate import validate
@@ -288,7 +288,9 @@ def _rebuild(config: InstallConfig, context: Context) -> InstallConfig:
 def disk_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
     translate = context.translate
     if not context.disks:
-        raise LookupError("no disk to install onto")
+        # Named, and under `GentooInstallError`: `cli.py` turns those into an
+        # exit code, and a bare `LookupError` left the menu with a traceback.
+        raise DeviceNotFound("this machine has no disk to install onto")
     menu: Menu[str] = Menu(
         title=translate("Disks"),
         items=[
