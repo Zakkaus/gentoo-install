@@ -172,10 +172,11 @@ ALPINE = Medium(
     login_user="root",
     login_password=None,
     boot_cmdline=("modules=loop,squashfs,sd-mod,usb-storage",),
-    # Alpine ships no interpreter at all, so preflight reports `found: none`
-    # before it can check the version. The live image also carries no
-    # repository line, so `apk add` answers `no such package` until one is
-    # written; the branch has to match the image's own version.
+    # Alpine ships no interpreter and no repository line, and it populates
+    # /dev with mdev, so a partition node never appears. The package list is
+    # every command `preflight.required_commands` asks for across the whole
+    # fixture set, resolved against Alpine's own APKINDEX rather than found one
+    # failed run at a time.
     prepare=(
         # The live session leaves every interface down, so apk answered
         # `DNS: transient error` on a guest whose network was never started.
@@ -184,12 +185,9 @@ ALPINE = Medium(
         "printf 'https://mirrors.ustc.edu.cn/alpine/v3.24/main\n"
         "https://mirrors.ustc.edu.cn/alpine/v3.24/community\n' > /etc/apk/repositories",
         "apk update",
-        # The list preflight itself printed, plus the interpreter it needs
-        # before it can print anything.
-        "apk add python3 e2fsprogs dosfstools sgdisk blkid findmnt gnupg "
-        "lsblk mount util-linux-misc tar eudev parted xz umount wipefs",
-        # The live session populates /dev with mdev, so a partition node never
-        # appeared and every install stopped at `/dev/vdb2 did not appear`.
+        "apk add python3 blkid btrfs-progs coreutils cryptsetup dosfstools "
+        "e2fsprogs eudev f2fs-tools findmnt gpg lsblk lvm2 mdadm mount parted "
+        "sgdisk tar umount util-linux-misc wipefs xfsprogs xz zfs",
         "setup-devd udev",
     ),
 )
