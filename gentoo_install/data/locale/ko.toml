@@ -168,6 +168,8 @@
 "Graphics" = "그래픽"
 "Display manager" = "디스플레이 관리자"
 "none" = "없음"
+"measured" = "측정됨"
+"same as the console" = "콘솔과 동일"
 "i915 and xe, with the firmware they need" = "i915 와 xe, 필요한 펌웨어 포함"
 "GCN 1.2 and newer" = "GCN 1.2 이후"
 "AMD up to Sea Islands" = "Sea Islands 이전의 AMD"

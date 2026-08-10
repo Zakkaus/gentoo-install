@@ -300,3 +300,56 @@ def test_no_setting_row_shows_an_untranslated_english_word() -> None:
                 if word.lower() in prose:
                     offenders.append(f"line {node.lineno}: {piece.value!r}")
     assert not offenders, offenders
+
+
+#: Words a translated panel may still show: identifiers the ecosystem uses,
+#: package atoms, device names and command flags. Everything else in a row's
+#: value is prose, and prose belongs in the catalog.
+KEPT_IN_ENGLISH: frozenset[str] = frozenset(
+    {
+        "gentoo", "grub", "efi", "uefi", "bios", "zfs", "luks", "lvm", "mdraid", "utf",
+        "btrfs", "ext", "xfs", "vfat", "f2fs", "swap", "dhcp", "ssh", "sshd", "gpt", "mbr",
+        "zram", "openrc", "systemd", "dracut", "journald", "pipe", "native", "free",
+        "binary", "redistributable", "fcitx", "rime", "anthy", "mozc", "hangul", "ibus",
+        "plasma", "gnome", "xfce", "sddm", "gdm", "lightdm", "greetd", "amd", "intel",
+        "nvidia", "nouveau", "none", "true", "false", "auto", "cronie", "tmpfs", "dist",
+        "stage", "bin", "cjk", "default", "console", "linux", "amd64", "desktop",
+        "multilib", "virtio", "target", "disk", "whole", "builtin", "profile", "kernel",
+        "sys", "asia", "utc", "taipei", "shanghai", "tokyo", "seoul", "zfsbootmenu",
+        "networkmanager", "iwd", "wpa", "supplicant", "guru", "gig", "rsync", "git",
+        "webrsync", "official", "community", "off", "cpu", "flags", "ram",
+    }
+)
+
+
+def test_the_panel_shows_no_untranslated_prose_under_a_chinese_catalog() -> None:
+    """`交換空間 a partition` and `-j1 (this machine)` reached the panel: the
+    strings were built without `translate`, so the catalog completeness test
+    never saw them — it collects what is passed to `translate` and these were
+    not passed to anything."""
+    import re
+    from dataclasses import replace as replaced
+
+    from gentoo_install.i18n import Catalog
+    from gentoo_install.tui import settings as tui_settings
+
+    from .layouts import config, ext4_on_gpt
+    from .test_tui_app import context
+
+    at = context()
+    at.translate = Catalog("zh-TW")
+    at.columns = 100
+    base = config(ext4_on_gpt())
+    base = replaced(base, portage=replaced(base.portage, makeopts=""))
+
+    word = re.compile(r"[A-Za-z]{4,}")
+    leaked: list[str] = []
+    for group in tui_settings.SETTINGS:
+        for row in group.rows or (group,):
+            shown = str(row.value(base, at))
+            unknown = [
+                one for one in word.findall(shown) if one.lower() not in KEPT_IN_ENGLISH
+            ]
+            if unknown:
+                leaked.append(f"{row.key}: {shown!r}")
+    assert not leaked, leaked

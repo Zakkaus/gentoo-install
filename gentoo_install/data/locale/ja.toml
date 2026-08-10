@@ -168,6 +168,8 @@
 "Graphics" = "グラフィック"
 "Display manager" = "ディスプレイマネージャ"
 "none" = "なし"
+"measured" = "計測済み"
+"same as the console" = "コンソールと同じ"
 "i915 and xe, with the firmware they need" = "i915 と xe、必要なファームウェア込み"
 "GCN 1.2 and newer" = "GCN 1.2 以降"
 "AMD up to Sea Islands" = "Sea Islands までの AMD"
