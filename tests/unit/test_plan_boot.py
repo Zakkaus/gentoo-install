@@ -999,3 +999,42 @@ def test_bootctl_is_not_rebuilt_for_flags_it_already_has() -> None:
     recorder = Recorder()
     merge.apply(recorder)
     assert any("--noreplace" in one for one in recorder.in_target[0])
+
+
+def test_zfsbootmenu_configures_the_pool_the_root_is_on() -> None:
+    """The pool was whichever `ZfsPool` came first in the graph, and the root
+    dataset's leaf name was prefixed to it. A data pool beside the root pool
+    gave `zpool set bootfs=tank/ROOT/gentoo tank` — a dataset no pool has —
+    and the install stopped at the bootloader with everything else written.
+
+    The data pool is placed first here, because that is the order that changed
+    the answer while the layout stayed equivalent.
+    """
+    from gentoo_install.model.device import DeviceId, Existing
+    from gentoo_install.plan import bootloader as plan_bootloader
+    from gentoo_install.plan.bootloader import InstallZfsBootMenu
+
+    one = zfs_installation()
+    beside = [
+        Existing(id=DeviceId("datadisk"), selector="/dev/disk/by-id/virtio-data", wipe=True),
+        ZfsPool(id=DeviceId("tank"), vdevs=(DeviceId("datadisk"),), name="tank"),
+        *one.disk.graph.nodes.values(),
+    ]
+    two = replace(one, disk=replace(one.disk, graph=DeviceGraph.build(beside)))
+
+    installed = [
+        operation
+        for operation in plan_bootloader.build(two)
+        if isinstance(operation, InstallZfsBootMenu)
+    ]
+    assert len(installed) == 1, installed
+    assert installed[0].pool == "zpcala", installed[0].pool
+    assert installed[0].dataset == "zpcala/ROOT/gentoo/root", installed[0].dataset
+    # The same layout with one pool answers the same way, so the fix is not
+    # reading the second entry instead of the first.
+    alone = [
+        operation
+        for operation in plan_bootloader.build(one)
+        if isinstance(operation, InstallZfsBootMenu)
+    ]
+    assert (alone[0].pool, alone[0].dataset) == (installed[0].pool, installed[0].dataset)

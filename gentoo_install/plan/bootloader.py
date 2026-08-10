@@ -331,7 +331,7 @@ def build(config: InstallConfig) -> list[Operation]:
             InstallSystemdBoot(esp=esp),
         ]
     elif kind is Bootloader.ZFSBOOTMENU and esp is not None and esp_device is not None:
-        pool = _pool_name(config)
+        pool, dataset = _root_pool_and_dataset(config)
         operations += [
             # Without the stub systemd ships behind its `boot` flag,
             # generate-zbm writes loose components and no bootable image.
@@ -343,7 +343,7 @@ def build(config: InstallConfig) -> list[Operation]:
             ),
             InstallZfsBootMenu(
                 pool=pool,
-                dataset=_root_dataset(config, pool),
+                dataset=dataset,
                 esp=esp,
                 esp_device=esp_device,
                 kernel_params=(*unlock_parameters(config), *config.bootloader.kernel_params),
@@ -478,16 +478,23 @@ def _esp_partition(config: InstallConfig) -> DeviceId | None:
     return None
 
 
-def _pool_name(config: InstallConfig) -> str:
-    pools = config.disk.graph.of_type(ZfsPool)
-    return pools[0].name if pools else ""
+def _root_pool_and_dataset(config: InstallConfig) -> tuple[str, str]:
+    """The pool `/` is on and the dataset that holds it, from one graph edge.
 
-
-def _root_dataset(config: InstallConfig, pool: str) -> str:
+    Both were read separately, and the pool was whichever `ZfsPool` came first
+    in the graph: a layout with a data pool beside the root pool had
+    `bootfs=tank/ROOT/gentoo` set on `tank`, a dataset no pool has, and the
+    install stopped at the bootloader with everything else already written.
+    Reordering two equivalent `disk.devices` entries changed the answer.
+    """
     graph = config.disk.graph
     root = graph.nodes.get(config.disk.root)
-    if isinstance(root, Mountpoint):
-        source = graph.nodes.get(root.source)
-        if isinstance(source, ZfsDataset):
-            return f"{pool}/{source.name}"
-    return pool
+    if not isinstance(root, Mountpoint):
+        return "", ""
+    dataset = graph.nodes.get(root.source)
+    if not isinstance(dataset, ZfsDataset):
+        return "", ""
+    pool = graph.nodes.get(dataset.pool)
+    if not isinstance(pool, ZfsPool):
+        return "", ""
+    return pool.name, f"{pool.name}/{dataset.name}"
