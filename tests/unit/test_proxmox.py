@@ -1075,3 +1075,41 @@ def test_every_cluster_guest_is_built_with_a_mark_of_its_own() -> None:
 
     source = inspect.getsource(cluster.install_one)
     assert "nonce=" in source, "the campaign has to mark the guests it builds"
+
+
+def test_a_create_held_off_by_the_storage_lock_is_tried_again() -> None:
+    """Thirteen guests built at once contend on `ceph-pve`, and one round lost
+    a fixture to `cfs-lock 'storage-ceph-pve' error: got lock request
+    timeout`. The lock belongs to another create and is gone in seconds; a
+    create that fails for any other reason still stops the run."""
+    from typing import Any
+
+    from tests.vm import proxmox
+    from tests.vm.proxmox import Api, Guest, GuestSpec, ProxmoxError
+
+    class Contended(Api):
+        def __init__(self, refusals: int, message: str) -> None:
+            self.refusals = refusals
+            self.message = message
+            self.attempts = 0
+
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            if method == "POST" and path.endswith("/qemu"):
+                self.attempts += 1
+            return "UPID:x"
+
+        def wait(self, node: str, upid: str, patience: float = 1800.0) -> None:
+            if self.attempts <= self.refusals:
+                raise ProxmoxError(self.message)
+
+    lock = "ended with \"unable to create VM 9313 - cfs-lock 'storage-ceph-pve' error: got lock request timeout\""
+    proxmox.CREATE_PAUSE = 0.0
+    api = Contended(refusals=2, message=lock)
+    Guest(api=api, node="infra-node1", vmid=9300, spec=GuestSpec(name="x", iso="x")).create()
+    assert api.attempts == 3, api.attempts
+
+    # Anything else stops at once: a full storage is not a lock.
+    other = Contended(refusals=1, message="ended with 'no space left on device'")
+    with pytest.raises(ProxmoxError, match="no space"):
+        Guest(api=other, node="infra-node1", vmid=9300, spec=GuestSpec(name="x", iso="x")).create()
+    assert other.attempts == 1, other.attempts

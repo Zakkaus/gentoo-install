@@ -56,6 +56,12 @@ TAG: Final[str] = "gentoo-install-test"
 
 #: Where disks go. `local` is per node and holds the ISOs; `ceph-pve` is shared,
 #: so a guest can be built on whichever node has the memory.
+#: How many times a create is attempted when the shared storage lock is held,
+#: and how long between them. Thirteen guests built at once contend on
+#: `ceph-pve`; the lock is another create's, and it is gone in seconds.
+CREATE_TRIES: Final[int] = 4
+CREATE_PAUSE: Final[float] = 10.0
+
 DISK_STORAGE: Final[str] = "ceph-pve"
 ISO_STORAGE: Final[str] = "local"
 
@@ -361,7 +367,24 @@ class Guest:
         if self.spec.driver_iso:
             options["ide3"] = f"{ISO_STORAGE}:iso/{self.spec.driver_iso},media=cdrom"
         options["boot"] = "order=" + ("virtio0" if self.spec.boot_installed else "ide2")
-        self.api.wait(self.node, self.api.call("POST", f"/nodes/{self.node}/qemu", **options))
+        # Retried on a storage lock: thirteen guests built at once contend on
+        # `ceph-pve`, and one round lost a fixture to `cfs-lock
+        # 'storage-ceph-pve' error: got lock request timeout`. The lock is
+        # held by another create, not by anything wrong with this one.
+        last: ProxmoxError | None = None
+        for attempt in range(CREATE_TRIES):
+            try:
+                self.api.wait(
+                    self.node, self.api.call("POST", f"/nodes/{self.node}/qemu", **options)
+                )
+                return
+            except ProxmoxError as error:
+                if "lock request timeout" not in str(error):
+                    raise
+                last = error
+                time.sleep(CREATE_PAUSE * (attempt + 1))
+        assert last is not None
+        raise last
 
     def start(self) -> None:
         self.api.wait(
