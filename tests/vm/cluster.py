@@ -62,6 +62,7 @@ from .proxmox import (
     Node,
     ProxmoxError,
     VMID_FIRST,
+    VMID_LAST,
     Line,
     append_to_cmdline,
     append_to_cmdline_blind,
@@ -344,7 +345,12 @@ GUEST_GATEWAY: Final[str] = f"{GUEST_NETWORK}.254"
 
 #: Where the static addresses start. One per VMID, so two guests of one
 #: campaign cannot collide and the address says which guest it is.
-GUEST_ADDRESS_BASE: Final[int] = 100
+#:
+#: 150 rather than 100: a probe on the segment found 10.31.0.106 through .115
+#: answering with locally administered MAC addresses, which are other people's
+#: machines on this cluster. Four guests a round took an address one of them
+#: already held. From .150 to .199 nothing answered.
+GUEST_ADDRESS_BASE: Final[int] = 150
 
 #: Every resolver, in the order glibc tries them. The router's own is first
 #: because it resolves names on this network too; the public ones follow so a
@@ -376,31 +382,39 @@ def static_address(vmid: int) -> str:
 
 
 def configure_statically(address: str) -> str:
-    """Give the interface `address`, unless something already answers to it.
+    """Give the interface `address`, or the next free one after it.
 
-    `arping -D` is a duplicate-address probe: it asks whether anything on the
-    segment already holds the address and says so without claiming it. A
-    guest that finds one falls back to asking the DHCP server, which is slower
-    and unreliable here but is not a collision with somebody's machine.
+    This segment carries other people's machines: a probe found 10.31.0.106
+    through .115 answering with locally administered MAC addresses, none of
+    them ours. Walking forward from the address this guest was assigned keeps
+    the collision impossible without depending on the DHCP server, which runs
+    on a Raspberry Pi here and answers intermittently.
     """
+    network, last = address.rsplit(".", 1)
+    ceiling = GUEST_ADDRESS_BASE + (VMID_LAST - VMID_FIRST)
+    gateway = GUEST_GATEWAY
+    prefix = GUEST_PREFIX
     # `\\n` for printf, not a real newline: the whole thing is one line sent to
     # a serial console, and a literal break there is two commands.
     resolvers = "".join(f"nameserver {one}\\n" for one in GUEST_RESOLVERS)
     return (
         # Nothing at all once there is a default route. Without this guard the
         # second pass probed the address the first pass had taken, `arping -D`
-        # answered that something holds it — this guest — and the DHCP branch
-        # then tore the working configuration down again. Four guests spent
-        # their whole window doing that to themselves.
+        # answered that something holds it — this guest — and the fallback
+        # then tore the working configuration down again.
         "ip -4 route show default | grep -q . || { "
         'for one in /sys/class/net/e*; do dev=$(basename "$one"); ip link set "$dev" up; '
-        f'if arping -D -c 2 -w 3 -I "$dev" {address} >/dev/null 2>&1; then '
-        f'ip -4 addr add {address}/{GUEST_PREFIX} dev "$dev" 2>/dev/null; '
-        f'ip -4 route replace default via {GUEST_GATEWAY} dev "$dev" 2>/dev/null; '
-        "else "
-        'dhcpcd -x "$dev" >/dev/null 2>&1; pkill -x dhcpcd >/dev/null 2>&1; '
-        'dhcpcd -4 --noarp -w -t 45 "$dev" >/dev/null 2>&1 || true; '
-        "fi; done; }; "
+        # The next free address from this one, rather than the DHCP server: an
+        # address somebody else holds is a collision with a real machine, and
+        # this segment has machines scattered through the range. `arping -D`
+        # is a duplicate-address probe: it asks whether anything answers and
+        # says so without claiming it.
+        f'n={last}; while [ "$n" -le {ceiling} ]; do '
+        'if arping -D -c 2 -w 3 -I "$dev" ' + f"{network}.$n" + ' >/dev/null 2>&1; then '
+        'ip -4 addr add ' + f"{network}.$n/{prefix}" + ' dev "$dev" 2>/dev/null && break; fi; '
+        'n=$((n + 1)); done; '
+        f'ip -4 route replace default via {gateway} dev "$dev" 2>/dev/null; '
+        "done; }; "
         f"printf '{resolvers}' > /etc/resolv.conf; "
         "ip -4 route show default | grep -q . || true"
     )

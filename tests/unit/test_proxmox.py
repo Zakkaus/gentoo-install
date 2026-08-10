@@ -1299,8 +1299,8 @@ def test_a_guest_is_given_an_address_rather_than_asking_for_one() -> None:
     )
     from tests.vm.proxmox import VMID_FIRST, VMID_LAST
 
-    assert static_address(VMID_FIRST) == "10.31.0.100"
-    assert static_address(VMID_LAST) == "10.31.0.199"
+    assert static_address(VMID_FIRST) == "10.31.0.150"
+    assert static_address(VMID_LAST) == "10.31.0.249"
     # One address per guest, and no two the same.
     every = {static_address(one) for one in range(VMID_FIRST, VMID_LAST + 1)}
     assert len(every) == VMID_LAST - VMID_FIRST + 1
@@ -1311,7 +1311,9 @@ def test_a_guest_is_given_an_address_rather_than_asking_for_one() -> None:
     # with a real machine, so that guest asks the DHCP server instead.
     assert "arping -D" in command
     assert command.index("arping -D") < command.index("addr add")
-    assert "dhcpcd" in command, "the fallback is still there"
+    # Walks forward instead of asking the DHCP server: this segment carries
+    # other people's machines and that server answers intermittently.
+    assert "n=$((n + 1))" in command, command
     assert f"via {GUEST_GATEWAY}" in command
     for one in GUEST_RESOLVERS:
         assert f"nameserver {one}" in command
@@ -1338,3 +1340,22 @@ def test_a_guest_leaves_its_own_address_alone_on_the_next_pass() -> None:
     assert command.index("arping") > command.index("|| {")
     # `exit` would end the login shell this runs in, not just the command.
     assert "exit 0" not in command
+
+
+def test_the_address_range_avoids_the_machines_already_on_the_segment() -> None:
+    """A probe found 10.31.0.106 through .115 answering with locally
+    administered MAC addresses — other people's machines on this cluster — so
+    four guests a round took an address one of them already held. From .150
+    upward nothing answered.
+
+    Measured on a guest afterwards: it took 10.31.0.162, running the same
+    command twice left it there, and the mirror answered 200.
+    """
+    from tests.vm.cluster import GUEST_ADDRESS_BASE, configure_statically, static_address
+    from tests.vm.proxmox import VMID_FIRST
+
+    assert GUEST_ADDRESS_BASE >= 150, GUEST_ADDRESS_BASE
+    command = configure_statically(static_address(VMID_FIRST + 5))
+    assert "n=155;" in command, command
+    # Bounded: the walk stops rather than running off the end of the network.
+    assert "-le 249" in command, command
