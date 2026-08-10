@@ -32,7 +32,7 @@ gentoo-install은 호환되는 Linux 라이브 환경에서 amd64 아키텍처�
 
 메뉴는 모든 버전을 `packages.gentoo.org`에서 읽으므로 이 사이트에 연결할 수 있어야 한다. 설정 파일로 설치할 때는 대신 그 설정이 지정한 미러에 연결할 수 있어야 하며, `--missing-commands`와 `--config FILE --dry-run`은 둘 다 연결을 요구하지 않는다. 커널 버전과 `sys-fs/zfs`가 지원하는 최대 커널 버전은 실행 시점에 조회한다.
 
-주소 계열은 둘 중 하나만 있으면 충분하다. 해당 계열에 경로가 없어 실패한 요청은 IPv4로 다시 시도한다. 미러 목록은 IPv4로만 응답하는 사이트를 기록하므로, IPv4 주소가 없는 시스템에서는 메뉴가 그런 사이트를 선택하지 못하게 한다.
+IPv4 전용, IPv6 전용, 듀얼 스택 네트워크를 모두 지원한다. 현재 주소 계열로 접근할 수 없는 미러는 메뉴가 거부한다.
 
 `bootstrap.sh`는 `/etc/os-release`를 읽고, 누락된 명령을 보고하며, 후보 패키지 관리자 명령을 표시한다. Debian과 Ubuntu, Arch, openSUSE, Fedora, RHEL과 CentOS, Gentoo, Alpine을 비롯한 여러 배포판 계열을 인식한다. 표시된 명령은 실행하기 전에 확인해야 한다.
 

@@ -32,7 +32,7 @@ A real installation requires root privileges, an amd64 target and Python 3.11 or
 
 The menu reads every version from `packages.gentoo.org` and requires network access to it. An installation from a configuration file requires the mirror that configuration names instead; `--missing-commands` and `--config FILE --dry-run` require neither. Kernel versions and the maximum kernel version supported by `sys-fs/zfs` are read at run time.
 
-Either address family is enough. A request that fails because the family has no route is retried over IPv4, and the mirror list records the sites that answer on IPv4 only, so the menu refuses them on a machine with no IPv4 address.
+IPv4-only, IPv6-only and dual-stack networks are all supported; the menu refuses a mirror the machine's address family cannot reach.
 
 `bootstrap.sh` reads `/etc/os-release`, reports missing commands and prints a candidate package-manager command. It recognizes these distribution families: Debian and Ubuntu; Arch; openSUSE; Fedora, RHEL and CentOS; Gentoo; and Alpine. The printed command must be reviewed before it is run.
 
