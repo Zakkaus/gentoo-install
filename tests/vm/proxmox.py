@@ -302,6 +302,10 @@ class GuestSpec:
     #: Boot the installed disk instead of the medium. The medium stays attached
     #: so a failed boot can be looked at without rebuilding the guest.
     boot_installed: bool = False
+    #: Written beside the tag and required before this guest is removed. Two
+    #: campaigns can pick the same free VMID in the same second, and the tag
+    #: alone then let each of them delete the other's machine.
+    nonce: str = ""
 
 
 @dataclass
@@ -339,7 +343,7 @@ class Guest:
             # page cache. Without it four guests hold their whole allocation.
             "balloon": self.spec.memory_mib,
             "agent": 0,
-            "tags": TAG,
+            "tags": f"{TAG};{self.spec.nonce}" if self.spec.nonce else TAG,
         }
         if self.spec.uefi:
             options["bios"] = "ovmf"
@@ -474,10 +478,25 @@ class Guest:
         other people's work, and a VMID is not proof of ownership: the range
         this harness allocates from already held a production template.
         """
+        if not VMID_FIRST <= self.vmid <= VMID_LAST:
+            # The tag is ours to write, so a machine outside the range that
+            # carries it is not evidence: the range is the second guard, and
+            # `9002` in this cluster is `prod-debian-12-server-template`.
+            raise ProxmoxError(
+                f"vm {self.vmid} is outside {VMID_FIRST}-{VMID_LAST}; refusing to remove it"
+            )
         config = self.api.call("GET", f"/nodes/{self.node}/qemu/{self.vmid}/config")
-        if TAG not in str(config.get("tags", "")).split(";"):
+        tags = str(config.get("tags", "")).split(";")
+        if TAG not in tags:
             raise ProxmoxError(
                 f"vm {self.vmid} on {self.node} is not tagged {TAG!r}; refusing to remove it"
+            )
+        if self.spec.nonce and self.spec.nonce not in tags:
+            # Somebody else's guest at the VMID this one wanted: two campaigns
+            # asking the cluster in the same second both read it as free.
+            raise ProxmoxError(
+                f"vm {self.vmid} on {self.node} is not the guest this run built; "
+                "refusing to remove it"
             )
         self.stop()
         try:

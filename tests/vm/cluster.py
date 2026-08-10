@@ -21,6 +21,7 @@ import queue
 import sys
 import threading
 import time
+import uuid
 import urllib.request
 from dataclasses import dataclass, field, replace
 from enum import Enum
@@ -491,6 +492,9 @@ def install_one(
             target_gib=tuple(TARGET_GIB for _ in range(job.disks)),
             uefi=job.uefi,
             driver_iso=driver,
+            # This run's own mark, so a second campaign that picked the same
+            # free VMID cannot delete the guest this one built.
+            nonce=f"gi-{uuid.uuid4().hex[:12]}",
         ),
     )
     watch = Watchdog(log=log, counters=lambda: guest.transferred())
