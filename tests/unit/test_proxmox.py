@@ -627,3 +627,32 @@ def test_the_network_wait_returns_as_soon_as_the_guest_answers() -> None:
     link = cluster.Reconnecting(Late, tries=1)
     cluster.wait_for_network(link)
     assert len(tries) == 3
+
+
+def test_a_run_is_not_green_until_the_installed_system_answers() -> None:
+    """The install finishing is half the question. A machine can reach a login
+    prompt with the wrong filesystem mounted, no fstab and the wrong locale,
+    and every check before this one would still be green."""
+    import inspect
+
+    from tests.vm import cluster
+
+    source = inspect.getsource(cluster.install_one)
+    assert "boot_and_check" in source
+    ok = source.index("Verdict.OK")
+    checked = source.index("boot_and_check")
+    assert checked < ok, "the verdict cannot be OK before the system was read"
+
+
+def test_every_question_asked_inside_names_what_would_fail_it() -> None:
+    """A check with nothing to compare against passes on any machine, which is
+    the shape a coverage claim hides behind."""
+    from tests.vm.cluster import INSIDE
+
+    named = {name for name, _, _ in INSIDE}
+    assert {"os-release", "mounts", "fstab", "locale"} <= named
+    for name, command, wanted in INSIDE:
+        assert command.strip(), name
+        if name in ("hostname", "kernel"):
+            continue  # collected for the report; their value is the fixture's
+        assert wanted, f"{name} compares against nothing"
