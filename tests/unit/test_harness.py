@@ -934,3 +934,53 @@ def test_a_schedule_that_ends_early_stops_the_guests_it_left_running() -> None:
     assert all(guest.stopped for guest in guests.values()), guests
     assert sorted(joined) == ["vm-lvm", "vm-xfs"]
     assert not inflight, "each worker removes its own guest once the console closes"
+
+
+def test_a_removed_guest_gives_its_vmid_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`handed` only ever grew, so a campaign of more than a hundred jobs
+    stopped at `no free vmid` with the whole range unoccupied. The outcome has
+    to carry the VMID for the scheduler to know which one to release."""
+    import queue
+    from typing import cast
+
+    from tests.vm import cluster
+
+    monkeypatch.setattr(
+        cluster,
+        "install_one",
+        lambda *args, **kwargs: cluster.Outcome("vm-lvm", cluster.Verdict.OK, 60.0),
+    )
+    done: queue.Queue[cluster.Outcome] = queue.Queue()
+    from tests.vm.proxmox import Api
+
+    nowhere = cast(Api, object())
+    cluster.answer_once(
+        done,
+        nowhere,
+        "infra-node1",
+        cluster.Job("vm-lvm", Path("tests/fixtures/vm-lvm.toml")),
+        "gi-driver.iso",
+        Path("/nonexistent"),
+        {},
+        9307,
+    )
+    outcome = done.get_nowait()
+    assert outcome.vmid == 9307, "the scheduler releases by VMID and cannot guess one"
+    assert outcome.removed
+
+    # A worker that died still names its VMID, or the range leaks one per crash.
+    monkeypatch.setattr(
+        cluster, "install_one", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("x"))
+    )
+    cluster.answer_once(
+        done,
+        nowhere,
+        "infra-node1",
+        cluster.Job("vm-xfs", Path("tests/fixtures/vm-xfs.toml")),
+        "gi-driver.iso",
+        Path("/nonexistent"),
+        {},
+        9308,
+    )
+    died = done.get_nowait()
+    assert died.vmid == 9308 and not died.removed

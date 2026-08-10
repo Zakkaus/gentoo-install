@@ -215,6 +215,9 @@ class Outcome:
     removed: bool = True
     phase: Phase = Phase.SCHEDULE
     revision: str = ""
+    #: Which VMID the job held. Zero for an outcome raised before one was
+    #: taken, which is the only case that reserves nothing.
+    vmid: int = 0
 
 
 @dataclass
@@ -1016,7 +1019,9 @@ def answer_once(
         outcome = install_one(
             api, node, job, driver, workdir, inflight, vmid, nonce, revision
         )
-        outcome = replace(outcome, removed=outcome.name not in LEFT_BEHIND)
+        outcome = replace(
+            outcome, removed=outcome.name not in LEFT_BEHIND, vmid=outcome.vmid or vmid
+        )
         if outcome.removed and lease_path is not None:
             lease_path.unlink(missing_ok=True)
         done.put(outcome)
@@ -1029,6 +1034,7 @@ def answer_once(
                 f"{type(error).__name__}: {error}"[:300],
                 removed=False,
                 revision=revision,
+                vmid=vmid,
             )
         )
 
@@ -1191,6 +1197,11 @@ def run(
                 continue
             finished.append(outcome)
             running.pop(outcome.name, None)
+            # A removed guest gives its VMID back. Without this the reserved
+            # set only grows, and a campaign of more than a hundred jobs
+            # stopped at `no free vmid` with the whole range unoccupied.
+            if outcome.removed and outcome.vmid:
+                handed.discard(outcome.vmid)
             gone = where.pop(outcome.name, "")
             if gone and not outcome.removed:
                 # The guest is still on that node holding its memory, so the
