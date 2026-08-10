@@ -18,7 +18,7 @@ sudo = true
 [portage]
 profile = "default/linux/amd64/23.0/desktop/systemd"
 keywords = "stable"
-makeopts = "-j32 -l32"
+makeopts = "-j4"
 common_flags = "-O2 -pipe -march=x86-64-v3"
 use = ["dracut", "initramfs", "cjk"]
 video_cards = ["amdgpu", "radeonsi"]

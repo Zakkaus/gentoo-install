@@ -1059,3 +1059,21 @@ def test_a_worker_that_answered_and_exited_is_not_reported_twice() -> None:
     finally:
         alive.set()
         working.join()
+
+
+def test_no_fixture_asks_for_more_jobs_than_a_test_guest_has() -> None:
+    """`btrfs-luks.toml` carried `-j32 -l32`, written for this workstation's
+    thread count. In a guest with five processors `ninja -l32 -j32` thrashed
+    and poppler died in its compile phase, which reads as an installer failure
+    and is not one."""
+    import re
+    import tomllib
+
+    from tests.vm.qemu import VmSpec
+
+    allowed = 2 * VmSpec.cpus
+    for fixture in sorted(Path("tests/fixtures").glob("*.toml")):
+        settings = tomllib.loads(fixture.read_text())
+        makeopts = str(settings.get("portage", {}).get("makeopts", ""))
+        for jobs in re.findall(r"-[jl](\d+)", makeopts):
+            assert int(jobs) <= allowed, f"{fixture.name} asks for {makeopts}"
