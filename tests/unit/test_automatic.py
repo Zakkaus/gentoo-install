@@ -1105,6 +1105,45 @@ def test_a_group_whose_package_is_testing_only_says_so() -> None:
             )
 
 
+def _hard_masked(tree: Path) -> dict[str, str]:
+    """Every package `profiles/package.mask` masks whole, and the reason.
+
+    Only the entries with no version restriction: `nvidia-drivers:0/470` is
+    masked and `x11-drivers/nvidia-drivers` is not, and reading the atom's
+    name alone would refuse a group that resolves to a slot the tree ships.
+    """
+    import re
+
+    found: dict[str, str] = {}
+    said: list[str] = []
+    for line in (tree / "profiles/package.mask").read_text(errors="replace").splitlines():
+        if line.startswith("#"):
+            said.append(line.lstrip("# ").rstrip())
+        elif not line.strip():
+            said = []
+        elif not re.match(r"[<>=~!]", line.strip()) and ":" not in line.strip():
+            found[line.strip()] = " ".join(said[-3:])
+    return found
+
+
+@pytest.mark.skipif(
+    not _TREES["gentoo"].is_dir(), reason="no Gentoo tree on this machine"
+)
+def test_no_group_names_a_package_gentoo_has_hard_masked() -> None:
+    """`app-arch/p7zip` was masked for unfixed vulnerabilities with a removal
+    date, and `console-tools` still named it: choosing that group failed at
+    emerge, an hour into an install that had already written the disks.
+
+    A mask is how the tree announces a removal before it happens, so reading
+    it is what turns a future breakage into a failing test today.
+    """
+    masked = _hard_masked(_TREES["gentoo"])
+    for name, group in load_catalog().items():
+        for atom in group.packages:
+            where = atom.split(":")[0]
+            assert where not in masked, f"{name} names {atom}: {masked[where]}"
+
+
 def test_greetd_starts_the_desktop_rather_than_a_shell() -> None:
     """Its command was `tuigreet --cmd /bin/bash`, so a successful login opened
     a shell beside the desktop that had just been installed. tuigreet reads the

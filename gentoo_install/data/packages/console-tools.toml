@@ -5,7 +5,7 @@ packages = [
     "app-misc/tmux",
     "sys-process/htop",
     "app-arch/unzip",
-    "app-arch/p7zip",
+    "app-arch/7zip",
     "app-portage/gentoolkit",
     "dev-vcs/git",
     "app-misc/fastfetch",
