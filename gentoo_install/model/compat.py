@@ -68,6 +68,7 @@ class Trait(Enum):
     """Something a configuration is or has. The value is shown to the user."""
 
     ROOT_ON_ZFS = "root on ZFS"
+    BOOT_ON_ZFS = "/boot on ZFS"
     NO_ZFS_ROOT = "a root that is not a ZFS dataset"
     LUKS = "LUKS"
     GRUB = "GRUB"
@@ -127,6 +128,12 @@ RULES: tuple[Rule, ...] = (
         Trait.GRUB,
         "GRUB reads only some ZFS feature flags, so a pool that enables a newer "
         "one stops booting",
+    ),
+    Rule(
+        Trait.BOOT_ON_ZFS,
+        Trait.GRUB,
+        "the kernel is on a pool created with today's feature flags, and GRUB "
+        "reads none of them: only a pool made with compatibility=grub2 is",
     ),
     Rule(Trait.ROOT_ON_ZFS, Trait.BIOS_BOOT, "ZFSBootMenu is an EFI executable"),
     Rule(Trait.ROOT_ON_ZFS, Trait.LUKS, "use ZFS native encryption instead"),
@@ -217,6 +224,12 @@ def traits_of(config: InstallConfig) -> frozenset[Trait]:
         found.add(Trait.ROOT_ON_ZFS)
     else:
         found.add(Trait.NO_ZFS_ROOT)
+    # Read from whatever covers /boot rather than from the root: a layout with
+    # an ext4 root and the kernel on a ZFS dataset passed every rule, and GRUB
+    # cannot read a pool made with today's feature flags either way.
+    boot = _covering_mount(graph, _BOOT)
+    if boot is not None and _holds(graph, boot.id, (ZfsPool, ZfsDataset)):
+        found.add(Trait.BOOT_ON_ZFS)
     if any(isinstance(node, Luks) for node in _chain(graph, config.disk.root)):
         # Scoped to the root, like ROOT_ON_ZFS: the rules that name LUKS are
         # about what carries `/`, and a graph-wide test paired a ZFS root with
