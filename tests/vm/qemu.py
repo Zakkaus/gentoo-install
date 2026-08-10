@@ -55,6 +55,10 @@ class VmSpec:
     #: Boot what is on the target disk instead of the install medium. This is
     #: the only check that an install produced a system that boots.
     boot_installed: bool = False
+    #: Which address families the guest is given: `dual`, `ipv4` or `ipv6`.
+    #: An installer that only ever ran dual-stack has never been asked what it
+    #: does when a mirror's other record is the only one it can use.
+    families: str = "dual"
 
 
 class Vm:
@@ -90,7 +94,7 @@ class Vm:
             "-machine", "q35",
             "-smp", str(self.spec.cpus),
             "-m", self.spec.memory,
-            "-netdev", f"user,id=net0,hostfwd=tcp::{self.spec.ssh_port}-:22",
+            "-netdev", self._netdev(),
             "-device", "virtio-net-pci,netdev=net0",
             # A guest fills its whole allocation with page cache and never
             # hands it back, so four 8 GiB guests held 32 GiB of mostly cache
@@ -136,6 +140,33 @@ class Vm:
                 "-device", device,
             ]
         return argv
+
+    def _netdev(self) -> str:
+        """The slirp backend, with only the families this run is testing.
+
+        `hostfwd` is IPv4, so a guest given no IPv4 gets no forward either and
+        is reached over the serial console alone. That is what an IPv6-only
+        machine looks like, and pretending otherwise would test nothing.
+        """
+        wants4 = self.spec.families in ("dual", "ipv4")
+        wants6 = self.spec.families in ("dual", "ipv6")
+        parts = [
+            "user",
+            "id=net0",
+            f"ipv4={'on' if wants4 else 'off'}",
+            f"ipv6={'on' if wants6 else 'off'}",
+        ]
+        if wants6:
+            # A unique local prefix, not slirp's default `fec0::/64`. Linux
+            # gives a site-local address `scope site`, so `ip address show
+            # scope global` reports nothing and a guest that can reach the
+            # world looks like one with no network. A ULA behind NAT66 is
+            # also what the real IPv6-only machines look like, including the
+            # cluster's own guests.
+            parts.append("ipv6-net=fd00:5:5::/64")
+        if wants4:
+            parts.append(f"hostfwd=tcp::{self.spec.ssh_port}-:22")
+        return ",".join(parts)
 
     def _ovmf_args(self) -> list[str]:
         if not OVMF_CODE.is_file() or not OVMF_VARS.is_file():

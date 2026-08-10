@@ -47,6 +47,17 @@ def _efi_variables() -> bool:
         return False
 
 
+#: What a machine gives itself when DHCP finds no server. `ip` reports it as
+#: `scope global`, so counting it as an IPv4 network told an IPv6-only guest
+#: it had one: 169.254.0.0/16 reaches the link and nothing beyond it.
+_LINK_LOCAL_V4: Final[str] = "169.254."
+
+
+def _link_local_v4(line: str) -> bool:
+    after = line.split(" inet ", 1)[1] if " inet " in line else ""
+    return after.strip().startswith(_LINK_LOCAL_V4)
+
+
 def _under(path: str, root: str) -> bool:
     """Whether `path` is `root` or sits inside it."""
     return path == root or path.startswith(f"{root.rstrip('/')}/")
@@ -307,11 +318,16 @@ class Probe:
             ["ip", "-oneline", "address", "show", "scope", "global"], check=False
         )
         if listed.returncode != 0:
-            # Nothing readable, so nothing is refused.
+            # Unreadable is not the same as absent, and a caller that refuses
+            # a mirror on this must not act on a command that did not run.
             return True, True
-        has4 = " inet " in listed.stdout
-        has6 = " inet6 " in listed.stdout
-        return has4 or not has6, has6 or not has4
+        # Reported as found. A guest whose interface is still coming up has
+        # neither, and answering `both` there was a probe that could not be
+        # wrong: an IPv6-only machine looked exactly like a dual-stack one.
+        has4 = any(
+            " inet " in line and not _link_local_v4(line) for line in listed.stdout.splitlines()
+        )
+        return has4, " inet6 " in listed.stdout
 
     def mdraid_metadata(self, selector: str) -> str:
         """The metadata version an array already on the machine carries.

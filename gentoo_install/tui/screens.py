@@ -701,7 +701,10 @@ def _unreachable_here(site: mirrors.Site, context: Context) -> str:
     on it. Saying so here is the difference between choosing another and
     finding out when the stage3 does not arrive.
     """
-    if site.ipv6 or context.ipv4:
+    # Both facts positive: this machine has IPv6 and has no IPv4. A machine
+    # whose interface is still coming up reports neither, and refusing on that
+    # would hide half the list from an operator who is about to configure it.
+    if site.ipv6 or context.ipv4 or not context.ipv6:
         return ""
     return context.translate("this machine has no IPv4 and the mirror has no IPv6")
 

@@ -32,7 +32,7 @@ gentoo-install 是一套系統安裝器，可在相容的 Linux live 環境中�
 
 選單從 `packages.gentoo.org` 讀取每個版本，因此需要連線至該站台。以設定檔安裝時需要連線的是該設定指定的鏡像；`--missing-commands` 與 `--config FILE --dry-run` 兩者都不需要。核心版本與 `sys-fs/zfs` 支援的最高核心版本會在執行時讀取。
 
-兩種位址家族有其一即可。請求因位址家族沒有路由而失敗時會改以 IPv4 重試；鏡像清單記錄了僅提供 IPv4 的站台，因此在沒有 IPv4 位址的機器上，選單會拒絕這些站台。
+支援純 IPv4、純 IPv6 與雙堆疊網路；選單會拒絕目前位址家族無法連線的鏡像。
 
 `bootstrap.sh` 會讀取 `/etc/os-release`、回報缺少的指令，並印出候選的套件管理器指令。它可辨識多個發行版系列，包括 Debian 與 Ubuntu、Arch、openSUSE、Fedora、RHEL 與 CentOS、Gentoo，以及 Alpine。印出的指令必須在執行前核對。
 
