@@ -902,9 +902,13 @@ def test_a_schedule_that_ends_early_stops_the_guests_it_left_running() -> None:
     class Guest:
         def __init__(self) -> None:
             self.stopped = False
+            self.removed = False
 
         def stop(self) -> None:
             self.stopped = True
+
+        def destroy(self) -> None:
+            self.removed = True
 
     quiet = cluster.Watchdog(log=Path("/nonexistent"), counters=lambda: None)
     guests = {name: Guest() for name in ("vm-lvm", "vm-xfs")}
@@ -929,6 +933,19 @@ def test_a_schedule_that_ends_early_stops_the_guests_it_left_running() -> None:
     assert all(guest.stopped for guest in guests.values()), guests
     assert sorted(joined) == ["vm-lvm", "vm-xfs"]
     assert not inflight, "each worker removes its own guest once the console closes"
+
+    # A worker that never got there leaves its guest held, and after the join
+    # there is nobody left to race: reporting it and walking away left guests
+    # running on a cluster the harness does not own.
+    wedged = Guest()
+    held = {"vm-zfs": cluster.Running(guest=wedged, watch=quiet)}
+
+    class Stuck(threading.Thread):
+        def join(self, timeout: float | None = None) -> None:
+            return
+
+    cluster._abandon(held, {"vm-zfs": Stuck(daemon=True)})
+    assert wedged.stopped and wedged.removed, "the closing path removes it"
 
 
 def test_a_removed_guest_gives_its_vmid_back(monkeypatch: pytest.MonkeyPatch) -> None:
