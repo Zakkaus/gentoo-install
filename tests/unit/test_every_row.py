@@ -205,3 +205,56 @@ def test_the_timezone_screen_offers_cities_behind_a_region() -> None:
     row.edit(screen, config(ext4_on_gpt()), at)
     cities = [line for line in screen.frames[1] if line.strip()]
     assert len(cities) > 5, cities
+
+
+def test_reopening_root_login_over_ssh_does_not_widen_it() -> None:
+    """The cursor started on `allowed`, so an operator who had refused root
+    over ssh and opened the row again to read it widened root's access by
+    pressing enter. The shared reopening test set this to `True`, which is the
+    first item, so it could not see the difference."""
+    at = context()
+    at.columns = 100
+    refused = replace(
+        config(ext4_on_gpt()),
+        system=replace(config(ext4_on_gpt()).system, sshd=True, sshd_root_login=False),
+    )
+    row = next(one for one in every_row() if one.key == "rootlogin")
+    assert row.edit is not None
+    answer = row.edit(FakeScreen(keys=["\n"] * 4, lines=40, columns=100), refused, at)
+    assert answer.outcome is Outcome.CHOSE
+    assert answer.unwrap().system.sshd_root_login is False
+
+
+def test_reopening_encryption_keeps_the_container_and_its_passphrase() -> None:
+    """The cursor started on `No`, so reopening the row and pressing enter
+    removed the LUKS container and cleared the staged passphrase. Cancelling
+    the passphrase field is declining to change it, not declining to have one.
+    """
+    from .layouts import encrypted_root
+
+    row = next(one for one in every_row() if one.key == "encryption")
+    assert row.edit is not None
+
+    at = context()
+    at.columns = 100
+    at.choice = replace(at.choice, passphrase_file="/run/keys/root")
+    # Enter accepts `still encrypted`, escape declines to retype the key.
+    row.edit(
+        FakeScreen(keys=["\n", "\x1b", "\x1b"], lines=40, columns=100),
+        config(encrypted_root()),
+        at,
+    )
+    assert at.choice.passphrase_file == "/run/keys/root"
+
+    # Choosing no still turns it off: this is a default, not a refusal. The
+    # items are `No` then `Yes`, and the cursor now starts on `Yes`, so `No`
+    # is one row up.
+    off = context()
+    off.columns = 100
+    off.choice = replace(off.choice, passphrase_file="/run/keys/root")
+    row.edit(
+        FakeScreen(keys=["KEY_UP", "\n"], lines=40, columns=100),
+        config(encrypted_root()),
+        off,
+    )
+    assert off.choice.passphrase_file == ""
