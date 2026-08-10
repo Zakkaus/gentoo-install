@@ -271,19 +271,29 @@ def wait_for_network(link: Reconnecting) -> None:
     is what an operator does before installing. The runs that used to succeed
     were the ones where something else had configured it in time.
     """
-    # Every ethernet interface, because the name differs by machine type:
-    # `enp0s2` under q35 here and `eth0` elsewhere.
+    # Bring the link up and leave the addressing to whatever the medium runs.
+    # An `dhcpcd` started beside the medium's own NetworkManager fought it for
+    # the same interface and left the guest with no route at all: `curl`
+    # answered `Could not connect to server` in ten milliseconds, where before
+    # it had reached the mirror. The name differs by machine type, `enp0s2`
+    # under q35 and `eth0` elsewhere, so every ethernet interface is raised.
     link.run(
         "for one in /sys/class/net/e*; do ip link set \"$(basename $one)\" up; done",
         timeout=60.0,
     )
-    link.run("dhcpcd -w -t 30 >/dev/null 2>&1 || true", timeout=120.0)
     deadline = time.monotonic() + NETWORK_PATIENCE
     while time.monotonic() < deadline:
         link.send(NETWORK_PROBE)
         if NETWORK_UP.encode() in link.expect(rf"{NETWORK_UP}|{NETWORK_DOWN}", timeout=60.0):
             return
         time.sleep(NETWORK_PAUSE)
+        if time.monotonic() > deadline - NETWORK_PATIENCE / 2:
+            # Half the patience gone and still nothing: the medium has no
+            # manager of its own, so ask for an address directly. Late rather
+            # than first, because doing it first is what broke the mediums
+            # that do.
+            link.run("pgrep -x NetworkManager >/dev/null || dhcpcd -w -t 20 >/dev/null 2>&1 "
+                     "|| true", timeout=90.0)
     raise ConsoleTimeout(f"the guest had no network after {NETWORK_PATIENCE:.0f}s")
 
 
