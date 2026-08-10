@@ -73,7 +73,7 @@ Before unmounting, an interactive run offers a root shell in the target after ei
 ./bootstrap.sh --config my-install.toml --resume
 ```
 
-Resume is limited to the same live session. The default journal is `/run/gentoo-install/install.jsonl`, so it does not survive a reboot. Each journal entry records a digest of the operation's implementation and of its own values, so an operation whose code or payload changed is performed again rather than skipped. The journal carries no digest of the configuration as a whole.
+Resume is limited to the same live session, the same installer revision and the same configuration file. The default journal is `/run/gentoo-install/install.jsonl`, so it does not survive a reboot. Each entry records a digest of that operation's own class source and of its own field values, so an operation whose class or fields changed is performed again rather than skipped. A change to a shared helper or constant is outside that digest, and the journal carries no digest of the configuration as a whole, so resuming across a different revision or configuration is not supported.
 
 ## Configuration files
 
