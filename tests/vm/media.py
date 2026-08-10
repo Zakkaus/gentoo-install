@@ -173,8 +173,15 @@ ALPINE = Medium(
     login_password=None,
     boot_cmdline=("modules=loop,squashfs,sd-mod,usb-storage",),
     # Alpine ships no interpreter at all, so preflight reports `found: none`
-    # before it can check the version.
-    prepare=("apk add python3 e2fsprogs dosfstools sgdisk",),
+    # before it can check the version. The live image also carries no
+    # repository line, so `apk add` answers `no such package` until one is
+    # written; the branch has to match the image's own version.
+    prepare=(
+        "printf 'https://mirrors.ustc.edu.cn/alpine/v3.24/main\n"
+        "https://mirrors.ustc.edu.cn/alpine/v3.24/community\n' > /etc/apk/repositories",
+        "apk update",
+        "apk add python3 e2fsprogs dosfstools sgdisk",
+    ),
 )
 
 DEBIAN = Medium(
