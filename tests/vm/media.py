@@ -153,10 +153,8 @@ OFFICIAL_MINIMAL = Medium(
 
 GENTOO_CJK = Medium(
     name="gentoo-cjk",
-    iso=ISO_CACHE / "gentoo-cjk-minimal-7.1.7-gentoo-cjk-dist-bin.iso",
-    # Built from the official installcd spec, so it keeps that spec's volume
-    # label; the kernel carries the CJK console fonts and zfs.
-    volume_label="Gentoo-amd64-20260712",
+    iso=ISO_CACHE / "install-amd64-cjk-minimal-20260809T143052Z.iso",
+    volume_label="Gentoo-CJK-amd64-20260809",
     kernel_in_iso="/boot/gentoo",
     initrd_in_iso="/boot/gentoo.igz",
     root_prompt=r"livecd ~ #",
