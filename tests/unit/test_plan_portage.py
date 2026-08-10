@@ -122,7 +122,7 @@ def test_the_repository_is_configured_before_it_is_synced() -> None:
 def test_the_local_copy_goes_before_the_first_sync_or_git_refuses() -> None:
     recorder = apply_all(config())
     removed = recorder.in_target.index(("rm", "--recursive", "--force", "/var/db/repos/gentoo"))
-    synced = recorder.in_target.index(("emerge", "--sync", "gentoo"))
+    synced = next(n for n, one in enumerate(recorder.in_target) if "--sync" in one)
     assert removed < synced
 
 
@@ -563,7 +563,7 @@ def test_a_mirror_rewriting_its_manifests_is_retried_rather_than_fatal(
         attempts: int = 0
 
         def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
-            if tuple(argv[:2]) == ("emerge", "--sync"):
+            if "--sync" in argv:
                 self.attempts += 1
                 if self.refusals:
                     self.refusals -= 1
@@ -578,8 +578,19 @@ def test_a_mirror_rewriting_its_manifests_is_retried_rather_than_fatal(
     operation.apply(recorder)
     assert recorder.attempts == 3, recorder.attempts
     assert recorder.argv_starting("sleep") == (("sleep", "0"), ("sleep", "0"))
-    synced = [one for one in recorder.in_target if tuple(one[:2]) == ("emerge", "--sync")]
+    synced = [one for one in recorder.in_target if "--sync" in one]
     assert len(synced) == 1, "the one that worked"
+
+    # A mirror that queues rather than refuses sends nothing for longer than
+    # portage's own 180, and rsync was killed while still in USTC's queue.
+    assert tuple(synced[0]) == (
+        "env",
+        f"RSYNC_TIMEOUT={plan_portage.RSYNC_TIMEOUT}",
+        "emerge",
+        "--sync",
+        "gentoo",
+    )
+    assert plan_portage.RSYNC_TIMEOUT > 180
 
     # Not walked around: a mismatch that keeps coming back stops the install.
     stubborn = Flaky()
