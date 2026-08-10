@@ -69,3 +69,20 @@ def test_every_gentoozh_site_is_appended_with_the_chosen_one_first() -> None:
     assert mirrors.gentoozh_distfiles(GentooZhMirror.UPSTREAM)[0] == (
         "https://distfiles.gentoozh.org"
     )
+
+
+def test_the_chinese_default_is_ustc_and_not_tuna() -> None:
+    """On 2026-08-10 the rsync tree at tuna served a snapshot its own signed
+    Manifest did not match — `metadata/Manifest.gz expected 23353, have
+    23355` — and stayed that way across three attempts an hour apart, so three
+    cluster guests stopped an hour into their installs with
+    `emerge --sync gentoo exited 1`.
+
+    The order here is what an operator gets without choosing, so it names the
+    two that were serving a consistent tree.
+    """
+    from gentoo_install.model.mirrors import GENTOO_SITES
+
+    names = [one.key for one in GENTOO_SITES]
+    assert names[:2] == ["ustc", "nju"], names[:4]
+    assert names.index("tuna") > names.index("ustc"), names
