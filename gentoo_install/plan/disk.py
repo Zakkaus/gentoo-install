@@ -718,6 +718,10 @@ class DiscardStage3(Operation):
         context.run_in_target(["rm", "--recursive", "--force", f"/{STAGE3_CACHE}"])
 
 
+EXPORT_TRIES: Final[int] = 6
+EXPORT_PAUSE: Final[float] = 5.0
+
+
 @dataclass(frozen=True, kw_only=True)
 class UnmountTarget(Operation):
     """Leaving the target mounted keeps `/dev` and `/proc` bound into it, and
@@ -737,7 +741,26 @@ class UnmountTarget(Operation):
     def apply(self, context: Context) -> None:
         context.run(["umount", "--recursive", "--lazy", str(context.target)])
         for pool in self.pools:
-            context.run(["zpool", "export", pool])
+            self._export(context, pool)
+
+    def _export(self, context: Context, pool: str) -> None:
+        """`umount --lazy` detaches the tree and returns before the last
+        reference is dropped, so the export that follows it reads `cannot
+        export 'rpool': pool is busy` on a guest whose install had otherwise
+        finished. The references go within seconds; one that does not is a
+        reason to stop, because an unexported pool needs `zpool import -f` on
+        the next boot."""
+        last: CommandFailed | None = None
+        for attempt in range(EXPORT_TRIES):
+            try:
+                context.run(["zpool", "export", pool])
+                return
+            except CommandFailed as failed:
+                last = failed
+                if attempt + 1 < EXPORT_TRIES:
+                    context.run(["sleep", f"{EXPORT_PAUSE:g}"])
+        assert last is not None
+        raise last
 
 
 def finish(config: InstallConfig) -> list[Operation]:
