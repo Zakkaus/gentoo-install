@@ -26,6 +26,7 @@ from .console import SerialConsole
 from .driver import build as build_driver
 from .media import MEDIA
 from .qemu import Firmware, Vm, VmSpec
+from .workdir import WorkdirError, confined
 
 WORKROOT: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/tui"
 
@@ -137,7 +138,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--keep", action="store_true", help="keep the run directory")
     args = parser.parse_args(argv)
 
-    workdir = args.workdir / f"{args.medium}-{args.lang}"
+    try:
+        root = confined(args.workdir)
+    except WorkdirError as error:
+        print(error, file=sys.stderr)
+        return 1
+    try:
+        workdir = confined(root / f"{args.medium}-{args.lang}")
+    except WorkdirError as error:
+        print(error, file=sys.stderr)
+        return 1
     workdir.mkdir(parents=True, exist_ok=True)
     medium = MEDIA[args.medium]
     driver_iso = build_driver(workdir / "driver.iso", packed=True)

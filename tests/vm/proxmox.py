@@ -68,10 +68,43 @@ ISO_STORAGE: Final[str] = "local"
 #: Long enough for a stage3 to extract over a slow mirror, short enough that a
 #: node that stopped answering does not hold the whole campaign.
 API_TIMEOUT: Final[float] = 60.0
+TASK_POLL: Final[float] = 2.0
+CLEANUP_PAUSE: Final[float] = 2.0
+CLEANUP_PATIENCE: Final[float] = 300.0
 
 
 class ProxmoxError(Exception):
     """The cluster refused a call, or a task it accepted did not finish."""
+
+
+class ProxmoxNotFound(ProxmoxError):
+    """The requested cluster object no longer exists."""
+
+
+class CreateConflict(ProxmoxError):
+    """A VMID became occupied before this guest was created."""
+
+
+class _RejectRedirect(urllib.request.HTTPRedirectHandler):
+    """API credentials never follow an HTTP redirect."""
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> None:
+        return None
+
+
+def _transient(error: ProxmoxError) -> bool:
+    said = str(error).lower()
+    return "did not answer" in said or any(
+        f"answered {code}" in said for code in (429, 500, 502, 503, 504)
+    )
 
 
 def _certificates() -> ssl.SSLContext:
@@ -105,6 +138,9 @@ class Api:
     def __init__(self, host: str = HOST) -> None:
         self.host = host
         self._context = _certificates()
+        self._opener = urllib.request.build_opener(
+            urllib.request.HTTPSHandler(context=self._context), _RejectRedirect()
+        )
         #: The cluster sits behind a load balancer that spreads requests over
         #: every node. A `termproxy` ticket is valid on the node that issued
         #: it, so a websocket landing anywhere else is answered `502 Bad
@@ -112,12 +148,19 @@ class Api:
         #: halves to one backend.
         self.affinity: str = ""
 
-    def _remember(self, headers: Any) -> None:
+    def _remember(self, headers: Any) -> str:
         for name, value in headers.items():
             if name.lower() == "set-cookie" and value.startswith("INGRESSCOOKIE="):
-                self.affinity = value.split(";", 1)[0]
+                return str(value).split(";", 1)[0]
+        return ""
 
     def call(self, method: str, path: str, **form: Any) -> Any:
+        data, affinity = self.call_with_affinity(method, path, **form)
+        if affinity:
+            self.affinity = affinity
+        return data
+
+    def call_with_affinity(self, method: str, path: str, **form: Any) -> tuple[Any, str]:
         # A body on DELETE is answered `501 Unexpected content for method`, so
         # the two methods that take no body carry their parameters in the URL.
         body: bytes | None = None
@@ -130,19 +173,19 @@ class Api:
             f"https://{self.host}/api2/json{path}", data=body, method=method
         )
         request.add_header("Authorization", f"PVEAPIToken={TOKEN_ID}={_secret()}")
-        if self.affinity:
-            request.add_header("Cookie", self.affinity)
+        affinity = self.affinity
+        if affinity:
+            request.add_header("Cookie", affinity)
         try:
-            with urllib.request.urlopen(
-                request, timeout=API_TIMEOUT, context=self._context
-            ) as answer:
-                self._remember(answer.headers)
-                return json.load(answer).get("data")
+            with self._opener.open(request, timeout=API_TIMEOUT) as answer:
+                remembered = self._remember(answer.headers)
+                return json.load(answer).get("data"), remembered or affinity
         except urllib.error.HTTPError as error:
             # The reason, not only the body: Proxmox answers `500` with
             # `{"data":null}` and puts what went wrong in the status line.
             said = error.read().decode("utf-8", "replace").strip()[:300]
-            raise ProxmoxError(
+            exception = ProxmoxNotFound if error.code == 404 else ProxmoxError
+            raise exception(
                 f"{method} {path} answered {error.code} {error.reason}: {said}"
             ) from error
         except (urllib.error.URLError, TimeoutError, OSError) as error:
@@ -162,13 +205,19 @@ class Api:
         quoted = urllib.parse.quote(upid, safe="")
         deadline = time.monotonic() + patience
         while time.monotonic() < deadline:
-            status = self.call("GET", f"/nodes/{node}/tasks/{quoted}/status")
+            try:
+                status = self.call("GET", f"/nodes/{node}/tasks/{quoted}/status")
+            except ProxmoxError as error:
+                if not _transient(error):
+                    raise
+                time.sleep(min(TASK_POLL, max(0.0, deadline - time.monotonic())))
+                continue
             if status.get("status") == "stopped":
                 exit_status = status.get("exitstatus", "")
                 if exit_status != "OK":
                     raise ProxmoxError(f"{upid} ended with {exit_status!r}")
                 return
-            time.sleep(2.0)
+            time.sleep(min(TASK_POLL, max(0.0, deadline - time.monotonic())))
         raise ProxmoxError(f"{upid} did not finish within {patience:.0f}s")
 
     def nodes(self) -> list[Node]:
@@ -244,9 +293,7 @@ class Api:
         if self.affinity:
             request.add_header("Cookie", self.affinity)
         try:
-            with urllib.request.urlopen(
-                request, timeout=600.0, context=self._context
-            ) as answer:
+            with self._opener.open(request, timeout=600.0) as answer:
                 upid = json.load(answer).get("data")
         except urllib.error.HTTPError as error:
             said = error.read().decode("utf-8", "replace").strip()[:300]
@@ -273,7 +320,7 @@ class Api:
             return str(error)
         return ""
 
-    def fetch_iso(self, node: str, url: str, filename: str) -> None:
+    def fetch_iso(self, node: str, url: str, filename: str, sha512: str) -> None:
         """Have the node download an install medium itself.
 
         The cluster is in China and the workstation is not, so the node reaches
@@ -288,6 +335,8 @@ class Api:
             url=url,
             filename=filename,
             content="iso",
+            checksum=sha512,
+            **{"checksum-algorithm": "sha512"},
         )
         self.wait(node, upid, patience=3600.0)
 
@@ -323,6 +372,7 @@ class Guest:
     vmid: int
     spec: GuestSpec
     _booted: bool = field(default=False, init=False)
+    _create_conflict: bool = field(default=False, init=False)
 
     def create(self) -> None:
         options: dict[str, Any] = {
@@ -379,6 +429,9 @@ class Guest:
                 )
                 return
             except ProxmoxError as error:
+                if "already exists" in str(error).lower():
+                    self._create_conflict = True
+                    raise CreateConflict(str(error)) from error
                 if "lock request timeout" not in str(error):
                     raise
                 last = error
@@ -387,10 +440,9 @@ class Guest:
         raise last
 
     def start(self) -> None:
-        self.api.wait(
-            self.node, self.api.call("POST", f"/nodes/{self.node}/qemu/{self.vmid}/status/start")
-        )
+        upid = self.api.call("POST", f"/nodes/{self.node}/qemu/{self.vmid}/status/start")
         self._booted = True
+        self.api.wait(self.node, upid)
 
     def boot_from_disk(self) -> None:
         """Point the firmware at the installed disk and forget the medium.
@@ -420,7 +472,7 @@ class Guest:
             self.node, self.api.call("POST", f"/nodes/{self.node}/qemu/{self.vmid}/status/reset")
         )
 
-    def transferred(self) -> int:
+    def transferred(self) -> int | None:
         """Bytes this guest has received and written since it started.
 
         What the watchdog reads when the console is silent: an install
@@ -432,7 +484,7 @@ class Guest:
         except ProxmoxError:
             # One unanswered request is not evidence about the guest, and a
             # watchdog that raises here stops the whole schedule.
-            return 0
+            return None
         return int(status.get("netin", 0)) + int(status.get("diskwrite", 0))
 
     def running(self) -> bool:
@@ -480,27 +532,36 @@ class Guest:
             time.sleep(self.KEY_PAUSE)
 
     def stop(self) -> None:
-        if not self._booted:
-            return
         try:
+            status = self.api.call(
+                "GET", f"/nodes/{self.node}/qemu/{self.vmid}/status/current"
+            )
+            if str(status.get("status")) != "running":
+                self._booted = False
+                return
             self.api.wait(
                 self.node,
                 self.api.call("POST", f"/nodes/{self.node}/qemu/{self.vmid}/status/stop"),
                 patience=180.0,
             )
+        except ProxmoxNotFound:
+            self._booted = False
+            return
         except ProxmoxError:
             # Already down, or the task record expired. Either way `destroy`
             # is what has to happen next, and it must not be skipped.
             pass
         self._booted = False
 
-    def destroy(self) -> None:
+    def destroy(self, patience: float = CLEANUP_PATIENCE) -> None:
         """Remove the machine and its disks.
 
         The tag is checked first. This token administers a cluster running
         other people's work, and a VMID is not proof of ownership: the range
         this harness allocates from already held a production template.
         """
+        if self._create_conflict:
+            return
         if not VMID_FIRST <= self.vmid <= VMID_LAST:
             # The tag is ours to write, so a machine outside the range that
             # carries it is not evidence: the range is the second guard, and
@@ -508,32 +569,48 @@ class Guest:
             raise ProxmoxError(
                 f"vm {self.vmid} is outside {VMID_FIRST}-{VMID_LAST}; refusing to remove it"
             )
-        config = self.api.call("GET", f"/nodes/{self.node}/qemu/{self.vmid}/config")
-        tags = str(config.get("tags", "")).split(";")
-        if TAG not in tags:
-            raise ProxmoxError(
-                f"vm {self.vmid} on {self.node} is not tagged {TAG!r}; refusing to remove it"
-            )
-        if self.spec.nonce and self.spec.nonce not in tags:
-            # Somebody else's guest at the VMID this one wanted: two campaigns
-            # asking the cluster in the same second both read it as free.
-            raise ProxmoxError(
-                f"vm {self.vmid} on {self.node} is not the guest this run built; "
-                "refusing to remove it"
-            )
-        self.stop()
-        try:
-            self.api.wait(
-                self.node,
-                self.api.call(
-                    "DELETE",
-                    f"/nodes/{self.node}/qemu/{self.vmid}",
-                    **{"destroy-unreferenced-disks": 1, "purge": 1},
-                ),
-                patience=300.0,
-            )
-        except ProxmoxError as error:
-            raise ProxmoxError(f"vm {self.vmid} on {self.node} was not removed: {error}") from error
+        deadline = time.monotonic() + patience
+        last = "the guest still exists"
+        while time.monotonic() <= deadline:
+            try:
+                config = self.api.call(
+                    "GET", f"/nodes/{self.node}/qemu/{self.vmid}/config"
+                )
+            except ProxmoxNotFound:
+                return
+            except ProxmoxError as error:
+                last = str(error)
+                if not _transient(error):
+                    raise
+                time.sleep(min(CLEANUP_PAUSE, max(0.0, deadline - time.monotonic())))
+                continue
+            tags = str(config.get("tags", "")).split(";")
+            if TAG not in tags:
+                raise ProxmoxError(
+                    f"vm {self.vmid} on {self.node} is not tagged {TAG!r}; refusing to remove it"
+                )
+            if not self.spec.nonce or self.spec.nonce not in tags:
+                raise ProxmoxError(
+                    f"vm {self.vmid} on {self.node} is not the guest this run built; "
+                    "refusing to remove it"
+                )
+            try:
+                self.stop()
+                self.api.wait(
+                    self.node,
+                    self.api.call(
+                        "DELETE",
+                        f"/nodes/{self.node}/qemu/{self.vmid}",
+                        **{"destroy-unreferenced-disks": 1, "purge": 1},
+                    ),
+                    patience=max(0.0, deadline - time.monotonic()),
+                )
+            except ProxmoxNotFound:
+                return
+            except ProxmoxError as error:
+                last = str(error)
+            time.sleep(min(CLEANUP_PAUSE, max(0.0, deadline - time.monotonic())))
+        raise ProxmoxError(f"vm {self.vmid} on {self.node} was not removed: {last}")
 
 
 class ConsoleChannel:
@@ -567,7 +644,9 @@ class ConsoleChannel:
         last = ""
         for attempt in range(tries):
             try:
-                ticket = api.call("POST", f"/nodes/{node}/qemu/{vmid}/termproxy")
+                ticket, affinity = api.call_with_affinity(
+                    "POST", f"/nodes/{node}/qemu/{vmid}/termproxy"
+                )
             except ProxmoxError as error:
                 last = str(error)
                 api.affinity = ""
@@ -579,8 +658,8 @@ class ConsoleChannel:
                 f"&vncticket={urllib.parse.quote(ticket['ticket'], safe='')}"
             )
             headers = {"Authorization": f"PVEAPIToken={TOKEN_ID}={_secret()}"}
-            if api.affinity:
-                headers["Cookie"] = api.affinity
+            if affinity:
+                headers["Cookie"] = affinity
             try:
                 socket = WebSocket.connect(
                     api.host, path, headers, port=PORT, context=_certificates()

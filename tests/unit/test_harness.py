@@ -455,7 +455,11 @@ def test_a_run_that_collected_fewer_results_than_it_dispatched_fails(
     def one_result(jobs: list[Any], *args: Any, **kwargs: Any) -> list[cluster.Outcome]:
         return [
             cluster.Outcome(
-                name=jobs[0].name, verdict=cluster.Verdict.OK, seconds=1.0, detail=""
+                name=jobs[0].name,
+                verdict=cluster.Verdict.OK,
+                seconds=1.0,
+                detail="",
+                revision="revision-a",
             )
         ]
 
@@ -464,7 +468,13 @@ def test_a_run_that_collected_fewer_results_than_it_dispatched_fails(
     # And the ordinary case still passes, so this is not failing on everything.
     def both(jobs: list[Any], *args: Any, **kwargs: Any) -> list[cluster.Outcome]:
         return [
-            cluster.Outcome(name=one.name, verdict=cluster.Verdict.OK, seconds=1.0, detail="")
+            cluster.Outcome(
+                name=one.name,
+                verdict=cluster.Verdict.OK,
+                seconds=1.0,
+                detail="",
+                revision="revision-a",
+            )
             for one in jobs
         ]
 
@@ -521,3 +531,325 @@ def test_a_worker_that_ends_without_reporting_becomes_an_error() -> None:
         "x", cluster.Verdict.ERROR, 0.0, "the worker ended without reporting", removed=False
     )
     assert gone.removed is False
+
+
+def test_unknown_telemetry_does_not_make_a_quiet_guest_stuck(tmp_path: Path) -> None:
+    """Three failed API reads were treated as three proofs that counters were flat."""
+    from tests.vm.cluster import WATCH_STRIKES, Watchdog
+
+    log = tmp_path / "quiet.log"
+    log.write_bytes(b"")
+    answers: list[int | None] = [None] * WATCH_STRIKES + [10] * (WATCH_STRIKES + 1)
+    watch = Watchdog(log, lambda: answers.pop(0))
+    unknown = [watch.moved() for _ in range(WATCH_STRIKES)]
+    assert unknown == [True] * WATCH_STRIKES
+    assert watch.strikes == 0 and not watch.stuck
+    [watch.moved() for _ in range(WATCH_STRIKES + 1)]
+    assert watch.stuck, "known flat counters must still trip the watchdog"
+
+
+def test_preinstall_console_timeout_is_an_error_with_its_phase(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A live-medium timeout was recorded as an installer FAIL."""
+    from typing import Any
+
+    from tests.vm import cluster
+    from tests.vm.console import ConsoleTimeout
+    from tests.vm.proxmox import Api
+
+    class FakeGuest:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            # `wait_for_network` derives this guest's static address from it.
+            self.vmid = 9300
+
+        def create(self) -> None:
+            return None
+
+        def start(self) -> None:
+            return None
+
+        def reset(self) -> None:
+            return None
+
+        def transferred(self) -> int:
+            return 0
+
+        def destroy(self) -> None:
+            return None
+
+    class Link:
+        console: Any = object()
+
+        def run(self, command: str, timeout: float = 120.0) -> None:
+            return None
+
+        def wait_for(self, command: str, timeout: float) -> None:
+            return None
+
+    class Links:
+        @classmethod
+        def to(cls, guest: object, log: Path) -> Link:
+            return Link()
+
+    def timeout(*args: object, **kwargs: object) -> None:
+        raise ConsoleTimeout("no live prompt")
+
+    monkeypatch.setattr(cluster, "Guest", FakeGuest)
+    monkeypatch.setattr(cluster, "Reconnecting", Links)
+    monkeypatch.setattr(cluster, "append_to_cmdline", timeout)
+    job = cluster.Job("vm-lvm", Path("tests/fixtures/vm-lvm.toml"))
+    outcome = cluster.install_one(
+        Api(host="nowhere.invalid"),
+        "node",
+        job,
+        "driver.iso",
+        tmp_path,
+        vmid=9300,
+        nonce="gi-phase",
+        revision="revision-a",
+    )
+    assert (outcome.verdict, outcome.phase) == (
+        cluster.Verdict.ERROR,
+        cluster.Phase.BOOT_LIVE,
+    )
+
+    monkeypatch.setattr(cluster, "append_to_cmdline", lambda *args: None)
+    monkeypatch.setattr(cluster, "reach_prompt", lambda *args: None)
+    monkeypatch.setattr(cluster, "wait_for_network", lambda *args: None)
+    monkeypatch.setattr(cluster, "stage_passphrases", lambda *args: None)
+    monkeypatch.setattr(cluster, "collect", lambda *args: {"install.rc": b"1"})
+    outcome = cluster.install_one(
+        Api(host="nowhere.invalid"),
+        "node",
+        job,
+        "driver.iso",
+        tmp_path,
+        vmid=9300,
+        nonce="gi-phase",
+        revision="revision-a",
+    )
+    assert (outcome.verdict, outcome.phase) == (
+        cluster.Verdict.FAIL,
+        cluster.Phase.INSTALL,
+    )
+
+
+def test_driver_identity_changes_with_the_packaged_bytes(tmp_path: Path) -> None:
+    """Outcomes named only a commit even when the packaged dirty tree changed."""
+    from tests.vm.cluster import revision_identity
+    from tests.vm.driver import remote_name
+
+    driver = tmp_path / "driver.iso"
+    driver.write_bytes(b"first fixture tree")
+    first = revision_identity(driver), remote_name(driver)
+    driver.write_bytes(b"second fixture tree")
+    second = revision_identity(driver), remote_name(driver)
+    assert first != second
+
+
+def test_a_revisionless_success_is_not_counted_as_passed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A green outcome with no installer identity proves no revision."""
+    from typing import Any
+
+    from tests.vm import cluster
+
+    def revisionless(*args: Any, **kwargs: Any) -> list[cluster.Outcome]:
+        return [cluster.Outcome("vm-lvm", cluster.Verdict.OK, 1.0)]
+
+    monkeypatch.setattr(cluster, "run", revisionless)
+    assert cluster.main(["vm-lvm"]) == 1
+
+    def dirty(*args: Any, **kwargs: Any) -> list[cluster.Outcome]:
+        return [
+            cluster.Outcome(
+                "vm-lvm",
+                cluster.Verdict.OK,
+                1.0,
+                revision="abc dirty=1 driver-sha256=def",
+            )
+        ]
+
+    monkeypatch.setattr(cluster, "run", dirty)
+    assert cluster.main(["vm-lvm"]) == 1
+
+
+def test_negative_cluster_limit_is_refused_before_building() -> None:
+    """A negative limit sliced every slot away and waited forever."""
+    from tests.vm.cluster import main
+
+    with pytest.raises(SystemExit):
+        main(["vm-lvm", "--limit", "-1"])
+
+
+def test_zero_cluster_capacity_returns_an_error_after_a_deadline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A nonempty waiting queue with no running workers blocked on an empty queue forever."""
+    from typing import Any
+    import time as clock
+
+    from tests.vm import cluster, workdir
+
+    lab = tmp_path / "lab"
+    run_dir = lab / "cluster"
+    lab.mkdir()
+    monkeypatch.setattr(workdir, "LAB_ROOT", lab)
+
+    class Empty:
+        def ours(self) -> list[tuple[str, int]]:
+            return []
+
+        def nodes(self) -> list[Any]:
+            return []
+
+        def remove_iso(self, node: str, name: str) -> str:
+            return ""
+
+    now = [0.0]
+    monkeypatch.setattr(cluster, "Api", lambda: Empty())
+    monkeypatch.setattr(cluster, "rewrite_fixtures", lambda jobs, into, region, sync: into)
+
+    def build(path: Path, **kwargs: object) -> Path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"driver")
+        return path
+
+    monkeypatch.setattr(cluster, "build_driver", build)
+    monkeypatch.setattr(
+        cluster,
+        "current_minimal",
+        lambda path: ("minimal-deadbeef.iso", ("https://invalid/iso",), "0" * 128),
+    )
+    monkeypatch.setattr(clock, "monotonic", lambda: now[0])
+    monkeypatch.setattr(clock, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds))
+    outcome = cluster.run(
+        [cluster.Job("vm-lvm", Path("tests/fixtures/vm-lvm.toml"))], run_dir
+    )
+    assert len(outcome) == 1
+    assert outcome[0].verdict is cluster.Verdict.ERROR
+    assert outcome[0].phase is cluster.Phase.SCHEDULE
+    assert now[0] == cluster.CAPACITY_PATIENCE
+
+
+def test_reconcile_removes_only_an_expired_locally_leased_guest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The unused cluster listing could neither recover an orphan nor distinguish campaigns."""
+    from typing import Any
+
+    from tests.vm import cluster
+    from tests.vm.proxmox import ProxmoxNotFound, TAG
+
+    expired = cluster.Lease("node", 9300, "gi-expired", 10)
+    live = cluster.Lease("node", 9302, "gi-live", 20)
+    expired_path = cluster._write_lease(tmp_path, expired)
+    live_path = cluster._write_lease(tmp_path, live)
+    cluster._write_lease(tmp_path, cluster.Lease("node", 9002, "gi-outside", 10))
+
+    from tests.vm.proxmox import Api
+
+    class Leased(Api):
+        def __init__(self) -> None:
+            self.absent = False
+            self.deleted: list[int] = []
+
+        def ours(self) -> list[tuple[str, int]]:
+            return [("node", 9300), ("node", 9301), ("node", 9302)]
+
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            vmid = int(path.split("/qemu/", 1)[1].split("/", 1)[0])
+            if path.endswith("/config"):
+                if self.absent:
+                    raise ProxmoxNotFound("gone")
+                return {"tags": f"{TAG};gi-expired"}
+            if path.endswith("/status/current"):
+                return {"status": "stopped"}
+            if method == "DELETE":
+                self.deleted.append(vmid)
+                self.absent = True
+                return "UPID:node:delete"
+            raise AssertionError((method, path))
+
+        def wait(self, node: str, upid: str, patience: float = 1800.0) -> None:
+            return None
+
+    api = Leased()
+    monkeypatch.setattr(cluster, "_pid_alive", lambda pid: pid == 20)
+    cluster.reconcile(api, tmp_path)
+    assert api.deleted == [9300]
+    assert not expired_path.exists()
+    assert live_path.exists()
+    assert not any(vmid == 9301 for vmid in api.deleted)
+
+
+def test_workdirs_are_confined_before_any_vm_artifact_is_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Repository paths, traversal and an escaping symlink reached mkdir and rmtree."""
+    from tests.vm import cluster, netcheck, tui, workdir
+
+    lab = tmp_path / "lab"
+    inside = lab / "inside"
+    outside = tmp_path / "outside"
+    inside.mkdir(parents=True)
+    outside.mkdir()
+    escape = lab / "escape"
+    escape.symlink_to(outside, target_is_directory=True)
+    inward = lab / "inward"
+    inward.symlink_to(inside, target_is_directory=True)
+    monkeypatch.setattr(workdir, "LAB_ROOT", lab)
+
+    assert workdir.confined(inward) == inside.resolve()
+    for path in (outside, escape, lab / ".." / "outside", Path.cwd()):
+        with pytest.raises(workdir.WorkdirError):
+            workdir.confined(path)
+
+    monkeypatch.setattr(cluster, "Api", lambda: pytest.fail("cluster API contacted"))
+    with pytest.raises(workdir.WorkdirError):
+        cluster.run([], escape)
+    with pytest.raises(workdir.WorkdirError):
+        netcheck.run("ipv4", escape)
+    assert tui.main(["--workdir", str(escape)]) == 1
+    assert tui.main(
+        ["--workdir", str(inside), "--lang", "../../../../../../outside"]
+    ) == 1
+
+
+def test_parallel_driver_builds_do_not_share_staging(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each build deleted the other build's fixed `driver` staging directory."""
+    from concurrent.futures import ThreadPoolExecutor
+    from typing import Any
+    import shutil
+    import threading
+
+    from tests.vm import driver
+
+    first_fixtures = tmp_path / "first-fixtures"
+    second_fixtures = tmp_path / "second-fixtures"
+    first_fixtures.mkdir()
+    second_fixtures.mkdir()
+    (first_fixtures / "one.toml").write_text("one = true\n")
+    (second_fixtures / "two.toml").write_text("two = true\n")
+    barrier = threading.Barrier(2)
+    original = shutil.copytree
+
+    def synchronized(source: Path, target: Path, *args: Any, **kwargs: Any) -> Any:
+        result = original(source, target, *args, **kwargs)
+        if Path(source).name == "gentoo_install":
+            barrier.wait(timeout=10.0)
+        return result
+
+    monkeypatch.setattr(shutil, "copytree", synchronized)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(driver.build, tmp_path / "first.iso", True, first_fixtures),
+            pool.submit(driver.build, tmp_path / "second.iso", True, second_fixtures),
+        ]
+        built = [future.result(timeout=30.0) for future in futures]
+    assert all(path.is_file() for path in built)
+    assert driver.remote_name(built[0]) != driver.remote_name(built[1])

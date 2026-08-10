@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import shlex
 from collections import Counter
+from email.message import Message
+import io
 import struct
+import urllib.error
+import urllib.response
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -12,8 +16,18 @@ from typing import Any
 import pytest
 
 from tests.vm import proxmox
-from tests.vm.proxmox import TAG, Api, Guest, GuestSpec, ProxmoxError, _line_of_linux
-from tests.vm.websocket import WebSocket, _client_frame
+from tests.vm.proxmox import (
+    TAG,
+    Api,
+    CreateConflict,
+    Guest,
+    GuestSpec,
+    ProxmoxError,
+    ProxmoxNotFound,
+    _RejectRedirect,
+    _line_of_linux,
+)
+from tests.vm.websocket import WebSocket, WebSocketError, _client_frame
 
 #: One editor screen as GRUB drew it on the serial console, captured from the
 #: Gentoo minimal ISO. `search` sits between `setparams` and `linux`, which is
@@ -53,9 +67,15 @@ class _Recording(Api):
         super().__init__(host="nowhere.invalid")
         self.answers = answers
         self.asked: list[tuple[str, str]] = []
+        self.removed: set[int] = set()
 
     def call(self, method: str, path: str, **form: Any) -> Any:
         self.asked.append((method, path))
+        vmid = int(path.split("/qemu/", 1)[1].split("/", 1)[0]) if "/qemu/" in path else -1
+        if method == "GET" and path.endswith("/config") and vmid in self.removed:
+            raise ProxmoxNotFound("the guest does not exist")
+        if method == "DELETE":
+            self.removed.add(vmid)
         for key, value in self.answers.items():
             if key in path:
                 return value
@@ -76,8 +96,13 @@ def test_a_guest_without_the_tag_is_not_deleted() -> None:
 
 
 def test_a_tagged_guest_is_deleted() -> None:
-    api = _Recording({"config": {"name": "gi-run", "tags": TAG}})
-    guest = Guest(api=api, node="infra-node4", vmid=9300, spec=GuestSpec(name="x", iso="x"))
+    api = _Recording({"config": {"name": "gi-run", "tags": f"{TAG};gi-one"}})
+    guest = Guest(
+        api=api,
+        node="infra-node4",
+        vmid=9300,
+        spec=GuestSpec(name="x", iso="x", nonce="gi-one"),
+    )
     guest.destroy()
     assert ("DELETE", "/nodes/infra-node4/qemu/9300") in api.asked
 
@@ -126,8 +151,8 @@ def test_a_delete_carries_its_parameters_in_the_url(monkeypatch: pytest.MonkeyPa
         seen["body"] = request.data
         return Answer()
 
-    monkeypatch.setattr(urllib.request, "urlopen", fake_open)
     api = Api(host="nowhere.invalid")
+    monkeypatch.setattr(api._opener, "open", fake_open)
     api.call("DELETE", "/nodes/n/qemu/9300", purge=1)
     removed = (seen["url"], seen["body"])
     api.call("POST", "/nodes/n/qemu", vmid=9300)
@@ -135,6 +160,30 @@ def test_a_delete_carries_its_parameters_in_the_url(monkeypatch: pytest.MonkeyPa
 
     assert removed == ("https://nowhere.invalid/api2/json/nodes/n/qemu/9300?purge=1", None)
     assert created == ("https://nowhere.invalid/api2/json/nodes/n/qemu", b"vmid=9300")
+
+
+def test_an_api_redirect_cannot_create_a_second_authorized_request() -> None:
+    """A 302 to another origin inherited the cluster administrator token."""
+    seen: list[tuple[str, str | None]] = []
+
+    class Redirecting(urllib.request.HTTPSHandler):
+        def https_open(self, request: urllib.request.Request) -> Any:
+            seen.append((request.full_url, request.get_header("Authorization")))
+            headers = Message()
+            headers.add_header("Location", "https://example.invalid/stolen")
+            response = urllib.response.addinfourl(
+                io.BytesIO(), headers, request.full_url, code=302
+            )
+            setattr(response, "msg", "Found")
+            return response
+
+    api = Api(host="nowhere.invalid")
+    api._opener = urllib.request.build_opener(Redirecting(), _RejectRedirect())
+    with pytest.raises(ProxmoxError, match="302"):
+        api.call("GET", "/nodes")
+    assert len(seen) == 1
+    assert seen[0][0].startswith("https://nowhere.invalid/")
+    assert seen[0][1] is not None
 
 
 def test_the_console_channel_frames_input_the_way_proxmox_reads_it() -> None:
@@ -193,6 +242,118 @@ def test_a_client_frame_is_masked() -> None:
     assert frame[1] & 0x80, "the mask bit has to be set"
     mask = frame[2:6]
     assert bytes(b ^ mask[n % 4] for n, b in enumerate(frame[6:])) == b"hi"
+
+
+class _FramedStream:
+    def __init__(self, chunks: list[bytes]) -> None:
+        self.chunks = chunks
+        self.sent: list[bytes] = []
+        self.closed = False
+
+    def recv(self, size: int, /) -> bytes:
+        return self.chunks.pop(0) if self.chunks else b""
+
+    def sendall(self, data: bytes, /) -> None:
+        self.sent.append(data)
+
+    def close(self) -> None:
+        self.closed = True
+
+    def settimeout(self, seconds: float | None, /) -> None:
+        return None
+
+
+def _client_payload(frame: bytes) -> tuple[int, bytes]:
+    size = frame[1] & 0x7F
+    assert size < 126
+    mask = frame[2:6]
+    payload = bytes(byte ^ mask[index % 4] for index, byte in enumerate(frame[6:]))
+    return frame[0] & 0x0F, payload
+
+
+def test_a_fragmented_message_survives_an_interleaved_ping() -> None:
+    """The continuation payload was discarded after the first fragment."""
+    stream = _FramedStream([b"\x02\x02ab\x89\x01P\x80\x02cd"])
+    socket = WebSocket(stream)
+    assert socket.read() == b"abcd"
+    assert [_client_payload(one) for one in stream.sent] == [(0xA, b"P")]
+
+
+def test_a_received_close_is_answered_once_and_closes_the_transport() -> None:
+    """The peer waited for a close reply while the client left the socket open."""
+    payload = struct.pack("!H", 1000)
+    stream = _FramedStream([bytes((0x88, len(payload))) + payload])
+    socket = WebSocket(stream)
+    assert socket.read() == b""
+    assert [_client_payload(one) for one in stream.sent] == [(0x8, payload)]
+    assert stream.closed and socket.closed
+
+
+def test_an_oversized_declared_frame_is_refused_before_its_payload_arrives() -> None:
+    """A declared 2^40-byte frame otherwise grew the receive buffer without a bound."""
+    stream = _FramedStream([b"\x82\x7f" + struct.pack("!Q", 1 << 40)])
+    with pytest.raises(WebSocketError, match="declares"):
+        WebSocket(stream).read()
+    assert stream.closed
+
+
+def test_the_handshake_accept_must_match_the_key_that_was_sent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Any status line containing 101 was accepted without proving the upgrade."""
+    import base64
+    import hashlib
+    import os
+    import socket as socket_module
+    import ssl
+    from typing import cast
+
+    from tests.vm import websocket
+
+    key_bytes = b"0123456789abcdef"
+    key = base64.b64encode(key_bytes)
+    accept = base64.b64encode(
+        hashlib.sha1(key + b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest()
+    )
+
+    class Handshake(_FramedStream):
+        pass
+
+    class Context:
+        def __init__(self, reply: bytes) -> None:
+            self.reply = reply
+            self.secure: Handshake | None = None
+
+        def wrap_socket(self, raw: Any, server_hostname: str) -> Any:
+            self.secure = Handshake([self.reply])
+            return self.secure
+
+    class Raw:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    prefix = (
+        b"HTTP/1.1 101 Switching Protocols\r\n"
+        b"Upgrade: websocket\r\nConnection: Upgrade\r\n"
+        b"Sec-WebSocket-Protocol: binary\r\nSec-WebSocket-Accept: "
+    )
+    monkeypatch.setattr(os, "urandom", lambda size: key_bytes)
+    monkeypatch.setattr(socket_module, "create_connection", lambda *args, **kwargs: Raw())
+
+    valid = Context(prefix + accept + b"\r\n\r\n")
+    assert WebSocket.connect(
+        "pve.invalid", "/console", {}, context=cast(ssl.SSLContext, valid)
+    ).closed is False
+
+    invalid = Context(prefix + b"wrong\r\n\r\n")
+    with pytest.raises(WebSocketError, match="accept"):
+        WebSocket.connect(
+            "pve.invalid", "/console", {}, context=cast(ssl.SSLContext, invalid)
+        )
+    assert invalid.secure is not None and invalid.secure.closed
 
 
 def _archive(files: dict[str, bytes]) -> str:
@@ -1035,7 +1196,11 @@ def test_removing_a_guest_needs_the_range_the_tag_and_this_run_s_own_mark() -> N
 
         def call(self, method: str, path: str, **form: Any) -> Any:
             if method == "GET" and path.endswith("/config"):
+                if self.deleted:
+                    raise ProxmoxNotFound("the guest does not exist")
                 return {"tags": self.tags}
+            if method == "GET" and path.endswith("/status/current"):
+                return {"status": "stopped"}
             if method == "DELETE":
                 self.deleted.append(int(path.rsplit("/", 1)[1]))
             return "UPID:x"
@@ -1118,6 +1283,269 @@ def test_a_create_held_off_by_the_storage_lock_is_tried_again(
     with pytest.raises(ProxmoxError, match="no space"):
         Guest(api=other, node="infra-node1", vmid=9300, spec=GuestSpec(name="x", iso="x")).create()
     assert other.attempts == 1, other.attempts
+
+
+def test_a_create_conflict_never_cleans_up_the_conflicting_vmid() -> None:
+    """Cleanup used the requested VMID even though create proved another guest owned it."""
+
+    class Conflicting(Api):
+        def __init__(self) -> None:
+            self.asked: list[tuple[str, str]] = []
+
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            self.asked.append((method, path))
+            raise ProxmoxError("VM 9300 already exists on node 'other'")
+
+    api = Conflicting()
+    guest = Guest(
+        api,
+        "infra-node1",
+        9300,
+        GuestSpec(name="x", iso="x", nonce="gi-conflict"),
+    )
+    with pytest.raises(CreateConflict):
+        guest.create()
+    guest.destroy()
+    assert api.asked == [("POST", "/nodes/infra-node1/qemu")]
+
+
+def test_transient_task_status_failures_do_not_abort_a_completed_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two temporary 502 responses discarded a task that later reported OK."""
+    answers: list[Any] = [
+        ProxmoxError("GET status answered 502 Bad Gateway"),
+        ProxmoxError("GET status answered 502 Bad Gateway"),
+        {"status": "stopped", "exitstatus": "OK"},
+    ]
+
+    class Tasks(Api):
+        def __init__(self) -> None:
+            pass
+
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            answer = answers.pop(0)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+    import time as clock
+
+    monkeypatch.setattr(clock, "sleep", lambda seconds: None)
+    Tasks().wait("wrong-node", "UPID:right-node:task", patience=10.0)
+    assert not answers
+
+
+def test_install_media_download_carries_the_signed_sha512() -> None:
+    """A replaced ISO was accepted because the node received no checksum."""
+
+    class Downloads(Api):
+        def __init__(self) -> None:
+            self.form: dict[str, Any] = {}
+
+        def isos(self, node: str) -> list[str]:
+            return []
+
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            self.form = form
+            return "UPID:node:download"
+
+        def wait(self, node: str, upid: str, patience: float = 1800.0) -> None:
+            return None
+
+    api = Downloads()
+    sha512 = "a" * 128
+    api.fetch_iso("node", "https://mirror.invalid/install.iso", "install-a.iso", sha512)
+    assert api.form["checksum"] == sha512
+    assert api.form["checksum-algorithm"] == "sha512"
+
+
+def test_install_media_cache_name_contains_its_signed_digest() -> None:
+    """Two different images with one upstream filename otherwise reused one remote ISO."""
+    from tests.vm.cluster import _medium_name
+
+    first = _medium_name("install-amd64-minimal.iso", "a" * 128)
+    second = _medium_name("install-amd64-minimal.iso", "b" * 128)
+    assert first != second
+    assert first.endswith(".iso") and second.endswith(".iso")
+
+
+def test_an_existing_install_iso_needs_its_matching_verification_record(
+    tmp_path: Path,
+) -> None:
+    """A same-name remote ISO was reused without evidence that its bytes were checked."""
+    from tests.vm.cluster import prepare
+    from tests.vm.driver import digest as driver_digest
+
+    class Existing(Api):
+        def __init__(self) -> None:
+            pass
+
+        def isos(self, node: str) -> list[str]:
+            return ["minimal-a.iso", "driver.iso"]
+
+        def upload_iso(self, node: str, path: Path, name: str) -> str:
+            return name
+
+    api = Existing()
+    driver = tmp_path / "driver.iso"
+    driver.write_bytes(b"driver")
+    with pytest.raises(ProxmoxError, match="signed SHA-512 record"):
+        prepare(
+            api,
+            "node",
+            "minimal-a.iso",
+            ("https://mirror.invalid/install.iso",),
+            "a" * 128,
+            tmp_path / "trust",
+            driver,
+            "driver.iso",
+        )
+
+    stamp = tmp_path / "trust" / "remote" / "node" / "minimal-a.iso.sha512"
+    stamp.parent.mkdir(parents=True)
+    stamp.write_text("a" * 128)
+    with pytest.raises(ProxmoxError, match="driver SHA-256 record"):
+        prepare(
+            api,
+            "node",
+            "minimal-a.iso",
+            ("https://mirror.invalid/install.iso",),
+            "a" * 128,
+            tmp_path / "trust",
+            driver,
+            "driver.iso",
+        )
+    driver_stamp = tmp_path / "trust" / "remote" / "node" / "driver.iso.sha256"
+    driver_stamp.write_text(driver_digest(driver))
+    prepare(
+        api,
+        "node",
+        "minimal-a.iso",
+        ("https://mirror.invalid/install.iso",),
+        "a" * 128,
+        tmp_path / "trust",
+        driver,
+        "driver.iso",
+    )
+
+
+def test_an_invalid_install_media_digest_signature_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unsigned checksum would let a mirror replace both ISO and digest."""
+    import subprocess
+
+    from tests.vm import cluster
+
+    digests = tmp_path / "install.iso.DIGESTS"
+    key = tmp_path / "release.gpg"
+    digests.write_text(f"# SHA512 HASH\n{'a' * 128}  install.iso\n")
+    key.write_bytes(b"key")
+    answers = iter(
+        [
+            subprocess.CompletedProcess([], 0, "", ""),
+            subprocess.CompletedProcess([], 0, "gpg: good-looking text without status", ""),
+        ]
+    )
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: next(answers))
+    with pytest.raises(ProxmoxError, match="does not verify"):
+        cluster.verify_release_signature(digests, key, tmp_path / "gnupg")
+
+
+def test_cleanup_retries_unknown_stop_and_delete_until_the_guest_is_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A lost stop reply and one failed delete left a running guest behind."""
+
+    class Uncertain(Api):
+        def __init__(self) -> None:
+            self.running = True
+            self.absent = False
+            self.stops = 0
+            self.deletes = 0
+
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            if path.endswith("/config"):
+                if self.absent:
+                    raise ProxmoxNotFound("the guest does not exist")
+                return {"tags": f"{TAG};gi-owned"}
+            if path.endswith("/status/current"):
+                return {"status": "running" if self.running else "stopped"}
+            if path.endswith("/status/stop"):
+                self.stops += 1
+                self.running = False
+                return "UPID:node:stop"
+            if method == "DELETE":
+                self.deletes += 1
+                if self.deletes == 1:
+                    raise ProxmoxError("DELETE answered 503 storage busy")
+                self.absent = True
+                return "UPID:node:delete"
+            raise AssertionError((method, path))
+
+        def wait(self, node: str, upid: str, patience: float = 1800.0) -> None:
+            if upid.endswith(":stop") and self.stops == 1:
+                raise ProxmoxError("task status did not answer")
+
+    import time as clock
+
+    monkeypatch.setattr(clock, "sleep", lambda seconds: None)
+    api = Uncertain()
+    Guest(
+        api,
+        "node",
+        9300,
+        GuestSpec(name="x", iso="x", nonce="gi-owned"),
+    ).destroy(patience=10.0)
+    assert api.stops == 1
+    assert api.deletes == 2
+    assert api.absent
+
+
+def test_a_console_uses_the_cookie_returned_with_its_own_ticket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Another worker replaced the shared affinity cookie between ticket and connect."""
+    captured: dict[str, str] = {}
+
+    class Tickets(Api):
+        def __init__(self) -> None:
+            self.host = "pve.invalid"
+            self.affinity = "cookie-before"
+
+        def call_with_affinity(self, method: str, path: str, **form: Any) -> tuple[Any, str]:
+            self.affinity = "INGRESSCOOKIE=worker-b"
+            return {"port": 1, "ticket": "ticket-a", "user": "root@pam"}, "INGRESSCOOKIE=worker-a"
+
+    class Framed:
+        closed = False
+
+        def settimeout(self, seconds: float | None) -> None:
+            return None
+
+        def send(self, payload: bytes, opcode: int = 0x2) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b""
+
+        def close(self) -> None:
+            return None
+
+    def connect(
+        host: str,
+        path: str,
+        headers: dict[str, str],
+        **kwargs: Any,
+    ) -> Framed:
+        captured.update(headers)
+        return Framed()
+
+    monkeypatch.setattr(WebSocket, "connect", connect)
+    monkeypatch.setattr(proxmox, "_secret", lambda: "secret")
+    proxmox.ConsoleChannel.open(Tickets(), "node", 9300, tries=1)
+    assert captured["Cookie"] == "INGRESSCOOKIE=worker-a"
 
 
 def test_a_guest_is_asked_for_an_address_on_the_first_pass() -> None:
