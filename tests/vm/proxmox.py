@@ -580,6 +580,13 @@ class Guest:
                 return
             except ProxmoxError as error:
                 last = str(error)
+                # A guest whose config file is gone has been removed. The API
+                # reports that as 500 rather than 404, which `_transient` reads
+                # as retry-worthy, so the loop otherwise spent its whole
+                # patience re-asking about a guest that no longer existed and
+                # then reported the slot as still held.
+                if f"qemu-server/{self.vmid}.conf' does not exist" in last:
+                    return
                 if not _transient(error):
                     raise
                 time.sleep(min(CLEANUP_PAUSE, max(0.0, deadline - time.monotonic())))

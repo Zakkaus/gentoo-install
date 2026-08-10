@@ -575,3 +575,40 @@ def test_a_table_written_from_scratch_still_starts_at_the_first_offset() -> None
         one for one in graph.of_type(Partition) if one.index == 1
     )
     assert _start_of(graph, first) == FIRST_OFFSET
+
+
+def test_a_pool_still_busy_after_the_lazy_unmount_is_exported_on_a_later_try(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`umount --lazy` returns before the tree is detached, so the export that
+    follows it read `cannot export 'rpool': pool is busy` on a guest whose
+    install had otherwise finished."""
+    from gentoo_install.errors import CommandFailed
+
+    class Busy(Recorder):
+        refusals: int = 2
+        attempts: int = 0
+
+        def run(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> str:
+            if tuple(argv[:2]) == ("zpool", "export"):
+                self.attempts += 1
+                if self.refusals:
+                    self.refusals -= 1
+                    raise CommandFailed("zpool export rpool exited 1: pool is busy")
+            return super().run(argv, check=check, input_text=input_text)
+
+    monkeypatch.setattr(disk, "EXPORT_PAUSE", 0.0)
+    operation = disk.UnmountTarget(pools=("rpool",))
+
+    recorder = Busy()
+    operation.apply(recorder)
+    assert recorder.attempts == 3, recorder.attempts
+    assert recorder.argv_starting("sleep") == (("sleep", "0"), ("sleep", "0"))
+
+    # A pool that stays busy stops the install: it needs `zpool import -f` next boot.
+    stubborn = Busy()
+    stubborn.refusals = disk.EXPORT_TRIES
+    with pytest.raises(CommandFailed):
+        operation.apply(stubborn)
