@@ -656,3 +656,19 @@ def test_every_question_asked_inside_names_what_would_fail_it() -> None:
         if name in ("hostname", "kernel"):
             continue  # collected for the report; their value is the fixture's
         assert wanted, f"{name} compares against nothing"
+
+
+def test_the_guest_is_asked_to_configure_its_interface() -> None:
+    """A fresh guest has no global address at all: `curl -4` and `curl -6`
+    both answer nothing and `ip address show scope global` prints an empty
+    list. The medium boots with `nodhcp`, so waiting alone waits for ever."""
+    import inspect
+
+    from tests.vm import cluster
+
+    source = inspect.getsource(cluster.wait_for_network)
+    assert "ip link set" in source, "the link has to be brought up"
+    assert "dhcpcd" in source, "something has to ask for an address"
+    brought = source.index("ip link set")
+    polled = source.index("NETWORK_UP") if "NETWORK_UP" in source else len(source)
+    assert brought < polled, "configure first, then poll"

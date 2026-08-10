@@ -249,13 +249,22 @@ NETWORK_PAUSE: Final[float] = 10.0
 
 
 def wait_for_network(link: Reconnecting) -> None:
-    """Wait until the guest can fetch from the mirror before installing.
+    """Configure the guest's interface, then wait until it can reach a mirror.
 
-    Reaching a root shell says the medium booted, not that the interface is
-    up. Starting the installer there made its own reachability check fail
-    within ninety seconds of boot, and the run stopped before the first disk
-    was touched.
+    Waiting alone was not enough, and measuring said why: a fresh guest has no
+    global address at all, `curl -4` and `curl -6` both answer nothing, and
+    `ip address show scope global` prints an empty list. The medium boots with
+    `nodhcp` and leaves the link unconfigured, so something has to ask — which
+    is what an operator does before installing. The runs that used to succeed
+    were the ones where something else had configured it in time.
     """
+    # Every ethernet interface, because the name differs by machine type:
+    # `enp0s2` under q35 here and `eth0` elsewhere.
+    link.run(
+        "for one in /sys/class/net/e*; do ip link set \"$(basename $one)\" up; done",
+        timeout=60.0,
+    )
+    link.run("dhcpcd -w -t 30 >/dev/null 2>&1 || true", timeout=120.0)
     deadline = time.monotonic() + NETWORK_PATIENCE
     probe = (
         "curl -sS -o /dev/null --max-time 20 "
