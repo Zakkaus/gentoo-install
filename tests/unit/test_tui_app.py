@@ -2062,3 +2062,41 @@ def test_a_detected_row_still_has_to_be_opened() -> None:
     said = app._blocked(whole, at)
     for label in ("Mirrors", "Drive", "Compiler"):
         assert label in said, said
+
+
+def test_a_reopened_selector_starts_on_what_is_already_set() -> None:
+    """`Menu.current` exists because without it the first row wins: its own
+    comment records encryption enabled becoming disabled. These selectors were
+    built without it, so reopening the row and pressing enter without
+    navigating answered with the first item rather than what was set."""
+    import ast
+    from pathlib import Path
+
+    #: Every one holds a value the configuration already carries. A prompt that
+    #: creates something, or asks a question with no prior answer, is not here.
+    WANTED: frozenset[str] = frozenset(
+        {
+            "Init system",
+            "Region",
+            "Gentoo mirror",
+            "Console font",
+            "A ZFS root cannot boot from GRUB. Which bootloader?",
+        }
+    )
+    tree = ast.parse(Path("gentoo_install/tui/screens.py").read_text())
+    seen: dict[str, bool] = {}
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
+            continue
+        if node.func.id != "Menu":
+            continue
+        title = ""
+        for one in node.keywords:
+            if one.arg == "title" and isinstance(one.value, ast.Call) and one.value.args:
+                argument = one.value.args[0]
+                if isinstance(argument, ast.Constant):
+                    title = str(argument.value)
+        if title in WANTED:
+            seen[title] = any(one.arg == "current" for one in node.keywords)
+    assert set(seen) == WANTED, f"a selector was renamed or removed: {sorted(seen)}"
+    assert all(seen.values()), sorted(one for one, has in seen.items() if not has)

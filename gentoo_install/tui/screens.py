@@ -399,6 +399,7 @@ def _zfs_bootloader(screen: Screen, config: InstallConfig, context: Context) -> 
             ),
         ],
         footer=footer(translate),
+        current=config.bootloader.kind,
     ).run(screen)
     if not answer.chosen:
         return config
@@ -501,6 +502,7 @@ def init_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
         title=translate("Init system"),
         items=[Item(label=init.value, value=init) for init in InitSystem],
         footer=footer(translate),
+        current=config.system.init,
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -888,6 +890,7 @@ def _edit_mirror(
             title=translate("Region"),
             items=[Item(label=one.value, value=one) for one in MirrorRegion],
             footer=footer(translate),
+            current=current.region,
         ).run(screen)
         if not picked.chosen:
             return None
@@ -908,6 +911,7 @@ def _edit_mirror(
                 for one in offered
             ],
             footer=footer(translate),
+            current=current.site,
         ).run(screen)
         if not chosen.chosen:
             return None
@@ -2456,7 +2460,10 @@ def console_font_screen(
             )
         )
     answer = Menu(
-        title=context.translate("Console font"), items=items, footer=footer(context.translate)
+        title=context.translate("Console font"),
+        items=items,
+        footer=footer(context.translate),
+        current=config.system.console_font,
     ).run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
