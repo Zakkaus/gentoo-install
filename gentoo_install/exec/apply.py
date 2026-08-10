@@ -262,6 +262,24 @@ def identity(operation: Operation) -> str:
     return hashlib.sha256(together.encode()).hexdigest()[:16]
 
 
+def already_degraded(journal: Journal | None) -> set[str]:
+    """What a previous run gave up on, so a resume gives up on it too.
+
+    Without this a resumed run rebuilt an empty `given_up`: the operation that
+    recorded an unusable binary host had already completed and was skipped, so
+    the next `Emerge` asked the host for packages the earlier run had declared
+    untrusted, and the record of where each package came from changed across
+    the resume boundary.
+    """
+    if journal is None:
+        return set()
+    return {
+        str(entry["what"])
+        for entry in journal.replay()
+        if entry.get("event") == "degraded" and entry.get("what")
+    }
+
+
 def completed(journal: Journal | None) -> frozenset[tuple[int, str]]:
     """Operations a previous run finished, as position and description.
 
