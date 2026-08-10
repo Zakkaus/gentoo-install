@@ -127,3 +127,55 @@ def test_a_machine_with_no_network_is_still_reported_offline(
     monkeypatch.setattr(fetch, "ONLINE_PAUSE", 0.0)
     assert fetch.online() is False
     assert len(asked) == fetch.ONLINE_TRIES
+
+
+def test_a_family_with_no_route_is_retried_over_ipv4(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A guest with a ULA address and NAT64 answers `Network is unreachable`
+    at once for every global IPv6 destination. Twenty cluster runs stopped
+    there while `curl` fetched the same URL from the same guest a second
+    earlier, because it falls back and urllib does not."""
+    import errno
+    import socket
+    import urllib.error
+
+    tried: list[int] = []
+
+    def unreachable_then_fine(url: str) -> str:
+        tried.append(socket.getaddrinfo("x", 0)[0][0] if False else len(tried))
+        if len(tried) == 1:
+            raise DownloadFailed("unreachable") from urllib.error.URLError(
+                OSError(errno.ENETUNREACH, "Network is unreachable")
+            )
+        return "the pointer file"
+
+    monkeypatch.setattr(fetch, "_read_once", unreachable_then_fine)
+    assert fetch._read("https://example.invalid/x") == "the pointer file"
+    assert len(tried) == 2, "the second attempt is the one over IPv4"
+
+
+def test_an_ordinary_failure_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 404 is the same over either family, and asking twice hides it."""
+    import urllib.error
+
+    tried: list[int] = []
+
+    def missing(url: str) -> str:
+        tried.append(1)
+        raise DownloadFailed("404") from urllib.error.HTTPError(url, 404, "gone", {}, None)
+
+    monkeypatch.setattr(fetch, "_read_once", missing)
+    with pytest.raises(DownloadFailed):
+        fetch._read("https://example.invalid/x")
+    assert len(tried) == 1
+
+
+def test_only_ipv4_is_resolved_inside_the_fallback() -> None:
+    """The fallback is what makes the second attempt different; if it resolved
+    the same addresses it would fail the same way."""
+    import socket
+
+    with fetch._over_ipv4():
+        families = {one[0] for one in socket.getaddrinfo("localhost", 80)}
+    assert families == {socket.AF_INET}
+    # Restored afterwards, or every later request in this process is v4 only.
+    assert socket.getaddrinfo("localhost", 80, socket.AF_INET6, socket.SOCK_STREAM)
