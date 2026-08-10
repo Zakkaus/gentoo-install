@@ -878,9 +878,13 @@ def _editor_screen(console: Line, timeout: float) -> bytes:
     # arrive while the menu is on the screen. A run sent `e` before the menu was
     # drawn, the press was discarded, and the entry booted ten seconds later
     # with the harness still waiting for an editor.
+    # The console raises its own timeout, not a ProxmoxError, and catching only
+    # the latter let `never matched 'GNU GRUB'` end three fixtures whose menu
+    # was on the screen the whole time. Missing the header is not a failure
+    # here; the presses that follow are what decide.
     try:
         console.expect(r"GNU GRUB", timeout=max(1.0, min(timeout, MENU_PATIENCE)))
-    except ProxmoxError:
+    except (ProxmoxError, ConsoleTimeout):
         pass
     # ESC rather than an arrow: it halts the countdown, and unlike an arrow it
     # cannot move the selection off the entry the guest is meant to boot.

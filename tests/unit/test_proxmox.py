@@ -626,9 +626,24 @@ def test_the_countdown_is_halted_before_the_first_e_is_sent() -> None:
         def closed(self) -> bool:
             return False
 
+    class Late(Menu):
+        """The header scrolled past before the console was read: the console
+        raises its own timeout, and catching only ProxmoxError ended three
+        fixtures whose menu was on the screen the whole time."""
+
+        def expect(self, pattern: str, timeout: float) -> bytes:
+            from tests.vm.console import ConsoleTimeout
+
+            self.asked = True
+            raise ConsoleTimeout(f"never matched {pattern!r}")
+
     console = Menu()
     assert b"setparams" in _editor_screen(console, 30.0)
     assert console.sent[0] == "\x1b", console.sent
+
+    late = Late()
+    assert b"setparams" in _editor_screen(late, 30.0)
+    assert late.sent[0] == "\x1b", late.sent
 
 
 def test_a_long_install_is_never_sent_twice_after_a_reconnect() -> None:
