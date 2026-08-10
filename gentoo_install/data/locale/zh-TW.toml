@@ -16,6 +16,7 @@
 "Encrypt the pool?" = "要加密此 pool 嗎？"
 "Passphrase" = "密語"
 "Passphrase again" = "再次輸入密語"
+"At least {count} characters." = "至少 {count} 個字元。"
 "The passphrase is too short." = "密語太短。"
 "The two do not match." = "兩次輸入不一致。"
 "Leave without installing?" = "放棄安裝並離開？"

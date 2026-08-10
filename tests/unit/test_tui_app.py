@@ -339,6 +339,37 @@ def test_a_passphrase_zfs_would_refuse_is_caught_before_the_disks_are_touched() 
     assert "too short" in "\n".join("\n".join(frame) for frame in screen.frames)
 
 
+def test_the_passphrase_field_says_the_length_before_it_is_typed() -> None:
+    """`The passphrase is too short.` arrives after the operator has typed one
+    and says nothing about how long it has to be, so the second attempt is a
+    guess. The field states the minimum above it, and states the number the
+    code enforces rather than one written out beside it."""
+    at = context()
+    keys = ["KEY_DOWN", "\n", *list("longenough"), "\n", *list("longenough"), "\n"]
+    screen = FakeScreen(keys=keys)
+    screens.encryption_screen(screen, config(), at)
+    drawn = "\n".join("\n".join(frame) for frame in screen.frames)
+    assert str(screens.PASSPHRASE_MINIMUM) in drawn, drawn
+    typed = [frame for frame in screen.frames if any("Passphrase" in one for one in frame)]
+    assert typed, "no passphrase field was drawn"
+    for frame in typed:
+        assert any(str(screens.PASSPHRASE_MINIMUM) in one for one in frame), frame
+
+
+def test_every_catalog_translates_the_passphrase_hint() -> None:
+    """A hint that falls back to English on a Chinese console is a hint the
+    operator it was written for cannot read."""
+    import tomllib
+    from pathlib import Path as _Path
+
+    source = "At least {count} characters."
+    for catalog in sorted(_Path("gentoo_install/data/locale").glob("*.toml")):
+        said = tomllib.loads(catalog.read_text())["strings"]
+        assert source in said, f"{catalog.name} has no hint"
+        assert "{count}" in said[source], f"{catalog.name} dropped the placeholder"
+        assert said[source] != source, f"{catalog.name} left it in English"
+
+
 def test_declining_encryption_clears_the_passphrase() -> None:
     at = context()
     at.choice = replace(at.choice, passphrase_file="/run/keys/old")

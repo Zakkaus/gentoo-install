@@ -16,6 +16,7 @@
 "Encrypt the pool?" = "この pool を暗号化しますか？"
 "Passphrase" = "パスフレーズ"
 "Passphrase again" = "パスフレーズをもう一度"
+"At least {count} characters." = "{count} 文字以上で入力してください。"
 "The passphrase is too short." = "パスフレーズが短すぎます。"
 "The two do not match." = "2 回の入力が一致しません。"
 "Leave without installing?" = "インストールせずに終了しますか？"

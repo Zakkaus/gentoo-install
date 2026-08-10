@@ -1871,9 +1871,13 @@ def _ask_passphrase(screen: Screen, context: Context) -> str:
     log is what people paste into bug reports.
     """
     translate = context.translate
+    hint = translate("At least {count} characters.").format(count=PASSPHRASE_MINIMUM)
     while True:
         first = TextField(
-            title=translate("Passphrase"), masked=True, footer=footer(translate)
+            title=translate("Passphrase"),
+            masked=True,
+            detail=hint,
+            footer=footer(translate),
         ).run(screen)
         if not first.chosen:
             return ""
@@ -1884,7 +1888,10 @@ def _ask_passphrase(screen: Screen, context: Context) -> str:
             _say(screen, context, translate("The passphrase is too short."))
             continue
         again = TextField(
-            title=translate("Passphrase again"), masked=True, footer=footer(translate)
+            title=translate("Passphrase again"),
+            masked=True,
+            detail=hint,
+            footer=footer(translate),
         ).run(screen)
         if not again.chosen:
             return ""
