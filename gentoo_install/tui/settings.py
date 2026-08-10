@@ -451,8 +451,12 @@ def _template_writes_the_table(config: InstallConfig, context: Context) -> str:
 def _partitions(config: InstallConfig, context: Context) -> str:
     if not context.manual:
         return _written_table(config, context)
+    # The fields, not a slice of `describe()`: that string pads its first
+    # column to ten characters, so splitting it on two spaces answered with
+    # the padding and the row read as a bare comma.
     return ", ".join(
-        entry.describe().split("  ")[1] for entry in context.layout.slices
+        f"{one.mountpoint or one.role.value} {one.size or context.translate('the rest')}"
+        for one in context.layout.slices
     ) or context.translate("none")
 
 
