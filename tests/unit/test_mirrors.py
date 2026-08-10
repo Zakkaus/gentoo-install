@@ -86,3 +86,24 @@ def test_the_chinese_default_is_ustc_and_not_tuna() -> None:
     names = [one.key for one in GENTOO_SITES]
     assert names[:2] == ["ustc", "nju"], names[:4]
     assert names.index("tuna") > names.index("ustc"), names
+
+    # The addresses an install actually uses, not only the declaration order:
+    # reordering `GENTOO_SITES` alone left `gentoo_rsync_uri` answering tuna,
+    # because `GENTOO_REGIONS` is the list those functions walk. A cluster
+    # guest then synced from tuna and stopped at the same Manifest mismatch.
+    from gentoo_install.model.config import MirrorRegion
+    from gentoo_install.model.mirrors import (
+        gentoo_binhost,
+        gentoo_rsync_uri,
+        gentoo_sites,
+        gentoo_sync_uri,
+    )
+
+    assert [one.key for one in gentoo_sites(MirrorRegion.CN)][:2] == ["ustc", "nju"]
+    for address in (
+        gentoo_rsync_uri(MirrorRegion.CN),
+        gentoo_sync_uri(MirrorRegion.CN),
+        gentoo_binhost(MirrorRegion.CN),
+    ):
+        assert "ustc" in address, address
+        assert "tuna" not in address, address

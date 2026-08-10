@@ -4,6 +4,7 @@ import os
 import shutil
 import time
 from typing import Sequence, cast
+import re
 from pathlib import Path
 
 import pytest
@@ -664,7 +665,13 @@ def test_the_mirror_check_names_the_mirror_it_could_not_reach(
         fetch, "why_unreachable", lambda url: "certificate verify failed: unable to get issuer"
     )
     config = load(Path("tests/fixtures/btrfs-luks.toml"))
-    with pytest.raises(errors.PreflightFailed, match="tuna") as raised:
+    # The host is read from the configuration rather than written here: the
+    # region's first mirror changes, and a test naming one of them fails for
+    # a reason that has nothing to do with the rule it holds.
+    from gentoo_install.model.mirrors import gentoo_distfiles
+
+    host = gentoo_distfiles(config.portage.mirrors.region)[0].split("//", 1)[1].split("/", 1)[0]
+    with pytest.raises(errors.PreflightFailed, match=re.escape(host)) as raised:
         cli._require_mirror(config, DEFAULT_MIRROR)
     # The reason is carried out, not discarded: `cannot reach X` sent a run to
     # look at the network when the answer was a certificate the medium could
