@@ -330,8 +330,15 @@ NETWORK_PROBE: Final[str] = (
 #: already, so a medium whose own manager configured one is left alone.
 ASK_FOR_IPV4: Final[str] = (
     "ip -4 route show default | grep -q . || { "
-    'for one in /sys/class/net/e*; do ip link set "$(basename "$one")" up; done; '
-    "dhcpcd -4 -w -t 25 >/dev/null 2>&1; }; true"
+    'for one in /sys/class/net/e*; do dev=$(basename "$one"); ip link set "$dev" up; '
+    # Named, and with the ARP probe skipped. A bare `dhcpcd -4 -w` returned at
+    # once when one was already running, so the wait was never taken; and the
+    # server offers an address within a second while the handshake then stalls
+    # in `probing address 10.31.0.201/24` until dhcpcd gives up. Measured on
+    # two nodes: `-w -t 25` timed out on both, `--noarp -w -t 90` leased
+    # 10.31.0.203 and 10.31.0.201 with `default via 10.31.0.254`.
+    'dhcpcd -4 --noarp -w -t 90 "$dev" >/dev/null 2>&1 || true; done; }; '
+    "ip -4 route show default | grep -q . || true"
 )
 
 
