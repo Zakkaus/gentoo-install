@@ -6,8 +6,11 @@ not match is a failed install, not a reason to try another mirror.
 
 from __future__ import annotations
 
+import contextlib
+import errno
 import hashlib
 import json
+import socket
 import time
 from concurrent.futures import ThreadPoolExecutor
 from email.utils import parsedate_to_datetime
@@ -15,7 +18,8 @@ from itertools import takewhile
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Final
+from collections.abc import Iterator
+from typing import Any, Final
 
 from ..errors import (
     CommandFailed,
@@ -435,7 +439,56 @@ def _asked(url: str, *, data: bytes | None = None, method: str = "GET", **header
     )
 
 
+#: Errno values that mean the address family this machine tried has no route
+#: at all, rather than the host being down. A guest with a ULA address and
+#: NAT64 answers these instantly for every global IPv6 destination.
+_NO_ROUTE: Final[frozenset[int]] = frozenset(
+    {errno.ENETUNREACH, errno.EHOSTUNREACH, errno.ENETDOWN, errno.EAFNOSUPPORT}
+)
+
+
+def _unroutable(error: BaseException) -> bool:
+    """Whether the failure is the address family and not the host."""
+    reason = getattr(error, "reason", error)
+    return isinstance(reason, OSError) and reason.errno in _NO_ROUTE
+
+
+@contextlib.contextmanager
+def _over_ipv4() -> Iterator[None]:
+    """Resolve names to IPv4 only, for one attempt.
+
+    Python has no per-request address family. A mirror with an AAAA record is
+    tried over IPv6 first, and on a network whose IPv6 goes no further than a
+    NAT64 gateway that answers `Network is unreachable` at once — which is
+    what twenty cluster runs stopped on, while `curl` fetched the same URL
+    from the same guest a second earlier.
+    """
+    real = socket.getaddrinfo
+
+    def only_v4(
+        host: Any, port: Any, family: int = 0, type: int = 0, proto: int = 0, flags: int = 0
+    ) -> Any:
+        return real(host, port, socket.AF_INET, type, proto, flags)
+
+    setattr(socket, "getaddrinfo", only_v4)
+    try:
+        yield
+    finally:
+        setattr(socket, "getaddrinfo", real)
+
+
 def _read(url: str) -> str:
+    try:
+        return _read_once(url)
+    except DownloadFailed as first:
+        if not _unroutable(first.__cause__ or first):
+            raise
+    # The family had no route, so the other one is worth one attempt.
+    with _over_ipv4():
+        return _read_once(url)
+
+
+def _read_once(url: str) -> str:
     try:
         with urllib.request.urlopen(_asked(url), timeout=TIMEOUT) as response:
             return str(response.read().decode("utf-8", "replace"))
@@ -445,7 +498,23 @@ def _read(url: str) -> str:
 
 def _download(url: str, target: Path) -> None:
     """Written beside the target and renamed, so an interrupted download never
-    leaves a short file that looks complete."""
+    leaves a short file that looks complete.
+
+    Falls back to IPv4 for the same reason `_read` does: the stage3 is the
+    largest thing this installer fetches, and a mirror reached over an address
+    family with no route fails before a byte arrives.
+    """
+    try:
+        _download_once(url, target)
+        return
+    except DownloadFailed as first:
+        if not _unroutable(first.__cause__ or first):
+            raise
+    with _over_ipv4():
+        _download_once(url, target)
+
+
+def _download_once(url: str, target: Path) -> None:
     partial = target.with_suffix(target.suffix + ".part")
     try:
         with urllib.request.urlopen(_asked(url), timeout=TIMEOUT) as response, partial.open("wb") as handle:
