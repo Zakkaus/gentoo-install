@@ -177,6 +177,10 @@ ALPINE = Medium(
     # repository line, so `apk add` answers `no such package` until one is
     # written; the branch has to match the image's own version.
     prepare=(
+        # The live session leaves every interface down, so apk answered
+        # `DNS: transient error` on a guest whose network was never started.
+        'for one in /sys/class/net/e*; do d=$(basename "$one"); '
+        'ip link set "$d" up; udhcpc -i "$d" -n -q; done',
         "printf 'https://mirrors.ustc.edu.cn/alpine/v3.24/main\n"
         "https://mirrors.ustc.edu.cn/alpine/v3.24/community\n' > /etc/apk/repositories",
         "apk update",
