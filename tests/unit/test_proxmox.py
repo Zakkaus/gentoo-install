@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shlex
+from collections import Counter
 import struct
 import urllib.request
 from pathlib import Path
@@ -385,7 +386,9 @@ def test_a_node_offers_a_slot_for_every_guest_it_can_hold() -> None:
             ]
 
     names = [node.name for node in free_slots(Counted(host="nowhere.invalid"))]
-    assert names == ["big", "big", "big", "one"]
+    # Counted, not ordered: the order is round robin so that one node does not
+    # carry every build, and that rule has a test of its own.
+    assert Counter(names) == Counter({"big": 3, "one": 1}), names
     assert "none" not in names, "the headroom is left free on every node"
 
 
