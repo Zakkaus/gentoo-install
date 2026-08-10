@@ -1847,9 +1847,14 @@ def encryption_screen(screen: Screen, config: InstallConfig, context: Context) -
         # over a graph with no container in it at all.
         _say(screen, context, translate("Encryption is a field of each partition, under Partitions."))
         return Answer(Outcome.BACK)
+    encrypted = bool(context.choice.passphrase_file)
     wanted = Confirm(
         **answers(translate),
-        title=translate("Encrypt the root filesystem?"), footer=footer(translate)
+        title=translate("Encrypt the root filesystem?"),
+        # Without this the cursor starts on `No`, so reopening the row and
+        # pressing enter removed the container and the passphrase with it.
+        current=encrypted,
+        footer=footer(translate),
     ).run(screen)
     if not wanted.chosen:
         return Answer(wanted.outcome)
@@ -1858,6 +1863,10 @@ def encryption_screen(screen: Screen, config: InstallConfig, context: Context) -
         return Answer(Outcome.CHOSE, _rebuild(config, context))
     staged = _ask_passphrase(screen, context)
     if not staged:
+        # The key that is already staged, not an empty one: cancelling the
+        # field is declining to change the passphrase, not declining to have
+        # one, and clearing it here turned an encrypted layout into a plain
+        # one on the way out.
         return Answer(Outcome.BACK)
     context.choice = replace(context.choice, passphrase_file=staged)
     return Answer(Outcome.CHOSE, _rebuild(config, context))
@@ -4001,6 +4010,10 @@ def root_login_screen(
                 detail=translate("reach root through a sudo user"),
             ),
         ],
+        # Without this the cursor starts on `allowed`, so reopening the row
+        # and pressing enter widened root's access over ssh on a machine that
+        # had refused it.
+        current=config.system.sshd_root_login,
         footer=footer(translate),
     )
     answer = menu.run(screen)

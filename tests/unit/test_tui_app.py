@@ -371,9 +371,11 @@ def test_every_catalog_translates_the_passphrase_hint() -> None:
 
 
 def test_declining_encryption_clears_the_passphrase() -> None:
+    """`No` is one row up from where the cursor now starts: an encrypted
+    layout opens on `Yes`, so pressing enter keeps what it had."""
     at = context()
     at.choice = replace(at.choice, passphrase_file="/run/keys/old")
-    screens.encryption_screen(FakeScreen(keys=["\n"]), config(), at)
+    screens.encryption_screen(FakeScreen(keys=["KEY_UP", "\n"]), config(), at)
     assert at.choice.passphrase_file == ""
 
 
