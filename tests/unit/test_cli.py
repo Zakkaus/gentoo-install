@@ -677,3 +677,27 @@ def test_the_mirror_check_names_the_mirror_it_could_not_reach(
     # look at the network when the answer was a certificate the medium could
     # not verify.
     assert "certificate verify failed" in str(raised.value)
+
+
+def test_a_question_nobody_can_answer_is_not_asked(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A prompt printed at a stdin that is not a terminal is answered `No` by
+    the empty line `readline` returns at once, so it flashes past and the
+    operator reads it as an offer that was never made."""
+    import io
+    import sys as system
+
+    from gentoo_install import cli
+
+    monkeypatch.setattr(system, "stdin", io.StringIO("y\n"))
+    assert cli._asked("well?") is False
+    assert "well?" not in capsys.readouterr().out
+
+    class Terminal(io.StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    monkeypatch.setattr(system, "stdin", Terminal("y\n"))
+    assert cli._asked("well?") is True
+    assert "well?" in capsys.readouterr().out
