@@ -174,6 +174,9 @@ ALPINE = Medium(
     login_user="root",
     login_password=None,
     boot_cmdline=("modules=loop,squashfs,sd-mod,usb-storage",),
+    # Alpine ships no interpreter at all, so preflight reports `found: none`
+    # before it can check the version.
+    prepare=("apk add python3 e2fsprogs dosfstools sgdisk",),
 )
 
 DEBIAN = Medium(
