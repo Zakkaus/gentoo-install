@@ -46,7 +46,7 @@ from .proxmox import (
     append_to_cmdline,
     append_to_cmdline_blind,
 )
-from .results import ResultError, console_command, read_console
+from .results import CONSOLE_CLOSE, ResultError, console_command, read_console
 
 REPOSITORY: Final[Path] = Path(__file__).resolve().parents[2]
 WORKROOT: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/cluster"
@@ -532,6 +532,13 @@ def run(
 #: How many times the results are asked for again on a fresh console.
 COLLECT_TRIES: Final[int] = 3
 
+#: How long the archive has to arrive. An install log runs to twelve megabytes
+#: and compresses to about one, which is another third again as base64, and
+#: the console carries it a chunk at a time. A fixed window of three minutes
+#: caught only the shell's echo of the command and reported `the console
+#: result is not base64`; the end marker is what says it is finished.
+COLLECT_PATIENCE: Final[float] = 900.0
+
 #: How many times a dropped console is reopened before a run is given up on.
 RECONNECT_TRIES: Final[int] = 4
 
@@ -629,7 +636,9 @@ def collect(guest: Guest, link: "Reconnecting", log: Path) -> dict[str, bytes]:
         try:
             link.run(f"cp /run/gentoo-install/install.jsonl {RESULT_DIR}/ 2>/dev/null || true")
             link.send(console_command(RESULT_DIR))
-            return read_console(link.snapshot(180.0))
+            # Waited for, not timed: the marker is what says the archive is
+            # whole, and `expect` answers with everything read up to it.
+            return read_console(link.expect(CONSOLE_CLOSE, timeout=COLLECT_PATIENCE))
         except (ConsoleClosed, ConsoleTimeout, ResultError) as error:
             last = error
             if attempt + 1 == COLLECT_TRIES:
