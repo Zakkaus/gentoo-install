@@ -30,8 +30,16 @@ from collections.abc import Callable, Mapping
 from typing import Final, Protocol
 
 from gentoo_install.model.config import Firmware as BootFirmware
-from gentoo_install.model.config import InstallConfig
-from gentoo_install.model.device import Existing, Luks, ZfsPool
+from gentoo_install.model.config import InitSystem, InstallConfig
+from gentoo_install.model.device import (
+    Existing,
+    Filesystem,
+    Luks,
+    Mountpoint,
+    Subvolume,
+    ZfsDataset,
+    ZfsPool,
+)
 from gentoo_install.model.config import MirrorRegion, Sync
 from gentoo_install.exec.config import load
 from gentoo_install.model.serialise import to_toml
@@ -856,12 +864,47 @@ INSTALLED_PASSWORD: Final[str] = "install"
 #: One table, so a check cannot be added without saying what would fail it.
 INSIDE: Final[tuple[tuple[str, str, str], ...]] = (
     ("os-release", "cat /etc/os-release", "Gentoo"),
-    ("mounts", "findmnt --noheadings --list --output TARGET,SOURCE,FSTYPE", "/"),
     ("fstab", "cat /etc/fstab", "UUID="),
-    ("hostname", "cat /etc/hostname 2>/dev/null || cat /etc/conf.d/hostname", ""),
-    ("locale", "locale", "LANG="),
-    ("kernel", "uname -r", ""),
 )
+
+
+def _asked_for(installation: InstallConfig) -> list[tuple[str, str, str]]:
+    """What this particular configuration should have produced.
+
+    Derived from the model rather than written out once for every fixture:
+    `hostname` and `kernel` carried an empty expectation, so a guest with the
+    wrong hostname, the wrong root filesystem or the wrong locale passed every
+    check, and a run that installed the wrong system was recorded as `ok`.
+    """
+    graph = installation.disk.graph
+    root = graph.nodes.get(installation.disk.root)
+    source = graph.nodes.get(root.source) if isinstance(root, Mountpoint) else None
+    checks = [
+        ("locale", "locale", f"LANG={installation.system.locale}"),
+        ("hostname", "hostname", installation.system.hostname),
+    ]
+    if isinstance(source, Filesystem):
+        # The type as `findmnt` names it, on the row for `/`: an xfs root that
+        # came up as ext4 is an install that went wrong quietly.
+        checks.append(
+            (
+                "root filesystem",
+                "findmnt --noheadings --output FSTYPE /",
+                source.kind.value,
+            )
+        )
+    elif isinstance(source, Subvolume):
+        checks.append(("root filesystem", "findmnt --noheadings --output FSTYPE /", "btrfs"))
+    elif isinstance(source, ZfsDataset):
+        checks.append(("root filesystem", "findmnt --noheadings --output FSTYPE /", "zfs"))
+    checks.append(
+        (
+            "init",
+            "ls -l /sbin/init",
+            "systemd" if installation.system.init is InitSystem.SYSTEMD else "openrc",
+        )
+    )
+    return checks
 
 
 #: How long SeaBIOS and GRUB take to reach the cryptomount prompt. Nothing on
@@ -942,7 +985,7 @@ def boot_and_check(
     except (ConsoleTimeout, ConsoleClosed) as error:
         return f"root could not log into the installed system: {error}"[:200]
 
-    for name, command, wanted in INSIDE:
+    for name, command, wanted in (*INSIDE, *_asked_for(installation)):
         said = link.expect_output(command, timeout=120.0)
         if wanted and wanted.encode() not in said:
             return f"{name}: the installed system does not say {wanted!r}"

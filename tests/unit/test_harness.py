@@ -389,3 +389,43 @@ def test_every_fixture_sets_the_password_the_harness_logs_in_with() -> None:
             check=True,
         ).stdout.strip()
         assert said == hashed, f"{fixture.name} sets a hash that is not {INSTALLED_PASSWORD!r}"
+
+
+def test_the_boot_check_asks_what_the_fixture_asked_for() -> None:
+    """`hostname` and `kernel` carried an empty expectation, and `mounts` only
+    looked for `/`, so a guest that came up with the wrong hostname, the wrong
+    root filesystem or the wrong locale passed every check and the run was
+    recorded `ok`. That is success with the wrong result, which no assertion
+    in this repository could see."""
+    from pathlib import Path
+
+    from gentoo_install.exec.config import load
+    from tests.vm.cluster import _asked_for
+
+    wanted = {
+        "vm-xfs": ("xfsbox", "xfs", "systemd", "en_US.UTF-8"),
+        "vm-btrfs": ("btrfsbox", "btrfs", "systemd", "zh_TW.UTF-8"),
+        "vm-zfs": ("zfsbox", "zfs", "systemd", "en_US.UTF-8"),
+        "vm-openrc-desktop": ("openrcdesk", "ext4", "openrc", "en_US.UTF-8"),
+    }
+    for name, (host, filesystem, init, locale) in wanted.items():
+        said = {one: value for one, _, value in _asked_for(load(Path("tests/fixtures") / f"{name}.toml"))}
+        assert said["hostname"] == host, name
+        assert said["root filesystem"] == filesystem, name
+        assert said["init"] == init, name
+        assert said["locale"] == f"LANG={locale}", name
+
+
+def test_every_fixture_has_a_boot_check_that_can_fail() -> None:
+    """A fixture whose checks are all empty strings is one the boot pass
+    cannot fail, which is how the empty ones went unnoticed."""
+    from pathlib import Path
+
+    from gentoo_install.exec.config import load
+    from tests.vm.cluster import _asked_for
+
+    for fixture in sorted(Path("tests/fixtures").glob("*.toml")):
+        checks = _asked_for(load(fixture))
+        empty = [one for one, _, value in checks if not value]
+        assert not empty, f"{fixture.name}: {empty}"
+        assert len(checks) >= 4, f"{fixture.name}: {checks}"
