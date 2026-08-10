@@ -247,6 +247,19 @@ NETWORK_PATIENCE: Final[float] = 300.0
 #: attempts thirty seconds apart against a host that was answering.
 NETWORK_PAUSE: Final[float] = 10.0
 
+#: What the guest is asked, and the two answers it can give. Neither answer
+#: appears whole in the command: the shell echoes the line it was given, and a
+#: reader waiting for `NETWORK_UP` matched that echo and returned on the first
+#: pass with no address on the interface at all.
+NETWORK_UP: Final[str] = "NETWORK_UP"
+NETWORK_DOWN: Final[str] = "NETWORK_DOWN"
+NETWORK_PROBE: Final[str] = (
+    "curl -sS -o /dev/null --max-time 20 "
+    "https://distfiles.gentoo.org/releases/amd64/autobuilds/"
+    "latest-stage3-amd64-systemd.txt "
+    "&& printf 'NETWORK_%s\\n' UP || printf 'NETWORK_%s\\n' DOWN"
+)
+
 
 def wait_for_network(link: Reconnecting) -> None:
     """Configure the guest's interface, then wait until it can reach a mirror.
@@ -266,14 +279,9 @@ def wait_for_network(link: Reconnecting) -> None:
     )
     link.run("dhcpcd -w -t 30 >/dev/null 2>&1 || true", timeout=120.0)
     deadline = time.monotonic() + NETWORK_PATIENCE
-    probe = (
-        "curl -sS -o /dev/null --max-time 20 "
-        "https://distfiles.gentoo.org/releases/amd64/autobuilds/"
-        "latest-stage3-amd64-systemd.txt && echo NETWORK_UP || echo NETWORK_DOWN"
-    )
     while time.monotonic() < deadline:
-        link.send(probe)
-        if b"NETWORK_UP" in link.expect(r"NETWORK_UP|NETWORK_DOWN", timeout=60.0):
+        link.send(NETWORK_PROBE)
+        if NETWORK_UP.encode() in link.expect(rf"{NETWORK_UP}|{NETWORK_DOWN}", timeout=60.0):
             return
         time.sleep(NETWORK_PAUSE)
     raise ConsoleTimeout(f"the guest had no network after {NETWORK_PATIENCE:.0f}s")

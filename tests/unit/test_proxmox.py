@@ -672,3 +672,17 @@ def test_the_guest_is_asked_to_configure_its_interface() -> None:
     brought = source.index("ip link set")
     polled = source.index("NETWORK_UP") if "NETWORK_UP" in source else len(source)
     assert brought < polled, "configure first, then poll"
+
+
+def test_no_marker_appears_in_the_command_that_prints_it() -> None:
+    """The shell echoes the line it was given. A reader waiting for a marker
+    matched the echo and returned before the work had started — twice: the
+    result archive in ninety seconds, and the network probe on its first pass
+    with no address on the interface at all."""
+    from tests.vm import cluster
+    from tests.vm.results import CONSOLE_CLOSE, CONSOLE_OPEN, console_command
+
+    watched = (cluster.NETWORK_UP, cluster.NETWORK_DOWN, CONSOLE_OPEN, CONSOLE_CLOSE)
+    for command in (console_command("/tmp/results"), cluster.NETWORK_PROBE):
+        for marker in watched:
+            assert marker not in command, f"{marker} appears whole in {command[:80]!r}"
