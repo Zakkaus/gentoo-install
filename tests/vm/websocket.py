@@ -130,7 +130,18 @@ class WebSocket:
         self._sock.settimeout(seconds)
 
     def send(self, payload: bytes, opcode: int = _BINARY) -> None:
-        self._sock.sendall(_client_frame(payload, opcode))
+        if self._closed:
+            return
+        try:
+            self._sock.sendall(_client_frame(payload, opcode))
+        except OSError as error:
+            # Closed rather than raised, as on the read side: three cluster
+            # guests were recorded `ERROR ... [Errno 32] Broken pipe` at
+            # sixteen minutes with their installs running, because a write to
+            # a connection the far end had dropped went past every
+            # `except ConsoleClosed` above.
+            self._closed = True
+            self._why = f"the connection broke: {error}"
 
     def read(self) -> bytes:
         """Payload from whatever whole frames have arrived, possibly empty.
