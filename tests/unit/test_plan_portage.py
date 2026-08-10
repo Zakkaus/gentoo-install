@@ -496,7 +496,7 @@ def test_the_stage3_comes_from_the_mirror_the_operator_chose() -> None:
         config(),
         portage=replace(config().portage, mirrors=MirrorConfig(region=MirrorRegion.CN)),
     )
-    assert stage3_mirror(region_only) == "https://mirrors.tuna.tsinghua.edu.cn/gentoo"
+    assert stage3_mirror(region_only) == "https://mirrors.ustc.edu.cn/gentoo"
 
     # Nothing chosen at all is still the official one, which is the region's
     # first as well as what the flag defaults to.

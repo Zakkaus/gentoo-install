@@ -146,8 +146,12 @@ GENTOO_SITES: Final[tuple[Site, ...]] = (
 
 #: Which sites a region offers, in the order the menu lists them.
 GENTOO_REGIONS: Final[dict[MirrorRegion, tuple[str, ...]]] = {
+    # USTC and NJU first. This list is what picks the sync address, not the
+    # order of `GENTOO_SITES`: reordering that alone left `gentoo_rsync_uri`
+    # answering tuna, whose rsync tree served a snapshot its own signed
+    # Manifest did not match on three separate rounds.
     MirrorRegion.CN: (
-        "tuna", "bfsu", "ustc", "zju", "nju", "sdu", "hust", "sustech", "hit",
+        "ustc", "nju", "bfsu", "tuna", "zju", "sdu", "hust", "sustech", "hit",
         "lzu", "aliyun", "netease", "cernet", "cicku-hk", "planetunix-hk",
         "xtom-hk", "rackspace-hk", "aditsu-hk", "nchc-tw", "cicku-tw",
         "freedif-sg", "cicku-sg", "planetunix-sg",
