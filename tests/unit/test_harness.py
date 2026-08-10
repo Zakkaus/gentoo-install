@@ -364,3 +364,28 @@ def test_a_run_whose_firmware_contradicts_its_fixture_is_refused() -> None:
 
     assert main(["--install", "fixtures/vm-bios.toml", "--firmware", "uefi"]) == 1
     assert main(["--install", "fixtures/vm-binpkg.toml", "--firmware", "bios"]) == 1
+
+
+def test_every_fixture_sets_the_password_the_harness_logs_in_with() -> None:
+    """`ext4-bios.toml` carried a placeholder hash, so an install from it
+    reached a login prompt and answered `Login incorrect` — a run that had
+    partitioned, installed and booted correctly, failed on its last step."""
+    import subprocess
+    from pathlib import Path
+
+    from gentoo_install.exec.config import load
+    from tests.vm.run import INSTALLED_PASSWORD
+
+    # `openssl passwd`, not `crypt`: the module left the standard library in
+    # 3.13 and openssl is a tool the installer already requires.
+    for fixture in sorted(Path("tests/fixtures").glob("*.toml")):
+        hashed = load(fixture).system.root_password_hash
+        assert hashed, f"{fixture.name} sets no root password"
+        salt = hashed.split("$")[2]
+        said = subprocess.run(
+            ["openssl", "passwd", "-6", "-salt", salt, INSTALLED_PASSWORD],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        assert said == hashed, f"{fixture.name} sets a hash that is not {INSTALLED_PASSWORD!r}"

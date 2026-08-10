@@ -159,14 +159,43 @@ def _target_paths(workdir: Path, installation: InstallConfig) -> tuple[Path, ...
     return tuple(workdir / f"target{index}.qcow2" for index in range(count))
 
 
-def create_target(path: Path) -> Path:
-    """A blank disk for the installer to partition, thrown away with the run."""
+#: Fixtures whose target disk has to hold a table before the installer runs,
+#: and what `parted` is told to put there. A configuration with `create =
+#: false` describes a table the operator already has, and every other fixture
+#: gets a blank disk, so nothing exercised the editing path at all.
+SEEDED: dict[str, tuple[str, ...]] = {
+    "mbr-edit": ("mklabel", "msdos", "mkpart", "primary", "ext2", "1MiB", "1025MiB"),
+}
+
+
+def create_target(path: Path, seed: tuple[str, ...] = ()) -> Path:
+    """A disk for the installer to partition, thrown away with the run.
+
+    Seeded through a raw image and converted: `parted` writes to a file, and
+    it cannot read a qcow2.
+    """
     path.unlink(missing_ok=True)
+    if not seed:
+        subprocess.run(
+            ["qemu-img", "create", "-f", "qcow2", str(path), TARGET_SIZE],
+            check=True,
+            capture_output=True,
+        )
+        return path
+    raw = path.with_suffix(".raw")
+    raw.unlink(missing_ok=True)
     subprocess.run(
-        ["qemu-img", "create", "-f", "qcow2", str(path), TARGET_SIZE],
+        ["qemu-img", "create", "-f", "raw", str(raw), TARGET_SIZE],
         check=True,
         capture_output=True,
     )
+    subprocess.run(["parted", "--script", str(raw), *seed], check=True, capture_output=True)
+    subprocess.run(
+        ["qemu-img", "convert", "-O", "qcow2", str(raw), str(path)],
+        check=True,
+        capture_output=True,
+    )
+    raw.unlink(missing_ok=True)
     return path
 
 
@@ -488,7 +517,8 @@ def _perform(args: argparse.Namespace, medium: Medium, workdir: Path) -> int:
                 return 1
             targets = wanted
         else:
-            targets = tuple(create_target(path) for path in wanted)
+            seed = SEEDED.get(Path(args.install).stem if args.install else "", ())
+            targets = tuple(create_target(path, seed) for path in wanted)
 
     spec = VmSpec(
         medium=medium,

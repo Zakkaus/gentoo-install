@@ -1,8 +1,11 @@
-# The oldest path still supported: MBR, BIOS boot, openrc, ext4, no overlay.
+# A table the operator edits rather than rewrites: partition 1 is already on
+# the disk and is kept, and the installer adds partition 2 after it. The
+# harness writes that table before the guest boots; `wipe` and `create` are
+# both off, so nothing here may touch what partition 1 holds.
 config_version = 1
 
 [system]
-hostname = "plain"
+hostname = "editbox"
 timezone = "UTC"
 locales = ["en_US.UTF-8"]
 locale = "en_US.UTF-8"
@@ -14,7 +17,7 @@ profile = "default/linux/amd64/23.0"
 makeopts = "-j4"
 
 [portage.binhost]
-official = false
+official = true
 community = "off"
 
 [kernel]
@@ -32,21 +35,14 @@ root = "mnt-root"
 kind = "existing"
 id = "disk"
 selector = "/dev/disk/by-id/virtio-target0"
-wipe = true
+wipe = false
 
 [[disk.devices]]
 kind = "table"
 id = "table"
 disk = "disk"
 table = "mbr"
-
-[[disk.devices]]
-kind = "partition"
-id = "swappart"
-table = "table"
-index = 1
-role = "swap"
-size = "2GiB"
+create = false
 
 [[disk.devices]]
 kind = "partition"
@@ -54,11 +50,7 @@ id = "rootpart"
 table = "table"
 index = 2
 role = "data"
-
-[[disk.devices]]
-kind = "swap"
-id = "swap"
-device = "swappart"
+size = "12GiB"
 
 [[disk.devices]]
 kind = "filesystem"
