@@ -593,24 +593,24 @@ def test_the_editor_is_reopened_with_escape_not_a_second_e() -> None:
     # The leading ESC halts the countdown: GRUB stops it on the first key it
     # receives, and a run whose `e` arrived before the menu was drawn watched
     # the entry boot ten seconds later.
-    assert console.sent == ["\x1b", "e", "\x1b", "e"]
+    assert console.sent == ["e", "\x1b", "e"]
 
 
-def test_the_countdown_is_halted_before_the_first_e_is_sent() -> None:
-    """A guest whose menu is never waited for boots the default entry: the
-    press that would have stopped the countdown arrived before the menu."""
+def test_the_editor_is_asked_for_without_waiting_for_the_menu_again() -> None:
+    """`hold_the_menu` waits for the menu and stops the countdown. Asking again
+    inside `_editor_screen` blocked the whole patience on a header that had
+    already gone past, and every press landed after it: nineteen guests of one
+    round ended at `GRUB never opened its editor`."""
     from tests.vm.proxmox import _editor_screen
 
-    class Menu:
+    class Held:
+        """The menu is already up and its countdown already stopped."""
+
         def __init__(self) -> None:
             self.sent: list[str] = []
-            self.asked = False
 
         def send_raw(self, keys: str) -> None:
-            # Everything before the menu is drawn is discarded, which is what
-            # the guest's firmware does with it.
-            if self.asked:
-                self.sent.append(keys)
+            self.sent.append(keys)
 
         def snapshot(self, seconds: float) -> bytes:
             return GENTOO_EDITOR if self.sent else b""
@@ -619,31 +619,15 @@ def test_the_countdown_is_halted_before_the_first_e_is_sent() -> None:
             self.sent.append(line)
 
         def expect(self, pattern: str, timeout: float) -> bytes:
-            self.asked = True
-            return b"GNU GRUB  version 2.14"
+            raise AssertionError("hold_the_menu already waited for the menu")
 
         @property
         def closed(self) -> bool:
             return False
 
-    class Late(Menu):
-        """The header scrolled past before the console was read: the console
-        raises its own timeout, and catching only ProxmoxError ended three
-        fixtures whose menu was on the screen the whole time."""
-
-        def expect(self, pattern: str, timeout: float) -> bytes:
-            from tests.vm.console import ConsoleTimeout
-
-            self.asked = True
-            raise ConsoleTimeout(f"never matched {pattern!r}")
-
-    console = Menu()
+    console = Held()
     assert b"setparams" in _editor_screen(console, 30.0)
-    assert console.sent[0] == "\x1b", console.sent
-
-    late = Late()
-    assert b"setparams" in _editor_screen(late, 30.0)
-    assert late.sent[0] == "\x1b", late.sent
+    assert console.sent == ["e"], console.sent
 
 
 def test_a_long_install_is_never_sent_twice_after_a_reconnect() -> None:
