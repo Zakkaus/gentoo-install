@@ -610,3 +610,27 @@ def test_the_stage3_matches_the_profile_and_not_only_the_init_system() -> None:
             system=replaced(base.system, init=init),
         )
         assert variant_of(installation) == variant, profile
+
+
+def test_the_first_snapshot_is_verified_against_a_reachable_keyserver() -> None:
+    """`emerge-webrsync` verifies the snapshot with gemato, which refreshes the
+    release key first. Its default keyserver answers nothing on some networks:
+    a cluster guest resolved `keys.gentoo.org` to 85.143.112.91 and then got
+    no connection at all, so every install stopped at `gpg: keyserver refresh
+    failed: No keyserver available` before a single package was merged.
+
+    The key and the signature are unchanged; only where the refresh reads the
+    key from moves, so this is not a weakening of the check.
+    """
+    from gentoo_install.plan import portage as plan_portage
+
+    from .recorder import Recorder
+
+    recorder = Recorder()
+    plan_portage.WebrsyncRepository().apply(recorder)
+    ran = recorder.in_target[-1]
+    assert ran[-1] == "emerge-webrsync", ran
+    assert f"PORTAGE_GPG_KEY_SERVER={plan_portage.KEY_SERVER}" in ran, ran
+    assert plan_portage.KEY_SERVER.startswith("hkps://"), plan_portage.KEY_SERVER
+    # Not the default: naming the same one it already uses fixes nothing.
+    assert "keys.gentoo.org" not in plan_portage.KEY_SERVER
