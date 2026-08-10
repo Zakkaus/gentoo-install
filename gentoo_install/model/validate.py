@@ -141,6 +141,15 @@ def _unlock_problems(config: InstallConfig) -> list[str]:
             ipaddress.ip_interface(value) if named == "address" else ipaddress.ip_address(value)
         except ValueError:
             problems.append(f"the remote unlock {named} {value!r} is not an address")
+    here, there = _family_of(unlock.address), _family_of(unlock.gateway)
+    if here and there and here != there:
+        # Both go into one dracut `ip=` stanza, so an IPv4 client with an IPv6
+        # gateway is a static interface that routes nowhere and the machine
+        # waiting for its passphrase can only be reached from the console.
+        problems.append(
+            f"the remote unlock address {unlock.address} is IPv{here} and its gateway "
+            f"{unlock.gateway} is IPv{there}, so the initramfs has no route"
+        )
     return problems
 
 
