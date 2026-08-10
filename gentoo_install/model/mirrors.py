@@ -50,6 +50,28 @@ class Site:
 #: to every host, because the paths do not follow one: USTC serves git at
 #: `/gentoo.git` and rsync from another hostname entirely.
 GENTOO_SITES: Final[tuple[Site, ...]] = (
+    # USTC first, then NJU. On 2026-08-10 the rsync tree at tuna served a
+    # snapshot its own signed Manifest did not match — `metadata/Manifest.gz
+    # expected 23353, have 23355` — and it stayed that way across three
+    # attempts an hour apart, so three cluster guests stopped an hour into
+    # their installs. The order is what an operator gets by default.
+    Site(
+        "ustc", "USTC", "Hefei",
+        "https://mirrors.ustc.edu.cn/gentoo",
+        "https://mirrors.ustc.edu.cn/gentoo.git",
+        "rsync://rsync.mirrors.ustc.edu.cn/gentoo-portage",
+    ),
+    Site(
+        "nju", "Nanjing University", "Nanjing",
+        "https://mirrors.nju.edu.cn/gentoo",
+        "https://mirrors.nju.edu.cn/git/gentoo-portage.git",
+    ),
+    Site(
+        "bfsu", "BFSU", "Beijing",
+        "https://mirrors.bfsu.edu.cn/gentoo",
+        "https://mirrors.bfsu.edu.cn/git/gentoo-portage.git",
+        "rsync://mirrors.bfsu.edu.cn/gentoo-portage",
+    ),
     # No git column: `/git/gentoo-portage.git`, `/git/gentoo.git` and
     # `/gentoo-portage.git` were each asked and none of them answered. A sync
     # method falls back to a site that has it rather than to a dead address.
@@ -59,25 +81,8 @@ GENTOO_SITES: Final[tuple[Site, ...]] = (
         rsync="rsync://mirrors.tuna.tsinghua.edu.cn/gentoo-portage",
     ),
     Site(
-        "bfsu", "BFSU", "Beijing",
-        "https://mirrors.bfsu.edu.cn/gentoo",
-        "https://mirrors.bfsu.edu.cn/git/gentoo-portage.git",
-        "rsync://mirrors.bfsu.edu.cn/gentoo-portage",
-    ),
-    Site(
-        "ustc", "USTC", "Hefei",
-        "https://mirrors.ustc.edu.cn/gentoo",
-        "https://mirrors.ustc.edu.cn/gentoo.git",
-        "rsync://rsync.mirrors.ustc.edu.cn/gentoo-portage",
-    ),
-    Site(
         "zju", "Zhejiang University", "Hangzhou",
         "https://mirrors.zju.edu.cn/gentoo",
-    ),
-    Site(
-        "nju", "Nanjing University", "Nanjing",
-        "https://mirrors.nju.edu.cn/gentoo",
-        "https://mirrors.nju.edu.cn/git/gentoo-portage.git",
     ),
     Site(
         "sdu", "Shandong University", "Qingdao",
