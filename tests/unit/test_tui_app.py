@@ -2119,10 +2119,12 @@ def test_cancelling_the_zfs_bootloader_question_undoes_the_layout() -> None:
     assert not list(start.disk.graph.of_type(ZfsPool))
     before = at.choice
 
-    # Down to the ZFS row, enter, then escape out of the bootloader question.
-    keys = ["KEY_DOWN", "KEY_DOWN", "KEY_DOWN", "\n", "\x1b"]
+    # Two rows down is the ZFS layout; enter opens the bootloader question and
+    # escape leaves it. A third down lands past the row and cancels the menu
+    # itself, which answers CANCELLED whether the fix is there or not.
+    keys = ["KEY_DOWN", "KEY_DOWN", "\n", "\x1b"]
     answer = screens.layout_screen(FakeScreen(keys=keys, lines=24, columns=100), start, at)
 
-    assert answer.outcome is not Answered.CHOSE, answer.outcome
+    assert answer.outcome is Answered.BACK, answer.outcome
     assert at.choice == before, "the choice goes back with the layout"
     assert start.bootloader.kind is not Bootloader.ZFSBOOTMENU
