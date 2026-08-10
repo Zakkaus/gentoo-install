@@ -61,6 +61,7 @@ from .proxmox import (
     GuestSpec,
     Node,
     ProxmoxError,
+    VMID_FIRST,
     Line,
     append_to_cmdline,
     append_to_cmdline_blind,
@@ -334,22 +335,69 @@ NETWORK_PROBE: Final[str] = (
 #: twenty-four guests in one round waited out the whole window for an address
 #: nothing was going to hand them. Only when there is no IPv4 default route
 #: already, so a medium whose own manager configured one is left alone.
+#: The network the guests are on, and the router that serves it. The DHCP
+#: server runs on that same Raspberry Pi and answers intermittently under
+#: load, so a guest is given an address rather than asking for one.
+GUEST_NETWORK: Final[str] = "10.31.0"
+GUEST_PREFIX: Final[int] = 24
+GUEST_GATEWAY: Final[str] = f"{GUEST_NETWORK}.254"
+
+#: Where the static addresses start. One per VMID, so two guests of one
+#: campaign cannot collide and the address says which guest it is.
+GUEST_ADDRESS_BASE: Final[int] = 100
+
+#: Every resolver, in the order glibc tries them. The router's own is first
+#: because it resolves names on this network too; the public ones follow so a
+#: guest is not stranded when that Pi is busy.
+GUEST_RESOLVERS: Final[tuple[str, ...]] = (GUEST_GATEWAY, "1.1.1.1", "8.8.8.8")
+
+
+#: What a guest outside the cluster does, where no address is reserved for it.
+#: Any daemon from an earlier attempt is stopped first: dhcpcd that finds one
+#: running prints `sending commands to dhcpcd process` and returns at once.
+#: `--noarp`, because the handshake otherwise stalls in `probing address`
+#: until dhcpcd gives up.
 ASK_FOR_IPV4: Final[str] = (
     "ip -4 route show default | grep -q . || { "
     'for one in /sys/class/net/e*; do dev=$(basename "$one"); ip link set "$dev" up; '
-    # Named, and with the ARP probe skipped. A bare `dhcpcd -4 -w` returned at
-    # once when one was already running, so the wait was never taken; and the
-    # server offers an address within a second while the handshake then stalls
-    # in `probing address 10.31.0.201/24` until dhcpcd gives up. Measured on
-    # two nodes: `-w -t 25` timed out on both, `--noarp -w -t 90` leased
-    # 10.31.0.203 and 10.31.0.201 with `default via 10.31.0.254`.
-    # Any daemon from an earlier attempt is stopped first: dhcpcd that finds
-    # one running prints `sending commands to dhcpcd process` and returns at
-    # once, so every later attempt took no time and asked for nothing.
     'dhcpcd -x "$dev" >/dev/null 2>&1; pkill -x dhcpcd >/dev/null 2>&1; '
     'dhcpcd -4 --noarp -w -t 45 "$dev" >/dev/null 2>&1 || true; done; }; '
     "ip -4 route show default | grep -q . || true"
 )
+
+
+def static_address(vmid: int) -> str:
+    """The address this guest takes, derived from its VMID.
+
+    Derived rather than allocated: two campaigns picking from a pool both read
+    the same entry as free, and the VMID is already unique per guest.
+    """
+    return f"{GUEST_NETWORK}.{GUEST_ADDRESS_BASE + vmid - VMID_FIRST}"
+
+
+def configure_statically(address: str) -> str:
+    """Give the interface `address`, unless something already answers to it.
+
+    `arping -D` is a duplicate-address probe: it asks whether anything on the
+    segment already holds the address and says so without claiming it. A
+    guest that finds one falls back to asking the DHCP server, which is slower
+    and unreliable here but is not a collision with somebody's machine.
+    """
+    # `\\n` for printf, not a real newline: the whole thing is one line sent to
+    # a serial console, and a literal break there is two commands.
+    resolvers = "".join(f"nameserver {one}\\n" for one in GUEST_RESOLVERS)
+    return (
+        'for one in /sys/class/net/e*; do dev=$(basename "$one"); ip link set "$dev" up; '
+        f'if arping -D -c 2 -w 3 -I "$dev" {address} >/dev/null 2>&1; then '
+        f'ip -4 addr add {address}/{GUEST_PREFIX} dev "$dev" 2>/dev/null; '
+        f'ip -4 route replace default via {GUEST_GATEWAY} dev "$dev" 2>/dev/null; '
+        "else "
+        'dhcpcd -x "$dev" >/dev/null 2>&1; pkill -x dhcpcd >/dev/null 2>&1; '
+        'dhcpcd -4 --noarp -w -t 45 "$dev" >/dev/null 2>&1 || true; '
+        "fi; done; "
+        f"printf '{resolvers}' > /etc/resolv.conf; "
+        "ip -4 route show default | grep -q . || true"
+    )
 
 
 #: What the official minimal medium asks before it hands over a shell, and
@@ -378,27 +426,28 @@ def reach_prompt(link: Reconnecting, patience: float = PROMPT_PATIENCE) -> None:
     raise ConsoleTimeout(f"the medium did not reach a shell in {patience:.0f}s")
 
 
-def wait_for_network(link: Reconnecting) -> None:
+def wait_for_network(link: Reconnecting, vmid: int = 0) -> None:
     """Configure the guest's interface, then wait until it can reach a mirror.
 
     The medium boots with `nodhcp` and leaves the link unconfigured, so
-    something has to ask, which is what an operator does before installing.
-    The probe goes first in case the medium's own manager got there, and the
-    request follows immediately when it did not.
+    something has to configure it, which is what an operator does before
+    installing. The probe goes first in case the medium's own manager got
+    there.
+
+    `vmid` gives the guest its own address. Zero falls back to asking the DHCP
+    server, which is what a run outside the cluster does.
     """
     deadline = time.monotonic() + NETWORK_PATIENCE
+    configure = configure_statically(static_address(vmid)) if vmid else ASK_FOR_IPV4
     asked = False
     while time.monotonic() < deadline:
         link.send(NETWORK_PROBE)
         said = link.expect(rf"{NETWORK_UP}|{NETWORK_DONE}", timeout=180.0)
         if NETWORK_UP.encode() in said:
             return
-        # Every pass, not once: this cluster's DHCP server answers
-        # intermittently. One guest was offered 10.31.0.201 on one attempt and
-        # got `soliciting a DHCP lease` then `timed out` on the next, from the
-        # same node minutes apart. Asking once meant a guest that hit a quiet
-        # moment spent the whole window with no address at all.
-        link.run(ASK_FOR_IPV4, timeout=120.0)
+        # Every pass, not once: the fallback asks a DHCP server that answers
+        # intermittently, and the static path is cheap to repeat.
+        link.run(configure, timeout=120.0)
         asked = True
         time.sleep(NETWORK_PAUSE)
     # What the guest actually had, into the log this run leaves behind. Eight
@@ -591,7 +640,7 @@ def install_one(
         # cluster hands out a real configuration, and it is IPv6 with DNS64.
         # Writing IPv4 resolvers over it left every mirror unreachable:
         # `Failed to connect to mirrors.tuna.tsinghua.edu.cn:443 after 111 ms`.
-        wait_for_network(link)
+        wait_for_network(link, guest.vmid)
         stage_passphrases(link, load(job.fixture))
         link.run("mkdir -p /mnt/driver")
         link.run("mountpoint -q /mnt/driver || mount -o ro /dev/sr1 /mnt/driver")
