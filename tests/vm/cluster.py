@@ -1181,9 +1181,7 @@ def run(
                 # never finishes: one round sat idle for half an hour with an
                 # empty cluster and a job still queued. `answer_once` catches
                 # everything a Python handler can see; this covers the rest.
-                for name, thread in list(running.items()):
-                    if thread.is_alive():
-                        continue
+                for name in _unanswered(running, done.empty()):
                     done.put(
                         Outcome(
                             name,
@@ -1588,6 +1586,20 @@ def _abandon(inflight: dict[str, Running], running: dict[str, threading.Thread])
         thread.join(timeout=max(0.0, deadline - time.monotonic()))
     for name in inflight:
         print(f"  {name} outlived the schedule; remove it by hand", file=sys.stderr)
+
+
+def _unanswered(running: dict[str, threading.Thread], nothing_queued: bool) -> list[str]:
+    """The workers that ended without putting an outcome on the queue.
+
+    A dead thread is not evidence on its own: a worker that answered and then
+    exited looks exactly the same, and the schedule reported `vm-xfs` twice,
+    once with the error it raised and once as never reporting. An outcome
+    already waiting is that answer, so nothing is declared until the queue has
+    been drained.
+    """
+    if not nothing_queued:
+        return []
+    return [name for name, thread in running.items() if not thread.is_alive()]
 
 
 def _sweep(inflight: dict[str, Running]) -> None:

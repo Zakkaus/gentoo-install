@@ -1037,3 +1037,30 @@ def test_a_carriage_return_ends_a_line_the_walk_measures() -> None:
     lines = rendered(screen)
     assert lines[:3] == ["gentoo-install", "  keyboard  us", "  locale  zh_TW.UTF-8"]
     assert max(cells(one) for one in lines) <= 80
+
+
+def test_a_worker_that_answered_and_exited_is_not_reported_twice() -> None:
+    """The schedule reported `vm-xfs` twice: once with the error it raised,
+    once as a worker that never reported."""
+    import threading
+
+    from tests.vm.cluster import _unanswered
+
+    ended = threading.Thread(target=lambda: None)
+    ended.start()
+    ended.join()
+    running = {"vm-xfs": ended}
+
+    assert _unanswered(running, nothing_queued=False) == []
+    # Nothing on the queue and a dead worker is the case this covers: the name
+    # would otherwise stay in `running` and the schedule never end.
+    assert _unanswered(running, nothing_queued=True) == ["vm-xfs"]
+
+    alive = threading.Event()
+    working = threading.Thread(target=alive.wait)
+    working.start()
+    try:
+        assert _unanswered({"vm-lvm": working}, nothing_queued=True) == []
+    finally:
+        alive.set()
+        working.join()
