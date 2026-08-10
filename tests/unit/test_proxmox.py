@@ -668,14 +668,19 @@ def test_a_run_is_not_green_until_the_installed_system_answers() -> None:
 def test_every_question_asked_inside_names_what_would_fail_it() -> None:
     """A check with nothing to compare against passes on any machine, which is
     the shape a coverage claim hides behind."""
-    from tests.vm.cluster import INSIDE
+    from pathlib import Path as _Path
 
-    named = {name for name, _, _ in INSIDE}
-    assert {"os-release", "mounts", "fstab", "locale"} <= named
-    for name, command, wanted in INSIDE:
+    from gentoo_install.exec.config import load
+    from tests.vm.cluster import INSIDE, _asked_for
+
+    # The exemption this test used to carry was the defect: `hostname` and
+    # `kernel` were skipped for comparing against nothing, and they were the
+    # two a guest could get wrong without failing.
+    asked = _asked_for(load(_Path("tests/fixtures/vm-xfs.toml")))
+    named = {name for name, _, _ in (*INSIDE, *asked)}
+    assert {"os-release", "fstab", "locale", "hostname", "root filesystem", "init"} <= named
+    for name, command, wanted in (*INSIDE, *asked):
         assert command.strip(), name
-        if name in ("hostname", "kernel"):
-            continue  # collected for the report; their value is the fixture's
         assert wanted, f"{name} compares against nothing"
 
 
