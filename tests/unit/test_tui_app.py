@@ -1481,9 +1481,14 @@ def test_the_rows_say_not_set_in_the_language_the_menu_is_in() -> None:
     assert _drawn(root, blank, at) == at.translate("required")
 
 
-def test_a_required_row_has_to_be_opened_and_not_only_filled_in() -> None:
+def test_a_detected_row_has_to_be_opened_and_not_only_filled_in() -> None:
     """The mirror and the disk start on a value read from this machine, so a
-    check for `UNSET` alone let an install erase a drive nobody looked at."""
+    check for `UNSET` alone let an install erase a drive nobody looked at.
+
+    Only those rows. A row with no detected default is answered by its value:
+    requiring a visit there made the Install row say `root password: still
+    needs an answer` beside a row that read `set`.
+    """
     at = context()
     at.confirmed = {one.selector for one in compat.destroyed(config().disk.graph)}
     ready = replace(
@@ -1499,8 +1504,10 @@ def test_a_required_row_has_to_be_opened_and_not_only_filled_in() -> None:
         for one in (group.rows if any(r.required for r in group.rows) else (group,))
         if one.required
     ]
+    detected = [one for one in required if one.detected]
     named = settings.unanswered(ready, at)
-    assert {one.label for one in required} <= {one.label for one in named}
+    assert {one.label for one in detected} <= {one.label for one in named}
+    assert "Root password" not in {one.label for one in named}
     at.visited.update(one.key for one in required)
     assert settings.unanswered(ready, at) == ()
 
@@ -1961,3 +1968,52 @@ def test_no_screen_prints_the_by_id_selector() -> None:
         drawn = "\n".join("\n".join(frame) for frame in screen.frames)
         assert named not in drawn, (name, drawn)
         assert "/dev/sda" in drawn, (name, drawn)
+
+
+def test_a_filled_row_is_not_still_asked_for() -> None:
+    """The Install row said `root password: still needs an answer` beside a row
+    reading `set`. A visit is required only of a row that starts on a value
+    read from this machine, because that is the one an operator can accept
+    without having looked at it."""
+    from dataclasses import replace
+
+    from gentoo_install.tui import app, settings
+
+    from .fake_screen import FakeScreen
+    from .layouts import config, ext4_on_gpt
+
+    at = context()
+    at.columns = 200
+    base = config(ext4_on_gpt())
+    empty = replace(base, system=replace(base.system, root_password_hash="", users=()))
+    assert "Root password" in app._blocked(empty, at)
+
+    row = next(one for one in settings.SETTINGS if one.key == "root")
+    assert row.edit is not None
+    typed = list("hunter2") + ["\n"] + list("hunter2") + ["\n"]
+    # Deliberately not marking it visited: the value is the answer.
+    done = row.edit(FakeScreen(keys=typed, lines=24), empty, at).unwrap()
+    assert settings._root(done, at) == "set"
+    assert "Root password" not in app._blocked(done, at)
+
+
+def test_a_detected_row_still_has_to_be_opened() -> None:
+    """The mirror and the drive both start on something read from the machine,
+    and an install that erases a drive nobody looked at is what the
+    requirement exists to prevent."""
+    from gentoo_install.tui import app, settings
+
+    from .layouts import config, ext4_on_gpt
+
+    at = context()
+    at.columns = 200
+    whole = config(ext4_on_gpt())
+    for key in ("mirror", "storage", "compiler"):
+        row = next(one for one in settings.SETTINGS if one.key == key)
+        assert row.detected, key
+        assert not settings.settled(row, whole, at), key
+    # `Disk` is a group whose own rows carry the requirement, so the row
+    # behind it is what gets named.
+    said = app._blocked(whole, at)
+    for label in ("Mirrors", "Drive", "Compiler"):
+        assert label in said, said

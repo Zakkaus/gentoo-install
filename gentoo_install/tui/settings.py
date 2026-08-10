@@ -55,6 +55,13 @@ class Setting:
     #: answer` is wrong for a confirmation: there is no field to fill, and the
     #: operator is being asked to agree to something.
     missing: str = "still needs an answer"
+    #: Whether this row starts on a value read from this machine. Such a row
+    #: has to be opened before it counts as answered: an install that erases a
+    #: drive nobody looked at is what the requirement exists to prevent. A row
+    #: with no detected default needs no visit — its value can only have come
+    #: from the operator, and counting it as missing made the Install row say
+    #: `root password: still needs an answer` beside a row reading `set`.
+    detected: bool = False
     #: Why this row cannot be opened right now, or empty when it can. A row
     #: whose answer the rest of the configuration has already settled is drawn
     #: with the reason rather than opening a screen that changes nothing.
@@ -64,13 +71,20 @@ class Setting:
 def settled(setting: Setting, config: InstallConfig, context: Context) -> bool:
     """Whether a required row counts as answered.
 
-    Opened, not merely non-empty: the mirror and the disk both start on a value
-    read from this machine, and an install that erases a drive nobody looked at
-    is the failure the requirement exists to prevent.
+    A row with a detected default has to be opened as well as filled: the
+    mirror and the disk both start on a value read from this machine, and an
+    install that erases a drive nobody looked at is the failure the
+    requirement exists to prevent.
+
+    Every other row counts as answered when it has a value. The root password
+    has no detected default, so requiring a visit made the Install row say it
+    still needed an answer beside a row that read `set`.
     """
     if setting.value(config, context) == UNSET:
         return False
-    return setting.key in context.visited or not setting.required
+    if not setting.required or not setting.detected:
+        return True
+    return setting.key in context.visited
 
 
 def style_of(setting: Setting, config: InstallConfig, context: Context) -> Style:
@@ -538,7 +552,7 @@ def _cjk_kernel_only(config: InstallConfig, context: Context) -> str:
 #: The disk, as one subject. Six rows in a menu of thirty read as six unrelated
 #: decisions; behind one row they read as the layout they describe.
 DISK: Final[tuple[Setting, ...]] = (
-    Setting("disk", "Drive", _drive, screens.disk_screen, required=True),
+    Setting("disk", "Drive", _drive, screens.disk_screen, required=True, detected=True),
     Setting(
         "table", "Partition table", _table, screens.table_screen,
         unavailable=_reuse_writes_no_table,
@@ -642,8 +656,16 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("keymap", "Keyboard layout", lambda c, x: c.system.keymap, screens.keymap_screen),
     Setting("locale", "System language", lambda c, x: c.system.locale, screens.locale_screen),
     Setting("timezone", "Timezone", lambda c, x: c.system.timezone, screens.timezone_screen),
-    Setting("mirror", "Mirrors", _mirror, screens.mirror_screen, required=True),
-    Setting("storage", "Disk", _summary(DISK), nested("Disk", DISK), required=True, rows=DISK),
+    Setting("mirror", "Mirrors", _mirror, screens.mirror_screen, required=True, detected=True),
+    Setting(
+        "storage",
+        "Disk",
+        _summary(DISK),
+        nested("Disk", DISK),
+        required=True,
+        rows=DISK,
+        detected=True,
+    ),
     Setting("hostname", "Hostname", lambda c, x: c.system.hostname, screens.system_screen),
     Setting("firstboot", "Run once at first boot", _first_boot, screens.first_boot_screen),
     Setting("system", "Init system", _summary(INIT), nested("Init system", INIT), rows=INIT),
@@ -655,6 +677,9 @@ SETTINGS: Final[tuple[Setting, ...]] = (
         nested("Compiler", COMPILER),
         required=True,
         rows=COMPILER,
+        # `MAKEOPTS` starts at this machine's core count, which is a detected
+        # value and not an answer.
+        detected=True,
     ),
     Setting("root", "Root password", _root, screens.root_password_screen, required=True),
     Setting("user", "User account", _user, screens.user_screen),
