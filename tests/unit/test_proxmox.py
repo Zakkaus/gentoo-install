@@ -658,20 +658,23 @@ def test_every_question_asked_inside_names_what_would_fail_it() -> None:
         assert wanted, f"{name} compares against nothing"
 
 
-def test_the_guest_is_asked_to_configure_its_interface() -> None:
-    """A fresh guest has no global address at all: `curl -4` and `curl -6`
-    both answer nothing and `ip address show scope global` prints an empty
-    list. The medium boots with `nodhcp`, so waiting alone waits for ever."""
+def test_the_link_is_left_alone_until_the_medium_has_had_its_chance() -> None:
+    """The medium runs NetworkManager, and an interface raised from outside it
+    is one NetworkManager then leaves alone: `ip link set up` at the start was
+    enough to stop it configuring the guest, and `curl` answered `Could not
+    connect to server` in ten milliseconds where before it had reached the
+    mirror. A medium with no manager still needs the ask, so it happens late
+    and once."""
     import inspect
 
     from tests.vm import cluster
 
     source = inspect.getsource(cluster.wait_for_network)
-    assert "ip link set" in source, "the link has to be brought up"
-    assert "dhcpcd" in source, "something has to ask for an address"
-    brought = source.index("ip link set")
-    polled = source.index("NETWORK_UP") if "NETWORK_UP" in source else len(source)
-    assert brought < polled, "configure first, then poll"
+    polled = source.index("NETWORK_PROBE")
+    raised = source.index("ip link set")
+    assert polled < raised, "poll first; touch the link only if nothing happens"
+    assert "NetworkManager" in source, "and never when the medium has a manager"
+    assert "asked = True" in source, "once, not on every pass"
 
 
 def test_no_marker_appears_in_the_command_that_prints_it() -> None:
