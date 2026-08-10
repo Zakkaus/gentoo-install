@@ -906,3 +906,32 @@ def test_a_node_with_one_light_slot_left_is_not_given_a_heavy_guest() -> None:
         cores=4,
     )
     assert room_for(two_slots, heavy)
+
+
+def test_a_broken_pipe_is_a_dropped_console_and_not_a_dead_run() -> None:
+    """The read side was fixed and the write side was not, so three guests
+    were recorded `ERROR ... [Errno 32] Broken pipe` at sixteen minutes with
+    their installs running."""
+    from tests.vm.websocket import WebSocket
+
+    class Broken:
+        def recv(self, size: int) -> bytes:
+            return b""
+
+        def sendall(self, data: bytes) -> None:
+            raise BrokenPipeError(32, "Broken pipe")
+
+        def close(self) -> None:
+            return None
+
+        def settimeout(self, seconds: float | None) -> None:
+            return None
+
+    framed = WebSocket(Broken())
+    before = framed.closed
+    framed.send(b"hello")
+    after, why = framed.closed, framed.why_closed
+    assert (before, after) == (False, True), "a broken pipe has to look like a closed connection"
+    assert "pipe" in why.lower(), why
+    # A second write on a closed connection is not an error either.
+    framed.send(b"again")
