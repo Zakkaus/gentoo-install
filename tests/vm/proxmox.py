@@ -365,6 +365,21 @@ class Guest:
         )
         self._booted = True
 
+    def boot_from_disk(self) -> None:
+        """Point the firmware at the installed disk and forget the medium.
+
+        The install is only half the question: the other half is whether the
+        machine it produced comes up and carries the settings that were asked
+        for. `order=virtio0` is what makes the firmware try the target rather
+        than the CD it was built with.
+        """
+        self.api.wait(
+            self.node,
+            self.api.call(
+                "PUT", f"/nodes/{self.node}/qemu/{self.vmid}/config", boot="order=virtio0"
+            ),
+        )
+
     def reset(self) -> None:
         """Boot the firmware again with somebody already reading.
 

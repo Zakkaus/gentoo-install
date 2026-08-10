@@ -34,7 +34,7 @@ from gentoo_install.model.device import Existing, Luks, ZfsPool
 from gentoo_install.model.config import MirrorRegion, Sync
 from gentoo_install.exec.config import load
 from gentoo_install.model.serialise import to_toml
-from .console import ConsoleClosed, ConsoleTimeout, SerialConsole
+from .console import PASSWORD_PROMPT, ConsoleClosed, ConsoleTimeout, SerialConsole
 from .driver import build as build_driver
 from .proxmox import (
     Api,
@@ -116,6 +116,10 @@ POLL_WHILE_QUEUED: Final[float] = 20.0
 #: Nothing this harness runs takes three hours, and a run that does is holding
 #: a node's memory rather than testing anything.
 RUN_CEILING: Final[float] = 3 * 3600.0
+
+#: How long the installed system has to reach a login prompt. A first boot
+#: builds the initramfs cache and, on openrc, runs every service in order.
+BOOT_PATIENCE: Final[float] = 600.0
 
 
 class Verdict(Enum):
@@ -433,6 +437,12 @@ def install_one(
         if code != b"0":
             return Outcome(job.name, Verdict.FAIL, time.monotonic() - started,
                            f"the installer exited {code!r}", log)
+        # The install finishing is half the question. The other half is whether
+        # the machine it produced comes up and carries what was asked for, and
+        # nothing in the log above can answer that.
+        wrong = boot_and_check(guest, link, log, load(job.fixture))
+        if wrong:
+            return Outcome(job.name, Verdict.FAIL, time.monotonic() - started, wrong, log)
         return Outcome(job.name, Verdict.OK, time.monotonic() - started, log=log)
     except (ConsoleTimeout, ConsoleClosed) as error:
         verdict = Verdict.STUCK if watch.stuck else Verdict.FAIL
@@ -651,6 +661,26 @@ class Reconnecting:
                     raise
                 self.reopen()
 
+    def expect_output(self, command: str, timeout: float = 120.0) -> bytes:
+        """Run a command and answer with what it printed.
+
+        `run` only waits for the marker; a check on the installed system has
+        to read the reply. The marker is still what says the command finished,
+        so a command that prints nothing is not mistaken for one that hung.
+        """
+        token = next(self._marks)
+        self.console.send(f"{command}; echo MARK_{token}_DONE")
+        for attempt in range(self._tries):
+            try:
+                said = self.console.expect(rf"MARK_{token}_DONE", timeout)
+                return said
+            except ConsoleClosed:
+                if attempt + 1 == self._tries:
+                    raise
+                self.reopen()
+                self.console.send(f"{command}; echo MARK_{token}_DONE")
+        raise ConsoleClosed("the console could not be reopened")
+
     def send(self, line: str) -> None:
         self.console.send(line)
 
@@ -659,6 +689,55 @@ class Reconnecting:
 
     def snapshot(self, seconds: float) -> bytes:
         return self.console.snapshot(seconds)
+
+
+#: The password `tests/fixtures/*.toml` set on the installed system. It exists
+#: so the harness can log into what it built; nothing else uses it.
+INSTALLED_PASSWORD: Final[str] = "install"
+
+#: What the installed system is asked about, and what the answer has to hold.
+#: One table, so a check cannot be added without saying what would fail it.
+INSIDE: Final[tuple[tuple[str, str, str], ...]] = (
+    ("os-release", "cat /etc/os-release", "Gentoo"),
+    ("mounts", "findmnt --noheadings --list --output TARGET,SOURCE,FSTYPE", "/"),
+    ("fstab", "cat /etc/fstab", "UUID="),
+    ("hostname", "cat /etc/hostname 2>/dev/null || cat /etc/conf.d/hostname", ""),
+    ("locale", "locale", "LANG="),
+    ("kernel", "uname -r", ""),
+)
+
+
+def boot_and_check(
+    guest: Guest, link: Reconnecting, log: Path, installation: InstallConfig
+) -> str:
+    """Boot the disk that was just written and read the system back.
+
+    Answers an empty string when everything asked for is there, and what is
+    wrong otherwise. Booting is not the test: a machine can reach a login
+    prompt with the wrong filesystem mounted, no fstab and the wrong locale,
+    and every check above this one would still be green.
+    """
+    guest.stop()
+    guest.boot_from_disk()
+    guest.start()
+    link.reopen()
+    try:
+        link.expect(r"login:", timeout=BOOT_PATIENCE)
+    except (ConsoleTimeout, ConsoleClosed) as error:
+        return f"the installed system did not reach a login prompt: {error}"[:200]
+    link.send("root")
+    link.expect(PASSWORD_PROMPT, timeout=120.0)
+    link.send(INSTALLED_PASSWORD)
+    try:
+        link.expect(r"#|\$", timeout=120.0)
+    except (ConsoleTimeout, ConsoleClosed) as error:
+        return f"root could not log into the installed system: {error}"[:200]
+
+    for name, command, wanted in INSIDE:
+        said = link.expect_output(command, timeout=120.0)
+        if wanted and wanted.encode() not in said:
+            return f"{name}: the installed system does not say {wanted!r}"
+    return ""
 
 
 def collect(guest: Guest, link: "Reconnecting", log: Path) -> dict[str, bytes]:
