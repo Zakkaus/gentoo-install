@@ -133,6 +133,9 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
     "blocking": (
         Run("fixtures/vm-binpkg.toml"),
         Run("fixtures/vm-bios.toml", firmware="bios"),
+        # The only fixture whose target disk already holds a table; `run.py`
+        # seeds it, and the installer keeps partition 1 and adds partition 2.
+        Run("fixtures/mbr-edit.toml", firmware="bios"),
         Run("fixtures/vm-desktop.toml", weight=2, cpus=10),
         Run("fixtures/vm-zfs.toml"),
     ),
