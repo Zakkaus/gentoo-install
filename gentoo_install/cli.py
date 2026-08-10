@@ -43,8 +43,9 @@ from .model.config import (
 from .exec.config import load
 from .model.parse import TOP_LEVEL
 from .model.serialise import to_toml
-from .plan.build import DEFAULT_MIRROR, build
+from .plan.build import DEFAULT_MIRROR, build, stage3_mirror
 from .plan.operations import Context, Operation, Stage
+from .plan.portage import variant_of
 from .plan.render import render, summarise
 
 #: The country whose mirrors are the ones worth offering. Every other answer,
@@ -113,10 +114,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         _require_root(arguments)
         if _needs_network(arguments):
-            # Before the reachability check: an unset clock makes every HTTPS
+            # Before any reachability check: an unset clock makes every HTTPS
             # request fail, and the message would name the network instead.
             _check_the_clock()
-            _require_network()
+            if arguments.config is None:
+                # The menu reads every version from the package site.
+                _require_network()
         if arguments.config is None:
             if arguments.missing_commands:
                 # Nothing to derive a layout from, so answer for the commands
@@ -146,6 +149,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             )
             return EXIT_OK
+        if _needs_network(arguments):
+            _require_mirror(config, arguments.mirror)
         operations = build(config, load_catalog(), mirror=arguments.mirror)
         if arguments.dry_run:
             print(render(operations), end="")
@@ -448,6 +453,20 @@ def _kernel_versions(atom: str) -> tuple[tuple[str, bool], ...]:
     if atom in _OVERLAY_PACKAGES:
         return fetch.overlay_versions(atom)
     return fetch.package_versions(atom)
+
+
+def _require_mirror(config: InstallConfig, fallback: str) -> None:
+    """The address this install will fetch its stage3 from, and no other.
+
+    `packages.gentoo.org` is what the menu reads; an install given a
+    configuration never touches it. Requiring it stopped five installs on a
+    network where the chosen mirror answered and that site did not.
+    """
+    mirror = stage3_mirror(config, fallback)
+    if not fetch.mirror_online(mirror, variant_of(config)):
+        raise errors.PreflightFailed(
+            f"this machine cannot reach {mirror}; the install fetches its stage3 there"
+        )
 
 
 def _needs_network(arguments: argparse.Namespace) -> bool:

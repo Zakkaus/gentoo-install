@@ -13,6 +13,7 @@ from gentoo_install.exec import fetch
 from gentoo_install.exec.runner import Runner
 from gentoo_install.cli import EXIT_CONFIG, EXIT_OK, EXIT_PREFLIGHT, main
 from gentoo_install.errors import ConfigError
+from gentoo_install.plan.build import DEFAULT_MIRROR
 from gentoo_install.exec.config import load
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
@@ -627,3 +628,39 @@ def test_a_busybox_applet_counts_as_a_missing_command(tmp_path: Path) -> None:
     assert set(present) <= said, (present, said)
     # Without a probe the old answer stands: on PATH is enough.
     assert not _absent(present)
+
+
+def test_a_configured_install_checks_its_mirror_and_not_the_package_site(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`packages.gentoo.org` is what the menu reads. Requiring it stopped five
+    installs on a network where the chosen mirror answered and that site did
+    not."""
+    asked: list[str] = []
+
+    def reachable(url: str) -> bool:
+        asked.append(url)
+        return True
+
+    monkeypatch.setattr(fetch, "reachable", reachable)
+    monkeypatch.setattr(cli, "_check_the_clock", lambda: None)
+    monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
+    code = main(["--config", "tests/fixtures/btrfs-luks.toml", "--dry-run"])
+    assert code == EXIT_OK
+    assert not asked, "a dry run reads nothing at all"
+
+    code = main(["--config", "tests/fixtures/btrfs-luks.toml", "--missing-commands"])
+    assert code == EXIT_OK
+    assert not asked
+
+
+def test_the_mirror_check_names_the_mirror_it_could_not_reach(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gentoo_install import errors
+    from gentoo_install.exec.config import load
+
+    monkeypatch.setattr(fetch, "reachable", lambda url: False)
+    config = load(Path("tests/fixtures/btrfs-luks.toml"))
+    with pytest.raises(errors.PreflightFailed, match="tuna"):
+        cli._require_mirror(config, DEFAULT_MIRROR)

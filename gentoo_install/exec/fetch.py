@@ -304,21 +304,39 @@ ONLINE_TRIES: Final[int] = 3
 ONLINE_PAUSE: Final[float] = 2.0
 
 
-def online() -> bool:
-    """Whether the package site answers.
+def reachable(url: str) -> bool:
+    """Whether a URL answers, tried `ONLINE_TRIES` times.
 
-    Asked of the site the install reads rather than of any host: a machine
-    behind a portal resolves names and still cannot fetch an ebuild.
+    Asked of the address the run will actually read rather than of any host: a
+    machine behind a portal resolves names and still cannot fetch anything.
     """
     for attempt in range(ONLINE_TRIES):
         try:
-            _read(f"{PACKAGES_API}/sys-kernel/gentoo-kernel-bin.json")
+            _read(url)
         except DownloadFailed:
             if attempt + 1 < ONLINE_TRIES:
                 time.sleep(ONLINE_PAUSE)
             continue
         return True
     return False
+
+
+def online() -> bool:
+    """Whether the package site answers. The menu reads every version from it."""
+    return reachable(f"{PACKAGES_API}/sys-kernel/gentoo-kernel-bin.json")
+
+
+def mirror_online(mirror: str, variant: str) -> bool:
+    """Whether the mirror an install was told to use answers.
+
+    The stage3 comes from here and nothing else has to answer: a run given a
+    configuration never reads `packages.gentoo.org`, and requiring it stopped
+    five installs on a network where the mirror was reachable and that site
+    was not.
+    """
+    return reachable(
+        f"{mirror.rstrip('/')}/{STAGE3_PATH}/latest-stage3-amd64-{variant}.txt"
+    )
 
 
 def package_versions(atom: str) -> tuple[tuple[str, bool], ...]:
