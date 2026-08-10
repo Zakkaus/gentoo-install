@@ -317,21 +317,31 @@ NETWORK_PROBE: Final[str] = (
 )
 
 
+#: What gets the guest an address on this cluster. Its network carries a ULA
+#: IPv6 prefix advertised by something that is not the hypervisor and offers no
+#: way out of itself, and the addresses that reach a mirror come from DHCPv4:
+#: `dhcpcd -4` answered `leased 10.31.0.230` and `default via 10.31.0.254`, and
+#: `curl` then returned 200 where it had timed out for fifteen minutes.
+#:
+#: Asked for on the first pass, not after half the patience: seventeen of
+#: twenty-four guests in one round waited out the whole window for an address
+#: nothing was going to hand them. Only when there is no IPv4 default route
+#: already, so a medium whose own manager configured one is left alone.
+ASK_FOR_IPV4: Final[str] = (
+    "ip -4 route show default | grep -q . || { "
+    'for one in /sys/class/net/e*; do ip link set "$(basename "$one")" up; done; '
+    "dhcpcd -4 -w -t 25 >/dev/null 2>&1; }; true"
+)
+
+
 def wait_for_network(link: Reconnecting) -> None:
     """Configure the guest's interface, then wait until it can reach a mirror.
 
-    Waiting alone was not enough, and measuring said why: a fresh guest has no
-    global address at all, `curl -4` and `curl -6` both answer nothing, and
-    `ip address show scope global` prints an empty list. The medium boots with
-    `nodhcp` and leaves the link unconfigured, so something has to ask — which
-    is what an operator does before installing. The runs that used to succeed
-    were the ones where something else had configured it in time.
+    The medium boots with `nodhcp` and leaves the link unconfigured, so
+    something has to ask, which is what an operator does before installing.
+    The probe goes first in case the medium's own manager got there, and the
+    request follows immediately when it did not.
     """
-    # Nothing is touched at first. The medium runs NetworkManager, and an
-    # interface raised from outside it is one NetworkManager then leaves
-    # alone: `ip link set up` here was enough to stop it configuring the
-    # guest, and `curl` answered `Could not connect to server` in ten
-    # milliseconds where before it had reached the mirror.
     deadline = time.monotonic() + NETWORK_PATIENCE
     asked = False
     while time.monotonic() < deadline:
@@ -339,19 +349,11 @@ def wait_for_network(link: Reconnecting) -> None:
         said = link.expect(rf"{NETWORK_UP}|{NETWORK_DONE}", timeout=180.0)
         if NETWORK_UP.encode() in said:
             return
-        time.sleep(NETWORK_PAUSE)
-        if time.monotonic() > deadline - NETWORK_PATIENCE / 2 and not asked:
-            # Half the patience gone and still nothing, so the medium has no
-            # manager of its own: raise the link and ask for an address. Once,
-            # and late, because doing it first is what stopped the mediums
-            # that do have one.
+        if not asked:
             asked = True
-            link.run(
-                "pgrep -x NetworkManager >/dev/null || { "
-                'for one in /sys/class/net/e*; do ip link set "$(basename $one)" up; done; '
-                "dhcpcd -w -t 20 >/dev/null 2>&1; }; true",
-                timeout=90.0,
-            )
+            link.run(ASK_FOR_IPV4, timeout=120.0)
+            continue
+        time.sleep(NETWORK_PAUSE)
     # What the guest actually had, into the log this run leaves behind. Eight
     # cluster guests failed here on one round and the log held nothing but
     # `Could not connect to server`, so nothing said whether the medium never
