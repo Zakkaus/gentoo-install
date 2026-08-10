@@ -82,7 +82,7 @@
 
 # Bootloader and overlays
 "A ZFS root cannot boot from GRUB. Which bootloader?" = "ZFS 루트는 GRUB으로 부팅할 수 없습니다. 어느 것을 쓰시겠습니까?"
-"adds the gentoo-zh overlay, the only one that has it" = "gentoo-zh 오버레이 추가 필요"
+"adds the gentoo-zh overlay, the only one that has it" = "이것을 제공하는 유일한 gentoo-zh 오버레이를 추가합니다"
 "no overlay, and the esp has to hold the kernel" = "오버레이 불필요, 커널은 esp에 배치"
 
 # Packages
@@ -172,7 +172,7 @@
 "same as the console" = "콘솔과 동일"
 "i915 and xe, with the firmware they need" = "i915 와 xe, 필요한 펌웨어 포함"
 "GCN 1.2 and newer" = "GCN 1.2 이후"
-"AMD up to Sea Islands" = "Sea Islands 이전의 AMD"
+"AMD up to Sea Islands" = "Sea Islands 및 그 이전 세대의 AMD"
 "the in-kernel NVIDIA driver" = "커널 내장 NVIDIA 드라이버"
 "proprietary, widens ACCEPT_LICENSE, and blacklists nouveau itself" = "독점 드라이버. ACCEPT_LICENSE 를 넓히고 nouveau 를 스스로 차단합니다"
 "virtio-gpu, QXL and VMware, with fbdev left as the fallback" = "virtio-gpu, QXL, VMware. 대체 수단으로 fbdev 를 남깁니다"
@@ -410,7 +410,7 @@
 "an empty root password hash locks the account, so the installed system would boot with nothing that can log in" = "비어 있는 root 비밀번호 해시는 계정을 잠그므로, 설치된 시스템은 부팅해도 로그인할 방법이 없다"
 "the input method needs it in this session" = "이 세션의 입력기가 필요로 함"
 "via" = "경유"
-"{when} excludes {excludes}" = "{when}과(와) {excludes}은(는) 함께 쓸 수 없습니다"
+"{when} excludes {excludes}" = "{when}, {excludes}: 두 가지는 함께 쓸 수 없습니다"
 "root on ZFS" = "ZFS 상의 루트"
 "/boot on ZFS" = "/boot이 ZFS에 있음"
 "a root that is not a ZFS dataset" = "ZFS 데이터셋이 아닌 루트"
