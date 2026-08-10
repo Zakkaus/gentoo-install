@@ -515,3 +515,33 @@ def test_guests_already_placed_are_subtracted_from_what_a_node_reports() -> None
     assert len(free_slots(api, {"one": 2})) == 1
     assert free_slots(api, {"one": 3}) == []
     assert free_slots(api, {"one": 9}) == [], "never negative"
+
+
+def test_the_archive_is_waited_for_rather_than_timed() -> None:
+    """An install log runs to twelve megabytes and the console carries it a
+    chunk at a time. A fixed window caught only the shell's echo of the
+    command and reported `the console result is not base64`."""
+    import inspect
+
+    from tests.vm import cluster
+
+    source = inspect.getsource(cluster.collect)
+    assert "expect(CONSOLE_CLOSE" in source
+    assert "snapshot(" not in source, "a fixed window cannot tell short from unfinished"
+
+
+def test_an_echoed_command_is_not_read_as_the_archive() -> None:
+    """The shell echoes the line, so both markers appear before any output. A
+    reader that stops at the first pair decodes the command itself."""
+    from tests.vm.results import CONSOLE_CLOSE, CONSOLE_OPEN, ResultError, read_console
+
+    echoed = (
+        f"root@livecd ~ # echo {CONSOLE_OPEN}; tar cz -C /tmp . | base64 -w0; "
+        f"echo; echo {CONSOLE_CLOSE}\r\n"
+    ).encode()
+    with pytest.raises(ResultError):
+        read_console(echoed)
+
+    encoded = _archive({"install.rc": b"0\n"})
+    whole = echoed + f"{CONSOLE_OPEN}\r\n{encoded}\r\n{CONSOLE_CLOSE}\r\n".encode()
+    assert read_console(whole) == {"install.rc": b"0\n"}
