@@ -249,6 +249,16 @@ def _capacity_problems(config: InstallConfig, probe: Probe) -> list[str]:
                     "keeps cannot be counted"
                 )
                 continue
+            missing = sorted(set(table.remove) - set(present))
+            if missing:
+                # Before anything runs, because the removals are one `sgdisk
+                # --delete` each and the earlier ones are already committed
+                # when a later number is refused: `Partition number 99 out of
+                # range!` left a disk whose partition 1 had been deleted.
+                problems.append(
+                    f"{table.id} removes {missing} from {disk.selector}, "
+                    f"which has {sorted(present)}"
+                )
             claimed += sum(
                 size for number, size in present.items() if number not in table.remove
             )

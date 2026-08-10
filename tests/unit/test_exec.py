@@ -1175,6 +1175,69 @@ def test_an_edited_table_counts_what_it_keeps(tmp_path: Path) -> None:
     assert problems, "18 GiB kept plus 4 GiB new does not fit 20 GiB"
 
 
+def test_removing_a_partition_the_disk_does_not_have_is_refused(tmp_path: Path) -> None:
+    """Each removal is one `sgdisk --delete` and the earlier ones are already
+    committed when a later number is refused: `remove = [1, 99]` on a disk
+    holding only partition 1 deleted it and then stopped with `Partition
+    number 99 out of range!`, leaving an empty table."""
+    from gentoo_install.exec import preflight as check
+    from gentoo_install.model.config import DiskConfig
+    from gentoo_install.model.device import (
+        DeviceGraph,
+        DeviceId,
+        Partition,
+        PartitionRole,
+        PartitionTable,
+        TableType,
+    )
+    from gentoo_install.model.size import Size
+
+    def asked(remove: tuple[int, ...]) -> list[str]:
+        nodes = [
+            Existing(id=DeviceId("disk"), selector="/dev/null", wipe=False),
+            PartitionTable(
+                id=DeviceId("table"),
+                disk=DeviceId("disk"),
+                table=TableType.GPT,
+                create=False,
+                remove=remove,
+            ),
+            Partition(
+                id=DeviceId("new"),
+                table=DeviceId("table"),
+                index=2,
+                role=PartitionRole.DATA,
+                size=Size(1024**3),
+            ),
+        ]
+        installation = replace(
+            config(), disk=DiskConfig(graph=DeviceGraph.build(nodes), root=DeviceId("new"))
+        )
+
+        class Answering(Runner):
+            def run(
+                self,
+                argv: Sequence[str],
+                *,
+                check: bool = True,
+                input_text: str | None = None,
+                timeout: float | None = None,
+            ) -> Result:
+                said = ""
+                if argv[0] == "lsblk" and "SIZE" in argv and "PARTN,SIZE" not in argv:
+                    said = f"{64 * 1024**3}\n"
+                elif argv[0] == "lsblk" and "PARTN,SIZE" in argv:
+                    said = f"1 {1024**3}\n"
+                return Result(argv=tuple(argv), returncode=0, stdout=said, stderr="", seconds=0.0)
+
+        probe = Probe(runner=Answering(log=lambda line: None), work=tmp_path)
+        return check._capacity_problems(installation, probe)
+
+    said = asked((1, 99))
+    assert any("99" in one for one in said), said
+    assert asked((1,)) == [], "removing a partition the disk has is a working layout"
+
+
 def test_a_command_that_answers_nothing_is_named_rather_than_crashing(tmp_path: Path) -> None:
     """`versions()` discarded the exit status, so a command present on PATH
     that exits nonzero with no output reached `splitlines()[0]` and raised
