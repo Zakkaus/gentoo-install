@@ -289,3 +289,86 @@ def test_a_form_message_does_not_push_the_done_row_off_the_screen() -> None:
     result = drive("\n\n\n\n", ACCOUNT)
     assert result.get("error") is None, result.get("error")
     assert result["values"] == ["", "", ""]
+
+
+#: Opens a screen and waits for the terminal to be resized, reporting the size
+#: it read before and after. `KEY_RESIZE` is what curses delivers; whether
+#: `getmaxyx` then answers the new size is the question.
+RESIZE = r"""
+import curses
+
+from gentoo_install.tui.curses_screen import CursesScreen
+
+
+def main(window):
+    import curses as c
+
+    screen = CursesScreen(window)
+    answer["before"] = list(screen.size())
+    pressed = ""
+    while pressed != "KEY_RESIZE":
+        try:
+            pressed = screen.key()
+        except c.error:
+            # `no input` while nothing has been typed: the resize arrives as a
+            # key, so this waits for one rather than treating it as a fault.
+            continue
+    answer["after"] = list(screen.size())
+
+
+curses.wrapper(main)
+"""
+
+
+def test_a_window_that_grows_is_read_again_rather_than_kept() -> None:
+    """curses keeps the size it started with until it is told to look again,
+    so a list stayed as tall as it was when the menu opened however large the
+    window became. Every widget reads `size()` on each redraw and treats an
+    unrecognised key as one to redraw on, so the screen only has to ask curses
+    to look.
+
+    Resized with `TIOCSWINSZ` against a real pty, the way a terminal emulator
+    does it.
+    """
+    import fcntl
+    import struct
+    import termios
+
+    read_end, write_end = os.pipe()
+    child, terminal = pty.fork()
+    if child == 0:  # pragma: no cover - the child never returns
+        os.close(read_end)
+        os.environ["TERM"] = "xterm"
+        os.environ["LINES"], os.environ["COLUMNS"] = str(SIZE[0]), str(SIZE[1])
+        sys.path.insert(0, str(REPOSITORY))
+        answer: dict[str, Any] = {}
+        try:
+            exec(compile(RESIZE, "<driver>", "exec"), {"answer": answer})
+        except BaseException as why:
+            answer["error"] = f"{type(why).__name__}: {why}"
+        os.write(write_end, json.dumps(answer).encode())
+        os.close(write_end)
+        os._exit(0)
+
+    os.close(write_end)
+    grown = (SIZE[0] + 20, SIZE[1] + 40)
+    fcntl.ioctl(terminal, termios.TIOCSWINSZ, struct.pack("HHHH", *SIZE, 0, 0))
+    time.sleep(1.0)
+    fcntl.ioctl(terminal, termios.TIOCSWINSZ, struct.pack("HHHH", *grown, 0, 0))
+    # A keystroke after it: curses reports the resize out of `getch`, so
+    # something has to arrive for it to be reported through.
+    time.sleep(0.3)
+    os.write(terminal, b"x")
+    said = b""
+    deadline = time.monotonic() + DEADLINE
+    while time.monotonic() < deadline:
+        chunk = os.read(read_end, 4096)
+        said += chunk
+        if not chunk:
+            break
+    os.close(read_end)
+    os.waitpid(child, 0)
+    result: dict[str, Any] = json.loads(said.decode() or "{}")
+    assert result.get("error") is None, result.get("error")
+    assert result["before"] == list(SIZE), result
+    assert result["after"] == list(grown), result
