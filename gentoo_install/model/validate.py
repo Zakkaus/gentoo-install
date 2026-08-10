@@ -311,6 +311,38 @@ def _partition_index_problems(graph: DeviceGraph) -> list[str]:
             if count > 1:
                 problems.append(f"{count} partitions on {table.id} take index {index}")
         problems += _mbr_index_problems(table, indexes)
+        problems += _partition_size_problems(graph, table)
+    return problems
+
+
+def _partition_size_problems(graph: DeviceGraph, table: PartitionTable) -> list[str]:
+    """Sizes the table cannot hold, found before `sgdisk --zap-all` runs.
+
+    A partition with no size takes what is left, so only the last one may have
+    none: an unsized partition 1 took the disk to its last usable sector and
+    `--new=2:0:+8M` then exited 4, with the operator's table already gone.
+    Zero is the same shape of failure one step earlier — `+0K` is refused —
+    and `Size(0)` stays a legal value everywhere else.
+    """
+    problems: list[str] = []
+    partitions = sorted(
+        (one for one in graph.of_type(Partition) if one.table == table.id),
+        key=lambda node: node.index,
+    )
+    for one in partitions:
+        if one.size is not None and one.size.bytes <= 0:
+            problems.append(f"partition {one.id} on {table.id} is {one.size}")
+    unsized = [one for one in partitions if one.size is None]
+    if len(unsized) > 1:
+        problems.append(
+            f"{len(unsized)} partitions on {table.id} take the rest of the disk; "
+            "only the last one can"
+        )
+    elif unsized and partitions and unsized[0].index != partitions[-1].index:
+        problems.append(
+            f"partition {unsized[0].id} takes the rest of {table.id} and is not "
+            "the last one, so nothing after it has room"
+        )
     return problems
 
 

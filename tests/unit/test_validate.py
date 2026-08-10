@@ -346,3 +346,41 @@ def test_an_mbr_table_numbered_from_one_is_a_working_layout() -> None:
     from gentoo_install.exec.config import load as _load
 
     validate(_load(_Path("tests/fixtures/ext4-bios.toml")))
+
+
+@pytest.mark.parametrize(
+    ("what", "edited", "says"),
+    [
+        pytest.param(
+            "unsized-not-last",
+            {"esp": None, "rootpart": Size.parse("20GiB")},
+            "takes the rest of",
+            id="unsized-not-last",
+        ),
+        pytest.param("zero", {"esp": Size(0)}, "is 0B", id="zero"),
+    ],
+)
+def test_a_partition_size_the_table_cannot_hold_is_refused(
+    what: str, edited: dict[str, Size | None], says: str
+) -> None:
+    """Both are found after `sgdisk --zap-all` has taken the operator's table.
+
+    An unsized partition takes what is left, so an unsized partition 1 runs to
+    the last usable sector and `--new=2:0:+8M` exits 4. A zero-sized one is
+    refused one step earlier, as `+0K`.
+    """
+    nodes = [
+        replace(node, size=edited[str(node.id)])
+        if isinstance(node, Partition) and str(node.id) in edited
+        else node
+        for node in ext4_on_gpt()
+    ]
+    with pytest.raises(ValidationFailed) as refused:
+        validate(config(nodes))
+    assert says in str(refused.value), refused.value
+
+
+def test_the_last_partition_may_still_take_the_rest_of_the_disk() -> None:
+    """Every shipped layout does this, and it is the point of the rule that
+    only the last one may."""
+    validate(config(ext4_on_gpt()))
