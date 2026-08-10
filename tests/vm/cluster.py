@@ -690,6 +690,23 @@ def run(
                 if time.monotonic() - swept >= WATCH_EVERY:
                     _sweep(inflight)
                     swept = time.monotonic()
+                # A worker that ended without putting anything on the queue is
+                # a name that stays in `running` for ever, and the loop then
+                # never finishes: one round sat idle for half an hour with an
+                # empty cluster and a job still queued. `answer_once` catches
+                # everything a Python handler can see; this covers the rest.
+                for name, thread in list(running.items()):
+                    if thread.is_alive():
+                        continue
+                    done.put(
+                        Outcome(
+                            name,
+                            Verdict.ERROR,
+                            0.0,
+                            "the worker ended without reporting",
+                            removed=False,
+                        )
+                    )
                 continue
             finished.append(outcome)
             running.pop(outcome.name, None)

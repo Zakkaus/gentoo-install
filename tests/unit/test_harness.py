@@ -501,3 +501,23 @@ def test_a_guest_that_could_not_be_removed_keeps_its_slot() -> None:
     import inspect
 
     assert "not outcome.removed" in inspect.getsource(cluster.run)
+
+
+def test_a_worker_that_ends_without_reporting_becomes_an_error() -> None:
+    """`answer_once` puts an outcome on the queue for everything a Python
+    handler can see. A thread that ends any other way left its name in the
+    running set for ever and the schedule never finished: one round sat idle
+    for half an hour with an empty cluster and a job still queued."""
+    import inspect
+
+    from tests.vm import cluster
+
+    source = inspect.getsource(cluster.run)
+    assert "thread.is_alive()" in source, "the scheduler has to notice a dead worker"
+    assert "the worker ended without reporting" in source
+    # And the outcome it makes does not hand the node's slot back, because
+    # nothing proved the guest was removed.
+    gone = cluster.Outcome(
+        "x", cluster.Verdict.ERROR, 0.0, "the worker ended without reporting", removed=False
+    )
+    assert gone.removed is False
