@@ -713,6 +713,9 @@ class Line(Protocol):
 
     def expect(self, pattern: str, timeout: float) -> bytes: ...
 
+    @property
+    def closed(self) -> bool: ...
+
 
 class Reopenable(Protocol):
     """A console that can be replaced with another one to the same guest. A

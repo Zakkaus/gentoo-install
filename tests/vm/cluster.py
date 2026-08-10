@@ -815,13 +815,37 @@ class Reconnecting:
         raise ConsoleClosed("the console could not be reopened")
 
     def send(self, line: str) -> None:
+        self._reopen_if_closed()
         self.console.send(line)
 
     def send_raw(self, keys: str) -> None:
+        self._reopen_if_closed()
         self.console.send_raw(keys)
+
+    def _reopen_if_closed(self) -> None:
+        """A write to a dropped connection is silently discarded.
+
+        That is what the transport should do rather than raise, and it left
+        the command undelivered: `wait_for_network` sent its probe into a
+        closed socket and then waited fifteen minutes for output that was
+        never going to come. Eight guests failed that way in one round.
+        """
+        if not self.console.closed:
+            return
+        for attempt in range(self._tries):
+            try:
+                self.reopen()
+                return
+            except (ConsoleClosed, OSError):
+                if attempt + 1 == self._tries:
+                    raise
 
     def snapshot(self, seconds: float) -> bytes:
         return self.console.snapshot(seconds)
+
+    @property
+    def closed(self) -> bool:
+        return self.console.closed
 
 
 #: The password `tests/fixtures/*.toml` set on the installed system. It exists
