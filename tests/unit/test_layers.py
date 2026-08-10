@@ -69,3 +69,26 @@ def test_the_model_layer_imports_nothing_below_it() -> None:
             for other in below:
                 assert f"from ..{other}" not in source, f"{module}: imports {other}"
                 assert f"from gentoo_install.{other}" not in source, f"{module}: {other}"
+
+
+def test_no_suppression_hides_a_finding() -> None:
+    """`AGENTS.md` forbids both forms. Seventeen of them once stood between
+    strict typing and the runner fakes, the config builders, the replaced
+    methods and a forked child's exception channel."""
+    import re
+
+    root = PACKAGE.parent
+    #: A suppression is a comment that starts one; a comment that quotes the
+    #: name while explaining why one was removed is not.
+    marker = re.compile(r"#\s*(type:\s*ignore|noqa)\b")
+    offenders: list[str] = []
+    for module in sorted(root.rglob("*.py")):
+        if "/.git/" in str(module) or "__pycache__" in str(module):
+            continue
+        for number, line in enumerate(module.read_text().splitlines(), 1):
+            stripped = line.strip()
+            if stripped.startswith("#:") or stripped.startswith("#"):
+                continue
+            if marker.search(line):
+                offenders.append(f"{module.relative_to(root)}:{number}")
+    assert not offenders, offenders

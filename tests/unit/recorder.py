@@ -7,6 +7,7 @@ argv it would run is how the flags get asserted without a disk.
 from __future__ import annotations
 
 from gentoo_install.errors import CommandFailed, DownloadFailed
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from typing import Sequence
@@ -29,6 +30,11 @@ class Recorder:
     #: Commands whose first word is here raise instead of returning.
     failures: set[str] = field(default_factory=set)
     given_up: set[str] = field(default_factory=set)
+    #: Consulted before the replies table, and injected rather than assigned
+    #: over the bound method: five tests replaced `run_in_target` itself, which
+    #: mypy accepted only under `# type: ignore[method-assign]`. Answering
+    #: `None` falls through to the ordinary behaviour.
+    answering: Callable[[Sequence[str]], str | None] | None = None
 
     def run(
         self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
@@ -45,6 +51,10 @@ class Recorder:
         one does: a double that raises anyway hides every caller that reads an
         exit code for itself."""
         self.in_target.append(tuple(argv))
+        if self.answering is not None:
+            said = self.answering(argv)
+            if said is not None:
+                return said
         if argv[0] in self.failures:
             if check:
                 raise CommandFailed(f"{argv[0]} exited 1")

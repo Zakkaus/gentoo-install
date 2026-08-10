@@ -532,8 +532,12 @@ def test_remote_unlock_puts_an_address_on_the_command_line() -> None:
     """
     from gentoo_install.model.config import RemoteUnlock
 
-    def parameters(**fields: object) -> tuple[str, ...]:
-        unlock = RemoteUnlock(enabled=True, **fields)  # type: ignore[arg-type]
+    def parameters(
+        *, interface: str = "", address: str = "", gateway: str = ""
+    ) -> tuple[str, ...]:
+        unlock = RemoteUnlock(
+            enabled=True, interface=interface, address=address, gateway=gateway
+        )
         return bootloader.unlock_parameters(
             replace(config(), kernel=KernelConfig(remote_unlock=unlock))
         )
@@ -765,7 +769,7 @@ def test_a_kernel_with_no_modules_is_deleted_and_nothing_else_is() -> None:
     kept = "6.18.41-gentoo-dist-bin"
     stray = "6.18.41-gentoo-dist"
 
-    def listing(argv: Sequence[str], **rest: object) -> str:
+    def listing(argv: Sequence[str]) -> str | None:
         wanted = list(argv)
         if wanted[0] == "file":
             # Every image here holds the prebuilt kernel; the stray one carries
@@ -786,18 +790,16 @@ def test_a_kernel_with_no_modules_is_deleted_and_nothing_else_is() -> None:
             )
         )
 
-    recorder.run_in_target = listing  # type: ignore[method-assign]
     removed: list[tuple[str, ...]] = []
-    real = listing
 
-    def watched(argv: Sequence[str], **rest: object) -> str:
+    def watched(argv: Sequence[str]) -> str | None:
         wanted = tuple(str(one) for one in argv)
         if wanted[0] == "rm":
             removed.append(wanted)
             return ""
-        return real(argv, **rest)
+        return listing(argv)
 
-    recorder.run_in_target = watched  # type: ignore[method-assign]
+    recorder.answering = watched
     kernel.RemoveUnbootableKernels().apply(recorder)
     assert [one[-1] for one in removed] == [
         f"/boot/kernel-{stray}",
@@ -814,7 +816,7 @@ def test_an_image_whose_name_disagrees_with_its_contents_is_deleted() -> None:
     inside = "6.18.41-gentoo-dist-bin"
     removed: list[str] = []
 
-    def answering(argv: Sequence[str], **rest: object) -> str:
+    def answering(argv: Sequence[str]) -> str | None:
         wanted = [str(one) for one in argv]
         if wanted[0] == "rm":
             removed.append(wanted[-1])
@@ -826,7 +828,7 @@ def test_an_image_whose_name_disagrees_with_its_contents_is_deleted() -> None:
             return f"{named}\n{inside}\n"
         return f"kernel-{named}\n"
 
-    recorder.run_in_target = answering  # type: ignore[method-assign]
+    recorder.answering = answering
     kernel.RemoveUnbootableKernels().apply(recorder)
     assert removed == [f"/boot/kernel-{named}"]
 
@@ -838,7 +840,7 @@ def test_an_unreadable_image_is_left_alone() -> None:
     version = "6.18.41-gentoo-dist-bin"
     calls: list[str] = []
 
-    def answering(argv: Sequence[str], **rest: object) -> str:
+    def answering(argv: Sequence[str]) -> str | None:
         wanted = [str(one) for one in argv]
         calls.append(wanted[0])
         if wanted[0] == "file":
@@ -847,7 +849,7 @@ def test_an_unreadable_image_is_left_alone() -> None:
             return f"{version}\n"
         return f"kernel-{version}\n"
 
-    recorder.run_in_target = answering  # type: ignore[method-assign]
+    recorder.answering = answering
     kernel.RemoveUnbootableKernels().apply(recorder)
     assert "rm" not in calls
 
@@ -858,12 +860,12 @@ def test_nothing_is_deleted_when_no_modules_directory_can_be_read() -> None:
     recorder = Recorder()
     calls: list[tuple[str, ...]] = []
 
-    def answering(argv: Sequence[str], **rest: object) -> str:
+    def answering(argv: Sequence[str]) -> str | None:
         wanted = tuple(str(one) for one in argv)
         calls.append(wanted)
         return "kernel-6.18.41-gentoo-dist\n" if wanted[-1] == "/boot" else ""
 
-    recorder.run_in_target = answering  # type: ignore[method-assign]
+    recorder.answering = answering
     kernel.RemoveUnbootableKernels().apply(recorder)
     assert not any(one[0] == "rm" for one in calls)
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping, Sequence
 
 import pytest
 
@@ -27,17 +27,39 @@ def runner(tmp_path: Path) -> Runner:
     return Runner(log=lambda line: None)
 
 
-def described(**fields: object) -> ProbedMachine:
-    base = {
-        "architecture": "x86_64",
-        "uefi": True,
-        "root": True,
-        "memory_bytes": 16 * 1024**3,
-        "commands": frozenset(preflight.required_commands(config())),
-        "release_key": True,
-    }
-    base.update(fields)
-    return ProbedMachine(**base)  # type: ignore[arg-type]
+def described(
+    *,
+    architecture: str = "x86_64",
+    uefi: bool = True,
+    root: bool = True,
+    memory_bytes: int = 16 * 1024**3,
+    commands: frozenset[str] | None = None,
+    release_key: bool = True,
+    versions: Mapping[str, str] | None = None,
+    efi_variables: bool = False,
+    efi_bits: int = 0,
+) -> ProbedMachine:
+    """A probed machine that passes every check, with named overrides.
+
+    Every field spelled out rather than `**fields: object` splatted into the
+    dataclass: the splat needed a suppression, and a misspelled name inside it
+    was a silent default instead of an error.
+    """
+    return ProbedMachine(
+        architecture=architecture,
+        uefi=uefi,
+        root=root,
+        memory_bytes=memory_bytes,
+        commands=(
+            commands
+            if commands is not None
+            else frozenset(preflight.required_commands(config()))
+        ),
+        release_key=release_key,
+        versions=versions if versions is not None else {},
+        efi_variables=efi_variables,
+        efi_bits=efi_bits,
+    )
 
 
 def probe_of(tmp_path: Path) -> Probe:
@@ -245,7 +267,14 @@ def test_a_signature_from_the_wrong_key_is_refused(tmp_path: Path) -> None:
     nothing, so the fingerprint is compared even when gpg is happy."""
 
     class Signed(Runner):
-        def run(self, argv, *, check=True, input_text=None, timeout=3600.0):  # type: ignore[no-untyped-def]
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = 3600.0,
+        ) -> Result:
             from gentoo_install.exec.runner import Result
 
             return Result(
@@ -266,7 +295,14 @@ def test_the_pin_names_the_primary_key_rather_than_the_subkey_that_signed(tmp_pa
     primary key."""
 
     class Subkey(Runner):
-        def run(self, argv, *, check=True, input_text=None, timeout=None):  # type: ignore[no-untyped-def]
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
             from gentoo_install.exec.runner import Result
 
             return Result(
@@ -285,7 +321,14 @@ def test_a_fingerprint_that_only_appears_in_the_output_is_not_a_signature(tmp_pa
     mistaken for the key that signed the file."""
 
     class Mentioned(Runner):
-        def run(self, argv, *, check=True, input_text=None, timeout=None):  # type: ignore[no-untyped-def]
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
             from gentoo_install.exec.runner import Result
 
             return Result(
@@ -398,7 +441,14 @@ def test_a_uuid_is_read_from_the_device_and_not_from_the_cache(tmp_path: Path) -
     seen: list[tuple[str, ...]] = []
 
     class Recording(Runner):
-        def run(self, argv, *, check=True, input_text=None, timeout=None):  # type: ignore[no-untyped-def]
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
             seen.append(tuple(argv))
             return Result(
                 argv=tuple(argv), returncode=0, stdout="1234-ABCD", stderr="", seconds=0.0

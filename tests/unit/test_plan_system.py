@@ -344,8 +344,40 @@ def test_an_array_records_itself_where_the_initramfs_reads_it() -> None:
     )
 
 
-def static(**fields: object) -> InstallConfig:
-    return replace(config(), system=replace(config().system, **fields))  # type: ignore[arg-type]
+def static(
+    *,
+    init: InitSystem | None = None,
+    interface: str | None = None,
+    networking: Networking | None = None,
+    addresses: tuple[str, ...] | None = None,
+    gateways: tuple[str, ...] | None = None,
+    dns: tuple[str, ...] | None = None,
+    logger: Logger | None = None,
+    cron: bool | None = None,
+) -> InstallConfig:
+    """A configuration with one system field replaced.
+
+    Named parameters rather than `**fields: object`: the splat needed a
+    suppression, and a misspelled field name in it was a silent default.
+    """
+    system = config().system
+    if init is not None:
+        system = replace(system, init=init)
+    if interface is not None:
+        system = replace(system, interface=interface)
+    if networking is not None:
+        system = replace(system, networking=networking)
+    if addresses is not None:
+        system = replace(system, addresses=addresses)
+    if gateways is not None:
+        system = replace(system, gateways=gateways)
+    if dns is not None:
+        system = replace(system, dns=dns)
+    if logger is not None:
+        system = replace(system, logger=logger)
+    if cron is not None:
+        system = replace(system, cron=cron)
+    return replace(config(), system=system)
 
 
 def networked(installation: InstallConfig) -> Recorder:

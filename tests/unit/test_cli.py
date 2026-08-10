@@ -163,9 +163,9 @@ def test_a_terminal_too_small_for_the_interface_says_so_rather_than_drawing() ->
         def size(self) -> tuple[int, int]:
             return self.lines, self.columns
 
-    cramped = too_small(Sized(20, 60))  # type: ignore[arg-type]
+    cramped = too_small(Sized(20, 60))
     assert "60x20" in cramped and f"{MINIMUM_COLUMNS}x{MINIMUM_LINES}" in cramped
-    assert too_small(Sized(MINIMUM_LINES, MINIMUM_COLUMNS)) == ""  # type: ignore[arg-type]
+    assert too_small(Sized(MINIMUM_LINES, MINIMUM_COLUMNS)) == ""
     assert "too_small(display)" in Path("gentoo_install/cli.py").read_text()
 
 
@@ -400,7 +400,7 @@ def test_a_failed_run_only_releases_the_machine(tmp_path: Path) -> None:
     said: list[str] = []
     recorder = Recorder()
     closing = (LinkResolvConf(init=InitSystem.SYSTEMD), UnmountTarget(pools=()))
-    cli._release(closing, recorder, said.append)  # type: ignore[arg-type]
+    cli._release(closing, recorder, said.append)
     assert any(argv[0] == "umount" for argv in recorder.commands)
     assert not recorder.in_target
     assert said == []
@@ -414,7 +414,7 @@ def test_releasing_reports_a_failure_rather_than_raising(tmp_path: Path) -> None
 
     said: list[str] = []
     recorder = Recorder(failures={"umount"})
-    cli._release((UnmountTarget(pools=()),), recorder, said.append)  # type: ignore[arg-type]
+    cli._release((UnmountTarget(pools=()),), recorder, said.append)
     assert said and "warning" in said[0]
 
 

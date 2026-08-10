@@ -44,7 +44,7 @@ from .exec.config import load
 from .model.parse import TOP_LEVEL
 from .model.serialise import to_toml
 from .plan.build import DEFAULT_MIRROR, build
-from .plan.operations import Operation, Stage
+from .plan.operations import Context, Operation, Stage
 from .plan.render import render, summarise
 
 #: The country whose mirrors are the ones worth offering. Every other answer,
@@ -290,7 +290,7 @@ def install(config: InstallConfig, operations: tuple[Operation, ...], arguments:
 
 
 def _release(
-    closing: tuple[Operation, ...], machine: Machine, record: Callable[[str], None]
+    closing: tuple[Operation, ...], machine: Context, record: Callable[[str], None]
 ) -> None:
     """Unmount and let go, whatever else went wrong.
 
