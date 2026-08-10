@@ -29,13 +29,22 @@ from collections import Counter
 from collections.abc import Callable, Mapping
 from typing import Final, Protocol
 
+from gentoo_install.model.config import Firmware as BootFirmware
 from gentoo_install.model.config import InstallConfig
 from gentoo_install.model.device import Existing, Luks, ZfsPool
 from gentoo_install.model.config import MirrorRegion, Sync
 from gentoo_install.exec.config import load
 from gentoo_install.model.serialise import to_toml
-from .console import PASSWORD_PROMPT, ConsoleClosed, ConsoleTimeout, SerialConsole
+from .console import (
+    DISK_PASSPHRASE,
+    PASSPHRASE_PROMPT,
+    PASSWORD_PROMPT,
+    ConsoleClosed,
+    ConsoleTimeout,
+    SerialConsole,
+)
 from .driver import build as build_driver
+from .monitor import keys_for
 from .proxmox import (
     Api,
     Guest,
@@ -240,10 +249,6 @@ def prepare(
     if driver not in api.isos(node):
         api.upload_iso(node, driver_path, driver)
 
-
-#: The disk passphrase these runs use. Not a root password: zfs takes at least
-#: eight characters, and a real install does not reuse one for the other.
-DISK_PASSPHRASE: Final[str] = "install-disk"
 
 
 #: How long a guest is given to reach a mirror. Generous, because the link
@@ -779,6 +784,55 @@ INSIDE: Final[tuple[tuple[str, str, str], ...]] = (
 )
 
 
+#: How long SeaBIOS and GRUB take to reach the cryptomount prompt. Nothing on
+#: the serial port marks it, so the passphrase is typed after this, and a
+#: wrong guess costs one retry at the next prompt, which is waited for.
+GRUB_PROMPT_SECONDS: Final[float] = 30.0
+
+#: How many prompts are answered before the passphrase is called wrong. A
+#: wrong one brings the prompt back and each one re-arms the timeout, so an
+#: unbounded loop would never fail.
+UNLOCK_TRIES: Final[int] = 5
+
+
+class Typeable(Protocol):
+    """All the unlock step needs of a guest: GRUB's prompt never reaches the
+    serial port, so the passphrase goes to the screen as keystrokes."""
+
+    def send_keys(self, keys: list[str]) -> None: ...
+
+
+def _unlock(guest: Typeable, link: Reconnecting, installation: InstallConfig) -> str:
+    """Answer every passphrase prompt on the way to a login.
+
+    Nothing did, so an encrypted install that had worked was failed ten
+    minutes later for not reaching a login prompt it was never going to reach
+    unattended.
+
+    GRUB unlocks an encrypted BIOS disk before it reads `grub.cfg`, so that
+    prompt is on the VGA console whatever `GRUB_TERMINAL` says: it is typed
+    through the API's `sendkey` rather than waited for.
+    """
+    graph = installation.disk.graph
+    encrypted = bool(graph.of_type(Luks)) or any(
+        pool.encrypted for pool in graph.of_type(ZfsPool)
+    )
+    if not encrypted:
+        return ""
+    if installation.bootloader.firmware is BootFirmware.BIOS:
+        time.sleep(GRUB_PROMPT_SECONDS)
+        guest.send_keys([*keys_for(DISK_PASSPHRASE), "ret"])
+    for _ in range(UNLOCK_TRIES):
+        try:
+            said = link.expect(rf"{PASSPHRASE_PROMPT}|login:", timeout=BOOT_PATIENCE)
+        except (ConsoleTimeout, ConsoleClosed) as error:
+            return f"the encrypted disk asked for nothing and booted nowhere: {error}"[:200]
+        if b"login:" in said:
+            return ""
+        link.send(DISK_PASSPHRASE)
+    return "the disk kept asking for a passphrase; it is not the one installed"
+
+
 def boot_and_check(
     guest: Guest, link: Reconnecting, log: Path, installation: InstallConfig
 ) -> str:
@@ -793,6 +847,9 @@ def boot_and_check(
     guest.boot_from_disk()
     guest.start()
     link.reopen()
+    refused = _unlock(guest, link, installation)
+    if refused:
+        return refused
     try:
         link.expect(r"login:", timeout=BOOT_PATIENCE)
     except (ConsoleTimeout, ConsoleClosed) as error:

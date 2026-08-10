@@ -34,6 +34,17 @@ def strip_ansi(data: bytes) -> bytes:
 #: carries the localized forms. This is the one CJK literal the tests allow.
 PASSWORD_PROMPT = r"[Pp]assword:|密码：|密碼："
 
+#: What GRUB and the initramfs say when they want a disk passphrase. GRUB asks
+#: because `/boot` is inside the container and the initramfs asks to open the
+#: root, so one passphrase is prompted for twice unless a keyfile is embedded.
+PASSPHRASE_PROMPT = r"[Ee]nter passphrase|Please enter passphrase|password for"
+
+#: The passphrase every encrypted fixture installs. Not the root password: zfs
+#: takes at least eight characters, and a real install does not reuse one for
+#: the other. Here rather than in each runner, so the local runs and the
+#: cluster runs cannot install one and answer with another.
+DISK_PASSPHRASE = "install-disk"
+
 
 class Channel(Protocol):
     """What a console needs of its transport, and nothing more.

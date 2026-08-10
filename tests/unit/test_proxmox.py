@@ -748,3 +748,73 @@ def test_the_nodes_are_asked_for_a_medium_in_china_first() -> None:
     assert len(chinese) >= 4, MIRRORS
     assert all(one in MIRRORS[: len(chinese)] for one in chinese), "and they come first"
     assert not any("ustc" in one for one in MIRRORS), "USTC refuses wget"
+
+
+def test_an_encrypted_disk_is_unlocked_before_a_login_is_waited_for(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nothing answered the prompt, so an encrypted install that had worked
+    was failed ten minutes later for not reaching a login it was never going
+    to reach unattended.
+
+    One scripted console per encrypted layout, and a BIOS one whose prompt is
+    on the VGA console and never reaches the serial port at all.
+    """
+    from dataclasses import replace
+
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.config import Firmware as BootFirmware
+    from tests.vm import cluster
+    from tests.vm.cluster import Reconnecting
+    from tests.vm.console import DISK_PASSPHRASE
+
+    class Scripted:
+        """Answers with a passphrase prompt until one is sent, then `login:`."""
+
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+            self.keys: list[str] = []
+
+        def send(self, line: str) -> None:
+            self.sent.append(line)
+
+        def send_raw(self, keys: str) -> None:
+            self.sent.append(keys)
+
+        def snapshot(self, seconds: float) -> bytes:
+            return b""
+
+        def expect(self, pattern: str, timeout: float) -> bytes:
+            if DISK_PASSPHRASE in self.sent:
+                return b"gentoo login:"
+            return b"Enter passphrase for hd0,gpt2:"
+
+    class Silent(Scripted):
+        """A guest whose keys go through the API, not the serial port."""
+
+        def send_keys(self, keys: list[str]) -> None:
+            self.keys.extend(keys)
+
+    for name, firmware in (
+        ("vm-luks", BootFirmware.UEFI),
+        ("vm-zfs-encrypted", BootFirmware.UEFI),
+        ("vm-bios-luks", BootFirmware.BIOS),
+    ):
+        installation = load(Path("tests/fixtures") / f"{name}.toml")
+        assert installation.bootloader.firmware is firmware, name
+        console = Silent()
+        link = Reconnecting(lambda: console, tries=1)
+        # No wait for GRUB: the sleep is what the real path spends and this
+        # test is not measuring it.
+        monkeypatch.setattr(cluster, "GRUB_PROMPT_SECONDS", 0.0)
+        said = cluster._unlock(console, link, installation)
+        assert said == "", f"{name}: {said}"
+        assert console.sent.count(DISK_PASSPHRASE) == 1, f"{name}: {console.sent}"
+        if firmware is BootFirmware.BIOS:
+            assert console.keys, f"{name}: nothing was typed at GRUB"
+            assert console.keys[-1] == "ret", console.keys
+
+    plain = load(Path("tests/fixtures/vm-binpkg.toml"))
+    console = Silent()
+    assert cluster._unlock(console, Reconnecting(lambda: console, tries=1), plain) == ""
+    assert console.sent == [], "a plain disk was sent a passphrase"
