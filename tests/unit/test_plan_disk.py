@@ -607,7 +607,15 @@ def test_a_pool_still_busy_after_the_lazy_unmount_is_exported_on_a_later_try(
     assert recorder.attempts == 3, recorder.attempts
     assert recorder.argv_starting("sleep") == (("sleep", "0"), ("sleep", "0"))
 
-    # A pool that stays busy stops the install: it needs `zpool import -f` next boot.
+    # A live environment running `zed` holds the pool for as long as it runs,
+    # so the last attempt forces rather than waiting again.
+    zed = Busy()
+    zed.refusals = disk.EXPORT_TRIES - 1
+    operation.apply(zed)
+    assert zed.commands[-1] == ("zpool", "export", "-f", "rpool"), zed.commands[-1]
+
+    # A pool that refuses even that stops the install: an unexported pool needs
+    # `zpool import -f` on the next boot.
     stubborn = Busy()
     stubborn.refusals = disk.EXPORT_TRIES
     with pytest.raises(CommandFailed):
