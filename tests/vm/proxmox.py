@@ -860,9 +860,9 @@ class Reopenable(Protocol):
     def reopen(self) -> None: ...
 
 
-#: How long the menu itself is waited for. GRUB's own countdown is ten
-#: seconds, and a console that attaches after it has expired never sees one.
-MENU_PATIENCE: Final[float] = 30.0
+#: How long an escape is left alone before the next key, so the two are not
+#: read as one sequence.
+ESCAPE_SETTLES: Final[float] = 2.0
 
 
 def _editor_screen(console: Line, timeout: float) -> bytes:
@@ -873,23 +873,11 @@ def _editor_screen(console: Line, timeout: float) -> bytes:
     the editor: a run read `no GRUB entry to edit on this screen` off a
     countdown line eight seconds from booting.
     """
+    # No wait for the menu here: `hold_the_menu` did that and stopped the
+    # countdown, and asking again blocked the whole patience on a header that
+    # had already gone past, so every press landed after it. Nineteen guests of
+    # one round ended at `GRUB never opened its editor` that way.
     deadline = time.monotonic() + timeout
-    # GRUB stops its countdown on the first key it receives, so that key has to
-    # arrive while the menu is on the screen. A run sent `e` before the menu was
-    # drawn, the press was discarded, and the entry booted ten seconds later
-    # with the harness still waiting for an editor.
-    # The console raises its own timeout, not a ProxmoxError, and catching only
-    # the latter let `never matched 'GNU GRUB'` end three fixtures whose menu
-    # was on the screen the whole time. Missing the header is not a failure
-    # here; the presses that follow are what decide.
-    try:
-        console.expect(r"GNU GRUB", timeout=max(1.0, min(timeout, MENU_PATIENCE)))
-    except (ProxmoxError, ConsoleTimeout):
-        pass
-    # ESC rather than an arrow: it halts the countdown, and unlike an arrow it
-    # cannot move the selection off the entry the guest is meant to boot.
-    console.send_raw("\x1b")
-    time.sleep(0.5)
     seen = b""
     everything = b""
     console.send_raw("e")
@@ -900,9 +888,10 @@ def _editor_screen(console: Line, timeout: float) -> bytes:
             return seen
         # ESC first, and only then `e` again: in the editor it discards the
         # edits and returns to the menu, and in the menu it does nothing. A
-        # bare second `e` would type the letter into the command line.
+        # bare second `e` would type the letter into the command line. The gap
+        # keeps them two keys rather than one escape sequence.
         console.send_raw("\x1b")
-        time.sleep(0.5)
+        time.sleep(ESCAPE_SETTLES)
         console.send_raw("e")
     # The whole read, not the last snapshot: the last one is empty on a guest
     # that booted while the loop was still pressing, which says nothing.
