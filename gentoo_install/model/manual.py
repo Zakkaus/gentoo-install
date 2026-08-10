@@ -379,6 +379,28 @@ def _array_nodes(array: Array, members: tuple[DeviceId, ...]) -> list[Node]:
     return nodes
 
 
+def _numbered(slices: list[Slice]) -> list[Slice]:
+    """The slices in the order the disk will number them.
+
+    The one with no size takes what is left, so it has to be last whatever
+    index the operator gave it: `suggest()` starts the root at 1 and an added
+    partition therefore sat behind a partition that runs to the last sector,
+    which `sgdisk` refuses after the table has been written.
+    """
+    kept = [one for one in slices if one.status is not SliceStatus.DELETE]
+    if any(one.status is not SliceStatus.CREATE for one in kept):
+        # An edited table: every number here is one the disk already gave out,
+        # and moving a kept partition's number renames somebody's filesystem.
+        return sorted(slices, key=lambda one: one.index)
+    ordered = sorted(
+        sorted(kept, key=lambda one: one.index), key=lambda one: one.size is None
+    )
+    renumbered: list[Slice] = []
+    for position, entry in enumerate(ordered, start=1):
+        renumbered.append(entry if entry.index == position else replace(entry, index=position))
+    return renumbered + [one for one in slices if one.status is SliceStatus.DELETE]
+
+
 def build(layout: Layout) -> tuple[DeviceGraph, DeviceId]:
     """The graph and the id of the mount point that is `/`.
 
@@ -397,7 +419,7 @@ def build(layout: Layout) -> tuple[DeviceGraph, DeviceId]:
     for position, disk in enumerate(layout.disks, start=1):
         prefix = f"disk{position}"
         nodes += _table_nodes(disk, prefix)
-        for entry in sorted(disk.slices, key=lambda one: one.index):
+        for entry in _numbered(disk.slices):
             if entry.status is SliceStatus.DELETE:
                 # Gone from the table above, so it carries nothing downstream.
                 continue

@@ -1010,3 +1010,49 @@ def test_raid_and_the_pool_topology_are_visible_before_they_are_reachable() -> N
     assert "raid array member purpose" in drawn.last
     assert "Pool topology" in drawn.last
     assert "zfs pool member purpose" in drawn.last
+
+
+def test_a_partition_added_after_the_root_does_not_leave_it_in_the_middle() -> None:
+    """`suggest()` starts the root at index 1 with no size, so it takes the
+    rest of the disk. An operator adding a partition after it produced a table
+    whose partition 1 runs to the last sector and whose partition 3 has
+    nowhere to go, which `sgdisk` refuses once the table is written.
+
+    The one with no size is numbered last, whatever index it was given.
+    """
+    from gentoo_install.model.device import Partition
+
+    layout = manual.suggest("/dev/vda", Firmware.UEFI)
+    layout.disks[0].slices.append(
+        manual.Slice(
+            index=3,
+            role=PartitionRole.DATA,
+            size=Size.parse("20GiB"),
+            filesystem=FilesystemType.XFS,
+            mountpoint="/home",
+        )
+    )
+    graph, root = manual.build(layout)
+    numbered = sorted(graph.of_type(Partition), key=lambda one: one.index)
+    assert [one.size is None for one in numbered] == [False, False, True], [
+        (one.index, str(one.size)) for one in numbered
+    ]
+    validate(config_from(graph, root))
+
+
+def test_an_edited_table_keeps_the_numbers_the_disk_gave_out() -> None:
+    """Renumbering is for a table written from scratch. A kept partition's
+    number is the disk's, and moving it renames somebody's filesystem."""
+    from gentoo_install.model.device import Partition
+
+    status = manual.SliceStatus
+    layout = one_disk(slices=[
+        kept("/dev/vda1", FilesystemType.VFAT, "/efi"),
+        kept("/dev/vda2", FilesystemType.EXT4, "", status.DELETE),
+        manual.Slice(
+            index=3, role=PartitionRole.DATA, size=None,
+            filesystem=FilesystemType.EXT4, mountpoint="/",
+        ),
+    ])
+    graph, _ = manual.build(layout)
+    assert [one.index for one in graph.of_type(Partition)] == [3]

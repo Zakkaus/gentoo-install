@@ -150,14 +150,22 @@ def test_a_zfs_root_produces_no_grub_operation() -> None:
 
 
 def test_bios_installs_no_efibootmgr() -> None:
-    nodes = ext4_on_gpt()
+    from gentoo_install.model.size import Size
+
+    # A bios-boot partition is a megabyte for GRUB's stage 1.5, and the root
+    # is what takes the rest: two partitions with no size describe a disk
+    # `sgdisk` refuses, because the first of them runs to the last sector.
+    nodes = [
+        replace(node, index=3) if isinstance(node, Partition) and node.id == i("rootpart") else node
+        for node in ext4_on_gpt()
+    ]
     nodes.append(
         Partition(
             id=i("bios"),
             table=i("table"),
-            index=3,
+            index=2,
             role=PartitionRole.BIOS_BOOT,
-            size=None,
+            size=Size.parse("2MiB"),
         )
     )
     on_bios = replace(
