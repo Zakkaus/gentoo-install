@@ -119,6 +119,9 @@ class Menu(Generic[V]):
     selected: set[int] = field(default_factory=set)
     multiple: bool = False
     footer: str = ""
+    #: Lines drawn between the title and the rows. For a question whose
+    #: subject is a list: the title is one line and truncated to the width.
+    preamble: tuple[str, ...] = ()
     #: Where the highlight starts, and where it was left. A menu re-entered
     #: after editing a row has to come back to that row.
     cursor: int = 0
@@ -197,7 +200,13 @@ class Menu(Generic[V]):
         lines, columns = screen.size()
         screen.clear()
         screen.write(0, 0, truncate(self.title, columns))
-        room = lines - 4
+        # One line each, under the title. A question whose subject is a list
+        # crammed the list into the title, and the title is truncated to the
+        # width: the profile a desktop moves to fell off the end of it.
+        for offset, one in enumerate(self.preamble):
+            screen.write(offset + 1, 2, truncate(one, columns - 4))
+        above = len(self.preamble)
+        room = lines - 4 - above
         top = max(0, min(cursor - room // 2, len(self.items) - room))
         for row, index in enumerate(range(top, min(top + room, len(self.items)))):
             item = self.items[index]
@@ -219,9 +228,9 @@ class Menu(Generic[V]):
             # naming a mark nobody draws describes an interface that does not
             # exist. In the left margin, so the labels stay aligned.
             if item.style is not Style.PLAIN:
-                screen.write(row + 2, 0, MARKS[item.style], style=item.style)
+                screen.write(row + 2 + above, 0, MARKS[item.style], style=item.style)
             screen.write(
-                row + 2,
+                row + 2 + above,
                 2,
                 truncate(text, columns - 4),
                 highlight=index == cursor,

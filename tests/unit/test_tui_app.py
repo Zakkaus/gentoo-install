@@ -2148,3 +2148,40 @@ def test_the_values_a_choice_brings_are_accepted_by_pressing_enter() -> None:
 
     assert answer.unwrap().packages.desktop == "plasma"
     assert answer.unwrap().portage.profile.endswith("desktop/plasma/systemd")
+
+
+def test_a_desktop_proposes_its_login_screen_and_a_network_manager() -> None:
+    """Pulling the login screen out of the desktop profile was right — the row
+    stays editable — but leaving it empty was not: the row is required and red
+    on a menu whose operator has already said they want Plasma. The Plasma and
+    GNOME profiles carry `USE=networkmanager` and nothing moved
+    `system.networking` with it, so the installed desktop had the settings
+    panel and not the service behind it."""
+    from gentoo_install.model.config import Networking
+
+    at = context()
+    keys = [*down(4), "\n", "\n"]  # plasma, then accept what it brings
+    answer = screens.desktop_screen(FakeScreen(keys=keys, lines=30), config(), at)
+    chosen = answer.unwrap()
+    assert chosen.packages.desktop == "plasma"
+    assert chosen.packages.display_manager == "sddm"
+    assert chosen.system.networking is Networking.NETWORKMANAGER_WPA
+
+    # Proposed, not imposed: a login screen the operator picked stands.
+    picked = replace(
+        config(), packages=replace(config().packages, display_manager="greetd")
+    )
+    kept = screens.desktop_screen(
+        FakeScreen(keys=[*down(4), "\n", "\n"], lines=30), picked, context()
+    ).unwrap()
+    assert kept.packages.display_manager == "greetd"
+
+
+def test_what_a_desktop_brings_is_listed_in_one_place() -> None:
+    """Every place the choice reaches, on the screen that asks about it."""
+    at = context()
+    screen = FakeScreen(keys=[*down(4), "\n", "q"], lines=30, columns=120)
+    screens.desktop_screen(screen, config(), at)
+    listed = "\n".join(screen.frames[-1])
+    for named in ("Display manager", "sddm", "Network", "networkmanager", "Profile"):
+        assert named in listed, f"{named} is not on the confirmation: {listed}"

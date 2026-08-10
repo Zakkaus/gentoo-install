@@ -1448,7 +1448,46 @@ def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> A
                 ),
             ),
         )
+    changed = _desktop_proposes(changed, config, context, desktop)
     return settle(screen, context, config, changed)
+
+
+#: What each desktop's own login screen is. Proposed rather than fixed: the
+#: row stays editable, and pulling the login screen out of the desktop profile
+#: was right — leaving it empty was not, because the row is then required and
+#: red on a menu whose operator has already said which desktop they want.
+LOGIN_SCREEN: Final[dict[str, str]] = {
+    "plasma": "sddm",
+    "plasma-full": "sddm",
+    "gnome": "gdm",
+    "gnome-full": "gdm",
+    "xfce": "lightdm",
+}
+
+
+def _desktop_proposes(
+    changed: InstallConfig, before: InstallConfig, context: Context, desktop: str
+) -> InstallConfig:
+    """The login screen and the network manager a desktop implies.
+
+    Only over what the operator has not set: a login screen they picked stands,
+    and so does a network manager. The Plasma and GNOME profiles already carry
+    `USE=networkmanager`, and nothing moved `system.networking` with it, so the
+    installed desktop had the settings panel and not the service behind it.
+    """
+    if not desktop:
+        return changed
+    login = LOGIN_SCREEN.get(desktop, "")
+    if login and not before.packages.display_manager and login in context.groups:
+        changed = replace(
+            changed, packages=replace(changed.packages, display_manager=login)
+        )
+    if before.system.networking is Networking.BUILTIN:
+        changed = replace(
+            changed,
+            system=replace(changed.system, networking=Networking.NETWORKMANAGER_WPA),
+        )
+    return changed
 
 
 def settle(
@@ -1471,7 +1510,11 @@ def settle(
     cards = _new(automatic_values.video_cards, before, after, context.groups)
     joins = _new(automatic_values.user_groups, before, after, context.groups)
     profile = after.portage.profile if after.portage.profile != before.portage.profile else ""
-    if not (flags or cards or joins or profile):
+    moved = (
+        after.packages.display_manager != before.packages.display_manager
+        or after.system.networking is not before.system.networking
+    )
+    if not (flags or cards or joins or profile or moved):
         return Answer(Outcome.CHOSE, after)
     translate = context.translate
     lines = []
@@ -1479,6 +1522,12 @@ def settle(
         lines.append(f"VIDEO_CARDS: {' '.join(cards)}")
     if flags:
         lines.append(f"USE: {' '.join(flags)}")
+    if after.packages.display_manager != before.packages.display_manager:
+        lines.append(
+            f"{translate('Display manager')}: {after.packages.display_manager}"
+        )
+    if after.system.networking is not before.system.networking:
+        lines.append(f"{translate('Network')}: {after.system.networking.value}")
     if joins:
         # Not pinned into the account: `AddUserToGroups` derives them from the
         # same catalog at build time, so the account is put in them whether or
@@ -1511,7 +1560,8 @@ def settle(
             )
         )
     asked: Menu[str] = Menu(
-        title=f"{translate('This choice also sets')} — {', '.join(lines)}",
+        title=translate("This choice also sets"),
+        preamble=tuple(lines),
         items=items,
         footer=footer(translate),
         current="yes",
