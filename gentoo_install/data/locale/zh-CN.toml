@@ -466,4 +466,4 @@
 "manual, {count} partitions" = "手动，{count} 个分区"
 "{flags} (stage3 default)" = "{flags}（stage3 默认值）"
 "this machine has no IPv4 and the mirror has no IPv6" = "本机没有 IPv4，而这个镜像没有 IPv6"
-"what the init system already has" = "init 系统内建"
+"builtin" = "init 系统内建"

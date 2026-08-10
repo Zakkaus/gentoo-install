@@ -302,7 +302,9 @@ def _network(config: InstallConfig, context: Context) -> str:
     # describes what the init already has, and untranslated it read as an
     # implementation value in a Chinese interface.
     if config.system.networking is Networking.BUILTIN:
-        return context.translate("what the init system already has")
+        # The key is the English row, so it stays the word Portage and the
+        # init systems use; the catalogs carry the description.
+        return context.translate("builtin")
     named: str = config.system.networking.value
     return named
 
