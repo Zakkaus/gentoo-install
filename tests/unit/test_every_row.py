@@ -258,3 +258,53 @@ def test_reopening_encryption_keeps_the_container_and_its_passphrase() -> None:
         off,
     )
     assert off.choice.passphrase_file == ""
+
+
+#: Rows that answer by flipping rather than by offering a list. Reopening one
+#: and pressing enter flips it again, which is what it is for.
+FLIPPED: frozenset[str] = frozenset({"cron"})
+
+
+def test_no_row_loses_its_value_when_it_is_opened_again() -> None:
+    """Change a row to something other than its first entry, open it again and
+    press enter: the value it shows has to be the one that was chosen.
+
+    Two rows changed a setting the operator only opened to read — `Root login
+    over SSH` widened root's access and `Encryption` removed the container —
+    and six more read their first entry back. Each menu was missing `current`,
+    and no test drove a row twice, so none of them could be seen.
+    """
+    at = context()
+    at.columns = 100
+    base = config(ext4_on_gpt())
+    wrong: list[str] = []
+    walked = 0
+    for row in openable():
+        if row.key in FLIPPED:
+            continue
+        assert row.edit is not None
+        try:
+            first = row.edit(
+                FakeScreen(keys=["KEY_DOWN", "\n", *(["\n"] * 6)], lines=40, columns=100),
+                base,
+                at,
+            )
+        except AssertionError:
+            continue  # A screen enter is not an answer to; `LEAVE` covers those.
+        if first.outcome is not Outcome.CHOSE:
+            continue
+        changed = first.unwrap()
+        chose = row.value(changed, at)
+        if chose == row.value(base, at):
+            continue  # The row has one entry, or the second is what it held.
+        try:
+            again = row.edit(FakeScreen(keys=["\n"] * 8, lines=40, columns=100), changed, at)
+        except AssertionError:
+            continue
+        if again.outcome is not Outcome.CHOSE:
+            continue
+        walked += 1
+        if row.value(again.unwrap(), at) != chose:
+            wrong.append(f"{row.key}: chose {chose!r}, reopened as {row.value(again.unwrap(), at)!r}")
+    assert not wrong, wrong
+    assert walked > 10, walked
