@@ -148,6 +148,17 @@ class SerialConsole:
         self.send(f"{command}; echo MARK_$(({token}+0))_END")
         self.expect(rf"MARK_{token}_END", timeout)
 
+    def expect_command(self, command: str, timeout: float = 120.0) -> bytes:
+        """Run a command and answer with what it printed.
+
+        `run` waits for the marker and discards the reply, which is enough for
+        a step whose only question is whether it finished. A check has to read
+        what the machine said.
+        """
+        token = next(self._tokens)
+        self.send(f"{command}; echo MARK_$(({token}+0))_END")
+        return self.expect(rf"MARK_{token}_END", timeout)
+
     def login(self, user: str, password: str | None, prompt: str) -> None:
         self.expect(r"login:", timeout=300.0)
         self.send(user)
