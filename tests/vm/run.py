@@ -36,7 +36,7 @@ from gentoo_install.model.config import Networking
 from gentoo_install.exec.config import load
 from gentoo_install.plan.system import _network_service as network_service
 
-from .console import PASSWORD_PROMPT, SerialConsole
+from .console import DISK_PASSPHRASE, PASSPHRASE_PROMPT, PASSWORD_PROMPT, SerialConsole
 from .monitor import type_text
 from .driver import REPOSITORY, build as build_driver
 from .media import MEDIA, Medium
@@ -50,10 +50,6 @@ TARGET_SIZE = "40G"
 #: The password in `fixtures/vm-binpkg.toml`, as plain text. It exists so the
 #: harness can log into what it installed; nothing else uses it.
 INSTALLED_PASSWORD = "install"
-
-#: The disk passphrase, which is not the root password: zfs takes at least
-#: eight characters, and a real install does not reuse one for the other.
-DISK_PASSPHRASE = "install-disk"
 
 #: How long SeaBIOS and GRUB take to reach the cryptomount prompt. Measured on
 #: this machine at about twenty seconds; the extra ten is for a loaded host.
@@ -226,11 +222,6 @@ def pin_resolver(console: SerialConsole) -> None:
     """
     console.run("printf 'nameserver 1.1.1.1\\nnameserver 8.8.8.8\\n' > /etc/resolv.conf")
 
-
-#: What GRUB and the initramfs say when they want a passphrase. GRUB asks
-#: because /boot is inside the container, the initramfs asks to open the root:
-#: two prompts for one passphrase unless a keyfile is embedded.
-PASSPHRASE_PROMPT = r"[Ee]nter passphrase|Please enter passphrase|password for"
 
 
 def unlock_and_login(
