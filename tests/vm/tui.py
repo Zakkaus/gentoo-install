@@ -41,19 +41,70 @@ LINES: Final[int] = 24
 #: writes, and reading for less than this catches half of one.
 REDRAW_SECONDS: Final[float] = 2.0
 
-_ANSI: Final[re.Pattern[bytes]] = re.compile(rb"\x1b\[[0-9;?]*[A-Za-z]|\x1b[()][A-B]|\x1b[=>]")
+_CSI: Final[re.Pattern[str]] = re.compile(r"\x1b\[([0-9;?]*)([A-Za-z])")
+_OTHER_ESCAPE: Final[re.Pattern[str]] = re.compile(r"\x1b[()][A-B]|\x1b[=>]|\x1b.")
 
 
 def rendered(said: bytes) -> list[str]:
-    """The lines a screen left, with the escape codes taken out.
+    """The rows a screen holds, replayed into a grid.
 
-    A bare carriage return ends a line too. curses moves the cursor with one
-    between rows, so joining on newlines alone made every screen a single line
-    and the width check reported a 597-cell menu that is 24 rows of at most 80.
+    Taking the escape codes out is not enough. curses draws by moving the
+    cursor, not by ending lines, so stripping the codes ran the whole screen
+    together and the width check reported a 597-cell row that is 24 rows of at
+    most 80. The sequences that move or clear are replayed instead, and what is
+    measured is where each character actually landed.
     """
-    text = _ANSI.sub(b"", said).decode("utf-8", "replace")
-    flattened = text.replace("\r\n", "\n").replace("\r", "\n")
-    return [line.rstrip() for line in flattened.split("\n")]
+    grid: list[list[str]] = [[] for _ in range(LINES)]
+    row = column = 0
+
+    def place(character: str) -> None:
+        nonlocal row, column
+        if not 0 <= row < LINES:
+            return
+        line = grid[row]
+        while len(line) <= column:
+            line.append(" ")
+        line[column] = character
+        column += 1
+
+    text = said.decode("utf-8", "replace")
+    at = 0
+    while at < len(text):
+        found = _CSI.match(text, at)
+        if found:
+            at = found.end()
+            arguments = [one for one in found.group(1).split(";") if one.isdigit()]
+            letter = found.group(2)
+            if letter == "H":
+                # Rows and columns are one-based in the sequence and zero-based
+                # here, and an absent argument means the first.
+                row = (int(arguments[0]) if arguments else 1) - 1
+                column = (int(arguments[1]) if len(arguments) > 1 else 1) - 1
+            elif letter == "J":
+                grid = [[] for _ in range(LINES)]
+                row = column = 0
+            elif letter == "K":
+                if 0 <= row < LINES:
+                    del grid[row][column:]
+            continue
+        found = _OTHER_ESCAPE.match(text, at)
+        if found:
+            at = found.end()
+            continue
+        character = text[at]
+        at += 1
+        if character == "\r":
+            column = 0
+        elif character == "\n":
+            row += 1
+            column = 0
+        elif character == "\b":
+            column = max(0, column - 1)
+        elif character == "\x07":
+            continue
+        else:
+            place(character)
+    return ["".join(line).rstrip() for line in grid]
 
 
 @dataclass

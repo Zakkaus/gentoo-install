@@ -1022,16 +1022,33 @@ def test_the_walk_does_not_escape_out_of_a_row_that_never_opened(
     assert any("opened nothing" in one.what for one in seen.findings), seen.findings
 
 
-def test_a_carriage_return_ends_a_line_the_walk_measures() -> None:
-    """curses moves the cursor between rows with a bare carriage return, so
-    joining on newlines alone made the whole screen one line and the width
-    check reported a 597-cell menu that is 24 rows of at most 80."""
+def test_a_screen_is_replayed_into_a_grid_rather_than_flattened() -> None:
+    """curses draws by moving the cursor, not by ending lines. Stripping the
+    escape codes ran the whole screen together and the width check reported a
+    597-cell row that is 24 rows of at most 80."""
     from tests.vm.tui import cells, rendered
 
-    screen = b"\x1b[H\x1b[Jgentoo-install\r  keyboard  us\r  locale  zh_TW.UTF-8\r"
+    screen = (
+        b"\x1b[2J\x1b[1;1Hgentoo-install"
+        b"\x1b[3;3Hkeyboard  us"
+        b"\x1b[4;3Hlocale  zh_TW.UTF-8"
+    )
     lines = rendered(screen)
-    assert lines[:3] == ["gentoo-install", "  keyboard  us", "  locale  zh_TW.UTF-8"]
+    assert lines[0] == "gentoo-install"
+    assert lines[2] == "  keyboard  us"
+    assert lines[3] == "  locale  zh_TW.UTF-8"
     assert max(cells(one) for one in lines) <= 80
+
+    # A row written past the edge is the finding this walk exists to make, and
+    # flattening hid it among rows that were never that wide.
+    wide = b"\x1b[2J\x1b[1;1H" + b"x" * 96 + b"\x1b[2;1Hshort"
+    drawn = rendered(wide)
+    assert cells(drawn[0]) == 96
+    assert drawn[1] == "short"
+
+    # Erase to end of line clears what a previous screen left behind.
+    stale = b"\x1b[2J\x1b[1;1Hlonger text here\x1b[1;5H\x1b[Kx"
+    assert rendered(stale)[0] == "longx"
 
 
 def test_a_worker_that_answered_and_exited_is_not_reported_twice() -> None:
