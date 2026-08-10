@@ -45,9 +45,15 @@ _ANSI: Final[re.Pattern[bytes]] = re.compile(rb"\x1b\[[0-9;?]*[A-Za-z]|\x1b[()][
 
 
 def rendered(said: bytes) -> list[str]:
-    """The lines a screen left, with the escape codes taken out."""
+    """The lines a screen left, with the escape codes taken out.
+
+    A bare carriage return ends a line too. curses moves the cursor with one
+    between rows, so joining on newlines alone made every screen a single line
+    and the width check reported a 597-cell menu that is 24 rows of at most 80.
+    """
     text = _ANSI.sub(b"", said).decode("utf-8", "replace")
-    return [line.rstrip() for line in text.replace("\r\n", "\n").split("\n")]
+    flattened = text.replace("\r\n", "\n").replace("\r", "\n")
+    return [line.rstrip() for line in flattened.split("\n")]
 
 
 @dataclass
