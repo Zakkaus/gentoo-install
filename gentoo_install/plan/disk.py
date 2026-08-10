@@ -40,7 +40,7 @@ from ..model.device import (
     ZfsTopology,
 )
 from ..model.size import DEFAULT_ALIGNMENT, Size
-from .operations import Context, Operation, Stage
+from .operations import CommandOutput, Context, Operation, Stage
 
 #: GPT type codes as `sgdisk --typecode` spells them.
 TYPE_CODES: Final[dict[PartitionRole, str]] = {
@@ -739,7 +739,14 @@ class UnmountTarget(Operation):
         return f"unmount everything under the target{exported}"
 
     def apply(self, context: Context) -> None:
-        context.run(["umount", "--recursive", "--lazy", str(context.target)])
+        # Plain first, lazy only if that fails. A lazy unmount detaches the
+        # tree and leaves the datasets mounted as far as the kernel is
+        # concerned, so `zpool export` reads `pool is busy` for as long as the
+        # references last and `-f` does not clear it either: Gig-OS failed
+        # every attempt including the forced one.
+        plain = context.run(["umount", "--recursive", str(context.target)], check=False)
+        if not isinstance(plain, CommandOutput) or plain.returncode != 0:
+            context.run(["umount", "--recursive", "--lazy", str(context.target)])
         for pool in self.pools:
             self._export(context, pool)
 
