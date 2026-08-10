@@ -206,6 +206,8 @@ FEDORA = Medium(
     # Without this the live image starts GDM and the serial console never
     # gets a shell.
     extra_cmdline=("systemd.unit=multi-user.target",),
+    # 43 ships without sgdisk; preflight needs it for every GPT layout.
+    prepare=("dnf install -y gdisk",),
 )
 
 OPENSUSE = Medium(
