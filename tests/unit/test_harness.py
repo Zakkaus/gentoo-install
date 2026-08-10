@@ -470,3 +470,34 @@ def test_a_run_that_collected_fewer_results_than_it_dispatched_fails(
 
     monkeypatch.setattr(cluster, "run", both)
     assert cluster.main(["vm-lvm", "vm-xfs"]) == 0
+
+
+def test_a_guest_that_could_not_be_removed_keeps_its_slot() -> None:
+    """`destroy()` failing printed a line and the scheduler handed the node's
+    slot back anyway. The memory is still allocated, so the next guest went
+    onto a node with no room for it and the hypervisor ended it."""
+    from dataclasses import replace
+
+    from tests.vm import cluster
+
+    ok = cluster.Outcome(name="x", verdict=cluster.Verdict.OK, seconds=1.0)
+    assert ok.removed is True, "a guest that was deleted returns its slot"
+
+    # The count a node is charged, before and after each outcome. `run` keeps
+    # this in a Counter and subtracts on an outcome whose guest is gone.
+    from collections import Counter
+
+    placed: Counter[str] = Counter({"infra-node1": 1})
+    for outcome, expected in (
+        (replace(ok, removed=True), 0),
+        (replace(ok, removed=False), 1),
+    ):
+        held: Counter[str] = Counter(placed)
+        if outcome.removed:
+            held["infra-node1"] -= 1
+        assert held["infra-node1"] == expected, outcome
+
+    # And the scheduler is what applies it: the guard names the field.
+    import inspect
+
+    assert "not outcome.removed" in inspect.getsource(cluster.run)

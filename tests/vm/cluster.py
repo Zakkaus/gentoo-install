@@ -173,6 +173,10 @@ class Outcome:
     seconds: float
     detail: str = ""
     log: Path | None = None
+    #: Whether the guest is gone from the cluster. False keeps the node's
+    #: slot held: the memory is still allocated, and handing it back put the
+    #: next guest onto a node that had no room for it.
+    removed: bool = True
 
 
 @dataclass
@@ -467,6 +471,12 @@ class Running:
     watch: Watchdog
 
 
+#: Jobs whose guest could not be removed. A node's memory is still allocated
+#: for one of these, so its slot is not handed back: doing that put the next
+#: guest onto a node with no room and the hypervisor ended it.
+LEFT_BEHIND: set[str] = set()
+
+
 def install_one(
     api: Api,
     node: str,
@@ -562,8 +572,10 @@ def install_one(
             guest.destroy()
         except ProxmoxError as error:
             # Said rather than raised: an undeleted guest holds a node's memory
-            # and the operator has to know, but the result already exists.
+            # and the operator has to know, but the result already exists. The
+            # slot stays held below, because the memory does.
             print(f"{job.name}: the guest was not removed: {error}", file=sys.stderr)
+            LEFT_BEHIND.add(job.name)
 
 
 def answer_once(
@@ -584,7 +596,8 @@ def answer_once(
     with an empty cluster and a job still queued.
     """
     try:
-        done.put(install_one(api, node, job, driver, workdir, inflight, vmid))
+        outcome = install_one(api, node, job, driver, workdir, inflight, vmid)
+        done.put(replace(outcome, removed=outcome.name not in LEFT_BEHIND))
     except BaseException as error:
         done.put(
             Outcome(job.name, Verdict.ERROR, 0.0, f"{type(error).__name__}: {error}"[:300])
@@ -681,6 +694,15 @@ def run(
             finished.append(outcome)
             running.pop(outcome.name, None)
             gone = where.pop(outcome.name, "")
+            if gone and not outcome.removed:
+                # The guest is still on that node holding its memory, so the
+                # slot is not free. Handing it back put the next guest onto a
+                # node with no room for it.
+                print(
+                    f"  {outcome.name} still holds a slot on {gone}",
+                    file=sys.stderr,
+                )
+                gone = ""
             if gone:
                 # The same unit it was taken in, or a node loses a slot for
                 # every heavy guest that finished on it.
