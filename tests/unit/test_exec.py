@@ -1381,3 +1381,101 @@ def test_an_empty_zoneinfo_tree_falls_back_too(tmp_path: Path) -> None:
     assert carried[0] == "UTC"
     assert all("/" in one for one in carried[1:])
     assert len(set(carried)) == len(carried), "no name twice"
+
+
+#: What `mdadm --detail --export` prints for a metadata 1.2 RAID1, captured on
+#: a guest of the official minimal medium on 2026-08-10. Kept whole rather than
+#: trimmed to the one line read: the parser has to find `MD_METADATA` among the
+#: `MD_DEVICE_dev_vda_ROLE` lines that follow it.
+MDADM_EXPORT: str = """MD_LEVEL=raid1
+MD_DEVICES=2
+MD_METADATA=1.2
+MD_UUID=ebc6c76d:09e453bb:dea4ce63:8df2da01
+MD_DEVNAME=sample
+MD_RESHAPE_ACTIVE=False
+MD_NAME=livecd:sample
+MD_DEVICE_dev_vda_ROLE=0
+MD_DEVICE_dev_vda_DEV=/dev/vda
+MD_DEVICE_dev_vdb_ROLE=1
+MD_DEVICE_dev_vdb_DEV=/dev/vdb
+"""
+
+#: What it prints for something that is not an array. The runner merges stderr
+#: into stdout, so this text arrives on stdout; it carries no `MD_METADATA`
+#: line, which is what makes the answer empty.
+MDADM_NOT_AN_ARRAY: str = "mdadm: /dev/vda does not appear to be an md device\n"
+
+
+def _probe_answering(tmp_path: Path, stdout: str, returncode: int) -> Probe:
+    class Answering(Runner):
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            said = stdout if argv[0] == "mdadm" else ""
+            code = returncode if argv[0] == "mdadm" else 0
+            return Result(argv=tuple(argv), returncode=code, stdout=said, stderr="", seconds=0.0)
+
+    return Probe(runner=Answering(log=lambda line: None), work=tmp_path)
+
+
+def test_the_metadata_of_a_real_array_is_read_from_what_mdadm_prints(
+    tmp_path: Path,
+) -> None:
+    """Every test built `Existing(mdraid_metadata="1.2")` by hand, so the parse
+    and the exit-code check had never run. A reused RAID1 esp whose superblock
+    sits at the start meets no compatibility rule when this answers empty, and
+    firmware cannot read such a member."""
+    read = _probe_answering(tmp_path, MDADM_EXPORT, 0)
+    assert read.mdraid_metadata("/dev/md/sample") == "1.2"
+
+    # Not an array: nothing in what it printed names a metadata version.
+    plain = _probe_answering(tmp_path, MDADM_NOT_AN_ARRAY, 1)
+    assert plain.mdraid_metadata("/dev/vda") == ""
+
+
+def test_a_probed_array_reaches_the_rule_that_refuses_it(tmp_path: Path) -> None:
+    """`with_probed_facts` had no test at all, so the graph rebuild between the
+    probe and the validator was unexercised."""
+    from pathlib import PurePosixPath
+
+    from gentoo_install.exec.probe import with_probed_facts
+    from gentoo_install.model import compat
+    from gentoo_install.model.config import DiskConfig
+    from gentoo_install.model.device import (
+        DeviceGraph,
+        DeviceId,
+        Filesystem,
+        FilesystemType,
+        Mountpoint,
+    )
+
+    nodes = [
+        Existing(id=DeviceId("array"), selector="/dev/md/esp", wipe=False),
+        Filesystem(
+            id=DeviceId("espfs"),
+            device=DeviceId("array"),
+            kind=FilesystemType.VFAT,
+            create=False,
+        ),
+        Mountpoint(id=DeviceId("mnt-esp"), source=DeviceId("espfs"), path=PurePosixPath("/efi")),
+    ]
+    before = replace(
+        config(), disk=DiskConfig(graph=DeviceGraph.build(nodes), root=DeviceId("mnt-esp"))
+    )
+    assert not [one.mdraid_metadata for one in before.disk.graph.of_type(Existing) if one.mdraid_metadata]
+
+    after = with_probed_facts(before, _probe_answering(tmp_path, MDADM_EXPORT, 0))
+    said = [one.mdraid_metadata for one in after.disk.graph.of_type(Existing)]
+    assert said == ["1.2"], said
+    assert compat.Trait.ESP_MDRAID_SUPERBLOCK_AT_START in compat.traits_of(after)
+
+    # 1.0 keeps the superblock at the end, which firmware can read past.
+    older = with_probed_facts(
+        before, _probe_answering(tmp_path, MDADM_EXPORT.replace("1.2", "1.0"), 0)
+    )
+    assert compat.Trait.ESP_MDRAID_SUPERBLOCK_AT_START not in compat.traits_of(older)

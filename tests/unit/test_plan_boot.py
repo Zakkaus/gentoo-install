@@ -1038,3 +1038,59 @@ def test_zfsbootmenu_configures_the_pool_the_root_is_on() -> None:
         if isinstance(operation, InstallZfsBootMenu)
     ]
     assert (alone[0].pool, alone[0].dataset) == (installed[0].pool, installed[0].dataset)
+
+
+def test_the_dropbear_port_written_is_the_port_the_configuration_asked_for() -> None:
+    """`render()` calls `describe()` alone, so the golden file fixed the text
+    `port 2222` while nothing ever ran `apply()` with a port other than the
+    default. A `ConfigureRemoteUnlock` that wrote 222 whatever it was given
+    would have passed both, and `vm-unlock` would install an initramfs
+    listening on a port the operator was told to avoid.
+    """
+    from pathlib import Path
+
+    from gentoo_install.exec.config import load
+    from gentoo_install.plan import kernel as plan_kernel
+
+    from .recorder import Recorder
+
+    installation = load(Path("tests/fixtures/vm-unlock.toml"))
+    asked = installation.kernel.remote_unlock.port
+    assert asked != 222, "the fixture has to differ from the default to prove anything"
+
+    recorder = Recorder()
+    ran = 0
+    for operation in plan_kernel.build(installation):
+        if isinstance(operation, plan_kernel.ConfigureRemoteUnlock):
+            operation.apply(recorder)
+            ran += 1
+    assert ran == 1, "the fixture enables remote unlock, so exactly one is planned"
+    written = recorder.files[PurePosixPath("/etc/dracut.conf.d/crypt-ssh.conf")]
+    assert f'dropbear_port="{asked}"' in written, written
+
+
+def test_pinning_a_kernel_version_writes_the_keyword_file_it_describes() -> None:
+    """No fixture sets `kernel.version`, so `AcceptKernelVersion.apply()` had
+    never run: a wrong atom, version, filename or a missing `~amd64` showed
+    the right text in a dry run and stopped a real install after the disks
+    were partitioned, with the pinned kernel still keyword-masked."""
+    from dataclasses import replace as replaced
+
+    from gentoo_install.plan import kernel as plan_kernel
+
+    from .recorder import Recorder
+
+    installation = replaced(config(), kernel=replaced(config().kernel, version="6.12.4"))
+    recorder = Recorder()
+    accepted = [
+        one
+        for one in plan_kernel.build(installation)
+        if isinstance(one, plan_kernel.AcceptKernelVersion)
+    ]
+    assert len(accepted) == 1, accepted
+    accepted[0].apply(recorder)
+    written = recorder.files[
+        PurePosixPath("/etc/portage/package.accept_keywords/kernel-version")
+    ]
+    assert written == f"={accepted[0].package}-6.12.4 ~amd64\n", written
+    assert accepted[0].package.startswith("sys-kernel/"), accepted[0].package
