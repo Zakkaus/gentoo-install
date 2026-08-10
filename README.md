@@ -58,8 +58,9 @@ The menu can save its answers as `my-install.toml` and exit. The configuration-f
 
 ```sh
 ./bootstrap.sh --config my-install.toml --dry-run
+# Then one of the two below. Each writes the selected disks.
 ./bootstrap.sh --config my-install.toml
-./bootstrap.sh --config my-install.toml --no-shell   # suppress the root-shell prompt
+./bootstrap.sh --config my-install.toml --no-shell   # the same run, without the root-shell prompt
 ```
 
 Before unmounting, an interactive run offers a root shell in the target after either success or failure. `--no-shell` suppresses that question.

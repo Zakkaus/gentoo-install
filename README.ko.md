@@ -58,8 +58,9 @@ cd gentoo-install-master
 
 ```sh
 ./bootstrap.sh --config my-install.toml --dry-run
+# 이어서 아래 두 줄 가운데 하나만 실행한다. 둘 다 선택한 디스크에 쓴다.
 ./bootstrap.sh --config my-install.toml
-./bootstrap.sh --config my-install.toml --no-shell   # root 셸을 열지 여부를 묻지 않는다
+./bootstrap.sh --config my-install.toml --no-shell   # 같은 실행이며 root 셸을 묻지 않는다
 ```
 
 대화형 설치에서는 성공하거나 실패한 경우 모두 마운트를 해제하기 전에 대상 시스템 안에서 root 셸을 여는 선택지를 제공한다. `--no-shell`을 사용하면 이 확인을 생략할 수 있다.

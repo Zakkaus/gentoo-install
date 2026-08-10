@@ -58,8 +58,9 @@ cd gentoo-install-master
 
 ```sh
 ./bootstrap.sh --config my-install.toml --dry-run
+# 続いて次のいずれか一方を実行します。どちらも選択したディスクに書き込みます。
 ./bootstrap.sh --config my-install.toml
-./bootstrap.sh --config my-install.toml --no-shell   # root シェルを開くかどうかは確認しません
+./bootstrap.sh --config my-install.toml --no-shell   # 同じ実行で、root シェルの確認をしません
 ```
 
 対話型インストールでは、成功時と失敗時のどちらでも、アンマウント前にターゲットシステム内で root シェルを開く選択肢が提示されます。`--no-shell` を使用すると、この確認を省略できます。

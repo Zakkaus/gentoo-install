@@ -58,8 +58,9 @@ cd gentoo-install-master
 
 ```sh
 ./bootstrap.sh --config my-install.toml --dry-run
+# 接着择一执行下列其中一行。两者都会写入所选磁盘。
 ./bootstrap.sh --config my-install.toml
-./bootstrap.sh --config my-install.toml --no-shell   # 不询问是否打开 root shell
+./bootstrap.sh --config my-install.toml --no-shell   # 同一次安装，不询问是否打开 root shell
 ```
 
 交互式安装无论成功或失败，都会在卸载前提供在目标系统内打开 root shell 的选项。可使用`--no-shell` 跳过这项确认。
