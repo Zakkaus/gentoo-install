@@ -456,3 +456,6 @@
 "one table for both families, and what a new rule set uses" = "両アドレスファミリを 1 つのテーブルで扱う。新規のルールセットはこちら"
 "An SSH server answers the whole network. A firewall is worth installing with it; the Firewall row under Network does that and writes no rules, so the policy stays the operator's." = "SSH サーバーはネットワーク全体から接続を受け付けます。ファイアウォールの併用を推奨します。ネットワーク欄のファイアウォール項目はパッケージを導入するだけで、ルールは書き込みません。方針は運用者が決めます。"
 "Both ship an empty rule set, and the installer writes none: a policy it chose could drop port 22, and a machine reached only over SSH would then need a console to be reached at all." = "どちらも既定のルールセットは空で、インストーラーもルールを書き込みません。インストーラーが決めた方針は 22 番ポートを遮断しうるため、SSH でしか到達できないマシンはコンソールなしでは操作できなくなります。"
+"{count} authorised" = "{count} 件を許可"
+"manual, {count} partitions" = "手動、{count} 個のパーティション"
+"{flags} (stage3 default)" = "{flags}（stage3 の既定値）"

@@ -335,7 +335,12 @@ def _remote_unlock(config: InstallConfig, context: Context) -> str:
 
 def _keys(config: InstallConfig, context: Context) -> str:
     count = len(config.system.authorized_keys)
-    return f"{count} authorised" if count else context.translate("none")
+    if not count:
+        return context.translate("none")
+    # A template through the catalog, so the number stays a number and the
+    # word around it is translated. The whole string was English before, in
+    # the middle of a translated menu.
+    return context.translate("{count} authorised").format(count=count)
 
 
 def _mirror(config: InstallConfig, context: Context) -> str:
@@ -384,7 +389,9 @@ def _reuse_writes_no_table(config: InstallConfig, context: Context) -> str:
 
 def _layout(config: InstallConfig, context: Context) -> str:
     if context.manual:
-        return f"manual, {len(context.layout.slices)} partitions"
+        return context.translate("manual, {count} partitions").format(
+            count=len(context.layout.slices)
+        )
     return context.choice.layout.value
 
 
@@ -496,7 +503,9 @@ def _cflags(config: InstallConfig, context: Context) -> str:
     from ..model.config import PortageConfig
 
     flags = config.portage.common_flags
-    return f"{flags} (stage3 default)" if flags == PortageConfig().common_flags else flags
+    if flags != PortageConfig().common_flags:
+        return flags
+    return context.translate("{flags} (stage3 default)").format(flags=flags)
 
 
 def _extra(config: InstallConfig, context: Context) -> str:
