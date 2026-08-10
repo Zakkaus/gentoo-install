@@ -489,3 +489,41 @@ def test_the_stage3_comes_from_the_mirror_the_operator_chose() -> None:
     # Nothing chosen at all is still the official one, which is the region's
     # first as well as what the flag defaults to.
     assert stage3_mirror(config()) == DEFAULT_MIRROR
+
+
+def test_a_mirror_without_releases_is_never_the_stage3_source() -> None:
+    """`mirror.xtom.com.hk` answers 200 for `releases/amd64/autobuilds/` and
+    404 for the pointer file inside it, and `ftp.twaren.net` answers 403 to
+    this installer's downloader while serving a browser. An install told to
+    use either one stopped with no stage3 at all."""
+    from dataclasses import replace
+
+    from gentoo_install.model import mirrors
+    from gentoo_install.model.config import MirrorConfig, MirrorRegion
+    from gentoo_install.plan.build import stage3_mirror
+
+    from .layouts import config
+
+    for key in ("xtom-hk", "nchc-tw"):
+        site = next(one for one in mirrors.GENTOO_SITES if one.key == key)
+        assert not site.releases, f"{key} is recorded as carrying releases"
+        chosen = replace(
+            config(),
+            portage=replace(
+                config().portage,
+                mirrors=MirrorConfig(region=MirrorRegion.CN, site=key),
+            ),
+        )
+        assert stage3_mirror(chosen) != site.distfiles
+        assert stage3_mirror(chosen).startswith("https://"), key
+
+
+def test_every_offered_region_resolves_a_stage3_source() -> None:
+    """A region whose sites all lacked `releases/` would fall through to a
+    fallback nobody chose."""
+    from gentoo_install.model import mirrors
+    from gentoo_install.model.config import MirrorRegion
+
+    for region in MirrorRegion:
+        carrying = [one for one in mirrors.gentoo_sites(region) if one.releases]
+        assert carrying, region
