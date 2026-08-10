@@ -1405,22 +1405,29 @@ def settle(
         lines.append(f"{translate('Extra groups')}: {' '.join(joins)}")
     if profile:
         lines.append(f"{translate('Profile')}: {profile}")
-    # Three answers rather than two. The row the values land on is somewhere
-    # else in the menu, and an operator who wants to look at them now would
-    # otherwise have to leave, find it, and remember what they were checking.
-    where = use_flags_screen if flags else video_cards_screen
+    # A third answer only when there is something to open. The row is derived
+    # from what actually changed: with a profile and no flags it offered `Yes,
+    # and open VIDEO_CARDS`, which edits a value this choice did not touch.
+    where = use_flags_screen if flags else video_cards_screen if cards else None
     named = translate("USE flags") if flags else translate("VIDEO_CARDS")
-    asked: Menu[str] = Menu(
-        title=f"{translate('This choice also sets')} — {', '.join(lines)}",
-        items=[
-            Item(label=translate("No"), value="no"),
-            Item(label=translate("Yes"), value="yes"),
+    items = [
+        Item(label=translate("No"), value="no"),
+        Item(label=translate("Yes"), value="yes"),
+    ]
+    if where is not None:
+        # The row the values land on is somewhere else in the menu, and an
+        # operator who wants to look at them now would otherwise have to leave,
+        # find it, and remember what they were checking.
+        items.append(
             Item(
                 label=f"{translate('Yes, and open')} {named}",
                 value="open",
                 detail=translate("editable"),
-            ),
-        ],
+            )
+        )
+    asked: Menu[str] = Menu(
+        title=f"{translate('This choice also sets')} — {', '.join(lines)}",
+        items=items,
         footer=footer(translate),
     )
     answered = asked.run(screen)
@@ -1434,10 +1441,15 @@ def settle(
             video_cards=(*after.portage.video_cards, *cards),
         ),
     )
-    if answered.unwrap()[0] == "open":
+    if answered.unwrap()[0] == "open" and where is not None:
         opened = where(screen, pinned, context)
         if opened.chosen:
             return Answer(Outcome.CHOSE, opened.unwrap())
+        if opened.outcome is Outcome.CANCELLED:
+            # Cancelling reaches the application's leave confirmation. Reading
+            # it as `keep what was pinned` committed a desktop and a profile
+            # the operator had just refused.
+            return Answer(Outcome.CANCELLED)
     return Answer(Outcome.CHOSE, pinned)
 
 
