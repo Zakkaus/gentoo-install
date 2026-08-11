@@ -1524,6 +1524,252 @@ def test_a_create_conflict_never_cleans_up_the_conflicting_vmid() -> None:
     assert api.asked == [("POST", "/nodes/infra-node1/qemu")]
 
 
+def test_two_campaigns_reserve_distinct_vmids_before_dispatch(tmp_path: Path) -> None:
+    """Both campaigns first read 9300 as free; only its creator dispatches it."""
+    import threading
+
+    from tests.vm.cluster import Job, _read_lease, _reserve_job
+
+    barrier = threading.Barrier(2)
+    lock = threading.Lock()
+    owners: dict[int, str] = {}
+    attempted: dict[str, list[int]] = {"first": [], "second": []}
+
+    class Campaign(Api):
+        def __init__(self, name: str) -> None:
+            self.name = name
+            self.probes = 0
+            self.controls: list[str] = []
+
+        def free_vmid(self, held: frozenset[int] = frozenset()) -> int:
+            with lock:
+                candidate = next(
+                    vmid
+                    for vmid in range(9300, 9400)
+                    if vmid not in owners and vmid not in held
+                )
+                self.probes += 1
+                first_probe = self.probes == 1
+            if first_probe:
+                barrier.wait()
+            return candidate
+
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            if method == "POST" and path.endswith("/qemu"):
+                vmid = int(form["vmid"])
+                attempted[self.name].append(vmid)
+                with lock:
+                    if vmid in owners:
+                        raise ProxmoxError(f"VM {vmid} already exists")
+                    owners[vmid] = self.name
+                return f"UPID:{self.name}"
+            self.controls.append(f"{method} {path}")
+            raise AssertionError(f"unexpected cluster operation: {method} {path}")
+
+        def wait(self, node: str, upid: str, patience: float = 1800.0) -> None:
+            return None
+
+    jobs: dict[str, Job] = {}
+
+    def reserve(name: str) -> None:
+        api = Campaign(name)
+        jobs[name] = _reserve_job(
+            api,
+            "infra-node1",
+            Job(name=name, fixture=tmp_path / f"{name}.toml", iso="minimal.iso"),
+            "driver.iso",
+            tmp_path / name,
+            frozenset(),
+        )
+        assert api.controls == []
+
+    threads = [threading.Thread(target=reserve, args=(name,)) for name in attempted]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert set(jobs) == set(attempted)
+    assert {job.vmid for job in jobs.values()} == {9300, 9301}
+    winner = owners[9300]
+    loser = next(name for name in attempted if name != winner)
+    assert attempted[winner] == [9300]
+    assert attempted[loser] == [9300, 9301]
+    assert jobs[winner].vmid == 9300
+    assert jobs[loser].vmid == 9301
+    for job in jobs.values():
+        assert job.execution is not None
+        guest = cast(Guest, job.execution.guest)
+        assert job.execution.created
+        assert (job.node, job.vmid) == (guest.node, guest.vmid)
+        assert job.lease is not None
+        lease = _read_lease(job.lease)
+        assert lease is not None
+        assert (lease.node, lease.vmid, lease.nonce) == (
+            guest.node,
+            guest.vmid,
+            guest.spec.nonce,
+        )
+
+
+def test_a_reserved_guest_is_not_created_twice_and_is_still_cleaned_up(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.vm.cluster import Job, Running, Watchdog, install_one
+
+    class Recording(Api):
+        def __init__(self) -> None:
+            self.creates = 0
+
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            if method == "POST" and path.endswith("/qemu"):
+                self.creates += 1
+                return "UPID:created"
+            raise AssertionError(f"unexpected cluster operation: {method} {path}")
+
+        def wait(self, node: str, upid: str, patience: float = 1800.0) -> None:
+            return None
+
+    api = Recording()
+    guest = Guest(
+        api,
+        "infra-node1",
+        9300,
+        GuestSpec(name="reserved", iso="minimal.iso", nonce="gi-reserved"),
+    )
+    guest.create()
+    removed: list[int] = []
+
+    def fail_start() -> None:
+        raise ProxmoxError("start failed")
+
+    def destroy() -> None:
+        removed.append(guest.vmid)
+
+    monkeypatch.setattr(guest, "start", fail_start)
+    monkeypatch.setattr(guest, "destroy", destroy)
+    log = tmp_path / "reserved.log"
+    execution = Running(guest, Watchdog(log=log, counters=lambda: 0), created=True)
+    outcome = install_one(
+        api,
+        guest.node,
+        Job(name="reserved", fixture=tmp_path / "reserved.toml", iso="minimal.iso"),
+        "driver.iso",
+        tmp_path,
+        execution=execution,
+    )
+
+    assert outcome.detail == "start failed"
+    assert api.creates == 1
+    assert removed == [9300]
+
+
+def test_an_ordinary_reservation_failure_is_immediate_and_writes_no_lease(
+    tmp_path: Path,
+) -> None:
+    from tests.vm.cluster import Job, _reserve_job
+
+    class Full(Api):
+        def __init__(self) -> None:
+            self.creates = 0
+
+        def free_vmid(self, held: frozenset[int] = frozenset()) -> int:
+            return 9300
+
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            self.creates += 1
+            raise ProxmoxError("no space left on device")
+
+    api = Full()
+    with pytest.raises(ProxmoxError, match="no space"):
+        _reserve_job(
+            api,
+            "infra-node1",
+            Job(name="full", fixture=tmp_path / "full.toml", iso="minimal.iso"),
+            "driver.iso",
+            tmp_path,
+            frozenset(),
+        )
+
+    assert api.creates == 1
+    assert not (tmp_path / "leases").exists()
+
+
+def test_reservation_bookkeeping_failure_removes_the_created_guest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.vm import cluster
+    from tests.vm.cluster import Job, _reserve_job
+
+    class Recording(Api):
+        def __init__(self) -> None:
+            self.creates = 0
+
+        def free_vmid(self, held: frozenset[int] = frozenset()) -> int:
+            return 9300
+
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            self.creates += 1
+            return "UPID:created"
+
+        def wait(self, node: str, upid: str, patience: float = 1800.0) -> None:
+            return None
+
+    removed: list[int] = []
+    monkeypatch.setattr(
+        Guest, "destroy", lambda guest: removed.append(guest.vmid)
+    )
+
+    def fail_lease(workdir: Path, lease: object) -> Path:
+        raise OSError("lease storage is read-only")
+
+    monkeypatch.setattr(cluster, "_write_lease", fail_lease)
+    api = Recording()
+    with pytest.raises(OSError, match="read-only"):
+        _reserve_job(
+            api,
+            "infra-node1",
+            Job(name="lease", fixture=tmp_path / "lease.toml", iso="minimal.iso"),
+            "driver.iso",
+            tmp_path,
+            frozenset(),
+        )
+
+    assert api.creates == 1
+    assert removed == [9300]
+
+
+def test_create_conflict_reservations_refresh_until_the_attempt_bound(
+    tmp_path: Path,
+) -> None:
+    from tests.vm.cluster import RESERVATION_TRIES, Job, _reserve_job
+
+    class Conflicting(Api):
+        def __init__(self) -> None:
+            self.candidates: list[int] = []
+
+        def free_vmid(self, held: frozenset[int] = frozenset()) -> int:
+            return next(vmid for vmid in range(9300, 9400) if vmid not in held)
+
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            self.candidates.append(int(form["vmid"]))
+            raise ProxmoxError(f"VM {form['vmid']} already exists")
+
+    api = Conflicting()
+    with pytest.raises(CreateConflict):
+        _reserve_job(
+            api,
+            "infra-node1",
+            Job(name="busy", fixture=tmp_path / "busy.toml", iso="minimal.iso"),
+            "driver.iso",
+            tmp_path,
+            frozenset(),
+        )
+
+    assert api.candidates == list(range(9300, 9300 + RESERVATION_TRIES))
+    assert not (tmp_path / "leases").exists()
+
+
 def test_transient_task_status_failures_do_not_abort_a_completed_task(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

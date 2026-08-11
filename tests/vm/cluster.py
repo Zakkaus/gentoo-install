@@ -62,6 +62,7 @@ from .driver import build as build_driver, digest as driver_digest, remote_name
 from .monitor import keys_for
 from .proxmox import (
     Api,
+    CreateConflict,
     Guest,
     GuestSpec,
     Node,
@@ -188,6 +189,10 @@ BOOT_PATIENCE: Final[float] = 600.0
 
 #: A cluster with no room must produce a result rather than poll for ever.
 CAPACITY_PATIENCE: Final[float] = 120.0
+
+#: A conflict refreshes cluster allocation before another create. The bound
+#: prevents a busy VMID range from holding the scheduler indefinitely.
+RESERVATION_TRIES: Final[int] = 4
 
 
 class Verdict(Enum):
@@ -981,6 +986,7 @@ class Running:
 
     guest: Stoppable
     watch: Watchdog
+    created: bool = False
 
 
 def _execution(
@@ -1011,6 +1017,56 @@ def _execution(
     return Running(guest, Watchdog(log=log, counters=lambda: guest.transferred()))
 
 
+def _reserve_job(
+    api: Api,
+    node: str,
+    job: Job,
+    driver: str,
+    workdir: Path,
+    held_vmids: frozenset[int],
+) -> Job:
+    """Create a cluster guest before recording its lease and dispatch."""
+    excluded = set(held_vmids)
+    nonce = f"gi-{uuid.uuid4().hex[:12]}"
+    conflict: CreateConflict | None = None
+    for _ in range(RESERVATION_TRIES):
+        vmid = api.free_vmid(frozenset(excluded))
+        execution = _execution(api, node, job, driver, workdir, vmid, nonce)
+        guest = cast(Guest, execution.guest)
+        try:
+            guest.create()
+        except CreateConflict as error:
+            excluded.add(vmid)
+            conflict = error
+            continue
+        execution.created = True
+        lease: Path | None = None
+        try:
+            lease = _write_lease(
+                workdir, Lease(guest.node, guest.vmid, guest.spec.nonce, os.getpid())
+            )
+            return job.dispatch(
+                guest.node,
+                guest.vmid,
+                lease,
+                execution.watch.log,
+                execution,
+            )
+        except Exception as error:
+            if lease is not None:
+                lease.unlink(missing_ok=True)
+            try:
+                guest.destroy()
+            except ProxmoxError as cleanup:
+                raise ProxmoxError(
+                    f"reservation bookkeeping failed: {error}; "
+                    f"VM {guest.vmid} was not removed: {cleanup}"
+                ) from error
+            raise
+    assert conflict is not None
+    raise conflict
+
+
 def install_one(
     api: Api,
     node: str,
@@ -1037,7 +1093,8 @@ def install_one(
     if inflight is not None:
         inflight[job.name] = held
     try:
-        guest.create()
+        if not held.created:
+            guest.create()
         guest.start()
         phase = Phase.BOOT_LIVE
         log.write_text(f"installer revision: {revision}\n")
@@ -1294,21 +1351,20 @@ def run(
                     for one in scheduled.values()
                     if one.holds_resources and one.vmid
                 )
-                vmid = api.free_vmid(held_vmids)
-                nonce = f"gi-{uuid.uuid4().hex[:12]}"
-                lease = _write_lease(
-                    workdir, Lease(node.name, vmid, nonce, os.getpid())
-                )
-                execution = _execution(
-                    api, node.name, job, driver, workdir, vmid, nonce
-                )
-                job = job.dispatch(
+                job = _reserve_job(
+                    api,
                     node.name,
-                    vmid,
-                    lease,
-                    execution.watch.log,
-                    execution,
+                    job,
+                    driver,
+                    workdir,
+                    held_vmids,
                 )
+                execution = job.execution
+                if execution is None:
+                    raise ProxmoxError(f"{job.name} has no reserved guest")
+                guest = cast(Guest, execution.guest)
+                vmid = guest.vmid
+                nonce = guest.spec.nonce
                 thread = threading.Thread(
                     target=answer_once,
                     args=(
@@ -1343,6 +1399,14 @@ def run(
                     failed = job.worker_failed(revision)
                     if failed.outcome is None:
                         raise ProxmoxError(f"{job.name} failed without an outcome")
+                    if job.execution is None:
+                        failed.outcome.removed = False
+                    else:
+                        try:
+                            job.execution.guest.destroy()
+                        except ProxmoxError as error:
+                            failed.outcome.removed = False
+                            failed.outcome.detail += f"; the guest was not removed: {error}"
                     done.put(failed.outcome)
                 if unanswered:
                     continue
