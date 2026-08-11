@@ -166,6 +166,7 @@ def validate(
         *_array_problems(config),
         *_network_problems(config, address_facts.system),
         *_unlock_problems(config, address_facts.remote_unlock),
+        *_locale_problems(config),
         *_l10n_problems(config),
         *(rule.describe() for rule in compat.violations(config)),
     ]
@@ -228,6 +229,13 @@ def _l10n_problems(config: InstallConfig) -> list[str]:
         for tag in config.portage.l10n
         if _L10N_TAG.fullmatch(tag) is None
     ]
+
+
+def _locale_problems(config: InstallConfig) -> list[str]:
+    selected = config.system.locale
+    if selected and selected not in config.system.locales:
+        return [f"system.locale is {selected!r}, which system.locales must include"]
+    return []
 
 
 def _pool_problems(config: InstallConfig) -> list[str]:
