@@ -52,6 +52,17 @@ EFI_PACKAGE: Final[str] = "sys-boot/efibootmgr"
 ZBM_DIRECTORY: Final[str] = "EFI/zbm"
 FALLBACK_IMAGE: Final[str] = "EFI/BOOT/BOOTX64.EFI"
 
+#: ZFSBootMenu's dracut tree is separate from the installed system's tree.
+ZBM_REMOTE_CONFIG: Final[PurePosixPath] = PurePosixPath(
+    "/etc/zfsbootmenu/dracut.conf.d/dropbear.conf"
+)
+ZBM_NETWORK_CONFIG: Final[PurePosixPath] = PurePosixPath(
+    "/etc/cmdline.d/dracut-network.conf"
+)
+ZBM_KEY_DIRECTORY: Final[PurePosixPath] = PurePosixPath("/etc/dropbear")
+ZBM_AUTHORIZED_KEYS: Final[PurePosixPath] = ZBM_KEY_DIRECTORY / "root_key"
+ZBM_HOST_KEY_TYPES: Final[tuple[str, ...]] = ("rsa", "ecdsa", "ed25519")
+
 
 @dataclass(frozen=True, kw_only=True)
 class InstallGrub(Operation):
@@ -208,6 +219,67 @@ class GenerateHostId(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
+class ConfigureZfsBootMenuRemoteAccess(Operation):
+    """Files and dedicated keys embedded by ZFSBootMenu's dracut build."""
+
+    stage: Stage = Stage.BOOTLOADER
+    unlock: RemoteUnlock
+    authorized_keys: tuple[str, ...]
+
+    def describe(self) -> str:
+        return (
+            f"write {ZBM_REMOTE_CONFIG} and {ZBM_NETWORK_CONFIG}, authorise keys at "
+            f"{ZBM_AUTHORIZED_KEYS}, and generate dedicated host keys under {ZBM_KEY_DIRECTORY}"
+        )
+
+    def apply(self, context: Context) -> None:
+        context.write(
+            ZBM_AUTHORIZED_KEYS,
+            "".join(f"{key}\n" for key in self.authorized_keys),
+            mode=0o600,
+        )
+        for keytype in ZBM_HOST_KEY_TYPES:
+            key = ZBM_KEY_DIRECTORY / f"ssh_host_{keytype}_key"
+            if context.read(key):
+                continue
+            # PEM lets dracut-crypt-ssh convert dedicated keys without copying
+            # the installed system's private host identity into the EFI image.
+            context.run_in_target(
+                [
+                    "ssh-keygen",
+                    "-q",
+                    "-g",
+                    "-N",
+                    "",
+                    "-m",
+                    "PEM",
+                    "-t",
+                    keytype,
+                    "-f",
+                    str(key),
+                ]
+            )
+        context.write(
+            ZBM_NETWORK_CONFIG,
+            f"ip={_ip_parameter(self.unlock)} rd.neednet=1\n",
+        )
+        context.write(
+            ZBM_REMOTE_CONFIG,
+            "".join(
+                f"{line}\n"
+                for line in (
+                    'add_dracutmodules+=" crypt-ssh "',
+                    f'install_optional_items+=" {ZBM_NETWORK_CONFIG} "',
+                    f'dropbear_port="{self.unlock.port}"',
+                    f"dropbear_rsa_key={ZBM_KEY_DIRECTORY}/ssh_host_rsa_key",
+                    f"dropbear_ecdsa_key={ZBM_KEY_DIRECTORY}/ssh_host_ecdsa_key",
+                    f"dropbear_acl={ZBM_AUTHORIZED_KEYS}",
+                )
+            ),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
 class InstallZfsBootMenu(Operation):
     """No `zpool.cache`: the boot path is hostid plus an import scan, which
     survives the pool being seen under a different device path."""
@@ -348,12 +420,21 @@ def build(config: InstallConfig) -> list[Operation]:
                 packages=(BOOTCTL_PACKAGE[config.system.init],),
                 summary="install the EFI stub generate-zbm builds around",
             ),
+        ]
+        if config.kernel.remote_unlock.enabled:
+            operations.append(
+                ConfigureZfsBootMenuRemoteAccess(
+                    unlock=config.kernel.remote_unlock,
+                    authorized_keys=config.system.authorized_keys,
+                )
+            )
+        operations += [
             InstallZfsBootMenu(
                 pool=pool,
                 dataset=dataset,
                 esp=esp,
                 esp_device=esp_device,
-                kernel_params=(*unlock_parameters(config), *config.bootloader.kernel_params),
+                kernel_params=config.bootloader.kernel_params,
                 serial=serial_console(config),
             ),
         ]
