@@ -1468,6 +1468,7 @@ RECONNECT_TRIES: Final[int] = 4
 #: before the command had run. `printf` assembles them in the guest instead.
 _BEGIN_TEXT: Final[str] = "MARK_{token}_BEGIN"
 _DONE_TEXT: Final[str] = "MARK_{token}_DONE"
+_LIVE_PROMPT: Final[str] = "root@livecd ~ # "
 
 
 _Result = TypeVar("_Result")
@@ -1546,6 +1547,10 @@ class Reconnecting:
         Reconnecting does not re-send it: an install that is already running
         would be started a second time on a target it has half written.
 
+        The original console requires the done marker because its buffered
+        command echo starts at a shell prompt. After a reconnect, `reopen`
+        requests a fresh prompt, which also proves that the command returned.
+
         `idle` is measured from the last byte the guest sent. An install that
         prints for three hours is working and a single ceiling ends it anyway.
         """
@@ -1554,12 +1559,16 @@ class Reconnecting:
 
         def wait_once(deadline: float) -> None:
             nonlocal sent
+            after_reconnect = sent
             if not sent:
                 sent = True
                 self.console.send(_marked(command, token))
+            completion = _done(token)
+            if after_reconnect:
+                completion = rf"{completion}|{re.escape(_LIVE_PROMPT)}"
             while True:
                 try:
-                    self.console.expect(_done(token), _remaining(deadline), idle=idle)
+                    self.console.expect(completion, _remaining(deadline), idle=idle)
                     return
                 except ConsoleIdle as error:
                     if watch is None:
