@@ -89,16 +89,43 @@ class _ProfilesNotRead:
 _PROFILES_NOT_READ: Final[_ProfilesNotRead] = _ProfilesNotRead()
 
 
+class KernelCeiling(str):
+    """A read kernel ceiling, with unknown kept distinct from no ceiling."""
+
+    maximum: str | None
+
+    def __new__(cls, maximum: str | None) -> KernelCeiling:
+        normalised = maximum.strip() if maximum else None
+        if normalised is not None and re.fullmatch(r"\d+(?:\.\d+)+", normalised) is None:
+            normalised = None
+        ceiling = super().__new__(cls, normalised or "unknown")
+        ceiling.maximum = normalised
+        return ceiling
+
+
+class _ZfsKernelCeilingNotChecked:
+    pass
+
+
+_ZFS_KERNEL_CEILING_NOT_CHECKED: Final[_ZfsKernelCeilingNotChecked] = (
+    _ZfsKernelCeilingNotChecked()
+)
+
+
 def validate(
     config: InstallConfig,
     *,
     available_profiles: Collection[str] | None | _ProfilesNotRead = _PROFILES_NOT_READ,
+    zfs_kernel_max: str | None | _ZfsKernelCeilingNotChecked = (
+        _ZFS_KERNEL_CEILING_NOT_CHECKED
+    ),
 ) -> None:
     problems = [
         *_layout_problems(config),
         *root_size_problems(config),
         *_profile_problems(config),
         *_repository_profile_problems(config.portage.profile, available_profiles),
+        *_zfs_kernel_problems(config, zfs_kernel_max),
         *_kernel_package_problems(config),
         *_reuse_problems(config),
         *_pool_problems(config),
@@ -112,6 +139,53 @@ def validate(
         raise ValidationFailed(
             "the configuration does not describe an installable system:\n  " + "\n  ".join(problems)
         )
+
+
+def _zfs_kernel_problems(
+    config: InstallConfig,
+    ceiling: str | None | _ZfsKernelCeilingNotChecked,
+) -> list[str]:
+    """Refuse a ZFS root unless its selected kernel fits a read ceiling."""
+    if isinstance(ceiling, _ZfsKernelCeilingNotChecked):
+        return []
+    if not config.disk.graph.of_type(ZfsPool):
+        return []
+    unknown = [
+        "the sys-fs/zfs kernel ceiling could not be read, so this ZFS install "
+        "cannot establish that its kernel will build the module"
+    ]
+    maximum = ceiling.maximum if isinstance(ceiling, KernelCeiling) else ceiling
+    if maximum is None or not maximum.strip():
+        return unknown
+    version = config.kernel.version
+    if not version:
+        return [
+            f"the kernel is not pinned under the sys-fs/zfs ceiling {maximum}, so Portage "
+            "could select an unsupported version"
+        ]
+    limit = _numeric_version(maximum)
+    if not limit:
+        return unknown
+    selected = _numeric_version(version)
+    if not selected:
+        return [f"kernel version {version!r} cannot be compared with the sys-fs/zfs ceiling"]
+    if selected[: len(limit)] > limit:
+        return [
+            f"kernel {version} is above the sys-fs/zfs ceiling {maximum}, so its ZFS "
+            "module will not build"
+        ]
+    return []
+
+
+def _numeric_version(version: str) -> tuple[int, ...]:
+    """Numeric prefix components used by kernel and module version metadata."""
+    found: list[int] = []
+    for component in version.split("."):
+        matched = re.match(r"\d+", component)
+        if matched is None:
+            break
+        found.append(int(matched.group()))
+    return tuple(found)
 
 
 def _l10n_problems(config: InstallConfig) -> list[str]:

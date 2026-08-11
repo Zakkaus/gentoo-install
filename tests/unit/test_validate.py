@@ -514,3 +514,45 @@ def test_the_last_partition_may_still_take_the_rest_of_the_disk() -> None:
     """Every shipped layout does this, and it is the point of the rule that
     only the last one may."""
     validate(config(ext4_on_gpt()))
+
+
+from gentoo_install.model.config import Bootloader, InitSystem, InstallConfig, Overlay
+def test_an_unknown_zfs_kernel_ceiling_refuses_the_run() -> None:
+    with pytest.raises(ValidationFailed, match="sys-fs/zfs kernel ceiling could not be read"):
+        validate(config(zfs_root()), zfs_kernel_max=None)
+
+
+def test_a_zfs_kernel_ceiling_refuses_above_and_accepts_below() -> None:
+    base = config(zfs_root())
+    installation = replace(
+        base,
+        bootloader=replace(base.bootloader, kind=Bootloader.ZFSBOOTMENU),
+        portage=replace(
+            base.portage,
+            overlays=(
+                Overlay(
+                    name="gentoo-zh",
+                    sync_uri="https://example.invalid/gentoo-zh.git",
+                ),
+            ),
+        ),
+    )
+    above = replace(
+        installation,
+        kernel=replace(installation.kernel, version="7.1.2"),
+    )
+    below = replace(
+        installation,
+        kernel=replace(installation.kernel, version="6.12.58"),
+    )
+    same_minor = replace(
+        installation,
+        kernel=replace(installation.kernel, version="7.0.1"),
+    )
+
+    with pytest.raises(ValidationFailed, match="7.1.2 is above the sys-fs/zfs ceiling 7.0"):
+        validate(above, zfs_kernel_max="7.0")
+    validate(below, zfs_kernel_max="7.0")
+    validate(same_minor, zfs_kernel_max="7.0")
+
+
