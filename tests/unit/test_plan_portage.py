@@ -4,7 +4,7 @@ import pytest
 
 from dataclasses import replace
 from pathlib import PurePosixPath
-from typing import Any
+from typing import Any, Sequence
 
 from gentoo_install.model.config import (
     Binhost,
@@ -636,28 +636,44 @@ def test_the_stage3_matches_the_profile_and_not_only_the_init_system() -> None:
         assert variant_of(installation) == variant, profile
 
 
-def test_the_first_snapshot_is_verified_against_a_reachable_keyserver() -> None:
+def test_the_first_snapshot_falls_through_to_a_keyserver_that_answers() -> None:
     """`emerge-webrsync` verifies the snapshot with gemato, which refreshes the
-    release key first. Its default keyserver answers nothing on some networks:
-    a cluster guest resolved `keys.gentoo.org` to 85.143.112.91 and then got
-    no connection at all, so every install stopped at `gpg: keyserver refresh
-    failed: No keyserver available` before a single package was merged.
+    release key first, so one keyserver is one way for the whole install to
+    stop. Two networks broke it in opposite directions: a cluster guest
+    resolved `keys.gentoo.org` to 85.143.112.91 and reached nothing, and
+    `keys.openpgp.org`, put there to answer that, serves the key with its user
+    IDs stripped, which gemato reports as a failed refresh and which then
+    refuses the snapshot as unsigned.
 
     The key and the signature are unchanged; only where the refresh reads the
     key from moves, so this is not a weakening of the check.
     """
+    from gentoo_install.errors import CommandFailed
     from gentoo_install.plan import portage as plan_portage
 
     from .recorder import Recorder
 
-    recorder = Recorder()
+    servers = plan_portage.KEY_SERVERS
+    assert servers[0] == "hkps://keys.gentoo.org", servers
+    assert all(one.startswith("hkps://") for one in servers), servers
+    # It answers, and it answers with a key gemato refuses.
+    assert not any("keys.openpgp.org" in one for one in servers), servers
+
+    class Refusing(Recorder):
+        """A keyserver that answers nothing, the way the first one did."""
+
+        refuse: str = servers[0]
+
+        def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
+            if any(self.refuse in one for one in argv):
+                raise CommandFailed(f"{self.refuse} exited 1")
+            return super().run_in_target(argv, check=check)
+
+    recorder = Refusing()
     plan_portage.WebrsyncRepository().apply(recorder)
     ran = recorder.in_target[-1]
     assert ran[-1] == "emerge-webrsync", ran
-    assert f"PORTAGE_GPG_KEY_SERVER={plan_portage.KEY_SERVER}" in ran, ran
-    assert plan_portage.KEY_SERVER.startswith("hkps://"), plan_portage.KEY_SERVER
-    # Not the default: naming the same one it already uses fixes nothing.
-    assert "keys.gentoo.org" not in plan_portage.KEY_SERVER
+    assert f"PORTAGE_GPG_KEY_SERVER={servers[1]}" in ran, ran
 
 
 def test_a_pinned_package_reaches_usepkg_exclude_without_its_version() -> None:

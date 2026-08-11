@@ -249,12 +249,16 @@ class ConfigureRepository(Operation):
         )
 
 
-#: Where gemato refreshes the release key from before it checks the snapshot
-#: signature. Not the default `keys.gentoo.org`: a guest on the Proxmox
-#: cluster resolved it to 85.143.112.91 and then reached nothing there, while
-#: `keys.openpgp.org` answered 200 and serves the same key by fingerprint.
-#: The key and the signature are unchanged; only the refresh moves.
-KEY_SERVER: Final[str] = "hkps://keys.openpgp.org"
+#: Where gemato refreshes the release key from, tried in this order. Gentoo's
+#: own server is first because it is what Portage ships; a guest that cannot
+#: reach it falls through rather than stopping at `No keyserver available`.
+#: `keys.openpgp.org` is not here: it serves a key stripped of its user IDs
+#: unless the address behind them was confirmed, gemato reads that as a failed
+#: refresh, and the snapshot is then refused as unsigned.
+KEY_SERVERS: Final[tuple[str, ...]] = (
+    "hkps://keys.gentoo.org",
+    "hkps://keyserver.ubuntu.com",
+)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -269,15 +273,20 @@ class WebrsyncRepository(Operation):
 
     def apply(self, context: Context) -> None:
         # `emerge-webrsync` verifies the snapshot with gemato, which refreshes
-        # the release key before checking the signature. Its default keyserver
-        # is unreachable on some networks: a cluster guest resolved
-        # `keys.gentoo.org` to 85.143.112.91 and then got nothing from it,
-        # so every install stopped at `No keyserver available`. Pointing the
-        # refresh at a keyserver that answers changes where the same key comes
-        # from and verifies exactly as before.
-        context.run_in_target(
-            ["env", f"PORTAGE_GPG_KEY_SERVER={KEY_SERVER}", "emerge-webrsync"]
-        )
+        # the release key first, and a refresh that fails fails the sync. One
+        # keyserver is one way for the whole install to stop, so each is tried
+        # and only the last one's failure is raised.
+        last: CommandFailed | None = None
+        for server in KEY_SERVERS:
+            try:
+                context.run_in_target(
+                    ["env", f"PORTAGE_GPG_KEY_SERVER={server}", "emerge-webrsync"]
+                )
+                return
+            except CommandFailed as failed:
+                last = failed
+        assert last is not None
+        raise last
 
 
 #: How many times a repository sync is attempted, and how long between them.
