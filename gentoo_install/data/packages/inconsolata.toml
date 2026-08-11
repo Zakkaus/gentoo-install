@@ -1,0 +1,5 @@
+# Fontconfig's Latin family lists name the installed family Inconsolata.
+packages = ["media-fonts/inconsolata"]
+label = "Inconsolata"
+font_family = "Inconsolata"
+font_category = "monospace"

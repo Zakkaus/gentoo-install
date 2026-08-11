@@ -1,0 +1,6 @@
+# The base USE flag selects the family named by the ebuild's variant table.
+packages = ["media-fonts/iosevka"]
+label = "Iosevka"
+font_family = "Iosevka"
+font_category = "monospace"
+package_use = ["media-fonts/iosevka iosevka"]

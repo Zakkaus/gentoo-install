@@ -7,27 +7,61 @@ from enum import Enum
 from pathlib import PurePosixPath
 from typing import Final
 
+from ..errors import ConfigError
 from ..model.config import InstallConfig
 from . import packages
 from .operations import Context, Operation, Stage
 
 
 class CjkFontconfigLocale(Enum):
-    ZH_CN = ("zh_CN", "zh-cn", "Noto Sans CJK SC")
-    ZH_TW = ("zh_TW", "zh-tw", "Noto Sans CJK TC")
-    ZH_HK = ("zh_HK", "zh-hk", "Noto Sans CJK HK")
-    JA_JP = ("ja_JP", "ja", "Noto Sans CJK JP")
-    KO_KR = ("ko_KR", "ko", "Noto Sans CJK KR")
+    ZH_CN = ("zh_CN", "zh-cn", "SC", "CN")
+    ZH_TW = ("zh_TW", "zh-tw", "TC", "TW")
+    ZH_HK = ("zh_HK", "zh-hk", "HK", "HK")
+    JA_JP = ("ja_JP", "ja", "JP", "JP")
+    KO_KR = ("ko_KR", "ko", "KR", "KR")
 
-    def __init__(self, locale: str, language: str, face: str) -> None:
+    def __init__(self, locale: str, language: str, noto: str, source: str) -> None:
         self.locale = locale
         self.language = language
-        self.face = face
+        self.noto = noto
+        self.source = source
+        self.face = f"Noto Sans CJK {noto}"
 
     @classmethod
     def selected(cls, locale: str) -> CjkFontconfigLocale | None:
         locale_name = locale.partition(".")[0]
         return next((candidate for candidate in cls if candidate.locale == locale_name), None)
+
+    def resolve(self, family: str) -> str:
+        try:
+            return family.format(noto=self.noto, source=self.source)
+        except KeyError as error:
+            raise ConfigError(f"unknown regional font family field {error}") from error
+
+
+class FontCategory(Enum):
+    SANS = ("sans", "Sans", "sans-serif")
+    SERIF = ("serif", "Serif", "serif")
+    KAI = ("kai", "Kai", "serif")
+    MONOSPACE = ("monospace", "Monospace", "monospace")
+
+    def __init__(self, catalog: str, heading: str, generic: str) -> None:
+        self.catalog = catalog
+        self.heading = heading
+        self.generic = generic
+
+    @classmethod
+    def selected(cls, category: str) -> FontCategory:
+        found = next((candidate for candidate in cls if candidate.catalog == category), None)
+        if found is None:
+            raise ConfigError(f"unknown font category {category!r}")
+        return found
+
+
+@dataclass(frozen=True)
+class FontPreference:
+    category: FontCategory
+    families: tuple[str, ...]
 
 
 NOTO_CJK_GROUP: Final[str] = "noto-cjk"
@@ -40,15 +74,8 @@ NOTO_CJK_ENABLED: Final[PurePosixPath] = PurePosixPath(
 CJK_SANS_PREFERENCE: Final[PurePosixPath] = PurePosixPath(
     "/etc/fonts/conf.d/71-gentoo-install-cjk-sans.conf"
 )
-
-#: Every CJK sans face, so the one the operator's locale asks for leads and the
-#: others still answer text in the languages they cover.
-CJK_SANS_ORDER: Final[tuple[str, ...]] = (
-    "Noto Sans CJK TC",
-    "Noto Sans CJK SC",
-    "Noto Sans CJK HK",
-    "Noto Sans CJK JP",
-    "Noto Sans CJK KR",
+CJK_SANS_ORDER: Final[tuple[str, ...]] = tuple(
+    f"Noto Sans CJK {locale.noto}" for locale in CjkFontconfigLocale
 )
 
 
@@ -69,6 +96,7 @@ class EnableNotoCjkFontconfig(Operation):
 class WriteCjkSansPreference(Operation):
     stage: Stage = Stage.PACKAGES
     locale: CjkFontconfigLocale
+    preferences: tuple[FontPreference, ...] = ()
 
     def describe(self) -> str:
         return f"write {CJK_SANS_PREFERENCE}"
@@ -77,35 +105,100 @@ class WriteCjkSansPreference(Operation):
         context.write(CJK_SANS_PREFERENCE, self.content())
 
     def content(self) -> str:
-        """The chosen regional face ahead of every other CJK family.
-
-        A `lang` test does not separate the CJK languages: measured on a real
-        machine, a rule tested on `zh-tw` also fired for `ja` and `ko`, so the
-        alias names the order instead and the file is written only for a system
-        whose own locale is Chinese.
-        """
-        others = tuple(one for one in CJK_SANS_ORDER if one != self.locale.face)
-        families = "".join(
-            f"      <family>{one}</family>\n" for one in (self.locale.face, *others)
+        """Place catalog-selected faces ahead of distribution fallback rules."""
+        regional_noto = _regional_families("Noto Sans CJK {noto}", self.locale)
+        selected = tuple(
+            (preference.category.generic, preference.families)
+            for preference in self.preferences
+        )
+        matches = "".join(
+            _match(generic, _unique((*_for_generic(selected, generic), *regional_noto)))
+            for generic in ("sans-serif", "serif", "monospace")
         )
         return (
             '<?xml version="1.0"?>\n'
             '<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">\n'
             "<fontconfig>\n"
-            '  <alias binding="same">\n'
-            "    <family>sans-serif</family>\n"
-            "    <prefer>\n"
-            f"{families}"
-            "    </prefer>\n"
-            "  </alias>\n"
+            f"{matches}"
             "</fontconfig>\n"
         )
+
+
+def _match(generic: str, families: tuple[str, ...]) -> str:
+    values = "".join(f"      <string>{family}</string>\n" for family in families)
+    return (
+        '  <match target="pattern">\n'
+        '    <test name="family" qual="any">\n'
+        f"      <string>{generic}</string>\n"
+        "    </test>\n"
+        '    <edit name="family" mode="prepend_first" binding="strong">\n'
+        f"{values}"
+        "    </edit>\n"
+        "  </match>\n"
+    )
+
+
+def _for_generic(
+    selected: tuple[tuple[str, tuple[str, ...]], ...], generic: str
+) -> tuple[str, ...]:
+    return tuple(
+        family
+        for selected_generic, families in selected
+        if selected_generic == generic
+        for family in families
+    )
+
+
+def _regional_families(
+    template: str, locale: CjkFontconfigLocale
+) -> tuple[str, ...]:
+    if "{" not in template:
+        return (template,)
+    ordered = (locale, *(candidate for candidate in CjkFontconfigLocale if candidate is not locale))
+    return _unique(tuple(candidate.resolve(template) for candidate in ordered))
+
+
+def _unique(values: tuple[str, ...]) -> tuple[str, ...]:
+    unique: list[str] = []
+    for value in values:
+        if value not in unique:
+            unique.append(value)
+    return tuple(unique)
 
 
 def build(config: InstallConfig, catalog: packages.Catalog) -> tuple[Operation, ...]:
     locale = CjkFontconfigLocale.selected(config.system.locale)
     if locale is None:
         return ()
-    if not any(group.name == NOTO_CJK_GROUP for group in packages.groups(config, catalog)):
+    chosen = packages.groups(config, catalog)
+    decisions = {
+        group.font_configuration for group in chosen if group.font_configuration
+    }
+    unknown = decisions - packages.FONT_CONFIGURATION_STATES
+    if unknown:
+        raise ConfigError(
+            f"unknown font configuration decision: {', '.join(sorted(unknown))}"
+        )
+    if len(decisions) > 1:
+        raise ConfigError("font configuration was both accepted and declined")
+    if packages.FONT_CONFIGURATION_DISABLED in decisions:
         return ()
-    return (EnableNotoCjkFontconfig(), WriteCjkSansPreference(locale=locale))
+    if (
+        packages.FONT_CONFIGURATION_ENABLED not in decisions
+        and not any(group.font_family for group in chosen)
+    ):
+        return ()
+    preferences = tuple(
+        FontPreference(
+            category=FontCategory.selected(group.font_category),
+            families=_regional_families(group.font_family, locale),
+        )
+        for group in chosen
+        if group.font_family and group.font_cjk
+    )
+    operations: tuple[Operation, ...] = (
+        WriteCjkSansPreference(locale=locale, preferences=preferences),
+    )
+    if any(group.name == NOTO_CJK_GROUP for group in chosen):
+        operations = (EnableNotoCjkFontconfig(), *operations)
+    return operations

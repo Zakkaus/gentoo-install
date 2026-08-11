@@ -1,2 +1,6 @@
 # CJK fonts. Kept apart from the locale option: a locale does not imply a font.
 packages = ["media-fonts/noto-cjk", "media-fonts/noto", "media-libs/fontconfig"]
+label = "Noto Sans CJK"
+font_family = "Noto Sans CJK {noto}"
+font_category = "sans"
+font_cjk = true

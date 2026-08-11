@@ -1,0 +1,6 @@
+# m17n covers languages without a dedicated IBus engine.
+packages = ["app-i18n/ibus-m17n"]
+label = "m17n"
+input_framework = "ibus"
+input_method = "m17n"
+input_language = "Multilingual"

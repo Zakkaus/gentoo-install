@@ -1,0 +1,6 @@
+# The package fontconfig file declares the extended Mincho family.
+packages = ["media-fonts/takao-fonts"]
+label = "Takao Ex Mincho"
+font_family = "TakaoExMincho"
+font_category = "serif"
+font_cjk = true

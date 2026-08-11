@@ -1,0 +1,6 @@
+# Gentoo's package patch establishes the primary Latin family name.
+packages = ["media-fonts/wqy-zenhei"]
+label = "WenQuanYi Zen Hei"
+font_family = "WenQuanYi Zen Hei"
+font_category = "sans"
+font_cjk = true

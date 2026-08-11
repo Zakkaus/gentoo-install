@@ -1,0 +1,6 @@
+# Fontconfig's non-Latin lists identify the Nanum sans family.
+packages = ["media-fonts/nanum"]
+label = "Nanum Gothic"
+font_family = "NanumGothic"
+font_category = "sans"
+font_cjk = true

@@ -1,0 +1,6 @@
+# UniKey is the dedicated Vietnamese engine in the Gentoo tree.
+packages = ["app-i18n/ibus-unikey"]
+label = "Unikey"
+input_framework = "ibus"
+input_method = "unikey"
+input_language = "Vietnamese"

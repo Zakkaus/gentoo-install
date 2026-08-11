@@ -1,0 +1,2 @@
+# This package-free group records explicit consent for desktop input settings.
+input_configuration = "enabled"

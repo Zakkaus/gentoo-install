@@ -1,0 +1,5 @@
+# The upstream archive carries the Open Sans family.
+packages = ["media-fonts/open-sans"]
+label = "Open Sans"
+font_family = "Open Sans"
+font_category = "sans"

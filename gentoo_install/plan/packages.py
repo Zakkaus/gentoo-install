@@ -37,6 +37,9 @@ class Group:
     """One profile or application group, exactly as its TOML file declares it."""
 
     name: str
+    #: Operator-facing source text. Empty keeps the group name for groups that
+    #: are not presented as a catalog choice.
+    label: str = ""
     packages: tuple[str, ...] = ()
     services: tuple[str, ...] = ()
     #: Services under systemd, when the two inits name them differently. The
@@ -77,6 +80,25 @@ class Group:
     #: Which framework that engine belongs to. Two frameworks in one session
     #: fight over the same toolkit modules, so `compat.py` refuses the pair.
     input_framework: str = ""
+    #: The language an input engine types, used to group choices without
+    #: deriving behavior from package or group names.
+    input_language: str = ""
+    #: Engine identifier written into a desktop setting when upstream metadata
+    #: establishes one. Empty keeps the installed engine under manual control.
+    input_source: str = ""
+    #: The Fontconfig family exposed by a font package. Regional templates are
+    #: resolved from the system locale by the font plan.
+    font_family: str = ""
+    #: The face kind controls both the menu heading and the generic alias.
+    font_category: str = ""
+    #: Only families with CJK glyph coverage may lead aliases for a CJK locale.
+    font_cjk: bool = False
+    #: Package-free choice recording whether Fontconfig aliases were accepted
+    #: or declined. Empty preserves the proposed-on default.
+    font_configuration: str = ""
+    #: Package-free choice recording whether input configuration was accepted
+    #: or declined. Empty preserves the proposed-on default.
+    input_configuration: str = ""
     #: The desktop entry KWin starts as the input method on Wayland, for a
     #: session that drives one itself. Plasma's Virtual keyboard KCM writes the
     #: same key into kwinrc; this is that choice, made in advance.
@@ -323,6 +345,22 @@ INPUT_ENVIRONMENT: Final[dict[tuple[str, Session], tuple[str, ...]]] = {
     ),
 }
 
+GNOME_DESKTOP_GROUP: Final[str] = "gnome"
+DCONF_PROFILE: Final[PurePosixPath] = PurePosixPath("/etc/dconf/profile/user")
+GNOME_INPUT_SOURCES: Final[PurePosixPath] = PurePosixPath(
+    "/etc/dconf/db/local.d/00-gentoo-install-input-sources"
+)
+INPUT_CONFIGURATION_ENABLED: Final[str] = "enabled"
+INPUT_CONFIGURATION_DISABLED: Final[str] = "disabled"
+INPUT_CONFIGURATION_STATES: Final[frozenset[str]] = frozenset(
+    {INPUT_CONFIGURATION_ENABLED, INPUT_CONFIGURATION_DISABLED}
+)
+FONT_CONFIGURATION_ENABLED: Final[str] = "enabled"
+FONT_CONFIGURATION_DISABLED: Final[str] = "disabled"
+FONT_CONFIGURATION_STATES: Final[frozenset[str]] = frozenset(
+    {FONT_CONFIGURATION_ENABLED, FONT_CONFIGURATION_DISABLED}
+)
+
 
 @dataclass(frozen=True, kw_only=True)
 class ConfigureKwinInputMethod(Operation):
@@ -346,6 +384,28 @@ class ConfigureKwinInputMethod(Operation):
             f"InputMethod={self.launcher}\n"
             "VirtualKeyboardEnabled=true\n",
         )
+
+
+@dataclass(frozen=True, kw_only=True)
+class ConfigureGnomeInputSources(Operation):
+    """Set the GNOME input-source default to declared IBus engine IDs."""
+
+    stage: Stage = Stage.PACKAGES
+    layout: str
+    engines: tuple[str, ...]
+
+    def describe(self) -> str:
+        return f"write the GNOME dconf default with {', '.join(self.engines)}"
+
+    def apply(self, context: Context) -> None:
+        sources = [("xkb", self.layout), *(("ibus", engine) for engine in self.engines)]
+        context.write(DCONF_PROFILE, "user-db:user\nsystem-db:local\n")
+        context.write(
+            GNOME_INPUT_SOURCES,
+            "[org/gnome/desktop/input-sources]\n"
+            f"sources={sources!r}\n",
+        )
+        context.run_in_target(["dconf", "update"])
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -788,15 +848,34 @@ def _known(catalog: Catalog) -> str:
 
 
 def _input_method(config: InstallConfig, catalog: Catalog) -> list[Operation]:
-    """Nothing at all unless a selected group provides an engine."""
+    """Configure one selected framework and every engine belonging to it."""
     chosen = groups(config, catalog)
     engines: list[str] = []
     for group in chosen:
         if group.input_method and group.input_method not in engines:
             engines.append(group.input_method)
-    if not engines:
+    frameworks = [
+        group
+        for group in chosen
+        if group.input_framework and not group.input_method
+    ]
+    if not engines and not frameworks:
         return []
     framework = _framework(chosen)
+    decisions = {
+        group.input_configuration
+        for group in chosen
+        if group.input_configuration
+    }
+    unknown = decisions - INPUT_CONFIGURATION_STATES
+    if unknown:
+        raise ConfigError(
+            f"unknown input configuration decision: {', '.join(sorted(unknown))}"
+        )
+    if len(decisions) > 1:
+        raise ConfigError("input configuration was both accepted and declined")
+    if INPUT_CONFIGURATION_DISABLED in decisions:
+        return []
     wayland = any(group.wayland for group in chosen)
     # The launcher is the desktop saying it starts the input method itself,
     # which is what makes the toolkit variables wrong rather than merely
@@ -827,6 +906,14 @@ def _input_method(config: InstallConfig, catalog: Catalog) -> list[Operation]:
                 homes=tuple(homes),
             )
         )
+    if framework == "ibus" and config.packages.desktop == GNOME_DESKTOP_GROUP:
+        sources = tuple(group.input_source for group in chosen if group.input_source)
+        if sources:
+            operations.append(
+                ConfigureGnomeInputSources(
+                    layout=xkb_layout(config.system.keymap), engines=sources
+                )
+            )
     if wayland:
         for group in chosen:
             # The launcher names fcitx's own desktop entry, so a session that

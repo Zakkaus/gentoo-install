@@ -1,0 +1,5 @@
+# fc-scan reports Hack for the installed files from this package.
+packages = ["media-fonts/hack"]
+label = "Hack"
+font_family = "Hack"
+font_category = "monospace"

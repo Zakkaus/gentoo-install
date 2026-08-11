@@ -1,0 +1,6 @@
+# The package fontconfig file declares the extended Gothic family.
+packages = ["media-fonts/takao-fonts"]
+label = "Takao Ex Gothic"
+font_family = "TakaoExGothic"
+font_category = "sans"
+font_cjk = true

@@ -1,0 +1,6 @@
+# Fontconfig's non-Latin lists identify the coding family as monospace.
+packages = ["media-fonts/nanum"]
+label = "Nanum Gothic Coding"
+font_family = "NanumGothicCoding"
+font_category = "monospace"
+font_cjk = true

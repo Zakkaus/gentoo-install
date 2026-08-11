@@ -1,0 +1,6 @@
+# Fontconfig's non-Latin lists classify Baekmuk Dotum as sans.
+packages = ["media-fonts/baekmuk-fonts"]
+label = "Baekmuk Dotum"
+font_family = "Baekmuk Dotum"
+font_category = "sans"
+font_cjk = true

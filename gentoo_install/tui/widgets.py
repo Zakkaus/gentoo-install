@@ -109,6 +109,11 @@ class Item(Generic[V]):
     disabled_because: str = ""
     detail: str = ""
     style: Style = Style.PLAIN
+    #: Drawn above the first row in a group. Empty preserves the ordinary flat
+    #: menu used by the rest of the installer.
+    heading: str = ""
+    #: Tri-state menus allow one preferred row for each non-empty group.
+    preference_group: str = ""
 
 
 #: Tab moves on and shift-tab moves back, alongside the arrows. An operator
@@ -135,7 +140,12 @@ class Menu(Generic[V]):
     items: Sequence[Item[V]]
     #: Rows already selected, for a menu that takes several answers.
     selected: set[int] = field(default_factory=set)
+    #: A subset of selected rows carrying the preferred mark.
+    preferred: set[int] = field(default_factory=set)
     multiple: bool = False
+    #: Font selection needs installed and preferred states; every other menu
+    #: keeps the binary behavior unless it opts in.
+    tri_state: bool = False
     footer: str = ""
     #: Lines drawn between the title and the rows. For a question whose
     #: subject is a list: the title is one line and truncated to the width.
@@ -194,7 +204,26 @@ class Menu(Generic[V]):
         """
         if self.items[cursor].disabled_because and cursor not in self.selected:
             return
-        self.selected.symmetric_difference_update({cursor})
+        if not self.tri_state:
+            self.selected.symmetric_difference_update({cursor})
+            return
+        if cursor not in self.selected:
+            self.selected.add(cursor)
+            return
+        if cursor not in self.preferred:
+            group = self.items[cursor].preference_group
+            if not group:
+                self.selected.remove(cursor)
+                return
+            self.preferred = {
+                index
+                for index in self.preferred
+                if self.items[index].preference_group != group
+            }
+            self.preferred.add(cursor)
+            return
+        self.preferred.remove(cursor)
+        self.selected.remove(cursor)
 
     def _first_enabled(self) -> int:
         for index, item in enumerate(self.items):
@@ -225,22 +254,16 @@ class Menu(Generic[V]):
             screen.write(offset + 1, 2, truncate(one, columns - 4))
         above = len(self.preamble)
         room = lines - 4 - above
-        top = max(0, min(cursor - room // 2, len(self.items) - room))
-        for row, index in enumerate(range(top, min(top + room, len(self.items)))):
+        displayed = self._display_rows()
+        cursor_row = next(
+            row for row, (index, _) in enumerate(displayed) if index == cursor
+        )
+        top = max(0, min(cursor_row - room // 2, len(displayed) - room))
+        for row, (index, text) in enumerate(displayed[top : top + room]):
+            if index is None:
+                screen.write(row + 2 + above, 2, truncate(text, columns - 4))
+                continue
             item = self.items[index]
-            mark = " "
-            if self.multiple:
-                # Brackets, not a glyph: a console with no CJK font and no
-                # box-drawing set still shows the state.
-                mark = "x" if index in self.selected else " "
-                mark = f"[{mark}]"
-            text = f"{mark} {item.label}" if self.multiple else item.label
-            if item.detail:
-                text = f"{text}  {item.detail}"
-            if item.disabled_because:
-                # After the value, not instead of it: a row that cannot be
-                # chosen still has to show what it settled on.
-                text = f"{text} - {item.disabled_because}"
             # The marker is the signal and the colour repeats it: a serial
             # console with no colour has to show the same thing, and a legend
             # naming a mark nobody draws describes an interface that does not
@@ -257,6 +280,31 @@ class Menu(Generic[V]):
         if self.footer:
             screen.write(lines - 1, 0, truncate(self.footer, columns))
         screen.show()
+
+    def _display_rows(self) -> list[tuple[int | None, str]]:
+        rows: list[tuple[int | None, str]] = []
+        heading = ""
+        for index, item in enumerate(self.items):
+            if item.heading and item.heading != heading:
+                heading = item.heading
+                rows.append((None, heading))
+            mark = self._selection_mark(index)
+            text = f"{mark} {item.label}" if self.multiple else item.label
+            if item.detail:
+                text = f"{text}  {item.detail}"
+            if item.disabled_because:
+                text = f"{text} - {item.disabled_because}"
+            rows.append((index, text))
+        return rows
+
+    def _selection_mark(self, index: int) -> str:
+        if not self.multiple:
+            return ""
+        # ASCII brackets remain readable without a graphical console font.
+        mark = "x" if index in self.selected else " "
+        if self.tri_state and index in self.selected and index not in self.preferred:
+            mark = "-"
+        return f"[{mark}]"
 
 
 @dataclass

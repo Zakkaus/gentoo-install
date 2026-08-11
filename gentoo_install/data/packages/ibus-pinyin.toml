@@ -1,0 +1,7 @@
+# Libpinyin provides maintained Pinyin and Bopomofo engines on the current IBus API.
+packages = ["app-i18n/ibus-libpinyin"]
+label = "Pinyin"
+input_framework = "ibus"
+input_method = "libpinyin"
+input_language = "Chinese"
+input_source = "libpinyin"

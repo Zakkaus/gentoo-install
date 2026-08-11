@@ -56,6 +56,7 @@ from ..model.device import (
 )
 from ..plan import automatic as automatic_values
 from ..plan import kernel as plan_kernel
+from ..plan.fonts import CJK_SANS_PREFERENCE, CjkFontconfigLocale, FontCategory
 from ..plan.kernel import KERNEL_PACKAGES
 from ..plan.portage import community_binhost
 from ..plan.operations import Operation
@@ -67,6 +68,8 @@ from ..model.templates import Choice, Layout, build
 from ..model.validate import validate
 from ..plan.packages import Catalog as Groups
 from ..plan.packages import FRAMEWORK_GROUPS
+from ..plan.packages import FONT_CONFIGURATION_DISABLED, FONT_CONFIGURATION_ENABLED
+from ..plan.packages import INPUT_CONFIGURATION_DISABLED, INPUT_CONFIGURATION_ENABLED
 from ..plan.packages import driver_conflict, framework_conflict
 from ..plan import system as plan_system
 from .widgets import (
@@ -1793,7 +1796,6 @@ def _adds(
     return f" (+{' '.join(added)})" if added else ""
 
 
-FONT_PACKAGE_CATEGORY: Final[str] = "media-fonts/"
 FRAMEWORK_LABELS: Final[tuple[tuple[str, str], ...]] = (
     ("fcitx", "Fcitx 5"),
     ("ibus", "IBus"),
@@ -1823,6 +1825,22 @@ def input_engine_groups(groups: Groups, framework: str) -> tuple[str, ...]:
             and group.input_method
             and name not in providers
         )
+    )
+
+
+def input_engine_sections(
+    groups: Groups, framework: str
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Engine groups under the language each catalog entry declares."""
+    names = input_engine_groups(groups, framework)
+    languages = sorted({groups[name].input_language for name in names})
+    return tuple(
+        (
+            language,
+            tuple(name for name in names if groups[name].input_language == language),
+        )
+        for language in languages
+        if language
     )
 
 
@@ -1886,12 +1904,25 @@ def select_input_engines(
 
 
 def cjk_font_groups(groups: Groups) -> tuple[str, ...]:
-    """Font groups from the catalog; the catalog currently carries CJK fonts."""
+    """Font groups classified by declared family metadata."""
+    return tuple(sorted(name for name, group in groups.items() if group.font_family))
+
+
+def font_sections(groups: Groups) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Font groups in the category order that also owns generic aliases."""
     return tuple(
-        sorted(
-            name
-            for name, group in groups.items()
-            if any(package.startswith(FONT_PACKAGE_CATEGORY) for package in group.packages)
+        (
+            category.heading,
+            tuple(
+                name
+                for name in cjk_font_groups(groups)
+                if groups[name].font_category == category.catalog
+            ),
+        )
+        for category in FontCategory
+        if any(
+            groups[name].font_category == category.catalog
+            for name in cjk_font_groups(groups)
         )
     )
 
@@ -1900,28 +1931,209 @@ def select_cjk_fonts(
     config: InstallConfig,
     groups: Groups,
     chosen: Sequence[str],
-    preferred: str,
+    preferred: Sequence[str],
 ) -> InstallConfig:
-    """Store the preferred font first, followed by the other installed fonts."""
+    """Store each generic's preferred font before other installed fonts."""
     offered = set(cjk_font_groups(groups))
     wrong = [name for name in chosen if name not in offered]
     if wrong:
         raise ConfigError(f"the {', '.join(wrong)} groups do not provide CJK fonts")
-    if chosen and preferred not in chosen:
-        raise ConfigError("the preferred CJK font must also be installed")
+    missing = [name for name in preferred if name not in chosen]
+    if missing:
+        raise ConfigError("a preferred font must also be installed")
+    unsupported = [name for name in preferred if not groups[name].font_cjk]
+    if unsupported:
+        raise ConfigError("a preferred CJK font must provide CJK glyphs")
+    generics = [
+        FontCategory.selected(groups[name].font_category).generic for name in preferred
+    ]
+    if len(generics) != len(set(generics)):
+        raise ConfigError("only one font may be preferred for each generic")
     fonts = set(cjk_font_groups(groups))
     kept = tuple(
         name for name in config.packages.applications if name not in fonts
     )
-    ordered = (
-        (preferred, *(name for name in chosen if name != preferred))
-        if chosen
-        else ()
-    )
+    ordered = (*preferred, *(name for name in chosen if name not in preferred))
     return replace(
         config,
         packages=replace(config.packages, applications=(*kept, *ordered)),
     )
+
+
+def preferred_font_groups(config: InstallConfig, groups: Groups) -> tuple[str, ...]:
+    """The first selected font for each generic owns its preferred mark."""
+    selected = [
+        name for name in config.packages.applications if name in cjk_font_groups(groups)
+    ]
+    found: list[str] = []
+    generics: set[str] = set()
+    for name in selected:
+        if not groups[name].font_cjk:
+            continue
+        generic = FontCategory.selected(groups[name].font_category).generic
+        if generic not in generics:
+            generics.add(generic)
+            found.append(name)
+    return tuple(found)
+
+
+def font_configuration_group(groups: Groups, decision: str) -> str:
+    names = [
+        name for name, group in groups.items() if group.font_configuration == decision
+    ]
+    if len(names) != 1:
+        raise ConfigError(
+            f"the catalog must declare exactly one {decision} font configuration group"
+        )
+    return names[0]
+
+
+def input_configuration_group(groups: Groups, decision: str) -> str:
+    names = [
+        name
+        for name, group in groups.items()
+        if group.input_configuration == decision
+    ]
+    if len(names) != 1:
+        raise ConfigError(
+            f"the catalog must declare exactly one {decision} input configuration group"
+        )
+    return names[0]
+
+
+def configuration_groups(groups: Groups) -> tuple[str, ...]:
+    return (
+        font_configuration_group(groups, FONT_CONFIGURATION_ENABLED),
+        font_configuration_group(groups, FONT_CONFIGURATION_DISABLED),
+        input_configuration_group(groups, INPUT_CONFIGURATION_ENABLED),
+        input_configuration_group(groups, INPUT_CONFIGURATION_DISABLED),
+    )
+
+
+def _set_font_configuration(
+    config: InstallConfig, groups: Groups, enabled: bool | None
+) -> InstallConfig:
+    accepted = font_configuration_group(groups, FONT_CONFIGURATION_ENABLED)
+    declined = font_configuration_group(groups, FONT_CONFIGURATION_DISABLED)
+    decisions = {accepted, declined}
+    kept = tuple(
+        name for name in config.packages.applications if name not in decisions
+    )
+    chosen = () if enabled is None else ((accepted,) if enabled else (declined,))
+    return replace(
+        config,
+        packages=replace(config.packages, applications=(*kept, *chosen)),
+    )
+
+
+def _set_input_configuration(
+    config: InstallConfig, groups: Groups, enabled: bool | None
+) -> InstallConfig:
+    accepted = input_configuration_group(groups, INPUT_CONFIGURATION_ENABLED)
+    declined = input_configuration_group(groups, INPUT_CONFIGURATION_DISABLED)
+    decisions = {accepted, declined}
+    kept = tuple(
+        name for name in config.packages.applications if name not in decisions
+    )
+    chosen = () if enabled is None else ((accepted,) if enabled else (declined,))
+    return replace(
+        config,
+        packages=replace(config.packages, applications=(*kept, *chosen)),
+    )
+
+
+def _consent_screen(
+    screen: Screen,
+    config: InstallConfig,
+    context: Context,
+    title: str,
+    summary: str,
+) -> Answer[InstallConfig]:
+    translate = context.translate
+    declined = font_configuration_group(
+        context.groups, FONT_CONFIGURATION_DISABLED
+    )
+    answer = Menu(
+        title=translate(title),
+        preamble=(summary,),
+        items=[
+            Item(label=translate("Yes"), value="yes"),
+            Item(label=translate("No"), value="no"),
+        ],
+        current=("no" if declined in config.packages.applications else "yes"),
+        footer=footer(translate),
+    ).run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    edited = _set_font_configuration(
+        config, context.groups, answer.unwrap()[0] == "yes"
+    )
+    return Answer(Outcome.CHOSE, edited)
+
+
+def _input_consent_screen(
+    screen: Screen,
+    config: InstallConfig,
+    context: Context,
+    summary: str,
+) -> Answer[InstallConfig]:
+    translate = context.translate
+    declined = input_configuration_group(
+        context.groups, INPUT_CONFIGURATION_DISABLED
+    )
+    answer = Menu(
+        title=translate("Input method configuration"),
+        preamble=(summary,),
+        items=[
+            Item(label=translate("Yes"), value="yes"),
+            Item(label=translate("No"), value="no"),
+        ],
+        current=(
+            "no" if declined in config.packages.applications else "yes"
+        ),
+        footer=footer(translate),
+    ).run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    edited = _set_input_configuration(
+        config, context.groups, answer.unwrap()[0] == "yes"
+    )
+    return Answer(Outcome.CHOSE, edited)
+
+
+def _input_configuration_summary(
+    config: InstallConfig, groups: Groups, framework: str, translate: Catalog
+) -> str:
+    selected = [
+        groups[name]
+        for name in config.packages.applications
+        if name in groups and groups[name].input_method
+    ]
+    engines = ", ".join(group.input_method for group in selected)
+    subject = engines or translate("the selected framework")
+    desktop = groups.get(config.packages.desktop)
+    if (
+        framework == "fcitx"
+        and engines
+        and desktop is not None
+        and desktop.input_method_launcher
+    ):
+        return translate(
+            "Write /etc/xdg/kwinrc and the Fcitx profile for: {engines}."
+        ).format(
+            engines=subject
+        )
+    sources = ", ".join(group.input_source for group in selected if group.input_source)
+    if framework == "ibus" and config.packages.desktop == "gnome" and sources:
+        return translate(
+            "Write /etc/dconf/db/local.d/00-gentoo-install-input-sources with "
+            "IBus engines: {engines}."
+        ).format(engines=sources)
+    if framework == "fcitx":
+        return translate(
+            "Write the Fcitx profile and input environment for: {engines}."
+        ).format(engines=subject)
+    return translate("Write the IBus input environment.")
 
 
 def _language_package_screen(
@@ -1993,7 +2205,6 @@ def input_method_screen(
         Item(
             label=translate(labels.get(context.groups[name].input_framework, name)),
             value=name,
-            detail=" ".join(context.groups[name].packages),
         )
         for name in frameworks
     ]
@@ -2010,20 +2221,25 @@ def input_method_screen(
     )
     framework_group = _selected_input_framework(with_framework, context.groups)
     if not framework_group:
-        return settle(screen, context, config, with_framework)
+        without_configuration = _set_input_configuration(
+            with_framework, context.groups, None
+        )
+        return settle(screen, context, config, without_configuration)
     framework = context.groups[framework_group].input_framework
-    names = input_engine_groups(context.groups, framework)
+    sections = input_engine_sections(context.groups, framework)
+    names = tuple(name for _, section in sections for name in section)
     have = {overlay.name for overlay in config.portage.overlays}
     items = [
         Item(
-            label=translate(name),
+            label=translate(context.groups[name].label or name),
             value=name,
-            detail=" ".join(context.groups[name].packages),
+            heading=translate(language) if offset == 0 else "",
             disabled_because=_needs_an_overlay(
                 context.groups[name].repositories, have, translate
             ),
         )
-        for name in names
+        for language, section in sections
+        for offset, name in enumerate(section)
     ]
     selected = set(with_framework.packages.applications) & set(names)
     engine_answer = Menu(
@@ -2040,55 +2256,102 @@ def input_method_screen(
     edited = select_input_engines(
         with_framework, context.groups, tuple(engine_answer.unwrap())
     )
-    return settle(screen, context, config, edited)
+    summary = _input_configuration_summary(
+        edited, context.groups, framework, translate
+    )
+    consented = _input_consent_screen(screen, edited, context, summary)
+    if not consented.chosen:
+        return Answer(consented.outcome)
+    return settle(screen, context, config, consented.unwrap())
 
 
 def cjk_fonts_screen(
     screen: Screen, config: InstallConfig, context: Context
 ) -> Answer[InstallConfig]:
     translate = context.translate
-    names = cjk_font_groups(context.groups)
+    sections = font_sections(context.groups)
+    names = tuple(name for _, section in sections for name in section)
     have = {overlay.name for overlay in config.portage.overlays}
     items = [
         Item(
-            label=translate(name),
+            label=translate(context.groups[name].label or name),
             value=name,
-            detail=" ".join(context.groups[name].packages),
+            heading=translate(heading) if offset == 0 else "",
+            preference_group=(
+                FontCategory.selected(context.groups[name].font_category).generic
+                if context.groups[name].font_cjk
+                else ""
+            ),
             disabled_because=_needs_an_overlay(
                 context.groups[name].repositories, have, translate
             ),
         )
-        for name in names
+        for heading, section in sections
+        for offset, name in enumerate(section)
     ]
     selected = [name for name in config.packages.applications if name in names]
-    font_answer = Menu(
-        title=translate("CJK fonts"),
+    preferred = set(preferred_font_groups(config, context.groups))
+    font_menu = Menu(
+        title=translate("Fonts"),
         items=items,
         multiple=True,
+        tri_state=True,
         selected={
             index for index, item in enumerate(items) if item.value in selected
         },
-        footer=footer(translate),
-    ).run(screen)
+        preferred={
+            index for index, item in enumerate(items) if item.value in preferred
+        },
+        footer="  ".join(
+            (
+                f"[-] {translate('installed')}",
+                f"[x] {translate('installed and preferred')}",
+                translate("one preferred per generic"),
+                footer(translate),
+            )
+        ),
+    )
+    font_answer = font_menu.run(screen)
     if not font_answer.chosen:
         return Answer(font_answer.outcome)
     chosen = tuple(font_answer.unwrap())
-    if not chosen:
-        return settle(
-            screen, context, config, select_cjk_fonts(config, context.groups, (), "")
-        )
-    preferred_answer = Menu(
-        title=translate("Preferred CJK font"),
-        items=[Item(label=translate(name), value=name) for name in chosen],
-        current=selected[0] if selected and selected[0] in chosen else chosen[0],
-        footer=footer(translate),
-    ).run(screen)
-    if not preferred_answer.chosen:
-        return Answer(preferred_answer.outcome)
-    edited = select_cjk_fonts(
-        config, context.groups, chosen, preferred_answer.unwrap()[0]
+    chosen_preferred = tuple(
+        items[index].value for index in sorted(font_menu.preferred)
     )
-    return settle(screen, context, config, edited)
+    edited = select_cjk_fonts(config, context.groups, chosen, chosen_preferred)
+    locale = CjkFontconfigLocale.selected(edited.system.locale)
+    if not chosen or locale is None:
+        without_configuration = _set_font_configuration(
+            edited, context.groups, None
+        )
+        return settle(screen, context, config, without_configuration)
+    preferred_sans = next(
+        (
+            name
+            for name in chosen_preferred
+            if FontCategory.selected(context.groups[name].font_category).generic
+            == "sans-serif"
+        ),
+        "",
+    )
+    leading_sans = (
+        locale.resolve(context.groups[preferred_sans].font_family)
+        if preferred_sans
+        else locale.face
+    )
+    summary = translate("Write {path}; {face} will lead sans-serif.").format(
+        path=CJK_SANS_PREFERENCE, face=leading_sans
+    )
+    consented = _consent_screen(
+        screen,
+        edited,
+        context,
+        "Font configuration",
+        summary,
+    )
+    if not consented.chosen:
+        return Answer(consented.outcome)
+    return settle(screen, context, config, consented.unwrap())
 
 
 def packages_screen(

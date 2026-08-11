@@ -1,5 +1,7 @@
 # Unikey is the official Vietnamese engine in the Gentoo tree.
 packages = ["app-i18n/fcitx-unikey"]
+label = "Unikey"
 accept_keywords = ["app-i18n/fcitx-unikey ~amd64"]
 input_framework = "fcitx"
 input_method = "unikey"
+input_language = "Vietnamese"

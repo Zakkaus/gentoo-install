@@ -1,5 +1,7 @@
 # Shuangpin shares the standard Chinese addon but has its own Fcitx entry.
 packages = ["app-i18n/fcitx-chinese-addons"]
+label = "Shuangpin"
 accept_keywords = ["app-i18n/fcitx-chinese-addons ~amd64"]
 input_framework = "fcitx"
 input_method = "shuangpin"
+input_language = "Chinese"

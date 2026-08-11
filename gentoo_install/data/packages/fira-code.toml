@@ -1,0 +1,5 @@
+# The ebuild installs the upstream Fira Code programming family.
+packages = ["media-fonts/fira-code"]
+label = "Fira Code"
+font_family = "Fira Code"
+font_category = "monospace"

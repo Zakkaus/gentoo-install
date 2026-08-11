@@ -1,0 +1,6 @@
+# Gentoo's Takao fontconfig file lists the proportional Mincho family first.
+packages = ["media-fonts/takao-fonts"]
+label = "Takao P Mincho"
+font_family = "TakaoPMincho"
+font_category = "serif"
+font_cjk = true

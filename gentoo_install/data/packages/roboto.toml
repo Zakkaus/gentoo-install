@@ -1,0 +1,5 @@
+# Gentoo's package fontconfig file names both Roboto families separately.
+packages = ["media-fonts/roboto"]
+label = "Roboto"
+font_family = "Roboto"
+font_category = "sans"

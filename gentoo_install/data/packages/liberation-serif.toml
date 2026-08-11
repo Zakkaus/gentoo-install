@@ -1,0 +1,5 @@
+# Liberation Serif is the stable Times-compatible serif face from the set.
+packages = ["media-fonts/liberation-fonts"]
+label = "Liberation Serif"
+font_family = "Liberation Serif"
+font_category = "serif"

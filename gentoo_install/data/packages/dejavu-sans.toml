@@ -1,0 +1,5 @@
+# DejaVu Sans is the stable general-purpose sans face from the DejaVu set.
+packages = ["media-fonts/dejavu"]
+label = "DejaVu Sans"
+font_family = "DejaVu Sans"
+font_category = "sans"

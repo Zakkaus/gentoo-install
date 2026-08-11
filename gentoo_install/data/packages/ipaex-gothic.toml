@@ -1,0 +1,6 @@
+# Gentoo's IPAex fontconfig file declares this Gothic family for sans-serif.
+packages = ["media-fonts/ipaex"]
+label = "IPAex Gothic"
+font_family = "IPAexGothic"
+font_category = "sans"
+font_cjk = true

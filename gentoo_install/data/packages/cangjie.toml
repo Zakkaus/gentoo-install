@@ -1,5 +1,7 @@
 # Cangjie 5 is one of the official table-extra dictionaries.
 packages = ["app-i18n/fcitx-table-extra"]
+label = "Cangjie"
 accept_keywords = ["app-i18n/fcitx-table-extra ~amd64"]
 input_framework = "fcitx"
 input_method = "table:cangjie5"
+input_language = "Chinese"

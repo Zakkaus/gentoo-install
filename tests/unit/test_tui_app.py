@@ -616,12 +616,15 @@ def test_language_section_reaches_every_language_setting_from_the_menu() -> None
     assert tuple(row.key for row in settings.LANGUAGE) == (
         "locale",
         "locales",
+        "fonts",
+    )
+    assert tuple(row.key for row in settings.DESKTOP[:2]) == (
+        "desktop",
         "input_method",
-        "cjk_fonts",
     )
     at = context()
     keys = [
-        *down(steps("Language and input")),
+        *down(steps("Language and fonts")),
         "\n",
         *down(len(settings.LANGUAGE) - 1),
         "q",
@@ -632,11 +635,11 @@ def test_language_section_reaches_every_language_setting_from_the_menu() -> None
     finished = run(screen, config(), at)
     assert finished.cancelled
     language_frames = [
-        frame for frame in screen.frames if frame[0] == "Language and input"
+        frame for frame in screen.frames if frame[0] == "Language and fonts"
     ]
     assert language_frames
     drawn = "\n".join("\n".join(frame) for frame in language_frames)
-    for label in ("System language", "Other locales", "Input method", "CJK fonts"):
+    for label in ("System language", "Other locales", "Fonts"):
         assert label in drawn, label
 
 
@@ -682,14 +685,14 @@ def test_the_pinyin_group_installs_the_official_fcitx_engine() -> None:
     )
 
 
-def test_the_language_section_names_input_as_part_of_its_subject() -> None:
+def test_the_language_section_names_fonts_as_part_of_its_subject() -> None:
     section = next(one for one in settings.SETTINGS if one.key == "language")
-    assert section.label == "Language and input"
+    assert section.label == "Language and fonts"
 
 
 def test_the_preferred_cjk_font_is_stored_before_the_other_fonts() -> None:
     chosen = screens.select_cjk_fonts(
-        config(), context().groups, ("noto-cjk", "sarasa-mono"), "sarasa-mono"
+        config(), context().groups, ("noto-cjk", "sarasa-mono"), ("sarasa-mono",)
     )
     fonts = screens.cjk_font_groups(context().groups)
     selected = tuple(
@@ -698,23 +701,71 @@ def test_the_preferred_cjk_font_is_stored_before_the_other_fonts() -> None:
     assert selected == ("sarasa-mono", "noto-cjk")
 
 
-def test_plasma_and_gnome_rows_describe_different_desktop_configuration() -> None:
-    def language_preamble(desktop: str) -> str:
-        chosen = replace(
-            config(), packages=replace(config().packages, desktop=desktop)
-        )
-        screen = FakeScreen(keys=["q"], lines=30, columns=80)
-        settings.nested(
-            "Language and input", settings.LANGUAGE, settings._desktop_language_preamble
-        )(screen, chosen, context())
-        return "\n".join(screen.frames[0])
+def test_engines_and_fonts_are_grouped_by_declared_metadata() -> None:
+    groups = context().groups
+    engine_sections = dict(screens.input_engine_sections(groups, "fcitx"))
+    font_sections = dict(screens.font_sections(groups))
 
-    plasma = language_preamble("plasma")
-    gnome = language_preamble("gnome")
-    assert "packages will be installed" in plasma
-    assert "plasma configures the selected fonts and input method automatically" in plasma
-    assert "gnome leaves font and input method configuration to its settings" in gnome
-    assert "automatically" not in gnome
+    assert "pinyin" in engine_sections["Chinese"]
+    assert "anthy" in engine_sections["Japanese"]
+    assert "hangul" in engine_sections["Korean"]
+    assert "vietnamese-unikey" in engine_sections["Vietnamese"]
+    assert "sinhala-sayura" in engine_sections["Sinhala"]
+    assert "multilingual-m17n" in engine_sections["Multilingual"]
+    assert "noto-cjk" in font_sections["Sans"]
+    assert "ipaex-gothic" in font_sections["Sans"]
+    assert "nanum-myeongjo" in font_sections["Serif"]
+    assert "wenkai-tc" in font_sections["Kai"]
+    assert "fira-code" in font_sections["Monospace"]
+    assert "sarasa-mono" in font_sections["Monospace"]
+
+
+def test_font_and_engine_rows_use_names_instead_of_slugs_and_packages() -> None:
+    at = context()
+    engine_screen = FakeScreen(keys=["KEY_DOWN", "\n", "q"], lines=35, columns=100)
+    screens.input_method_screen(engine_screen, config(), at)
+    engines = "\n".join("\n".join(frame) for frame in engine_screen.frames)
+    assert "Chinese" in engines
+    assert "Japanese" in engines
+    assert "Cangjie (Rime)" in engines
+    assert "app-i18n/fcitx-rime" not in engines
+
+    font_screen = FakeScreen(keys=["q"], lines=35, columns=100)
+    screens.cjk_fonts_screen(font_screen, config(), at)
+    fonts = font_screen.last
+    assert "Sans" in fonts
+    assert "Kai" in fonts
+    assert "Monospace" in fonts
+    assert "Noto Sans CJK" in fonts
+    assert "LXGW WenKai TC" in fonts
+    assert "media-fonts/noto-cjk" not in fonts
+    assert "[-] installed" in fonts
+    assert "[x] installed and preferred" in fonts
+    assert "one preferred per generic" in fonts
+
+
+def test_plasma_with_fcitx_and_ibus_describe_different_configuration() -> None:
+    def configuration_summary(desktop: str, framework: str, engine: str) -> str:
+        chosen = replace(
+            config(),
+            packages=replace(
+                config().packages,
+                desktop=desktop,
+                applications=(framework, engine),
+            ),
+        )
+        at = context()
+        summary = screens._input_configuration_summary(
+            chosen, at.groups, at.groups[framework].input_framework, at.translate
+        )
+        return summary
+
+    fcitx = configuration_summary("plasma", "fcitx5", "pinyin")
+    ibus = configuration_summary("plasma", "ibus", "ibus-pinyin")
+    assert "/etc/xdg/kwinrc" in fcitx
+    assert "Fcitx profile" in fcitx
+    assert "IBus input environment" in ibus
+    assert "/etc/xdg/kwinrc" not in ibus
 
 
 def test_a_grouped_row_names_the_row_behind_it_that_is_missing() -> None:

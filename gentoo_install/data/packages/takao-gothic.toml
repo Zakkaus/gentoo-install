@@ -1,0 +1,6 @@
+# The package fontconfig file declares the fixed-width Gothic family.
+packages = ["media-fonts/takao-fonts"]
+label = "Takao Gothic"
+font_family = "TakaoGothic"
+font_category = "sans"
+font_cjk = true

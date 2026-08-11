@@ -1,0 +1,5 @@
+# The package also provides the separately selectable condensed family.
+packages = ["media-fonts/roboto"]
+label = "Roboto Condensed"
+font_family = "Roboto Condensed"
+font_category = "sans"

@@ -1,0 +1,6 @@
+# Fontconfig's non-Latin lists classify Baekmuk Batang as serif.
+packages = ["media-fonts/baekmuk-fonts"]
+label = "Baekmuk Batang"
+font_family = "Baekmuk Batang"
+font_category = "serif"
+font_cjk = true

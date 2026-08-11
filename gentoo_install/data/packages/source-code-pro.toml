@@ -1,0 +1,5 @@
+# Gentoo's fontconfig file declares Source Code Pro as a monospace family.
+packages = ["media-fonts/source-code-pro"]
+label = "Source Code Pro"
+font_family = "Source Code Pro"
+font_category = "monospace"

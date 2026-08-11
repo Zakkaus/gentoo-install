@@ -1,3 +1,7 @@
 # Sarasa combines Iosevka metrics with Source Han glyph coverage for code.
 packages = ["media-fonts/sarasa-gothic"]
+label = "Sarasa Mono SC"
+font_family = "Sarasa Mono SC"
+font_category = "monospace"
+font_cjk = true
 repositories = ["gentoo-zh"]

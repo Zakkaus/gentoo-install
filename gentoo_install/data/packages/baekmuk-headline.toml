@@ -1,0 +1,6 @@
+# Fontconfig's unhinted family list establishes the headline face name.
+packages = ["media-fonts/baekmuk-fonts"]
+label = "Baekmuk Headline"
+font_family = "Baekmuk Headline"
+font_category = "sans"
+font_cjk = true
