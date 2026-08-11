@@ -318,3 +318,29 @@ def test_tab_moves_on_and_shift_tab_moves_back() -> None:
         FakeScreen(keys=[*"zakk", "\t", *"bash", "KEY_BTAB", "\t", "\n", "\n"], lines=24)
     )
     assert typed.unwrap() == ["zakk", "bash"]
+
+
+def test_a_window_that_grows_while_a_widget_waits_is_read_again() -> None:
+    """curses keeps the size it started with until it is asked again, so a list
+    stayed as tall as the window was when the menu opened. The widget reads
+    `size()` on every redraw, and an unrecognised key is one to redraw on.
+
+    The ncurses side of this, where a real `SIGWINCH` turns into `KEY_RESIZE`,
+    has no test: driven through a pty under pytest the resize never reaches the
+    child, and a mechanism that does not run proves nothing.
+    """
+
+    class Growing(FakeScreen):
+        """A terminal enlarged while the widget was waiting for a key."""
+
+        def key(self) -> str:
+            pressed = super().key()
+            self.lines = 30
+            return pressed
+
+    items = [Item(label=f"row{n:02d}", value=n) for n in range(25)]
+    screen = Growing(keys=["x", "q"], lines=12)
+    Menu(title="rows", items=items).run(screen)
+    drawn = [len([row for row in frame if "row" in row]) for frame in screen.frames]
+    assert len(drawn) >= 2, screen.frames
+    assert drawn[-1] > drawn[0], drawn
