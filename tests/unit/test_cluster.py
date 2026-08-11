@@ -11,7 +11,7 @@ import pytest
 from gentoo_install.model.config import MirrorRegion, Sync
 from tests.vm import cluster
 from tests.vm.console import ConsoleTimeout, SerialConsole
-from tests.vm.proxmox import Node, VMID_FIRST, VMID_LAST
+from tests.vm.proxmox import Node, ProxmoxNotFound, VMID_FIRST, VMID_LAST
 
 
 class WorkerFailure(Exception):
@@ -45,6 +45,7 @@ class FailedThread:
 class FakeApi:
     def __init__(self) -> None:
         self.allocations: list[int] = []
+        self.created: dict[int, str] = {}
 
     def nodes(self) -> list[Node]:
         return [Node("node", 64 * 1024**3, 16)]
@@ -57,6 +58,26 @@ class FakeApi:
         )
         self.allocations.append(vmid)
         return vmid
+
+    def call(self, method: str, path: str, **form: Any) -> Any:
+        if method == "POST" and path.endswith("/qemu"):
+            vmid = int(form["vmid"])
+            self.created[vmid] = str(form["tags"])
+            return "UPID:create"
+        vmid = int(path.split("/qemu/", 1)[1].split("/", 1)[0])
+        if vmid not in self.created:
+            raise ProxmoxNotFound(f"VM {vmid} does not exist")
+        if method == "GET" and path.endswith("/config"):
+            return {"tags": self.created[vmid]}
+        if method == "GET" and path.endswith("/status/current"):
+            return {"status": "stopped"}
+        if method == "DELETE":
+            del self.created[vmid]
+            return "UPID:delete"
+        raise AssertionError(f"unexpected request: {method} {path}")
+
+    def wait(self, node: str, upid: str, patience: float = 1800.0) -> None:
+        return None
 
     def remove_iso(self, node: str, name: str) -> str:
         return ""
@@ -139,6 +160,7 @@ def test_worker_failure_reports_outcome_and_releases_vmid(
     assert all(outcome.verdict is cluster.Verdict.ERROR for outcome in outcomes)
     assert all(outcome.vmid == VMID_FIRST for outcome in outcomes)
     assert api.allocations == [VMID_FIRST, VMID_FIRST]
+    assert api.created == {}
 
 
 class TimedChannel:
