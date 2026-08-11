@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import tomllib
 from dataclasses import FrozenInstanceError, replace
 from pathlib import Path, PurePosixPath
 
 import pytest
 
-from gentoo_install.errors import ValidationFailed
+from gentoo_install.errors import ConfigError, ValidationFailed
 from gentoo_install.model.config import InitSystem, InstallConfig
 from gentoo_install.model.device import (
     Mountpoint,
@@ -18,6 +19,7 @@ from gentoo_install.model.size import Size
 from gentoo_install.exec.config import load
 from gentoo_install.exec.probe import profiles_from_eselect
 from gentoo_install.model.validate import validate
+from gentoo_install.model.parse import parse
 
 from .layouts import encrypted_root, config, ext4_on_gpt, i, zfs_root
 
@@ -57,6 +59,63 @@ def test_a_root_mounted_somewhere_else_is_named() -> None:
     nodes: list[Node] = [node for node in ext4_on_gpt() if node.id != i("mnt-root")]
     nodes.append(Mountpoint(id=i("mnt-root"), source=i("rootfs"), path=PurePosixPath("/srv")))
     with pytest.raises(ValidationFailed, match="mounted at /srv"):
+        validate(config(nodes))
+
+
+def test_vfat_cannot_be_the_root_filesystem() -> None:
+    from gentoo_install.model.device import Filesystem, FilesystemType
+
+    nodes = [
+        replace(node, kind=FilesystemType.VFAT)
+        if isinstance(node, Filesystem) and node.id == i("rootfs")
+        else node
+        for node in ext4_on_gpt()
+    ]
+    with pytest.raises(ValidationFailed, match="root filesystem is vfat"):
+        validate(config(nodes))
+
+
+def test_a_malformed_authorized_key_is_refused_while_parsing() -> None:
+    raw = tomllib.loads((FIXTURES / "ext4-bios.toml").read_text())
+    raw["system"]["authorized_keys"] = ["not-a-key"]
+
+    with pytest.raises(ConfigError, match="not a public key"):
+        parse(raw)
+
+
+def test_a_zfs_passphrase_file_implies_native_encryption() -> None:
+    from gentoo_install.model.device import ZfsPool
+    from gentoo_install.plan import disk as plan_disk
+
+    raw = tomllib.loads((FIXTURES / "vm-zfs.toml").read_text())
+    pool = next(node for node in raw["disk"]["devices"] if node["kind"] == "zpool")
+    pool["passphrase_file"] = "/run/keys/pool"
+    assert "encrypted" not in pool
+
+    installation = parse(raw)
+    parsed_pool = installation.disk.graph.of_type(ZfsPool)[0]
+    operation = next(
+        one for one in plan_disk.build(installation) if isinstance(one, plan_disk.CreateZpool)
+    )
+    assert parsed_pool.encrypted is True
+    assert operation.encrypted is True
+
+
+def test_an_inconsistent_direct_zfs_model_is_refused() -> None:
+    from gentoo_install.model.device import Existing, ZfsPool
+
+    nodes = [
+        *ext4_on_gpt(),
+        Existing(id=i("pooldisk"), selector="/dev/disk/by-id/pool", wipe=True),
+        ZfsPool(
+            id=i("pool"),
+            vdevs=(i("pooldisk"),),
+            name="rpool",
+            encrypted=False,
+            passphrase_file="/run/keys/pool",
+        ),
+    ]
+    with pytest.raises(ValidationFailed, match="passphrase_file"):
         validate(config(nodes))
 
 
