@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
 
@@ -67,7 +69,9 @@ def test_zfsbootmenu_carries_remote_access_in_its_own_image() -> None:
     assert recorder.files[PurePosixPath("/etc/cmdline.d/dracut-network.conf")] == (
         "ip=192.0.2.10::192.0.2.1:255.255.255.0::eth0:none rd.neednet=1\n"
     )
-    assert len(recorder.argv_starting("ssh-keygen")) == 3
+    # One per host key type, and the type list is what the format allows: see
+    # test_every_zfsbootmenu_host_key_can_be_written_in_the_format_asked_for.
+    assert len(recorder.argv_starting("ssh-keygen")) == len(bootloader.ZBM_HOST_KEY_TYPES)
 
     kernel_recorder = Recorder()
     for operation in kernel.build(installation):
@@ -104,3 +108,35 @@ def test_a_grub_machine_writes_no_loader_conf() -> None:
     installation = load(Path("tests/fixtures/vm-btrfs.toml"))
     operations = bootloader.build(installation)
     assert not [one for one in operations if isinstance(one, bootloader.ShowTheBootMenu)]
+
+
+def test_every_zfsbootmenu_host_key_can_be_written_in_the_format_asked_for() -> None:
+    """`ssh-keygen -m PEM` refuses ed25519 with "Saving key failed: invalid
+    format", so the install stopped at exit 4 in the middle of writing
+    ZFSBootMenu's remote access. Measured with `ssh-keygen` itself; RSA and
+    ECDSA both write `-----BEGIN RSA PRIVATE KEY-----` and
+    `-----BEGIN EC PRIVATE KEY-----`.
+
+    ZFSBootMenu's own documentation names `dropbear_rsa_key` and
+    `dropbear_ecdsa_key` and no third one.
+    """
+    import shutil
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    from gentoo_install.plan import bootloader
+
+    assert "ed25519" not in bootloader.ZBM_HOST_KEY_TYPES, bootloader.ZBM_HOST_KEY_TYPES
+    keygen = shutil.which("ssh-keygen")
+    if keygen is None:  # pragma: no cover - the medium always carries it
+        pytest.skip("ssh-keygen is not on this machine")
+    with tempfile.TemporaryDirectory() as where:
+        for keytype in bootloader.ZBM_HOST_KEY_TYPES:
+            target = Path(where) / f"ssh_host_{keytype}_key"
+            done = subprocess.run(
+                [keygen, "-q", "-N", "", "-m", "PEM", "-t", keytype, "-f", str(target)],
+                capture_output=True,
+            )
+            assert target.is_file(), (keytype, done.stdout, done.stderr)
+            assert target.read_bytes().startswith(b"-----BEGIN "), keytype
