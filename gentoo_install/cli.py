@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import curses
+import locale
 import os
 import shutil
 import sys
@@ -340,6 +341,16 @@ def _unattended(arguments: argparse.Namespace) -> bool:
     return bool(arguments.no_shell) or not sys.stdin.isatty()
 
 
+def _draws_wide_characters() -> bool:
+    """Whether this terminal's encoding can carry a CJK glyph.
+
+    `LC_CTYPE`, not `LANG`: the codeset is what ncurses reads, and an operator
+    who exported `LC_ALL=C` over a Chinese `LANG` has a terminal that cannot
+    draw one whatever the environment says it prefers.
+    """
+    return locale.nl_langinfo(locale.CODESET).upper().replace("-", "") == "UTF8"
+
+
 def _asked(question: str) -> bool:
     """Ask, after throwing away what was typed before the question existed.
 
@@ -629,6 +640,15 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         cramped = too_small(display)
         if cramped:
             raise errors.PreflightFailed(cramped)
+        # A terminal whose encoding is not UTF-8 draws a wide character as its
+        # bytes, and ncurses advances one cell for each: the widths this code
+        # computes stay right and the text lands somewhere else, so a footer of
+        # three CJK segments overwrites itself. English is offered instead of a
+        # menu made of wreckage.
+        if not _draws_wide_characters():
+            context.translate = Catalog("en")
+            context.tag = "en"
+            return app.run(display, screens.with_language(start, "en"), context)
         # Asked before the menu: the environment says which language the
         # operator reads, not whether this terminal can draw it.
         if not arguments.lang:
@@ -642,6 +662,11 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         offered = screens.saved_config_screen(display, chosen, context)
         return app.run(display, offered.unwrap() if offered.chosen else chosen, context)
 
+    # Before `initscr`, which `wrapper` calls. Python sets `LC_CTYPE` from the
+    # environment at startup and ncursesw reads that, so this changes nothing
+    # on a machine whose environment names a UTF-8 locale; it is here because
+    # nothing else guarantees the rest of the categories agree with it.
+    locale.setlocale(locale.LC_ALL, "")
     try:
         finished = curses.wrapper(walk)
     except curses.error as error:

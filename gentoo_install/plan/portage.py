@@ -7,6 +7,7 @@ before a key can be imported, an imported key stays untrusted until `lsign`, and
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Final, Sequence
@@ -292,6 +293,23 @@ SYNC_PAUSE: Final[float] = 30.0
 RSYNC_TIMEOUT: Final[int] = 900
 
 
+def _unversioned(atom: str) -> str:
+    """The package name inside an atom, for an option that takes no version.
+
+    `--usepkg-exclude` accepts package names and slot atoms only, and a pinned
+    kernel reaches it as `=sys-kernel/gentoo-cjk-kernel-bin-7.1.7`: emerge then
+    answers `Invalid Atom(s)` and the install stops with the disks written.
+    """
+    name = atom.lstrip("=<>~!")
+    category, _, rest = name.partition("/")
+    if not rest:
+        return name
+    # `-7.1.7` and `-7.1.7-r2` alike: the version starts at the last hyphen
+    # followed by a digit, which is what `package-1.2-r3` gives portage too.
+    trimmed = re.sub(r"-\d[^-]*(-r\d+)?$", "", rest)
+    return f"{category}/{trimmed}"
+
+
 @dataclass(frozen=True, kw_only=True)
 class SyncRepository(Operation):
     """A directory holding a copy that git did not create makes `emerge --sync`
@@ -413,7 +431,10 @@ class Emerge(Operation):
             # whole dependency tree here too: `sys-apps/systemd` pulled in
             # gtk+, cups and 21 more, and died on a circular dependency.
             # `--usepkg-exclude` also blocks the remote copy under `-g`.
-            argv += [*BINPKG_OPTIONS[:-1], f"{BINPKG_EXCLUDED} {' '.join(built)}"]
+            argv += [
+                *BINPKG_OPTIONS[:-1],
+                f"{BINPKG_EXCLUDED} {' '.join(_unversioned(one) for one in built)}",
+            ]
         else:
             argv += BINPKG_OPTIONS
         context.run_in_target([*argv, "--", *self.packages])
