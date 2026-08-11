@@ -12,6 +12,7 @@ from gentoo_install.errors import (
     CommandFailed,
     ConfigError,
     DeviceNotFound,
+    DownloadFailed,
     IntegrityError,
     PreflightFailed,
 )
@@ -67,6 +68,52 @@ def described(
 
 def probe_of(tmp_path: Path) -> Probe:
     return Probe(runner=runner(tmp_path), work=tmp_path)
+
+
+def test_an_unreadable_pre_tree_zfs_ceiling_is_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(fetch, "package_versions", lambda atom: (("2.4.3", True),))
+
+    def unreadable(url: str) -> str:
+        raise DownloadFailed(f"{url} could not be read")
+
+    monkeypatch.setattr(fetch, "_read", unreadable)
+
+    assert fetch.zfs_kernel_max().maximum is None
+
+
+def test_target_portage_metadata_carries_the_zfs_kernel_ceiling(tmp_path: Path) -> None:
+    class Answering(Runner):
+        def in_target(self, target: Path) -> Runner:
+            return self
+
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            output = {
+                ("portageq", "best_visible", "/", "sys-fs/zfs"): "sys-fs/zfs-2.4.3\n",
+                (
+                    "portageq",
+                    "metadata",
+                    "/",
+                    "ebuild",
+                    "sys-fs/zfs-2.4.3",
+                    "RDEPEND",
+                ): "dist-kernel-cap? ( dist-kernel? ( <virtual/dist-kernel-7.1 ) )\n",
+            }[tuple(argv)]
+            return Result(tuple(argv), 0, output, "", 0.0)
+
+    ceiling = Probe(runner=Answering(log=lambda line: None), work=tmp_path).zfs_kernel_max(
+        Path("/mnt/gentoo")
+    )
+
+    assert ceiling.maximum == "7.0"
 
 
 def present() -> InstallConfig:

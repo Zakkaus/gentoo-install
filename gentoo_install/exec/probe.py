@@ -21,7 +21,7 @@ from typing import ClassVar, Final, Iterable, Mapping
 from ..errors import CommandFailed, DeviceNotFound
 from ..model.config import InstallConfig
 from ..model.device import DeviceGraph, DeviceId, Existing, Extent, PartitionTable
-from ..model.validate import ProbedProfile, parse_profile_list
+from ..model.validate import KernelCeiling, ProbedProfile, parse_profile_list
 from .runner import Runner
 
 EFI_MARKER: Final[Path] = Path("/sys/firmware/efi")
@@ -636,6 +636,28 @@ class Probe:
         if loaded.returncode != 0 or not any(path.exists() for path in self.ZFS_LOADED):
             return "this live system cannot load the zfs kernel module"
         return ""
+
+    def zfs_kernel_max(self, target: Path | None = None) -> KernelCeiling:
+        """Read the visible ZFS ebuild's ceiling from Portage metadata."""
+        runner = self.runner.in_target(target) if target is not None else self.runner
+        visible = runner.run(["portageq", "best_visible", "/", "sys-fs/zfs"])
+        cpv = visible.stdout.strip()
+        if not cpv or "\n" in cpv:
+            raise CommandFailed("portageq best_visible returned no single visible sys-fs/zfs ebuild")
+        metadata = runner.run(
+            ["portageq", "metadata", "/", "ebuild", cpv, "RDEPEND"]
+        ).stdout
+        bounds = re.findall(r"<virtual/dist-kernel-(\d+)\.(\d+)(?=[\s)])", metadata)
+        if len(bounds) != 1:
+            raise CommandFailed(
+                f"portageq metadata for {cpv} returned no single ZFS dist-kernel ceiling"
+            )
+        major, exclusive_minor = (int(part) for part in bounds[0])
+        if exclusive_minor == 0:
+            raise CommandFailed(
+                f"portageq metadata for {cpv} returned an invalid dist-kernel ceiling"
+            )
+        return KernelCeiling(f"{major}.{exclusive_minor - 1}")
 
     def cores(self) -> int:
         return os.cpu_count() or 1

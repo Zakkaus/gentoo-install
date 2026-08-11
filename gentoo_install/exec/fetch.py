@@ -31,6 +31,7 @@ from ..errors import (
 )
 from ..model import paste
 from ..model.device import DeviceId
+from ..model.validate import KernelCeiling
 from .probe import RELEASE_KEY
 from .runner import Runner
 
@@ -423,8 +424,8 @@ def overlay_versions(atom: str) -> tuple[tuple[str, bool], ...]:
     return tuple((version, False) for version in sorted(named, key=_version_key, reverse=True))
 
 
-def zfs_kernel_max() -> str:
-    """The highest kernel `sys-fs/zfs` builds a module for, or empty if unread.
+def zfs_kernel_max() -> KernelCeiling:
+    """The highest kernel `sys-fs/zfs` builds a module for, or unknown.
 
     `MODULES_KERNEL_MAX` in the newest ebuild. A real ceiling: 2.4.3 stops at
     7.0, so a 7.1 kernel leaves a ZFS root with no module to import the pool.
@@ -433,11 +434,11 @@ def zfs_kernel_max() -> str:
         try:
             ebuild = _read(f"{GITWEB}/sys-fs/zfs/zfs-{version}.ebuild")
         except DownloadFailed:
-            return ""
+            return KernelCeiling(None)
         for line in ebuild.splitlines():
             if line.startswith("MODULES_KERNEL_MAX="):
-                return line.split("=", 1)[1].strip().strip("\"'")
-    return ""
+                return KernelCeiling(line.split("=", 1)[1].strip().strip("\"'"))
+    return KernelCeiling(None)
 
 
 def _version_key(version: str) -> tuple[int, ...]:
