@@ -5,12 +5,71 @@ import pytest
 
 from gentoo_install.data import load_catalog
 from gentoo_install.errors import CommandFailed
+from gentoo_install.model.config import InstallConfig, Overlay, User
 from gentoo_install.plan import packages as plan_packages
 from gentoo_install.plan.packages import build
+from gentoo_install.plan.portage import Emerge
 
 from .recorder import Recorder
 
 from .layouts import config
+
+
+def test_build_resolves_the_selected_package_groups_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog = load_catalog()
+    installation = config()
+    wanted = replace(
+        installation,
+        system=replace(
+            installation.system,
+            users=(User(name="operator", password_hash="$6$x$y"),),
+        ),
+        portage=replace(
+            installation.portage,
+            overlays=(
+                Overlay(
+                    name="gentoo-zh",
+                    sync_uri="https://example.invalid/gentoo-zh.git",
+                ),
+            ),
+        ),
+        packages=replace(
+            installation.packages,
+            desktop="plasma",
+            graphics=("nvidia",),
+            applications=("rime", "pipewire", "wemeet"),
+        ),
+    )
+    resolve = plan_packages.groups
+    resolutions = 0
+
+    def counted_groups(
+        config_arg: InstallConfig, catalog_arg: plan_packages.Catalog
+    ) -> tuple[plan_packages.Group, ...]:
+        nonlocal resolutions
+        resolutions += 1
+        return resolve(config_arg, catalog_arg)
+
+    monkeypatch.setattr(plan_packages, "groups", counted_groups)
+
+    operations = build(wanted, catalog)
+
+    assert resolutions == 1
+    assert any(isinstance(one, plan_packages.WriteInputMethodEnvironment) for one in operations)
+    assert any(
+        isinstance(one, plan_packages.AddUserToGroups)
+        and one.user == "operator"
+        and one.groups == ("pipewire",)
+        for one in operations
+    )
+    emerged = {
+        one.requester
+        for one in operations
+        if isinstance(one, Emerge) and one.requester
+    }
+    assert {"the `nvidia` group", "the `wemeet` group"} <= emerged
 
 
 def test_input_engines_declare_the_language_they_type() -> None:
