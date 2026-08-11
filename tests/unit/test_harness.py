@@ -1066,7 +1066,7 @@ def test_the_walk_does_not_escape_out_of_a_row_that_never_opened(
         def send_raw(self, keys: str) -> None:
             self.sent.append(keys)
 
-        def expect(self, pattern: str, timeout: float) -> bytes:
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
             self.asked += 1
             return b"gentoo-install"
 
@@ -1283,7 +1283,7 @@ def test_reconnects_share_the_callers_deadline(
         def closed(self) -> bool:
             return False
 
-        def expect(self, pattern: str, timeout: float) -> bytes:
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
             if self.drops:
                 now[0] += min(4.0, timeout)
                 raise ConsoleClosed("the guest closed the serial connection")
@@ -1302,3 +1302,44 @@ def test_reconnects_share_the_callers_deadline(
 
     assert opened == 3, "both dropped connections are reopened"
     assert now[0] == pytest.approx(10.0)
+
+
+def test_a_console_that_keeps_printing_is_not_ended_by_the_ceiling() -> None:
+    """An install that prints for three hours is working; one that prints
+    nothing for twenty minutes is not, and a single ceiling cannot tell them
+    apart. Twelve guests of one round were ended at three hours with a
+    repository listing still scrolling past."""
+    import time as clock
+
+    from tests.vm.console import ConsoleTimeout, SerialConsole
+
+    class Printing(SerialConsole):
+        """Prints a line on every read and never the marker."""
+
+        quiet: bool = False
+
+        def __init__(self) -> None:
+            self._buffer = b""
+            self.reads = 0
+
+        def _read_once(self) -> None:
+            self.reads += 1
+            clock.sleep(0.01)
+            if not self.quiet:
+                self._buffer += b"dev-libs/one/Manifest\n"
+
+    # Short enough to run, and the same shape: the idle window is a fifth of
+    # the ceiling, and output arrives well inside it.
+    chatty = Printing()
+    started = clock.monotonic()
+    with pytest.raises(ConsoleTimeout):
+        chatty.expect("MARK_1_DONE", timeout=1.0, idle=0.2)
+    assert clock.monotonic() - started >= 0.9, "output kept it alive to the ceiling"
+
+    quiet = Printing()
+    quiet.quiet = True
+    started = clock.monotonic()
+    with pytest.raises(ConsoleTimeout):
+        quiet.expect("MARK_1_DONE", timeout=1.0, idle=0.2)
+    waited = clock.monotonic() - started
+    assert waited < 0.6, f"silence ended it at {waited:.2f}s, not at the ceiling"

@@ -579,7 +579,7 @@ def test_the_editor_is_reopened_with_escape_not_a_second_e() -> None:
         def send(self, line: str) -> None:
             self.sent.append(line)
 
-        def expect(self, pattern: str, timeout: float) -> bytes:
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
             assert pattern == "GNU GRUB", pattern
             return b"GNU GRUB  version 2.14"
 
@@ -618,7 +618,7 @@ def test_the_editor_is_asked_for_without_waiting_for_the_menu_again() -> None:
         def send(self, line: str) -> None:
             self.sent.append(line)
 
-        def expect(self, pattern: str, timeout: float) -> bytes:
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
             raise AssertionError("hold_the_menu already waited for the menu")
 
         @property
@@ -657,7 +657,7 @@ def test_a_long_install_is_never_sent_twice_after_a_reconnect() -> None:
         def closed(self) -> bool:
             return False
 
-        def expect(self, pattern: str, timeout: float) -> bytes:
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
             if self.drops:
                 self.drops -= 1
                 raise ConsoleClosed("the guest closed the serial connection")
@@ -700,7 +700,7 @@ def test_a_short_command_is_sent_again_after_a_reconnect() -> None:
         def closed(self) -> bool:
             return False
 
-        def expect(self, pattern: str, timeout: float) -> bytes:
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
             if self.drop:
                 raise ConsoleClosed("dropped")
             return b"done"
@@ -814,7 +814,7 @@ def test_the_network_wait_gives_up_rather_than_hanging(
         def closed(self) -> bool:
             return False
 
-        def expect(self, pattern: str, timeout: float) -> bytes:
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
             return b"NETWORK_DOWN"
 
     monkeypatch.setattr(cluster, "NETWORK_PATIENCE", 0.3)
@@ -844,7 +844,7 @@ def test_the_network_wait_returns_as_soon_as_the_guest_answers() -> None:
         def closed(self) -> bool:
             return False
 
-        def expect(self, pattern: str, timeout: float) -> bytes:
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
             return b"NETWORK_DOWN" if len(tries) < 3 else b"NETWORK_UP"
 
     link = cluster.Reconnecting(Late, tries=1)
@@ -1015,7 +1015,7 @@ def test_an_encrypted_disk_is_unlocked_before_a_login_is_waited_for(
         def closed(self) -> bool:
             return False
 
-        def expect(self, pattern: str, timeout: float) -> bytes:
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
             if DISK_PASSPHRASE in self.sent:
                 return b"gentoo login:"
             return b"Enter passphrase for hd0,gpt2:"
@@ -1195,7 +1195,7 @@ def test_a_command_is_delivered_after_the_console_was_dropped() -> None:
         def snapshot(self, seconds: float) -> bytes:
             return b""
 
-        def expect(self, pattern: str, timeout: float) -> bytes:
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
             return b""
 
         @property
@@ -1635,7 +1635,7 @@ def test_the_keymap_question_is_answered_rather_than_waited_out() -> None:
         def snapshot(self, seconds: float) -> bytes:
             return b""
 
-        def expect(self, pattern: str, timeout: float) -> bytes:
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
             if not self.asked:
                 self.asked = True
                 return b"Load keymap (Enter for default): "
@@ -1664,7 +1664,7 @@ def test_the_keymap_question_is_answered_rather_than_waited_out() -> None:
         def snapshot(self, seconds: float) -> bytes:
             return b""
 
-        def expect(self, pattern: str, timeout: float) -> bytes:
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
             return b"livecd ~ # "
 
         @property

@@ -124,9 +124,21 @@ class SerialConsole:
             return cls(_Socket(sock), log_path.open("wb"), path.parent / "qemu.err")
         raise ConsoleTimeout(f"{path} never accepted a connection")
 
-    def expect(self, pattern: str, timeout: float) -> bytes:
+    def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+        """Wait for `pattern`, giving up after `timeout`.
+
+        `idle` measures the wait from the last byte that arrived rather than
+        from the start. An install that prints for three hours is working; one
+        that prints nothing for twenty minutes is not, and a single ceiling
+        cannot tell them apart. Twelve guests of one round were ended at three
+        hours with a repository listing still scrolling past.
+        """
         matcher = re.compile(pattern.encode())
-        deadline = time.monotonic() + timeout
+        # Two deadlines, whichever comes first: the ceiling bounds a guest that
+        # prints for ever, and the idle window ends one that stopped.
+        ceiling = time.monotonic() + timeout
+        deadline = min(ceiling, time.monotonic() + idle) if idle else ceiling
+        seen = len(self._buffer)
         while time.monotonic() < deadline:
             clean = strip_ansi(self._buffer)
             found = matcher.search(clean)
@@ -136,6 +148,9 @@ class SerialConsole:
                 self._buffer = clean[found.end() :]
                 return clean[: found.end()]
             self._read_once()
+            if idle and len(self._buffer) != seen:
+                seen = len(self._buffer)
+                deadline = min(ceiling, time.monotonic() + idle)
         raise ConsoleTimeout(
             f"never matched {pattern!r}; last output was {strip_ansi(self._buffer)[-600:]!r}"
         )

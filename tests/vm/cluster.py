@@ -170,9 +170,16 @@ STAGGER: Final[float] = 20.0
 #: minutes with eighteen jobs waiting.
 POLL_WHILE_QUEUED: Final[float] = 20.0
 
-#: Nothing this harness runs takes three hours, and a run that does is holding
-#: a node's memory rather than testing anything.
-RUN_CEILING: Final[float] = 3 * 3600.0
+#: The outer bound, reached only by a guest that keeps printing and never
+#: finishes. Twelve of one round hit the three-hour version of it with a
+#: repository listing still scrolling, so the ceiling is generous and
+#: `INSTALL_IDLE` is what actually ends a dead one.
+RUN_CEILING: Final[float] = 8 * 3600.0
+
+#: How long an install may print nothing. Unpacking a stage3 and fetching one
+#: are the quiet steps, and neither takes twenty minutes; the watchdog reads
+#: the hypervisor's byte counters for the same question from outside.
+INSTALL_IDLE: Final[float] = 20 * 60.0
 
 #: How long the installed system has to reach a login prompt. A first boot
 #: builds the initramfs cache and, on openrc, runs every service in order.
@@ -923,6 +930,7 @@ def install_one(
             f"{{ sh /mnt/driver/install.sh --config fixtures/{job.fixture.name}; "
             f"echo $? > {RESULT_DIR}/install.rc; }} 2>&1 | tee {RESULT_DIR}/install.txt",
             timeout=RUN_CEILING,
+            idle=INSTALL_IDLE,
         )
         files = collect(guest, link, log)
         code = files.get("install.rc", b"").strip()
@@ -1315,7 +1323,7 @@ class Reconnecting:
         # prompt, and every wait below is looking for text.
         self.console.send("")
 
-    def expect(self, pattern: str, timeout: float) -> bytes:
+    def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
         return self._with_reconnect(
             timeout, lambda deadline: self.console.expect(pattern, _remaining(deadline))
         )
@@ -1328,11 +1336,14 @@ class Reconnecting:
 
         self._with_reconnect(timeout, run_once)
 
-    def wait_for(self, command: str, timeout: float) -> None:
+    def wait_for(self, command: str, timeout: float, idle: float = 0.0) -> None:
         """Send a command once and wait for it however long it takes.
 
         Reconnecting does not re-send it: an install that is already running
         would be started a second time on a target it has half written.
+
+        `idle` is measured from the last byte the guest sent. An install that
+        prints for three hours is working and a single ceiling ends it anyway.
         """
         token = next(self._marks)
         sent = False
@@ -1342,7 +1353,7 @@ class Reconnecting:
             if not sent:
                 sent = True
                 self.console.send(_marked(command, token))
-            self.console.expect(_done(token), _remaining(deadline))
+            self.console.expect(_done(token), _remaining(deadline), idle=idle)
 
         self._with_reconnect(timeout, wait_once)
 
