@@ -11,7 +11,10 @@ use = ["wayland", "qt6", "networkmanager"]
 # that already has them rather than by the fcitx5 group, which would install
 # Plasma alongside GNOME. Harmless when fcitx5 is not chosen: the line names a
 # package that is not merged.
-package_use = ["app-i18n/fcitx-configtool kcm"]
+package_use = [
+    "app-i18n/fcitx-configtool kcm",
+    "sys-libs/minizip-ng compat",
+]
 wayland = true
 profile = "default/linux/amd64/23.0/desktop/plasma"
 
