@@ -144,6 +144,11 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         Run("fixtures/vm-lvm.toml"),
         Run("fixtures/vm-mdraid.toml"),
         Run("fixtures/vm-sdboot.toml"),
+        # `installkernel[systemd-boot]` needs `bootctl`, and without systemd
+        # that is `sys-apps/systemd-utils[boot,kernel-install]`. Every other
+        # openrc fixture boots from GRUB and every systemd-boot one runs
+        # systemd, so the pair reached a real machine before a test.
+        Run("fixtures/openrc-sdboot.toml"),
         Run("fixtures/vm-zfs-encrypted.toml"),
         Run("fixtures/zfs-zbm.toml"),
         Run("fixtures/btrfs-luks.toml"),
