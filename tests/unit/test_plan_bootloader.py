@@ -78,3 +78,29 @@ def test_zfsbootmenu_carries_remote_access_in_its_own_image() -> None:
     )
     assert "crypt-ssh" not in kernel.dracut_modules(installation)
     assert "network" not in kernel.dracut_modules(installation)
+
+
+def test_a_systemd_boot_machine_shows_its_menu() -> None:
+    """`bootctl install` writes no `loader.conf`, and systemd-boot's documented
+    default for `timeout` is 0: "no menu is shown and the default entry will be
+    booted immediately". An encrypted openrc machine went from firmware
+    straight to the passphrase prompt, with no way to pick an older kernel.
+    """
+    installation = load(Path("tests/fixtures/openrc-sdboot.toml"))
+    operations = bootloader.build(installation)
+    shown = [one for one in operations if isinstance(one, bootloader.ShowTheBootMenu)]
+    assert len(shown) == 1, [one.describe() for one in operations]
+    assert shown[0].seconds > 0, shown[0]
+
+    recorder = Recorder()
+    shown[0].apply(recorder)
+    written = recorder.files[shown[0].esp / "loader" / "loader.conf"]
+    assert f"timeout {shown[0].seconds}" in written, written
+
+
+def test_a_grub_machine_writes_no_loader_conf() -> None:
+    """The menu timeout for GRUB is `GRUB_TIMEOUT` in `/etc/default/grub`, and
+    a `loader.conf` beside it would be read by nothing."""
+    installation = load(Path("tests/fixtures/vm-btrfs.toml"))
+    operations = bootloader.build(installation)
+    assert not [one for one in operations if isinstance(one, bootloader.ShowTheBootMenu)]
