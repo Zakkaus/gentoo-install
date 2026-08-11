@@ -23,6 +23,7 @@ from .device import (
     Existing,
     Filesystem,
     FilesystemType,
+    LogicalVolume,
     MdRaid,
     Mountpoint,
     Node,
@@ -577,6 +578,7 @@ def _layout_problems(config: InstallConfig) -> list[str]:
             problems.append(f"{count} devices are mounted at {path}")
 
     problems += _partition_index_problems(graph)
+    problems += _logical_volume_size_problems(graph)
     return problems
 
 
@@ -642,6 +644,14 @@ def _partition_size_problems(graph: DeviceGraph, table: PartitionTable) -> list[
             "the last one, so nothing after it has room"
         )
     return problems
+
+
+def _logical_volume_size_problems(graph: DeviceGraph) -> list[str]:
+    return [
+        f"logical volume {volume.id} is {volume.size}"
+        for volume in graph.of_type(LogicalVolume)
+        if volume.size is not None and volume.size.bytes == 0
+    ]
 
 
 def _mbr_index_problems(table: PartitionTable, indexes: list[int]) -> list[str]:
