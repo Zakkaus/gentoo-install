@@ -163,12 +163,6 @@ class Api:
         self._opener = urllib.request.build_opener(
             urllib.request.HTTPSHandler(context=self._context), _RejectRedirect()
         )
-        #: The cluster sits behind a load balancer that spreads requests over
-        #: every node. A `termproxy` ticket is valid on the node that issued
-        #: it, so a websocket landing anywhere else is answered `502 Bad
-        #: Gateway`. Holding the balancer's own affinity cookie pins both
-        #: halves to one backend.
-        self.affinity: str = ""
 
     def _remember(self, headers: Any) -> str:
         for name, value in headers.items():
@@ -177,9 +171,7 @@ class Api:
         return ""
 
     def call(self, method: str, path: str, **form: Any) -> Any:
-        data, affinity = self.call_with_affinity(method, path, **form)
-        if affinity:
-            self.affinity = affinity
+        data, _ = self.call_with_affinity(method, path, **form)
         return data
 
     def call_with_affinity(self, method: str, path: str, **form: Any) -> tuple[Any, str]:
@@ -195,9 +187,6 @@ class Api:
             f"https://{self.host}/api2/json{path}", data=body, method=method
         )
         request.add_header("Authorization", f"PVEAPIToken={TOKEN_ID}={_secret()}")
-        affinity = self.affinity
-        if affinity:
-            request.add_header("Cookie", affinity)
         try:
             with self._opener.open(request, timeout=API_TIMEOUT) as answer:
                 remembered = self._remember(answer.headers)
@@ -211,7 +200,7 @@ class Api:
                 # answers `{"data": null}` with no message at all.
                 if data is None and reason:
                     raise ProxmoxError(f"{method} {path} answered {reason}")
-                return data, remembered or affinity
+                return data, remembered
         except urllib.error.HTTPError as error:
             # The reason, not only the body: Proxmox answers `500` with
             # `{"data":null}` and puts what went wrong in the status line.
@@ -326,8 +315,6 @@ class Api:
         )
         request.add_header("Authorization", f"PVEAPIToken={TOKEN_ID}={_secret()}")
         request.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
-        if self.affinity:
-            request.add_header("Cookie", self.affinity)
         try:
             with self._opener.open(request, timeout=600.0) as answer:
                 upid = json.load(answer).get("data")
@@ -566,7 +553,6 @@ class Guest:
                     if not _transient(error):
                         raise
                     last = str(error)
-                    self.api.affinity = ""
                     time.sleep(0.5 * (attempt + 1))
             else:
                 raise ProxmoxError(f"{key!r} was not delivered to vm {self.vmid}: {last}")
@@ -679,10 +665,9 @@ class ConsoleChannel:
         after its own five-second wait, so this retries rather than failing a
         run that was one second early.
 
-        Each retry drops the balancer's affinity cookie first. The failure is
-        intermittent and follows which backend the cookie pinned: the same call
-        answered 500 five times running on one backend and succeeded first try
-        on the next, so retrying without moving would just wait.
+        Each retry starts a new ticket exchange. The failure is intermittent
+        and follows which backend answered: one backend refused five calls in
+        a row while the next succeeded, so a failed exchange is not reused.
         """
         last = ""
         for attempt in range(tries):
@@ -694,7 +679,6 @@ class ConsoleChannel:
                 if not _transient(error):
                     raise
                 last = str(error)
-                api.affinity = ""
                 time.sleep(2.0 * (attempt + 1))
                 continue
             path = (
@@ -711,7 +695,6 @@ class ConsoleChannel:
                 )
             except WebSocketError as error:
                 last = str(error)
-                api.affinity = ""
                 time.sleep(2.0 * (attempt + 1))
                 continue
             socket.settimeout(1.0)

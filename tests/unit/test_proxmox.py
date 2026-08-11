@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import shlex
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from email.message import Message
 import io
 import struct
+from threading import Event
 import urllib.error
 import urllib.response
 import urllib.request
@@ -162,6 +164,41 @@ def test_a_delete_carries_its_parameters_in_the_url(monkeypatch: pytest.MonkeyPa
 
     assert removed == ("https://nowhere.invalid/api2/json/nodes/n/qemu/9300?purge=1", None)
     assert created == ("https://nowhere.invalid/api2/json/nodes/n/qemu", b"vmid=9300")
+
+
+def test_ordinary_api_calls_do_not_reuse_load_balancer_affinity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests: list[urllib.request.Request] = []
+
+    class Answer(io.BytesIO):
+        def __init__(self, cookie: str) -> None:
+            super().__init__(b'{"data":{}}')
+            self.headers = Message()
+            self.headers.add_header("Set-Cookie", cookie)
+
+        def __enter__(self) -> Answer:
+            return self
+
+        def __exit__(self, *unused: object) -> None:
+            return None
+
+    class Opener:
+        def open(
+            self, request: urllib.request.Request, timeout: float = 0.0
+        ) -> Answer:
+            requests.append(request)
+            return Answer(f"INGRESSCOOKIE=worker-{len(requests)}; Path=/")
+
+    api = Api(host="nowhere.invalid")
+    api._opener = cast(urllib.request.OpenerDirector, Opener())
+    monkeypatch.setattr(proxmox, "_secret", lambda: "secret")
+
+    api.call("GET", "/nodes")
+    api.call("GET", "/cluster/status")
+
+    assert [request.get_header("Cookie") for request in requests] == [None, None]
+    assert not hasattr(api, "affinity")
 
 
 class _HttpRefusal:
@@ -2006,20 +2043,31 @@ def test_a_refused_stop_is_reported_before_the_guest_is_destroyed() -> None:
     assert api.absent
 
 
-def test_a_console_uses_the_cookie_returned_with_its_own_ticket(
+def test_interleaved_consoles_use_the_cookie_from_their_own_ticket(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Another worker replaced the shared affinity cookie between ticket and connect."""
-    captured: dict[str, str] = {}
+    """Ticket B replaces simulated shared state before ticket A connects."""
+    captured: dict[int, str] = {}
+    first_ticket = Event()
+    second_ticket = Event()
 
     class Tickets(Api):
         def __init__(self) -> None:
             self.host = "pve.invalid"
-            self.affinity = "cookie-before"
 
         def call_with_affinity(self, method: str, path: str, **form: Any) -> tuple[Any, str]:
-            self.affinity = "INGRESSCOOKIE=worker-b"
-            return {"port": 1, "ticket": "ticket-a", "user": "root@pam"}, "INGRESSCOOKIE=worker-a"
+            vmid = int(path.split("/qemu/", 1)[1].split("/", 1)[0])
+            cookie = f"INGRESSCOOKIE=worker-{vmid}"
+            if vmid == 9300:
+                setattr(self, "affinity", cookie)
+                first_ticket.set()
+                assert second_ticket.wait(timeout=5.0)
+            else:
+                assert first_ticket.wait(timeout=5.0)
+                setattr(self, "affinity", cookie)
+                second_ticket.set()
+            ticket = {"port": vmid, "ticket": f"ticket-{vmid}", "user": "root@pam"}
+            return ticket, cookie
 
     class Framed:
         closed = False
@@ -2042,13 +2090,23 @@ def test_a_console_uses_the_cookie_returned_with_its_own_ticket(
         headers: dict[str, str],
         **kwargs: Any,
     ) -> Framed:
-        captured.update(headers)
+        vmid = int(path.split("/qemu/", 1)[1].split("/", 1)[0])
+        captured[vmid] = headers.get("Cookie", "")
         return Framed()
 
     monkeypatch.setattr(WebSocket, "connect", connect)
     monkeypatch.setattr(proxmox, "_secret", lambda: "secret")
-    proxmox.ConsoleChannel.open(Tickets(), "node", 9300, tries=1)
-    assert captured["Cookie"] == "INGRESSCOOKIE=worker-a"
+    api = Tickets()
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        first = workers.submit(proxmox.ConsoleChannel.open, api, "node", 9300, 1)
+        second = workers.submit(proxmox.ConsoleChannel.open, api, "node", 9301, 1)
+        first.result()
+        second.result()
+
+    assert captured == {
+        9300: "INGRESSCOOKIE=worker-9300",
+        9301: "INGRESSCOOKIE=worker-9301",
+    }
 
 
 def test_a_guest_is_asked_for_an_address_on_the_first_pass() -> None:
@@ -2353,7 +2411,6 @@ def test_an_error_carried_in_a_two_hundred_is_not_thrown_away() -> None:
 
     api = Api.__new__(Api)
     api.host = "pve.invalid"
-    api.affinity = ""
 
     api._opener = answering({"data": None, "message": "invalid bootorder\n"})
     with pytest.raises(ProxmoxError) as raised:
