@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import ClassVar, Final, Generic, Protocol, Sequence, TypeVar
+from typing import Callable, ClassVar, Final, Generic, Mapping, Protocol, Sequence, TypeVar
 
 from ..i18n import truncate, width
 
@@ -464,6 +464,14 @@ class Field:
     toggle: bool = False
 
 
+@dataclass(frozen=True)
+class FormRejected:
+    """A submitted form that must be redrawn with an inline explanation."""
+
+    message: str
+    corrections: Mapping[int, str] = field(default_factory=dict)
+
+
 @dataclass
 class Form:
     """Several fields on one screen, moved between with the arrow keys.
@@ -477,13 +485,22 @@ class Form:
     fields: list[Field]
     footer: str = ""
     done: str = "Done"
-    #: Drawn under the title, for a form the caller re-ran because one of the
-    #: answers was wrong. Re-running with the values kept is the point: an
+    #: Drawn under the title after one of the answers was rejected. Retrying
+    #: with the values kept is the point: an
     #: operator who mistyped the second password should not lose the first.
     message: str = ""
 
     def run(self, screen: Screen) -> Answer[list[str]]:
+        return self.run_validated(screen, lambda values: Answer(Outcome.CHOSE, values))
+
+    def run_validated(
+        self,
+        screen: Screen,
+        validator: Callable[[list[str]], Answer[V] | FormRejected],
+    ) -> Answer[V]:
+        """Retry rejected submissions while retaining the form's entered values."""
         typed = [list(field.value) for field in self.fields]
+        message = self.message
         # The last row submits, so it is a row like the others and reachable
         # the same way.
         cursor = 0
@@ -492,7 +509,7 @@ class Form:
         # footer offers Back and the form had no way at all to take it.
         touched = False
         while True:
-            self._draw(screen, typed, cursor)
+            self._draw(screen, typed, cursor, message)
             pressed = screen.key()
             if pressed in BACKWARD_FIELD:
                 cursor = max(0, cursor - 1)
@@ -500,7 +517,20 @@ class Form:
                 cursor = min(len(self.fields), cursor + 1)
             elif pressed in ("\n", "KEY_ENTER"):
                 if cursor == len(self.fields):
-                    return Answer(Outcome.CHOSE, ["".join(one) for one in typed])
+                    values = ["".join(one) for one in typed]
+                    checked = validator(values)
+                    if not isinstance(checked, FormRejected):
+                        return checked
+                    corrected = values.copy()
+                    for index, value in checked.corrections.items():
+                        if index < 0 or index >= len(corrected):
+                            raise ValueError(f"form correction index out of range: {index}")
+                        corrected[index] = value
+                    typed = [list(value) for value in corrected]
+                    message = checked.message
+                    cursor = 0
+                    touched = False
+                    continue
                 cursor += 1
             elif pressed == " " and cursor < len(self.fields) and self.fields[cursor].toggle:
                 typed[cursor] = [] if typed[cursor] else ["x"]
@@ -522,13 +552,15 @@ class Form:
                 typed[cursor].append(pressed)
                 touched = True
 
-    def _draw(self, screen: Screen, typed: list[list[str]], cursor: int) -> None:
+    def _draw(
+        self, screen: Screen, typed: list[list[str]], cursor: int, message: str
+    ) -> None:
         lines, columns = screen.size()
         screen.clear()
         screen.write(0, 0, truncate(self.title, columns))
         offset = 2
-        if self.message:
-            screen.write(1, 2, truncate(self.message, columns - 2), style=Style.REQUIRED)
+        if message:
+            screen.write(1, 2, truncate(message, columns - 2), style=Style.REQUIRED)
             offset = 3
         widest = max((width(field.label) for field in self.fields), default=0)
         room = columns - widest - 10
