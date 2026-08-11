@@ -36,7 +36,7 @@ from .bootloader import GenerateHostId
 from .bootloader import initramfs_keymap as bootloader_keymap
 from .bootloader import unlock_parameters
 from .operations import Context, Operation, Stage
-from .portage import Emerge
+from .portage import Emerge, SourcePolicy
 
 #: The package that provides each kernel choice.
 KERNEL_PACKAGES: Final[dict[KernelSource, str]] = {
@@ -628,7 +628,7 @@ def build(config: InstallConfig) -> list[Operation]:
                 packages=("sys-apps/systemd",),
                 summary="rebuild systemd with the unlock generator",
                 oneshot=True,
-                binary_packages=False,
+                source=SourcePolicy.build_all(),
             ),
         ]
     operations += [
@@ -694,7 +694,7 @@ def build(config: InstallConfig) -> list[Operation]:
                 stage=Stage.KERNEL,
                 packages=tuple(one for one, _ in flagged_now),
                 summary="install the storage tools that need a flag the default build lacks",
-                binary_packages=False,
+                source=SourcePolicy.build_all(),
             )
         )
     out_of_tree = _out_of_tree_modules(config)
@@ -714,8 +714,11 @@ def build(config: InstallConfig) -> list[Operation]:
                 stage=Stage.KERNEL,
                 packages=(atom, *sorted(building)),
                 summary="install the kernel and the tools that build a module for it",
-                source_only=tuple(sorted(building)) if prebuilt else (),
-                binary_packages=prebuilt,
+                source=(
+                    SourcePolicy.build_subset(tuple(sorted(building)))
+                    if prebuilt
+                    else SourcePolicy.build_all()
+                ),
             )
         )
     else:
@@ -724,7 +727,11 @@ def build(config: InstallConfig) -> list[Operation]:
                 stage=Stage.KERNEL,
                 packages=(atom,),
                 summary="install the kernel",
-                binary_packages=prebuilt,
+                source=(
+                    SourcePolicy.binaries_allowed()
+                    if prebuilt
+                    else SourcePolicy.build_all()
+                ),
             )
         )
     if modules:

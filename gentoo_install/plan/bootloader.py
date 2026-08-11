@@ -436,7 +436,7 @@ def build(config: InstallConfig) -> list[Operation]:
                 stage=Stage.BOOTLOADER,
                 packages=(provider,),
                 summary="install bootctl",
-                only_if_absent=True,
+                noreplace=True,
             ),
             InstallSystemdBoot(esp=esp),
             ShowTheBootMenu(esp=esp),

@@ -278,7 +278,7 @@ def test_a_binhost_that_can_be_trusted_is_used() -> None:
 
 
 def test_a_package_built_here_still_takes_its_dependencies_from_the_host() -> None:
-    """`binary_packages=False` means this atom carries a flag the host's build
+    """A build-all policy means this atom carries a flag the host's build
     lacks, not that the machine has to compile everything under it: turning
     binaries off wholesale pulled gtk+, cups and 21 more into a systemd
     rebuild and died on a circular dependency between docutils and pillow."""
@@ -287,7 +287,7 @@ def test_a_package_built_here_still_takes_its_dependencies_from_the_host() -> No
     portage.Emerge(
         packages=("sys-apps/systemd",),
         summary="rebuild systemd with the unlock generator",
-        binary_packages=False,
+        source=portage.SourcePolicy.build_all(),
     ).apply(recorder)
     emerge = next(argv for argv in recorder.in_target if argv[0] == "emerge")
     assert "--getbinpkg=y" in emerge
@@ -299,12 +299,126 @@ def test_a_package_built_here_still_takes_its_dependencies_from_the_host() -> No
     assert "virtual/*" in excluded.split()
 
 
-def test_a_degraded_binhost_reaches_the_source_path_at_all() -> None:
+@pytest.mark.parametrize(
+    ("policy", "built", "description"),
+    (
+        (
+            portage.SourcePolicy.binaries_allowed(),
+            (),
+            "install packages: emerge app-editors/nano app-misc/tmux",
+        ),
+        (
+            portage.SourcePolicy.build_all(),
+            ("app-editors/nano", "app-misc/tmux"),
+            "install packages: emerge app-editors/nano app-misc/tmux, from source",
+        ),
+        (
+            portage.SourcePolicy.build_subset(("app-misc/tmux",)),
+            ("app-misc/tmux",),
+            (
+                "install packages: emerge app-editors/nano app-misc/tmux, "
+                "building app-misc/tmux here"
+            ),
+        ),
+    ),
+    ids=("binaries-allowed", "build-all", "build-subset"),
+)
+def test_source_policies_render_their_commands_and_descriptions(
+    policy: portage.SourcePolicy,
+    built: tuple[str, ...],
+    description: str,
+) -> None:
+    operation = portage.Emerge(
+        packages=("app-editors/nano", "app-misc/tmux"),
+        summary="install packages",
+        source=policy,
+    )
+    recorder = Recorder()
+
+    operation.apply(recorder)
+
+    emerge = recorder.only("emerge")
+    excluded = emerge[emerge.index("--usepkg-exclude") + 1]
+    expected = portage.BINPKG_EXCLUDED
+    if built:
+        expected += " " + " ".join(portage._unversioned(atom) for atom in built)
+    assert excluded == expected
+    assert operation.describe() == description
+
+
+@pytest.mark.parametrize(
+    ("packages", "subset"),
+    (
+        (("app-editors/nano",), ()),
+        (("app-editors/nano",), ("app-misc/tmux",)),
+        (("app-editors/nano",), ("app-editors/nano", "app-misc/tmux")),
+    ),
+    ids=("empty", "outside", "mixed"),
+)
+def test_invalid_source_subsets_are_rejected(
+    packages: tuple[str, ...], subset: tuple[str, ...]
+) -> None:
+    if not subset:
+        with pytest.raises(ValueError, match="source subset cannot be empty"):
+            portage.SourcePolicy.build_subset(subset)
+        return
+    with pytest.raises(ValueError, match="source subset contains atoms outside packages"):
+        portage.Emerge(
+            packages=packages,
+            summary="install packages",
+            source=portage.SourcePolicy.build_subset(subset),
+        )
+
+
+def test_oneshot_and_noreplace_cannot_be_combined() -> None:
+    with pytest.raises(ValueError, match="oneshot and noreplace cannot be combined"):
+        portage.Emerge(
+            packages=("app-editors/nano",),
+            summary="install the editor",
+            oneshot=True,
+            noreplace=True,
+        )
+
+
+@pytest.mark.parametrize(
+    ("oneshot", "noreplace", "expected"),
+    ((True, False, "--oneshot"), (False, True, "--noreplace")),
+    ids=("oneshot", "noreplace"),
+)
+def test_oneshot_and_noreplace_are_rendered_explicitly(
+    oneshot: bool, noreplace: bool, expected: str
+) -> None:
+    recorder = Recorder()
+    portage.Emerge(
+        packages=("app-editors/nano",),
+        summary="install the editor",
+        oneshot=oneshot,
+        noreplace=noreplace,
+    ).apply(recorder)
+    assert expected in recorder.only("emerge")
+
+
+@pytest.mark.parametrize(
+    "policy",
+    (
+        portage.SourcePolicy.binaries_allowed(),
+        portage.SourcePolicy.build_all(),
+        portage.SourcePolicy.build_subset(("sys-boot/grub",)),
+    ),
+    ids=("binaries-allowed", "build-all", "build-subset"),
+)
+def test_a_degraded_binhost_reaches_the_source_path_at_all(
+    policy: portage.SourcePolicy,
+) -> None:
     """`FEATURES=getbinpkg` in make.conf outlives `--usepkg=n`, so a host that
     cannot be verified still served every package until both were passed."""
     recorder = Recorder()
     recorder.given_up.add(portage.BINARY_PACKAGES)
-    portage.Emerge(packages=("sys-boot/grub",), summary="install the bootloader").apply(recorder)
+    portage.Emerge(
+        packages=("sys-boot/grub",),
+        summary="install the bootloader",
+        source=policy,
+    ).apply(recorder)
     emerge = next(argv for argv in recorder.in_target if argv[0] == "emerge")
     assert "--usepkg=n" in emerge and "--getbinpkg=n" in emerge
 
@@ -878,7 +992,7 @@ def test_a_pinned_package_reaches_usepkg_exclude_without_its_version() -> None:
     install with the disks already written. Measured against the real emerge:
     `cat/pkg` and `cat/pkg:0` are accepted and anything carrying a version is
     not."""
-    from gentoo_install.plan.portage import Emerge, _unversioned
+    from gentoo_install.plan.portage import Emerge, SourcePolicy, _unversioned
 
     assert _unversioned("=sys-kernel/gentoo-cjk-kernel-bin-7.1.7") == (
         "sys-kernel/gentoo-cjk-kernel-bin"
@@ -894,8 +1008,9 @@ def test_a_pinned_package_reaches_usepkg_exclude_without_its_version() -> None:
     Emerge(
         summary="install the kernel",
         packages=("=sys-kernel/gentoo-cjk-kernel-bin-7.1.7",),
-        source_only=("=sys-kernel/gentoo-cjk-kernel-bin-7.1.7",),
-        binary_packages=True,
+        source=SourcePolicy.build_subset(
+            ("=sys-kernel/gentoo-cjk-kernel-bin-7.1.7",)
+        ),
     ).apply(recorder)
     excluded = next(
         one[one.index("--usepkg-exclude") + 1]

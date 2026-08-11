@@ -35,7 +35,7 @@ from gentoo_install.model.size import Size
 from gentoo_install.exec.config import load
 from gentoo_install.model.validate import validate
 from gentoo_install.plan import bootloader, kernel
-from gentoo_install.plan.portage import Emerge
+from gentoo_install.plan.portage import Emerge, SourcePolicy
 
 from .layouts import config, encrypted_root, ext4_on_gpt, i, zfs_root
 from .recorder import Recorder
@@ -190,7 +190,7 @@ def test_the_kernel_and_its_module_are_resolved_in_one_emerge() -> None:
     assert len(merging) == 1, [one.describe() for one in merging]
     assert "sys-fs/zfs" in merging[0].packages
     # The kernel still comes prebuilt; only the module is built here.
-    assert merging[0].source_only == ("sys-fs/zfs",)
+    assert merging[0].source == SourcePolicy.build_subset(("sys-fs/zfs",))
     told = next(n for n, o in enumerate(operations) if "dist-kernel" in o.describe())
     assert told < operations.index(merging[0])
 
@@ -995,7 +995,7 @@ def test_bootctl_is_not_rebuilt_for_flags_it_already_has() -> None:
         for one in bootloader.build(installation)
         if isinstance(one, Emerge) and "bootctl" in one.summary
     )
-    assert merge.only_if_absent
+    assert merge.noreplace
     recorder = Recorder()
     merge.apply(recorder)
     assert any("--noreplace" in one for one in recorder.in_target[0])

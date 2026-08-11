@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import PurePosixPath
 from typing import Final, Sequence
 
@@ -329,6 +330,54 @@ def _unversioned(atom: str) -> str:
     return f"{category}/{trimmed}"
 
 
+class _SourceMode(Enum):
+    BINARIES_ALLOWED = "binaries allowed"
+    BUILD_ALL = "build all"
+    BUILD_SUBSET = "build subset"
+
+
+@dataclass(frozen=True, kw_only=True)
+class SourcePolicy:
+    """Which requested packages may use binaries.
+
+    Dependencies may still use the binhost when requested packages are built.
+    """
+
+    mode: _SourceMode
+    subset: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.mode is _SourceMode.BUILD_SUBSET:
+            if not self.subset:
+                raise ValueError("a source subset cannot be empty")
+        elif self.subset:
+            raise ValueError(f"{self.mode.value} cannot carry a source subset")
+
+    @classmethod
+    def binaries_allowed(cls) -> SourcePolicy:
+        return cls(mode=_SourceMode.BINARIES_ALLOWED)
+
+    @classmethod
+    def build_all(cls) -> SourcePolicy:
+        return cls(mode=_SourceMode.BUILD_ALL)
+
+    @classmethod
+    def build_subset(cls, packages: tuple[str, ...]) -> SourcePolicy:
+        return cls(mode=_SourceMode.BUILD_SUBSET, subset=packages)
+
+    def built_from(self, packages: tuple[str, ...]) -> tuple[str, ...]:
+        if self.mode is _SourceMode.BINARIES_ALLOWED:
+            return ()
+        if self.mode is _SourceMode.BUILD_ALL:
+            return packages
+        outside = tuple(atom for atom in self.subset if atom not in packages)
+        if outside:
+            raise ValueError(
+                f"source subset contains atoms outside packages: {' '.join(outside)}"
+            )
+        return self.subset
+
+
 @dataclass(frozen=True, kw_only=True)
 class SyncRepository(Operation):
     """A directory holding a copy that git did not create makes `emerge --sync`
@@ -418,18 +467,17 @@ class Emerge(Operation):
     requester: str = ""
     repository_bootstrap: bool = False
     oneshot: bool = False
-    binary_packages: bool = True
-    #: Which of `packages` have to be built here when the rest may come from a
-    #: binary host. Empty means `binary_packages` decides for all of them. One
-    #: emerge naming a kernel and the module built against it needs both
-    #: answers at once, and Portage has to resolve them together or it picks a
-    #: kernel the module's own version cap forbids.
-    source_only: tuple[str, ...] = ()
+    source: SourcePolicy = SourcePolicy.binaries_allowed()
     #: Install only what is absent. For a package an earlier operation already
     #: pulled in, a plain atom is `[ebuild R]` and portage rebuilds it: one
     #: run spent 132 seconds rebuilding `sys-apps/systemd` at the bootloader
     #: stage with the same flags it had been built with at the kernel stage.
-    only_if_absent: bool = False
+    noreplace: bool = False
+
+    def __post_init__(self) -> None:
+        self.source.built_from(self.packages)
+        if self.oneshot and self.noreplace:
+            raise ValueError("oneshot and noreplace cannot be combined")
 
     @property
     def package_requester(self) -> str:
@@ -443,15 +491,13 @@ class Emerge(Operation):
         return f"{self.summary}: emerge {' '.join(self.packages)}{how}"
 
     def _built_here(self) -> tuple[str, ...]:
-        if self.source_only:
-            return self.source_only
-        return () if self.binary_packages else self.packages
+        return self.source.built_from(self.packages)
 
     def apply(self, context: Context) -> None:
         argv = ["emerge", *EMERGE_OPTIONS]
         if self.oneshot:
             argv.append("--oneshot")
-        if self.only_if_absent:
+        if self.noreplace:
             argv.append("--noreplace")
         if context.degraded(BINARY_PACKAGES):
             # `FEATURES=getbinpkg` in make.conf keeps fetching remote binaries
@@ -789,7 +835,7 @@ def build(
                 stage=Stage.PORTAGE,
                 packages=("sec-keys/openpgp-keys-gentoozh",),
                 summary="install the key the community binary packages are signed with",
-                binary_packages=False,
+                source=SourcePolicy.build_all(),
                 repository_bootstrap=True,
             ),
             TrustBinhostKey(
