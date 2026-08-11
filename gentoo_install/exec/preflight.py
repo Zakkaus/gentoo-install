@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Final, Iterable
 
 from ..errors import DeviceNotFound, PreflightFailed
 from ..model import compat
@@ -32,7 +32,11 @@ from ..model.device import (
 from ..model.size import DEFAULT_ALIGNMENT, SectorSize, Size
 from ..model.validate import root_size_problems
 from ..plan.disk import MKFS
+from ..plan.operations import Operation
 from .probe import RELEASE_KEY, Machine, Probe
+
+# These are used while preflight inspects disks, before any operation runs.
+PREFLIGHT_ONLY: Final[tuple[str, ...]] = ("lsblk", "swapon")
 
 #: Commands every install needs, whatever the layout is.
 ALWAYS: Final[tuple[str, ...]] = (
@@ -112,7 +116,7 @@ class Report:
             )
 
 
-def required_commands(config: InstallConfig) -> frozenset[str]:
+def _configured_commands(config: InstallConfig) -> frozenset[str]:
     graph = config.disk.graph
     wanted = set(ALWAYS)
     for table in graph.of_type(PartitionTable):
@@ -137,6 +141,33 @@ def required_commands(config: InstallConfig) -> frozenset[str]:
         wanted.add(MKFS[filesystem.kind][0])
         wanted |= set(EXTRA_FILESYSTEM_COMMANDS.get(filesystem.kind, ()))
     return frozenset(wanted)
+
+
+def required_commands(
+    config: InstallConfig, operations: Iterable[Operation] | None = None
+) -> frozenset[str]:
+    """Executables preflight probes for this configuration and built plan.
+
+    The configuration-only path remains for callers that have not built a
+    plan, such as ``--missing-commands``. Installation passes its built plan.
+    """
+    if operations is None:
+        return _configured_commands(config)
+    wanted = set(PREFLIGHT_ONLY)
+    for operation in operations:
+        wanted.update(operation.required_host_commands())
+    return frozenset(wanted)
+
+
+def _command_users(operations: Iterable[Operation]) -> dict[str, tuple[str, ...]]:
+    users: dict[str, list[str]] = {}
+    for operation in operations:
+        name = type(operation).__name__
+        for command in operation.required_host_commands():
+            named = users.setdefault(command, [])
+            if name not in named:
+                named.append(name)
+    return {command: tuple(names) for command, names in users.items()}
 
 
 def _disks_at_risk(graph: DeviceGraph) -> list[Existing]:
@@ -308,15 +339,29 @@ def _memory_problems(config: InstallConfig, machine: Machine) -> list[str]:
     return []
 
 
-def check(config: InstallConfig, probe: Probe, target: str = "/mnt/gentoo") -> Report:
-    wanted = required_commands(config)
-    machine = probe.machine(wanted, judged=GNU_ONLY)
-    return inspect(config, machine, probe, target)
+def check(
+    config: InstallConfig,
+    probe: Probe,
+    target: str = "/mnt/gentoo",
+    *,
+    operations: Iterable[Operation] | None = None,
+) -> Report:
+    plan = tuple(operations) if operations is not None else None
+    wanted = required_commands(config, plan)
+    machine = probe.machine(wanted, judged=set(GNU_ONLY) & wanted)
+    return inspect(config, machine, probe, target, operations=plan)
 
 
 def inspect(
-    config: InstallConfig, machine: Machine, probe: Probe, target: str = "/mnt/gentoo"
+    config: InstallConfig,
+    machine: Machine,
+    probe: Probe,
+    target: str = "/mnt/gentoo",
+    *,
+    operations: Iterable[Operation] | None = None,
 ) -> Report:
+    plan = tuple(operations) if operations is not None else None
+    wanted = required_commands(config, plan)
     config_target = target
     fatal: list[str] = []
     warnings: list[str] = []
@@ -347,9 +392,16 @@ def inspect(
             "the amd64 EFI executables an amd64 install writes"
         )
 
-    missing = sorted(required_commands(config) - machine.commands)
-    if missing:
-        fatal.append(f"these commands are missing: {', '.join(missing)}")
+    missing = sorted(wanted - machine.commands)
+    users = _command_users(plan) if plan is not None else {}
+    unnamed = [command for command in missing if command not in users]
+    if unnamed:
+        fatal.append(f"these commands are missing: {', '.join(unnamed)}")
+    for command in missing:
+        if command in users:
+            fatal.append(
+                f"{command} is missing; required by {', '.join(users[command])}"
+            )
     fatal += _busybox_problems(machine)
 
     for disk in _disks_at_risk(config.disk.graph):

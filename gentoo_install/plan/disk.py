@@ -121,6 +121,9 @@ class ReleaseTarget(Operation):
     #: opposite orders and both are describable.
     steps: tuple[tuple[str, ...], ...]
 
+    def required_host_commands(self) -> frozenset[str]:
+        return frozenset(("umount", *(step[0] for step in self.steps)))
+
     def describe(self) -> str:
         return "release anything a previous run of this configuration left mounted or open"
 
@@ -142,6 +145,7 @@ class WipeSignatures(Operation):
     """`mkfs` refuses, or worse silently inherits, when an old superblock is left."""
 
     stage: Stage = Stage.PARTITION
+    host_commands = ("wipefs",)
     device: DeviceId
 
     def describe(self) -> str:
@@ -165,6 +169,9 @@ class CreatePartitionTable(Operation):
     kind: TableType
     create: bool = True
     remove: tuple[int, ...] = ()
+
+    def required_host_commands(self) -> frozenset[str]:
+        return frozenset(("sgdisk" if self.kind is TableType.GPT else "parted",))
 
     def describe(self) -> str:
         if self.create:
@@ -208,6 +215,9 @@ class CreatePartition(Operation):
     #: partition at the first aligned free sector by itself, `parted` does not.
     start: Size
 
+    def required_host_commands(self) -> frozenset[str]:
+        return frozenset(("sgdisk" if self.table_kind is TableType.GPT else "parted",))
+
     def describe(self) -> str:
         extent = str(self.size) if self.size is not None else "the rest of the disk"
         name = f" labelled {self.label}" if self.label else ""
@@ -247,6 +257,7 @@ class RereadPartitionTable(Operation):
     nodes do not exist yet when the next operation asks for one."""
 
     stage: Stage = Stage.PARTITION
+    host_commands = ("blockdev", "udevadm")
     disk: DeviceId
 
     def describe(self) -> str:
@@ -265,6 +276,7 @@ class RereadPartitionTable(Operation):
 @dataclass(frozen=True, kw_only=True)
 class CreateMdRaid(Operation):
     stage: Stage = Stage.ARRAY
+    host_commands = ("mdadm",)
     array: DeviceId
     members: tuple[DeviceId, ...]
     level: RaidLevel
@@ -296,6 +308,7 @@ class CreateMdRaid(Operation):
 @dataclass(frozen=True, kw_only=True)
 class CreateLuks(Operation):
     stage: Stage = Stage.ARRAY
+    host_commands = ("cryptsetup",)
     container: DeviceId
     backing: DeviceId
     name: str
@@ -333,6 +346,7 @@ class OpenLuks(Operation):
     """
 
     stage: Stage = Stage.ARRAY
+    host_commands = ("dmsetup", "cryptsetup")
     container: DeviceId
     backing: DeviceId
     name: str
@@ -366,6 +380,7 @@ class AssembleMdRaid(Operation):
     """Assemble an array that already exists, or leave a running one alone."""
 
     stage: Stage = Stage.ARRAY
+    host_commands = ("mdadm",)
     array: DeviceId
     members: tuple[DeviceId, ...]
     name: str
@@ -396,6 +411,7 @@ class ActivateVolumeGroup(Operation):
     """Bring the group's volumes up. `vgchange` on an active group is a no-op."""
 
     stage: Stage = Stage.ARRAY
+    host_commands = ("vgchange",)
     group: DeviceId
     name: str
 
@@ -413,6 +429,7 @@ class ActivateVolumeGroup(Operation):
 @dataclass(frozen=True, kw_only=True)
 class CreateVolumeGroup(Operation):
     stage: Stage = Stage.ARRAY
+    host_commands = ("pvcreate", "vgcreate")
     group: DeviceId
     members: tuple[DeviceId, ...]
     name: str
@@ -429,6 +446,7 @@ class CreateVolumeGroup(Operation):
 @dataclass(frozen=True, kw_only=True)
 class CreateLogicalVolume(Operation):
     stage: Stage = Stage.ARRAY
+    host_commands = ("lvcreate",)
     volume: DeviceId
     group: str
     name: str
@@ -454,6 +472,9 @@ class MakeFilesystem(Operation):
     device: DeviceId
     kind: FilesystemType
     label: str
+
+    def required_host_commands(self) -> frozenset[str]:
+        return frozenset((MKFS[self.kind][0],))
 
     def describe(self) -> str:
         name = f" labelled {self.label}" if self.label else ""
@@ -503,6 +524,7 @@ class CreateSubvolume(Operation):
     mounted to create one and unmounted again before the layout is mounted."""
 
     stage: Stage = Stage.FORMAT
+    host_commands = ("mkdir", "mount", "btrfs", "umount")
     subvolume: DeviceId
     device: DeviceId
     name: str
@@ -530,6 +552,7 @@ class MakeSwap(Operation):
     the installing system keeps the device busy."""
 
     stage: Stage = Stage.FORMAT
+    host_commands = ("swapoff", "mkswap")
     swap: DeviceId
     device: DeviceId
 
@@ -547,6 +570,7 @@ class MakeSwap(Operation):
 @dataclass(frozen=True, kw_only=True)
 class CreateZpool(Operation):
     stage: Stage = Stage.ZFS
+    host_commands = ("zpool",)
     pool: DeviceId
     vdevs: tuple[DeviceId, ...]
     name: str
@@ -593,6 +617,7 @@ class ImportZpool(Operation):
     """
 
     stage: Stage = Stage.ZFS
+    host_commands = ("zpool",)
     pool: DeviceId
     name: str
 
@@ -615,6 +640,7 @@ class ImportZpool(Operation):
 @dataclass(frozen=True, kw_only=True)
 class CreateDataset(Operation):
     stage: Stage = Stage.ZFS
+    host_commands = ("zfs",)
     dataset: DeviceId
     name: str
     #: Where the dataset is mounted, or None when it only holds other datasets.
@@ -651,6 +677,7 @@ class CreateDataset(Operation):
 @dataclass(frozen=True, kw_only=True)
 class Mount(Operation):
     stage: Stage = Stage.MOUNT
+    host_commands = ("mkdir", "findmnt", "mount")
     mountpoint: DeviceId
     source: DeviceId
     path: PurePosixPath
@@ -680,6 +707,7 @@ class MountZfsDataset(Operation):
     """A dataset carries its own mountpoint property, so it is mounted by name."""
 
     stage: Stage = Stage.MOUNT
+    host_commands = ("zfs",)
     mountpoint: DeviceId
     name: str
     path: PurePosixPath
@@ -729,6 +757,12 @@ class UnmountTarget(Operation):
 
     stage: Stage = Stage.FINISH
     pools: tuple[str, ...]
+
+    def required_host_commands(self) -> frozenset[str]:
+        commands = {"umount", "findmnt"}
+        if self.pools:
+            commands.update(("zfs", "zpool", "sleep"))
+        return frozenset(commands)
 
     @property
     def releases_the_machine(self) -> bool:
