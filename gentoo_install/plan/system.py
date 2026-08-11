@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Final
 
-from ..errors import InvalidLayout, LocaleMissing
+from ..errors import LocaleMissing
 from ..model import compat
 from ..model.config import (
     ConsoleFontSize,
@@ -33,7 +33,6 @@ from ..model.device import (
     ZfsDataset,
     ZfsPool,
 )
-from .bootloader import serial_console
 from .operations import Context, Operation, Stage
 from .portage import Emerge
 
@@ -647,17 +646,21 @@ class WriteMdadmConf(Operation):
     """
 
     stage: Stage = Stage.SYSTEM
+    arrays: tuple[MdRaid, ...]
 
     def describe(self) -> str:
-        return "write /etc/mdadm.conf from the arrays this run created"
+        paths = ", ".join(f"/dev/md/{array.name}" for array in self.arrays)
+        return f"write /etc/mdadm.conf for {paths}"
 
     def apply(self, context: Context) -> None:
-        scanned = context.run(["mdadm", "--detail", "--scan"]).strip()
-        if not scanned:
-            raise InvalidLayout("mdadm reports no array to record in /etc/mdadm.conf")
+        definitions = "".join(
+            f"ARRAY /dev/md/{array.name} metadata={array.metadata.value} "
+            f"UUID={context.array_uuid(array.id)}\n"
+            for array in self.arrays
+        )
         # MAILADDR as well: `mdadm --monitor` exits with an error when it has
         # nobody to alert, leaving a healthy array with a failed unit.
-        context.write(PurePosixPath("/etc/mdadm.conf"), f"MAILADDR root\n{scanned}\n")
+        context.write(PurePosixPath("/etc/mdadm.conf"), f"MAILADDR root\n{definitions}")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -853,8 +856,9 @@ def build(config: InstallConfig) -> list[Operation]:
             # runlevel on a stage3 already; adding it again is what makes that
             # true rather than assumed.
             operations.append(EnableService(service="local", init=system.init))
-    if config.disk.graph.of_type(MdRaid):
-        operations.append(WriteMdadmConf())
+    arrays = config.disk.graph.of_type(MdRaid)
+    if arrays:
+        operations.append(WriteMdadmConf(arrays=arrays))
     if system.zram is not None:
         operations += [
             Emerge(
@@ -901,7 +905,7 @@ def build(config: InstallConfig) -> list[Operation]:
                 keys=system.authorized_keys, accounts=key_accounts(system, unlocking)
             )
         )
-    serial = serial_console(config)
+    serial = _serial_console(config)
     if serial is not None and system.init is InitSystem.OPENRC:
         operations.append(EnableSerialGetty(port=serial[0], baud=serial[1]))
     operations.append(SetRootPassword(password_hash=system.root_password_hash))
@@ -1134,6 +1138,18 @@ def _groups_of(user: User) -> tuple[str, ...]:
         if group not in groups:
             groups.append(group)
     return tuple(groups)
+
+
+def _serial_console(config: InstallConfig) -> tuple[str, int] | None:
+    """The serial port and speed the kernel command line asks for, if any."""
+    for parameter in config.bootloader.kernel_params:
+        if not parameter.startswith("console=ttyS"):
+            continue
+        value = parameter.split("=", 1)[1]
+        port, _, rest = value.partition(",")
+        digits = "".join(character for character in rest if character.isdigit())
+        return port, int(digits) if digits else 115200
+    return None
 
 
 def key_accounts(system: SystemConfig, unlocking: bool = False) -> tuple[tuple[str, str], ...]:
