@@ -159,7 +159,7 @@ def nested(
                 # The edits go with it: the operator who cancels and then says
                 # no to leaving gets the group back as they left it.
                 return Answer(answer.outcome, current)
-            chosen = answer.unwrap()[0]
+            chosen = answer.unwrap()
             if chosen == len(rows):
                 return Answer(Outcome.CHOSE, current)
             editor = rows[chosen].edit

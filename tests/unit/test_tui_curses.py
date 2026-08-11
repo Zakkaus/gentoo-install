@@ -278,7 +278,7 @@ def test_the_menu_runs_under_a_real_terminal() -> None:
     assert result.get("error") is None, result.get("error")
     assert result["size"] == list(SIZE)
     assert result["too_small"] == ""
-    assert result["chosen"] == [4]
+    assert result["chosen"] == 4
 
 
 @pytest.mark.parametrize("key", ["q", "\x1b", "\x03"], ids=["q", "escape", "ctrl-c"])
