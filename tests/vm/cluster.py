@@ -33,7 +33,7 @@ from enum import Enum
 from pathlib import Path, PurePosixPath
 from collections import Counter
 from collections.abc import Callable, Mapping
-from typing import Final, Protocol, TypeVar
+from typing import Final, Protocol, TypeVar, cast
 
 from gentoo_install.model.config import Firmware as BootFirmware
 from gentoo_install.model.config import InitSystem, InstallConfig
@@ -210,6 +210,15 @@ class Phase(Enum):
     BOOT_INSTALLED = "boot-installed"
 
 
+class JobStatus(Enum):
+    """The mutually exclusive states of one scheduled fixture."""
+
+    WAITING = "waiting"
+    RUNNING = "running"
+    ANSWERED = "answered"
+    COLLECTED = "collected"
+
+
 @dataclass
 class Outcome:
     name: str
@@ -228,9 +237,9 @@ class Outcome:
     vmid: int = 0
 
 
-@dataclass
+@dataclass(frozen=True)
 class Job:
-    """One fixture to install and check."""
+    """One fixture and all scheduler state belonging to its run."""
 
     name: str
     fixture: Path
@@ -240,6 +249,15 @@ class Job:
     #: Read from the fixture rather than listed beside it: what makes a run
     #: long is compiling, and the configuration is what says whether it does.
     heavy: bool = False
+    status: JobStatus = JobStatus.WAITING
+    vmid: int = 0
+    node: str | None = None
+    lease: Path | None = None
+    log: Path | None = None
+    outcome: Outcome | None = None
+    collected_at: int | None = None
+    thread: threading.Thread | None = None
+    execution: Running | None = None
 
     @property
     def memory_mib(self) -> int:
@@ -248,6 +266,94 @@ class Job:
     @property
     def cores(self) -> int:
         return HEAVY_CORES if self.heavy else GUEST_CORES
+
+    @property
+    def collected(self) -> bool:
+        return self.status is JobStatus.COLLECTED
+
+    @property
+    def running(self) -> bool:
+        return self.status is JobStatus.RUNNING
+
+    @property
+    def holds_resources(self) -> bool:
+        return self.running or self.outcome is not None and not self.outcome.removed
+
+    @property
+    def weight(self) -> int:
+        return 2 if self.heavy else 1
+
+    def dispatch(
+        self,
+        node: str,
+        vmid: int,
+        lease: Path,
+        log: Path,
+        execution: Running,
+    ) -> Job:
+        if self.status is not JobStatus.WAITING:
+            raise ProxmoxError(f"{self.name} cannot be dispatched from {self.status.value}")
+        return replace(
+            self,
+            status=JobStatus.RUNNING,
+            node=node,
+            vmid=vmid,
+            lease=lease,
+            log=log,
+            execution=execution,
+        )
+
+    def started(self, thread: threading.Thread) -> Job:
+        if not self.running or self.thread is not None:
+            raise ProxmoxError(f"{self.name} cannot record a worker from {self.status.value}")
+        return replace(self, thread=thread)
+
+    def answered(self, outcome: Outcome) -> Job:
+        if not self.running or outcome.name != self.name:
+            raise ProxmoxError(f"{self.name} cannot accept an outcome from {outcome.name}")
+        return replace(
+            self,
+            status=JobStatus.ANSWERED,
+            outcome=replace(
+                outcome,
+                vmid=outcome.vmid or self.vmid,
+                log=outcome.log or self.log,
+            ),
+        )
+
+    def worker_failed(self, revision: str) -> Job:
+        return self.answered(
+            Outcome(
+                self.name,
+                Verdict.ERROR,
+                0.0,
+                "the worker ended without reporting",
+                self.log,
+                revision=revision,
+                vmid=self.vmid,
+            )
+        )
+
+    def capacity_failed(self, seconds: float, revision: str) -> Job:
+        if self.status is not JobStatus.WAITING:
+            raise ProxmoxError(f"{self.name} cannot fail capacity from {self.status.value}")
+        return replace(
+            self,
+            status=JobStatus.ANSWERED,
+            outcome=Outcome(
+                self.name,
+                Verdict.ERROR,
+                seconds,
+                f"the cluster had no capacity for {seconds:.0f}s",
+                phase=Phase.SCHEDULE,
+                revision=revision,
+            ),
+        )
+
+    def collect(self, position: int) -> Job:
+        if self.status is not JobStatus.ANSWERED or self.outcome is None:
+            raise ProxmoxError(f"{self.name} cannot be collected from {self.status.value}")
+        return replace(self, status=JobStatus.COLLECTED, collected_at=position)
 
 
 #: Below this, over a whole ten-minute look, the guest is not working: a
@@ -458,7 +564,7 @@ def prepare(
 #: Waiting costs a slot; giving up costs the whole run and its diagnosis.
 NETWORK_PATIENCE: Final[float] = 900.0
 
-#: Between attempts. A guest that has just reached a shell is still running
+#: Between attempts. A guest that has newly reached a shell is still running
 #: dhcpcd, and the installer's own reachability check is what fails: five
 #: attempts thirty seconds apart against a host that was answering.
 NETWORK_PAUSE: Final[float] = 10.0
@@ -858,20 +964,15 @@ class Running:
     watch: Watchdog
 
 
-def install_one(
+def _execution(
     api: Api,
     node: str,
     job: Job,
     driver: str,
     workdir: Path,
-    inflight: dict[str, Running] | None = None,
-    vmid: int = 0,
-    nonce: str = "",
-    revision: str = "",
-) -> Outcome:
-    """Build a guest, install into it, read the result, delete the guest."""
-    started = time.monotonic()
-    workdir.mkdir(parents=True, exist_ok=True)
+    vmid: int,
+    nonce: str,
+) -> Running:
     log = workdir / f"{job.name}.log"
     guest = Guest(
         api=api,
@@ -885,16 +986,37 @@ def install_one(
             target_gib=tuple(TARGET_GIB for _ in range(job.disks)),
             uefi=job.uefi,
             driver_iso=driver,
-            # This run's own mark, so a second campaign that picked the same
-            # free VMID cannot delete the guest this one built.
             nonce=nonce or f"gi-{uuid.uuid4().hex[:12]}",
         ),
     )
+    return Running(guest, Watchdog(log=log, counters=lambda: guest.transferred()))
+
+
+def install_one(
+    api: Api,
+    node: str,
+    job: Job,
+    driver: str,
+    workdir: Path,
+    inflight: dict[str, Running] | None = None,
+    vmid: int = 0,
+    nonce: str = "",
+    revision: str = "",
+    execution: Running | None = None,
+) -> Outcome:
+    """Build a guest, install into it, read the result, delete the guest."""
+    started = time.monotonic()
+    workdir.mkdir(parents=True, exist_ok=True)
+    held = execution or _execution(
+        api, node, job, driver, workdir, vmid=vmid, nonce=nonce
+    )
+    guest = cast(Guest, held.guest)
+    log = held.watch.log
     phase = Phase.CREATE
-    watch = Watchdog(log=log, counters=lambda: guest.transferred())
+    watch = held.watch
     outcome: Outcome | None = None
     if inflight is not None:
-        inflight[job.name] = Running(guest=guest, watch=watch)
+        inflight[job.name] = held
     try:
         guest.create()
         guest.start()
@@ -1014,11 +1136,11 @@ def answer_once(
     job: Job,
     driver: str,
     workdir: Path,
-    inflight: dict[str, Running],
+    inflight: dict[str, Running] | None,
     vmid: int = 0,
     nonce: str = "",
-    lease_path: Path | None = None,
     revision: str = "",
+    execution: Running | None = None,
 ) -> None:
     """Run one job and put exactly one outcome on the queue, whatever happens.
 
@@ -1029,13 +1151,20 @@ def answer_once(
     """
     try:
         outcome = install_one(
-            api, node, job, driver, workdir, inflight, vmid, nonce, revision
+            api,
+            node,
+            job,
+            driver,
+            workdir,
+            inflight,
+            vmid,
+            nonce,
+            revision,
+            execution,
         )
         outcome = replace(outcome, vmid=outcome.vmid or vmid)
-        if outcome.removed and lease_path is not None:
-            lease_path.unlink(missing_ok=True)
         done.put(outcome)
-    except BaseException as error:
+    except Exception as error:
         done.put(
             Outcome(
                 job.name,
@@ -1061,11 +1190,7 @@ def run(
 
     `limit` caps how many run at once; zero asks the cluster what fits.
     """
-    # Before the cluster is touched. Every map below is keyed by name, so a
-    # repeated one had the second guest overwrite the first's bookkeeping, one
-    # result ended the loop while the other was still running, and `1/1 passed`
-    # was printed for two jobs. The check was in `main`, which left every
-    # other caller of `run` — the tests among them — able to do it.
+    # A repeated name would replace the only record carrying that job's state.
     repeated = sorted({one.name for one in jobs if [j.name for j in jobs].count(one.name) > 1})
     if repeated:
         raise ProxmoxError(f"named more than once: {repeated}")
@@ -1084,23 +1209,21 @@ def run(
     medium, urls, medium_sha512 = current_minimal()
     prepared: set[str] = set()
     done: queue.Queue[Outcome] = queue.Queue()
-    waiting = list(jobs)
-    running: dict[str, threading.Thread] = {}
-    inflight: dict[str, Running] = {}
-    #: Which node each running job was put on, so its slot is given back when
-    #: the job answers.
-    where: dict[str, str] = {}
-    finished: list[Outcome] = []
-    #: Handed out here, not in the worker. Two threads asking the cluster at
-    #: the same moment both read 9304 as free and the second was refused with
-    #: `VM 9304 already exists on node 'infra-node5'`.
-    handed: set[int] = set()
-    placed: Counter[str] = Counter()
+    scheduled = {job.name: job for job in jobs}
+    collected = 0
     swept = time.monotonic()
     capacity_since: float | None = None
 
     try:
-        while waiting or running:
+        while not all(job.collected for job in scheduled.values()):
+            waiting = [job for job in scheduled.values() if job.status is JobStatus.WAITING]
+            running = [job for job in scheduled.values() if job.running]
+            placed = Counter(
+                job.node
+                for job in scheduled.values()
+                if job.holds_resources and job.node is not None
+                for _ in range(job.weight)
+            )
             slots = free_slots(api, placed)
             if limit:
                 slots = slots[: max(0, limit - len(running))]
@@ -1111,18 +1234,11 @@ def run(
                 waited = now - capacity_since
                 if waited >= CAPACITY_PATIENCE:
                     for job in waiting:
-                        finished.append(
-                            Outcome(
-                                job.name,
-                                Verdict.ERROR,
-                                waited,
-                                f"the cluster had no capacity for {waited:.0f}s",
-                                phase=Phase.SCHEDULE,
-                                revision=revision,
-                            )
+                        scheduled[job.name] = job.capacity_failed(waited, revision).collect(
+                            collected
                         )
-                    waiting.clear()
-                    break
+                        collected += 1
+                    continue
                 time.sleep(min(POLL_WHILE_QUEUED, CAPACITY_PATIENCE - waited))
                 continue
             capacity_since = None
@@ -1151,17 +1267,27 @@ def run(
                     )
                     prepared.add(node.name)
                 job = waiting.pop(index)
-                # Two light slots for a heavy guest, so the arithmetic below
-                # keeps counting in one unit.
-                placed[node.name] += 2 if job.heavy else 1
-                where[job.name] = node.name
                 if job.iso == DEFAULT_ISO:
                     job = replace(job, iso=medium)
-                vmid = api.free_vmid(frozenset(handed))
-                handed.add(vmid)
+                held_vmids = frozenset(
+                    one.vmid
+                    for one in scheduled.values()
+                    if one.holds_resources and one.vmid
+                )
+                vmid = api.free_vmid(held_vmids)
                 nonce = f"gi-{uuid.uuid4().hex[:12]}"
                 lease = _write_lease(
                     workdir, Lease(node.name, vmid, nonce, os.getpid())
+                )
+                execution = _execution(
+                    api, node.name, job, driver, workdir, vmid, nonce
+                )
+                job = job.dispatch(
+                    node.name,
+                    vmid,
+                    lease,
+                    execution.watch.log,
+                    execution,
                 )
                 thread = threading.Thread(
                     target=answer_once,
@@ -1172,15 +1298,16 @@ def run(
                         job,
                         driver,
                         workdir,
-                        inflight,
+                        None,
                         vmid,
                         nonce,
-                        lease,
                         revision,
+                        execution,
                     ),
                     daemon=True,
                 )
-                running[job.name] = thread
+                scheduled[job.name] = job.started(thread)
+                placed[node.name] += job.weight
                 thread.start()
                 print(f"→ {job.name} on {node.name} ({len(waiting)} waiting)", flush=True)
                 if waiting and slots:
@@ -1191,63 +1318,50 @@ def run(
                 # jobs shorten the wait, because capacity frees between looks.
                 outcome = done.get(timeout=POLL_WHILE_QUEUED if waiting else WATCH_EVERY)
             except queue.Empty:
+                unanswered = _unanswered_jobs(scheduled, done.empty())
+                for job in unanswered:
+                    failed = job.worker_failed(revision)
+                    if failed.outcome is None:
+                        raise ProxmoxError(f"{job.name} failed without an outcome")
+                    done.put(failed.outcome)
+                if unanswered:
+                    continue
                 if time.monotonic() - swept >= WATCH_EVERY:
-                    _sweep(inflight)
+                    _sweep_jobs(scheduled)
                     swept = time.monotonic()
-                # A worker that ended without putting anything on the queue is
-                # a name that stays in `running` for ever, and the loop then
-                # never finishes: one round sat idle for half an hour with an
-                # empty cluster and a job still queued. `answer_once` catches
-                # everything a Python handler can see; this covers the rest.
-                for name in _unanswered(running, done.empty()):
-                    done.put(
-                        Outcome(
-                            name,
-                            Verdict.ERROR,
-                            0.0,
-                            "the worker ended without reporting",
-                            removed=False,
-                            revision=revision,
-                        )
-                    )
                 continue
-            finished.append(outcome)
-            running.pop(outcome.name, None)
-            # A removed guest gives its VMID back. Without this the reserved
-            # set only grows, and a campaign of more than a hundred jobs
-            # stopped at `no free vmid` with the whole range unoccupied.
-            if outcome.removed and outcome.vmid:
-                handed.discard(outcome.vmid)
-            gone = where.pop(outcome.name, "")
-            if gone and not outcome.removed:
-                # The guest is still on that node holding its memory, so the
-                # slot is not free. Handing it back put the next guest onto a
-                # node with no room for it.
+            job = scheduled[outcome.name].answered(outcome)
+            if outcome.removed and job.lease is not None:
+                job.lease.unlink(missing_ok=True)
+            job = job.collect(collected)
+            collected += 1
+            scheduled[job.name] = job
+            if job.node is not None and not outcome.removed:
                 print(
-                    f"  {outcome.name} still holds a slot on {gone}",
+                    f"  {outcome.name} still holds a slot on {job.node}",
                     file=sys.stderr,
                 )
-                gone = ""
-            if gone:
-                # The same unit it was taken in, or a node loses a slot for
-                # every heavy guest that finished on it.
-                weight = next((2 if one.heavy else 1 for one in jobs if one.name == outcome.name), 1)
-                placed[gone] -= weight
             print(
                 f"{outcome.verdict.value:6} {outcome.name:34} {outcome.seconds / 60:5.1f}m "
                 f"{outcome.detail}",
                 flush=True,
             )
     finally:
-        # Before the ISO: a worker still reading a console has the driver CD
-        # attached, and removing it under a running guest is what the first
-        # closing path did.
-        _abandon(inflight, running)
+        _abandon_jobs(scheduled)
         for node_name in prepared:
             said = api.remove_iso(node_name, driver)
             if said:
                 print(f"{driver} stayed on {node_name}: {said}", file=sys.stderr)
-    return finished
+    ordered = sorted(
+        scheduled.values(),
+        key=lambda job: job.collected_at if job.collected_at is not None else len(scheduled),
+    )
+    outcomes: list[Outcome] = []
+    for job in ordered:
+        if job.outcome is None:
+            raise ProxmoxError(f"{job.name} was collected without an outcome")
+        outcomes.append(job.outcome)
+    return outcomes
 
 
 #: How many times the results are asked for again on a fresh console.
@@ -1529,7 +1643,7 @@ def _unlock(guest: Typeable, link: Reconnecting, installation: InstallConfig) ->
 def boot_and_check(
     guest: Guest, link: Reconnecting, log: Path, installation: InstallConfig
 ) -> str:
-    """Boot the disk that was just written and read the system back.
+    """Boot the newly written disk and read the system back.
 
     Answers an empty string when everything asked for is there, and what is
     wrong otherwise. Booting is not the test: a machine can reach a login
@@ -1593,7 +1707,9 @@ def collect(guest: Guest, link: "Reconnecting", log: Path) -> dict[str, bytes]:
 ABANDON_PATIENCE: Final[float] = 120.0
 
 
-def _abandon(inflight: dict[str, Running], running: dict[str, threading.Thread]) -> None:
+def _abandon(
+    inflight: dict[str, Running], running: dict[str, threading.Thread]
+) -> None:
     """Stop and remove every guest still running when the schedule ends.
 
     The workers stay daemon threads, so one wedged on a console cannot hold the
@@ -1628,6 +1744,20 @@ def _abandon(inflight: dict[str, Running], running: dict[str, threading.Thread])
             print(f"  {name} outlived the schedule: {error}", file=sys.stderr)
 
 
+def _abandon_jobs(scheduled: Mapping[str, Job]) -> None:
+    inflight = {
+        job.name: job.execution
+        for job in scheduled.values()
+        if job.running and job.execution is not None
+    }
+    running = {
+        job.name: job.thread
+        for job in scheduled.values()
+        if job.running and job.thread is not None
+    }
+    _abandon(inflight, running)
+
+
 def _edit_bios_cmdline(guest: Guest, link: "Reconnecting") -> None:
     """Read the menu when GRUB speaks on the serial port, and type blind if not.
 
@@ -1650,7 +1780,9 @@ def _edit_bios_cmdline(guest: Guest, link: "Reconnecting") -> None:
     append_to_cmdline_blind(guest, link, EXTRA_CMDLINE)
 
 
-def _unanswered(running: dict[str, threading.Thread], nothing_queued: bool) -> list[str]:
+def _unanswered(
+    running: Mapping[str, threading.Thread], nothing_queued: bool
+) -> list[str]:
     """The workers that ended without putting an outcome on the queue.
 
     A dead thread is not evidence on its own: a worker that answered and then
@@ -1664,7 +1796,19 @@ def _unanswered(running: dict[str, threading.Thread], nothing_queued: bool) -> l
     return [name for name, thread in running.items() if not thread.is_alive()]
 
 
-def _sweep(inflight: dict[str, Running]) -> None:
+def _unanswered_jobs(
+    scheduled: Mapping[str, Job], nothing_queued: bool
+) -> list[Job]:
+    running = {
+        job.name: job.thread
+        for job in scheduled.values()
+        if job.running and job.thread is not None
+    }
+    names = _unanswered(running, nothing_queued)
+    return [scheduled[name] for name in names]
+
+
+def _sweep(inflight: Mapping[str, Running]) -> None:
     """End every guest whose serial log has stopped growing.
 
     Stopping the guest is what reaches the worker: it is blocked reading a
@@ -1686,6 +1830,15 @@ def _sweep(inflight: dict[str, Running]) -> None:
             held.guest.stop()
         except ProxmoxError as error:
             print(f"{name}: the stuck guest would not stop: {error}", file=sys.stderr)
+
+
+def _sweep_jobs(scheduled: Mapping[str, Job]) -> None:
+    inflight = {
+        job.name: job.execution
+        for job in scheduled.values()
+        if job.running and job.execution is not None
+    }
+    _sweep(inflight)
 
 
 def _compiles(config: InstallConfig) -> bool:
