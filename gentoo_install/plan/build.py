@@ -12,7 +12,7 @@ from typing import Final
 from ..model import mirrors
 from ..model.config import InstallConfig
 from ..model.validate import validate
-from . import bootloader, disk, kernel, packages, portage, system
+from . import bootloader, disk, fonts, kernel, packages, portage, system
 from .operations import Operation
 
 #: The mirror a stage3 is fetched from when the configuration names none.
@@ -67,6 +67,7 @@ def build(config: InstallConfig, catalog: packages.Catalog, *, mirror: str = DEF
         *kernel.build(config),
         *bootloader.build(config),
         *packages.build(config, catalog),
+        *fonts.build(config, catalog),
         *portage.finish(config),
         # Last of all: the keyword change above still has to reach make.conf in
         # the target, and nothing can be written once it is unmounted.
