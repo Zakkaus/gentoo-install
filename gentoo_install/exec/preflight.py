@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, Iterable
+from typing import AbstractSet, Final, Iterable, Mapping
 
 from ..errors import DeviceNotFound, PreflightFailed
 from ..model import compat
@@ -105,6 +105,49 @@ GNU_ONLY: Final[dict[str, tuple[str, str]]] = {
     ),
 }
 
+
+@dataclass(frozen=True)
+class UnusableCommand:
+    """A present command whose implementation cannot perform the install."""
+
+    name: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class CommandAssessment:
+    """Command presence and implementation facts derived for one caller."""
+
+    missing: frozenset[str]
+    unusable: tuple[UnusableCommand, ...]
+
+
+def assess_commands(
+    wanted: Iterable[str],
+    present: AbstractSet[str],
+    versions: Mapping[str, str],
+) -> CommandAssessment:
+    """Derive command usability from presence and version facts."""
+    names = frozenset(wanted)
+    missing = names - present
+    unusable: list[UnusableCommand] = []
+    for command, (required, reason) in GNU_ONLY.items():
+        if command not in names or command in missing:
+            continue
+        version = versions.get(command)
+        if version is None or required in version:
+            continue
+        if not version:
+            problem = (
+                f"{command} answered nothing to --version, so it cannot be shown "
+                f"to be {required}; {reason}"
+            )
+        else:
+            problem = f"{command} is not {required} ({version[:60]}); {reason}"
+        unusable.append(UnusableCommand(name=command, reason=problem))
+    return CommandAssessment(missing=missing, unusable=tuple(unusable))
+
+
 #: `zpool create` refuses anything shorter, and it refuses it after the disk
 #: has already been partitioned.
 ZFS_PASSPHRASE_MINIMUM: Final[int] = 8
@@ -195,24 +238,6 @@ def _disks_at_risk(graph: DeviceGraph) -> list[Existing]:
     device the operator kept.
     """
     return list(compat.destroyed(graph))
-
-
-def _busybox_problems(machine: Machine) -> list[str]:
-    """Named here rather than discovered when the flag is rejected, which is
-    after the disks are partitioned and the archive is downloaded."""
-    problems: list[str] = []
-    for command, (wanted, reason) in GNU_ONLY.items():
-        version = machine.versions.get(command)
-        if version is None or wanted in version:
-            continue
-        if not version:
-            problems.append(
-                f"{command} answered nothing to --version, so it cannot be shown "
-                f"to be {wanted}; {reason}"
-            )
-            continue
-        problems.append(f"{command} is not {wanted} ({version[:60]}); {reason}")
-    return problems
 
 
 def _passphrase_problems(config: InstallConfig, probe: Probe) -> list[str]:
@@ -409,7 +434,8 @@ def inspect(
             "the amd64 EFI executables an amd64 install writes"
         )
 
-    missing = sorted(wanted - machine.commands)
+    commands = assess_commands(wanted, machine.commands, machine.versions)
+    missing = sorted(commands.missing)
     users = _command_users(plan) if plan is not None else {}
     unnamed = [command for command in missing if command not in users]
     if unnamed:
@@ -419,7 +445,7 @@ def inspect(
             fatal.append(
                 f"{command} is missing; required by {', '.join(users[command])}"
             )
-    fatal += _busybox_problems(machine)
+    fatal += [problem.reason for problem in commands.unusable]
 
     for disk in _disks_at_risk(config.disk.graph):
         try:

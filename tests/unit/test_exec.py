@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
-from typing import Iterable, Mapping, Sequence
+from typing import AbstractSet, Iterable, Mapping, Sequence
 
 import tempfile
 
@@ -16,7 +16,7 @@ from gentoo_install.errors import (
     IntegrityError,
     PreflightFailed,
 )
-from gentoo_install.exec import apply, fetch, preflight
+from gentoo_install.exec import apply, fetch, preflight, report as exec_report
 from gentoo_install.exec.probe import Machine as ProbedMachine
 from gentoo_install.exec.probe import Probe
 from gentoo_install.exec.runner import Result, Runner, under
@@ -734,6 +734,55 @@ def test_every_command_that_has_to_be_the_real_one_is_checked(tmp_path: Path) ->
     ).fatal)
 
 
+def test_command_assessment_separates_missing_and_unusable_commands() -> None:
+    missing = preflight.assess_commands(
+        ("tar", "printf"), frozenset({"printf"}), {"tar": "tar (busybox) 1.36"}
+    )
+    assert missing.missing == frozenset({"tar"})
+    assert missing.unusable == ()
+
+    unusable = preflight.assess_commands(
+        ("tar", "printf"), frozenset({"tar", "printf"}), {"tar": ""}
+    )
+    assert unusable.missing == frozenset()
+    assert [problem.name for problem in unusable.unusable] == ["tar"]
+    assert "answered nothing" in unusable.unusable[0].reason
+
+
+def test_both_command_consumers_use_the_shared_assessment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    required = "GnuPG"
+    reason = "signature checks need its command-line interface"
+    monkeypatch.setitem(preflight.GNU_ONLY, "gpg", (required, reason))
+    original = preflight.assess_commands
+    calls: list[frozenset[str]] = []
+
+    def watching(
+        wanted: Iterable[str],
+        present_commands: AbstractSet[str],
+        versions: Mapping[str, str],
+    ) -> preflight.CommandAssessment:
+        calls.append(frozenset(wanted))
+        return original(wanted, present_commands, versions)
+
+    monkeypatch.setattr(preflight, "assess_commands", watching)
+    machine = described(versions={"gpg": "gpg (other) 1.0"})
+    checked = preflight.inspect(present(), machine, probe_of(tmp_path))
+    assert any(f"gpg is not {required}" in problem for problem in checked.fatal)
+
+    class OtherGpg(Probe):
+        def versions(self, wanted: Iterable[str]) -> dict[str, str]:
+            return {command: "gpg (other) 1.0" for command in wanted}
+
+    monkeypatch.setattr(
+        "gentoo_install.exec.report.shutil.which", lambda command: f"/{command}"
+    )
+    probe = OtherGpg(runner=runner(tmp_path), work=tmp_path)
+    assert exec_report.absent(("gpg",), probe) == {"gpg"}
+    assert len(calls) == 2
+
+
 def test_the_commands_whose_implementation_matters_are_the_ones_probed(tmp_path: Path) -> None:
     """`preflight` owns the table and `probe` reads the versions, so a command
     added to `GNU_ONLY` is asked for without a second list to update."""
@@ -1430,14 +1479,18 @@ def test_removing_a_partition_the_disk_does_not_have_is_refused(tmp_path: Path) 
     assert asked((1,)) == [], "removing a partition the disk has is a working layout"
 
 
-def test_a_command_that_answers_nothing_is_named_rather_than_crashing(tmp_path: Path) -> None:
+def test_a_command_that_answers_nothing_is_named_rather_than_crashing() -> None:
     """`versions()` discarded the exit status, so a command present on PATH
     that exits nonzero with no output reached `splitlines()[0]` and raised
     IndexError where a named preflight problem belongs."""
-    said = preflight._busybox_problems(described(versions={"tar": ""}))
+    empty = preflight.assess_commands(("tar",), frozenset({"tar"}), {"tar": ""})
+    said = [problem.reason for problem in empty.unusable]
     assert any("answered nothing" in one for one in said), said
 
-    wrong = preflight._busybox_problems(described(versions={"tar": "tar (busybox) 1.36"}))
+    assessed = preflight.assess_commands(
+        ("tar",), frozenset({"tar"}), {"tar": "tar (busybox) 1.36"}
+    )
+    wrong = [problem.reason for problem in assessed.unusable]
     assert any("is not GNU tar" in one or "is not" in one for one in wrong), wrong
 
 
