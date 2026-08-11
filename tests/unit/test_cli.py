@@ -457,6 +457,38 @@ def test_only_files_that_could_be_our_configuration_are_offered(tmp_path: Path) 
         os.chdir(here)
 
 
+def test_persisted_sections_drive_parse_serialise_and_discovery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import fields
+    import tomllib
+
+    from gentoo_install.model import config as model_config
+    from gentoo_install.model.parse import parse
+    from gentoo_install.model.serialise import to_toml
+
+    table_fields = {
+        field.name for field in fields(model_config.InstallConfig)
+    } - {model_config.CONFIG_VERSION_KEY}
+    assert set(model_config.PERSISTED_SECTIONS) == table_fields
+
+    config = load(FIXTURES / "btrfs-luks.toml")
+    raw = tomllib.loads(to_toml(config))
+    monkeypatch.setattr(
+        model_config,
+        "PERSISTED_SECTIONS",
+        tuple(name for name in model_config.PERSISTED_SECTIONS if name != "system"),
+    )
+
+    with pytest.raises(ConfigError, match="system"):
+        parse(raw)
+    assert "[system]" not in to_toml(config)
+
+    (tmp_path / "system-only.toml").write_text("[system]\nhostname = 'gentoo'\n")
+    monkeypatch.chdir(tmp_path)
+    assert report.configs_here("my-install.toml") == ()
+
+
 def test_the_address_handed_over_carries_no_extension() -> None:
     """The extension asks wastebin to highlight the paste. An 8.7 MB install
     log answered 408 after five seconds every time; the same address without
