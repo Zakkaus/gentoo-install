@@ -1875,21 +1875,26 @@ def test_an_error_carried_in_a_two_hundred_is_not_thrown_away() -> None:
             return None
 
     class Opener:
+        """What `Api` calls `_opener`: only `open` is ever reached."""
+
         def __init__(self, body: dict[str, object]) -> None:
             self.body = body
 
         def open(self, request: object, timeout: float = 0.0) -> Answer:
             return Answer(json.dumps(self.body).encode())
 
+    def answering(body: dict[str, object]) -> Any:
+        return Opener(body)
+
     api = Api.__new__(Api)
     api.host = "pve.invalid"
     api.affinity = ""
 
-    api._opener = Opener({"data": None, "message": "invalid bootorder\n"})  # type: ignore[assignment]
+    api._opener = answering({"data": None, "message": "invalid bootorder\n"})
     with pytest.raises(ProxmoxError) as raised:
         api.call("PUT", "/nodes/n/qemu/9300/config", boot="order=virtio0")
     assert "invalid bootorder" in str(raised.value)
 
     # A config change applied then and there says nothing, and that is success.
-    api._opener = Opener({"data": None})  # type: ignore[assignment]
+    api._opener = answering({"data": None})
     assert api.call("PUT", "/nodes/n/qemu/9300/config", description="x") is None

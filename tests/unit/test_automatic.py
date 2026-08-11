@@ -224,7 +224,9 @@ def test_confirming_a_driver_pins_what_it_adds_into_the_configuration() -> None:
     at = context()
     before = config(ext4_on_gpt())
     after = replace(before, packages=replace(before.packages, graphics=("nvidia",)))
-    answer = screens.settle(FakeScreen(keys=[*down(1), "\n"], lines=30), at, before, after)
+    # The confirmation opens on `Yes`: declining cancels the choice, and these
+    # values are what makes it work rather than extras that come with it.
+    answer = screens.settle(FakeScreen(keys=["\n"], lines=30), at, before, after)
     pinned = answer.unwrap()
     assert pinned.portage.video_cards == ("nvidia",)
     assert automatic.video_cards(pinned, at.groups) == ()
@@ -240,7 +242,11 @@ def test_declining_the_side_effects_cancels_the_choice() -> None:
     at = context()
     before = config(ext4_on_gpt())
     after = replace(before, packages=replace(before.packages, graphics=("nvidia",)))
-    answer = screens.settle(FakeScreen(keys=["\n"], lines=30), at, before, after)
+    # Down to `No`: the list opens on `Yes`, because declining cancels the
+    # choice the operator has already made.
+    from tests.unit.test_tui_app import down
+
+    answer = screens.settle(FakeScreen(keys=[*down(1), "\n"], lines=30), at, before, after)
     assert answer.unwrap() == before
 
 
@@ -366,7 +372,7 @@ def test_a_profile_only_change_offers_no_row_to_open() -> None:
     after = replace(
         before, portage=replace(before.portage, profile="default/linux/amd64/23.0/no-multilib")
     )
-    screen = FakeScreen(keys=[*down(1), "\n"], lines=30, columns=110)
+    screen = FakeScreen(keys=["\n"], lines=30, columns=110)
     answer = screens.settle(screen, context(), before, after)
     assert answer.unwrap().portage.profile.endswith("no-multilib")
     drawn = " ".join(line for frame in screen.frames for line in frame)
