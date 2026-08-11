@@ -372,3 +372,46 @@ def test_a_window_that_grows_is_read_again_rather_than_kept() -> None:
     assert result.get("error") is None, result.get("error")
     assert result["before"] == list(SIZE), result
     assert result["after"] == list(grown), result
+
+
+#: What a terminal does with a wide glyph, asked of ncurses rather than of the
+#: width table: the two must agree or the text after it lands in the wrong cell.
+WIDE = r"""
+import curses
+import locale
+
+from gentoo_install.i18n import width
+
+answer["codeset"] = locale.nl_langinfo(locale.CODESET)
+
+
+def walk(window):
+    window.addstr(0, 0, "繼續")
+    window.addstr(0, width("繼續"), "|end")
+    window.refresh()
+    answer["row"] = window.instr(0, 0, 12).decode("utf-8", "replace").rstrip()
+
+
+curses.wrapper(walk)
+"""
+
+
+def test_a_terminal_that_cannot_draw_a_wide_glyph_is_recognised() -> None:
+    """ncurses reads `LC_CTYPE`. Where the codeset is not UTF-8 it writes a
+    wide character as its bytes and advances one cell for each, so the widths
+    this code computes stay right and the text after them lands elsewhere: the
+    installer's footer is three segments joined by two spaces, and the second
+    landed on top of the first. The menu offers English there rather than a
+    screen made of wreckage."""
+    from gentoo_install.cli import _draws_wide_characters
+
+    result = drive("", WIDE)
+    assert result.get("error") is None, result.get("error")
+    utf8 = result["codeset"].upper().replace("-", "") == "UTF8"
+    assert _draws_wide_characters() == utf8
+    if utf8:
+        assert result["row"] == "繼續|end", result["row"]
+    else:
+        # Two cells of nothing where the glyph belongs, which is the state the
+        # check exists to refuse.
+        assert "繼" not in result["row"], result["row"]

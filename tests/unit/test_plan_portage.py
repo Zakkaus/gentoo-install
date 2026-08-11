@@ -658,3 +658,38 @@ def test_the_first_snapshot_is_verified_against_a_reachable_keyserver() -> None:
     assert plan_portage.KEY_SERVER.startswith("hkps://"), plan_portage.KEY_SERVER
     # Not the default: naming the same one it already uses fixes nothing.
     assert "keys.gentoo.org" not in plan_portage.KEY_SERVER
+
+
+def test_a_pinned_package_reaches_usepkg_exclude_without_its_version() -> None:
+    """`--usepkg-exclude` takes package names and slot atoms only. A pinned
+    kernel reached it as `=sys-kernel/gentoo-cjk-kernel-bin-7.1.7` and emerge
+    answered `Invalid Atom(s) in --usepkg-exclude parameter`, which stopped an
+    install with the disks already written. Measured against the real emerge:
+    `cat/pkg` and `cat/pkg:0` are accepted and anything carrying a version is
+    not."""
+    from gentoo_install.plan.portage import Emerge, _unversioned
+
+    assert _unversioned("=sys-kernel/gentoo-cjk-kernel-bin-7.1.7") == (
+        "sys-kernel/gentoo-cjk-kernel-bin"
+    )
+    assert _unversioned("=sys-kernel/gentoo-kernel-bin-6.18.43-r2") == (
+        "sys-kernel/gentoo-kernel-bin"
+    )
+    # Already a plain name, and one with a digit in it that is not a version.
+    assert _unversioned("sys-fs/zfs") == "sys-fs/zfs"
+    assert _unversioned("app-i18n/fcitx5") == "app-i18n/fcitx5"
+
+    recorder = Recorder()
+    Emerge(
+        summary="install the kernel",
+        packages=("=sys-kernel/gentoo-cjk-kernel-bin-7.1.7",),
+        source_only=("=sys-kernel/gentoo-cjk-kernel-bin-7.1.7",),
+        binary_packages=True,
+    ).apply(recorder)
+    excluded = next(
+        one[one.index("--usepkg-exclude") + 1]
+        for one in recorder.in_target
+        if "--usepkg-exclude" in one
+    )
+    assert "7.1.7" not in excluded, excluded
+    assert "sys-kernel/gentoo-cjk-kernel-bin" in excluded
