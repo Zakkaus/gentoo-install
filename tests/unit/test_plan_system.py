@@ -288,6 +288,10 @@ def test_openrc_gets_netifrc_which_a_stage3_does_not_carry() -> None:
     assert "net-misc/netifrc" in merged
 
 
+def test_every_networking_backend_has_one_requirements_entry() -> None:
+    assert set(system.NETWORK_BACKENDS) == set(Networking)
+
+
 def test_zram_is_configured_for_the_init_that_will_read_it() -> None:
     """systemd has a generator that reads one file; openrc has an init script
     that reads conf.d and has to be added to a runlevel."""

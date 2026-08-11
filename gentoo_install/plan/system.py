@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import PurePosixPath
-from typing import Final
+from types import MappingProxyType
+from typing import Final, Mapping
 
 from ..errors import LocaleMissing
 from ..model import compat
@@ -48,6 +50,99 @@ CONSOLE_FONTS: Final[dict[ConsoleFontSize, str]] = {
 USER_GROUPS: Final[tuple[str, ...]] = ("users", "wheel", "audio", "video", "render", "usb", "input")
 
 ROOT = PurePosixPath("/")
+
+
+class NetworkConfig(Enum):
+    NONE = "none"
+    NETWORKD = "networkd"
+    NETIFRC = "netifrc"
+    NETWORKMANAGER = "networkmanager"
+
+
+class NetworkService(Enum):
+    NETWORKD = "systemd-networkd"
+    SYSTEMD_RESOLVED = "systemd-resolved"
+    DHCPCD = "dhcpcd"
+    NETWORKMANAGER = "NetworkManager"
+    NETIFRC_INTERFACE = "netifrc-interface"
+
+
+@dataclass(frozen=True)
+class NetworkInitRequirements:
+    packages: tuple[str, ...]
+    services: tuple[NetworkService, ...]
+    config: NetworkConfig
+    static_services: tuple[NetworkService, ...] | None = None
+    link_resolv_conf: bool = False
+
+    def services_for(self, *, static: bool) -> tuple[NetworkService, ...]:
+        if static and self.static_services is not None:
+            return self.static_services
+        return self.services
+
+
+@dataclass(frozen=True)
+class NetworkBackend:
+    systemd: NetworkInitRequirements
+    openrc: NetworkInitRequirements
+    use: tuple[str, ...] = ()
+
+    def for_init(self, init: InitSystem) -> NetworkInitRequirements:
+        return self.systemd if init is InitSystem.SYSTEMD else self.openrc
+
+
+#: Kept together so a backend cannot change its package without its service.
+NETWORK_BACKENDS: Final[Mapping[Networking, NetworkBackend]] = MappingProxyType(
+    {
+        Networking.BUILTIN: NetworkBackend(
+            systemd=NetworkInitRequirements(
+                packages=(),
+                services=(NetworkService.NETWORKD, NetworkService.SYSTEMD_RESOLVED),
+                config=NetworkConfig.NETWORKD,
+                link_resolv_conf=True,
+            ),
+            openrc=NetworkInitRequirements(
+                packages=("net-misc/netifrc", "net-misc/dhcpcd"),
+                services=(NetworkService.DHCPCD,),
+                static_services=(NetworkService.NETIFRC_INTERFACE,),
+                config=NetworkConfig.NETIFRC,
+            ),
+        ),
+        Networking.NETWORKMANAGER_WPA: NetworkBackend(
+            systemd=NetworkInitRequirements(
+                packages=("net-misc/networkmanager", "net-wireless/wpa_supplicant"),
+                services=(NetworkService.NETWORKMANAGER,),
+                config=NetworkConfig.NETWORKMANAGER,
+            ),
+            openrc=NetworkInitRequirements(
+                packages=("net-misc/networkmanager", "net-wireless/wpa_supplicant"),
+                services=(NetworkService.NETWORKMANAGER,),
+                config=NetworkConfig.NETWORKMANAGER,
+            ),
+        ),
+        Networking.NETWORKMANAGER_IWD: NetworkBackend(
+            systemd=NetworkInitRequirements(
+                packages=("net-misc/networkmanager", "net-wireless/iwd"),
+                services=(NetworkService.NETWORKMANAGER,),
+                config=NetworkConfig.NETWORKMANAGER,
+            ),
+            openrc=NetworkInitRequirements(
+                packages=("net-misc/networkmanager", "net-wireless/iwd"),
+                services=(NetworkService.NETWORKMANAGER,),
+                config=NetworkConfig.NETWORKMANAGER,
+            ),
+            use=("net-misc/networkmanager iwd",),
+        ),
+        Networking.NONE: NetworkBackend(
+            systemd=NetworkInitRequirements(
+                packages=(), services=(), config=NetworkConfig.NONE
+            ),
+            openrc=NetworkInitRequirements(
+                packages=(), services=(), config=NetworkConfig.NONE
+            ),
+        ),
+    }
+)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -403,10 +498,11 @@ class WriteNetworkConfig(Operation):
     dns: tuple[str, ...] = ()
 
     def describe(self) -> str:
-        if self.networking is Networking.NONE:
+        config = NETWORK_BACKENDS[self.networking].for_init(self.init).config
+        if config is NetworkConfig.NONE:
             return "leave the network unconfigured"
         where = self.interface or "the wired interface"
-        if self.networking is not Networking.BUILTIN:
+        if config is NetworkConfig.NETWORKMANAGER:
             if not self.addresses:
                 return f"leave the interfaces to NetworkManager ({self.networking.value})"
             return f"write a NetworkManager profile for {where} as {', '.join(self.addresses)}"
@@ -415,10 +511,11 @@ class WriteNetworkConfig(Operation):
         return f"configure {where} for DHCP"
 
     def apply(self, context: Context) -> None:
-        if self.networking is Networking.NONE:
+        config = NETWORK_BACKENDS[self.networking].for_init(self.init).config
+        if config is NetworkConfig.NONE:
             # The operator brings the link up by hand.
             return
-        if self.networking is not Networking.BUILTIN:
+        if config is NetworkConfig.NETWORKMANAGER:
             if not self.addresses:
                 # NetworkManager does DHCP on every unconfigured interface, so
                 # a file saying so is a file that changes nothing.
@@ -427,7 +524,7 @@ class WriteNetworkConfig(Operation):
             # its own log while the machine sits with no address.
             context.write(NM_PROFILE, self._networkmanager(), mode=0o600)
             return
-        if self.init is InitSystem.SYSTEMD:
+        if config is NetworkConfig.NETWORKD:
             context.write(
                 PurePosixPath("/etc/systemd/network/20-wired.network"), self._networkd()
             )
@@ -941,13 +1038,17 @@ def build(config: InstallConfig) -> list[Operation]:
         # these into dropbear's format and there is nothing to convert if
         # sshd has not been started yet, which it has not.
         operations.append(GenerateHostKeys(remote_unlock=unlocking))
-    flags = _network_use(system)
-    if flags:
-        operations.append(RequestNetworkUse(lines=flags))
-    network = _network_packages(system)
-    if network:
+    backend = NETWORK_BACKENDS[system.networking]
+    requirements = backend.for_init(system.init)
+    if backend.use:
+        operations.append(RequestNetworkUse(lines=backend.use))
+    if requirements.packages:
         operations.append(
-            Emerge(stage=Stage.SYSTEM, packages=network, summary="install the network tools")
+            Emerge(
+                stage=Stage.SYSTEM,
+                packages=requirements.packages,
+                summary="install the network tools",
+            )
         )
     operations += [
         WriteNetworkConfig(
@@ -959,25 +1060,15 @@ def build(config: InstallConfig) -> list[Operation]:
             dns=system.dns,
         ),
     ]
-    if system.networking is Networking.NONE:
-        # Nothing enabled: an operator who chose no networking gets none, not
-        # DHCP from whichever service the init happens to ship.
-        pass
-    elif _needs_netifrc(system):
-        # Not dhcpcd: it would DHCP over the static address, and nothing reads
-        # /etc/conf.d/net unless the per-interface service is in a runlevel.
-        operations.append(LinkNetifrcService(interface=system.interface or "eth0"))
-    else:
-        operations.append(
-            EnableService(service=_network_service(system), init=system.init)
-        )
-        if system.init is InitSystem.SYSTEMD and system.networking is Networking.BUILTIN:
-            # netifrc writes resolv.conf itself; networkd hands what it knows
-            # to resolved and to nothing else.
-            operations += [
-                EnableService(service="systemd-resolved", init=system.init),
-                LinkResolvConf(init=system.init),
-            ]
+    for network_service in requirements.services_for(static=bool(system.addresses)):
+        if network_service is NetworkService.NETIFRC_INTERFACE:
+            # dhcpcd would DHCP over the static address, while netifrc needs an
+            # interface service before it reads /etc/conf.d/net.
+            operations.append(LinkNetifrcService(interface=system.interface or "eth0"))
+        else:
+            operations.append(EnableService(service=network_service.value, init=system.init))
+    if requirements.link_resolv_conf:
+        operations.append(LinkResolvConf(init=system.init))
     operations += _logging(system)
     operations += _firewall(system)
     if system.init is not InitSystem.SYSTEMD:
@@ -1282,43 +1373,10 @@ def _logging(system: SystemConfig) -> list[Operation]:
     return operations
 
 
-def _needs_netifrc(system: SystemConfig) -> bool:
-    """openrc with a static address. `dhcpcd` manages every interface itself,
-    so it is enough for DHCP and wrong for anything else."""
-    return (
-        system.init is InitSystem.OPENRC
-        and system.networking is Networking.BUILTIN
-        and bool(system.addresses)
-    )
-
-
 def _network_service(system: SystemConfig) -> str:
-    """The name both inits use where there is one; the built-in manager is a
-    different program on each, so only that case differs."""
-    if system.networking in (Networking.NETWORKMANAGER_WPA, Networking.NETWORKMANAGER_IWD):
-        return "NetworkManager"
-    return "systemd-networkd" if system.init is InitSystem.SYSTEMD else "dhcpcd"
-
-
-def _network_packages(system: SystemConfig) -> tuple[str, ...]:
-    if system.networking is Networking.NETWORKMANAGER_IWD:
-        # `iwd` replaces wpa_supplicant as the wifi backend, and it is the flag
-        # rather than the package that decides which NetworkManager talks to.
-        return ("net-misc/networkmanager", "net-wireless/iwd")
-    if system.networking is Networking.NETWORKMANAGER_WPA:
-        return ("net-misc/networkmanager", "net-wireless/wpa_supplicant")
-    if system.init is InitSystem.SYSTEMD:
-        # networkd is part of systemd and does the DHCP itself.
-        return ()
-    # stage3 carries no netifrc, and openrc's net.* scripts are nothing without it.
-    return ("net-misc/netifrc", "net-misc/dhcpcd")
-
-
-def _network_use(system: SystemConfig) -> tuple[str, ...]:
-    """The flag that picks NetworkManager's wifi backend."""
-    if system.networking is Networking.NETWORKMANAGER_IWD:
-        return ("net-misc/networkmanager iwd",)
-    return ()
+    """The VM runner reports this name without building the whole plan."""
+    services = NETWORK_BACKENDS[system.networking].for_init(system.init).services
+    return services[0].value if services else ""
 
 
 def _set_password(context: Context, user: str, password_hash: str) -> None:
