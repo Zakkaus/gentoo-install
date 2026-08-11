@@ -612,6 +612,72 @@ def test_a_grouped_row_shows_its_own_rows_and_comes_back() -> None:
             assert row.label in screen.last, (title, row.label)
 
 
+def test_language_section_reaches_every_language_setting_from_the_menu() -> None:
+    assert tuple(row.key for row in settings.LANGUAGE) == (
+        "locale",
+        "locales",
+        "input_method",
+        "cjk_fonts",
+    )
+    at = context()
+    keys = [
+        *down(steps("Language")),
+        "\n",
+        *down(len(settings.LANGUAGE) - 1),
+        "q",
+        "KEY_DOWN",
+        "\n",
+    ]
+    screen = FakeScreen(keys=keys, lines=30, columns=100)
+    finished = run(screen, config(), at)
+    assert finished.cancelled
+    language_frames = [frame for frame in screen.frames if frame[0] == "Language"]
+    assert language_frames
+    drawn = "\n".join("\n".join(frame) for frame in language_frames)
+    for label in ("System language", "Other locales", "Input method", "CJK fonts"):
+        assert label in drawn, label
+
+
+def test_a_chinese_system_locale_selects_no_input_method_or_font_group() -> None:
+    start = replace(
+        config(),
+        system=replace(
+            config().system,
+            locale="en_US.UTF-8",
+            locales=("en_US.UTF-8",),
+        ),
+        packages=replace(config().packages, applications=()),
+    )
+    chosen = screens.locale_screen(
+        FakeScreen(keys=["KEY_UP", "\n"]), start, context()
+    ).unwrap()
+    assert chosen.system.locale == "zh_CN.UTF-8"
+    language_packages = {
+        *screens.input_method_groups(context().groups),
+        *screens.cjk_font_groups(context().groups),
+    }
+    assert not language_packages.intersection(chosen.packages.applications)
+
+
+def test_plasma_and_gnome_rows_describe_different_desktop_configuration() -> None:
+    def language_preamble(desktop: str) -> str:
+        chosen = replace(
+            config(), packages=replace(config().packages, desktop=desktop)
+        )
+        screen = FakeScreen(keys=["q"], lines=30, columns=80)
+        settings.nested(
+            "Language", settings.LANGUAGE, settings._desktop_language_preamble
+        )(screen, chosen, context())
+        return "\n".join(screen.frames[0])
+
+    plasma = language_preamble("plasma")
+    gnome = language_preamble("gnome")
+    assert "packages will be installed" in plasma
+    assert "plasma configures the selected fonts and input method automatically" in plasma
+    assert "gnome leaves font and input method configuration to its settings" in gnome
+    assert "automatically" not in gnome
+
+
 def test_a_grouped_row_names_the_row_behind_it_that_is_missing() -> None:
     """`Disk` says nothing about which of its six the operator has not reached."""
     blank = replace(config(), system=replace(config().system, root_password_hash=""))
@@ -1232,7 +1298,7 @@ def test_a_required_row_inside_any_group_is_named_by_its_own_label() -> None:
     from dataclasses import replace as _replace
 
     groups = [one for one in settings.SETTINGS if one.rows]
-    assert len(groups) == 8
+    assert len(groups) == 9
     # Every group row's members are reachable, and no group row is walked itself.
     at = context()
     blank = replace(config(), system=replace(config().system, root_password_hash=""))
