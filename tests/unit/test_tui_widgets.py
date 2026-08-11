@@ -285,3 +285,36 @@ def test_the_cursor_still_skips_a_disabled_row_nobody_chose() -> None:
         multiple=True,
     )
     assert menu._step(0, 1) == 2
+
+
+def test_tab_moves_on_and_shift_tab_moves_back() -> None:
+    """An operator coming from a browser or a graphical installer reaches for
+    tab first, and nothing in these screens used it for anything. The arrows
+    keep working; this is another way to the same row."""
+    from gentoo_install.tui.widgets import Field, Form, Item, Menu
+
+    # Three rows, tab twice to the third, shift-tab once back to the second.
+    menu: Menu[int] = Menu(
+        title="pick",
+        items=[Item(label="one", value=1), Item(label="two", value=2), Item(label="three", value=3)],
+    )
+    answer = menu.run(FakeScreen(keys=["\t", "\t", "KEY_BTAB", "\n"], lines=24))
+    assert answer.unwrap()[0] == 2
+
+    # The raw sequence too: ncurses reports `KEY_BTAB` only once keypad mode is
+    # on, and what arrives before that is the escape sequence itself.
+    raw: Menu[int] = Menu(
+        title="pick",
+        items=[Item(label="one", value=1), Item(label="two", value=2)],
+    )
+    assert raw.run(FakeScreen(keys=["\t", "\x1b[Z", "\n"], lines=24)).unwrap()[0] == 1
+
+    # A form moves between fields the same way, and tab is not typed into one.
+    form = Form(
+        title="account",
+        fields=[Field(label="name"), Field(label="shell")],
+    )
+    typed = form.run(
+        FakeScreen(keys=[*"zakk", "\t", *"bash", "KEY_BTAB", "\t", "\n", "\n"], lines=24)
+    )
+    assert typed.unwrap() == ["zakk", "bash"]

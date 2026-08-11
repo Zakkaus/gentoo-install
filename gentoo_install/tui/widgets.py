@@ -111,6 +111,24 @@ class Item(Generic[V]):
     style: Style = Style.PLAIN
 
 
+#: Tab moves on and shift-tab moves back, alongside the arrows. An operator
+#: coming from a browser or an installer with a graphical toolkit reaches for
+#: it first, and nothing in these screens uses tab for anything else.
+#: `KEY_BTAB` is what ncurses calls shift-tab once keypad mode is on; the raw
+#: sequence is what arrives before that.
+TAB: Final[str] = "\t"
+SHIFT_TAB: Final[tuple[str, ...]] = ("KEY_BTAB", "\x1b[Z")
+
+#: `j` and `k` as well: a serial console over ssh may swallow an arrow, and
+#: these are what an operator who reads vi bindings tries.
+FORWARD: Final[tuple[str, ...]] = ("KEY_DOWN", "j", TAB)
+BACKWARD: Final[tuple[str, ...]] = ("KEY_UP", "k", *SHIFT_TAB)
+
+#: No `j` or `k` in a form: those are characters somebody is typing.
+FORWARD_FIELD: Final[tuple[str, ...]] = ("KEY_DOWN", TAB)
+BACKWARD_FIELD: Final[tuple[str, ...]] = ("KEY_UP", *SHIFT_TAB)
+
+
 @dataclass
 class Menu(Generic[V]):
     title: str
@@ -145,9 +163,9 @@ class Menu(Generic[V]):
             self.cursor = cursor
             self._draw(screen, cursor)
             pressed = screen.key()
-            if pressed in ("KEY_UP", "k"):
+            if pressed in BACKWARD:
                 cursor = self._step(cursor, -1)
-            elif pressed in ("KEY_DOWN", "j"):
+            elif pressed in FORWARD:
                 cursor = self._step(cursor, 1)
             elif pressed == " " and self.multiple:
                 self._toggle(cursor)
@@ -398,9 +416,9 @@ class Form:
         while True:
             self._draw(screen, typed, cursor)
             pressed = screen.key()
-            if pressed in ("KEY_UP",):
+            if pressed in BACKWARD_FIELD:
                 cursor = max(0, cursor - 1)
-            elif pressed in ("KEY_DOWN",):
+            elif pressed in FORWARD_FIELD:
                 cursor = min(len(self.fields), cursor + 1)
             elif pressed in ("\n", "KEY_ENTER"):
                 if cursor == len(self.fields):
