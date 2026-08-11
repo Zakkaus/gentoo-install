@@ -21,6 +21,7 @@ from typing import ClassVar, Final, Iterable, Mapping
 from ..errors import CommandFailed, DeviceNotFound
 from ..model.config import InstallConfig
 from ..model.device import DeviceGraph, DeviceId, Existing, Extent, PartitionTable
+from ..model.validate import ProbedProfile, parse_profile_list
 from .runner import Runner
 
 EFI_MARKER: Final[Path] = Path("/sys/firmware/efi")
@@ -154,6 +155,11 @@ def _efi_bits() -> int:
 #: Where both install media keep the release engineering public key.
 RELEASE_KEY: Final[Path] = Path("/usr/share/openpgp-keys/gentoo-release.asc")
 MEMINFO: Final[Path] = Path("/proc/meminfo")
+
+
+def profiles_from_eselect(output: str) -> tuple[ProbedProfile, ...]:
+    """Parse profile output already read from the machine that owns the tree."""
+    return parse_profile_list(output)
 
 
 @dataclass(frozen=True)

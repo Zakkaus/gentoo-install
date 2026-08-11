@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import FrozenInstanceError, replace
 from pathlib import Path, PurePosixPath
 
 import pytest
@@ -16,6 +16,7 @@ from gentoo_install.model.device import (
 )
 from gentoo_install.model.size import Size
 from gentoo_install.exec.config import load
+from gentoo_install.exec.probe import profiles_from_eselect
 from gentoo_install.model.validate import validate
 
 from .layouts import encrypted_root, config, ext4_on_gpt, i, zfs_root
@@ -133,6 +134,56 @@ def test_a_profile_that_disagrees_with_the_init_is_refused() -> None:
 
     with pytest.raises(ValidationFailed, match="ending in /systemd"):
         validate(replace(openrc, system=replace(openrc.system, init=InitSystem.SYSTEMD)))
+
+
+def test_a_configured_profile_absent_from_eselect_is_refused() -> None:
+    installation = config()
+
+    with pytest.raises(ValidationFailed) as refused:
+        validate(
+            installation,
+            available_profiles=("default/linux/amd64/24.0/systemd",),
+        )
+
+    message = str(refused.value)
+    assert installation.portage.profile in message
+    assert "eselect profile list" in message
+
+
+def test_a_configured_profile_present_in_eselect_passes() -> None:
+    installation = config()
+
+    validate(installation, available_profiles=(installation.portage.profile,))
+
+
+def test_an_unreadable_eselect_profile_list_is_reported() -> None:
+    installation = config()
+
+    with pytest.raises(ValidationFailed) as refused:
+        validate(installation, available_profiles=None)
+
+    message = str(refused.value)
+    assert installation.portage.profile in message
+    assert "could not be read" in message
+    assert "eselect profile list" in message
+
+
+def test_the_profile_parser_keeps_the_observed_eselect_markers() -> None:
+    profiles = profiles_from_eselect(
+        """Available profile symlink targets:
+  [8]   default/linux/amd64/23.0/desktop/plasma/systemd (stable) *
+  [15]  default/linux/amd64/23.0/no-multilib/prefix (exp)
+  [40]  default/linux/amd64/23.0/x32 (dev)
+"""
+    )
+
+    assert tuple((one.path, one.stability, one.current) for one in profiles) == (
+        ("default/linux/amd64/23.0/desktop/plasma/systemd", "stable", True),
+        ("default/linux/amd64/23.0/no-multilib/prefix", "exp", False),
+        ("default/linux/amd64/23.0/x32", "dev", False),
+    )
+    with pytest.raises(FrozenInstanceError):
+        setattr(profiles[0], "path", "default/linux/amd64/24.0")
 
 
 def test_a_static_address_with_no_resolver_is_refused() -> None:
