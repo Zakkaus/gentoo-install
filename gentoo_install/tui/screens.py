@@ -1569,12 +1569,24 @@ def settle(
     answered = asked.run(screen)
     if not answered.chosen or answered.unwrap()[0] == "no":
         return Answer(Outcome.BACK, before)
+    # Pinned without what the choice being replaced had derived. Adding to
+    # `portage.use` and never taking anything out meant switching from Plasma
+    # to GNOME left `qt6` and `sddm` behind and read as
+    # `wayland qt6 networkmanager sddm gnome gtk`. What the operator typed is
+    # not derivable and stays; what the last choice derived goes with it.
+    withdrawn = {one.value for one in automatic_values.use_flags(before, context.groups)}
+    withdrawn |= _derived_by(before, context)
+    kept = tuple(one for one in after.portage.use if one not in withdrawn)
+    dropped = {one.value for one in automatic_values.video_cards(before, context.groups)}
     pinned = replace(
         after,
         portage=replace(
             after.portage,
-            use=(*after.portage.use, *flags),
-            video_cards=(*after.portage.video_cards, *cards),
+            use=(*kept, *flags),
+            video_cards=(
+                *(one for one in after.portage.video_cards if one not in dropped),
+                *cards,
+            ),
         ),
     )
     if answered.unwrap()[0] == "open" and where is not None:
@@ -1587,6 +1599,22 @@ def settle(
             # the operator had just refused.
             return Answer(Outcome.CANCELLED)
     return Answer(Outcome.CHOSE, pinned)
+
+
+def _derived_by(config: InstallConfig, context: Context) -> set[str]:
+    """The USE every group this configuration selects asks for.
+
+    `automatic.use_flags` reports only what is not already in `portage.use`,
+    and a pinned flag is in there, so it stops reporting the very values that
+    have to be withdrawn. The catalog is asked directly instead.
+    """
+    from ..plan import packages as plan_packages
+
+    return {
+        flag
+        for group in plan_packages.groups(config, context.groups)
+        for flag in group.use
+    }
 
 
 def _new(

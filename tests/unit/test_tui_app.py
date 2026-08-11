@@ -2185,3 +2185,31 @@ def test_what_a_desktop_brings_is_listed_in_one_place() -> None:
     listed = "\n".join(screen.frames[-1])
     for named in ("Display manager", "sddm", "Network", "networkmanager", "Profile"):
         assert named in listed, f"{named} is not on the confirmation: {listed}"
+
+
+def test_switching_desktops_takes_the_last_one_s_use_flags_with_it() -> None:
+    """Choosing Plasma and then GNOME read as
+    `wayland qt6 networkmanager sddm gnome gtk`: the flags were added to
+    `portage.use` and nothing was ever taken out, so Qt and SDDM followed an
+    operator onto a GNOME desktop that has no use for either."""
+    at = context()
+    plasma = screens.desktop_screen(
+        FakeScreen(keys=[*down(4), "\n", "\n"], lines=30), config(), at
+    ).unwrap()
+    assert "qt6" in plasma.portage.use and "sddm" in plasma.portage.use
+
+    # The cursor opens on what is set, so gnome is two rows up from plasma.
+    swapped = screens.desktop_screen(
+        FakeScreen(keys=["KEY_UP", "KEY_UP", "\n", "\n"], lines=30), plasma, at
+    ).unwrap()
+    assert swapped.packages.desktop == "gnome"
+    assert "qt6" not in swapped.portage.use, swapped.portage.use
+    assert "sddm" not in swapped.portage.use, swapped.portage.use
+    assert "gnome" in swapped.portage.use
+
+    # What the operator typed is not derivable and stays.
+    typed = replace(plasma, portage=replace(plasma.portage, use=(*plasma.portage.use, "lto")))
+    after = screens.desktop_screen(
+        FakeScreen(keys=["KEY_UP", "KEY_UP", "\n", "\n"], lines=30), typed, at
+    ).unwrap()
+    assert "lto" in after.portage.use
