@@ -1671,3 +1671,43 @@ def test_a_build_tmpfs_the_machine_cannot_spare_is_refused(tmp_path: Path) -> No
     assert any(
         "for the compiler and its sources" in one for one in preflight.check(tight, probe).fatal
     )
+
+
+def test_a_reset_connection_is_retried_before_the_install_is_given_up(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`why_unreachable` already retries and `_newest` did not, so one
+    `Connection reset by peer` from `distfiles.gentoo.org` ended an install a
+    minute after it started."""
+    from gentoo_install.errors import DownloadFailed
+    from gentoo_install.exec import fetch
+
+    tries = {"n": 0}
+    body = "20260809T143052Z/stage3-amd64-systemd-20260809T143052Z.tar.xz 300\n"
+
+    def flaky(url: str) -> str:
+        tries["n"] += 1
+        if tries["n"] < 3:
+            raise DownloadFailed(f"{url} could not be read: [Errno 104] Connection reset")
+        return body
+
+    monkeypatch.setattr(fetch, "_read", flaky)
+    import time as clock
+
+    monkeypatch.setattr(clock, "sleep", lambda seconds: None)
+    where = fetch._newest("https://distfiles.invalid/releases", "systemd")
+    assert where.endswith("stage3-amd64-systemd-20260809T143052Z.tar.xz")
+    assert tries["n"] == 3
+
+    # Bounded: a host that never answers still stops the install rather than
+    # holding it open.
+    tries["n"] = 0
+
+    def dead(url: str) -> str:
+        tries["n"] += 1
+        raise DownloadFailed(f"{url} could not be read: [Errno 104] Connection reset")
+
+    monkeypatch.setattr(fetch, "_read", dead)
+    with pytest.raises(DownloadFailed):
+        fetch._newest("https://distfiles.invalid/releases", "systemd")
+    assert tries["n"] == fetch.READ_TRIES
