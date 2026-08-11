@@ -15,7 +15,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import PurePosixPath
-from typing import Protocol, Sequence
+from typing import ClassVar, Protocol, Sequence
 
 from ..model.device import DeviceId
 
@@ -156,6 +156,10 @@ class Context(Protocol):
 
 @dataclass(frozen=True, kw_only=True)
 class Operation(ABC):
+    #: Executables this operation runs on the installing system. Commands run
+    #: inside the target are supplied by the target and do not belong here.
+    host_commands: ClassVar[tuple[str, ...]] = ()
+
     #: Which phase this runs in. A subclass fixes it with a default; the few
     #: operations that serve several phases take it from the caller.
     stage: Stage
@@ -166,6 +170,10 @@ class Operation(ABC):
 
     @abstractmethod
     def apply(self, context: Context) -> None: ...
+
+    def required_host_commands(self) -> frozenset[str]:
+        """Executables the live medium must provide for this operation."""
+        return frozenset(self.host_commands)
 
     @property
     def releases_the_machine(self) -> bool:
