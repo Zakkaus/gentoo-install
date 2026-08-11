@@ -57,8 +57,14 @@ def test_zfsbootmenu_carries_remote_access_in_its_own_image() -> None:
     recorder = Recorder()
     configured.apply(recorder)
     zbm = recorder.files[PurePosixPath("/etc/zfsbootmenu/dracut.conf.d/dropbear.conf")]
-    assert 'add_dracutmodules+=" crypt-ssh "' in zbm
+    assert "crypt-ssh" in zbm, zbm
     assert 'dropbear_port="2201"' in zbm
+    # `generate-zbm` exited 1 with "Module 'crypt-ssh' depends on module
+    # 'network', which can't be installed": dracut's `40network` resolves to
+    # `systemd-networkd`, which needs the `systemd` module this image lacks.
+    # Naming `network-legacy` makes `40network` pick it, per its own
+    # `depends()`, which prefers an implementation already included.
+    assert "network-legacy" in zbm, zbm
     assert "dropbear_rsa_key=/etc/dropbear/ssh_host_rsa_key" in zbm
     assert "dropbear_ecdsa_key=/etc/dropbear/ssh_host_ecdsa_key" in zbm
     assert "dropbear_acl=/etc/dropbear/root_key" in zbm

@@ -296,7 +296,10 @@ class ConfigureZfsBootMenuRemoteAccess(Operation):
             "".join(
                 f"{line}\n"
                 for line in (
-                    'add_dracutmodules+=" crypt-ssh "',
+                    # `network-legacy` by name: dracut's `40network` picks the
+                    # first implementation already included, and the others all
+                    # reach `systemd`, which this image does not carry.
+                    'add_dracutmodules+=" crypt-ssh network-legacy "',
                     f'install_optional_items+=" {ZBM_NETWORK_CONFIG} "',
                     f'dropbear_port="{self.unlock.port}"',
                     f"dropbear_rsa_key={ZBM_KEY_DIRECTORY}/ssh_host_rsa_key",
