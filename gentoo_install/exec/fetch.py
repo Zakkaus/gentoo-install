@@ -151,6 +151,25 @@ def passphrase_for(device: DeviceId, source: str) -> str:
     return passphrase
 
 
+#: A reset connection is not an answer. `why_unreachable` already retries the
+#: same way and `_newest` did not, so one `Connection reset by peer` from
+#: `distfiles.gentoo.org` ended an install a minute after it started.
+READ_TRIES: Final[int] = 4
+
+
+def _read_patiently(url: str) -> str:
+    last: DownloadFailed | None = None
+    for attempt in range(READ_TRIES):
+        try:
+            return _read(url)
+        except DownloadFailed as error:
+            last = error
+            if attempt + 1 < READ_TRIES:
+                time.sleep(ONLINE_PAUSE * 2**attempt)
+    assert last is not None
+    raise last
+
+
 def _newest(builds: str, variant: str) -> str:
     """The current archive's path under `releases/amd64/autobuilds`.
 
@@ -170,7 +189,7 @@ def _newest(builds: str, variant: str) -> str:
     """
     pointer = f"{builds}/latest-stage3-amd64-{variant}.txt"
     paths: list[str] = []
-    for line in _read(pointer).splitlines():
+    for line in _read_patiently(pointer).splitlines():
         said = line.strip()
         if not said or said.startswith(("#", "-----", "Hash:")):
             continue
