@@ -83,20 +83,46 @@ def _display_block_size(size: int) -> str:
     return f"{size}B"
 
 
-def _lsblk_children(value: object) -> tuple[tuple[str, str, str], ...]:
+@dataclass(frozen=True)
+class ProbedDisk:
+    """Facts read for a whole disk offered as an install target."""
+
+    kernel_path: str
+    selector: str
+    size: str
+    model: str
+
+
+@dataclass(frozen=True)
+class ProbedPartition:
+    """Facts read for a device nested below a whole disk."""
+
+    kernel_path: str
+    size_bytes: int
+    filesystem: str
+    device_type: str
+
+
+def _lsblk_children(value: object) -> tuple[ProbedPartition, ...]:
     if not isinstance(value, Mapping):
         return ()
     children = value.get("children")
     if not isinstance(children, list):
         return ()
-    found: list[tuple[str, str, str]] = []
+    found: list[ProbedPartition] = []
     for child in children:
         if not isinstance(child, Mapping):
             continue
-        name, size, filesystem = child.get("name"), child.get("size"), child.get("fstype")
+        name, size = child.get("name"), child.get("size")
+        filesystem, device_type = child.get("fstype"), child.get("type")
         if isinstance(name, str) and isinstance(size, int) and not isinstance(size, bool):
             found.append(
-                (name, _display_block_size(size), filesystem if isinstance(filesystem, str) else "")
+                ProbedPartition(
+                    kernel_path=name,
+                    size_bytes=size,
+                    filesystem=filesystem if isinstance(filesystem, str) else "",
+                    device_type=device_type if isinstance(device_type, str) else "",
+                )
             )
         found.extend(_lsblk_children(child))
     return tuple(found)
@@ -323,8 +349,8 @@ class Probe:
     #: compressed swap, a loopback of the live image, a ramdisk.
     NOT_A_TARGET: ClassVar[tuple[str, ...]] = ("/dev/zram", "/dev/loop", "/dev/ram")
 
-    def disks(self) -> tuple[tuple[str, str], ...]:
-        """Whole disks the interface can offer, as a selector and a size.
+    def probed_disks(self) -> tuple[ProbedDisk, ...]:
+        """Facts for the whole disks that can be install targets.
 
         Named by `/dev/disk/by-id/` where one exists: a kernel name is assigned
         at probe time and a configuration saved with one installs elsewhere on
@@ -334,7 +360,7 @@ class Probe:
             ["lsblk", "--noheadings", "--nodeps", "--paths", "--output", "NAME,SIZE,TYPE,MODEL"],
             check=False,
         )
-        found: list[tuple[str, str]] = []
+        found: list[ProbedDisk] = []
         for line in listed.stdout.splitlines() if listed.returncode == 0 else []:
             fields = line.split(maxsplit=3)
             if len(fields) < 3 or fields[2] != "disk":
@@ -343,8 +369,22 @@ class Probe:
             if path.startswith(self.NOT_A_TARGET):
                 continue
             model = fields[3] if len(fields) > 3 else ""
-            found.append((self._stable_name(path), f"{size} {model}".strip()))
+            found.append(
+                ProbedDisk(
+                    kernel_path=path,
+                    selector=self._stable_name(path),
+                    size=size,
+                    model=model,
+                )
+            )
         return tuple(found)
+
+    def disks(self) -> tuple[tuple[str, str], ...]:
+        """Display rows retained for callers that have not moved to facts."""
+        return tuple(
+            (disk.selector, f"{disk.size} {disk.model}".strip())
+            for disk in self.probed_disks()
+        )
 
     #: Where udev keeps the names that survive the kernel renumbering disks.
     BY_ID: ClassVar[Path] = Path("/dev/disk/by-id")
@@ -594,8 +634,8 @@ class Probe:
     def cores(self) -> int:
         return os.cpu_count() or 1
 
-    def partitions(self, disk: str) -> tuple[tuple[str, str, str], ...]:
-        """What is on a disk now, as name, size and filesystem.
+    def probed_partitions(self, disk: str) -> tuple[ProbedPartition, ...]:
+        """Facts for the devices nested below a disk.
 
         Shown before the table is edited: an operator about to erase a disk has
         to see what is on it, and sizes are guesswork without the total.
@@ -624,6 +664,17 @@ class Probe:
         if not isinstance(roots, list):
             return ()
         return tuple(row for root in roots for row in _lsblk_children(root))
+
+    def partitions(self, disk: str) -> tuple[tuple[str, str, str], ...]:
+        """Display rows retained for callers that have not moved to facts."""
+        return tuple(
+            (
+                partition.kernel_path,
+                _display_block_size(partition.size_bytes),
+                partition.filesystem,
+            )
+            for partition in self.probed_partitions(disk)
+        )
 
     def disk_size(self, disk: str) -> str:
         listed = self.runner.run(
