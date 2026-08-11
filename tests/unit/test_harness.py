@@ -1298,6 +1298,82 @@ def test_a_term_signal_reaches_the_closing_path() -> None:
         signals.signal(signals.SIGTERM, before)
 
 
+class _PatternConsole:
+    def __init__(self, output: bytes | BaseException, sent: list[str]) -> None:
+        self.output = output
+        self.sent = sent
+
+    def send(self, line: str) -> None:
+        self.sent.append(line)
+
+    def send_raw(self, keys: str) -> None:
+        pass
+
+    def snapshot(self, seconds: float) -> bytes:
+        return b""
+
+    @property
+    def closed(self) -> bool:
+        return False
+
+    def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+        from tests.vm.console import ConsoleTimeout
+
+        if isinstance(self.output, BaseException):
+            raise self.output
+        found = re.search(pattern.encode(), self.output)
+        if found is None:
+            raise ConsoleTimeout(f"never matched {pattern!r}")
+        return self.output[: found.end()]
+
+
+def test_wait_for_accepts_a_live_prompt_after_reconnect() -> None:
+    from tests.vm import cluster
+    from tests.vm.console import ConsoleClosed
+
+    sent: list[str] = []
+    consoles = iter(
+        [
+            _PatternConsole(ConsoleClosed("termproxy disconnected"), sent),
+            _PatternConsole(b"root@livecd ~ # ", sent),
+        ]
+    )
+    link = cluster.Reconnecting(lambda: next(consoles))
+
+    link.wait_for("install --config vm-raidz.toml", timeout=10.0)
+
+    assert len([line for line in sent if line]) == 1
+    assert sent[-1] == "", "reopen asks the live shell to draw a fresh prompt"
+
+
+def test_wait_for_does_not_accept_the_original_command_echo() -> None:
+    from tests.vm import cluster
+    from tests.vm.console import ConsoleTimeout
+
+    sent: list[str] = []
+    echoed = (
+        b"root@livecd ~ # printf 'MARK_%s_BEGIN\\n' 1; "
+        b"install --config vm-raidz.toml; printf 'MARK_%s_DONE\\n' 1\r\n"
+    )
+    link = cluster.Reconnecting(lambda: _PatternConsole(echoed, sent))
+
+    with pytest.raises(ConsoleTimeout, match="never matched"):
+        link.wait_for("install --config vm-raidz.toml", timeout=10.0)
+
+
+def test_wait_for_still_accepts_the_done_marker() -> None:
+    from tests.vm import cluster
+
+    sent: list[str] = []
+    link = cluster.Reconnecting(
+        lambda: _PatternConsole(b"install output\r\nMARK_1_DONE\r\n", sent)
+    )
+
+    link.wait_for("install --config vm-raidz.toml", timeout=10.0)
+
+    assert len(sent) == 1
+
+
 def test_reconnects_share_the_callers_deadline(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
