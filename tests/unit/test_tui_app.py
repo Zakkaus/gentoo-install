@@ -2169,8 +2169,7 @@ def test_the_zfs_bootloader_prompt_returns_only_installable_answers() -> None:
         answered = screens._zfs_bootloader(
             FakeScreen(keys=keys, lines=24, columns=100), start, at
         )
-        assert answered is not None, "neither key cancels"
-        validate(answered)
+        validate(answered.unwrap())
 
 
 def test_the_erase_field_is_visibly_empty_before_anything_is_typed() -> None:
@@ -2395,15 +2394,19 @@ def test_a_reopened_selector_starts_on_what_is_already_set() -> None:
     assert all(seen.values()), sorted(one for one, has in seen.items() if not has)
 
 
-def test_cancelling_the_zfs_bootloader_question_undoes_the_layout() -> None:
+@pytest.mark.parametrize(
+    ("leaving", "outcome"),
+    [("KEY_BACKSPACE", Outcome.BACK), ("\x1b", Outcome.CANCELLED)],
+)
+def test_the_zfs_bootloader_outcome_leaves_the_layout_screen(
+    leaving: str, outcome: Outcome
+) -> None:
     """The layout is written and the graph rebuilt before the question is
     asked, so cancelling it committed a ZFS root with GRUB — a combination
     `model/compat.py` refuses and no later screen would have offered a way
     out of."""
     from gentoo_install.model.config import Bootloader
     from gentoo_install.model.device import ZfsPool
-    from gentoo_install.tui.widgets import Outcome as Answered
-
     from .layouts import ext4_on_gpt
 
     at = context()
@@ -2412,12 +2415,12 @@ def test_cancelling_the_zfs_bootloader_question_undoes_the_layout() -> None:
     before = at.choice
 
     # Two rows down is the ZFS layout; enter opens the bootloader question and
-    # escape leaves it. A third down lands past the row and cancels the menu
-    # itself, which answers CANCELLED whether the fix is there or not.
-    keys = ["\n", "KEY_DOWN", "KEY_DOWN", "\n", "\x1b"]
+    # the final key leaves it. A third down lands past the row and cancels the
+    # menu itself, which answers CANCELLED whether the helper preserves it or not.
+    keys = ["\n", "KEY_DOWN", "KEY_DOWN", "\n", leaving]
     answer = screens.layout_screen(FakeScreen(keys=keys, lines=24, columns=100), start, at)
 
-    assert answer.outcome is Answered.BACK, answer.outcome
+    assert answer.outcome is outcome
     assert at.choice == before, "the choice goes back with the layout"
     assert start.bootloader.kind is not Bootloader.ZFSBOOTMENU
 

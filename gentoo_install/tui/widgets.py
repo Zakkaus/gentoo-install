@@ -16,6 +16,7 @@ from ..i18n import truncate, width
 
 V = TypeVar("V")
 A = TypeVar("A")
+U = TypeVar("U")
 
 #: What asks to leave. ctrl-c is here rather than a signal because raw mode
 #: delivers it as a byte, so it is answered rather than obeyed.
@@ -84,6 +85,11 @@ class Answer(Generic[V]):
         if isinstance(self._value, _Missing):
             raise ValueError("no value: the operator went back or cancelled")
         return self._value
+
+    def map(self, transform: Callable[[V], U]) -> Answer[U]:
+        if not self.chosen:
+            return Answer(self.outcome)
+        return Answer(Outcome.CHOSE, transform(self.unwrap()))
 
 
 class Screen(Protocol):
