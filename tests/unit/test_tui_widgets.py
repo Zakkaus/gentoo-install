@@ -47,6 +47,23 @@ def test_going_back_is_not_cancelling() -> None:
     assert not Answer(Outcome.BACK).chosen
 
 
+def test_answer_map_transforms_only_a_chosen_value() -> None:
+    transformed: list[int] = []
+
+    def describe(value: int) -> str:
+        transformed.append(value)
+        return f"value {value}"
+
+    chosen: Answer[int] = Answer(Outcome.CHOSE, 3)
+    back: Answer[int] = Answer(Outcome.BACK)
+    cancelled: Answer[int] = Answer(Outcome.CANCELLED)
+
+    assert chosen.map(describe).unwrap() == "value 3"
+    assert back.map(describe).outcome is Outcome.BACK
+    assert cancelled.map(describe).outcome is Outcome.CANCELLED
+    assert transformed == [3]
+
+
 def test_a_disabled_row_cannot_be_chosen_and_says_why() -> None:
     """The reason comes from the compatibility table, so the interface and the
     validator give the operator the same sentence."""

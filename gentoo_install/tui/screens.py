@@ -410,13 +410,12 @@ def _template_screen(
     changed = _rebuild(config, context)
     if layout is Layout.WHOLE_DISK_ZFS:
         picked = _zfs_bootloader(screen, changed, context)
-        if picked is None:
-            # Cancelling the question undoes the layout that raised it. The
-            # graph was already rebuilt and the choice already written, so
-            # both go back: leaving them committed a ZFS root with GRUB.
+        if not picked.chosen:
+            # The graph was already rebuilt and the choice already written, so
+            # both go back before the child's outcome leaves this screen.
             context.manual, context.choice = was_manual, was_choice
-            return Answer(Outcome.BACK)
-        changed = picked
+            return Answer(picked.outcome)
+        changed = picked.unwrap()
     return Answer(Outcome.CHOSE, changed)
 
 
@@ -428,7 +427,7 @@ def _known(kind: str) -> FilesystemType | None:
 
 def _zfs_bootloader(
     screen: Screen, config: InstallConfig, context: Context
-) -> InstallConfig | None:
+) -> Answer[InstallConfig]:
     """A ZFS root cannot use GRUB, so this asks which of the two that remain.
 
     ZFSBootMenu lives in the gentoo-zh overlay and in no other repository, so
@@ -453,19 +452,17 @@ def _zfs_bootloader(
         footer=footer(translate),
         current=config.bootloader.kind,
     ).run(screen)
-    if not answer.chosen:
-        # None rather than the configuration handed in: that one already holds
-        # the ZFS layout, and returning it committed a ZFS root with GRUB,
-        # which the compatibility table refuses.
-        return None
-    kind = answer.unwrap()
-    if kind is Bootloader.SYSTEMD_BOOT:
-        return replace(config, bootloader=replace(config.bootloader, kind=kind))
-    return replace(
-        config,
-        bootloader=replace(config.bootloader, kind=kind),
-        portage=_with_gentoo_zh(config),
-    )
+
+    def apply(kind: Bootloader) -> InstallConfig:
+        if kind is Bootloader.SYSTEMD_BOOT:
+            return replace(config, bootloader=replace(config.bootloader, kind=kind))
+        return replace(
+            config,
+            bootloader=replace(config.bootloader, kind=kind),
+            portage=_with_gentoo_zh(config),
+        )
+
+    return answer.map(apply)
 
 
 def _with_gentoo_zh(config: InstallConfig) -> PortageConfig:
@@ -3497,12 +3494,14 @@ def partitions_screen(
                 # Without this every bootloader row was greyed and the table
                 # had no way out.
                 picked = _zfs_bootloader(screen, built, context)
-                if picked is None:
+                if not picked.chosen:
+                    if picked.outcome is Outcome.CANCELLED:
+                        return Answer(picked.outcome)
                     # Back to the editor rather than out of it: the table the
                     # operator drew is still there, and a ZFS root with GRUB
                     # is what committing this would have written.
                     continue
-                built = picked
+                built = picked.unwrap()
             return Answer(Outcome.CHOSE, built)
         _act_on(screen, context, row)
 
