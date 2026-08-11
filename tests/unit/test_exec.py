@@ -202,6 +202,82 @@ def test_a_target_command_keeps_its_nonzero_status(tmp_path: Path) -> None:
     assert output == "masked by package.mask\n"
 
 
+def test_a_live_command_keeps_its_nonzero_status_with_output(tmp_path: Path) -> None:
+    class Answering(Runner):
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            return Result(
+                argv=tuple(argv),
+                returncode=1,
+                stdout="findmnt: not a mountpoint\n",
+                stderr="",
+                seconds=0.0,
+            )
+
+    answering = Answering(log=lambda line: None)
+    machine = apply.Machine(
+        config=config(),
+        runner=answering,
+        probe=Probe(runner=answering, work=tmp_path),
+        work=tmp_path,
+    )
+
+    output = machine.run(["findmnt", "--mountpoint", "/mnt/gentoo"], check=False)
+
+    assert isinstance(output, CommandOutput)
+    assert output.returncode == 1
+    assert "not a mountpoint" in output
+
+
+def test_a_live_findmnt_result_enables_the_lazy_unmount_fallback(tmp_path: Path) -> None:
+    from gentoo_install.plan.disk import UnmountTarget
+
+    class Mounted(Runner):
+        commands: list[tuple[str, ...]]
+
+        def __init__(self) -> None:
+            super().__init__(log=lambda line: None)
+            self.commands = []
+
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            self.commands.append(tuple(argv))
+            return Result(
+                argv=tuple(argv),
+                returncode=0,
+                stdout="/mnt/gentoo\n" if argv[0] == "findmnt" else "",
+                stderr="",
+                seconds=0.0,
+            )
+
+    answering = Mounted()
+    machine = apply.Machine(
+        config=config(),
+        runner=answering,
+        probe=Probe(runner=answering, work=tmp_path),
+        work=tmp_path,
+    )
+
+    UnmountTarget(pools=()).apply(machine)
+
+    assert [argv for argv in answering.commands if argv[0] == "umount"] == [
+        ("umount", "--recursive", "/mnt/gentoo"),
+        ("umount", "--recursive", "--lazy", "/mnt/gentoo"),
+    ]
+
+
 def test_a_dry_run_runs_nothing(tmp_path: Path) -> None:
     lines: list[str] = []
     quiet = Runner(log=lines.append, dry_run=True)
