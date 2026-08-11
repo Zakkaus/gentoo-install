@@ -1528,13 +1528,12 @@ def test_a_bad_port_keeps_the_address_that_was_typed_beside_it() -> None:
         config(encrypted_root()), system=replace(config().system, authorized_keys=(GOOD_KEY,))
     )
     # Yes to unlocking, then `abc` appended to the port and an address typed.
-    # After the message the form comes back holding both, so deleting the three
+    # The form comes back with an inline message and both values, so deleting the three
     # bad characters is the whole correction.
     keys = [
         "KEY_DOWN", "\n",
         *"abc", "KEY_DOWN", *"192.0.2.5/24", "KEY_DOWN", *"192.0.2.1",
         "KEY_DOWN", *"eth0", "KEY_DOWN", "\n",
-        "\n",
         "KEY_BACKSPACE", "KEY_BACKSPACE", "KEY_BACKSPACE",
         "KEY_DOWN", "KEY_DOWN", "KEY_DOWN", "KEY_DOWN", "\n",
     ]
@@ -1546,6 +1545,40 @@ def test_a_bad_port_keeps_the_address_that_was_typed_beside_it() -> None:
     assert (unlock.address, unlock.gateway, unlock.interface) == (
         "192.0.2.5/24", "192.0.2.1", "eth0"
     )
+    rejected = next(
+        frame for frame in screen.frames if "The port has to be a number." in "\n".join(frame)
+    )
+    assert "192.0.2.5/24" in "\n".join(rejected)
+
+
+def test_a_bad_first_boot_address_keeps_the_commands_and_shows_why() -> None:
+    at = context()
+    keys = [
+        *"example.com",
+        "KEY_DOWN",
+        *"echo one",
+        "KEY_DOWN",
+        "\n",
+        *("KEY_BACKSPACE" for _ in "example.com"),
+        *"https://example.com",
+        "KEY_DOWN",
+        "KEY_DOWN",
+        "\n",
+    ]
+    screen = FakeScreen(keys=keys, lines=24, columns=100)
+
+    answer = screens.first_boot_screen(screen, config(), at)
+
+    first_boot = answer.unwrap().system.first_boot
+    assert first_boot.url == "https://example.com"
+    assert first_boot.commands == ("echo one",)
+    rejected = next(
+        frame
+        for frame in screen.frames
+        if "An address starts with http:// or https://" in "\n".join(frame)
+    )
+    assert "example.com" in "\n".join(rejected)
+    assert "echo one" in "\n".join(rejected)
 
 
 def test_a_listed_key_says_that_enter_removes_it() -> None:
@@ -1628,11 +1661,10 @@ def test_a_password_is_typed_twice_before_it_is_hashed() -> None:
     way and the two passwords were not."""
     at = context()
     # One form: type, down to the second field, type something else, enter.
-    # The message, then the form again with the first field kept — down, the
+    # The inline message, then the form again with the first field kept — down, the
     # matching text, enter.
     keys = [
         *"first", "KEY_DOWN", *"second", "\n", "\n",
-        "\n",
         "KEY_DOWN", *"first", "\n", "\n",
     ]
     answer = screens.root_password_screen(FakeScreen(keys=keys, lines=24), config(), at)

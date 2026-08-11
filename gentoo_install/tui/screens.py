@@ -78,6 +78,7 @@ from .widgets import (
     Confirm,
     Field,
     Form,
+    FormRejected,
     Item,
     Menu,
     MultipleChoiceMenu,
@@ -617,43 +618,19 @@ def user_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     """
     translate = context.translate
     existing = config.system.users[0] if config.system.users else None
-    fields = [
-        Field(label=translate("User name"), value=existing.name if existing else "",
-              placeholder=translate("empty for root only")),
-        Field(label=translate("Password"), secret=True),
-        Field(label=translate("Type it again"), secret=True),
-        Field(label=translate("sudo"), toggle=True, value="x" if existing and existing.sudo else ""),
-        Field(
-            label=_groups_label(config, context),
-            value=" ".join(existing.groups) if existing else "",
-            placeholder=translate("separated by spaces, such as plugdev kvm docker"),
-        ),
-    ]
-    message = ""
-    while True:
-        answered = Form(
-            title=translate("User account"),
-            fields=fields,
-            footer=footer(translate),
-            done=translate("Done"),
-            message=message,
-        ).run(screen)
-        if not answered.chosen:
-            return Answer(answered.outcome)
-        name, first, again, sudo, extra = answered.unwrap()
-        # The values are put back before anything is rejected, so a form redrawn
-        # with a message is the one the operator was looking at.
-        fields[0].value, fields[3].value, fields[4].value = name, sudo, extra
-        name = name.strip()
-        if not name:
-            return Answer(Outcome.CHOSE, replace(config, system=replace(config.system, users=())))
-        wrong = _user_problem(name, first, again, extra, existing, translate)
+    def validated(values: list[str]) -> Answer[InstallConfig] | FormRejected:
+        name, first, again, sudo, extra = values
+        stripped_name = name.strip()
+        if not stripped_name:
+            return Answer(
+                Outcome.CHOSE, replace(config, system=replace(config.system, users=()))
+            )
+        wrong = _user_problem(stripped_name, first, again, extra, existing, translate)
         if wrong:
-            message = wrong
-            continue
+            return FormRejected(wrong, {1: "", 2: ""})
         groups, _ = atoms.split_use_flags(extra)
         user = User(
-            name=name,
+            name=stripped_name,
             # `plan/system.py:USER_GROUPS` is the one table for what every
             # account gets, so `wheel` is not named again here: an account that
             # declined sudo was put back in it.
@@ -665,7 +642,34 @@ def user_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
                 else (existing.password_hash if existing else "")
             ),
         )
-        return Answer(Outcome.CHOSE, replace(config, system=replace(config.system, users=(user,))))
+        return Answer(
+            Outcome.CHOSE, replace(config, system=replace(config.system, users=(user,)))
+        )
+
+    return Form(
+        title=translate("User account"),
+        fields=[
+            Field(
+                label=translate("User name"),
+                value=existing.name if existing else "",
+                placeholder=translate("empty for root only"),
+            ),
+            Field(label=translate("Password"), secret=True),
+            Field(label=translate("Type it again"), secret=True),
+            Field(
+                label=translate("sudo"),
+                toggle=True,
+                value="x" if existing and existing.sudo else "",
+            ),
+            Field(
+                label=_groups_label(config, context),
+                value=" ".join(existing.groups) if existing else "",
+                placeholder=translate("separated by spaces, such as plugdev kvm docker"),
+            ),
+        ],
+        footer=footer(translate),
+        done=translate("Done"),
+    ).run_validated(screen, validated)
 
 
 def _groups_label(config: InstallConfig, context: Context) -> str:
@@ -2749,30 +2753,27 @@ def _ask_password(screen: Screen, context: Context, title: str) -> Answer[str]:
     # arrow keys to move between, so enter is the only way forward, and a typo
     # in the second one threw the first away as well. `Field.secret` exists for
     # this and the account form already uses it.
-    kept = ["", ""]
-    while True:
-        answered = Form(
-            title=title,
-            fields=[
-                Field(label=translate("Password"), value=kept[0], secret=True),
-                Field(label=translate("Type it again"), value=kept[1], secret=True),
-            ],
-            footer=footer(translate),
-        ).run(screen)
-        if not answered.chosen:
-            return Answer(answered.outcome)
-        kept = list(answered.unwrap())
-        if not kept[0] and not kept[1]:
+    def validated(values: list[str]) -> Answer[str] | FormRejected:
+        first, again = values
+        if not first and not again:
             # Nothing typed is leaving, not an empty password: the row stays
             # required and says so, and enter through the whole form no longer
             # asks the same question for ever.
             return Answer(Outcome.BACK)
-        if kept[0] and kept[0] == kept[1]:
-            return Answer(Outcome.CHOSE, kept[0])
+        if first and first == again:
+            return Answer(Outcome.CHOSE, first)
         # The form comes back with what was typed: only the mismatched second
         # field is cleared, so a long password is not retyped from nothing.
-        kept[1] = ""
-        _say(screen, context, translate("The two do not match."))
+        return FormRejected(translate("The two do not match."), {1: ""})
+
+    return Form(
+        title=title,
+        fields=[
+            Field(label=translate("Password"), secret=True),
+            Field(label=translate("Type it again"), secret=True),
+        ],
+        footer=footer(translate),
+    ).run_validated(screen, validated)
 
 
 def _say(screen: Screen, context: Context, message: str) -> None:
@@ -2913,34 +2914,12 @@ def first_boot_screen(
     """
     translate = context.translate
     wanted = config.system.first_boot
-    fields = [
-        Field(
-            label=translate("Script address"),
-            value=wanted.url,
-            placeholder=translate("https://example.com/setup.sh, or empty for none"),
-        ),
-        Field(
-            label=translate("Commands"),
-            value=" ; ".join(wanted.commands),
-            placeholder=translate("separated by ; and run in order"),
-        ),
-    ]
-    message = ""
-    while True:
-        answered = Form(
-            title=translate("Run once at first boot"),
-            fields=fields,
-            footer=footer(translate),
-            done=translate("Done"),
-            message=message,
-        ).run(screen)
-        if not answered.chosen:
-            return Answer(answered.outcome)
-        url, typed = (one.strip() for one in answered.unwrap())
-        fields[0].value, fields[1].value = url, typed
+    def validated(values: list[str]) -> Answer[InstallConfig] | FormRejected:
+        url, typed = (one.strip() for one in values)
         if url and not url.startswith(("http://", "https://")):
-            message = translate("An address starts with http:// or https://")
-            continue
+            return FormRejected(
+                translate("An address starts with http:// or https://"), {0: url, 1: typed}
+            )
         commands = tuple(one.strip() for one in typed.split(";") if one.strip())
         return Answer(
             Outcome.CHOSE,
@@ -2949,6 +2928,24 @@ def first_boot_screen(
                 system=replace(config.system, first_boot=FirstBoot(commands=commands, url=url)),
             ),
         )
+
+    return Form(
+        title=translate("Run once at first boot"),
+        fields=[
+            Field(
+                label=translate("Script address"),
+                value=wanted.url,
+                placeholder=translate("https://example.com/setup.sh, or empty for none"),
+            ),
+            Field(
+                label=translate("Commands"),
+                value=" ; ".join(wanted.commands),
+                placeholder=translate("separated by ; and run in order"),
+            ),
+        ],
+        footer=footer(translate),
+        done=translate("Done"),
+    ).run_validated(screen, validated)
 
 
 def sshd_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
@@ -4854,58 +4851,54 @@ def remote_unlock_screen(
             Outcome.CHOSE,
             replace(config, kernel=replace(config.kernel, remote_unlock=replace(unlock, enabled=False))),
         )
-    typed = (str(unlock.port), unlock.address, unlock.gateway, unlock.interface)
-    while True:
-        form = Form(
-            title=translate("Remote unlock"),
-            fields=[
-                Field(label=translate("Port"), value=typed[0], placeholder="222"),
-                Field(
-                    label=translate("Address"),
-                    value=typed[1],
-                    placeholder=translate("192.0.2.10/24, or empty for DHCP"),
-                ),
-                Field(
-                    label=translate("Gateway"),
-                    value=typed[2],
-                    placeholder=translate("192.0.2.1, needed to answer off this subnet"),
-                ),
-                Field(
-                    label=translate("Interface"),
-                    value=typed[3],
-                    placeholder=translate("eth0, or empty for whichever comes up"),
-                ),
-            ],
-            footer=footer(translate),
-            done=translate("Done"),
-        )
-        answer = form.run(screen)
-        if not answer.chosen:
-            return Answer(answer.outcome)
-        port, address, gateway, interface = (one.strip() for one in answer.unwrap())
-        if port.isdigit():
-            break
-        # Reopened with what was typed: dropping out of the form took the
-        # other three with it and the operator retyped them to fix one.
-        typed = (port, address, gateway, interface)
-        _say(screen, context, translate("The port has to be a number."))
-    return Answer(
-        Outcome.CHOSE,
-        replace(
-            config,
-            kernel=replace(
-                config.kernel,
-                remote_unlock=replace(
-                    unlock,
-                    enabled=True,
-                    port=int(port),
-                    address=address,
-                    gateway=gateway,
-                    interface=interface,
+    def validated(values: list[str]) -> Answer[InstallConfig] | FormRejected:
+        port, address, gateway, interface = (one.strip() for one in values)
+        if not port.isdigit():
+            return FormRejected(
+                translate("The port has to be a number."),
+                {0: port, 1: address, 2: gateway, 3: interface},
+            )
+        return Answer(
+            Outcome.CHOSE,
+            replace(
+                config,
+                kernel=replace(
+                    config.kernel,
+                    remote_unlock=replace(
+                        unlock,
+                        enabled=True,
+                        port=int(port),
+                        address=address,
+                        gateway=gateway,
+                        interface=interface,
+                    ),
                 ),
             ),
-        ),
-    )
+        )
+
+    return Form(
+        title=translate("Remote unlock"),
+        fields=[
+            Field(label=translate("Port"), value=str(unlock.port), placeholder="222"),
+            Field(
+                label=translate("Address"),
+                value=unlock.address,
+                placeholder=translate("192.0.2.10/24, or empty for DHCP"),
+            ),
+            Field(
+                label=translate("Gateway"),
+                value=unlock.gateway,
+                placeholder=translate("192.0.2.1, needed to answer off this subnet"),
+            ),
+            Field(
+                label=translate("Interface"),
+                value=unlock.interface,
+                placeholder=translate("eth0, or empty for whichever comes up"),
+            ),
+        ],
+        footer=footer(translate),
+        done=translate("Done"),
+    ).run_validated(screen, validated)
 
 
 def root_login_screen(

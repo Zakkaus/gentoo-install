@@ -7,6 +7,7 @@ from gentoo_install.tui.widgets import (
     Confirm,
     Field,
     Form,
+    FormRejected,
     Item,
     Menu,
     MultipleChoiceMenu,
@@ -294,6 +295,63 @@ def test_a_form_takes_the_back_its_footer_offers() -> None:
     answer = filled.run(FakeScreen(keys=["KEY_BACKSPACE", "KEY_DOWN", "KEY_DOWN", "\n"]))
     assert answer.outcome is Outcome.CHOSE
     assert answer.unwrap()[0] == "22"
+
+
+def test_a_validated_form_retains_values_and_draws_the_error_inline() -> None:
+    submitted: list[list[str]] = []
+
+    def validate(values: list[str]) -> Answer[list[str]] | FormRejected:
+        submitted.append(values)
+        if len(submitted) == 1:
+            return FormRejected("That value is not valid.")
+        return Answer(Outcome.CHOSE, values)
+
+    screen = FakeScreen(
+        keys=[*"kept", "KEY_DOWN", "\n", "KEY_DOWN", "\n"], lines=20, columns=80
+    )
+    answer = Form(title="Account", fields=[Field(label="Name")]).run_validated(
+        screen, validate
+    )
+
+    assert answer.unwrap() == ["kept"]
+    assert submitted == [["kept"], ["kept"]]
+    retry = next(frame for frame in screen.frames if "That value is not valid." in "\n".join(frame))
+    assert "kept" in "\n".join(retry)
+
+
+def test_a_validator_can_correct_one_field_without_losing_the_others() -> None:
+    submitted: list[list[str]] = []
+
+    def validate(values: list[str]) -> Answer[tuple[str, str]] | FormRejected:
+        submitted.append(values)
+        if values[1] != "right":
+            return FormRejected("The two do not match.", {1: ""})
+        return Answer(Outcome.CHOSE, (values[0], values[1]))
+
+    keys = [
+        *"kept", "KEY_DOWN", *"wrong", "KEY_DOWN", "\n",
+        "KEY_DOWN", *"right", "KEY_DOWN", "\n",
+    ]
+    answer = Form(
+        title="Password",
+        fields=[Field(label="First"), Field(label="Again")],
+    ).run_validated(FakeScreen(keys=keys), validate)
+
+    assert answer.unwrap() == ("kept", "right")
+    assert submitted == [["kept", "wrong"], ["kept", "right"]]
+
+
+@pytest.mark.parametrize(
+    ("pressed", "outcome"),
+    [("KEY_BACKSPACE", Outcome.BACK), ("\x1b", Outcome.CANCELLED)],
+)
+def test_a_rejected_form_can_still_go_back_or_cancel(pressed: str, outcome: Outcome) -> None:
+    def reject(values: list[str]) -> Answer[str] | FormRejected:
+        return FormRejected("Try again.")
+
+    form = Form(title="Account", fields=[Field(label="Name")])
+    answer = form.run_validated(FakeScreen(keys=["KEY_DOWN", "\n", pressed]), reject)
+    assert answer.outcome is outcome
 
 
 def test_a_choice_that_became_invalid_can_still_be_dropped() -> None:
