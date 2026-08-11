@@ -22,6 +22,10 @@ class ConsoleTimeout(Exception):
     """A pattern did not appear on the console within its deadline."""
 
 
+class ConsoleIdle(ConsoleTimeout):
+    """A pattern did not appear before the console stopped speaking."""
+
+
 class ConsoleClosed(Exception):
     """The guest closed the serial connection."""
 
@@ -137,7 +141,8 @@ class SerialConsole:
         # Two deadlines, whichever comes first: the ceiling bounds a guest that
         # prints for ever, and the idle window ends one that stopped.
         ceiling = time.monotonic() + timeout
-        deadline = min(ceiling, time.monotonic() + idle) if idle else ceiling
+        idle_deadline = time.monotonic() + idle if idle else ceiling
+        deadline = min(ceiling, idle_deadline)
         seen = len(self._buffer)
         while time.monotonic() < deadline:
             clean = strip_ansi(self._buffer)
@@ -150,9 +155,12 @@ class SerialConsole:
             self._read_once()
             if idle and len(self._buffer) != seen:
                 seen = len(self._buffer)
-                deadline = min(ceiling, time.monotonic() + idle)
-        raise ConsoleTimeout(
-            f"never matched {pattern!r}; last output was {strip_ansi(self._buffer)[-600:]!r}"
+                idle_deadline = time.monotonic() + idle
+                deadline = min(ceiling, idle_deadline)
+        error = ConsoleIdle if idle and idle_deadline < ceiling else ConsoleTimeout
+        raise error(
+            f"never matched {pattern!r}; "
+            f"last output was {strip_ansi(self._buffer)[-600:]!r}"
         )
 
     def send(self, line: str) -> None:
