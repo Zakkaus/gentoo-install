@@ -473,7 +473,7 @@
 "Input method" = "입력기"
 "CJK fonts" = "CJK 글꼴"
 "The installed system starts in this locale." = "설치한 시스템은 이 로캘로 시작합니다."
-"The system language is always generated." = "시스템 언어는 항상 생성됩니다."
+"The system language is always generated." = "시스템 언어의 로캘은 항상 생성되므로 여기서 다시 선택할 필요가 없습니다."
 "The selected font and input method packages will be installed." = "선택한 글꼴과 입력기 패키지를 설치합니다."
 "{desktop} configures the selected fonts and input method automatically." = "선택한 글꼴과 입력기를 {desktop} 환경에서 자동으로 설정합니다."
 "{desktop} leaves font and input method configuration to its settings." = "글꼴과 입력기 설정은 {desktop} 자체 설정에서 관리합니다."
