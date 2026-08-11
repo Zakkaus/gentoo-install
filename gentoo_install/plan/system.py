@@ -8,7 +8,7 @@ from pathlib import PurePosixPath
 from types import MappingProxyType
 from typing import Final, Mapping
 
-from ..errors import LocaleMissing
+from ..errors import InvalidLayout, LocaleMissing
 from ..model import compat
 from ..model.config import (
     ConsoleFontSize,
@@ -25,17 +25,14 @@ from ..model.device import (
     MdRaid,
     Node,
     DeviceId,
-    Filesystem,
     FilesystemType,
     Luks,
-    Mountpoint,
-    Subvolume,
     Swap,
     VolumeGroup,
-    ZfsDataset,
     ZfsPool,
 )
 from .bootloader import serial_console
+from .mounts import resolve_mounts
 from .operations import Context, Operation, Stage
 from .portage import Emerge
 
@@ -1119,42 +1116,22 @@ def _zfs_services(config: InstallConfig) -> list[Operation]:
 def fstab_entries(config: InstallConfig) -> tuple[FstabEntry, ...]:
     graph = config.disk.graph
     entries: list[FstabEntry] = []
-    # Depth first so a nested mount follows its parent, then the path itself:
-    # `/efi` and `/home` are the same depth and reading them in graph order
-    # made fstab depend on how the devices happen to be written.
-    for mount in sorted(
-        graph.of_type(Mountpoint), key=lambda node: (len(node.path.parts), str(node.path))
-    ):
-        source = graph[mount.source]
-        if isinstance(source, ZfsDataset):
+    for mount in resolve_mounts(graph):
+        if mount.dataset is not None:
             # A dataset carries its mountpoint property; fstab would fight it.
             continue
-        if isinstance(source, Subvolume):
-            filesystem = graph[source.filesystem]
-            if not isinstance(filesystem, Filesystem):
-                continue
-            entries.append(
-                FstabEntry(
-                    device=filesystem.device,
-                    path=mount.path,
-                    kind=filesystem.kind.value,
-                    options=_options(filesystem.kind, mount.options, f"subvol={source.name}"),
-                    dump=0,
-                    check=_check_order(mount.path),
-                )
+        if mount.device is None or mount.filesystem_kind is None:
+            raise InvalidLayout(f"mountpoint {mount.mountpoint!r} has no resolved filesystem")
+        entries.append(
+            FstabEntry(
+                device=mount.device,
+                path=mount.path,
+                kind=mount.filesystem_kind.value,
+                options=_options(mount.filesystem_kind, mount.options),
+                dump=0,
+                check=_check_order(mount.path),
             )
-            continue
-        if isinstance(source, Filesystem):
-            entries.append(
-                FstabEntry(
-                    device=source.device,
-                    path=mount.path,
-                    kind=source.kind.value,
-                    options=_options(source.kind, mount.options),
-                    dump=0,
-                    check=_check_order(mount.path),
-                )
-            )
+        )
     if config.portage.build_in_ram is not None:
         # Exactly the line a Gentoo desktop carries for this: portage is 250:250
         # and needs to write into it, and nothing under it is ever executed or

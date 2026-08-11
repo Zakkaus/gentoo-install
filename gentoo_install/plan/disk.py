@@ -40,6 +40,7 @@ from ..model.device import (
     ZfsTopology,
 )
 from ..model.size import DEFAULT_ALIGNMENT, Size
+from .mounts import ResolvedMount, resolve_mounts
 from .operations import CommandOutput, Context, Operation, Stage
 
 #: GPT type codes as `sgdisk --typecode` spells them.
@@ -870,10 +871,10 @@ def build(config: InstallConfig) -> list[Operation]:
     for node in topological(graph):
         for operation in _operations_for(graph, node):
             (mounts if operation.stage is Stage.MOUNT else operations).append(operation)
+    mounts += [_mount_operation(mount) for mount in resolve_mounts(graph)]
     for disk in _disks_with_partitions(graph):
         operations.append(RereadPartitionTable(disk=disk))
-    # `/` before `/home`, or the second mount is hidden by the first.
-    operations += sorted(mounts, key=_mount_depth)
+    operations += mounts
     # Every partition exists before the first mkfs, so the stage decides here
     # too, not only once the whole plan is assembled.
     return sorted(operations, key=lambda operation: operation.stage.order)
@@ -913,12 +914,6 @@ def _order_key(node: Node) -> tuple[int, int, str]:
     index = node.index if isinstance(node, Partition) else 0
     takes_the_rest = isinstance(node, (Partition, LogicalVolume)) and node.size is None
     return (index, 1 if takes_the_rest else 0, node.id)
-
-
-def _mount_depth(operation: Operation) -> int:
-    if isinstance(operation, (Mount, MountZfsDataset)):
-        return len(operation.path.parts)
-    return 0
 
 
 #: What closes each kind of device, by the node that describes it.
@@ -1046,33 +1041,22 @@ def _operations_for(graph: DeviceGraph, node: Node) -> list[Operation]:
                 mountpoint=_dataset_mountpoint(graph, node.id),
             )
         ]
-    if isinstance(node, Mountpoint):
-        return _mount_operations(graph, node)
     return []
 
 
-def _mount_operations(graph: DeviceGraph, node: Mountpoint) -> list[Operation]:
-    source = graph[node.source]
-    if isinstance(source, ZfsDataset):
-        pool = _expect(graph, source.pool, ZfsPool)
-        return [
-            MountZfsDataset(mountpoint=node.id, name=f"{pool.name}/{source.name}", path=node.path)
-        ]
-    if isinstance(source, Subvolume):
-        filesystem = _expect(graph, source.filesystem, Filesystem)
-        return [
-            Mount(
-                mountpoint=node.id,
-                source=filesystem.device,
-                path=node.path,
-                options=(*node.options, f"subvol={source.name}"),
-            )
-        ]
-    if isinstance(source, Filesystem):
-        return [
-            Mount(mountpoint=node.id, source=source.device, path=node.path, options=node.options)
-        ]
-    return [Mount(mountpoint=node.id, source=node.source, path=node.path, options=node.options)]
+def _mount_operation(mount: ResolvedMount) -> Operation:
+    if mount.dataset is not None:
+        return MountZfsDataset(
+            mountpoint=mount.mountpoint, name=mount.dataset, path=mount.path
+        )
+    if mount.device is None:
+        raise InvalidLayout(f"mountpoint {mount.mountpoint!r} has no resolved source")
+    return Mount(
+        mountpoint=mount.mountpoint,
+        source=mount.device,
+        path=mount.path,
+        options=mount.options,
+    )
 
 
 def _dataset_mountpoint(graph: DeviceGraph, dataset: DeviceId) -> PurePosixPath | None:
