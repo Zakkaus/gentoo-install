@@ -707,7 +707,7 @@ class MountZfsDataset(Operation):
     """A dataset carries its own mountpoint property, so it is mounted by name."""
 
     stage: Stage = Stage.MOUNT
-    host_commands = ("zfs",)
+    host_commands = ("zfs", "findmnt")
     mountpoint: DeviceId
     name: str
     path: PurePosixPath
@@ -720,14 +720,27 @@ class MountZfsDataset(Operation):
         return f"mount dataset {self.name} at {self.path}"
 
     def apply(self, context: Context) -> None:
-        # Asked of ZFS, not of the path. `zfs create` mounts a dataset the
-        # moment it is given a mountpoint, and mounting it again answers
-        # `filesystem already mounted` and stops the install. The mountpoint
-        # property carries the target prefix during an install, so checking
-        # `self.path` asked about a directory on the installing system.
-        if context.run(["zfs", "get", "-H", "-o", "value", "mounted", self.name],
-                       check=False).strip() == "yes":
-            return
+        mounted = context.run(
+            ["zfs", "get", "-H", "-o", "value", "mounted", self.name],
+            check=False,
+        ).strip()
+        if mounted == "yes":
+            # A parent mounted later can hide this dataset while ZFS still
+            # reports it mounted, so the effective source decides readiness.
+            visible = context.run(
+                [
+                    "findmnt",
+                    "--noheadings",
+                    "--output",
+                    "SOURCE",
+                    "--target",
+                    str(_under(context.target, self.path)),
+                ],
+                check=False,
+            ).strip()
+            if visible == self.name:
+                return
+            context.run(["zfs", "unmount", self.name])
         context.run(["zfs", "mount", self.name])
 
 

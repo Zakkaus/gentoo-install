@@ -29,6 +29,7 @@ from gentoo_install.model.device import (
     Swap,
     TableType,
     VolumeGroup,
+    ZfsDataset,
     ZfsPool,
 )
 from gentoo_install.exec.config import load
@@ -476,8 +477,47 @@ def test_a_dataset_already_mounted_is_left_alone() -> None:
 
     already = Recorder()
     already.replies["zfs"] = "yes\n"
+    already.replies["findmnt"] = "rpool/ROOT/gentoo/home\n"
     told.apply(already)
-    assert not any(one[:2] == ("zfs", "mount") for one in already.commands)
+    assert not any(one[:2] in {("zfs", "mount"), ("zfs", "unmount")} for one in already.commands)
+
+
+def test_a_zfs_child_hidden_by_the_root_is_remounted_after_it() -> None:
+    nodes = zfs_root()
+    nodes += [
+        ZfsDataset(id=i("ds-home"), pool=i("pool"), name="ROOT/gentoo/home"),
+        Mountpoint(id=i("mnt-home"), source=i("ds-home"), path=PurePosixPath("/home")),
+    ]
+    operations = disk.build(config(nodes))
+    root = next(
+        index
+        for index, operation in enumerate(operations)
+        if isinstance(operation, disk.MountZfsDataset) and operation.path == PurePosixPath("/")
+    )
+    home = next(
+        (index, operation)
+        for index, operation in enumerate(operations)
+        if isinstance(operation, disk.MountZfsDataset)
+        and operation.path == PurePosixPath("/home")
+    )
+    assert root < home[0]
+
+    hidden = Recorder(replies={"zfs": "yes\n", "findmnt": "zpcala/ROOT/gentoo/root\n"})
+    home[1].apply(hidden)
+    assert (
+        "findmnt",
+        "--noheadings",
+        "--output",
+        "SOURCE",
+        "--target",
+        "/mnt/gentoo/home",
+    ) in hidden.commands
+    assert hidden.argv_starting("zfs", "unmount") == (
+        ("zfs", "unmount", "zpcala/ROOT/gentoo/home"),
+    )
+    assert hidden.argv_starting("zfs", "mount") == (
+        ("zfs", "mount", "zpcala/ROOT/gentoo/home"),
+    )
 
 
 #: What `parted --machine --script <disk> unit B print free` printed for a
