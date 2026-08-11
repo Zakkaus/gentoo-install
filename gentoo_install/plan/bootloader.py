@@ -310,7 +310,7 @@ def build(config: InstallConfig) -> list[Operation]:
             WriteGrubDefaults(
                 kernel_params=(*unlock_parameters(config), *config.bootloader.kernel_params),
                 cryptodisk=compat.boot_is_encrypted(config.disk.graph),
-                serial=_serial_console(config),
+                serial=serial_console(config),
                 luks=initramfs_devices(config)[0],
                 arrays=initramfs_devices(config)[1],
                 keymap=initramfs_keymap(config),
@@ -354,7 +354,7 @@ def build(config: InstallConfig) -> list[Operation]:
                 esp=esp,
                 esp_device=esp_device,
                 kernel_params=(*unlock_parameters(config), *config.bootloader.kernel_params),
-                serial=_serial_console(config),
+                serial=serial_console(config),
             ),
         ]
     return operations
@@ -447,7 +447,8 @@ def initramfs_keymap(config: InstallConfig) -> str:
     return wanted
 
 
-def _serial_console(config: InstallConfig) -> tuple[str, int] | None:
+def serial_console(config: InstallConfig) -> tuple[str, int] | None:
+    """The serial port and speed the kernel command line asks for, if any."""
     for parameter in config.bootloader.kernel_params:
         if not parameter.startswith("console=ttyS"):
             continue
