@@ -283,7 +283,7 @@ def test_an_emerge_after_a_resume_still_builds_from_source(tmp_path: Path) -> No
     recorder = Recorder()
     for what in already_degraded(journal):
         recorder.given_up.add(what)
-    Emerge(packages=("app-editors/nano",), summary="editor", binary_packages=True).apply(recorder)
+    Emerge(packages=("app-editors/nano",), summary="editor").apply(recorder)
     merged = " ".join(" ".join(one) for one in recorder.in_target)
     assert "--usepkg=n" in merged and "--getbinpkg=n" in merged, merged
 
