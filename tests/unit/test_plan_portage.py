@@ -18,6 +18,7 @@ from gentoo_install.model.config import (
     Overlay,
     PackagesConfig,
     PortageConfig,
+    Sync,
     SystemConfig,
 )
 from gentoo_install.errors import CommandFailed, ConfigError, ValidationFailed
@@ -140,6 +141,41 @@ def test_the_repository_is_configured_before_it_is_synced() -> None:
     assert "sync-type = git" in stanza
     assert "sync-depth = 1" in stanza
     assert "sync-git-verify-commit-signature = true" in stanza
+
+
+def test_a_custom_rsync_uri_is_written_to_the_main_repository() -> None:
+    sync_uri = "rsync://mirror.example.invalid/gentoo-portage"
+    installation = with_portage(
+        sync=Sync.RSYNC,
+        mirrors=MirrorConfig(repo_sync_uri=sync_uri),
+    )
+
+    stanza = apply_all(installation).files[PurePosixPath("/etc/portage/repos.conf/gentoo.conf")]
+
+    assert "sync-type = rsync" in stanza
+    assert f"sync-uri = {sync_uri}" in stanza
+
+
+def test_an_empty_rsync_uri_uses_the_default_rsync_repository() -> None:
+    installation = with_portage(sync=Sync.RSYNC, mirrors=MirrorConfig())
+
+    stanza = apply_all(installation).files[PurePosixPath("/etc/portage/repos.conf/gentoo.conf")]
+
+    assert "sync-type = rsync" in stanza
+    assert "sync-uri = rsync://rsync.gentoo.org/gentoo-portage" in stanza
+
+
+def test_a_custom_git_uri_is_written_to_the_main_repository() -> None:
+    sync_uri = "https://git.example.invalid/gentoo.git"
+    installation = with_portage(
+        sync=Sync.GIT,
+        mirrors=MirrorConfig(repo_sync_uri=sync_uri),
+    )
+
+    stanza = apply_all(installation).files[PurePosixPath("/etc/portage/repos.conf/gentoo.conf")]
+
+    assert "sync-type = git" in stanza
+    assert f"sync-uri = {sync_uri}" in stanza
 
 
 def test_the_local_copy_goes_before_the_first_sync_or_git_refuses() -> None:

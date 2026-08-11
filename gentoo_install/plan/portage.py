@@ -797,7 +797,7 @@ def build(
             ConfigureRepository(
                 name="gentoo",
                 location=gentoo,
-                sync_uri=_rsync_uri(portage),
+                sync_uri=_repo_sync_uri(portage),
                 verify_commits=False,
                 sync_type="rsync",
             )
@@ -910,10 +910,6 @@ def _distfiles(portage: PortageConfig) -> tuple[str, ...]:
     return mirrors.gentoo_distfiles(portage.mirrors.region, portage.mirrors.site)
 
 
-def _rsync_uri(portage: PortageConfig) -> str:
-    return mirrors.gentoo_rsync_uri(portage.mirrors.region, portage.mirrors.site)
-
-
 def _appended_distfiles(portage: PortageConfig) -> tuple[str, ...]:
     """gentoo-zh's own distfiles, when they were asked for. They hold the
     sources of that overlay's packages and no main mirror carries them."""
@@ -923,7 +919,11 @@ def _appended_distfiles(portage: PortageConfig) -> tuple[str, ...]:
 
 
 def _repo_sync_uri(portage: PortageConfig) -> str:
-    return portage.mirrors.repo_sync_uri or mirrors.gentoo_sync_uri(
+    if portage.mirrors.repo_sync_uri:
+        return portage.mirrors.repo_sync_uri
+    if portage.sync is Sync.RSYNC:
+        return mirrors.gentoo_rsync_uri(portage.mirrors.region, portage.mirrors.site)
+    return mirrors.gentoo_sync_uri(
         portage.mirrors.region, portage.mirrors.site
     )
 
