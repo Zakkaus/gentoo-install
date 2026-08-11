@@ -15,23 +15,21 @@ import sys
 import termios
 import time
 from datetime import datetime, timezone
-import tomllib
 from pathlib import Path
-from typing import Callable, Final, Iterable, Sequence
+from typing import Callable, Final, Sequence
 
 from . import errors
 from .errors import GentooInstallError
 from .data import load_catalog
-from .exec import fetch, preflight
+from .exec import fetch, preflight, report
 from .exec.apply import Machine, already_degraded, apply, completed
 from .exec.probe import Probe, with_probed_facts
-from .exec.runner import Runner, write_file
-from .log import Journal
+from .exec.runner import Runner
 from .model.size import Size
 from .tui import app, screens
 from .tui.curses_screen import CursesScreen, too_small
 from .i18n import Catalog, tag_for
-from .model import mirrors, paste, qr, templates
+from .model import mirrors, qr, templates
 from .model.config import (
     BootloaderConfig,
     Binhost,
@@ -43,8 +41,6 @@ from .model.config import (
     PortageConfig,
 )
 from .exec.config import load
-from .model.parse import TOP_LEVEL
-from .model.serialise import to_toml
 from .plan.build import DEFAULT_MIRROR, build, stage3_mirror
 from .plan.operations import Context, Operation, Stage
 from .plan.portage import variant_of
@@ -129,7 +125,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(
                     "\n".join(
                         sorted(
-                            _absent(
+                            report.absent(
                                 (*preflight.ALWAYS, *preflight.MENU_ONLY),
                                 _probe_for(arguments),
                             )
@@ -147,7 +143,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         if arguments.missing_commands:
             print(
                 "\n".join(
-                    sorted(_absent(preflight.required_commands(config), _probe_for(arguments)))
+                    sorted(
+                        report.absent(
+                            preflight.required_commands(config), _probe_for(arguments)
+                        )
+                    )
                 )
             )
             return EXIT_OK
@@ -206,53 +206,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         return EXIT_COMMAND
 
 
-def _keep_the_log(work: Path, target: Path, record: Callable[[str], None]) -> None:
-    """Copy the run's log onto the installed system.
-
-    The work directory is a tmpfs on an install medium, so a reboot takes the
-    log of the run that failed with it, which is the one anybody would want.
-    """
-    if not target.is_mount():
-        # Nothing else can tell the difference: the copy succeeds either way
-        # and the file is on the medium's tmpfs rather than on the disk.
-        record(f"warning: {target} is not mounted, so the log was not kept there")
-        return
-    kept = target / "var/log/gentoo-install"
-    try:
-        kept.mkdir(parents=True, exist_ok=True)
-        for name in ("install.log", "install.jsonl"):
-            source = work / name
-            if source.is_file():
-                shutil.copy2(source, kept / name)
-    except OSError as error:
-        record(f"warning: the log could not be copied to {kept}: {error}")
-        return
-    # Both paths. `kept` is inside the target and the target is unmounted a
-    # moment later, so on a stopped install the only readable copy is the one
-    # in the work directory, and an operator told about the other went looking
-    # in an empty mount point.
-    record(f"the log of this run is in {kept}, and until the next reboot in {work}")
-
-
 def install(config: InstallConfig, operations: tuple[Operation, ...], arguments: argparse.Namespace) -> int:
     """Check the machine, then perform every operation in order."""
     work: Path = arguments.work
-    work.mkdir(parents=True, exist_ok=True)
-    with (work / "install.log").open("a") as log:
-
-        def record(line: str) -> None:
-            print(line, file=log, flush=True)
-            print(line, flush=True)
-
-        journal = Journal(path=work / "install.jsonl")
+    with report.recording(work, arguments.target) as active_report:
+        record = active_report.record
+        journal = active_report.journal
         runner = Runner(log=record, journal=journal)
         probe = Probe(runner=runner, work=work)
         probe.load()
         if not arguments.skip_preflight:
-            report = preflight.check(config, probe, str(arguments.target))
-            for warning in report.warnings:
+            preflight_report = preflight.check(config, probe, str(arguments.target))
+            for warning in preflight_report.warnings:
                 record(f"warning: {warning}")
-            report.raise_if_fatal()
+            preflight_report.raise_if_fatal()
         machine = Machine(
             config=config, runner=runner, probe=probe, work=work, mountpoint=arguments.target
         )
@@ -287,14 +254,21 @@ def install(config: InstallConfig, operations: tuple[Operation, ...], arguments:
             record(f"the install stopped: {type(error).__name__}: {error}")
         stopped = failed is not None or unexpected is not None
         try:
-            _offer_a_paste(arguments, work, record, stopped)
+            report.offer_paste(
+                work,
+                record,
+                stopped,
+                _unattended(arguments),
+                _asked,
+                show_the_address,
+            )
             _offer_a_shell(arguments, machine, record, stopped)
         finally:
             # Before the closing stage and in `finally`: that stage unmounts
             # the target, so a copy made after it lands on the install medium's
             # tmpfs and goes with the reboot, which is what this exists to
             # prevent. The log of a run that failed is the one worth keeping.
-            _keep_the_log(work, arguments.target, record)
+            report.keep_log(work, arguments.target, record)
         if not stopped:
             apply(closing, machine, finished)
         else:
@@ -417,35 +391,6 @@ def _code_for(url: str) -> list[str]:
     return [f"{_INVERTED}{line}{_PLAIN}" for line in drawn]
 
 
-def _offer_a_paste(
-    arguments: argparse.Namespace, work: Path, record: Callable[[str], None], stopped: bool
-) -> None:
-    """Send this run's log to the pastebin, so an issue can point at it.
-
-    Asked rather than done: the address is public, and it is the operator who
-    decides whether what their machine printed can go there.
-    """
-    if _unattended(arguments):
-        return
-    outcome = "the install stopped" if stopped else "the install finished"
-    if not _asked(f"{outcome}. send the log to {paste.HOST}, which is public?"):
-        record(f"the log to publish by hand is {work / 'install.log'}")
-        return
-    source = work / "install.log"
-    try:
-        body = source.read_text()
-    except OSError as error:
-        record(f"warning: {source} could not be read: {error}")
-        return
-    try:
-        url = fetch.upload(body, paste.export_for("log"))
-    except GentooInstallError as error:
-        record(f"warning: {error}")
-        return
-    record(f"the log of this run is at {url}")
-    show_the_address(url)
-
-
 def _offer_a_shell(
     arguments: argparse.Namespace,
     machine: Machine,
@@ -465,31 +410,6 @@ def _offer_a_shell(
     record(f"a root shell was opened in {arguments.target}")
     machine.runner.run(["chroot", str(arguments.target), "/bin/bash", "--login"], check=False)
     record("the shell exited; unmounting")
-
-
-def _absent(wanted: Iterable[str], probe: Probe | None = None) -> set[str]:
-    """What this machine cannot run for the install.
-
-    Absent from PATH, or present as an implementation the install cannot use.
-    busybox provides `tar`, `mount`, `umount`, `blkid` and `swapon` without the
-    options every one of them is called with; counting those as installed left
-    the launcher with no package to offer and the preflight refusing the run
-    after the disks were already partitioned.
-    """
-    names = list(wanted)
-    missing = {command for command in names if shutil.which(command) is None}
-    if probe is None:
-        return missing
-    judged = [
-        command
-        for command in names
-        if command in preflight.GNU_ONLY and command not in missing
-    ]
-    versions = probe.versions(judged)
-    for command in judged:
-        if preflight.GNU_ONLY[command][0] not in versions.get(command, ""):
-            missing.add(command)
-    return missing
 
 
 def _probe_for(arguments: argparse.Namespace) -> Probe:
@@ -590,7 +510,7 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
     has_ipv4, has_ipv6 = probe.address_families()
     # Checked before the first screen: the menu hashes a password with
     # `openssl`, and finding it absent at that point throws away every answer.
-    lacking = _absent(preflight.MENU_ONLY)
+    lacking = report.absent(preflight.MENU_ONLY)
     if lacking:
         raise errors.PreflightFailed(f"the menu needs {', '.join(sorted(lacking))}")
     context = screens.Context(
@@ -601,7 +521,7 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         names_for=probe.names_for,
         groups=load_catalog(),
         hash_password=lambda password: fetch.password_hash(password, runner),
-        stage_passphrase=lambda text: _stage_passphrase(text, arguments.work),
+        stage_passphrase=lambda text: report.stage_passphrase(text, arguments.work),
         timezones=probe.timezones(),
         firmware=Firmware.UEFI if probe.machine().uefi else Firmware.BIOS,
         inspect_disk=lambda disk: (probe.partitions(disk), probe.disk_size(disk)),
@@ -615,9 +535,9 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         cpu_flags=probe.cpu_flags(),
         supports_v3=probe.supports_v3(),
         save_config=_save_config,
-        publish_config=_publish_config,
+        publish_config=report.publish_config,
         zfs_unavailable=probe.zfs_support(),
-        configs_here=_configs_here(),
+        configs_here=report.configs_here(app.SAVE_AS),
         load_config=lambda name: load(Path(name)),
     )
     if not context.disks:
@@ -734,48 +654,6 @@ def _require_root(arguments: argparse.Namespace) -> None:
     raise errors.PreflightFailed("run as root")
 
 
-def _publish_config(config: InstallConfig) -> str:
-    """Send the menu's answers to the pastebin and return the address.
-
-    Written with `publishing=True`, so the crypt hashes are replaced: the
-    address is public and a hash is where an offline attack starts.
-    """
-    return fetch.upload(to_toml(config, publishing=True), paste.export_for("config"))
-
-
-def _configs_here() -> tuple[str, ...]:
-    """Configuration files in the directory the installer was started from.
-
-    Any name, not only the one the save row offers, because an operator who
-    called theirs something else still wants it found. But not any `.toml`: a
-    directory with a `pyproject.toml` in it offered that, and the menu answered
-    with `the top level has unknown keys: project, tool`.
-
-    The test is whether the file holds a table this configuration has. A real
-    one with a mistake inside still does, so it is offered and its error is
-    shown; a file belonging to something else holds none of them.
-    """
-    found: list[str] = []
-    try:
-        candidates = sorted(one for one in Path.cwd().glob("*.toml") if one.is_file())
-    except OSError:
-        return ()
-    for path in candidates:
-        try:
-            held = tomllib.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
-            # Unreadable, so its tables cannot be looked at. Offered anyway
-            # when it carries the name this installer writes: that one is the
-            # operator's own, and hiding a file they hand-edited into a syntax
-            # error tells them nothing.
-            if path.name == app.SAVE_AS:
-                found.append(path.name)
-            continue
-        if set(held) & (TOP_LEVEL - {"config_version"}):
-            found.append(path.name)
-    return tuple(found)
-
-
 def _save_config(config: InstallConfig, name: str) -> str:
     """Write the menu's answers where the operator started the installer.
 
@@ -786,20 +664,4 @@ def _save_config(config: InstallConfig, name: str) -> str:
     where = Path(name).expanduser()
     if not where.is_absolute():
         where = Path.cwd() / where
-    try:
-        write_file(where, to_toml(config))
-    except OSError as error:
-        raise errors.ConfigError(f"cannot write {where}: {error.strerror}") from error
-    return str(where)
-
-
-def _stage_passphrase(passphrase: str, work: Path) -> str:
-    """Write a passphrase where the disk operations read it from.
-
-    Under the work directory, which is a tmpfs on an install medium, so the
-    passphrase never reaches a disk this run wrote.
-    """
-    where = work / "keys" / "tui"
-    where.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    write_file(where, passphrase, 0o600)
-    return str(where)
+    return report.save_config(config, where)

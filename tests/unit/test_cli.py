@@ -11,6 +11,7 @@ import pytest
 
 from gentoo_install import cli
 from gentoo_install.exec import fetch
+from gentoo_install.exec import report
 from gentoo_install.exec.runner import Runner
 from gentoo_install.cli import EXIT_CONFIG, EXIT_OK, EXIT_PREFLIGHT, main
 from gentoo_install.errors import ConfigError
@@ -310,7 +311,7 @@ def test_a_published_configuration_reaches_the_pastebin_without_its_hashes(
             users=(User(name="zakk", password_hash="$6$salt$anothersecret"),),
         ),
     )
-    assert cli._publish_config(config) == "https://paste.gentoozh.org/AbCdEf.toml"
+    assert report.publish_config(config) == "https://paste.gentoozh.org/AbCdEf.toml"
     body, extension = sent[0]
     assert extension == "toml"
     assert "secretsecret" not in body and "anothersecret" not in body
@@ -383,9 +384,15 @@ def test_an_unattended_run_is_asked_nothing_on_the_way_out(
         asked.append(question)
         return False
 
-    monkeypatch.setattr(cli, "_asked", question_asked)
     arguments = argparse.Namespace(no_shell=True, target=tmp_path)
-    cli._offer_a_paste(arguments, tmp_path, lambda line: None, True)
+    report.offer_paste(
+        tmp_path,
+        lambda line: None,
+        True,
+        cli._unattended(arguments),
+        question_asked,
+        cli.show_the_address,
+    )
     assert asked == []
 
 
@@ -430,7 +437,6 @@ def test_only_files_that_could_be_our_configuration_are_offered(tmp_path: Path) 
     """
     import os
 
-    from gentoo_install.cli import _configs_here
     from gentoo_install.tui.app import SAVE_AS
 
     (tmp_path / "pyproject.toml").write_text('[project]\nname = "x"\n[tool.mypy]\nstrict = true\n')
@@ -446,7 +452,7 @@ def test_only_files_that_could_be_our_configuration_are_offered(tmp_path: Path) 
     here = os.getcwd()
     os.chdir(tmp_path)
     try:
-        assert _configs_here() == (SAVE_AS, "wrong-value.toml")
+        assert report.configs_here(SAVE_AS) == (SAVE_AS, "wrong-value.toml")
     finally:
         os.chdir(here)
 
@@ -480,21 +486,21 @@ def test_the_log_is_kept_before_the_target_is_unmounted() -> None:
     from gentoo_install import cli
 
     source = inspect.getsource(cli.install)
-    kept = source.index("_keep_the_log(")
+    kept = source.index("report.keep_log(")
     closing = source.index("apply(closing, machine, finished)")
     released = source.index("_release(closing, machine, record)")
     assert kept < closing, "the log is copied after the closing stage unmounts"
     assert kept < released, "the log is copied after the failure path unmounts"
 
 
-def test_an_unmounted_target_is_reported_rather_than_written_to(tmp_path: Path) -> None:
+def test_log_preservation_can_run_without_the_cli(tmp_path: Path) -> None:
     """The copy succeeds either way; only the mount says whether the file
     reached the disk or the tmpfs under it."""
-    from gentoo_install.cli import _keep_the_log
+    from gentoo_install.exec.report import keep_log
 
     said: list[str] = []
     (tmp_path / "install.log").write_text("something\n")
-    _keep_the_log(tmp_path, tmp_path / "target", said.append)
+    keep_log(tmp_path, tmp_path / "target", said.append)
     assert said and "not mounted" in said[0]
     assert not (tmp_path / "target").exists()
 
@@ -510,7 +516,7 @@ def test_an_exit_that_is_not_a_named_error_still_releases_and_keeps_the_log() ->
     source = inspect.getsource(cli.install)
     assert "except BaseException as error:" in source, "only named errors are caught"
     caught = source.index("except BaseException as error:")
-    kept = source.index("_keep_the_log(")
+    kept = source.index("report.keep_log(")
     released = source.index("_release(closing, machine, record)")
     raised = source.index("raise unexpected")
     assert caught < kept < raised, "the log is kept before the exception leaves"
@@ -605,7 +611,6 @@ def test_a_busybox_applet_counts_as_a_missing_command(tmp_path: Path) -> None:
     `--rbind`. Reporting them as installed left the launcher with no package
     to offer and the preflight refusing the run after the disks were already
     partitioned."""
-    from gentoo_install.cli import _absent
     from gentoo_install.exec.probe import Probe
     from gentoo_install.exec.runner import Result, Runner
 
@@ -625,10 +630,10 @@ def test_a_busybox_applet_counts_as_a_missing_command(tmp_path: Path) -> None:
     # Only commands actually on this PATH can be judged; the rest are absent
     # either way and say nothing about the implementation check.
     present = [name for name in ("tar", "mount", "blkid") if shutil.which(name)]
-    said = _absent(present, probe)
+    said = report.absent(present, probe)
     assert set(present) <= said, (present, said)
     # Without a probe the old answer stands: on PATH is enough.
-    assert not _absent(present)
+    assert not report.absent(present)
 
 
 def test_a_configured_install_checks_its_mirror_and_not_the_package_site(
