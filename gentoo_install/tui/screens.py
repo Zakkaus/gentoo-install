@@ -2054,18 +2054,33 @@ def _ask_password(screen: Screen, context: Context, title: str) -> str | None:
     that has already been installed.
     """
     translate = context.translate
+    # One form, not two screens in a row. Two screens have nothing for the
+    # arrow keys to move between, so enter is the only way forward, and a typo
+    # in the second one threw the first away as well. `Field.secret` exists for
+    # this and the account form already uses it.
+    kept = ["", ""]
     while True:
-        first = TextField(title=title, masked=True, footer=footer(translate)).run(screen)
-        if not first.chosen:
-            return None
-        typed = first.unwrap()
-        again = TextField(
-            title=translate("Type it again"), masked=True, footer=footer(translate)
+        answered = Form(
+            title=title,
+            fields=[
+                Field(label=translate("Password"), value=kept[0], secret=True),
+                Field(label=translate("Type it again"), value=kept[1], secret=True),
+            ],
+            footer=footer(translate),
         ).run(screen)
-        if not again.chosen:
+        if not answered.chosen:
             return None
-        if again.unwrap() == typed:
-            return typed
+        kept = list(answered.unwrap())
+        if not kept[0] and not kept[1]:
+            # Nothing typed is leaving, not an empty password: the row stays
+            # required and says so, and enter through the whole form no longer
+            # asks the same question for ever.
+            return None
+        if kept[0] and kept[0] == kept[1]:
+            return kept[0]
+        # The form comes back with what was typed: only the mismatched second
+        # field is cleared, so a long password is not retyped from nothing.
+        kept[1] = ""
         _say(screen, context, translate("The two do not match."))
 
 
