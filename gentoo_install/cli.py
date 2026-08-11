@@ -361,6 +361,9 @@ def _draws_wide_characters() -> bool:
     `LC_CTYPE`, not `LANG`: the codeset is what ncurses reads, and an operator
     who exported `LC_ALL=C` over a Chinese `LANG` has a terminal that cannot
     draw one whatever the environment says it prefers.
+
+    Ncurses and libc know a glyph's cell width, but cannot inspect the font in
+    the terminal emulator; writing it and reading the cursor repeats that width.
     """
     return locale.nl_langinfo(locale.CODESET).upper().replace("-", "") == "UTF8"
 
@@ -596,7 +599,7 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
     )
 
     def walk(window: object) -> app.Finished:
-        display = CursesScreen(window)
+        display = CursesScreen(window, lambda source: context.translate(source))
         cramped = too_small(display)
         if cramped:
             raise errors.PreflightFailed(cramped)
