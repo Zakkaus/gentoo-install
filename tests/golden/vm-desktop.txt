@@ -81,6 +81,7 @@
   enable pipewire.socket, pipewire-pulse.socket, wireplumber.service for every user
   set XMODIFIERS, QT_IM_MODULES in /etc/environment for fcitx
   configure fcitx with rime and luna_pinyin pinyin_simp for skel
+  verify app-i18n/fcitx installed /usr/share/applications/fcitx5-wayland-launcher.desktop
   set /etc/xdg/kwinrc so the Wayland session starts /usr/share/applications/fcitx5-wayland-launcher.desktop
 
 [finish]

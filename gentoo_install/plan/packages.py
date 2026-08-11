@@ -10,14 +10,17 @@ function of its arguments.
 
 from __future__ import annotations
 
+import json
 import re
+import shlex
+import tomllib
 
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import PurePosixPath
-from typing import Final, Mapping, Sequence
+from typing import Final, Mapping, Protocol, Sequence, runtime_checkable
 
-from ..errors import ConfigError, ValidationFailed
+from ..errors import CommandFailed, ConfigError, ValidationFailed
 from ..model.config import InitSystem, InstallConfig
 from .operations import Context, Operation, Stage
 from .portage import Emerge
@@ -125,6 +128,217 @@ class WriteGroupFile(Operation):
 
     def apply(self, context: Context) -> None:
         context.write(self.file.path, self.file.content)
+
+
+@runtime_checkable
+class PackageInspection(Protocol):
+    """Apply-time access to package-owned state in the installed target."""
+
+    def installed_package_paths(self, package: str) -> frozenset[PurePosixPath]: ...
+
+    def installed_command_help(self, package: str, command: PurePosixPath) -> str: ...
+
+    def target_is_directory(self, path: PurePosixPath) -> bool: ...
+
+
+def _package_inspection(context: Context, package: str) -> PackageInspection:
+    if not isinstance(context, PackageInspection):
+        raise CommandFailed(
+            f"cannot verify files installed by {package}: the apply context "
+            "does not expose package inspection"
+        )
+    return context
+
+
+@dataclass(frozen=True, kw_only=True)
+class VerifyPackagePaths(Operation):
+    stage: Stage = Stage.PACKAGES
+    package: str
+    paths: tuple[PurePosixPath, ...]
+
+    def describe(self) -> str:
+        return f"verify {self.package} installed {', '.join(map(str, self.paths))}"
+
+    def apply(self, context: Context) -> None:
+        installed = _package_inspection(context, self.package).installed_package_paths(
+            self.package
+        )
+        missing = tuple(path for path in self.paths if path not in installed)
+        if missing:
+            raise CommandFailed(
+                f"{self.package} was expected to provide "
+                f"{', '.join(map(str, missing))}, but its VDB CONTENTS does not list it"
+            )
+
+
+_LONG_OPTION = re.compile(
+    r'''(?<![A-Za-z0-9_-])--[A-Za-z0-9][A-Za-z0-9-]*(?=[\s,=\[\]"']|$)'''
+)
+
+
+@dataclass(frozen=True, kw_only=True)
+class VerifyCommandOptions(Operation):
+    stage: Stage = Stage.PACKAGES
+    package: str
+    command: PurePosixPath
+    options: tuple[str, ...]
+
+    def describe(self) -> str:
+        return f"verify {self.package} installed {self.command} with {', '.join(self.options)}"
+
+    def apply(self, context: Context) -> None:
+        inspection = _package_inspection(context, self.package)
+        installed = inspection.installed_package_paths(self.package)
+        if self.command not in installed:
+            raise CommandFailed(
+                f"{self.package} was expected to provide {self.command}, "
+                "but its VDB CONTENTS does not list it"
+            )
+        help_text = inspection.installed_command_help(self.package, self.command)
+        available = frozenset(_LONG_OPTION.findall(help_text))
+        missing = tuple(option for option in self.options if option not in available)
+        if missing:
+            raise CommandFailed(
+                f"{self.package} installed {self.command}, but {self.command} --help "
+                f"does not list {', '.join(missing)}"
+            )
+
+
+@dataclass(frozen=True, kw_only=True)
+class VerifySessionDirectories(Operation):
+    stage: Stage = Stage.PACKAGES
+    package: str
+    paths: tuple[PurePosixPath, ...]
+
+    def describe(self) -> str:
+        return f"verify session directories for {self.package}"
+
+    def apply(self, context: Context) -> None:
+        if not self.package:
+            raise CommandFailed(
+                "cannot verify greetd session directories because no desktop package was selected"
+            )
+        inspection = _package_inspection(context, self.package)
+        missing = tuple(path for path in self.paths if not inspection.target_is_directory(path))
+        if missing:
+            raise CommandFailed(
+                f"{self.package} was expected to provide a session in "
+                f"{', '.join(map(str, missing))}, but the directory does not exist"
+            )
+
+
+GREETD_PACKAGE: Final[str] = "gui-libs/greetd"
+GREETD_CONFIG: Final[PurePosixPath] = PurePosixPath("/etc/greetd/config.toml")
+TUIGREET_PACKAGE: Final[str] = "gui-apps/tuigreet"
+TUIGREET_COMMAND: Final[PurePosixPath] = PurePosixPath("/usr/bin/tuigreet")
+
+
+@dataclass(frozen=True, kw_only=True)
+class UpdateGreetdConfig(Operation):
+    stage: Stage = Stage.PACKAGES
+    command: str
+
+    def describe(self) -> str:
+        return f"set the greetd default session command in {GREETD_CONFIG}"
+
+    def apply(self, context: Context) -> None:
+        installed = _package_inspection(context, GREETD_PACKAGE).installed_package_paths(
+            GREETD_PACKAGE
+        )
+        if GREETD_CONFIG not in installed:
+            raise CommandFailed(
+                f"{GREETD_PACKAGE} was expected to provide {GREETD_CONFIG}, "
+                "but its VDB CONTENTS does not list it"
+            )
+        current = context.read(GREETD_CONFIG)
+        context.write(GREETD_CONFIG, _replace_greetd_command(current, self.command))
+
+
+_TOML_TABLE = re.compile(r"^\s*\[([^]]+)]\s*(?:#.*)?(?:\r?\n)?$")
+_TOML_COMMAND = re.compile(
+    r'^(\s*command\s*=\s*)("(?:[^"\\]|\\.)*")(\s*(?:#.*)?)(\r?\n?)$'
+)
+
+
+def _replace_greetd_command(content: str, command: str) -> str:
+    try:
+        parsed = tomllib.loads(content)
+    except tomllib.TOMLDecodeError as error:
+        raise CommandFailed(f"cannot parse {GREETD_CONFIG} installed by {GREETD_PACKAGE}") from error
+    session = parsed.get("default_session")
+    if not isinstance(session, dict) or not isinstance(session.get("command"), str):
+        raise CommandFailed(
+            f"{GREETD_CONFIG} installed by {GREETD_PACKAGE} has no "
+            "default_session.command string"
+        )
+
+    table = ""
+    replaced = 0
+    lines: list[str] = []
+    for line in content.splitlines(keepends=True):
+        header = _TOML_TABLE.match(line)
+        if header:
+            table = header.group(1).strip()
+        match = _TOML_COMMAND.match(line) if table == "default_session" else None
+        if match:
+            line = f"{match.group(1)}{json.dumps(command)}{match.group(3)}{match.group(4)}"
+            replaced += 1
+        lines.append(line)
+    if replaced != 1:
+        raise CommandFailed(
+            f"cannot safely update default_session.command in {GREETD_CONFIG} "
+            f"installed by {GREETD_PACKAGE}"
+        )
+    return "".join(lines)
+
+
+@dataclass(frozen=True, kw_only=True)
+class UpdatePackageShellAssignment(Operation):
+    stage: Stage = Stage.PACKAGES
+    group: str
+    package: str
+    path: PurePosixPath
+    key: str
+    value: str
+
+    def describe(self) -> str:
+        return f"write {self.path} for the {self.group} group"
+
+    def apply(self, context: Context) -> None:
+        installed = _package_inspection(context, self.package).installed_package_paths(
+            self.package
+        )
+        if self.path not in installed:
+            raise CommandFailed(
+                f"{self.package} was expected to provide {self.path}, "
+                "but its VDB CONTENTS does not list it"
+            )
+        current = context.read(self.path)
+        updated = _replace_shell_assignment(current, self.key, self.value, self.path)
+        context.write(self.path, updated)
+
+
+def _replace_shell_assignment(
+    content: str, key: str, value: str, path: PurePosixPath
+) -> str:
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+        raise ConfigError(f"{key!r} is not a shell variable")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", value):
+        raise ConfigError(f"{value!r} is not a safe value for {key}")
+    assignment = re.compile(
+        rf'^(\s*{re.escape(key)}\s*=\s*)("(?:[^"\\]|\\.)*")(\s*(?:#.*)?)(\r?\n?)$'
+    )
+    replaced = 0
+    lines: list[str] = []
+    for line in content.splitlines(keepends=True):
+        match = assignment.match(line)
+        if match:
+            line = f'{match.group(1)}"{value}"{match.group(3)}{match.group(4)}'
+            replaced += 1
+        lines.append(line)
+    if replaced != 1:
+        raise CommandFailed(f"cannot safely update {key} in {path}")
+    return "".join(lines)
 
 
 Catalog = Mapping[str, Group]
@@ -361,6 +575,11 @@ FONT_CONFIGURATION_STATES: Final[frozenset[str]] = frozenset(
     {FONT_CONFIGURATION_ENABLED, FONT_CONFIGURATION_DISABLED}
 )
 
+CHROMIUM_PACKAGE: Final[str] = "www-client/chromium"
+CHROMIUM_CONFIG_PACKAGE: Final[str] = "www-client/chromium-common"
+CHROMIUM_COMMAND: Final[PurePosixPath] = PurePosixPath("/usr/bin/chromium")
+CHROMIUM_CONFIG: Final[PurePosixPath] = PurePosixPath("/etc/chromium/default")
+
 
 @dataclass(frozen=True, kw_only=True)
 class ConfigureKwinInputMethod(Operation):
@@ -570,6 +789,54 @@ def framework_conflict(config: InstallConfig, catalog: Catalog) -> str:
     )
 
 
+def _group_file_operations(
+    config: InstallConfig, catalog: Catalog, group: Group, wanted: GroupFile
+) -> list[Operation]:
+    if wanted.path != GREETD_CONFIG:
+        return [WriteGroupFile(group=group.name, file=wanted)]
+    if group.name != "greetd" or GREETD_PACKAGE not in group.packages:
+        raise ConfigError(f"{wanted.path} has no declared package contract")
+    try:
+        desired = tomllib.loads(wanted.content)
+    except tomllib.TOMLDecodeError as error:
+        raise ConfigError(f"the {group.name} group has invalid TOML for {wanted.path}") from error
+    session = desired.get("default_session")
+    command = session.get("command") if isinstance(session, dict) else None
+    if not isinstance(command, str):
+        raise ConfigError(f"the {group.name} group does not declare default_session.command")
+    try:
+        words = shlex.split(command)
+    except ValueError as error:
+        raise ConfigError(f"the {group.name} group has an invalid greeter command") from error
+    if not words or PurePosixPath(words[0]).name != TUIGREET_COMMAND.name:
+        raise ConfigError(
+            f"the {group.name} group expected {TUIGREET_PACKAGE} to provide {words[0] if words else ''}"
+        )
+    options = tuple(dict.fromkeys(_LONG_OPTION.findall(command)))
+    directories: list[PurePosixPath] = []
+    for option in ("--sessions", "--xsessions"):
+        if option not in words:
+            continue
+        position = words.index(option)
+        if position + 1 >= len(words):
+            raise ConfigError(f"the {group.name} group gives {option} no directory")
+        directories += [PurePosixPath(path) for path in words[position + 1].split(":")]
+    if any(not path.is_absolute() for path in directories):
+        raise ConfigError(f"the {group.name} group names a relative session directory")
+    desktop = catalog.get(config.packages.desktop)
+    provider = desktop.packages[0] if desktop is not None and desktop.packages else ""
+    return [
+        VerifyPackagePaths(package=GREETD_PACKAGE, paths=(GREETD_CONFIG,)),
+        VerifyCommandOptions(
+            package=TUIGREET_PACKAGE,
+            command=TUIGREET_COMMAND,
+            options=options,
+        ),
+        VerifySessionDirectories(package=provider, paths=tuple(directories)),
+        UpdateGreetdConfig(command=command),
+    ]
+
+
 def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
     _check_repositories(config, catalog)
     conflict = framework_conflict(config, catalog) or driver_conflict(config, catalog)
@@ -597,7 +864,7 @@ def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
                 EnableUserUnits(group=group.name, units=group.user_services)
             )
         for wanted in group.files:
-            operations.append(WriteGroupFile(group=group.name, file=wanted))
+            operations += _group_file_operations(config, catalog, group, wanted)
         if group.display_manager:
             operations += _display_manager(
                 group.display_manager, group.packages, config.system.init
@@ -825,9 +1092,12 @@ def _display_manager(name: str, packages: Sequence[str], init: InitSystem) -> li
             packages=(DISPLAY_MANAGER_INIT,),
             summary="install the openrc display manager script",
         ),
-        WriteGroupFile(
+        UpdatePackageShellAssignment(
             group=name,
-            file=GroupFile(path=DISPLAY_MANAGER_CONF, content=f'DISPLAYMANAGER="{name}"\n'),
+            package=DISPLAY_MANAGER_INIT,
+            path=DISPLAY_MANAGER_CONF,
+            key="DISPLAYMANAGER",
+            value=name,
         ),
         EnableService(stage=Stage.PACKAGES, service="display-manager", init=init),
     ]
@@ -845,6 +1115,28 @@ def required_licenses(config: InstallConfig, catalog: Catalog) -> tuple[str, ...
 
 def _known(catalog: Catalog) -> str:
     return ", ".join(sorted(catalog)) or "nothing"
+
+
+def _wayland_file_operations(group: Group, wanted: GroupFile) -> list[Operation]:
+    if group.name != "chromium" or wanted.path != CHROMIUM_CONFIG:
+        raise ConfigError(f"{wanted.path} has no declared package contract")
+    if CHROMIUM_PACKAGE not in group.packages:
+        raise ConfigError(f"the {group.name} group does not install {CHROMIUM_PACKAGE}")
+    return [
+        VerifyPackagePaths(package=CHROMIUM_CONFIG_PACKAGE, paths=(wanted.path,)),
+        VerifyPackagePaths(
+            package=CHROMIUM_PACKAGE,
+            paths=(CHROMIUM_COMMAND,),
+        ),
+        AppendWaylandFlags(group=group.name, file=wanted),
+    ]
+
+
+def _framework_package(chosen: Sequence[Group], framework: str) -> str:
+    for group in chosen:
+        if group.input_framework == framework and not group.input_method and group.packages:
+            return group.packages[0]
+    return ""
 
 
 def _input_method(config: InstallConfig, catalog: Catalog) -> list[Operation]:
@@ -919,12 +1211,15 @@ def _input_method(config: InstallConfig, catalog: Catalog) -> list[Operation]:
             # The launcher names fcitx's own desktop entry, so a session that
             # chose ibus was telling KWin to exec a file no package installed.
             if group.input_method_launcher and framework == "fcitx":
-                operations.append(
-                    ConfigureKwinInputMethod(launcher=group.input_method_launcher)
-                )
-            operations += [
-                AppendWaylandFlags(group=group.name, file=one) for one in group.wayland_files
-            ]
+                operations += [
+                    VerifyPackagePaths(
+                        package=_framework_package(chosen, framework),
+                        paths=(PurePosixPath(group.input_method_launcher),),
+                    ),
+                    ConfigureKwinInputMethod(launcher=group.input_method_launcher),
+                ]
+            for wanted in group.wayland_files:
+                operations += _wayland_file_operations(group, wanted)
     return operations
 
 
