@@ -322,7 +322,7 @@ class WriteFstab(Operation):
                 else f"UUID={context.device_uuid(entry.device)}"
             )
             lines.append(
-                f"{where}\t{entry.path}\t{entry.kind}\t"
+                f"{where}\t{_fstab_path(entry.path)}\t{entry.kind}\t"
                 f"{options}\t{entry.dump}\t{entry.check}"
             )
         context.write(PurePosixPath("/etc/fstab"), "\n".join(lines) + "\n")
@@ -1222,6 +1222,10 @@ def _default_options(kind: FilesystemType) -> tuple[str, ...]:
 def _check_order(path: PurePosixPath) -> int:
     """fsck order: the root filesystem first, everything else after it."""
     return 1 if path == ROOT else 2
+
+
+def _fstab_path(path: PurePosixPath) -> str:
+    return str(path).replace("\t", r"\011").replace(" ", r"\040")
 
 
 def _groups_of(user: User) -> tuple[str, ...]:

@@ -116,6 +116,20 @@ def test_fstab_names_devices_by_uuid_and_puts_the_root_check_first() -> None:
     assert any("umask=0077" in line for line in lines)
 
 
+def test_fstab_escapes_a_space_in_a_mountpoint() -> None:
+    nodes = ext4_on_gpt()
+    nodes.append(
+        Mountpoint(
+            id=i("mnt-shared"),
+            source=i("rootfs"),
+            path=PurePosixPath("/srv/shared files"),
+        )
+    )
+    installation = config(nodes)
+    written = apply_all(installation, generated=generated(installation)).files[FSTAB]
+    assert "\t/srv/shared\\040files\text4\t" in written
+
+
 def test_an_option_the_layout_sets_replaces_the_default_rather_than_joining_it() -> None:
     """`umask=0077,umask=0077` is what mount reads when both are written, and
     the installed system's fstab had exactly that."""
