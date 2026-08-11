@@ -4,6 +4,8 @@ from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Mapping, Sequence
 
+import tempfile
+
 import pytest
 
 from gentoo_install.errors import (
@@ -1752,3 +1754,43 @@ def test_a_reset_connection_is_retried_before_the_install_is_given_up(
     with pytest.raises(DownloadFailed):
         fetch._newest("https://distfiles.invalid/releases", "systemd")
     assert tries["n"] == fetch.READ_TRIES
+
+
+def test_a_long_download_says_it_is_still_downloading() -> None:
+    """A stage3 arrives over minutes and `_download_once` wrote nothing while it
+    did, so the campaign's watchdog ended the guests doing the most work: it
+    reads the console, and the console was silent. `vm-f2fs` and `vm-bios` were
+    both killed inside the stage3 fetch.
+    """
+    import io
+    import time as clock
+    import urllib.request
+    from pathlib import Path
+    from unittest import mock
+
+    from gentoo_install.exec import fetch
+
+    class Slow(io.BytesIO):
+        """Two megabytes handed over with the clock moved past the interval."""
+
+        def __init__(self) -> None:
+            super().__init__(b"x" * (2 << 20))
+            self.headers = {"Content-Length": str(2 << 20)}
+
+        def __enter__(self) -> "Slow":
+            return self
+
+        def __exit__(self, *rest: object) -> None:
+            return None
+
+    said: list[str] = []
+    ticks = iter([0.0, 0.0, fetch.PROGRESS_INTERVAL + 1, fetch.PROGRESS_INTERVAL + 1] + [1e6] * 8)
+    with tempfile.TemporaryDirectory() as where:
+        target = Path(where) / "stage3.tar.xz"
+        with mock.patch.object(urllib.request, "urlopen", lambda *a, **k: Slow()), mock.patch.object(
+            clock, "monotonic", lambda: next(ticks)
+        ):
+            fetch._download_once("https://example.invalid/stage3", target, said.append)
+    assert said, "the download reported nothing"
+    assert "stage3.tar.xz" in said[0], said
+    assert "MiB" in said[0], said

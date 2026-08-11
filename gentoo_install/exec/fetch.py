@@ -19,7 +19,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from collections.abc import Iterator
-from typing import Any, Final
+from typing import Any, Callable, Final
 
 from ..errors import (
     CommandFailed,
@@ -76,9 +76,9 @@ def stage3(mirror: str, variant: str, fingerprint: str, work: Path, runner: Runn
     if marker.is_file() and archive.is_file() and _marker_matches(marker, archive, fingerprint):
         return archive
 
-    _download(f"{builds}/{where}", archive)
+    _download(f"{builds}/{where}", archive, runner.log)
     digests = work / f"{name}.DIGESTS"
-    _download(f"{builds}/{where}.DIGESTS", digests)
+    _download(f"{builds}/{where}.DIGESTS", digests, runner.log)
     _import_release_key(runner, work)
     _verify_signature(digests, fingerprint, runner)
     _verify_digest(archive, digests)
@@ -529,7 +529,7 @@ def _read_once(url: str) -> str:
         raise DownloadFailed(f"{url} could not be read: {error}") from error
 
 
-def _download(url: str, target: Path) -> None:
+def _download(url: str, target: Path, log: Callable[[str], None] | None = None) -> None:
     """Written beside the target and renamed, so an interrupted download never
     leaves a short file that looks complete.
 
@@ -538,7 +538,7 @@ def _download(url: str, target: Path) -> None:
     family with no route fails before a byte arrives.
     """
     try:
-        _download_once(url, target)
+        _download_once(url, target, log)
         return
     except DownloadFailed as first:
         if not _unroutable(first.__cause__ or first):
@@ -547,19 +547,50 @@ def _download(url: str, target: Path) -> None:
     for family in _FAMILIES:
         try:
             with _over(family):
-                _download_once(url, target)
+                _download_once(url, target, log)
                 return
         except DownloadFailed as again:
             last = again
     raise last
 
 
-def _download_once(url: str, target: Path) -> None:
+
+#: How long a download may say nothing. The campaign's watchdog ends a guest
+#: that has printed nothing for twenty minutes, and a stage3 over a slow mirror
+#: takes longer than that to arrive.
+PROGRESS_INTERVAL: Final[float] = 30.0
+
+
+def _content_length(response: object) -> int | None:
+    length = getattr(response, "headers", {}).get("Content-Length")
+    try:
+        return int(length) if length is not None else None
+    except ValueError:
+        return None
+
+
+def _progress(name: str, got: int, total: int | None) -> str:
+    megabytes = got / (1 << 20)
+    if total:
+        return f"{name}: {megabytes:.0f} MiB of {total / (1 << 20):.0f} MiB"
+    return f"{name}: {megabytes:.0f} MiB"
+
+
+def _download_once(url: str, target: Path, log: Callable[[str], None] | None = None) -> None:
     partial = target.with_suffix(target.suffix + ".part")
     try:
         with urllib.request.urlopen(_asked(url), timeout=TIMEOUT) as response, partial.open("wb") as handle:
+            total = _content_length(response)
+            got = 0
+            said = time.monotonic()
             while chunk := response.read(1 << 20):
                 handle.write(chunk)
+                got += len(chunk)
+                # A stage3 is the longest silence in a run, and a watchdog
+                # reading the console ends the guest doing the most work.
+                if log is not None and time.monotonic() - said >= PROGRESS_INTERVAL:
+                    said = time.monotonic()
+                    log(_progress(target.name, got, total))
     except (urllib.error.URLError, TimeoutError, OSError) as error:
         partial.unlink(missing_ok=True)
         raise DownloadFailed(f"{url} could not be fetched: {error}") from error
