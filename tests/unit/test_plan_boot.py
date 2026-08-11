@@ -1094,3 +1094,26 @@ def test_pinning_a_kernel_version_writes_the_keyword_file_it_describes() -> None
     ]
     assert written == f"={accepted[0].package}-6.12.4 ~amd64\n", written
     assert accepted[0].package.startswith("sys-kernel/"), accepted[0].package
+
+
+def test_systemd_boot_on_openrc_gets_the_flag_systemd_utils_requires() -> None:
+    """`installkernel[systemd-boot]` needs `bootctl`, which on a system without
+    systemd comes from `sys-apps/systemd-utils[boot]`, whose REQUIRED_USE is
+    `boot? ( kernel-install )`. An OpenRC install with systemd-boot stopped at
+    `The ebuild selected to satisfy sys-apps/systemd-utils[boot(-)] has unmet
+    requirements` before anything was built."""
+    from gentoo_install.plan.kernel import ConfigureInstallKernel
+
+    recorder = Recorder()
+    ConfigureInstallKernel(boot_entries=True).apply(recorder)
+    written = recorder.files[PurePosixPath("/etc/portage/package.use/installkernel")]
+    assert "sys-apps/systemd-utils boot kernel-install" in written
+    assert "sys-kernel/installkernel dracut systemd systemd-boot" in written
+
+    # Nothing to say when no boot entries are written: the package is not
+    # merged and the line would name one that is absent.
+    plain = Recorder()
+    ConfigureInstallKernel(boot_entries=False).apply(plain)
+    assert "systemd-utils" not in plain.files[
+        PurePosixPath("/etc/portage/package.use/installkernel")
+    ]
