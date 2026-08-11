@@ -19,7 +19,7 @@ from gentoo_install.model.config import (
     PortageConfig,
     SystemConfig,
 )
-from gentoo_install.errors import ConfigError
+from gentoo_install.errors import CommandFailed, ConfigError, ValidationFailed
 from gentoo_install.plan import portage
 from gentoo_install.plan.operations import CommandOutput, Operation
 
@@ -27,10 +27,16 @@ from .layouts import config
 from .recorder import Recorder
 
 MIRROR = "https://distfiles.gentoo.org"
+PROFILE = "default/linux/amd64/23.0/systemd"
+PROFILE_LIST = f"""Available profile symlink targets:
+  [1]   default/linux/amd64/23.0 (stable)
+  [2]   {PROFILE} (stable) *
+"""
 
 
 def apply_all(installation: InstallConfig) -> Recorder:
     recorder = Recorder()
+    recorder.replies["eselect"] = PROFILE_LIST
     for operation in [*portage.build(installation, MIRROR), *portage.finish(installation)]:
         operation.apply(recorder)
     return recorder
@@ -130,9 +136,42 @@ def test_the_first_tree_arrives_by_webrsync_because_stage3_has_no_git() -> None:
     operations = portage.build(config(), MIRROR)
     described = [operation.describe() for operation in operations]
     webrsync = next(n for n, text in enumerate(described) if "emerge-webrsync" in text)
+    profile = next(n for n, operation in enumerate(operations) if isinstance(operation, portage.SelectProfile))
     git = next(n for n, text in enumerate(described) if "dev-vcs/git" in text)
     git_sync = next(n for n, text in enumerate(described) if text == "sync repository gentoo")
-    assert webrsync < git < git_sync
+    assert webrsync < profile < git < git_sync
+
+
+def test_a_profile_absent_from_the_target_tree_stops_before_it_is_set() -> None:
+    recorder = Recorder()
+    recorder.answering = lambda argv: CommandOutput(PROFILE_LIST, 0) if argv[-1] == "list" else None
+
+    with pytest.raises(ValidationFailed, match=r"configured profile 'absent'.*eselect profile list"):
+        portage.SelectProfile(profile="absent").apply(recorder)
+
+    assert recorder.in_target == [("eselect", "profile", "list")]
+
+
+def test_a_profile_present_in_the_target_tree_is_set() -> None:
+    recorder = Recorder()
+    recorder.answering = lambda argv: CommandOutput(PROFILE_LIST, 0) if argv[-1] == "list" else None
+
+    portage.SelectProfile(profile=PROFILE).apply(recorder)
+
+    assert recorder.in_target == [
+        ("eselect", "profile", "list"),
+        ("eselect", "profile", "set", PROFILE),
+    ]
+
+
+def test_an_unreadable_target_profile_list_is_reported_as_unreadable() -> None:
+    recorder = Recorder()
+    recorder.answering = lambda argv: CommandOutput("eselect failed", 1)
+
+    with pytest.raises(CommandFailed, match=r"profile list.*target.*could not be read"):
+        portage.SelectProfile(profile=PROFILE).apply(recorder)
+
+    assert recorder.in_target == [("eselect", "profile", "list")]
 
 
 def test_a_verified_repository_names_the_key_it_verifies_against() -> None:
@@ -738,3 +777,22 @@ def test_an_rsync_install_does_not_fetch_the_tree_twice() -> None:
     assert not synced, [one.describe() for one in operations]
     pointed = [one for one in operations if isinstance(one, plan_portage.ConfigureRepository)]
     assert [one for one in pointed if one.name == "gentoo"], [one.describe() for one in operations]
+
+
+def test_unpacking_a_stage3_says_it_is_still_unpacking() -> None:
+    """A stage3 takes minutes to unpack and `tar` says nothing while it does.
+    `vm-f2fs` was ended at 29 minutes with its last line being the extraction,
+    which is the same fault the download had: the watchdog reads the console,
+    and the console was silent.
+    """
+    from gentoo_install.plan import portage as plan_portage
+
+    from .recorder import Recorder
+
+    recorder = Recorder()
+    plan_portage.InstallStage3(
+        mirror="https://distfiles.gentoo.org", variant="systemd"
+    ).apply(recorder)
+    ran = next(one for one in recorder.commands if one and one[0] == "tar")
+    assert f"--checkpoint={plan_portage.UNPACK_CHECKPOINT}" in ran, ran
+    assert "--checkpoint-action=echo" in ran, ran
