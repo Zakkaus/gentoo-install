@@ -1462,6 +1462,22 @@ def test_the_unlock_keyboard_offers_following_the_console() -> None:
     assert "the same as the console" in "\n".join(screen.frames[0])
 
 
+def test_cancelling_a_nested_prompt_reaches_the_screen_as_cancelled() -> None:
+    at = context()
+    assert screens.root_password_screen(
+        FakeScreen(keys=["\x1b"]), config(), at
+    ).outcome is Outcome.CANCELLED
+    assert screens.encryption_screen(
+        FakeScreen(keys=["KEY_DOWN", "\n", "\x1b"]), config(), at
+    ).outcome is Outcome.CANCELLED
+    assert screens.keymap_screen(
+        FakeScreen(keys=["\x1b"]), config(), at
+    ).outcome is Outcome.CANCELLED
+    assert screens.initramfs_keymap_screen(
+        FakeScreen(keys=["\x1b"]), config(), at
+    ).outcome is Outcome.CANCELLED
+
+
 def test_selecting_gentoo_zh_turns_its_binary_host_on() -> None:
     """The host serves what that overlay builds, and `compat.py` refuses the
     host without the overlay, so the two are one answer."""

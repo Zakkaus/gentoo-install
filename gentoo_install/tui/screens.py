@@ -588,9 +588,9 @@ def root_password_screen(
     """The hash goes into the configuration; the plaintext never does."""
     translate = context.translate
     typed = _ask_password(screen, context, translate("Root password"))
-    if typed is None:
-        return Answer(Outcome.BACK)
-    hashed = context.hash_password(typed)
+    if not typed.chosen:
+        return Answer(typed.outcome)
+    hashed = context.hash_password(typed.unwrap())
     return Answer(
         Outcome.CHOSE, replace(config, system=replace(config.system, root_password_hash=hashed))
     )
@@ -1998,22 +1998,22 @@ def encryption_screen(screen: Screen, config: InstallConfig, context: Context) -
         context.choice = replace(context.choice, passphrase_file="")
         return Answer(Outcome.CHOSE, _rebuild(config, context))
     staged = _ask_passphrase(screen, context)
-    if not staged:
+    if not staged.chosen:
         # The key that is already staged, not an empty one: cancelling the
         # field is declining to change the passphrase, not declining to have
         # one, and clearing it here turned an encrypted layout into a plain
         # one on the way out.
-        return Answer(Outcome.BACK)
-    context.choice = replace(context.choice, passphrase_file=staged)
+        return Answer(staged.outcome)
+    context.choice = replace(context.choice, passphrase_file=staged.unwrap())
     return Answer(Outcome.CHOSE, _rebuild(config, context))
 
 
-def _ask_passphrase(screen: Screen, context: Context) -> str:
+def _ask_passphrase(screen: Screen, context: Context) -> Answer[str]:
     """The passphrase typed twice, staged in a file whose path is returned.
 
-    Empty when the operator went back. The configuration holds the path and
-    never the passphrase, because it is copied into the target and the install
-    log is what people paste into bug reports.
+    The configuration holds the path and never the passphrase, because it is
+    copied into the target and the install log is what people paste into bug
+    reports.
     """
     translate = context.translate
     hint = translate("At least {count} characters.").format(count=PASSPHRASE_MINIMUM)
@@ -2025,7 +2025,7 @@ def _ask_passphrase(screen: Screen, context: Context) -> str:
             footer=footer(translate),
         ).run(screen)
         if not first.chosen:
-            return ""
+            return Answer(first.outcome)
         typed = first.unwrap()
         if len(typed) < PASSPHRASE_MINIMUM:
             # Checked here, not at preflight: zfs refuses a short passphrase
@@ -2039,15 +2039,15 @@ def _ask_passphrase(screen: Screen, context: Context) -> str:
             footer=footer(translate),
         ).run(screen)
         if not again.chosen:
-            return ""
+            return Answer(again.outcome)
         if again.unwrap() != typed:
             _say(screen, context, translate("The two do not match."))
             continue
-        return context.stage_passphrase(typed)
+        return Answer(Outcome.CHOSE, context.stage_passphrase(typed))
 
 
-def _ask_password(screen: Screen, context: Context, title: str) -> str | None:
-    """A password typed twice, or None when the operator went back.
+def _ask_password(screen: Screen, context: Context, title: str) -> Answer[str]:
+    """A password typed twice, or the outcome that left the prompt.
 
     Twice for the same reason the passphrase is: the field is masked, and a
     password with a typo in it is found out at the first login of a machine
@@ -2069,15 +2069,15 @@ def _ask_password(screen: Screen, context: Context, title: str) -> str | None:
             footer=footer(translate),
         ).run(screen)
         if not answered.chosen:
-            return None
+            return Answer(answered.outcome)
         kept = list(answered.unwrap())
         if not kept[0] and not kept[1]:
             # Nothing typed is leaving, not an empty password: the row stays
             # required and says so, and enter through the whole form no longer
             # asks the same question for ever.
-            return None
+            return Answer(Outcome.BACK)
         if kept[0] and kept[0] == kept[1]:
-            return kept[0]
+            return Answer(Outcome.CHOSE, kept[0])
         # The form comes back with what was typed: only the mismatched second
         # field is cleared, so a long password is not retyped from nothing.
         kept[1] = ""
@@ -2544,25 +2544,29 @@ def keymap_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     """
     translate = context.translate
     picked = _pick_keymap(screen, context, translate("Keyboard layout"), config.system.keymap)
-    if picked is None:
-        return Answer(Outcome.BACK)
+    if not picked.chosen:
+        return Answer(picked.outcome)
     return Answer(
-        Outcome.CHOSE, replace(config, system=replace(config.system, keymap=picked or "us"))
+        Outcome.CHOSE,
+        replace(config, system=replace(config.system, keymap=picked.unwrap() or "us")),
     )
 
 
 def _pick_keymap(
     screen: Screen, context: Context, title: str, current: str, empty: str = ""
-) -> str | None:
-    """One keymap, or None when the operator went back. `empty` names the row
-    that stands for no answer, and is absent when there is no such answer."""
+) -> Answer[str]:
+    """One keymap, or the outcome that left its prompt.
+
+    `empty` names the row that stands for no answer and is absent when there
+    is no such answer.
+    """
     translate = context.translate
     offered = context.keymaps()
     if not offered:
         # A medium that ships no keymap tree has nothing to list, and a list
         # nobody can populate is worse than a field.
         typed = TextField(title=title, value=current, footer=footer(translate)).run(screen)
-        return typed.unwrap() if typed.chosen else None
+        return Answer(Outcome.CHOSE, typed.unwrap()) if typed.chosen else Answer(typed.outcome)
     families: list[Item[str]] = []
     if empty:
         families.append(Item(label=empty, value=""))
@@ -2571,17 +2575,21 @@ def _pick_keymap(
     ]
     answer = Menu(title=title, items=families, footer=footer(translate)).run(screen)
     if not answer.chosen:
-        return None
+        return Answer(answer.outcome)
     family = answer.unwrap()[0]
     if not family:
-        return ""
+        return Answer(Outcome.CHOSE, "")
     within = [name for one, name in offered if one == family]
     chosen = Menu(
         title=f"{title}  {family}",
         items=[Item(label=name, value=name) for name in within],
         footer=footer(translate),
     ).run(screen)
-    return chosen.unwrap()[0] if chosen.chosen else None
+    return (
+        Answer(Outcome.CHOSE, chosen.unwrap()[0])
+        if chosen.chosen
+        else Answer(chosen.outcome)
+    )
 
 
 def console_font_screen(
@@ -3123,7 +3131,12 @@ def _edit_array_field(screen: Screen, context: Context, field: str, members: int
         ).run(screen)
         if not turned.chosen:
             return
-        array.passphrase_file = _ask_passphrase(screen, context) if turned.unwrap() else ""
+        if not turned.unwrap():
+            array.passphrase_file = ""
+            return
+        staged = _ask_passphrase(screen, context)
+        if staged.chosen:
+            array.passphrase_file = staged.unwrap()
         return
     titles = {_NAME: "Name", _MOUNTPOINT: "Mount point", _LABEL: "Label"}
     values = {_NAME: array.name, _MOUNTPOINT: array.mountpoint, _LABEL: array.label}
@@ -3424,9 +3437,9 @@ def _edit_slice_encryption(
     if not turned.unwrap():
         return replace(entry, passphrase_file="")
     staged = _ask_passphrase(screen, context)
-    if not staged:
+    if not staged.chosen:
         return None
-    return replace(entry, passphrase_file=staged)
+    return replace(entry, passphrase_file=staged.unwrap())
 
 
 def extra_packages_screen(
@@ -3863,10 +3876,11 @@ def initramfs_keymap_screen(
         config.system.keymap_initramfs,
         empty=translate("the same as the console"),
     )
-    if picked is None:
-        return Answer(Outcome.BACK)
+    if not picked.chosen:
+        return Answer(picked.outcome)
     return Answer(
-        Outcome.CHOSE, replace(config, system=replace(config.system, keymap_initramfs=picked))
+        Outcome.CHOSE,
+        replace(config, system=replace(config.system, keymap_initramfs=picked.unwrap())),
     )
 
 
