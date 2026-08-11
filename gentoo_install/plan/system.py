@@ -489,8 +489,8 @@ class WriteNetworkConfig(Operation):
     stage: Stage = Stage.SYSTEM
     init: InitSystem
     networking: Networking
-    #: Empty matches `en*` and `eth*` on systemd. netifrc has no wildcard, so
-    #: an empty name there falls back to `eth0`.
+    #: Empty matches `en*` and `eth*` on systemd. Static netifrc configurations
+    #: are validated to require a name because netifrc has no wildcard.
     interface: str = ""
     #: CIDR, either family. Empty is DHCP and router advertisements.
     addresses: tuple[str, ...] = ()
@@ -528,6 +528,8 @@ class WriteNetworkConfig(Operation):
             context.write(
                 PurePosixPath("/etc/systemd/network/20-wired.network"), self._networkd()
             )
+            return
+        if self.addresses and not self.interface:
             return
         context.write(PurePosixPath("/etc/conf.d/net"), self._netifrc())
 
@@ -573,9 +575,10 @@ class WriteNetworkConfig(Operation):
         return "".join(lines)
 
     def _netifrc(self) -> str:
-        name = self.interface or "eth0"
         if not self.addresses:
+            name = self.interface or "eth0"
             return f'config_{name}="dhcp"\n'
+        name = self.interface
         lines = [f'config_{name}="{" ".join(self.addresses)}"\n']
         # `default via` for v4 and `default via` for v6 both go in `routes_`;
         # netifrc reads the family from the address.
@@ -1064,7 +1067,8 @@ def build(config: InstallConfig) -> list[Operation]:
         if network_service is NetworkService.NETIFRC_INTERFACE:
             # dhcpcd would DHCP over the static address, while netifrc needs an
             # interface service before it reads /etc/conf.d/net.
-            operations.append(LinkNetifrcService(interface=system.interface or "eth0"))
+            if system.interface:
+                operations.append(LinkNetifrcService(interface=system.interface))
         else:
             operations.append(EnableService(service=network_service.value, init=system.init))
     if requirements.link_resolv_conf:

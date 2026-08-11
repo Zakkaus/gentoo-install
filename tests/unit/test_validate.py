@@ -345,6 +345,28 @@ def test_dhcp_needs_neither_a_gateway_nor_a_resolver() -> None:
     assert _network_problems(config()) == []
 
 
+def test_openrc_builtin_static_networking_requires_an_interface() -> None:
+    from gentoo_install.model.config import Networking
+
+    installation = replace(
+        config(),
+        portage=replace(
+            config().portage, profile="default/linux/amd64/23.0/desktop"
+        ),
+        system=replace(
+            config().system,
+            init=InitSystem.OPENRC,
+            networking=Networking.BUILTIN,
+            addresses=("192.0.2.10/24",),
+            gateways=("192.0.2.1",),
+            dns=("192.0.2.1",),
+        ),
+    )
+
+    with pytest.raises(ValidationFailed, match=r"system\.interface.*OpenRC.*static"):
+        validate(installation)
+
+
 @pytest.mark.parametrize("address", ["192.0.2.10/99", "not-an-address", "999.1.1.1/24"])
 def test_a_static_address_that_is_not_an_address_is_refused(address: str) -> None:
     """`_family_of` answered 0 for anything unparsable and every check then

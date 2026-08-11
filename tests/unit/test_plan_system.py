@@ -513,6 +513,17 @@ def test_netifrc_names_the_interface_the_operator_gave() -> None:
     assert 'config_enp1s0="192.0.2.10/24"' in written
 
 
+def test_netifrc_has_no_eth0_fallback_for_an_unresolved_static_interface() -> None:
+    openrc = static(init=InitSystem.OPENRC, addresses=("192.0.2.10/24",))
+    recorder = Recorder()
+    for operation in system.build(openrc):
+        if isinstance(operation, (system.WriteNetworkConfig, system.LinkNetifrcService)):
+            operation.apply(recorder)
+
+    assert CONFD_NET not in recorder.files
+    assert not any("net.eth0" in argument for argv in recorder.in_target for argument in argv)
+
+
 def test_an_openrc_static_address_is_applied_by_netifrc_and_not_by_dhcpcd() -> None:
     """dhcpcd manages every interface itself and would DHCP over the static
     address, and nothing reads /etc/conf.d/net unless net.<iface> is enabled."""
@@ -858,7 +869,12 @@ def test_the_installed_system_resolves_with_its_own_nameservers() -> None:
     assert linked[-2] == "../run/systemd/resolve/stub-resolv.conf"
 
     # netifrc writes resolv.conf itself, so openrc needs none of it.
-    openrc = with_system(init=InitSystem.OPENRC, addresses=("192.0.2.10/24",), dns=("223.5.5.5",))
+    openrc = with_system(
+        init=InitSystem.OPENRC,
+        interface="enp1s0",
+        addresses=("192.0.2.10/24",),
+        dns=("223.5.5.5",),
+    )
     plain = apply_all(openrc, generated=generated(openrc))
     assert "dns_servers_" in plain.files[PurePosixPath("/etc/conf.d/net")]
     assert not any("resolved" in " ".join(argv) for argv in plain.in_target)
