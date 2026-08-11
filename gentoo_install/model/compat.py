@@ -53,6 +53,52 @@ from .device import (
 #: to provide.
 CJK_FONT_SIZES = frozenset({ConsoleFontSize.SIZE_8X16})
 
+
+class FilesystemLabelUnit(Enum):
+    BYTES = "bytes"
+    CHARACTERS = "characters"
+
+    def measure(self, label: str) -> int:
+        return len(label.encode()) if self is FilesystemLabelUnit.BYTES else len(label)
+
+
+@dataclass(frozen=True)
+class FilesystemLabelRule:
+    kind: FilesystemType
+    maximum: int
+    unit: FilesystemLabelUnit
+
+    def problem(self, filesystem: Filesystem) -> str | None:
+        length = self.unit.measure(filesystem.label)
+        if not filesystem.create or length <= self.maximum:
+            return None
+        return (
+            f"filesystem {filesystem.id} has a {filesystem.kind.value} label of {length} "
+            f"{self.unit.value}, but {filesystem.kind.value} labels are limited to "
+            f"{self.maximum} {self.unit.value}"
+        )
+
+
+FILESYSTEM_LABEL_RULES: tuple[FilesystemLabelRule, ...] = (
+    FilesystemLabelRule(FilesystemType.EXT2, 16, FilesystemLabelUnit.BYTES),
+    FilesystemLabelRule(FilesystemType.EXT3, 16, FilesystemLabelUnit.BYTES),
+    FilesystemLabelRule(FilesystemType.EXT4, 16, FilesystemLabelUnit.BYTES),
+    # The CJK probe fails during CP850 conversion before length is checked, so
+    # this entry represents only mkfs.fat's independent character-count limit.
+    FilesystemLabelRule(FilesystemType.VFAT, 11, FilesystemLabelUnit.CHARACTERS),
+)
+
+
+def filesystem_label_problems(config: InstallConfig) -> tuple[str, ...]:
+    rules = {rule.kind: rule for rule in FILESYSTEM_LABEL_RULES}
+    return tuple(
+        problem
+        for filesystem in config.disk.graph.of_type(Filesystem)
+        if filesystem.kind in rules
+        if (problem := rules[filesystem.kind].problem(filesystem)) is not None
+    )
+
+
 _BOOT = PurePosixPath("/boot")
 _ROOT = PurePosixPath("/")
 _USR = PurePosixPath("/usr")

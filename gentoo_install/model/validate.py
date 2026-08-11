@@ -122,6 +122,7 @@ def validate(
 ) -> None:
     problems = [
         *_layout_problems(config),
+        *compat.filesystem_label_problems(config),
         *root_size_problems(config),
         *_profile_problems(config),
         *_repository_profile_problems(config.portage.profile, available_profiles),

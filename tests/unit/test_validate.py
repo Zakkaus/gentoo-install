@@ -7,8 +7,10 @@ from pathlib import Path, PurePosixPath
 import pytest
 
 from gentoo_install.errors import ConfigError, ValidationFailed
+from gentoo_install.model import compat
 from gentoo_install.model.config import InitSystem, InstallConfig
 from gentoo_install.model.device import (
+    Filesystem,
     Mountpoint,
     Node,
     Partition,
@@ -63,7 +65,7 @@ def test_a_root_mounted_somewhere_else_is_named() -> None:
 
 
 def test_vfat_cannot_be_the_root_filesystem() -> None:
-    from gentoo_install.model.device import Filesystem, FilesystemType
+    from gentoo_install.model.device import FilesystemType
 
     nodes = [
         replace(node, kind=FilesystemType.VFAT)
@@ -73,6 +75,56 @@ def test_vfat_cannot_be_the_root_filesystem() -> None:
     ]
     with pytest.raises(ValidationFailed, match="root filesystem is vfat"):
         validate(config(nodes))
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        pytest.param(rule, id=rule.kind.value)
+        for rule in compat.FILESYSTEM_LABEL_RULES
+        if rule.unit is compat.FilesystemLabelUnit.BYTES
+    ],
+)
+def test_an_ext_filesystem_label_over_16_bytes_is_refused(
+    rule: compat.FilesystemLabelRule,
+) -> None:
+    nodes = [
+        replace(node, kind=rule.kind, label="x" * (rule.maximum + 1))
+        if isinstance(node, Filesystem) and node.id == i("rootfs")
+        else node
+        for node in ext4_on_gpt()
+    ]
+    with pytest.raises(
+        ValidationFailed,
+        match=rf"{rule.kind.value}.*17 bytes.*limited to 16 bytes",
+    ):
+        validate(config(nodes))
+
+
+def test_a_vfat_label_over_11_characters_is_refused() -> None:
+    nodes = [
+        replace(node, label="x" * 12)
+        if isinstance(node, Filesystem) and node.id == i("espfs")
+        else node
+        for node in ext4_on_gpt()
+    ]
+    with pytest.raises(
+        ValidationFailed,
+        match=r"vfat.*12 characters.*limited to 11 characters",
+    ):
+        validate(config(nodes))
+
+
+def test_the_vfat_limit_measures_characters_rather_than_utf8_bytes() -> None:
+    label = "\u4e2d\u6587\u6807\u7b7e"
+    rule = next(
+        rule
+        for rule in compat.FILESYSTEM_LABEL_RULES
+        if rule.kind.value == "vfat"
+    )
+    assert len(label) == 4
+    assert len(label.encode()) == 12
+    assert rule.unit.measure(label) == 4
 
 
 def test_a_malformed_authorized_key_is_refused_while_parsing() -> None:
@@ -554,5 +606,3 @@ def test_a_zfs_kernel_ceiling_refuses_above_and_accepts_below() -> None:
         validate(above, zfs_kernel_max="7.0")
     validate(below, zfs_kernel_max="7.0")
     validate(same_minor, zfs_kernel_max="7.0")
-
-
