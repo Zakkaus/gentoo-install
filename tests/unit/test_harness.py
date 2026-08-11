@@ -520,35 +520,53 @@ def test_a_run_that_collected_fewer_results_than_it_dispatched_fails(
     assert cluster.main(["vm-lvm", "vm-xfs"]) == 0
 
 
-def test_a_guest_that_could_not_be_removed_keeps_its_slot() -> None:
+def test_a_guest_that_could_not_be_removed_keeps_its_slot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """`destroy()` failing printed a line and the scheduler handed the node's
     slot back anyway. The memory is still allocated, so the next guest went
     onto a node with no room for it and the hypervisor ended it."""
-    from dataclasses import replace
-
     from tests.vm import cluster
 
-    ok = cluster.Outcome(name="x", verdict=cluster.Verdict.OK, seconds=1.0)
-    assert ok.removed is True, "a guest that was deleted returns its slot"
+    class Guest:
+        def stop(self) -> None:
+            return None
 
-    # The count a node is charged, before and after each outcome. `run` keeps
-    # this in a Counter and subtracts on an outcome whose guest is gone.
-    from collections import Counter
+        def destroy(self) -> None:
+            return None
 
-    placed: Counter[str] = Counter({"infra-node1": 1})
-    for outcome, expected in (
-        (replace(ok, removed=True), 0),
-        (replace(ok, removed=False), 1),
-    ):
-        held: Counter[str] = Counter(placed)
-        if outcome.removed:
-            held["infra-node1"] -= 1
-        assert held["infra-node1"] == expected, outcome
+    def dispatch(name: str) -> cluster.Job:
+        job = cluster.Job(name, Path(f"tests/fixtures/{name}.toml"))
+        execution = cluster.Running(
+            Guest(),
+            cluster.Watchdog(Path(f"/nonexistent/{name}.log"), lambda: 0),
+            job.reservation_bytes,
+        )
+        return job.dispatch(
+            "infra-node1",
+            9300,
+            Path(f"/nonexistent/{name}.lease"),
+            Path(f"/nonexistent/{name}.log"),
+            execution,
+        )
 
-    # And the scheduler is what applies it: the guard names the field.
-    import inspect
+    removed = dispatch("vm-lvm")
+    retained = dispatch("vm-xfs")
+    before = cluster._reserved_bytes({removed.name: removed, retained.name: retained})
+    assert retained.execution is not None
+    reservation = retained.execution.reservation_bytes
+    monkeypatch.setattr(cluster, "GUEST_MEMORY_MIB", 5120)
 
-    assert "not outcome.removed" in inspect.getsource(cluster.run)
+    removed = removed.answered(
+        cluster.Outcome(removed.name, cluster.Verdict.OK, 1.0, removed=True)
+    ).collect(0)
+    retained = retained.answered(
+        cluster.Outcome(retained.name, cluster.Verdict.ERROR, 1.0, removed=False)
+    ).collect(1)
+    after = cluster._reserved_bytes({removed.name: removed, retained.name: retained})
+
+    assert before["infra-node1"] == 2 * reservation
+    assert after == {"infra-node1": reservation}
 
 
 def test_cleanup_result_does_not_leak_between_workers(
@@ -1004,7 +1022,12 @@ def test_a_schedule_that_ends_early_stops_the_guests_it_left_running() -> None:
     quiet = cluster.Watchdog(log=Path("/nonexistent"), counters=lambda: None)
     guests = {name: Guest() for name in ("vm-lvm", "vm-xfs")}
     inflight = {
-        name: cluster.Running(guest=guest, watch=quiet) for name, guest in guests.items()
+        name: cluster.Running(
+            guest=guest,
+            watch=quiet,
+            reservation_bytes=cluster.GUEST_MEMORY_MIB * 1024**2,
+        )
+        for name, guest in guests.items()
     }
 
     joined: list[str] = []
@@ -1029,7 +1052,13 @@ def test_a_schedule_that_ends_early_stops_the_guests_it_left_running() -> None:
     # there is nobody left to race: reporting it and walking away left guests
     # running on a cluster the harness does not own.
     wedged = Guest()
-    held = {"vm-zfs": cluster.Running(guest=wedged, watch=quiet)}
+    held = {
+        "vm-zfs": cluster.Running(
+            guest=wedged,
+            watch=quiet,
+            reservation_bytes=cluster.GUEST_MEMORY_MIB * 1024**2,
+        )
+    }
 
     class Stuck(threading.Thread):
         def join(self, timeout: float | None = None) -> None:
