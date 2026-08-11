@@ -20,6 +20,7 @@ import itertools
 import json
 import os
 import queue
+import signal
 import re
 import subprocess
 import sys
@@ -1693,6 +1694,21 @@ def fixtures(names: list[str]) -> list[Job]:
     return found
 
 
+def _leave_on_a_signal() -> None:
+    """Turn SIGTERM into the exception SIGINT already raises.
+
+    Python's default handler for SIGTERM ends the process without unwinding,
+    so no `finally` runs: `kill` on the scheduler left eight guests on the
+    cluster with the closing path that removes them never reached.
+    """
+
+    def raised(number: int, frame: object) -> None:
+        raise KeyboardInterrupt(f"signal {number}")
+
+    signal.signal(signal.SIGTERM, raised)
+    signal.signal(signal.SIGHUP, raised)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("fixtures", nargs="+", help="fixture names, without .toml")
@@ -1718,6 +1734,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    _leave_on_a_signal()
     try:
         workdir = confined(args.workdir)
     except WorkdirError as error:

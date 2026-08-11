@@ -1186,3 +1186,22 @@ def test_run_refuses_a_repeated_job_name_before_it_touches_the_cluster() -> None
         cluster.run(twice, Path("/nonexistent"))
     assert "named more than once" in str(raised.value)
     assert "vm-lvm" in str(raised.value)
+
+
+def test_a_term_signal_reaches_the_closing_path() -> None:
+    """Python ends the process on SIGTERM without unwinding, so no `finally`
+    runs: `kill` on the scheduler left eight guests on the cluster with the
+    path that removes them never reached."""
+    import signal as signals
+
+    from tests.vm import cluster
+
+    before = signals.getsignal(signals.SIGTERM)
+    try:
+        cluster._leave_on_a_signal()
+        handler = signals.getsignal(signals.SIGTERM)
+        assert callable(handler), handler
+        with pytest.raises(KeyboardInterrupt):
+            handler(signals.SIGTERM, None)
+    finally:
+        signals.signal(signals.SIGTERM, before)
