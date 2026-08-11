@@ -32,6 +32,15 @@ def test_the_shipped_fixture_validates() -> None:
     validate(load(FIXTURES / "btrfs-luks.toml"))
 
 
+def test_an_l10n_tag_not_shaped_like_one_is_refused_and_named() -> None:
+    installation = replace(
+        config(), portage=replace(config().portage, l10n=("zh_TW",))
+    )
+
+    with pytest.raises(ValidationFailed, match=r"L10N tag 'zh_TW'"):
+        validate(installation)
+
+
 def test_a_root_that_no_device_defines_is_named() -> None:
     broken = replace(config(), disk=replace(config().disk, root=i("absent")))
     with pytest.raises(ValidationFailed, match="'absent', which no device defines"):

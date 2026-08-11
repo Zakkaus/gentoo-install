@@ -898,6 +898,8 @@ def community_binhost(portage: PortageConfig) -> str:
 
 def _l10n(config: InstallConfig) -> tuple[str, ...]:
     """`L10N` uses a hyphen and no encoding, so `zh_CN.UTF-8` becomes `zh-CN`."""
+    if config.portage.l10n:
+        return config.portage.l10n
     tags: list[str] = []
     for locale in config.system.locales:
         tag = locale.split(".", 1)[0].replace("_", "-")

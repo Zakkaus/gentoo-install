@@ -272,6 +272,8 @@ class PortageConfig:
     common_flags: str = "-O2 -pipe"
     use: tuple[str, ...] = ()
     video_cards: tuple[str, ...] = ()
+    #: Empty derives L10N from the generated locales.
+    l10n: tuple[str, ...] = ()
     #: `INPUT_DEVICES`. libinput is what every current desktop reads; the
     #: profile's own value is replaced outright by make.conf, so an empty
     #: tuple here would leave a machine with no pointer driver.

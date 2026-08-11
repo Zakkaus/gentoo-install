@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from gentoo_install.model.config import InstallConfig, Overlay, User
+from gentoo_install.model.config import InstallConfig, Overlay, PortageConfig, User
 from gentoo_install.model.device import DeviceGraph, DeviceId, Existing, PartitionTable
 from gentoo_install.model.parse import _NODES, parse
 from gentoo_install.model.serialise import KINDS, REDACTED, SECRET, to_toml
@@ -68,6 +68,16 @@ def test_users_and_overlays_are_written_as_tables() -> None:
         ),
     )
     assert _round_trip(config) == config
+
+
+def test_an_l10n_override_survives_a_round_trip() -> None:
+    config = parse(tomllib.loads((FIXTURES / "ext4-bios.toml").read_text()))
+    held = replace(config, portage=replace(PortageConfig(), l10n=("en", "zh-TW")))
+
+    written = to_toml(held)
+
+    assert 'l10n = ["en", "zh-TW"]' in written
+    assert _round_trip(held).portage.l10n == ("en", "zh-TW")
 
 
 def test_a_default_is_left_out_of_the_file() -> None:
