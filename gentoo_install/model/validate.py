@@ -11,7 +11,7 @@ import ipaddress
 import re
 from collections import Counter
 from pathlib import PurePosixPath
-from typing import Final
+from typing import Final, Mapping
 
 from ..errors import ValidationFailed
 from . import compat
@@ -38,7 +38,7 @@ _ROOT = PurePosixPath("/")
 def validate(config: InstallConfig) -> None:
     problems = [
         *_layout_problems(config),
-        *_root_size_problems(config),
+        *root_size_problems(config),
         *_profile_problems(config),
         *_kernel_package_problems(config),
         *_reuse_problems(config),
@@ -218,32 +218,41 @@ def _kernel_package_problems(config: InstallConfig) -> list[str]:
 ROOT_MINIMUM: Final[Size] = Size.parse("12GiB")
 
 
-def _root_size_problems(config: InstallConfig) -> list[str]:
-    """Checked here because the size is in the configuration: a root too small
-    is knowable before anything is partitioned."""
+def root_size_problems(
+    config: InstallConfig,
+    supplied_sizes: Mapping[DeviceId, Size] | None = None,
+) -> list[str]:
+    """Reject undersized declared or supplied sizes beneath the root.
+
+    The nearest declared size describes the root itself. Supplied backing sizes
+    remain constraints even when a nearer logical device declares its size.
+    """
     graph = config.disk.graph
     root = graph.nodes.get(config.disk.root)
     if not isinstance(root, Mountpoint):
         return []
-    node = _nearest_sized(graph, root.id)
-    if node is None:
-        return []
-    size = getattr(node, "size")
     return [
         f"{node.id} carries / and is {size}, under the {ROOT_MINIMUM} a stage3, "
         "a kernel and linux-firmware need"
-    ] if size < ROOT_MINIMUM else []
+        for node, size in _root_sizes(graph, root.id, supplied_sizes or {})
+        if size < ROOT_MINIMUM
+    ]
 
 
-def _nearest_sized(graph: DeviceGraph, device: DeviceId) -> Node | None:
-    """The first node with a size, walking down from the mount point.
+def _root_sizes(
+    graph: DeviceGraph,
+    device: DeviceId,
+    supplied_sizes: Mapping[DeviceId, Size],
+) -> list[tuple[Node, Size]]:
+    """The nearest declared size and supplied sizes on the root path.
 
-    The nearest one, not every ancestor: a logical volume or an array is as
-    large as its members together, and testing each member refused a root that
-    is the right size for being built out of small ones.
+    Declared member sizes are excluded because an array may be large enough
+    when each member is not. A supplied physical limit still constrains it.
     """
     seen: set[DeviceId] = set()
     edge = [device]
+    declared_size: tuple[Node, Size] | None = None
+    supplied: list[tuple[Node, Size]] = []
     while edge:
         following: list[DeviceId] = []
         for current in edge:
@@ -251,11 +260,16 @@ def _nearest_sized(graph: DeviceGraph, device: DeviceId) -> Node | None:
                 continue
             seen.add(current)
             node = graph[current]
-            if isinstance(getattr(node, "size", None), Size):
-                return node
+            supplied_size = supplied_sizes.get(current)
+            if supplied_size is not None:
+                supplied.append((node, supplied_size))
+            elif declared_size is None:
+                node_size = getattr(node, "size", None)
+                if isinstance(node_size, Size):
+                    declared_size = node, node_size
             following.extend(node.inputs)
         edge = following
-    return None
+    return ([declared_size] if declared_size is not None else []) + supplied
 
 
 def _profile_problems(config: InstallConfig) -> list[str]:

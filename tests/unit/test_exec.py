@@ -1632,6 +1632,47 @@ def test_a_disk_too_small_to_hold_a_gentoo_is_refused_before_it_is_written(
     assert Size(probe.capacity) > ROOT_MINIMUM
 
 
+def test_validation_and_preflight_agree_that_a_declared_root_is_too_small(
+    tmp_path: Path,
+) -> None:
+    """A roomy disk used to hide an undersized declared root from preflight,
+    while validation refused the same configuration."""
+    from gentoo_install.errors import ValidationFailed
+    from gentoo_install.model.device import DeviceGraph, Partition
+    from gentoo_install.model.size import Size
+    from gentoo_install.model.validate import validate
+
+    base = present()
+    nodes = [
+        replace(node, size=Size.parse("8GiB"))
+        if isinstance(node, Partition) and node.id == i("rootpart")
+        else node
+        for node in base.disk.graph.nodes.values()
+    ]
+    installation = replace(
+        base, disk=replace(base.disk, graph=DeviceGraph.build(nodes))
+    )
+
+    class Roomy(Probe):
+        def disk_bytes(self, disk: str) -> int:
+            return 64 * 1024**3
+
+    try:
+        validate(installation)
+    except ValidationFailed:
+        validation_refused = True
+    else:
+        validation_refused = False
+    preflight_refused = any(
+        "carries /" in problem
+        for problem in preflight._capacity_problems(
+            installation, Roomy(runner=runner(tmp_path), work=tmp_path)
+        )
+    )
+
+    assert validation_refused == preflight_refused
+
+
 def test_a_build_tmpfs_the_machine_cannot_spare_is_refused(tmp_path: Path) -> None:
     """The size is the operator's, so it is comparable before anything runs: a
     build that outgrows its tmpfs fails on ENOSPC after hours of compiling.
