@@ -110,7 +110,13 @@ def style_of(setting: Setting, config: InstallConfig, context: Context) -> Style
     return Style.PLAIN
 
 
-def nested(title: str, rows: tuple[Setting, ...]) -> Step:
+def nested(
+    title: str,
+    rows: tuple[Setting, ...],
+    preamble: Callable[[InstallConfig, Context], tuple[str, ...]] = (
+        lambda config, context: ()
+    ),
+) -> Step:
     """A row that opens a list of rows, drawn the same way the main menu is.
 
     Six decisions about one subject read as six unrelated rows in a menu of
@@ -141,6 +147,7 @@ def nested(title: str, rows: tuple[Setting, ...]) -> Step:
                 items=items,
                 footer=footer(context.translate),
                 cursor=cursor,
+                preamble=preamble(current, context),
             )
             answer = menu.run(screen)
             cursor = menu.cursor
@@ -559,7 +566,65 @@ def _display_manager(config: InstallConfig, context: Context) -> str:
 
 
 def _applications(config: InstallConfig, context: Context) -> str:
-    return ", ".join(config.packages.applications) or context.translate("none")
+    language_groups = frozenset(
+        (*screens.input_method_groups(context.groups), *screens.cjk_font_groups(context.groups))
+    )
+    applications = [
+        name for name in config.packages.applications if name not in language_groups
+    ]
+    return ", ".join(applications) or context.translate("none")
+
+
+def _other_locales(config: InstallConfig, context: Context) -> str:
+    return ", ".join(
+        locale for locale in config.system.locales if locale != config.system.locale
+    ) or context.translate("none")
+
+
+def _selected_groups(
+    config: InstallConfig, context: Context, offered: tuple[str, ...]
+) -> str:
+    selected = [name for name in config.packages.applications if name in offered]
+    return ", ".join(selected) or context.translate("none")
+
+
+def _input_method(config: InstallConfig, context: Context) -> str:
+    return _selected_groups(config, context, screens.input_method_groups(context.groups))
+
+
+def _cjk_fonts(config: InstallConfig, context: Context) -> str:
+    return _selected_groups(config, context, screens.cjk_font_groups(context.groups))
+
+
+def _desktop_language_preamble(
+    config: InstallConfig, context: Context
+) -> tuple[str, ...]:
+    """What the selected desktop lets the installer configure itself."""
+    packages = context.translate(
+        "The selected font and input method packages will be installed."
+    )
+    if not config.packages.desktop:
+        return (
+            packages,
+            context.translate(
+                "No desktop is selected; font and input method configuration will not "
+                "be applied."
+            ),
+        )
+    desktop = context.groups.get(config.packages.desktop)
+    if desktop is not None and desktop.input_method_launcher:
+        return (
+            packages,
+            context.translate(
+                "{desktop} configures the selected fonts and input method automatically."
+            ).format(desktop=config.packages.desktop),
+        )
+    return (
+        packages,
+        context.translate(
+            "{desktop} leaves font and input method configuration to its settings."
+        ).format(desktop=config.packages.desktop),
+    )
 
 
 def _root_login(config: InstallConfig, context: Context) -> str:
@@ -675,6 +740,20 @@ KERNEL: Final[tuple[Setting, ...]] = (
     Setting("version", "Version", _kernel_version, screens.kernel_version_screen),
 )
 
+
+LANGUAGE: Final[tuple[Setting, ...]] = (
+    Setting("locale", "System language", lambda c, x: c.system.locale, screens.locale_screen),
+    Setting("locales", "Other locales", _other_locales, screens.additional_locales_screen),
+    Setting(
+        "input_method",
+        "Input method",
+        _input_method,
+        screens.input_method_screen,
+    ),
+    Setting("cjk_fonts", "CJK fonts", _cjk_fonts, screens.cjk_fonts_screen),
+)
+
+
 #: Who reaches the machine over the network once it boots.
 SSH: Final[tuple[Setting, ...]] = (
     Setting("sshd", "SSH server", _sshd, screens.sshd_screen),
@@ -725,7 +804,13 @@ NETWORK: Final[tuple[Setting, ...]] = (
 SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("firmware", "Firmware", _firmware, None),
     Setting("keymap", "Keyboard layout", lambda c, x: c.system.keymap, screens.keymap_screen),
-    Setting("locale", "System language", lambda c, x: c.system.locale, screens.locale_screen),
+    Setting(
+        "language",
+        "Language",
+        _summary(LANGUAGE),
+        nested("Language", LANGUAGE, _desktop_language_preamble),
+        rows=LANGUAGE,
+    ),
     Setting("timezone", "Timezone", lambda c, x: c.system.timezone, screens.timezone_screen),
     Setting("mirror", "Mirrors", _mirror, screens.mirror_screen, required=True, detected=True),
     Setting(

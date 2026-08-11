@@ -1792,6 +1792,107 @@ def _adds(
     return f" (+{' '.join(added)})" if added else ""
 
 
+FONT_PACKAGE_CATEGORY: Final[str] = "media-fonts/"
+
+
+def input_method_groups(groups: Groups) -> tuple[str, ...]:
+    """Framework and engine groups, classified by their catalog metadata."""
+    return tuple(sorted(name for name, group in groups.items() if group.input_framework))
+
+
+def cjk_font_groups(groups: Groups) -> tuple[str, ...]:
+    """Font groups from the catalog; the catalog currently carries CJK fonts."""
+    return tuple(
+        sorted(
+            name
+            for name, group in groups.items()
+            if any(package.startswith(FONT_PACKAGE_CATEGORY) for package in group.packages)
+        )
+    )
+
+
+def _language_package_screen(
+    screen: Screen,
+    config: InstallConfig,
+    context: Context,
+    title: str,
+    names: Sequence[str],
+) -> Answer[InstallConfig]:
+    """Edit one catalog-defined subset without disturbing other applications."""
+    translate = context.translate
+    selected_names = frozenset(names)
+    have = {overlay.name for overlay in config.portage.overlays}
+    items = [
+        Item(
+            label=name,
+            value=name,
+            detail=" ".join(context.groups[name].packages)
+            + _adds(
+                config,
+                context,
+                lambda packages, one: replace(
+                    packages, applications=(*packages.applications, one)
+                ),
+                name,
+            ),
+            disabled_because=_needs_an_overlay(
+                context.groups[name].repositories, have, translate
+            ),
+        )
+        for name in names
+    ]
+    chosen_already = set(config.packages.applications) & selected_names
+    while True:
+        answer = Menu(
+            title=translate(title),
+            items=items,
+            multiple=True,
+            selected={
+                index for index, item in enumerate(items) if item.value in chosen_already
+            },
+            footer=footer(translate),
+        ).run(screen)
+        if not answer.chosen:
+            return Answer(answer.outcome)
+        chosen = tuple(answer.unwrap())
+        kept = tuple(
+            name for name in config.packages.applications if name not in selected_names
+        )
+        edited = replace(
+            config,
+            packages=replace(config.packages, applications=(*kept, *chosen)),
+        )
+        clash = framework_conflict(edited, context.groups)
+        if not clash:
+            return settle(screen, context, config, edited)
+        chosen_already = set(chosen)
+        _say(screen, context, clash)
+
+
+def input_method_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    return _language_package_screen(
+        screen,
+        config,
+        context,
+        "Input method",
+        input_method_groups(context.groups),
+    )
+
+
+def cjk_fonts_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    return _language_package_screen(
+        screen,
+        config,
+        context,
+        "CJK fonts",
+        cjk_font_groups(context.groups),
+    )
+
+
 def packages_screen(
     screen: Screen, config: InstallConfig, context: Context
 ) -> Answer[InstallConfig]:
@@ -1802,6 +1903,8 @@ def packages_screen(
         set(desktop_profiles(context.groups))
         | {name for name, _ in GRAPHICS}
         | {name for name, _ in DISPLAY_MANAGERS}
+        | set(input_method_groups(context.groups))
+        | set(cjk_font_groups(context.groups))
     )
     names = sorted(name for name in context.groups if name not in elsewhere)
     have = {overlay.name for overlay in config.portage.overlays}
@@ -1835,7 +1938,11 @@ def packages_screen(
         if not answer.chosen:
             return Answer(answer.outcome)
         chosen = answer.unwrap()
-        edited = replace(config, packages=replace(config.packages, applications=tuple(chosen)))
+        kept = tuple(name for name in config.packages.applications if name in elsewhere)
+        edited = replace(
+            config,
+            packages=replace(config.packages, applications=(*kept, *chosen)),
+        )
         # Checked here rather than at the Install row: the conflict is between
         # two ticks on this screen and this is where either can be unticked.
         clash = framework_conflict(edited, context.groups)
@@ -1890,20 +1997,68 @@ def locale_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     translate = context.translate
     menu: Menu[str] = Menu(
         title=translate("System language"),
-        items=[Item(label=f"{name}  {label}", value=name) for name, label in LOCALES],
+        items=[
+            Item(label=f"{name}  {translate(label)}", value=name) for name, label in LOCALES
+        ],
         footer=footer(translate),
         current=config.system.locale,
+        preamble=(translate("The installed system starts in this locale."),),
     )
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
     chosen = answer.unwrap()[0]
-    # Every offered locale is generated whichever one is selected: switching
-    # afterwards then needs no regeneration.
-    generated = tuple(name for name, _ in LOCALES)
+    generated = config.system.locales
+    if chosen not in generated:
+        generated = (*generated, chosen)
     return Answer(
         Outcome.CHOSE,
         replace(config, system=replace(config.system, locale=chosen, locales=generated)),
+    )
+
+
+def additional_locales_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """Locales generated in addition to the one used for `LANG`."""
+    translate = context.translate
+    items = [
+        Item(label=f"{name}  {translate(label)}", value=name)
+        for name, label in LOCALES
+        if name != config.system.locale
+    ]
+    selected = {
+        index for index, item in enumerate(items) if item.value in config.system.locales
+    }
+    answer = Menu(
+        title=translate("Other locales"),
+        items=items,
+        multiple=True,
+        selected=selected,
+        footer=footer(translate),
+        preamble=(translate("The system language is always generated."),),
+    ).run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    chosen = answer.unwrap()
+    chosen_set = frozenset(chosen)
+    generated = tuple(
+        locale
+        for locale in config.system.locales
+        if locale == config.system.locale or locale in chosen_set
+    )
+    generated += tuple(locale for locale in chosen if locale not in generated)
+    if config.system.locale not in generated:
+        generated = (config.system.locale, *generated)
+    return Answer(
+        Outcome.CHOSE,
+        replace(
+            config,
+            system=replace(
+                config.system,
+                locales=generated,
+            ),
+        ),
     )
 
 
