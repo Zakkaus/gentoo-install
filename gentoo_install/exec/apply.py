@@ -15,7 +15,7 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Sequence
 
-from ..errors import GentooInstallError, InvalidLayout
+from ..errors import CommandFailed, GentooInstallError, InvalidLayout
 from ..model.config import InstallConfig
 from ..model.device import (
     DeviceId,
@@ -31,7 +31,7 @@ from ..model.device import (
 from ..log import Journal
 from ..plan.disk import STAGE3_CACHE
 from ..plan.operations import CommandOutput, Operation
-from . import fetch
+from . import fetch, packages
 from .probe import Probe
 from .runner import Runner, open_in_target, under, write_file
 
@@ -61,6 +61,21 @@ class Machine:
     def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
         result = self.runner.in_target(self.mountpoint).run(argv, check=check)
         return CommandOutput(result.stdout, result.returncode)
+
+    def installed_package_paths(self, package: str) -> frozenset[PurePosixPath]:
+        return packages.installed_package_paths(self.mountpoint, package)
+
+    def installed_command_help(self, package: str, command: PurePosixPath) -> str:
+        result = self.runner.in_target(self.mountpoint).run([str(command), "--help"], check=False)
+        if result.returncode != 0:
+            raise CommandFailed(
+                f"cannot verify options installed by {package}: "
+                f"{command} --help exited {result.returncode}"
+            )
+        return result.stdout
+
+    def target_is_directory(self, path: PurePosixPath) -> bool:
+        return packages.target_is_directory(self.mountpoint, path)
 
     def write(self, path: PurePosixPath, content: str, *, mode: int = 0o644) -> None:
         # The mode is set at open time: writing first and narrowing afterwards
