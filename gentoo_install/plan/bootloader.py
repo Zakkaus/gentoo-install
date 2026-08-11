@@ -65,7 +65,9 @@ ZBM_NETWORK_CONFIG: Final[PurePosixPath] = PurePosixPath(
 )
 ZBM_KEY_DIRECTORY: Final[PurePosixPath] = PurePosixPath("/etc/dropbear")
 ZBM_AUTHORIZED_KEYS: Final[PurePosixPath] = ZBM_KEY_DIRECTORY / "root_key"
-ZBM_HOST_KEY_TYPES: Final[tuple[str, ...]] = ("rsa", "ecdsa", "ed25519")
+#: `ssh-keygen -m PEM` refuses ed25519 — "Saving key failed: invalid format" —
+#: and ZFSBootMenu's own documentation names only these two.
+ZBM_HOST_KEY_TYPES: Final[tuple[str, ...]] = ("rsa", "ecdsa")
 
 
 @dataclass(frozen=True, kw_only=True)
