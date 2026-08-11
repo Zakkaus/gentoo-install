@@ -4,14 +4,14 @@ import time
 from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from gentoo_install.model.config import MirrorRegion, Sync
 from tests.vm import cluster
 from tests.vm.console import ConsoleTimeout, SerialConsole
-from tests.vm.proxmox import Node, ProxmoxNotFound, VMID_FIRST, VMID_LAST
+from tests.vm.proxmox import Api, Node, ProxmoxNotFound, VMID_FIRST, VMID_LAST
 
 
 class WorkerFailure(Exception):
@@ -161,6 +161,50 @@ def test_worker_failure_reports_outcome_and_releases_vmid(
     assert all(outcome.vmid == VMID_FIRST for outcome in outcomes)
     assert api.allocations == [VMID_FIRST, VMID_FIRST]
     assert api.created == {}
+
+
+def test_non_double_memory_reservation_is_admitted_in_exact_bytes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(cluster, "HEAVY_MEMORY_MIB", 6144)
+    job = cluster.Job("odd-sized", tmp_path / "odd-sized.toml", heavy=True)
+    reservation = 6 * 1024**3
+    node = Node(
+        "node",
+        cluster.NODE_HEADROOM_BYTES + reservation,
+        16,
+    )
+
+    class CapacityApi:
+        def nodes(self) -> list[Node]:
+            return [node]
+
+    slots = cluster.free_slots(cast(Api, CapacityApi()))
+    assert slots == [node]
+    assert cluster.room_for(node, job)
+
+    class Guest:
+        def stop(self) -> None:
+            return None
+
+        def destroy(self) -> None:
+            return None
+
+    execution = cluster.Running(
+        Guest(),
+        cluster.Watchdog(tmp_path / "odd-sized.log", lambda: 0),
+        job.reservation_bytes,
+    )
+    dispatched = job.dispatch(
+        node.name,
+        VMID_FIRST,
+        tmp_path / "odd-sized.lease",
+        tmp_path / "odd-sized.log",
+        execution,
+    )
+    assert job.reservation_bytes == reservation
+    assert execution.reservation_bytes == reservation
+    assert cluster._reserved_bytes({job.name: dispatched}) == {node.name: reservation}
 
 
 class TimedChannel:

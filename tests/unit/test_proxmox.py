@@ -638,7 +638,7 @@ def test_a_guest_moving_nothing_at_all_is_stuck(tmp_path: Path) -> None:
 def test_a_stuck_guest_is_stopped_and_not_deleted_by_the_sweep(tmp_path: Path) -> None:
     """Stopping is what wakes the worker blocked on its console; the worker
     then reports and deletes. A sweep that deleted would race it."""
-    from tests.vm.cluster import WATCH_STRIKES, Running, Watchdog, _sweep
+    from tests.vm.cluster import GUEST_MEMORY_MIB, WATCH_STRIKES, Running, Watchdog, _sweep
 
     stopped: list[str] = []
 
@@ -652,7 +652,13 @@ def test_a_stuck_guest_is_stopped_and_not_deleted_by_the_sweep(tmp_path: Path) -
     log = tmp_path / "quiet.log"
     log.write_bytes(b"")
     watch = Watchdog(log=log, counters=lambda: 0, strikes=WATCH_STRIKES - 1)
-    inflight = {"vm-zfs": Running(guest=Quiet(), watch=watch)}
+    inflight = {
+        "vm-zfs": Running(
+            guest=Quiet(),
+            watch=watch,
+            reservation_bytes=GUEST_MEMORY_MIB * 1024**2,
+        )
+    }
     _sweep(inflight)
     assert stopped == ["stopped"]
 
@@ -941,9 +947,9 @@ def test_guests_already_placed_are_subtracted_from_what_a_node_reports() -> None
 
     api = Lagging(host="nowhere.invalid")
     assert len(free_slots(api)) == 3
-    assert len(free_slots(api, {"one": 2})) == 1
-    assert free_slots(api, {"one": 3}) == []
-    assert free_slots(api, {"one": 9}) == [], "never negative"
+    assert len(free_slots(api, {"one": guest * 2})) == 1
+    assert free_slots(api, {"one": guest * 3}) == []
+    assert free_slots(api, {"one": guest * 9}) == [], "never negative"
 
 
 def test_the_archive_is_waited_for_rather_than_timed() -> None:
@@ -1686,11 +1692,17 @@ def test_a_reserved_guest_is_not_created_twice_and_is_still_cleaned_up(
     monkeypatch.setattr(guest, "start", fail_start)
     monkeypatch.setattr(guest, "destroy", destroy)
     log = tmp_path / "reserved.log"
-    execution = Running(guest, Watchdog(log=log, counters=lambda: 0), created=True)
+    job = Job(name="reserved", fixture=tmp_path / "reserved.toml", iso="minimal.iso")
+    execution = Running(
+        guest,
+        Watchdog(log=log, counters=lambda: 0),
+        job.reservation_bytes,
+        created=True,
+    )
     outcome = install_one(
         api,
         guest.node,
-        Job(name="reserved", fixture=tmp_path / "reserved.toml", iso="minimal.iso"),
+        job,
         "driver.iso",
         tmp_path,
         execution=execution,

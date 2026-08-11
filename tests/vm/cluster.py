@@ -270,6 +270,10 @@ class Job:
         return HEAVY_MEMORY_MIB if self.heavy else GUEST_MEMORY_MIB
 
     @property
+    def reservation_bytes(self) -> int:
+        return self.memory_mib * 1024**2
+
+    @property
     def cores(self) -> int:
         return HEAVY_CORES if self.heavy else GUEST_CORES
 
@@ -285,10 +289,6 @@ class Job:
     def holds_resources(self) -> bool:
         return self.running or self.outcome is not None and not self.outcome.removed
 
-    @property
-    def weight(self) -> int:
-        return 2 if self.heavy else 1
-
     def dispatch(
         self,
         node: str,
@@ -299,6 +299,8 @@ class Job:
     ) -> Job:
         if self.status is not JobStatus.WAITING:
             raise ProxmoxError(f"{self.name} cannot be dispatched from {self.status.value}")
+        if execution.reservation_bytes != self.reservation_bytes:
+            raise ProxmoxError(f"{self.name} execution has the wrong memory reservation")
         return replace(
             self,
             status=JobStatus.RUNNING,
@@ -930,8 +932,8 @@ def free_slots(api: Api, placed: Mapping[str, int] | None = None) -> list[Node]:
     slot per node capped a six-node cluster with 51 GiB spare at three guests
     at a time, with the queue twenty deep.
 
-    `placed` is what this schedule has already put on each node, and it is
-    subtracted from what the node reports. A guest's memory is allocated
+    `placed` is the bytes this schedule has already put on each node, and it
+    is subtracted from what the node reports. A guest's memory is allocated
     lazily, so a node with eleven of them freshly started still reported 13.8
     GiB free: reading that alone dispatched twenty guests wanting 120 GiB onto
     a cluster with 71, on hardware that is running other people's machines.
@@ -940,7 +942,7 @@ def free_slots(api: Api, placed: Mapping[str, int] | None = None) -> list[Node]:
     held = placed or {}
     per_node: list[list[Node]] = []
     for node in api.nodes():
-        room = node.free_bytes - NODE_HEADROOM_BYTES - held.get(node.name, 0) * need
+        room = node.free_bytes - NODE_HEADROOM_BYTES - held.get(node.name, 0)
         per_node.append([node] * max(0, int(room // need)))
     # One from each node in turn, rather than a node's whole share before the
     # next one is touched: five guests went onto `infra-node5` and left the
@@ -957,13 +959,13 @@ def free_slots(api: Api, placed: Mapping[str, int] | None = None) -> list[Node]:
 def room_for(node: Node, job: Job, placed: Mapping[str, int] | None = None) -> bool:
     """Whether this node can carry this job now.
 
-    A heavy guest asks for twice the memory, so a slot list built from the
-    light size does not answer for it: eight of them were dispatched onto
-    nodes with room for four and the last four were killed by the hypervisor.
+    A slot list built from the light size does not answer for a larger job:
+    eight heavy guests were dispatched onto nodes with room for four and the
+    last four were killed by the hypervisor.
     """
-    held = (placed or {}).get(node.name, 0) * GUEST_MEMORY_MIB * 1024**2
+    held = (placed or {}).get(node.name, 0)
     room = node.free_bytes - NODE_HEADROOM_BYTES - held
-    return room >= job.memory_mib * 1024**2
+    return room >= job.reservation_bytes
 
 
 class Stoppable(Protocol):
@@ -986,6 +988,7 @@ class Running:
 
     guest: Stoppable
     watch: Watchdog
+    reservation_bytes: int
     created: bool = False
 
 
@@ -1014,7 +1017,22 @@ def _execution(
             nonce=nonce or f"gi-{uuid.uuid4().hex[:12]}",
         ),
     )
-    return Running(guest, Watchdog(log=log, counters=lambda: guest.transferred()))
+    return Running(
+        guest,
+        Watchdog(log=log, counters=lambda: guest.transferred()),
+        job.reservation_bytes,
+    )
+
+
+def _reserved_bytes(scheduled: Mapping[str, Job]) -> Counter[str]:
+    held: Counter[str] = Counter()
+    for job in scheduled.values():
+        if not job.holds_resources:
+            continue
+        if job.node is None or job.execution is None:
+            raise ProxmoxError(f"{job.name} holds resources without an execution")
+        held[job.node] += job.execution.reservation_bytes
+    return held
 
 
 def _reserve_job(
@@ -1295,12 +1313,7 @@ def run(
         while not all(job.collected for job in scheduled.values()):
             waiting = [job for job in scheduled.values() if job.status is JobStatus.WAITING]
             running = [job for job in scheduled.values() if job.running]
-            placed = Counter(
-                job.node
-                for job in scheduled.values()
-                if job.holds_resources and job.node is not None
-                for _ in range(job.weight)
-            )
+            placed = _reserved_bytes(scheduled)
             slots = free_slots(api, placed)
             if limit:
                 slots = slots[: max(0, limit - len(running))]
@@ -1383,7 +1396,7 @@ def run(
                     daemon=True,
                 )
                 scheduled[job.name] = job.started(thread)
-                placed[node.name] += job.weight
+                placed[node.name] += execution.reservation_bytes
                 thread.start()
                 print(f"→ {job.name} on {node.name} ({len(waiting)} waiting)", flush=True)
                 if waiting and slots:
