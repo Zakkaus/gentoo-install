@@ -161,16 +161,8 @@ def stage_passphrase(passphrase: str, work: Path) -> str:
 def absent(wanted: Iterable[str], probe: Probe | None = None) -> set[str]:
     """Find required commands absent from the machine or provided by BusyBox."""
     names = list(wanted)
-    missing = {command for command in names if shutil.which(command) is None}
-    if probe is None:
-        return missing
-    judged = [
-        command
-        for command in names
-        if command in preflight.GNU_ONLY and command not in missing
-    ]
-    versions = probe.versions(judged)
-    for command in judged:
-        if preflight.GNU_ONLY[command][0] not in versions.get(command, ""):
-            missing.add(command)
-    return missing
+    present = frozenset(command for command in names if shutil.which(command) is not None)
+    judged = set(preflight.GNU_ONLY) & present if probe is not None else set()
+    versions = probe.versions(judged) if probe is not None else {}
+    assessment = preflight.assess_commands(names, present, versions)
+    return set(assessment.missing) | {problem.name for problem in assessment.unusable}
