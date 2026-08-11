@@ -167,6 +167,8 @@
 "Graphics" = "グラフィック"
 "Display manager" = "ディスプレイマネージャ"
 "none" = "なし"
+"kept" = "維持"
+"proposed" = "提案"
 "measured" = "計測済み"
 "same as the console" = "コンソールと同じ"
 "i915 and xe, with the firmware they need" = "i915 と xe、必要なファームウェア込み"

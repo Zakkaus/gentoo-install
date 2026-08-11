@@ -198,6 +198,9 @@ class Context:
         #: opened is running on a default nobody chose, which the menu says in
         #: colour as well as in the value it shows.
         self.visited: set[str] = set()
+        #: A desktop proposal is withdrawn with that desktop; an explicit edit
+        #: clears this marker even when it chooses the same manager.
+        self.proposed_display_manager: str = ""
         #: The hand-written partition table, when the layout is manual.
         self.layout = manual.Layout()
         #: Whether the disk comes from that table rather than a template.
@@ -1477,8 +1480,36 @@ def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> A
                 ),
             ),
         )
+    manager = config.packages.display_manager
+    was_proposed = bool(manager and context.proposed_display_manager == manager)
+    kept_manager = (
+        manager
+        if manager and not was_proposed and desktop != config.packages.desktop
+        else ""
+    )
     changed = _desktop_proposes(changed, config, context, desktop)
-    return settle(screen, context, config, changed)
+    login = LOGIN_SCREEN.get(desktop, "")
+    proposed = (
+        login
+        if login
+        and changed.packages.display_manager == login
+        and (was_proposed or not manager)
+        else ""
+    )
+    answered = settle(
+        screen,
+        context,
+        config,
+        changed,
+        kept_display_manager=kept_manager,
+    )
+    if answered.chosen:
+        context.proposed_display_manager = (
+            proposed
+            if answered.unwrap().packages.display_manager == proposed
+            else ""
+        )
+    return answered
 
 
 #: What each desktop's own login screen is. Proposed rather than fixed: the
@@ -1504,10 +1535,18 @@ def _desktop_proposes(
     `USE=networkmanager`, and nothing moved `system.networking` with it, so the
     installed desktop had the settings panel and not the service behind it.
     """
+    if (
+        context.proposed_display_manager
+        and context.proposed_display_manager == before.packages.display_manager
+    ):
+        changed = replace(
+            changed,
+            packages=replace(changed.packages, display_manager=""),
+        )
     if not desktop:
         return changed
     login = LOGIN_SCREEN.get(desktop, "")
-    if login and not before.packages.display_manager and login in context.groups:
+    if login and not changed.packages.display_manager and login in context.groups:
         changed = replace(
             changed, packages=replace(changed.packages, display_manager=login)
         )
@@ -1520,7 +1559,11 @@ def _desktop_proposes(
 
 
 def settle(
-    screen: Screen, context: Context, before: InstallConfig, after: InstallConfig
+    screen: Screen,
+    context: Context,
+    before: InstallConfig,
+    after: InstallConfig,
+    kept_display_manager: str = "",
 ) -> Answer[InstallConfig]:
     """Confirm what a choice changes outside its own row, then write it down.
 
@@ -1542,6 +1585,7 @@ def settle(
     moved = (
         after.packages.display_manager != before.packages.display_manager
         or after.system.networking is not before.system.networking
+        or bool(kept_display_manager)
     )
     if not (flags or cards or joins or profile or moved):
         return Answer(Outcome.CHOSE, after)
@@ -1554,6 +1598,11 @@ def settle(
     if after.packages.display_manager != before.packages.display_manager:
         lines.append(
             f"{translate('Display manager')}: {after.packages.display_manager}"
+        )
+    elif kept_display_manager:
+        lines.append(
+            f"{translate('Display manager')}: {kept_display_manager} "
+            f"({translate('kept')})"
         )
     if after.system.networking is not before.system.networking:
         lines.append(f"{translate('Network')}: {after.system.networking.value}")
@@ -1751,7 +1800,10 @@ def display_manager_screen(
     )
     if not chosen.chosen:
         return chosen
-    return settle(screen, context, config, chosen.unwrap())
+    answered = settle(screen, context, config, chosen.unwrap())
+    if answered.chosen:
+        context.proposed_display_manager = ""
+    return answered
 
 
 def _needs_an_overlay(

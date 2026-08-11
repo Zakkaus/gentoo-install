@@ -562,7 +562,10 @@ def _input_devices(config: InstallConfig, context: Context) -> str:
 
 
 def _display_manager(config: InstallConfig, context: Context) -> str:
-    return config.packages.display_manager or context.translate("none")
+    chosen = config.packages.display_manager
+    if chosen and context.proposed_display_manager == chosen:
+        return f"{chosen} ({context.translate('proposed')})"
+    return chosen or context.translate("none")
 
 
 def _applications(config: InstallConfig, context: Context) -> str:

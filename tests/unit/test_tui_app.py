@@ -2432,6 +2432,40 @@ def test_a_desktop_proposes_its_login_screen_and_a_network_manager() -> None:
     assert kept.packages.display_manager == "greetd"
 
 
+def test_a_proposed_display_manager_is_withdrawn_but_an_operator_choice_is_kept() -> None:
+    at = context()
+    plasma = screens.desktop_screen(
+        FakeScreen(keys=[*down(4), "\n", "\n"], lines=30), config(), at
+    ).unwrap()
+    assert "proposed" in settings._display_manager(plasma, at)
+
+    gnome = screens.desktop_screen(
+        FakeScreen(keys=["KEY_UP", "KEY_UP", "\n", "\n"], lines=30), plasma, at
+    ).unwrap()
+    assert gnome.packages.display_manager == "gdm"
+    assert "sddm" not in gnome.portage.use
+
+    explicit_at = context()
+    proposed = screens.desktop_screen(
+        FakeScreen(keys=[*down(4), "\n", "\n"], lines=30),
+        config(),
+        explicit_at,
+    ).unwrap()
+    explicit = screens.display_manager_screen(
+        FakeScreen(keys=["\n"], lines=30), proposed, explicit_at
+    ).unwrap()
+    assert "proposed" not in settings._display_manager(explicit, explicit_at)
+
+    kept_screen = FakeScreen(
+        keys=["KEY_UP", "KEY_UP", "\n", "\n"], lines=30, columns=100
+    )
+    kept = screens.desktop_screen(kept_screen, explicit, explicit_at).unwrap()
+    assert kept.packages.display_manager == "sddm"
+    assert "Display manager: sddm (kept)" in "\n".join(
+        "\n".join(frame) for frame in kept_screen.frames
+    )
+
+
 def test_what_a_desktop_brings_is_listed_in_one_place() -> None:
     """Every place the choice reaches, on the screen that asks about it."""
     at = context()
