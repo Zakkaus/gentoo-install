@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from gentoo_install.errors import LocaleMissing
+from gentoo_install.errors import InvalidLayout, LocaleMissing
 from gentoo_install.model.config import (
     Networking,
     ConsoleFontSize,
@@ -18,6 +18,8 @@ from gentoo_install.model.config import (
 )
 from gentoo_install.model.size import Size
 from gentoo_install.model.device import (
+    DeviceGraph,
+    Existing,
     Filesystem,
     FilesystemType,
     Luks,
@@ -25,8 +27,11 @@ from gentoo_install.model.device import (
     Node,
     Partition,
     PartitionRole,
+    Subvolume,
+    ZfsDataset,
+    ZfsPool,
 )
-from gentoo_install.plan import bootloader, system
+from gentoo_install.plan import bootloader, disk, mounts, system
 from gentoo_install.plan.portage import Emerge
 
 from .layouts import config, ext4_on_gpt, i
@@ -137,6 +142,121 @@ def test_an_option_the_layout_sets_replaces_the_default_rather_than_joining_it()
     written = apply_all(installation, generated=generated(installation)).files[FSTAB]
     esp = next(line for line in written.splitlines() if "/efi" in line)
     assert esp.count("umask=") == 1
+
+
+def test_runtime_mounts_and_fstab_share_resolved_graph_meaning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    nodes = [
+        node for node in ext4_on_gpt() if node.id not in {i("rootfs"), i("mnt-root")}
+    ]
+    nodes += [
+        Filesystem(id=i("rootfs"), device=i("rootpart"), kind=FilesystemType.BTRFS),
+        Subvolume(id=i("sub-root"), filesystem=i("rootfs"), name="@"),
+        Mountpoint(
+            id=i("mnt-root"),
+            source=i("sub-root"),
+            path=PurePosixPath("/"),
+            options=("compress=zstd:2",),
+        ),
+        Existing(id=i("pool-disk"), selector="/dev/disk/by-id/pool"),
+        ZfsPool(id=i("pool"), vdevs=(i("pool-disk"),), name="tank"),
+        ZfsDataset(id=i("ds-home"), pool=i("pool"), name="home"),
+        Mountpoint(id=i("mnt-home"), source=i("ds-home"), path=PurePosixPath("/home")),
+    ]
+    installation = config(nodes)
+    resolved = mounts.resolve_mounts(installation.disk.graph)
+    root = next(mount for mount in resolved if mount.path == PurePosixPath("/"))
+    assert root.device == i("rootpart")
+    assert root.filesystem_kind is FilesystemType.BTRFS
+    assert root.subvolume == "@"
+    assert root.options == ("compress=zstd:2", "subvol=@")
+    assert any(
+        mount.path == PurePosixPath("/efi")
+        and mount.device == i("esp")
+        and mount.filesystem_kind is FilesystemType.VFAT
+        for mount in resolved
+    )
+    assert any(
+        mount.path == PurePosixPath("/home") and mount.dataset == "tank/home"
+        for mount in resolved
+    )
+
+    shared = tuple(
+        replace(mount, device=i("resolved-root"), options=(*mount.options, "shared"))
+        if mount.path == PurePosixPath("/")
+        else replace(mount, device=i("resolved-esp"))
+        if mount.path == PurePosixPath("/efi")
+        else replace(mount, dataset="resolved/home")
+        for mount in resolved
+    )
+    calls = {"disk": 0, "system": 0}
+
+    def for_disk(graph: DeviceGraph) -> tuple[mounts.ResolvedMount, ...]:
+        calls["disk"] += 1
+        assert graph is installation.disk.graph
+        return shared
+
+    def for_system(graph: DeviceGraph) -> tuple[mounts.ResolvedMount, ...]:
+        calls["system"] += 1
+        assert graph is installation.disk.graph
+        return shared
+
+    monkeypatch.setattr(disk, "resolve_mounts", for_disk)
+    monkeypatch.setattr(system, "resolve_mounts", for_system)
+
+    runtime = [
+        operation
+        for operation in disk.build(installation)
+        if isinstance(operation, (disk.Mount, disk.MountZfsDataset))
+    ]
+    entries = system.fstab_entries(installation)
+
+    assert calls == {"disk": 1, "system": 1}
+    assert [operation.path for operation in runtime] == [
+        PurePosixPath("/"),
+        PurePosixPath("/efi"),
+        PurePosixPath("/home"),
+    ]
+    root_mount = next(operation for operation in runtime if operation.path == PurePosixPath("/"))
+    assert isinstance(root_mount, disk.Mount)
+    assert root_mount.source == i("resolved-root")
+    assert root_mount.options == ("compress=zstd:2", "subvol=@", "shared")
+    assert any(
+        isinstance(operation, disk.Mount)
+        and operation.path == PurePosixPath("/efi")
+        and operation.source == i("resolved-esp")
+        for operation in runtime
+    )
+    assert any(
+        isinstance(operation, disk.MountZfsDataset)
+        and operation.path == PurePosixPath("/home")
+        and operation.name == "resolved/home"
+        for operation in runtime
+    )
+
+    root_entry = next(entry for entry in entries if entry.path == PurePosixPath("/"))
+    assert root_entry.device == i("resolved-root")
+    assert root_entry.kind == "btrfs"
+    assert root_entry.options.count("subvol=@") == 1
+    assert "compress=zstd:2" in root_entry.options
+    assert "shared" in root_entry.options
+    assert any(
+        entry.path == PurePosixPath("/efi") and entry.device == i("resolved-esp")
+        for entry in entries
+    )
+    assert not any(entry.path == PurePosixPath("/home") for entry in entries)
+
+
+def test_unsupported_mount_sources_are_rejected_by_both_consumers() -> None:
+    nodes = [node for node in ext4_on_gpt() if node.id != i("mnt-root")]
+    nodes.append(
+        Mountpoint(id=i("mnt-root"), source=i("rootpart"), path=PurePosixPath("/"))
+    )
+    installation = config(nodes)
+    for consumer in (disk.build, system.fstab_entries):
+        with pytest.raises(InvalidLayout, match="not a mountable source"):
+            consumer(installation)
 
 
 def test_a_swap_entry_is_written_even_though_the_installer_never_enables_it() -> None:
