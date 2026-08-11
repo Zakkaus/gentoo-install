@@ -759,7 +759,12 @@ def driver_conflict(config: InstallConfig, catalog: Catalog) -> str:
     Read by `build` and by the screen that offers them, the way `compat.py` is
     read by the validator and by the menu.
     """
-    ticked = set(config.packages.graphics)
+    return _driver_conflict(config, groups(config, catalog))
+
+
+def _driver_conflict(config: InstallConfig, chosen: tuple[Group, ...]) -> str:
+    selected = {group.name for group in chosen}
+    ticked = {name for name in config.packages.graphics if name in selected}
     for one, other, reason in EXCLUSIVE_DRIVERS:
         if one in ticked and other in ticked:
             return reason
@@ -774,8 +779,12 @@ def framework_conflict(config: InstallConfig, catalog: Catalog) -> str:
     unreachable. Read by `build` and by the screen that offers the groups, the
     way `compat.py` is read by the validator and by the menu.
     """
+    return _framework_conflict(groups(config, catalog))
+
+
+def _framework_conflict(chosen: tuple[Group, ...]) -> str:
     named: dict[str, list[str]] = {}
-    for group in groups(config, catalog):
+    for group in chosen:
         if group.input_framework:
             named.setdefault(group.input_framework, []).append(group.name)
     if len(named) < 2:
@@ -838,12 +847,19 @@ def _group_file_operations(
 
 
 def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
-    _check_repositories(config, catalog)
-    conflict = framework_conflict(config, catalog) or driver_conflict(config, catalog)
+    chosen = groups(config, catalog)
+    _check_repositories(config, chosen)
+    conflict = _framework_conflict(chosen) or _driver_conflict(config, chosen)
     if conflict:
         raise ValidationFailed(conflict)
+    return _operations(config, catalog, chosen)
+
+
+def _operations(
+    config: InstallConfig, catalog: Catalog, chosen: tuple[Group, ...]
+) -> list[Operation]:
     operations: list[Operation] = []
-    for group in groups(config, catalog):
+    for group in chosen:
         if group.packages:
             operations.append(
                 Emerge(
@@ -883,7 +899,7 @@ def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
     # After the groups: `rc-update` refuses a service whose package is absent,
     # and both of these arrive as dependencies of the desktop above.
     operations += _session_services(config)
-    operations += _input_method(config, catalog)
+    operations += _input_method(config, chosen)
     if config.packages.extra:
         operations.append(
             Emerge(
@@ -892,7 +908,7 @@ def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
                 summary="install the extra packages",
             )
         )
-    extra_groups = required_user_groups(config, catalog)
+    extra_groups = _required_user_groups(chosen)
     # Every account, not the first one: two people on one machine both use the
     # sound server, and only the first was put in `pipewire`.
     #
@@ -946,14 +962,14 @@ def _frameworks_behind(chosen: Sequence[Group], catalog: Catalog) -> tuple[Group
     return tuple(wanted)
 
 
-def _check_repositories(config: InstallConfig, catalog: Catalog) -> None:
+def _check_repositories(config: InstallConfig, chosen: tuple[Group, ...]) -> None:
     """A group whose packages live in an overlay needs that overlay selected.
 
     Checked here rather than at emerge time, which is an hour into an install
     that has already partitioned the disks.
     """
     have = {overlay.name for overlay in config.portage.overlays}
-    for group in groups(config, catalog):
+    for group in chosen:
         missing = [name for name in group.repositories if name not in have]
         if missing:
             raise ConfigError(
@@ -969,10 +985,14 @@ def required_user_groups(config: InstallConfig, catalog: Catalog) -> tuple[str, 
     `USER_GROUPS` is the one table for that, and naming `video` again would
     read as nvidia needing something the installer does not already do.
     """
+    return _required_user_groups(groups(config, catalog))
+
+
+def _required_user_groups(chosen: tuple[Group, ...]) -> tuple[str, ...]:
     from .system import USER_GROUPS
 
     wanted: list[str] = []
-    for group in groups(config, catalog):
+    for group in chosen:
         for name in group.user_groups:
             if name not in wanted and name not in USER_GROUPS:
                 wanted.append(name)
@@ -1139,9 +1159,8 @@ def _framework_package(chosen: Sequence[Group], framework: str) -> str:
     return ""
 
 
-def _input_method(config: InstallConfig, catalog: Catalog) -> list[Operation]:
+def _input_method(config: InstallConfig, chosen: tuple[Group, ...]) -> list[Operation]:
     """Configure one selected framework and every engine belonging to it."""
-    chosen = groups(config, catalog)
     engines: list[str] = []
     for group in chosen:
         if group.input_method and group.input_method not in engines:
@@ -1229,7 +1248,7 @@ def input_environment(config: InstallConfig, catalog: Catalog) -> tuple[str, ...
     Derived here rather than restated there: `plan/automatic.py` exists so the
     operator sees what the installer adds, and a second list would drift.
     """
-    for one in _input_method(config, catalog):
+    for one in _input_method(config, groups(config, catalog)):
         if isinstance(one, WriteInputMethodEnvironment):
             return INPUT_ENVIRONMENT[(one.framework, one.session)]
     return ()
