@@ -255,6 +255,29 @@ class ConfigureRepository(Operation):
         )
 
 
+@dataclass(frozen=True, kw_only=True)
+class ConfigureWebrsyncRepository(Operation):
+    """Persist webrsync without a URI, which Portage's module does not consume."""
+
+    stage: Stage = Stage.PORTAGE
+    name: str
+    location: PurePosixPath
+
+    def describe(self) -> str:
+        return f"configure repository {self.name} to sync with emerge-webrsync"
+
+    def apply(self, context: Context) -> None:
+        stanza = (
+            f"[{self.name}]\n"
+            f"location = {self.location}\n"
+            "sync-type = webrsync\n"
+            "auto-sync = yes\n"
+            "sync-webrsync-verify-signature = true\n"
+            f"sync-openpgp-key-path = {RELEASE_KEY}\n"
+        )
+        context.write(PurePosixPath(f"/etc/portage/repos.conf/{self.name}.conf"), stanza)
+
+
 #: Where gemato refreshes the release key from, tried in this order. Gentoo's
 #: own server is first because it is what Portage ships; a guest that cannot
 #: reach it falls through rather than stopping at `No keyserver available`.
@@ -800,6 +823,13 @@ def build(
                 sync_uri=_repo_sync_uri(portage),
                 verify_commits=False,
                 sync_type="rsync",
+            )
+        )
+    elif portage.sync is Sync.WEBRSYNC:
+        operations.append(
+            ConfigureWebrsyncRepository(
+                name="gentoo",
+                location=gentoo,
             )
         )
     if portage.overlays and portage.sync is not Sync.GIT:
