@@ -48,6 +48,10 @@ class ProbedProfile:
 _PROFILE_ROW: Final[re.Pattern[str]] = re.compile(
     r"^\s*\[\d+\]\s+(\S+)\s+\(([^()\s]+)\)(\s+\*)?\s*$"
 )
+_L10N_TAG: Final[re.Pattern[str]] = re.compile(
+    r"^[a-z]{2,3}(?:-[A-Z][a-z]{3})?(?:-(?:[A-Z]{2}|[0-9]{3}))?"
+    r"(?:-(?:[0-9][a-z0-9]{3}|[a-z][a-z0-9]{4,7}))*$"
+)
 
 
 def parse_profile_list(
@@ -100,12 +104,21 @@ def validate(
         *_array_problems(config),
         *_network_problems(config),
         *_unlock_problems(config),
+        *_l10n_problems(config),
         *(rule.describe() for rule in compat.violations(config)),
     ]
     if problems:
         raise ValidationFailed(
             "the configuration does not describe an installable system:\n  " + "\n  ".join(problems)
         )
+
+
+def _l10n_problems(config: InstallConfig) -> list[str]:
+    return [
+        f"L10N tag {tag!r} is not a hyphenated BCP 47 language tag"
+        for tag in config.portage.l10n
+        if _L10N_TAG.fullmatch(tag) is None
+    ]
 
 
 def _pool_problems(config: InstallConfig) -> list[str]:

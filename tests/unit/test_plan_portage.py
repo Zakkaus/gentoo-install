@@ -102,6 +102,20 @@ def test_l10n_is_derived_from_the_locales_rather_than_listed_twice() -> None:
     assert 'L10N="en-US zh-CN zh-TW"' in written
 
 
+def test_an_l10n_override_reaches_make_conf_without_changing_the_locales() -> None:
+    locales = ("en_US.UTF-8", "zh_TW.UTF-8")
+    installation = replace(
+        config(),
+        system=SystemConfig(locales=locales),
+        portage=replace(PortageConfig(), l10n=("en", "qaa", "zh-TW")),
+    )
+
+    written = apply_all(installation).files[PurePosixPath("/etc/portage/make.conf")]
+
+    assert 'L10N="en qaa zh-TW"' in written
+    assert installation.system.locales == locales
+
+
 def test_a_chinese_region_gets_the_chinese_mirrors() -> None:
     installation = with_portage(mirrors=MirrorConfig(region=MirrorRegion.CN))
     written = apply_all(installation).files[PurePosixPath("/etc/portage/make.conf")]

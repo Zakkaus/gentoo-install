@@ -168,8 +168,10 @@ def _portage(raw: Mapping[str, Any], at: str) -> PortageConfig:
         raw,
         at,
         {
-            "profile", "keywords", "sync", "testing_packages", "makeopts", "common_flags", "use", "video_cards",
-            "accept_license", "cpu_flags", "build_in_ram", "input_devices", "mirrors", "binhost", "overlays",
+            "profile", "keywords", "sync", "testing_packages", "makeopts",
+            "common_flags", "use", "video_cards", "l10n", "accept_license",
+            "cpu_flags", "build_in_ram", "input_devices", "mirrors", "binhost",
+            "overlays",
         },
     )
     default = PortageConfig()
@@ -182,6 +184,7 @@ def _portage(raw: Mapping[str, Any], at: str) -> PortageConfig:
         common_flags=_str(raw, "common_flags", at, default.common_flags),
         use=_strings(raw, "use", at, default.use),
         video_cards=_strings(raw, "video_cards", at, default.video_cards),
+        l10n=_strings(raw, "l10n", at, default.l10n),
         input_devices=_strings(raw, "input_devices", at, default.input_devices),
         accept_license=_strings(raw, "accept_license", at, default.accept_license),
         cpu_flags=_strings(raw, "cpu_flags", at, default.cpu_flags),
