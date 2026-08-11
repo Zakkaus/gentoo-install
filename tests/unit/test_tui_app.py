@@ -17,7 +17,13 @@ from gentoo_install.model.config import (
     MirrorRegion,
 )
 from gentoo_install.model import manual
-from gentoo_install.model.device import FilesystemType, RaidLevel, RaidMetadata, ZfsTopology
+from gentoo_install.model.device import (
+    FilesystemType,
+    PartitionRole,
+    RaidLevel,
+    RaidMetadata,
+    ZfsTopology,
+)
 from gentoo_install.model.validate import validate
 from gentoo_install.model import compat
 from gentoo_install.tui import screens, settings
@@ -376,6 +382,111 @@ def test_declining_encryption_clears_the_passphrase() -> None:
     at.choice = replace(at.choice, passphrase_file="/run/keys/old")
     screens.encryption_screen(FakeScreen(keys=["KEY_UP", "\n"]), config(), at)
     assert at.choice.passphrase_file == ""
+
+
+@pytest.mark.parametrize(
+    ("leave", "outcome"),
+    [("KEY_BACKSPACE", Outcome.BACK), ("\x1b", Outcome.CANCELLED)],
+)
+def test_reopening_template_encryption_preserves_its_passphrase_on_child_exit(
+    leave: str, outcome: Outcome
+) -> None:
+    at = context()
+    at.choice = replace(at.choice, passphrase_file="/run/keys/old")
+
+    answer = screens.encryption_screen(FakeScreen(keys=["\n", leave]), config(), at)
+
+    assert answer.outcome is outcome
+    assert at.choice.passphrase_file == "/run/keys/old"
+    assert STAGED == []
+
+
+def test_template_encryption_replaces_its_staged_passphrase_after_success() -> None:
+    at = context()
+    at.choice = replace(at.choice, passphrase_file="/run/keys/old")
+    typed = list("replacement")
+
+    answer = screens.encryption_screen(
+        FakeScreen(keys=["\n", *typed, "\n", *typed, "\n"]), config(), at
+    )
+
+    assert answer.outcome is Outcome.CHOSE
+    assert at.choice.passphrase_file == "/run/keys/tui"
+    assert STAGED == ["replacement"]
+
+
+@pytest.mark.parametrize("leave", ["KEY_BACKSPACE", "\x1b"])
+def test_reopening_array_encryption_preserves_its_passphrase_on_child_exit(
+    leave: str,
+) -> None:
+    at = context()
+    at.layout.array.passphrase_file = "/run/keys/old"
+
+    screens._edit_array_field(
+        FakeScreen(keys=["\n", leave]), at, screens._ENCRYPTION, members=2
+    )
+
+    assert at.layout.array.passphrase_file == "/run/keys/old"
+    assert STAGED == []
+
+
+def test_array_encryption_replaces_its_staged_passphrase_after_success() -> None:
+    at = context()
+    at.layout.array.passphrase_file = "/run/keys/old"
+    typed = list("replacement")
+
+    screens._edit_array_field(
+        FakeScreen(keys=["\n", *typed, "\n", *typed, "\n"]),
+        at,
+        screens._ENCRYPTION,
+        members=2,
+    )
+
+    assert at.layout.array.passphrase_file == "/run/keys/tui"
+    assert STAGED == ["replacement"]
+
+
+def encrypted_partition() -> manual.Slice:
+    return manual.Slice(
+        index=1,
+        role=PartitionRole.DATA,
+        size=None,
+        filesystem=FilesystemType.EXT4,
+        passphrase_file="/run/keys/old",
+    )
+
+
+@pytest.mark.parametrize("leave", ["KEY_BACKSPACE", "\x1b"])
+def test_reopening_partition_encryption_preserves_its_passphrase_on_child_exit(
+    leave: str,
+) -> None:
+    at = context()
+    entry = encrypted_partition()
+
+    changed = screens._edit_slice_encryption(
+        FakeScreen(keys=["\n", leave]), at, entry, manual.purpose_of(entry)
+    )
+
+    assert changed is None
+    assert entry.passphrase_file == "/run/keys/old"
+    assert STAGED == []
+
+
+def test_partition_encryption_replaces_its_staged_passphrase_after_success() -> None:
+    at = context()
+    entry = encrypted_partition()
+    typed = list("replacement")
+
+    changed = screens._edit_slice_encryption(
+        FakeScreen(keys=["\n", *typed, "\n", *typed, "\n"]),
+        at,
+        entry,
+        manual.purpose_of(entry),
+    )
+
+    assert changed is not None
+    assert changed.passphrase_file == "/run/keys/tui"
+    assert STAGED == ["replacement"]
 
 
 def test_escape_asks_before_throwing_the_answers_away() -> None:
@@ -1131,10 +1242,9 @@ def test_what_still_asks_before_it_changes() -> None:
     }
     for title in asked:
         assert title in source, title
-    # Seven call sites, eight titles: the slice screen words its question for a
-    # pool or for a partition. sudo left the list when the account became one
-    # form: a tick beside the other four answers, not a screen of its own.
-    assert source.count("Confirm(") == 7
+    # Five call sites, eight titles: one encryption editor serves three titles,
+    # and the slice screen words its title for a pool or for a partition.
+    assert source.count("Confirm(") == 5
     # `settle` asks the same kind of question with three answers rather than
     # two, because the third opens the row the values land on.
     assert "This choice also sets" in source
