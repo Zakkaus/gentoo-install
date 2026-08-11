@@ -513,6 +513,53 @@ def test_a_guest_that_could_not_be_removed_keeps_its_slot() -> None:
     assert "not outcome.removed" in inspect.getsource(cluster.run)
 
 
+def test_cleanup_result_does_not_leak_between_workers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A later campaign may run the same job after an earlier cleanup failed.
+    Its removed guest must return the slot and VMID."""
+    import queue
+    from typing import cast
+
+    from tests.vm import cluster
+    from tests.vm.proxmox import Api, ProxmoxError
+
+    destroy_fails = iter((True, False))
+
+    class FakeGuest:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.vmid = 9300
+
+        def create(self) -> None:
+            raise ProxmoxError("the test stops before installation")
+
+        def transferred(self) -> int:
+            return 0
+
+        def destroy(self) -> None:
+            if next(destroy_fails):
+                raise ProxmoxError("the guest remains")
+
+    monkeypatch.setattr(cluster, "Guest", FakeGuest)
+    done: queue.Queue[cluster.Outcome] = queue.Queue()
+    inflight: dict[str, cluster.Running] = {}
+    job = cluster.Job("vm-lvm", Path("tests/fixtures/vm-lvm.toml"))
+    nowhere = cast(Api, object())
+
+    cluster.answer_once(
+        done, nowhere, "infra-node1", job, "driver.iso", tmp_path, inflight, 9300
+    )
+    cluster.answer_once(
+        done, nowhere, "infra-node1", job, "driver.iso", tmp_path, inflight, 9301
+    )
+
+    left_behind = done.get_nowait()
+    removed = done.get_nowait()
+    assert (left_behind.vmid, removed.vmid) == (9300, 9301)
+    assert not left_behind.removed
+    assert removed.removed
+
+
 def test_a_worker_that_ends_without_reporting_becomes_an_error() -> None:
     """`answer_once` puts an outcome on the queue for everything a Python
     handler can see. A thread that ends any other way left its name in the

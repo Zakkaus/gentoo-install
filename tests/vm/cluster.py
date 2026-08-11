@@ -851,12 +851,6 @@ class Running:
     watch: Watchdog
 
 
-#: Jobs whose guest could not be removed. A node's memory is still allocated
-#: for one of these, so its slot is not handed back: doing that put the next
-#: guest onto a node with no room and the hypervisor ended it.
-LEFT_BEHIND: set[str] = set()
-
-
 def install_one(
     api: Api,
     node: str,
@@ -891,6 +885,7 @@ def install_one(
     )
     phase = Phase.CREATE
     watch = Watchdog(log=log, counters=lambda: guest.transferred())
+    outcome: Outcome | None = None
     if inflight is not None:
         inflight[job.name] = Running(guest=guest, watch=watch)
     try:
@@ -932,7 +927,7 @@ def install_one(
         files = collect(guest, link, log)
         code = files.get("install.rc", b"").strip()
         if code != b"0":
-            return Outcome(
+            outcome = Outcome(
                 job.name,
                 Verdict.FAIL,
                 time.monotonic() - started,
@@ -941,13 +936,14 @@ def install_one(
                 phase=phase,
                 revision=revision,
             )
+            return outcome
         # The install finishing is half the question. The other half is whether
         # the machine it produced comes up and carries what was asked for, and
         # nothing in the log above can answer that.
         phase = Phase.BOOT_INSTALLED
         wrong = boot_and_check(guest, link, log, load(job.fixture))
         if wrong:
-            return Outcome(
+            outcome = Outcome(
                 job.name,
                 Verdict.FAIL,
                 time.monotonic() - started,
@@ -956,7 +952,8 @@ def install_one(
                 phase=phase,
                 revision=revision,
             )
-        return Outcome(
+            return outcome
+        outcome = Outcome(
             job.name,
             Verdict.OK,
             time.monotonic() - started,
@@ -964,9 +961,10 @@ def install_one(
             phase=phase,
             revision=revision,
         )
+        return outcome
     except (ConsoleTimeout, ConsoleClosed) as error:
         verdict = Verdict.STUCK if watch.stuck else Verdict.ERROR
-        return Outcome(
+        outcome = Outcome(
             job.name,
             verdict,
             time.monotonic() - started,
@@ -975,8 +973,9 @@ def install_one(
             phase=phase,
             revision=revision,
         )
+        return outcome
     except (ProxmoxError, ResultError, OSError) as error:
-        return Outcome(
+        outcome = Outcome(
             job.name,
             Verdict.ERROR,
             time.monotonic() - started,
@@ -985,6 +984,7 @@ def install_one(
             phase=phase,
             revision=revision,
         )
+        return outcome
     finally:
         if inflight is not None:
             inflight.pop(job.name, None)
@@ -995,7 +995,8 @@ def install_one(
             # and the operator has to know, but the result already exists. The
             # slot stays held below, because the memory does.
             print(f"{job.name}: the guest was not removed: {error}", file=sys.stderr)
-            LEFT_BEHIND.add(job.name)
+            if outcome is not None:
+                outcome.removed = False
 
 
 def answer_once(
@@ -1022,9 +1023,7 @@ def answer_once(
         outcome = install_one(
             api, node, job, driver, workdir, inflight, vmid, nonce, revision
         )
-        outcome = replace(
-            outcome, removed=outcome.name not in LEFT_BEHIND, vmid=outcome.vmid or vmid
-        )
+        outcome = replace(outcome, vmid=outcome.vmid or vmid)
         if outcome.removed and lease_path is not None:
             lease_path.unlink(missing_ok=True)
         done.put(outcome)
