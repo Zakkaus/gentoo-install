@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +10,7 @@ import pytest
 
 from gentoo_install.model.config import MirrorRegion, Sync
 from tests.vm import cluster
+from tests.vm.console import ConsoleTimeout, SerialConsole
 from tests.vm.proxmox import Node, VMID_FIRST, VMID_LAST
 
 
@@ -136,3 +139,97 @@ def test_worker_failure_reports_outcome_and_releases_vmid(
     assert all(outcome.verdict is cluster.Verdict.ERROR for outcome in outcomes)
     assert all(outcome.vmid == VMID_FIRST for outcome in outcomes)
     assert api.allocations == [VMID_FIRST, VMID_FIRST]
+
+
+class TimedChannel:
+    def __init__(self, clock: list[float], output_at: float | None = None) -> None:
+        self._clock = clock
+        self._output_at = output_at
+        self._answered = False
+
+    def recv(self, size: int) -> bytes:
+        self._clock[0] += 1.0
+        if (
+            self._output_at is not None
+            and self._clock[0] >= self._output_at
+            and not self._answered
+        ):
+            self._answered = True
+            return b"MARK_1_DONE\n"
+        return b""
+
+    def sendall(self, data: bytes) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
+
+    @property
+    def closed(self) -> bool:
+        return False
+
+
+def _timed_wait(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    clock: list[float],
+    counters: Callable[[], int | None],
+    output_at: float | None = None,
+) -> tuple[cluster.Reconnecting, cluster.Watchdog]:
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    serial = SerialConsole(TimedChannel(clock, output_at), BytesIO())
+    link = cluster.Reconnecting(lambda: serial)
+    watch = cluster.Watchdog(tmp_path / "install.log", counters)
+    return link, watch
+
+
+def test_install_wait_continues_when_silent_guest_moves_bytes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    clock = [0.0]
+    traffic = [0]
+
+    def counters() -> int:
+        traffic[0] += cluster.QUIET_BYTES * 2
+        return traffic[0]
+
+    link, watch = _timed_wait(monkeypatch, tmp_path, clock, counters, output_at=3.0)
+    link.wait_for("install", timeout=5.0, idle=2.0, watch=watch)
+
+    assert clock[0] == 3.0
+    assert traffic[0] == cluster.QUIET_BYTES * 2
+
+
+def test_install_wait_names_silent_console_and_flat_counters(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    clock = [0.0]
+    link, watch = _timed_wait(monkeypatch, tmp_path, clock, lambda: 0)
+    watch.log.write_bytes(b"output before the idle window\n")
+
+    with pytest.raises(ConsoleTimeout) as raised:
+        link.wait_for("install", timeout=5.0, idle=2.0, watch=watch)
+
+    message = str(raised.value)
+    assert clock[0] == 2.0
+    assert "console was silent" in message
+    assert "counters were flat" in message
+    assert "0 -> 0 bytes" in message
+
+
+def test_run_ceiling_ends_silent_guest_that_keeps_moving_bytes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    clock = [0.0]
+    readings = [0]
+
+    def counters() -> int:
+        readings[0] += 1
+        return readings[0] * cluster.QUIET_BYTES * 2
+
+    link, watch = _timed_wait(monkeypatch, tmp_path, clock, counters)
+    with pytest.raises(ConsoleTimeout, match="never matched"):
+        link.wait_for("install", timeout=5.0, idle=2.0, watch=watch)
+
+    assert clock[0] == 5.0
+    assert readings[0] == 2

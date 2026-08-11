@@ -54,6 +54,7 @@ from .console import (
     PASSPHRASE_PROMPT,
     PASSWORD_PROMPT,
     ConsoleClosed,
+    ConsoleIdle,
     ConsoleTimeout,
     SerialConsole,
 )
@@ -377,16 +378,25 @@ class Watchdog:
     strikes: int = 0
     _seen: int = field(default=0, init=False)
     _moved: int = field(default=0, init=False)
+    _counter_before: int = field(default=0, init=False)
+    _counter_after: int = field(default=0, init=False)
+    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def moved(self) -> bool:
-        size = self.log.stat().st_size if self.log.exists() else 0
+        with self._lock:
+            size = self.log.stat().st_size if self.log.exists() else 0
+            talking = size > self._seen
+            self._seen = max(self._seen, size)
+            return self._observe(talking)
+
+    def _observe(self, talking: bool) -> bool:
         traffic = self.counters()
-        talking = size > self._seen
-        self._seen = max(self._seen, size)
         if traffic is None:
             if talking:
                 self.strikes = 0
             return True
+        self._counter_before = self._moved
+        self._counter_after = traffic
         working = traffic - self._moved >= QUIET_BYTES
         self._moved = max(self._moved, traffic)
         if talking or working:
@@ -394,6 +404,15 @@ class Watchdog:
             return True
         self.strikes += 1
         return False
+
+    def idle_reason(self) -> str | None:
+        with self._lock:
+            if self._observe(talking=False):
+                return None
+            return (
+                "counters were flat "
+                f"({self._counter_before} -> {self._counter_after} bytes)"
+            )
 
     @property
     def stuck(self) -> bool:
@@ -1053,6 +1072,7 @@ def install_one(
             f"echo $? > {RESULT_DIR}/install.rc; }} 2>&1 | tee {RESULT_DIR}/install.txt",
             timeout=RUN_CEILING,
             idle=INSTALL_IDLE,
+            watch=watch,
         )
         files = collect(guest, link, log)
         code = files.get("install.rc", b"").strip()
@@ -1450,7 +1470,13 @@ class Reconnecting:
 
         self._with_reconnect(timeout, run_once)
 
-    def wait_for(self, command: str, timeout: float, idle: float = 0.0) -> None:
+    def wait_for(
+        self,
+        command: str,
+        timeout: float,
+        idle: float = 0.0,
+        watch: Watchdog | None = None,
+    ) -> None:
         """Send a command once and wait for it however long it takes.
 
         Reconnecting does not re-send it: an install that is already running
@@ -1467,7 +1493,19 @@ class Reconnecting:
             if not sent:
                 sent = True
                 self.console.send(_marked(command, token))
-            self.console.expect(_done(token), _remaining(deadline), idle=idle)
+            while True:
+                try:
+                    self.console.expect(_done(token), _remaining(deadline), idle=idle)
+                    return
+                except ConsoleIdle as error:
+                    if watch is None:
+                        raise
+                    reason = watch.idle_reason()
+                    if reason is None:
+                        continue
+                    raise ConsoleTimeout(
+                        f"{error}; console was silent for {idle:.0f}s and {reason}"
+                    ) from error
 
         self._with_reconnect(timeout, wait_once)
 
