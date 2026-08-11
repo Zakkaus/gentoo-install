@@ -33,7 +33,7 @@ from enum import Enum
 from pathlib import Path, PurePosixPath
 from collections import Counter
 from collections.abc import Callable, Mapping
-from typing import Final, Protocol
+from typing import Final, Protocol, TypeVar
 
 from gentoo_install.model.config import Firmware as BootFirmware
 from gentoo_install.model.config import InitSystem, InstallConfig
@@ -1264,6 +1264,9 @@ _BEGIN_TEXT: Final[str] = "MARK_{token}_BEGIN"
 _DONE_TEXT: Final[str] = "MARK_{token}_DONE"
 
 
+_Result = TypeVar("_Result")
+
+
 def _marked(command: str, token: int) -> str:
     return (
         f"printf 'MARK_%s_BEGIN\\n' {token}; {command}; printf 'MARK_%s_DONE\\n' {token}"
@@ -1276,6 +1279,10 @@ def _begin(token: int) -> str:
 
 def _done(token: int) -> str:
     return _DONE_TEXT.format(token=token)
+
+
+def _remaining(deadline: float) -> float:
+    return max(0.0, deadline - time.monotonic())
 
 
 class Reconnecting:
@@ -1309,26 +1316,17 @@ class Reconnecting:
         self.console.send("")
 
     def expect(self, pattern: str, timeout: float) -> bytes:
-        for attempt in range(self._tries):
-            try:
-                return self.console.expect(pattern, timeout)
-            except ConsoleClosed:
-                if attempt + 1 == self._tries:
-                    raise
-                self.reopen()
-        raise ConsoleClosed("the console could not be reopened")
+        return self._with_reconnect(
+            timeout, lambda deadline: self.console.expect(pattern, _remaining(deadline))
+        )
 
     def run(self, command: str, timeout: float = 120.0) -> None:
-        for attempt in range(self._tries):
+        def run_once(deadline: float) -> None:
             token = next(self._marks)
             self.console.send(_marked(command, token))
-            try:
-                self.console.expect(_done(token), timeout)
-                return
-            except ConsoleClosed:
-                if attempt + 1 == self._tries:
-                    raise
-                self.reopen()
+            self.console.expect(_done(token), _remaining(deadline))
+
+        self._with_reconnect(timeout, run_once)
 
     def wait_for(self, command: str, timeout: float) -> None:
         """Send a command once and wait for it however long it takes.
@@ -1337,15 +1335,16 @@ class Reconnecting:
         would be started a second time on a target it has half written.
         """
         token = next(self._marks)
-        self.console.send(_marked(command, token))
-        for attempt in range(self._tries):
-            try:
-                self.console.expect(_done(token), timeout)
-                return
-            except ConsoleClosed:
-                if attempt + 1 == self._tries:
-                    raise
-                self.reopen()
+        sent = False
+
+        def wait_once(deadline: float) -> None:
+            nonlocal sent
+            if not sent:
+                sent = True
+                self.console.send(_marked(command, token))
+            self.console.expect(_done(token), _remaining(deadline))
+
+        self._with_reconnect(timeout, wait_once)
 
     def expect_output(self, command: str, timeout: float = 120.0) -> bytes:
         """Run a command and answer with what it printed, and nothing else.
@@ -1356,15 +1355,28 @@ class Reconnecting:
         echo of that command carries one, so the check passed on a guest whose
         `findmnt` printed nothing at all.
         """
-        for attempt in range(self._tries):
+        def collect_once(deadline: float) -> bytes:
             token = next(self._marks)
             self.console.send(_marked(command, token))
+            self.console.expect(_begin(token), _remaining(deadline))
+            said = self.console.expect(_done(token), _remaining(deadline))
+            return said.split(_DONE_TEXT.format(token=token).encode())[0]
+
+        return self._with_reconnect(timeout, collect_once)
+
+    def _with_reconnect(
+        self, timeout: float, operation: Callable[[float], _Result]
+    ) -> _Result:
+        deadline = time.monotonic() + timeout
+        closed: ConsoleClosed | None = None
+        for attempt in range(self._tries):
+            if closed is not None and _remaining(deadline) <= 0.0:
+                raise closed
             try:
-                self.console.expect(_begin(token), timeout)
-                said = self.console.expect(_done(token), timeout)
-                return said.split(_DONE_TEXT.format(token=token).encode())[0]
-            except ConsoleClosed:
-                if attempt + 1 == self._tries:
+                return operation(deadline)
+            except ConsoleClosed as error:
+                closed = error
+                if attempt + 1 == self._tries or _remaining(deadline) <= 0.0:
                     raise
                 self.reopen()
         raise ConsoleClosed("the console could not be reopened")

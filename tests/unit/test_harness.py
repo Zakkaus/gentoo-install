@@ -1252,3 +1252,53 @@ def test_a_term_signal_reaches_the_closing_path() -> None:
             handler(signals.SIGTERM, None)
     finally:
         signals.signal(signals.SIGTERM, before)
+
+
+def test_reconnects_share_the_callers_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A dropped console cannot turn one bounded wait into one per connection."""
+    import time as clock
+
+    from tests.vm import cluster
+    from tests.vm.console import ConsoleClosed, ConsoleTimeout
+
+    now = [0.0]
+    opened = 0
+
+    class Missing:
+        def __init__(self, drops: bool) -> None:
+            self.drops = drops
+
+        def send(self, line: str) -> None:
+            pass
+
+        def send_raw(self, keys: str) -> None:
+            pass
+
+        def snapshot(self, seconds: float) -> bytes:
+            return b""
+
+        @property
+        def closed(self) -> bool:
+            return False
+
+        def expect(self, pattern: str, timeout: float) -> bytes:
+            if self.drops:
+                now[0] += min(4.0, timeout)
+                raise ConsoleClosed("the guest closed the serial connection")
+            now[0] += timeout
+            raise ConsoleTimeout(f"never matched {pattern!r}")
+
+    def open_console() -> Missing:
+        nonlocal opened
+        opened += 1
+        return Missing(drops=opened < 3)
+
+    monkeypatch.setattr(clock, "monotonic", lambda: now[0])
+    link = cluster.Reconnecting(open_console, tries=3)
+    with pytest.raises(ConsoleTimeout, match="never matched"):
+        link.expect("installation complete", timeout=10.0)
+
+    assert opened == 3, "both dropped connections are reopened"
+    assert now[0] == pytest.approx(10.0)
