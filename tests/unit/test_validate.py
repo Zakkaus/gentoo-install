@@ -40,6 +40,46 @@ def test_the_shipped_fixture_validates() -> None:
     validate(load(FIXTURES / "btrfs-luks.toml"))
 
 
+def test_a_selected_locale_absent_from_system_locales_is_refused_and_named() -> None:
+    installation = replace(
+        config(),
+        system=replace(
+            config().system,
+            locales=("en_US.UTF-8", "zh_CN.UTF-8"),
+            locale="zh_TW.UTF-8",
+        ),
+    )
+
+    with pytest.raises(
+        ValidationFailed,
+        match=r"system\.locale is 'zh_TW\.UTF-8'.*system\.locales",
+    ):
+        validate(installation)
+
+
+def test_a_selected_locale_present_in_system_locales_validates() -> None:
+    installation = replace(
+        config(),
+        system=replace(
+            config().system,
+            locales=("en_US.UTF-8", "zh_TW.UTF-8"),
+            locale="zh_TW.UTF-8",
+        ),
+    )
+
+    validate(installation)
+
+
+def test_a_selected_locale_with_no_generated_locales_is_refused() -> None:
+    installation = replace(
+        config(),
+        system=replace(config().system, locales=(), locale="en_US.UTF-8"),
+    )
+
+    with pytest.raises(ValidationFailed, match=r"system\.locales"):
+        validate(installation)
+
+
 def test_an_l10n_tag_not_shaped_like_one_is_refused_and_named() -> None:
     installation = replace(
         config(), portage=replace(config().portage, l10n=("zh_TW",))

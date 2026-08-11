@@ -83,7 +83,7 @@ def test_a_locale_outside_cjk_is_not_changed(locale: str) -> None:
     installation = config()
     selected = replace(
         installation,
-        system=replace(installation.system, locale=locale),
+        system=replace(installation.system, locales=(locale,), locale=locale),
         packages=PackagesConfig(applications=("configure-fonts", "noto-cjk")),
     )
     assert not [
