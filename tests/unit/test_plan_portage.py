@@ -709,3 +709,32 @@ def test_a_pinned_package_reaches_usepkg_exclude_without_its_version() -> None:
     )
     assert "7.1.7" not in excluded, excluded
     assert "sys-kernel/gentoo-cjk-kernel-bin" in excluded
+
+
+def test_an_rsync_install_does_not_fetch_the_tree_twice() -> None:
+    """`emerge-webrsync` places a signed snapshot, and `SyncRepository` deletes
+    it and fetches the same tree again over rsync. Twelve guests behind one
+    address did that at once and `rsync.gentoo.org` answered `access denied to
+    gentoo-portage from UNKNOWN`, which its own MOTD warns about. The
+    repository is still configured, so the installed system syncs later.
+    """
+    from pathlib import Path
+
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.config import Sync
+    from gentoo_install.plan import portage as plan_portage
+
+    installation = load(Path("tests/fixtures/vm-btrfs.toml"))
+    over_rsync = replace(
+        installation,
+        portage=replace(installation.portage, sync=Sync.RSYNC, overlays=()),
+    )
+    operations = plan_portage.build(over_rsync, "https://distfiles.gentoo.org")
+    synced = [
+        one
+        for one in operations
+        if isinstance(one, plan_portage.SyncRepository) and one.name == "gentoo"
+    ]
+    assert not synced, [one.describe() for one in operations]
+    pointed = [one for one in operations if isinstance(one, plan_portage.ConfigureRepository)]
+    assert [one for one in pointed if one.name == "gentoo"], [one.describe() for one in operations]

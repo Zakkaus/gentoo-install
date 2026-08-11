@@ -693,16 +693,22 @@ def build(
     elif portage.sync is Sync.RSYNC:
         # No `dev-vcs/git`: rsync needs none, and the stage3 already has the
         # rsync binary. Signatures are verified per snapshot, not per commit.
-        operations += [
+        #
+        # No sync here either. `emerge-webrsync` has just placed a signed
+        # snapshot, and `SyncRepository` deletes it and fetches the same tree
+        # again over rsync. Twelve guests behind one address did that at once
+        # and rsync.gentoo.org answered `access denied ... from UNKNOWN`, which
+        # its own MOTD warns about. The repository is configured so the
+        # installed system syncs, and the snapshot is what this install uses.
+        operations.append(
             ConfigureRepository(
                 name="gentoo",
                 location=gentoo,
                 sync_uri=_rsync_uri(portage),
                 verify_commits=False,
                 sync_type="rsync",
-            ),
-            SyncRepository(name="gentoo", location=gentoo),
-        ]
+            )
+        )
     if portage.overlays and portage.sync is not Sync.GIT:
         # Every overlay is a git repository whichever way the main tree syncs,
         # and a stage3 has no git: without this the first overlay sync fails.
