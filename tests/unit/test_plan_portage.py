@@ -152,8 +152,12 @@ def test_a_custom_rsync_uri_is_written_to_the_main_repository() -> None:
 
     stanza = apply_all(installation).files[PurePosixPath("/etc/portage/repos.conf/gentoo.conf")]
 
-    assert "sync-type = rsync" in stanza
-    assert f"sync-uri = {sync_uri}" in stanza
+    assert stanza == f"""[gentoo]
+location = /var/db/repos/gentoo
+sync-type = rsync
+sync-uri = {sync_uri}
+auto-sync = yes
+"""
 
 
 def test_an_empty_rsync_uri_uses_the_default_rsync_repository() -> None:
@@ -174,8 +178,33 @@ def test_a_custom_git_uri_is_written_to_the_main_repository() -> None:
 
     stanza = apply_all(installation).files[PurePosixPath("/etc/portage/repos.conf/gentoo.conf")]
 
-    assert "sync-type = git" in stanza
-    assert f"sync-uri = {sync_uri}" in stanza
+    assert stanza == f"""[gentoo]
+location = /var/db/repos/gentoo
+sync-type = git
+sync-uri = {sync_uri}
+sync-depth = 1
+auto-sync = yes
+sync-git-verify-commit-signature = true
+sync-openpgp-key-path = /usr/share/openpgp-keys/gentoo-release.asc
+"""
+
+
+def test_webrsync_is_persisted_without_a_repository_uri() -> None:
+    installation = with_portage(
+        sync=Sync.WEBRSYNC,
+        mirrors=MirrorConfig(repo_sync_uri="https://unused.example.invalid/gentoo.git"),
+    )
+    operations = portage.build(installation, MIRROR)
+
+    assert sum(isinstance(operation, portage.WebrsyncRepository) for operation in operations) == 1
+    stanza = apply_all(installation).files[PurePosixPath("/etc/portage/repos.conf/gentoo.conf")]
+    assert stanza == """[gentoo]
+location = /var/db/repos/gentoo
+sync-type = webrsync
+auto-sync = yes
+sync-webrsync-verify-signature = true
+sync-openpgp-key-path = /usr/share/openpgp-keys/gentoo-release.asc
+"""
 
 
 def test_the_local_copy_goes_before_the_first_sync_or_git_refuses() -> None:
