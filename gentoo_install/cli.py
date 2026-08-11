@@ -68,6 +68,10 @@ class RunState:
 
     disk_was_written: bool = False
 
+    def operation_started(self, operation: Operation) -> None:
+        if operation.stage is Stage.PARTITION:
+            self.disk_was_written = True
+
 
 def parser() -> argparse.ArgumentParser:
     parsed = argparse.ArgumentParser(
@@ -271,13 +275,8 @@ def install(
         closing = tuple(one for one in operations if one.stage is Stage.FINISH)
         body = tuple(one for one in operations if one.stage is not Stage.FINISH)
         failure: BaseException | None = None
-        # Reaching the body means the partition stage is about to run. A
-        # command that fails can still have changed the disk before exiting.
-        state.disk_was_written = state.disk_was_written or any(
-            operation.stage is Stage.PARTITION for operation in body
-        )
         try:
-            apply(body, machine, finished)
+            apply(body, machine, finished, state.operation_started)
         except BaseException as error:
             failure = _first_failure(failure, error, record)
         stopped = failure is not None

@@ -13,7 +13,7 @@ import time
 from dataclasses import astuple, dataclass, field, is_dataclass
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
-from typing import Sequence
+from typing import Callable, Sequence
 
 from ..errors import CommandFailed, GentooInstallError, InvalidLayout
 from ..model.config import InstallConfig
@@ -325,13 +325,15 @@ def apply(
     operations: Sequence[Operation],
     machine: Machine,
     finished: frozenset[tuple[int, str]] = frozenset(),
+    on_start: Callable[[Operation], None] | None = None,
 ) -> None:
     """Perform each operation in order, stopping at the first failure.
 
     Nothing is retried: a disk operation that failed leaves a state the next
     one cannot assume anything about. `finished` names what an earlier run
     completed, so a resumed run does not partition a disk it already installed
-    onto.
+    onto. `on_start` runs before the operation because a failed command may
+    still have changed the machine.
     """
     total = len(operations)
     opened = time.monotonic()
@@ -342,6 +344,8 @@ def apply(
                 f"{counted} [{operation.stage.value}] done earlier: {operation.describe()}"
             )
             continue
+        if on_start is not None:
+            on_start(operation)
         machine.runner.log(f"{counted} [{operation.stage.value}] {operation.describe()}")
         started = time.monotonic()
         try:

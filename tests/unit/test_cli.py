@@ -728,6 +728,65 @@ def test_a_failure_before_partitioning_says_nothing_was_written(
     assert "may not boot" not in said
 
 
+def test_a_body_failure_before_partitioning_says_nothing_was_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from dataclasses import dataclass
+
+    from gentoo_install.plan.operations import Context, Operation, Stage
+
+    from .layouts import config
+
+    partitioned: list[bool] = []
+
+    @dataclass(frozen=True, kw_only=True)
+    class FailBeforePartition(Operation):
+        stage: Stage = Stage.PREFLIGHT
+
+        def describe(self) -> str:
+            return "prepare the install"
+
+        def apply(self, context: Context) -> None:
+            raise IntegrityError("preparation stopped")
+
+    @dataclass(frozen=True, kw_only=True)
+    class Partition(Operation):
+        stage: Stage = Stage.PARTITION
+
+        def describe(self) -> str:
+            return "write the partition table"
+
+        def apply(self, context: Context) -> None:
+            partitioned.append(True)
+
+    monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
+    monkeypatch.setattr(cli, "_needs_network", lambda arguments: False)
+    monkeypatch.setattr(cli, "load", lambda path: config())
+    monkeypatch.setattr(cli, "with_probed_facts", lambda chosen, probe: chosen)
+    monkeypatch.setattr(
+        cli,
+        "build",
+        lambda chosen, catalog, mirror: (FailBeforePartition(), Partition()),
+    )
+    monkeypatch.setattr(report, "keep_log", lambda work, target, record: None)
+
+    code = main(
+        [
+            "--config", str(tmp_path / "install.toml"),
+            "--work", str(tmp_path / "work"),
+            "--target", str(tmp_path / "target"),
+            "--skip-preflight",
+            "--no-shell",
+        ]
+    )
+
+    said = capsys.readouterr().err
+    assert partitioned == []
+    assert code == EXIT_INTEGRITY
+    assert "nothing was written to the selected disk" in said
+    assert "may not boot" not in said
+
+
 def test_the_menu_starts_from_the_firmware_the_machine_booted() -> None:
     """`_blank` took `BootloaderConfig`'s default, so a machine that booted
     BIOS opened the menu on a row reading `uefi - detected` and a template
