@@ -567,10 +567,6 @@ class Guest:
         except ProxmoxNotFound:
             self._booted = False
             return
-        except ProxmoxError:
-            # Already down, or the task record expired. Either way `destroy`
-            # is what has to happen next, and it must not be skipped.
-            pass
         self._booted = False
 
     def destroy(self, patience: float = CLEANUP_PATIENCE) -> None:
@@ -623,6 +619,10 @@ class Guest:
                 )
             try:
                 self.stop()
+            except ProxmoxError as error:
+                # A running guest is the one cleanup must still try to delete.
+                last = str(error)
+            try:
                 self.api.wait(
                     self.node,
                     self.api.call(
