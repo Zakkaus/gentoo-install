@@ -94,6 +94,13 @@ def test_font_groups_declare_a_family_and_category() -> None:
     assert catalog["sarasa-mono"].font_family == "Sarasa Mono SC"
 
 
+def test_plasma_declares_the_minizip_compatibility_required_by_its_stack() -> None:
+    catalog = load_catalog()
+
+    for profile in ("plasma", "plasma-full"):
+        assert "sys-libs/minizip-ng compat" in catalog[profile].package_use
+
+
 def test_ibus_has_declared_chinese_engines() -> None:
     catalog = load_catalog()
     chinese = {
