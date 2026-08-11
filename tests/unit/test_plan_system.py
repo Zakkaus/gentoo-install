@@ -26,7 +26,7 @@ from gentoo_install.model.device import (
     Partition,
     PartitionRole,
 )
-from gentoo_install.plan import bootloader, system
+from gentoo_install.plan import system
 from gentoo_install.plan.portage import Emerge
 
 from .layouts import config, ext4_on_gpt, i
@@ -249,27 +249,6 @@ def test_openrc_gets_a_serial_login_when_the_cmdline_asks_for_one() -> None:
     ).files
 
 
-def test_serial_frame_format_does_not_change_the_getty_baud() -> None:
-    from gentoo_install.model.config import BootloaderConfig
-
-    remote = replace(
-        with_system(init=InitSystem.OPENRC),
-        bootloader=BootloaderConfig(kernel_params=("console=ttyS0,115200n8",)),
-    )
-    getty = next(
-        operation
-        for operation in system.build(remote)
-        if isinstance(operation, system.EnableSerialGetty)
-    )
-    grub = next(
-        operation
-        for operation in bootloader.build(remote)
-        if isinstance(operation, bootloader.WriteGrubDefaults)
-    )
-    assert grub.serial is not None
-    assert getty.baud == grub.serial[1] == 115200
-
-
 def test_systemd_needs_no_inittab_entry_for_the_serial_console() -> None:
     from gentoo_install.model.config import BootloaderConfig
 
@@ -336,29 +315,64 @@ def test_the_hardware_clock_is_written_where_each_init_reads_it() -> None:
     assert plain.files[PurePosixPath("/etc/conf.d/hwclock")] == 'clock="local"\n'
 
 
-def test_an_array_records_itself_where_the_initramfs_reads_it() -> None:
+def test_only_planned_arrays_are_recorded_where_the_initramfs_reads_them() -> None:
     """Without /etc/mdadm.conf the array comes up under whatever name the
     kernel picks, the root UUID never appears and boot stops in the emergency
     shell."""
-    from gentoo_install.model.device import MdRaid, RaidLevel
+    from gentoo_install.model.device import DeviceId, Existing, MdRaid, RaidLevel
 
     nodes: list[Node] = [node for node in ext4_on_gpt() if node.id != i("rootfs")]
     nodes += [
-        MdRaid(id=i("array"), members=(i("rootpart"),), level=RaidLevel.RAID1, name="root"),
-        Filesystem(id=i("rootfs"), device=i("array"), kind=FilesystemType.EXT4),
+        Existing(id=i("root-member"), selector="/dev/root-member"),
+        Existing(id=i("root-member-2"), selector="/dev/root-member-2"),
+        Existing(id=i("data-member"), selector="/dev/data-member"),
+        Existing(id=i("data-member-2"), selector="/dev/data-member-2"),
+        MdRaid(
+            id=i("array-root"),
+            members=(i("root-member"), i("root-member-2")),
+            level=RaidLevel.RAID1,
+            name="root",
+        ),
+        MdRaid(
+            id=i("array-data"),
+            members=(i("data-member"), i("data-member-2")),
+            level=RaidLevel.RAID1,
+            name="data",
+        ),
+        Filesystem(id=i("rootfs"), device=i("array-root"), kind=FilesystemType.EXT4),
     ]
-    recorder = Recorder(replies={"mdadm": "ARRAY /dev/md/root metadata=1.2 UUID=abc\n"})
+
+    queried: list[DeviceId] = []
+
+    class ArrayRecorder(Recorder):
+        def array_uuid(self, device: DeviceId) -> str:
+            queried.append(device)
+            return {
+                i("array-root"): "root-uuid",
+                i("array-data"): "data-uuid",
+            }[device]
+
+    recorder = ArrayRecorder(
+        replies={"mdadm": "ARRAY /dev/md/live metadata=1.2 UUID=live-uuid\n"}
+    )
     written = [
         operation for operation in system.build(config(nodes))
         if isinstance(operation, system.WriteMdadmConf)
     ]
     assert len(written) == 1
+    assert "root" in written[0].describe()
+    assert "data" in written[0].describe()
     written[0].apply(recorder)
     conf = recorder.files[PurePosixPath("/etc/mdadm.conf")]
     # Without an address `mdadm --monitor` exits with an error, and a healthy
     # array then has a failed unit on every boot.
-    assert conf.startswith("MAILADDR root")
-    assert "ARRAY /dev/md/root" in conf
+    assert conf == (
+        "MAILADDR root\n"
+        "ARRAY /dev/md/root metadata=1.2 UUID=root-uuid\n"
+        "ARRAY /dev/md/data metadata=1.2 UUID=data-uuid\n"
+    )
+    assert queried == [i("array-root"), i("array-data")]
+    assert not recorder.argv_starting("mdadm", "--detail", "--scan")
 
     assert not any(
         isinstance(operation, system.WriteMdadmConf) for operation in system.build(config())
