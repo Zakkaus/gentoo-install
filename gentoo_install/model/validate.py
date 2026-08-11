@@ -29,6 +29,7 @@ from .device import (
     Node,
     Partition,
     PartitionTable,
+    StorageFacts,
     TableType,
     ZfsPool,
     ZfsTopology,
@@ -147,6 +148,7 @@ class _ConfiguredAddressFacts:
 def validate(
     config: InstallConfig,
     *,
+    storage_facts: StorageFacts | None = None,
     available_profiles: Collection[str] | None | _ProfilesNotRead = _PROFILES_NOT_READ,
     zfs_kernel_max: str | None | _ZfsKernelCeilingNotChecked = (
         _ZFS_KERNEL_CEILING_NOT_CHECKED
@@ -168,7 +170,7 @@ def validate(
         *_unlock_problems(config, address_facts.remote_unlock),
         *_locale_problems(config),
         *_l10n_problems(config),
-        *(rule.describe() for rule in compat.violations(config)),
+        *(rule.describe() for rule in compat.violations(config, storage_facts)),
     ]
     if problems:
         raise ValidationFailed(

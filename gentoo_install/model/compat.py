@@ -23,11 +23,9 @@ from .config import (
     KernelSource,
 )
 from .device import (
-    Existing,
-    RaidMetadata,
-    T,
     DeviceGraph,
     DeviceId,
+    Existing,
     Filesystem,
     FilesystemType,
     Luks,
@@ -37,7 +35,10 @@ from .device import (
     Partition,
     PartitionRole,
     PartitionTable,
+    RaidMetadata,
+    StorageFacts,
     Swap,
+    T,
     TableType,
     VolumeGroup,
     ZfsDataset,
@@ -266,8 +267,11 @@ RULES: tuple[Rule, ...] = (
 )
 
 
-def traits_of(config: InstallConfig) -> frozenset[Trait]:
+def traits_of(
+    config: InstallConfig, storage_facts: StorageFacts | None = None
+) -> frozenset[Trait]:
     graph = config.disk.graph
+    facts = storage_facts if storage_facts is not None else StorageFacts()
     found: set[Trait] = set()
 
     if not _password_can_authenticate(config.system.root_password_hash):
@@ -337,15 +341,15 @@ def traits_of(config: InstallConfig) -> frozenset[Trait]:
     # A reused array is `Existing` and carries no `MdRaid` node, so the loop
     # above never sees it, and `_on_esp` cannot answer for it either: that
     # reads what a device is built from, and a reused array is built from
-    # nothing this model knows. The evidence is above it instead — the esp
-    # mount is what stands on it. The probe writes the metadata version.
+    # nothing this model knows. Runtime facts identify the assembled array.
     mounted = esp_mount(graph)
     beneath = {node.id for node in _chain(graph, mounted.id)} if mounted else set()
     for reused in graph.of_type(Existing):
-        if not reused.mdraid_metadata or reused.id not in beneath:
+        metadata = facts.metadata_for(reused.id)
+        if not isinstance(metadata, RaidMetadata) or reused.id not in beneath:
             continue
         found.add(Trait.ESP_ON_MDRAID)
-        if RaidMetadata(reused.mdraid_metadata).superblock_at_start:
+        if metadata.superblock_at_start:
             found.add(Trait.ESP_MDRAID_SUPERBLOCK_AT_START)
 
     for table in _nodes_under(graph, config.disk.root, PartitionTable):
@@ -390,8 +394,10 @@ def _password_can_authenticate(password_hash: str) -> bool:
     return bool(_MODULAR_CRYPT.fullmatch(password_hash) or _DES_CRYPT.fullmatch(password_hash))
 
 
-def violations(config: InstallConfig) -> tuple[Rule, ...]:
-    present = traits_of(config)
+def violations(
+    config: InstallConfig, storage_facts: StorageFacts | None = None
+) -> tuple[Rule, ...]:
+    present = traits_of(config, storage_facts)
     return tuple(rule for rule in RULES if rule.when in present and rule.excludes in present)
 
 

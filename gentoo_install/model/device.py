@@ -79,6 +79,16 @@ class RaidMetadata(Enum):
         return self in (RaidMetadata.V1_1, RaidMetadata.V1_2)
 
 
+class MdraidMetadataState(Enum):
+    """Why a reused device has no mdraid metadata version."""
+
+    UNAVAILABLE = "unavailable"
+    ABSENT = "absent"
+
+
+MdraidMetadataFact = RaidMetadata | MdraidMetadataState
+
+
 class FilesystemType(Enum):
     EXT2 = "ext2"
     EXT3 = "ext3"
@@ -111,9 +121,6 @@ class Existing(Node):
 
     selector: str
     wipe: bool = False
-    #: None until probed and empty when no array was found, so compatibility
-    #: can distinguish missing evidence from a machine with no superblock.
-    mdraid_metadata: str | None = None
 
 
 @dataclass(frozen=True)
@@ -128,6 +135,28 @@ class Extent:
         return self.end - self.start + 1
 
 
+@dataclass(frozen=True, init=False)
+class StorageFacts:
+    """Runtime storage evidence, separate from persistent user intent."""
+
+    mdraid_metadata: Mapping[DeviceId, MdraidMetadataFact]
+    free_extents: Mapping[DeviceId, tuple[Extent, ...]]
+
+    def __init__(
+        self,
+        *,
+        mdraid_metadata: Mapping[DeviceId, MdraidMetadataFact] | None = None,
+        free_extents: Mapping[DeviceId, tuple[Extent, ...]] | None = None,
+    ) -> None:
+        object.__setattr__(
+            self, "mdraid_metadata", MappingProxyType(dict(mdraid_metadata or {}))
+        )
+        object.__setattr__(self, "free_extents", MappingProxyType(dict(free_extents or {})))
+
+    def metadata_for(self, device: DeviceId) -> MdraidMetadataFact:
+        return self.mdraid_metadata.get(device, MdraidMetadataState.UNAVAILABLE)
+
+
 @dataclass(frozen=True)
 class PartitionTable(Node):
     disk: DeviceId
@@ -140,12 +169,6 @@ class PartitionTable(Node):
     #: is an edit to the table, so it belongs to the table and not to a node of
     #: its own: the partition it names stops existing.
     remove: tuple[int, ...] = ()
-    #: Where the disk has no partition now, in bytes, filled in by the probe
-    #: before validation. Empty for a table written from scratch, and empty in
-    #: a configuration file: the model cannot read a partition table, and
-    #: without this an added partition on an edited table was placed at 1MiB
-    #: on top of one the operator kept.
-    free_extents: tuple[Extent, ...] = ()
 
     @property
     def inputs(self) -> tuple[DeviceId, ...]:

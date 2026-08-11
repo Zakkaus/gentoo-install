@@ -18,6 +18,7 @@ from ..model.device import (
     DeviceGraph,
     DeviceId,
     Existing,
+    Extent,
     Filesystem,
     FilesystemType,
     LogicalVolume,
@@ -30,6 +31,7 @@ from ..model.device import (
     PartitionTable,
     RaidLevel,
     RaidMetadata,
+    StorageFacts,
     Subvolume,
     Swap,
     T,
@@ -875,14 +877,17 @@ def finish(config: InstallConfig) -> list[Operation]:
     ]
 
 
-def build(config: InstallConfig) -> list[Operation]:
+def build(
+    config: InstallConfig, storage_facts: StorageFacts | None = None
+) -> list[Operation]:
     graph = config.disk.graph
+    facts = storage_facts if storage_facts is not None else StorageFacts()
     operations: list[Operation] = [
         ReleaseTarget(steps=_teardown(graph))
     ]
     mounts: list[Operation] = []
     for node in topological(graph):
-        for operation in _operations_for(graph, node):
+        for operation in _operations_for(graph, node, facts):
             (mounts if operation.stage is Stage.MOUNT else operations).append(operation)
     mounts += [_mount_operation(mount) for mount in resolve_mounts(graph)]
     for disk in _disks_with_partitions(graph):
@@ -965,7 +970,9 @@ def _disks_with_partitions(graph: DeviceGraph) -> tuple[DeviceId, ...]:
     return tuple(sorted(disks))
 
 
-def _operations_for(graph: DeviceGraph, node: Node) -> list[Operation]:
+def _operations_for(
+    graph: DeviceGraph, node: Node, storage_facts: StorageFacts
+) -> list[Operation]:
     if isinstance(node, Existing):
         return [WipeSignatures(device=node.id)] if node.wipe else []
     if isinstance(node, PartitionTable):
@@ -989,7 +996,7 @@ def _operations_for(graph: DeviceGraph, node: Node) -> list[Operation]:
                 role=node.role,
                 size=node.size,
                 label=node.label,
-                start=_start_of(graph, node),
+                start=_start_of(graph, node, storage_facts),
             ),
         ]
     if isinstance(node, MdRaid):
@@ -1079,7 +1086,9 @@ def _dataset_mountpoint(graph: DeviceGraph, dataset: DeviceId) -> PurePosixPath 
     return None
 
 
-def _start_of(graph: DeviceGraph, partition: Partition) -> Size:
+def _start_of(
+    graph: DeviceGraph, partition: Partition, storage_facts: StorageFacts
+) -> Size:
     """Where an MBR partition begins.
 
     On a table written from scratch, after every partition with a lower index.
@@ -1092,8 +1101,10 @@ def _start_of(graph: DeviceGraph, partition: Partition) -> Size:
     the removals in the same plan had already been committed.
     """
     table = graph[partition.table]
-    if isinstance(table, PartitionTable) and table.free_extents:
-        return _into_free_space(graph, table, partition)
+    if isinstance(table, PartitionTable) and table.id in storage_facts.free_extents:
+        return _into_free_space(
+            graph, table, partition, storage_facts.free_extents[table.id]
+        )
     start = FIRST_OFFSET
     for sibling in sorted(graph.of_type(Partition), key=lambda node: node.index):
         if sibling.table != partition.table or sibling.index >= partition.index:
@@ -1104,7 +1115,12 @@ def _start_of(graph: DeviceGraph, partition: Partition) -> Size:
     return start
 
 
-def _into_free_space(graph: DeviceGraph, table: PartitionTable, partition: Partition) -> Size:
+def _into_free_space(
+    graph: DeviceGraph,
+    table: PartitionTable,
+    partition: Partition,
+    free_extents: tuple[Extent, ...],
+) -> Size:
     """The first free extent with room for this partition and the ones before it.
 
     Every added partition of one table is placed in extent order, so two of
@@ -1115,9 +1131,9 @@ def _into_free_space(graph: DeviceGraph, table: PartitionTable, partition: Parti
         for one in sorted(graph.of_type(Partition), key=lambda node: node.index)
         if one.table == table.id
     ]
-    cursor = {extent.start: Size(extent.start).align_up() for extent in table.free_extents}
+    cursor = {extent.start: Size(extent.start).align_up() for extent in free_extents}
     for one in added:
-        for extent in table.free_extents:
+        for extent in free_extents:
             at = cursor[extent.start]
             wanted = one.size.bytes if one.size is not None else 0
             if at.bytes + wanted > extent.end + 1:

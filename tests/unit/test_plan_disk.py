@@ -26,6 +26,7 @@ from gentoo_install.model.device import (
     PartitionTable,
     RaidLevel,
     RaidMetadata,
+    StorageFacts,
     Subvolume,
     Swap,
     TableType,
@@ -569,7 +570,7 @@ PARTED_PRINT_FREE: str = """BYT;
 """
 
 
-def _edited_mbr(free: tuple[Extent, ...], size: Size | None = None) -> DeviceGraph:
+def _edited_mbr(size: Size | None = None) -> DeviceGraph:
     """One retained partition on the disk, one added by the configuration."""
     from pathlib import PurePosixPath
 
@@ -581,7 +582,6 @@ def _edited_mbr(free: tuple[Extent, ...], size: Size | None = None) -> DeviceGra
                 disk=DeviceId("d"),
                 table=TableType.MBR,
                 create=False,
-                free_extents=free,
             ),
             Partition(
                 id=DeviceId("new"),
@@ -621,9 +621,10 @@ def test_a_partition_added_to_an_edited_mbr_goes_after_the_ones_on_the_disk() ->
     free = read.free_extents("/dev/null")
     assert free == (Extent(start=16384, end=1048575), Extent(start=1074790400, end=4294967295)), free
 
-    graph = _edited_mbr(free)
+    graph = _edited_mbr()
+    facts = StorageFacts(free_extents={DeviceId("t"): free})
     added = next(one for one in graph.of_type(Partition) if one.id == DeviceId("new"))
-    start = _start_of(graph, added)
+    start = _start_of(graph, added, facts)
     # The retained partition ends at 1074790399, so anything at or below it
     # overlaps what the operator kept.
     assert start.bytes > 1074790399, start
@@ -636,22 +637,56 @@ def test_a_partition_that_fits_no_free_extent_is_refused_before_anything_runs() 
     from gentoo_install.errors import InvalidLayout
     from gentoo_install.plan.disk import _start_of
 
-    graph = _edited_mbr((Extent(start=1048576, end=2097151),), size=Size(4 * 1024**3))
+    graph = _edited_mbr(size=Size(4 * 1024**3))
+    facts = StorageFacts(
+        free_extents={DeviceId("t"): (Extent(start=1048576, end=2097151),)}
+    )
     added = next(one for one in graph.of_type(Partition) if one.id == DeviceId("new"))
     with pytest.raises(InvalidLayout):
-        _start_of(graph, added)
+        _start_of(graph, added, facts)
 
 
 def test_a_table_written_from_scratch_still_starts_at_the_first_offset() -> None:
-    """`free_extents` is empty for a new table, and `sgdisk --new=N:0` finds
-    the room itself on GPT, so nothing about that path changes."""
+    """A new table needs no runtime extents; sgdisk finds GPT space itself."""
     from gentoo_install.plan.disk import FIRST_OFFSET, _start_of
 
     graph = DeviceGraph.build(ext4_on_gpt())
     first = next(
         one for one in graph.of_type(Partition) if one.index == 1
     )
-    assert _start_of(graph, first) == FIRST_OFFSET
+    assert _start_of(graph, first, StorageFacts()) == FIRST_OFFSET
+
+
+def test_the_whole_plan_passes_one_facts_value_to_validation_and_disk_derivation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gentoo_install.data import load_catalog
+    from gentoo_install.model.config import InstallConfig
+    from gentoo_install.plan import build as plan_build
+    from gentoo_install.plan import disk as plan_disk
+    from gentoo_install.plan.operations import Operation
+
+    seen: list[StorageFacts] = []
+
+    def validated(
+        installation: InstallConfig, *, storage_facts: StorageFacts
+    ) -> None:
+        seen.append(storage_facts)
+
+    def disk_operations(
+        installation: InstallConfig, storage_facts: StorageFacts
+    ) -> list[Operation]:
+        seen.append(storage_facts)
+        return []
+
+    monkeypatch.setattr(plan_build, "validate", validated)
+    monkeypatch.setattr(plan_disk, "build", disk_operations)
+    facts = StorageFacts()
+
+    plan_build.build(config(ext4_on_gpt()), load_catalog(), storage_facts=facts)
+
+    assert len(seen) == 2
+    assert seen[0] is facts and seen[1] is facts
 
 
 def test_a_pool_still_busy_after_the_lazy_unmount_is_exported_on_a_later_try(
