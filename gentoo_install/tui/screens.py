@@ -2675,29 +2675,33 @@ def encryption_screen(screen: Screen, config: InstallConfig, context: Context) -
         # over a graph with no container in it at all.
         _say(screen, context, translate("Encryption is a field of each partition, under Partitions."))
         return Answer(Outcome.BACK)
-    encrypted = bool(context.choice.passphrase_file)
-    wanted = Confirm(
+    edited = _edit_passphrase(
+        screen,
+        context,
+        context.choice.passphrase_file,
+        translate("Encrypt the root filesystem?"),
+    )
+    if edited.chosen:
+        context.choice = replace(context.choice, passphrase_file=edited.unwrap())
+    return edited.map(lambda _: _rebuild(config, context))
+
+
+def _edit_passphrase(
+    screen: Screen, context: Context, staged_path: str, title: str
+) -> Answer[str]:
+    """Enable, disable, or replace one staged encryption passphrase."""
+    translate = context.translate
+    enabled = Confirm(
         **answers(translate),
-        title=translate("Encrypt the root filesystem?"),
-        # Without this the cursor starts on `No`, so reopening the row and
-        # pressing enter removed the container and the passphrase with it.
-        current=encrypted,
+        title=title,
         footer=footer(translate),
+        current=bool(staged_path),
     ).run(screen)
-    if not wanted.chosen:
-        return Answer(wanted.outcome)
-    if not wanted.unwrap():
-        context.choice = replace(context.choice, passphrase_file="")
-        return Answer(Outcome.CHOSE, _rebuild(config, context))
-    staged = _ask_passphrase(screen, context)
-    if not staged.chosen:
-        # The key that is already staged, not an empty one: cancelling the
-        # field is declining to change the passphrase, not declining to have
-        # one, and clearing it here turned an encrypted layout into a plain
-        # one on the way out.
-        return Answer(staged.outcome)
-    context.choice = replace(context.choice, passphrase_file=staged.unwrap())
-    return Answer(Outcome.CHOSE, _rebuild(config, context))
+    if not enabled.chosen:
+        return Answer(enabled.outcome)
+    if not enabled.unwrap():
+        return Answer(Outcome.CHOSE, "")
+    return _ask_passphrase(screen, context)
 
 
 def _ask_passphrase(screen: Screen, context: Context) -> Answer[str]:
@@ -3831,20 +3835,14 @@ def _edit_array_field(screen: Screen, context: Context, field: str, members: int
             array.filesystem = kind.unwrap()
         return
     if field == _ENCRYPTION:
-        turned = Confirm(
-            **answers(translate),
-            title=translate("Encrypt this array?"),
-            footer=footer(translate),
-            current=bool(array.passphrase_file),
-        ).run(screen)
-        if not turned.chosen:
-            return
-        if not turned.unwrap():
-            array.passphrase_file = ""
-            return
-        staged = _ask_passphrase(screen, context)
-        if staged.chosen:
-            array.passphrase_file = staged.unwrap()
+        edited = _edit_passphrase(
+            screen,
+            context,
+            array.passphrase_file,
+            translate("Encrypt this array?"),
+        )
+        if edited.chosen:
+            array.passphrase_file = edited.unwrap()
         return
     titles = {_NAME: "Name", _MOUNTPOINT: "Mount point", _LABEL: "Label"}
     values = {_NAME: array.name, _MOUNTPOINT: array.mountpoint, _LABEL: array.label}
@@ -4143,24 +4141,16 @@ def _edit_slice_encryption(
     screen: Screen, context: Context, entry: manual.Slice, purpose: manual.Purpose
 ) -> manual.Slice | None:
     translate = context.translate
-    turned = Confirm(
-        **answers(translate),
-        title=(
+    return _edit_passphrase(
+        screen,
+        context,
+        entry.passphrase_file,
+        (
             translate("Encrypt the pool?")
             if purpose.role is PartitionRole.ZFS
             else translate("Encrypt this partition?")
         ),
-        footer=footer(translate),
-        current=bool(entry.passphrase_file),
-    ).run(screen)
-    if not turned.chosen:
-        return None
-    if not turned.unwrap():
-        return replace(entry, passphrase_file="")
-    staged = _ask_passphrase(screen, context)
-    if not staged.chosen:
-        return None
-    return replace(entry, passphrase_file=staged.unwrap())
+    ).map(lambda staged_path: replace(entry, passphrase_file=staged_path)).value
 
 
 def extra_packages_screen(
