@@ -22,6 +22,7 @@
 "Leave without installing?" = "설치하지 않고 나가시겠습니까?"
 "Back to the menu" = "메뉴로 돌아가기"
 "Leave" = "나가기"
+"Esc leaves; resize the terminal" = "Esc 키로 나가거나 터미널 크기를 조정하십시오"
 "Save the configuration and leave" = "설정을 저장하고 나가기"
 "Send the configuration to the pastebin and leave" = "설정을 paste에 올리고 나가기"
 "public, without the password hashes" = "공개(비밀번호 해시 제거)"

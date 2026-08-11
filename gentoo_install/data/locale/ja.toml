@@ -22,6 +22,7 @@
 "Leave without installing?" = "インストールせずに終了しますか？"
 "Back to the menu" = "メニューに戻る"
 "Leave" = "終了する"
+"Esc leaves; resize the terminal" = "Esc で終了するか、端末のサイズを変更してください"
 "Save the configuration and leave" = "設定を保存して終了する"
 "Send the configuration to the pastebin and leave" = "設定を paste に投稿して終了"
 "public, without the password hashes" = "公開（パスワードハッシュを除去）"

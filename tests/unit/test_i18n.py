@@ -184,7 +184,9 @@ def displayed() -> set[str]:
             if not isinstance(node, ast.Call):
                 continue
             called = getattr(node.func, "id", "") or getattr(node.func, "attr", "")
-            if called == "translate" and node.args and isinstance(node.args[0], ast.Constant):
+            if called in {"translate", "_translate"} and node.args and isinstance(
+                node.args[0], ast.Constant
+            ):
                 found.add(str(node.args[0].value))
             if called == "Setting" and len(node.args) > 1:
                 if isinstance(node.args[1], ast.Constant):

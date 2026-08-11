@@ -13,12 +13,15 @@ the state of the terminal it is handed, and pytest's own is not ours to change.
 from __future__ import annotations
 
 import curses
+import fcntl
 import json
 import os
 import pty
 import selectors
 import signal
+import struct
 import sys
+import termios
 import time
 from pathlib import Path
 from typing import Any
@@ -38,6 +41,14 @@ DEADLINE = 45.0
 #: Between keys. Long enough for the screen to redraw and ask for the next one,
 #: short enough that a hundred of them still finish inside the deadline.
 KEY_INTERVAL = 0.08
+
+#: A resize regression gets a shorter bound because its failure mode is an
+#: input loop that would otherwise consume the full suite deadline.
+RESIZE_DEADLINE = 8.0
+RESIZE_INTERVAL = 0.3
+RESIZE_START_INTERVAL = 1.0
+
+ResizeAction = str | tuple[int, int]
 
 
 def drive(keys: str, source: str) -> dict[str, Any]:
@@ -108,6 +119,123 @@ def drive(keys: str, source: str) -> dict[str, Any]:
     if timed_out:
         return {"error": f"the screen was still waiting for a key after {DEADLINE}s"}
     return dict(json.loads(printed)) if printed else {}
+
+
+def drive_resizes(actions: list[ResizeAction], source: str) -> tuple[dict[str, Any], bytes]:
+    """Drive keys and kernel window-size changes through a real pty.
+
+    Both descriptors are nonblocking, and a child that misses the deadline is
+    killed before the test returns.
+    """
+    read_end, write_end = os.pipe()
+    child, terminal = pty.fork()
+    if child == 0:  # pragma: no cover - the child never returns
+        os.close(read_end)
+        fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack("HHHH", *SIZE, 0, 0))
+        os.set_inheritable(write_end, True)
+        environment = dict(os.environ)
+        environment["TERM"] = "xterm"
+        environment.pop("LINES", None)
+        environment.pop("COLUMNS", None)
+        driver = f"""
+import json
+import os
+import sys
+
+sys.path.insert(0, {str(REPOSITORY)!r})
+answer = {{}}
+try:
+    exec(compile({source!r}, "<resize-driver>", "exec"), {{"answer": answer}})
+except BaseException as error:
+    answer = {{"error": f"{{type(error).__name__}}: {{error}}"}}
+with os.fdopen({write_end}, "w") as handle:
+    handle.write(json.dumps(answer))
+"""
+        os.execve(sys.executable, [sys.executable, "-c", driver], environment)
+
+    os.close(write_end)
+    os.set_blocking(read_end, False)
+    selector = selectors.DefaultSelector()
+    selector.register(terminal, selectors.EVENT_READ)
+    selector.register(read_end, selectors.EVENT_READ)
+    pending = list(actions)
+    drawing = bytearray()
+    printed = bytearray()
+    deadline = time.monotonic() + RESIZE_DEADLINE
+    next_action = deadline
+    waiting_for_resize_draw = False
+    started = False
+    timed_out = False
+    reaped = False
+    try:
+        while True:
+            for ready, _ in selector.select(timeout=0.05):
+                try:
+                    chunk = os.read(ready.fd, 65536)
+                except (BlockingIOError, OSError):
+                    chunk = b""
+                if ready.fd == terminal:
+                    drawing.extend(chunk)
+                    if waiting_for_resize_draw and chunk:
+                        waiting_for_resize_draw = False
+                        next_action = time.monotonic() + RESIZE_INTERVAL
+                    elif drawing and next_action == deadline:
+                        delay = RESIZE_INTERVAL if started else RESIZE_START_INTERVAL
+                        next_action = time.monotonic() + delay
+                else:
+                    printed.extend(chunk)
+            now = time.monotonic()
+            if pending and now >= next_action:
+                action = pending.pop(0)
+                started = True
+                if isinstance(action, str):
+                    os.write(terminal, action.encode())
+                else:
+                    fcntl.ioctl(
+                        terminal,
+                        termios.TIOCSWINSZ,
+                        struct.pack("HHHH", *action, 0, 0),
+                    )
+                    # Explicit signaling keeps the test independent of whether
+                    # this ioctl implementation signals the pty process group.
+                    os.kill(child, signal.SIGWINCH)
+                    waiting_for_resize_draw = True
+                next_action = deadline if waiting_for_resize_draw else now + RESIZE_INTERVAL
+            waited, _ = os.waitpid(child, os.WNOHANG)
+            if waited:
+                reaped = True
+                break
+            if now >= deadline:
+                timed_out = True
+                os.kill(child, signal.SIGKILL)
+                break
+        if not reaped:
+            os.waitpid(child, 0)
+        while True:
+            try:
+                chunk = os.read(read_end, 65536)
+            except BlockingIOError:
+                break
+            if not chunk:
+                break
+            printed.extend(chunk)
+    finally:
+        selector.close()
+        os.close(read_end)
+        os.close(terminal)
+    if timed_out:
+        return (
+            {
+                "error": (
+                    f"the screen was still waiting after {RESIZE_DEADLINE}s; "
+                    f"{len(pending)} actions remain after {len(drawing)} output bytes; "
+                    f"small screen drawn: {b'interface needs' in drawing}"
+                )
+            },
+            bytes(drawing),
+        )
+    result = dict(json.loads(printed.decode())) if printed else {}
+    return result, bytes(drawing)
 
 
 #: Walk to the bottom of the menu and leave. The exact rows do not matter: what
@@ -289,6 +417,61 @@ def test_a_form_message_does_not_push_the_done_row_off_the_screen() -> None:
     result = drive("\n\n\n\n", ACCOUNT)
     assert result.get("error") is None, result.get("error")
     assert result["values"] == ["", "", ""]
+
+
+RESIZE_FIELD = r"""
+import curses
+
+from gentoo_install.tui.curses_screen import CursesScreen
+from gentoo_install.tui.widgets import TextField
+
+
+def main(window: object) -> None:
+    field = TextField(title="hostname", footer="[Esc] Leave")
+    answered = field.run(CursesScreen(window))
+    answer["outcome"] = answered.outcome.value
+    answer["value"] = answered.unwrap() if answered.chosen else None
+
+
+curses.wrapper(main)
+"""
+
+
+def test_a_text_field_survives_a_terminal_that_shrinks_and_grows() -> None:
+    """A five-column redraw used to loop while trimming an empty value.
+
+    The value typed before the shrink remains when the terminal grows again.
+    """
+    actions: list[ResizeAction] = [*"abc", (10, 5), SIZE, "d", "\n"]
+    result, _ = drive_resizes(actions, RESIZE_FIELD)
+    assert result.get("error") is None, result.get("error")
+    assert result == {"outcome": "chose", "value": "abcd"}
+
+
+RESIZE_FORM = r"""
+import curses
+
+from gentoo_install.tui.curses_screen import CursesScreen
+from gentoo_install.tui.widgets import Field, Form
+
+
+def main(window: object) -> None:
+    form = Form(title="network", fields=[Field(label="address")], footer="[Esc] Leave")
+    translated = "Escape after translation"
+    answered = form.run(CursesScreen(window, lambda source: translated))
+    answer["outcome"] = answered.outcome.value
+
+
+curses.wrapper(main)
+"""
+
+
+def test_a_form_that_no_longer_fits_says_how_to_leave() -> None:
+    result, drawing = drive_resizes([(10, 60), "\x1b"], RESIZE_FORM)
+    assert result.get("error") is None, result.get("error")
+    assert result["outcome"] == "cancelled"
+    assert b"the interface needs 80x24" in drawing
+    assert b"Escape after translation" in drawing
 
 
 #: What a terminal does with a wide glyph, asked of ncurses rather than of the
