@@ -639,7 +639,7 @@ def build(config: InstallConfig) -> list[Operation]:
             summary="install the initramfs builder and firmware",
         ),
     ]
-    flagged = storage_use(config)
+    flagged = storage_use(modules)
     if flagged:
         operations.insert(0, RequestStorageUse(entries=flagged))
     package = config.kernel.package or KERNEL_PACKAGES[config.kernel.source]
@@ -678,8 +678,8 @@ def build(config: InstallConfig) -> list[Operation]:
     # So the tools split by `StackTool.modules`, and the dracut module list is
     # written after the kernel: the postinst run then asks for nothing that is
     # not there yet, and `RebuildInitramfs` at the end builds the real one.
-    building = set(_module_builders(config))
-    tools = tuple(one for one in storage_packages(config) if one not in building)
+    building = set(_module_builders(modules))
+    tools = tuple(one for one in storage_packages(config, modules) if one not in building)
     flagged_now = tuple((one, use) for one, use in flagged if one not in building)
     plain = tuple(one for one in tools if one not in {atom for atom, _ in flagged_now})
     if plain:
@@ -697,7 +697,7 @@ def build(config: InstallConfig) -> list[Operation]:
                 source=SourcePolicy.build_all(),
             )
         )
-    out_of_tree = _out_of_tree_modules(config)
+    out_of_tree = _out_of_tree_modules(modules)
     if out_of_tree:
         operations.append(RequestDistKernelModules(packages=out_of_tree))
     # The two prebuilt ones only: a source package has to be compiled in any
@@ -757,10 +757,10 @@ def build(config: InstallConfig) -> list[Operation]:
     return operations
 
 
-def _module_builders(config: InstallConfig) -> tuple[str, ...]:
+def _module_builders(modules: tuple[str, ...]) -> tuple[str, ...]:
     """Tools that build a kernel module, so they wait for the kernel."""
     wanted: list[str] = []
-    for module in dracut_modules(config):
+    for module in modules:
         tool = STACK_PACKAGES.get(module)
         if tool is not None and tool.modules and tool.atom not in wanted:
             wanted.append(tool.atom)
@@ -809,11 +809,15 @@ def dracut_modules(config: InstallConfig) -> tuple[str, ...]:
     return tuple(modules)
 
 
-def _out_of_tree_modules(config: InstallConfig) -> tuple[str, ...]:
+def _out_of_tree_modules(
+    modules: InstallConfig | tuple[str, ...],
+) -> tuple[str, ...]:
     """Read from STACK_PACKAGES, not from a list beside it: which tool builds a
     kernel module is one fact, and two tables holding it disagree eventually."""
+    if isinstance(modules, InstallConfig):
+        modules = dracut_modules(modules)
     wanted: list[str] = []
-    for module in dracut_modules(config):
+    for module in modules:
         tool = STACK_PACKAGES.get(module)
         if tool is None:
             continue
@@ -821,21 +825,29 @@ def _out_of_tree_modules(config: InstallConfig) -> tuple[str, ...]:
     return tuple(wanted)
 
 
-def storage_use(config: InstallConfig) -> tuple[tuple[str, tuple[str, ...]], ...]:
+def storage_use(
+    modules: InstallConfig | tuple[str, ...],
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
     """Stack packages that need a USE flag the default build does not carry."""
+    if isinstance(modules, InstallConfig):
+        modules = dracut_modules(modules)
     wanted: list[tuple[str, tuple[str, ...]]] = []
-    for module in dracut_modules(config):
+    for module in modules:
         tool = STACK_PACKAGES.get(module)
         if tool is not None and tool.use and (tool.atom, tool.use) not in wanted:
             wanted.append((tool.atom, tool.use))
     return tuple(wanted)
 
 
-def storage_packages(config: InstallConfig) -> tuple[str, ...]:
+def storage_packages(
+    config: InstallConfig, modules: tuple[str, ...] | None = None
+) -> tuple[str, ...]:
     """Whatever the layout uses, the target needs the tools to mount it again."""
     graph = config.disk.graph
+    if modules is None:
+        modules = dracut_modules(config)
     wanted: list[str] = []
-    for module in dracut_modules(config):
+    for module in modules:
         tool = STACK_PACKAGES.get(module)
         if tool is not None and tool.atom not in wanted:
             wanted.append(tool.atom)
