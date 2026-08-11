@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import tomllib
 from dataclasses import FrozenInstanceError, replace
 from pathlib import Path, PurePosixPath
@@ -386,6 +387,126 @@ def test_a_static_address_that_is_not_an_address_is_refused(address: str) -> Non
     )
     with pytest.raises(ValidationFailed):
         validate(installation)
+
+
+def _record_address_parses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[list[str], list[str]]:
+    interface_calls: list[str] = []
+    address_calls: list[str] = []
+    parse_interface = ipaddress.ip_interface
+    parse_address = ipaddress.ip_address
+
+    def counted_interface(literal: str) -> ipaddress.IPv4Interface | ipaddress.IPv6Interface:
+        interface_calls.append(literal)
+        return parse_interface(literal)
+
+    def counted_address(literal: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
+        address_calls.append(literal)
+        return parse_address(literal)
+
+    monkeypatch.setattr(ipaddress, "ip_interface", counted_interface)
+    monkeypatch.setattr(ipaddress, "ip_address", counted_address)
+    return interface_calls, address_calls
+
+
+def test_validate_parses_each_configured_network_value_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gentoo_install.model.config import RemoteUnlock
+
+    interface_calls, address_calls = _record_address_parses(monkeypatch)
+    base = config(encrypted_root())
+    installation = replace(
+        base,
+        system=replace(
+            base.system,
+            addresses=("192.0.2.10/24", "2001:db8::10/64"),
+            gateways=("192.0.2.1", "2001:db8::1"),
+            dns=("192.0.2.53", "2001:db8::53"),
+            authorized_keys=("ssh-ed25519 AAAA test",),
+        ),
+        kernel=replace(
+            base.kernel,
+            remote_unlock=RemoteUnlock(
+                enabled=True,
+                address="198.51.100.10/24",
+                gateway="198.51.100.1",
+                interface="eth0",
+            ),
+        ),
+    )
+
+    validate(installation)
+
+    assert interface_calls == [
+        "192.0.2.10/24",
+        "2001:db8::10/64",
+        "198.51.100.10/24",
+    ]
+    assert address_calls == [
+        "192.0.2.1",
+        "2001:db8::1",
+        "192.0.2.53",
+        "2001:db8::53",
+        "198.51.100.1",
+    ]
+
+
+def test_validate_does_not_reparse_malformed_remote_unlock_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gentoo_install.model.config import RemoteUnlock
+
+    interface_calls, address_calls = _record_address_parses(monkeypatch)
+    base = config(encrypted_root())
+    installation = replace(
+        base,
+        system=replace(
+            base.system,
+            authorized_keys=("ssh-ed25519 AAAA test",),
+        ),
+        kernel=replace(
+            base.kernel,
+            remote_unlock=RemoteUnlock(
+                enabled=True,
+                address="not-an-interface",
+                gateway="not-an-address",
+                interface="eth0",
+            ),
+        ),
+    )
+
+    with pytest.raises(ValidationFailed):
+        validate(installation)
+
+    assert interface_calls == ["not-an-interface"]
+    assert address_calls == ["not-an-address"]
+
+
+def test_disabled_remote_unlock_addresses_remain_ignored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gentoo_install.model.config import RemoteUnlock
+
+    interface_calls, address_calls = _record_address_parses(monkeypatch)
+    base = config()
+    installation = replace(
+        base,
+        kernel=replace(
+            base.kernel,
+            remote_unlock=RemoteUnlock(
+                enabled=False,
+                address="not-an-interface",
+                gateway="not-an-address",
+            ),
+        ),
+    )
+
+    validate(installation)
+
+    assert interface_calls == ["not-an-interface"]
+    assert address_calls == ["not-an-address"]
 
 
 @pytest.mark.parametrize("port", [0, -1, 65536, 99999])

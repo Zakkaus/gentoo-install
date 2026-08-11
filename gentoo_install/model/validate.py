@@ -112,6 +112,37 @@ _ZFS_KERNEL_CEILING_NOT_CHECKED: Final[_ZfsKernelCeilingNotChecked] = (
 )
 
 
+@dataclass(frozen=True)
+class _IPAddressFact:
+    literal: str
+    parsed: ipaddress.IPv4Address | ipaddress.IPv6Address | None
+
+
+@dataclass(frozen=True)
+class _IPInterfaceFact:
+    literal: str
+    parsed: ipaddress.IPv4Interface | ipaddress.IPv6Interface | None
+
+
+@dataclass(frozen=True)
+class _SystemAddressFacts:
+    addresses: tuple[_IPInterfaceFact, ...]
+    gateways: tuple[_IPAddressFact, ...]
+    resolvers: tuple[_IPAddressFact, ...]
+
+
+@dataclass(frozen=True)
+class _RemoteUnlockAddressFacts:
+    address: _IPInterfaceFact
+    gateway: _IPAddressFact
+
+
+@dataclass(frozen=True)
+class _ConfiguredAddressFacts:
+    system: _SystemAddressFacts
+    remote_unlock: _RemoteUnlockAddressFacts
+
+
 def validate(
     config: InstallConfig,
     *,
@@ -120,6 +151,7 @@ def validate(
         _ZFS_KERNEL_CEILING_NOT_CHECKED
     ),
 ) -> None:
+    address_facts = _derive_address_facts(config)
     problems = [
         *_layout_problems(config),
         *compat.filesystem_label_problems(config),
@@ -131,8 +163,8 @@ def validate(
         *_reuse_problems(config),
         *_pool_problems(config),
         *_array_problems(config),
-        *_network_problems(config),
-        *_unlock_problems(config),
+        *_network_problems(config, address_facts.system),
+        *_unlock_problems(config, address_facts.remote_unlock),
         *_l10n_problems(config),
         *(rule.describe() for rule in compat.violations(config)),
     ]
@@ -234,28 +266,76 @@ def _array_problems(config: InstallConfig) -> list[str]:
     ]
 
 
-def _network_problems(config: InstallConfig) -> list[str]:
+def _parse_ip_address(literal: str) -> _IPAddressFact:
+    try:
+        parsed = ipaddress.ip_address(literal)
+    except ValueError:
+        parsed = None
+    return _IPAddressFact(literal, parsed)
+
+
+def _parse_ip_interface(literal: str) -> _IPInterfaceFact:
+    try:
+        parsed = ipaddress.ip_interface(literal)
+    except ValueError:
+        parsed = None
+    return _IPInterfaceFact(literal, parsed)
+
+
+def _derive_system_address_facts(config: InstallConfig) -> _SystemAddressFacts:
+    system = config.system
+    return _SystemAddressFacts(
+        addresses=tuple(_parse_ip_interface(one) for one in system.addresses),
+        gateways=tuple(_parse_ip_address(one) for one in system.gateways),
+        resolvers=tuple(_parse_ip_address(one) for one in system.dns),
+    )
+
+
+def _derive_remote_unlock_address_facts(
+    config: InstallConfig,
+) -> _RemoteUnlockAddressFacts:
+    unlock = config.kernel.remote_unlock
+    return _RemoteUnlockAddressFacts(
+        address=(
+            _parse_ip_interface(unlock.address)
+            if unlock.address
+            else _IPInterfaceFact("", None)
+        ),
+        gateway=(
+            _parse_ip_address(unlock.gateway)
+            if unlock.gateway
+            else _IPAddressFact("", None)
+        ),
+    )
+
+
+def _derive_address_facts(config: InstallConfig) -> _ConfiguredAddressFacts:
+    return _ConfiguredAddressFacts(
+        system=_derive_system_address_facts(config),
+        remote_unlock=_derive_remote_unlock_address_facts(config),
+    )
+
+
+def _network_problems(
+    config: InstallConfig,
+    facts: _SystemAddressFacts | None = None,
+) -> list[str]:
     """A static address that reaches nothing is not a configured network.
 
     Both checks fire only when an address was given: DHCP and router
     advertisements supply the gateway and the resolvers themselves.
     """
     system = config.system
+    if facts is None:
+        facts = _derive_system_address_facts(config)
     problems: list[str] = []
-    # Read before anything else uses them: `_family_of` answers 0 for a string
-    # that is not an address at all, and every check below then skipped it, so
-    # `not-an-address` and `192.0.2.10/99` reached dracut's `ip=` parameter.
-    for address in system.addresses:
-        try:
-            ipaddress.ip_interface(address)
-        except ValueError:
-            problems.append(f"{address!r} is not an address with a prefix length")
-    for named, where in (("gateway", system.gateways), ("resolver", system.dns)):
+    for address in facts.addresses:
+        if address.parsed is None:
+            problems.append(f"{address.literal!r} is not an address with a prefix length")
+    for named, where in (("gateway", facts.gateways), ("resolver", facts.resolvers)):
         for one in where:
-            try:
-                ipaddress.ip_address(one)
-            except ValueError:
-                problems.append(f"{one!r} is not an address, so it is not a {named}")
+            if one.parsed is None:
+                problems.append(f"{one.literal!r} is not an address, so it is not a {named}")
     if (
         system.addresses
         and system.init is InitSystem.OPENRC
@@ -273,51 +353,50 @@ def _network_problems(config: InstallConfig) -> list[str]:
             "the addresses are static and no resolver is named, so the installed system "
             "has an address and no way to resolve a name"
         )
-    for address in system.addresses:
-        family = _family_of(address)
-        if family and not any(_family_of(one) == family for one in system.gateways):
+    for address in facts.addresses:
+        if address.parsed is not None and not any(
+            gateway.parsed is not None
+            and gateway.parsed.version == address.parsed.version
+            for gateway in facts.gateways
+        ):
             problems.append(
-                f"{address} has no gateway of its own family, so it reaches nothing off "
+                f"{address.literal} has no gateway of its own family, so it reaches nothing off "
                 "its own subnet"
             )
     return problems
 
 
-def _unlock_problems(config: InstallConfig) -> list[str]:
+def _unlock_problems(
+    config: InstallConfig,
+    facts: _RemoteUnlockAddressFacts | None = None,
+) -> list[str]:
     """The initramfs ssh daemon's port, checked here so the menu and a
     configuration file share the rule. `dropbear_port` took any integer, and
     the initramfs then failed to start with the disks already encrypted."""
     unlock = config.kernel.remote_unlock
+    if facts is None:
+        facts = _derive_remote_unlock_address_facts(config)
     if not unlock.enabled:
         return []
     problems: list[str] = []
     if not 1 <= unlock.port <= 65535:
         problems.append(f"the remote unlock port {unlock.port} is not between 1 and 65535")
-    for named, value in (("address", unlock.address), ("gateway", unlock.gateway)):
-        if not value:
-            continue
-        try:
-            ipaddress.ip_interface(value) if named == "address" else ipaddress.ip_address(value)
-        except ValueError:
-            problems.append(f"the remote unlock {named} {value!r} is not an address")
-    here, there = _family_of(unlock.address), _family_of(unlock.gateway)
-    if here and there and here != there:
+    for named, fact in (("address", facts.address), ("gateway", facts.gateway)):
+        if fact.literal and fact.parsed is None:
+            problems.append(
+                f"the remote unlock {named} {fact.literal!r} is not an address"
+            )
+    here = facts.address.parsed
+    there = facts.gateway.parsed
+    if here is not None and there is not None and here.version != there.version:
         # Both go into one dracut `ip=` stanza, so an IPv4 client with an IPv6
         # gateway is a static interface that routes nowhere and the machine
         # waiting for its passphrase can only be reached from the console.
         problems.append(
-            f"the remote unlock address {unlock.address} is IPv{here} and its gateway "
-            f"{unlock.gateway} is IPv{there}, so the initramfs has no route"
+            f"the remote unlock address {unlock.address} is IPv{here.version} and its gateway "
+            f"{unlock.gateway} is IPv{there.version}, so the initramfs has no route"
         )
     return problems
-
-
-def _family_of(address: str) -> int:
-    """4, 6, or 0 for something that is neither."""
-    try:
-        return ipaddress.ip_address(address.split("/")[0]).version
-    except ValueError:
-        return 0
 
 
 def _reuse_problems(config: InstallConfig) -> list[str]:
