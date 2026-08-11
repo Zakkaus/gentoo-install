@@ -14,6 +14,7 @@ from enum import Enum
 from pathlib import PurePosixPath
 from typing import Any, Final
 
+from . import config as model_config
 from .config import InstallConfig
 from .device import (
     Existing,
@@ -70,18 +71,14 @@ SECRET: Final[frozenset[str]] = frozenset({"password_hash", "root_password_hash"
 #: published one locks the account rather than setting a password nobody knows.
 REDACTED: Final[str] = "removed-before-publishing"
 
-#: Sections of `InstallConfig`, in the order a person reads them.
-SECTIONS: Final[tuple[str, ...]] = ("system", "portage", "kernel", "bootloader", "packages")
-
-
 def to_toml(config: InstallConfig, *, publishing: bool = False) -> str:
     """The configuration as a file that parses back into the same object.
 
     `publishing` replaces every password hash, for the copy that goes to a
     pastebin. The result still parses; it just installs no password.
     """
-    lines = [f"config_version = {config.config_version}"]
-    for name in SECTIONS:
+    lines = [f"{model_config.CONFIG_VERSION_KEY} = {config.config_version}"]
+    for name in model_config.PERSISTED_SECTIONS[:-1]:
         lines += _section(name, getattr(config, name), publishing=publishing)
     lines += _disk(config)
     return "\n".join(lines).rstrip("\n") + "\n"

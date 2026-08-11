@@ -8,12 +8,26 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Final
 
 from .size import Size
 from .device import DeviceGraph, DeviceId
 
 #: `parse.py` refuses a newer file and migrates an older one.
-CONFIG_VERSION = 1
+CONFIG_VERSION: Final[int] = 1
+
+#: The scalar written before every table section.
+CONFIG_VERSION_KEY: Final[str] = "config_version"
+
+#: Persisted table sections in TOML order. The disk graph stays last.
+PERSISTED_SECTIONS: Final[tuple[str, ...]] = (
+    "system",
+    "portage",
+    "kernel",
+    "bootloader",
+    "packages",
+    "disk",
+)
 
 
 class InitSystem(Enum):

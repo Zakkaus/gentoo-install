@@ -13,9 +13,9 @@ from pathlib import Path
 from .. import errors
 from ..errors import GentooInstallError
 from ..log import Journal
+from ..model import config as model_config
 from ..model import paste
 from ..model.config import InstallConfig
-from ..model.parse import TOP_LEVEL
 from ..model.serialise import to_toml
 from . import fetch, preflight
 from .probe import Probe
@@ -136,7 +136,7 @@ def configs_here(save_as: str) -> tuple[str, ...]:
             if path.name == save_as:
                 found.append(path.name)
             continue
-        if set(held) & (TOP_LEVEL - {"config_version"}):
+        if set(held).intersection(model_config.PERSISTED_SECTIONS):
             found.append(path.name)
     return tuple(found)
 
