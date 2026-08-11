@@ -1622,7 +1622,11 @@ def _asked_for(installation: InstallConfig) -> list[tuple[str, str, str]]:
     checks.append(
         (
             "init",
-            "ls -l /sbin/init",
+            # Not `ls -l /sbin/init`: on OpenRC that is sysvinit's own binary,
+            # a regular file whose listing never carries the word, so the check
+            # could not pass. Both inits leave a directory under /run.
+            "test -d /run/openrc && echo openrc || "
+            "{ test -d /run/systemd/system && echo systemd || echo unknown; }",
             "systemd" if installation.system.init is InitSystem.SYSTEMD else "openrc",
         )
     )

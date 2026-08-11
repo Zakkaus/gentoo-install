@@ -233,3 +233,26 @@ def test_run_ceiling_ends_silent_guest_that_keeps_moving_bytes(
 
     assert clock[0] == 5.0
     assert readings[0] == 2
+
+
+def test_the_init_check_asks_the_running_init_not_a_file_listing() -> None:
+    """`ls -l /sbin/init` names systemd through its symlink and says nothing on
+    OpenRC, where `/sbin/init` is `sys-apps/sysvinit`'s own binary: a guest
+    answered `-rwxr-xr-x 1 root root 49064 Nov 22 2025 /sbin/init` and the
+    check looked for `openrc` in it. Two fixtures failed every round on that.
+    """
+    from pathlib import Path
+
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.config import InitSystem
+    from tests.vm.cluster import _asked_for
+
+    for fixture, wanted in (("vm-lvm", "openrc"), ("vm-binpkg", None)):
+        installation = load(Path(f"tests/fixtures/{fixture}.toml"))
+        init = next(one for one in _asked_for(installation) if one[0] == "init")
+        assert "ls -l /sbin/init" not in init[1], init
+        assert "/run/openrc" in init[1], init
+        expected = "systemd" if installation.system.init is InitSystem.SYSTEMD else "openrc"
+        assert init[2] == expected, init
+        if wanted:
+            assert init[2] == wanted, init
