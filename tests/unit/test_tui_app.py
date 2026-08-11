@@ -1410,8 +1410,14 @@ def test_a_password_is_typed_twice_before_it_is_hashed() -> None:
     machine that has already been installed. The passphrase was checked this
     way and the two passwords were not."""
     at = context()
-    # Two that differ, the message, then two that match.
-    keys = [*"first", "\n", *"second", "\n", "\n", *"right", "\n", *"right", "\n"]
+    # One form: type, down to the second field, type something else, enter.
+    # The message, then the form again with the first field kept — down, the
+    # matching text, enter.
+    keys = [
+        *"first", "KEY_DOWN", *"second", "\n", "\n",
+        "\n",
+        "KEY_DOWN", *"first", "\n", "\n",
+    ]
     answer = screens.root_password_screen(FakeScreen(keys=keys, lines=24), config(), at)
     assert answer.unwrap().system.root_password_hash == "$6$test$5"
 
@@ -2041,7 +2047,8 @@ def test_a_filled_row_is_not_still_asked_for() -> None:
 
     row = next(one for one in settings.SETTINGS if one.key == "root")
     assert row.edit is not None
-    typed = list("hunter2") + ["\n"] + list("hunter2") + ["\n"]
+    # One form: the first field, down to the second, then enter past Done.
+    typed = list("hunter2") + ["KEY_DOWN"] + list("hunter2") + ["\n", "\n"]
     # Deliberately not marking it visited: the value is the answer.
     done = row.edit(FakeScreen(keys=typed, lines=24), empty, at).unwrap()
     assert settings._root(done, at) == "set"
@@ -2213,3 +2220,25 @@ def test_switching_desktops_takes_the_last_one_s_use_flags_with_it() -> None:
         FakeScreen(keys=["KEY_UP", "KEY_UP", "\n", "\n"], lines=30), typed, at
     ).unwrap()
     assert "lto" in after.portage.use
+
+
+def test_the_password_fields_are_one_form_the_arrows_move_between() -> None:
+    """Two screens in a row have nothing for the arrow keys to move between,
+    so enter was the only way forward and a typo in the second one threw the
+    first away as well. `Field.secret` exists for this and the account form
+    already used it."""
+    at = context()
+    # Up from the second field to correct the first, without retyping either.
+    keys = [
+        *"wrong", "KEY_DOWN", *"right",
+        "KEY_UP", *(["\x7f"] * 5), *"right",
+        "KEY_DOWN", "\n", "\n",
+    ]
+    answer = screens.root_password_screen(FakeScreen(keys=keys, lines=24), config(), at)
+    assert answer.unwrap().system.root_password_hash == "$6$test$5"
+
+    # Nothing typed leaves the row alone rather than asking for ever.
+    away = screens.root_password_screen(
+        FakeScreen(keys=["\n", "\n", "\n"], lines=24), config(), at
+    )
+    assert not away.chosen
