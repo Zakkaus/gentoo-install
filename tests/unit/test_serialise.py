@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from gentoo_install.model.config import InstallConfig, Overlay, User
-from gentoo_install.model.device import DeviceGraph, DeviceId, PartitionTable
+from gentoo_install.model.device import DeviceGraph, DeviceId, Existing, PartitionTable
 from gentoo_install.model.parse import _NODES, parse
 from gentoo_install.model.serialise import KINDS, REDACTED, SECRET, to_toml
 
@@ -22,6 +22,16 @@ def _round_trip(config: InstallConfig) -> InstallConfig:
 def test_every_fixture_survives_a_round_trip(path: Path) -> None:
     config = parse(tomllib.loads(path.read_text()))
     assert _round_trip(config) == config
+
+
+def test_probed_facts_are_not_written_as_configuration() -> None:
+    config = parse(tomllib.loads((FIXTURES / "vm-mdraid.toml").read_text()))
+    nodes = [
+        replace(node, mdraid_metadata="1.0") if isinstance(node, Existing) else node
+        for node in config.disk.graph.nodes.values()
+    ]
+    probed = replace(config, disk=replace(config.disk, graph=DeviceGraph.build(nodes)))
+    assert _round_trip(probed) == config
 
 
 def test_every_node_kind_can_be_written() -> None:
