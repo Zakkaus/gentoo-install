@@ -2001,6 +2001,58 @@ def test_cleanup_retries_unknown_stop_and_delete_until_the_guest_is_absent(
     assert api.absent
 
 
+def test_stopping_an_absent_guest_is_idempotent() -> None:
+    class Absent(Api):
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            raise ProxmoxNotFound("the guest does not exist")
+
+    guest = Guest(Absent(), "node", 9300, GuestSpec(name="x", iso="x"))
+    guest._booted = True
+    guest.stop()
+    assert not guest._booted
+
+
+def test_stopping_a_stopped_guest_is_idempotent() -> None:
+    class Stopped(Api):
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            assert method == "GET"
+            return {"status": "stopped"}
+
+    guest = Guest(Stopped(), "node", 9300, GuestSpec(name="x", iso="x"))
+    guest._booted = True
+    guest.stop()
+    assert not guest._booted
+
+
+def test_a_status_failure_does_not_mark_the_guest_stopped() -> None:
+    class Refusing(Api):
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            raise ProxmoxError("status failed")
+
+    guest = Guest(Refusing(), "node", 9300, GuestSpec(name="x", iso="x"))
+    guest._booted = True
+    with pytest.raises(ProxmoxError, match="status failed"):
+        guest.stop()
+    assert guest._booted
+
+
+def test_a_stop_task_failure_does_not_mark_the_guest_stopped() -> None:
+    class Refusing(Api):
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            if path.endswith("/status/current"):
+                return {"status": "running"}
+            return "UPID:node:stop"
+
+        def wait(self, node: str, upid: str, patience: float = 1800.0) -> None:
+            raise ProxmoxError("stop task failed")
+
+    guest = Guest(Refusing(), "node", 9300, GuestSpec(name="x", iso="x"))
+    guest._booted = True
+    with pytest.raises(ProxmoxError, match="stop task failed"):
+        guest.stop()
+    assert guest._booted
+
+
 def test_a_refused_stop_is_reported_before_the_guest_is_destroyed() -> None:
     @dataclass
     class Refusing(Api):
@@ -2032,14 +2084,12 @@ def test_a_refused_stop_is_reported_before_the_guest_is_destroyed() -> None:
         9300,
         GuestSpec(name="x", iso="x", nonce="gi-owned"),
     )
-    refusal = ""
-    try:
+    guest._booted = True
+    with pytest.raises(ProxmoxError, match="the stop was refused"):
         guest.stop()
-    except ProxmoxError as error:
-        refusal = str(error)
+    assert guest._booted
     guest.destroy(patience=1.0)
 
-    assert refusal == "the stop was refused"
     assert api.absent
 
 
