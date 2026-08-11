@@ -44,6 +44,80 @@ GENTOO_EDITOR = (
 )
 
 
+def test_the_api_token_accepts_the_cluster_format(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    token = "01234567-89ab-cdef-0123-456789abcdef"
+    token_file = tmp_path / "token"
+    token_file.write_text(f" \n{token}\n")
+    monkeypatch.setattr(proxmox, "TOKEN_FILE", token_file)
+
+    assert proxmox._secret() == token
+
+
+def test_the_api_token_accepts_a_non_uuid_header_safe_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    token = "opaque.token_secret=ABC+123"
+    token_file = tmp_path / "token"
+    token_file.write_text(token)
+    monkeypatch.setattr(proxmox, "TOKEN_FILE", token_file)
+
+    assert proxmox._secret() == token
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        "01234567-89ab-cdef\r\n0123-456789abcdef",
+        "01234567-89ab-cdef\x000123-456789abcdef",
+        "01234567-89ab-cdef\x7f0123-456789abcdef",
+        "01234567-89ab-cdef 0123-456789abcdef",
+        "01234567-89ab-cdef\t0123-456789abcdef",
+    ],
+)
+def test_the_api_token_rejects_header_breaking_characters(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, token: str
+) -> None:
+    token_file = tmp_path / "token"
+    token_file.write_text(token)
+    monkeypatch.setattr(proxmox, "TOKEN_FILE", token_file)
+
+    with pytest.raises(ProxmoxError) as raised:
+        proxmox._secret()
+
+    assert str(raised.value) == f"the API token has an invalid format at {token_file}"
+    assert token not in str(raised.value)
+
+
+def test_the_api_token_rejects_empty_input(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    token_file = tmp_path / "token"
+    token_file.write_text(" \n\t")
+    monkeypatch.setattr(proxmox, "TOKEN_FILE", token_file)
+
+    with pytest.raises(ProxmoxError) as raised:
+        proxmox._secret()
+
+    assert str(raised.value) == f"the API token has an invalid format at {token_file}"
+
+
+def test_an_invalid_api_token_is_not_disclosed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    token = "01234567-89ab-cdef-0123-456789abcde\nLEAK-CANARY"
+    token_file = tmp_path / "token"
+    token_file.write_text(token)
+    monkeypatch.setattr(proxmox, "TOKEN_FILE", token_file)
+
+    with pytest.raises(ProxmoxError) as raised:
+        proxmox._secret()
+
+    assert str(raised.value) == f"the API token has an invalid format at {token_file}"
+    assert "LEAK-CANARY" not in str(raised.value)
+
+
 def test_the_linux_line_is_read_off_the_screen() -> None:
     assert _line_of_linux(GENTOO_EDITOR) == 2
 

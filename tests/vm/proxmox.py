@@ -142,9 +142,12 @@ def _certificates() -> ssl.SSLContext:
 
 def _secret() -> str:
     try:
-        return TOKEN_FILE.read_text().strip()
+        secret = TOKEN_FILE.read_text().strip()
     except OSError as error:
         raise ProxmoxError(f"the API token is not readable at {TOKEN_FILE}: {error}") from error
+    if re.fullmatch(r"[\x21-\x7e]+", secret) is None:
+        raise ProxmoxError(f"the API token has an invalid format at {TOKEN_FILE}")
+    return secret
 
 
 @dataclass(frozen=True)
