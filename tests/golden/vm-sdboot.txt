@@ -30,7 +30,10 @@
   install git, which every later repository sync needs: emerge dev-vcs/git
   point repository gentoo at https://github.com/gentoo-mirror/gentoo.git, commit signatures verified
   sync repository gentoo
+  set sys-kernel/installkernel to dracut systemd systemd-boot
+  accept the linux-firmware licence
   ask for sys-apps/systemd[boot,kernel-install], which is what provides bootctl
+  resolve sys-process/cronie sys-kernel/installkernel sys-kernel/dracut sys-kernel/linux-firmware sys-fs/dosfstools sys-fs/e2fsprogs sys-kernel/gentoo-kernel-bin sys-apps/systemd together before installing the requested packages
 
 [system]
   generate and verify locales en_US.UTF-8
@@ -49,10 +52,8 @@
   enable cronie at boot
 
 [kernel]
-  set sys-kernel/installkernel to dracut systemd systemd-boot
   write /etc/kernel/cmdline so the boot entries mount rootpart
   install the hook that puts a kernel in /boot: emerge sys-kernel/installkernel
-  accept the linux-firmware licence
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
   install the storage tools: emerge sys-fs/dosfstools sys-fs/e2fsprogs
   install the kernel: emerge sys-kernel/gentoo-kernel-bin

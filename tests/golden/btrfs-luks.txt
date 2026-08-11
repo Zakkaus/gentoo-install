@@ -43,9 +43,14 @@
   install the key the community binary packages are signed with: emerge sec-keys/openpgp-keys-gentoozh, from source
   import 38A0234EC16AD42E from /usr/share/openpgp-keys/gentoozh.asc and locally sign it for gentoo-zh
   add verified binary package host gentoo-zh at https://distfiles.gentoozh.org/binpkgs/x86-64
+  set sys-kernel/installkernel to dracut
   ask for sys-apps/systemd[cryptsetup], which provides the unlock generator
+  accept the linux-firmware licence
+  accept sys-kernel/gentoo-cjk-kernel-bin as testing, with cjk off
+  unmask virtual/dist-kernel, which the cjk kernel depends on by revision
   ask for app-i18n/fcitx-configtool kcm for the plasma group
   ask for app-i18n/rime-data extra for the rime-simplified group
+  resolve app-admin/sudo net-misc/openssh sys-process/cronie sys-kernel/installkernel sys-apps/systemd sys-kernel/dracut sys-kernel/linux-firmware sys-fs/cryptsetup sys-fs/btrfs-progs sys-fs/dosfstools sys-kernel/gentoo-cjk-kernel-bin sys-boot/grub sys-boot/efibootmgr kde-plasma/plasma-meta x11-base/xorg-server kde-apps/konsole kde-apps/dolphin app-i18n/fcitx app-i18n/fcitx-gtk app-i18n/fcitx-qt app-i18n/fcitx-configtool app-i18n/fcitx-rime app-i18n/rime-data media-fonts/noto-cjk media-fonts/noto media-libs/fontconfig net-proxy/flclash-bin together before installing the requested packages
 
 [system]
   generate and verify locales en_US.UTF-8, zh_TW.UTF-8
@@ -72,13 +77,9 @@
   enable cronie at boot
 
 [kernel]
-  set sys-kernel/installkernel to dracut
   install the hook that puts a kernel in /boot: emerge sys-kernel/installkernel
   rebuild systemd with the unlock generator: emerge sys-apps/systemd, from source
-  accept the linux-firmware licence
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
-  accept sys-kernel/gentoo-cjk-kernel-bin as testing, with cjk off
-  unmask virtual/dist-kernel, which the cjk kernel depends on by revision
   install the storage tools: emerge sys-fs/cryptsetup sys-fs/btrfs-progs sys-fs/dosfstools
   install the kernel: emerge sys-kernel/gentoo-cjk-kernel-bin, from source
   tell dracut to carry crypt, btrfs

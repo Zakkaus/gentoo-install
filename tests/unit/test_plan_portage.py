@@ -16,12 +16,15 @@ from gentoo_install.model.config import (
     MirrorConfig,
     MirrorRegion,
     Overlay,
+    PackagesConfig,
     PortageConfig,
     SystemConfig,
 )
 from gentoo_install.errors import CommandFailed, ConfigError, ValidationFailed
 from gentoo_install.plan import portage
+from gentoo_install.plan.build import PORTAGE_PREREQUISITES, build as build_plan
 from gentoo_install.plan.operations import CommandOutput, Operation
+from gentoo_install.plan.packages import Group
 
 from .layouts import config
 from .recorder import Recorder
@@ -354,15 +357,112 @@ PACKAGE_MASKED = (
 )
 
 
+def test_an_absent_catalog_atom_stops_the_run_and_names_its_group() -> None:
+    wanted = replace(
+        config(),
+        packages=PackagesConfig(applications=("plasma",)),
+    )
+    operations = build_plan(
+        wanted,
+        {"plasma": Group(name="plasma", packages=("kde-plasma/foo",))},
+    )
+    check = next(one for one in operations if isinstance(one, portage.VerifyPackages))
+    recorder = Recorder()
+
+    def answer(argv: Sequence[str]) -> str | None:
+        if argv[0] == "emerge":
+            return CommandOutput(NO_SUCH_PACKAGE, 1)
+        if argv[:4] == ["portageq", "pquery", "--no-version", "--no-filters"]:
+            return CommandOutput("" if argv[-1] == "kde-plasma/foo" else f"{argv[-1]}\n", 0)
+        if argv[:3] == ["portageq", "best_visible", "/"]:
+            return CommandOutput(f"{argv[-1]}-1\n", 0)
+        return None
+
+    recorder.answering = answer
+    with pytest.raises(
+        ConfigError,
+        match=r"the `plasma` group asks for `kde-plasma/foo`, which the target's repositories do not carry",
+    ):
+        check.apply(recorder)
+
+
+def test_every_requested_atom_is_resolved_in_one_pass_and_the_run_continues() -> None:
+    wanted = replace(
+        config(),
+        packages=PackagesConfig(applications=("plasma",)),
+    )
+    operations = build_plan(
+        wanted,
+        {"plasma": Group(name="plasma", packages=("kde-plasma/plasma-meta",))},
+    )
+    check = next(one for one in operations if isinstance(one, portage.VerifyPackages))
+    recorder = Recorder(replies={"emerge": CommandOutput("", 0)})
+
+    check.apply(recorder)
+
+    pretend = recorder.only("emerge", "--pretend", "--quiet")
+    atoms = pretend[pretend.index("--") + 1 :]
+    assert "kde-plasma/plasma-meta" in atoms
+    assert "sys-kernel/gentoo-kernel" in atoms
+    assert "sys-boot/grub" in atoms
+    assert "dev-vcs/git" not in atoms
+    assert len(atoms) == len(set(atoms))
+    assert len(recorder.argv_starting("emerge")) == 1
+    assert not recorder.argv_starting("portageq")
+
+
+def test_the_resolution_check_follows_repository_bootstrap_and_precedes_requested_merges() -> None:
+    wanted = replace(
+        config(),
+        portage=replace(
+            config().portage,
+            overlays=(Overlay(name="local", sync_uri="https://example.invalid/local.git"),),
+        ),
+        packages=PackagesConfig(applications=("plasma",)),
+    )
+    operations = build_plan(
+        wanted,
+        {"plasma": Group(name="plasma", packages=("kde-plasma/plasma-meta",))},
+    )
+    check = next(n for n, one in enumerate(operations) if isinstance(one, portage.VerifyPackages))
+    bootstrap = [
+        n
+        for n, one in enumerate(operations)
+        if isinstance(one, portage.Emerge) and one.repository_bootstrap
+    ]
+    requested = [
+        n
+        for n, one in enumerate(operations)
+        if isinstance(one, portage.Emerge) and not one.repository_bootstrap
+    ]
+
+    assert bootstrap and requested
+    assert max(bootstrap) < check < min(requested)
+    assert next(
+        n for n, one in enumerate(operations) if isinstance(one, portage.AcceptOverlayKeywords)
+    ) < check
+    assert all(
+        n < check
+        for n, one in enumerate(operations)
+        if isinstance(one, PORTAGE_PREREQUISITES)
+    )
+
+
 def test_a_package_name_that_matches_nothing_stops_before_the_disks_fill() -> None:
     """Asked once the tree is synced: otherwise the run dies at the packages
     stage, hours in and with the disks already written."""
-    recorder = Recorder()
-    recorder.replies["emerge"] = NO_SUCH_PACKAGE
-    with pytest.raises(ConfigError, match="no ebuild matches"):
-        portage.VerifyPackages(packages=("app-misc/not-a-real-package",)).apply(recorder)
-
-    portage.VerifyPackages(packages=("app-editors/neovim",)).apply(Recorder())
+    recorder = Recorder(
+        replies={"emerge": CommandOutput(NO_SUCH_PACKAGE, 1), "portageq": CommandOutput("", 0)}
+    )
+    check = portage.VerifyPackages(
+        requests=(
+            portage.PackageRequest(
+                atom="app-misc/not-a-real-package", requesters=("the extra packages group",)
+            ),
+        )
+    )
+    with pytest.raises(ConfigError, match="repositories do not carry"):
+        check.apply(recorder)
 
 
 def test_a_package_the_licence_refuses_is_named_as_that_and_not_as_a_typo() -> None:
@@ -370,16 +470,47 @@ def test_a_package_the_licence_refuses_is_named_as_that_and_not_as_a_typo() -> N
     ACCEPT_LICENSE to widen. Reporting both as "no ebuild matches" sends the
     operator hunting for a spelling mistake that is not there."""
     recorder = Recorder()
-    recorder.replies["emerge"] = LICENCE_REFUSED
-    with pytest.raises(ConfigError, match="ACCEPT_LICENSE refuses"):
-        portage.VerifyPackages(packages=("x11-drivers/nvidia-drivers",)).apply(recorder)
+
+    def answer(argv: Sequence[str]) -> str | None:
+        if argv[0] == "emerge":
+            return CommandOutput(LICENCE_REFUSED, 1)
+        if argv[1] == "pquery":
+            return CommandOutput("x11-drivers/nvidia-drivers\n", 0)
+        return CommandOutput("", 1)
+
+    recorder.answering = answer
+    check = portage.VerifyPackages(
+        requests=(
+            portage.PackageRequest(
+                atom="x11-drivers/nvidia-drivers", requesters=("the `nvidia` group",)
+            ),
+        )
+    )
+    with pytest.raises(ConfigError, match="configuration masks") as caught:
+        check.apply(recorder)
+    assert "repositories do not carry" not in str(caught.value)
 
 
 def test_an_unclassified_nonzero_package_probe_is_rejected() -> None:
     recorder = Recorder()
-    recorder.replies["emerge"] = CommandOutput(PACKAGE_MASKED, 1)
-    with pytest.raises(ConfigError, match=r"app-text/catdoc: All ebuilds.*masked"):
-        portage.VerifyPackages(packages=("app-text/catdoc",)).apply(recorder)
+
+    def answer(argv: Sequence[str]) -> str | None:
+        if argv[0] == "emerge":
+            return CommandOutput(PACKAGE_MASKED, 1)
+        if argv[1] == "pquery":
+            return CommandOutput("app-text/catdoc\n", 0)
+        return CommandOutput("app-text/catdoc-0.95-r1\n", 0)
+
+    recorder.answering = answer
+    check = portage.VerifyPackages(
+        requests=(
+            portage.PackageRequest(atom="app-text/catdoc", requesters=("the `catdoc` group",)),
+        )
+    )
+    with pytest.raises(
+        ConfigError, match=r"requested by the `catdoc` group: All ebuilds.*masked"
+    ):
+        check.apply(recorder)
 
 
 def test_the_word_license_in_a_path_is_not_a_licence_refusal() -> None:
@@ -387,19 +518,30 @@ def test_the_word_license_in_a_path_is_not_a_licence_refusal() -> None:
     names, and in `ACCEPT_LICENSE` itself. Matching it anywhere in the output
     reported a missing package as a licence the operator had refused."""
     recorder = Recorder()
-    recorder.replies["emerge"] = (
+    recorder.replies["emerge"] = CommandOutput(
         "\n[ebuild  N     ] app-misc/license-tools-1.0::gentoo\n"
-        "A copy of the 'GPL-2' license is located at /usr/portage/licenses/GPL-2.\n"
+        "A copy of the 'GPL-2' license is located at /usr/portage/licenses/GPL-2.\n",
+        0,
     )
-    portage.VerifyPackages(packages=("app-misc/license-tools",)).apply(recorder)
+    portage.VerifyPackages(
+        requests=(
+            portage.PackageRequest(
+                atom="app-misc/license-tools", requesters=("the `tools` group",)
+            ),
+        )
+    ).apply(recorder)
 
 
 def test_one_probe_per_package_and_not_two() -> None:
-    """It ran `emerge --pretend` twice for every atom that resolved, doubling
-    the cost of the check on a long list."""
-    recorder = Recorder()
-    portage.VerifyPackages(packages=("app-editors/neovim", "app-misc/tmux")).apply(recorder)
-    assert len([argv for argv in recorder.in_target if argv[0] == "emerge"]) == 2
+    """The package set is one dependency-aware question, not one per atom."""
+    recorder = Recorder(replies={"emerge": CommandOutput("", 0)})
+    portage.VerifyPackages(
+        requests=(
+            portage.PackageRequest(atom="app-editors/neovim", requesters=("the editor group",)),
+            portage.PackageRequest(atom="app-misc/tmux", requesters=("the console group",)),
+        )
+    ).apply(recorder)
+    assert len([argv for argv in recorder.in_target if argv[0] == "emerge"]) == 1
 
 
 def test_the_licence_choice_is_not_undone_by_autounmask() -> None:

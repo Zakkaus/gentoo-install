@@ -30,9 +30,12 @@
   install git, which every later repository sync needs: emerge dev-vcs/git
   point repository gentoo at https://github.com/gentoo-mirror/gentoo.git, commit signatures verified
   sync repository gentoo
+  set sys-kernel/installkernel to dracut
+  accept the linux-firmware licence
   ask for app-i18n/fcitx-configtool kcm for the plasma group
   ask for app-i18n/rime-data extra for the rime-simplified group
   ask for media-video/pipewire sound-server for the pipewire group
+  resolve net-misc/openssh net-misc/networkmanager net-wireless/wpa_supplicant sys-process/cronie sys-kernel/installkernel sys-kernel/dracut sys-kernel/linux-firmware sys-fs/dosfstools sys-fs/e2fsprogs sys-kernel/gentoo-kernel-bin sys-boot/grub sys-boot/efibootmgr kde-plasma/plasma-meta x11-base/xorg-server kde-apps/konsole kde-apps/dolphin app-i18n/fcitx app-i18n/fcitx-gtk app-i18n/fcitx-qt app-i18n/fcitx-configtool app-i18n/fcitx-rime app-i18n/rime-data media-fonts/noto-cjk media-fonts/noto media-libs/fontconfig media-video/pipewire media-video/wireplumber together before installing the requested packages
 
 [system]
   generate and verify locales en_US.UTF-8
@@ -55,9 +58,7 @@
   enable cronie at boot
 
 [kernel]
-  set sys-kernel/installkernel to dracut
   install the hook that puts a kernel in /boot: emerge sys-kernel/installkernel
-  accept the linux-firmware licence
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
   install the storage tools: emerge sys-fs/dosfstools sys-fs/e2fsprogs
   install the kernel: emerge sys-kernel/gentoo-kernel-bin
