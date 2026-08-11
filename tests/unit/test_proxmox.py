@@ -1898,3 +1898,17 @@ def test_an_error_carried_in_a_two_hundred_is_not_thrown_away() -> None:
     # A config change applied then and there says nothing, and that is success.
     api._opener = answering({"data": None})
     assert api.call("PUT", "/nodes/n/qemu/9300/config", description="x") is None
+
+
+def test_the_blind_edit_presses_before_the_menu_boots_itself() -> None:
+    """The medium's `grub.cfg` sets `timeout=10` and the delay before the first
+    key was twelve seconds, so the entry had already booted: every key went to
+    a kernel that was never told to use the serial port, and `vm-bios`,
+    `vm-bios-luks` and `ext4-bios` ended every round at `the kernel never spoke
+    after editing GRUB blind`."""
+    from tests.vm.proxmox import BIOS_MENU_DELAY, BIOS_MENU_TIMEOUT
+
+    assert BIOS_MENU_DELAY < BIOS_MENU_TIMEOUT, (BIOS_MENU_DELAY, BIOS_MENU_TIMEOUT)
+    # Not so early that the firmware has not reached GRUB either: SeaBIOS and
+    # the medium's own search take a few seconds before the menu is drawn.
+    assert BIOS_MENU_DELAY >= 4.0

@@ -789,8 +789,15 @@ _PLACED: Final[re.Pattern[bytes]] = re.compile(rb"\x1b\[(\d+);\d+H([^\x1b]*)")
 #: How long a SeaBIOS guest takes from reset to a GRUB menu waiting for a key.
 #: Nothing announces it: the firmware and GRUB both draw on the VGA this guest
 #: has, and the serial port stays silent until the kernel is told to use it.
-#: The medium's menu waits ten seconds, so this has to land inside that.
-BIOS_MENU_DELAY: Final[float] = 12.0
+#: The medium's menu waits ten seconds, so this has to land inside that. It was
+#: twelve, which lands after it: the entry had booted and every key went to a
+#: kernel that was never told to speak, so three fixtures ended every round at
+#: `the kernel never spoke after editing GRUB blind`.
+BIOS_MENU_DELAY: Final[float] = 6.0
+
+#: What the medium's menu waits, and what `BIOS_MENU_DELAY` has to stay under.
+#: Read from the ISO's own `grub.cfg`, which sets `timeout=10`.
+BIOS_MENU_TIMEOUT: Final[float] = 10.0
 
 #: Which line below `setparams` the keys move to, tried in this order. The
 #: Gentoo minimal ISO puts `search` between `setparams` and `linux`, so two is
