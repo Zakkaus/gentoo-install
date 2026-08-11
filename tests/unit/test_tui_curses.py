@@ -303,8 +303,8 @@ answer["codeset"] = locale.nl_langinfo(locale.CODESET)
 
 
 def walk(window):
-    window.addstr(0, 0, "繼續")
-    window.addstr(0, width("繼續"), "|end")
+    window.addstr(0, 0, "\u7e7c\u7e8c")
+    window.addstr(0, width("\u7e7c\u7e8c"), "|end")
     window.refresh()
     answer["row"] = window.instr(0, 0, 12).decode("utf-8", "replace").rstrip()
 
@@ -327,8 +327,8 @@ def test_a_terminal_that_cannot_draw_a_wide_glyph_is_recognised() -> None:
     utf8 = result["codeset"].upper().replace("-", "") == "UTF8"
     assert _draws_wide_characters() == utf8
     if utf8:
-        assert result["row"] == "繼續|end", result["row"]
+        assert result["row"] == "\u7e7c\u7e8c|end", result["row"]
     else:
         # Two cells of nothing where the glyph belongs, which is the state the
         # check exists to refuse.
-        assert "繼" not in result["row"], result["row"]
+        assert "\u7e7c" not in result["row"], result["row"]
