@@ -13,6 +13,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Final, Mapping, Sequence, TypeVar
 
 from ..errors import ConfigError
+from . import sshkey
 from .config import (
     CONFIG_VERSION,
     Binhost,
@@ -127,7 +128,10 @@ def _system(raw: Mapping[str, Any], at: str) -> SystemConfig:
         addresses=_strings(raw, "addresses", at, default.addresses),
         gateways=_strings(raw, "gateways", at, default.gateways),
         dns=_strings(raw, "dns", at, default.dns),
-        authorized_keys=_strings(raw, "authorized_keys", at, default.authorized_keys),
+        authorized_keys=tuple(
+            sshkey.check(key)
+            for key in _strings(raw, "authorized_keys", at, default.authorized_keys)
+        ),
         console_cjk=_bool(raw, "console_cjk", at, default.console_cjk),
         console_font=_enum(raw, "console_font", at, ConsoleFontSize, default.console_font),
         init=_enum(raw, "init", at, InitSystem, default.init),
@@ -388,13 +392,14 @@ def _zpool(raw: Mapping[str, Any], at: str) -> Node:
     _reject_unknown(
         raw, at, {"kind", "id", "vdevs", "name", "topology", "encrypted", "passphrase_file"}
     )
+    passphrase_file = _str(raw, "passphrase_file", at, "")
     return ZfsPool(
         id=_id(raw, at),
         vdevs=_refs(raw, "vdevs", at),
         name=_str(raw, "name", at, required=True),
         topology=_enum(raw, "topology", at, ZfsTopology, ZfsTopology.STRIPE),
-        encrypted=_bool(raw, "encrypted", at, False),
-        passphrase_file=_str(raw, "passphrase_file", at, ""),
+        encrypted=_bool(raw, "encrypted", at, False) or bool(passphrase_file),
+        passphrase_file=passphrase_file,
     )
 
 

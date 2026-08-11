@@ -22,6 +22,7 @@ from .device import (
     DeviceId,
     Existing,
     Filesystem,
+    FilesystemType,
     MdRaid,
     Mountpoint,
     Node,
@@ -130,6 +131,11 @@ def _pool_problems(config: InstallConfig) -> list[str]:
     """
     problems: list[str] = []
     for pool in config.disk.graph.of_type(ZfsPool):
+        if pool.passphrase_file and not pool.encrypted:
+            problems.append(
+                f"{pool.id} sets passphrase_file but encrypted is false, so the pool "
+                "would be created as plaintext"
+            )
         if len(pool.vdevs) > 1 and pool.topology is ZfsTopology.STRIPE:
             problems.append(
                 f"{pool.id} joins {len(pool.vdevs)} devices with no topology, which stripes "
@@ -389,6 +395,11 @@ def _layout_problems(config: InstallConfig) -> list[str]:
         problems.append(f"disk.root is {config.disk.root!r}, which is not a mountpoint")
     elif root.path != _ROOT:
         problems.append(f"disk.root is mounted at {root.path}, not at /")
+    elif _root_is_vfat(graph, root):
+        problems.append(
+            "the root filesystem is vfat, which cannot represent the Unix ownership, "
+            "modes, or symlinks required by stage3"
+        )
 
     mountpoints = graph.of_type(Mountpoint)
     for mount in mountpoints:
@@ -403,6 +414,14 @@ def _layout_problems(config: InstallConfig) -> list[str]:
 
     problems += _partition_index_problems(graph)
     return problems
+
+
+def _root_is_vfat(graph: DeviceGraph, root: Mountpoint) -> bool:
+    for parent in graph.ancestors_of(root.id):
+        node = graph[parent]
+        if isinstance(node, Filesystem) and node.kind is FilesystemType.VFAT:
+            return True
+    return False
 
 
 def _partition_index_problems(graph: DeviceGraph) -> list[str]:

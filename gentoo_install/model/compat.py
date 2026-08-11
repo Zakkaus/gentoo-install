@@ -8,6 +8,7 @@ once and read twice.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Callable
 from enum import Enum
@@ -92,9 +93,10 @@ class Trait(Enum):
     REMOTE_UNLOCK = "unlocking the root over ssh"
     NO_AUTHORIZED_KEY = "no authorised ssh key"
     NO_ENCRYPTED_CONTAINER = "no encrypted container to unlock"
+    NATIVE_ZFS_SYSTEM_INITRAMFS = "ZFS native encryption with GRUB or systemd-boot"
     FONT_WITHOUT_CJK_GLYPHS = "a console font other than 8x16"
-    ROOT_LOCKED = "a locked root account"
-    NO_OTHER_LOGIN = "no user account with a password and no authorised ssh key"
+    ROOT_LOCKED = "a root password hash that cannot authenticate"
+    NO_OTHER_LOGIN = "no user password and no authorised ssh key usable by sshd"
 
 
 @dataclass(frozen=True)
@@ -122,8 +124,8 @@ RULES: tuple[Rule, ...] = (
     Rule(
         Trait.ROOT_LOCKED,
         Trait.NO_OTHER_LOGIN,
-        "an empty root password hash locks the account, so the installed system "
-        "would boot with nothing that can log in",
+        "the root password hash is empty, locked, or malformed, and no user "
+        "password or usable ssh key can log into the installed system",
     ),
     Rule(
         Trait.ROOT_ON_ZFS,
@@ -159,7 +161,8 @@ RULES: tuple[Rule, ...] = (
     Rule(
         Trait.SYSTEMD_BOOT,
         Trait.KERNEL_OFF_ESP,
-        "it reads vfat and nothing else, so a separate /boot on another filesystem holds a kernel it cannot load",
+        "the separate /boot is encrypted or not vfat, so systemd-boot cannot "
+        "read its kernels or entries",
     ),
     Rule(
         Trait.ESP_ON_MDRAID,
@@ -184,6 +187,12 @@ RULES: tuple[Rule, ...] = (
         Trait.REMOTE_UNLOCK,
         Trait.NO_ENCRYPTED_CONTAINER,
         "there is no passphrase prompt to reach: the root is not encrypted",
+    ),
+    Rule(
+        Trait.REMOTE_UNLOCK,
+        Trait.NATIVE_ZFS_SYSTEM_INITRAMFS,
+        "GRUB and systemd-boot put the ssh helper in the system initramfs, where "
+        "it calls cryptsetup and cannot load a native ZFS key",
     ),
     Rule(
         Trait.CJK_KERNEL,
@@ -215,11 +224,13 @@ def traits_of(config: InstallConfig) -> frozenset[Trait]:
     graph = config.disk.graph
     found: set[Trait] = set()
 
-    if not config.system.root_password_hash:
+    if not _password_can_authenticate(config.system.root_password_hash):
         found.add(Trait.ROOT_LOCKED)
-        # An account with an empty hash is locked too, so it is not a way in.
-        named = any(one.password_hash for one in config.system.users)
-        if not named and not config.system.authorized_keys:
+        named = any(_password_can_authenticate(one.password_hash) for one in config.system.users)
+        key_account = config.system.sshd and bool(config.system.authorized_keys) and (
+            config.system.sshd_root_login or any(one.sudo for one in config.system.users)
+        )
+        if not named and not key_account:
             found.add(Trait.NO_OTHER_LOGIN)
 
     if _holds(graph, config.disk.root, (ZfsPool, ZfsDataset)):
@@ -264,7 +275,11 @@ def traits_of(config: InstallConfig) -> frozenset[Trait]:
     boot = _covering_mount(graph, _BOOT)
     esp = esp_mount(graph)
     separate = boot is not None and boot.path == _BOOT and (esp is None or boot.id != esp.id)
-    if esp is None or (separate and boot is not None and not _is_vfat(graph, boot.id)):
+    inaccessible = separate and boot is not None and (
+        not _is_vfat(graph, boot.id)
+        or any(isinstance(node, Luks) for node in _chain(graph, boot.id))
+    )
+    if esp is None or inaccessible:
         found.add(Trait.KERNEL_OFF_ESP)
 
     for array in graph.of_type(MdRaid):
@@ -303,6 +318,11 @@ def traits_of(config: InstallConfig) -> frozenset[Trait]:
             found.add(Trait.NO_AUTHORIZED_KEY)
         if not early_containers(graph) and not _encrypted_pool(graph, config.disk.root):
             found.add(Trait.NO_ENCRYPTED_CONTAINER)
+        if (
+            config.bootloader.kind is not Bootloader.ZFSBOOTMENU
+            and _encrypted_pool(graph, config.disk.root)
+        ):
+            found.add(Trait.NATIVE_ZFS_SYSTEM_INITRAMFS)
     if config.kernel.source in (KernelSource.CJK_BIN, KernelSource.CJK):
         found.add(Trait.CJK_KERNEL)
     else:
@@ -311,6 +331,17 @@ def traits_of(config: InstallConfig) -> frozenset[Trait]:
         found.add(Trait.FONT_WITHOUT_CJK_GLYPHS)
 
     return frozenset(found)
+
+
+_MODULAR_CRYPT = re.compile(
+    r"^\$(?:1|2[abxy]|5|6|y|gy|7)\$(?:[^:$\n]+\$)+[^:$\n]+$"
+)
+_DES_CRYPT = re.compile(r"^[./0-9A-Za-z]{13}$")
+
+
+def _password_can_authenticate(password_hash: str) -> bool:
+    """Whether the value has a supported crypt(3) hash shape."""
+    return bool(_MODULAR_CRYPT.fullmatch(password_hash) or _DES_CRYPT.fullmatch(password_hash))
 
 
 def violations(config: InstallConfig) -> tuple[Rule, ...]:

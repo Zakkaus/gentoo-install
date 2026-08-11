@@ -23,6 +23,7 @@ from gentoo_install.model.config import (
     RemoteUnlock,
     PortageConfig,
     SystemConfig,
+    User,
 )
 from gentoo_install.model.device import (
     DeviceGraph,
@@ -48,6 +49,11 @@ from gentoo_install.model.device import (
 from gentoo_install.model.size import Size
 
 from .layouts import config, ext4_on_gpt, i, zfs_root
+
+VALID_KEY = (
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB+85deBslaLOMFw71dx23wo7fFT76GVcEyQS9IdVvvT "
+    "installer@example"
+)
 
 
 def boots(config_: InstallConfig, kind: Bootloader, firmware: Firmware) -> InstallConfig:
@@ -141,6 +147,24 @@ def systemd_boot_with_the_kernel_on_ext4() -> InstallConfig:
     return boots(config(nodes), Bootloader.SYSTEMD_BOOT, Firmware.UEFI)
 
 
+def systemd_boot_with_encrypted_vfat_boot() -> InstallConfig:
+    nodes = list(ext4_on_gpt())
+    top = max(one.index for one in nodes if isinstance(one, Partition))
+    nodes += [
+        Partition(
+            id=i("bootpart"),
+            table=i("table"),
+            index=top + 1,
+            role=PartitionRole.DATA,
+            size=Size.parse("1GiB"),
+        ),
+        Luks(id=i("bootcrypt"), backing=i("bootpart"), name="boot"),
+        Filesystem(id=i("bootfs"), device=i("bootcrypt"), kind=FilesystemType.VFAT),
+        Mountpoint(id=i("mnt-boot"), source=i("bootfs"), path=PurePosixPath("/boot")),
+    ]
+    return boots(config(nodes), Bootloader.SYSTEMD_BOOT, Firmware.UEFI)
+
+
 def mirrored_esp() -> list[Node]:
     """Two esp members in a mirror, with the metadata version mdadm defaults to."""
     nodes: list[Node] = [node for node in ext4_on_gpt() if node.id not in {i("espfs"), i("mnt-esp")}]
@@ -227,6 +251,33 @@ def remote_unlock_of_an_unencrypted_root() -> InstallConfig:
     )
 
 
+def remote_unlock_of_a_native_zfs_root(kind: Bootloader) -> InstallConfig:
+    nodes = [
+        replace(node, encrypted=True, passphrase_file="/run/keys/pool")
+        if isinstance(node, ZfsPool)
+        else node
+        for node in zfs_root()
+    ]
+    installation = boots(config(nodes), kind, Firmware.UEFI)
+    return replace(
+        installation,
+        system=replace(installation.system, authorized_keys=(VALID_KEY,)),
+        kernel=KernelConfig(remote_unlock=RemoteUnlock(enabled=True)),
+        portage=PortageConfig(
+            overlays=(
+                Overlay(
+                    name="gentoo-zh",
+                    sync_uri="https://example.invalid/overlay.git",
+                ),
+            )
+        ),
+    )
+
+
+def native_zfs_remote_unlock_with_systemd_boot() -> InstallConfig:
+    return remote_unlock_of_a_native_zfs_root(Bootloader.SYSTEMD_BOOT)
+
+
 def a_system_nothing_can_log_into() -> InstallConfig:
     """No root password, no user and no key: the machine boots and refuses
     every login. `zfs-zbm.toml` was this until a VM run reached its prompt."""
@@ -253,6 +304,11 @@ CASES: list[tuple[Callable[[], InstallConfig], Trait, Trait]] = [
     (the_patched_kernel_without_its_overlay, Trait.CJK_KERNEL, Trait.NO_GENTOOZH_OVERLAY),
     (remote_unlock_without_a_key, Trait.REMOTE_UNLOCK, Trait.NO_AUTHORIZED_KEY),
     (remote_unlock_of_an_unencrypted_root, Trait.REMOTE_UNLOCK, Trait.NO_ENCRYPTED_CONTAINER),
+    (
+        native_zfs_remote_unlock_with_systemd_boot,
+        Trait.REMOTE_UNLOCK,
+        Trait.NATIVE_ZFS_SYSTEM_INITRAMFS,
+    ),
 ]
 
 
@@ -311,6 +367,87 @@ def test_an_esp_mounted_at_boot_puts_the_kernel_on_the_esp() -> None:
     nodes: list[Node] = [node for node in ext4_on_gpt() if node.id != i("mnt-esp")]
     nodes.append(Mountpoint(id=i("mnt-esp"), source=i("espfs"), path=PurePosixPath("/boot")))
     assert Trait.KERNEL_OFF_ESP not in traits_of(config(nodes))
+
+
+def test_systemd_boot_cannot_read_an_encrypted_separate_boot() -> None:
+    broken = systemd_boot_with_encrypted_vfat_boot()
+    assert (Trait.SYSTEMD_BOOT, Trait.KERNEL_OFF_ESP) in {
+        (rule.when, rule.excludes) for rule in violations(broken)
+    }
+
+
+@pytest.mark.parametrize("kind", [Bootloader.GRUB, Bootloader.SYSTEMD_BOOT])
+def test_system_initramfs_remote_unlock_cannot_open_native_zfs(
+    kind: Bootloader,
+) -> None:
+    from gentoo_install.errors import ValidationFailed
+    from gentoo_install.model.validate import validate
+
+    with pytest.raises(ValidationFailed, match="native ZFS"):
+        validate(remote_unlock_of_a_native_zfs_root(kind))
+
+
+def test_zfsbootmenu_native_zfs_remote_unlock_is_not_refused() -> None:
+    from pathlib import Path
+
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.validate import validate
+
+    installation = load(Path("tests/fixtures/zfs-zbm.toml"))
+    validate(installation)
+
+
+@pytest.mark.parametrize(
+    ("sshd", "root_login"),
+    [
+        pytest.param(False, True, id="sshd-disabled"),
+        pytest.param(True, False, id="root-login-disabled"),
+    ],
+)
+def test_an_authorized_key_needs_a_daemon_and_an_account_that_can_use_it(
+    sshd: bool, root_login: bool
+) -> None:
+    installation = replace(
+        config(),
+        system=replace(
+            config().system,
+            root_password_hash="",
+            users=(),
+            authorized_keys=(VALID_KEY,),
+            sshd=sshd,
+            sshd_root_login=root_login,
+        ),
+    )
+    assert (Trait.ROOT_LOCKED, Trait.NO_OTHER_LOGIN) in {
+        (rule.when, rule.excludes) for rule in violations(installation)
+    }
+
+
+@pytest.mark.parametrize("password_hash", ["!", "*", "not-a-hash"])
+def test_a_nonempty_root_password_value_must_be_an_authenticating_hash(
+    password_hash: str,
+) -> None:
+    installation = replace(
+        config(),
+        system=replace(config().system, root_password_hash=password_hash, users=()),
+    )
+    assert (Trait.ROOT_LOCKED, Trait.NO_OTHER_LOGIN) in {
+        (rule.when, rule.excludes) for rule in violations(installation)
+    }
+
+
+def test_a_nonempty_user_password_value_must_be_an_authenticating_hash() -> None:
+    installation = replace(
+        config(),
+        system=replace(
+            config().system,
+            root_password_hash="",
+            users=(User(name="operator", password_hash="!"),),
+        ),
+    )
+    assert (Trait.ROOT_LOCKED, Trait.NO_OTHER_LOGIN) in {
+        (rule.when, rule.excludes) for rule in violations(installation)
+    }
 
 
 def test_a_gpt_boot_disk_with_a_bios_boot_partition_satisfies_bios() -> None:
