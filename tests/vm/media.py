@@ -6,6 +6,10 @@ import hashlib
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Final, Iterable
+
+from gentoo_install.exec import preflight
+from gentoo_install.exec.config import load
 
 CACHE = Path.home() / "code/gentoo-install/lab/vm"
 
@@ -121,6 +125,50 @@ def _extract(iso: Path, files: dict[str, Path]) -> None:
 #: until a run failed on a path nobody had moved.
 ISO_CACHE = CACHE / "iso"
 
+#: Alpine packages for executables whose names differ. An empty package means
+#: the base image already supplies the command.
+ALPINE_PACKAGE_FOR_COMMAND: Final[dict[str, str]] = {
+    "blockdev": "util-linux-misc",
+    "btrfs": "btrfs-progs",
+    "chroot": "coreutils",
+    "hostid": "coreutils",
+    "lvcreate": "lvm2",
+    "mkfs.btrfs": "btrfs-progs",
+    "mkfs.ext2": "e2fsprogs",
+    "mkfs.ext3": "e2fsprogs",
+    "mkfs.ext4": "e2fsprogs",
+    "mkfs.f2fs": "f2fs-tools",
+    "mkfs.vfat": "dosfstools",
+    "mkfs.xfs": "xfsprogs",
+    "mkswap": "util-linux-misc",
+    "partprobe": "parted",
+    "pvcreate": "lvm2",
+    "swapoff": "util-linux-misc",
+    "swapon": "util-linux-misc",
+    "udevadm": "eudev",
+    "vgcreate": "lvm2",
+    "zpool": "zfs",
+}
+
+
+def _fixture_commands() -> frozenset[str]:
+    root = Path(__file__).resolve().parents[1] / "fixtures"
+    wanted: set[str] = set()
+    for path in sorted(root.glob("*.toml")):
+        wanted.update(preflight.required_commands(load(path)))
+    return frozenset(wanted)
+
+
+def _alpine_packages(commands: Iterable[str]) -> tuple[str, ...]:
+    packages = {
+        ALPINE_PACKAGE_FOR_COMMAND.get(command, command)
+        for command in commands
+    }
+    return tuple(sorted(package for package in packages if package))
+
+
+ALPINE_PACKAGES: Final[tuple[str, ...]] = ("python3", *_alpine_packages(_fixture_commands()))
+
 GIGOS = Medium(
     name="gigos",
     iso=ISO_CACHE / "gig-os-20260807.iso",
@@ -172,13 +220,8 @@ ALPINE = Medium(
     login_user="root",
     login_password=None,
     boot_cmdline=("modules=loop,squashfs,sd-mod,usb-storage",),
-    # Alpine ships no interpreter and no repository line, and it populates
-    # /dev with mdev, so a partition node never appears. The package list is
-    # every command `preflight.required_commands` asks for across the whole
-    # fixture set, resolved against Alpine's own APKINDEX rather than found one
-    # failed run at a time. `gpg-agent` is the exception the derivation cannot
-    # see: nothing declares it as a command, and gpg answers `probably not
-    # installed` at the first signature it checks.
+    # Alpine ships no interpreter or repository line and populates /dev with
+    # mdev, so a partition node never appears.
     prepare=(
         # The live session leaves every interface down, so apk answered
         # `DNS: transient error` on a guest whose network was never started.
@@ -187,9 +230,7 @@ ALPINE = Medium(
         "printf 'https://mirrors.ustc.edu.cn/alpine/v3.24/main\n"
         "https://mirrors.ustc.edu.cn/alpine/v3.24/community\n' > /etc/apk/repositories",
         "apk update",
-        "apk add python3 blkid btrfs-progs coreutils cryptsetup dosfstools "
-        "e2fsprogs eudev f2fs-tools findmnt gpg gpg-agent lsblk lvm2 mdadm mount parted "
-        "sgdisk tar umount util-linux-misc wipefs xfsprogs xz zfs",
+        "apk add " + " ".join(ALPINE_PACKAGES),
         "setup-devd udev",
     ),
 )

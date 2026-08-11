@@ -219,8 +219,7 @@ def test_replacing_an_iso_at_the_same_path_re_extracts_it(tmp_path: Path) -> Non
 
 def test_bootstrap_names_a_package_for_every_command_preflight_wants() -> None:
     """`package_for` fell through to printing the command itself, so an LVM or
-    swap install was told to install packages named `pvcreate` and `mkswap`,
-    which no distribution has."""
+    stage3 install was told to install executable names that are not packages."""
     import subprocess
 
     from gentoo_install.exec import preflight
@@ -231,7 +230,10 @@ def test_bootstrap_names_a_package_for_every_command_preflight_wants() -> None:
     body = source[start : source.index("\n}\n", start) + 3]
     script = body + '\npackage_for "$1" "$2"\n'
 
-    wanted = {
+    operation_commands = {
+        command for commands in preflight.BY_OPERATION.values() for command in commands
+    }
+    wanted = operation_commands | {
         command
         for group in (
             preflight.ALWAYS,
@@ -241,20 +243,48 @@ def test_bootstrap_names_a_package_for_every_command_preflight_wants() -> None:
         )
         for command in group
     }
-    # These are the commands a distribution really does name its package after.
-    # Commands a distribution really does name a package after. Alpine splits
-    # util-linux into one package per tool, so each of those is its own name
-    # there and nowhere else.
+    stage3_providers = {
+        "gentoo": {"tar": "tar", "xz": "xz-utils", "gpg": "gnupg", "gpg-agent": "gnupg"},
+        "alpine": {"tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gpg-agent"},
+        "debian": {"tar": "tar", "xz": "xz-utils", "gpg": "gnupg", "gpg-agent": "gpg-agent"},
+        "ubuntu": {"tar": "tar", "xz": "xz-utils", "gpg": "gnupg", "gpg-agent": "gpg-agent"},
+        "arch": {"tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gnupg"},
+        "fedora": {
+            "tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gnupg2-gpg-agent",
+        },
+        "rhel": {"tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gnupg2"},
+        "centos": {"tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gnupg2"},
+        "suse": {"tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gpg2"},
+        "opensuse": {"tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gpg2"},
+        "opensuse-leap": {"tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gpg2"},
+        "opensuse-tumbleweed": {
+            "tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gpg2",
+        },
+    }
+    assert all(set(providers) == operation_commands for providers in stage3_providers.values())
+    # These are the commands every distribution really names its package after.
+    # Alpine splits util-linux into one package per tool, so each of those is
+    # its own name there and nowhere else.
     itself = {"cryptsetup", "mdadm", "parted", "btrfs", "tar", "sgdisk", "zfs", "openssl"}
     split_on_alpine = {"mount", "umount", "lsblk", "blkid", "findmnt", "wipefs"}
-    # Debian keeps mount and umount in a package of that name.
-    named_that = {("mount", "debian"), ("umount", "debian")}
+    # Debian and Ubuntu keep mount and umount in a package of that name.
+    named_that = {
+        ("mount", "debian"),
+        ("umount", "debian"),
+        ("mount", "ubuntu"),
+        ("umount", "ubuntu"),
+    }
     wrong: list[str] = []
-    for command in sorted(wanted - itself):
-        for family in ("gentoo", "alpine", "debian", "arch", "fedora", "opensuse"):
+    for command in sorted(wanted):
+        for family, providers in stage3_providers.items():
             said = subprocess.run(
                 ["sh", "-c", script, "_", command, family], capture_output=True, text=True
             ).stdout.strip()
+            if command in operation_commands:
+                assert said == providers[command], (command, family, said)
+                continue
+            if command in itself:
+                continue
             allowed = (family == "alpine" and command in split_on_alpine) or (
                 command,
                 family,
@@ -262,6 +292,14 @@ def test_bootstrap_names_a_package_for_every_command_preflight_wants() -> None:
             if said == command and not allowed:
                 wrong.append(f"{command}:{family}")
     assert not wrong, wrong
+
+
+def test_alpine_gets_stage3_helpers_from_the_preflight_contract() -> None:
+    from tests.vm import media
+
+    helpers = {"xz", "gpg-agent"}
+    assert helpers <= media._fixture_commands()
+    assert helpers <= set(media.ALPINE_PACKAGES)
 
 
 def test_the_installed_checks_read_the_files_the_plan_writes() -> None:

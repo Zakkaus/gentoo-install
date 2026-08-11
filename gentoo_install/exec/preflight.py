@@ -33,15 +33,24 @@ from ..model.size import DEFAULT_ALIGNMENT, SectorSize, Size
 from ..model.validate import root_size_problems
 from ..plan.disk import MKFS
 from ..plan.operations import Operation
+from ..plan.portage import InstallStage3
 from .probe import RELEASE_KEY, Machine, Probe
 
 # These are used while preflight inspects disks, before any operation runs.
 PREFLIGHT_ONLY: Final[tuple[str, ...]] = ("lsblk", "swapon")
 
+#: The stage3 operation's direct commands and the helpers they launch.
+STAGE3_COMMANDS: Final[tuple[str, ...]] = ("tar", "xz", "gpg", "gpg-agent")
+
 #: Commands every install needs, whatever the layout is.
 ALWAYS: Final[tuple[str, ...]] = (
     "tar", "gpg", "mount", "umount", "findmnt", "lsblk", "blkid", "chroot", "udevadm", "swapon",
 )
+
+#: Commands reached through context methods or helper subprocesses.
+BY_OPERATION: Final[dict[type[Operation], tuple[str, ...]]] = {
+    InstallStage3: STAGE3_COMMANDS,
+}
 
 #: What the menu needs and a configuration file does not: a file carries
 #: `password_hash` already, and the menu computes one with `openssl passwd -6`.
@@ -118,7 +127,7 @@ class Report:
 
 def _configured_commands(config: InstallConfig) -> frozenset[str]:
     graph = config.disk.graph
-    wanted = set(ALWAYS)
+    wanted = set(ALWAYS) | set(STAGE3_COMMANDS)
     for table in graph.of_type(PartitionTable):
         wanted |= set(BY_FEATURE["gpt" if table.table is TableType.GPT else "mbr"])
     if graph.of_type(Luks):
@@ -155,7 +164,15 @@ def required_commands(
         return _configured_commands(config)
     wanted = set(PREFLIGHT_ONLY)
     for operation in operations:
-        wanted.update(operation.required_host_commands())
+        wanted.update(_operation_commands(operation))
+    return frozenset(wanted)
+
+
+def _operation_commands(operation: Operation) -> frozenset[str]:
+    wanted = set(operation.required_host_commands())
+    for operation_type, commands in BY_OPERATION.items():
+        if isinstance(operation, operation_type):
+            wanted.update(commands)
     return frozenset(wanted)
 
 
@@ -163,7 +180,7 @@ def _command_users(operations: Iterable[Operation]) -> dict[str, tuple[str, ...]
     users: dict[str, list[str]] = {}
     for operation in operations:
         name = type(operation).__name__
-        for command in operation.required_host_commands():
+        for command in _operation_commands(operation):
             named = users.setdefault(command, [])
             if name not in named:
                 named.append(name)

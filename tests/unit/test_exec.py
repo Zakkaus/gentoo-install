@@ -317,6 +317,26 @@ def test_the_required_commands_come_from_the_layout() -> None:
     assert "cryptsetup" not in plain and "zpool" not in plain
 
 
+@pytest.mark.parametrize("helper", ("xz", "gpg-agent"))
+def test_a_missing_stage3_helper_is_reported_before_the_operation(
+    helper: str, tmp_path: Path
+) -> None:
+    from gentoo_install.plan.portage import InstallStage3
+
+    operation = InstallStage3(mirror="https://example.invalid", variant="systemd")
+    wanted = preflight.required_commands(config(), (operation,))
+    report = preflight.inspect(
+        config(),
+        described(commands=wanted - {helper}),
+        probe_of(tmp_path),
+        operations=(operation,),
+    )
+    assert any(
+        problem == f"{helper} is missing; required by InstallStage3"
+        for problem in report.fatal
+    ), report.fatal
+
+
 def test_every_filesystem_the_installer_can_make_has_a_required_command() -> None:
     """The list is derived from the table the operations use, so a filesystem
     added there cannot be silently absent here."""

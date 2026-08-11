@@ -70,6 +70,14 @@ package_for() {
 	# as package names no distribution has.
 	lvm:* | pvcreate:* | vgcreate:* | lvcreate:*) printf 'lvm2' ;;
 	gpg:*) printf 'gnupg' ;;
+	gpg-agent:gentoo | gpg-agent:arch) printf 'gnupg' ;;
+	gpg-agent:alpine | gpg-agent:debian | gpg-agent:ubuntu) printf 'gpg-agent' ;;
+	gpg-agent:fedora) printf 'gnupg2-gpg-agent' ;;
+	gpg-agent:rhel | gpg-agent:centos) printf 'gnupg2' ;;
+	gpg-agent:suse | gpg-agent:opensuse*) printf 'gpg2' ;;
+	xz:gentoo | xz:debian | xz:ubuntu) printf 'xz-utils' ;;
+	xz:alpine | xz:arch | xz:fedora | xz:rhel | xz:centos | xz:suse \
+		| xz:opensuse*) printf 'xz' ;;
 	zpool:debian | zfs:debian | zpool:ubuntu | zfs:ubuntu) printf 'zfsutils-linux' ;;
 	# Nothing official provides these on Arch: `zfs-utils` is in archzfs, a
 	# third-party repository the medium has not configured, and `pacman -S
