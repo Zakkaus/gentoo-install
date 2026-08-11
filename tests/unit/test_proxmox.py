@@ -12,7 +12,7 @@ import urllib.error
 import urllib.response
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -25,6 +25,7 @@ from tests.vm.proxmox import (
     GuestSpec,
     ProxmoxError,
     ProxmoxNotFound,
+    ProxmoxTransientError,
     _RejectRedirect,
     _line_of_linux,
 )
@@ -161,6 +162,118 @@ def test_a_delete_carries_its_parameters_in_the_url(monkeypatch: pytest.MonkeyPa
 
     assert removed == ("https://nowhere.invalid/api2/json/nodes/n/qemu/9300?purge=1", None)
     assert created == ("https://nowhere.invalid/api2/json/nodes/n/qemu", b"vmid=9300")
+
+
+class _HttpRefusal:
+    def __init__(self, code: int, reason: str, body: str) -> None:
+        self.code = code
+        self.reason = reason
+        self.body = body
+        self.attempts = 0
+
+    def open(self, request: urllib.request.Request, timeout: float = 0.0) -> Any:
+        self.attempts += 1
+        raise urllib.error.HTTPError(
+            request.full_url,
+            self.code,
+            self.reason,
+            Message(),
+            io.BytesIO(self.body.encode()),
+        )
+
+
+def _refusing_api(
+    monkeypatch: pytest.MonkeyPatch, code: int, reason: str, body: str
+) -> tuple[Api, _HttpRefusal]:
+    refusal = _HttpRefusal(code, reason, body)
+    api = Api(host="nowhere.invalid")
+    api._opener = cast(urllib.request.OpenerDirector, refusal)
+    monkeypatch.setattr(proxmox, "_secret", lambda: "secret")
+    return api, refusal
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "code"),
+    [
+        ("GET", "/nodes", 429),
+        ("GET", "/nodes", 502),
+        ("GET", "/nodes", 503),
+        ("GET", "/nodes", 504),
+        ("POST", "/nodes/node/qemu/9300/termproxy", 500),
+        ("GET", "/nodes/node/tasks/UPID%3Anode%3Atask/status", 500),
+    ],
+)
+def test_documented_http_failures_are_transient(
+    monkeypatch: pytest.MonkeyPatch, method: str, path: str, code: int
+) -> None:
+    body = '{"data":null,"message":"try later"}'
+    api, refusal = _refusing_api(monkeypatch, code, "Temporary refusal", body)
+    with pytest.raises(ProxmoxTransientError) as raised:
+        api.call(method, path)
+    said = str(raised.value)
+    assert f"{method} {path} answered {code} Temporary refusal" in said
+    assert body in said
+    assert refusal.attempts == 1
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        urllib.error.URLError("connection reset"),
+        TimeoutError("timed out"),
+        OSError("network unreachable"),
+    ],
+)
+def test_transport_failures_are_transient(
+    monkeypatch: pytest.MonkeyPatch, failure: Exception
+) -> None:
+    class Failing:
+        def open(self, request: urllib.request.Request, timeout: float = 0.0) -> Any:
+            raise failure
+
+    api = Api(host="nowhere.invalid")
+    api._opener = cast(urllib.request.OpenerDirector, Failing())
+    monkeypatch.setattr(proxmox, "_secret", lambda: "secret")
+    with pytest.raises(ProxmoxTransientError, match="did not answer"):
+        api.call("GET", "/nodes")
+
+
+def test_a_missing_vm_http_500_is_not_found_at_the_api_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reason = "Configuration file 'nodes/node/qemu-server/9300.conf' does not exist"
+    body = '{"data":null}'
+    api, refusal = _refusing_api(monkeypatch, 500, reason, body)
+    with pytest.raises(ProxmoxNotFound) as raised:
+        api.call("GET", "/nodes/node/qemu/9300/config")
+    said = str(raised.value)
+    assert reason in said
+    assert body in said
+    assert refusal.attempts == 1
+
+
+def test_a_permanent_http_500_is_not_retried_by_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import time as clock
+
+    body = '{"data":null,"message":"permission denied by policy"}'
+    api, refusal = _refusing_api(monkeypatch, 500, "Internal Server Error", body)
+    moments = iter((0.0, 0.0, 0.0, 0.0, 0.0, 2.0))
+    monkeypatch.setattr(clock, "monotonic", lambda: next(moments))
+    monkeypatch.setattr(clock, "sleep", lambda seconds: None)
+    guest = Guest(
+        api,
+        "node",
+        9300,
+        GuestSpec(name="x", iso="x", nonce="gi-owned"),
+    )
+    with pytest.raises(ProxmoxError) as raised:
+        guest.destroy(patience=1.0)
+    said = str(raised.value)
+    assert "500 Internal Server Error" in said
+    assert body in said
+    assert refusal.attempts == 1
 
 
 def test_an_api_redirect_cannot_create_a_second_authorized_request() -> None:
@@ -1416,8 +1529,8 @@ def test_transient_task_status_failures_do_not_abort_a_completed_task(
 ) -> None:
     """Two temporary 502 responses discarded a task that later reported OK."""
     answers: list[Any] = [
-        ProxmoxError("GET status answered 502 Bad Gateway"),
-        ProxmoxError("GET status answered 502 Bad Gateway"),
+        ProxmoxTransientError("GET status answered 502 Bad Gateway"),
+        ProxmoxTransientError("GET status answered 502 Bad Gateway"),
         {"status": "stopped", "exitstatus": "OK"},
     ]
 
@@ -1581,7 +1694,7 @@ def test_cleanup_retries_unknown_stop_and_delete_until_the_guest_is_absent(
             if method == "DELETE":
                 self.deletes += 1
                 if self.deletes == 1:
-                    raise ProxmoxError("DELETE answered 503 storage busy")
+                    raise ProxmoxTransientError("DELETE answered 503 storage busy")
                 self.absent = True
                 return "UPID:node:delete"
             raise AssertionError((method, path))
