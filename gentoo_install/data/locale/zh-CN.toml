@@ -167,6 +167,8 @@
 "Graphics" = "显卡"
 "Display manager" = "显示管理器"
 "none" = "无"
+"kept" = "保留"
+"proposed" = "建议"
 "measured" = "已测速"
 "same as the console" = "同控制台"
 "i915 and xe, with the firmware they need" = "i915 与 xe，含所需固件"

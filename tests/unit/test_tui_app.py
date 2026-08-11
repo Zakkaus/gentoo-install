@@ -17,7 +17,7 @@ from gentoo_install.model.config import (
     MirrorRegion,
 )
 from gentoo_install.model import manual
-from gentoo_install.model.device import FilesystemType
+from gentoo_install.model.device import FilesystemType, RaidLevel, RaidMetadata, ZfsTopology
 from gentoo_install.model.validate import validate
 from gentoo_install.model import compat
 from gentoo_install.tui import screens, settings
@@ -567,6 +567,44 @@ def test_the_mirror_row_shows_every_service_and_lets_each_be_chosen() -> None:
         assert label in drawn, label
 
 
+def test_mirror_subselectors_reopen_on_the_values_their_rows_show() -> None:
+    from gentoo_install.model.config import BinhostChannel, GentooZhMirror, Sync
+    from gentoo_install.model.config import Overlay
+    from gentoo_install.model import mirrors
+
+    at = context()
+    base = config()
+    held = replace(
+        base,
+        portage=replace(
+            base.portage,
+            sync=Sync.WEBRSYNC,
+            binhost=replace(
+                base.portage.binhost,
+                community=BinhostChannel.UNSTABLE,
+            ),
+            mirrors=replace(
+                base.portage.mirrors,
+                gentoo_zh=GentooZhMirror.NJU,
+            ),
+            overlays=(Overlay(name="gentoo-zh", sync_uri="https://example.invalid"),),
+        ),
+    )
+
+    sync = FakeScreen(keys=["q"])
+    screens._edit_mirror(sync, at, held, screens._SYNC)
+    assert "webrsync" in sync.highlighted[0]
+
+    community = FakeScreen(keys=["q"])
+    screens._edit_mirror(community, at, held, screens._ZH_BINHOST)
+    assert "unstable" in community.highlighted[0]
+
+    overlay = FakeScreen(keys=["q"])
+    screens._edit_mirror(overlay, at, held, screens._ZH_SITE)
+    expected = at.translate(mirrors.gentoozh(GentooZhMirror.NJU).name)
+    assert expected in overlay.highlighted[0]
+
+
 def test_choosing_a_gentoozh_mirror_is_what_adds_the_overlay() -> None:
     """A mirror chosen for an overlay nobody selected changes nothing, so the
     two are one row."""
@@ -980,6 +1018,29 @@ def test_an_empty_disk_opens_on_the_template_proposal() -> None:
     screens.partitions_screen(screen, config(), at)
     assert at.layout.slices
     assert all(one.status is manual.SliceStatus.CREATE for one in at.layout.slices)
+
+
+def test_manual_storage_subselectors_reopen_on_the_values_their_rows_show() -> None:
+    at = context()
+    at.layout.array.level = RaidLevel.RAID6
+    at.layout.array.metadata = RaidMetadata.V1_2
+    at.layout.array.filesystem = FilesystemType.XFS
+    at.layout.topology = ZfsTopology.RAIDZ2
+
+    cases = (
+        (screens._LEVEL, "raid6"),
+        (screens._METADATA, "1.2"),
+        (screens._FILESYSTEM, "xfs"),
+    )
+    for field, shown in cases:
+        reopened = FakeScreen(keys=["q"])
+        screens._edit_array_field(reopened, at, field, members=4)
+        assert shown in reopened.highlighted[0], field
+
+    topology = FakeScreen(keys=["q"])
+    screens._pool_topology(topology, at, members=4)
+    assert "raidz2" in topology.highlighted[0]
+
 
 def test_the_reuse_layout_is_never_built_from_a_template() -> None:
     """A template has no existing partitions to name, so approximating one
@@ -1605,6 +1666,21 @@ def test_the_keyboard_layout_is_picked_from_what_the_machine_ships() -> None:
     # The field is prefilled with the current keymap, so `us` is cleared first.
     typed = FakeScreen(keys=["KEY_BACKSPACE", "KEY_BACKSPACE", *"fr", "\n"], lines=24, columns=90)
     assert screens.keymap_screen(typed, config(), at).unwrap().system.keymap == "fr"
+
+
+def test_the_keymap_picker_reopens_on_the_current_family_and_keymap() -> None:
+    at = context()
+    at.keymaps = lambda: (
+        ("qwerty", "de"),
+        ("qwerty", "us"),
+        ("dvorak", "dvorak"),
+    )
+    reopened = FakeScreen(keys=["\n", "\n"])
+
+    answer = screens.keymap_screen(reopened, config(), at)
+
+    assert answer.unwrap().system.keymap == "us"
+    assert reopened.highlighted[:2] == ["qwerty", "us"]
 
 
 def test_the_unlock_keyboard_offers_following_the_console() -> None:
@@ -2354,6 +2430,40 @@ def test_a_desktop_proposes_its_login_screen_and_a_network_manager() -> None:
         FakeScreen(keys=[*down(4), "\n", "\n"], lines=30), picked, context()
     ).unwrap()
     assert kept.packages.display_manager == "greetd"
+
+
+def test_a_proposed_display_manager_is_withdrawn_but_an_operator_choice_is_kept() -> None:
+    at = context()
+    plasma = screens.desktop_screen(
+        FakeScreen(keys=[*down(4), "\n", "\n"], lines=30), config(), at
+    ).unwrap()
+    assert "proposed" in settings._display_manager(plasma, at)
+
+    gnome = screens.desktop_screen(
+        FakeScreen(keys=["KEY_UP", "KEY_UP", "\n", "\n"], lines=30), plasma, at
+    ).unwrap()
+    assert gnome.packages.display_manager == "gdm"
+    assert "sddm" not in gnome.portage.use
+
+    explicit_at = context()
+    proposed = screens.desktop_screen(
+        FakeScreen(keys=[*down(4), "\n", "\n"], lines=30),
+        config(),
+        explicit_at,
+    ).unwrap()
+    explicit = screens.display_manager_screen(
+        FakeScreen(keys=["\n"], lines=30), proposed, explicit_at
+    ).unwrap()
+    assert "proposed" not in settings._display_manager(explicit, explicit_at)
+
+    kept_screen = FakeScreen(
+        keys=["KEY_UP", "KEY_UP", "\n", "\n"], lines=30, columns=100
+    )
+    kept = screens.desktop_screen(kept_screen, explicit, explicit_at).unwrap()
+    assert kept.packages.display_manager == "sddm"
+    assert "Display manager: sddm (kept)" in "\n".join(
+        "\n".join(frame) for frame in kept_screen.frames
+    )
 
 
 def test_what_a_desktop_brings_is_listed_in_one_place() -> None:

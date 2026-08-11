@@ -198,6 +198,9 @@ class Context:
         #: opened is running on a default nobody chose, which the menu says in
         #: colour as well as in the value it shows.
         self.visited: set[str] = set()
+        #: A desktop proposal is withdrawn with that desktop; an explicit edit
+        #: clears this marker even when it chooses the same manager.
+        self.proposed_display_manager: str = ""
         #: The hand-written partition table, when the layout is manual.
         self.layout = manual.Layout()
         #: Whether the disk comes from that table rather than a template.
@@ -984,6 +987,7 @@ def _edit_mirror(
         return _pick(
             screen, context, config, "Repository sync",
             list(SYNC_METHODS),
+            config.portage.sync,
             lambda chosen_config, value: replace(
                 chosen_config, portage=replace(chosen_config.portage, sync=value)
             ),
@@ -994,6 +998,7 @@ def _edit_mirror(
         return _pick(
             screen, context, config, "gentoo-zh binary packages",
             list(GENTOOZH_CHANNELS),
+            config.portage.binhost.community,
             lambda chosen_config, value: replace(
                 chosen_config,
                 portage=replace(
@@ -1018,25 +1023,43 @@ def _edit_mirror(
 V = TypeVar("V")
 
 
+def _current_menu(
+    screen: Screen,
+    context: Context,
+    title: str,
+    items: Sequence[Item[V]],
+    current: V,
+) -> Answer[list[V]]:
+    """A single-choice menu whose current value cannot be omitted."""
+    return Menu(
+        title=title,
+        items=items,
+        footer=footer(context.translate),
+        current=current,
+    ).run(screen)
+
+
 def _pick(
     screen: Screen,
     context: Context,
     config: InstallConfig,
     title: str,
     offered: list[tuple[V, str]],
+    current: V,
     apply: Callable[[InstallConfig, V], InstallConfig],
 ) -> InstallConfig | None:
     """One value from a short list, each row carrying what it costs."""
     translate = context.translate
-    menu: Menu[V] = Menu(
-        title=translate(title),
-        items=[
+    answer = _current_menu(
+        screen,
+        context,
+        translate(title),
+        [
             Item(label=str(getattr(value, "value", value)), value=value, detail=translate(reason))
             for value, reason in offered
         ],
-        footer=footer(translate),
+        current,
     )
-    answer = menu.run(screen)
     if not answer.chosen:
         return None
     return apply(config, answer.unwrap()[0])
@@ -1099,9 +1122,14 @@ def _edit_gentoozh(
         )
         for one in mirrors.GENTOOZH_SITES
     ]
-    answer = Menu(
-        title=translate("gentoo-zh"), items=items, footer=footer(translate)
-    ).run(screen)
+    used = any(one.name == "gentoo-zh" for one in config.portage.overlays)
+    answer = _current_menu(
+        screen,
+        context,
+        translate("gentoo-zh"),
+        items,
+        config.portage.mirrors.gentoo_zh if used else None,
+    )
     if not answer.chosen:
         return None
     picked = answer.unwrap()[0]
@@ -1452,8 +1480,36 @@ def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> A
                 ),
             ),
         )
+    manager = config.packages.display_manager
+    was_proposed = bool(manager and context.proposed_display_manager == manager)
+    kept_manager = (
+        manager
+        if manager and not was_proposed and desktop != config.packages.desktop
+        else ""
+    )
     changed = _desktop_proposes(changed, config, context, desktop)
-    return settle(screen, context, config, changed)
+    login = LOGIN_SCREEN.get(desktop, "")
+    proposed = (
+        login
+        if login
+        and changed.packages.display_manager == login
+        and (was_proposed or not manager)
+        else ""
+    )
+    answered = settle(
+        screen,
+        context,
+        config,
+        changed,
+        kept_display_manager=kept_manager,
+    )
+    if answered.chosen:
+        context.proposed_display_manager = (
+            proposed
+            if answered.unwrap().packages.display_manager == proposed
+            else ""
+        )
+    return answered
 
 
 #: What each desktop's own login screen is. Proposed rather than fixed: the
@@ -1479,10 +1535,18 @@ def _desktop_proposes(
     `USE=networkmanager`, and nothing moved `system.networking` with it, so the
     installed desktop had the settings panel and not the service behind it.
     """
+    if (
+        context.proposed_display_manager
+        and context.proposed_display_manager == before.packages.display_manager
+    ):
+        changed = replace(
+            changed,
+            packages=replace(changed.packages, display_manager=""),
+        )
     if not desktop:
         return changed
     login = LOGIN_SCREEN.get(desktop, "")
-    if login and not before.packages.display_manager and login in context.groups:
+    if login and not changed.packages.display_manager and login in context.groups:
         changed = replace(
             changed, packages=replace(changed.packages, display_manager=login)
         )
@@ -1495,7 +1559,11 @@ def _desktop_proposes(
 
 
 def settle(
-    screen: Screen, context: Context, before: InstallConfig, after: InstallConfig
+    screen: Screen,
+    context: Context,
+    before: InstallConfig,
+    after: InstallConfig,
+    kept_display_manager: str = "",
 ) -> Answer[InstallConfig]:
     """Confirm what a choice changes outside its own row, then write it down.
 
@@ -1517,6 +1585,7 @@ def settle(
     moved = (
         after.packages.display_manager != before.packages.display_manager
         or after.system.networking is not before.system.networking
+        or bool(kept_display_manager)
     )
     if not (flags or cards or joins or profile or moved):
         return Answer(Outcome.CHOSE, after)
@@ -1529,6 +1598,11 @@ def settle(
     if after.packages.display_manager != before.packages.display_manager:
         lines.append(
             f"{translate('Display manager')}: {after.packages.display_manager}"
+        )
+    elif kept_display_manager:
+        lines.append(
+            f"{translate('Display manager')}: {kept_display_manager} "
+            f"({translate('kept')})"
         )
     if after.system.networking is not before.system.networking:
         lines.append(f"{translate('Network')}: {after.system.networking.value}")
@@ -1720,12 +1794,16 @@ def display_manager_screen(
         "Display manager",
         DISPLAY_MANAGERS,
         lambda packages, name: replace(packages, display_manager=name),
+        current=config.packages.display_manager,
         unavailable=lambda name: without if name else "",
         say_what_it_adds=True,
     )
     if not chosen.chosen:
         return chosen
-    return settle(screen, context, config, chosen.unwrap())
+    answered = settle(screen, context, config, chosen.unwrap())
+    if answered.chosen:
+        context.proposed_display_manager = ""
+    return answered
 
 
 def _needs_an_overlay(
@@ -1747,14 +1825,17 @@ def _one_group(
     title: str,
     offered: tuple[tuple[str, str], ...],
     apply: Callable[[PackagesConfig, str], PackagesConfig],
+    current: str,
     unavailable: Callable[[str], str] = lambda name: "",
     say_what_it_adds: bool = False,
 ) -> Answer[InstallConfig]:
     """A row that holds one group name, drawn from a table of them."""
     translate = context.translate
-    menu: Menu[str] = Menu(
-        title=translate(title),
-        items=[
+    answer = _current_menu(
+        screen,
+        context,
+        translate(title),
+        [
             Item(
                 label=name or translate("none"),
                 value=name,
@@ -1765,9 +1846,8 @@ def _one_group(
             )
             for name, reason in offered
         ],
-        footer=footer(translate),
+        current,
     )
-    answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
     return Answer(
@@ -3189,18 +3269,30 @@ def _pick_keymap(
     families += [
         Item(label=family, value=family) for family in sorted({one for one, _ in offered})
     ]
-    answer = Menu(title=title, items=families, footer=footer(translate)).run(screen)
+    family_current = next(
+        (family for family, name in offered if name == current),
+        "",
+    )
+    answer = _current_menu(
+        screen,
+        context,
+        title,
+        families,
+        family_current,
+    )
     if not answer.chosen:
         return Answer(answer.outcome)
     family = answer.unwrap()[0]
     if not family:
         return Answer(Outcome.CHOSE, "")
     within = [name for one, name in offered if one == family]
-    chosen = Menu(
-        title=f"{title}  {family}",
-        items=[Item(label=name, value=name) for name in within],
-        footer=footer(translate),
-    ).run(screen)
+    chosen = _current_menu(
+        screen,
+        context,
+        f"{title}  {family}",
+        [Item(label=name, value=name) for name in within],
+        current,
+    )
     return (
         Answer(Outcome.CHOSE, chosen.unwrap()[0])
         if chosen.chosen
@@ -3574,11 +3666,13 @@ def _edit_disk(screen: Screen, context: Context, position: int) -> None:
         if answer.unwrap()[0] == _DROP:
             context.layout.disks.pop(position)
             return
-        picked = Menu(
-            title=translate("Partition table"),
-            items=[Item(label=one.value, value=one) for one in TableType],
-            footer=footer(translate),
-        ).run(screen)
+        picked = _current_menu(
+            screen,
+            context,
+            translate("Partition table"),
+            [Item(label=one.value, value=one) for one in TableType],
+            disk.table,
+        )
         if picked.chosen:
             disk.table = picked.unwrap()[0]
 
@@ -3695,9 +3789,11 @@ def _edit_array_field(screen: Screen, context: Context, field: str, members: int
     translate = context.translate
     array = context.layout.array
     if field == _LEVEL:
-        picked: Answer[list[RaidLevel]] = Menu(
-            title=translate("RAID level"),
-            items=[
+        picked = _current_menu(
+            screen,
+            context,
+            translate("RAID level"),
+            [
                 Item(
                     label=one.value,
                     value=one,
@@ -3707,15 +3803,17 @@ def _edit_array_field(screen: Screen, context: Context, field: str, members: int
                 )
                 for one in RaidLevel
             ],
-            footer=footer(translate),
-        ).run(screen)
+            array.level,
+        )
         if picked.chosen:
             array.level = picked.unwrap()[0]
         return
     if field == _METADATA:
-        chosen: Answer[list[RaidMetadata]] = Menu(
-            title=translate("Superblock"),
-            items=[
+        chosen = _current_menu(
+            screen,
+            context,
+            translate("Superblock"),
+            [
                 Item(
                     label=one.value,
                     value=one,
@@ -3725,17 +3823,19 @@ def _edit_array_field(screen: Screen, context: Context, field: str, members: int
                 )
                 for one in RaidMetadata
             ],
-            footer=footer(translate),
-        ).run(screen)
+            array.metadata,
+        )
         if chosen.chosen:
             array.metadata = chosen.unwrap()[0]
         return
     if field == _FILESYSTEM:
-        kind: Answer[list[FilesystemType]] = Menu(
-            title=translate("Filesystem"),
-            items=[Item(label=one.value, value=one) for one in FilesystemType],
-            footer=footer(translate),
-        ).run(screen)
+        kind = _current_menu(
+            screen,
+            context,
+            translate("Filesystem"),
+            [Item(label=one.value, value=one) for one in FilesystemType],
+            array.filesystem,
+        )
         if kind.chosen:
             array.filesystem = kind.unwrap()[0]
         return
@@ -3744,6 +3844,7 @@ def _edit_array_field(screen: Screen, context: Context, field: str, members: int
             **answers(translate),
             title=translate("Encrypt this array?"),
             footer=footer(translate),
+            current=bool(array.passphrase_file),
         ).run(screen)
         if not turned.chosen:
             return
@@ -3787,9 +3888,13 @@ def _pool_topology(
         )
         for one in ZfsTopology
     ]
-    answer = Menu(
-        title=translate("Pool topology"), items=items, footer=footer(translate)
-    ).run(screen)
+    answer = _current_menu(
+        screen,
+        context,
+        translate("Pool topology"),
+        items,
+        context.layout.topology,
+    )
     return answer.unwrap()[0] if answer.chosen else None
 
 
@@ -3936,14 +4041,16 @@ def _edit_field(
                 manual.SliceStatus.DELETE,
             ]
         )
-        chosen_status: Answer[list[manual.SliceStatus]] = Menu(
-            title=translate("What happens to it"),
-            items=[
+        chosen_status = _current_menu(
+            screen,
+            context,
+            translate("What happens to it"),
+            [
                 Item(label=translate(one.value), value=one, detail=translate(manual.STATUS_REASONS[one]))
                 for one in offered
             ],
-            footer=footer(translate),
-        ).run(screen)
+            entry.status,
+        )
         if not chosen_status.chosen:
             return None
         return replace(entry, status=chosen_status.unwrap()[0])
@@ -3959,9 +4066,11 @@ def _edit_field(
         text = typed.unwrap().strip()
         return replace(entry, size=Size.parse(text) if text else None)
     if field == _PURPOSE:
-        picked = Menu(
-            title=translate("What is this partition for?"),
-            items=[
+        picked = _current_menu(
+            screen,
+            context,
+            translate("What is this partition for?"),
+            [
                 Item(
                     label=one.label,
                     value=one,
@@ -3971,8 +4080,8 @@ def _edit_field(
                 )
                 for one in manual.PURPOSES
             ],
-            footer=footer(translate),
-        ).run(screen)
+            purpose,
+        )
         if not picked.chosen:
             return None
         return _apply_purpose(entry, picked.unwrap()[0])
@@ -3992,9 +4101,13 @@ def _edit_field(
                 disabled_because=context.zfs_unavailable,
             )
         )
-        answered = Menu(
-            title=translate("Filesystem"), items=items, footer=footer(translate)
-        ).run(screen)
+        answered = _current_menu(
+            screen,
+            context,
+            translate("Filesystem"),
+            items,
+            entry.filesystem,
+        )
         if not answered.chosen:
             return None
         kind = answered.unwrap()[0]
@@ -4047,6 +4160,7 @@ def _edit_slice_encryption(
             else translate("Encrypt this partition?")
         ),
         footer=footer(translate),
+        current=bool(entry.passphrase_file),
     ).run(screen)
     if not turned.chosen:
         return None
