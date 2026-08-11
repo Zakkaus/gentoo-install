@@ -679,20 +679,20 @@ def test_the_mirror_check_names_the_mirror_it_could_not_reach(
     assert "certificate verify failed" in str(raised.value)
 
 
-def test_a_question_nobody_can_answer_is_not_asked(
+def test_a_question_is_asked_after_the_earlier_keys_are_thrown_away(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A prompt printed at a stdin that is not a terminal is answered `No` by
-    the empty line `readline` returns at once, so it flashes past and the
-    operator reads it as an offer that was never made."""
+    """The menu is curses and the key that left it is still in the terminal's
+    input queue, so `readline` returned it at once and both questions after a
+    failed install were answered by keystrokes aimed at the screen before
+    them."""
     import io
     import sys as system
 
     from gentoo_install import cli
 
-    monkeypatch.setattr(system, "stdin", io.StringIO("y\n"))
-    assert cli._asked("well?") is False
-    assert "well?" not in capsys.readouterr().out
+    flushed: list[str] = []
+    monkeypatch.setattr(cli, "_forget_what_was_typed", lambda: flushed.append("flushed"))
 
     class Terminal(io.StringIO):
         def isatty(self) -> bool:
@@ -700,4 +700,20 @@ def test_a_question_nobody_can_answer_is_not_asked(
 
     monkeypatch.setattr(system, "stdin", Terminal("y\n"))
     assert cli._asked("well?") is True
+    assert flushed == ["flushed"], "the leftover keys go before the question"
     assert "well?" in capsys.readouterr().out
+
+
+def test_nothing_is_flushed_on_a_terminal_this_run_does_not_own(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`tcflush` raises on a stdin that is not a terminal rather than
+    answering, and a run reading its configuration from a pipe still has to
+    reach its own closing path."""
+    import io
+    import sys as system
+
+    from gentoo_install import cli
+
+    monkeypatch.setattr(system, "stdin", io.StringIO(""))
+    cli._forget_what_was_typed()

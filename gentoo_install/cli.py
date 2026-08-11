@@ -11,6 +11,7 @@ import curses
 import os
 import shutil
 import sys
+import termios
 import time
 from datetime import datetime, timezone
 import tomllib
@@ -340,22 +341,36 @@ def _unattended(arguments: argparse.Namespace) -> bool:
 
 
 def _asked(question: str) -> bool:
-    """No when nobody can answer.
+    """Ask, after throwing away what was typed before the question existed.
 
-    A question printed at a stdin that is not a terminal is answered `No` by
-    the empty line `readline` returns at once, so the prompt flashes past and
-    the operator reads it as an offer that was never made. `--config` alone
-    does not settle this: a run started by hand from a script has a terminal
-    for its output and none for its input.
+    The menu is curses and the key that left it is still in the terminal's
+    input queue when this runs, so `readline` returned it at once: both
+    questions after a failed install were answered by keystrokes aimed at the
+    screen before them, and the operator watched two offers go past.
     """
-    if not sys.stdin.isatty():
-        return False
+    _forget_what_was_typed()
     print(f"{question} [y/N] ", end="")
     sys.stdout.flush()
     try:
         return sys.stdin.readline().strip().lower() in ("y", "yes")
     except (EOFError, KeyboardInterrupt):
         return False
+
+
+def _forget_what_was_typed() -> None:
+    """Discard input that arrived before the question was printed.
+
+    Nothing to discard on a terminal this run does not own, and `tcflush`
+    raises there rather than answering.
+    """
+    if not sys.stdin.isatty():
+        return
+    try:
+        termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
+    except (termios.error, OSError, ValueError):
+        # A console that cannot be flushed still gets its question asked; the
+        # worst case is the one this replaces.
+        return
 
 
 #: Black on white, so the code reads as a code. A terminal's own colours are
@@ -402,13 +417,8 @@ def _offer_a_paste(
     if _unattended(arguments):
         return
     outcome = "the install stopped" if stopped else "the install finished"
-    if not sys.stdin.isatty():
-        # Said rather than asked. The question needs an answer this run cannot
-        # be given, and an operator who wants the log on the pastebin can send
-        # it themselves; the address is what they are missing.
-        record(f"{outcome}. the log to publish is {work / 'install.log'}")
-        return
     if not _asked(f"{outcome}. send the log to {paste.HOST}, which is public?"):
+        record(f"the log to publish by hand is {work / 'install.log'}")
         return
     source = work / "install.log"
     try:
