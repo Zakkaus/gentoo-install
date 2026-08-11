@@ -1,0 +1,6 @@
+# Gentoo's IPAex fontconfig file declares this Mincho family for serif.
+packages = ["media-fonts/ipaex"]
+label = "IPAex Mincho"
+font_family = "IPAexMincho"
+font_category = "serif"
+font_cjk = true

@@ -86,6 +86,38 @@ def test_several_answers_are_marked_without_relying_on_a_glyph() -> None:
     assert "[x] firefox" in screen.last
 
 
+def test_marking_a_second_row_preferred_moves_the_mark() -> None:
+    fonts: Menu[str] = Menu(
+        title="Fonts",
+        items=[
+            Item(label="Noto Sans CJK", value="noto", preference_group="sans-serif"),
+            Item(label="Source Han Sans", value="source", preference_group="sans-serif"),
+        ],
+        multiple=True,
+        tri_state=True,
+    )
+    screen = FakeScreen(keys=[" ", " ", "KEY_DOWN", " ", " ", "\n"])
+
+    assert fonts.run(screen).unwrap() == ["noto", "source"]
+    assert fonts.preferred == {1}
+    assert "[-] Noto Sans CJK" in screen.last
+    assert "[x] Source Han Sans" in screen.last
+
+
+def test_an_installed_only_row_never_gets_a_preferred_mark() -> None:
+    fonts: Menu[str] = Menu(
+        title="Fonts",
+        items=[Item(label="Open Sans", value="open-sans")],
+        multiple=True,
+        tri_state=True,
+    )
+    fonts._toggle(0)
+    assert fonts.selected == {0}
+    fonts._toggle(0)
+    assert fonts.selected == set()
+    assert fonts.preferred == set()
+
+
 def test_a_wide_title_is_cut_to_the_screen_rather_than_overflowing() -> None:
     """FakeScreen asserts on overflow, so a layout that assumed one cell per
     character fails here instead of corrupting a serial console."""

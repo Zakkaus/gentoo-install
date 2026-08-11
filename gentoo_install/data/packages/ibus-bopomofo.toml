@@ -1,0 +1,7 @@
+# Chewing provides a dedicated Bopomofo workflow without a Rime schema.
+packages = ["app-i18n/ibus-chewing"]
+accept_keywords = ["app-i18n/ibus-chewing ~amd64"]
+label = "Bopomofo (Chewing)"
+input_framework = "ibus"
+input_method = "chewing"
+input_language = "Chinese"

@@ -1,0 +1,5 @@
+# Fontconfig's Latin family lists identify the GNOME face as Cantarell.
+packages = ["media-fonts/cantarell"]
+label = "Cantarell"
+font_family = "Cantarell"
+font_category = "sans"

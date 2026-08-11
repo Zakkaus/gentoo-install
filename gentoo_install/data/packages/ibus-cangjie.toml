@@ -1,0 +1,6 @@
+# The addon provides both Cangjie and Quick; this row selects the Cangjie engine.
+packages = ["app-i18n/ibus-cangjie"]
+label = "Cangjie"
+input_framework = "ibus"
+input_method = "cangjie"
+input_language = "Chinese"

@@ -6,7 +6,9 @@
 # chosen on its own left fcitx naming an addon that was not on disk and
 # falling back to `keyboard-us`. The engine comes with it.
 packages = ["app-i18n/fcitx-rime", "app-i18n/rime-data"]
+label = "Simplified Pinyin (Rime)"
 package_use = ["app-i18n/rime-data extra"]
 input_framework = "fcitx"
 input_method = "rime"
+input_language = "Chinese"
 schemas = ["pinyin_simp"]

@@ -1,0 +1,8 @@
+# Rime remains a separate schema-driven alternative to the official engines.
+packages = ["app-i18n/ibus-rime", "app-i18n/rime-data"]
+accept_keywords = ["app-i18n/ibus-rime ~amd64"]
+label = "Rime"
+input_framework = "ibus"
+input_method = "rime"
+input_language = "Chinese"
+input_source = "rime"

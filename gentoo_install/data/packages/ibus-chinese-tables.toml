@@ -1,0 +1,6 @@
+# The Chinese table data requires the IBus table engine that loads it.
+packages = ["app-i18n/ibus-table", "app-i18n/ibus-table-chinese"]
+label = "Chinese tables"
+input_framework = "ibus"
+input_method = "table"
+input_language = "Chinese"

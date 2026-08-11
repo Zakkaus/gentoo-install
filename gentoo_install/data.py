@@ -21,7 +21,9 @@ KEYS: Final[frozenset[str]] = frozenset(
         "input_method", "schemas", "wayland", "package_use", "accept_license",
         "display_manager", "profile", "input_framework", "input_method_launcher",
         "wayland_files", "user_groups", "user_services", "accept_keywords",
-        "systemd_services",
+        "systemd_services", "label", "input_language", "font_family",
+        "font_category", "font_cjk", "font_configuration", "input_configuration",
+        "input_source",
     }
 )
 
@@ -52,6 +54,7 @@ def _load(path: Path) -> Group:
         raise ConfigError(f"{path} has unknown keys: {', '.join(unknown)}")
     return Group(
         name=path.stem,
+        label=_text(raw, "label", path),
         packages=_strings(raw, "packages", path),
         services=_strings(raw, "services", path),
         systemd_services=_strings(raw, "systemd_services", path),
@@ -64,6 +67,13 @@ def _load(path: Path) -> Group:
         files=_files(raw, path),
         input_method=_text(raw, "input_method", path),
         input_framework=_text(raw, "input_framework", path),
+        input_language=_text(raw, "input_language", path),
+        input_source=_text(raw, "input_source", path),
+        font_family=_text(raw, "font_family", path),
+        font_category=_text(raw, "font_category", path),
+        font_cjk=_flag(raw, "font_cjk", path),
+        font_configuration=_text(raw, "font_configuration", path),
+        input_configuration=_text(raw, "input_configuration", path),
         input_method_launcher=_text(raw, "input_method_launcher", path),
         wayland_files=_files(raw, path, key="wayland_files"),
         schemas=_strings(raw, "schemas", path),

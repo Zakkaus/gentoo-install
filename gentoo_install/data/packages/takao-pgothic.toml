@@ -1,0 +1,6 @@
+# Gentoo's Takao fontconfig file lists the proportional Gothic family first.
+packages = ["media-fonts/takao-fonts"]
+label = "Takao P Gothic"
+font_family = "TakaoPGothic"
+font_category = "sans"
+font_cjk = true

@@ -6,5 +6,7 @@
 # naming either one merges a second implementation the installed fcitx does
 # not address.
 packages = ["app-i18n/fcitx-anthy"]
+label = "Anthy"
 input_framework = "fcitx"
 input_method = "anthy"
+input_language = "Japanese"

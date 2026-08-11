@@ -1,3 +1,7 @@
 # The GB variant gives Simplified Chinese operators a Kai-style face.
 packages = ["media-fonts/lxgw-wenkai-gb"]
+label = "LXGW WenKai GB"
+font_family = "LXGW WenKai GB"
+font_category = "kai"
+font_cjk = true
 repositories = ["gentoo-zh"]

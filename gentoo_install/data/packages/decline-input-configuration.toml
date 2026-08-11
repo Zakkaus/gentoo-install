@@ -1,0 +1,2 @@
+# This package-free group records an explicit refusal of input configuration.
+input_configuration = "disabled"

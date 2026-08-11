@@ -1,0 +1,6 @@
+# Fontconfig's non-Latin lists classify Baekmuk Gulim as sans.
+packages = ["media-fonts/baekmuk-fonts"]
+label = "Baekmuk Gulim"
+font_family = "Baekmuk Gulim"
+font_category = "sans"
+font_cjk = true

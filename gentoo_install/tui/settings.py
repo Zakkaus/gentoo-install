@@ -567,7 +567,11 @@ def _display_manager(config: InstallConfig, context: Context) -> str:
 
 def _applications(config: InstallConfig, context: Context) -> str:
     language_groups = frozenset(
-        (*screens.input_method_groups(context.groups), *screens.cjk_font_groups(context.groups))
+        (
+            *screens.input_method_groups(context.groups),
+            *screens.cjk_font_groups(context.groups),
+            *screens.configuration_groups(context.groups),
+        )
     )
     applications = [
         name for name in config.packages.applications if name not in language_groups
@@ -589,7 +593,12 @@ def _selected_groups(
 
 
 def _input_method(config: InstallConfig, context: Context) -> str:
-    return _selected_groups(config, context, screens.input_method_groups(context.groups))
+    selected = [
+        context.groups[name].label or name
+        for name in config.packages.applications
+        if name in screens.input_method_groups(context.groups)
+    ]
+    return ", ".join(context.translate(name) for name in selected) or context.translate("none")
 
 
 def _cjk_fonts(config: InstallConfig, context: Context) -> str:
@@ -597,39 +606,16 @@ def _cjk_fonts(config: InstallConfig, context: Context) -> str:
     selected = [name for name in config.packages.applications if name in offered]
     if not selected:
         return context.translate("none")
-    preferred = context.translate("{font} (preferred)").format(font=selected[0])
-    return ", ".join((preferred, *selected[1:]))
-
-
-def _desktop_language_preamble(
-    config: InstallConfig, context: Context
-) -> tuple[str, ...]:
-    """What the selected desktop lets the installer configure itself."""
-    packages = context.translate(
-        "The selected font and input method packages will be installed."
-    )
-    if not config.packages.desktop:
-        return (
-            packages,
-            context.translate(
-                "No desktop is selected; font and input method configuration will not "
-                "be applied."
-            ),
+    preferred = set(screens.preferred_font_groups(config, context.groups))
+    shown = []
+    for name in selected:
+        label = context.translate(context.groups[name].label or name)
+        shown.append(
+            context.translate("{font} (preferred)").format(font=label)
+            if name in preferred
+            else label
         )
-    desktop = context.groups.get(config.packages.desktop)
-    if desktop is not None and desktop.input_method_launcher:
-        return (
-            packages,
-            context.translate(
-                "{desktop} configures the selected fonts and input method automatically."
-            ).format(desktop=config.packages.desktop),
-        )
-    return (
-        packages,
-        context.translate(
-            "{desktop} leaves font and input method configuration to its settings."
-        ).format(desktop=config.packages.desktop),
-    )
+    return ", ".join(shown)
 
 
 def _root_login(config: InstallConfig, context: Context) -> str:
@@ -749,13 +735,7 @@ KERNEL: Final[tuple[Setting, ...]] = (
 LANGUAGE: Final[tuple[Setting, ...]] = (
     Setting("locale", "System language", lambda c, x: c.system.locale, screens.locale_screen),
     Setting("locales", "Other locales", _other_locales, screens.additional_locales_screen),
-    Setting(
-        "input_method",
-        "Input method",
-        _input_method,
-        screens.input_method_screen,
-    ),
-    Setting("cjk_fonts", "CJK fonts", _cjk_fonts, screens.cjk_fonts_screen),
+    Setting("fonts", "Fonts", _cjk_fonts, screens.cjk_fonts_screen),
 )
 
 
@@ -791,6 +771,12 @@ DESKTOP: Final[tuple[Setting, ...]] = (
         "desktop", "Desktop", lambda c, x: c.packages.desktop or x.translate("none"),
         screens.desktop_screen,
     ),
+    Setting(
+        "input_method",
+        "Input method",
+        _input_method,
+        screens.input_method_screen,
+    ),
     Setting("graphics", "Graphics", _graphics, screens.graphics_screen),
     Setting("cards", "VIDEO_CARDS", _video_cards, screens.video_cards_screen),
     Setting("input", "INPUT_DEVICES", _input_devices, screens.input_devices_screen),
@@ -811,9 +797,9 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("keymap", "Keyboard layout", lambda c, x: c.system.keymap, screens.keymap_screen),
     Setting(
         "language",
-        "Language and input",
+        "Language and fonts",
         _summary(LANGUAGE),
-        nested("Language and input", LANGUAGE, _desktop_language_preamble),
+        nested("Language and fonts", LANGUAGE),
         rows=LANGUAGE,
     ),
     Setting("timezone", "Timezone", lambda c, x: c.system.timezone, screens.timezone_screen),

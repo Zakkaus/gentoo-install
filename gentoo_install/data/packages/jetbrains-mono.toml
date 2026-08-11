@@ -1,0 +1,5 @@
+# JetBrains Mono is a stable programming face with conventional mono metrics.
+packages = ["media-fonts/jetbrains-mono"]
+label = "JetBrains Mono"
+font_family = "JetBrains Mono"
+font_category = "monospace"

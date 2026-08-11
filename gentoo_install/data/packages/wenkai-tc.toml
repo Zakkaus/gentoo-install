@@ -1,3 +1,7 @@
 # The TC variant gives Traditional Chinese operators a Kai-style face.
 packages = ["media-fonts/lxgw-wenkai-tc"]
+label = "LXGW WenKai TC"
+font_family = "LXGW WenKai TC"
+font_category = "kai"
+font_cjk = true
 repositories = ["gentoo-zh"]

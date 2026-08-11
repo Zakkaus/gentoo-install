@@ -1,6 +1,8 @@
 # Rime through fcitx, with `luna_pinyin`, the schema that comes with the
 # engine. Bopomofo, Cangjie, Wubi and Cantonese are groups of their own.
 packages = ["app-i18n/fcitx-rime", "app-i18n/rime-data"]
+label = "Pinyin (Rime)"
 input_framework = "fcitx"
 input_method = "rime"
+input_language = "Chinese"
 schemas = ["luna_pinyin"]

@@ -1,0 +1,5 @@
+# The ebuild removes Fira Mono so this group denotes the Fira Sans family.
+packages = ["media-fonts/fira-sans"]
+label = "Fira Sans"
+font_family = "Fira Sans"
+font_category = "sans"
