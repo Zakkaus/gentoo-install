@@ -26,7 +26,7 @@ from gentoo_install.model.device import (
     Partition,
     PartitionRole,
 )
-from gentoo_install.plan import system
+from gentoo_install.plan import bootloader, system
 from gentoo_install.plan.portage import Emerge
 
 from .layouts import config, ext4_on_gpt, i
@@ -247,6 +247,27 @@ def test_openrc_gets_a_serial_login_when_the_cmdline_asks_for_one() -> None:
     assert PurePosixPath("/etc/inittab") not in apply_all(
         local, generated=generated(local)
     ).files
+
+
+def test_serial_frame_format_does_not_change_the_getty_baud() -> None:
+    from gentoo_install.model.config import BootloaderConfig
+
+    remote = replace(
+        with_system(init=InitSystem.OPENRC),
+        bootloader=BootloaderConfig(kernel_params=("console=ttyS0,115200n8",)),
+    )
+    getty = next(
+        operation
+        for operation in system.build(remote)
+        if isinstance(operation, system.EnableSerialGetty)
+    )
+    grub = next(
+        operation
+        for operation in bootloader.build(remote)
+        if isinstance(operation, bootloader.WriteGrubDefaults)
+    )
+    assert grub.serial is not None
+    assert getty.baud == grub.serial[1] == 115200
 
 
 def test_systemd_needs_no_inittab_entry_for_the_serial_console() -> None:
