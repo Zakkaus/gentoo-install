@@ -1,0 +1,4 @@
+# Hangul is the official Korean conversion engine for IBus.
+packages = ["app-i18n/ibus-hangul"]
+input_framework = "ibus"
+input_method = "hangul"

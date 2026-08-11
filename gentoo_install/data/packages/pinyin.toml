@@ -1,0 +1,5 @@
+# The standard Fcitx Pinyin engine is separate from Rime and needs no schema.
+packages = ["app-i18n/fcitx-chinese-addons"]
+accept_keywords = ["app-i18n/fcitx-chinese-addons ~amd64"]
+input_framework = "fcitx"
+input_method = "pinyin"

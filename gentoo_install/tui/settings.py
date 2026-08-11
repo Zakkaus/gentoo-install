@@ -593,7 +593,12 @@ def _input_method(config: InstallConfig, context: Context) -> str:
 
 
 def _cjk_fonts(config: InstallConfig, context: Context) -> str:
-    return _selected_groups(config, context, screens.cjk_font_groups(context.groups))
+    offered = screens.cjk_font_groups(context.groups)
+    selected = [name for name in config.packages.applications if name in offered]
+    if not selected:
+        return context.translate("none")
+    preferred = context.translate("{font} (preferred)").format(font=selected[0])
+    return ", ".join((preferred, *selected[1:]))
 
 
 def _desktop_language_preamble(
@@ -806,9 +811,9 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("keymap", "Keyboard layout", lambda c, x: c.system.keymap, screens.keymap_screen),
     Setting(
         "language",
-        "Language",
+        "Language and input",
         _summary(LANGUAGE),
-        nested("Language", LANGUAGE, _desktop_language_preamble),
+        nested("Language and input", LANGUAGE, _desktop_language_preamble),
         rows=LANGUAGE,
     ),
     Setting("timezone", "Timezone", lambda c, x: c.system.timezone, screens.timezone_screen),
