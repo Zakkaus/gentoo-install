@@ -13,8 +13,8 @@ from gentoo_install import cli
 from gentoo_install.exec import fetch
 from gentoo_install.exec import report
 from gentoo_install.exec.runner import Runner
-from gentoo_install.cli import EXIT_CONFIG, EXIT_OK, EXIT_PREFLIGHT, main
-from gentoo_install.errors import ConfigError
+from gentoo_install.cli import EXIT_CONFIG, EXIT_INTEGRITY, EXIT_OK, EXIT_PREFLIGHT, main
+from gentoo_install.errors import ConfigError, IntegrityError
 from gentoo_install.plan.build import DEFAULT_MIRROR
 from gentoo_install.exec.config import load
 
@@ -518,7 +518,7 @@ def test_an_exit_that_is_not_a_named_error_still_releases_and_keeps_the_log() ->
     caught = source.index("except BaseException as error:")
     kept = source.index("report.keep_log(")
     released = source.index("_release(closing, machine, record)")
-    raised = source.index("raise unexpected")
+    raised = source.index("raise failure")
     assert caught < kept < raised, "the log is kept before the exception leaves"
     assert caught < released < raised, "the machine is released before it leaves"
 
@@ -574,6 +574,158 @@ def test_a_release_that_fails_does_not_stop_the_ones_after_it(tmp_path: Path) ->
     cli._release(closing, machine, said.append)
     assert ran == ["close the container", "stop the array", "export the pool"]
     assert any("device busy" in one for one in said), said
+
+
+def test_a_finish_failure_releases_the_machine_and_keeps_its_exit_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A cleanup operation before the unmount can fail after the target and
+    pool exist, so the release operation still has to run on that path."""
+    from dataclasses import dataclass
+
+    from gentoo_install.plan.operations import Context, Operation, Stage
+
+    from .layouts import config
+
+    released: list[str] = []
+
+    @dataclass(frozen=True, kw_only=True)
+    class Partition(Operation):
+        stage: Stage = Stage.PARTITION
+
+        def describe(self) -> str:
+            return "begin partitioning"
+
+        def apply(self, context: Context) -> None:
+            return
+
+    @dataclass(frozen=True, kw_only=True)
+    class FailFinish(Operation):
+        stage: Stage = Stage.FINISH
+
+        def describe(self) -> str:
+            return "finish the target"
+
+        def apply(self, context: Context) -> None:
+            raise IntegrityError("the finish artifact did not verify")
+
+    @dataclass(frozen=True, kw_only=True)
+    class FailRelease(Operation):
+        stage: Stage = Stage.FINISH
+
+        @property
+        def releases_the_machine(self) -> bool:
+            return True
+
+        def describe(self) -> str:
+            return "close a held resource"
+
+        def apply(self, context: Context) -> None:
+            raise OSError("one resource stayed busy")
+
+    @dataclass(frozen=True, kw_only=True)
+    class Release(Operation):
+        stage: Stage = Stage.FINISH
+
+        @property
+        def releases_the_machine(self) -> bool:
+            return True
+
+        def describe(self) -> str:
+            return "release the machine"
+
+        def apply(self, context: Context) -> None:
+            released.append("released")
+
+    monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
+    monkeypatch.setattr(cli, "_needs_network", lambda arguments: False)
+    monkeypatch.setattr(cli, "load", lambda path: config())
+    monkeypatch.setattr(cli, "with_probed_facts", lambda chosen, probe: chosen)
+    monkeypatch.setattr(
+        cli,
+        "build",
+        lambda chosen, catalog, mirror: (
+            Partition(),
+            FailFinish(),
+            FailRelease(),
+            Release(),
+        ),
+    )
+    monkeypatch.setattr(report, "keep_log", lambda work, target, record: None)
+
+    code = main(
+        [
+            "--config", str(tmp_path / "install.toml"),
+            "--work", str(tmp_path / "work"),
+            "--target", str(tmp_path / "target"),
+            "--skip-preflight",
+            "--no-shell",
+        ]
+    )
+
+    assert released == ["released"]
+    assert code == EXIT_INTEGRITY
+    assert "integrity: the finish artifact did not verify" in capsys.readouterr().err
+
+
+def test_a_failure_after_partitioning_says_the_disk_may_not_boot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from dataclasses import dataclass
+
+    from gentoo_install.plan.operations import Context, Operation, Stage
+
+    from .layouts import config
+
+    @dataclass(frozen=True, kw_only=True)
+    class FailPartition(Operation):
+        stage: Stage = Stage.PARTITION
+
+        def describe(self) -> str:
+            return "write the partition table"
+
+        def apply(self, context: Context) -> None:
+            raise IntegrityError("partitioning stopped")
+
+    monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
+    monkeypatch.setattr(cli, "_needs_network", lambda arguments: False)
+    monkeypatch.setattr(cli, "load", lambda path: config())
+    monkeypatch.setattr(cli, "with_probed_facts", lambda chosen, probe: chosen)
+    monkeypatch.setattr(cli, "build", lambda chosen, catalog, mirror: (FailPartition(),))
+    monkeypatch.setattr(report, "keep_log", lambda work, target, record: None)
+
+    code = main(
+        [
+            "--config", str(tmp_path / "install.toml"),
+            "--work", str(tmp_path / "work"),
+            "--target", str(tmp_path / "target"),
+            "--skip-preflight",
+            "--no-shell",
+        ]
+    )
+
+    assert code == EXIT_INTEGRITY
+    assert "the selected disk has been written to and may not boot" in capsys.readouterr().err
+
+
+def test_a_failure_before_partitioning_says_nothing_was_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from gentoo_install.model.config import InstallConfig
+
+    monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
+    monkeypatch.setattr(cli, "_needs_network", lambda arguments: False)
+
+    def invalid(path: Path) -> InstallConfig:
+        raise ConfigError("the configuration is invalid")
+
+    monkeypatch.setattr(cli, "load", invalid)
+    code = main(["--config", str(tmp_path / "install.toml"), "--dry-run"])
+
+    said = capsys.readouterr().err
+    assert code == EXIT_CONFIG
+    assert "nothing was written to the selected disk" in said
+    assert "may not boot" not in said
 
 
 def test_the_menu_starts_from_the_firmware_the_machine_booted() -> None:

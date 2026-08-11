@@ -55,7 +55,8 @@ class Machine:
     def run(
         self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
     ) -> str:
-        return self.runner.run(argv, check=check, input_text=input_text).stdout
+        result = self.runner.run(argv, check=check, input_text=input_text)
+        return CommandOutput(result.stdout, result.returncode)
 
     def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
         result = self.runner.in_target(self.mountpoint).run(argv, check=check)

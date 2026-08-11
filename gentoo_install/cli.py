@@ -14,6 +14,7 @@ import shutil
 import sys
 import termios
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Final, Sequence
@@ -59,6 +60,13 @@ EXIT_PREFLIGHT = 2
 EXIT_INTEGRITY = 3
 EXIT_COMMAND = 4
 EXIT_ABORTED = 5
+
+
+@dataclass
+class RunState:
+    """Machine state that has to survive until the exit message is printed."""
+
+    disk_was_written: bool = False
 
 
 def parser() -> argparse.ArgumentParser:
@@ -109,6 +117,7 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = parser().parse_args(argv)
+    state = RunState(disk_was_written=bool(arguments.resume))
     try:
         _require_root(arguments)
         if _needs_network(arguments):
@@ -166,47 +175,70 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(render(operations), end="")
             print(summarise(operations))
             return EXIT_OK
-        return install(config, operations, arguments)
+        return install(config, operations, arguments, state)
     except errors.DeviceNotFound as error:
+        _print_machine_state(state)
         print(f"device: {error}", file=sys.stderr)
         return EXIT_PREFLIGHT
     except errors.ConfigError as error:
+        _print_machine_state(state)
         print(f"configuration: {error}", file=sys.stderr)
         return EXIT_CONFIG
     except errors.PreflightFailed as error:
+        _print_machine_state(state)
         print(f"preflight: {error}", file=sys.stderr)
         return EXIT_PREFLIGHT
     except errors.IntegrityError as error:
+        _print_machine_state(state)
         print(f"integrity: {error}", file=sys.stderr)
         return EXIT_INTEGRITY
     except errors.DownloadFailed as error:
+        _print_machine_state(state)
         print(f"download: {error}", file=sys.stderr)
         return EXIT_COMMAND
     except errors.CommandFailed as error:
+        _print_machine_state(state)
         print(f"command: {error}", file=sys.stderr)
         return EXIT_COMMAND
     except errors.GentooInstallError as error:
         # A named error with no clause of its own still gets its exit code from
         # here, rather than escaping as a traceback that exits 1.
+        _print_machine_state(state)
         print(f"{type(error).__name__}: {error}", file=sys.stderr)
         return EXIT_COMMAND
     except KeyboardInterrupt:
+        _print_machine_state(state)
         print("aborted", file=sys.stderr)
         return EXIT_ABORTED
     except OSError as error:
         # The exec layer writes files and reads /proc, and ENOSPC on the target
         # is a command that did not finish, not a configuration mistake.
+        _print_machine_state(state)
         print(f"system: {error}", file=sys.stderr)
         return EXIT_COMMAND
     except Exception as error:
         # Last, and deliberately wide: this module is the one place an exception
         # becomes an exit code, and one that escapes exits 1, which means
         # "bad configuration" to anything reading the code.
+        _print_machine_state(state)
         print(f"unexpected {type(error).__name__}: {error}", file=sys.stderr)
         return EXIT_COMMAND
 
 
-def install(config: InstallConfig, operations: tuple[Operation, ...], arguments: argparse.Namespace) -> int:
+def _print_machine_state(state: RunState) -> None:
+    """Tell the operator whether a failed run changed the selected disk."""
+    if state.disk_was_written:
+        print("the selected disk has been written to and may not boot", file=sys.stderr)
+    else:
+        print("nothing was written to the selected disk", file=sys.stderr)
+
+
+def install(
+    config: InstallConfig,
+    operations: tuple[Operation, ...],
+    arguments: argparse.Namespace,
+    state: RunState,
+) -> int:
     """Check the machine, then perform every operation in order."""
     work: Path = arguments.work
     with report.recording(work, arguments.target) as active_report:
@@ -238,21 +270,17 @@ def install(config: InstallConfig, operations: tuple[Operation, ...], arguments:
         # when the operator is offered a shell in it.
         closing = tuple(one for one in operations if one.stage is Stage.FINISH)
         body = tuple(one for one in operations if one.stage is not Stage.FINISH)
-        failed: GentooInstallError | None = None
-        # `BaseException`, not `Exception`: an ENOSPC on the live medium or a
-        # Ctrl-C left mounts, arrays and imported pools open and the failure
-        # log on a tmpfs that goes with the reboot. Nothing is swallowed --
-        # whatever came out is raised again below.
-        unexpected: BaseException | None = None
+        failure: BaseException | None = None
+        # Reaching the body means the partition stage is about to run. A
+        # command that fails can still have changed the disk before exiting.
+        state.disk_was_written = state.disk_was_written or any(
+            operation.stage is Stage.PARTITION for operation in body
+        )
         try:
             apply(body, machine, finished)
-        except GentooInstallError as error:
-            failed = error
-            record(f"the install stopped: {error}")
         except BaseException as error:
-            unexpected = error
-            record(f"the install stopped: {type(error).__name__}: {error}")
-        stopped = failed is not None or unexpected is not None
+            failure = _first_failure(failure, error, record)
+        stopped = failure is not None
         try:
             report.offer_paste(
                 work,
@@ -263,24 +291,24 @@ def install(config: InstallConfig, operations: tuple[Operation, ...], arguments:
                 show_the_address,
             )
             _offer_a_shell(arguments, machine, record, stopped)
-        finally:
-            # Before the closing stage and in `finally`: that stage unmounts
-            # the target, so a copy made after it lands on the install medium's
-            # tmpfs and goes with the reboot, which is what this exists to
-            # prevent. The log of a run that failed is the one worth keeping.
+        except BaseException as error:
+            failure = _first_failure(failure, error, record)
+        # Before the closing stage: that stage unmounts the target, so a later
+        # copy lands on the install medium's tmpfs and vanishes at reboot.
+        try:
             report.keep_log(work, arguments.target, record)
-        if not stopped:
-            apply(closing, machine, finished)
-        else:
-            # Only what releases the machine. The rest configures a target that
-            # a run stopping before the stage3 never populated, and
-            # `chroot: failed to run command 'ln'` then replaced the real
-            # failure in the message the operator reads.
+        except BaseException as error:
+            failure = _first_failure(failure, error, record)
+        if failure is None:
+            try:
+                apply(closing, machine, finished)
+            except BaseException as error:
+                failure = _first_failure(failure, error, record)
+        if failure is not None:
+            # Only release operations run after a failure. Configuring an
+            # incomplete target can obscure the error that stopped the run.
             _release(closing, machine, record)
-        if unexpected is not None:
-            raise unexpected
-        if failed is not None:
-            raise failed
+            raise failure
         counted = journal.counts()
         record(
             f"installed {len(operations)} operations into {arguments.target}; "
@@ -288,6 +316,19 @@ def install(config: InstallConfig, operations: tuple[Operation, ...], arguments:
             f"{counted.get('compiled', 0)} compiled"
         )
     return EXIT_OK
+
+
+def _first_failure(
+    first: BaseException | None,
+    current: BaseException,
+    record: Callable[[str], None],
+) -> BaseException:
+    """Keep the error that caused shutdown while recording later failures."""
+    if first is None:
+        record(f"the install stopped: {type(current).__name__}: {current}")
+        return current
+    record(f"warning: while handling that failure: {type(current).__name__}: {current}")
+    return first
 
 
 def _release(
@@ -303,10 +344,9 @@ def _release(
             continue
         try:
             operation.apply(machine)
-        except (GentooInstallError, OSError) as error:
-            # `OSError` too: one release raising it left the LUKS containers
-            # open, the arrays assembled and the pools imported, because this
-            # loop stopped at the first thing it did not name.
+        except BaseException as error:
+            # Release is best-effort because a prior failure owns the exit
+            # category, but later release operations still have work to do.
             record(f"warning: {operation.describe()}: {error}")
 
 
