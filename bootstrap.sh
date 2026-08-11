@@ -155,6 +155,15 @@ if ! python=$(python_binary); then
 fi
 say "python: $python ($("$python" --version 2>&1))"
 
+for argument in "$@"; do
+	case "$argument" in
+	-h | --help)
+		cd "$HERE"
+		exec "$python" -m gentoo_install "$@"
+		;;
+	esac
+done
+
 # The installer's own preflight lists what the chosen layout needs and names
 # every missing command at once, so the operator fixes them in one pass. Not
 # for a dry run: it performs nothing, and refusing it on a machine without the

@@ -55,6 +55,68 @@ def run(tmp_path: Path, release: str, *arguments: str, path: str) -> str:
     return finished.stdout + finished.stderr
 
 
+@pytest.mark.parametrize("argument", ["--help", "-h"])
+@pytest.mark.parametrize("installer_status", [0, 23])
+def test_help_bypasses_installation_preflight_and_preserves_status(
+    tmp_path: Path, argument: str, installer_status: int
+) -> None:
+    helpers = tmp_path / "helpers"
+    helpers.mkdir()
+    trace = tmp_path / "trace"
+    python = helpers / "python3"
+    python.write_text(
+        """#!/bin/sh
+printf 'python %s\\n' "$*" >> "$TRACE"
+case "$1" in
+-c)
+    case "$2" in
+    *version_info\\[1\\]*) printf '11\\n' ;;
+    *version_info\\[0\\]*) printf '3\\n' ;;
+    esac
+    ;;
+--version) printf 'Python 3.11.0\\n' ;;
+-m)
+    case "$3" in
+    --missing-commands) printf 'sgdisk\\n' ;;
+    -h | --help) printf 'installer help\\n'; exit "$INSTALLER_STATUS" ;;
+    esac
+    ;;
+esac
+"""
+    )
+    python.chmod(0o755)
+    identity = helpers / "id"
+    identity.write_text(
+        """#!/bin/sh
+printf 'id %s\\n' "$*" >> "$TRACE"
+printf '1000\\n'
+"""
+    )
+    identity.chmod(0o755)
+    release = tmp_path / "os-release"
+    release.write_text("ID=gentoo\n")
+
+    finished = subprocess.run(
+        [SHELL, str(LAUNCHER), argument],
+        cwd=REPOSITORY,
+        env={
+            "INSTALLER_STATUS": str(installer_status),
+            "OS_RELEASE": str(release),
+            "PATH": str(helpers),
+            "TRACE": str(trace),
+        },
+        capture_output=True,
+        text=True,
+    )
+
+    calls = trace.read_text().splitlines()
+    assert finished.returncode == installer_status
+    assert finished.stdout == "installer help\n"
+    assert f"python -m gentoo_install {argument}" in calls
+    assert not any("--missing-commands" in call for call in calls)
+    assert not any(call.startswith("id ") for call in calls)
+
+
 @pytest.mark.parametrize("release,manager", FAMILIES)
 def test_each_live_system_gets_its_own_package_manager(
     tmp_path: Path, release: str, manager: str
