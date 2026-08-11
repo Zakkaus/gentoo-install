@@ -81,6 +81,10 @@ class ProxmoxNotFound(ProxmoxError):
     """The requested cluster object no longer exists."""
 
 
+class ProxmoxTransientError(ProxmoxError):
+    """The call failed in a state the caller may retry."""
+
+
 class CreateConflict(ProxmoxError):
     """A VMID became occupied before this guest was created."""
 
@@ -101,10 +105,27 @@ class _RejectRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def _transient(error: ProxmoxError) -> bool:
-    said = str(error).lower()
-    return "did not answer" in said or any(
-        f"answered {code}" in said for code in (429, 500, 502, 503, 504)
+    return isinstance(error, ProxmoxTransientError)
+
+
+def _http_exception(method: str, path: str, error: urllib.error.HTTPError) -> ProxmoxError:
+    reason = str(error.reason)
+    said = error.read().decode("utf-8", "replace").strip()
+    message = f"{method} {path} answered {error.code} {reason}: {said}"
+    config = re.fullmatch(r"/nodes/[^/]+/qemu/(\d+)/config(?:\?.*)?", path)
+    if error.code == 404 or (
+        error.code == 500
+        and config is not None
+        and f"qemu-server/{config.group(1)}.conf' does not exist" in f"{reason}\n{said}"
+    ):
+        return ProxmoxNotFound(message)
+    retryable_500 = error.code == 500 and (
+        re.fullmatch(r"/nodes/[^/]+/qemu/\d+/termproxy(?:\?.*)?", path) is not None
+        or re.fullmatch(r"/nodes/[^/]+/tasks/[^/]+/status(?:\?.*)?", path) is not None
     )
+    if error.code in (429, 502, 503, 504) or retryable_500:
+        return ProxmoxTransientError(message)
+    return ProxmoxError(message)
 
 
 def _certificates() -> ssl.SSLContext:
@@ -194,13 +215,11 @@ class Api:
         except urllib.error.HTTPError as error:
             # The reason, not only the body: Proxmox answers `500` with
             # `{"data":null}` and puts what went wrong in the status line.
-            said = error.read().decode("utf-8", "replace").strip()[:300]
-            exception = ProxmoxNotFound if error.code == 404 else ProxmoxError
-            raise exception(
-                f"{method} {path} answered {error.code} {error.reason}: {said}"
-            ) from error
+            raise _http_exception(method, path, error) from error
         except (urllib.error.URLError, TimeoutError, OSError) as error:
-            raise ProxmoxError(f"{method} {path} did not answer: {error}") from error
+            raise ProxmoxTransientError(
+                f"{method} {path} did not answer: {error}"
+            ) from error
 
     def wait(self, node: str, upid: str, patience: float = 1800.0) -> None:
         """Block until a task finishes, and raise unless it finished cleanly.
@@ -544,6 +563,8 @@ class Guest:
                     )
                     break
                 except ProxmoxError as error:
+                    if not _transient(error):
+                        raise
                     last = str(error)
                     self.api.affinity = ""
                     time.sleep(0.5 * (attempt + 1))
@@ -596,13 +617,6 @@ class Guest:
                 return
             except ProxmoxError as error:
                 last = str(error)
-                # A guest whose config file is gone has been removed. The API
-                # reports that as 500 rather than 404, which `_transient` reads
-                # as retry-worthy, so the loop otherwise spent its whole
-                # patience re-asking about a guest that no longer existed and
-                # then reported the slot as still held.
-                if f"qemu-server/{self.vmid}.conf' does not exist" in last:
-                    return
                 if not _transient(error):
                     raise
                 time.sleep(min(CLEANUP_PAUSE, max(0.0, deadline - time.monotonic())))
@@ -636,6 +650,8 @@ class Guest:
                 return
             except ProxmoxError as error:
                 last = str(error)
+                if not _transient(error):
+                    raise
             time.sleep(min(CLEANUP_PAUSE, max(0.0, deadline - time.monotonic())))
         raise ProxmoxError(f"vm {self.vmid} on {self.node} was not removed: {last}")
 
@@ -675,6 +691,8 @@ class ConsoleChannel:
                     "POST", f"/nodes/{node}/qemu/{vmid}/termproxy"
                 )
             except ProxmoxError as error:
+                if not _transient(error):
+                    raise
                 last = str(error)
                 api.affinity = ""
                 time.sleep(2.0 * (attempt + 1))
