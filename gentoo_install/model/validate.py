@@ -16,7 +16,7 @@ from typing import Collection, Final, Mapping
 
 from ..errors import CommandFailed, ValidationFailed
 from . import compat
-from .config import InitSystem, InstallConfig
+from .config import InitSystem, InstallConfig, Networking
 from .device import (
     DeviceGraph,
     DeviceId,
@@ -256,6 +256,16 @@ def _network_problems(config: InstallConfig) -> list[str]:
                 ipaddress.ip_address(one)
             except ValueError:
                 problems.append(f"{one!r} is not an address, so it is not a {named}")
+    if (
+        system.addresses
+        and system.init is InitSystem.OPENRC
+        and system.networking is Networking.BUILTIN
+        and not system.interface
+    ):
+        problems.append(
+            "system.interface must name the OpenRC interface when builtin networking uses "
+            "static addresses because netifrc has no wildcard match"
+        )
     if problems or not system.addresses:
         return problems
     if not system.dns:
