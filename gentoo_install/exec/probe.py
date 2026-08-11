@@ -856,14 +856,14 @@ def with_probed_facts(config: InstallConfig, probe: Probe) -> InstallConfig:
     without it, and firmware cannot read such a member.
     """
     graph = config.disk.graph
-    reused = [one for one in graph.of_type(Existing) if not one.mdraid_metadata]
+    reused = [one for one in graph.of_type(Existing) if one.mdraid_metadata is None]
     known = {one.id: probe.mdraid_metadata(one.selector) for one in reused}
     free = _free_extents(graph, probe)
-    if not any(known.values()) and not free:
+    if not known and not free:
         return config
     nodes = [
         replace(one, mdraid_metadata=known[one.id])
-        if isinstance(one, Existing) and known.get(one.id)
+        if isinstance(one, Existing) and one.id in known
         else replace(one, free_extents=free[one.id])
         if isinstance(one, PartitionTable) and one.id in free
         else one
