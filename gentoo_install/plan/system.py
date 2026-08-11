@@ -33,6 +33,7 @@ from ..model.device import (
     ZfsDataset,
     ZfsPool,
 )
+from .bootloader import serial_console
 from .operations import Context, Operation, Stage
 from .portage import Emerge
 
@@ -905,7 +906,7 @@ def build(config: InstallConfig) -> list[Operation]:
                 keys=system.authorized_keys, accounts=key_accounts(system, unlocking)
             )
         )
-    serial = _serial_console(config)
+    serial = serial_console(config)
     if serial is not None and system.init is InitSystem.OPENRC:
         operations.append(EnableSerialGetty(port=serial[0], baud=serial[1]))
     operations.append(SetRootPassword(password_hash=system.root_password_hash))
@@ -1138,18 +1139,6 @@ def _groups_of(user: User) -> tuple[str, ...]:
         if group not in groups:
             groups.append(group)
     return tuple(groups)
-
-
-def _serial_console(config: InstallConfig) -> tuple[str, int] | None:
-    """The serial port and speed the kernel command line asks for, if any."""
-    for parameter in config.bootloader.kernel_params:
-        if not parameter.startswith("console=ttyS"):
-            continue
-        value = parameter.split("=", 1)[1]
-        port, _, rest = value.partition(",")
-        digits = "".join(character for character in rest if character.isdigit())
-        return port, int(digits) if digits else 115200
-    return None
 
 
 def key_accounts(system: SystemConfig, unlocking: bool = False) -> tuple[tuple[str, str], ...]:
