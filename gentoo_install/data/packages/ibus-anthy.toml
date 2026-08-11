@@ -1,0 +1,4 @@
+# Anthy is the official Japanese conversion engine for IBus.
+packages = ["app-i18n/ibus-anthy"]
+input_framework = "ibus"
+input_method = "anthy"

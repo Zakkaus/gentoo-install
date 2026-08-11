@@ -1,0 +1,4 @@
+# m17n supplies input methods for languages without a dedicated Fcitx addon.
+packages = ["app-i18n/fcitx-m17n"]
+input_framework = "fcitx"
+input_method = "m17n"

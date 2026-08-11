@@ -66,6 +66,7 @@ from ..model import atoms, manual, mirrors, paste, qr, sshkey
 from ..model.templates import Choice, Layout, build
 from ..model.validate import validate
 from ..plan.packages import Catalog as Groups
+from ..plan.packages import FRAMEWORK_GROUPS
 from ..plan.packages import driver_conflict, framework_conflict
 from ..plan import system as plan_system
 from .widgets import (
@@ -1793,11 +1794,95 @@ def _adds(
 
 
 FONT_PACKAGE_CATEGORY: Final[str] = "media-fonts/"
+FRAMEWORK_LABELS: Final[tuple[tuple[str, str], ...]] = (
+    ("fcitx", "Fcitx 5"),
+    ("ibus", "IBus"),
+)
 
 
 def input_method_groups(groups: Groups) -> tuple[str, ...]:
     """Framework and engine groups, classified by their catalog metadata."""
     return tuple(sorted(name for name, group in groups.items() if group.input_framework))
+
+
+def input_framework_groups(groups: Groups) -> tuple[str, ...]:
+    """Framework providers from the plan layer's canonical registry."""
+    return tuple(
+        sorted(name for name in FRAMEWORK_GROUPS.values() if name in groups)
+    )
+
+
+def input_engine_groups(groups: Groups, framework: str) -> tuple[str, ...]:
+    """Selectable engines belonging to one framework."""
+    providers = set(input_framework_groups(groups))
+    return tuple(
+        sorted(
+            name
+            for name, group in groups.items()
+            if group.input_framework == framework
+            and group.input_method
+            and name not in providers
+        )
+    )
+
+
+def _selected_input_framework(config: InstallConfig, groups: Groups) -> str:
+    frameworks = set(input_framework_groups(groups))
+    selected = [
+        name for name in config.packages.applications if name in frameworks
+    ]
+    if len(selected) > 1:
+        raise ConfigError("more than one input framework is selected")
+    return selected[0] if selected else ""
+
+
+def select_input_framework(
+    config: InstallConfig, groups: Groups, framework_group: str
+) -> InstallConfig:
+    """Choose one framework and discard every earlier framework and engine."""
+    frameworks = set(input_framework_groups(groups))
+    if framework_group and framework_group not in frameworks:
+        raise ConfigError(f"{framework_group!r} is not an input framework group")
+    current = _selected_input_framework(config, groups)
+    if current == framework_group:
+        return config
+    input_groups = set(input_method_groups(groups))
+    kept = tuple(
+        name for name in config.packages.applications if name not in input_groups
+    )
+    chosen = (framework_group,) if framework_group else ()
+    return replace(
+        config,
+        packages=replace(config.packages, applications=(*kept, *chosen)),
+    )
+
+
+def select_input_engines(
+    config: InstallConfig, groups: Groups, engine_groups: Sequence[str]
+) -> InstallConfig:
+    """Select engines only when their framework is already selected."""
+    framework_group = _selected_input_framework(config, groups)
+    if engine_groups and not framework_group:
+        raise ConfigError("an input engine needs its framework selected first")
+    framework = groups[framework_group].input_framework if framework_group else ""
+    offered = set(input_engine_groups(groups, framework))
+    wrong = [name for name in engine_groups if name not in offered]
+    if wrong:
+        raise ConfigError(
+            f"the {', '.join(wrong)} engine groups do not belong to {framework}"
+        )
+    every_engine = {
+        name
+        for name in input_method_groups(groups)
+        if name not in input_framework_groups(groups)
+    }
+    kept = tuple(
+        name for name in config.packages.applications if name not in every_engine
+    )
+    return replace(
+        config,
+        packages=replace(config.packages, applications=(*kept, *engine_groups)),
+    )
 
 
 def cjk_font_groups(groups: Groups) -> tuple[str, ...]:
@@ -1808,6 +1893,34 @@ def cjk_font_groups(groups: Groups) -> tuple[str, ...]:
             for name, group in groups.items()
             if any(package.startswith(FONT_PACKAGE_CATEGORY) for package in group.packages)
         )
+    )
+
+
+def select_cjk_fonts(
+    config: InstallConfig,
+    groups: Groups,
+    chosen: Sequence[str],
+    preferred: str,
+) -> InstallConfig:
+    """Store the preferred font first, followed by the other installed fonts."""
+    offered = set(cjk_font_groups(groups))
+    wrong = [name for name in chosen if name not in offered]
+    if wrong:
+        raise ConfigError(f"the {', '.join(wrong)} groups do not provide CJK fonts")
+    if chosen and preferred not in chosen:
+        raise ConfigError("the preferred CJK font must also be installed")
+    fonts = set(cjk_font_groups(groups))
+    kept = tuple(
+        name for name in config.packages.applications if name not in fonts
+    )
+    ordered = (
+        (preferred, *(name for name in chosen if name != preferred))
+        if chosen
+        else ()
+    )
+    return replace(
+        config,
+        packages=replace(config.packages, applications=(*kept, *ordered)),
     )
 
 
@@ -1872,25 +1985,110 @@ def _language_package_screen(
 def input_method_screen(
     screen: Screen, config: InstallConfig, context: Context
 ) -> Answer[InstallConfig]:
-    return _language_package_screen(
-        screen,
-        config,
-        context,
-        "Input method",
-        input_method_groups(context.groups),
+    translate = context.translate
+    frameworks = input_framework_groups(context.groups)
+    labels: dict[str, str] = dict(FRAMEWORK_LABELS)
+    framework_items = [Item(label=translate("none"), value="")]
+    framework_items += [
+        Item(
+            label=translate(labels.get(context.groups[name].input_framework, name)),
+            value=name,
+            detail=" ".join(context.groups[name].packages),
+        )
+        for name in frameworks
+    ]
+    framework_answer = Menu(
+        title=translate("Input framework"),
+        items=framework_items,
+        current=_selected_input_framework(config, context.groups),
+        footer=footer(translate),
+    ).run(screen)
+    if not framework_answer.chosen:
+        return Answer(framework_answer.outcome)
+    with_framework = select_input_framework(
+        config, context.groups, framework_answer.unwrap()[0]
     )
+    framework_group = _selected_input_framework(with_framework, context.groups)
+    if not framework_group:
+        return settle(screen, context, config, with_framework)
+    framework = context.groups[framework_group].input_framework
+    names = input_engine_groups(context.groups, framework)
+    have = {overlay.name for overlay in config.portage.overlays}
+    items = [
+        Item(
+            label=translate(name),
+            value=name,
+            detail=" ".join(context.groups[name].packages),
+            disabled_because=_needs_an_overlay(
+                context.groups[name].repositories, have, translate
+            ),
+        )
+        for name in names
+    ]
+    selected = set(with_framework.packages.applications) & set(names)
+    engine_answer = Menu(
+        title=translate("Input engines"),
+        items=items,
+        multiple=True,
+        selected={
+            index for index, item in enumerate(items) if item.value in selected
+        },
+        footer=footer(translate),
+    ).run(screen)
+    if not engine_answer.chosen:
+        return Answer(engine_answer.outcome)
+    edited = select_input_engines(
+        with_framework, context.groups, tuple(engine_answer.unwrap())
+    )
+    return settle(screen, context, config, edited)
 
 
 def cjk_fonts_screen(
     screen: Screen, config: InstallConfig, context: Context
 ) -> Answer[InstallConfig]:
-    return _language_package_screen(
-        screen,
-        config,
-        context,
-        "CJK fonts",
-        cjk_font_groups(context.groups),
+    translate = context.translate
+    names = cjk_font_groups(context.groups)
+    have = {overlay.name for overlay in config.portage.overlays}
+    items = [
+        Item(
+            label=translate(name),
+            value=name,
+            detail=" ".join(context.groups[name].packages),
+            disabled_because=_needs_an_overlay(
+                context.groups[name].repositories, have, translate
+            ),
+        )
+        for name in names
+    ]
+    selected = [name for name in config.packages.applications if name in names]
+    font_answer = Menu(
+        title=translate("CJK fonts"),
+        items=items,
+        multiple=True,
+        selected={
+            index for index, item in enumerate(items) if item.value in selected
+        },
+        footer=footer(translate),
+    ).run(screen)
+    if not font_answer.chosen:
+        return Answer(font_answer.outcome)
+    chosen = tuple(font_answer.unwrap())
+    if not chosen:
+        return settle(
+            screen, context, config, select_cjk_fonts(config, context.groups, (), "")
+        )
+    preferred_answer = Menu(
+        title=translate("Preferred CJK font"),
+        items=[Item(label=translate(name), value=name) for name in chosen],
+        current=selected[0] if selected and selected[0] in chosen else chosen[0],
+        footer=footer(translate),
+    ).run(screen)
+    if not preferred_answer.chosen:
+        return Answer(preferred_answer.outcome)
+    edited = select_cjk_fonts(
+        config, context.groups, chosen, preferred_answer.unwrap()[0]
     )
+    return settle(screen, context, config, edited)
 
 
 def packages_screen(

@@ -1,0 +1,4 @@
+# Regional subsets keep Source Han Sans useful across every offered CJK locale.
+packages = ["media-fonts/source-han-sans"]
+package_use = ["media-fonts/source-han-sans l10n_ja l10n_ko l10n_zh-CN l10n_zh-HK l10n_zh-TW"]
+accept_keywords = ["media-fonts/source-han-sans ~amd64"]

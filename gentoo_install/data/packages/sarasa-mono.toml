@@ -1,0 +1,3 @@
+# Sarasa combines Iosevka metrics with Source Han glyph coverage for code.
+packages = ["media-fonts/sarasa-gothic"]
+repositories = ["gentoo-zh"]

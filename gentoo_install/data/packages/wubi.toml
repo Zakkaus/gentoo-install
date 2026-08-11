@@ -1,0 +1,5 @@
+# The large Wubi table supplies standard Wubi input without Rime.
+packages = ["app-i18n/fcitx-table-extra"]
+accept_keywords = ["app-i18n/fcitx-table-extra ~amd64"]
+input_framework = "fcitx"
+input_method = "table:wubi-large"

@@ -1,0 +1,5 @@
+# CNS 11643 is a Chinese table from the broader official table collection.
+packages = ["app-i18n/fcitx-table-other"]
+accept_keywords = ["app-i18n/fcitx-table-other ~amd64"]
+input_framework = "fcitx"
+input_method = "table:cns11643"

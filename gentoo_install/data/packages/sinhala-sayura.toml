@@ -1,0 +1,5 @@
+# Sayura is the official Sinhala engine in the Gentoo tree.
+packages = ["app-i18n/fcitx-sayura"]
+accept_keywords = ["app-i18n/fcitx-sayura ~amd64"]
+input_framework = "fcitx"
+input_method = "sayura"

@@ -1,0 +1,5 @@
+# SKK is offered beside Anthy for operators who use its Japanese workflow.
+packages = ["app-i18n/ibus-skk"]
+accept_keywords = ["app-i18n/ibus-skk ~amd64"]
+input_framework = "ibus"
+input_method = "skk"

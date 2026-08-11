@@ -1,0 +1,4 @@
+# Chewing provides Bopomofo without requiring a Rime schema.
+packages = ["app-i18n/fcitx-chewing"]
+input_framework = "fcitx"
+input_method = "chewing"

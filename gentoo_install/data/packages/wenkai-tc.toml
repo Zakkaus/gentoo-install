@@ -1,0 +1,3 @@
+# The TC variant gives Traditional Chinese operators a Kai-style face.
+packages = ["media-fonts/lxgw-wenkai-tc"]
+repositories = ["gentoo-zh"]

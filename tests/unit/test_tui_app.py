@@ -621,7 +621,7 @@ def test_language_section_reaches_every_language_setting_from_the_menu() -> None
     )
     at = context()
     keys = [
-        *down(steps("Language")),
+        *down(steps("Language and input")),
         "\n",
         *down(len(settings.LANGUAGE) - 1),
         "q",
@@ -631,7 +631,9 @@ def test_language_section_reaches_every_language_setting_from_the_menu() -> None
     screen = FakeScreen(keys=keys, lines=30, columns=100)
     finished = run(screen, config(), at)
     assert finished.cancelled
-    language_frames = [frame for frame in screen.frames if frame[0] == "Language"]
+    language_frames = [
+        frame for frame in screen.frames if frame[0] == "Language and input"
+    ]
     assert language_frames
     drawn = "\n".join("\n".join(frame) for frame in language_frames)
     for label in ("System language", "Other locales", "Input method", "CJK fonts"):
@@ -659,6 +661,43 @@ def test_a_chinese_system_locale_selects_no_input_method_or_font_group() -> None
     assert not language_packages.intersection(chosen.packages.applications)
 
 
+def test_an_input_engine_cannot_be_selected_without_its_framework() -> None:
+    with pytest.raises(ConfigError, match="framework"):
+        screens.select_input_engines(config(), context().groups, ("pinyin",))
+
+
+def test_switching_input_framework_clears_the_previous_engines() -> None:
+    groups = context().groups
+    fcitx = screens.select_input_framework(config(), groups, "fcitx5")
+    with_pinyin = screens.select_input_engines(fcitx, groups, ("pinyin",))
+    switched = screens.select_input_framework(with_pinyin, groups, "ibus")
+    assert "pinyin" not in switched.packages.applications
+    assert "fcitx5" not in switched.packages.applications
+    assert "ibus" in switched.packages.applications
+
+
+def test_the_pinyin_group_installs_the_official_fcitx_engine() -> None:
+    assert context().groups["pinyin"].packages == (
+        "app-i18n/fcitx-chinese-addons",
+    )
+
+
+def test_the_language_section_names_input_as_part_of_its_subject() -> None:
+    section = next(one for one in settings.SETTINGS if one.key == "language")
+    assert section.label == "Language and input"
+
+
+def test_the_preferred_cjk_font_is_stored_before_the_other_fonts() -> None:
+    chosen = screens.select_cjk_fonts(
+        config(), context().groups, ("noto-cjk", "sarasa-mono"), "sarasa-mono"
+    )
+    fonts = screens.cjk_font_groups(context().groups)
+    selected = tuple(
+        name for name in chosen.packages.applications if name in fonts
+    )
+    assert selected == ("sarasa-mono", "noto-cjk")
+
+
 def test_plasma_and_gnome_rows_describe_different_desktop_configuration() -> None:
     def language_preamble(desktop: str) -> str:
         chosen = replace(
@@ -666,7 +705,7 @@ def test_plasma_and_gnome_rows_describe_different_desktop_configuration() -> Non
         )
         screen = FakeScreen(keys=["q"], lines=30, columns=80)
         settings.nested(
-            "Language", settings.LANGUAGE, settings._desktop_language_preamble
+            "Language and input", settings.LANGUAGE, settings._desktop_language_preamble
         )(screen, chosen, context())
         return "\n".join(screen.frames[0])
 
