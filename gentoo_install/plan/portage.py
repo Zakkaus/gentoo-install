@@ -415,6 +415,8 @@ class Emerge(Operation):
     stage: Stage = Stage.PACKAGES
     packages: tuple[str, ...]
     summary: str
+    requester: str = ""
+    repository_bootstrap: bool = False
     oneshot: bool = False
     binary_packages: bool = True
     #: Which of `packages` have to be built here when the rest may come from a
@@ -428,6 +430,10 @@ class Emerge(Operation):
     #: run spent 132 seconds rebuilding `sys-apps/systemd` at the bootloader
     #: stage with the same flags it had been built with at the kernel stage.
     only_if_absent: bool = False
+
+    @property
+    def package_requester(self) -> str:
+        return self.requester or f"the `{self.summary}` operation"
 
     def describe(self) -> str:
         built = self._built_here()
@@ -556,64 +562,87 @@ class ConfigureBinhost(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
-class VerifyPackages(Operation):
-    """Every atom the operator typed has to resolve, and be installable.
+class PackageRequest:
+    atom: str
+    requesters: tuple[str, ...]
 
-    Asked here, right after the tree is synced and before anything is built: an
-    atom that names nothing, or one whose licence `ACCEPT_LICENSE` refuses,
-    otherwise stops the run at the packages stage, hours in and with the disks
-    already written.
-    """
+
+@dataclass(frozen=True, kw_only=True)
+class VerifyPackages(Operation):
+    """Repository bootstrap merges make repositories reachable, so they precede this check."""
 
     stage: Stage = Stage.PORTAGE
-    packages: tuple[str, ...]
+    requests: tuple[PackageRequest, ...]
 
     def describe(self) -> str:
-        return f"check that {' '.join(self.packages)} name packages this system will install"
-
+        return (
+            f"resolve {' '.join(request.atom for request in self.requests)} together "
+            "before installing the requested packages"
+        )
 
     def apply(self, context: Context) -> None:
-        missing: list[str] = []
-        refused: list[str] = []
-        rejected: list[str] = []
-        for atom in self.packages:
-            probe = ["emerge", "--pretend", "--quiet", "--nodeps", "--", atom]
-            output = context.run_in_target(probe, check=False)
-            if NO_EBUILD in output:
-                missing.append(atom)
-            elif LICENCE_MASKED in output:
-                # Told apart because the answers differ: one is a typo, the
-                # other is a licence the operator chose not to accept.
-                refused.append(atom)
-            elif isinstance(output, CommandOutput) and output.returncode != 0:
-                detail = next(
-                    (line.strip().removeprefix("!!! ") for line in output.splitlines() if line.strip()),
-                    "no output",
-                )
-                rejected.append(f"{atom}: {detail}")
+        atoms = tuple(request.atom for request in self.requests)
+        output = context.run_in_target(
+            ["emerge", "--pretend", "--quiet", "--", *atoms], check=False
+        )
+        if not isinstance(output, CommandOutput):
+            raise ConfigError("emerge --pretend returned no exit status")
+        if output.returncode == 0:
+            return
+
         problems: list[str] = []
-        if missing:
-            problems.append(
-                f"no ebuild matches {', '.join(missing)}; check the name, or add the "
-                "overlay that carries it"
+        for request in self.requests:
+            available = context.run_in_target(
+                [
+                    "portageq",
+                    "pquery",
+                    "--no-version",
+                    "--no-filters",
+                    request.atom,
+                ]
             )
-        if refused:
-            problems.append(
-                f"ACCEPT_LICENSE refuses {', '.join(refused)}; widen it on the compiler "
-                "screen, or drop the package"
+            if not available.strip():
+                problems.append(
+                    f"{_requesters_ask(request)} for `{request.atom}`, which the target's "
+                    "repositories do not carry"
+                )
+                continue
+            visible = context.run_in_target(
+                ["portageq", "best_visible", "/", request.atom], check=False
             )
-        if rejected:
-            problems.append(f"emerge --pretend rejected {'; '.join(rejected)}")
+            if not isinstance(visible, CommandOutput):
+                raise ConfigError("portageq best_visible returned no exit status")
+            if visible.returncode == 1:
+                problems.append(
+                    f"{_requesters_ask(request)} for `{request.atom}`, which the target's "
+                    "configuration masks"
+                )
+            elif visible.returncode != 0:
+                raise ConfigError(
+                    f"portageq best_visible failed for `{request.atom}` with exit "
+                    f"{visible.returncode}"
+                )
         if problems:
             raise ConfigError("; ".join(problems))
 
+        detail = next(
+            (line.strip().removeprefix("!!! ") for line in output.splitlines() if line.strip()),
+            "no output",
+        )
+        requesters = tuple(
+            dict.fromkeys(
+                requester for request in self.requests for requester in request.requesters
+            )
+        )
+        raise ConfigError(
+            f"emerge --pretend rejected packages requested by {', '.join(requesters)}: {detail}"
+        )
 
-#: What Portage prints for an atom no ebuild matches, and for one every ebuild
-#: of which a licence masks. Taken from real `emerge --pretend --quiet` output:
-#: a substring test over the whole text matched the letters of `license` in a
-#: path or an atom and reported a typo as a licence refusal.
-NO_EBUILD: Final[str] = "there are no ebuilds to satisfy"
-LICENCE_MASKED: Final[str] = "license(s))"
+
+def _requesters_ask(request: PackageRequest) -> str:
+    if len(request.requesters) == 1:
+        return f"{request.requesters[0]} asks"
+    return f"{', '.join(request.requesters[:-1])} and {request.requesters[-1]} ask"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -698,6 +727,7 @@ def build(
                 stage=Stage.PORTAGE,
                 packages=("dev-vcs/git",),
                 summary="install git, which every later repository sync needs",
+                repository_bootstrap=True,
             ),
             ConfigureRepository(
                 name="gentoo",
@@ -734,6 +764,7 @@ def build(
                 stage=Stage.PORTAGE,
                 packages=("dev-vcs/git",),
                 summary="install git, which the overlays are cloned with",
+                repository_bootstrap=True,
             )
         )
     for overlay in portage.overlays:
@@ -752,8 +783,6 @@ def build(
         # Before the check below: an atom accepted as testing is one the
         # verifier would otherwise report as having no ebuild at all.
         operations.append(AcceptTestingPackages(packages=portage.testing_packages))
-    if config.packages.extra:
-        operations.append(VerifyPackages(packages=config.packages.extra))
     if portage.binhost.community is not BinhostChannel.OFF:
         operations += [
             Emerge(
@@ -761,6 +790,7 @@ def build(
                 packages=("sec-keys/openpgp-keys-gentoozh",),
                 summary="install the key the community binary packages are signed with",
                 binary_packages=False,
+                repository_bootstrap=True,
             ),
             TrustBinhostKey(
                 binhost="gentoo-zh",

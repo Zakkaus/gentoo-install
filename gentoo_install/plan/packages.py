@@ -523,6 +523,7 @@ def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
                     stage=Stage.PACKAGES,
                     packages=group.packages,
                     summary=f"install the {group.name} group",
+                    requester=f"the `{group.name}` group",
                 )
             )
         if group.package_use:

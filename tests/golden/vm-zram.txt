@@ -30,6 +30,9 @@
   install git, which every later repository sync needs: emerge dev-vcs/git
   point repository gentoo at https://github.com/gentoo-mirror/gentoo.git, commit signatures verified
   sync repository gentoo
+  set sys-kernel/installkernel to dracut
+  accept the linux-firmware licence
+  resolve sys-apps/zram-generator net-misc/openssh sys-process/cronie sys-kernel/installkernel sys-kernel/dracut sys-kernel/linux-firmware sys-fs/dosfstools sys-fs/xfsprogs sys-kernel/gentoo-kernel-bin sys-boot/grub sys-boot/efibootmgr together before installing the requested packages
 
 [system]
   generate and verify locales en_US.UTF-8
@@ -54,9 +57,7 @@
   enable cronie at boot
 
 [kernel]
-  set sys-kernel/installkernel to dracut
   install the hook that puts a kernel in /boot: emerge sys-kernel/installkernel
-  accept the linux-firmware licence
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
   install the storage tools: emerge sys-fs/dosfstools sys-fs/xfsprogs
   install the kernel: emerge sys-kernel/gentoo-kernel-bin

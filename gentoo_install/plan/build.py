@@ -7,16 +7,29 @@ order the modules happen to be called in.
 
 from __future__ import annotations
 
-from typing import Final
+from dataclasses import replace
+from typing import Final, Sequence
 
 from ..model import mirrors
 from ..model.config import InstallConfig
 from ..model.validate import validate
 from . import bootloader, disk, fonts, kernel, packages, portage, system
-from .operations import Operation
+from .operations import Operation, Stage
 
 #: The mirror a stage3 is fetched from when the configuration names none.
 DEFAULT_MIRROR: Final[str] = "https://distfiles.gentoo.org"
+
+# These operations alter the resolver's inputs, so the complete-set check has
+# to see them before their package merges run in later stages.
+PORTAGE_PREREQUISITES: Final[tuple[type[Operation], ...]] = (
+    kernel.ConfigureInstallKernel,
+    kernel.AcceptFirmwareLicence,
+    kernel.ConfigureRemoteUnlock,
+    kernel.UnmaskCjkDistKernel,
+    kernel.AcceptKernelVersion,
+    kernel.RequestCjkKernel,
+    kernel.RequestDistKernelModules,
+)
 
 
 def stage3_mirror(config: InstallConfig, fallback: str = DEFAULT_MIRROR) -> str:
@@ -73,4 +86,33 @@ def build(config: InstallConfig, catalog: packages.Catalog, *, mirror: str = DEF
         # the target, and nothing can be written once it is unmounted.
         *disk.finish(config),
     ]
-    return tuple(sorted(operations, key=lambda operation: operation.stage.order))
+    operations = [_in_portage_phase(operation) for operation in operations]
+    ordered = sorted(operations, key=lambda operation: operation.stage.order)
+    requests = _package_requests(ordered)
+    if requests:
+        after_configuration = max(
+            index for index, operation in enumerate(ordered) if operation.stage is Stage.PORTAGE
+        ) + 1
+        ordered.insert(after_configuration, portage.VerifyPackages(requests=requests))
+    return tuple(ordered)
+
+
+def _in_portage_phase(operation: Operation) -> Operation:
+    if isinstance(operation, PORTAGE_PREREQUISITES):
+        return replace(operation, stage=Stage.PORTAGE)
+    return operation
+
+
+def _package_requests(operations: Sequence[Operation]) -> tuple[portage.PackageRequest, ...]:
+    requesters: dict[str, list[str]] = {}
+    for operation in operations:
+        if not isinstance(operation, portage.Emerge) or operation.repository_bootstrap:
+            continue
+        for atom in operation.packages:
+            named = requesters.setdefault(atom, [])
+            if operation.package_requester not in named:
+                named.append(operation.package_requester)
+    return tuple(
+        portage.PackageRequest(atom=atom, requesters=tuple(named))
+        for atom, named in requesters.items()
+    )

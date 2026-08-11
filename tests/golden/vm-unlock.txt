@@ -37,7 +37,11 @@
   install git, which every later repository sync needs: emerge dev-vcs/git
   point repository gentoo at https://github.com/gentoo-mirror/gentoo.git, commit signatures verified
   sync repository gentoo
+  set sys-kernel/installkernel to dracut
   ask for sys-apps/systemd[cryptsetup], which provides the unlock generator
+  accept the linux-firmware licence
+  configure remote unlock over ssh on port 2222
+  resolve net-misc/openssh sys-process/cronie sys-kernel/installkernel sys-apps/systemd sys-kernel/dracut sys-kernel/linux-firmware sys-kernel/dracut-crypt-ssh sys-fs/cryptsetup sys-fs/btrfs-progs sys-fs/dosfstools sys-kernel/gentoo-kernel-bin sys-boot/grub sys-boot/efibootmgr together before installing the requested packages
 
 [system]
   generate and verify locales en_US.UTF-8, zh_TW.UTF-8
@@ -62,12 +66,9 @@
   enable cronie at boot
 
 [kernel]
-  set sys-kernel/installkernel to dracut
   install the hook that puts a kernel in /boot: emerge sys-kernel/installkernel
   rebuild systemd with the unlock generator: emerge sys-apps/systemd, from source
-  accept the linux-firmware licence
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
-  configure remote unlock over ssh on port 2222
   install the initramfs ssh daemon: emerge sys-kernel/dracut-crypt-ssh
   install the storage tools: emerge sys-fs/cryptsetup sys-fs/btrfs-progs sys-fs/dosfstools
   install the kernel: emerge sys-kernel/gentoo-kernel-bin
