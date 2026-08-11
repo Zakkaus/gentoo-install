@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shlex
 from collections import Counter
+from dataclasses import dataclass
 from email.message import Message
 import io
 import struct
@@ -1538,6 +1539,48 @@ def test_cleanup_retries_unknown_stop_and_delete_until_the_guest_is_absent(
     ).destroy(patience=10.0)
     assert api.stops == 1
     assert api.deletes == 2
+    assert api.absent
+
+
+def test_a_refused_stop_is_reported_before_the_guest_is_destroyed() -> None:
+    @dataclass
+    class Refusing(Api):
+        absent: bool = False
+
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            if path.endswith("/config"):
+                if self.absent:
+                    raise ProxmoxNotFound("the guest does not exist")
+                return {"tags": f"{TAG};gi-owned"}
+            if path.endswith("/status/current"):
+                return {"status": "running"}
+            if path.endswith("/status/stop"):
+                raise ProxmoxError("the stop was refused")
+            if method == "DELETE":
+                self.absent = True
+                return "UPID:node:delete"
+            raise AssertionError((method, path))
+
+        def wait(self, node: str, upid: str, patience: float = 1800.0) -> None:
+            if upid.endswith(":delete"):
+                raise ProxmoxNotFound("the guest does not exist")
+            return None
+
+    api = Refusing()
+    guest = Guest(
+        api,
+        "node",
+        9300,
+        GuestSpec(name="x", iso="x", nonce="gi-owned"),
+    )
+    refusal = ""
+    try:
+        guest.stop()
+    except ProxmoxError as error:
+        refusal = str(error)
+    guest.destroy(patience=1.0)
+
+    assert refusal == "the stop was refused"
     assert api.absent
 
 
