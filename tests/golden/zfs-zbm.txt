@@ -51,9 +51,14 @@
   write /etc/fstab with entries for /efi
   treat the hardware clock as UTC
   create user zakk in users, wheel, audio, video, render, usb, input with a password
+  authorise 1 ssh key(s) for root, zakk
   set the root password
   install sudo: emerge app-admin/sudo
   let the wheel group run sudo, with a password
+  install sshd: emerge net-misc/openssh
+  ssh password login: off, root: off
+  enable sshd at boot
+  generate the ssh host keys so the initramfs and sshd present the same host
   configure the wired interface for DHCP
   enable systemd-networkd at boot
   enable systemd-resolved at boot
@@ -65,6 +70,8 @@
   install the hook that puts a kernel in /boot: emerge sys-kernel/installkernel
   accept the linux-firmware licence
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
+  write /etc/dracut.conf.d/crypt-ssh.conf to omit ssh from the system initramfs
+  install ZFSBootMenu ssh support: emerge sys-kernel/dracut-crypt-ssh
   accept sys-kernel/gentoo-cjk-kernel-bin as testing, with cjk on
   unmask virtual/dist-kernel, which the cjk kernel depends on by revision
   install the storage tools: emerge sys-fs/dosfstools
@@ -80,6 +87,7 @@
 [bootloader]
   install the bootloader: emerge sys-boot/zfsbootmenu sys-boot/efibootmgr
   install the EFI stub generate-zbm builds around: emerge sys-apps/systemd
+  write /etc/zfsbootmenu/dracut.conf.d/dropbear.conf and /etc/cmdline.d/dracut-network.conf, authorise keys at /etc/dropbear/root_key, and generate dedicated host keys under /etc/dropbear
   build ZFSBootMenu into /efi/EFI/zbm and boot zpcala/ROOT/gentoo/root from it
 
 [packages]

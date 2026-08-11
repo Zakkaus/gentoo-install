@@ -12,10 +12,23 @@ root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75
 console_cjk = true
 console_font = "8x16"
 
+sshd = true
+authorized_keys = ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB+85deBslaLOMFw71dx23wo7fFT76GVcEyQS9IdVvvT installer@example"]
+
 [[system.users]]
 name = "zakk"
 sudo = true
 password_hash = "$6$rounds=656000$fixedsaltforthetest$0"
+
+[kernel.remote_unlock]
+# ZFSBootMenu is what opens the pool, so the ssh server has to be in its image
+# and not in the system initramfs built afterwards. No other fixture covers
+# that combination.
+enabled = true
+port = 2222
+address = "192.0.2.10/24"
+gateway = "192.0.2.1"
+interface = "eth0"
 
 [portage]
 profile = "default/linux/amd64/23.0/systemd"

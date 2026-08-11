@@ -313,17 +313,20 @@ class AcceptFirmwareLicence(Operation):
 
 @dataclass(frozen=True, kw_only=True)
 class ConfigureRemoteUnlock(Operation):
-    """dracut-crypt-ssh's own configuration file.
+    """Keyword dracut-crypt-ssh and configure the system initramfs when used.
 
     It is `~amd64`, so the keyword is accepted for that atom alone. `dropbear`
-    comes in through its RDEPEND; the module reads this file at initramfs build
-    time, so it has to exist before dracut runs.
+    comes in through its RDEPEND. ZFSBootMenu uses the package in its own image
+    and explicitly omits the module from the boot environment's initramfs.
     """
 
     stage: Stage = Stage.KERNEL
     port: int
+    system_initramfs: bool = True
 
     def describe(self) -> str:
+        if not self.system_initramfs:
+            return "write /etc/dracut.conf.d/crypt-ssh.conf to omit ssh from the system initramfs"
         return f"configure remote unlock over ssh on port {self.port}"
 
     def apply(self, context: Context) -> None:
@@ -331,6 +334,12 @@ class ConfigureRemoteUnlock(Operation):
             PurePosixPath("/etc/portage/package.accept_keywords/dracut-crypt-ssh"),
             f"{REMOTE_UNLOCK_PACKAGE} ~amd64\n",
         )
+        if not self.system_initramfs:
+            context.write(
+                PurePosixPath("/etc/dracut.conf.d/crypt-ssh.conf"),
+                'omit_dracutmodules+=" crypt-ssh "\n',
+            )
+            return
         lines = [
             f'dropbear_port="{self.port}"',
             # SYSTEM converts the target's own host key, so a client that has
@@ -642,12 +651,17 @@ def build(config: InstallConfig) -> list[Operation]:
         operations.append(AcceptKernelVersion(package=package, version=version))
     if config.kernel.remote_unlock.enabled:
         unlock = config.kernel.remote_unlock
+        system_initramfs = config.bootloader.kind is not Bootloader.ZFSBOOTMENU
         operations += [
-            ConfigureRemoteUnlock(port=unlock.port),
+            ConfigureRemoteUnlock(port=unlock.port, system_initramfs=system_initramfs),
             Emerge(
                 stage=Stage.KERNEL,
                 packages=(REMOTE_UNLOCK_PACKAGE,),
-                summary="install the initramfs ssh daemon",
+                summary=(
+                    "install the initramfs ssh daemon"
+                    if system_initramfs
+                    else "install ZFSBootMenu ssh support"
+                ),
             ),
         ]
     if config.kernel.source in CJK_KERNELS:
@@ -777,7 +791,10 @@ def dracut_modules(config: InstallConfig) -> tuple[str, ...]:
         module = FILESYSTEM_MODULES.get(filesystem.kind)
         if module is not None and module not in modules:
             modules.append(module)
-    if config.kernel.remote_unlock.enabled:
+    if (
+        config.kernel.remote_unlock.enabled
+        and config.bootloader.kind is not Bootloader.ZFSBOOTMENU
+    ):
         modules += [one for one in REMOTE_UNLOCK_MODULES if one not in modules]
     for extra in config.kernel.dracut_modules:
         if extra not in modules:
