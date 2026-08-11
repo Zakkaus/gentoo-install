@@ -563,17 +563,17 @@ class Guest:
             status = self.api.call(
                 "GET", f"/nodes/{self.node}/qemu/{self.vmid}/status/current"
             )
-            if str(status.get("status")) != "running":
-                self._booted = False
-                return
-            self.api.wait(
-                self.node,
-                self.api.call("POST", f"/nodes/{self.node}/qemu/{self.vmid}/status/stop"),
-                patience=180.0,
-            )
         except ProxmoxNotFound:
             self._booted = False
             return
+        if str(status.get("status")) != "running":
+            self._booted = False
+            return
+        self.api.wait(
+            self.node,
+            self.api.call("POST", f"/nodes/{self.node}/qemu/{self.vmid}/status/stop"),
+            patience=180.0,
+        )
         self._booted = False
 
     def destroy(self, patience: float = CLEANUP_PATIENCE) -> None:
