@@ -23,6 +23,7 @@ from ..model.config import (
     PortageConfig,
     Sync,
 )
+from ..model.validate import parse_profile_list, validate_profile
 from .operations import CommandOutput, Context, Operation, Stage
 
 #: The release engineering key, pinned. A fingerprint that does not match this
@@ -105,6 +106,10 @@ class InstallStage3(Operation):
                 "--preserve-permissions",
                 "--xattrs-include=*.*",
                 "--numeric-owner",
+                # A stage3 takes minutes to unpack and tar says nothing while
+                # it does, so a watchdog reading the console ends the guest.
+                f"--checkpoint={UNPACK_CHECKPOINT}",
+                "--checkpoint-action=echo",
             ]
         )
 
@@ -289,6 +294,11 @@ class WebrsyncRepository(Operation):
         raise last
 
 
+#: Records between the lines tar prints while unpacking. One every few
+#: seconds on a slow disk, which is often enough for a watchdog and rare
+#: enough not to fill the log.
+UNPACK_CHECKPOINT: Final[int] = 20000
+
 #: How many times a repository sync is attempted, and how long between them.
 #: A mirror rewriting its Manifests is the transient case; two more attempts a
 #: minute apart cover it without walking around a mismatch that is real.
@@ -372,6 +382,13 @@ class SelectProfile(Operation):
         return f"select profile {self.profile}"
 
     def apply(self, context: Context) -> None:
+        source = "`eselect profile list` in the target"
+        listed = context.run_in_target(["eselect", "profile", "list"], check=False)
+        if isinstance(listed, CommandOutput) and listed.returncode != 0:
+            reason = listed.strip() or f"exit {listed.returncode} with no output"
+            raise CommandFailed(f"{source} could not be read: {reason}")
+        profiles = parse_profile_list(listed, source=source)
+        validate_profile(self.profile, tuple(profile.path for profile in profiles))
         context.run_in_target(["eselect", "profile", "set", self.profile])
 
 
