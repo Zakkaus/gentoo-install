@@ -10,10 +10,11 @@ import ipaddress
 
 import re
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import Final, Mapping
+from typing import Collection, Final, Mapping
 
-from ..errors import ValidationFailed
+from ..errors import CommandFailed, ValidationFailed
 from . import compat
 from .config import InitSystem, InstallConfig
 from .device import (
@@ -35,11 +36,64 @@ from .size import Size
 _ROOT = PurePosixPath("/")
 
 
-def validate(config: InstallConfig) -> None:
+@dataclass(frozen=True)
+class ProbedProfile:
+    """One row from `eselect profile list`."""
+
+    path: str
+    stability: str
+    current: bool = False
+
+
+_PROFILE_ROW: Final[re.Pattern[str]] = re.compile(
+    r"^\s*\[\d+\]\s+(\S+)\s+\(([^()\s]+)\)(\s+\*)?\s*$"
+)
+
+
+def parse_profile_list(
+    output: str,
+    *,
+    source: str = "`eselect profile list`",
+) -> tuple[ProbedProfile, ...]:
+    """Parse the numbered rows emitted by eselect on the repository in use."""
+    found: list[ProbedProfile] = []
+    for line in output.splitlines():
+        if not line.strip() or line.strip() == "Available profile symlink targets:":
+            continue
+        matched = _PROFILE_ROW.fullmatch(line)
+        if matched is None:
+            raise CommandFailed(
+                f"{source} could not be read: unrecognised profile row {line.strip()!r}"
+            )
+        found.append(
+            ProbedProfile(
+                path=matched.group(1),
+                stability=matched.group(2),
+                current=matched.group(3) is not None,
+            )
+        )
+    if not found:
+        raise CommandFailed(f"{source} could not be read: no profile rows were returned")
+    return tuple(found)
+
+
+class _ProfilesNotRead:
+    pass
+
+
+_PROFILES_NOT_READ: Final[_ProfilesNotRead] = _ProfilesNotRead()
+
+
+def validate(
+    config: InstallConfig,
+    *,
+    available_profiles: Collection[str] | None | _ProfilesNotRead = _PROFILES_NOT_READ,
+) -> None:
     problems = [
         *_layout_problems(config),
         *root_size_problems(config),
         *_profile_problems(config),
+        *_repository_profile_problems(config.portage.profile, available_profiles),
         *_kernel_package_problems(config),
         *_reuse_problems(config),
         *_pool_problems(config),
@@ -282,6 +336,33 @@ def _profile_problems(config: InstallConfig) -> list[str]:
         return []
     wanted = "one ending in /systemd" if wants_systemd else "one without /systemd"
     return [f"init is {config.system.init.value} and the profile is {profile}; use {wanted}"]
+
+
+def _repository_profile_problems(
+    profile: str,
+    available_profiles: Collection[str] | None | _ProfilesNotRead,
+) -> list[str]:
+    """The chosen profile must exist in the repository used by the target."""
+    if isinstance(available_profiles, _ProfilesNotRead):
+        return []
+    if available_profiles is None:
+        return [
+            f"configured profile {profile!r} cannot be resolved because the target repository "
+            "list from `eselect profile list` could not be read"
+        ]
+    if profile not in available_profiles:
+        return [
+            f"configured profile {profile!r} is not in the target repository list returned by "
+            "`eselect profile list`"
+        ]
+    return []
+
+
+def validate_profile(profile: str, available_profiles: Collection[str] | None) -> None:
+    """Apply the repository-membership rule to one configured profile."""
+    problems = _repository_profile_problems(profile, available_profiles)
+    if problems:
+        raise ValidationFailed(problems[0])
 
 
 def _layout_problems(config: InstallConfig) -> list[str]:
