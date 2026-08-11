@@ -1104,16 +1104,34 @@ def test_systemd_boot_on_openrc_gets_the_flag_systemd_utils_requires() -> None:
     requirements` before anything was built."""
     from gentoo_install.plan.kernel import ConfigureInstallKernel
 
-    recorder = Recorder()
-    ConfigureInstallKernel(boot_entries=True).apply(recorder)
-    written = recorder.files[PurePosixPath("/etc/portage/package.use/installkernel")]
-    assert "sys-apps/systemd-utils boot kernel-install" in written
-    assert "sys-kernel/installkernel dracut systemd systemd-boot" in written
+    from gentoo_install.plan.bootloader import RequestBootctl
 
-    # Nothing to say when no boot entries are written: the package is not
-    # merged and the line would name one that is absent.
-    plain = Recorder()
-    ConfigureInstallKernel(boot_entries=False).apply(plain)
-    assert "systemd-utils" not in plain.files[
-        PurePosixPath("/etc/portage/package.use/installkernel")
-    ]
+    recorder = Recorder()
+    RequestBootctl(package="sys-apps/systemd-utils").apply(recorder)
+    written = recorder.files[PurePosixPath("/etc/portage/package.use/systemd-boot")]
+    assert written.split() == ["sys-apps/systemd-utils", "boot", "kernel-install"], written
+
+    # One owner: the kernel operation writes its own package and no other, so
+    # one package's USE does not sit in two files that neither name the other.
+    kernel = Recorder()
+    ConfigureInstallKernel(boot_entries=True).apply(kernel)
+    theirs = kernel.files[PurePosixPath("/etc/portage/package.use/installkernel")]
+    assert "systemd-utils" not in theirs, theirs
+    assert "sys-kernel/installkernel dracut systemd systemd-boot" in theirs
+
+
+def test_openrc_with_systemd_boot_has_a_fixture() -> None:
+    """The pair needs `sys-apps/systemd-utils[boot,kernel-install]`, and every
+    openrc fixture booted from GRUB while every systemd-boot one ran systemd,
+    so the combination that needs the flag had nothing exercising it."""
+    import tomllib
+    from pathlib import Path
+
+    paired = []
+    for fixture in sorted(Path("tests/fixtures").glob("*.toml")):
+        settings = tomllib.loads(fixture.read_text())
+        init = settings.get("system", {}).get("init", "systemd")
+        kind = settings.get("bootloader", {}).get("kind", "")
+        if init == "openrc" and kind == "systemd-boot":
+            paired.append(fixture.name)
+    assert paired, "no fixture pairs openrc with systemd-boot"

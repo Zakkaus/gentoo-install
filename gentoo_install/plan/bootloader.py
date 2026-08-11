@@ -159,12 +159,19 @@ class RequestBootctl(Operation):
     stage: Stage = Stage.PORTAGE
     package: str
 
+    #: `sys-apps/systemd-utils` refuses `boot` without it: its REQUIRED_USE is
+    #: `boot? ( kernel-install )`, and an openrc install with systemd-boot
+    #: stopped at `has unmet requirements` before anything was built. Harmless
+    #: on `sys-apps/systemd`, which has the flag and enables it with `boot`.
+    FLAGS: Final[tuple[str, ...]] = ("boot", "kernel-install")
+
     def describe(self) -> str:
-        return f"ask for {self.package}[boot], which is what provides bootctl"
+        return f"ask for {self.package}[{','.join(self.FLAGS)}], which is what provides bootctl"
 
     def apply(self, context: Context) -> None:
         context.write(
-            PurePosixPath("/etc/portage/package.use/systemd-boot"), f"{self.package} boot\n"
+            PurePosixPath("/etc/portage/package.use/systemd-boot"),
+            f"{self.package} {' '.join(self.FLAGS)}\n",
         )
 
 
