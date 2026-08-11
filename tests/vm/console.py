@@ -27,7 +27,18 @@ class ConsoleIdle(ConsoleTimeout):
 
 
 class ConsoleClosed(Exception):
-    """The guest closed the serial connection."""
+    """The guest closed the serial connection.
+
+    `write_may_have_reached_guest` is false only when the channel was already
+    known closed. Once a transport write starts, its failure cannot prove how
+    many bytes reached the peer.
+    """
+
+    def __init__(
+        self, reason: str, *, write_may_have_reached_guest: bool | None = None
+    ) -> None:
+        super().__init__(reason)
+        self.write_may_have_reached_guest = write_may_have_reached_guest
 
 
 def strip_ansi(data: bytes) -> bytes:
@@ -164,12 +175,35 @@ class SerialConsole:
         )
 
     def send(self, line: str) -> None:
-        self._sock.sendall(line.encode() + b"\n")
+        self._write(line.encode() + b"\n")
 
     def send_raw(self, keys: str) -> None:
         """Exactly these bytes, with no newline. GRUB's editor acts on the
         keystroke itself, and a trailing newline there is an extra line."""
-        self._sock.sendall(keys.encode())
+        self._write(keys.encode())
+
+    def _write(self, data: bytes) -> None:
+        if self._sock.closed:
+            raise ConsoleClosed(
+                self._why_closed(), write_may_have_reached_guest=False
+            )
+        try:
+            self._sock.sendall(data)
+        except OSError as error:
+            reason = self._why_closed()
+            detail = str(error)
+            if detail and detail not in reason:
+                reason = f"{reason}: {detail}"
+            # sendall does not report how many bytes preceded its error.
+            raise ConsoleClosed(
+                reason, write_may_have_reached_guest=True
+            ) from error
+        if self._sock.closed:
+            # A websocket records its socket error and returns. Its frame may
+            # have reached the peer in whole or in part before that happened.
+            raise ConsoleClosed(
+                self._why_closed(), write_may_have_reached_guest=True
+            )
 
     def run(self, command: str, timeout: float = 120.0) -> None:
         """Run a shell command and wait for it to finish.
@@ -215,6 +249,9 @@ class SerialConsole:
         self._buffer += chunk
 
     def _why_closed(self) -> str:
+        transport_reason = getattr(self._sock, "why_closed", "")
+        if transport_reason:
+            return str(transport_reason)
         said = ""
         if self._errors is not None and self._errors.exists():
             lines = self._errors.read_text(errors="replace").strip().splitlines()
@@ -226,8 +263,8 @@ class SerialConsole:
     def closed(self) -> bool:
         """Whether the transport under this console has hung up.
 
-        A write to a dropped connection is discarded rather than raised, so a
-        caller that has to deliver a command asks first and reopens.
+        A caller can ask before a write and reopen proactively. `send` still
+        checks around the write, because a connection can drop between them.
         """
         return self._sock.closed
 
