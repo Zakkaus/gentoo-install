@@ -151,17 +151,12 @@ class ConfigureInstallKernel(Operation):
     boot_root: str = ""
 
     def apply(self, context: Context) -> None:
-        written = f"sys-kernel/installkernel {' '.join(self._flags())}\n"
-        if self.boot_entries:
-            # `installkernel[systemd-boot]` needs `bootctl`, which on a system
-            # without systemd comes from `sys-apps/systemd-utils[boot]`, and
-            # that ebuild's REQUIRED_USE is `boot? ( kernel-install )`. Without
-            # the second flag the merge stops at `has unmet requirements`
-            # before anything is built. Harmless on a systemd system: the
-            # package is not merged there and the line names nothing.
-            written += "sys-apps/systemd-utils boot kernel-install\n"
+        # Only this package's flags. What `bootctl` comes from is
+        # `RequestBootctl`'s to say, and writing it here as well put one
+        # package's USE in two files that neither named the other.
         context.write(
-            PurePosixPath("/etc/portage/package.use/installkernel"), written
+            PurePosixPath("/etc/portage/package.use/installkernel"),
+            f"sys-kernel/installkernel {' '.join(self._flags())}\n",
         )
         if self.boot_root:
             # A drop-in, never `/etc/kernel/install.conf`. kernel-install(8):

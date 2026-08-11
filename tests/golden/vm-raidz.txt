@@ -45,7 +45,7 @@
   point repository gentoo-zh at https://github.com/gentoo-zh/overlay.git
   sync repository gentoo-zh
   accept ~amd64 for packages from gentoo-zh only
-  ask for sys-apps/systemd[boot], which is what provides bootctl
+  ask for sys-apps/systemd[boot,kernel-install], which is what provides bootctl
 
 [system]
   generate and verify locales en_US.UTF-8
