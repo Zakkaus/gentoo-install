@@ -63,6 +63,7 @@
 [bootloader]
   install bootctl: emerge sys-apps/systemd
   install systemd-boot on the esp at /boot
+  show the boot menu for 5s in /boot/loader/loader.conf
 
 [finish]
   point /etc/resolv.conf at systemd-resolved rather than the install medium's

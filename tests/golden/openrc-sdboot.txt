@@ -66,6 +66,7 @@
 [bootloader]
   install bootctl: emerge sys-apps/systemd-utils
   install systemd-boot on the esp at /boot
+  show the boot menu for 5s in /boot/loader/loader.conf
 
 [finish]
   delete the downloaded stage3 from /var/cache/gentoo-install

@@ -44,6 +44,10 @@ BOOTCTL_PACKAGE: Final[dict[InitSystem, str]] = {
     InitSystem.OPENRC: "sys-apps/systemd-utils",
 }
 
+#: How long the boot menu waits. The same five seconds `GRUB_TIMEOUT` uses, so
+#: the two bootloaders behave alike from the operator's side.
+MENU_SECONDS: Final[int] = 5
+
 #: Writing an NVRAM entry needs this, and only UEFI has NVRAM to write to.
 EFI_PACKAGE: Final[str] = "sys-boot/efibootmgr"
 
@@ -196,6 +200,28 @@ class InstallSystemdBoot(Operation):
 
     def apply(self, context: Context) -> None:
         context.run_in_target(["bootctl", f"--esp-path={self.esp}", "install"])
+
+
+@dataclass(frozen=True, kw_only=True)
+class ShowTheBootMenu(Operation):
+    """`bootctl install` writes no `loader.conf`, and systemd-boot's own
+    default for `timeout` is 0: no menu at all, straight into the default
+    entry. An encrypted machine went from firmware to the passphrase prompt
+    with no way to pick an older kernel.
+    """
+
+    stage: Stage = Stage.BOOTLOADER
+    esp: PurePosixPath
+    seconds: int = MENU_SECONDS
+
+    def describe(self) -> str:
+        return f"show the boot menu for {self.seconds}s in {self.esp}/loader/loader.conf"
+
+    def apply(self, context: Context) -> None:
+        context.write(
+            self.esp / "loader" / "loader.conf",
+            f"timeout {self.seconds}\nconsole-mode keep\n",
+        )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -408,6 +434,7 @@ def build(config: InstallConfig) -> list[Operation]:
                 only_if_absent=True,
             ),
             InstallSystemdBoot(esp=esp),
+            ShowTheBootMenu(esp=esp),
         ]
     elif kind is Bootloader.ZFSBOOTMENU and esp is not None and esp_device is not None:
         pool, dataset = _root_pool_and_dataset(config)
