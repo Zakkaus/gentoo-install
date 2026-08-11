@@ -11,12 +11,15 @@ from gentoo_install.errors import ConfigError, ValidationFailed
 from gentoo_install.model import compat
 from gentoo_install.model.config import InitSystem, InstallConfig
 from gentoo_install.model.device import (
+    Existing,
     Filesystem,
+    LogicalVolume,
     Mountpoint,
     Node,
     Partition,
     PartitionRole,
     PartitionTable,
+    VolumeGroup,
 )
 from gentoo_install.model.size import Size
 from gentoo_install.exec.config import load
@@ -709,6 +712,28 @@ def test_the_last_partition_may_still_take_the_rest_of_the_disk() -> None:
     """Every shipped layout does this, and it is the point of the rule that
     only the last one may."""
     validate(config(ext4_on_gpt()))
+
+
+def _with_non_root_logical_volume(size: Size) -> InstallConfig:
+    return config(
+        [
+            *ext4_on_gpt(),
+            Existing(id=i("data-pv"), selector="/dev/disk/by-id/data", wipe=True),
+            VolumeGroup(id=i("data-vg"), members=(i("data-pv"),), name="data"),
+            LogicalVolume(
+                id=i("cache-lv"), group=i("data-vg"), name="cache", size=size
+            ),
+        ]
+    )
+
+
+def test_a_zero_sized_non_root_logical_volume_is_refused_and_named() -> None:
+    with pytest.raises(ValidationFailed, match="logical volume cache-lv is 0B"):
+        validate(_with_non_root_logical_volume(Size(0)))
+
+
+def test_a_positive_non_root_logical_volume_validates() -> None:
+    validate(_with_non_root_logical_volume(Size.parse("1GiB")))
 
 
 from gentoo_install.model.config import Bootloader, InitSystem, InstallConfig, Overlay
