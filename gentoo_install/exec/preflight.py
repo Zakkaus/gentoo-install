@@ -16,13 +16,13 @@ from ..model import compat
 from ..model.config import Firmware, InstallConfig
 from ..model.device import (
     DeviceGraph,
+    DeviceId,
     Existing,
     Filesystem,
     Swap,
     FilesystemType,
     Luks,
     MdRaid,
-    Mountpoint,
     Partition,
     PartitionTable,
     TableType,
@@ -30,7 +30,7 @@ from ..model.device import (
     ZfsPool,
 )
 from ..model.size import DEFAULT_ALIGNMENT, SectorSize, Size
-from ..model.validate import ROOT_MINIMUM
+from ..model.validate import root_size_problems
 from ..plan.disk import MKFS
 from .probe import RELEASE_KEY, Machine, Probe
 
@@ -216,6 +216,7 @@ def _capacity_problems(config: InstallConfig, probe: Probe) -> list[str]:
     """
     graph = config.disk.graph
     problems: list[str] = []
+    supplied_root_sizes: dict[DeviceId, Size] = {}
     for table in graph.of_type(PartitionTable):
         disk = graph[table.disk]
         if not isinstance(disk, Existing):
@@ -269,20 +270,13 @@ def _capacity_problems(config: InstallConfig, probe: Probe) -> list[str]:
             usable = usable.gpt_last_usable(SectorSize(512))
         # The first partition starts at the alignment boundary, not at zero.
         usable = Size(max(0, usable.bytes - DEFAULT_ALIGNMENT))
+        supplied_root_sizes[table.id] = usable
         if claimed > usable.bytes:
             problems.append(
                 f"{disk.selector} holds {Size(capacity)} and {table.id} claims "
                 f"{Size(claimed)} in fixed sizes, which does not fit"
             )
-        # The root of a whole-disk layout takes what is left, so it carries no
-        # size and `validate._root_size_problems` has nothing to compare. The
-        # disk itself is what has to be big enough, and an install into 8 GiB
-        # runs out during linux-firmware, an hour after the disks are written.
-        if _carries_the_root(graph, table.id) and usable.bytes < ROOT_MINIMUM.bytes:
-            problems.append(
-                f"{disk.selector} holds {Size(capacity)} and carries /, under the "
-                f"{ROOT_MINIMUM} a stage3, a kernel and linux-firmware need"
-            )
+    problems += root_size_problems(config, supplied_root_sizes)
     return problems
 
 
@@ -312,31 +306,6 @@ def _memory_problems(config: InstallConfig, machine: Machine) -> list[str]:
             f"{Size(machine.memory_bytes - wanted.bytes)} for the compiler and its sources"
         ]
     return []
-
-
-def _carries_the_root(graph: DeviceGraph, table: str) -> bool:
-    """Whether `/` ends up on a partition of this table.
-
-    Walked rather than assumed: the root may sit under LUKS, a volume group or
-    a pool, and each of those hides the partition it was built from.
-    """
-    root = next(
-        (one for one in graph.of_type(Mountpoint) if str(one.path) == "/"), None
-    )
-    if root is None:
-        return False
-    seen: set[str] = set()
-    frontier = [root.id]
-    while frontier:
-        current = frontier.pop()
-        if current in seen or current not in graph.nodes:
-            continue
-        seen.add(current)
-        node = graph[current]
-        if isinstance(node, Partition) and node.table == table:
-            return True
-        frontier.extend(node.inputs)
-    return False
 
 
 def check(config: InstallConfig, probe: Probe, target: str = "/mnt/gentoo") -> Report:
