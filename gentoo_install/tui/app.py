@@ -92,7 +92,7 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
             if left is not None:
                 return left
             continue
-        chosen = answer.unwrap()[0]
+        chosen = answer.unwrap()
         if chosen == len(SETTINGS):
             # The operation list itself, then one confirmation: the row before
             # this one is the last chance to see what the disk is about to get.
@@ -186,11 +186,11 @@ def _leaving(screen: Screen, config: InstallConfig, context: Context) -> Finishe
         footer=context.translate("Cancel"),
     )
     answer = menu.run(screen)
-    if not answer.chosen or answer.unwrap()[0] == "stay":
+    if not answer.chosen or answer.unwrap() == "stay":
         return None
-    if answer.unwrap()[0] == "leave":
+    if answer.unwrap() == "leave":
         return Finished(None)
-    if answer.unwrap()[0] == "publish":
+    if answer.unwrap() == "publish":
         return _publishing(screen, config, context)
     return _saving(screen, config, context)
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from gentoo_install.tui.widgets import (
     Answer,
     Confirm,
@@ -7,6 +9,7 @@ from gentoo_install.tui.widgets import (
     Form,
     Item,
     Menu,
+    MultipleChoiceMenu,
     Outcome,
     TextField,
 )
@@ -32,7 +35,7 @@ def test_choosing_returns_the_value_and_not_the_label() -> None:
     screen = FakeScreen(keys=["KEY_DOWN", "\n"])
     answer = menu().run(screen)
     assert answer.outcome is Outcome.CHOSE
-    assert answer.unwrap() == ["vdb"]
+    assert answer.unwrap() == "vdb"
 
 
 def test_going_back_is_not_cancelling() -> None:
@@ -58,7 +61,7 @@ def test_a_disabled_row_cannot_be_chosen_and_says_why() -> None:
         ],
     )
     screen = FakeScreen(keys=["KEY_UP", "\n"])
-    assert excluded.run(screen).unwrap() == ["grub"]
+    assert excluded.run(screen).unwrap() == "grub"
     assert "it only has an EFI implementation" in screen.last
 
 
@@ -70,45 +73,42 @@ def test_the_cursor_starts_on_a_row_that_can_be_chosen() -> None:
             Item(label="GRUB", value="grub"),
         ],
     )
-    assert excluded.run(FakeScreen(keys=["\n"])).unwrap() == ["grub"]
+    assert excluded.run(FakeScreen(keys=["\n"])).unwrap() == "grub"
 
 
 def test_several_answers_are_marked_without_relying_on_a_glyph() -> None:
     """A console with no CJK font and no box-drawing set still has to show
     which rows are selected."""
-    several: Menu[str] = Menu(
+    several: MultipleChoiceMenu[str] = MultipleChoiceMenu(
         title="Applications",
         items=[Item(label="firefox", value="firefox"), Item(label="bluetooth", value="bluetooth")],
-        multiple=True,
     )
     screen = FakeScreen(keys=[" ", "KEY_DOWN", " ", "\n"])
-    assert several.run(screen).unwrap() == ["firefox", "bluetooth"]
+    assert several.run(screen).unwrap() == ("firefox", "bluetooth")
     assert "[x] firefox" in screen.last
 
 
 def test_marking_a_second_row_preferred_moves_the_mark() -> None:
-    fonts: Menu[str] = Menu(
+    fonts: MultipleChoiceMenu[str] = MultipleChoiceMenu(
         title="Fonts",
         items=[
             Item(label="Noto Sans CJK", value="noto", preference_group="sans-serif"),
             Item(label="Source Han Sans", value="source", preference_group="sans-serif"),
         ],
-        multiple=True,
         tri_state=True,
     )
     screen = FakeScreen(keys=[" ", " ", "KEY_DOWN", " ", " ", "\n"])
 
-    assert fonts.run(screen).unwrap() == ["noto", "source"]
+    assert fonts.run(screen).unwrap() == ("noto", "source")
     assert fonts.preferred == {1}
     assert "[-] Noto Sans CJK" in screen.last
     assert "[x] Source Han Sans" in screen.last
 
 
 def test_an_installed_only_row_never_gets_a_preferred_mark() -> None:
-    fonts: Menu[str] = Menu(
+    fonts: MultipleChoiceMenu[str] = MultipleChoiceMenu(
         title="Fonts",
         items=[Item(label="Open Sans", value="open-sans")],
-        multiple=True,
         tri_state=True,
     )
     fonts._toggle(0)
@@ -116,6 +116,20 @@ def test_an_installed_only_row_never_gets_a_preferred_mark() -> None:
     fonts._toggle(0)
     assert fonts.selected == set()
     assert fonts.preferred == set()
+
+
+def test_none_is_a_choice_and_not_an_absent_answer() -> None:
+    none = Menu[str | None](
+        title="Filesystem",
+        items=[Item(label="ext4", value="ext4"), Item(label="none", value=None)],
+        current=None,
+    )
+    chosen = none.run(FakeScreen(keys=["\n"]))
+
+    assert chosen.outcome is Outcome.CHOSE
+    assert chosen.unwrap() is None
+    with pytest.raises(ValueError):
+        none.run(FakeScreen(keys=["KEY_LEFT"])).unwrap()
 
 
 def test_a_wide_title_is_cut_to_the_screen_rather_than_overflowing() -> None:
@@ -287,14 +301,13 @@ def test_a_choice_that_became_invalid_can_still_be_dropped() -> None:
     selected row disabled. Space refused the keystroke and the cursor skipped
     the row, so the invalid choice could not be undone without putting the
     overlay back."""
-    menu: Menu[str] = Menu(
+    menu: MultipleChoiceMenu[str] = MultipleChoiceMenu(
         title="Applications",
         items=[
             Item(label="vim", value="vim"),
             Item(label="wechat", value="wechat", disabled_because="needs gentoo-zh"),
             Item(label="mpv", value="mpv"),
         ],
-        multiple=True,
         selected={1},
     )
     # Down from the first row reaches the disabled row, because it is selected.
@@ -307,14 +320,13 @@ def test_a_choice_that_became_invalid_can_still_be_dropped() -> None:
 
 
 def test_the_cursor_still_skips_a_disabled_row_nobody_chose() -> None:
-    menu: Menu[str] = Menu(
+    menu: MultipleChoiceMenu[str] = MultipleChoiceMenu(
         title="Applications",
         items=[
             Item(label="vim", value="vim"),
             Item(label="wechat", value="wechat", disabled_because="needs gentoo-zh"),
             Item(label="mpv", value="mpv"),
         ],
-        multiple=True,
     )
     assert menu._step(0, 1) == 2
 
@@ -331,7 +343,7 @@ def test_tab_moves_on_and_shift_tab_moves_back() -> None:
         items=[Item(label="one", value=1), Item(label="two", value=2), Item(label="three", value=3)],
     )
     answer = menu.run(FakeScreen(keys=["\t", "\t", "KEY_BTAB", "\n"], lines=24))
-    assert answer.unwrap()[0] == 2
+    assert answer.unwrap() == 2
 
     # The raw sequence too: ncurses reports `KEY_BTAB` only once keypad mode is
     # on, and what arrives before that is the escape sequence itself.
@@ -339,7 +351,7 @@ def test_tab_moves_on_and_shift_tab_moves_back() -> None:
         title="pick",
         items=[Item(label="one", value=1), Item(label="two", value=2)],
     )
-    assert raw.run(FakeScreen(keys=["\t", "\x1b[Z", "\n"], lines=24)).unwrap()[0] == 1
+    assert raw.run(FakeScreen(keys=["\t", "\x1b[Z", "\n"], lines=24)).unwrap() == 1
 
     # A form moves between fields the same way, and tab is not typed into one.
     form = Form(

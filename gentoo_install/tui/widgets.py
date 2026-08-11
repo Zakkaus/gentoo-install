@@ -10,11 +10,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Final, Generic, Protocol, Sequence, TypeVar
+from typing import ClassVar, Final, Generic, Protocol, Sequence, TypeVar
 
 from ..i18n import truncate, width
 
 V = TypeVar("V")
+A = TypeVar("A")
 
 #: What asks to leave. ctrl-c is here rather than a signal because raw mode
 #: delivers it as a byte, so it is answered rather than obeyed.
@@ -55,19 +56,34 @@ class Outcome(Enum):
     CANCELLED = "cancelled"
 
 
-@dataclass(frozen=True)
+class _Missing:
+    pass
+
+
+_MISSING: Final[_Missing] = _Missing()
+
+
+@dataclass(frozen=True, init=False)
 class Answer(Generic[V]):
     outcome: Outcome
-    value: V | None = None
+    _value: V | _Missing
+
+    def __init__(self, outcome: Outcome, value: V | _Missing = _MISSING) -> None:
+        object.__setattr__(self, "outcome", outcome)
+        object.__setattr__(self, "_value", value)
+
+    @property
+    def value(self) -> V | None:
+        return None if isinstance(self._value, _Missing) else self._value
 
     @property
     def chosen(self) -> bool:
         return self.outcome is Outcome.CHOSE
 
     def unwrap(self) -> V:
-        if self.value is None:
+        if isinstance(self._value, _Missing):
             raise ValueError("no value: the operator went back or cancelled")
-        return self.value
+        return self._value
 
 
 class Screen(Protocol):
@@ -135,14 +151,13 @@ BACKWARD_FIELD: Final[tuple[str, ...]] = ("KEY_UP", *SHIFT_TAB)
 
 
 @dataclass
-class Menu(Generic[V]):
+class _Menu(Generic[V, A]):
     title: str
     items: Sequence[Item[V]]
     #: Rows already selected, for a menu that takes several answers.
     selected: set[int] = field(default_factory=set)
     #: A subset of selected rows carrying the preferred mark.
     preferred: set[int] = field(default_factory=set)
-    multiple: bool = False
     #: Font selection needs installed and preferred states; every other menu
     #: keeps the binary behavior unless it opts in.
     tri_state: bool = False
@@ -157,11 +172,13 @@ class Menu(Generic[V]):
     #: enter without navigating has to answer with what was already set, and
     #: without this the first row won: encryption enabled became disabled, and
     #: a second disk became the first.
-    current: V | None = None
+    current: V | None | _Missing = _MISSING
 
-    def run(self, screen: Screen) -> Answer[list[V]]:
+    _multiple: ClassVar[bool] = False
+
+    def run(self, screen: Screen) -> Answer[A]:
         cursor = self.cursor if 0 <= self.cursor < len(self.items) else self._first_enabled()
-        if not self.cursor and self.current is not None:
+        if not self.cursor and not isinstance(self.current, _Missing):
             here = next(
                 (at for at, one in enumerate(self.items) if one.value == self.current), None
             )
@@ -177,7 +194,7 @@ class Menu(Generic[V]):
                 cursor = self._step(cursor, -1)
             elif pressed in FORWARD:
                 cursor = self._step(cursor, 1)
-            elif pressed == " " and self.multiple:
+            elif pressed == " " and self._multiple:
                 self._toggle(cursor)
             elif pressed in ("\n", "KEY_ENTER"):
                 answer = self._accept(cursor)
@@ -188,12 +205,8 @@ class Menu(Generic[V]):
             elif pressed in CANCEL_IN_A_MENU:
                 return Answer(Outcome.CANCELLED)
 
-    def _accept(self, cursor: int) -> Answer[list[V]] | None:
-        if self.multiple:
-            return Answer(Outcome.CHOSE, [self.items[index].value for index in sorted(self.selected)])
-        if self.items[cursor].disabled_because:
-            return None
-        return Answer(Outcome.CHOSE, [self.items[cursor].value])
+    def _accept(self, cursor: int) -> Answer[A] | None:
+        raise NotImplementedError
 
     def _toggle(self, cursor: int) -> None:
         """Removing a selected row is always allowed; adding one is not.
@@ -289,7 +302,7 @@ class Menu(Generic[V]):
                 heading = item.heading
                 rows.append((None, heading))
             mark = self._selection_mark(index)
-            text = f"{mark} {item.label}" if self.multiple else item.label
+            text = f"{mark} {item.label}" if self._multiple else item.label
             if item.detail:
                 text = f"{text}  {item.detail}"
             if item.disabled_because:
@@ -298,13 +311,30 @@ class Menu(Generic[V]):
         return rows
 
     def _selection_mark(self, index: int) -> str:
-        if not self.multiple:
+        if not self._multiple:
             return ""
         # ASCII brackets remain readable without a graphical console font.
         mark = "x" if index in self.selected else " "
         if self.tri_state and index in self.selected and index not in self.preferred:
             mark = "-"
         return f"[{mark}]"
+
+
+class Menu(_Menu[V, V]):
+    def _accept(self, cursor: int) -> Answer[V] | None:
+        if self.items[cursor].disabled_because:
+            return None
+        return Answer(Outcome.CHOSE, self.items[cursor].value)
+
+
+class MultipleChoiceMenu(_Menu[V, tuple[V, ...]]):
+    _multiple: ClassVar[bool] = True
+
+    def _accept(self, cursor: int) -> Answer[tuple[V, ...]]:
+        return Answer(
+            Outcome.CHOSE,
+            tuple(self.items[index].value for index in sorted(self.selected)),
+        )
 
 
 @dataclass
@@ -415,7 +445,7 @@ class Confirm:
         answer = menu.run(screen)
         if not answer.chosen:
             return Answer(answer.outcome)
-        return Answer(Outcome.CHOSE, answer.unwrap()[0])
+        return Answer(Outcome.CHOSE, answer.unwrap())
 
 
 @dataclass

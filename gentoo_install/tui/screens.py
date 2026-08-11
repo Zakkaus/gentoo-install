@@ -80,6 +80,7 @@ from .widgets import (
     Form,
     Item,
     Menu,
+    MultipleChoiceMenu,
     Outcome,
     Screen,
     TextField,
@@ -313,7 +314,7 @@ def disk_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
-    picked = answer.unwrap()[0]
+    picked = answer.unwrap()
     context.choice = replace(context.choice, disk=picked)
     # `_rebuild` reads the layout rather than the choice when the table was
     # hand-written, so leaving this behind partitioned the disk the operator
@@ -356,7 +357,7 @@ def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     ).run(screen)
     if not how.chosen:
         return Answer(how.outcome)
-    if how.unwrap()[0]:
+    if how.unwrap():
         context.manual = False
         return partitions_screen(screen, config, context)
     return _template_screen(screen, config, context)
@@ -399,7 +400,7 @@ def _template_screen(
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
-    layout, filesystem = answer.unwrap()[0]
+    layout, filesystem = answer.unwrap()
     was_manual, was_choice = context.manual, context.choice
     context.manual = False
     if layout is None:
@@ -456,7 +457,7 @@ def _zfs_bootloader(
         # the ZFS layout, and returning it committed a ZFS root with GRUB,
         # which the compatibility table refuses.
         return None
-    kind = answer.unwrap()[0]
+    kind = answer.unwrap()
     if kind is Bootloader.SYSTEMD_BOOT:
         return replace(config, bootloader=replace(config.bootloader, kind=kind))
     return replace(
@@ -560,7 +561,7 @@ def init_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
-    init = answer.unwrap()[0]
+    init = answer.unwrap()
     return Answer(
         Outcome.CHOSE,
         replace(
@@ -787,7 +788,7 @@ def mirror_screen(screen: Screen, config: InstallConfig, context: Context) -> An
         cursor = menu.cursor
         if not answer.chosen:
             return Answer(answer.outcome)
-        field = answer.unwrap()[0]
+        field = answer.unwrap()
         if field == _DONE:
             return Answer(Outcome.CHOSE, _with_a_site(current))
         changed = _edit_mirror(screen, context, current, field)
@@ -948,7 +949,7 @@ def _edit_mirror(
         if not picked.chosen:
             return None
         # The site belongs to the region, so changing one clears the other.
-        mirrored = replace(current, region=picked.unwrap()[0], site="")
+        mirrored = replace(current, region=picked.unwrap(), site="")
         return replace(config, portage=replace(portage, mirrors=mirrored))
     if field == _SITE:
         offered = mirrors.gentoo_sites(current.region)
@@ -969,7 +970,7 @@ def _edit_mirror(
         if not chosen.chosen:
             return None
         return replace(
-            config, portage=replace(portage, mirrors=replace(current, site=chosen.unwrap()[0]))
+            config, portage=replace(portage, mirrors=replace(current, site=chosen.unwrap()))
         )
     if field == _DISTFILES:
         return replace(
@@ -1029,7 +1030,7 @@ def _current_menu(
     title: str,
     items: Sequence[Item[V]],
     current: V,
-) -> Answer[list[V]]:
+) -> Answer[V]:
     """A single-choice menu whose current value cannot be omitted."""
     return Menu(
         title=title,
@@ -1062,7 +1063,7 @@ def _pick(
     )
     if not answer.chosen:
         return None
-    return apply(config, answer.unwrap()[0])
+    return apply(config, answer.unwrap())
 
 
 def _edit_binhost(
@@ -1095,7 +1096,7 @@ def _edit_binhost(
     answer = menu.run(screen)
     if not answer.chosen:
         return None
-    official, subarch = answer.unwrap()[0]
+    official, subarch = answer.unwrap()
     portage = config.portage
     return replace(
         config,
@@ -1132,7 +1133,7 @@ def _edit_gentoozh(
     )
     if not answer.chosen:
         return None
-    picked = answer.unwrap()[0]
+    picked = answer.unwrap()
     portage = config.portage
     if picked is None:
         # What required the overlay goes with it: leaving the community binhost
@@ -1215,7 +1216,7 @@ def bootloader_screen(
         return Answer(answer.outcome)
     return Answer(
         Outcome.CHOSE,
-        replace(config, bootloader=replace(config.bootloader, kind=answer.unwrap()[0])),
+        replace(config, bootloader=replace(config.bootloader, kind=answer.unwrap())),
     )
 
 
@@ -1305,7 +1306,7 @@ def kernel_version_screen(
     if not answer.chosen:
         return Answer(answer.outcome)
     return Answer(
-        Outcome.CHOSE, replace(config, kernel=replace(config.kernel, version=answer.unwrap()[0]))
+        Outcome.CHOSE, replace(config, kernel=replace(config.kernel, version=answer.unwrap()))
     )
 
 
@@ -1333,7 +1334,7 @@ def logger_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     if not answer.chosen:
         return Answer(answer.outcome)
     return Answer(
-        Outcome.CHOSE, replace(config, system=replace(config.system, logger=answer.unwrap()[0]))
+        Outcome.CHOSE, replace(config, system=replace(config.system, logger=answer.unwrap()))
     )
 
 
@@ -1379,7 +1380,7 @@ def keywords_screen(
         return Answer(answer.outcome)
     return Answer(
         Outcome.CHOSE,
-        replace(config, portage=replace(config.portage, keywords=answer.unwrap()[0])),
+        replace(config, portage=replace(config.portage, keywords=answer.unwrap())),
     )
 
 
@@ -1399,7 +1400,7 @@ def kernel_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
-    chosen = answer.unwrap()[0]
+    chosen = answer.unwrap()
     changed = replace(config, kernel=replace(config.kernel, source=chosen))
     if chosen in plan_kernel.CJK_KERNELS:
         # cjk on with it, the mirror of the branch below: `RequestCjkKernel`
@@ -1465,7 +1466,7 @@ def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> A
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
-    desktop = answer.unwrap()[0]
+    desktop = answer.unwrap()
     changed = replace(config, packages=replace(config.packages, desktop=desktop))
     if not _profile_was_chosen(config, context.groups):
         # Only while the profile is still the one the last desktop implied.
@@ -1645,7 +1646,7 @@ def settle(
         current="yes",
     )
     answered = asked.run(screen)
-    if not answered.chosen or answered.unwrap()[0] == "no":
+    if not answered.chosen or answered.unwrap() == "no":
         return Answer(Outcome.BACK, before)
     # Pinned without what the choice being replaced had derived. Adding to
     # `portage.use` and never taking anything out meant switching from Plasma
@@ -1667,7 +1668,7 @@ def settle(
             ),
         ),
     )
-    if answered.unwrap()[0] == "open" and where is not None:
+    if answered.unwrap() == "open" and where is not None:
         opened = where(screen, pinned, context)
         if opened.chosen:
             return Answer(Outcome.CHOSE, opened.unwrap())
@@ -1759,10 +1760,9 @@ def graphics_screen(
     ]
     ticked = set(config.packages.graphics)
     while True:
-        menu: Menu[str] = Menu(
+        menu: MultipleChoiceMenu[str] = MultipleChoiceMenu(
             title=translate("Graphics"),
             items=items,
-            multiple=True,
             selected={index for index, item in enumerate(items) if item.value in ticked},
             footer=footer(translate),
         )
@@ -1851,7 +1851,7 @@ def _one_group(
     if not answer.chosen:
         return Answer(answer.outcome)
     return Answer(
-        Outcome.CHOSE, replace(config, packages=apply(config.packages, answer.unwrap()[0]))
+        Outcome.CHOSE, replace(config, packages=apply(config.packages, answer.unwrap()))
     )
 
 
@@ -2146,7 +2146,7 @@ def _consent_screen(
     if not answer.chosen:
         return Answer(answer.outcome)
     edited = _set_font_configuration(
-        config, context.groups, answer.unwrap()[0] == "yes"
+        config, context.groups, answer.unwrap() == "yes"
     )
     return Answer(Outcome.CHOSE, edited)
 
@@ -2176,7 +2176,7 @@ def _input_consent_screen(
     if not answer.chosen:
         return Answer(answer.outcome)
     edited = _set_input_configuration(
-        config, context.groups, answer.unwrap()[0] == "yes"
+        config, context.groups, answer.unwrap() == "yes"
     )
     return Answer(Outcome.CHOSE, edited)
 
@@ -2248,10 +2248,9 @@ def _language_package_screen(
     ]
     chosen_already = set(config.packages.applications) & selected_names
     while True:
-        answer = Menu(
+        answer = MultipleChoiceMenu(
             title=translate(title),
             items=items,
-            multiple=True,
             selected={
                 index for index, item in enumerate(items) if item.value in chosen_already
             },
@@ -2297,7 +2296,7 @@ def input_method_screen(
     if not framework_answer.chosen:
         return Answer(framework_answer.outcome)
     with_framework = select_input_framework(
-        config, context.groups, framework_answer.unwrap()[0]
+        config, context.groups, framework_answer.unwrap()
     )
     framework_group = _selected_input_framework(with_framework, context.groups)
     if not framework_group:
@@ -2322,10 +2321,9 @@ def input_method_screen(
         for offset, name in enumerate(section)
     ]
     selected = set(with_framework.packages.applications) & set(names)
-    engine_answer = Menu(
+    engine_answer = MultipleChoiceMenu(
         title=translate("Input engines"),
         items=items,
-        multiple=True,
         selected={
             index for index, item in enumerate(items) if item.value in selected
         },
@@ -2371,10 +2369,9 @@ def cjk_fonts_screen(
     ]
     selected = [name for name in config.packages.applications if name in names]
     preferred = set(preferred_font_groups(config, context.groups))
-    font_menu = Menu(
+    font_menu = MultipleChoiceMenu(
         title=translate("Fonts"),
         items=items,
-        multiple=True,
         tri_state=True,
         selected={
             index for index, item in enumerate(items) if item.value in selected
@@ -2468,10 +2465,9 @@ def packages_screen(
     ]
     chosen_already = set(config.packages.applications)
     while True:
-        menu: Menu[str] = Menu(
+        menu: MultipleChoiceMenu[str] = MultipleChoiceMenu(
             title=translate("Applications"),
             items=items,
-            multiple=True,
             selected={index for index, item in enumerate(items) if item.value in chosen_already},
             footer=footer(translate),
         )
@@ -2548,7 +2544,7 @@ def locale_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
-    chosen = answer.unwrap()[0]
+    chosen = answer.unwrap()
     generated = config.system.locales
     if chosen not in generated:
         generated = (*generated, chosen)
@@ -2571,10 +2567,9 @@ def additional_locales_screen(
     selected = {
         index for index, item in enumerate(items) if item.value in config.system.locales
     }
-    answer = Menu(
+    answer = MultipleChoiceMenu(
         title=translate("Other locales"),
         items=items,
-        multiple=True,
         selected=selected,
         footer=footer(translate),
         preamble=(translate("The system language is always generated."),),
@@ -2645,7 +2640,7 @@ def timezone_screen(screen: Screen, config: InstallConfig, context: Context) -> 
     picked = chosen_area.run(screen)
     if not picked.chosen:
         return Answer(picked.outcome)
-    area = picked.unwrap()[0]
+    area = picked.unwrap()
     if not area:
         return Answer(
             Outcome.CHOSE,
@@ -2666,7 +2661,7 @@ def timezone_screen(screen: Screen, config: InstallConfig, context: Context) -> 
     if not answer.chosen:
         return Answer(answer.outcome)
     return Answer(
-        Outcome.CHOSE, replace(config, system=replace(config.system, timezone=answer.unwrap()[0]))
+        Outcome.CHOSE, replace(config, system=replace(config.system, timezone=answer.unwrap()))
     )
 
 
@@ -2806,7 +2801,7 @@ def swap_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
-    chosen = answer.unwrap()[0]
+    chosen = answer.unwrap()
     context.choice = replace(context.choice, swap=Size.parse(chosen) if chosen else None)
     return Answer(Outcome.CHOSE, _rebuild(config, context))
 
@@ -2851,7 +2846,7 @@ def zram_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     if not answer.chosen:
         return Answer(answer.outcome)
     return Answer(
-        Outcome.CHOSE, replace(config, system=replace(config.system, zram=answer.unwrap()[0]))
+        Outcome.CHOSE, replace(config, system=replace(config.system, zram=answer.unwrap()))
     )
 
 
@@ -2903,7 +2898,7 @@ def build_in_ram_screen(
         return Answer(answer.outcome)
     return Answer(
         Outcome.CHOSE,
-        replace(config, portage=replace(config.portage, build_in_ram=answer.unwrap()[0])),
+        replace(config, portage=replace(config.portage, build_in_ram=answer.unwrap())),
     )
 
 
@@ -2984,7 +2979,7 @@ def sshd_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
-    running, password = answer.unwrap()[0]
+    running, password = answer.unwrap()
     if running and config.system.firewall is Firewall.NONE:
         _say(
             screen,
@@ -3032,10 +3027,10 @@ def saved_config_screen(
             footer=footer(translate),
         )
         answer = menu.run(screen)
-        if not answer.chosen or not answer.unwrap()[0]:
+        if not answer.chosen or not answer.unwrap():
             return Answer(Outcome.CHOSE, config)
         try:
-            return Answer(Outcome.CHOSE, context.load_config(answer.unwrap()[0]))
+            return Answer(Outcome.CHOSE, context.load_config(answer.unwrap()))
         except GentooInstallError as error:
             # Back to the list rather than out of the installer: the file being
             # unreadable says nothing about the other one beside it.
@@ -3171,7 +3166,7 @@ def overview_screen(screen: Screen, config: InstallConfig, context: Context) -> 
         answer = menu.run(screen)
         if not answer.chosen:
             return Answer(answer.outcome)
-        chosen = answer.unwrap()[0]
+        chosen = answer.unwrap()
         if chosen == _INSTALL:
             break
         if chosen != _EXPORT:
@@ -3210,7 +3205,7 @@ def _profile_screen(screen: Screen, config: InstallConfig, context: Context) -> 
     if not answer.chosen:
         return Answer(answer.outcome)
     return Answer(
-        Outcome.CHOSE, replace(config, portage=replace(config.portage, profile=answer.unwrap()[0]))
+        Outcome.CHOSE, replace(config, portage=replace(config.portage, profile=answer.unwrap()))
     )
 
 
@@ -3228,7 +3223,7 @@ def table_screen(screen: Screen, config: InstallConfig, context: Context) -> Ans
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
-    context.choice = replace(context.choice, table=answer.unwrap()[0])
+    context.choice = replace(context.choice, table=answer.unwrap())
     return Answer(Outcome.CHOSE, _rebuild(config, context))
 
 
@@ -3282,7 +3277,7 @@ def _pick_keymap(
     )
     if not answer.chosen:
         return Answer(answer.outcome)
-    family = answer.unwrap()[0]
+    family = answer.unwrap()
     if not family:
         return Answer(Outcome.CHOSE, "")
     within = [name for one, name in offered if one == family]
@@ -3294,7 +3289,7 @@ def _pick_keymap(
         current,
     )
     return (
-        Answer(Outcome.CHOSE, chosen.unwrap()[0])
+        Answer(Outcome.CHOSE, chosen.unwrap())
         if chosen.chosen
         else Answer(chosen.outcome)
     )
@@ -3330,7 +3325,7 @@ def console_font_screen(
         return Answer(answer.outcome)
     return Answer(
         Outcome.CHOSE,
-        replace(config, system=replace(config.system, console_font=answer.unwrap()[0])),
+        replace(config, system=replace(config.system, console_font=answer.unwrap())),
     )
 
 
@@ -3364,7 +3359,7 @@ def cpu_flags_screen(
         return Answer(answer.outcome)
     return Answer(
         Outcome.CHOSE,
-        replace(config, portage=replace(config.portage, cpu_flags=answer.unwrap()[0])),
+        replace(config, portage=replace(config.portage, cpu_flags=answer.unwrap())),
     )
 
 
@@ -3395,7 +3390,7 @@ def networking_screen(
         return Answer(answer.outcome)
     return Answer(
         Outcome.CHOSE,
-        replace(config, system=replace(config.system, networking=answer.unwrap()[0])),
+        replace(config, system=replace(config.system, networking=answer.unwrap())),
     )
 
 
@@ -3423,7 +3418,7 @@ def firewall_screen(
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
-    chosen = answer.unwrap()[0]
+    chosen = answer.unwrap()
     if chosen is not Firewall.NONE:
         _say(
             screen,
@@ -3491,7 +3486,7 @@ def partitions_screen(
         cursor = menu.cursor
         if not answer.chosen:
             return Answer(answer.outcome)
-        row = answer.unwrap()[0]
+        row = answer.unwrap()
         if row.kind is _RowKind.DONE:
             # Marked here rather than by whoever opened this screen: the row can
             # be reached from the menu as well as from the layout row, and a
@@ -3637,7 +3632,7 @@ def _pick_another_disk(screen: Screen, context: Context) -> str | None:
         ],
         footer=footer(translate),
     ).run(screen)
-    return answer.unwrap()[0] if answer.chosen else None
+    return answer.unwrap() if answer.chosen else None
 
 
 def _edit_disk(screen: Screen, context: Context, position: int) -> None:
@@ -3661,9 +3656,9 @@ def _edit_disk(screen: Screen, context: Context, position: int) -> None:
         answer = Menu(
             title=context.shown_as(disk.selector), items=items, footer=footer(translate)
         ).run(screen)
-        if not answer.chosen or answer.unwrap()[0] == _DONE:
+        if not answer.chosen or answer.unwrap() == _DONE:
             return
-        if answer.unwrap()[0] == _DROP:
+        if answer.unwrap() == _DROP:
             context.layout.disks.pop(position)
             return
         picked = _current_menu(
@@ -3674,7 +3669,7 @@ def _edit_disk(screen: Screen, context: Context, position: int) -> None:
             disk.table,
         )
         if picked.chosen:
-            disk.table = picked.unwrap()[0]
+            disk.table = picked.unwrap()
 
 
 def _template_filesystem(choice: Choice) -> FilesystemType | None:
@@ -3780,9 +3775,9 @@ def _edit_array(screen: Screen, context: Context) -> None:
             items=items,
             footer=footer(translate),
         ).run(screen)
-        if not answer.chosen or answer.unwrap()[0] == _DONE:
+        if not answer.chosen or answer.unwrap() == _DONE:
             return
-        _edit_array_field(screen, context, answer.unwrap()[0], members)
+        _edit_array_field(screen, context, answer.unwrap(), members)
 
 
 def _edit_array_field(screen: Screen, context: Context, field: str, members: int) -> None:
@@ -3806,7 +3801,7 @@ def _edit_array_field(screen: Screen, context: Context, field: str, members: int
             array.level,
         )
         if picked.chosen:
-            array.level = picked.unwrap()[0]
+            array.level = picked.unwrap()
         return
     if field == _METADATA:
         chosen = _current_menu(
@@ -3826,7 +3821,7 @@ def _edit_array_field(screen: Screen, context: Context, field: str, members: int
             array.metadata,
         )
         if chosen.chosen:
-            array.metadata = chosen.unwrap()[0]
+            array.metadata = chosen.unwrap()
         return
     if field == _FILESYSTEM:
         kind = _current_menu(
@@ -3837,7 +3832,7 @@ def _edit_array_field(screen: Screen, context: Context, field: str, members: int
             array.filesystem,
         )
         if kind.chosen:
-            array.filesystem = kind.unwrap()[0]
+            array.filesystem = kind.unwrap()
         return
     if field == _ENCRYPTION:
         turned = Confirm(
@@ -3895,7 +3890,7 @@ def _pool_topology(
         items,
         context.layout.topology,
     )
-    return answer.unwrap()[0] if answer.chosen else None
+    return answer.unwrap() if answer.chosen else None
 
 
 def _layout_problem(context: Context, config: InstallConfig) -> str:
@@ -3955,7 +3950,7 @@ def _edit_slice(
         cursor = menu.cursor
         if not answer.chosen:
             return current
-        field = answer.unwrap()[0]
+        field = answer.unwrap()
         if field == _DONE:
             return entry
         if field == _DELETE:
@@ -4053,7 +4048,7 @@ def _edit_field(
         )
         if not chosen_status.chosen:
             return None
-        return replace(entry, status=chosen_status.unwrap()[0])
+        return replace(entry, status=chosen_status.unwrap())
     if field == _SIZE:
         typed = TextField(
             title=translate("Size"),
@@ -4084,7 +4079,7 @@ def _edit_field(
         )
         if not picked.chosen:
             return None
-        return _apply_purpose(entry, picked.unwrap()[0])
+        return _apply_purpose(entry, picked.unwrap())
     if field == _FILESYSTEM:
         # zfs is listed here as well as under the purpose, because that is
         # where anyone choosing a filesystem looks for it. It is a pool, so
@@ -4110,7 +4105,7 @@ def _edit_field(
         )
         if not answered.chosen:
             return None
-        kind = answered.unwrap()[0]
+        kind = answered.unwrap()
         if kind is None:
             return _apply_purpose(entry, manual.purpose_for("zfs"))
         return replace(entry, filesystem=kind)
@@ -4463,7 +4458,7 @@ def language_screen(screen: Screen, context: Context) -> str:
         footer="[enter] select",
     )
     answer = menu.run(screen)
-    return answer.unwrap()[0] if answer.chosen else context.tag
+    return answer.unwrap() if answer.chosen else context.tag
 
 
 #: What each license set allows, in the order the menu offers them.
@@ -4494,7 +4489,7 @@ def license_screen(screen: Screen, config: InstallConfig, context: Context) -> A
         Outcome.CHOSE,
         replace(
             config,
-            portage=replace(config.portage, accept_license=tuple(answer.unwrap()[0].split())),
+            portage=replace(config.portage, accept_license=tuple(answer.unwrap().split())),
         ),
     )
 
@@ -4526,7 +4521,7 @@ def makeopts_screen(screen: Screen, config: InstallConfig, context: Context) -> 
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
-    picked = answer.unwrap()[0]
+    picked = answer.unwrap()
     # The machine's own count is stored as nothing at all, which is what
     # "follow this machine" means: a configuration saved with `-j32` builds
     # with 32 jobs on a laptop with four cores.
@@ -4574,7 +4569,7 @@ def compile_flags_screen(
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
-    chosen = answer.unwrap()[0]
+    chosen = answer.unwrap()
     if not chosen:
         typed = TextField(
             title=translate("Compiler flags"),
@@ -4731,7 +4726,7 @@ def authorized_keys_screen(
         answer = menu.run(screen)
         if not answer.chosen:
             return Answer(answer.outcome)
-        chosen = answer.unwrap()[0]
+        chosen = answer.unwrap()
         if chosen < 0:
             keys.pop(-chosen - 1)
             continue
@@ -4944,5 +4939,5 @@ def root_login_screen(
         return Answer(answer.outcome)
     return Answer(
         Outcome.CHOSE,
-        replace(config, system=replace(config.system, sshd_root_login=answer.unwrap()[0])),
+        replace(config, system=replace(config.system, sshd_root_login=answer.unwrap())),
     )
