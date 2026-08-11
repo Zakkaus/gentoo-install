@@ -46,6 +46,45 @@ def test_send_appends_a_newline() -> None:
     writer.close()
 
 
+@pytest.mark.parametrize(("method", "value"), [("send", "true"), ("send_raw", "x")])
+def test_a_local_write_error_is_reported_at_the_send_call(method: str, value: str) -> None:
+    class Broken:
+        closed = False
+
+        def recv(self, size: int) -> bytes:
+            return b""
+
+        def sendall(self, data: bytes) -> None:
+            raise BrokenPipeError(32, "Broken pipe")
+
+        def close(self) -> None:
+            return None
+
+    console = SerialConsole(Broken(), open("/dev/null", "wb"))
+    with pytest.raises(ConsoleClosed, match="Broken pipe") as caught:
+        getattr(console, method)(value)
+    assert caught.value.write_may_have_reached_guest is True
+
+
+def test_a_write_to_an_already_closed_channel_is_locally_rejected() -> None:
+    class Closed:
+        closed = True
+
+        def recv(self, size: int) -> bytes:
+            return b""
+
+        def sendall(self, data: bytes) -> None:
+            raise AssertionError("a closed channel must reject before writing")
+
+        def close(self) -> None:
+            return None
+
+    console = SerialConsole(Closed(), open("/dev/null", "wb"))
+    with pytest.raises(ConsoleClosed) as caught:
+        console.send("true")
+    assert caught.value.write_may_have_reached_guest is False
+
+
 def test_expect_keeps_output_that_arrived_after_the_match() -> None:
     console, writer = make_console([b"login: root\r\nPassword: "])
     console.expect(r"login:", timeout=2.0)

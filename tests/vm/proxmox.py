@@ -720,6 +720,10 @@ class ConsoleChannel:
     def closed(self) -> bool:
         return self._socket.closed
 
+    @property
+    def why_closed(self) -> str:
+        return str(getattr(self._socket, "why_closed", ""))
+
     def close(self) -> None:
         self._socket.close()
 

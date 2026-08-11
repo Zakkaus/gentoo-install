@@ -210,6 +210,30 @@ def test_the_console_channel_frames_input_the_way_proxmox_reads_it() -> None:
     assert fake.sent == [b"0:9:uname -r\n"]
 
 
+def test_a_websocket_write_that_closes_is_reported_at_the_send_call() -> None:
+    from tests.vm.console import ConsoleClosed, SerialConsole
+
+    class Closing:
+        def __init__(self) -> None:
+            self.closed = False
+            self.why_closed = ""
+
+        def send(self, payload: bytes, opcode: int = 0x2) -> None:
+            self.closed = True
+            self.why_closed = "the connection broke: Broken pipe"
+
+        def read(self) -> bytes:
+            raise AssertionError("the failed send must not become a read timeout")
+
+        def close(self) -> None:
+            self.closed = True
+
+    console = SerialConsole(proxmox.ConsoleChannel(Closing()), io.BytesIO())
+    with pytest.raises(ConsoleClosed, match="Broken pipe") as caught:
+        console.send("uname -r")
+    assert caught.value.write_may_have_reached_guest is True
+
+
 def test_a_server_frame_is_read_whole_across_two_reads() -> None:
     """One console write can arrive in two packets, and half a frame is not a
     short read to pass upward."""
@@ -674,6 +698,45 @@ def test_a_long_install_is_never_sent_twice_after_a_reconnect() -> None:
     commands = [one for one in sent if "install.sh" in one]
     assert len(commands) == 1, commands
     assert len(opened) == 3, "one open, then one per drop"
+
+
+def test_wait_for_does_not_resend_after_an_ambiguous_write_failure() -> None:
+    from tests.vm.cluster import Reconnecting
+    from tests.vm.console import ConsoleClosed
+
+    sent: list[str] = []
+
+    class Console:
+        def __init__(self, fail_write: bool) -> None:
+            self.fail_write = fail_write
+
+        def send(self, line: str) -> None:
+            sent.append(line)
+            if self.fail_write:
+                raise ConsoleClosed(
+                    "the connection broke during the write",
+                    write_may_have_reached_guest=True,
+                )
+
+        def send_raw(self, keys: str) -> None:
+            raise AssertionError("this test sends a line")
+
+        def snapshot(self, seconds: float) -> bytes:
+            return b""
+
+        @property
+        def closed(self) -> bool:
+            return False
+
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+            return b"MARK_1_DONE"
+
+    consoles = [Console(fail_write=True), Console(fail_write=False)]
+    link = Reconnecting(lambda: consoles.pop(0), tries=2)
+    link.wait_for("sh install.sh", timeout=5.0)
+
+    commands = [one for one in sent if "install.sh" in one]
+    assert len(commands) == 1, commands
 
 
 def test_a_short_command_is_sent_again_after_a_reconnect() -> None:
