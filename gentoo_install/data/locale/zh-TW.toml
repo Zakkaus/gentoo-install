@@ -474,7 +474,7 @@
 "Input method" = "輸入法"
 "CJK fonts" = "中日韓字型"
 "The installed system starts in this locale." = "安裝完成的系統以這個語系啟動。"
-"The system language is always generated." = "系統語言一定會產生。"
+"The system language is always generated." = "系統語言的語系一定會產生，這裡不必重複選。"
 "The selected font and input method packages will be installed." = "選定的字型與輸入法套件會被安裝。"
 "{desktop} configures the selected fonts and input method automatically." = "{desktop} 會自動設定選定的字型與輸入法。"
 "{desktop} leaves font and input method configuration to its settings." = "{desktop} 將字型與輸入法的設定交給它自己的設定程式。"
