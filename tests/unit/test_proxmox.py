@@ -1213,6 +1213,105 @@ def test_a_run_is_not_green_until_the_installed_system_answers() -> None:
     assert checked < ok, "the verdict cannot be OK before the system was read"
 
 
+def test_installed_boot_attaches_before_reset_without_sending_a_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A late termproxy has no GRUB scrollback, while a blank line submitted at
+    the hidden passphrase prompt is an empty key rather than a harmless probe."""
+    from tests.vm import cluster
+
+    events: list[str] = []
+
+    class Guest:
+        def stop(self) -> None:
+            events.append("stop")
+
+        def boot_from_disk(self) -> None:
+            events.append("boot-from-disk")
+
+        def start(self) -> None:
+            events.append("start")
+
+        def reset(self) -> None:
+            events.append("reset")
+
+    class Link:
+        def reopen(self, *, solicit_prompt: bool = True) -> None:
+            events.append(f"reopen:{solicit_prompt}")
+
+    def unlock(*unused: object) -> cluster.UnlockResult:
+        events.append("unlock")
+        return cluster.UnlockResult(
+            cluster.InstalledBootState.WAIT_LOGIN,
+            "stop after observing boot order",
+        )
+
+    monkeypatch.setattr(cluster, "_unlock", unlock)
+    refused = cluster.boot_and_check(
+        cast(Any, Guest()), cast(Any, Link()), Path("unused"), cast(Any, object())
+    )
+
+    assert refused == "stop after observing boot order"
+    assert events == [
+        "stop",
+        "boot-from-disk",
+        "start",
+        "reopen:False",
+        "reset",
+        "unlock",
+    ]
+
+
+def test_unlock_reconnect_never_solicits_a_shell_prompt() -> None:
+    """There is no shell while GRUB owns the console, so a solicitation is an
+    empty passphrase and changes the state the reader is trying to observe."""
+    from gentoo_install.exec.config import load
+    from tests.vm import cluster
+    from tests.vm.console import ConsoleClosed
+
+    opened: list["Console"] = []
+
+    class Console:
+        def __init__(self, drop: bool) -> None:
+            self.drop = drop
+            self.sent: list[str] = []
+
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+            if self.drop:
+                self.drop = False
+                raise ConsoleClosed("termproxy reset with the guest")
+            return b"login:"
+
+        def send(self, line: str) -> None:
+            self.sent.append(line)
+
+        def send_raw(self, keys: str) -> None:
+            self.sent.append(keys)
+
+        def snapshot(self, seconds: float) -> bytes:
+            return b""
+
+        @property
+        def closed(self) -> bool:
+            return False
+
+    def open_console() -> Console:
+        console = Console(drop=not opened)
+        opened.append(console)
+        return console
+
+    class Guest:
+        def send_keys(self, keys: list[str]) -> None:
+            raise AssertionError(f"unexpected VGA passphrase send: {keys!r}")
+
+    installation = load(Path("tests/fixtures/vm-luks.toml"))
+    link = cluster.Reconnecting(open_console, tries=2)
+    result = cluster._unlock(Guest(), link, installation)
+    assert result == cluster.UnlockResult(cluster.InstalledBootState.LOGIN_READY)
+    assert len(opened) == 2
+    assert opened[1].sent == [], "a GRUB reconnect submitted an empty passphrase"
+
+
 def test_every_question_asked_inside_names_what_would_fail_it() -> None:
     """A check with nothing to compare against passes on any machine, which is
     the shape a coverage claim hides behind."""
@@ -1323,7 +1422,7 @@ def test_the_nodes_are_asked_for_a_medium_in_china_first() -> None:
     assert not any("ustc" in one for one in MIRRORS), "USTC refuses wget"
 
 
-def test_an_encrypted_disk_is_unlocked_before_a_login_is_waited_for(
+def test_each_encrypted_boot_path_answers_its_own_number_of_prompts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Nothing answered the prompt, so an encrypted install that had worked
@@ -1342,9 +1441,10 @@ def test_an_encrypted_disk_is_unlocked_before_a_login_is_waited_for(
     from tests.vm.console import DISK_PASSPHRASE
 
     class Scripted:
-        """Answers with a passphrase prompt until one is sent, then `login:`."""
+        """Emit each distinct boot prompt, then hand off the observed login."""
 
-        def __init__(self) -> None:
+        def __init__(self, prompts: int) -> None:
+            self.prompts = prompts
             self.sent: list[str] = []
             self.keys: list[str] = []
 
@@ -1362,9 +1462,12 @@ def test_an_encrypted_disk_is_unlocked_before_a_login_is_waited_for(
             return False
 
         def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
-            if DISK_PASSPHRASE in self.sent:
+            answered = self.sent.count(DISK_PASSPHRASE)
+            if answered >= self.prompts:
                 return b"gentoo login:"
-            return b"Enter passphrase for hd0,gpt2:"
+            if answered == 0:
+                return b"Enter passphrase for hd0,gpt2:"
+            return b"Please enter passphrase for disk root:"
 
     class Silent(Scripted):
         """A guest whose keys go through the API, not the serial port."""
@@ -1372,29 +1475,163 @@ def test_an_encrypted_disk_is_unlocked_before_a_login_is_waited_for(
         def send_keys(self, keys: list[str]) -> None:
             self.keys.extend(keys)
 
-    for name, firmware in (
-        ("vm-luks", BootFirmware.UEFI),
-        ("vm-zfs-encrypted", BootFirmware.UEFI),
-        ("vm-bios-luks", BootFirmware.BIOS),
+    for name, firmware, serial_prompts in (
+        ("vm-luks", BootFirmware.UEFI, 2),
+        ("vm-zfs-encrypted", BootFirmware.UEFI, 1),
+        ("vm-bios-luks", BootFirmware.BIOS, 1),
     ):
         installation = load(Path("tests/fixtures") / f"{name}.toml")
         assert installation.bootloader.firmware is firmware, name
-        console = Silent()
+        console = Silent(serial_prompts)
         link = Reconnecting(lambda: console, tries=1)
         # No wait for GRUB: the sleep is what the real path spends and this
         # test is not measuring it.
         monkeypatch.setattr(cluster, "GRUB_PROMPT_SECONDS", 0.0)
-        said = cluster._unlock(console, link, installation)
-        assert said == "", f"{name}: {said}"
-        assert console.sent.count(DISK_PASSPHRASE) == 1, f"{name}: {console.sent}"
+        result = cluster._unlock(console, link, installation)
+        assert result == cluster.UnlockResult(cluster.InstalledBootState.LOGIN_READY), (
+            f"{name}: {result}"
+        )
+        assert console.sent.count(DISK_PASSPHRASE) == serial_prompts, (
+            f"{name}: {console.sent}"
+        )
         if firmware is BootFirmware.BIOS:
             assert console.keys, f"{name}: nothing was typed at GRUB"
             assert console.keys[-1] == "ret", console.keys
 
     plain = load(Path("tests/fixtures/vm-binpkg.toml"))
-    console = Silent()
-    assert cluster._unlock(console, Reconnecting(lambda: console, tries=1), plain) == ""
+    console = Silent(0)
+    assert cluster._unlock(
+        console, Reconnecting(lambda: console, tries=1), plain
+    ) == cluster.UnlockResult(cluster.InstalledBootState.WAIT_LOGIN)
     assert console.sent == [], "a plain disk was sent a passphrase"
+
+
+def test_installed_login_uses_the_login_observed_by_unlock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`_unlock` consumes through `login:`. Its caller must answer that prompt,
+    not wait ten minutes for a second copy which getty does not owe it."""
+    from gentoo_install.exec.config import load
+    from tests.vm import cluster
+    from tests.vm.console import PASSWORD_PROMPT
+
+    events: list[str] = []
+
+    class Guest:
+        def stop(self) -> None:
+            events.append("stop")
+
+        def boot_from_disk(self) -> None:
+            events.append("boot")
+
+        def start(self) -> None:
+            events.append("start")
+
+        def reset(self) -> None:
+            events.append("reset")
+
+    class Link:
+        def reopen(self, *, solicit_prompt: bool = True) -> None:
+            events.append(f"reopen:{solicit_prompt}")
+
+        def observe(self, pattern: str, timeout: float) -> bytes:
+            events.append(f"observe:{pattern}")
+            if pattern == PASSWORD_PROMPT:
+                return "密碼：".encode()
+            return b"root@cryptbox ~ #"
+
+        def respond(self, line: str) -> None:
+            events.append(f"respond:{line}")
+
+        def expect_output(self, command: str, timeout: float = 120.0) -> bytes:
+            for _, expected_command, wanted in (
+                *cluster.INSIDE,
+                *cluster._asked_for(load(Path("tests/fixtures/vm-luks.toml"))),
+            ):
+                if command == expected_command:
+                    return wanted.encode()
+            raise AssertionError(command)
+
+    monkeypatch.setattr(
+        cluster,
+        "_unlock",
+        lambda *unused: cluster.UnlockResult(cluster.InstalledBootState.LOGIN_READY),
+    )
+    refused = cluster.boot_and_check(
+        cast(Any, Guest()),
+        cast(Any, Link()),
+        Path("unused"),
+        load(Path("tests/fixtures/vm-luks.toml")),
+    )
+
+    assert refused == ""
+    assert not any(one == "observe:login:" for one in events), events
+    assert events.count("respond:root") == 1
+    assert events.count(f"respond:{cluster.INSTALLED_PASSWORD}") == 1
+
+
+@pytest.mark.parametrize("delivery", [None, True])
+def test_an_ambiguous_boot_response_is_never_retried(delivery: bool | None) -> None:
+    from tests.vm.cluster import Reconnecting
+    from tests.vm.console import ConsoleClosed
+
+    opened = 0
+    attempts: list[str] = []
+
+    class Ambiguous:
+        @property
+        def closed(self) -> bool:
+            return False
+
+        def send(self, line: str) -> None:
+            attempts.append(line)
+            raise ConsoleClosed(
+                "the connection closed during write",
+                write_may_have_reached_guest=delivery,
+            )
+
+    def open_console() -> Ambiguous:
+        nonlocal opened
+        opened += 1
+        return Ambiguous()
+
+    link = Reconnecting(cast(Any, open_console), tries=4)
+    with pytest.raises(ConsoleClosed):
+        link.respond("secret response")
+    assert attempts == ["secret response"]
+    assert opened == 1, "unknown delivery must not open a channel for a retry"
+
+
+def test_a_known_undelivered_boot_response_reopens_without_a_blank_line() -> None:
+    from tests.vm.cluster import Reconnecting
+    from tests.vm.console import ConsoleClosed
+
+    opened: list["Channel"] = []
+
+    class Channel:
+        def __init__(self, closed: bool) -> None:
+            self.is_closed = closed
+            self.sent: list[str] = []
+
+        @property
+        def closed(self) -> bool:
+            return self.is_closed
+
+        def send(self, line: str) -> None:
+            if self.is_closed:
+                raise ConsoleClosed("closed", write_may_have_reached_guest=False)
+            self.sent.append(line)
+
+    def open_console() -> Channel:
+        channel = Channel(closed=not opened)
+        opened.append(channel)
+        return channel
+
+    link = Reconnecting(cast(Any, open_console), tries=2)
+    link.respond("owned response")
+    assert len(opened) == 2
+    assert opened[0].sent == []
+    assert opened[1].sent == ["owned response"]
 
 
 def test_a_connection_reset_is_a_dropped_console_and_not_a_dead_run() -> None:
