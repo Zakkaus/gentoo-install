@@ -53,6 +53,14 @@ FILESYSTEM_MODULES: Final[dict[FilesystemType, str]] = {FilesystemType.BTRFS: "b
 #: and one of the network managers dracut's network module can drive.
 REMOTE_UNLOCK_PACKAGE: Final[str] = "sys-kernel/dracut-crypt-ssh"
 
+#: Executables required by dracut's network-legacy module. ZFSBootMenu omits
+#: systemd, so its remote-unlock image cannot use systemd-networkd instead.
+ZBM_LEGACY_NETWORK_PACKAGES: Final[tuple[str, ...]] = (
+    "sys-apps/iproute2",
+    "net-misc/dhcp",
+    "net-misc/iputils",
+)
+
 #: Modules an initramfs needs to answer on the network before the root is
 #: unlocked. `crypt-ssh` is the module dracut-crypt-ssh installs as 60crypt-ssh.
 REMOTE_UNLOCK_MODULES: Final[tuple[str, ...]] = ("crypt-ssh", "network")
@@ -242,6 +250,22 @@ class RequestStorageUse(Operation):
     def apply(self, context: Context) -> None:
         lines = "".join(f"{atom} {' '.join(flags)}\n" for atom, flags in self.entries)
         context.write(PurePosixPath("/etc/portage/package.use/storage"), lines)
+
+
+@dataclass(frozen=True, kw_only=True)
+class RequestZfsBootMenuNetworkTools(Operation):
+    """Enable the two optional executables network-legacy checks for."""
+
+    stage: Stage = Stage.PORTAGE
+
+    def describe(self) -> str:
+        return "ask for dhclient and arping, which ZFSBootMenu networking requires"
+
+    def apply(self, context: Context) -> None:
+        context.write(
+            PurePosixPath("/etc/portage/package.use/zfsbootmenu-network"),
+            "net-misc/dhcp client -server\nnet-misc/iputils arping\n",
+        )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -652,11 +676,15 @@ def build(config: InstallConfig) -> list[Operation]:
     if config.kernel.remote_unlock.enabled:
         unlock = config.kernel.remote_unlock
         system_initramfs = config.bootloader.kind is not Bootloader.ZFSBOOTMENU
+        remote_packages: tuple[str, ...] = (REMOTE_UNLOCK_PACKAGE,)
+        if not system_initramfs:
+            operations.append(RequestZfsBootMenuNetworkTools())
+            remote_packages += ZBM_LEGACY_NETWORK_PACKAGES
         operations += [
             ConfigureRemoteUnlock(port=unlock.port, system_initramfs=system_initramfs),
             Emerge(
                 stage=Stage.KERNEL,
-                packages=(REMOTE_UNLOCK_PACKAGE,),
+                packages=remote_packages,
                 summary=(
                     "install the initramfs ssh daemon"
                     if system_initramfs
