@@ -3464,6 +3464,7 @@ class _RowKind(Enum):
     ADD_PARTITION = "add-partition"
     ADD_DISK = "add-disk"
     TOPOLOGY = "topology"
+    POOL_ENCRYPTION = "pool-encryption"
     ARRAY = "array"
     DONE = "done"
 
@@ -3581,6 +3582,14 @@ def _partition_rows(context: Context) -> list[Item[_Row]]:
             ),
         )
     )
+    if pool:
+        items.append(
+            Item(
+                label=f"ZFS {translate('Encryption')}",
+                value=_Row(_RowKind.POOL_ENCRYPTION),
+                detail=translate("on") if context.layout.passphrase_file else translate("off"),
+            )
+        )
     array = len(_array_members(context))
     items.append(
         Item(
@@ -3608,6 +3617,9 @@ def _act_on(screen: Screen, context: Context, row: _Row) -> None:
         picked = _pool_topology(screen, context, len(_pool_members(context)))
         if picked is not None:
             context.layout.topology = picked
+        return
+    if row.kind is _RowKind.POOL_ENCRYPTION:
+        _edit_pool_encryption(screen, context)
         return
     if row.kind is _RowKind.ARRAY:
         _edit_array(screen, context)
@@ -3911,6 +3923,18 @@ def _pool_topology(
     return answer.unwrap() if answer.chosen else None
 
 
+def _edit_pool_encryption(screen: Screen, context: Context) -> Answer[str]:
+    edited = _edit_passphrase(
+        screen,
+        context,
+        context.layout.passphrase_file,
+        context.translate("Encrypt the pool?"),
+    )
+    if edited.chosen:
+        context.layout.passphrase_file = edited.unwrap()
+    return edited
+
+
 def _layout_problem(context: Context, config: InstallConfig) -> str:
     """What the validator says about the table as it stands."""
     try:
@@ -4002,18 +4026,23 @@ def _slice_fields(
             ),
         ),
         Item(label=translate("Label"), value=_LABEL, detail=entry.label or "-"),
-        Item(
-            label=translate("Encryption"),
-            value=_ENCRYPTION,
-            detail=translate("on") if entry.passphrase_file else translate("off"),
-            # Refused here rather than at the Install row: firmware reads the
-            # esp itself and cannot open a container, so the layout never boots
-            # and there is no reason to let it be built one partition at a time.
-            disabled_because=(
-                translate("firmware cannot open a container to read the esp")
-                if purpose.role is PartitionRole.ESP
-                else ""
-            ),
+        *(
+            [
+                Item(
+                    label=translate("Encryption"),
+                    value=_ENCRYPTION,
+                    detail=translate("on") if entry.passphrase_file else translate("off"),
+                    # Firmware reads the esp itself and cannot open a container,
+                    # so an encrypted esp never boots.
+                    disabled_because=(
+                        translate("firmware cannot open a container to read the esp")
+                        if purpose.role is PartitionRole.ESP
+                        else ""
+                    ),
+                )
+            ]
+            if purpose.role is not PartitionRole.ZFS
+            else []
         ),
         Item(
             label=translate("What happens to it"),
@@ -4158,6 +4187,7 @@ def _apply_purpose(entry: manual.Slice, purpose: manual.Purpose) -> manual.Slice
         role=purpose.role,
         filesystem=entry.filesystem if purpose.chooses_filesystem else purpose.filesystem,
         mountpoint=entry.mountpoint if purpose.asks_mountpoint else purpose.mountpoint,
+        passphrase_file=("" if purpose.role is PartitionRole.ZFS else entry.passphrase_file),
     )
 
 
@@ -4169,11 +4199,7 @@ def _edit_slice_encryption(
         screen,
         context,
         entry.passphrase_file,
-        (
-            translate("Encrypt the pool?")
-            if purpose.role is PartitionRole.ZFS
-            else translate("Encrypt this partition?")
-        ),
+        translate("Encrypt this partition?"),
     ).map(lambda staged_path: replace(entry, passphrase_file=staged_path)).value
 
 

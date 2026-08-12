@@ -447,6 +447,37 @@ def test_array_encryption_replaces_its_staged_passphrase_after_success() -> None
     assert STAGED == ["replacement"]
 
 
+@pytest.mark.parametrize(
+    ("leave", "outcome"),
+    [("KEY_BACKSPACE", Outcome.BACK), ("\x1b", Outcome.CANCELLED)],
+)
+def test_reopening_pool_encryption_preserves_its_passphrase_on_child_exit(
+    leave: str, outcome: Outcome,
+) -> None:
+    at = context()
+    at.layout.passphrase_file = "/run/keys/old"
+
+    answer = screens._edit_pool_encryption(FakeScreen(keys=["\n", leave]), at)
+
+    assert answer.outcome is outcome
+    assert at.layout.passphrase_file == "/run/keys/old"
+    assert STAGED == []
+
+
+def test_pool_encryption_replaces_its_staged_passphrase_after_success() -> None:
+    at = context()
+    at.layout.passphrase_file = "/run/keys/old"
+    typed = list("replacement")
+
+    answer = screens._edit_pool_encryption(
+        FakeScreen(keys=["\n", *typed, "\n", *typed, "\n"]), at
+    )
+
+    assert answer.outcome is Outcome.CHOSE
+    assert at.layout.passphrase_file == "/run/keys/tui"
+    assert STAGED == ["replacement"]
+
+
 def encrypted_partition() -> manual.Slice:
     return manual.Slice(
         index=1,
