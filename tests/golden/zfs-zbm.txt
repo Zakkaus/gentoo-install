@@ -36,7 +36,7 @@
   install git, which every later repository sync needs: emerge dev-vcs/git
   point repository gentoo at https://github.com/gentoo-mirror/gentoo.git, commit signatures verified
   sync repository gentoo
-  point repository gentoo-zh at https://github.com/gentoo-zh/overlay.git
+  point repository gentoo-zh at https://mirrors.cernet.edu.cn/gentoo-zh.git
   sync repository gentoo-zh
   accept ~amd64 for packages from gentoo-zh only
   set sys-kernel/installkernel to dracut, installing into /boot
