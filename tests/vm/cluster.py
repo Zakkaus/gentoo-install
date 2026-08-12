@@ -1528,15 +1528,29 @@ class Reconnecting:
     def to(cls, guest: Guest, log: Path, tries: int = RECONNECT_TRIES) -> Reconnecting:
         return cls(lambda: SerialConsole(guest.console(), log.open("ab")), tries)
 
-    def reopen(self) -> None:
+    def reopen(self, *, solicit_prompt: bool = True) -> None:
         self.console = self._open()
-        # The reopened console shows nothing until the shell is asked for a
-        # prompt, and every wait below is looking for text.
-        self.console.send("")
+        if solicit_prompt:
+            # The reopened console shows nothing until the shell is asked for
+            # a prompt, and ordinary shell waits below are looking for text.
+            self.console.send("")
 
     def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
         return self._with_reconnect(
-            timeout, lambda deadline: self.console.expect(pattern, _remaining(deadline))
+            timeout,
+            lambda deadline: self.console.expect(pattern, _remaining(deadline)),
+        )
+
+    def observe(self, pattern: str, timeout: float) -> bytes:
+        """Wait through a reconnect without writing to the guest.
+
+        Boot prompts own the console input field. An empty line there is a
+        password attempt, not a harmless request for another shell prompt.
+        """
+        return self._with_reconnect(
+            timeout,
+            lambda deadline: self.console.expect(pattern, _remaining(deadline)),
+            solicit_on_reconnect=False,
         )
 
     def run(self, command: str, timeout: float = 120.0) -> None:
@@ -1613,7 +1627,11 @@ class Reconnecting:
         return self._with_reconnect(timeout, collect_once)
 
     def _with_reconnect(
-        self, timeout: float, operation: Callable[[float], _Result]
+        self,
+        timeout: float,
+        operation: Callable[[float], _Result],
+        *,
+        solicit_on_reconnect: bool = True,
     ) -> _Result:
         deadline = time.monotonic() + timeout
         closed: ConsoleClosed | None = None
@@ -1626,12 +1644,39 @@ class Reconnecting:
                 closed = error
                 if attempt + 1 == self._tries or _remaining(deadline) <= 0.0:
                     raise
-                self.reopen()
+                self.reopen(solicit_prompt=solicit_on_reconnect)
         raise ConsoleClosed("the console could not be reopened")
 
     def send(self, line: str) -> None:
         self._reopen_if_closed()
         self.console.send(line)
+
+    def respond(self, line: str) -> None:
+        """Answer an observed boot prompt once.
+
+        A response is retried only when the transport proves that no byte
+        reached the guest. Unknown or partial delivery cannot be made safe by
+        sending a password or username again.
+        """
+        closed: ConsoleClosed | None = None
+        for attempt in range(self._tries):
+            try:
+                if self.console.closed:
+                    raise ConsoleClosed(
+                        "the console was already closed",
+                        write_may_have_reached_guest=False,
+                    )
+                self.console.send(line)
+                return
+            except ConsoleClosed as error:
+                closed = error
+                if error.write_may_have_reached_guest is not False:
+                    raise
+                if attempt + 1 == self._tries:
+                    raise
+                self.reopen(solicit_prompt=False)
+        assert closed is not None
+        raise closed
 
     def send_raw(self, keys: str) -> None:
         self._reopen_if_closed()
@@ -1736,7 +1781,22 @@ class Typeable(Protocol):
     def send_keys(self, keys: list[str]) -> None: ...
 
 
-def _unlock(guest: Typeable, link: Reconnecting, installation: InstallConfig) -> str:
+class InstalledBootState(Enum):
+    """The prompt whose input field owns the next installed-boot response."""
+
+    WAIT_LOGIN = "wait-login"
+    LOGIN_READY = "login-ready"
+
+
+@dataclass(frozen=True)
+class UnlockResult:
+    state: InstalledBootState
+    refused: str = ""
+
+
+def _unlock(
+    guest: Typeable, link: Reconnecting, installation: InstallConfig
+) -> UnlockResult:
     """Answer every passphrase prompt on the way to a login.
 
     Nothing did, so an encrypted install that had worked was failed ten
@@ -1752,19 +1812,34 @@ def _unlock(guest: Typeable, link: Reconnecting, installation: InstallConfig) ->
         pool.encrypted for pool in graph.of_type(ZfsPool)
     )
     if not encrypted:
-        return ""
+        return UnlockResult(InstalledBootState.WAIT_LOGIN)
     if installation.bootloader.firmware is BootFirmware.BIOS:
         time.sleep(GRUB_PROMPT_SECONDS)
         guest.send_keys([*keys_for(DISK_PASSPHRASE), "ret"])
     for _ in range(UNLOCK_TRIES):
         try:
-            said = link.expect(rf"{PASSPHRASE_PROMPT}|login:", timeout=BOOT_PATIENCE)
+            said = link.observe(
+                rf"{PASSPHRASE_PROMPT}|login:",
+                timeout=BOOT_PATIENCE,
+            )
         except (ConsoleTimeout, ConsoleClosed) as error:
-            return f"the encrypted disk asked for nothing and booted nowhere: {error}"[:200]
+            return UnlockResult(
+                InstalledBootState.WAIT_LOGIN,
+                f"the encrypted disk asked for nothing and booted nowhere: {error}"[:200],
+            )
         if b"login:" in said:
-            return ""
-        link.send(DISK_PASSPHRASE)
-    return "the disk kept asking for a passphrase; it is not the one installed"
+            return UnlockResult(InstalledBootState.LOGIN_READY)
+        try:
+            link.respond(DISK_PASSPHRASE)
+        except ConsoleClosed as error:
+            return UnlockResult(
+                InstalledBootState.WAIT_LOGIN,
+                f"the disk passphrase delivery is unknown: {error}"[:200],
+            )
+    return UnlockResult(
+        InstalledBootState.WAIT_LOGIN,
+        "the disk kept asking for a passphrase; it is not the one installed",
+    )
 
 
 def boot_and_check(
@@ -1780,19 +1855,27 @@ def boot_and_check(
     guest.stop()
     guest.boot_from_disk()
     guest.start()
-    link.reopen()
-    refused = _unlock(guest, link, installation)
-    if refused:
-        return refused
+    # termproxy has no scrollback. Attach first, then reset so this connection
+    # sees the GRUB prompt from its beginning. Sending the usual empty line
+    # here submitted an empty GRUB passphrase before the reader was ready.
+    link.reopen(solicit_prompt=False)
+    guest.reset()
+    unlocked = _unlock(guest, link, installation)
+    if unlocked.refused:
+        return unlocked.refused
+    if unlocked.state is InstalledBootState.WAIT_LOGIN:
+        try:
+            link.observe(r"login:", timeout=BOOT_PATIENCE)
+        except (ConsoleTimeout, ConsoleClosed) as error:
+            return f"the installed system did not reach a login prompt: {error}"[:200]
     try:
-        link.expect(r"login:", timeout=BOOT_PATIENCE)
-    except (ConsoleTimeout, ConsoleClosed) as error:
-        return f"the installed system did not reach a login prompt: {error}"[:200]
-    link.send("root")
-    link.expect(PASSWORD_PROMPT, timeout=120.0)
-    link.send(INSTALLED_PASSWORD)
+        link.respond("root")
+        link.observe(PASSWORD_PROMPT, timeout=120.0)
+        link.respond(INSTALLED_PASSWORD)
+    except ConsoleClosed as error:
+        return f"installed login response delivery is unknown: {error}"[:200]
     try:
-        link.expect(r"#|\$", timeout=120.0)
+        link.observe(r"#|\$", timeout=120.0)
     except (ConsoleTimeout, ConsoleClosed) as error:
         return f"root could not log into the installed system: {error}"[:200]
 
