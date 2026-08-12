@@ -1146,6 +1146,58 @@ def test_the_network_wait_returns_as_soon_as_the_guest_answers() -> None:
     assert len(tries) == 3
 
 
+def test_the_network_probe_is_sent_again_after_a_reconnect() -> None:
+    """A fresh console must receive a probe after the previous read closed."""
+    from tests.vm import cluster
+    from tests.vm.console import ConsoleClosed, ConsoleTimeout
+
+    opened: list["Probe"] = []
+
+    class Probe:
+        def __init__(self, drop: bool) -> None:
+            self.drop = drop
+            self.sent: list[str] = []
+
+        def send(self, line: str) -> None:
+            self.sent.append(line)
+
+        def send_raw(self, keys: str) -> None:
+            self.send(keys)
+
+        def snapshot(self, seconds: float) -> bytes:
+            return b""
+
+        @property
+        def closed(self) -> bool:
+            return False
+
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+            if self.drop:
+                self.drop = False
+                raise ConsoleClosed("termproxy disconnected")
+            if not any(cluster.NETWORK_PROBE in line for line in self.sent):
+                raise ConsoleTimeout("the reopened console received no probe")
+            if "BEGIN" in pattern:
+                return b"MARK_2_BEGIN"
+            return b"NETWORK_UP\r\nMARK_2_DONE"
+
+    def open_console() -> Probe:
+        one = Probe(drop=not opened)
+        opened.append(one)
+        return one
+
+    link = cluster.Reconnecting(open_console, tries=2)
+    cluster.wait_for_network(link)
+
+    probes = [
+        line
+        for console in opened
+        for line in console.sent
+        if cluster.NETWORK_PROBE in line
+    ]
+    assert len(probes) == 2, probes
+
+
 def test_a_run_is_not_green_until_the_installed_system_answers() -> None:
     """The install finishing is half the question. A machine can reach a login
     prompt with the wrong filesystem mounted, no fstab and the wrong locale,
