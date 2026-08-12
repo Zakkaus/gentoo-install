@@ -32,6 +32,37 @@ def test_grub_remote_unlock_keeps_the_system_dracut_path() -> None:
         isinstance(one, bootloader.ConfigureZfsBootMenuRemoteAccess)
         for one in bootloader.build(installation)
     )
+    unlock_packages = next(
+        one.packages
+        for one in kernel.build(installation)
+        if isinstance(one, Emerge) and kernel.REMOTE_UNLOCK_PACKAGE in one.packages
+    )
+    assert unlock_packages == (kernel.REMOTE_UNLOCK_PACKAGE,)
+
+
+def test_zfsbootmenu_installs_network_legacy_executables() -> None:
+    installation = load(Path("tests/fixtures/zfs-zbm.toml"))
+    operations = kernel.build(installation)
+    unlock_packages = next(
+        one.packages
+        for one in operations
+        if isinstance(one, Emerge) and kernel.REMOTE_UNLOCK_PACKAGE in one.packages
+    )
+    assert unlock_packages == (
+        kernel.REMOTE_UNLOCK_PACKAGE,
+        *kernel.ZBM_LEGACY_NETWORK_PACKAGES,
+    )
+
+    request = next(
+        one
+        for one in operations
+        if isinstance(one, kernel.RequestZfsBootMenuNetworkTools)
+    )
+    recorder = Recorder()
+    request.apply(recorder)
+    assert recorder.files[
+        PurePosixPath("/etc/portage/package.use/zfsbootmenu-network")
+    ] == "net-misc/dhcp client -server\nnet-misc/iputils arping\n"
 
 
 def test_build_derives_stack_once_for_prebuilt_zfs(

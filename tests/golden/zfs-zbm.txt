@@ -41,12 +41,13 @@
   accept ~amd64 for packages from gentoo-zh only
   set sys-kernel/installkernel to dracut, installing into /boot
   accept the linux-firmware licence
+  ask for dhclient and arping, which ZFSBootMenu networking requires
   write /etc/dracut.conf.d/crypt-ssh.conf to omit ssh from the system initramfs
   accept sys-kernel/gentoo-cjk-kernel-bin as testing, with cjk on
   unmask virtual/dist-kernel, which the cjk kernel depends on by revision
   tell sys-fs/zfs to build against the dist-kernel
   ask for sys-apps/systemd[boot,kernel-install], which is what provides bootctl
-  resolve app-admin/sudo net-misc/openssh sys-process/cronie sys-kernel/installkernel sys-kernel/dracut sys-kernel/linux-firmware sys-kernel/dracut-crypt-ssh sys-fs/dosfstools sys-kernel/gentoo-cjk-kernel-bin sys-fs/zfs sys-boot/zfsbootmenu sys-boot/efibootmgr sys-apps/systemd sys-apps/kbd app-editors/vim together before installing the requested packages
+  resolve app-admin/sudo net-misc/openssh sys-process/cronie sys-kernel/installkernel sys-kernel/dracut sys-kernel/linux-firmware sys-kernel/dracut-crypt-ssh sys-apps/iproute2 net-misc/dhcp net-misc/iputils sys-fs/dosfstools sys-kernel/gentoo-cjk-kernel-bin sys-fs/zfs sys-boot/zfsbootmenu sys-boot/efibootmgr sys-apps/systemd sys-apps/kbd app-editors/vim together before installing the requested packages
 
 [system]
   generate and verify locales en_US.UTF-8, zh_TW.UTF-8
@@ -75,7 +76,7 @@
 [kernel]
   install the hook that puts a kernel in /boot: emerge sys-kernel/installkernel
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
-  install ZFSBootMenu ssh support: emerge sys-kernel/dracut-crypt-ssh
+  install ZFSBootMenu ssh support: emerge sys-kernel/dracut-crypt-ssh sys-apps/iproute2 net-misc/dhcp net-misc/iputils
   install the storage tools: emerge sys-fs/dosfstools
   install the kernel and the tools that build a module for it: emerge sys-kernel/gentoo-cjk-kernel-bin sys-fs/zfs, from source
   tell dracut to carry zfs
