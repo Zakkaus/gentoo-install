@@ -300,6 +300,9 @@ class ConfigureZfsBootMenuRemoteAccess(Operation):
                     # first implementation already included, and the others all
                     # reach `systemd`, which this image does not carry.
                     'add_dracutmodules+=" crypt-ssh network-legacy "',
+                    # Their checks pass on the installed system, but
+                    # ZFSBootMenu deliberately omits the systemd module.
+                    'omit_dracutmodules+=" systemd-networkd systemd-battery-check "',
                     f'install_optional_items+=" {ZBM_NETWORK_CONFIG} "',
                     f'dropbear_port="{self.unlock.port}"',
                     f"dropbear_rsa_key={ZBM_KEY_DIRECTORY}/ssh_host_rsa_key",

@@ -65,6 +65,9 @@ def test_zfsbootmenu_carries_remote_access_in_its_own_image() -> None:
     # Naming `network-legacy` makes `40network` pick it, per its own
     # `depends()`, which prefers an implementation already included.
     assert "network-legacy" in zbm, zbm
+    assert (
+        'omit_dracutmodules+=" systemd-networkd systemd-battery-check "' in zbm
+    ), zbm
     assert "dropbear_rsa_key=/etc/dropbear/ssh_host_rsa_key" in zbm
     assert "dropbear_ecdsa_key=/etc/dropbear/ssh_host_ecdsa_key" in zbm
     assert "dropbear_acl=/etc/dropbear/root_key" in zbm
