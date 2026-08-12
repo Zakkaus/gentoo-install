@@ -753,8 +753,7 @@ def wait_for_network(link: Reconnecting, vmid: int = 0) -> None:
     configure = configure_statically(static_address(vmid)) if vmid else ASK_FOR_IPV4
     asked = False
     while time.monotonic() < deadline:
-        link.send(NETWORK_PROBE)
-        said = link.expect(rf"{NETWORK_UP}|{NETWORK_DONE}", timeout=180.0)
+        said = link.expect_output(NETWORK_PROBE, timeout=180.0)
         if NETWORK_UP.encode() in said:
             return
         # Every pass, not once: the fallback asks a DHCP server that answers
