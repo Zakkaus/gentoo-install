@@ -331,6 +331,20 @@ def test_a_plain_uefi_install_breaks_no_rule() -> None:
     assert violations(config()) == ()
 
 
+def test_cjk_compatibility_uses_the_effective_kernel_package() -> None:
+    custom = replace(
+        config(),
+        system=replace(config().system, console_cjk=True),
+        kernel=KernelConfig(
+            source=KernelSource.DIST_BIN,
+            package="sys-kernel/gentoo-cjk-kernel-bin",
+        ),
+    )
+    present = traits_of(custom)
+    assert Trait.CJK_KERNEL in present
+    assert Trait.KERNEL_WITHOUT_CJKTTY not in present
+
+
 def test_zfs_with_zfsbootmenu_and_the_kernel_in_the_pool_breaks_no_rule() -> None:
     installable = replace(
         boots(config(zfs_root()), Bootloader.ZFSBOOTMENU, Firmware.UEFI),

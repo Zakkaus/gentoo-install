@@ -170,6 +170,7 @@ def validate(
         *_unlock_problems(config, address_facts.remote_unlock),
         *_locale_problems(config),
         *_l10n_problems(config),
+        *compat.binhost_subarch_problems(config),
         *(rule.describe() for rule in compat.violations(config, storage_facts)),
     ]
     if problems:

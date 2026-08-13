@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Final
 from enum import Enum
 from pathlib import PurePosixPath
 
@@ -53,6 +53,39 @@ from .device import (
 #: CJK on gives a console with no CJK glyphs, which is what the option exists
 #: to provide.
 CJK_FONT_SIZES = frozenset({ConsoleFontSize.SIZE_8X16})
+
+_KERNEL_PACKAGES: Final[dict[KernelSource, str]] = {
+    KernelSource.DIST_BIN: "sys-kernel/gentoo-kernel-bin",
+    KernelSource.DIST_SOURCE: "sys-kernel/gentoo-kernel",
+    KernelSource.CJK_BIN: "sys-kernel/gentoo-cjk-kernel-bin",
+    KernelSource.CJK: "sys-kernel/gentoo-cjk-kernel",
+}
+_CJK_KERNEL_PACKAGES: Final[frozenset[str]] = frozenset(
+    {"sys-kernel/gentoo-cjk-kernel", "sys-kernel/gentoo-cjk-kernel-bin"}
+)
+
+
+BINHOST_SUBARCH_REQUIREMENTS: Final[dict[str, frozenset[str]]] = {
+    "x86-64": frozenset(),
+    "x86-64-v3": frozenset({"avx2", "bmi1", "bmi2", "f16c", "fma"}),
+}
+
+
+def binhost_subarch_problems(config: InstallConfig) -> tuple[str, ...]:
+    """Reject an official binary host whose instruction set the CPU lacks."""
+    binhost = config.portage.binhost
+    if not binhost.official:
+        return ()
+    required = BINHOST_SUBARCH_REQUIREMENTS.get(binhost.subarch)
+    if required is None:
+        return (f"official binhost subarch {binhost.subarch!r} is not supported",)
+    missing = sorted(required.difference(config.portage.cpu_flags))
+    if missing:
+        return (
+            f"official binhost subarch {binhost.subarch!r} needs CPU flags "
+            f"{', '.join(missing)}, which this machine does not provide",
+        )
+    return ()
 
 
 class FilesystemLabelUnit(Enum):
@@ -373,7 +406,11 @@ def traits_of(
             and _encrypted_pool(graph, config.disk.root)
         ):
             found.add(Trait.NATIVE_ZFS_SYSTEM_INITRAMFS)
-    if config.kernel.source in (KernelSource.CJK_BIN, KernelSource.CJK):
+    package = config.kernel.package or _KERNEL_PACKAGES[config.kernel.source]
+    package_name = package.lstrip("=<>~!").split(":", 1)[0]
+    package_name = re.sub(r"-r\d+$", "", package_name)
+    package_name = re.sub(r"-\d[\w.]*$", "", package_name)
+    if package_name in _CJK_KERNEL_PACKAGES:
         found.add(Trait.CJK_KERNEL)
     else:
         found.add(Trait.KERNEL_WITHOUT_CJKTTY)
