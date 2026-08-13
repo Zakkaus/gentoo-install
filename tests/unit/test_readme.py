@@ -135,7 +135,10 @@ def test_reviewed_cross_locale_claims_stay_attached_to_their_factual_units() -> 
             "amd64", "Gentoo minimal ISO", "a71f91b4735469bae8ec76af170201acb967a5fe",
             "f7257793f95df4b21ebf2ac6a775a343f6205f1b",
         ),
-        "verification-current": ("ext2", "ext3", "tests/fixtures/"),
+        "verification-current": (
+            "ext2", "ext3", "tests/fixtures/",
+            "b931ef46fc15ed50385f70467f2bfb0a8d1fd154",
+        ),
         "verification-network": ("IPv4", "IPv6", "bootstrap.sh --missing-commands", "stage3"),
         "requirements-version-sources": (
             "packages.gentoo.org", "api.github.com/repos/gentoo-zh/overlay/contents",
@@ -182,6 +185,15 @@ def test_reviewed_cross_locale_claims_stay_attached_to_their_factual_units() -> 
         assert resume_digest_limit[name] in bodies["resume-limits"], name
         assert "zram" not in bodies["storage-device-graph"], name
         assert "zram" in bodies["zram-system"], name
+
+
+def test_current_verification_records_link_to_their_revision() -> None:
+    revision = "b931ef46fc15ed50385f70467f2bfb0a8d1fd154"
+    link = f"https://github.com/Zakkaus/gentoo-install/commit/{revision}"
+    for name in READMES:
+        body = fact_bodies(name)["verification-current"]
+        assert revision in body, name
+        assert link in body, name
 
 
 def test_translated_closed_lists_have_no_open_ended_marker() -> None:

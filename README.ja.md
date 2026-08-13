@@ -48,7 +48,7 @@ gentoo-install は Linux ライブ環境で動作し、amd64 アーキテクチ�
 
 <!-- fact: verification-current -->
 
-2026 年 8 月 11 日付のリビジョン付きエンドツーエンド記録は、Arch Linux、openSUSE、Debian、Fedora、自前でビルドした gentoo-cjk minimal ISO からのインストールと起動をそれぞれ 1 回ずつ対象としています。gentoo-cjk の記録は ZFS と ZFSBootMenu を使用し、ほかの 4 件は ext4 を使用しています。記録されたリビジョンがインストーラと一致し、インストールの終了コードが `0` で、インストール済みシステムが起動し、起動後の設定検査に合格した場合に限り、その実行を現在の根拠として扱います。
+2026 年 8 月 11 日付のリビジョン付きエンドツーエンド記録は、Arch Linux、openSUSE、Debian、Fedora、自前でビルドした gentoo-cjk minimal ISO からのインストールと起動をそれぞれ 1 回ずつ対象としています。これらの記録は、インストーラリビジョン [`b931ef46fc15ed50385f70467f2bfb0a8d1fd154`](https://github.com/Zakkaus/gentoo-install/commit/b931ef46fc15ed50385f70467f2bfb0a8d1fd154) を対象としています。gentoo-cjk の記録は ZFS と ZFSBootMenu を使用し、ほかの 4 件は ext4 を使用しています。記録されたリビジョンがインストーラと一致し、インストールの終了コードが `0` で、インストール済みシステムが起動し、起動後の設定検査に合格した場合に限り、その実行を現在の根拠として扱います。
 
 その他の実装済みの組み合わせは、エンドツーエンド未検証です。現在の根拠は、initramfs の SSH ロック解除、greetd のデスクトップセッション、GNOME 以外での ibus を対象としていません。公式 Gentoo minimal ISO、Alpine または Gig-OS のライブメディア、binhost 障害時のフォールバックも対象としていません。
 

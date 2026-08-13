@@ -48,7 +48,7 @@ gentoo-install은 Linux 라이브 환경에서 실행되어 amd64 아키텍처�
 
 <!-- fact: verification-current -->
 
-2026년 8월 11일 자 리비전 표기 엔드투엔드 기록은 Arch Linux, openSUSE, Debian, Fedora, 자체 빌드한 gentoo-cjk minimal ISO에서 각각 한 번 설치하고 부팅한 결과를 다룬다. gentoo-cjk 기록은 ZFS와 ZFSBootMenu를 사용하며, 나머지 네 건은 ext4를 사용한다. 기록된 리비전이 설치 도구와 일치하고 설치 종료 코드가 `0`이며 설치한 시스템이 부팅되고 부팅 후 설정 검사를 통과한 실행만 현재 증거로 인정된다.
+2026년 8월 11일 자 리비전 표기 엔드투엔드 기록은 Arch Linux, openSUSE, Debian, Fedora, 자체 빌드한 gentoo-cjk minimal ISO에서 각각 한 번 설치하고 부팅한 결과를 다룬다. 이 기록은 설치 도구 리비전 [`b931ef46fc15ed50385f70467f2bfb0a8d1fd154`](https://github.com/Zakkaus/gentoo-install/commit/b931ef46fc15ed50385f70467f2bfb0a8d1fd154)을 대상으로 한다. gentoo-cjk 기록은 ZFS와 ZFSBootMenu를 사용하며, 나머지 네 건은 ext4를 사용한다. 기록된 리비전이 설치 도구와 일치하고 설치 종료 코드가 `0`이며 설치한 시스템이 부팅되고 부팅 후 설정 검사를 통과한 실행만 현재 증거로 인정된다.
 
 그 밖의 구현된 조합은 엔드투엔드 검증을 거치지 않았다. 현재 증거는 initramfs SSH 잠금 해제, greetd 데스크톱 세션, GNOME 외부의 ibus를 다루지 않는다. 공식 Gentoo minimal ISO, Alpine 또는 Gig-OS 라이브 미디어, binhost 장애 시 전환도 다루지 않는다.
 
