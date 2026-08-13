@@ -304,7 +304,7 @@ def _cmdline(config: InstallConfig, context: Context) -> str:
     added = len(automatic_values.kernel_parameters(config))
     typed = " ".join(config.bootloader.kernel_params)
     if not typed:
-        return f"{added} {context.translate('from the layout')}"
+        return context.translate("{count} kernel parameters added").format(count=added)
     return f"{typed} +{added}"
 
 
@@ -438,7 +438,17 @@ def _layout(config: InstallConfig, context: Context) -> str:
         return context.translate("manual, {count} partitions").format(
             count=len(context.layout.slices)
         )
-    return context.choice.layout.value
+    if context.choice.layout.value == "whole-disk":
+        layout = context.translate("whole-disk")
+    elif context.choice.layout.value == "whole-disk-btrfs":
+        layout = context.translate("whole-disk-btrfs")
+    elif context.choice.layout.value == "whole-disk-zfs":
+        layout = context.translate("whole-disk-zfs")
+    else:
+        layout = context.translate("reuse")
+    if context.choice.layout.value.startswith("whole-disk"):
+        return f"{layout} ({context.translate('erases the disk')})"
+    return layout
 
 
 def _template_writes_the_table(config: InstallConfig, context: Context) -> str:

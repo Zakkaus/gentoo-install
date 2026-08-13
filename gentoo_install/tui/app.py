@@ -26,6 +26,17 @@ from .widgets import Item, Menu, Outcome, Screen, Style, TextField
 SAVE_AS: Final[str] = "my-install.toml"
 
 
+def _menu_footer(context: Context, config: InstallConfig) -> str:
+    """Label the main-menu action by what Enter opens."""
+    return "  ".join(
+        (
+            f"[enter] {context.translate('Open')}",
+            f"[q] {context.translate('Cancel')}",
+            _legend(config, context),
+        )
+    )
+
+
 @dataclass(frozen=True)
 class Finished:
     """What the operator ended with, and whether they meant to."""
@@ -77,13 +88,7 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
             title="gentoo-install",
             items=items,
             cursor=cursor,
-            footer="  ".join(
-                (
-                    f"[enter] {context.translate('Continue')}",
-                    f"[q] {context.translate('Cancel')}",
-                    _legend(current, context),
-                )
-            ),
+            footer=_menu_footer(context, current),
         )
         answer = menu.run(screen)
         cursor = menu.cursor
