@@ -337,6 +337,32 @@ def test_a_missing_stage3_helper_is_reported_before_the_operation(
     ), report.fatal
 
 
+@pytest.mark.parametrize(
+    ("operation", "command"),
+    (("PrepareChroot", "install"), ("SyncRepository", "sleep")),
+)
+def test_runtime_helpers_are_derived_from_plan(
+    operation: str, command: str, tmp_path: Path
+) -> None:
+    from gentoo_install.plan.portage import PrepareChroot, SyncRepository
+
+    built = {
+        "PrepareChroot": PrepareChroot(),
+        "SyncRepository": SyncRepository(
+            name="gentoo", location=PurePosixPath("/var/db/repos/gentoo")
+        ),
+    }
+    selected = built[operation]
+    wanted = preflight.required_commands(config(), (selected,))
+    report = preflight.inspect(
+        config(), described(commands=wanted - {command}), probe_of(tmp_path), operations=(selected,)
+    )
+    assert any(
+        problem == f"{command} is missing; required by {operation}"
+        for problem in report.fatal
+    ), report.fatal
+
+
 def test_every_filesystem_the_installer_can_make_has_a_required_command() -> None:
     """The list is derived from the table the operations use, so a filesystem
     added there cannot be silently absent here."""

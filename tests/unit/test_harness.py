@@ -244,21 +244,21 @@ def test_bootstrap_names_a_package_for_every_command_preflight_wants() -> None:
         for command in group
     }
     stage3_providers = {
-        "gentoo": {"tar": "tar", "xz": "xz-utils", "gpg": "gnupg", "gpg-agent": "gnupg"},
-        "alpine": {"tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gpg-agent"},
-        "debian": {"tar": "tar", "xz": "xz-utils", "gpg": "gnupg", "gpg-agent": "gpg-agent"},
-        "ubuntu": {"tar": "tar", "xz": "xz-utils", "gpg": "gnupg", "gpg-agent": "gpg-agent"},
-        "arch": {"tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gnupg"},
+        "gentoo": {"tar": "tar", "xz": "xz-utils", "gpg": "gnupg", "gpg-agent": "gnupg", "install": "coreutils", "sleep": "coreutils"},
+        "alpine": {"tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gpg-agent", "install": "coreutils", "sleep": "coreutils"},
+        "debian": {"tar": "tar", "xz": "xz-utils", "gpg": "gnupg", "gpg-agent": "gpg-agent", "install": "coreutils", "sleep": "coreutils"},
+        "ubuntu": {"tar": "tar", "xz": "xz-utils", "gpg": "gnupg", "gpg-agent": "gpg-agent", "install": "coreutils", "sleep": "coreutils"},
+        "arch": {"tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gnupg", "install": "coreutils", "sleep": "coreutils"},
         "fedora": {
-            "tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gnupg2-gpg-agent",
+            "tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gnupg2-gpg-agent", "install": "coreutils", "sleep": "coreutils",
         },
-        "rhel": {"tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gnupg2"},
-        "centos": {"tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gnupg2"},
-        "suse": {"tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gpg2"},
-        "opensuse": {"tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gpg2"},
-        "opensuse-leap": {"tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gpg2"},
+        "rhel": {"tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gnupg2", "install": "coreutils", "sleep": "coreutils"},
+        "centos": {"tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gnupg2", "install": "coreutils", "sleep": "coreutils"},
+        "suse": {"tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gpg2", "install": "coreutils", "sleep": "coreutils"},
+        "opensuse": {"tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gpg2", "install": "coreutils", "sleep": "coreutils"},
+        "opensuse-leap": {"tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gpg2", "install": "coreutils", "sleep": "coreutils"},
         "opensuse-tumbleweed": {
-            "tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gpg2",
+            "tar": "tar", "xz": "xz", "gpg": "gnupg", "gpg-agent": "gpg2", "install": "coreutils", "sleep": "coreutils",
         },
     }
     assert all(set(providers) == operation_commands for providers in stage3_providers.values())

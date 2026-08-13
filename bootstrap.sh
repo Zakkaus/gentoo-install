@@ -61,6 +61,7 @@ package_for() {
 	sgdisk:alpine) printf 'sgdisk' ;;
 	sgdisk:*) printf 'gptfdisk' ;;
 	partprobe:* | parted:*) printf 'parted' ;;
+	install:* | sleep:*) printf 'coreutils' ;;
 	mkfs.vfat:* | mkfs.fat:*) printf 'dosfstools' ;;
 	mkfs.btrfs:* | btrfs:*) printf 'btrfs-progs' ;;
 	cryptsetup:*) printf 'cryptsetup' ;;
