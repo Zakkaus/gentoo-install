@@ -2152,6 +2152,39 @@ def test_remote_unlock_is_offered_once_both_hold() -> None:
     assert "Unlock the root over SSH" in "\n".join(screen.frames[0])
 
 
+def test_disabling_encryption_withdraws_remote_unlock_consent() -> None:
+    at = context()
+    wanted = replace(
+        config(encrypted_root()),
+        kernel=replace(config().kernel, remote_unlock=replace(config().kernel.remote_unlock, enabled=True)),
+        system=replace(config().system, authorized_keys=(GOOD_KEY,)),
+    )
+    answer = screens.encryption_screen(FakeScreen(keys=["KEY_UP", "\n"]), wanted, at)
+    assert not answer.unwrap().kernel.remote_unlock.enabled
+
+
+def test_changing_desktop_withdraws_input_configuration_consent() -> None:
+    at = context()
+    groups = screens.configuration_groups(at.groups)
+    wanted = replace(config(), packages=replace(config().packages, desktop="plasma", applications=(*groups,)))
+    answer = screens.desktop_screen(FakeScreen(keys=["KEY_UP", "\n", "\n"], lines=30), wanted, at)
+    applications = answer.unwrap().packages.applications
+    assert groups[2] not in applications and groups[3] not in applications
+
+
+def test_changing_to_non_cjk_locale_withdraws_font_consent() -> None:
+    at = context()
+    groups = screens.configuration_groups(at.groups)
+    wanted = replace(
+        config(),
+        system=replace(config().system, locale="zh_CN.UTF-8"),
+        packages=replace(config().packages, applications=(*groups,)),
+    )
+    answer = screens.locale_screen(FakeScreen(keys=["KEY_DOWN", "\n"]), wanted, at)
+    applications = answer.unwrap().packages.applications
+    assert groups[0] not in applications and groups[1] not in applications
+
+
 def test_the_main_menu_reads_the_same_precondition_the_nested_one_does() -> None:
     """`nested()` consults `Setting.unavailable` when drawing and again before
     dispatching; the top-level loop read it in neither place, so every fix that

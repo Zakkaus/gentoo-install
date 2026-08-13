@@ -1475,6 +1475,8 @@ def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> A
         return Answer(answer.outcome)
     desktop = answer.unwrap()
     changed = replace(config, packages=replace(config.packages, desktop=desktop))
+    if desktop != config.packages.desktop:
+        changed = _set_input_configuration(changed, context.groups, None)
     if not _profile_was_chosen(config, context.groups):
         # Only while the profile is still the one the last desktop implied.
         # Overwriting it regardless threw away a profile the operator had
@@ -2555,10 +2557,10 @@ def locale_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     generated = config.system.locales
     if chosen not in generated:
         generated = (*generated, chosen)
-    return Answer(
-        Outcome.CHOSE,
-        replace(config, system=replace(config.system, locale=chosen, locales=generated)),
-    )
+    changed = replace(config, system=replace(config.system, locale=chosen, locales=generated))
+    if CjkFontconfigLocale.selected(chosen) is None:
+        changed = _set_font_configuration(changed, context.groups, None)
+    return Answer(Outcome.CHOSE, changed)
 
 
 def additional_locales_screen(
@@ -2689,7 +2691,19 @@ def encryption_screen(screen: Screen, config: InstallConfig, context: Context) -
     )
     if edited.chosen:
         context.choice = replace(context.choice, passphrase_file=edited.unwrap())
-    return edited.map(lambda _: _rebuild(config, context))
+    def rebuilt(_: str) -> InstallConfig:
+        changed = _rebuild(config, context)
+        if not context.choice.passphrase_file:
+            changed = replace(
+                changed,
+                kernel=replace(
+                    changed.kernel,
+                    remote_unlock=replace(changed.kernel.remote_unlock, enabled=False),
+                ),
+            )
+        return changed
+
+    return edited.map(rebuilt)
 
 
 def _edit_passphrase(
@@ -4730,9 +4744,18 @@ def authorized_keys_screen(
             keys.pop(-chosen - 1)
             continue
         if chosen == 3:
+            changed_keys = tuple(keys)
+            if not changed_keys:
+                config = replace(
+                    config,
+                    kernel=replace(
+                        config.kernel,
+                        remote_unlock=replace(config.kernel.remote_unlock, enabled=False),
+                    ),
+                )
             return Answer(
                 Outcome.CHOSE,
-                replace(config, system=replace(config.system, authorized_keys=tuple(keys))),
+                replace(config, system=replace(config.system, authorized_keys=changed_keys)),
             )
         added = _ADD_A_KEY[chosen](screen, context)
         if added:
