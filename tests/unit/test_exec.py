@@ -339,15 +339,15 @@ def test_a_missing_stage3_helper_is_reported_before_the_operation(
 
 @pytest.mark.parametrize(
     ("operation", "command"),
-    (("PrepareChroot", "install"), ("SyncRepository", "sleep")),
+    (("MountChrootFilesystems", "install"), ("SyncRepository", "sleep")),
 )
 def test_runtime_helpers_are_derived_from_plan(
     operation: str, command: str, tmp_path: Path
 ) -> None:
-    from gentoo_install.plan.portage import PrepareChroot, SyncRepository
+    from gentoo_install.plan.portage import MountChrootFilesystems, SyncRepository
 
     built = {
-        "PrepareChroot": PrepareChroot(),
+        "MountChrootFilesystems": MountChrootFilesystems(),
         "SyncRepository": SyncRepository(
             name="gentoo", location=PurePosixPath("/var/db/repos/gentoo")
         ),

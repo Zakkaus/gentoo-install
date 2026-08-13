@@ -116,7 +116,7 @@ class InstallStage3(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
-class PrepareChroot(Operation):
+class MountChrootFilesystems(Operation):
     """`/run` is bound and made slave rather than mounted as a fresh tmpfs: that
     is the Handbook's form and it keeps the installing system's udev reachable.
 
@@ -134,7 +134,7 @@ class PrepareChroot(Operation):
         return False
 
     def describe(self) -> str:
-        return "mount proc, sys, dev and run into the target and copy resolv.conf"
+        return "mount transient proc, sys, dev and run filesystems into the target"
 
     def apply(self, context: Context) -> None:
         target = context.target
@@ -143,6 +143,26 @@ class PrepareChroot(Operation):
             where = str(target / source.lstrip("/"))
             context.run(["mount", "--rbind" if propagation == "rslave" else "--bind", source, where])
             context.run(["mount", f"--make-{propagation}", where])
+
+
+@dataclass(frozen=True, kw_only=True)
+class SeedResolver(Operation):
+    """Give chrooted commands working DNS until the target's own resolver is
+    configured at the end of the system stage."""
+
+    stage: Stage = Stage.CHROOT
+
+    @property
+    def survives_a_reboot(self) -> bool:
+        # This is an ordinary file in the target and remains there until
+        # LinkResolvConf replaces it after the last emerge.
+        return True
+
+    def describe(self) -> str:
+        return "seed the target's resolv.conf from the install medium"
+
+    def apply(self, context: Context) -> None:
+        target = context.target
         context.run(["install", "--mode=0644", "/etc/resolv.conf", str(target / "etc/resolv.conf")])
 
 
@@ -766,7 +786,8 @@ def build(
     gentoo = PurePosixPath("/var/db/repos/gentoo")
     operations: list[Operation] = [
         InstallStage3(mirror=mirror, variant=variant_of(config)),
-        PrepareChroot(),
+        MountChrootFilesystems(),
+        SeedResolver(),
     ]
     operations += [
         WriteMakeConf(

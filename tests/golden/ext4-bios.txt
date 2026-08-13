@@ -17,7 +17,8 @@
   download the newest openrc stage3 from https://distfiles.gentoo.org, verify it against BB572E0E2D182910 and unpack it into the target
 
 [chroot]
-  mount proc, sys, dev and run into the target and copy resolv.conf
+  mount transient proc, sys, dev and run filesystems into the target
+  seed the target's resolv.conf from the install medium
 
 [portage]
   write /etc/portage/make.conf with MAKEOPTS, INPUT_DEVICES, ACCEPT_LICENSE, L10N; 2 mirrors in the configured order, 5 appended

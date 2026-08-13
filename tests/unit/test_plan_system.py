@@ -968,7 +968,7 @@ def test_every_logger_has_a_package_a_service_and_a_row() -> None:
 
 
 def test_the_installed_system_resolves_with_its_own_nameservers() -> None:
-    """`PrepareChroot` copies the install medium's `/etc/resolv.conf` in and
+    """`SeedResolver` copies the install medium's `/etc/resolv.conf` in and
     nothing takes it out, and `systemd-networkd` publishes what it learns only
     through `systemd-resolved`, so the DNS the operator typed reached nothing."""
     static = with_system(

@@ -321,7 +321,19 @@ def test_a_resumed_run_re_establishes_what_a_reboot_takes_away(
     by_name = {type(one).__name__: one for one in operations}
     assert operation in by_name, sorted(by_name)
     assert by_name[operation].survives_a_reboot is False
-    assert by_name["PrepareChroot"].survives_a_reboot is False
+
+
+def test_a_resume_remounts_the_chroot_but_keeps_the_resolver_seed_checkpoint() -> None:
+    """Cleanup removes the chroot mounts, while the copied resolver remains on
+    disk until the final system-stage replacement. A reboot checkpoint must
+    therefore rerun only the transient half of chroot preparation."""
+    from gentoo_install.plan import portage
+    from tests.unit.layouts import config
+
+    operations = portage.build(config(), mirror="https://distfiles.gentoo.org")
+    by_name = {type(one).__name__: one for one in operations}
+    assert by_name["MountChrootFilesystems"].survives_a_reboot is False
+    assert by_name["SeedResolver"].survives_a_reboot is True
 
 
 def test_every_kind_of_storage_that_needs_activation_has_a_fixture_here() -> None:
