@@ -8,7 +8,14 @@ import pytest
 from gentoo_install.exec.config import load
 from gentoo_install.model.config import InstallConfig, KernelSource
 from gentoo_install.plan import bootloader, kernel
-from gentoo_install.plan.portage import Emerge, SourcePolicy
+from gentoo_install.plan.portage import (
+    BINPKG_EXCLUDED,
+    BINPKG_OPTIONS,
+    EMERGE_OPTIONS,
+    Emerge,
+    InstallMode,
+    SourcePolicy,
+)
 
 from .recorder import Recorder
 
@@ -63,6 +70,28 @@ def test_zfsbootmenu_installs_network_legacy_executables() -> None:
     assert recorder.files[
         PurePosixPath("/etc/portage/package.use/zfsbootmenu-network")
     ] == "net-misc/dhcp client -server\nnet-misc/iputils arping\n"
+
+
+def test_systemd_unlock_rebuild_uses_exact_oneshot_argv() -> None:
+    installation = load(Path("tests/fixtures/vm-unlock.toml"))
+    rebuild = next(
+        one
+        for one in kernel.build(installation)
+        if isinstance(one, Emerge) and one.summary == "rebuild systemd with the unlock generator"
+    )
+
+    assert rebuild.mode is InstallMode.ONESHOT
+    recorder = Recorder()
+    rebuild.apply(recorder)
+    assert recorder.only("emerge") == (
+        "emerge",
+        *EMERGE_OPTIONS,
+        "--oneshot",
+        *BINPKG_OPTIONS[:-1],
+        f"{BINPKG_EXCLUDED} sys-apps/systemd",
+        "--",
+        "sys-apps/systemd",
+    )
 
 
 def test_build_derives_stack_once_for_prebuilt_zfs(
