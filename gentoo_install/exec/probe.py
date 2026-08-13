@@ -99,6 +99,7 @@ class ProbedPartition:
     """Facts read for a device nested below a whole disk."""
 
     kernel_path: str
+    partition_number: int | None
     size_bytes: int
     filesystem: str
     device_type: str
@@ -115,11 +116,17 @@ def _lsblk_children(value: object) -> tuple[ProbedPartition, ...]:
         if not isinstance(child, Mapping):
             continue
         name, size = child.get("name"), child.get("size")
+        partition_number = child.get("partn")
         filesystem, device_type = child.get("fstype"), child.get("type")
         if isinstance(name, str) and isinstance(size, int) and not isinstance(size, bool):
             found.append(
                 ProbedPartition(
                     kernel_path=name,
+                    partition_number=(
+                        partition_number
+                        if isinstance(partition_number, int) and not isinstance(partition_number, bool)
+                        else None
+                    ),
                     size_bytes=size,
                     filesystem=filesystem if isinstance(filesystem, str) else "",
                     device_type=device_type if isinstance(device_type, str) else "",
@@ -694,7 +701,7 @@ class Probe:
                 "--bytes",
                 "--paths",
                 "--output",
-                "NAME,SIZE,FSTYPE,TYPE",
+                "NAME,PARTN,SIZE,FSTYPE,TYPE",
                 disk,
             ],
             check=False,
@@ -791,16 +798,24 @@ class Probe:
         configuration never names, and their space is claimed just as much as
         a new partition's.
         """
+        found = {
+            partition.partition_number: partition.size_bytes
+            for partition in self.probed_partitions(disk)
+            if partition.partition_number is not None
+        }
+        if found:
+            return found
         listed = self.runner.run(
             ["lsblk", "--bytes", "--noheadings", "--output", "PARTN,SIZE", disk], check=False
         )
         if listed.returncode != 0:
             raise DeviceNotFound(f"lsblk could not read the partitions of {disk}")
-        found: dict[int, int] = {}
         for line in listed.stdout.splitlines():
             fields = line.split()
             if len(fields) == 2 and fields[0].isdigit() and fields[1].isdigit():
                 found[int(fields[0])] = int(fields[1])
+        if not found:
+            raise DeviceNotFound(f"lsblk could not read the partitions of {disk}")
         return found
 
     def _zone_table(self, path: Path) -> tuple[str, ...]:
