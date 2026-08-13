@@ -297,6 +297,35 @@ def test_a_root_with_room_passes() -> None:
     validate(config(nodes))
 
 
+def test_an_official_v3_binhost_requires_the_cpu_flags_it_serves() -> None:
+    base = config()
+    selected = replace(
+        base,
+        portage=replace(
+            base.portage,
+            cpu_flags=("sse2",),
+            binhost=replace(base.portage.binhost, subarch="x86-64-v3"),
+        ),
+    )
+
+    with pytest.raises(ValidationFailed, match="x86-64-v3.*avx2"):
+        validate(selected)
+
+
+def test_an_official_v3_binhost_passes_with_the_required_cpu_flags() -> None:
+    base = config()
+    selected = replace(
+        base,
+        portage=replace(
+            base.portage,
+            cpu_flags=("avx2", "bmi1", "bmi2", "f16c", "fma"),
+            binhost=replace(base.portage.binhost, subarch="x86-64-v3"),
+        ),
+    )
+
+    validate(selected)
+
+
 def test_a_profile_that_disagrees_with_the_init_is_refused() -> None:
     """The profile decides what packages are built against, so one that does
     not match leaves a system whose packages expect the other init."""

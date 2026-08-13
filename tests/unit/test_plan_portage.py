@@ -557,10 +557,40 @@ def test_a_failed_community_key_leaves_the_official_host_alone() -> None:
     )
     written = set(recorder.files)
     assert PurePosixPath("/etc/portage/binrepos.conf/gentoo-zh.conf") not in written
-    assert PurePosixPath("/etc/portage/binrepos.conf/gentoo.conf") in written
+    assert PurePosixPath("/etc/portage/binrepos.conf/gentoobinhost.conf") in written
 
     portage.Emerge(packages=("sys-boot/grub",), summary="install the bootloader").apply(recorder)
     assert "--getbinpkg=y" in next(argv for argv in recorder.in_target if argv[0] == "emerge")
+
+
+def test_a_selected_binary_fetch_failure_retries_from_source() -> None:
+    recorder = Recorder()
+    recorder.answering = lambda argv: (
+        CommandOutput("Fetching Binary failed: mirror refused the connection", 1)
+        if argv[0] == "emerge" and "--usepkg=n" not in argv
+        else CommandOutput("[ebuild] app-editors/nano-8", 0)
+    )
+
+    portage.Emerge(
+        packages=("app-editors/nano",), summary="install the editor"
+    ).apply(recorder)
+
+    emerges = [argv for argv in recorder.in_target if argv[0] == "emerge"]
+    assert len(emerges) == 2
+    assert "--getbinpkg=n" in emerges[-1] and "--usepkg=n" in emerges[-1]
+    assert recorder.degraded(portage.BINARY_PACKAGES)
+
+
+def test_an_unrelated_emerge_failure_is_not_misclassified_as_a_binhost_failure() -> None:
+    recorder = Recorder()
+    recorder.answering = lambda argv: CommandOutput("compile failed", 1)
+
+    with pytest.raises(CommandFailed, match="emerge failed"):
+        portage.Emerge(
+            packages=("app-editors/nano",), summary="install the editor"
+        ).apply(recorder)
+
+    assert not recorder.degraded(portage.BINARY_PACKAGES)
 
 
 def test_named_atoms_are_accepted_without_opening_the_whole_system() -> None:
