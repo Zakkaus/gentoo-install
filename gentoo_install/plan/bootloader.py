@@ -25,6 +25,7 @@ from ..model.device import (
     Mountpoint,
     Partition,
     PartitionRole,
+    PartitionTable,
     ZfsDataset,
     ZfsPool,
 )
@@ -75,8 +76,8 @@ class InstallGrub(Operation):
     stage: Stage = Stage.BOOTLOADER
     firmware: Firmware
     esp: PurePosixPath | None
-    #: Whose disk GRUB is written to on a BIOS machine: the one the root is on.
-    boot_device: DeviceId
+    #: Devices whose containing disks receive GRUB on a BIOS machine.
+    boot_devices: tuple[DeviceId, ...]
 
     def describe(self) -> str:
         where = f"the esp at {self.esp}" if self.esp is not None else "the boot disk"
@@ -90,9 +91,15 @@ class InstallGrub(Operation):
             # entry, and every firmware that never had one, boots only that.
             context.run_in_target([*efi, "--removable"])
         else:
-            context.run_in_target(
-                ["grub-install", "--target=i386-pc", context.containing_disk(self.boot_device)]
-            )
+            installed: set[str] = set()
+            for device in self.boot_devices:
+                disk = context.containing_disk(device)
+                if disk in installed:
+                    continue
+                installed.add(disk)
+                context.run_in_target(
+                    ["grub-install", "--target=i386-pc", disk]
+                )
         context.run_in_target(["grub-mkconfig", "--output", "/boot/grub/grub.cfg"])
         # grub-mkconfig exits 0 having found no kernel, and the machine then
         # drops back to the firmware menu with nothing to boot.
@@ -422,7 +429,9 @@ def build(config: InstallConfig) -> list[Operation]:
                 keymap=initramfs_keymap(config),
             ),
             InstallGrub(
-                firmware=config.bootloader.firmware, esp=esp, boot_device=config.disk.root
+                firmware=config.bootloader.firmware,
+                esp=esp,
+                boot_devices=_bios_boot_devices(config),
             ),
         ]
     elif kind is Bootloader.SYSTEMD_BOOT and esp is not None:
@@ -474,6 +483,26 @@ def build(config: InstallConfig) -> list[Operation]:
             ),
         ]
     return operations
+
+
+def _bios_boot_devices(config: InstallConfig) -> tuple[DeviceId, ...]:
+    """Return physical graph leaves that can contain a BIOS boot sector."""
+    graph = config.disk.graph
+    candidates = {
+        node.id
+        for node in (
+            graph[config.disk.root],
+            *(graph[ancestor] for ancestor in graph.ancestors_of(config.disk.root)),
+        )
+        if isinstance(node, Existing)
+    }
+    disks = {
+        table.disk
+        for table in graph.of_type(PartitionTable)
+        if table.disk in candidates
+    }
+    selected = disks or candidates
+    return tuple(sorted(selected))
 
 
 def luks_parameters(context: Context, devices: tuple[DeviceId, ...]) -> tuple[str, ...]:
