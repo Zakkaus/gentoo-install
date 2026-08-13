@@ -1088,6 +1088,15 @@ def test_a_schedule_that_ends_early_stops_the_guests_it_left_running() -> None:
     assert wedged.stopped and wedged.removed, "the closing path removes it"
 
 
+def test_scheduler_workers_are_owned_by_the_scheduler() -> None:
+    import inspect
+
+    from tests.vm import cluster
+
+    source = inspect.getsource(cluster.run)
+    assert "daemon=False" in source
+
+
 def test_a_removed_guest_gives_its_vmid_back(monkeypatch: pytest.MonkeyPatch) -> None:
     """`handed` only ever grew, so a campaign of more than a hundred jobs
     stopped at `no free vmid` with the whole range unoccupied. The outcome has
