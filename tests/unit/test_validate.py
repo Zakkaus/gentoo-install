@@ -23,13 +23,28 @@ from gentoo_install.model.device import (
 )
 from gentoo_install.model.size import Size
 from gentoo_install.exec.config import load
-from gentoo_install.exec.probe import profiles_from_eselect
+from gentoo_install.exec.probe import amd64_profiles, profiles_from_eselect
 from gentoo_install.model.validate import validate
 from gentoo_install.model.parse import parse
 
 from .layouts import encrypted_root, config, ext4_on_gpt, i, zfs_root
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+
+
+def test_the_profile_probe_reads_current_amd64_paths(tmp_path: Path) -> None:
+    desc = tmp_path / "profiles.desc"
+    desc.write_text(
+        "amd64 default/linux/amd64/24.0 stable\n"
+        "amd64 default/linux/amd64/24.0/systemd stable\n"
+        "amd64 default/linux/amd64/24.0/x32 dev\n"
+        "arm64 default/linux/arm64/24.0 stable\n",
+        encoding="utf-8",
+    )
+    assert amd64_profiles(desc) == (
+        "default/linux/amd64/24.0",
+        "default/linux/amd64/24.0/systemd",
+    )
 
 
 def test_a_plain_uefi_install_validates() -> None:
