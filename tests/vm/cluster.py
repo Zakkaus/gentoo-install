@@ -933,6 +933,14 @@ def revision_identity(driver: Path) -> str:
     return f"{described} dirty={changed} driver-sha256={driver_digest(driver)}"
 
 
+def retain_driver(workdir: Path, built: Path) -> Path:
+    """Move a completed driver to its content-derived campaign path."""
+    target = workdir / remote_name(built)
+    if built != target:
+        built.replace(target)
+    return target
+
+
 def trusted_revision(identity: str) -> bool:
     """Whether an outcome identifies a clean tree or an explicit test identity."""
     dirty = re.search(r"(?:^| )dirty=(\d+)(?: |$)", identity)
@@ -1308,13 +1316,15 @@ def run(
     workdir.mkdir(parents=True, exist_ok=True)
     reconcile(api, workdir)
     # Packed: the ingress refuses the 1.4 MiB loose-file CD with `413`.
-    driver_path = build_driver(
-        workdir / "driver.iso",
+    staging = workdir / f".driver-{uuid.uuid4().hex}.iso"
+    built_path = build_driver(
+        staging,
         packed=True,
         fixtures=rewrite_fixtures(jobs, workdir / "fixtures", region, sync),
     )
+    driver_path = retain_driver(workdir, built_path)
+    driver = driver_path.name
     revision = revision_identity(driver_path)
-    driver = remote_name(driver_path)
     medium, urls, medium_sha512 = current_minimal()
     prepared: set[str] = set()
     done: queue.Queue[Outcome] = queue.Queue()
