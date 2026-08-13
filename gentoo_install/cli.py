@@ -559,6 +559,7 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         translate=Catalog(tag_for(override=arguments.lang)),
         ipv4=has_ipv4,
         ipv6=has_ipv6,
+        profile_paths=probe.amd64_profiles(),
         disks=probe.disks(),
         names_for=probe.names_for,
         groups=load_catalog(),

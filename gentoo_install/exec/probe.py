@@ -155,11 +155,26 @@ def _efi_bits() -> int:
 #: Where both install media keep the release engineering public key.
 RELEASE_KEY: Final[Path] = Path("/usr/share/openpgp-keys/gentoo-release.asc")
 MEMINFO: Final[Path] = Path("/proc/meminfo")
+PROFILES_DESC: Final[Path] = Path("/var/db/repos/gentoo/profiles/profiles.desc")
 
 
 def profiles_from_eselect(output: str) -> tuple[ProbedProfile, ...]:
     """Parse profile output already read from the machine that owns the tree."""
     return parse_profile_list(output)
+
+
+def amd64_profiles(path: Path = PROFILES_DESC) -> tuple[str, ...]:
+    """Read amd64 profile paths from the repository's profiles.desc."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ()
+    found: list[str] = []
+    for line in lines:
+        fields = line.split()
+        if len(fields) >= 3 and fields[0] == "amd64" and fields[2] in {"stable", "exp"}:
+            found.append(fields[1])
+    return tuple(found)
 
 
 @dataclass(frozen=True)
@@ -219,6 +234,10 @@ class Probe:
     runner: Runner
     work: Path
     resolved: dict[DeviceId, str] = field(default_factory=dict)
+
+    def amd64_profiles(self) -> tuple[str, ...]:
+        """Return profile paths advertised by the installed Gentoo tree."""
+        return amd64_profiles()
 
     def versions(self, wanted: Iterable[str]) -> dict[str, str]:
         """What each command answers to `--version`, first line only.

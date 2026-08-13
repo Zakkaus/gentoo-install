@@ -135,10 +135,12 @@ class Context:
         #: machine that cannot be read refuses nothing.
         ipv4: bool = True,
         ipv6: bool = True,
+        profile_paths: Sequence[str] = (),
     ) -> None:
         self.translate = translate
         self.ipv4 = ipv4
         self.ipv6 = ipv6
+        self.profile_paths = tuple(profile_paths)
         #: Selector and a human description, from `exec/probe.py`.
         self.disks = disks
         self.groups = groups
@@ -1426,14 +1428,19 @@ def kernel_screen(screen: Screen, config: InstallConfig, context: Context) -> An
 BASE_PROFILE: Final[str] = "default/linux/amd64/23.0"
 
 
-def desktop_profiles(groups: Groups) -> dict[str, str]:
+def desktop_profiles(groups: Groups, profile_paths: Sequence[str] = ()) -> dict[str, str]:
     """The desktops and the profile each is built against, read from the files
     that declare them: a table beside `data/profiles/` meant a desktop added
     there never reached the menu, and one added here installed nothing."""
-    found = {"": BASE_PROFILE}
+    release = next(
+        (path.split("/")[3] for path in profile_paths if path.startswith("default/linux/amd64/")),
+        BASE_PROFILE.split("/")[3],
+    )
+    prefix = f"default/linux/amd64/{release}"
+    found = {"": prefix}
     for name, group in groups.items():
         if group.profile:
-            found[name] = group.profile
+            found[name] = group.profile.replace(BASE_PROFILE, prefix, 1)
     return found
 
 
@@ -1456,7 +1463,7 @@ def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> A
             detail=detail.get(name, "")
             + _adds(config, context, lambda packages, one: replace(packages, desktop=one), name),
         )
-        for name in sorted(desktop_profiles(context.groups))
+        for name in sorted(desktop_profiles(context.groups, context.profile_paths))
     ]
     menu: Menu[str] = Menu(
         title=translate("Desktop and applications"),
@@ -1478,7 +1485,7 @@ def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> A
             portage=replace(
                 config.portage,
                 profile=_profile_for(
-                    desktop_profiles(context.groups)[desktop], config.system.init
+                    desktop_profiles(context.groups, context.profile_paths)[desktop], config.system.init
                 ),
             ),
         )
@@ -2439,7 +2446,7 @@ def packages_screen(
     # A desktop, a driver and a display manager each decide something else as
     # well, so each has its own screen and none is a row to tick here.
     elsewhere = (
-        set(desktop_profiles(context.groups))
+        set(desktop_profiles(context.groups, context.profile_paths))
         | {name for name, _ in GRAPHICS}
         | {name for name, _ in DISPLAY_MANAGERS}
         | set(input_method_groups(context.groups))
@@ -3188,9 +3195,10 @@ def overview_screen(screen: Screen, config: InstallConfig, context: Context) -> 
 def _profile_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
     """Only the profiles that match the chosen init, because the validator
     refuses the other half and the operator should not be offered them."""
+    choices = context.profile_paths or PROFILES
     wanted = [
         profile
-        for profile in PROFILES
+        for profile in choices
         if ("systemd" in profile.split("/")) is (config.system.init is InitSystem.SYSTEMD)
     ]
     menu: Menu[str] = Menu(
