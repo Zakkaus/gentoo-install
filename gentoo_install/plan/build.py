@@ -75,19 +75,20 @@ def build(
     """Validate, then derive the whole install. Nothing here touches a machine."""
     facts = storage_facts if storage_facts is not None else StorageFacts()
     validate(config, storage_facts=facts)
+    chosen = packages.groups(config, catalog)
     operations: list[Operation] = [
         *disk.build(config, facts),
         *portage.build(
             config,
             stage3_mirror(config, mirror),
-            packages.required_use(config, catalog),
-            packages.required_video_cards(config, catalog),
-            packages.required_licenses(config, catalog),
+            packages._required_use(chosen),
+            packages._required_video_cards(config, chosen),
+            packages._required_licenses(config, chosen),
         ),
         *system.build(config),
         *kernel.build(config),
         *bootloader.build(config),
-        *packages.build(config, catalog),
+        *packages._build(config, catalog, chosen),
         *fonts.build(config, catalog),
         *portage.finish(config),
         # Last of all: the keyword change above still has to reach make.conf in

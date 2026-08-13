@@ -23,7 +23,7 @@ from typing import Final, Mapping, Protocol, Sequence, runtime_checkable
 from ..errors import CommandFailed, ConfigError, ValidationFailed
 from ..model.config import InitSystem, InstallConfig
 from .operations import Context, Operation, Stage
-from .portage import Emerge
+from .portage import Emerge, PortageConfigKind, WritePortageConfig
 from .system import CONSOLE_FONTS, EnableService
 
 
@@ -426,42 +426,38 @@ KWIN_DEFAULTS: Final[PurePosixPath] = PurePosixPath("/etc/xdg/kwinrc")
 SKELETON: Final[PurePosixPath] = PurePosixPath("/etc/skel")
 
 
-@dataclass(frozen=True, kw_only=True)
-class WriteGroupKeywords(Operation):
+@dataclass(frozen=True, kw_only=True, init=False)
+class WriteGroupKeywords(WritePortageConfig):
     """Written in the portage phase, for the same reason as the USE flags."""
 
-    stage: Stage = Stage.PORTAGE
-    group: str
-    lines: tuple[str, ...]
+    def __init__(self, *, group: str, lines: tuple[str, ...]) -> None:
+        object.__setattr__(self, "kind", PortageConfigKind.KEYWORDS)
+        object.__setattr__(self, "name", group)
+        object.__setattr__(self, "lines", lines)
+
+    @property
+    def group(self) -> str:
+        return self.name
 
     def describe(self) -> str:
         return f"accept {'; '.join(self.lines)} for the {self.group} group"
 
-    def apply(self, context: Context) -> None:
-        context.write(
-            PurePosixPath(f"/etc/portage/package.accept_keywords/{self.group}"),
-            "".join(f"{line}\n" for line in self.lines),
-        )
-
-
-@dataclass(frozen=True, kw_only=True)
-class WriteGroupUse(Operation):
+@dataclass(frozen=True, kw_only=True, init=False)
+class WriteGroupUse(WritePortageConfig):
     """Written in the portage phase: the flags have to be set before the
     packages that need them are merged."""
 
-    stage: Stage = Stage.PORTAGE
-    group: str
-    lines: tuple[str, ...]
+    def __init__(self, *, group: str, lines: tuple[str, ...]) -> None:
+        object.__setattr__(self, "kind", PortageConfigKind.USE)
+        object.__setattr__(self, "name", group)
+        object.__setattr__(self, "lines", lines)
+
+    @property
+    def group(self) -> str:
+        return self.name
 
     def describe(self) -> str:
         return f"ask for {'; '.join(self.lines)} for the {self.group} group"
-
-    def apply(self, context: Context) -> None:
-        context.write(
-            PurePosixPath(f"/etc/portage/package.use/{self.group}"),
-            "".join(f"{line}\n" for line in self.lines),
-        )
-
 
 @dataclass(frozen=True, kw_only=True)
 class EnableUserUnits(Operation):
@@ -854,6 +850,12 @@ def _group_file_operations(
 
 def build(config: InstallConfig, catalog: Catalog) -> list[Operation]:
     chosen = groups(config, catalog)
+    return _build(config, catalog, chosen)
+
+
+def _build(
+    config: InstallConfig, catalog: Catalog, chosen: tuple[Group, ...]
+) -> list[Operation]:
     _check_repositories(config, chosen)
     conflict = _framework_conflict(chosen) or _driver_conflict(config, chosen)
     if conflict:
@@ -1013,8 +1015,12 @@ def _required_user_groups(chosen: tuple[Group, ...]) -> tuple[str, ...]:
 
 
 def required_use(config: InstallConfig, catalog: Catalog) -> tuple[str, ...]:
+    return _required_use(groups(config, catalog))
+
+
+def _required_use(chosen: Sequence[Group]) -> tuple[str, ...]:
     wanted: list[str] = []
-    for group in groups(config, catalog):
+    for group in chosen:
         for flag in group.use:
             if flag not in wanted:
                 wanted.append(flag)
@@ -1022,9 +1028,13 @@ def required_use(config: InstallConfig, catalog: Catalog) -> tuple[str, ...]:
 
 
 def required_video_cards(config: InstallConfig, catalog: Catalog) -> tuple[str, ...]:
+    return _required_video_cards(config, groups(config, catalog))
+
+
+def _required_video_cards(config: InstallConfig, chosen: Sequence[Group]) -> tuple[str, ...]:
     """What the configuration asks for, then what a driver group adds."""
     wanted = list(config.portage.video_cards)
-    for group in groups(config, catalog):
+    for group in chosen:
         for card in group.video_cards:
             if card not in wanted:
                 wanted.append(card)
@@ -1137,9 +1147,13 @@ def _display_manager(name: str, packages: Sequence[str], init: InitSystem) -> li
 
 
 def required_licenses(config: InstallConfig, catalog: Catalog) -> tuple[str, ...]:
+    return _required_licenses(config, groups(config, catalog))
+
+
+def _required_licenses(config: InstallConfig, chosen: Sequence[Group]) -> tuple[str, ...]:
     """What the configuration accepts, widened by what a chosen group needs."""
     wanted = list(config.portage.accept_license)
-    for group in groups(config, catalog):
+    for group in chosen:
         for licence in group.accept_license:
             if licence not in wanted:
                 wanted.append(licence)

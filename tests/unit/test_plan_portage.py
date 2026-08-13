@@ -62,6 +62,18 @@ def test_stage3_is_unpacked_with_xattrs_because_capabilities_would_be_lost() -> 
     assert "--preserve-permissions" in argv
 
 
+def test_named_portage_fragments_share_one_path_and_writer() -> None:
+    operation = portage.WritePortageConfig(
+        kind=portage.PortageConfigKind.USE,
+        name="example",
+        lines=("app-misc/example foo",),
+    )
+    recorder = Recorder()
+    operation.apply(recorder)
+    assert operation.path == PurePosixPath("/etc/portage/package.use/example")
+    assert recorder.files[operation.path] == "app-misc/example foo\n"
+
+
 def test_the_chroot_gets_proc_rbinds_and_a_slave_run() -> None:
     recorder = apply_all(config())
     mounts = recorder.argv_starting("mount")
