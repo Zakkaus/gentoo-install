@@ -182,6 +182,33 @@ class WriteMakeConf(Operation):
         context.write(PurePosixPath("/etc/portage/make.conf"), merge(existing, wanted))
 
 
+class PortageConfigKind(Enum):
+    USE = "package.use"
+    KEYWORDS = "package.accept_keywords"
+    LICENSE = "package.license"
+    UNMASK = "package.unmask"
+
+
+@dataclass(frozen=True, kw_only=True)
+class WritePortageConfig(Operation):
+    """Write one named Portage configuration fragment."""
+
+    stage: Stage = Stage.PORTAGE
+    kind: PortageConfigKind
+    name: str
+    lines: tuple[str, ...]
+
+    @property
+    def path(self) -> PurePosixPath:
+        return PurePosixPath(f"/etc/portage/{self.kind.value}/{self.name}")
+
+    def describe(self) -> str:
+        return f"write {self.path}"
+
+    def apply(self, context: Context) -> None:
+        context.write(self.path, "".join(f"{line}\n" for line in self.lines))
+
+
 def merge(existing: str, wanted: Sequence[tuple[str, str]]) -> str:
     """Replace the keys this installer sets and keep the rest of the file.
 
