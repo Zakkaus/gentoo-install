@@ -555,6 +555,11 @@ def prepare(
             raise ProxmoxError(
                 f"{medium} already exists on {node} without its signed SHA-512 record"
             )
+        remote = api.iso_digest(node, medium)
+        if remote != sha512:
+            raise ProxmoxError(
+                f"{medium} already exists on {node} with an unexpected SHA-512 digest"
+            )
     else:
         last = ""
         for url in urls:
@@ -577,6 +582,11 @@ def prepare(
         if recorded_driver != driver_sha256:
             raise ProxmoxError(
                 f"{driver} already exists on {node} without its driver SHA-256 record"
+            )
+        remote_driver = api.iso_digest(node, driver)
+        if remote_driver != driver_sha256:
+            raise ProxmoxError(
+                f"{driver} already exists on {node} with an unexpected SHA-256 digest"
             )
     else:
         api.upload_iso(node, driver_path, driver)
@@ -1417,7 +1427,7 @@ def run(
                         revision,
                         execution,
                     ),
-                    daemon=True,
+                    daemon=False,
                 )
                 scheduled[job.name] = job.started(thread)
                 placed[node.name] += execution.reservation_bytes
@@ -1968,9 +1978,8 @@ def _abandon(
     deadline = time.monotonic() + ABANDON_PATIENCE
     for thread in running.values():
         thread.join(timeout=max(0.0, deadline - time.monotonic()))
-    # After the join, not before: a worker that was going to remove its own
-    # guest has had its chance, and what is left is what nothing else will
-    # remove. Reporting it and walking away left guests running on the cluster.
+    # A timed-out worker no longer owns cleanup: destroy establishes the
+    # terminal guest state before the scheduler releases its reservation.
     for name, one in list(inflight.items()):
         try:
             one.guest.destroy()

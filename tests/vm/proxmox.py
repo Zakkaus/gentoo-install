@@ -291,6 +291,14 @@ class Api:
         content = self.call("GET", f"/nodes/{node}/storage/{ISO_STORAGE}/content?content=iso")
         return sorted(str(one["volid"]).split("/")[-1] for one in content)
 
+    def iso_digest(self, node: str, name: str) -> str | None:
+        content = self.call("GET", f"/nodes/{node}/storage/{ISO_STORAGE}/content?content=iso")
+        for item in content:
+            if str(item["volid"]).split("/")[-1] == name:
+                checksum = item.get("checksum")
+                return str(checksum).lower() if checksum else None
+        return None
+
     def upload_iso(self, node: str, path: Path, name: str) -> str:
         """Put a file on a node's `local` storage and answer its name there.
 

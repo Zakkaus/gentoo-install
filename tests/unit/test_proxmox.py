@@ -2194,7 +2194,7 @@ def test_transient_task_status_failures_do_not_abort_a_completed_task(
 
     class Tasks(Api):
         def __init__(self) -> None:
-            pass
+            self.driver_digest = ""
 
         def call(self, method: str, path: str, **form: Any) -> Any:
             answer = answers.pop(0)
@@ -2252,10 +2252,13 @@ def test_an_existing_install_iso_needs_its_matching_verification_record(
 
     class Existing(Api):
         def __init__(self) -> None:
-            pass
+            self.driver_digest = ""
 
         def isos(self, node: str) -> list[str]:
             return ["minimal-a.iso", "driver.iso"]
+
+        def iso_digest(self, node: str, name: str) -> str | None:
+            return "a" * 128 if name == "minimal-a.iso" else self.driver_digest
 
         def upload_iso(self, node: str, path: Path, name: str) -> str:
             return name
@@ -2291,6 +2294,7 @@ def test_an_existing_install_iso_needs_its_matching_verification_record(
         )
     driver_stamp = tmp_path / "trust" / "remote" / "node" / "driver.iso.sha256"
     driver_stamp.write_text(driver_digest(driver))
+    api.driver_digest = driver_digest(driver)
     prepare(
         api,
         "node",
@@ -2301,6 +2305,39 @@ def test_an_existing_install_iso_needs_its_matching_verification_record(
         driver,
         "driver.iso",
     )
+
+
+def test_an_existing_install_iso_rejects_replaced_remote_bytes(tmp_path: Path) -> None:
+    from tests.vm.cluster import prepare
+    from tests.vm.driver import digest as driver_digest
+
+    class Existing(Api):
+        def isos(self, node: str) -> list[str]:
+            return ["minimal-a.iso", "driver.iso"]
+
+        def iso_digest(self, node: str, name: str) -> str | None:
+            return "b" * 128 if name == "minimal-a.iso" else driver_digest(driver)
+
+        def upload_iso(self, node: str, path: Path, name: str) -> str:
+            return name
+
+    driver = tmp_path / "driver.iso"
+    driver.write_bytes(b"driver")
+    trust = tmp_path / "trust" / "remote" / "node"
+    trust.mkdir(parents=True)
+    (trust / "minimal-a.iso.sha512").write_text("a" * 128)
+    (trust / "driver.iso.sha256").write_text(driver_digest(driver))
+    with pytest.raises(ProxmoxError, match="unexpected SHA-512"):
+        prepare(
+            Existing(),
+            "node",
+            "minimal-a.iso",
+            ("https://mirror.invalid/install.iso",),
+            "a" * 128,
+            tmp_path / "trust",
+            driver,
+            "driver.iso",
+        )
 
 
 def test_an_invalid_install_media_digest_signature_is_refused(
