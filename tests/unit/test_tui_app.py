@@ -550,7 +550,14 @@ def test_v3_is_recommended_only_when_this_cpu_runs_it() -> None:
     cannot run them is told rather than left to meet an illegal instruction."""
     modern = context()
     modern.supports_v3 = True
-    answer = screens._edit_binhost(FakeScreen(keys=["\n"]), modern, config())
+    current = replace(
+        config(),
+        portage=replace(
+            config().portage,
+            binhost=replace(config().portage.binhost, subarch="x86-64-v3"),
+        ),
+    )
+    answer = screens._edit_binhost(FakeScreen(keys=["\n"]), modern, current)
     assert answer is not None
     assert answer.portage.binhost.subarch == "x86-64-v3"
 
@@ -559,8 +566,24 @@ def test_v3_is_recommended_only_when_this_cpu_runs_it() -> None:
     plain = FakeScreen(keys=["\n"])
     refused = screens._edit_binhost(plain, old, config())
     assert refused is not None
-    assert refused.portage.binhost.official is False
+    assert refused.portage.binhost.official is True
+    assert refused.portage.binhost.subarch == "x86-64"
     assert "this CPU cannot run it" in plain.last
+
+
+def test_binhost_reopens_on_its_configured_subarchitecture() -> None:
+    at = context()
+    at.supports_v3 = True
+    chosen = replace(
+        config(),
+        portage=replace(
+            config().portage,
+            binhost=replace(config().portage.binhost, official=True, subarch="x86-64"),
+        ),
+    )
+    answer = screens._edit_binhost(FakeScreen(keys=["\n"]), at, chosen)
+    assert answer is not None
+    assert answer.portage.binhost.subarch == "x86-64"
 
 
 def test_a_key_typed_into_the_screen_is_checked_before_it_is_kept() -> None:
@@ -1062,18 +1085,20 @@ def test_the_static_address_is_one_page_with_every_field_on_it() -> None:
     """Six fields answered one screen at a time are six questions the operator
     never sees together, and an address is exactly one setting."""
     at = context()
-    # `No` is first in a Confirm, and No here means a static address.
-    keys = [
-        "\n",
-        *"enp1s0", "KEY_DOWN",
-        *"192.0.2.10/24", "KEY_DOWN",
-        *"192.0.2.1", "KEY_DOWN",
-        *"2001:db8::2/64", "KEY_DOWN",
-        *"fe80::1", "KEY_DOWN",
-        *"1.1.1.1 9.9.9.9", "KEY_DOWN", "\n",
-    ]
+    initial = replace(
+        config(),
+        system=replace(
+            config().system,
+            interface="enp1s0",
+            addresses=("192.0.2.10/24", "2001:db8::2/64"),
+            gateways=("192.0.2.1", "fe80::1"),
+            dns=("1.1.1.1", "9.9.9.9"),
+        ),
+    )
+    # The existing static values are accepted without typing replacements.
+    keys = ["\n", "KEY_DOWN", "KEY_DOWN", "KEY_DOWN", "KEY_DOWN", "KEY_DOWN", "KEY_DOWN", "\n"]
     screen = FakeScreen(keys=keys, lines=30, columns=100)
-    answer = screens.address_screen(screen, config(), at)
+    answer = screens.address_screen(screen, initial, at)
     system = answer.unwrap().system
     assert system.interface == "enp1s0"
     assert system.addresses == ("192.0.2.10/24", "2001:db8::2/64")
@@ -1975,11 +2000,14 @@ def test_the_cpu_flags_row_offers_the_baseline_as_well_as_this_machine() -> None
     and for anything a binary host built against the baseline."""
     at = context()
     at.cpu_flags = ("avx2", "aes")
+    detected_config = replace(
+        config(), portage=replace(config().portage, cpu_flags=("avx2", "aes"))
+    )
     row = next(one for group in settings.SETTINGS for one in group.rows if one.key == "cpu_flags")
     assert row.edit is not None
 
     detected = screens.cpu_flags_screen(
-        FakeScreen(keys=["\n"], lines=20, columns=96), config(), at
+        FakeScreen(keys=["\n"], lines=20, columns=96), detected_config, at
     )
     assert detected.unwrap().portage.cpu_flags == ("avx2", "aes")
 
@@ -1987,6 +2015,19 @@ def test_the_cpu_flags_row_offers_the_baseline_as_well_as_this_machine() -> None
         FakeScreen(keys=["KEY_DOWN", "\n"], lines=20, columns=96), config(), at
     )
     assert baseline.unwrap().portage.cpu_flags == ()
+
+
+def test_cpu_flags_reopens_on_the_configured_baseline() -> None:
+    at = context()
+    at.cpu_flags = ("avx2", "aes")
+    answer = screens.cpu_flags_screen(FakeScreen(keys=["\n"], lines=20, columns=96), config(), at)
+    assert answer.unwrap().portage.cpu_flags == ()
+
+
+def test_dhcp_reopens_as_dhcp() -> None:
+    answer = screens.address_screen(FakeScreen(keys=["\n"]), config(), context())
+    system = answer.unwrap().system
+    assert system.addresses == ()
 
 
 def test_an_overlay_only_application_cannot_be_ticked_without_its_overlay() -> None:

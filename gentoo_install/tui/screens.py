@@ -1090,12 +1090,11 @@ def _edit_binhost(
         for (official, subarch), reason in BINHOSTS
     ]
     menu: Menu[tuple[bool, str]] = Menu(
-        title=translate("Gentoo binary packages"), items=items, footer=footer(translate)
+        title=translate("Gentoo binary packages"),
+        items=items,
+        footer=footer(translate),
+        current=(config.portage.binhost.official, config.portage.binhost.subarch),
     )
-    if context.supports_v3:
-        # Recommended by starting on it: it is the faster of the two and this
-        # machine has already proved it can run it.
-        menu.cursor = 2
     answer = menu.run(screen)
     if not answer.chosen:
         return None
@@ -3359,7 +3358,10 @@ def cpu_flags_screen(
         ),
     ]
     answer = Menu(
-        title=translate("CPU flags"), items=items, footer=footer(translate)
+        title=translate("CPU flags"),
+        items=items,
+        footer=footer(translate),
+        current=config.portage.cpu_flags,
     ).run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
@@ -4613,7 +4615,10 @@ def address_screen(screen: Screen, config: InstallConfig, context: Context) -> A
     translate = context.translate
     system = config.system
     wanted = Confirm(
-        **answers(translate), title=translate("Use DHCP?"), footer=footer(translate)
+        **answers(translate),
+        title=translate("Use DHCP?"),
+        footer=footer(translate),
+        current=not system.addresses,
     ).run(screen)
     if not wanted.chosen:
         return Answer(wanted.outcome)
