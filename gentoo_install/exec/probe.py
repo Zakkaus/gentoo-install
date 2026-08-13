@@ -31,7 +31,7 @@ from ..model.device import (
     RaidMetadata,
     StorageFacts,
 )
-from ..model.validate import KernelCeiling, ProbedProfile, parse_profile_list
+from ..model.validate import KernelCeiling, ProbedProfile, parse_profile_list, zfs_kernel_ceiling
 from .runner import Runner
 
 EFI_MARKER: Final[Path] = Path("/sys/firmware/efi")
@@ -684,17 +684,10 @@ class Probe:
         metadata = runner.run(
             ["portageq", "metadata", "/", "ebuild", cpv, "RDEPEND"]
         ).stdout
-        bounds = re.findall(r"<virtual/dist-kernel-(\d+)\.(\d+)(?=[\s)])", metadata)
-        if len(bounds) != 1:
-            raise CommandFailed(
-                f"portageq metadata for {cpv} returned no single ZFS dist-kernel ceiling"
-            )
-        major, exclusive_minor = (int(part) for part in bounds[0])
-        if exclusive_minor == 0:
-            raise CommandFailed(
-                f"portageq metadata for {cpv} returned an invalid dist-kernel ceiling"
-            )
-        return KernelCeiling(f"{major}.{exclusive_minor - 1}")
+        try:
+            return zfs_kernel_ceiling(cpv, metadata)
+        except ValueError as error:
+            raise CommandFailed(str(error)) from error
 
     def cores(self) -> int:
         return os.cpu_count() or 1
