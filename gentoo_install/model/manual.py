@@ -160,7 +160,7 @@ class Slice:
     mountpoint: str = ""
     label: str = ""
     #: A path on the installing system, never the passphrase. Non-empty puts
-    #: LUKS between the partition and its filesystem, or encrypts the pool.
+    #: LUKS between the partition and its filesystem.
     passphrase_file: str = ""
     status: SliceStatus = SliceStatus.CREATE
     #: The path `exec/probe.py` listed, for a row that is already on the disk.
@@ -238,6 +238,9 @@ class Layout:
     array: Array = field(default_factory=Array)
     #: The pool every slice marked as a pool member joins, on any disk.
     pool: str = "rpool"
+    #: A path on the installing system, never the passphrase. Non-empty
+    #: encrypts the pool.
+    passphrase_file: str = ""
     #: How those members are joined. Only asked once more than one is marked:
     #: a single member has nothing to mirror.
     topology: ZfsTopology = ZfsTopology.STRIPE
@@ -413,7 +416,6 @@ def build(layout: Layout) -> tuple[DeviceGraph, DeviceId]:
     members: list[DeviceId] = []
     #: Pool members with a mount point, each with the id prefix of its disk.
     datasets: list[tuple[str, Slice]] = []
-    pool_passphrase = ""
     for position, disk in enumerate(layout.disks, start=1):
         prefix = f"disk{position}"
         nodes += _table_nodes(disk, prefix)
@@ -439,7 +441,6 @@ def build(layout: Layout) -> tuple[DeviceGraph, DeviceId]:
                 # The pool encrypts its own datasets, so a member is never
                 # wrapped in LUKS as well.
                 vdevs.append(part)
-                pool_passphrase = pool_passphrase or entry.passphrase_file
                 if entry.mountpoint:
                     datasets.append((prefix, entry))
                 continue
@@ -499,8 +500,8 @@ def build(layout: Layout) -> tuple[DeviceGraph, DeviceId]:
                 vdevs=tuple(vdevs),
                 name=layout.pool,
                 topology=layout.topology,
-                encrypted=bool(pool_passphrase),
-                passphrase_file=pool_passphrase,
+                encrypted=bool(layout.passphrase_file),
+                passphrase_file=layout.passphrase_file,
             )
         )
         for prefix, entry in datasets:

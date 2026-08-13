@@ -226,7 +226,45 @@ def test_two_pool_members_make_one_pool() -> None:
     assert sorted(node.name for node in graph.of_type(ZfsDataset)) == ["ROOT/gentoo", "home"]
 
 
-def test_a_pool_member_is_never_wrapped_in_luks() -> None:
+@pytest.mark.parametrize(
+    ("reverse_disks", "reverse_rows"),
+    [(False, False), (True, False), (False, True), (True, True)],
+)
+def test_pool_encryption_comes_from_the_layout_for_every_member_order(
+    reverse_disks: bool, reverse_rows: bool
+) -> None:
+    disks = [
+        manual.Disk(
+            selector=f"/dev/vd{letter}",
+            slices=[
+                manual.Slice(
+                    index=index,
+                    role=PartitionRole.ZFS,
+                    size=None,
+                    mountpoint="/" if (letter, index) == ("a", 1) else "",
+                    passphrase_file=f"/run/keys/member-{letter}{index}",
+                )
+                for index in (1, 2)
+            ],
+        )
+        for letter in ("a", "b")
+    ]
+    if reverse_rows:
+        for disk in disks:
+            disk.slices = [replace(entry, index=3 - entry.index) for entry in disk.slices]
+    if reverse_disks:
+        disks.reverse()
+    layout = manual.Layout(disks=disks, passphrase_file="/run/keys/pool")
+
+    graph, _ = manual.build(layout)
+
+    pool = graph.of_type(ZfsPool)[0]
+    assert pool.passphrase_file == "/run/keys/pool"
+    assert pool.encrypted
+    assert len(pool.vdevs) == 4
+
+
+def test_pool_encryption_off_ignores_stale_member_passphrases() -> None:
     """The pool encrypts its own datasets; LUKS underneath as well would ask
     for two passphrases to reach one filesystem."""
     layout = one_disk(slices=[
@@ -237,7 +275,27 @@ def test_a_pool_member_is_never_wrapped_in_luks() -> None:
     ])
     graph, _ = manual.build(layout)
     assert not graph.of_type(Luks)
-    assert graph.of_type(ZfsPool)[0].encrypted
+    pool = graph.of_type(ZfsPool)[0]
+    assert not pool.encrypted
+    assert pool.passphrase_file == ""
+
+
+def test_partition_luks_remains_per_slice() -> None:
+    layout = one_disk(slices=[
+        manual.Slice(index=1, role=PartitionRole.DATA, size=Size.parse("30GiB"),
+                     filesystem=FilesystemType.EXT4, mountpoint="/",
+                     passphrase_file="/run/keys/root"),
+        manual.Slice(index=2, role=PartitionRole.DATA, size=None,
+                     filesystem=FilesystemType.XFS, mountpoint="/home",
+                     passphrase_file="/run/keys/home"),
+    ])
+
+    graph, _ = manual.build(layout)
+
+    assert [node.passphrase_file for node in graph.of_type(Luks)] == [
+        "/run/keys/root",
+        "/run/keys/home",
+    ]
 
 
 def test_every_field_of_a_partition_is_visible_with_its_value() -> None:
@@ -252,6 +310,41 @@ def test_every_field_of_a_partition_is_visible_with_its_value() -> None:
     assert shown["Filesystem"] == "ext4"
     assert shown["Mount point"] == "/"
     assert "Encryption" in shown and "Size" in shown and "Label" in shown
+
+
+def test_a_zfs_member_has_no_partition_encryption_field() -> None:
+    entry = manual.Slice(index=2, role=PartitionRole.ZFS, size=None, mountpoint="/")
+    fields = screens._slice_fields(entry, manual.purpose_of(entry), opened().translate)
+    assert "Encryption" not in {item.label for item in fields}
+
+
+def test_exactly_one_pool_encryption_row_is_shown_only_when_a_pool_exists() -> None:
+    at = opened()
+    assert not [item for item in screens._partition_rows(at) if item.label == "ZFS Encryption"]
+
+    at.layout = one_disk(
+        slices=[manual.Slice(index=1, role=PartitionRole.ZFS, size=None, mountpoint="/")]
+    )
+    at.layout.passphrase_file = "/run/keys/pool"
+    rows = [item for item in screens._partition_rows(at) if item.label == "ZFS Encryption"]
+
+    assert len(rows) == 1
+    assert rows[0].detail == "on"
+
+
+def test_changing_an_encrypted_partition_to_zfs_drops_its_luks_path() -> None:
+    entry = manual.Slice(
+        index=2,
+        role=PartitionRole.DATA,
+        size=None,
+        filesystem=FilesystemType.EXT4,
+        mountpoint="/",
+        passphrase_file="/run/keys/partition",
+    )
+
+    changed = screens._apply_purpose(entry, manual.purpose_for("zfs"))
+
+    assert changed.passphrase_file == ""
 
 
 def test_a_field_that_does_not_apply_says_why() -> None:
