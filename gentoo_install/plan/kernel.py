@@ -12,8 +12,9 @@ from pathlib import PurePosixPath
 from typing import Final
 
 from ..model.config import Bootloader, InitSystem, InstallConfig, KernelSource
-from ..errors import InvalidLayout, NothingToBoot
+from ..errors import ValidationFailed, InvalidLayout, NothingToBoot
 from ..model import compat
+from ..model.validate import zfs_kernel_version_problem
 from ..model.device import (
     DeviceId,
     Filesystem,
@@ -475,6 +476,23 @@ class RebuildInitramfs(Operation):
         context.run_in_target(["emerge", "--config", self.package])
 
 
+@dataclass(frozen=True, kw_only=True)
+class VerifyZfsKernelCompatibility(Operation):
+    """Check the selected tree's ZFS ebuild after the profile is selected."""
+
+    stage: Stage = Stage.KERNEL
+    version: str
+
+    def describe(self) -> str:
+        return "verify the selected kernel against the target sys-fs/zfs ceiling"
+
+    def apply(self, context: Context) -> None:
+        ceiling = context.zfs_kernel_max()
+        problem = zfs_kernel_version_problem(self.version, ceiling)
+        if problem is not None:
+            raise ValidationFailed(problem)
+
+
 def _version_in(name: str) -> str | None:
     """The kernel version a file in /boot is named for, or None for a name
     this does not recognise. Unrecognised is left alone: /boot holds the
@@ -619,6 +637,8 @@ def build(config: InstallConfig) -> list[Operation]:
             boot_root="/boot" if config.bootloader.kind is Bootloader.ZFSBOOTMENU else "",
         ),
     ]
+    if graph.of_type(ZfsPool):
+        operations.append(VerifyZfsKernelCompatibility(version=config.kernel.version))
     if entries:
         root, dataset, extra = _root_parameters(config)
         operations.append(

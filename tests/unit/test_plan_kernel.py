@@ -16,6 +16,8 @@ from gentoo_install.plan.portage import (
     InstallMode,
     SourcePolicy,
 )
+from gentoo_install.errors import ValidationFailed
+from gentoo_install.model.validate import KernelCeiling
 
 from .recorder import Recorder
 
@@ -126,3 +128,15 @@ def test_build_derives_stack_once_for_prebuilt_zfs(
         "sys-fs/zfs",
     )
     assert kernel_and_modules.source == SourcePolicy.build_subset(("sys-fs/zfs",))
+
+
+def test_zfs_kernel_check_reads_target_metadata_and_refuses_unknown() -> None:
+    installation = load(Path("tests/fixtures/zfs-zbm.toml"))
+    operation = kernel.VerifyZfsKernelCompatibility(version="7.1.2")
+    recorder = Recorder(zfs_ceiling=KernelCeiling("7.0"))
+    with pytest.raises(ValidationFailed, match="above the sys-fs/zfs ceiling 7.0"):
+        operation.apply(recorder)
+
+    unknown = Recorder()
+    with pytest.raises(ValidationFailed, match="kernel ceiling could not be read"):
+        kernel.VerifyZfsKernelCompatibility(version="6.12.1").apply(unknown)

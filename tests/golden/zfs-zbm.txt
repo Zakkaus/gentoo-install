@@ -41,6 +41,7 @@
   sync repository gentoo-zh
   accept ~amd64 for packages from gentoo-zh only
   set sys-kernel/installkernel to dracut, installing into /boot
+  verify the selected kernel against the target sys-fs/zfs ceiling
   accept the linux-firmware licence
   ask for dhclient and arping, which ZFSBootMenu networking requires
   write /etc/dracut.conf.d/crypt-ssh.conf to omit ssh from the system initramfs

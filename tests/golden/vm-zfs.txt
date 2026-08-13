@@ -39,6 +39,7 @@
   sync repository gentoo-zh
   accept ~amd64 for packages from gentoo-zh only
   set sys-kernel/installkernel to dracut, installing into /boot
+  verify the selected kernel against the target sys-fs/zfs ceiling
   accept the linux-firmware licence
   tell sys-fs/zfs to build against the dist-kernel
   ask for sys-apps/systemd[boot,kernel-install], which is what provides bootctl

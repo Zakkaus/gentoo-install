@@ -17,6 +17,7 @@ from typing import Callable, Sequence
 
 from ..errors import CommandFailed, GentooInstallError, InvalidLayout
 from ..model.config import InstallConfig
+from ..model.validate import KernelCeiling
 from ..model.device import (
     DeviceId,
     Existing,
@@ -247,6 +248,10 @@ class Machine:
         return PurePosixPath(
             fetch.stage3(mirror, variant, fingerprint, self.mountpoint / STAGE3_CACHE, self.runner)
         )
+
+    def zfs_kernel_max(self) -> KernelCeiling:
+        """Read the selected target tree's cached ZFS dependency ceiling."""
+        return self.probe.zfs_kernel_max(self.mountpoint)
 
 
 @lru_cache(maxsize=None)

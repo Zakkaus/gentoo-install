@@ -14,6 +14,7 @@ from pathlib import PurePosixPath
 from typing import Sequence
 
 from gentoo_install.model.device import DeviceId
+from gentoo_install.model.validate import KernelCeiling
 
 
 @dataclass
@@ -36,6 +37,7 @@ class Recorder:
     #: mypy accepted only under `# type: ignore[method-assign]`. Answering
     #: `None` falls through to the ordinary behaviour.
     answering: Callable[[Sequence[str]], str | None] | None = None
+    zfs_ceiling: KernelCeiling = field(default_factory=lambda: KernelCeiling(None))
 
     def run(
         self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
@@ -132,6 +134,9 @@ class Recorder:
     def fetch_stage3(self, mirror: str, variant: str, fingerprint: str) -> PurePosixPath:
         self.commands.append(("fetch-stage3", mirror, variant, fingerprint))
         return PurePosixPath("/var/cache/gentoo-install/stage3.tar.xz")
+
+    def zfs_kernel_max(self) -> KernelCeiling:
+        return self.zfs_ceiling
 
     def argv_starting(self, *prefix: str) -> tuple[tuple[str, ...], ...]:
         both = [*self.commands, *self.in_target]

@@ -18,6 +18,7 @@ from pathlib import PurePosixPath
 from typing import ClassVar, Protocol, Sequence
 
 from ..model.device import DeviceId
+from ..model.validate import KernelCeiling
 
 
 class Stage(Enum):
@@ -152,6 +153,9 @@ class Context(Protocol):
     def fetch_stage3(self, mirror: str, variant: str, fingerprint: str) -> PurePosixPath:
         """Download the newest stage3 of `variant`, check its signature against
         `fingerprint` and its digest, and return where it was written."""
+
+    def zfs_kernel_max(self) -> KernelCeiling:
+        """Read the selected target tree's authoritative ZFS kernel ceiling."""
 
 
 @dataclass(frozen=True, kw_only=True)

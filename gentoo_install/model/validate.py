@@ -105,6 +105,35 @@ class KernelCeiling(str):
         return ceiling
 
 
+def zfs_kernel_ceiling(cpv: str, rdepend: str) -> KernelCeiling:
+    """Derive the ZFS ceiling from the dependency Portage cached for its ebuild."""
+    bounds = re.findall(r"<virtual/dist-kernel-(\d+)\.(\d+)(?=[\s)])", rdepend)
+    if len(bounds) != 1:
+        raise ValueError(f"Portage metadata for {cpv} has no single ZFS dist-kernel ceiling")
+    major, exclusive_minor = (int(part) for part in bounds[0])
+    if exclusive_minor == 0:
+        raise ValueError(f"Portage metadata for {cpv} has an invalid ZFS dist-kernel ceiling")
+    return KernelCeiling(f"{major}.{exclusive_minor - 1}")
+
+
+def zfs_kernel_version_problem(version: str, ceiling: KernelCeiling) -> str | None:
+    """Return the incompatibility between a selected kernel and a ZFS ceiling."""
+    if ceiling.maximum is None:
+        return "the sys-fs/zfs kernel ceiling could not be read, so this ZFS install cannot establish that its kernel will build the module"
+    if not version:
+        return (
+            f"the kernel is not pinned under the sys-fs/zfs ceiling {ceiling.maximum}, "
+            "so Portage could select an unsupported version"
+        )
+    limit = _numeric_version(ceiling.maximum)
+    selected = _numeric_version(version)
+    if not limit or not selected:
+        return f"kernel version {version!r} cannot be compared with the sys-fs/zfs ceiling {ceiling}"
+    if selected[: len(limit)] > limit:
+        return f"kernel {version} is above the sys-fs/zfs ceiling {ceiling.maximum}, so its ZFS module will not build"
+    return None
+
+
 class _ZfsKernelCeilingNotChecked:
     pass
 
@@ -187,31 +216,11 @@ def _zfs_kernel_problems(
         return []
     if not config.disk.graph.of_type(ZfsPool):
         return []
-    unknown = [
-        "the sys-fs/zfs kernel ceiling could not be read, so this ZFS install "
-        "cannot establish that its kernel will build the module"
-    ]
     maximum = ceiling.maximum if isinstance(ceiling, KernelCeiling) else ceiling
     if maximum is None or not maximum.strip():
-        return unknown
-    version = config.kernel.version
-    if not version:
-        return [
-            f"the kernel is not pinned under the sys-fs/zfs ceiling {maximum}, so Portage "
-            "could select an unsupported version"
-        ]
-    limit = _numeric_version(maximum)
-    if not limit:
-        return unknown
-    selected = _numeric_version(version)
-    if not selected:
-        return [f"kernel version {version!r} cannot be compared with the sys-fs/zfs ceiling"]
-    if selected[: len(limit)] > limit:
-        return [
-            f"kernel {version} is above the sys-fs/zfs ceiling {maximum}, so its ZFS "
-            "module will not build"
-        ]
-    return []
+        return [zfs_kernel_version_problem(config.kernel.version, KernelCeiling(None)) or ""]
+    problem = zfs_kernel_version_problem(config.kernel.version, KernelCeiling(maximum))
+    return [problem] if problem is not None else []
 
 
 def _numeric_version(version: str) -> tuple[int, ...]:
