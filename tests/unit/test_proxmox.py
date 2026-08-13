@@ -2246,13 +2246,14 @@ def test_install_media_cache_name_contains_its_signed_digest() -> None:
 def test_an_existing_install_iso_needs_its_matching_verification_record(
     tmp_path: Path,
 ) -> None:
-    """A same-name remote ISO was reused without evidence that its bytes were checked."""
+    """A same-name remote ISO is replaced when its record is missing."""
     from tests.vm.cluster import prepare
     from tests.vm.driver import digest as driver_digest
 
     class Existing(Api):
         def __init__(self) -> None:
-            pass
+            self.removed: list[str] = []
+            self.fetched: list[str] = []
 
         def isos(self, node: str) -> list[str]:
             return ["minimal-a.iso", "driver.iso"]
@@ -2260,41 +2261,119 @@ def test_an_existing_install_iso_needs_its_matching_verification_record(
         def upload_iso(self, node: str, path: Path, name: str) -> str:
             return name
 
+        def remove_iso(self, node: str, name: str) -> str:
+            self.removed.append(name)
+            return ""
+
+        def fetch_iso(self, node: str, url: str, filename: str, sha512: str) -> None:
+            self.fetched.append(filename)
+
     api = Existing()
     driver = tmp_path / "driver.iso"
     driver.write_bytes(b"driver")
-    with pytest.raises(ProxmoxError, match="signed SHA-512 record"):
-        prepare(
-            api,
-            "node",
-            "minimal-a.iso",
-            ("https://mirror.invalid/install.iso",),
-            "a" * 128,
-            tmp_path / "trust",
-            driver,
-            "driver.iso",
-        )
-
-    stamp = tmp_path / "trust" / "remote" / "node" / "minimal-a.iso.sha512"
-    stamp.parent.mkdir(parents=True)
-    stamp.write_text("a" * 128)
-    with pytest.raises(ProxmoxError, match="driver SHA-256 record"):
-        prepare(
-            api,
-            "node",
-            "minimal-a.iso",
-            ("https://mirror.invalid/install.iso",),
-            "a" * 128,
-            tmp_path / "trust",
-            driver,
-            "driver.iso",
-        )
-    driver_stamp = tmp_path / "trust" / "remote" / "node" / "driver.iso.sha256"
-    driver_stamp.write_text(driver_digest(driver))
     prepare(
         api,
         "node",
         "minimal-a.iso",
+        ("https://mirror.invalid/install.iso",),
+        "a" * 128,
+        tmp_path / "trust",
+        driver,
+        "driver.iso",
+    )
+    assert api.removed == ["minimal-a.iso", "driver.iso"]
+    assert api.fetched == ["minimal-a.iso"]
+
+
+def test_an_existing_install_iso_replaces_a_mismatched_record(tmp_path: Path) -> None:
+    from tests.vm.cluster import prepare
+    from tests.vm.driver import digest as driver_digest
+
+    class Existing(Api):
+        def __init__(self) -> None:
+            self.removed: list[str] = []
+            self.fetched: list[str] = []
+
+        def isos(self, node: str) -> list[str]:
+            return ["minimal-a.iso", "driver.iso"]
+
+        def upload_iso(self, node: str, path: Path, name: str) -> str:
+            return name
+
+        def remove_iso(self, node: str, name: str) -> str:
+            self.removed.append(name)
+            return ""
+
+        def fetch_iso(self, node: str, url: str, filename: str, sha512: str) -> None:
+            self.fetched.append(filename)
+
+    driver = tmp_path / "driver.iso"
+    driver.write_bytes(b"driver")
+    trust = tmp_path / "trust" / "remote" / "node"
+    trust.mkdir(parents=True)
+    (trust / "minimal-a.iso.sha512").write_text("b" * 128)
+    (trust / "driver.iso.sha256").write_text(driver_digest(driver))
+    api = Existing()
+    prepare(
+        api,
+        "node",
+        "minimal-a.iso",
+        ("https://mirror.invalid/install.iso",),
+        "a" * 128,
+        tmp_path / "trust",
+        driver,
+        "driver.iso",
+    )
+    assert api.removed == ["minimal-a.iso"]
+    assert api.fetched == ["minimal-a.iso"]
+
+
+def test_iso_listing_without_checksum_does_not_mark_recorded_media_corrupt(
+    tmp_path: Path,
+) -> None:
+    from tests.vm.cluster import prepare
+    from tests.vm.driver import digest as driver_digest
+
+    listing = [
+        {
+            "volid": "local:iso/install-a.iso",
+            "format": "iso",
+            "content": "iso",
+            "size": 123,
+            "ctime": 456,
+        },
+        {
+            "volid": "local:iso/driver.iso",
+            "format": "iso",
+            "content": "iso",
+            "size": 3,
+            "ctime": 456,
+        },
+    ]
+
+    class Listing(Api):
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            return listing
+
+        def remove_iso(self, node: str, name: str) -> str:
+            raise AssertionError("recorded media should not be removed")
+
+        def fetch_iso(self, node: str, url: str, filename: str, sha512: str) -> None:
+            raise AssertionError("recorded media should not be fetched")
+
+        def upload_iso(self, node: str, path: Path, name: str) -> str:
+            raise AssertionError("recorded media should not be uploaded")
+
+    driver = tmp_path / "driver.iso"
+    driver.write_bytes(b"drv")
+    stamps = tmp_path / "trust" / "remote" / "node"
+    stamps.mkdir(parents=True)
+    (stamps / "install-a.iso.sha512").write_text("a" * 128)
+    (stamps / "driver.iso.sha256").write_text(driver_digest(driver))
+    prepare(
+        Listing(),
+        "node",
+        "install-a.iso",
         ("https://mirror.invalid/install.iso",),
         "a" * 128,
         tmp_path / "trust",
