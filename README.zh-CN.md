@@ -26,7 +26,7 @@ gentoo-install 在 Linux live 环境中运行，用于安装 amd64 架构的 Gen
 
 <!-- fact: boot-system -->
 
-**引导与系统** 安装程序支持选择 GRUB、systemd-boot 引导程序，其中 GRUB 支持 UEFI 和 BIOS，systemd-boot 支持 UEFI。还可配置 systemd 或 OpenRC、dracut、locale、键盘布局、时区、主机名、DNS、静态地址和所选的网络管理程序。
+**引导与系统** 引导程序可选择 GRUB 或 systemd-boot，其中 GRUB 支持 UEFI 和 BIOS，systemd-boot 支持 UEFI。还可配置 systemd 或 OpenRC、dracut、locale、键盘布局、时区、主机名、DNS、静态地址和所选的网络管理程序。
 
 <!-- fact: desktop-language -->
 
@@ -48,7 +48,7 @@ gentoo-install 在 Linux live 环境中运行，用于安装 amd64 架构的 Gen
 
 <!-- fact: verification-current -->
 
-2026 年 8 月 11 日的端到端记录均标有安装程序修订版，覆盖从 Arch Linux、openSUSE、Debian、Fedora 和自行构建的 gentoo-cjk minimal ISO 各安装并引导一次。gentoo-cjk 记录使用 ZFS 和 ZFSBootMenu，其余四条记录使用 ext4。只有在记录的修订版与安装程序匹配、安装退出码为 `0`、已安装系统成功引导，且引导后配置检查通过时，该次运行才算当前证据。
+2026 年 8 月 11 日的端到端记录均标有安装程序修订版，覆盖从 Arch Linux、openSUSE、Debian、Fedora 和自行构建的 gentoo-cjk minimal ISO 各安装并引导一次。这些记录覆盖安装程序修订版 [`b931ef46fc15ed50385f70467f2bfb0a8d1fd154`](https://github.com/Zakkaus/gentoo-install/commit/b931ef46fc15ed50385f70467f2bfb0a8d1fd154)。gentoo-cjk 记录使用 ZFS 和 ZFSBootMenu，其余四条记录使用 ext4。只有在记录的修订版与安装程序匹配、安装退出码为 `0`、已安装系统成功引导，且引导后配置检查通过时，该次运行才算当前证据。
 
 其他已实现组合仍未完成端到端验证。当前证据未覆盖 initramfs SSH 解锁、greetd 桌面会话或 GNOME 以外的 ibus。当前证据也未覆盖官方 Gentoo minimal ISO、Alpine 或 Gig-OS live 介质，以及 binhost 失败时的降级。
 
@@ -90,7 +90,7 @@ live 环境有 IPv6 但没有 IPv4 时，菜单会停用记录中标为仅可通
 
 <!-- fact: install-download -->
 
-可使用以下命令下载当前的 `master` 归档文件并打开菜单：
+以下命令下载当前的 `master` 归档文件并打开菜单：
 
 ```sh
 curl -fsSL https://github.com/Zakkaus/gentoo-install/archive/refs/heads/master.tar.gz | tar xz
@@ -100,11 +100,11 @@ cd gentoo-install-master
 
 <!-- fact: install-terminal -->
 
-菜单需要至少 80 列、24 行的交互式终端。安装程序启动时会询问一次界面语言；使用 `--lang zh-CN` 可直接选择简体中文。
+菜单需要至少 80 列、24 行的交互式终端。安装程序启动时会询问一次界面语言；`--lang zh-CN` 直接选择简体中文。
 
 <!-- fact: install-config-workflow -->
 
-菜单可将配置保存为 `my-install.toml` 后退出。以下配置文件操作流程会先显示完整的配置计划，再执行实际安装：
+菜单可将配置保存为 `my-install.toml` 后退出。以下流程会先显示完整的配置计划，再执行实际安装：
 
 ```sh
 ./bootstrap.sh --config my-install.toml --dry-run
@@ -115,7 +115,7 @@ cd gentoo-install-master
 
 <!-- fact: install-root-shell -->
 
-交互式安装无论成功或失败，都会在卸载前提供在目标系统内打开 root shell 的选项。使用 `--no-shell` 可以跳过这项确认。
+交互式安装无论成功或失败，都会在卸载前提供在目标系统内打开 root shell 的选项。`--no-shell` 跳过这项确认。
 
 ## 从中断处继续
 

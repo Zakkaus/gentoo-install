@@ -48,7 +48,7 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 
 <!-- fact: verification-current -->
 
-2026 年 8 月 11 日的端到端記錄均標有安裝器修訂版，涵蓋從 Arch Linux、openSUSE、Debian、Fedora 與自行建置的 gentoo-cjk minimal ISO 各安裝並開機一次。gentoo-cjk 記錄使用 ZFS 與 ZFSBootMenu，其餘四筆使用 ext4。只有在記錄的修訂版與安裝器相符、安裝退出碼為 `0`、已安裝系統成功開機，且開機後設定檢查通過時，該次執行才算現行實據。
+2026 年 8 月 11 日的端到端記錄均標有安裝器修訂版，涵蓋從 Arch Linux、openSUSE、Debian、Fedora 與自行建置的 gentoo-cjk minimal ISO 各安裝並開機一次。這些記錄涵蓋安裝器修訂版 [`b931ef46fc15ed50385f70467f2bfb0a8d1fd154`](https://github.com/Zakkaus/gentoo-install/commit/b931ef46fc15ed50385f70467f2bfb0a8d1fd154)。gentoo-cjk 記錄使用 ZFS 與 ZFSBootMenu，其餘四筆使用 ext4。只有在記錄的修訂版與安裝器相符、安裝退出碼為 `0`、已安裝系統成功開機，且開機後設定檢查通過時，該次執行才算現行實據。
 
 其他已實作組合仍未完成端到端驗證。現行實據未涵蓋 initramfs SSH 解鎖、greetd 桌面工作階段或 GNOME 以外的 ibus。現行實據也未涵蓋官方 Gentoo minimal ISO、Alpine 或 Gig-OS live 媒介，以及 binhost 失敗時的降級。
 
@@ -104,7 +104,7 @@ cd gentoo-install-master
 
 <!-- fact: install-config-workflow -->
 
-選單可將答案儲存為 `my-install.toml` 後離開。下列設定檔操作流程會先印出完整計畫，再執行實際安裝：
+選單可將答案儲存為 `my-install.toml` 後離開。下列流程會先印出完整計畫，再執行實際安裝：
 
 ```sh
 ./bootstrap.sh --config my-install.toml --dry-run

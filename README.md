@@ -48,7 +48,7 @@ Historical end-to-end records used the amd64 Gentoo minimal ISO at installer rev
 
 <!-- fact: verification-current -->
 
-Revision-tagged end-to-end records dated 2026-08-11 cover one installation and boot from each of Arch Linux, openSUSE, Debian, Fedora and a self-built gentoo-cjk minimal ISO. The gentoo-cjk record uses ZFS and ZFSBootMenu; the other four use ext4. A run counts as current evidence only when its recorded revision matches the installer, its installation exit code is `0`, the installed system boots and the post-boot configuration checks pass.
+Revision-tagged end-to-end records dated 2026-08-11 cover one installation and boot from each of Arch Linux, openSUSE, Debian, Fedora and a self-built gentoo-cjk minimal ISO. The records cover installer revision [`b931ef46fc15ed50385f70467f2bfb0a8d1fd154`](https://github.com/Zakkaus/gentoo-install/commit/b931ef46fc15ed50385f70467f2bfb0a8d1fd154). The gentoo-cjk record uses ZFS and ZFSBootMenu; the other four use ext4. A run counts as current evidence only when its recorded revision matches the installer, its installation exit code is `0`, the installed system boots and the post-boot configuration checks pass.
 
 Other implemented combinations remain unverified end to end. Current evidence does not cover initramfs SSH unlock, greetd desktop sessions or ibus outside GNOME. It also does not cover the official Gentoo minimal ISO, Alpine or Gig-OS live media, or binary-host failure fallback.
 
