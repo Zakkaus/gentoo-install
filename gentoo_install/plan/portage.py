@@ -291,12 +291,14 @@ class WebrsyncRepository(Operation):
     def apply(self, context: Context) -> None:
         # Portage owns this policy in the stage3; overriding it can select a
         # server incompatible with the installed gemato configuration.
+        # `portageq` cannot answer before this operation runs, because
+        # `repos.conf` names `/var/db/repos/gentoo` and no snapshot has created
+        # it yet, so an unreadable policy means no override rather than a fault.
         policy = context.run_in_target(
             ["portageq", "envvar", "PORTAGE_GPG_KEY_SERVER"], check=False
         )
-        if not isinstance(policy, CommandOutput) or policy.returncode != 0:
-            raise ConfigError("portageq could not read the keyserver policy")
-        server = policy.strip()
+        readable = isinstance(policy, CommandOutput) and policy.returncode == 0
+        server = policy.strip() if readable else ""
         command = ["emerge-webrsync"]
         if server:
             command = ["env", f"PORTAGE_GPG_KEY_SERVER={server}", *command]
