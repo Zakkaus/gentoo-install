@@ -24,7 +24,7 @@ from ..errors import CommandFailed, ConfigError, ValidationFailed
 from ..model.config import InitSystem, InstallConfig
 from .operations import Context, Operation, Stage
 from .portage import Emerge
-from .system import EnableService
+from .system import CONSOLE_FONTS, EnableService
 
 
 @dataclass(frozen=True)
@@ -579,6 +579,12 @@ CHROMIUM_PACKAGE: Final[str] = "www-client/chromium"
 CHROMIUM_CONFIG_PACKAGE: Final[str] = "www-client/chromium-common"
 CHROMIUM_COMMAND: Final[PurePosixPath] = PurePosixPath("/usr/bin/chromium")
 CHROMIUM_CONFIG: Final[PurePosixPath] = PurePosixPath("/etc/chromium/default")
+KBD_PACKAGE: Final[str] = "sys-apps/kbd"
+
+
+def console_font_path(font: str) -> PurePosixPath:
+    """Return the compressed console-font file owned by `sys-apps/kbd`."""
+    return PurePosixPath(f"/usr/share/consolefonts/{font}.psfu.gz")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -869,6 +875,13 @@ def _operations(
                     requester=f"the `{group.name}` group",
                 )
             )
+            if group.name == "console" and KBD_PACKAGE in group.packages:
+                operations.append(
+                    VerifyPackagePaths(
+                        package=KBD_PACKAGE,
+                        paths=(console_font_path(CONSOLE_FONTS[config.system.console_font]),),
+                    )
+                )
         if group.package_use:
             operations.append(WriteGroupUse(group=group.name, lines=group.package_use))
         if group.accept_keywords:
