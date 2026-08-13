@@ -15,7 +15,7 @@ medium, starts the menu on the serial port and reads the screen back.
 from __future__ import annotations
 
 import argparse
-import re
+import codecs
 import sys
 import time
 from dataclasses import dataclass, field
@@ -41,8 +41,424 @@ LINES: Final[int] = 24
 #: writes, and reading for less than this catches half of one.
 REDRAW_SECONDS: Final[float] = 2.0
 
-_CSI: Final[re.Pattern[str]] = re.compile(r"\x1b\[([0-9;?]*)([A-Za-z])")
-_OTHER_ESCAPE: Final[re.Pattern[str]] = re.compile(r"\x1b[()][A-B]|\x1b[=>]|\x1b.")
+_ESCAPE: Final[int] = 0x1B
+_CONTROL_STRINGS: Final[frozenset[int]] = frozenset(b"]PX^_")
+_MAX_ESCAPE_BYTES: Final[int] = 256
+
+
+@dataclass
+class VTScreen:
+    """A bounded terminal screen whose state survives serial-console reads."""
+
+    columns: int = COLUMNS
+    lines: int = LINES
+    row: int = field(default=0, init=False)
+    column: int = field(default=0, init=False)
+    saved_cursor: tuple[int, int] = field(default=(0, 0), init=False)
+    scrolling_region: tuple[int, int] = field(default=(0, LINES - 1), init=False)
+    _grid: list[list[str | None]] = field(init=False, repr=False)
+    _escape: bytearray = field(default_factory=bytearray, init=False, repr=False)
+    _discarding_control: int | None = field(default=None, init=False, repr=False)
+    _discarding_after_escape: bool = field(default=False, init=False, repr=False)
+    _discarding_escape: int | None = field(default=None, init=False, repr=False)
+    _decoder: codecs.IncrementalDecoder = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.columns <= 0 or self.lines <= 0:
+            raise ValueError("a screen must have positive dimensions")
+        self._grid = [[] for _ in range(self.lines)]
+        self.scrolling_region = (0, self.lines - 1)
+        self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
+
+    @property
+    def cursor(self) -> tuple[int, int]:
+        return self.row, self.column
+
+    def rows(self) -> list[str]:
+        """Return a stable copy of the rows currently visible."""
+        return [
+            "".join(cell for cell in line if cell is not None).rstrip()
+            for line in self._grid
+        ]
+
+    def feed(self, chunk: bytes) -> None:
+        """Apply output while retaining only a bounded incomplete control."""
+        data = bytes(self._escape) + chunk
+        self._escape.clear()
+        while True:
+            if self._discarding_control is not None:
+                end = self._discarded_control_end(data)
+                if end is None:
+                    return
+                data = data[end:]
+            elif self._discarding_escape is not None:
+                end = self._discarded_escape_end(data)
+                if end is None:
+                    return
+                data = data[end:]
+            if not data:
+                return
+
+            at = plain = 0
+            while at < len(data):
+                byte = data[at]
+                if byte == _ESCAPE:
+                    self._write(data[plain:at])
+                    end = self._escape_end(data, at)
+                    if end is None:
+                        remainder = self._retain_incomplete_escape(data, at)
+                        if remainder is None:
+                            return
+                        data = remainder
+                        break
+                    self._dispatch_escape(data[at:end])
+                    at = plain = end
+                elif byte < 0x20 or byte == 0x7F:
+                    self._write(data[plain:at])
+                    self._dispatch_control(byte)
+                    at += 1
+                    plain = at
+                else:
+                    at += 1
+            else:
+                self._write(data[plain:])
+                return
+
+    def _retain_incomplete_escape(self, data: bytes, start: int) -> bytes | None:
+        sequence = data[start:]
+        if len(sequence) < _MAX_ESCAPE_BYTES:
+            self._escape.extend(sequence)
+            return None
+        prefix = sequence[:_MAX_ESCAPE_BYTES]
+        if prefix[1] in _CONTROL_STRINGS:
+            self._discarding_control = prefix[1]
+            self._discarding_after_escape = prefix[-1] == _ESCAPE
+        else:
+            self._discarding_escape = prefix[1]
+        return sequence[_MAX_ESCAPE_BYTES:]
+
+    def _discarded_escape_end(self, data: bytes) -> int | None:
+        kind = self._discarding_escape
+        assert kind is not None
+        final_first = 0x40 if kind == ord("[") else 0x30
+        for at, byte in enumerate(data):
+            if byte == _ESCAPE:
+                self._discarding_escape = None
+                return at
+            if final_first <= byte <= 0x7E:
+                self._discarding_escape = None
+                return at + 1
+        return None
+
+    def _discarded_control_end(self, data: bytes) -> int | None:
+        kind = self._discarding_control
+        assert kind is not None
+        at = 0
+        if self._discarding_after_escape:
+            if not data:
+                return None
+            self._discarding_after_escape = False
+            if data[0] == ord("\\"):
+                self._discarding_control = None
+                return 1
+        while at < len(data):
+            if kind == ord("]") and data[at] == 0x07:
+                self._discarding_control = None
+                return at + 1
+            if data[at] == _ESCAPE:
+                if at + 1 == len(data):
+                    self._discarding_after_escape = True
+                    return None
+                if data[at + 1] == ord("\\"):
+                    self._discarding_control = None
+                    return at + 2
+            at += 1
+        return None
+
+    def _escape_end(self, data: bytes, start: int) -> int | None:
+        if start + 1 >= len(data):
+            return None
+        limit = min(len(data), start + _MAX_ESCAPE_BYTES)
+        kind = data[start + 1]
+        if kind == ord("["):
+            for at in range(start + 2, limit):
+                if 0x40 <= data[at] <= 0x7E:
+                    return at + 1
+            return None
+        if kind in _CONTROL_STRINGS:
+            for at in range(start + 2, limit):
+                if kind == ord("]") and data[at] == 0x07:
+                    return at + 1
+                if (
+                    data[at] == _ESCAPE
+                    and at + 1 < limit
+                    and data[at + 1] == ord("\\")
+                ):
+                    return at + 2
+            return None
+        at = start + 1
+        while at < limit and 0x20 <= data[at] <= 0x2F:
+            at += 1
+        if at < limit and 0x30 <= data[at] <= 0x7E:
+            return at + 1
+        return None
+
+    def _dispatch_escape(self, sequence: bytes) -> None:
+        if sequence.startswith(b"\x1b["):
+            body = sequence[2:-1]
+            split = 0
+            while split < len(body) and 0x30 <= body[split] <= 0x3F:
+                split += 1
+            parameters = body[:split].decode("ascii")
+            intermediates = body[split:].decode("ascii")
+            self._dispatch_csi(parameters, intermediates, chr(sequence[-1]))
+        elif sequence == b"\x1b7":
+            self.saved_cursor = self.cursor
+        elif sequence == b"\x1b8":
+            self.row, self.column = self.saved_cursor
+            self._clamp_cursor()
+        elif sequence == b"\x1bD":
+            self._index(reset_column=False)
+        elif sequence == b"\x1bE":
+            self._index(reset_column=True)
+        elif sequence == b"\x1bM":
+            self._reverse_index()
+
+    def _dispatch_csi(self, parameters: str, intermediates: str, final: str) -> None:
+        """Apply the CSI operations emitted by curses on a serial terminal."""
+        if intermediates:
+            return
+        private = parameters.startswith(("<", "=", ">", "?"))
+        raw = parameters[1:] if private else parameters
+        if private or any(character not in "0123456789;" for character in raw):
+            return
+        values = [int(value) if value else None for value in raw.split(";")]
+        if final in ("H", "f"):
+            self.row = self._position(values, 0) - 1
+            self.column = self._position(values, 1) - 1
+            self._clamp_cursor()
+        elif final in ("G", "`"):
+            self.column = self._position(values, 0) - 1
+            self._clamp_cursor()
+        elif final == "d":
+            self.row = self._position(values, 0) - 1
+            self._clamp_cursor()
+        elif final in "ABCD":
+            amount = self._amount(values)
+            if final == "A":
+                self.row -= amount
+            elif final == "B":
+                self.row += amount
+            elif final == "C":
+                self.column += amount
+            else:
+                self.column -= amount
+            self._clamp_cursor()
+        elif final in "EF":
+            amount = self._amount(values)
+            self.row += amount if final == "E" else -amount
+            self.column = 0
+            self._clamp_cursor()
+        elif final in "ae":
+            amount = self._amount(values)
+            if final == "a":
+                self.column += amount
+            else:
+                self.row += amount
+            self._clamp_cursor()
+        elif final == "J":
+            self._erase_display(values[0] or 0)
+        elif final == "K":
+            self._erase_line(values[0] or 0)
+        elif final == "X":
+            self._erase_characters(self._amount(values))
+        elif final in "ST":
+            amount = self._amount(values)
+            if final == "S":
+                self._scroll_up(amount)
+            else:
+                self._scroll_down(amount)
+        elif final in "LM":
+            self._insert_or_delete_lines(self._amount(values), insert=final == "L")
+        elif final in "@P":
+            self._insert_or_delete_characters(self._amount(values), insert=final == "@")
+        elif final == "r":
+            self._set_scrolling_region(values)
+        elif final == "s":
+            self.saved_cursor = self.cursor
+        elif final == "u":
+            self.row, self.column = self.saved_cursor
+            self._clamp_cursor()
+
+    def _position(self, values: list[int | None], index: int) -> int:
+        if index >= len(values) or values[index] in (None, 0):
+            return 1
+        value = values[index]
+        assert value is not None
+        return value
+
+    def _amount(self, values: list[int | None]) -> int:
+        return self._position(values, 0)
+
+    def _clamp_cursor(self) -> None:
+        self.row = min(max(0, self.row), self.lines - 1)
+        # Keep one extra screen so the width audit still catches overflow.
+        self.column = min(max(0, self.column), self.columns * 2 - 1)
+
+    def _write(self, data: bytes) -> None:
+        for character in self._decoder.decode(data, final=False):
+            self._place(character)
+
+    def _place(self, character: str) -> None:
+        line = self._grid[self.row]
+        width = cells(character)
+        if width <= 0:
+            at = min(self.column - 1, len(line) - 1)
+            while at >= 0 and line[at] is None:
+                at -= 1
+            if at >= 0:
+                base = line[at]
+                assert base is not None
+                line[at] = base + character
+            return
+
+        limit = self.columns * 2
+        stop = min(self.column + width, limit)
+        while len(line) < stop:
+            line.append(" ")
+        for at in range(self.column, stop):
+            self._clear_glyph_at(line, at)
+        line[self.column] = character
+        for at in range(self.column + 1, stop):
+            line[at] = None
+        self.column = min(self.column + width, limit - 1)
+
+    def _clear_glyph_at(self, line: list[str | None], at: int) -> None:
+        if not 0 <= at < len(line):
+            return
+        start = at
+        while start > 0 and line[start] is None:
+            start -= 1
+        base = line[start]
+        if base is None:
+            line[at] = " "
+            return
+        stop = min(start + max(1, cells(base)), len(line))
+        for cell in range(start, stop):
+            line[cell] = " "
+
+    def _blank_cells(self, line: list[str | None], start: int, stop: int) -> None:
+        stop = min(stop, len(line))
+        for at in range(start, stop):
+            self._clear_glyph_at(line, at)
+        for at in range(start, stop):
+            line[at] = " "
+
+    def _dispatch_control(self, byte: int) -> None:
+        if byte == 0x0D:
+            self.column = 0
+        elif byte in (0x0A, 0x0B, 0x0C):
+            self._index(reset_column=True)
+        elif byte == 0x08:
+            self.column = max(0, self.column - 1)
+        elif byte == 0x09:
+            self.column = min((self.column // 8 + 1) * 8, self.columns * 2 - 1)
+
+    def _index(self, reset_column: bool) -> None:
+        _, bottom = self.scrolling_region
+        if self.row == bottom:
+            self._scroll_up(1)
+        else:
+            self.row = min(self.row + 1, self.lines - 1)
+        if reset_column:
+            self.column = 0
+
+    def _reverse_index(self) -> None:
+        top, _ = self.scrolling_region
+        if self.row == top:
+            self._scroll_down(1)
+        else:
+            self.row = max(0, self.row - 1)
+
+    def _erase_display(self, mode: int) -> None:
+        if mode == 0:
+            self._erase_line(0)
+            for row in range(self.row + 1, self.lines):
+                self._grid[row].clear()
+        elif mode == 1:
+            for row in range(self.row):
+                self._grid[row].clear()
+            self._erase_line(1)
+        elif mode in (2, 3):
+            for line in self._grid:
+                line.clear()
+
+    def _erase_line(self, mode: int) -> None:
+        line = self._grid[self.row]
+        if mode == 0:
+            self._clear_glyph_at(line, self.column)
+            del line[self.column :]
+        elif mode == 1:
+            self._blank_cells(line, 0, self.column + 1)
+        elif mode == 2:
+            line.clear()
+
+    def _erase_characters(self, amount: int) -> None:
+        line = self._grid[self.row]
+        self._blank_cells(line, self.column, self.column + amount)
+
+    def _scroll_up(self, amount: int) -> None:
+        top, bottom = self.scrolling_region
+        count = min(amount, bottom - top + 1)
+        region = self._grid[top : bottom + 1]
+        self._grid[top : bottom + 1] = region[count:] + [[] for _ in range(count)]
+
+    def _scroll_down(self, amount: int) -> None:
+        top, bottom = self.scrolling_region
+        count = min(amount, bottom - top + 1)
+        region = self._grid[top : bottom + 1]
+        self._grid[top : bottom + 1] = [[] for _ in range(count)] + region[:-count]
+
+    def _insert_or_delete_lines(self, amount: int, insert: bool) -> None:
+        top, bottom = self.scrolling_region
+        if not top <= self.row <= bottom:
+            return
+        count = min(amount, bottom - self.row + 1)
+        region = self._grid[self.row : bottom + 1]
+        if insert:
+            replacement: list[list[str | None]] = [
+                [] for _ in range(count)
+            ] + region[:-count]
+        else:
+            replacement = region[count:] + [[] for _ in range(count)]
+        self._grid[self.row : bottom + 1] = replacement
+
+    def _insert_or_delete_characters(self, amount: int, insert: bool) -> None:
+        line = self._grid[self.row]
+        if self.column >= len(line):
+            return
+        if insert:
+            if line[self.column] is None:
+                self._clear_glyph_at(line, self.column)
+            line[self.column : self.column] = [" "] * amount
+            self._clear_glyph_at(line, self.columns * 2)
+            del line[self.columns * 2 :]
+        else:
+            self._clear_glyph_at(line, self.column)
+            self._clear_glyph_at(line, self.column + amount - 1)
+            del line[self.column : self.column + amount]
+
+    def _set_scrolling_region(self, values: list[int | None]) -> None:
+        top = self._position(values, 0) - 1
+        bottom_value = self.lines
+        if len(values) > 1 and values[1] not in (None, 0):
+            chosen = values[1]
+            assert chosen is not None
+            bottom_value = chosen
+        bottom = bottom_value - 1
+        if 0 <= top < bottom < self.lines:
+            self.scrolling_region = top, bottom
+            self.row = self.column = 0
 
 
 def rendered(said: bytes) -> list[str]:
@@ -54,85 +470,20 @@ def rendered(said: bytes) -> list[str]:
     most 80. The sequences that move or clear are replayed instead, and what is
     measured is where each character actually landed.
     """
-    grid: list[list[str]] = [[] for _ in range(LINES)]
-    row = column = 0
-
-    def place(character: str) -> None:
-        nonlocal row, column
-        if not 0 <= row < LINES:
-            return
-        line = grid[row]
-        while len(line) <= column:
-            line.append(" ")
-        line[column] = character
-        column += 1
-
-    text = said.decode("utf-8", "replace")
-    at = 0
-    while at < len(text):
-        found = _CSI.match(text, at)
-        if found:
-            at = found.end()
-            arguments = [one for one in found.group(1).split(";") if one.isdigit()]
-            letter = found.group(2)
-            if letter == "H":
-                # Rows and columns are one-based in the sequence and zero-based
-                # here, and an absent argument means the first.
-                row = (int(arguments[0]) if arguments else 1) - 1
-                column = (int(arguments[1]) if len(arguments) > 1 else 1) - 1
-            elif letter == "J":
-                grid = [[] for _ in range(LINES)]
-                row = column = 0
-            elif letter == "K":
-                if 0 <= row < LINES:
-                    del grid[row][column:]
-            elif letter in "ABCD":
-                # curses moves a row at a time far more often than it jumps:
-                # without these the grid held the previous screen's rows and
-                # the width check measured a menu nobody drew.
-                step = int(arguments[0]) if arguments else 1
-                if letter == "A":
-                    row -= step
-                elif letter == "B":
-                    row += step
-                elif letter == "C":
-                    column += step
-                else:
-                    column = max(0, column - step)
-            continue
-        found = _OTHER_ESCAPE.match(text, at)
-        if found:
-            at = found.end()
-            continue
-        character = text[at]
-        at += 1
-        if character == "\r":
-            column = 0
-        elif character == "\n":
-            row += 1
-            column = 0
-        elif character == "\b":
-            column = max(0, column - 1)
-        elif character == "\x07":
-            continue
-        else:
-            place(character)
-    return ["".join(line).rstrip() for line in grid]
+    screen = VTScreen()
+    screen.feed(said)
+    return screen.rows()
 
 
 @dataclass(frozen=True)
 class ScreenState:
-    """The small part of terminal state the walk needs to make safe choices.
-
-    Keeping replay behind this boundary lets the pending stateful VT work
-    replace `rendered()` without spreading terminal parsing into the walk.
-    """
+    """The visible state used by menu readiness and navigation checks."""
 
     lines: tuple[str, ...]
 
     @classmethod
-    def replay(cls, said: bytes) -> ScreenState:
-        return cls(tuple(rendered(said)))
+    def from_screen(cls, screen: VTScreen) -> ScreenState:
+        return cls(tuple(screen.rows()))
 
     @property
     def title(self) -> str:
@@ -140,7 +491,6 @@ class ScreenState:
 
     @property
     def drawn(self) -> bool:
-        """Whether this has the geometry every curses menu screen draws."""
         return bool(
             len(self.lines) == LINES
             and self.title
@@ -153,7 +503,6 @@ class ScreenState:
         return self.drawn and self.title == "gentoo-install"
 
     def opened_from(self, previous: ScreenState) -> bool:
-        """Whether Enter replaced the main menu with a complete row screen."""
         return previous.main_menu and self.drawn and self.title != previous.title
 
 
@@ -188,14 +537,19 @@ def cells(line: str) -> int:
 MENU_PATIENCE: Final[float] = 180.0
 
 
-def _wait_for_menu(console: SerialConsole) -> ScreenState:
+def _wait_for_menu(
+    console: SerialConsole, screen: VTScreen | None = None
+) -> ScreenState:
+    if screen is None:
+        screen = VTScreen()
     deadline = time.monotonic() + MENU_PATIENCE
     last = ScreenState(())
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
-        last = ScreenState.replay(console.snapshot(min(REDRAW_SECONDS, remaining)))
+        screen.feed(console.snapshot(min(REDRAW_SECONDS, remaining)))
+        last = ScreenState.from_screen(screen)
         if last.main_menu:
             return last
     raise ConsoleTimeout(
@@ -219,18 +573,20 @@ def _open_menu(console: SerialConsole, lang: str) -> None:
 def walk(console: SerialConsole, lang: str) -> Walk:
     """Open every row of the menu and read what the terminal shows."""
     seen = Walk()
+    screen = VTScreen()
     _open_menu(console, lang)
     # Waited for rather than slept through: a walk that sent its first keys on
     # a timer had them land on the shell, and the escape that followed reached
     # the main menu, where escape means leave. The recording then held one
     # screen and the review of it reported nothing.
-    _wait_for_menu(console)
+    _wait_for_menu(console, screen)
     console.send_raw("\x1b[B")
     time.sleep(0.5)
     console.send_raw("\x1b[A")
     time.sleep(0.5)
     for step in range(_ROWS):
-        drawn = ScreenState.replay(console.snapshot(REDRAW_SECONDS))
+        screen.feed(console.snapshot(REDRAW_SECONDS))
+        drawn = ScreenState.from_screen(screen)
         body = [line for line in drawn.lines if line.strip()]
         if not body:
             seen.note(f"row {step}", "the row drew nothing")
@@ -242,7 +598,8 @@ def walk(console: SerialConsole, lang: str) -> Walk:
         # Enter opens the row, then escape leaves it, then down moves on.
         console.send_raw("\r")
         time.sleep(1.0)
-        opened = ScreenState.replay(console.snapshot(REDRAW_SECONDS))
+        screen.feed(console.snapshot(REDRAW_SECONDS))
+        opened = ScreenState.from_screen(screen)
         for line in opened.lines:
             if cells(line) > COLUMNS:
                 seen.note(f"row {step} opened", f"{cells(line)} cells: {line!r}")
