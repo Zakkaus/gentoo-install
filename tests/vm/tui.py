@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final
 
-from .console import SerialConsole
+from .console import ConsoleTimeout, SerialConsole
 from .driver import build as build_driver
 from .run import create_target
 from .media import MEDIA
@@ -120,6 +120,43 @@ def rendered(said: bytes) -> list[str]:
     return ["".join(line).rstrip() for line in grid]
 
 
+@dataclass(frozen=True)
+class ScreenState:
+    """The small part of terminal state the walk needs to make safe choices.
+
+    Keeping replay behind this boundary lets the pending stateful VT work
+    replace `rendered()` without spreading terminal parsing into the walk.
+    """
+
+    lines: tuple[str, ...]
+
+    @classmethod
+    def replay(cls, said: bytes) -> ScreenState:
+        return cls(tuple(rendered(said)))
+
+    @property
+    def title(self) -> str:
+        return self.lines[0] if self.lines else ""
+
+    @property
+    def drawn(self) -> bool:
+        """Whether this has the geometry every curses menu screen draws."""
+        return bool(
+            len(self.lines) == LINES
+            and self.title
+            and any(line.strip() for line in self.lines[1:-1])
+            and self.lines[-1].strip()
+        )
+
+    @property
+    def main_menu(self) -> bool:
+        return self.drawn and self.title == "gentoo-install"
+
+    def opened_from(self, previous: ScreenState) -> bool:
+        """Whether Enter replaced the main menu with a complete row screen."""
+        return previous.main_menu and self.drawn and self.title != previous.title
+
+
 @dataclass
 class Finding:
     where: str
@@ -151,6 +188,21 @@ def cells(line: str) -> int:
 MENU_PATIENCE: Final[float] = 180.0
 
 
+def _wait_for_menu(console: SerialConsole) -> ScreenState:
+    deadline = time.monotonic() + MENU_PATIENCE
+    last = ScreenState(())
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        last = ScreenState.replay(console.snapshot(min(REDRAW_SECONDS, remaining)))
+        if last.main_menu:
+            return last
+    raise ConsoleTimeout(
+        f"menu was not drawn before timeout; last rendered state was {last.lines!r}"
+    )
+
+
 def _open_menu(console: SerialConsole, lang: str) -> None:
     console.run("mkdir -p /mnt/driver")
     console.run("mountpoint -q /mnt/driver || mount -o ro /dev/sr1 /mnt/driver")
@@ -172,15 +224,14 @@ def walk(console: SerialConsole, lang: str) -> Walk:
     # a timer had them land on the shell, and the escape that followed reached
     # the main menu, where escape means leave. The recording then held one
     # screen and the review of it reported nothing.
-    console.expect(r"gentoo-install", timeout=MENU_PATIENCE)
-    console.snapshot(REDRAW_SECONDS)
+    _wait_for_menu(console)
     console.send_raw("\x1b[B")
     time.sleep(0.5)
     console.send_raw("\x1b[A")
     time.sleep(0.5)
     for step in range(_ROWS):
-        drawn = rendered(console.snapshot(REDRAW_SECONDS))
-        body = [line for line in drawn if line.strip()]
+        drawn = ScreenState.replay(console.snapshot(REDRAW_SECONDS))
+        body = [line for line in drawn.lines if line.strip()]
         if not body:
             seen.note(f"row {step}", "the row drew nothing")
         else:
@@ -191,14 +242,14 @@ def walk(console: SerialConsole, lang: str) -> Walk:
         # Enter opens the row, then escape leaves it, then down moves on.
         console.send_raw("\r")
         time.sleep(1.0)
-        opened = rendered(console.snapshot(REDRAW_SECONDS))
-        for line in opened:
+        opened = ScreenState.replay(console.snapshot(REDRAW_SECONDS))
+        for line in opened.lines:
             if cells(line) > COLUMNS:
                 seen.note(f"row {step} opened", f"{cells(line)} cells: {line!r}")
         # Only when the row actually opened. Escape on the main menu leaves the
         # installer, so sending it after a press that opened nothing ends the
         # walk on its first row.
-        if opened != drawn:
+        if opened.opened_from(drawn):
             console.send_raw("\x1b")
             time.sleep(0.5)
         else:

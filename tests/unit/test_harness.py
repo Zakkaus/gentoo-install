@@ -1151,6 +1151,64 @@ def test_the_walk_does_not_escape_out_of_a_row_that_never_opened(
     class Console:
         def __init__(self) -> None:
             self.sent: list[str] = []
+            self.snapshots = 0
+
+        def run(self, line: str, timeout: float = 0.0) -> str:
+            return ""
+
+        def send_raw(self, keys: str) -> None:
+            self.sent.append(keys)
+
+        def snapshot(self, seconds: float) -> bytes:
+            self.snapshots += 1
+            if self.snapshots % 2:
+                return (
+                    b"\x1b[2J\x1b[1;1Hgentoo-install"
+                    b"\x1b[3;3Hstorage"
+                    b"\x1b[24;1H[enter] Continue"
+                )
+            # Different redraw bytes, but the same stable screen: Enter did
+            # not open the row and Escape must therefore stay unsent.
+            return (
+                b"\x1b[2Jgentoo-install"
+                b"\x1b[2B\r  storage"
+                b"\x1b[21B\r[enter] Continue"
+            )
+
+    import time as clock
+
+    monkeypatch.setattr(clock, "sleep", lambda seconds: None)
+    monkeypatch.setattr(tui, "_ROWS", 3)
+    console = Console()
+    seen = tui.walk(cast("Any", console), "en")
+
+    assert "\x1b" not in console.sent, console.sent
+    assert any("opened nothing" in one.what for one in seen.findings), seen.findings
+
+
+def test_the_walk_waits_for_a_drawn_menu_after_the_echoed_launch_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The launch command already contains the program name. It is not a
+    screen, so navigation must wait until curses has drawn the menu."""
+    from typing import Any, cast
+
+    from tests.vm import tui
+
+    menu = (
+        b"\x1b[2J\x1b[1;1Hgentoo-install"
+        b"\x1b[3;3Hstorage"
+        b"\x1b[24;1H[enter] Continue"
+    )
+    launch = (
+        "cd /tmp/driver && TERM=vt220 LINES=24 COLUMNS=80 "
+        "python3 -m gentoo_install --lang en\n"
+    )
+
+    class Console:
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+            self.snapshots = 0
             self.asked = 0
 
         def run(self, line: str, timeout: float = 0.0) -> str:
@@ -1161,22 +1219,55 @@ def test_the_walk_does_not_escape_out_of_a_row_that_never_opened(
 
         def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
             self.asked += 1
-            return b"gentoo-install"
+            return b"python3 -m gentoo_install # gentoo-install\r\n"
 
         def snapshot(self, seconds: float) -> bytes:
-            # The same screen every time: the row never opens.
-            return b"gentoo-install\r\nstorage\r\n"
+            self.snapshots += 1
+            if self.snapshots <= 2:
+                assert self.sent == [launch], "navigation reached the echoed command"
+            if self.snapshots == 1:
+                return b"python3 -m gentoo_install # gentoo-install\r\n"
+            return menu
 
     import time as clock
 
     monkeypatch.setattr(clock, "sleep", lambda seconds: None)
-    monkeypatch.setattr(tui, "_ROWS", 3)
+    monkeypatch.setattr(tui, "_ROWS", 1)
     console = Console()
-    seen = tui.walk(cast("Any", console), "en")
+    tui.walk(cast("Any", console), "en")
 
-    assert console.asked == 1, "the menu is waited for, not slept through"
-    assert "\x1b" not in console.sent, console.sent
-    assert any("opened nothing" in one.what for one in seen.findings), seen.findings
+    assert console.snapshots >= 4
+    assert console.asked == 0, "readiness fell back to echoed console text"
+    assert console.sent[:3] == [launch, "\x1b[B", "\x1b[A"]
+
+
+def test_menu_readiness_keeps_one_deadline_and_reports_the_last_screen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import time as clock
+    from typing import Any, cast
+
+    from tests.vm import tui
+    from tests.vm.console import ConsoleTimeout
+
+    class Console:
+        def __init__(self) -> None:
+            self.windows: list[float] = []
+
+        def snapshot(self, seconds: float) -> bytes:
+            self.windows.append(seconds)
+            return b"still only the echoed gentoo-install command"
+
+    moments = iter((10.0, 10.0, 12.5, 13.0))
+    monkeypatch.setattr(tui, "MENU_PATIENCE", 3.0)
+    monkeypatch.setattr(clock, "monotonic", lambda: next(moments))
+    console = Console()
+
+    with pytest.raises(ConsoleTimeout, match="last rendered state") as refused:
+        tui._wait_for_menu(cast("Any", console))
+
+    assert console.windows == [2.0, 0.5]
+    assert "still only the echoed gentoo-install command" in str(refused.value)
 
 
 def test_a_screen_is_replayed_into_a_grid_rather_than_flattened() -> None:
