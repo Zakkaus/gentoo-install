@@ -1492,3 +1492,22 @@ def test_a_console_that_keeps_printing_is_not_ended_by_the_ceiling() -> None:
         quiet.expect("MARK_1_DONE", timeout=1.0, idle=0.2)
     waited = clock.monotonic() - started
     assert waited < 0.6, f"silence ended it at {waited:.2f}s, not at the ceiling"
+
+
+def test_a_cn_run_clones_the_overlay_from_a_chinese_mirror(tmp_path: Path) -> None:
+    """github never connects from inside a cluster guest, and an overlay clone
+    that fails stops the whole install rather than degrading."""
+    from gentoo_install.model.config import MirrorRegion, Sync
+    from gentoo_install.exec.config import load
+    from tests.vm import cluster
+
+    source = Path(__file__).resolve().parents[1] / "fixtures" / "vm-zfs.toml"
+    assert "github.com" in load(source).portage.overlays[0].sync_uri
+    job = cluster.Job(name="vm-zfs", fixture=source)
+    written = cluster.rewrite_fixtures(
+        [job], tmp_path / "fixtures", MirrorRegion.CN, Sync.RSYNC
+    )
+    moved = load(written / source.name)
+    overlay = next(one for one in moved.portage.overlays if one.name == "gentoo-zh")
+    assert "github.com" not in overlay.sync_uri
+    assert overlay.sync_uri.startswith("https://mirrors.cernet.edu.cn/")
