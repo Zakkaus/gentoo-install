@@ -40,6 +40,11 @@ PROFILE_LIST = f"""Available profile symlink targets:
 
 def apply_all(installation: InstallConfig) -> Recorder:
     recorder = Recorder()
+    recorder.answering = lambda argv: (
+        CommandOutput("", 0)
+        if tuple(argv[:3]) == ("portageq", "envvar", "PORTAGE_GPG_KEY_SERVER")
+        else None
+    )
     recorder.replies["eselect"] = PROFILE_LIST
     for operation in [*portage.build(installation, MIRROR), *portage.finish(installation)]:
         operation.apply(recorder)
@@ -1010,44 +1015,53 @@ def test_the_stage3_matches_the_profile_and_not_only_the_init_system() -> None:
         assert variant_of(installation) == variant, profile
 
 
-def test_the_first_snapshot_falls_through_to_a_keyserver_that_answers() -> None:
-    """`emerge-webrsync` verifies the snapshot with gemato, which refreshes the
-    release key first, so one keyserver is one way for the whole install to
-    stop. Two networks broke it in opposite directions: a cluster guest
-    resolved `keys.gentoo.org` to 85.143.112.91 and reached nothing, and
-    `keys.openpgp.org`, put there to answer that, serves the key with its user
-    IDs stripped, which gemato reports as a failed refresh and which then
-    refuses the snapshot as unsigned.
-
-    The key and the signature are unchanged; only where the refresh reads the
-    key from moves, so this is not a weakening of the check.
-    """
-    from gentoo_install.errors import CommandFailed
+def test_the_first_snapshot_uses_portages_keyserver_policy() -> None:
+    from gentoo_install.plan.operations import CommandOutput
     from gentoo_install.plan import portage as plan_portage
-
     from .recorder import Recorder
 
-    servers = plan_portage.KEY_SERVERS
-    assert servers[0] == "hkps://keys.gentoo.org", servers
-    assert all(one.startswith("hkps://") for one in servers), servers
-    # It answers, and it answers with a key gemato refuses.
-    assert not any("keys.openpgp.org" in one for one in servers), servers
+    def answer(argv: Sequence[str]) -> str | None:
+        if tuple(argv[:3]) == ("portageq", "envvar", "PORTAGE_GPG_KEY_SERVER"):
+            return CommandOutput("hkps://keys.gentoo.org\n", 0)
+        return None
 
-    class Refusing(Recorder):
-        """A keyserver that answers nothing, the way the first one did."""
-
-        refuse: str = servers[0]
-
-        def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
-            if any(self.refuse in one for one in argv):
-                raise CommandFailed(f"{self.refuse} exited 1")
-            return super().run_in_target(argv, check=check)
-
-    recorder = Refusing()
+    recorder = Recorder(answering=answer)
     plan_portage.WebrsyncRepository().apply(recorder)
-    ran = recorder.in_target[-1]
-    assert ran[-1] == "emerge-webrsync", ran
-    assert f"PORTAGE_GPG_KEY_SERVER={servers[1]}" in ran, ran
+    assert recorder.in_target[-1] == (
+        "env", "PORTAGE_GPG_KEY_SERVER=hkps://keys.gentoo.org", "emerge-webrsync"
+    )
+
+
+def test_the_first_snapshot_keeps_portages_empty_keyserver_policy() -> None:
+    from gentoo_install.plan.operations import CommandOutput
+    from gentoo_install.plan import portage as plan_portage
+    from .recorder import Recorder
+
+    def answer(argv: Sequence[str]) -> str | None:
+        if tuple(argv[:3]) == ("portageq", "envvar", "PORTAGE_GPG_KEY_SERVER"):
+            return CommandOutput("\n", 0)
+        return None
+
+    recorder = Recorder(answering=answer)
+    plan_portage.WebrsyncRepository().apply(recorder)
+    assert recorder.in_target[-1] == ("emerge-webrsync",)
+
+
+def test_keyserver_policy_query_failure_stops_the_first_snapshot() -> None:
+    from gentoo_install.errors import ConfigError
+    from gentoo_install.plan.operations import CommandOutput
+    from gentoo_install.plan import portage as plan_portage
+    from .recorder import Recorder
+
+    def answer(argv: Sequence[str]) -> str | None:
+        if tuple(argv[:3]) == ("portageq", "envvar", "PORTAGE_GPG_KEY_SERVER"):
+            return CommandOutput("query failed\n", 1)
+        return None
+
+    recorder = Recorder(answering=answer)
+    with pytest.raises(ConfigError, match="keyserver policy"):
+        plan_portage.WebrsyncRepository().apply(recorder)
+    assert not any(command[-1] == "emerge-webrsync" for command in recorder.in_target)
 
 
 def test_a_pinned_package_reaches_usepkg_exclude_without_its_version() -> None:
