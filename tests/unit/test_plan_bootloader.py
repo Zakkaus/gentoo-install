@@ -6,7 +6,7 @@ from dataclasses import replace
 from pathlib import Path, PurePosixPath
 
 from gentoo_install.exec.config import load
-from gentoo_install.model.config import InstallConfig, RemoteUnlock
+from gentoo_install.model.config import Bootloader, BootloaderConfig, Firmware, InstallConfig, RemoteUnlock
 from gentoo_install.plan import bootloader, kernel
 
 from .recorder import Recorder
@@ -117,6 +117,28 @@ def test_a_grub_machine_writes_no_loader_conf() -> None:
     installation = load(Path("tests/fixtures/vm-btrfs.toml"))
     operations = bootloader.build(installation)
     assert not [one for one in operations if isinstance(one, bootloader.ShowTheBootMenu)]
+
+
+def test_bios_grub_targets_every_mirrored_root_member() -> None:
+    installation = replace(
+        load(Path("tests/fixtures/vm-mdraid.toml")),
+        bootloader=BootloaderConfig(kind=Bootloader.GRUB, firmware=Firmware.BIOS),
+    )
+    operation = next(
+        one for one in bootloader.build(installation) if isinstance(one, bootloader.InstallGrub)
+    )
+    assert operation.boot_devices == ("disk0", "disk1")
+
+    class MirroredRecorder(Recorder):
+        def containing_disk(self, device: str) -> str:
+            return f"/dev/{device}"
+
+    recorder = MirroredRecorder()
+    operation.apply(recorder)
+    assert recorder.argv_starting("grub-install", "--target=i386-pc") == (
+        ("grub-install", "--target=i386-pc", "/dev/disk0"),
+        ("grub-install", "--target=i386-pc", "/dev/disk1"),
+    )
 
 
 def test_every_zfsbootmenu_host_key_can_be_written_in_the_format_asked_for() -> None:
