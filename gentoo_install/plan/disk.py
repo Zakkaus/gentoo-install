@@ -538,13 +538,26 @@ class CreateSubvolume(Operation):
         path = context.device_path(self.device)
         context.run(["mkdir", "--parents", str(scratch)])
         context.run(["mount", "--types", "btrfs", path, str(scratch)])
+        failed: CommandFailed | None = None
         try:
             context.run(["btrfs", "subvolume", "create", str(scratch / self.name)])
+        except CommandFailed as error:
+            failed = error
+            raise
         finally:
             # In `finally`: a name left by an earlier attempt fails here, and
             # leaving the device mounted makes the next run die at `wipefs`
             # with `Device or resource busy` and nothing naming the holder.
-            context.run(["umount", str(scratch)], check=False)
+            result: str | None = None
+            try:
+                result = context.run(["umount", str(scratch)], check=False)
+            except CommandFailed:
+                if failed is None:
+                    raise
+            if failed is None and isinstance(result, CommandOutput) and result.returncode != 0:
+                raise CommandFailed(
+                    f"umount {scratch} exited {result.returncode}: {result.strip() or 'no output'}"
+                )
 
 
 @dataclass(frozen=True, kw_only=True)

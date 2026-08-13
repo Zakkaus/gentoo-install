@@ -7,7 +7,8 @@ import pytest
 
 from typing import Sequence
 
-from gentoo_install.errors import InvalidLayout
+from gentoo_install.errors import CommandFailed, InvalidLayout
+from gentoo_install.plan.operations import CommandOutput
 from gentoo_install.model.device import (
     DeviceGraph,
     DeviceId,
@@ -156,6 +157,42 @@ def test_a_subvolume_is_created_through_a_scratch_mount_of_the_top_level() -> No
     recorder = apply_all(nodes)
     assert recorder.only("btrfs", "subvolume", "create")[-1].endswith("/btrfs-top/@")
     assert recorder.argv_starting("umount")
+
+
+def test_a_btrfs_scratch_unmount_failure_stops_the_install() -> None:
+    class UnmountFails(Recorder):
+        def run(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> str:
+            if argv[0] == "umount":
+                self.commands.append(tuple(argv))
+                return CommandOutput("target is busy", 1)
+            return super().run(argv, check=check, input_text=input_text)
+
+    operation = disk.CreateSubvolume(
+        subvolume=i("sub-root"), device=i("rootfs"), name="@"
+    )
+    with pytest.raises(CommandFailed, match="umount .*btrfs-top exited 1"):
+        operation.apply(UnmountFails())
+
+
+def test_a_btrfs_scratch_unmount_does_not_replace_creation_failure() -> None:
+    class BothFail(Recorder):
+        def run(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> str:
+            if argv[0] == "umount":
+                self.commands.append(tuple(argv))
+                return CommandOutput("target is busy", 1)
+            if argv[0] == "btrfs":
+                raise CommandFailed("btrfs subvolume create exited 1: already exists")
+            return super().run(argv, check=check, input_text=input_text)
+
+    operation = disk.CreateSubvolume(
+        subvolume=i("sub-root"), device=i("rootfs"), name="@"
+    )
+    with pytest.raises(CommandFailed, match="already exists"):
+        operation.apply(BothFail())
 
 
 def test_a_subvolume_mount_carries_both_its_options_and_its_subvolume() -> None:
