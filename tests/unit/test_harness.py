@@ -752,6 +752,26 @@ def test_driver_identity_changes_with_the_packaged_bytes(tmp_path: Path) -> None
     assert first != second
 
 
+def test_campaign_driver_paths_are_content_addressed(tmp_path: Path) -> None:
+    """Two revisions retain separate images in one campaign work directory."""
+    from tests.vm.cluster import retain_driver
+    from tests.vm.driver import remote_name
+
+    first = tmp_path / "first.iso"
+    second = tmp_path / "second.iso"
+    first.write_bytes(b"revision-a")
+    second.write_bytes(b"revision-b")
+
+    first_path = retain_driver(tmp_path, first)
+    second_path = retain_driver(tmp_path, second)
+
+    assert first_path != second_path
+    assert first_path.name == remote_name(first_path)
+    assert second_path.name == remote_name(second_path)
+    assert first_path.read_bytes() == b"revision-a"
+    assert second_path.read_bytes() == b"revision-b"
+
+
 def test_a_revisionless_success_is_not_counted_as_passed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
