@@ -315,8 +315,9 @@ class SerialConsole:
         """Everything that arrives in this window, escape codes included.
 
         `expect` trims the buffer to what follows its match, which loses the
-        top of a screen the caller still has to read. A full-screen redraw has
-        to be taken whole.
+        top of a screen the caller still has to read. A read can end between
+        bytes of an escape sequence, so callers must retain terminal state
+        across snapshots rather than replaying each window independently.
         """
         got = bytearray(self._buffer)
         deadline = time.monotonic() + seconds
