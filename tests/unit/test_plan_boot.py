@@ -35,7 +35,13 @@ from gentoo_install.model.size import Size
 from gentoo_install.exec.config import load
 from gentoo_install.model.validate import validate
 from gentoo_install.plan import bootloader, kernel
-from gentoo_install.plan.portage import Emerge, SourcePolicy
+from gentoo_install.plan.portage import (
+    BINPKG_OPTIONS,
+    EMERGE_OPTIONS,
+    Emerge,
+    InstallMode,
+    SourcePolicy,
+)
 
 from .layouts import config, encrypted_root, ext4_on_gpt, i, zfs_root
 from .recorder import Recorder
@@ -984,8 +990,6 @@ def test_bootctl_is_not_rebuilt_for_flags_it_already_has() -> None:
     The operation stays: nothing else guarantees `bootctl` when the provider is
     `sys-apps/systemd-utils` on openrc.
     """
-    from gentoo_install.plan.portage import Emerge
-
     installation = replace(
         config(),
         bootloader=BootloaderConfig(kind=Bootloader.SYSTEMD_BOOT, firmware=Firmware.UEFI),
@@ -995,10 +999,17 @@ def test_bootctl_is_not_rebuilt_for_flags_it_already_has() -> None:
         for one in bootloader.build(installation)
         if isinstance(one, Emerge) and "bootctl" in one.summary
     )
-    assert merge.noreplace
+    assert merge.mode is InstallMode.NOREPLACE
     recorder = Recorder()
     merge.apply(recorder)
-    assert any("--noreplace" in one for one in recorder.in_target[0])
+    assert recorder.only("emerge") == (
+        "emerge",
+        *EMERGE_OPTIONS,
+        "--noreplace",
+        *BINPKG_OPTIONS,
+        "--",
+        *merge.packages,
+    )
 
 
 def test_zfsbootmenu_configures_the_pool_the_root_is_on() -> None:

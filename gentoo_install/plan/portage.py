@@ -344,6 +344,12 @@ class _SourceMode(Enum):
     BUILD_SUBSET = "build subset"
 
 
+class InstallMode(Enum):
+    NORMAL = ""
+    ONESHOT = "--oneshot"
+    NOREPLACE = "--noreplace"
+
+
 @dataclass(frozen=True, kw_only=True)
 class SourcePolicy:
     """Which requested packages may use binaries.
@@ -474,18 +480,11 @@ class Emerge(Operation):
     summary: str
     requester: str = ""
     repository_bootstrap: bool = False
-    oneshot: bool = False
+    mode: InstallMode = InstallMode.NORMAL
     source: SourcePolicy = SourcePolicy.binaries_allowed()
-    #: Install only what is absent. For a package an earlier operation already
-    #: pulled in, a plain atom is `[ebuild R]` and portage rebuilds it: one
-    #: run spent 132 seconds rebuilding `sys-apps/systemd` at the bootloader
-    #: stage with the same flags it had been built with at the kernel stage.
-    noreplace: bool = False
 
     def __post_init__(self) -> None:
         self.source.built_from(self.packages)
-        if self.oneshot and self.noreplace:
-            raise ValueError("oneshot and noreplace cannot be combined")
 
     @property
     def package_requester(self) -> str:
@@ -503,10 +502,8 @@ class Emerge(Operation):
 
     def apply(self, context: Context) -> None:
         argv = ["emerge", *EMERGE_OPTIONS]
-        if self.oneshot:
-            argv.append("--oneshot")
-        if self.noreplace:
-            argv.append("--noreplace")
+        if self.mode.value:
+            argv.append(self.mode.value)
         if context.degraded(BINARY_PACKAGES):
             # `FEATURES=getbinpkg` in make.conf keeps fetching remote binaries
             # under `--usepkg=n`, so both are needed to reach the source path

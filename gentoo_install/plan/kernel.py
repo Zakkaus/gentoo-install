@@ -36,7 +36,7 @@ from .bootloader import GenerateHostId
 from .bootloader import initramfs_keymap as bootloader_keymap
 from .bootloader import unlock_parameters
 from .operations import Context, Operation, Stage
-from .portage import Emerge, SourcePolicy
+from .portage import Emerge, InstallMode, SourcePolicy
 
 #: The package that provides each kernel choice.
 KERNEL_PACKAGES: Final[dict[KernelSource, str]] = {
@@ -651,7 +651,7 @@ def build(config: InstallConfig) -> list[Operation]:
                 stage=Stage.KERNEL,
                 packages=("sys-apps/systemd",),
                 summary="rebuild systemd with the unlock generator",
-                oneshot=True,
+                mode=InstallMode.ONESHOT,
                 source=SourcePolicy.build_all(),
             ),
         ]

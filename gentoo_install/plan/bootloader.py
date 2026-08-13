@@ -29,7 +29,7 @@ from ..model.device import (
     ZfsPool,
 )
 from .operations import Context, Operation, Stage
-from .portage import Emerge
+from .portage import Emerge, InstallMode
 
 BOOTLOADER_PACKAGES: Final[dict[Bootloader, tuple[str, ...]]] = {
     Bootloader.GRUB: ("sys-boot/grub",),
@@ -439,7 +439,7 @@ def build(config: InstallConfig) -> list[Operation]:
                 stage=Stage.BOOTLOADER,
                 packages=(provider,),
                 summary="install bootctl",
-                noreplace=True,
+                mode=InstallMode.NOREPLACE,
             ),
             InstallSystemdBoot(esp=esp),
             ShowTheBootMenu(esp=esp),

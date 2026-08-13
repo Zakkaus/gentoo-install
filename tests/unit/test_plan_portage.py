@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from dataclasses import replace
+from dataclasses import fields, replace
 from pathlib import PurePosixPath
 from typing import Any, Sequence
 
@@ -440,32 +440,42 @@ def test_invalid_source_subsets_are_rejected(
         )
 
 
-def test_oneshot_and_noreplace_cannot_be_combined() -> None:
-    with pytest.raises(ValueError, match="oneshot and noreplace cannot be combined"):
-        portage.Emerge(
-            packages=("app-editors/nano",),
-            summary="install the editor",
-            oneshot=True,
-            noreplace=True,
-        )
+def test_an_emerge_has_one_typed_install_mode() -> None:
+    operation = portage.Emerge(
+        packages=("app-editors/nano",),
+        summary="install the editor",
+    )
+
+    assert operation.mode is portage.InstallMode.NORMAL
+    assert {"oneshot", "noreplace"}.isdisjoint(field.name for field in fields(portage.Emerge))
 
 
 @pytest.mark.parametrize(
-    ("oneshot", "noreplace", "expected"),
-    ((True, False, "--oneshot"), (False, True, "--noreplace")),
-    ids=("oneshot", "noreplace"),
+    ("mode", "mode_options"),
+    (
+        (portage.InstallMode.NORMAL, ()),
+        (portage.InstallMode.ONESHOT, ("--oneshot",)),
+        (portage.InstallMode.NOREPLACE, ("--noreplace",)),
+    ),
+    ids=("normal", "oneshot", "noreplace"),
 )
-def test_oneshot_and_noreplace_are_rendered_explicitly(
-    oneshot: bool, noreplace: bool, expected: str
+def test_install_modes_map_to_exact_emerge_argv(
+    mode: portage.InstallMode, mode_options: tuple[str, ...]
 ) -> None:
     recorder = Recorder()
     portage.Emerge(
         packages=("app-editors/nano",),
         summary="install the editor",
-        oneshot=oneshot,
-        noreplace=noreplace,
+        mode=mode,
     ).apply(recorder)
-    assert expected in recorder.only("emerge")
+    assert recorder.only("emerge") == (
+        "emerge",
+        *portage.EMERGE_OPTIONS,
+        *mode_options,
+        *portage.BINPKG_OPTIONS,
+        "--",
+        "app-editors/nano",
+    )
 
 
 @pytest.mark.parametrize(
