@@ -1057,21 +1057,26 @@ def test_the_first_snapshot_keeps_portages_empty_keyserver_policy() -> None:
     assert recorder.in_target[-1] == ("emerge-webrsync",)
 
 
-def test_keyserver_policy_query_failure_stops_the_first_snapshot() -> None:
-    from gentoo_install.errors import ConfigError
+def test_an_unreadable_keyserver_policy_leaves_it_unset() -> None:
+    """`portageq` cannot answer before this operation has fetched a snapshot:
+    `repos.conf` names `/var/db/repos/gentoo` and nothing has created it, so it
+    exits 1. Treating that as a fault stopped every install at step 21 of 51.
+    """
     from gentoo_install.plan.operations import CommandOutput
     from gentoo_install.plan import portage as plan_portage
     from .recorder import Recorder
 
     def answer(argv: Sequence[str]) -> str | None:
         if tuple(argv[:3]) == ("portageq", "envvar", "PORTAGE_GPG_KEY_SERVER"):
-            return CommandOutput("query failed\n", 1)
+            return CommandOutput(
+                "!!! Invalid Repository Location (not a dir): '/var/db/repos/gentoo'\n", 1
+            )
         return None
 
     recorder = Recorder(answering=answer)
-    with pytest.raises(ConfigError, match="keyserver policy"):
-        plan_portage.WebrsyncRepository().apply(recorder)
-    assert not any(command[-1] == "emerge-webrsync" for command in recorder.in_target)
+    plan_portage.WebrsyncRepository().apply(recorder)
+    assert ("emerge-webrsync",) in recorder.in_target
+    assert not any(command[0] == "env" for command in recorder.in_target)
 
 
 def test_a_pinned_package_reaches_usepkg_exclude_without_its_version() -> None:
