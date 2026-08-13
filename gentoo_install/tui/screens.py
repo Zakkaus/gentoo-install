@@ -2660,18 +2660,26 @@ def timezone_screen(screen: Screen, config: InstallConfig, context: Context) -> 
         return Answer(
             Outcome.CHOSE, replace(config, system=replace(config.system, timezone=area))
         )
-    city: Menu[str] = Menu(
-        title=area,
-        items=[Item(label=zone.split("/", 1)[1], value=zone) for zone in within],
-        footer=footer(translate),
-        current=config.system.timezone,
-    )
-    answer = city.run(screen)
-    if not answer.chosen:
+    while True:
+        city: Menu[str] = Menu(
+            title=area,
+            items=[Item(label=zone.split("/", 1)[1], value=zone) for zone in within],
+            footer=footer(translate),
+            current=config.system.timezone,
+        )
+        answer = city.run(screen)
+        if answer.chosen:
+            return Answer(
+                Outcome.CHOSE, replace(config, system=replace(config.system, timezone=answer.unwrap()))
+            )
+        if answer.outcome is Outcome.BACK:
+            picked = chosen_area.run(screen)
+            if not picked.chosen:
+                return Answer(picked.outcome)
+            area = picked.unwrap()
+            within = [zone for zone in zones if zone.split("/", 1)[0] == area]
+            continue
         return Answer(answer.outcome)
-    return Answer(
-        Outcome.CHOSE, replace(config, system=replace(config.system, timezone=answer.unwrap()))
-    )
 
 
 def encryption_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
@@ -2797,14 +2805,15 @@ def _ask_password(screen: Screen, context: Context, title: str) -> Answer[str]:
     ).run_validated(screen, validated)
 
 
-def _say(screen: Screen, context: Context, message: str) -> None:
+def _say(screen: Screen, context: Context, message: str) -> Answer[None]:
     """One line the operator has to acknowledge, so a rejected entry is not
     silently redrawn as an empty field."""
-    Menu(
+    answer = Menu(
         title=message,
         items=[Item(label=context.translate("Continue"), value=0)],
         footer=footer(context.translate),
     ).run(screen)
+    return Answer(answer.outcome)
 
 
 def swap_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
@@ -2999,7 +3008,7 @@ def sshd_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
         return Answer(answer.outcome)
     running, password = answer.unwrap()
     if running and config.system.firewall is Firewall.NONE:
-        _say(
+        acknowledged = _say(
             screen,
             context,
             translate(
@@ -3008,6 +3017,8 @@ def sshd_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
                 "writes no rules, so the policy stays the operator's."
             ),
         )
+        if not acknowledged.chosen:
+            return Answer(acknowledged.outcome)
     return Answer(
         Outcome.CHOSE,
         replace(
@@ -3442,7 +3453,7 @@ def firewall_screen(
         return Answer(answer.outcome)
     chosen = answer.unwrap()
     if chosen is not Firewall.NONE:
-        _say(
+        acknowledged = _say(
             screen,
             context,
             translate(
@@ -3451,6 +3462,8 @@ def firewall_screen(
                 "over SSH would then need a console to be reached at all."
             ),
         )
+        if not acknowledged.chosen:
+            return Answer(acknowledged.outcome)
     return Answer(
         Outcome.CHOSE, replace(config, system=replace(config.system, firewall=chosen))
     )
@@ -4223,7 +4236,9 @@ def extra_packages_screen(
             return Answer(typed.outcome)
         good, bad = atoms.split(typed.unwrap())
         if bad:
-            _say(screen, context, f"{translate('Not a package name')}: {' '.join(bad)}")
+            informed = _say(screen, context, f"{translate('Not a package name')}: {' '.join(bad)}")
+            if not informed.chosen:
+                return Answer(informed.outcome)
             continue
         return Answer(
             Outcome.CHOSE, replace(config, packages=replace(config.packages, extra=good))
@@ -4280,10 +4295,12 @@ def _typed_beside_automatic(
             footer=footer(translate),
         ).run(screen)
         if not entered.chosen:
-            continue
+            return Answer(entered.outcome)
         good, bad = accepts(entered.unwrap())
         if bad:
-            _say(screen, context, f"{rejected}: {' '.join(bad)}")
+            informed = _say(screen, context, f"{rejected}: {' '.join(bad)}")
+            if not informed.chosen:
+                return Answer(informed.outcome)
             continue
         return Answer(Outcome.CHOSE, good)
 

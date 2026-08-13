@@ -236,6 +236,34 @@ def test_the_timezone_list_is_every_zone_the_machine_knows() -> None:
     assert answer.unwrap().system.timezone == "Asia/Taipei"
 
 
+@pytest.mark.parametrize("leaving", ["KEY_LEFT", "q"])
+def test_firewall_dialog_leaving_does_not_commit(leaving: str) -> None:
+    start = config()
+    answer = screens.firewall_screen(
+        FakeScreen(keys=["KEY_DOWN", "\n", leaving]), start, context()
+    )
+    assert answer.outcome is (Outcome.BACK if leaving == "KEY_LEFT" else Outcome.CANCELLED)
+    assert answer.value is None
+
+
+def test_invalid_extra_package_dialog_cancellation_reaches_caller() -> None:
+    answer = screens.extra_packages_screen(
+        FakeScreen(keys=[*"bad!", "\n", "q"]), config(), context()
+    )
+    assert answer.outcome is Outcome.CANCELLED
+
+
+def test_timezone_back_reopens_area_and_cancel_exits_city() -> None:
+    changed = screens.timezone_screen(
+        FakeScreen(keys=["\n", "KEY_LEFT", "KEY_DOWN", "\n", "\n"]),
+        config(),
+        context(),
+    )
+    assert changed.unwrap().system.timezone == "Europe/London"
+    cancelled = screens.timezone_screen(FakeScreen(keys=["\n", "\x1b"]), config(), context())
+    assert cancelled.outcome is Outcome.CANCELLED
+
+
 def test_reopening_the_timezone_and_accepting_keeps_it() -> None:
     """Two menus, and both used to start at their first row: reopening a
     configured timezone and pressing enter twice moved the machine to UTC."""
