@@ -5,7 +5,7 @@ import pytest
 
 from gentoo_install.data import load_catalog
 from gentoo_install.errors import CommandFailed
-from gentoo_install.model.config import InstallConfig, Overlay, User
+from gentoo_install.model.config import ConsoleFontSize, InstallConfig, Overlay, User
 from gentoo_install.plan import packages as plan_packages
 from gentoo_install.plan.packages import build
 from gentoo_install.plan.portage import Emerge
@@ -70,6 +70,38 @@ def test_build_resolves_the_selected_package_groups_once(
         if isinstance(one, Emerge) and one.requester
     }
     assert {"the `nvidia` group", "the `wemeet` group"} <= emerged
+
+
+def test_console_profile_verifies_the_selected_kbd_font_payload() -> None:
+    selected = replace(
+        config(),
+        system=replace(config().system, console_font=ConsoleFontSize.SIZE_16X32),
+        packages=replace(config().packages, desktop="console"),
+    )
+    operations = build(selected, load_catalog())
+    verification = next(
+        operation for operation in operations if isinstance(operation, plan_packages.VerifyPackagePaths)
+    )
+    assert verification.package == "sys-apps/kbd"
+    assert verification.paths == (PurePosixPath("/usr/share/consolefonts/latarcyrheb-sun32.psfu.gz"),)
+
+    recorder = PackageRecorder()
+    recorder.package_paths["sys-apps/kbd"] = frozenset(verification.paths)
+    verification.apply(recorder)
+
+
+def test_console_profile_rejects_a_kbd_payload_without_the_selected_font() -> None:
+    selected = replace(
+        config(),
+        packages=replace(config().packages, desktop="console"),
+    )
+    verification = next(
+        operation
+        for operation in build(selected, load_catalog())
+        if isinstance(operation, plan_packages.VerifyPackagePaths)
+    )
+    with pytest.raises(CommandFailed, match="sys-apps/kbd was expected to provide"):
+        verification.apply(PackageRecorder())
 
 
 def test_input_engines_declare_the_language_they_type() -> None:

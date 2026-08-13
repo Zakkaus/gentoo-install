@@ -97,6 +97,7 @@
   enable zfs-mount.service at boot
   enable zfs.target at boot
   install the console group: emerge sys-apps/kbd app-editors/vim
+  verify sys-apps/kbd installed /usr/share/consolefonts/default8x16.psfu.gz
 
 [finish]
   point /etc/resolv.conf at systemd-resolved rather than the install medium's
