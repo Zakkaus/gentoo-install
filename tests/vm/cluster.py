@@ -47,6 +47,7 @@ from gentoo_install.model.device import (
     ZfsPool,
 )
 from gentoo_install.model.config import MirrorRegion, Sync
+from gentoo_install.model import mirrors
 from gentoo_install.exec.config import load
 from gentoo_install.model.serialise import to_toml
 from .console import (
@@ -818,12 +819,26 @@ def rewrite_fixtures(
     into.mkdir(parents=True, exist_ok=True)
     for job in jobs:
         config = load(job.fixture)
+        # The overlay moves with the region. A `cn` run that still cloned
+        # gentoo-zh from github stopped the install after two hundred seconds
+        # of `Could not connect to server`, while every other fetch in the same
+        # guest came from a Chinese mirror and worked.
+        chosen = mirrors.gentoozh_for(region)
+        where = mirrors.gentoozh(chosen).git
         moved = replace(
             config,
             portage=replace(
                 config.portage,
                 sync=sync,
-                mirrors=replace(config.portage.mirrors, region=region),
+                mirrors=replace(
+                    config.portage.mirrors, region=region, gentoo_zh=chosen
+                ),
+                overlays=tuple(
+                    replace(overlay, sync_uri=where)
+                    if overlay.name == "gentoo-zh"
+                    else overlay
+                    for overlay in config.portage.overlays
+                ),
             ),
         )
         (into / job.fixture.name).write_text(to_toml(moved))

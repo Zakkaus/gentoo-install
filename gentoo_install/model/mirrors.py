@@ -247,6 +247,21 @@ def gentoozh(chosen: GentooZhMirror) -> Site:
     return _GENTOOZH[chosen]
 
 
+#: Which gentoo-zh site each Gentoo mirror region reaches fastest. Separate
+#: tables because the two repositories do not share a mirror set, and a
+#: machine choosing Chinese Gentoo mirrors cloning the overlay from GitHub is
+#: what this pairing exists to prevent.
+_GENTOOZH_BY_REGION: Final[dict[MirrorRegion, GentooZhMirror]] = {
+    MirrorRegion.CN: GentooZhMirror.CERNET,
+    MirrorRegion.GLOBAL: GentooZhMirror.UPSTREAM,
+}
+
+
+def gentoozh_for(region: MirrorRegion) -> GentooZhMirror:
+    """The gentoo-zh site that suits a Gentoo mirror region."""
+    return _GENTOOZH_BY_REGION[region]
+
+
 def gentoozh_binhost(
     chosen: GentooZhMirror, subarch: str = "x86-64", unstable: bool = False
 ) -> str:
