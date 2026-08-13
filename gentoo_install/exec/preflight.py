@@ -33,7 +33,7 @@ from ..model.size import DEFAULT_ALIGNMENT, SectorSize, Size
 from ..model.validate import root_size_problems
 from ..plan.disk import MKFS
 from ..plan.operations import Operation
-from ..plan.portage import InstallStage3, PrepareChroot, SyncRepository
+from ..plan.portage import InstallStage3, MountChrootFilesystems, SyncRepository
 from .probe import RELEASE_KEY, Machine, Probe
 
 # These are used while preflight inspects disks, before any operation runs.
@@ -50,7 +50,7 @@ ALWAYS: Final[tuple[str, ...]] = (
 #: Commands reached through context methods or helper subprocesses.
 BY_OPERATION: Final[dict[type[Operation], tuple[str, ...]]] = {
     InstallStage3: STAGE3_COMMANDS,
-    PrepareChroot: ("install",),
+    MountChrootFilesystems: ("install",),
     SyncRepository: ("sleep",),
 }
 

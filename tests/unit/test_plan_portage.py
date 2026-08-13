@@ -24,7 +24,7 @@ from gentoo_install.model.config import (
 from gentoo_install.errors import CommandFailed, ConfigError, ValidationFailed
 from gentoo_install.plan import portage
 from gentoo_install.plan.build import PORTAGE_PREREQUISITES, build as build_plan
-from gentoo_install.plan.operations import CommandOutput, Operation
+from gentoo_install.plan.operations import CommandOutput, Operation, Stage
 from gentoo_install.plan.packages import Group
 
 from .layouts import config
@@ -63,19 +63,44 @@ def test_stage3_is_unpacked_with_xattrs_because_capabilities_would_be_lost() -> 
 
 
 def test_the_chroot_gets_proc_rbinds_and_a_slave_run() -> None:
-    recorder = apply_all(config())
-    mounts = recorder.argv_starting("mount")
-    assert ("mount", "--types", "proc", "/proc", "/mnt/gentoo/proc") in mounts
-    assert ("mount", "--rbind", "/sys", "/mnt/gentoo/sys") in mounts
-    assert ("mount", "--make-rslave", "/mnt/gentoo/sys") in mounts
-    assert ("mount", "--bind", "/run", "/mnt/gentoo/run") in mounts
-    assert ("mount", "--make-slave", "/mnt/gentoo/run") in mounts
+    recorder = Recorder()
+
+    portage.MountChrootFilesystems().apply(recorder)
+
+    assert recorder.commands == [
+        ("mount", "--types", "proc", "/proc", "/mnt/gentoo/proc"),
+        ("mount", "--rbind", "/sys", "/mnt/gentoo/sys"),
+        ("mount", "--make-rslave", "/mnt/gentoo/sys"),
+        ("mount", "--rbind", "/dev", "/mnt/gentoo/dev"),
+        ("mount", "--make-rslave", "/mnt/gentoo/dev"),
+        ("mount", "--bind", "/run", "/mnt/gentoo/run"),
+        ("mount", "--make-slave", "/mnt/gentoo/run"),
+    ]
 
 
 def test_resolv_conf_is_copied_so_the_chroot_can_resolve_a_mirror() -> None:
-    assert apply_all(config()).only(
-        "install", "--mode=0644", "/etc/resolv.conf", "/mnt/gentoo/etc/resolv.conf"
+    recorder = Recorder()
+
+    portage.SeedResolver().apply(recorder)
+
+    assert recorder.commands == [
+        ("install", "--mode=0644", "/etc/resolv.conf", "/mnt/gentoo/etc/resolv.conf")
+    ]
+
+
+def test_chroot_mounts_and_resolver_seed_keep_their_stage_and_order() -> None:
+    operations = portage.build(config(), MIRROR)
+    mounted = next(
+        n for n, operation in enumerate(operations)
+        if isinstance(operation, portage.MountChrootFilesystems)
     )
+    seeded = next(
+        n for n, operation in enumerate(operations)
+        if isinstance(operation, portage.SeedResolver)
+    )
+    assert seeded == mounted + 1
+    assert operations[mounted].stage is Stage.CHROOT
+    assert operations[seeded].stage is Stage.CHROOT
 
 
 def test_efivarfs_comes_with_the_recursive_bind_rather_than_a_second_mount() -> None:
