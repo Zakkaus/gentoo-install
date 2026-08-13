@@ -45,7 +45,7 @@ class PartitionListing(Runner):
             "name": "/dev/vda", "size": 68719476736,
             "fstype": null, "type": "disk",
             "children": [{
-              "name": "/dev/vda1", "size": 17179869185,
+              "name": "/dev/vda1", "partn": 1, "size": 17179869185,
               "fstype": "ext4", "type": "part"
             }]
           }]
@@ -81,6 +81,7 @@ def test_a_partition_probe_keeps_the_exact_size_that_the_display_tuple_lost(
     partition = probe.probed_partitions("/dev/vda")[0]
 
     assert partition.kernel_path == "/dev/vda1"
+    assert partition.partition_number == 1
     assert partition.size_bytes == 17179869185
     assert partition.filesystem == "ext4"
     assert partition.device_type == "part"

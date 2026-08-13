@@ -166,6 +166,9 @@ class Slice:
     #: The path `exec/probe.py` listed, for a row that is already on the disk.
     #: Empty for `create`, which has no device until the plan runs.
     selector: str = ""
+    #: Partition-table number supplied by the block-device probe. New rows use
+    #: `index`; existing rows must retain the number the machine reported.
+    partition_number: int | None = None
 
     def describe(self) -> str:
         # A row already on the disk has whatever size it has; only a new one is
@@ -305,15 +308,10 @@ def dataset_for(mountpoint: str) -> str:
 def _index_of(entry: Slice) -> int:
     """The number the partition has in the table on the disk.
 
-    Read off the selector rather than taken from `index`: the row order in the
-    editor is not the entry number, and `sgdisk --delete` addresses the entry.
+    Use the probe fact rather than parsing a kernel name: `/dev/nvme0n1p2` and
+    `/dev/mapper/...` do not have a reliable suffix to interpret.
     """
-    trailing = ""
-    for character in reversed(entry.selector):
-        if not character.isdigit():
-            break
-        trailing = character + trailing
-    return int(trailing) if trailing else entry.index
+    return entry.partition_number if entry.partition_number is not None else entry.index
 
 
 def _table_nodes(disk: Disk, prefix: str) -> list[Node]:

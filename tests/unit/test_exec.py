@@ -1607,9 +1607,9 @@ def test_partition_rows_are_read_from_nested_lsblk_json(tmp_path: Path) -> None:
       "blockdevices": [{
         "name": "/dev/vda", "size": 68719476736, "fstype": null, "type": "disk",
         "children": [{
-          "name": "/dev/vda1", "size": 17179869184, "fstype": null, "type": "part",
+          "name": "/dev/vda1", "partn": 1, "size": 17179869184, "fstype": null, "type": "part",
           "children": [{
-            "name": "/dev/mapper/root", "size": 17179869184,
+            "name": "/dev/mapper/root", "partn": null, "size": 17179869184,
             "fstype": "ext4", "type": "crypt"
           }]
         }]
@@ -1641,7 +1641,7 @@ def test_partition_rows_are_read_from_nested_lsblk_json(tmp_path: Path) -> None:
         "--bytes",
         "--paths",
         "--output",
-        "NAME,SIZE,FSTYPE,TYPE",
+        "NAME,PARTN,SIZE,FSTYPE,TYPE",
         "/dev/vda",
     )
 

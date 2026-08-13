@@ -689,19 +689,19 @@ def test_a_table_nobody_edits_writes_no_table_at_all() -> None:
     assert graph.of_type(PartitionTable) == ()
 
 
-def test_the_entry_number_comes_off_the_selector_and_not_the_row() -> None:
+def test_the_entry_number_does_not_parse_the_selector() -> None:
     """`sgdisk --delete` addresses the entry in the table, and the row order in
     the editor is not that number."""
     layout = one_disk(slices=[
         manual.Slice(
-            index=1, role=PartitionRole.DATA, size=None, filesystem=None,
-            status=manual.SliceStatus.DELETE, selector="/dev/nvme0n1p7",
+            index=3, role=PartitionRole.DATA, size=None, filesystem=None,
+            status=manual.SliceStatus.DELETE, selector="/dev/nvme0n1p7", partition_number=1,
         )
     ])
     from gentoo_install.model.device import PartitionTable
 
     graph, _ = manual.build(layout)
-    assert graph.of_type(PartitionTable)[0].remove == (7,)
+    assert graph.of_type(PartitionTable)[0].remove == (1,)
 
 
 def two_disks() -> manual.Layout:
