@@ -530,26 +530,63 @@ class Emerge(Operation):
         return self.source.built_from(self.packages)
 
     def apply(self, context: Context) -> None:
+        command = self._argv(context, source_only=context.degraded(BINARY_PACKAGES))
+        try:
+            result = context.run_in_target(command, check=False)
+        except CommandFailed as error:
+            marker = _binpkg_failure(str(error))
+            if marker is None or context.degraded(BINARY_PACKAGES):
+                raise
+            context.degrade(BINARY_PACKAGES, f"selected binary package failed: {marker}")
+            retry_result = context.run_in_target(self._argv(context, source_only=True), check=False)
+            if isinstance(retry_result, CommandOutput) and retry_result.returncode != 0:
+                raise CommandFailed(
+                    f"source retry failed with exit {retry_result.returncode}: "
+                    f"{str(retry_result).strip()}"
+                )
+            return
+        if not isinstance(result, CommandOutput) or result.returncode == 0:
+            return
+        if not _binpkg_failure(str(result)) or context.degraded(BINARY_PACKAGES):
+            raise CommandFailed(f"emerge failed with exit {result.returncode}: {str(result).strip()}")
+        reason = f"selected binary package failed: {_binpkg_failure(str(result))}"
+        context.degrade(BINARY_PACKAGES, reason)
+        retry = self._argv(context, source_only=True)
+        retry_result = context.run_in_target(retry, check=False)
+        if isinstance(retry_result, CommandOutput) and retry_result.returncode != 0:
+            raise CommandFailed(
+                f"source retry failed with exit {retry_result.returncode}: {str(retry_result).strip()}"
+            )
+
+    def _argv(self, context: Context, *, source_only: bool) -> list[str]:
         argv = ["emerge", *EMERGE_OPTIONS]
         if self.mode.value:
             argv.append(self.mode.value)
-        if context.degraded(BINARY_PACKAGES):
-            # `FEATURES=getbinpkg` in make.conf keeps fetching remote binaries
-            # under `--usepkg=n`, so both are needed to reach the source path
-            # a degraded binhost has to fall back to.
+        if source_only:
             argv += ["--usepkg=n", "--getbinpkg=n"]
         elif built := self._built_here():
-            # These packages only. Turning binaries off wholesale builds the
-            # whole dependency tree here too: `sys-apps/systemd` pulled in
-            # gtk+, cups and 21 more, and died on a circular dependency.
-            # `--usepkg-exclude` also blocks the remote copy under `-g`.
             argv += [
                 *BINPKG_OPTIONS[:-1],
                 f"{BINPKG_EXCLUDED} {' '.join(_unversioned(one) for one in built)}",
             ]
         else:
             argv += BINPKG_OPTIONS
-        context.run_in_target([*argv, "--", *self.packages])
+        return [*argv, "--", *self.packages]
+
+
+def _binpkg_failure(output: str) -> str | None:
+    """Return a Portage marker that proves the failure was a binary fetch."""
+    for line in output.splitlines():
+        if any(
+            marker in line
+            for marker in (
+                "Fetching Binary failed",
+                "Binary package is not usable",
+                "Fetching Binary",
+            )
+        ):
+            return line.strip()
+    return None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -638,7 +675,8 @@ class ConfigureBinhost(Operation):
             f"verify-signature = {'true' if self.verify else 'false'}\n"
             f"location = /var/cache/binhost/{self.name}\n"
         )
-        context.write(PurePosixPath(f"/etc/portage/binrepos.conf/{self.name}.conf"), stanza)
+        filename = "gentoobinhost.conf" if self.name == "gentoo" else f"{self.name}.conf"
+        context.write(PurePosixPath(f"/etc/portage/binrepos.conf/{filename}"), stanza)
 
 
 @dataclass(frozen=True, kw_only=True)
