@@ -278,18 +278,6 @@ class ConfigureWebrsyncRepository(Operation):
         context.write(PurePosixPath(f"/etc/portage/repos.conf/{self.name}.conf"), stanza)
 
 
-#: Where gemato refreshes the release key from, tried in this order. Gentoo's
-#: own server is first because it is what Portage ships; a guest that cannot
-#: reach it falls through rather than stopping at `No keyserver available`.
-#: `keys.openpgp.org` is not here: it serves a key stripped of its user IDs
-#: unless the address behind them was confirmed, gemato reads that as a failed
-#: refresh, and the snapshot is then refused as unsigned.
-KEY_SERVERS: Final[tuple[str, ...]] = (
-    "hkps://keys.gentoo.org",
-    "hkps://keyserver.ubuntu.com",
-)
-
-
 @dataclass(frozen=True, kw_only=True)
 class WebrsyncRepository(Operation):
     """The first sync cannot be a git sync: a stage3 has no `dev-vcs/git`, and
@@ -301,21 +289,18 @@ class WebrsyncRepository(Operation):
         return "fetch the first ebuild repository snapshot with emerge-webrsync"
 
     def apply(self, context: Context) -> None:
-        # `emerge-webrsync` verifies the snapshot with gemato, which refreshes
-        # the release key first, and a refresh that fails fails the sync. One
-        # keyserver is one way for the whole install to stop, so each is tried
-        # and only the last one's failure is raised.
-        last: CommandFailed | None = None
-        for server in KEY_SERVERS:
-            try:
-                context.run_in_target(
-                    ["env", f"PORTAGE_GPG_KEY_SERVER={server}", "emerge-webrsync"]
-                )
-                return
-            except CommandFailed as failed:
-                last = failed
-        assert last is not None
-        raise last
+        # Portage owns this policy in the stage3; overriding it can select a
+        # server incompatible with the installed gemato configuration.
+        policy = context.run_in_target(
+            ["portageq", "envvar", "PORTAGE_GPG_KEY_SERVER"], check=False
+        )
+        if not isinstance(policy, CommandOutput) or policy.returncode != 0:
+            raise ConfigError("portageq could not read the keyserver policy")
+        server = policy.strip()
+        command = ["emerge-webrsync"]
+        if server:
+            command = ["env", f"PORTAGE_GPG_KEY_SERVER={server}", *command]
+        context.run_in_target(command)
 
 
 #: Records between the lines tar prints while unpacking. One every few
