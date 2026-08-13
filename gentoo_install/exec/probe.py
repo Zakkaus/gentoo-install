@@ -14,13 +14,23 @@ import platform
 import re
 import shutil
 import time
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar, Final, Iterable, Mapping
 
 from ..errors import CommandFailed, DeviceNotFound
 from ..model.config import InstallConfig
-from ..model.device import DeviceGraph, DeviceId, Existing, Extent, PartitionTable
+from ..model.device import (
+    DeviceGraph,
+    DeviceId,
+    Existing,
+    Extent,
+    MdraidMetadataFact,
+    MdraidMetadataState,
+    PartitionTable,
+    RaidMetadata,
+    StorageFacts,
+)
 from ..model.validate import KernelCeiling, ProbedProfile, parse_profile_list
 from .runner import Runner
 
@@ -447,27 +457,28 @@ class Probe:
         has6 = any(address is not None and address not in _ULA_V6 for address in addresses6)
         return has4, has6
 
-    def mdraid_metadata(self, selector: str) -> str:
+    def mdraid_metadata(self, selector: str) -> MdraidMetadataFact:
         """The metadata version an array already on the machine carries.
 
-        Empty when the device is not an array. The model cannot read a
-        superblock, so a reused RAID1 esp met no compatibility rule at all
-        until this was injected before validation, although firmware cannot
-        read a member whose superblock sits at the start.
+        A missing command or unreadable device is unavailable, which differs
+        from mdadm establishing that the device is not an array.
         """
         try:
             said = self.runner.run(["mdadm", "--detail", "--export", selector], check=False)
         except (CommandFailed, OSError):
-            # A medium without mdadm says nothing about a superblock, and that
-            # is not a reason to stop: the array rule simply does not fire.
-            return ""
+            return MdraidMetadataState.UNAVAILABLE
         if said.returncode != 0:
-            return ""
+            if "does not appear to be an md device" in said.stdout:
+                return MdraidMetadataState.ABSENT
+            return MdraidMetadataState.UNAVAILABLE
         for line in said.stdout.splitlines():
             name, _, value = line.partition("=")
             if name.strip() == "MD_METADATA" and value.strip():
-                return value.strip()
-        return ""
+                try:
+                    return RaidMetadata(value.strip())
+                except ValueError:
+                    return MdraidMetadataState.UNAVAILABLE
+        return MdraidMetadataState.UNAVAILABLE
 
     def free_extents(self, disk: str) -> tuple[Extent, ...]:
         """Where the disk has no partition now, in bytes.
@@ -960,29 +971,14 @@ def _carried_timezones() -> tuple[str, ...]:
     return ("UTC", *(line for line in said.split() if "/" in line))
 
 
-def with_probed_facts(config: InstallConfig, probe: Probe) -> InstallConfig:
-    """Fill in what only the machine can say, before anything validates it.
-
-    The model stays parseable without the hardware, so a reused device carries
-    a selector and nothing else. Its mdraid metadata is read here: a reused
-    RAID1 esp with a superblock at the start met no compatibility rule at all
-    without it, and firmware cannot read such a member.
-    """
+def probe_storage_facts(config: InstallConfig, probe: Probe) -> StorageFacts:
+    """Read runtime storage evidence once for validation and plan derivation."""
     graph = config.disk.graph
-    reused = [one for one in graph.of_type(Existing) if one.mdraid_metadata is None]
-    known = {one.id: probe.mdraid_metadata(one.selector) for one in reused}
+    metadata = {
+        one.id: probe.mdraid_metadata(one.selector) for one in graph.of_type(Existing)
+    }
     free = _free_extents(graph, probe)
-    if not known and not free:
-        return config
-    nodes = [
-        replace(one, mdraid_metadata=known[one.id])
-        if isinstance(one, Existing) and one.id in known
-        else replace(one, free_extents=free[one.id])
-        if isinstance(one, PartitionTable) and one.id in free
-        else one
-        for one in graph.nodes.values()
-    ]
-    return replace(config, disk=replace(config.disk, graph=DeviceGraph.build(nodes)))
+    return StorageFacts(mdraid_metadata=metadata, free_extents=free)
 
 
 def _free_extents(graph: DeviceGraph, probe: Probe) -> dict[DeviceId, tuple[Extent, ...]]:
@@ -995,7 +991,7 @@ def _free_extents(graph: DeviceGraph, probe: Probe) -> dict[DeviceId, tuple[Exte
     """
     found: dict[DeviceId, tuple[Extent, ...]] = {}
     for table in graph.of_type(PartitionTable):
-        if table.create or table.free_extents:
+        if table.create:
             continue
         disk = graph.nodes.get(table.disk)
         if not isinstance(disk, Existing):

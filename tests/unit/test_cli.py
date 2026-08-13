@@ -15,6 +15,7 @@ from gentoo_install.exec import report
 from gentoo_install.exec.runner import Runner
 from gentoo_install.cli import EXIT_CONFIG, EXIT_INTEGRITY, EXIT_OK, EXIT_PREFLIGHT, main
 from gentoo_install.errors import ConfigError, IntegrityError
+from gentoo_install.model.device import StorageFacts
 from gentoo_install.plan.build import DEFAULT_MIRROR
 from gentoo_install.exec.config import load
 
@@ -672,11 +673,13 @@ def test_a_finish_failure_releases_the_machine_and_keeps_its_exit_code(
     monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
     monkeypatch.setattr(cli, "_needs_network", lambda arguments: False)
     monkeypatch.setattr(cli, "load", lambda path: config())
-    monkeypatch.setattr(cli, "with_probed_facts", lambda chosen, probe: chosen)
+    monkeypatch.setattr(
+        cli, "probe_storage_facts", lambda chosen, probe: StorageFacts()
+    )
     monkeypatch.setattr(
         cli,
         "build",
-        lambda chosen, catalog, mirror: (
+        lambda chosen, catalog, *, mirror, storage_facts: (
             Partition(),
             FailFinish(),
             FailRelease(),
@@ -722,8 +725,14 @@ def test_a_failure_after_partitioning_says_the_disk_may_not_boot(
     monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
     monkeypatch.setattr(cli, "_needs_network", lambda arguments: False)
     monkeypatch.setattr(cli, "load", lambda path: config())
-    monkeypatch.setattr(cli, "with_probed_facts", lambda chosen, probe: chosen)
-    monkeypatch.setattr(cli, "build", lambda chosen, catalog, mirror: (FailPartition(),))
+    monkeypatch.setattr(
+        cli, "probe_storage_facts", lambda chosen, probe: StorageFacts()
+    )
+    monkeypatch.setattr(
+        cli,
+        "build",
+        lambda chosen, catalog, *, mirror, storage_facts: (FailPartition(),),
+    )
     monkeypatch.setattr(report, "keep_log", lambda work, target, record: None)
 
     code = main(
@@ -794,11 +803,16 @@ def test_a_body_failure_before_partitioning_says_nothing_was_written(
     monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
     monkeypatch.setattr(cli, "_needs_network", lambda arguments: False)
     monkeypatch.setattr(cli, "load", lambda path: config())
-    monkeypatch.setattr(cli, "with_probed_facts", lambda chosen, probe: chosen)
+    monkeypatch.setattr(
+        cli, "probe_storage_facts", lambda chosen, probe: StorageFacts()
+    )
     monkeypatch.setattr(
         cli,
         "build",
-        lambda chosen, catalog, mirror: (FailBeforePartition(), Partition()),
+        lambda chosen, catalog, *, mirror, storage_facts: (
+            FailBeforePartition(),
+            Partition(),
+        ),
     )
     monkeypatch.setattr(report, "keep_log", lambda work, target, record: None)
 

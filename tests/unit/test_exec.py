@@ -1744,24 +1744,25 @@ def _probe_answering(tmp_path: Path, stdout: str, returncode: int) -> Probe:
 def test_the_metadata_of_a_real_array_is_read_from_what_mdadm_prints(
     tmp_path: Path,
 ) -> None:
-    """Every test built `Existing(mdraid_metadata="1.2")` by hand, so the parse
-    and the exit-code check had never run. A reused RAID1 esp whose superblock
-    sits at the start meets no compatibility rule when this answers empty, and
-    firmware cannot read such a member."""
-    read = _probe_answering(tmp_path, MDADM_EXPORT, 0)
-    assert read.mdraid_metadata("/dev/md/sample") == "1.2"
+    """Keep unavailable, absent, and present probe results distinct."""
+    from gentoo_install.model.device import MdraidMetadataState, RaidMetadata
 
-    # Not an array: nothing in what it printed names a metadata version.
+    read = _probe_answering(tmp_path, MDADM_EXPORT, 0)
+    assert read.mdraid_metadata("/dev/md/sample") is RaidMetadata.V1_2
+
     plain = _probe_answering(tmp_path, MDADM_NOT_AN_ARRAY, 1)
-    assert plain.mdraid_metadata("/dev/vda") == ""
+    assert plain.mdraid_metadata("/dev/vda") is MdraidMetadataState.ABSENT
+
+    missing = _probe_answering(tmp_path, "mdadm is not installed\n", 127)
+    assert missing.mdraid_metadata("/dev/vda") is MdraidMetadataState.UNAVAILABLE
 
 
 def test_a_probed_array_reaches_the_rule_that_refuses_it(tmp_path: Path) -> None:
-    """`with_probed_facts` had no test at all, so the graph rebuild between the
-    probe and the validator was unexercised."""
+    """One facts value reaches compatibility without changing configuration."""
+    import tomllib
     from pathlib import PurePosixPath
 
-    from gentoo_install.exec.probe import with_probed_facts
+    from gentoo_install.exec.probe import probe_storage_facts
     from gentoo_install.model import compat
     from gentoo_install.model.config import DiskConfig
     from gentoo_install.model.device import (
@@ -1770,7 +1771,10 @@ def test_a_probed_array_reaches_the_rule_that_refuses_it(tmp_path: Path) -> None
         Filesystem,
         FilesystemType,
         Mountpoint,
+        RaidMetadata,
     )
+    from gentoo_install.model.parse import parse
+    from gentoo_install.model.serialise import to_toml
 
     nodes = [
         Existing(id=DeviceId("array"), selector="/dev/md/esp", wipe=False),
@@ -1785,18 +1789,21 @@ def test_a_probed_array_reaches_the_rule_that_refuses_it(tmp_path: Path) -> None
     before = replace(
         config(), disk=DiskConfig(graph=DeviceGraph.build(nodes), root=DeviceId("mnt-esp"))
     )
-    assert not [one.mdraid_metadata for one in before.disk.graph.of_type(Existing) if one.mdraid_metadata]
+    written = to_toml(before)
 
-    after = with_probed_facts(before, _probe_answering(tmp_path, MDADM_EXPORT, 0))
-    said = [one.mdraid_metadata for one in after.disk.graph.of_type(Existing)]
-    assert said == ["1.2"], said
-    assert compat.Trait.ESP_MDRAID_SUPERBLOCK_AT_START in compat.traits_of(after)
+    facts = probe_storage_facts(before, _probe_answering(tmp_path, MDADM_EXPORT, 0))
+    assert facts.metadata_for(DeviceId("array")) is RaidMetadata.V1_2
+    assert to_toml(before) == written
+    assert parse(tomllib.loads(written)) == before
+    assert compat.Trait.ESP_MDRAID_SUPERBLOCK_AT_START in compat.traits_of(before, facts)
 
     # 1.0 keeps the superblock at the end, which firmware can read past.
-    older = with_probed_facts(
+    older = probe_storage_facts(
         before, _probe_answering(tmp_path, MDADM_EXPORT.replace("1.2", "1.0"), 0)
     )
-    assert compat.Trait.ESP_MDRAID_SUPERBLOCK_AT_START not in compat.traits_of(older)
+    assert compat.Trait.ESP_MDRAID_SUPERBLOCK_AT_START not in compat.traits_of(
+        before, older
+    )
 
 
 def test_a_command_that_is_not_installed_answers_when_failure_is_an_answer() -> None:

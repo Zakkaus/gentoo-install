@@ -24,14 +24,9 @@ def test_every_fixture_survives_a_round_trip(path: Path) -> None:
     assert _round_trip(config) == config
 
 
-def test_probed_facts_are_not_written_as_configuration() -> None:
-    config = parse(tomllib.loads((FIXTURES / "vm-mdraid.toml").read_text()))
-    nodes = [
-        replace(node, mdraid_metadata="1.0") if isinstance(node, Existing) else node
-        for node in config.disk.graph.nodes.values()
-    ]
-    probed = replace(config, disk=replace(config.disk, graph=DeviceGraph.build(nodes)))
-    assert _round_trip(probed) == config
+def test_runtime_storage_facts_are_not_configuration_fields() -> None:
+    assert "mdraid_metadata" not in {field.name for field in fields(Existing)}
+    assert "free_extents" not in {field.name for field in fields(PartitionTable)}
 
 
 def test_every_node_kind_can_be_written() -> None:

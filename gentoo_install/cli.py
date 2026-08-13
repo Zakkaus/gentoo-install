@@ -24,8 +24,9 @@ from .errors import GentooInstallError
 from .data import load_catalog
 from .exec import fetch, preflight, report
 from .exec.apply import Machine, already_degraded, apply, completed
-from .exec.probe import Probe, with_probed_facts
+from .exec.probe import Probe, probe_storage_facts
 from .exec.runner import Runner
+from .model.device import StorageFacts
 from .model.size import Size
 from .tui import app, screens
 from .tui.curses_screen import CursesScreen, too_small
@@ -166,15 +167,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             return EXIT_OK
         if _needs_network(arguments):
             _require_mirror(config, arguments.mirror)
+        storage_facts = StorageFacts()
         if not arguments.dry_run:
             # Before the plan is derived, because `build` validates: a reused
-            # esp on an array carries its metadata version only after the
-            # machine has been asked for it. Not on a dry run, which is meant
-            # to answer on a machine that has none of the hardware.
-            config = with_probed_facts(
+            # esp needs runtime metadata. A dry run remains independent of the
+            # selected hardware.
+            storage_facts = probe_storage_facts(
                 config, Probe(runner=Runner(log=lambda line: None), work=arguments.work)
             )
-        operations = build(config, load_catalog(), mirror=arguments.mirror)
+        operations = build(
+            config,
+            load_catalog(),
+            mirror=arguments.mirror,
+            storage_facts=storage_facts,
+        )
         if arguments.dry_run:
             print(render(operations), end="")
             print(summarise(operations))

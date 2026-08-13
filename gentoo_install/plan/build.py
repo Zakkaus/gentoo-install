@@ -12,6 +12,7 @@ from typing import Final, Sequence
 
 from ..model import mirrors
 from ..model.config import InstallConfig
+from ..model.device import StorageFacts
 from ..model.validate import validate
 from . import bootloader, disk, fonts, kernel, packages, portage, system
 from .operations import Operation, Stage
@@ -64,11 +65,18 @@ def stage3_mirror(config: InstallConfig, fallback: str = DEFAULT_MIRROR) -> str:
     return offered[0].distfiles if offered else fallback
 
 
-def build(config: InstallConfig, catalog: packages.Catalog, *, mirror: str = DEFAULT_MIRROR) -> tuple[Operation, ...]:
+def build(
+    config: InstallConfig,
+    catalog: packages.Catalog,
+    *,
+    mirror: str = DEFAULT_MIRROR,
+    storage_facts: StorageFacts | None = None,
+) -> tuple[Operation, ...]:
     """Validate, then derive the whole install. Nothing here touches a machine."""
-    validate(config)
+    facts = storage_facts if storage_facts is not None else StorageFacts()
+    validate(config, storage_facts=facts)
     operations: list[Operation] = [
-        *disk.build(config),
+        *disk.build(config, facts),
         *portage.build(
             config,
             stage3_mirror(config, mirror),

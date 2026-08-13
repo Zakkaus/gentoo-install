@@ -33,6 +33,7 @@ from gentoo_install.model.device import (
     LogicalVolume,
     Luks,
     MdRaid,
+    MdraidMetadataState,
     Mountpoint,
     Node,
     Partition,
@@ -40,6 +41,7 @@ from gentoo_install.model.device import (
     PartitionTable,
     RaidLevel,
     RaidMetadata,
+    StorageFacts,
     Swap,
     TableType,
     VolumeGroup,
@@ -617,11 +619,11 @@ def test_a_separate_vfat_boot_is_still_readable() -> None:
     )
 
 
-def reused_esp(metadata: str) -> list[Node]:
+def reused_esp() -> list[Node]:
     """An esp on an array already assembled on the machine.
 
-    `Existing` and nothing else: the model cannot read a superblock, so the
-    version is injected by the probe before validation.
+    `Existing` and nothing else: runtime facts, not the graph, describe its
+    superblock.
     """
     nodes: list[Node] = [
         node
@@ -629,7 +631,7 @@ def reused_esp(metadata: str) -> list[Node]:
         if node.id not in {i("espfs"), i("mnt-esp"), i("esp")}
     ]
     nodes += [
-        Existing(id=i("esp"), selector="/dev/md0", mdraid_metadata=metadata),
+        Existing(id=i("esp"), selector="/dev/md0"),
         Filesystem(id=i("espfs"), device=i("esp"), kind=FilesystemType.VFAT),
         Mountpoint(id=i("mnt-esp"), source=i("espfs"), path=PurePosixPath("/efi")),
     ]
@@ -641,13 +643,27 @@ def test_a_reused_array_under_the_esp_meets_the_firmware_rule() -> None:
     `Existing` and carries nothing, so a RAID1 esp with metadata 1.1 or 1.2
     met no rule at all although firmware cannot read a member whose superblock
     sits at the start."""
-    at_start = traits_of(config(reused_esp("1.2")))
-    at_end = traits_of(config(reused_esp("1.0")))
+    installation = config(reused_esp())
+    at_start = traits_of(
+        installation,
+        StorageFacts(mdraid_metadata={i("esp"): RaidMetadata.V1_2}),
+    )
+    at_end = traits_of(
+        installation,
+        StorageFacts(mdraid_metadata={i("esp"): RaidMetadata.V1_0}),
+    )
+    absent = traits_of(
+        installation,
+        StorageFacts(mdraid_metadata={i("esp"): MdraidMetadataState.ABSENT}),
+    )
+    unavailable = traits_of(installation, StorageFacts())
 
     assert Trait.ESP_ON_MDRAID in at_start
     assert Trait.ESP_MDRAID_SUPERBLOCK_AT_START in at_start
     assert Trait.ESP_ON_MDRAID in at_end
     assert Trait.ESP_MDRAID_SUPERBLOCK_AT_START not in at_end
+    assert Trait.ESP_ON_MDRAID not in absent
+    assert Trait.ESP_ON_MDRAID not in unavailable
 
 
 def test_a_mirror_with_no_ipv6_is_refused_on_an_ipv6_only_machine() -> None:

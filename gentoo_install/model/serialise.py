@@ -56,12 +56,6 @@ KINDS: Final[dict[type[Node], str]] = {
 #: one case: the node discriminator already claims `kind`.
 RENAMED: Final[dict[tuple[type[Node], str], str]] = {(Filesystem, "kind"): "type"}
 
-#: Probe-only facts stay available to planning and compatibility but are omitted
-#: here because the parser accepts only operator-authored configuration.
-PROBED_FIELDS: Final[frozenset[tuple[type[Node], str]]] = frozenset(
-    {(Existing, "mdraid_metadata"), (PartitionTable, "free_extents")}
-)
-
 #: Fields whose value is replaced when the configuration is published. A crypt
 #: hash is not the password, but it is what an offline attack starts from, and
 #: the pastebin is a public address.
@@ -154,8 +148,6 @@ def _disk(config: InstallConfig) -> list[str]:
             raise KeyError(f"{type(node).__name__} has no kind to write it as")
         lines += ["", "[[disk.devices]]", f'kind = "{kind}"']
         for field in fields(node):
-            if (type(node), field.name) in PROBED_FIELDS:
-                continue
             held = getattr(node, field.name)
             if held is None:
                 continue
