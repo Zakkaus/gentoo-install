@@ -17,6 +17,7 @@ from gentoo_install.model.config import (
     MirrorRegion,
 )
 from gentoo_install.model import manual
+from gentoo_install.model.templates import Layout
 from gentoo_install.model.device import (
     FilesystemType,
     PartitionRole,
@@ -26,7 +27,7 @@ from gentoo_install.model.device import (
 )
 from gentoo_install.model.validate import validate
 from gentoo_install.model import compat
-from gentoo_install.tui import screens, settings
+from gentoo_install.tui import app, screens, settings
 from gentoo_install.tui.app import run
 from gentoo_install.tui.widgets import Outcome
 
@@ -782,6 +783,29 @@ def test_a_grouped_row_shows_its_own_rows_and_comes_back() -> None:
         settings.nested(title, rows)(screen, config(), at)
         for row in rows:
             assert row.label in screen.last, (title, row.label)
+
+
+def test_disk_layout_summary_names_and_warns_about_wipe() -> None:
+    at = context()
+    at.choice = replace(at.choice, layout=Layout.WHOLE_DISK)
+    assert settings._layout(config(), at) == "whole-disk (erases the disk)"
+
+
+def test_kernel_command_line_summary_names_automatic_parameters() -> None:
+    at = context()
+    value = settings._cmdline(config(), at)
+    assert "kernel parameters" in value
+
+
+def test_compiler_group_uses_tool_translation() -> None:
+    # Escapes rather than literals: the source stays readable to a contributor
+    # who does not read Chinese. U+7DE8 U+8B6F U+5668 is the compiler tool.
+    assert Catalog("zh-TW")("Compiler") == "\u7de8\u8b6f\u5668"
+    assert Catalog("zh-CN")("Compiler") == "\u7f16\u8bd1\u5668"
+
+
+def test_main_menu_enter_action_is_open() -> None:
+    assert "[enter] Open" in app._menu_footer(context(), config())
 
 
 def test_language_section_reaches_every_language_setting_from_the_menu() -> None:
