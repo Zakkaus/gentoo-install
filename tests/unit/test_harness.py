@@ -1980,3 +1980,34 @@ def test_a_proxy_somewhere_else_is_not_checked_against_this_workstation() -> Non
             proxy=replace(installation.proxy, url=f"socks5h://192.0.2.9:{port}"),
         )
     )
+
+
+def test_the_input_method_check_names_something_the_file_can_hold() -> None:
+    """`DefaultIM=` was asserted against `/etc/environment` for three weeks. It
+    lives in the user's `fcitx5/profile`, so the check could only ever fail,
+    and `vm-desktop` was the first fixture to reach it."""
+    from gentoo_install.exec.config import load
+    from gentoo_install.plan.packages import INPUT_ENVIRONMENT
+    from tests.vm.installed import checks
+
+    installation = load(Path("tests/fixtures/vm-desktop.toml"))
+    named = [one for one in checks(installation) if one.name == "inputmethod"]
+    assert named, "a configuration with an input method has no check for it"
+
+    written = {
+        line
+        for (framework, _), lines in INPUT_ENVIRONMENT.items()
+        for line in lines
+    }
+    for check in named:
+        wanted = check.pattern.replace("\\", "")
+        assert any(wanted in line for line in written), wanted
+
+
+def test_no_input_method_asks_for_no_environment() -> None:
+    from gentoo_install.exec.config import load
+    from tests.vm.installed import checks
+
+    installation = load(Path("tests/fixtures/vm-gnome.toml"))
+
+    assert [one for one in checks(installation) if one.name == "inputmethod"] == []
