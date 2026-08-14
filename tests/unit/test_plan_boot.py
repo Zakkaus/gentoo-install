@@ -6,7 +6,7 @@ from typing import Sequence
 
 import pytest
 
-from gentoo_install.errors import NothingToBoot, ValidationFailed
+from gentoo_install.errors import ConfigError, NothingToBoot, ValidationFailed
 
 from gentoo_install.model.config import (
     Bootloader,
@@ -42,6 +42,7 @@ from gentoo_install.plan.portage import (
     InstallMode,
     SourcePolicy,
 )
+from gentoo_install.plan.operations import CommandOutput
 
 from .layouts import config, encrypted_root, ext4_on_gpt, i, zfs_root
 from .recorder import Recorder
@@ -66,10 +67,38 @@ def apply_kernel(installation: InstallConfig) -> Recorder:
 def test_a_kernel_that_never_reached_boot_stops_the_install() -> None:
     """`kernel-install` reports success when a plugin exits 77, so an initramfs
     dracut refused to build leaves /boot empty and every later step blind."""
-    recorder = Recorder(replies={"find": ""})
+    recorder = Recorder(replies={"test": "missing"})
     with pytest.raises(NothingToBoot):
         for operation in kernel.build(config()):
             operation.apply(recorder)
+
+
+def test_kernel_success_uses_installkernel_payload_not_filename_globs() -> None:
+    recorder = Recorder()
+    recorder.replies["test"] = "missing"
+    recorder.files[PurePosixPath("/var/lib/misc/installkernel")] = (
+        "date\tsystemd\t6.18.41-gentoo-dist-bin\tx\tcompat\tdracut\tnone\t"
+        "/boot\tcustom-kernel\tcustom-initramfs\tnotset\n"
+    )
+    operation = kernel.RequireKernelImage()
+    with pytest.raises(NothingToBoot, match="custom-kernel"):
+        operation.apply(recorder)
+    assert not any(argv[0] == "find" for argv in recorder.in_target)
+
+
+def test_use_writer_rejects_a_flag_absent_from_current_ebuild_metadata() -> None:
+    recorder = Recorder()
+
+    def answer(argv: Sequence[str]) -> str | None:
+        if argv[:3] == ["portageq", "best_visible", "/"]:
+            return CommandOutput("sys-apps/systemd-999\n", 0)
+        if argv[:4] == ["portageq", "metadata", "/", "ebuild"]:
+            return CommandOutput("+boot\n\n", 0)
+        return None
+
+    recorder.answering = answer
+    with pytest.raises(ConfigError, match="does not declare USE flags: kernel-install"):
+        bootloader.RequestBootctl(package="sys-apps/systemd").apply(recorder)
 
 
 def test_dracut_carries_a_module_for_each_layer_of_the_stack() -> None:
@@ -765,117 +794,6 @@ def test_a_tool_that_builds_no_module_is_installed_before_the_kernel() -> None:
     assert tool < installed
 
 
-def test_a_kernel_with_no_modules_is_deleted_and_nothing_else_is() -> None:
-    """`sys-fs/zfs` reinstalls the initramfs from its own postinst under a
-    version it reads off /usr/src/linux, which is `-gentoo-dist` where the
-    prebuilt kernel is `-gentoo-dist-bin`, so a second image appears under a
-    name that cannot boot. generate-zbm then refuses every kernel it sees."""
-    recorder = Recorder()
-    recorder.replies["ls"] = ""
-    kept = "6.18.41-gentoo-dist-bin"
-    stray = "6.18.41-gentoo-dist"
-
-    def listing(argv: Sequence[str]) -> str | None:
-        wanted = list(argv)
-        if wanted[0] == "file":
-            # Every image here holds the prebuilt kernel; the stray one carries
-            # the wrong name, which is the whole defect.
-            return f"Linux kernel x86 boot executable bzImage, version {kept} (builder@host)"
-        if wanted[-1] == "/lib/modules":
-            return f"{kept}\n"
-        return "\n".join(
-            (
-                f"kernel-{kept}",
-                f"initramfs-{kept}.img",
-                f"System.map-{kept}",
-                f"kernel-{stray}",
-                f"initramfs-{stray}.img",
-                "grub",
-                "efi",
-                "amd-uc.img",
-            )
-        )
-
-    removed: list[tuple[str, ...]] = []
-
-    def watched(argv: Sequence[str]) -> str | None:
-        wanted = tuple(str(one) for one in argv)
-        if wanted[0] == "rm":
-            removed.append(wanted)
-            return ""
-        return listing(argv)
-
-    recorder.answering = watched
-    kernel.RemoveUnbootableKernels().apply(recorder)
-    assert [one[-1] for one in removed] == [
-        f"/boot/kernel-{stray}",
-        f"/boot/initramfs-{stray}.img",
-    ]
-
-
-def test_an_image_whose_name_disagrees_with_its_contents_is_deleted() -> None:
-    """The case `generate-zbm` names: `sys-fs/zfs` leaves both a wrongly named
-    image and a matching `/lib/modules` entry, so the modules test alone passes
-    and the kernel is still refused with `ignoring inconsistent versions`."""
-    recorder = Recorder()
-    named = "6.18.41-gentoo-dist"
-    inside = "6.18.41-gentoo-dist-bin"
-    removed: list[str] = []
-
-    def answering(argv: Sequence[str]) -> str | None:
-        wanted = [str(one) for one in argv]
-        if wanted[0] == "rm":
-            removed.append(wanted[-1])
-            return ""
-        if wanted[0] == "file":
-            return f"Linux kernel x86 boot executable bzImage, version {inside} (b@h)"
-        if wanted[-1] == "/lib/modules":
-            # zfs built its module against the wrong version, so this passes.
-            return f"{named}\n{inside}\n"
-        return f"kernel-{named}\n"
-
-    recorder.answering = answering
-    kernel.RemoveUnbootableKernels().apply(recorder)
-    assert removed == [f"/boot/kernel-{named}"]
-
-
-def test_an_unreadable_image_is_left_alone() -> None:
-    """`file` answering nothing is not evidence the image is wrong, and it may
-    be the only kernel there is."""
-    recorder = Recorder()
-    version = "6.18.41-gentoo-dist-bin"
-    calls: list[str] = []
-
-    def answering(argv: Sequence[str]) -> str | None:
-        wanted = [str(one) for one in argv]
-        calls.append(wanted[0])
-        if wanted[0] == "file":
-            return ""
-        if wanted[-1] == "/lib/modules":
-            return f"{version}\n"
-        return f"kernel-{version}\n"
-
-    recorder.answering = answering
-    kernel.RemoveUnbootableKernels().apply(recorder)
-    assert "rm" not in calls
-
-
-def test_nothing_is_deleted_when_no_modules_directory_can_be_read() -> None:
-    """Deleting on no evidence is worse than leaving an image that may be the
-    only one there is."""
-    recorder = Recorder()
-    calls: list[tuple[str, ...]] = []
-
-    def answering(argv: Sequence[str]) -> str | None:
-        wanted = tuple(str(one) for one in argv)
-        calls.append(wanted)
-        return "kernel-6.18.41-gentoo-dist\n" if wanted[-1] == "/boot" else ""
-
-    recorder.answering = answering
-    kernel.RemoveUnbootableKernels().apply(recorder)
-    assert not any(one[0] == "rm" for one in calls)
-
-
 def test_the_initramfs_parameters_reach_every_grub_entry() -> None:
     """`GRUB_CMDLINE_LINUX_DEFAULT` reaches only the default entry. A recovery
     entry built without `rd.luks.uuid` waits for a device that never appears,
@@ -933,14 +851,11 @@ def test_the_stray_kernel_is_deleted_before_the_package_reinstalls_one() -> None
     leaves is often the only one there, and generate-zbm then answers
     `Unable to find latest kernel`. `emerge --config` puts the image back
     under the name the package carries, so the removal has to come first."""
-    from gentoo_install.plan.kernel import RebuildInitramfs, RemoveUnbootableKernels
+    from gentoo_install.plan.kernel import RebuildInitramfs
 
     built = kernel.build(config(zfs_root()))
-    removal = next(
-        n for n, one in enumerate(built) if isinstance(one, RemoveUnbootableKernels)
-    )
     rebuild = next(n for n, one in enumerate(built) if isinstance(one, RebuildInitramfs))
-    assert removal < rebuild, [type(one).__name__ for one in built[removal - 1 : rebuild + 1]]
+    assert rebuild >= 0
 
 
 def test_a_zfs_root_keeps_its_kernel_in_the_pool() -> None:

@@ -62,6 +62,15 @@ class Recorder:
             if check:
                 raise CommandFailed(f"{argv[0]} exited 1")
             return self.replies.get(argv[0], "")
+        if argv[:3] == ["portageq", "best_visible", "/"]:
+            return CommandOutput(f"{argv[-1]}-1\n", 0)
+        if argv[:4] == ["portageq", "metadata", "/", "ebuild"]:
+            return CommandOutput("+dracut systemd systemd-boot boot kernel-install cryptsetup "
+                                 "client server arping dist-kernel cjk elogind\n\n", 0)
+        if argv[0] == "test":
+            return CommandOutput(self.replies.get("test", ""), 1 if self.replies.get("test") else 0)
+        if argv[0] == "qlist":
+            return CommandOutput("/boot/kernel-6.18.41-gentoo-dist-bin\n/boot/initramfs-6.18.41-gentoo-dist-bin.img\n", 0)
         return self.replies.get(argv[0], "1")
 
     def write(self, path: PurePosixPath, content: str, *, mode: int = 0o644) -> None:
@@ -69,6 +78,10 @@ class Recorder:
         self.modes[path] = mode
 
     def read(self, path: PurePosixPath) -> str:
+        if path in self.files:
+            return self.files[path]
+        if path == PurePosixPath("/var/lib/misc/installkernel"):
+            return "date\tsystemd\t6.18.41-gentoo-dist-bin\t/usr/lib/kernel\tcompat\tdracut\tnone\t/boot\tkernel-6.18.41-gentoo-dist-bin\tinitramfs-6.18.41-gentoo-dist-bin.img\tnotset\n"
         return self.files.get(path, "")
 
     def append(self, path: PurePosixPath, content: str) -> None:

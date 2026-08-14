@@ -24,6 +24,7 @@ from ..errors import CommandFailed, ConfigError, ValidationFailed
 from ..model.config import InitSystem, InstallConfig
 from .operations import Context, Operation, Stage
 from .portage import Emerge, PortageConfigKind, WritePortageConfig
+from .bootloader import VerifyPackageUse
 from .system import CONSOLE_FONTS, EnableService
 
 
@@ -458,6 +459,13 @@ class WriteGroupUse(WritePortageConfig):
 
     def describe(self) -> str:
         return f"ask for {'; '.join(self.lines)} for the {self.group} group"
+
+    def apply(self, context: Context) -> None:
+        for line in self.lines:
+            words = line.split()
+            if len(words) > 1:
+                VerifyPackageUse(atom=words[0], flags=tuple(words[1:])).apply(context)
+        super().apply(context)
 
 @dataclass(frozen=True, kw_only=True)
 class EnableUserUnits(Operation):

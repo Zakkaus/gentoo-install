@@ -84,9 +84,8 @@
   install the storage tools: emerge sys-fs/cryptsetup sys-fs/btrfs-progs sys-fs/dosfstools
   install the kernel: emerge sys-kernel/gentoo-cjk-kernel-bin, from source
   tell dracut to carry crypt, btrfs
-  delete any kernel image in /boot that has no modules directory
   rebuild the initramfs from sys-kernel/gentoo-cjk-kernel-bin with the modules written above
-  check that a kernel image reached /boot or /efi
+  check the installkernel payload names existing kernel files
 
 [bootloader]
   install the bootloader: emerge sys-boot/grub sys-boot/efibootmgr
