@@ -30,7 +30,7 @@ from ..model.device import (
     ZfsPool,
 )
 from .operations import Context, Operation, Stage
-from .portage import Emerge, InstallMode
+from .portage import Emerge, InstallMode, PortageConfigKind, WritePortageConfig
 
 BOOTLOADER_PACKAGES: Final[dict[Bootloader, tuple[str, ...]]] = {
     Bootloader.GRUB: ("sys-boot/grub",),
@@ -193,10 +193,11 @@ class RequestBootctl(Operation):
         return f"ask for {self.package}[{','.join(self.FLAGS)}], which is what provides bootctl"
 
     def apply(self, context: Context) -> None:
-        context.write(
-            PurePosixPath("/etc/portage/package.use/systemd-boot"),
-            f"{self.package} {' '.join(self.FLAGS)}\n",
-        )
+        WritePortageConfig(
+            kind=PortageConfigKind.USE,
+            name="systemd-boot",
+            lines=(f"{self.package} {' '.join(self.FLAGS)}",),
+        ).apply(context)
 
 
 @dataclass(frozen=True, kw_only=True)

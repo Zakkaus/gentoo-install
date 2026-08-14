@@ -34,7 +34,7 @@ from ..model.device import (
 from .bootloader import serial_console
 from .mounts import resolve_mounts
 from .operations import Context, Operation, Stage
-from .portage import Emerge
+from .portage import Emerge, PortageConfigKind, WritePortageConfig
 
 #: Console fonts `sys-apps/kbd` installs, by the cell size they draw.
 CONSOLE_FONTS: Final[dict[ConsoleFontSize, str]] = {
@@ -435,10 +435,11 @@ class RequestNetworkUse(Operation):
         return f"ask for {'; '.join(self.lines)}"
 
     def apply(self, context: Context) -> None:
-        context.write(
-            PurePosixPath("/etc/portage/package.use/network"),
-            "".join(f"{line}\n" for line in self.lines),
-        )
+        WritePortageConfig(
+            kind=PortageConfigKind.USE,
+            name="network",
+            lines=self.lines,
+        ).apply(context)
 
 
 @dataclass(frozen=True, kw_only=True)

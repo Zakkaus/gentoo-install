@@ -74,6 +74,29 @@ def test_named_portage_fragments_share_one_path_and_writer() -> None:
     assert recorder.files[operation.path] == "app-misc/example foo\n"
 
 
+@pytest.mark.parametrize("kind", tuple(portage.PortageConfigKind))
+def test_portage_config_kinds_use_the_same_typed_writer(
+    kind: portage.PortageConfigKind,
+) -> None:
+    operation = portage.WritePortageConfig(kind=kind, name="example", lines=("one", "two"))
+    recorder = Recorder()
+
+    operation.apply(recorder)
+
+    # The directory is named, not derived from `kind.value`: deriving both
+    # sides from the same source cannot fail when a kind names the wrong file.
+    directories = {
+        portage.PortageConfigKind.USE: "package.use",
+        portage.PortageConfigKind.KEYWORDS: "package.accept_keywords",
+        portage.PortageConfigKind.LICENSE: "package.license",
+        portage.PortageConfigKind.UNMASK: "package.unmask",
+    }
+    assert set(directories) == set(portage.PortageConfigKind)
+    assert len(set(directories.values())) == len(directories)
+    assert operation.path == PurePosixPath(f"/etc/portage/{directories[kind]}/example")
+    assert recorder.files[operation.path] == "one\ntwo\n"
+
+
 def test_the_chroot_gets_proc_rbinds_and_a_slave_run() -> None:
     recorder = Recorder()
 

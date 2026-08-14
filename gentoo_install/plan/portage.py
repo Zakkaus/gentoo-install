@@ -516,10 +516,11 @@ class AcceptOverlayKeywords(Operation):
         return f"accept ~amd64 for packages from {self.repository} only"
 
     def apply(self, context: Context) -> None:
-        context.write(
-            PurePosixPath(f"/etc/portage/package.accept_keywords/{self.repository}"),
-            f"*/*::{self.repository} ~amd64\n",
-        )
+        WritePortageConfig(
+            kind=PortageConfigKind.KEYWORDS,
+            name=self.repository,
+            lines=(f"*/*::{self.repository} ~amd64",),
+        ).apply(context)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -795,8 +796,11 @@ class AcceptTestingPackages(Operation):
         return f"accept ~amd64 for {' '.join(self.packages)} and nothing else"
 
     def apply(self, context: Context) -> None:
-        lines = "".join(f"{atom} ~amd64\n" for atom in self.packages)
-        context.write(PurePosixPath("/etc/portage/package.accept_keywords/user"), lines)
+        WritePortageConfig(
+            kind=PortageConfigKind.KEYWORDS,
+            name="user",
+            lines=tuple(f"{atom} ~amd64" for atom in self.packages),
+        ).apply(context)
 
 
 @dataclass(frozen=True, kw_only=True)
