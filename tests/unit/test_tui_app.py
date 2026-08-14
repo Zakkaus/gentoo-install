@@ -2842,3 +2842,24 @@ def test_the_password_fields_are_one_form_the_arrows_move_between() -> None:
         FakeScreen(keys=["\n", "\n", "\n"], lines=24), config(), at
     )
     assert not away.chosen
+
+
+def test_a_row_names_its_state_beside_the_label() -> None:
+    """A colour and a marker say nothing on a console without colour, and a
+    legend printed elsewhere is not the row the operator is reading."""
+    from gentoo_install.tui.app import _labelled
+    from gentoo_install.tui.settings import SETTINGS, style_of
+    from gentoo_install.tui.widgets import Style
+    from .layouts import config as a_config
+
+    ctx = context()
+    config = a_config()
+    named = {
+        setting.label: _labelled(setting, config, ctx)
+        for setting in SETTINGS
+        if style_of(setting, config, ctx) in (Style.REQUIRED, Style.UNTOUCHED)
+    }
+    assert named, "no row is required or unopened in a fresh configuration"
+    for label, shown in named.items():
+        assert shown != ctx.translate(label)
+        assert shown.endswith("]")
