@@ -60,7 +60,7 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 
 Proxy 路徑已有焦點單元測試與 plan 測試，涵蓋 SOCKS5 DNS 模式、dry-run 輸出與發佈設定的認證資訊移除，以及已安裝系統保留不含認證資訊的端點。帶版本標記的叢集執行已涵蓋反向：`vm-proxy-dead` fixture 把 Proxy 指向沒有程序監聽的埠，安裝在 stage3 下載階段以 `Connection refused` 停止，因此執行到達鏡像就表示 Proxy 被繞過。
 
-版本 `9215c4b9e66` 的兩次執行涵蓋正向：`vm-proxy` 透過要求密碼的 SOCKS5 Proxy 完成安裝，`vm-proxy-http` 透過 HTTP Proxy 完成安裝，兩者都寫入 57 個操作，其中 93 個套件來自二進位主機、14 個由原始碼編譯。要求密碼的 HTTP 或 HTTPS Proxy 無法檢查主樹快照的簽章，因為 `emerge-webrsync` 只把不含認證資訊的端點交給 gemato。dirmngr 完全不支援 SOCKS，因此 SOCKS5 之下金鑰更新需要直連 keyserver。
+版本 `4d8512a496d` 的兩次執行涵蓋正向：`vm-proxy` 透過要求密碼的 SOCKS5 Proxy 完成安裝，`vm-proxy-http` 透過 HTTP Proxy 完成安裝，兩者都寫入 57 個操作，其中 93 個套件來自二進位主機、14 個由原始碼編譯。要求密碼的 HTTP 或 HTTPS Proxy 無法檢查主樹快照的簽章，因為 `emerge-webrsync` 只把不含認證資訊的端點交給 gemato。dirmngr 完全不支援 SOCKS，因此 SOCKS5 之下金鑰更新需要直連 keyserver。
 
 CJK 文字主控台顯示目前沒有驗證實據。ext2 與 ext3 也沒有針對其設定的自動化測試。`tests/fixtures/` 下的檔案只驗證設定模型；檔案存在不代表對應組合已完成端到端安裝與開機驗證。
 
