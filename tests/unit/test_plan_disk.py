@@ -764,16 +764,64 @@ def test_a_pool_still_busy_after_the_lazy_unmount_is_exported_on_a_later_try(
         unmounted[0] == "rpool/ROOT/gentoo" and unmounted[-1] == "rpool"
     ), unmounted
 
-    # A live environment running `zed` holds the pool for as long as it runs,
-    # so the last attempt forces rather than waiting again.
+    # A non-dataset holder is not released by the installer, so export stops.
     zed = Clean()
-    zed.refusals = disk.EXPORT_TRIES - 1
-    operation.apply(zed)
-    assert zed.commands[-1] == ("zpool", "export", "-f", "rpool"), zed.commands[-1]
+    zed.refusals = disk.EXPORT_TRIES
+    with pytest.raises(CommandFailed, match="holder is unknown"):
+        operation.apply(zed)
 
-    # A pool that refuses even that stops the install: an unexported pool needs
-    # `zpool import -f` on the next boot.
+    class MountedDataset(Clean):
+        def run(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> str:
+            if tuple(argv[:2]) == ("zfs", "list"):
+                return CommandOutput("rpool\tyes\n", 0)
+            return super().run(argv, check=check, input_text=input_text)
+
+    mounted = MountedDataset()
+    mounted.refusals = disk.EXPORT_TRIES
+    operation.apply(mounted)
+    assert mounted.commands[-1] == ("zpool", "export", "-f", "rpool")
+
+    # A pool that refuses every plain attempt stops the install.
     stubborn = Clean()
     stubborn.refusals = disk.EXPORT_TRIES
     with pytest.raises(CommandFailed):
         operation.apply(stubborn)
+
+
+def test_a_pool_busy_with_nothing_mounted_is_named_rather_than_forced(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Forcing an export hides whatever holds the pool. A dataset of its own
+    still mounted is a holder this operation can name, so that one is forced;
+    anything else — `zed` in a live environment is one — is reported.
+    """
+    from gentoo_install.errors import CommandFailed
+    from gentoo_install.plan.operations import CommandOutput
+
+    class Stuck(Recorder):
+        mounted_state = "no"
+
+        def run(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> str:
+            if tuple(argv[:2]) == ("zpool", "export") and "-f" not in argv:
+                raise CommandFailed("zpool export rpool exited 1: pool is busy")
+            if tuple(argv[:2]) == ("zfs", "list"):
+                return CommandOutput(f"rpool\t{self.mounted_state}\n", 0)
+            return super().run(argv, check=check, input_text=input_text)
+
+    monkeypatch.setattr(disk, "EXPORT_PAUSE", 0.0)
+    operation = disk.UnmountTarget(pools=("rpool",))
+
+    held = Stuck()
+    held.mounted_state = "yes"
+    operation.apply(held)
+    assert ["zpool", "export", "-f", "rpool"] in [list(one) for one in held.commands]
+
+    unknown = Stuck()
+    unknown.mounted_state = "no"
+    with pytest.raises(CommandFailed, match="holder is unknown"):
+        operation.apply(unknown)
+    assert not any("-f" in one for one in unknown.commands)
