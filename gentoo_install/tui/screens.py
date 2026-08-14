@@ -14,7 +14,7 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from itertools import takewhile
 from pathlib import PurePosixPath
-from typing import Callable, Final, Sequence, TypeVar, TypedDict
+from typing import Callable, Final, Generic, Sequence, TypeVar, TypedDict
 
 from ..i18n import Catalog, truncate
 from ..model import compat
@@ -785,6 +785,16 @@ _DONE: Final[str] = "done"
 _TABLE: Final[str] = "table"
 _DROP: Final[str] = "drop"
 
+
+T = TypeVar("T")
+
+
+@dataclass(frozen=True)
+class _FieldDescriptor(Generic[T]):
+    key: str
+    row: Callable[[T, Catalog], Item[str]]
+    edit: Callable[[Screen, Context, T], T | None]
+
 #: How the tree is kept up to date, and what each costs.
 SYNC_METHODS: tuple[tuple[Sync, str], ...] = (
     (Sync.GIT, "carries the history a signed sync checks"),
@@ -893,30 +903,8 @@ def _mirror_fields(config: InstallConfig, translate: Catalog) -> list[Item[str]]
     site = chosen.site or mirrors.gentoo_sites(region)[0].key
     used = {overlay.name for overlay in portage.overlays}
     zh = mirrors.gentoozh(chosen.gentoo_zh)
-    rows = [
-        Item(label=translate("Region"), value=_REGION, detail=region.value),
-        Item(
-            label=translate("Gentoo mirror"),
-            value=_SITE,
-            # The region's first site while none is picked, marked as the
-            # default rather than as an answer. Saying `not set` here and then
-            # adopting it on the way out was the screen keeping the value it
-            # was about to use to itself.
-            detail=_site_name(region, site, translate)
-            if chosen.site
-            else f"{_default_site(region, translate)} ({translate('default')})",
-        ),
-        Item(
-            label=translate("Gentoo distfiles"),
-            value=_DISTFILES,
-            detail=translate("in use") if chosen.gentoo_distfiles else translate("not used"),
-        ),
-        Item(
-            label=translate("Measure them"),
-            value=_MEASURE,
-            detail=translate("yes") if chosen.speed_test else translate("no"),
-        ),
-        Item(label=translate("Repository sync"), value=_SYNC, detail=portage.sync.value),
+    rows = [field.row(config, translate) for field in _MIRROR_FIELDS]
+    rows += [
         # One row, not one per method: showing a git address under a webrsync
         # choice is the interface contradicting itself.
         Item(
@@ -924,48 +912,13 @@ def _mirror_fields(config: InstallConfig, translate: Catalog) -> list[Item[str]]
             value="",
             detail=_tree_source(portage, region, site, translate),
         ),
-        Item(
-            label=translate("Gentoo binary packages"),
-            value=_BINHOST,
-            detail=mirrors.gentoo_binhost(region, site, portage.binhost.subarch)
-            if portage.binhost.official
-            else translate("not used"),
-        ),
-        Item(
-            label=translate("gentoo-zh"),
-            value=_ZH_SITE,
-            detail=translate(zh.name) if "gentoo-zh" in used else translate("not used"),
-        ),
+        next(field.row(config, translate) for field in _ALL_MIRROR_FIELDS if field.key == _BINHOST),
+        next(field.row(config, translate) for field in _ALL_MIRROR_FIELDS if field.key == _ZH_SITE),
     ]
     if "gentoo-zh" in used:
-        rows += [
-            Item(
-                label=translate("gentoo-zh distfiles"),
-                value=_ZH_DISTFILES,
-                # The first of the list, which is the one Portage tries first:
-                # all five spelled out do not fit an 80-column row.
-                detail=mirrors.gentoozh_distfiles(chosen.gentoo_zh)[0]
-                if chosen.gentoo_zh_distfiles
-                else translate("not used"),
-            ),
-            Item(
-                label=translate("gentoo-zh binary packages"),
-                value=_ZH_BINHOST,
-                # The plan's own function, so the row cannot name one path
-                # while the install writes another: global `~amd64` forces the
-                # unstable one whatever this row was set to.
-                detail=community_binhost(portage)
-                if portage.binhost.community is not BinhostChannel.OFF
-                else translate("not used"),
-            ),
-        ]
+        rows += [field.row(config, translate) for field in _ZH_MIRROR_FIELDS]
     rows += [
-        Item(
-            label=name,
-            value=name,
-            detail=translate("in use") if name in used else translate("not used"),
-        )
-        for name, _ in PLAIN_OVERLAYS
+        field.row(config, translate) for field in _OVERLAY_FIELDS
     ]
     rows.append(Item(label=translate("Done"), value=_DONE))
     return rows
@@ -996,93 +949,131 @@ def _edit_mirror(
     screen: Screen, context: Context, config: InstallConfig, field: str
 ) -> InstallConfig | None:
     """The one screen behind a field, or None when nothing changed."""
-    translate = context.translate
-    portage = config.portage
-    current = portage.mirrors
     if not field:
         # A row that only reports where a service will come from, derived from
         # the two choices above it.
         return None
-    if field == _REGION:
-        picked = Menu(
-            title=translate("Region"),
-            items=[Item(label=one.value, value=one) for one in MirrorRegion],
-            footer=footer(translate),
-            current=current.region,
-        ).run(screen)
-        if not picked.chosen:
-            return None
-        # The site belongs to the region, so changing one clears the other.
-        mirrored = replace(current, region=picked.unwrap(), site="")
-        return replace(config, portage=replace(portage, mirrors=mirrored))
-    if field == _SITE:
-        offered = mirrors.gentoo_sites(current.region)
-        chosen = Menu(
-            title=translate("Gentoo mirror"),
-            items=[
-                Item(
-                    label=translate(one.name),
-                    value=one.key,
-                    detail=f"{translate(one.area)}  {one.distfiles}",
-                    disabled_because=_unreachable_here(one, context),
-                )
-                for one in offered
-            ],
-            footer=footer(translate),
-            current=current.site,
-        ).run(screen)
-        if not chosen.chosen:
-            return None
-        return replace(
-            config, portage=replace(portage, mirrors=replace(current, site=chosen.unwrap()))
-        )
-    if field == _DISTFILES:
-        return replace(
-            config,
-            portage=replace(
-                portage, mirrors=replace(current, gentoo_distfiles=not current.gentoo_distfiles)
-            ),
-        )
-    if field == _MEASURE:
-        return replace(
-            config,
-            portage=replace(portage, mirrors=replace(current, speed_test=not current.speed_test)),
-        )
-    if field == _SYNC:
-        return _pick(
-            screen, context, config, "Repository sync",
-            list(SYNC_METHODS),
-            config.portage.sync,
-            lambda chosen_config, value: replace(
-                chosen_config, portage=replace(chosen_config.portage, sync=value)
-            ),
-        )
-    if field == _BINHOST:
-        return _edit_binhost(screen, context, config)
-    if field == _ZH_BINHOST:
-        return _pick(
-            screen, context, config, "gentoo-zh binary packages",
-            list(GENTOOZH_CHANNELS),
-            config.portage.binhost.community,
-            lambda chosen_config, value: replace(
-                chosen_config,
-                portage=replace(
-                    chosen_config.portage,
-                    binhost=replace(chosen_config.portage.binhost, community=value),
-                ),
-            ),
-        )
-    if field == _ZH_SITE:
-        return _edit_gentoozh(screen, context, config)
-    if field == _ZH_DISTFILES:
-        return replace(
-            config,
-            portage=replace(
-                portage,
-                mirrors=replace(current, gentoo_zh_distfiles=not current.gentoo_zh_distfiles),
-            ),
-        )
-    return _toggle_overlay(config, field)
+    descriptor = next((one for one in _ALL_MIRROR_FIELDS if one.key == field), None)
+    return descriptor.edit(screen, context, config) if descriptor else None
+
+
+def _mirror_region_row(config: InstallConfig, translate: Catalog) -> Item[str]:
+    return Item(label=translate("Region"), value=_REGION, detail=config.portage.mirrors.region.value)
+
+
+def _mirror_site_row(config: InstallConfig, translate: Catalog) -> Item[str]:
+    chosen = config.portage.mirrors
+    site = chosen.site or mirrors.gentoo_sites(chosen.region)[0].key
+    detail = _site_name(chosen.region, site, translate) if chosen.site else (
+        f"{_default_site(chosen.region, translate)} ({translate('default')})"
+    )
+    return Item(label=translate("Gentoo mirror"), value=_SITE, detail=detail)
+
+
+def _mirror_toggle_row(
+    config: InstallConfig, translate: Catalog, label: str, key: str, value: bool
+) -> Item[str]:
+    return Item(label=translate(label), value=key, detail=translate("in use") if value else translate("not used"))
+
+
+def _mirror_measure_row(config: InstallConfig, translate: Catalog) -> Item[str]:
+    return Item(
+        label=translate("Measure them"), value=_MEASURE,
+        detail=translate("yes") if config.portage.mirrors.speed_test else translate("no"),
+    )
+
+
+def _mirror_sync_row(config: InstallConfig, translate: Catalog) -> Item[str]:
+    return Item(label=translate("Repository sync"), value=_SYNC, detail=config.portage.sync.value)
+
+
+def _edit_mirror_region(screen: Screen, context: Context, config: InstallConfig) -> InstallConfig | None:
+    current = config.portage.mirrors
+    picked = Menu(title=context.translate("Region"), items=[Item(label=one.value, value=one) for one in MirrorRegion], footer=footer(context.translate), current=current.region).run(screen)
+    if not picked.chosen:
+        return None
+    return replace(config, portage=replace(config.portage, mirrors=replace(current, region=picked.unwrap(), site="")))
+
+
+def _edit_mirror_site(screen: Screen, context: Context, config: InstallConfig) -> InstallConfig | None:
+    current = config.portage.mirrors
+    offered = mirrors.gentoo_sites(current.region)
+    chosen = Menu(title=context.translate("Gentoo mirror"), items=[Item(label=context.translate(one.name), value=one.key, detail=f"{context.translate(one.area)}  {one.distfiles}", disabled_because=_unreachable_here(one, context)) for one in offered], footer=footer(context.translate), current=current.site).run(screen)
+    return replace(config, portage=replace(config.portage, mirrors=replace(current, site=chosen.unwrap()))) if chosen.chosen else None
+
+
+def _toggle_mirror_distfiles(screen: Screen, context: Context, config: InstallConfig) -> InstallConfig:
+    current = config.portage.mirrors
+    return replace(config, portage=replace(config.portage, mirrors=replace(current, gentoo_distfiles=not current.gentoo_distfiles)))
+
+
+def _toggle_mirror_measure(screen: Screen, context: Context, config: InstallConfig) -> InstallConfig:
+    current = config.portage.mirrors
+    return replace(config, portage=replace(config.portage, mirrors=replace(current, speed_test=not current.speed_test)))
+
+
+def _edit_mirror_sync(screen: Screen, context: Context, config: InstallConfig) -> InstallConfig | None:
+    return _pick(screen, context, config, "Repository sync", list(SYNC_METHODS), config.portage.sync, lambda chosen, value: replace(chosen, portage=replace(chosen.portage, sync=value)))
+
+
+def _mirror_distfiles_row(config: InstallConfig, translate: Catalog) -> Item[str]:
+    return Item(
+        label=translate("Gentoo distfiles"),
+        value=_DISTFILES,
+        detail=translate("in use") if config.portage.mirrors.gentoo_distfiles else translate("not used"),
+    )
+
+
+def _mirror_zh_distfiles_row(config: InstallConfig, translate: Catalog) -> Item[str]:
+    chosen = config.portage.mirrors
+    return Item(label=translate("gentoo-zh distfiles"), value=_ZH_DISTFILES, detail=mirrors.gentoozh_distfiles(chosen.gentoo_zh)[0] if chosen.gentoo_zh_distfiles else translate("not used"))
+
+
+def _mirror_zh_binhost_row(config: InstallConfig, translate: Catalog) -> Item[str]:
+    return Item(label=translate("gentoo-zh binary packages"), value=_ZH_BINHOST, detail=community_binhost(config.portage) if config.portage.binhost.community is not BinhostChannel.OFF else translate("not used"))
+
+
+def _mirror_overlay_row(config: InstallConfig, translate: Catalog, name: str) -> Item[str]:
+    return Item(label=name, value=name, detail=translate("in use") if name in {one.name for one in config.portage.overlays} else translate("not used"))
+
+
+def _edit_mirror_overlay(
+    screen: Screen, context: Context, config: InstallConfig, name: str
+) -> InstallConfig:
+    return _toggle_overlay(config, name)
+
+
+def _overlay_descriptor(name: str) -> _FieldDescriptor[InstallConfig]:
+    def row(config: InstallConfig, translate: Catalog) -> Item[str]:
+        return _mirror_overlay_row(config, translate, name)
+
+    def edit(screen: Screen, context: Context, config: InstallConfig) -> InstallConfig:
+        return _edit_mirror_overlay(screen, context, config, name)
+
+    return _FieldDescriptor(name, row, edit)
+
+
+_MIRROR_FIELDS: tuple[_FieldDescriptor[InstallConfig], ...] = (
+    _FieldDescriptor(_REGION, _mirror_region_row, _edit_mirror_region),
+    _FieldDescriptor(_SITE, _mirror_site_row, _edit_mirror_site),
+    _FieldDescriptor(_DISTFILES, _mirror_distfiles_row, lambda s, c, x: _toggle_mirror_distfiles(s, c, x)),
+    _FieldDescriptor(_MEASURE, _mirror_measure_row, lambda s, c, x: _toggle_mirror_measure(s, c, x)),
+    _FieldDescriptor(_SYNC, _mirror_sync_row, _edit_mirror_sync),
+)
+_ZH_MIRROR_FIELDS: tuple[_FieldDescriptor[InstallConfig], ...] = (
+    _FieldDescriptor(_ZH_DISTFILES, _mirror_zh_distfiles_row, lambda s, c, x: replace(x, portage=replace(x.portage, mirrors=replace(x.portage.mirrors, gentoo_zh_distfiles=not x.portage.mirrors.gentoo_zh_distfiles)))),
+)
+_OVERLAY_FIELDS = tuple(
+    _overlay_descriptor(name)
+    for name, _ in PLAIN_OVERLAYS
+)
+_ALL_MIRROR_FIELDS = _MIRROR_FIELDS + (
+    _FieldDescriptor(_BINHOST, lambda config, translate: Item(label=translate("Gentoo binary packages"), value=_BINHOST, detail=mirrors.gentoo_binhost(config.portage.mirrors.region, config.portage.mirrors.site, config.portage.binhost.subarch) if config.portage.binhost.official else translate("not used")), lambda s, c, x: _edit_binhost(s, c, x)),
+    _FieldDescriptor(_ZH_BINHOST, _mirror_zh_binhost_row, lambda s, c, x: _pick(s, c, x, "gentoo-zh binary packages", list(GENTOOZH_CHANNELS), x.portage.binhost.community, lambda chosen, value: replace(chosen, portage=replace(chosen.portage, binhost=replace(chosen.portage.binhost, community=value))))),
+    _FieldDescriptor(_ZH_SITE, lambda config, translate: Item(label=translate("gentoo-zh"), value=_ZH_SITE, detail=translate(mirrors.gentoozh(config.portage.mirrors.gentoo_zh).name) if "gentoo-zh" in {one.name for one in config.portage.overlays} else translate("not used")), lambda s, c, x: _edit_gentoozh(s, c, x)),
+    *_ZH_MIRROR_FIELDS,
+    *_OVERLAY_FIELDS,
+)
 
 
 V = TypeVar("V")
@@ -3818,6 +3809,10 @@ def _seeded_disk(
 _LEVEL: Final[str] = "level"
 _METADATA: Final[str] = "metadata"
 _NAME: Final[str] = "name"
+_FILESYSTEM: Final[str] = "filesystem"
+_MOUNTPOINT: Final[str] = "mountpoint"
+_LABEL: Final[str] = "label"
+_ENCRYPTION: Final[str] = "encryption"
 
 
 def _edit_array(screen: Screen, context: Context) -> None:
@@ -3830,24 +3825,7 @@ def _edit_array(screen: Screen, context: Context) -> None:
     members = len(_array_members(context))
     while True:
         array = context.layout.array
-        items: list[Item[str]] = [
-            Item(label=translate("Name"), value=_NAME, detail=array.name),
-            Item(label=translate("RAID level"), value=_LEVEL, detail=array.level.value),
-            Item(label=translate("Superblock"), value=_METADATA, detail=array.metadata.value),
-            Item(
-                label=translate("Filesystem"), value=_FILESYSTEM, detail=array.filesystem.value
-            ),
-            Item(
-                label=translate("Mount point"), value=_MOUNTPOINT, detail=array.mountpoint or "-"
-            ),
-            Item(label=translate("Label"), value=_LABEL, detail=array.label or "-"),
-            Item(
-                label=translate("Encryption"),
-                value=_ENCRYPTION,
-                detail=translate("on") if array.passphrase_file else translate("off"),
-            ),
-            Item(label=translate("Done"), value=_DONE),
-        ]
+        items = [field.row((array, members), translate) for field in _ARRAY_FIELDS]
         answer = Menu(
             title=f"{translate('RAID array')}  {members} {translate('members')}",
             items=items,
@@ -3859,6 +3837,13 @@ def _edit_array(screen: Screen, context: Context) -> None:
 
 
 def _edit_array_field(screen: Screen, context: Context, field: str, members: int) -> None:
+    descriptor = next((one for one in _ARRAY_FIELDS if one.key == field), None)
+    if descriptor is not None:
+        descriptor.edit(screen, context, (context.layout.array, members))
+    return
+
+
+def _edit_array_field_legacy(screen: Screen, context: Context, field: str, members: int) -> None:
     translate = context.translate
     array = context.layout.array
     if field == _LEVEL:
@@ -3938,6 +3923,44 @@ def _edit_array_field(screen: Screen, context: Context, field: str, members: int
         array.label = text
 
 
+def _array_descriptor(
+    key: str, label: str, detail: Callable[[manual.Array, Catalog], str]
+) -> _FieldDescriptor[tuple[manual.Array, int]]:
+    def row(value: tuple[manual.Array, int], translate: Catalog) -> Item[str]:
+        shown = translate(label)
+        if key == _NAME:
+            shown = translate("Name")
+        return Item(label=shown, value=key, detail=detail(value[0], translate))
+
+    def edit(screen: Screen, context: Context, value: tuple[manual.Array, int]) -> tuple[manual.Array, int]:
+        _edit_array_field_legacy(screen, context, key, value[1])
+        return value
+
+    return _FieldDescriptor(
+        key,
+        row,
+        edit,
+    )
+
+
+_ARRAY_FIELDS: tuple[_FieldDescriptor[tuple[manual.Array, int]], ...] = (
+    _array_descriptor(_NAME, "Name", lambda array, _: array.name),
+    _array_descriptor(_LEVEL, "RAID level", lambda array, _: array.level.value),
+    _array_descriptor(_METADATA, "Superblock", lambda array, _: array.metadata.value),
+    _array_descriptor(_FILESYSTEM, "Filesystem", lambda array, _: array.filesystem.value),
+    _array_descriptor(_MOUNTPOINT, "Mount point", lambda array, _: array.mountpoint or "-"),
+    _array_descriptor(_LABEL, "Label", lambda array, _: array.label or "-"),
+    _array_descriptor(
+        _ENCRYPTION,
+        "Encryption",
+        lambda array, translate: translate("on") if array.passphrase_file else translate("off"),
+    ),
+    _FieldDescriptor(
+        _DONE,
+        lambda _, translate: Item(label=translate("Done"), value=_DONE),
+        lambda _, __, value: value,
+    ),
+)
 def _pool_topology(
     screen: Screen, context: Context, members: int
 ) -> ZfsTopology | None:
@@ -4001,10 +4024,6 @@ def _from_layout(config: InstallConfig, context: Context) -> InstallConfig:
 #: answer is hidden behind a screen the operator has to reach to discover.
 _SIZE: Final[str] = "size"
 _PURPOSE: Final[str] = "purpose"
-_FILESYSTEM: Final[str] = "filesystem"
-_MOUNTPOINT: Final[str] = "mountpoint"
-_LABEL: Final[str] = "label"
-_ENCRYPTION: Final[str] = "encryption"
 _DELETE: Final[str] = "delete"
 _STATUS: Final[str] = "status"
 
@@ -4045,6 +4064,16 @@ def _edit_slice(
 
 
 def _slice_fields(
+    entry: manual.Slice, purpose: manual.Purpose, translate: Catalog
+) -> list[Item[str]]:
+    return [
+        descriptor.row((entry, purpose), translate)
+        for descriptor in _SLICE_FIELDS
+        if descriptor.key in {item.value for item in _slice_field_items(entry, purpose, translate)}
+    ]
+
+
+def _slice_field_items(
     entry: manual.Slice, purpose: manual.Purpose, translate: Catalog
 ) -> list[Item[str]]:
     """Every field with its value, and why one that does not apply cannot be
@@ -4119,6 +4148,20 @@ def _size_of(entry: manual.Slice, translate: Catalog) -> str:
 
 
 def _edit_field(
+    screen: Screen,
+    context: Context,
+    entry: manual.Slice,
+    purpose: manual.Purpose,
+    field: str,
+) -> manual.Slice | None:
+    descriptor = next((one for one in _SLICE_FIELDS if one.key == field), None)
+    if descriptor is None:
+        return None
+    changed = descriptor.edit(screen, context, (entry, purpose))
+    return changed[0] if changed is not None else None
+
+
+def _edit_field_legacy(
     screen: Screen,
     context: Context,
     entry: manual.Slice,
@@ -4231,6 +4274,25 @@ def _edit_field(
             return None
         return replace(entry, label=named.unwrap().strip())
     return _edit_slice_encryption(screen, context, entry, purpose)
+
+
+def _slice_descriptor(key: str) -> _FieldDescriptor[tuple[manual.Slice, manual.Purpose]]:
+    def row(value: tuple[manual.Slice, manual.Purpose], translate: Catalog) -> Item[str]:
+        return next(item for item in _slice_field_items(*value, translate) if item.value == key)
+
+    def edit(
+        screen: Screen, context: Context, value: tuple[manual.Slice, manual.Purpose]
+    ) -> tuple[manual.Slice, manual.Purpose] | None:
+        changed = _edit_field_legacy(screen, context, value[0], value[1], key)
+        return (changed, value[1]) if changed is not None else None
+
+    return _FieldDescriptor(key, row, edit)
+
+
+_SLICE_FIELDS: tuple[_FieldDescriptor[tuple[manual.Slice, manual.Purpose]], ...] = tuple(
+    _slice_descriptor(key)
+    for key in (_SIZE, _PURPOSE, _FILESYSTEM, _MOUNTPOINT, _LABEL, _ENCRYPTION, _STATUS, _DELETE)
+)
 
 
 def _apply_purpose(entry: manual.Slice, purpose: manual.Purpose) -> manual.Slice:

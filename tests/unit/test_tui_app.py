@@ -119,6 +119,29 @@ def test_a_group_is_a_list_and_never_a_wizard() -> None:
             assert "wizard" not in setting.edit.__name__
 
 
+def test_field_editors_have_one_descriptor_for_each_editable_row() -> None:
+    at = context()
+    mirror_expected = {screens._REGION, screens._SITE, screens._DISTFILES,
+                       screens._MEASURE, screens._SYNC, screens._BINHOST,
+                       screens._ZH_SITE, screens._ZH_DISTFILES,
+                       screens._ZH_BINHOST, "gig", "guru"}
+    mirror_rows = {item.value for item in screens._mirror_fields(config(), at.translate)
+                   if item.value not in ("", screens._DONE)}
+    assert mirror_rows <= mirror_expected
+    assert {field.key for field in screens._ALL_MIRROR_FIELDS} == mirror_expected
+
+    array_expected = {screens._NAME, screens._LEVEL, screens._METADATA,
+                      screens._FILESYSTEM, screens._MOUNTPOINT, screens._LABEL,
+                      screens._ENCRYPTION}
+    array_rows = {
+        field.row((at.layout.array, 0), at.translate).value
+        for field in screens._ARRAY_FIELDS
+        if field.key != screens._DONE
+    }
+    assert {field.key for field in screens._ARRAY_FIELDS} - {screens._DONE} == array_expected
+    assert array_rows == array_expected
+
+
 def test_a_row_can_be_opened_and_the_menu_comes_back() -> None:
     """Not a wizard: editing one row returns to the menu rather than moving to
     the next question, so any row can be revisited."""
