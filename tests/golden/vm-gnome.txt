@@ -36,7 +36,7 @@
   accept the linux-firmware licence
   ask for gnome-base/gdm systemd; sys-auth/pambase systemd for the gdm group
   ask for media-video/pipewire sound-server for the pipewire group
-  resolve net-misc/openssh net-misc/networkmanager net-wireless/wpa_supplicant sys-process/cronie sys-kernel/installkernel sys-kernel/dracut sys-kernel/linux-firmware sys-fs/dosfstools sys-fs/e2fsprogs sys-kernel/gentoo-kernel-bin sys-boot/grub sys-boot/efibootmgr gnome-base/gnome-light x11-base/xorg-server gnome-base/gdm media-fonts/noto-cjk media-fonts/noto media-libs/fontconfig media-video/pipewire media-video/wireplumber together before installing the requested packages
+  resolve net-misc/openssh net-misc/networkmanager net-wireless/wpa_supplicant sys-process/cronie sys-kernel/installkernel sys-kernel/dracut sys-kernel/linux-firmware sys-fs/dosfstools sys-fs/e2fsprogs sys-kernel/gentoo-kernel-bin sys-boot/grub sys-boot/efibootmgr gnome-base/gnome-light x11-base/xorg-server gnome-base/gdm app-i18n/ibus app-i18n/ibus-libpinyin media-fonts/noto-cjk media-fonts/noto media-libs/fontconfig media-video/pipewire media-video/wireplumber together before installing the requested packages
 
 [system]
   generate and verify locales en_US.UTF-8
@@ -75,9 +75,13 @@
   install the gnome group: emerge gnome-base/gnome-light x11-base/xorg-server
   install the gdm group: emerge gnome-base/gdm
   enable gdm at boot
+  install the ibus group: emerge app-i18n/ibus
+  install the ibus-pinyin group: emerge app-i18n/ibus-libpinyin
   install the noto-cjk group: emerge media-fonts/noto-cjk media-fonts/noto media-libs/fontconfig
   install the pipewire group: emerge media-video/pipewire media-video/wireplumber
   enable pipewire.socket, pipewire-pulse.socket, wireplumber.service for every user
+  set XMODIFIERS, GTK_IM_MODULE, QT_IM_MODULE in /etc/environment for ibus
+  write the GNOME dconf default with libpinyin
 
 [finish]
   delete the downloaded stage3 from /var/cache/gentoo-install
