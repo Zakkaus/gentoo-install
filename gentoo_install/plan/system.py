@@ -9,7 +9,6 @@ from enum import Enum
 from pathlib import PurePosixPath
 from types import MappingProxyType
 from typing import Final, Mapping
-from urllib.parse import urlsplit, urlunsplit
 
 from ..errors import InvalidLayout, LocaleMissing
 from ..model import compat
@@ -1130,15 +1129,7 @@ def build(config: InstallConfig) -> list[Operation]:
 
 def _proxy_endpoint(proxy: ProxyConfig) -> str:
     """The proxy URL without user information, for process environments."""
-    if not proxy.url:
-        return ""
-    parts = urlsplit(proxy.url)
-    host = parts.hostname or ""
-    if ":" in host and not host.startswith("["):
-        host = f"[{host}]"
-    if parts.port is not None:
-        host = f"{host}:{parts.port}"
-    return urlunsplit((parts.scheme, host, "", "", ""))
+    return proxy.redacted_url
 
 
 def _zfs_services(config: InstallConfig) -> list[Operation]:

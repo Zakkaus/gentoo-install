@@ -38,7 +38,7 @@ gentoo-install은 Linux 라이브 환경에서 실행되어 amd64 아키텍처�
 
 <!-- fact: proxy -->
 
-**세션 프록시** `[proxy]` 테이블은 `url`과 `bypass`를 받는다. URL에는 `http://`, `https://`, `socks5://`, `socks5h://`를 사용할 수 있고 인증 정보도 포함할 수 있다. URL이 비어 있으면 직접 연결하며 이것이 기본값이다. `socks5`는 호스트 이름을 로컬에서 확인하고 `socks5h`는 프록시에서 확인한다. 따라서 라이브 환경이 내부 호스트 이름을 확인하지 못하면 `socks5h`가 필요하다. 주 메뉴에는 URL과 우회 호스트 두 필드가 있는 `Proxy` 행이 있다. URL 필드는 secret으로 처리되어 비밀번호를 표시하지 않는다. `bypass`는 인터페이스에서 쉼표로 구분한 값이고 TOML에서는 목록이다.
+**세션 프록시** `[proxy]` 테이블은 `kind`, `host`, `port`, 선택 사항인 `username`과 `password`, `bypass`를 받는다. `kind`는 `http`, `https`, `socks5` 중 하나이며 `host`가 비어 있으면 직접 연결한다. SOCKS5는 `socks5h://`로 파생되므로 내부 호스트 이름을 프록시에서 확인한다. 주 메뉴에는 값마다 필드가 있고 프록시 종류는 메뉴에서 선택한다. `bypass`는 인터페이스에서 쉼표로 구분한 값이고 TOML에서는 목록이다.
 
 프록시를 선택한 뒤 설정한 프록시는 stage3와 서명 키, 메인 트리 및 overlay 버전 조회, `gitweb.gentoo.org`의 ZFS ebuild 조회, `make.conf`와 `FETCHCOMMAND`/`RESUMECOMMAND`를 통한 Portage 다운로드, `wget`, `curl`, `git`, GnuPG, binhost, overlay, paste 업로드에 사용된다. 시계, 초기 연결 검사, 메뉴 전에 실행되는 미러 검사는 설정을 읽기 전에 실행되므로 이 설정의 대상이 아니다. 설치 도구는 dry-run 설명과 공개 설정에서 인증 정보를 제외한다. 공개 설정과 설치된 시스템에는 인증 정보가 없는 엔드포인트와 우회 목록만 남는다.
 
@@ -159,7 +159,11 @@ cd gentoo-install-master
 config_version = 1
 
 [proxy]
-url = "socks5h://operator:secret@proxy.example:1080"
+kind = "socks5"
+host = "proxy.example"
+port = 1080
+username = "operator"
+password = "secret"
 bypass = ["localhost", "intranet.example"]
 
 [system]

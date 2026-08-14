@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import PurePosixPath
 from typing import Final, Sequence
-from urllib.parse import urlsplit, urlunsplit
 
 from ..errors import CommandFailed, ConfigError
 from ..model import mirrors
@@ -722,6 +721,7 @@ class PrepareBinhostTrust(Operation):
     the official host's signatures have nothing to verify against."""
 
     stage: Stage = Stage.PORTAGE
+    proxy: ProxyConfig = ProxyConfig()
 
     def describe(self) -> str:
         return "run getuto so Portage has a keyring to verify binary packages against"
@@ -733,6 +733,17 @@ class PrepareBinhostTrust(Operation):
             # Not fatal by design: the disks are already written by now, and
             # compiling is the guaranteed path a binary host only shortens.
             context.degrade(BINARY_PACKAGES, f"getuto left no keyring to verify against: {error}")
+        # After getuto, never before: it rebuilds the whole directory from a
+        # staging copy, so anything written there earlier is discarded. Its own
+        # file carries `honor-http-proxy`, and the endpoint in the environment
+        # has no credentials, so the tree's signature check answered
+        # `keyserver refresh failed: Not authenticated`.
+        if self.proxy.over_http:
+            context.write(
+                PurePosixPath("/etc/portage/gnupg/dirmngr.conf"),
+                f"honor-http-proxy\nhttp-proxy {self.proxy.url}\n",
+                mode=0o600,
+            )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -954,7 +965,7 @@ def build(
         # `binpkg-request-signature` refuses the merge, and without it a
         # package is installed unverified three operations before the trust
         # setup that exists to prevent exactly that.
-        operations.append(PrepareBinhostTrust())
+        operations.append(PrepareBinhostTrust(proxy=config.proxy))
     if portage.binhost.official:
         # Written rather than left to the stage3's default, because that names
         # the profile's baseline and the subarchitecture is a choice here.
@@ -1152,30 +1163,25 @@ def _features(config: InstallConfig) -> tuple[str, ...]:
 
 def _proxy_endpoint(proxy: ProxyConfig) -> str:
     """The proxy URL without user information, for process environments."""
-    if not proxy.url:
-        return ""
-    parts = urlsplit(proxy.url)
-    host = parts.hostname or ""
-    if ":" in host and not host.startswith("["):
-        host = f"[{host}]"
-    if parts.port is not None:
-        host = f"{host}:{parts.port}"
-    return urlunsplit((parts.scheme, host, "", "", ""))
+    return proxy.redacted_url
 
 
 def _rsync_proxy(proxy: ProxyConfig) -> str:
     """The host:port form rsync reads from `RSYNC_PROXY`."""
-    parts = urlsplit(proxy.url)
-    host = parts.hostname or ""
+    host = proxy.host
     if ":" in host and not host.startswith("["):
         host = f"[{host}]"
-    return f"{host}:{parts.port or 8080}"
+    return f"{host}:{proxy.port or 8080}"
 
 
 def _proxy_toml(proxy: ProxyConfig) -> str:
     """The credential-bearing bootstrap file read only by the installer."""
     return (
-        f"url = {json.dumps(proxy.url)}\n"
+        f"kind = {json.dumps(proxy.kind.value)}\n"
+        f"host = {json.dumps(proxy.host)}\n"
+        f"port = {proxy.port}\n"
+        f"username = {json.dumps(proxy.username)}\n"
+        f"password = {json.dumps(proxy.password)}\n"
         f"bypass = {json.dumps(list(proxy.bypass))}\n"
     )
 

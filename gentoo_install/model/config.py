@@ -36,21 +36,30 @@ class InitSystem(Enum):
     SYSTEMD = "systemd"
 
 
+class ProxyKind(Enum):
+    HTTP = "http"
+    HTTPS = "https"
+    SOCKS5 = "socks5"
+
+
 @dataclass(frozen=True)
 class ProxyConfig:
     """The optional proxy used by installer and target network clients.
 
-    ``url`` may carry RFC 3986 user information. It is kept in the saved
-    configuration because the target needs the same credentials; callers that
-    display it must use :attr:`redacted_url`.
+    The endpoint fields are persisted separately. ``url`` is derived for tools
+    that still require one endpoint string.
     """
 
-    url: str = ""
+    kind: ProxyKind = ProxyKind.HTTP
+    host: str = ""
+    port: int = 0
+    username: str = ""
+    password: str = ""
     bypass: tuple[str, ...] = ()
 
     @property
     def enabled(self) -> bool:
-        return bool(self.url)
+        return bool(self.host)
 
     @property
     def over_socks(self) -> bool:
@@ -59,42 +68,39 @@ class ProxyConfig:
         `validate.py` names the four schemes an operator may write; this
         divides them, so a caller never carries its own set of scheme names.
         """
-        from urllib.parse import urlsplit
-
-        return urlsplit(self.url).scheme.lower() in {"socks5", "socks5h"}
+        return self.enabled and self.kind is ProxyKind.SOCKS5
 
     @property
     def over_http(self) -> bool:
-        return self.enabled and not self.over_socks
+        return self.enabled and self.kind is not ProxyKind.SOCKS5
+
+    @property
+    def url(self) -> str:
+        """The endpoint URL; SOCKS5 uses proxy-side DNS for intranet names."""
+        from urllib.parse import quote
+
+        if not self.host:
+            return ""
+        host = self.host
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"
+        userinfo = ""
+        if self.username or self.password:
+            userinfo = quote(self.username, safe="")
+            if self.password:
+                userinfo += f":{quote(self.password, safe='')}"
+            userinfo += "@"
+        scheme = "socks5h" if self.kind is ProxyKind.SOCKS5 else self.kind.value
+        return f"{scheme}://{userinfo}{host}:{self.port}"
 
     @property
     def redacted_url(self) -> str:
-        """The URL with user information removed for screen and log output."""
-        from urllib.parse import urlsplit, urlunsplit
-
-        if not self.url:
+        """The derived URL with user information removed for display and logs."""
+        if not self.enabled:
             return ""
-        parts = urlsplit(self.url)
-        host = parts.hostname or ""
-        if ":" in host and not host.startswith("["):
-            host = f"[{host}]"
-        if parts.port is not None:
-            host = f"{host}:{parts.port}"
-        return urlunsplit((parts.scheme, host, parts.path, parts.query, parts.fragment))
-
-    @property
-    def username(self) -> str:
-        """The optional URL user information, percent-decoded."""
-        from urllib.parse import unquote, urlsplit
-
-        return unquote(urlsplit(self.url).username or "")
-
-    @property
-    def password(self) -> str:
-        """The optional URL password, percent-decoded."""
-        from urllib.parse import unquote, urlsplit
-
-        return unquote(urlsplit(self.url).password or "")
+        host = f"[{self.host}]" if ":" in self.host and not self.host.startswith("[") else self.host
+        scheme = "socks5h" if self.kind is ProxyKind.SOCKS5 else self.kind.value
+        return f"{scheme}://{host}:{self.port}"
 
 
 class KernelSource(Enum):

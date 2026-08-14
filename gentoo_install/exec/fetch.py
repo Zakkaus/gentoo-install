@@ -125,13 +125,22 @@ def _bootstrap_proxy(work: Path) -> ProxyConfig | None:
         raw = tomllib.loads((root / "etc/gentoo-install/proxy.toml").read_text())
     except (OSError, IndexError, tomllib.TOMLDecodeError):
         return None
-    url = raw.get("url", "")
+    kind = raw.get("kind", "http")
+    host = raw.get("host", "")
+    port = raw.get("port", 0)
+    username = raw.get("username", "")
+    password = raw.get("password", "")
     bypass = raw.get("bypass", [])
-    if not isinstance(url, str) or not isinstance(bypass, list) or not all(
+    if not isinstance(kind, str) or not isinstance(host, str) or not isinstance(port, int) or not isinstance(username, str) or not isinstance(password, str) or not isinstance(bypass, list) or not all(
         isinstance(item, str) for item in bypass
     ):
         return None
-    return ProxyConfig(url=url, bypass=tuple(bypass))
+    from ..model.config import ProxyKind
+    try:
+        proxy_kind = ProxyKind(kind)
+    except ValueError:
+        return None
+    return ProxyConfig(kind=proxy_kind, host=host, port=port, username=username, password=password, bypass=tuple(bypass))
 
 
 def _marker_matches(marker: Path, archive: Path, fingerprint: str) -> bool:
@@ -580,11 +589,9 @@ def _recv(sock: socket.socket, size: int) -> bytes:
 
 
 def _socks_connect(proxy: ProxyConfig, host: str, port: int, timeout: float | None) -> socket.socket:
-    parts = urllib.parse.urlsplit(proxy.url)
-    if not parts.hostname:
+    if not proxy.host:
         raise OSError("SOCKS5 proxy has no host")
-    proxy_port = parts.port or 1080
-    sock = socket.create_connection((parts.hostname, proxy_port), timeout)
+    sock = socket.create_connection((proxy.host, proxy.port or 1080), timeout)
     username, password = proxy.username.encode(), proxy.password.encode()
     methods = b"\x00\x02" if username or password else b"\x00"
     sock.sendall(b"\x05" + bytes((len(methods),)) + methods)
@@ -600,7 +607,8 @@ def _socks_connect(proxy: ProxyConfig, host: str, port: int, timeout: float | No
         if _recv(sock, 2) != b"\x01\x00":
             sock.close()
             raise OSError("SOCKS5 proxy rejected credentials")
-    remote_dns = parts.scheme.lower() == "socks5h"
+    # SOCKS5 uses proxy-side DNS so intranet names do not need local resolution.
+    remote_dns = True
     if remote_dns:
         encoded = host.encode()
         address = b"\x03" + bytes((len(encoded),)) + encoded

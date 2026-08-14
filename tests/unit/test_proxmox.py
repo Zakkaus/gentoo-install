@@ -1545,7 +1545,7 @@ def test_installed_login_uses_the_login_observed_by_unlock(
         def observe(self, pattern: str, timeout: float) -> bytes:
             events.append(f"observe:{pattern}")
             if pattern == PASSWORD_PROMPT:
-                return "密碼：".encode()
+                return "\u5bc6\u78bc\uff1a".encode()
             return b"root@cryptbox ~ #"
 
         def respond(self, line: str) -> None:

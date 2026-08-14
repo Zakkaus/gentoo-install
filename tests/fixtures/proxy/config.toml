@@ -1,7 +1,11 @@
 config_version = 1
 
 [proxy]
-url = "socks5h://operator:secret@proxy.example:1080"
+kind = "socks5"
+host = "proxy.example"
+port = 1080
+username = "operator"
+password = "secret"
 bypass = ["localhost", "intranet.example"]
 
 [system]

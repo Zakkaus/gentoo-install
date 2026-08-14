@@ -403,7 +403,7 @@ def _mirror(config: InstallConfig, context: Context) -> str:
 def _proxy(config: InstallConfig, context: Context) -> str:
     """Show the proxy endpoint without exposing URL credentials."""
     proxy = config.proxy
-    if not proxy.url:
+    if not proxy.enabled:
         return context.translate("off")
     value = proxy.redacted_url
     if proxy.bypass:

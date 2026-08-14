@@ -1947,14 +1947,14 @@ def test_a_proxy_on_the_workstation_must_be_listening_before_the_run() -> None:
         require_proxy(
             replace(
                 installation,
-                proxy=replace(installation.proxy, url=f"socks5h://{GATEWAY}:{port}"),
+                proxy=replace(installation.proxy, host=GATEWAY, port=port),
             )
         )
     with pytest.raises(SystemExit) as refused:
         require_proxy(
             replace(
                 installation,
-                proxy=replace(installation.proxy, url=f"socks5h://{GATEWAY}:{port}"),
+                proxy=replace(installation.proxy, host=GATEWAY, port=port),
             )
         )
     assert str(port) in str(refused.value)
@@ -1977,7 +1977,7 @@ def test_a_proxy_somewhere_else_is_not_checked_against_this_workstation() -> Non
     require_proxy(
         replace(
             installation,
-            proxy=replace(installation.proxy, url=f"socks5h://192.0.2.9:{port}"),
+            proxy=replace(installation.proxy, host="192.0.2.9", port=port),
         )
     )
 

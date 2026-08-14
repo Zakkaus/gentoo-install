@@ -38,7 +38,7 @@ The system configuration can configure zram independently of the device graph an
 
 <!-- fact: proxy -->
 
-**Session proxy.** The `[proxy]` table accepts `url` and `bypass`. The URL accepts `http://`, `https://`, `socks5://` and `socks5h://`, with optional credentials; an empty URL selects direct connection, which is the default. `socks5` resolves host names locally, while `socks5h` resolves them at the proxy, so an internal host name requires `socks5h` when the live environment cannot resolve it. The interface has a `Proxy` row with URL and bypass fields; the URL field is secret and does not echo a password. The bypass value is a comma-separated interface value and a list in TOML.
+**Session proxy.** The `[proxy]` table accepts `kind`, `host`, `port`, optional `username` and `password`, and `bypass`. `kind` is `http`, `https` or `socks5`; an empty host selects direct connection, which is the default. SOCKS5 derives `socks5h://`, so host names resolve at the proxy for intranet access. The interface has one field per value and a menu for the proxy kind. The bypass value is comma-separated in the interface and a list in TOML.
 
 After the proxy is selected, the configured proxy is used for stage3 and its signing key, main-tree and overlay version lookups, the `gitweb.gentoo.org` ZFS ebuild lookup, Portage downloads through `make.conf` and `FETCHCOMMAND`/`RESUMECOMMAND`, `wget`, `curl`, `git`, GnuPG, the binhost, overlays and paste upload. The clock, initial connectivity check and pre-menu mirror check run before the configuration is available and therefore are not covered by this setting. The installer keeps the credential out of dry-run descriptions and publishes a credential-free proxy endpoint with the bypass list; the installed system receives that endpoint and list.
 
@@ -159,7 +159,11 @@ The following complete configuration demonstrates a proxy with credentials and t
 config_version = 1
 
 [proxy]
-url = "socks5h://operator:secret@proxy.example:1080"
+kind = "socks5"
+host = "proxy.example"
+port = 1080
+username = "operator"
+password = "secret"
 bypass = ["localhost", "intranet.example"]
 
 [system]

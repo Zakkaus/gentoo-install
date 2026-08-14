@@ -6,7 +6,9 @@
 config_version = 1
 
 [proxy]
-url = "http://127.0.0.1:1"
+kind = "http"
+host = "127.0.0.1"
+port = 1
 
 [system]
 hostname = "btrfsbox"

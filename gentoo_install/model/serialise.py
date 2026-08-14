@@ -94,14 +94,14 @@ def _section(name: str, value: object, prefix: str = "", *, publishing: bool = F
             continue
         if held is None or held == field.default or held == _empty(field.default_factory):
             continue
+        if publishing and isinstance(value, ProxyConfig) and field.name in {"username", "password"}:
+            continue
         if _tables(held):
             nested += _array_of_tables(f"{path}.{field.name}", held, publishing=publishing)
             continue
         if publishing and field.name in SECRET:
             keys.append(f"{field.name} = {_value(REDACTED)}")
             continue
-        if publishing and isinstance(value, ProxyConfig) and field.name == "url":
-            held = value.redacted_url
         keys.append(f"{field.name} = {_value(held)}")
     if not keys and not nested:
         return []

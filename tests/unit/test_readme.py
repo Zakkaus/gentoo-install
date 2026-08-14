@@ -232,7 +232,8 @@ def test_proxy_is_documented_in_every_readme_and_the_example_parses() -> None:
         examples = re.findall(r"```toml\n(.*?)```", readme(name), re.S)
         example = next(example for example in examples if "[proxy]" in example)
         raw = tomllib.loads(example)
-        assert raw["proxy"]["url"] == "socks5h://operator:secret@proxy.example:1080"
+        assert raw["proxy"]["kind"] == "socks5"
+        assert raw["proxy"]["host"] == "proxy.example"
         if proxy_implemented:
             validate(parse(raw))
 

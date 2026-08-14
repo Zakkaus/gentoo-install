@@ -16,6 +16,7 @@ from gentoo_install.model.config import (
     Keywords,
     MirrorRegion,
     ProxyConfig,
+    ProxyKind,
 )
 from gentoo_install.model.device import (
     DeviceId,
@@ -96,25 +97,62 @@ def test_defaults_apply_when_a_section_is_absent() -> None:
     assert config.bootloader.kind is Bootloader.GRUB
 
 
-def test_proxy_url_preserves_credentials_and_bypass_hosts() -> None:
+def test_proxy_fields_preserve_credentials_and_bypass_hosts() -> None:
     raw = fixture()
     raw["proxy"] = {
-        "url": "socks5h://operator:secret@proxy.example:1080",
+        "kind": "socks5",
+        "host": "proxy.example",
+        "port": 1080,
+        "username": "operator",
+        "password": "secret",
         "bypass": ["localhost", "internal.example"],
     }
     config = parse(raw)
     assert config.proxy == ProxyConfig(
-        url="socks5h://operator:secret@proxy.example:1080",
+        kind=ProxyKind.SOCKS5,
+        host="proxy.example",
+        port=1080,
+        username="operator",
+        password="secret",
         bypass=("localhost", "internal.example"),
     )
     assert config.proxy.redacted_url == "socks5h://proxy.example:1080"
 
 
 @pytest.mark.parametrize("scheme", ["ftp", "ssh"])
-def test_proxy_url_rejects_unsupported_schemes(scheme: str) -> None:
+def test_proxy_kind_rejects_unsupported_values(scheme: str) -> None:
     raw = fixture()
-    raw["proxy"] = {"url": f"{scheme}://proxy.example:8080"}
-    with pytest.raises(ConfigError, match="proxy.*use"):
+    raw["proxy"] = {"kind": scheme, "host": "proxy.example", "port": 8080}
+    with pytest.raises(ConfigError, match="proxy.*expected"):
+        parse(raw)
+
+
+def test_proxy_password_rejects_control_characters() -> None:
+    raw = fixture()
+    raw["proxy"] = {"kind": "http", "host": "proxy.example", "port": 8080, "password": "bad\npass"}
+    with pytest.raises(ConfigError, match="password.*control"):
+        parse(raw)
+
+
+def test_proxy_rejects_a_port_without_a_host() -> None:
+    raw = fixture()
+    raw["proxy"] = {"kind": "http", "port": 8080}
+    with pytest.raises(ConfigError, match="host.*required"):
+        parse(raw)
+
+
+@pytest.mark.parametrize("port", [-1, 65536])
+def test_proxy_rejects_ports_outside_the_valid_range(port: int) -> None:
+    raw = fixture()
+    raw["proxy"] = {"kind": "http", "host": "proxy.example", "port": port}
+    with pytest.raises(ConfigError, match="port.*1 and 65535"):
+        parse(raw)
+
+
+def test_proxy_rejects_bypass_without_a_host() -> None:
+    raw = fixture()
+    raw["proxy"] = {"bypass": ["localhost"]}
+    with pytest.raises(ConfigError, match="host.*required"):
         parse(raw)
 
 
