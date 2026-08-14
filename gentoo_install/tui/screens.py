@@ -9,6 +9,7 @@ validator never disagree about why something cannot be chosen.
 from __future__ import annotations
 
 import re
+from copy import deepcopy
 from dataclasses import dataclass, replace
 from enum import Enum
 from itertools import takewhile
@@ -45,7 +46,13 @@ from ..model.config import (
 )
 from ..model.device import (
     DeviceGraph,
+    Existing,
+    Filesystem,
+    Luks,
     Mountpoint,
+    Partition,
+    PartitionTable,
+    Swap,
     FilesystemType,
     PartitionRole,
     RaidLevel,
@@ -228,6 +235,56 @@ class Context:
         self._inspected: dict[str, tuple[tuple[tuple[str, str, str], ...], str]] = {}
         if self.choice.disk:
             self.inspect_disk(self.choice.disk)
+
+    def hydrate_disk(self, config: InstallConfig) -> None:
+        """Align the editable disk choice with a loaded configuration graph."""
+        disks = config.disk.graph.of_type(Existing)
+        if not disks:
+            return
+        disk = disks[0].selector
+        table = next(
+            (one.table for one in config.disk.graph.of_type(PartitionTable) if one.disk in config.disk.graph.nodes),
+            None,
+        )
+        root = config.disk.graph[config.disk.root]
+        root_device = root.source if isinstance(root, Mountpoint) else None
+        root_fs = FilesystemType.EXT4
+        for filesystem in config.disk.graph.of_type(Filesystem):
+            if root_device == filesystem.id or (
+                root_device is not None and filesystem.id in config.disk.graph.ancestors_of(root_device)
+            ):
+                root_fs = filesystem.kind
+                break
+        layout = Layout.WHOLE_DISK
+        if config.disk.graph.of_type(ZfsPool):
+            layout = Layout.WHOLE_DISK_ZFS
+        elif root_fs is FilesystemType.BTRFS:
+            layout = Layout.WHOLE_DISK_BTRFS
+        swap = next(
+            (
+                partition.size
+                for one in config.disk.graph.of_type(Swap)
+                if isinstance((partition := config.disk.graph[one.device]), Partition)
+            ),
+            None,
+        )
+        encrypted = next(
+            (one.passphrase_file for one in config.disk.graph.of_type(Luks)),
+            next((one.passphrase_file for one in config.disk.graph.of_type(ZfsPool)), ""),
+        )
+        self.choice = Choice(
+            disk=disk,
+            layout=layout,
+            firmware=self.firmware,
+            table=table,
+            filesystem=root_fs,
+            swap=swap,
+            passphrase_file=encrypted,
+        )
+        self.manual = False
+        self.layout = manual.Layout()
+        self.confirmed.clear()
+        self.inspect_disk(disk)
 
     def shown_as(self, selector: str) -> str:
         """What to call a device on screen.
@@ -494,16 +551,25 @@ def erase_screen(screen: Screen, config: InstallConfig, context: Context) -> Ans
     named the first one.
     """
     translate = context.translate
+    original = set(context.confirmed)
+    pending = set(original)
     for target in compat.destroyed(config.disk.graph):
-        if target.selector in context.confirmed:
+        if target.selector in pending:
             continue
-        answered = _confirm_one(screen, context, target.selector)
+        answered = _confirm_one(screen, context, target.selector, pending)
         if answered is not None:
+            context.confirmed = original
             return answered
+    context.confirmed = pending
     return Answer(Outcome.CHOSE, config)
 
 
-def _confirm_one(screen: Screen, context: Context, disk: str) -> Answer[InstallConfig] | None:
+def _confirm_one(
+    screen: Screen,
+    context: Context,
+    disk: str,
+    confirmed: set[str],
+) -> Answer[InstallConfig] | None:
     """None once this selector is confirmed; an outcome to return otherwise."""
     translate = context.translate
     # Every name this disk answers to: the selector the installer chose, its
@@ -527,7 +593,7 @@ def _confirm_one(screen: Screen, context: Context, disk: str) -> Answer[InstallC
         if not answer.chosen:
             return Answer(answer.outcome)
         if answer.unwrap():
-            context.confirmed.add(disk)
+            confirmed.add(disk)
             return None
         # Said rather than swallowed: a trailing space read as a refusal, and
         # the row went back to unset with nothing explaining why.
@@ -2834,6 +2900,24 @@ def swap_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
         return Answer(answer.outcome)
     chosen = answer.unwrap()
     context.choice = replace(context.choice, swap=Size.parse(chosen) if chosen else None)
+    if context.manual:
+        for disk in context.layout.disks:
+            disk.slices[:] = [
+                replace(entry, status=manual.SliceStatus.DELETE)
+                if entry.role is PartitionRole.SWAP and not chosen
+                else entry
+                for entry in disk.slices
+            ]
+        if chosen and not any(entry.role is PartitionRole.SWAP for entry in context.layout.slices):
+            disk = context.layout.disks[0]
+            disk.slices.append(
+                manual.Slice(
+                    index=disk.next_index(),
+                    role=PartitionRole.SWAP,
+                    size=Size.parse(chosen),
+                )
+            )
+        return Answer(Outcome.CHOSE, _from_layout(config, context))
     return Answer(Outcome.CHOSE, _rebuild(config, context))
 
 
@@ -3059,7 +3143,9 @@ def saved_config_screen(
         if not answer.chosen or not answer.unwrap():
             return Answer(Outcome.CHOSE, config)
         try:
-            return Answer(Outcome.CHOSE, context.load_config(answer.unwrap()))
+            loaded = context.load_config(answer.unwrap())
+            context.hydrate_disk(loaded)
+            return Answer(Outcome.CHOSE, loaded)
         except GentooInstallError as error:
             # Back to the list rather than out of the installer: the file being
             # unreadable says nothing about the other one beside it.
@@ -3254,6 +3340,9 @@ def table_screen(screen: Screen, config: InstallConfig, context: Context) -> Ans
     if not answer.chosen:
         return Answer(answer.outcome)
     context.choice = replace(context.choice, table=answer.unwrap())
+    if context.manual and context.layout.disks:
+        context.layout.disks[0].table = answer.unwrap()
+        return Answer(Outcome.CHOSE, _from_layout(config, context))
     return Answer(Outcome.CHOSE, _rebuild(config, context))
 
 
@@ -3509,6 +3598,8 @@ def partitions_screen(
         # template that was chosen when there is not: opening this row after
         # picking zfs used to show an ext4 root and discard the choice.
         context.layout = _seed(context)
+    saved_layout = deepcopy(context.layout)
+    saved_manual = context.manual
     cursor = 0
     while True:
         items = _partition_rows(context)
@@ -3521,6 +3612,14 @@ def partitions_screen(
         answer = menu.run(screen)
         cursor = menu.cursor
         if not answer.chosen:
+            added = [
+                deepcopy(disk)
+                for disk in context.layout.disks
+                if not saved_layout.holds(disk.selector)
+            ]
+            context.layout = saved_layout
+            context.layout.disks.extend(added)
+            context.manual = saved_manual
             return Answer(answer.outcome)
         row = answer.unwrap()
         if row.kind is _RowKind.DONE:

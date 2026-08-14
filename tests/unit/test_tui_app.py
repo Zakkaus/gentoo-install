@@ -2439,6 +2439,90 @@ def test_confirming_one_disk_does_not_authorise_a_second() -> None:
     assert settings.shown_value(row, two, at) == at.translate("confirmed")
 
 
+def test_interrupted_multi_disk_confirmation_applies_no_confirmation() -> None:
+    """Canceling the second prompt restores the confirmation set from entry."""
+    from dataclasses import replace
+    from gentoo_install.model.config import DiskConfig
+    from gentoo_install.model.device import (
+        DeviceGraph,
+        DeviceId,
+        Existing,
+        PartitionTable,
+        TableType,
+    )
+
+    nodes = [
+        Existing(id=DeviceId("one"), selector="/dev/one", wipe=True),
+        PartitionTable(id=DeviceId("table-one"), disk=DeviceId("one"), table=TableType.GPT),
+        Existing(id=DeviceId("two"), selector="/dev/two", wipe=True),
+        PartitionTable(id=DeviceId("table-two"), disk=DeviceId("two"), table=TableType.GPT),
+    ]
+    installation = replace(
+        config(), disk=DiskConfig(graph=DeviceGraph.build(nodes), root=DeviceId("one"))
+    )
+    at = context()
+    # The first disk is confirmed, the second refused: cancelling on a later
+    # prompt is the only path where there is anything to roll back.
+    answer = screens.erase_screen(
+        FakeScreen(
+            keys=[*"/dev/one", "\n", "KEY_BACKSPACE", "KEY_BACKSPACE"],
+            lines=24,
+            columns=100,
+        ),
+        installation,
+        at,
+    )
+    assert answer.outcome is Outcome.BACK
+    assert not at.confirmed
+
+
+def test_cancelled_manual_layout_restores_the_opening_table(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A canceled partition screen discards mutations made by its editors."""
+    at = context()
+    at.manual = True
+    at.layout = manual.suggest(at.choice.disk, at.firmware)
+    from copy import deepcopy
+
+    before = deepcopy(at.layout)
+
+    def mutate(_: object, context: screens.Context, __: object) -> None:
+        context.layout.disks[0].slices[0] = replace(
+            context.layout.disks[0].slices[0], mountpoint="/changed"
+        )
+
+    monkeypatch.setattr(screens, "_act_on", mutate)
+    screens.partitions_screen(FakeScreen(keys=["\n", "q"], lines=30), config(), at)
+    assert at.layout == before
+
+
+def test_loaded_configuration_remains_the_disk_target_after_an_edit() -> None:
+    """Loading a saved graph hydrates the disk choice used by later screens."""
+    from dataclasses import replace
+    from gentoo_install.model.device import DeviceGraph, Existing
+
+    saved = replace(
+        config(),
+        disk=replace(
+            config().disk,
+            graph=DeviceGraph.build(
+                replace(node, selector="/dev/loaded") if isinstance(node, Existing) else node
+                for node in config().disk.graph.nodes.values()
+            ),
+        ),
+    )
+    at = context()
+    at.configs_here = ("saved.toml",)
+    at.load_config = lambda _: saved
+    loaded = screens.saved_config_screen(
+        FakeScreen(keys=["KEY_DOWN", "\n"], lines=24), config(), at
+    ).unwrap()
+    edited = screens.table_screen(FakeScreen(keys=["\n"], lines=24), loaded, at).unwrap()
+    assert at.choice.disk == "/dev/loaded"
+    assert edited.disk.graph.of_type(Existing)[0].selector == "/dev/loaded"
+
+
 def test_the_zfs_bootloader_prompt_returns_only_installable_answers() -> None:
     """It changed the bootloader and left the esp at `/efi`, so choosing
     systemd-boot returned a configuration `validate` refuses -- from the very
