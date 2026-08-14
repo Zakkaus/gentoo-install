@@ -731,7 +731,48 @@ def _read_once(url: str, proxy: ProxyConfig | None = None) -> str:
         raise DownloadFailed(f"{url} could not be read: {error}") from error
 
 
+#: A stage3 is a quarter of a gigabyte over whatever link the operator has, so
+#: one timed-out read part way through is the transient case. `_read_patiently`
+#: already covers the pointer file beside it; the archive had no retry at all,
+#: and `The read operation timed out` ended an install two minutes in.
+DOWNLOAD_TRIES: Final[int] = 3
+
+
+def _permanent(error: BaseException) -> bool:
+    """Whether trying again cannot help. A missing archive stays missing; a
+    timeout, a reset, or `429 Too Many Requests` is a moment rather than an
+    answer."""
+    return (
+        isinstance(error, urllib.error.HTTPError)
+        and 400 <= error.code < 500
+        and error.code not in {408, 429}
+    )
+
+
 def _download(
+    url: str,
+    target: Path,
+    log: Callable[[str], None] | None = None,
+    proxy: ProxyConfig | None = None,
+) -> None:
+    """Retried with a growing pause, because a stage3 is the longest fetch a
+    run makes and a link that dropped one read usually carries the next."""
+    last: DownloadFailed | None = None
+    for attempt in range(DOWNLOAD_TRIES):
+        try:
+            _download_over_any_family(url, target, log, proxy)
+            return
+        except DownloadFailed as error:
+            if _permanent(error.__cause__ or error):
+                raise
+            last = error
+            if attempt + 1 < DOWNLOAD_TRIES:
+                time.sleep(ONLINE_PAUSE * 2**attempt)
+    assert last is not None
+    raise last
+
+
+def _download_over_any_family(
     url: str,
     target: Path,
     log: Callable[[str], None] | None = None,

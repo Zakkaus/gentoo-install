@@ -2122,3 +2122,67 @@ def test_a_long_download_says_it_is_still_downloading() -> None:
     assert said, "the download reported nothing"
     assert "stage3.tar.xz" in said[0], said
     assert "MiB" in said[0], said
+
+
+def test_a_timed_out_stage3_read_is_tried_again(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The pointer file beside the archive already retried; the archive itself
+    retried only when the address family had no route, so one
+    `The read operation timed out` ended an install two minutes in."""
+    from gentoo_install.exec import fetch
+    from gentoo_install.errors import DownloadFailed
+
+    tries = {"n": 0}
+
+    def flaky(url: str, target: Path, log: object = None, proxy: object = None) -> None:
+        tries["n"] += 1
+        if tries["n"] < 3:
+            raise DownloadFailed(f"{url} could not be fetched: The read operation timed out")
+        target.write_bytes(b"stage3")
+
+    monkeypatch.setattr(fetch, "_download_over_any_family", flaky)
+    import time as clock
+
+    monkeypatch.setattr(clock, "sleep", lambda seconds: None)
+    archive = tmp_path / "stage3.tar.xz"
+    fetch._download("https://distfiles.invalid/stage3.tar.xz", archive)
+    assert archive.read_bytes() == b"stage3"
+    assert tries["n"] == 3
+
+    # Bounded: a mirror that never answers stops the install rather than
+    # holding it open.
+    tries["n"] = 0
+
+    def dead(url: str, target: Path, log: object = None, proxy: object = None) -> None:
+        tries["n"] += 1
+        raise DownloadFailed(f"{url} could not be fetched: The read operation timed out")
+
+    monkeypatch.setattr(fetch, "_download_over_any_family", dead)
+    with pytest.raises(DownloadFailed):
+        fetch._download("https://distfiles.invalid/stage3.tar.xz", archive)
+    assert tries["n"] == fetch.DOWNLOAD_TRIES
+
+
+def test_a_missing_stage3_is_not_asked_for_again(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A mirror that answers `404` answers it every time, and three of them
+    with a growing pause is a minute spent proving what the first one said."""
+    import urllib.error
+    from email.message import Message
+
+    from gentoo_install.exec import fetch
+    from gentoo_install.errors import DownloadFailed
+
+    tries = {"n": 0}
+
+    def missing(url: str, target: Path, log: object = None, proxy: object = None) -> None:
+        tries["n"] += 1
+        cause = urllib.error.HTTPError(url, 404, "Not Found", Message(), None)
+        raise DownloadFailed(f"{url} could not be fetched: {cause}") from cause
+
+    monkeypatch.setattr(fetch, "_download_over_any_family", missing)
+    with pytest.raises(DownloadFailed):
+        fetch._download("https://distfiles.invalid/gone.tar.xz", tmp_path / "gone.tar.xz")
+    assert tries["n"] == 1
