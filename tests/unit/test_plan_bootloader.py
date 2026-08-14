@@ -93,6 +93,25 @@ def test_zfsbootmenu_carries_remote_access_in_its_own_image() -> None:
     assert "network" not in kernel.dracut_modules(installation)
 
 
+def test_native_zfs_unlock_uses_the_initramfs_keymap() -> None:
+    encrypted = load(Path("tests/fixtures/vm-zfs-encrypted.toml"))
+    encrypted = replace(
+        encrypted,
+        system=replace(encrypted.system, keymap_initramfs="de"),
+    )
+    plaintext = load(Path("tests/fixtures/vm-zfs.toml"))
+    plaintext = replace(
+        plaintext,
+        system=replace(plaintext.system, keymap_initramfs="de"),
+    )
+
+    assert bootloader.initramfs_keymap(encrypted) == "de"
+    assert bootloader.initramfs_keymap(plaintext) == ""
+    assert bootloader.initramfs_keymap(
+        replace(encrypted, system=replace(encrypted.system, keymap_initramfs="us"))
+    ) == ""
+
+
 def test_a_systemd_boot_machine_shows_its_menu() -> None:
     """`bootctl install` writes no `loader.conf`, and systemd-boot's documented
     default for `timeout` is 0: "no menu is shown and the default entry will be
