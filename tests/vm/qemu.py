@@ -47,6 +47,7 @@ class VmSpec:
     #: six guests at once.
     cpus: int = 5
     ssh_port: int = 2222
+    remote_unlock_port: int | None = None
     disks: tuple[Path, ...] = ()
     #: Built from the working tree each run and mounted as the second CD.
     driver_iso: Path | None = None
@@ -166,6 +167,8 @@ class Vm:
             parts.append("ipv6-net=fd00:5:5::/64")
         if wants4:
             parts.append(f"hostfwd=tcp::{self.spec.ssh_port}-:22")
+            if self.spec.remote_unlock_port is not None:
+                parts.append(f"hostfwd=tcp::{self.spec.remote_unlock_port}-:2222")
         return ",".join(parts)
 
     def _ovmf_args(self) -> list[str]:

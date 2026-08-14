@@ -19,9 +19,10 @@ import subprocess
 import sys
 import time
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 
-from gentoo_install.model.config import Firmware as BootFirmware, InitSystem, InstallConfig
+from gentoo_install.model.config import Bootloader, Firmware as BootFirmware, InitSystem, InstallConfig
 from gentoo_install.model.device import (
     Existing,
     Filesystem,
@@ -32,6 +33,8 @@ from gentoo_install.model.device import (
     ZfsPool,
 )
 from gentoo_install.exec.config import load
+from gentoo_install.model.serialise import to_toml
+from gentoo_install.model.manual import dataset_for
 
 from .console import DISK_PASSPHRASE, PASSPHRASE_PROMPT, PASSWORD_PROMPT, SerialConsole
 from .monitor import type_text
@@ -162,7 +165,9 @@ def install_key(console: SerialConsole, public_key: str) -> None:
     console.run("chmod 600 /root/.ssh/authorized_keys")
 
 
-def ssh(key: Path, port: int, command: str) -> subprocess.CompletedProcess[str]:
+def ssh(
+    key: Path, port: int, command: str, *, host: str = "127.0.0.1"
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [
             "ssh", "-p", str(port), "-i", str(key),
@@ -170,11 +175,100 @@ def ssh(key: Path, port: int, command: str) -> subprocess.CompletedProcess[str]:
             "-o", "UserKnownHostsFile=/dev/null",
             "-o", "BatchMode=yes",
             "-o", "ConnectTimeout=10",
-            "root@127.0.0.1", command,
+            f"root@{host}", command,
         ],
         capture_output=True,
         text=True,
         timeout=120,
+    )
+
+
+def push_config(key: Path, port: int, path: str, contents: str) -> None:
+    """Push the substituted configuration through the live SSH channel."""
+    result = subprocess.run(
+        [
+            "ssh", "-p", str(port), "-i", str(key),
+            "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "root@127.0.0.1",
+            f"cat > {path}",
+        ], input=contents, capture_output=True, text=True, timeout=120,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"the live SSH configuration push failed: {result.stderr.strip()}")
+
+
+def remote_unlock(
+    key: Path,
+    port: int,
+    installation: InstallConfig,
+    *,
+    host: str = "127.0.0.1",
+    timeout: float = 300.0,
+) -> str:
+    """Unlock the configured root and verify the mechanism's own result."""
+    commands = remote_unlock_commands(installation)
+    if commands is None:
+        raise RuntimeError("remote unlock is disabled")
+    command, proof = commands
+    process = subprocess.Popen(
+        [
+            "ssh", "-p", str(port), "-i", str(key),
+            "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", f"root@{host}",
+            command,
+        ], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True,
+    )
+    try:
+        output, _ = process.communicate(f"{DISK_PASSPHRASE}\n", timeout=timeout)
+    except subprocess.TimeoutExpired as error:
+        process.kill()
+        process.communicate()
+        raise RuntimeError(f"remote unlock timed out after {timeout:.0f}s") from error
+    if process.returncode != 0:
+        raise RuntimeError(f"remote unlock failed: {output.strip()[-300:]}")
+    if proof is None:
+        return "unlocked"
+    checked = ssh(key, port, proof, host=host)
+    status = checked.stdout.strip()
+    if checked.returncode != 0 or status != "available":
+        raise RuntimeError(f"remote ZFS unlock reported keystatus {status!r}")
+    return status
+
+
+def remote_unlock_commands(installation: InstallConfig) -> tuple[str, str | None] | None:
+    """Return the remote client command and its configuration-derived proof."""
+    if not installation.kernel.remote_unlock.enabled:
+        return None
+    if installation.bootloader.kind is Bootloader.ZFSBOOTMENU:
+        root = next(
+            mount.source
+            for mount in installation.disk.graph.of_type(Mountpoint)
+            if str(mount.path) == "/"
+        )
+        dataset = installation.disk.graph[root]
+        if not isinstance(dataset, ZfsDataset) or not dataset.name.startswith(dataset_for("/")):
+            raise RuntimeError("ZFSBootMenu root is not a configured root dataset")
+        pool = installation.disk.graph[dataset.pool]
+        if not isinstance(pool, ZfsPool):
+            raise RuntimeError("ZFSBootMenu root dataset has no configured pool")
+        full_name = f"{pool.name}/{dataset.name}"
+        return "zfs load-key -a", f"zfs get -H -o value keystatus {full_name}"
+    return "unlock", None
+
+
+def remote_config(installation: InstallConfig, public_key: str) -> InstallConfig:
+    """Replace fixture-only remote credentials with values owned by this run."""
+    unlock = installation.kernel.remote_unlock
+    if not unlock.enabled:
+        return installation
+    return replace(
+        installation,
+        system=replace(installation.system, authorized_keys=(public_key,)),
+        kernel=replace(
+            installation.kernel,
+            remote_unlock=replace(unlock, address=""),
+        ),
     )
 
 
@@ -206,8 +300,11 @@ def pin_resolver(console: SerialConsole) -> None:
 
 
 def unlock_and_login(
-    console: SerialConsole, installation: InstallConfig, monitor: Path | None = None
-) -> None:
+    console: SerialConsole,
+    installation: InstallConfig,
+    monitor: Path | None = None,
+    remote_unlocked: bool = False,
+) -> str:
     """Answer every passphrase prompt on the way to a login.
 
     `monitor` is qemu's monitor socket. GRUB unlocks an encrypted BIOS disk
@@ -223,7 +320,14 @@ def unlock_and_login(
     )
     if not encrypted:
         console.login("root", INSTALLED_PASSWORD, r"# ")
-        return
+        return "console"
+    if remote_unlocked:
+        console.expect(r"login:", timeout=300.0)
+        console.send("root")
+        console.expect(PASSWORD_PROMPT, timeout=60.0)
+        console.send(INSTALLED_PASSWORD)
+        console.expect(r"# ", timeout=60.0)
+        return "remote"
     # Bounded: a wrong passphrase makes the prompt come back, and each one
     # re-arms the timeout, so an unbounded loop would never fail.
     if monitor is not None and installation.bootloader.firmware is BootFirmware.BIOS:
@@ -239,7 +343,7 @@ def unlock_and_login(
             console.expect(PASSWORD_PROMPT, timeout=60.0)
             console.send(INSTALLED_PASSWORD)
             console.expect(r"# ", timeout=60.0)
-            return
+            return "console"
         console.send(DISK_PASSPHRASE)
     raise SystemExit("the disk kept asking for a passphrase; it is not the one installed")
 
@@ -333,6 +437,23 @@ def run_installer(console: SerialConsole, config: str, extra: str = "") -> None:
     console.run(f"cp /run/gentoo-install/install.jsonl {RESULT_DIR}/ 2>/dev/null || true")
     console.run(collect_command(RESULT_DIR))
     console.run("sync")
+
+
+def install_remote_config(
+    console: SerialConsole,
+    key: Path,
+    ssh_port: int,
+    installation: InstallConfig,
+    config: str,
+) -> str:
+    """Publish run-owned remote-unlock values and return the bootstrap path."""
+    if not installation.kernel.remote_unlock.enabled:
+        return config
+    public_key = key.with_suffix(".pub").read_text().strip()
+    substituted = remote_config(installation, public_key)
+    remote_path = f"/tmp/{Path(config).name}"
+    push_config(key, ssh_port, remote_path, to_toml(substituted))
+    return remote_path
 
 
 def probe(console: SerialConsole) -> None:
@@ -448,6 +569,8 @@ def main(argv: list[str] | None = None) -> int:
 def _perform(args: argparse.Namespace, medium: Medium, workdir: Path) -> int:
     ssh_port = args.ssh_port or free_port()
     key = ssh_keypair(workdir)
+    requested = load(REPOSITORY / "tests" / args.install) if args.install else None
+    remote_port = free_port() if requested is not None and requested.kernel.remote_unlock.enabled else None
     result_disk = create_disk(workdir / "result.img")
     driver_iso = build_driver(workdir / "driver.iso") if args.install and not args.boot_installed else None
     targets: tuple[Path, ...] = ()
@@ -472,6 +595,7 @@ def _perform(args: argparse.Namespace, medium: Medium, workdir: Path) -> int:
         **({"cpus": args.cpus} if args.cpus else {}),
         firmware=Firmware(args.firmware),
         ssh_port=ssh_port,
+        remote_unlock_port=remote_port,
         disks=(result_disk,),
         driver_iso=driver_iso,
         targets=targets,
@@ -483,8 +607,22 @@ def _perform(args: argparse.Namespace, medium: Medium, workdir: Path) -> int:
         with SerialConsole.connect(vm.serial_socket, vm.serial_log) as console:
             if args.boot_installed:
                 expected = load(REPOSITORY / "tests" / args.install)
-                unlock_and_login(console, expected, vm.monitor_socket)
-                print(f"[{time.monotonic() - started:5.1f}s] logged into the installed system")
+                unlocked_remotely = False
+                if expected.kernel.remote_unlock.enabled:
+                    if remote_port is None:
+                        raise RuntimeError("remote unlock is enabled without a forwarded port")
+                    try:
+                        remote_unlock(key, remote_port, expected)
+                    except RuntimeError as error:
+                        print(f"FAIL remote unlock: {error}", file=sys.stderr)
+                        power_off(console, vm)
+                        return 1
+                    unlocked_remotely = True
+                    print("installed root unlocked by remote SSH session")
+                method = unlock_and_login(
+                    console, expected, vm.monitor_socket, remote_unlocked=unlocked_remotely
+                )
+                print(f"[{time.monotonic() - started:5.1f}s] logged into the installed system ({method})")
                 check_installed(console, expected)
                 power_off(console, vm)
                 code = report(
@@ -517,8 +655,10 @@ def _perform(args: argparse.Namespace, medium: Medium, workdir: Path) -> int:
                 stage_passphrases(console, load(REPOSITORY / "tests" / args.install))
                 interrupt_and_resume(console, args.install)
             elif args.install:
+                installation = load(REPOSITORY / "tests" / args.install)
+                config = install_remote_config(console, key, ssh_port, installation, args.install)
                 stage_passphrases(console, load(REPOSITORY / "tests" / args.install))
-                run_installer(console, args.install, "--dry-run" if args.dry_run else "")
+                run_installer(console, config, "--dry-run" if args.dry_run else "")
             else:
                 probe(console)
             power_off(console, vm)
@@ -600,6 +740,10 @@ def verdict(
     """Turn everything the run left behind into one exit code."""
     code = check_expected(results, assertions) if assertions is not None else 0
     installer = results.get("install.rc", b"").decode("utf-8", "replace").strip()
+    remote = results.get("remote-unlock.rc", b"").decode("utf-8", "replace").strip()
+    if remote not in ("", "0"):
+        print(f"FAIL remote unlock exited {remote}", file=sys.stderr)
+        code = 1
     # The installer's own exit code, which the collected output does not carry:
     # a run that stopped at the bootloader printed its failure and exited 0.
     if installer not in ("", "0"):

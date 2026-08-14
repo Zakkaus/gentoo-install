@@ -88,6 +88,7 @@ from .results import (
 )
 from .workdir import WorkdirError, confined
 from .installed import checks, stage_passphrase_commands
+from .run import remote_config, remote_unlock, ssh_keypair
 
 REPOSITORY: Final[Path] = Path(__file__).resolve().parents[2]
 WORKROOT: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/cluster"
@@ -269,6 +270,7 @@ class Job:
     #: Read from the fixture rather than listed beside it: what makes a run
     #: long is compiling, and the configuration is what says whether it does.
     heavy: bool = False
+    remote_unlock: bool = False
     status: JobStatus = JobStatus.WAITING
     vmid: int = 0
     node: str | None = None
@@ -816,7 +818,7 @@ def stage_passphrases(link: Reconnecting, installation: InstallConfig) -> None:
 
 
 def rewrite_fixtures(
-    jobs: list[Job], into: Path, region: MirrorRegion, sync: Sync
+    jobs: list[Job], into: Path, region: MirrorRegion, sync: Sync, public_key: str = ""
 ) -> Path:
     """Write each fixture out again with its mirror region and sync replaced.
 
@@ -848,7 +850,7 @@ def rewrite_fixtures(
         chosen = mirrors.gentoozh_for(region)
         where = mirrors.gentoozh(chosen).git
         moved = replace(
-            config,
+            remote_config(config, public_key) if public_key else config,
             portage=replace(
                 config.portage,
                 sync=sync,
@@ -865,6 +867,11 @@ def rewrite_fixtures(
         )
         (into / job.fixture.name).write_text(to_toml(moved))
     return into
+
+
+def _requests_remote_unlock(path: Path) -> bool:
+    """Read the typed configuration so schema changes fail at the boundary."""
+    return load(path).kernel.remote_unlock.enabled
 
 
 @dataclass(frozen=True)
@@ -1179,6 +1186,7 @@ def install_one(
     nonce: str = "",
     revision: str = "",
     execution: Running | None = None,
+    remote_key: Path | None = None,
 ) -> Outcome:
     """Build a guest, install into it, read the result, delete the guest."""
     started = time.monotonic()
@@ -1249,7 +1257,7 @@ def install_one(
         # the machine it produced comes up and carries what was asked for, and
         # nothing in the log above can answer that.
         phase = Phase.BOOT_INSTALLED
-        wrong = boot_and_check(guest, link, log, load(job.fixture))
+        wrong = boot_and_check(guest, link, log, load(job.fixture), remote_key, held.address)
         if wrong:
             outcome = Outcome(
                 job.name,
@@ -1319,6 +1327,7 @@ def answer_once(
     nonce: str = "",
     revision: str = "",
     execution: Running | None = None,
+    remote_key: Path | None = None,
 ) -> None:
     """Run one job and put exactly one outcome on the queue, whatever happens.
 
@@ -1339,6 +1348,7 @@ def answer_once(
             nonce,
             revision,
             execution,
+            remote_key,
         )
         outcome = replace(outcome, vmid=outcome.vmid or vmid)
         done.put(outcome)
@@ -1377,13 +1387,16 @@ def run(
     workdir.mkdir(parents=True, exist_ok=True)
     reconcile(api, workdir)
     addresses = AddressPool(ADDRESS_POOL_ROOT, _address_is_taken)
+    remote_key = ssh_keypair(workdir) if any(job.remote_unlock for job in jobs) else None
+    public_key = remote_key.with_suffix(".pub").read_text().strip() if remote_key else ""
     # Packed: the ingress refuses the 1.4 MiB loose-file CD with `413`.
     staging = workdir / f".driver-{uuid.uuid4().hex}.iso"
-    built_path = build_driver(
-        staging,
-        packed=True,
-        fixtures=rewrite_fixtures(jobs, workdir / "fixtures", region, sync),
-    )
+    fixture_dir = workdir / "fixtures"
+    if public_key:
+        rewritten = rewrite_fixtures(jobs, fixture_dir, region, sync, public_key)
+    else:
+        rewritten = rewrite_fixtures(jobs, fixture_dir, region, sync)
+    built_path = build_driver(staging, packed=True, fixtures=rewritten)
     driver_path = retain_driver(workdir, built_path)
     driver = driver_path.name
     revision = revision_identity(driver_path)
@@ -1484,6 +1497,7 @@ def run(
                         nonce,
                         revision,
                         execution,
+                        remote_key,
                     ),
                     daemon=False,
                 )
@@ -1843,7 +1857,10 @@ class UnlockResult:
 
 
 def _unlock(
-    guest: Typeable, link: Reconnecting, installation: InstallConfig
+    guest: Typeable,
+    link: Reconnecting,
+    installation: InstallConfig,
+    remotely_unlocked: bool = False,
 ) -> UnlockResult:
     """Answer every passphrase prompt on the way to a login.
 
@@ -1861,6 +1878,8 @@ def _unlock(
     )
     if not encrypted:
         return UnlockResult(InstalledBootState.WAIT_LOGIN)
+    if remotely_unlocked:
+        return UnlockResult(InstalledBootState.LOGIN_READY)
     if installation.bootloader.firmware is BootFirmware.BIOS:
         time.sleep(GRUB_PROMPT_SECONDS)
         guest.send_keys([*keys_for(DISK_PASSPHRASE), "ret"])
@@ -1891,7 +1910,12 @@ def _unlock(
 
 
 def boot_and_check(
-    guest: Guest, link: Reconnecting, log: Path, installation: InstallConfig
+    guest: Guest,
+    link: Reconnecting,
+    log: Path,
+    installation: InstallConfig,
+    remote_key: Path | None = None,
+    remote_host: str = "127.0.0.1",
 ) -> str:
     """Boot the newly written disk and read the system back.
 
@@ -1908,7 +1932,18 @@ def boot_and_check(
     # here submitted an empty GRUB passphrase before the reader was ready.
     link.reopen(solicit_prompt=False)
     guest.reset()
-    unlocked = _unlock(guest, link, installation)
+    remotely_unlocked = False
+    unlock = installation.kernel.remote_unlock
+    if unlock.enabled:
+        if remote_key is None:
+            return "remote unlock is enabled but the harness has no key"
+        try:
+            remote_unlock(remote_key, unlock.port, installation, host=remote_host)
+        except RuntimeError as error:
+            return f"remote unlock failed: {error}"[:200]
+        remotely_unlocked = True
+        print("installed root unlocked by remote SSH session", flush=True)
+    unlocked = _unlock(guest, link, installation, remotely_unlocked)
     if unlocked.refused:
         return unlocked.refused
     if unlocked.state is InstalledBootState.WAIT_LOGIN:
@@ -2123,6 +2158,7 @@ def fixtures(names: list[str]) -> list[Job]:
                 uefi=config.bootloader.firmware.value != "bios",
                 disks=max(1, len(config.disk.graph.of_type(Existing))),
                 heavy=_compiles(config),
+                remote_unlock=_requests_remote_unlock(path),
             )
         )
     return found
