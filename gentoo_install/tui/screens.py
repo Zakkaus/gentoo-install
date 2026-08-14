@@ -98,9 +98,11 @@ from .widgets import (
 Step = Callable[[Screen, InstallConfig, "Context"], Answer[InstallConfig]]
 
 
-
 class Context:
     """What the screens need besides the configuration itself."""
+
+    columns: int
+    visited: set[str]
 
     def __init__(
         self,
@@ -182,9 +184,6 @@ class Context:
         #: Every console keymap the machine ships, as (family, name). Empty on
         #: a medium with no keymap tree, which is when the name is typed.
         self.keymaps = keymaps
-        #: How wide the terminal is, set by whichever menu is about to draw. A
-        #: grouped row fits its summary to this rather than to a fixed 80.
-        self.columns = MINIMUM_COLUMNS
         #: The highest kernel `sys-fs/zfs` builds a module for, read from its
         #: ebuild. Empty when no repository is visible, which offers every version.
         self.zfs_kernel_max = zfs_kernel_max
@@ -205,10 +204,6 @@ class Context:
         #: more than one device, and a single flag confirmed for the first
         #: disk authorised a second one the prompt never named.
         self.confirmed: set[str] = set()
-        #: Keys of the rows the operator has opened. An optional row never
-        #: opened is running on a default nobody chose, which the menu says in
-        #: colour as well as in the value it shows.
-        self.visited: set[str] = set()
         #: A desktop proposal is withdrawn with that desktop; an explicit edit
         #: clears this marker even when it chooses the same manager.
         self.proposed_display_manager: str = ""
@@ -3176,130 +3171,6 @@ def show_address(screen: Screen, context: Context, url: str) -> None:
     screen.write(min(len(drawn) + 3, lines - 1), 0, context.translate("Continue"))
     screen.show()
     screen.key()
-
-
-#: The two rows of the overview that do something. Everything else is a value
-#: to read, and pressing enter on one of those keeps the screen.
-_INSTALL: Final[int] = 2
-_EXPORT: Final[int] = 1
-
-
-def _counted(operations: Sequence[Operation], translate: Catalog) -> str:
-    """`76 operations: partition 6, format 1, ...`, translated.
-
-    `plan/render.py` builds the English form for a log, and the menu drew that
-    string as it stood: a Chinese overview opened with a line of English.
-    """
-    counted = counts(operations)
-    parts = [f"{translate(stage.value)} {count}" for stage, count in counted.items()]
-    return "{}: {}".format(
-        translate("{count} operations").format(count=sum(counted.values())), ", ".join(parts)
-    )
-
-
-def overview_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
-    """Everything that is about to happen, then one confirmation.
-
-    The list is the operation sequence itself, so the screen cannot describe
-    something the installer will not do.
-    """
-    from ..plan.build import build as plan_build
-    from .settings import SETTINGS, UNSET
-
-    translate = context.translate
-    try:
-        operations = plan_build(config, context.groups)
-    except GentooInstallError as error:
-        # The Install row is disabled for the same reason, so reaching this is
-        # a defect; saying so beats a traceback out of curses with every answer
-        # the operator entered.
-        _say(screen, context, str(error).splitlines()[-1].strip())
-        return Answer(Outcome.CANCELLED)
-    items: list[Item[int]] = []
-    # Every row with its own label: the main menu's grouped rows read as a bare
-    # list of values, and this is the last screen before the disk is written.
-    for group in SETTINGS:
-        for row in group.rows or (group,):
-            value = row.value(config, context)
-            items.append(
-                Item(
-                    label=f"{translate(row.label)}  {translate(value) if value == UNSET else value}",
-                    value=0,
-                )
-            )
-    given = (
-        *automatic_values.video_cards(config, context.groups),
-        *automatic_values.use_flags(config, context.groups),
-        *automatic_values.user_groups(config, context.groups),
-        *automatic_values.environment(config, context.groups),
-        *automatic_values.kernel_parameters(config),
-    )
-    if given:
-        # Named here as well as on their own rows: this is the last screen
-        # before the disk is written, and these are the values nobody typed.
-        items.append(Item(label=f"— {translate('added for you')} —", value=0))
-        items += [
-            Item(
-                label=f"  {one.value}",
-                value=0,
-                detail=f"{translate(one.because)} ({one.source})"
-                if one.source
-                else translate(one.because),
-            )
-            for one in given
-        ]
-    items.append(Item(label=f"— {translate('Operations')} —", value=0))
-    # The operation list itself, so the screen cannot describe something the
-    # installer will not do.
-    items += [Item(label=operation.describe(), value=0) for operation in operations]
-    # Two actions at the top, and everything below them is a value to read.
-    # Enter used to start the install from whichever row the cursor happened
-    # to be on, so an operator scrolling the operation list started one by
-    # reading it, and the only labelled row exported to a pastebin instead.
-    items.insert(
-        0,
-        Item(
-            label=translate("Send the configuration to the pastebin"),
-            value=_EXPORT,
-            detail=translate("public, without the password hashes"),
-        ),
-    )
-    items.insert(
-        0,
-        Item(
-            label=translate("Start the installation"),
-            value=_INSTALL,
-            detail=translate("everything below is what it will do"),
-        ),
-    )
-    while True:
-        menu: Menu[int] = Menu(
-            title=f"{translate('Overview')}: {_counted(operations, translate)}",
-            items=items,
-            footer=footer(translate, "Choose a row"),
-        )
-        answer = menu.run(screen)
-        if not answer.chosen:
-            return Answer(answer.outcome)
-        chosen = answer.unwrap()
-        if chosen == _INSTALL:
-            break
-        if chosen != _EXPORT:
-            # A row of the summary: it answers nothing, so the screen stays.
-            continue
-        try:
-            show_address(screen, context, context.publish_config(config))
-        except GentooInstallError as error:
-            _say(screen, context, str(error))
-    question = Confirm(
-        **answers(translate),
-        title=translate("Install"),
-        footer=footer(translate, "Start writing to the disks"),
-    )
-    confirmed = question.run(screen)
-    if not confirmed.chosen:
-        return Answer(confirmed.outcome)
-    return Answer(Outcome.CHOSE, config) if confirmed.unwrap() else Answer(Outcome.BACK)
 
 
 def _profile_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
