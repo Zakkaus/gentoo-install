@@ -36,6 +36,12 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 
 **Portage** 設定項目包含 profile、`MAKEOPTS`、`USE`、`ACCEPT_KEYWORDS`、`L10N`、鏡像與儲存庫同步方式。gentoo-zh 與 gig overlay 可分別選取。介面語言選為 `zh-TW`、`zh-CN`、`ja` 或 `ko` 時，也會選取 gentoo-zh 的修補版二進位核心及其 overlay；選為 `en` 時不會自動選取。官方與 gentoo-zh 的二進位套件來源各有獨立設定與金鑰。
 
+<!-- fact: proxy -->
+
+**工作階段 Proxy** `[proxy]` 設定表接受 `url` 與 `bypass`。URL 可使用 `http://`、`https://`、`socks5://` 與 `socks5h://`，也可包含認證資訊；URL 留白表示直接連線，這是預設值。`socks5` 在本機解析主機名稱，`socks5h` 在 Proxy 解析主機名稱；因此 live 環境無法解析內部主機名稱時，需要使用 `socks5h`。介面主選單有包含 URL 與略過主機欄位的 `Proxy` 列；URL 欄位是密碼欄位，不會回顯密碼。`bypass` 在介面中是逗號分隔的值，在 TOML 中是清單。
+
+選取 Proxy 後，設定的 Proxy 用於 stage3 與其簽署金鑰、主儲存庫與 overlay 版本查詢，以及 `gitweb.gentoo.org` 的 ZFS ebuild 查詢。它也用於透過 `make.conf` 與 `FETCHCOMMAND`/`RESUMECOMMAND` 的 Portage 下載、`wget`、`curl`、`git`、GnuPG、binhost、overlay 與 paste 上傳。時鐘、初始連線檢查與選單前的鏡像檢查都在取得設定前執行，因此不在此設定涵蓋範圍內。安裝器會將認證資訊排除在 dry-run 說明與發佈的設定之外；發佈的設定與已安裝系統都只保留不含認證資訊的端點及略過清單。
+
 <!-- fact: plan-records -->
 
 **計畫與記錄** dry run 會在不探測儲存硬體的情況下顯示操作計畫。實際安裝使用相同的規劃器，但會先加入從重用裝置探測到的 mdraid 中繼資料，因此依賴硬體的驗證結果可能不同。`install.log` 記錄指令輸出，`install.jsonl` 記錄操作、套件來源與二進位套件降級原因。選單將設定上傳至 `paste.gentoozh.org` 前，只會把 `password_hash` 與 `root_password_hash` 的值替換為 `removed-before-publishing`；其他設定值仍會上傳。選單會以文字與 QR 碼顯示上傳頁面的網址。
@@ -51,6 +57,8 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 2026 年 8 月 11 日的端到端記錄均標有安裝器修訂版，涵蓋從 Arch Linux、openSUSE、Debian、Fedora 與自行建置的 gentoo-cjk minimal ISO 各安裝並開機一次。這些記錄涵蓋安裝器修訂版 [`b931ef46fc15ed50385f70467f2bfb0a8d1fd154`](https://github.com/Zakkaus/gentoo-install/commit/b931ef46fc15ed50385f70467f2bfb0a8d1fd154)。gentoo-cjk 記錄使用 ZFS 與 ZFSBootMenu，其餘四筆使用 ext4。只有在記錄的修訂版與安裝器相符、安裝退出碼為 `0`、已安裝系統成功開機，且開機後設定檢查通過時，該次執行才算現行實據。
 
 其他已實作組合仍未完成端到端驗證。現行實據未涵蓋 initramfs SSH 解鎖、greetd 桌面工作階段或 GNOME 以外的 ibus。現行實據也未涵蓋官方 Gentoo minimal ISO、Alpine 或 Gig-OS live 媒介，以及 binhost 失敗時的降級。
+
+Proxy 路徑已有焦點單元測試與 plan 測試，涵蓋 SOCKS5 DNS 模式、dry-run 輸出與發佈設定的認證資訊移除，以及已安裝系統保留不含認證資訊的端點。帶版本標記的叢集執行已涵蓋反向：`vm-proxy-dead` fixture 把 Proxy 指向沒有程序監聽的埠，安裝在 stage3 下載階段以 `Connection refused` 停止，因此執行到達鏡像就表示 Proxy 被繞過。尚未有任何執行透過可用的 Proxy 完成安裝，正向行為仍未驗證。
 
 CJK 文字主控台顯示目前沒有驗證實據。ext2 與 ext3 也沒有針對其設定的自動化測試。`tests/fixtures/` 下的檔案只驗證設定模型；檔案存在不代表對應組合已完成端到端安裝與開機驗證。
 
@@ -144,6 +152,68 @@ cd gentoo-install-master
 <!-- fact: config-dry-run -->
 
 解析與計畫階段不會探測儲存硬體，因此沒有目標磁碟的機器也能以 `--dry-run` 檢查設定。
+
+以下完整設定示範包含認證資訊與兩個略過主機的 Proxy。認證資訊只是範例，執行前必須替換：
+
+```toml
+config_version = 1
+
+[proxy]
+url = "socks5h://operator:secret@proxy.example:1080"
+bypass = ["localhost", "intranet.example"]
+
+[system]
+hostname = "proxy-target"
+timezone = "UTC"
+locales = ["en_US.UTF-8"]
+locale = "en_US.UTF-8"
+init = "openrc"
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
+
+[portage]
+profile = "default/linux/amd64/23.0"
+makeopts = "-j4"
+
+[portage.binhost]
+official = false
+
+[bootloader]
+firmware = "bios"
+
+[disk]
+root = "mnt-root"
+
+[[disk.devices]]
+kind = "existing"
+id = "disk"
+selector = "/dev/disk/by-id/virtio-target0"
+wipe = true
+
+[[disk.devices]]
+kind = "table"
+id = "table"
+disk = "disk"
+table = "mbr"
+
+[[disk.devices]]
+kind = "partition"
+id = "rootpart"
+table = "table"
+index = 1
+role = "data"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "rootfs"
+device = "rootpart"
+type = "ext4"
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-root"
+source = "rootfs"
+path = "/"
+```
 
 ## 二進位套件
 
