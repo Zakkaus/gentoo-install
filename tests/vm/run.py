@@ -18,11 +18,9 @@ import subprocess
 import sys
 import time
 from collections.abc import Sequence
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
-from gentoo_install.data import load_catalog
-from gentoo_install.model import compat
-from gentoo_install.model.config import Firmware as BootFirmware, Bootloader, InitSystem, InstallConfig
+from gentoo_install.model.config import Firmware as BootFirmware, InitSystem, InstallConfig
 from gentoo_install.model.device import (
     Existing,
     Filesystem,
@@ -32,9 +30,7 @@ from gentoo_install.model.device import (
     ZfsDataset,
     ZfsPool,
 )
-from gentoo_install.model.config import Networking
 from gentoo_install.exec.config import load
-from gentoo_install.plan.system import _network_service as network_service
 
 from .console import DISK_PASSPHRASE, PASSPHRASE_PROMPT, PASSWORD_PROMPT, SerialConsole
 from .monitor import type_text
@@ -42,6 +38,7 @@ from .driver import REPOSITORY, build as build_driver
 from .media import MEDIA, Medium
 from .qemu import Firmware, Vm, VmSpec
 from .results import collect_command, create_disk, read_disk
+from .installed import checks, stage_passphrase_commands
 
 WORKROOT = Path.home() / "code/gentoo-install/lab/vm/runs"
 #: Big enough for a stage3, a desktop and the swap a fixture may ask for.
@@ -67,57 +64,6 @@ EXPECTED: tuple[tuple[str, str], ...] = (
     ("resolver", r"^RESOLVCONF-OK$"),
     ("portage", r"^EMERGE-OK$"),
 )
-
-#: What a system installed by this installer has to be able to answer.
-INSTALLED = (
-    ("os-release", "cat /etc/os-release"),
-    ("mounts", "findmnt --noheadings --list --output TARGET,SOURCE,FSTYPE"),
-    ("fstab", "cat /etc/fstab"),
-    ("locale", "locale"),
-    ("hostname", "cat /etc/hostname || cat /etc/conf.d/hostname"),
-    (
-        "inputmethod",
-        # `/etc/environment` is where the systemd plan writes: it appends there
-        # rather than replacing a drop-in, and this check still read the
-        # drop-in, so it could not see the file the install had written.
-        "cat /etc/skel/.config/fcitx5/profile 2>/dev/null; "
-        "cat /etc/environment /etc/env.d/90input-method 2>/dev/null",
-    ),
-    (
-        "kernel",
-        "uname -r; find /boot -maxdepth 4 -type f "
-        r"\( -name 'vmlinuz*' -o -name 'kernel-*' -o -name linux -o -name '*.conf' \) | sort",
-    ),
-    # `test -s` rather than a name lookup: a dangling symlink is the defect
-    # this catches, and live DNS in a guest is not something to make a verdict
-    # depend on. The lookup is collected beside it for the report.
-    (
-        "resolver",
-        "readlink -f /etc/resolv.conf; "
-        "test -s /etc/resolv.conf && echo RESOLVCONF-OK || echo RESOLVCONF-EMPTY; "
-        # Up to thirty seconds: dhcpcd writes the file when its lease arrives,
-        # and asking the moment the login prompt appears asks too early.
-        "for _ in $(seq 1 15); do getent hosts gentoo.org >/dev/null 2>&1 && break; sleep 2; done; "
-        "getent hosts gentoo.org >/dev/null 2>&1 && echo RESOLVES || echo NORESOLVE; "
-        "sed -n '1,4p' /etc/resolv.conf",
-    ),
-    # Needs no network, and fails outright on a profile the tree cannot read:
-    # the first thing to break if a profile is changed and @world never rebuilt.
-    ("portage", "emerge --info >/dev/null 2>&1 && echo EMERGE-OK || echo EMERGE-FAIL"),
-)
-
-#: Asking systemd's questions of an openrc system gets "command not found",
-#: which reads as a failure of the install rather than of the check.
-BY_INIT: dict[InitSystem, tuple[tuple[str, str], ...]] = {
-    InitSystem.SYSTEMD: (
-        ("units", "systemctl list-unit-files --state=enabled --no-legend --no-pager"),
-        ("failed", "systemctl --failed --no-legend --no-pager"),
-    ),
-    InitSystem.OPENRC: (
-        ("units", "rc-update show default"),
-        ("failed", "rc-status --crashed"),
-    ),
-}
 
 PROBE = (
     ("os-release", "head -3 /etc/os-release; uname -r"),
@@ -300,8 +246,8 @@ def unlock_and_login(
 def check_installed(console: SerialConsole, installation: InstallConfig) -> None:
     """Assert against the system that was installed, booted from its own disk."""
     console.run(f"mkdir -p {RESULT_DIR}")
-    for name, command in (*INSTALLED, *BY_INIT[installation.system.init]):
-        console.run(f"{{ {command} ; }} > {RESULT_DIR}/{name}.txt 2>&1")
+    for check in checks(installation):
+        console.run(f"{{ {check.command} ; }} > {RESULT_DIR}/{check.name}.txt 2>&1")
     console.run(collect_command(RESULT_DIR))
     console.run("sync")
 
@@ -312,14 +258,8 @@ def stage_passphrases(console: SerialConsole, installation: InstallConfig) -> No
     An operator does this by hand before an unattended install; the harness
     does it here so an encrypted layout can be tested without a prompt.
     """
-    graph = installation.disk.graph
-    wanted = [node.passphrase_file for node in graph.of_type(Luks) if node.passphrase_file]
-    wanted += [node.passphrase_file for node in graph.of_type(ZfsPool) if node.passphrase_file]
-    for source in wanted:
-        parent = PurePosixPath(source).parent
-        console.run(f"mkdir -p {parent} && chmod 700 {parent}")
-        console.run(f"printf '%s' '{DISK_PASSPHRASE}' > {source}")
-        console.run(f"chmod 600 {source}")
+    for command in stage_passphrase_commands(installation):
+        console.run(command)
 
 
 def interrupt_and_resume(console: SerialConsole, config: str) -> None:
@@ -648,54 +588,9 @@ def report(
 
 
 def _from_config(config: Path) -> list[tuple[str, str]]:
-    """What this particular configuration should have produced.
-
-    Derived from the model rather than written out twice: a check that only
-    ever matched the first fixture passed on a system that ignored the setting
-    and failed on the second one.
-    """
+    """Return the shared contract in the local result format."""
     installation = load(config)
-    graph = installation.disk.graph
-    root = graph[installation.disk.root]
-    source = graph[root.source] if isinstance(root, Mountpoint) else root
-    # systemd keeps the bare name in /etc/hostname; openrc keeps a shell
-    # assignment in /etc/conf.d/hostname, and neither form matches the other.
-    name = re.escape(installation.system.hostname)
-    if installation.system.init is InitSystem.SYSTEMD:
-        expected = [("hostname", f"^{name}$")]
-    else:
-        expected = [("hostname", f'hostname="{name}"')]
-    # From the same function the plan enables, not guessed from the init: a
-    # desktop brings NetworkManager and the init's own manager stays off, so
-    # asserting `systemd-networkd` failed a system that was correct.
-    if installation.system.networking is not Networking.NONE:
-        expected.append(("units", re.escape(network_service(installation.system))))
-    if installation.bootloader.kind is Bootloader.SYSTEMD_BOOT:
-        # bls: /boot/<entry-token>/<version>/linux, with an entry naming it.
-        expected += [
-            ("kernel", r"^/boot/[^/]+/[^/]+/linux$"),
-            ("kernel", r"^/boot/loader/entries/.+\.conf$"),
-        ]
-    else:
-        expected.append(("kernel", r"^/boot/(kernel|vmlinuz)-"))
-    # The Chinese environment is what this installer exists for, so a run that
-    # asked for an input method has to show it reached the installed system.
-    groups = load_catalog()
-    if any(groups[name].input_method for name in installation.packages.applications if name in groups):
-        expected += [("inputmethod", r"^DefaultIM="), ("inputmethod", r"XMODIFIERS=@im=fcitx")]
-    esp = compat.esp_mount(graph)
-    if esp is not None:
-        # A BIOS install has no esp at all, so asking for one would fail on a
-        # machine that did exactly what its layout said.
-        expected.append(("mounts", rf"^{esp.path}\s+\S+\s+vfat"))
-    if isinstance(source, ZfsDataset):
-        # A dataset carries its own mountpoint, so fstab has no entry for `/`.
-        expected.append(("mounts", r"^/\s+\S+\s+zfs"))
-        return expected
-    filesystem = graph[source.filesystem] if isinstance(source, Subvolume) else source
-    kind = filesystem.kind.value if isinstance(filesystem, Filesystem) else ""
-    expected += [("mounts", rf"^/\s+\S+\s+{kind}"), ("fstab", rf"UUID=\S+\s+/\s+{kind}")]
-    return expected
+    return [(check.name, check.pattern) for check in checks(installation)]
 
 
 def verdict(

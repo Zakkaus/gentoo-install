@@ -1333,6 +1333,46 @@ def test_a_plain_switch_flips_where_it_stands() -> None:
     assert blank.frames == []
 
 
+def test_effects_are_derived_once_for_preview_and_pinning() -> None:
+    at = context()
+    before = config()
+    after = replace(before, packages=replace(before.packages, graphics=("nvidia",)))
+
+    effects = screens.derive_effects(before, after, at)
+
+    assert effects.video_cards == ("nvidia",)
+    assert effects.use_flags == ()
+    assert effects.user_groups == ()
+    assert effects.display_manager_changed is False
+    assert effects.editable_row is screens.video_cards_screen
+
+    typed = replace(after, portage=replace(after.portage, use=("operator_flag",)))
+    pinned = screens.apply_effects(typed, effects)
+    assert pinned.portage.use == ("operator_flag",)
+    assert pinned.portage.video_cards == ("nvidia",)
+
+
+def test_effects_withdraw_only_the_previous_derived_values() -> None:
+    at = context()
+    before = config()
+    before = replace(
+        before,
+        packages=replace(before.packages, graphics=("nvidia",)),
+        portage=replace(
+            before.portage,
+            use=("operator_flag", "wayland"),
+            video_cards=("operator_card",),
+        ),
+    )
+    after = replace(before, packages=replace(before.packages, graphics=("amdgpu",)))
+
+    effects = screens.derive_effects(before, after, at)
+    pinned = screens.apply_effects(after, effects)
+
+    assert pinned.portage.use == ("operator_flag", "wayland")
+    assert pinned.portage.video_cards == ("operator_card", "amdgpu", "radeonsi")
+
+
 def test_what_still_asks_before_it_changes() -> None:
     """The line between the two: a switch flips, and anything that destroys
     data, opens a second question, or starts the install asks first."""
