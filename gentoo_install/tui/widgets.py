@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+import textwrap
 from typing import Callable, ClassVar, Final, Generic, Mapping, Protocol, Sequence, TypeVar
 
 from ..i18n import truncate, width
@@ -273,7 +274,7 @@ class _Menu(Generic[V, A]):
             screen.write(offset + 1, 2, truncate(one, columns - 4))
         above = len(self.preamble)
         room = lines - 4 - above
-        displayed = self._display_rows()
+        displayed = self._display_rows(columns)
         cursor_row = next(
             row for row, (index, _) in enumerate(displayed) if index == cursor
         )
@@ -300,7 +301,7 @@ class _Menu(Generic[V, A]):
             screen.write(lines - 1, 0, truncate(self.footer, columns))
         screen.show()
 
-    def _display_rows(self) -> list[tuple[int | None, str]]:
+    def _display_rows(self, columns: int) -> list[tuple[int | None, str]]:
         rows: list[tuple[int | None, str]] = []
         heading = ""
         for index, item in enumerate(self.items):
@@ -313,7 +314,9 @@ class _Menu(Generic[V, A]):
                 text = f"{text}  {item.detail}"
             if item.disabled_because:
                 text = f"{text} - {item.disabled_because}"
-            rows.append((index, text))
+            wrapped = textwrap.wrap(text, width=max(1, columns - 4), break_long_words=False) or [""]
+            rows.append((index, wrapped[0]))
+            rows.extend((None, continuation) for continuation in wrapped[1:])
         return rows
 
     def _selection_mark(self, index: int) -> str:

@@ -83,6 +83,18 @@ def test_a_disabled_row_cannot_be_chosen_and_says_why() -> None:
     assert "it only has an EFI implementation" in screen.last
 
 
+def test_a_disabled_reason_wraps_at_the_80_column_floor() -> None:
+    reason = "this reason remains visible instead of disappearing beyond the right edge"
+    screen = FakeScreen(keys=["\n"], lines=24, columns=80)
+    Menu(
+        title="Bootloader",
+        items=[Item(label="systemd-boot", value="sd", disabled_because=reason), Item(label="GRUB", value="grub")],
+    ).run(screen)
+    drawn = "".join(screen.frames[0])
+    assert "this reason remains visible instead of disappearing beyond" in drawn
+    assert "the right edge" in drawn
+
+
 def test_the_cursor_starts_on_a_row_that_can_be_chosen() -> None:
     excluded: Menu[str] = Menu(
         title="Bootloader",

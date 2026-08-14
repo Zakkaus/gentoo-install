@@ -1455,7 +1455,7 @@ def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> A
     }
     items = [
         Item(
-            label=name or "no desktop",
+            label=translate("no desktop") if not name else name,
             value=name,
             # Plasma and GNOME both bring `wayland`, and the operator reads
             # that here rather than after choosing.
@@ -3402,15 +3402,15 @@ def networking_screen(
     """How the installed system brings a link up. The two NetworkManager rows
     differ only in which supplicant drives wifi."""
     translate = context.translate
-    builtin = "systemd-networkd" if config.system.init is InitSystem.SYSTEMD else "netifrc"
+    builtin = translate("systemd-networkd") if config.system.init is InitSystem.SYSTEMD else translate("netifrc")
     detail = {
-        Networking.BUILTIN: builtin,
-        Networking.NETWORKMANAGER_WPA: "wpa_supplicant for wifi",
-        Networking.NETWORKMANAGER_IWD: "iwd for wifi",
-        Networking.NONE: "configure it yourself after the install",
+        Networking.BUILTIN: translate(builtin),
+        Networking.NETWORKMANAGER_WPA: translate("wpa_supplicant for wifi"),
+        Networking.NETWORKMANAGER_IWD: translate("iwd for wifi"),
+        Networking.NONE: translate("configure it yourself after the install"),
     }
     items = [
-        Item(label=choice.value, value=choice, detail=detail[choice]) for choice in Networking
+        Item(label=translate(choice.value), value=choice, detail=detail[choice]) for choice in Networking
     ]
     menu: Menu[Networking] = Menu(
         title=translate("Network configuration"),
@@ -3730,6 +3730,7 @@ def _template_filesystem(choice: Choice) -> FilesystemType | None:
 def _capacity(context: Context, disk: manual.Disk) -> str:
     """The disk's size and what its table has already claimed, because a size
     is guesswork without them."""
+    translate = context.translate
     total = context.contents(disk.selector)[1]
     if not total:
         return ""
@@ -3737,7 +3738,9 @@ def _capacity(context: Context, disk: manual.Disk) -> str:
     claimed = sum(entry.size.bytes for entry in fresh if entry.size is not None)
     rest = any(entry.size is None for entry in fresh)
     used = Size(claimed)
-    return f"{total} total, {used} claimed{', rest to one partition' if rest else ''}"
+    return translate("{total} total, {used} claimed{rest}").format(
+        total=total, used=used, rest=translate(", rest to one partition") if rest else ""
+    )
 
 
 def _seed(context: Context) -> manual.Layout:
@@ -4021,9 +4024,21 @@ def _slice_fields(
     """Every field with its value, and why one that does not apply cannot be
     opened."""
     no_filesystem = translate("this purpose fixes the filesystem")
+    purpose_labels = {
+        "root": translate("root"),
+        "esp": translate("esp"),
+        "boot": translate("boot"),
+        "home": translate("home"),
+        "var": translate("var"),
+        "swap": translate("swap"),
+        "zfs pool member": translate("zfs pool member"),
+        "raid array member": translate("raid array member"),
+        "bios-boot": translate("bios-boot"),
+        "other": translate("other"),
+    }
     return [
         Item(label=translate("Size"), value=_SIZE, detail=_size_of(entry, translate)),
-        Item(label=translate("Purpose"), value=_PURPOSE, detail=purpose.label),
+        Item(label=translate("Purpose"), value=_PURPOSE, detail=purpose_labels[purpose.label]),
         Item(
             label=translate("Filesystem"),
             value=_FILESYSTEM,

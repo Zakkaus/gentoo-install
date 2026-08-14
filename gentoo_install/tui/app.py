@@ -8,7 +8,9 @@ own, because installing is a task people change their minds during.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Final
 
 from ..i18n import width
@@ -24,6 +26,21 @@ from .widgets import Item, Menu, Outcome, Screen, Style, TextField
 
 #: The default name for a saved configuration, offered as the field's example.
 SAVE_AS: Final[str] = "my-install.toml"
+
+
+
+#: What a row's state is called beside its label. A colour and a marker say
+#: nothing on a console with no colour, and a legend elsewhere is not the row.
+_STATE_NAMES: Final[Mapping[Style, str]] = MappingProxyType(
+    {Style.REQUIRED: "required", Style.UNTOUCHED: "never opened"}
+)
+
+
+def _labelled(setting: Setting, current: InstallConfig, context: Context) -> str:
+    """The row's label, with its state named when it has one."""
+    named = _STATE_NAMES.get(style_of(setting, current, context))
+    label = context.translate(setting.label)
+    return f"{label} [{context.translate(named)}]" if named else label
 
 
 def _menu_footer(context: Context, config: InstallConfig) -> str:
@@ -65,7 +82,7 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
         blocked = _blocked(current, context)
         items: list[Item[int]] = [
             Item(
-                label=context.translate(setting.label),
+                label=_labelled(setting, current, context),
                 value=index,
                 detail=_drawn(setting, current, context),
                 # `unavailable` first: `nested()` reads it and this loop did
