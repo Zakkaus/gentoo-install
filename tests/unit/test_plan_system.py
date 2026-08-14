@@ -1246,3 +1246,33 @@ def test_the_unlock_key_always_reaches_root() -> None:
     assert "root" not in {name for name, _ in key_accounts(system)}
     assert "root" in {name for name, _ in key_accounts(system, unlocking=True)}
     assert KernelConfig().remote_unlock == RemoteUnlock()
+
+
+def test_no_proxy_writes_no_proxy_environment() -> None:
+    """`/etc/environment` is replaced rather than appended to, so an install
+    with no proxy left ten empty variables there and discarded whatever the
+    file already carried."""
+    from gentoo_install.plan import system as plan_system
+
+    written = [
+        one for one in plan_system.build(config())
+        if isinstance(one, plan_system.WriteProxyEnvironment)
+    ]
+
+    assert written == []
+
+
+def test_a_configured_proxy_still_reaches_the_installed_system() -> None:
+    from gentoo_install.model.config import ProxyConfig
+    from gentoo_install.plan import system as plan_system
+
+    installation = replace(
+        config(), proxy=ProxyConfig(url="http://operator:secret@proxy.example:8080")
+    )
+    written = [
+        one for one in plan_system.build(installation)
+        if isinstance(one, plan_system.WriteProxyEnvironment)
+    ]
+
+    assert len(written) == 1
+    assert "secret" not in written[0].describe()

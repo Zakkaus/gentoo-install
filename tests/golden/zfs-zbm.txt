@@ -53,7 +53,6 @@
   resolve app-admin/sudo net-misc/openssh sys-process/cronie sys-kernel/installkernel sys-kernel/dracut sys-kernel/linux-firmware sys-kernel/dracut-crypt-ssh sys-apps/iproute2 net-misc/dhcp net-misc/iputils sys-fs/dosfstools sys-kernel/gentoo-cjk-kernel-bin sys-fs/zfs sys-boot/zfsbootmenu sys-boot/efibootmgr sys-apps/systemd sys-apps/kbd app-editors/vim together before installing the requested packages
 
 [system]
-  keep proxy environment for direct connection in the installed system
   generate and verify locales en_US.UTF-8, zh_TW.UTF-8
   set the system locale to zh_TW.UTF-8
   set the timezone to Asia/Taipei

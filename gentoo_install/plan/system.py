@@ -76,10 +76,14 @@ class WriteProxyEnvironment(Operation):
     proxy: ProxyConfig
 
     def describe(self) -> str:
-        route = self.proxy.redacted_url if self.proxy.enabled else "direct connection"
-        return f"keep proxy environment for {route} in the installed system"
+        return f"keep proxy environment for {self.proxy.redacted_url} in the installed system"
 
     def apply(self, context: Context) -> None:
+        # `/etc/environment` is replaced, not appended to, so a run with no
+        # proxy left ten empty variables in every installed system and took
+        # whatever the file already held with them.
+        if not self.proxy.enabled:
+            return
         endpoint = _proxy_endpoint(self.proxy)
         bypass = ",".join(self.proxy.bypass)
         values = {
@@ -963,7 +967,7 @@ class EnableService(Operation):
 def build(config: InstallConfig) -> list[Operation]:
     system = config.system
     operations: list[Operation] = [
-        WriteProxyEnvironment(proxy=config.proxy),
+        *([WriteProxyEnvironment(proxy=config.proxy)] if config.proxy.enabled else []),
         GenerateLocales(locales=system.locales),
         SelectLocale(locale=system.locale, init=system.init),
         SetTimezone(timezone=system.timezone),
