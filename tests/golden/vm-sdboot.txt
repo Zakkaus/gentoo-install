@@ -58,9 +58,8 @@
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
   install the storage tools: emerge sys-fs/dosfstools sys-fs/e2fsprogs
   install the kernel: emerge sys-kernel/gentoo-kernel-bin
-  delete any kernel image in /boot that has no modules directory
   rebuild the initramfs from sys-kernel/gentoo-kernel-bin with the modules written above
-  check that a kernel image reached /boot or /boot
+  check the installkernel payload names existing kernel files
 
 [bootloader]
   install bootctl: emerge sys-apps/systemd

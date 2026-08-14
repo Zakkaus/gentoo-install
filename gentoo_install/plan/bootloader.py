@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Final
 
-from ..errors import NothingToBoot
+from ..errors import ConfigError, NothingToBoot
 from ..model import compat
 from ..model.config import Bootloader, Firmware, InitSystem, InstallConfig, RemoteUnlock
 from ..model.device import (
@@ -29,8 +29,42 @@ from ..model.device import (
     ZfsDataset,
     ZfsPool,
 )
-from .operations import Context, Operation, Stage
+from .operations import CommandOutput, Context, Operation, Stage
 from .portage import Emerge, InstallMode, PortageConfigKind, WritePortageConfig
+
+
+@dataclass(frozen=True, kw_only=True)
+class VerifyPackageUse(Operation):
+    """Verify requested flags against the selected ebuild metadata."""
+
+    stage: Stage = Stage.PORTAGE
+    atom: str
+    flags: tuple[str, ...]
+
+    def describe(self) -> str:
+        return f"verify {self.atom} USE {' '.join(self.flags)} from ebuild metadata"
+
+    def apply(self, context: Context) -> None:
+        visible = context.run_in_target(["portageq", "best_visible", "/", self.atom], check=False)
+        if not isinstance(visible, CommandOutput) or visible.returncode != 0:
+            raise ConfigError(f"cannot resolve {self.atom} for USE verification")
+        cpv = visible.strip()
+        iuse = context.run_in_target(
+            ["portageq", "metadata", "/", "ebuild", cpv, "IUSE"], check=False
+        )
+        required = context.run_in_target(
+            ["portageq", "metadata", "/", "ebuild", cpv, "REQUIRED_USE"], check=False
+        )
+        if not isinstance(iuse, CommandOutput) or iuse.returncode != 0:
+            raise ConfigError(f"cannot read metadata for {cpv}")
+        if not isinstance(required, CommandOutput) or required.returncode != 0:
+            raise ConfigError(f"cannot read REQUIRED_USE for {cpv}")
+        available = {flag.lstrip("+-") for flag in iuse.split()}
+        missing = tuple(
+            flag.lstrip("-") for flag in self.flags if flag.lstrip("-") not in available
+        )
+        if missing:
+            raise ConfigError(f"{cpv} does not declare USE flags: {', '.join(missing)}")
 
 BOOTLOADER_PACKAGES: Final[dict[Bootloader, tuple[str, ...]]] = {
     Bootloader.GRUB: ("sys-boot/grub",),
@@ -193,6 +227,7 @@ class RequestBootctl(Operation):
         return f"ask for {self.package}[{','.join(self.FLAGS)}], which is what provides bootctl"
 
     def apply(self, context: Context) -> None:
+        VerifyPackageUse(atom=self.package, flags=self.FLAGS).apply(context)
         WritePortageConfig(
             kind=PortageConfigKind.USE,
             name="systemd-boot",

@@ -68,9 +68,8 @@
   tell dracut to carry zfs
   put the rpool key in /etc/zfs/rpool.key so only ZFSBootMenu asks for it
   copy the installing system's hostid into the target so the pool imports
-  delete any kernel image in /boot that has no modules directory
   rebuild the initramfs from sys-kernel/gentoo-kernel-bin with the modules written above
-  check that a kernel image reached /boot or /efi
+  check the installkernel payload names existing kernel files
 
 [bootloader]
   install the bootloader: emerge sys-boot/zfsbootmenu sys-boot/efibootmgr

@@ -12,7 +12,7 @@ from pathlib import PurePosixPath
 from typing import Final
 
 from ..model.config import Bootloader, InitSystem, InstallConfig, KernelSource
-from ..errors import InvalidLayout, NothingToBoot
+from ..errors import ConfigError, InvalidLayout, NothingToBoot
 from ..model import compat
 from ..model.device import (
     DeviceId,
@@ -43,6 +43,7 @@ from .portage import (
     SourcePolicy,
     WritePortageConfig,
 )
+from .bootloader import VerifyPackageUse
 
 #: The package that provides each kernel choice.
 KERNEL_PACKAGES: Final[dict[KernelSource, str]] = {
@@ -75,24 +76,8 @@ REMOTE_UNLOCK_MODULES: Final[tuple[str, ...]] = ("crypt-ssh", "network")
 #: Both take the `cjk` flag and both are keyworded `~amd64` in gentoo-zh.
 CJK_KERNELS: Final[tuple[KernelSource, ...]] = (KernelSource.CJK_BIN, KernelSource.CJK)
 
-#: Where installkernel's default layout puts the images, and how each name is
-#: built: a prefix, the kernel version, a suffix. The bls layout systemd-boot
-#: uses is a directory per entry instead, so nothing there matches and nothing
-#: there is touched.
+INSTALLKERNEL_STATE: Final[str] = "/var/lib/misc/installkernel"
 KERNEL_IMAGES: Final[str] = "/boot"
-IMAGE_NAMES: Final[tuple[tuple[str, str], ...]] = (
-    ("kernel-", ""),
-    ("vmlinuz-", ""),
-    ("initramfs-", ".img"),
-    ("System.map-", ""),
-    ("config-", ""),
-)
-
-#: What a kernel image is called where it lands, as `find -name` patterns.
-#: `installkernel`'s `90-compat.install` writes `kernel-<version>`, the
-#: traditional name is `vmlinuz-<version>`, and the bls layout writes
-#: `<boot root>/<entry token>/<version>/linux`.
-IMAGE_PATTERNS: Final[tuple[str, ...]] = ("kernel-*", "vmlinuz-*", "linux")
 
 #: One directory per kernel that can actually load a driver.
 MODULE_DIRECTORY: Final[str] = "/lib/modules"
@@ -165,6 +150,7 @@ class ConfigureInstallKernel(Operation):
     boot_root: str = ""
 
     def apply(self, context: Context) -> None:
+        VerifyPackageUse(atom="sys-kernel/installkernel", flags=self._flags()).apply(context)
         # Only this package's flags. What `bootctl` comes from is
         # `RequestBootctl`'s to say, and writing it here as well put one
         # package's USE in two files that neither named the other.
@@ -237,6 +223,7 @@ class RequestSystemdCryptsetup(Operation):
         return "ask for sys-apps/systemd[cryptsetup], which provides the unlock generator"
 
     def apply(self, context: Context) -> None:
+        VerifyPackageUse(atom="sys-apps/systemd", flags=("cryptsetup",)).apply(context)
         WritePortageConfig(
             kind=PortageConfigKind.USE,
             name="cryptsetup",
@@ -256,6 +243,8 @@ class RequestStorageUse(Operation):
         return f"ask for {listed}, which dracut needs and the default build lacks"
 
     def apply(self, context: Context) -> None:
+        for atom, flags in self.entries:
+            VerifyPackageUse(atom=atom, flags=flags).apply(context)
         WritePortageConfig(
             kind=PortageConfigKind.USE,
             name="storage",
@@ -273,6 +262,8 @@ class RequestZfsBootMenuNetworkTools(Operation):
         return "ask for dhclient and arping, which ZFSBootMenu networking requires"
 
     def apply(self, context: Context) -> None:
+        VerifyPackageUse(atom="net-misc/dhcp", flags=("client", "-server")).apply(context)
+        VerifyPackageUse(atom="net-misc/iputils", flags=("arping",)).apply(context)
         WritePortageConfig(
             kind=PortageConfigKind.USE,
             name="zfsbootmenu-network",
@@ -471,6 +462,7 @@ class RequestCjkKernel(Operation):
             lines=(f"{self.package} ~amd64",),
         ).apply(context)
         if not self.cjk:
+            VerifyPackageUse(atom=self.package, flags=("-cjk",)).apply(context)
             WritePortageConfig(
                 kind=PortageConfigKind.USE,
                 name="cjk-kernel",
@@ -493,82 +485,14 @@ class RebuildInitramfs(Operation):
         context.run_in_target(["emerge", "--config", self.package])
 
 
-def _version_in(name: str) -> str | None:
-    """The kernel version a file in /boot is named for, or None for a name
-    this does not recognise. Unrecognised is left alone: /boot holds the
-    bootloader's own files and they are nobody's to delete.
-
-    `.old` is one of those names. installkernel keeps the previous image under
-    it, and its version is the one it had, so matching it against the modules
-    that are installed now would delete every backup there is.
-    """
-    if name.endswith(".old"):
-        return None
-    for prefix, suffix in IMAGE_NAMES:
-        if name.startswith(prefix) and name.endswith(suffix):
-            return name[len(prefix) : len(name) - len(suffix) or None]
-    return None
-
-
-def _version_inside(context: Context, name: str) -> str | None:
-    """What the image says it is, or None when nothing said.
-
-    `file` answers `Linux kernel x86 boot executable bzImage, version 6.18.41
-    -gentoo-dist-bin (...)`. None rather than a guess: an unreadable answer is
-    not evidence that the image is wrong, and deleting the only kernel on that
-    basis leaves nothing to boot.
-    """
-    said = context.run_in_target(["file", "--brief", f"{KERNEL_IMAGES}/{name}"], check=False)
-    words = said.split()
-    if "version" not in words:
-        return None
-    return words[words.index("version") + 1] if len(words) > words.index("version") + 1 else None
-
-
-@dataclass(frozen=True, kw_only=True)
-class RemoveUnbootableKernels(Operation):
-    """Delete a kernel image in /boot that has no modules to go with it.
-
-    `sys-fs/zfs` reinstalls the initramfs from its own postinst, and the
-    version it computes off `/usr/src/linux` is `-gentoo-dist` where the
-    prebuilt kernel is `-gentoo-dist-bin`, so kernel-install copies the image
-    a second time under the wrong name. `generate-zbm` then refuses every
-    kernel it can see -- "ignoring inconsistent versions" -- and GRUB would
-    have offered the operator an entry that cannot boot.
-
-    Two tests, because one image failed only the second. An image whose
-    version has no modules directory loads no driver and reaches no root. An
-    image whose file name disagrees with the version string inside it is the
-    one `generate-zbm` names in that message: `sys-fs/zfs` also leaves
-    `/lib/modules/<wrong version>` behind, so the modules test passes and the
-    kernel is still refused.
-
-    `file` reads the string. It is in `@system`, so a stage3 has it.
-    """
-
-    stage: Stage = Stage.KERNEL
-
-    def describe(self) -> str:
-        return "delete any kernel image in /boot that has no modules directory"
-
-    def apply(self, context: Context) -> None:
-        listed = context.run_in_target(["ls", "-1", KERNEL_IMAGES], check=False)
-        known = context.run_in_target(["ls", "-1", MODULE_DIRECTORY], check=False)
-        versions = {line.strip() for line in known.splitlines() if line.strip()}
-        if not versions:
-            # Nothing to compare against: deleting on no evidence is worse
-            # than leaving an image that may be the only one.
-            return
-        for name in (line.strip() for line in listed.splitlines()):
-            version = _version_in(name)
-            if version is None:
-                continue
-            inside = _version_inside(context, name)
-            # Only a disagreement, never an unknown: `file` answering nothing
-            # is not evidence, and this is the last chance to keep a kernel.
-            if version in versions and inside in (None, version):
-                continue
-            context.run_in_target(["rm", "--force", f"{KERNEL_IMAGES}/{name}"])
+def _installkernel_payload(context: Context) -> tuple[str, ...]:
+    output = context.read(PurePosixPath(INSTALLKERNEL_STATE))
+    if not output.strip():
+        raise NothingToBoot(f"{INSTALLKERNEL_STATE} has no installkernel payload")
+    fields = output.splitlines()[-1].split("\t")
+    if len(fields) < 11 or not fields[2] or not fields[7] or not fields[8] or not fields[9]:
+        raise ConfigError(f"{INSTALLKERNEL_STATE} has an invalid installkernel payload")
+    return tuple(fields)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -580,34 +504,21 @@ class RequireKernelImage(Operation):
     the zfs module is missing" -- leaves `emerge --config` returning 0 with no
     image copied and nothing in the log that reads as a failure.
 
-    Every name in `IMAGE_PATTERNS`, because a check that looks for one layout
-    stops a good install: the first version of this asked for `vmlinuz-*` and
-    `linux`, and `compat` had written `kernel-<version>`.
+    The installkernel payload identifies the image path; no filename table is
+    needed for a layout the package may change.
     """
 
     stage: Stage = Stage.KERNEL
-    roots: tuple[str, ...]
-
     def describe(self) -> str:
-        return f"check that a kernel image reached {' or '.join(self.roots)}"
+        return "check the installkernel payload names existing kernel files"
 
     def apply(self, context: Context) -> None:
-        for root in self.roots:
-            names: list[str] = []
-            for pattern in IMAGE_PATTERNS:
-                names += ["-o", "-name", pattern]
-            found = context.run_in_target(
-                ["find", root, "-maxdepth", "3", "-type", "f", "(", *names[1:], ")"],
-                check=False,
-            )
-            # A path, not a non-empty answer: the runner merges stderr into
-            # stdout, so `find: no such directory` would otherwise read as a hit.
-            if any(line.startswith(f"{root}/") for line in found.splitlines()):
-                return
-        raise NothingToBoot(
-            f"no kernel image under {' or '.join(self.roots)}; "
-            "kernel-install stopped on a plugin that exited 77"
-        )
+        fields = _installkernel_payload(context)
+        root, image, initramfs = fields[7], fields[8], fields[9]
+        for path in (f"{root}/{image}", f"{root}/{initramfs}"):
+            found = context.run_in_target(["test", "-s", path], check=False)
+            if not getattr(found, "returncode", 1) == 0:
+                raise NothingToBoot(f"installkernel payload names missing image {path}")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -623,6 +534,8 @@ class RequestDistKernelModules(Operation):
         return f"tell {', '.join(self.packages)} to build against the dist-kernel"
 
     def apply(self, context: Context) -> None:
+        for package in self.packages:
+            VerifyPackageUse(atom=package, flags=("dist-kernel",)).apply(context)
         WritePortageConfig(
             kind=PortageConfigKind.USE,
             name="dist-kernel-modules",
@@ -798,11 +711,8 @@ def build(config: InstallConfig) -> list[Operation]:
     # is built here.
     if graph.of_type(ZfsPool):
         operations.append(GenerateHostId())
-    operations.append(RemoveUnbootableKernels())
     operations.append(RebuildInitramfs(package=package))
-    esp = compat.esp_mount(graph)
-    roots = (KERNEL_IMAGES, str(esp.path)) if esp is not None else (KERNEL_IMAGES,)
-    operations.append(RequireKernelImage(roots=roots))
+    operations.append(RequireKernelImage())
     return operations
 
 
