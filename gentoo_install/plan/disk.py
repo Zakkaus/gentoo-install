@@ -834,39 +834,52 @@ class UnmountTarget(Operation):
         already clear: Gig-OS failed there where gentoo-cjk did not.
         """
         listed = context.run(
-            ["zfs", "list", "-H", "-o", "name", "-r", pool], check=False
+            ["zfs", "list", "-H", "-o", "name,mounted", "-r", pool], check=False
         )
         if isinstance(listed, CommandOutput) and listed.returncode != 0:
             return
-        names = [one.strip() for one in str(listed).splitlines() if one.strip()]
+        names = [one.split("\t", 1)[0].strip() for one in str(listed).splitlines() if one.strip()]
         for name in sorted(names, key=lambda one: one.count("/"), reverse=True):
             context.run(["zfs", "unmount", name], check=False)
 
+    def _mounted_datasets(self, context: Context, pool: str) -> bool:
+        listed = context.run(
+            ["zfs", "list", "-H", "-o", "name,mounted", "-r", pool], check=False
+        )
+        if not isinstance(listed, CommandOutput) or listed.returncode != 0:
+            return False
+        return any(
+            separator and state.strip() == "yes"
+            for line in str(listed).splitlines()
+            for _, separator, state in [line.partition("\t")]
+        )
+
     def _export(self, context: Context, pool: str) -> None:
-        """`umount --lazy` detaches the tree and returns before the last
-        reference is dropped, so the export that follows it reads `cannot
-        export 'rpool': pool is busy` on a guest whose install had otherwise
-        finished. The references go within seconds; one that does not is a
-        reason to stop, because an unexported pool needs `zpool import -f` on
-        the next boot."""
+        """Export the pool, forcing only a holder this operation can name.
+
+        `umount --lazy` detaches the tree and returns before the last
+        reference is dropped, so the export that follows reads `pool is busy`
+        on a guest whose install had otherwise finished. Those references go
+        within seconds, which is what the retries are for. A pool still busy
+        with nothing of its own mounted is held by something else — `zed` in
+        a live environment is one — and forcing there hides it, so it is
+        reported instead. An unexported pool needs `zpool import -f` on the
+        next boot, so the failure has to say which case it is.
+        """
         last: CommandFailed | None = None
         for attempt in range(EXPORT_TRIES):
-            # The last attempt forces. A live environment running `zed` holds
-            # the pool open for as long as it runs, so waiting never clears it:
-            # Gig-OS failed all six plain attempts where the same fixture on a
-            # medium without `zed` succeeded on the second. Forcing is bounded
-            # here because the target tree was unmounted a moment ago and the
-            # only datasets left attached are the ones this run created.
-            forced = attempt + 1 == EXPORT_TRIES
             try:
-                context.run(["zpool", "export", *(["-f"] if forced else []), pool])
+                context.run(["zpool", "export", pool])
                 return
             except CommandFailed as failed:
                 last = failed
-                if not forced:
+                if attempt + 1 < EXPORT_TRIES:
                     context.run(["sleep", f"{EXPORT_PAUSE:g}"])
         assert last is not None
-        raise last
+        if self._mounted_datasets(context, pool):
+            context.run(["zpool", "export", "-f", pool])
+            return
+        raise CommandFailed(f"{pool} remains busy after dataset unmount; holder is unknown") from last
 
 
 def finish(config: InstallConfig) -> list[Operation]:
