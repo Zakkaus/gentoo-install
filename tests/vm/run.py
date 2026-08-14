@@ -13,6 +13,7 @@ import fcntl
 import io
 import os
 import re
+import shlex
 import socket
 import subprocess
 import sys
@@ -247,7 +248,7 @@ def check_installed(console: SerialConsole, installation: InstallConfig) -> None
     """Assert against the system that was installed, booted from its own disk."""
     console.run(f"mkdir -p {RESULT_DIR}")
     for check in checks(installation):
-        console.run(f"{{ {check.command} ; }} > {RESULT_DIR}/{check.name}.txt 2>&1")
+        console.run(f"{{ {check.command} ; }} > {shlex.quote(f'{RESULT_DIR}/{check.name}.txt')} 2>&1")
     console.run(collect_command(RESULT_DIR))
     console.run("sync")
 
@@ -337,7 +338,7 @@ def run_installer(console: SerialConsole, config: str, extra: str = "") -> None:
 def probe(console: SerialConsole) -> None:
     console.run(f"mkdir -p {RESULT_DIR}")
     for name, command in PROBE:
-        console.run(f"{{ {command} ; }} > {RESULT_DIR}/{name}.txt 2>&1")
+        console.run(f"{{ {command} ; }} > {shlex.quote(f'{RESULT_DIR}/{name}.txt')} 2>&1")
     console.run(collect_command(RESULT_DIR))
     console.run("sync")
 

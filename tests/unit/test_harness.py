@@ -1790,3 +1790,31 @@ def test_a_cn_run_clones_the_overlay_from_a_chinese_mirror(tmp_path: Path) -> No
     overlay = next(one for one in moved.portage.overlays if one.name == "gentoo-zh")
     assert "github.com" not in overlay.sync_uri
     assert overlay.sync_uri.startswith("https://mirrors.cernet.edu.cn/")
+
+
+def test_a_check_whose_name_has_a_space_is_written_to_one_file() -> None:
+    """`root filesystem` is a check name, and an unquoted redirection split it
+    into two words: bash answered `syntax error near unexpected token` and the
+    Alpine run ended there with the install already finished.
+    """
+    import subprocess
+
+    from tests.vm import run as vm_run
+
+    class Recording:
+        def __init__(self) -> None:
+            self.commands: list[str] = []
+
+        def run(self, command: str, timeout: float = 120.0) -> None:
+            self.commands.append(command)
+
+    from gentoo_install.exec.config import load
+
+    console = Recording()
+    installation = load(Path(__file__).resolve().parents[1] / "fixtures" / "vm-btrfs.toml")
+    vm_run.check_installed(console, installation)  # type: ignore[arg-type]
+    assert any("root filesystem" in one for one in console.commands)
+    for command in console.commands:
+        assert subprocess.run(
+            ["bash", "-n", "-c", command], capture_output=True
+        ).returncode == 0, command
