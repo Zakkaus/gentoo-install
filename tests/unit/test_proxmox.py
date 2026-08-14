@@ -1220,6 +1220,7 @@ def test_installed_boot_attaches_before_reset_without_sending_a_line(
 ) -> None:
     """A late termproxy has no GRUB scrollback, while a blank line submitted at
     the hidden passphrase prompt is an empty key rather than a harmless probe."""
+    from gentoo_install.exec.config import load
     from tests.vm import cluster
 
     events: list[str] = []
@@ -1250,7 +1251,10 @@ def test_installed_boot_attaches_before_reset_without_sending_a_line(
 
     monkeypatch.setattr(cluster, "_unlock", unlock)
     refused = cluster.boot_and_check(
-        cast(Any, Guest()), cast(Any, Link()), Path("unused"), cast(Any, object())
+        cast(Any, Guest()),
+        cast(Any, Link()),
+        Path("unused"),
+        load(Path("tests/fixtures/vm-btrfs.toml")),
     )
 
     assert refused == "stop after observing boot order"

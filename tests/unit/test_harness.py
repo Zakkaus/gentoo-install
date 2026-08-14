@@ -34,6 +34,92 @@ def test_a_run_that_installed_and_collected_no_exit_code_is_a_failure() -> None:
     assert verdict({"install.rc": b"0\n"}, None, installed=True) == 0
 
 
+def test_remote_unlock_failure_is_not_a_console_fallback() -> None:
+    assert verdict({"remote-unlock.rc": b"1\n"}, None) == 1
+
+
+def test_remote_unlock_replaces_fixture_values_without_mutating_fixture() -> None:
+    from gentoo_install.exec.config import load
+    from tests.vm.run import remote_config
+
+    fixture = Path("tests/fixtures/zfs-zbm.toml")
+    before = fixture.read_bytes()
+    substituted = remote_config(load(fixture), "ssh-ed25519 AAAA harness")
+    assert substituted.system.authorized_keys == ("ssh-ed25519 AAAA harness",)
+    assert substituted.kernel.remote_unlock.address == ""
+    assert fixture.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("fixture", "command", "proof"),
+    [
+        ("vm-unlock.toml", "unlock", None),
+        (
+            "zfs-zbm.toml",
+            "zfs load-key -a",
+            "zfs get -H -o value keystatus zpcala/ROOT/gentoo/root",
+        ),
+    ],
+)
+def test_remote_unlock_command_comes_from_fixture(
+    fixture: str, command: str, proof: str | None
+) -> None:
+    from gentoo_install.exec.config import load
+    from tests.vm.run import remote_unlock_commands
+
+    commands = remote_unlock_commands(load(Path("tests/fixtures") / fixture))
+    assert commands is not None
+    actual_command, actual_proof = commands
+    assert actual_command == command
+    assert actual_proof == proof
+
+
+def test_zfs_remote_unlock_proof_changes_when_pool_is_renamed() -> None:
+    from dataclasses import replace
+
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.device import ZfsPool
+    from tests.vm.run import remote_unlock_commands
+
+    installation = load(Path("tests/fixtures/zfs-zbm.toml"))
+    pool = installation.disk.graph.of_type(ZfsPool)[0]
+    nodes = [
+        replace(node, name="renamed") if node.id == pool.id and isinstance(node, ZfsPool) else node
+        for node in installation.disk.graph.nodes.values()
+    ]
+    renamed = replace(installation, disk=replace(installation.disk, graph=type(installation.disk.graph)(nodes)))
+    commands = remote_unlock_commands(renamed)
+    assert commands is not None
+    _, proof = commands
+    assert proof is not None and "renamed/" in proof and "zpcala/" not in proof
+
+
+def test_disabled_remote_unlock_produces_no_command() -> None:
+    from dataclasses import replace
+
+    from gentoo_install.exec.config import load
+    from tests.vm.run import remote_unlock_commands
+
+    installation = load(Path("tests/fixtures/zfs-zbm.toml"))
+    disabled = replace(
+        installation,
+        kernel=replace(installation.kernel, remote_unlock=replace(installation.kernel.remote_unlock, enabled=False)),
+    )
+    assert remote_unlock_commands(disabled) is None
+
+
+def test_unlock_forward_is_only_added_when_remote_unlock_is_requested() -> None:
+    from tests.vm.media import MEDIA
+    from tests.vm.qemu import Vm, VmSpec
+
+    ordinary = Vm(VmSpec(MEDIA["official-minimal"], Path("/tmp"), ssh_port=2200))._netdev()
+    remote = Vm(
+        VmSpec(MEDIA["official-minimal"], Path("/tmp"), ssh_port=2200, remote_unlock_port=2201)
+    )._netdev()
+    assert "hostfwd=tcp::2201-:2222" not in ordinary
+    assert "hostfwd=tcp::2201-:2222" in remote
+
+
 def test_every_configuration_the_campaign_names_exists() -> None:
     """A stage naming a fixture that was renamed fails half an hour in, after
     the medium has booted, rather than at the first line."""
