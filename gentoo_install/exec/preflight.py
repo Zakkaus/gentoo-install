@@ -35,6 +35,7 @@ from ..plan.disk import MKFS
 from ..plan.operations import Operation
 from ..plan.portage import InstallStage3, MountChrootFilesystems, SyncRepository
 from .probe import RELEASE_KEY, Machine, Probe
+from .runner import write_file
 
 # These are used while preflight inspects disks, before any operation runs.
 PREFLIGHT_ONLY: Final[tuple[str, ...]] = ("lsblk", "swapon")
@@ -159,12 +160,36 @@ TMPFS_MINIMUM: Final[int] = 8 * 1024**3
 
 
 @dataclass(frozen=True)
+class SecretStore:
+    """Approved passphrases staged under the run's volatile work directory."""
+
+    work: Path
+
+    def path(self, device: DeviceId) -> Path:
+        return self.work / "keys" / "approved" / str(device)
+
+    def stage(self, device: DeviceId, passphrase: str) -> None:
+        write_file(self.path(device), passphrase, 0o600)
+
+    def cleanup(self) -> None:
+        keys = self.work / "keys" / "approved"
+        if not keys.is_dir():
+            return
+        for path in keys.iterdir():
+            if path.is_file():
+                path.unlink()
+
+
+@dataclass(frozen=True)
 class Report:
     fatal: tuple[str, ...]
     warnings: tuple[str, ...]
+    secrets: SecretStore | None = None
 
     def raise_if_fatal(self) -> None:
         if self.fatal:
+            if self.secrets is not None:
+                self.secrets.cleanup()
             raise PreflightFailed(
                 "this machine cannot run the install:\n  " + "\n  ".join(self.fatal)
             )
@@ -242,7 +267,9 @@ def _disks_at_risk(graph: DeviceGraph) -> list[Existing]:
     return list(compat.destroyed(graph))
 
 
-def _passphrase_problems(config: InstallConfig, probe: Probe) -> list[str]:
+def _passphrase_problems(
+    config: InstallConfig, probe: Probe, secrets: SecretStore | None = None
+) -> list[str]:
     """Read every passphrase file before the first disk is touched.
 
     `zpool create` rejects a short passphrase only once the pool's vdevs have
@@ -277,6 +304,8 @@ def _passphrase_problems(config: InstallConfig, probe: Probe) -> list[str]:
                 f"{device}: {source} holds {len(passphrase)} characters and zfs takes at "
                 f"least {minimum}"
             )
+        elif secrets is not None:
+            secrets.stage(DeviceId(device), passphrase)
     return problems
 
 
@@ -466,7 +495,8 @@ def inspect(
         if unusable:
             fatal.append(f"{unusable}, and this configuration makes a pool")
 
-    fatal += _passphrase_problems(config, probe)
+    secrets = SecretStore(probe.work)
+    fatal += _passphrase_problems(config, probe, secrets)
     fatal += _capacity_problems(config, probe)
 
     if not machine.release_key:
@@ -488,4 +518,4 @@ def inspect(
         warnings.append(
             f"{Size(machine.memory_bytes)} of memory: build in /var/tmp rather than a tmpfs"
         )
-    return Report(fatal=tuple(fatal), warnings=tuple(warnings))
+    return Report(fatal=tuple(fatal), warnings=tuple(warnings), secrets=secrets)
