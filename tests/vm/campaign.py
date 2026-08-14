@@ -102,6 +102,12 @@ class Run:
     #: at zero for a run that installs binary packages: more cores do nothing
     #: for a download, and they would be taken from a run that is compiling.
     cpus: int = 0
+    #: Whether the install is meant to stop. `vm-proxy-dead` points the proxy
+    #: at a port nothing listens on, so an install that finishes proves the
+    #: setting was bypassed: its failure is the result. Reported as `ok` when it
+    #: fails and as a failure when it does not, because a fixture that is always
+    #: red teaches everyone to read past red.
+    expect_failure: bool = False
     #: What this costs the machine, against `CAPACITY`. Two for a run that
     #: compiles a kernel or a desktop: those saturate their vCPUs for half an
     #: hour, and packing them beside each other makes every one of them slower
@@ -173,7 +179,7 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         # The proxy pointed at a port nothing listens on: a run that reaches
         # the mirror proves something bypassed it, so this one is expected to
         # fail at the stage3 download and its failure is the result.
-        Run("fixtures/vm-proxy-dead.toml"),
+        Run("fixtures/vm-proxy-dead.toml", expect_failure=True),
         # The direction that matters to an operator on an intranet, and the one
         # nothing covered: the proxy answers and the install completes through
         # it. It needs a SOCKS5 listener on the workstation, so `run.py` refuses
@@ -211,7 +217,7 @@ class Outcome:
 
     @property
     def passed(self) -> bool:
-        return self.returncode == 0
+        return (self.returncode != 0) if self.run.expect_failure else (self.returncode == 0)
 
 
 def perform(run: Run) -> Outcome:
@@ -245,6 +251,10 @@ def mark_for(outcome: Outcome) -> str:
     if outcome.passed:
         return "ok  "
     said = outcome.log.read_text(errors="replace")
+    if outcome.run.expect_failure:
+        # It finished, and finishing is the defect: the fetch reached the mirror
+        # with a proxy that cannot carry it.
+        return "BYPASS"
     if HOST_KILLED in said:
         return "HOST"
     return "LOCK" if ALREADY_RUNNING in said else "FAIL"
