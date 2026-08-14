@@ -121,11 +121,11 @@ def zfs_kernel_version_problem(version: str, ceiling: KernelCeiling) -> str | No
     """Return the incompatibility between a selected kernel and a ZFS ceiling."""
     if ceiling.maximum is None:
         return "the sys-fs/zfs kernel ceiling could not be read, so this ZFS install cannot establish that its kernel will build the module"
+    # An unpinned kernel is Portage's to resolve: `sys-fs/zfs` carries
+    # `dist-kernel-cap? ( dist-kernel? ( <virtual/dist-kernel-7.1 ) )`, so the
+    # ceiling is enforced by the dependency rather than by a version here.
     if not version:
-        return (
-            f"the kernel is not pinned under the sys-fs/zfs ceiling {ceiling.maximum}, "
-            "so Portage could select an unsupported version"
-        )
+        return None
     limit = _numeric_version(ceiling.maximum)
     selected = _numeric_version(version)
     if not limit or not selected:
