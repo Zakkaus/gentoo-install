@@ -36,7 +36,13 @@ from .bootloader import GenerateHostId
 from .bootloader import initramfs_keymap as bootloader_keymap
 from .bootloader import unlock_parameters
 from .operations import Context, Operation, Stage
-from .portage import Emerge, InstallMode, SourcePolicy
+from .portage import (
+    Emerge,
+    InstallMode,
+    PortageConfigKind,
+    SourcePolicy,
+    WritePortageConfig,
+)
 
 #: The package that provides each kernel choice.
 KERNEL_PACKAGES: Final[dict[KernelSource, str]] = {
@@ -162,10 +168,11 @@ class ConfigureInstallKernel(Operation):
         # Only this package's flags. What `bootctl` comes from is
         # `RequestBootctl`'s to say, and writing it here as well put one
         # package's USE in two files that neither named the other.
-        context.write(
-            PurePosixPath("/etc/portage/package.use/installkernel"),
-            f"sys-kernel/installkernel {' '.join(self._flags())}\n",
-        )
+        WritePortageConfig(
+            kind=PortageConfigKind.USE,
+            name="installkernel",
+            lines=(f"sys-kernel/installkernel {' '.join(self._flags())}",),
+        ).apply(context)
         if self.boot_root:
             # A drop-in, never `/etc/kernel/install.conf`. kernel-install(8):
             # "The first of the files that is found will be used", so writing
@@ -230,10 +237,11 @@ class RequestSystemdCryptsetup(Operation):
         return "ask for sys-apps/systemd[cryptsetup], which provides the unlock generator"
 
     def apply(self, context: Context) -> None:
-        context.write(
-            PurePosixPath("/etc/portage/package.use/cryptsetup"),
-            "sys-apps/systemd cryptsetup\n",
-        )
+        WritePortageConfig(
+            kind=PortageConfigKind.USE,
+            name="cryptsetup",
+            lines=("sys-apps/systemd cryptsetup",),
+        ).apply(context)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -248,8 +256,11 @@ class RequestStorageUse(Operation):
         return f"ask for {listed}, which dracut needs and the default build lacks"
 
     def apply(self, context: Context) -> None:
-        lines = "".join(f"{atom} {' '.join(flags)}\n" for atom, flags in self.entries)
-        context.write(PurePosixPath("/etc/portage/package.use/storage"), lines)
+        WritePortageConfig(
+            kind=PortageConfigKind.USE,
+            name="storage",
+            lines=tuple(f"{atom} {' '.join(flags)}" for atom, flags in self.entries),
+        ).apply(context)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -262,10 +273,11 @@ class RequestZfsBootMenuNetworkTools(Operation):
         return "ask for dhclient and arping, which ZFSBootMenu networking requires"
 
     def apply(self, context: Context) -> None:
-        context.write(
-            PurePosixPath("/etc/portage/package.use/zfsbootmenu-network"),
-            "net-misc/dhcp client -server\nnet-misc/iputils arping\n",
-        )
+        WritePortageConfig(
+            kind=PortageConfigKind.USE,
+            name="zfsbootmenu-network",
+            lines=("net-misc/dhcp client -server", "net-misc/iputils arping"),
+        ).apply(context)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -329,10 +341,11 @@ class AcceptFirmwareLicence(Operation):
         return "accept the linux-firmware licence"
 
     def apply(self, context: Context) -> None:
-        context.write(
-            PurePosixPath("/etc/portage/package.license/linux-firmware"),
-            "sys-kernel/linux-firmware linux-fw-redistributable no-source-code\n",
-        )
+        WritePortageConfig(
+            kind=PortageConfigKind.LICENSE,
+            name="linux-firmware",
+            lines=("sys-kernel/linux-firmware linux-fw-redistributable no-source-code",),
+        ).apply(context)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -354,10 +367,11 @@ class ConfigureRemoteUnlock(Operation):
         return f"configure remote unlock over ssh on port {self.port}"
 
     def apply(self, context: Context) -> None:
-        context.write(
-            PurePosixPath("/etc/portage/package.accept_keywords/dracut-crypt-ssh"),
-            f"{REMOTE_UNLOCK_PACKAGE} ~amd64\n",
-        )
+        WritePortageConfig(
+            kind=PortageConfigKind.KEYWORDS,
+            name="dracut-crypt-ssh",
+            lines=(f"{REMOTE_UNLOCK_PACKAGE} ~amd64",),
+        ).apply(context)
         if not self.system_initramfs:
             context.write(
                 PurePosixPath("/etc/dracut.conf.d/crypt-ssh.conf"),
@@ -404,10 +418,11 @@ class UnmaskCjkDistKernel(Operation):
         return f"unmask {CJK_MASKED}, which the cjk kernel depends on by revision"
 
     def apply(self, context: Context) -> None:
-        context.write(
-            PurePosixPath("/etc/portage/package.unmask/cjk-kernel"),
-            f"{CJK_MASKED}\n",
-        )
+        WritePortageConfig(
+            kind=PortageConfigKind.UNMASK,
+            name="cjk-kernel",
+            lines=(CJK_MASKED,),
+        ).apply(context)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -427,10 +442,11 @@ class AcceptKernelVersion(Operation):
         return f"accept {self.package}-{self.version} as testing"
 
     def apply(self, context: Context) -> None:
-        context.write(
-            PurePosixPath("/etc/portage/package.accept_keywords/kernel-version"),
-            f"={self.package}-{self.version} ~amd64\n",
-        )
+        WritePortageConfig(
+            kind=PortageConfigKind.KEYWORDS,
+            name="kernel-version",
+            lines=(f"={self.package}-{self.version} ~amd64",),
+        ).apply(context)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -449,15 +465,17 @@ class RequestCjkKernel(Operation):
         return f"accept {self.package} as testing, with cjk {'on' if self.cjk else 'off'}"
 
     def apply(self, context: Context) -> None:
-        context.write(
-            PurePosixPath("/etc/portage/package.accept_keywords/cjk-kernel"),
-            f"{self.package} ~amd64\n",
-        )
+        WritePortageConfig(
+            kind=PortageConfigKind.KEYWORDS,
+            name="cjk-kernel",
+            lines=(f"{self.package} ~amd64",),
+        ).apply(context)
         if not self.cjk:
-            context.write(
-                PurePosixPath("/etc/portage/package.use/cjk-kernel"),
-                f"{self.package} -{CJK_USE}\n",
-            )
+            WritePortageConfig(
+                kind=PortageConfigKind.USE,
+                name="cjk-kernel",
+                lines=(f"{self.package} -{CJK_USE}",),
+            ).apply(context)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -605,8 +623,11 @@ class RequestDistKernelModules(Operation):
         return f"tell {', '.join(self.packages)} to build against the dist-kernel"
 
     def apply(self, context: Context) -> None:
-        lines = "".join(f"{package} dist-kernel\n" for package in self.packages)
-        context.write(PurePosixPath("/etc/portage/package.use/dist-kernel-modules"), lines)
+        WritePortageConfig(
+            kind=PortageConfigKind.USE,
+            name="dist-kernel-modules",
+            lines=tuple(f"{package} dist-kernel" for package in self.packages),
+        ).apply(context)
 
 
 def build(config: InstallConfig) -> list[Operation]:
