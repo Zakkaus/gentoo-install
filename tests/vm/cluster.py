@@ -66,6 +66,7 @@ from .proxmox import (
     CreateConflict,
     Guest,
     GuestSpec,
+    GrubNotReadable,
     Node,
     ProxmoxError,
     VMID_FIRST,
@@ -2030,12 +2031,12 @@ def _edit_bios_cmdline(guest: Guest, link: "Reconnecting") -> None:
     try:
         append_to_cmdline(link, EXTRA_CMDLINE)
         return
-    except (ProxmoxError, ConsoleTimeout, ConsoleClosed):
+    except GrubNotReadable:
         pass
-    # The half-finished edit goes with the reset, so the blind attempt starts
-    # from a menu nobody has touched.
+    # The unreadable menu may have counted down while the serial wait ran, so
+    # reset before timing the blind attempt from a fresh boot.
     guest.reset()
-    link.reopen()
+    link.reopen(solicit_prompt=False)
     append_to_cmdline_blind(guest, link, EXTRA_CMDLINE)
 
 

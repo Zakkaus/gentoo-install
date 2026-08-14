@@ -1428,19 +1428,38 @@ def test_a_bios_guest_whose_grub_speaks_is_read_before_it_is_typed_at_blind(
             reset.append("reset")
 
     class Link:
-        def reopen(self) -> None:
-            reset.append("reopen")
+        def reopen(self, *, solicit_prompt: bool = True) -> None:
+            reset.append(f"reopen:{solicit_prompt}")
 
-    from tests.vm.console import ConsoleTimeout
+    from tests.vm.proxmox import GrubNotReadable
 
     def silent(link: object, extra: str) -> None:
-        raise ConsoleTimeout("never matched")
+        raise GrubNotReadable("the menu is VGA-only")
 
     read.clear()
     monkeypatch.setattr(cluster, "append_to_cmdline", silent)
     cluster._edit_bios_cmdline(cast("Any", Guest()), cast("Any", Link()))
     assert read == ["blind"]
-    assert reset == ["reset", "reopen"]
+    assert reset == ["reset", "reopen:False"]
+
+
+def test_bios_grub_serial_start_signal_stops_the_countdown() -> None:
+    from typing import Any, cast
+
+    from tests.vm import proxmox
+
+    sent: list[str] = []
+
+    class Console:
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+            assert "starting serial terminal on interface serial0" in pattern
+            return b"starting serial terminal on interface serial0"
+
+        def send_raw(self, keys: str) -> None:
+            sent.append(keys)
+
+    proxmox.hold_the_menu(cast(Any, Console()), timeout=1.0)
+    assert sent == [proxmox.GRUB_HOLD]
 
 
 def test_run_refuses_a_repeated_job_name_before_it_touches_the_cluster() -> None:
