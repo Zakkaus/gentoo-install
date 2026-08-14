@@ -6,7 +6,7 @@
 
 gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gentoo 系統。安裝內容以互動式選單或 TOML 設定檔指定。介面提供英文、正體中文、簡體中文、日文與韓文。
 
-![顯示各項安裝決定的選單](screenshot.png)
+![顯示各項安裝決定的選單](screenshot-zh-TW.png)
 
 ![cjktty 主控台顯示簡體中文、正體中文、日文與韓文](cjk-console.png)
 

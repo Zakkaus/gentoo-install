@@ -26,7 +26,26 @@ SWITCHER = tuple(READMES)
 
 #: Both pictures, in both files, at the top. A README that lost one of them
 #: still reads as complete.
-PICTURES = ("screenshot.png", "cjk-console.png")
+#: One menu capture per locale, so a reader sees the interface in the
+#: language the file they opened is written in.
+PICTURES = (
+    "screenshot-en.png",
+    "screenshot-zh-TW.png",
+    "screenshot-zh-CN.png",
+    "screenshot-ja.png",
+    "screenshot-ko.png",
+    "cjk-console.png",
+)
+
+#: Which capture each file shows, so the interface is in the language the
+#: reader chose by opening that file.
+MENU_PICTURES = {
+    "README.md": "screenshot-en.png",
+    "README.zh-TW.md": "screenshot-zh-TW.png",
+    "README.zh-CN.md": "screenshot-zh-CN.png",
+    "README.ja.md": "screenshot-ja.png",
+    "README.ko.md": "screenshot-ko.png",
+}
 
 SECTIONS = {
     "README.md": (
@@ -113,8 +132,10 @@ def test_both_pictures_are_in_every_readme_and_on_disk() -> None:
         assert (ROOT / picture).is_file(), picture
     for name in READMES:
         said = (ROOT / name).read_text()
-        for picture in PICTURES:
-            assert f"({picture})" in said, f"{name} is missing {picture}"
+        # The menu capture is the one in this file's own language: a reader
+        # who opened the Korean file is shown the Korean interface.
+        assert f"({MENU_PICTURES[name]})" in said, f"{name} is missing its own menu capture"
+        assert "(cjk-console.png)" in said, f"{name} is missing cjk-console.png"
 
 
 def test_every_readme_carries_the_complete_ordered_sections() -> None:
