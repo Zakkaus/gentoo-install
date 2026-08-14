@@ -151,6 +151,9 @@ class WriteProxyClients(Operation):
 
     def apply(self, context: Context) -> None:
         proxy = self.proxy
+        # A machine with no proxy keeps the files its distribution shipped.
+        if not proxy.enabled:
+            return
         endpoint = _proxy_endpoint(proxy)
         bypass = ",".join(proxy.bypass)
         context.write(
@@ -1070,19 +1073,23 @@ def make_conf(
         ("ACCEPT_LICENSE", " ".join(licenses or portage.accept_license)),
         ("L10N", " ".join(_l10n(config))),
     ]
+    # Only when a proxy is configured: `emerge-webrsync` runs `FETCHCOMMAND`
+    # for a snapshot whose URL it supplies itself, and the wget line written
+    # here has none, so it answered `missing URL` and no tree arrived.
     proxy = config.proxy
-    endpoint = _proxy_endpoint(proxy)
-    settings += [
-        ("http_proxy", endpoint),
-        ("https_proxy", endpoint),
-        ("ftp_proxy", endpoint),
-        ("all_proxy", endpoint),
-        ("no_proxy", ",".join(proxy.bypass)),
-        ("FETCHCOMMAND", FETCHCOMMAND),
-        ("RESUMECOMMAND", RESUMECOMMAND),
-    ]
-    if proxy.enabled and urlsplit(proxy.url).scheme.lower() in {"http", "https"}:
-        settings.append(("RSYNC_PROXY", _rsync_proxy(proxy)))
+    if proxy.enabled:
+        endpoint = _proxy_endpoint(proxy)
+        settings += [
+            ("http_proxy", endpoint),
+            ("https_proxy", endpoint),
+            ("ftp_proxy", endpoint),
+            ("all_proxy", endpoint),
+            ("no_proxy", ",".join(proxy.bypass)),
+            ("FETCHCOMMAND", FETCHCOMMAND),
+            ("RESUMECOMMAND", RESUMECOMMAND),
+        ]
+        if urlsplit(proxy.url).scheme.lower() in {"http", "https"}:
+            settings.append(("RSYNC_PROXY", _rsync_proxy(proxy)))
     if _uses_binhost(portage):
         settings.append(("FEATURES", "getbinpkg"))
     return tuple(settings)
