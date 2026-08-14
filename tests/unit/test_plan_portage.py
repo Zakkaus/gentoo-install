@@ -179,9 +179,58 @@ def test_proxy_clients_route_portage_and_keep_credentials_out_of_descriptions() 
     assert 'no_proxy="localhost,intranet.example"' in make_conf
     assert secret not in make_conf
     assert secret in recorder.files[PurePosixPath("/etc/wgetrc")]
+    assert secret in recorder.files[portage.CURL_PROXY_CONFIG]
     assert secret in recorder.files[PurePosixPath("/etc/gitconfig")]
-    assert secret in recorder.files[PurePosixPath("/etc/portage/gnupg/dirmngr.conf")]
+    # Not dirmngr.conf: `getuto` rebuilds /etc/portage/gnupg from a staging
+    # directory afterwards, so anything written there is thrown away. It reaches
+    # the proxy through its own `honor-http-proxy` and `http_proxy` instead.
     assert all(secret not in operation.describe() for operation in portage.build(installation, MIRROR))
+
+
+def test_socks_proxy_uses_curl_for_portage_and_leaves_wget_and_dirmngr_direct() -> None:
+    installation = replace(
+        config(), proxy=ProxyConfig(url="socks5h://installer:secret@proxy.example:1080")
+    )
+
+    recorder = apply_all(installation)
+    make_conf = recorder.files[PurePosixPath("/etc/portage/make.conf")]
+
+    assert 'FETCHCOMMAND="curl ' in make_conf
+    assert 'RESUMECOMMAND="curl ' in make_conf
+    assert f'FETCHCOMMAND="curl -K {portage.CURL_PROXY_CONFIG}' in make_conf
+    assert f'RESUMECOMMAND="curl -K {portage.CURL_PROXY_CONFIG}' in make_conf
+    assert "wget" not in make_conf.split('FETCHCOMMAND="', 1)[1].split('"', 1)[0]
+    assert "RSYNC_PROXY" not in make_conf
+    assert "proxy = \"socks5h://proxy.example:1080\"" in recorder.files[portage.CURL_PROXY_CONFIG]
+    assert 'proxy-user = "installer:secret"' in recorder.files[portage.CURL_PROXY_CONFIG]
+    assert "installer:secret" not in make_conf
+    assert "installer:secret" not in portage.CURL_FETCHCOMMAND
+    assert "installer:secret" not in portage.CURL_RESUMECOMMAND
+    assert recorder.files[PurePosixPath("/etc/wgetrc")] == "use_proxy = off\n"
+    # `getuto` rebuilds /etc/portage/gnupg from a staging directory after this
+    # runs, so nothing written there survives; its own dirmngr.conf carries
+    # `honor-http-proxy`, and a SOCKS URL in `http_proxy` made the tree's
+    # signature check answer `Invalid URI`.
+    assert PurePosixPath("/etc/portage/gnupg/dirmngr.conf") not in recorder.files
+    assert "http_proxy" not in make_conf
+    assert "https_proxy" not in make_conf
+    assert "ftp_proxy" not in make_conf
+    assert 'all_proxy="socks5h://proxy.example:1080"' in make_conf
+
+
+def test_http_proxy_keeps_wget_for_portage_and_configures_wget_and_dirmngr() -> None:
+    installation = replace(config(), proxy=ProxyConfig(url="http://installer:secret@proxy.example:8080"))
+
+    recorder = apply_all(installation)
+    make_conf = recorder.files[PurePosixPath("/etc/portage/make.conf")]
+
+    assert 'FETCHCOMMAND="wget ' in make_conf
+    assert 'RESUMECOMMAND="wget ' in make_conf
+    assert "http_proxy = http://proxy.example:8080" in recorder.files[PurePosixPath("/etc/wgetrc")]
+    # dirmngr reaches the proxy through `honor-http-proxy` and the environment
+    # `http_proxy`, which is why an HTTP proxy needs no file of its own.
+    assert 'http_proxy="http://proxy.example:8080"' in make_conf
+    assert PurePosixPath("/etc/portage/gnupg/dirmngr.conf") not in recorder.files
 
 
 def test_no_proxy_leaves_every_client_as_the_distribution_shipped_it() -> None:
@@ -195,8 +244,9 @@ def test_no_proxy_leaves_every_client_as_the_distribution_shipped_it() -> None:
     for name in ("http_proxy", "https_proxy", "ftp_proxy", "all_proxy", "no_proxy",
                  "FETCHCOMMAND", "RESUMECOMMAND", "RSYNC_PROXY"):
         assert name not in make_conf
-    for path in ("/etc/wgetrc", "/etc/curlrc", "/etc/gitconfig"):
+    for path in ("/etc/wgetrc", "/etc/gitconfig"):
         assert PurePosixPath(path) not in recorder.files
+    assert portage.CURL_PROXY_CONFIG not in recorder.files
 
 
 def test_l10n_is_derived_from_the_locales_rather_than_listed_twice() -> None:
@@ -910,6 +960,30 @@ def test_a_key_the_file_already_has_is_replaced_in_place() -> None:
     assert 'MAKEOPTS="-j8"' in merged
 
 
+def test_make_conf_values_survive_being_sourced_by_portage() -> None:
+    installation = replace(
+        config(),
+        proxy=ProxyConfig(url='socks5h://user:pass@proxy.example:1080'),
+        portage=replace(
+            config().portage,
+            makeopts='-j8 "quoted" $expanded \\literal',
+        ),
+    )
+    written = apply_all(installation).files[PurePosixPath("/etc/portage/make.conf")]
+    result = subprocess.run(
+        ["bash", "-c", "source /dev/stdin; printf '%s' \"$MAKEOPTS\""],
+        input=written,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    assert result.stdout == '-j8 "quoted" $expanded \\literal'
+    assert '\\"' in written
+    assert "\\$" in written
+    assert "\\\\" in written
+
+
 def test_common_flags_are_left_alone_unless_they_were_changed() -> None:
     """The default is the stage3's own value, so writing it would only add a
     line that says what the file already said."""
@@ -1299,7 +1373,7 @@ def test_unpacking_a_stage3_says_it_is_still_unpacking() -> None:
     assert "--checkpoint-action=echo" in ran, ran
 
 
-def test_make_conf_values_survive_being_sourced_by_portage() -> None:
+def test_an_awkward_make_conf_value_survives_the_whole_plan() -> None:
     """`FETCHCOMMAND` carries both a quote and a `$`, and writing it plainly
     ended the value at the first quote, so `emerge-webrsync` ran a wget with no
     URL and no tree ever arrived."""
@@ -1319,3 +1393,28 @@ def test_make_conf_values_survive_being_sourced_by_portage() -> None:
         ).stdout
         assert read_back == (FETCHCOMMAND if key == "FETCHCOMMAND" else RESUMECOMMAND)
         assert "${URI}" in read_back
+
+
+def test_a_proxy_with_a_private_file_turns_userfetch_off() -> None:
+    """Portage's own default drops the fetch to the `portage` user, which
+    cannot read the `0600` file holding the password: curl answered `cannot
+    read config from /etc/gentoo-install/curl-proxy.conf` for every distfile
+    and the install stopped at `linux-firmware`."""
+    installation = replace(
+        config(), proxy=ProxyConfig(url="socks5h://installer:secret@proxy.example:1080")
+    )
+
+    make_conf = apply_all(installation).files[PurePosixPath("/etc/portage/make.conf")]
+    features = [line for line in make_conf.splitlines() if line.startswith("FEATURES=")]
+
+    # One line: two would each be a whole assignment and bash keeps the last.
+    assert len(features) == 1
+    assert "-userfetch" in features[0]
+
+
+def test_no_proxy_leaves_userfetch_alone() -> None:
+    """It is a Portage default and this installer has no opinion on it; the
+    only reason to name it is a file the fetching user cannot read."""
+    make_conf = apply_all(config()).files[PurePosixPath("/etc/portage/make.conf")]
+
+    assert "userfetch" not in make_conf

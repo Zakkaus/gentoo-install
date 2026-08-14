@@ -53,6 +53,21 @@ class ProxyConfig:
         return bool(self.url)
 
     @property
+    def over_socks(self) -> bool:
+        """Whether the fetchers have to be ones that speak SOCKS.
+
+        `validate.py` names the four schemes an operator may write; this
+        divides them, so a caller never carries its own set of scheme names.
+        """
+        from urllib.parse import urlsplit
+
+        return urlsplit(self.url).scheme.lower() in {"socks5", "socks5h"}
+
+    @property
+    def over_http(self) -> bool:
+        return self.enabled and not self.over_socks
+
+    @property
     def redacted_url(self) -> str:
         """The URL with user information removed for screen and log output."""
         from urllib.parse import urlsplit, urlunsplit
