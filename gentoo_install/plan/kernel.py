@@ -21,21 +21,11 @@ from ..model.device import (
     FilesystemType,
     Luks,
     MdRaid,
-    Mountpoint,
-    Subvolume,
     VolumeGroup,
-    ZfsDataset,
     ZfsPool,
 )
-from .bootloader import (
-    array_parameters,
-    initramfs_devices,
-    keymap_parameters,
-    luks_parameters,
-)
+from .bootloader import array_parameters, boot_facts, keymap_parameters, luks_parameters
 from .bootloader import GenerateHostId
-from .bootloader import initramfs_keymap as bootloader_keymap
-from .bootloader import unlock_parameters
 from .operations import Context, Operation, Stage
 from .portage import (
     Emerge,
@@ -660,17 +650,17 @@ def build(config: InstallConfig) -> list[Operation]:
     if graph.of_type(ZfsPool):
         operations.append(VerifyZfsKernelCompatibility(version=config.kernel.version))
     if entries:
-        root, dataset, extra = _root_parameters(config)
+        facts = boot_facts(config)
         operations.append(
             WriteKernelCmdline(
-                root=root,
-                dataset=dataset,
-                luks=initramfs_devices(config)[0],
-                arrays=initramfs_devices(config)[1],
-                keymap=bootloader_keymap(config),
+                root=facts.root,
+                dataset=facts.dataset,
+                luks=facts.containers,
+                arrays=facts.arrays,
+                keymap=facts.keymap,
                 kernel_params=(
-                    *extra,
-                    *unlock_parameters(config),
+                    *facts.root_parameters,
+                    *facts.unlock_parameters,
                     *config.bootloader.kernel_params,
                 ),
             )
@@ -926,25 +916,3 @@ def storage_packages(
         if package not in wanted:
             wanted.append(package)
     return tuple(wanted)
-
-
-def _root_parameters(config: InstallConfig) -> tuple[DeviceId | None, str, tuple[str, ...]]:
-    """What a boot entry needs to find the root: a device, or a dataset name.
-
-    A subvolume root also needs `rootflags`, because the initramfs mounts the
-    filesystem's default subvolume otherwise.
-    """
-    graph = config.disk.graph
-    mount = graph[config.disk.root]
-    source = graph[mount.source] if isinstance(mount, Mountpoint) else mount
-    if isinstance(source, ZfsDataset):
-        pool = graph[source.pool]
-        name = pool.name if isinstance(pool, ZfsPool) else ""
-        return None, f"{name}/{source.name}", ()
-    if isinstance(source, Subvolume):
-        filesystem = graph[source.filesystem]
-        if isinstance(filesystem, Filesystem):
-            return filesystem.device, "", (f"rootflags=subvol={source.name}",)
-    if isinstance(source, Filesystem):
-        return source.device, "", ()
-    raise InvalidLayout(f"{config.disk.root} is not something a boot entry can mount")

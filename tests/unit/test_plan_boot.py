@@ -393,7 +393,8 @@ def test_the_boot_entry_names_the_root_the_layout_actually_has() -> None:
         ("tests/fixtures/zfs-zbm.toml", "root=ZFS="),
     ):
         installation = load(Path(fixture))
-        root, dataset, extra = kernel._root_parameters(installation)
+        facts = bootloader.boot_facts(installation)
+        root, dataset, extra = facts.root, facts.dataset, facts.root_parameters
         recorder = Recorder()
         kernel.WriteKernelCmdline(root=root, dataset=dataset, kernel_params=extra).apply(
             recorder
@@ -964,6 +965,46 @@ def test_zfsbootmenu_configures_the_pool_the_root_is_on() -> None:
         if isinstance(operation, InstallZfsBootMenu)
     ]
     assert (alone[0].pool, alone[0].dataset) == (installed[0].pool, installed[0].dataset)
+
+
+def test_kernel_and_zfsbootmenu_use_the_same_root_facts() -> None:
+    """A data pool before the root pool cannot change either boot input."""
+    from gentoo_install.model.config import Bootloader
+    from gentoo_install.model.device import DeviceId, Existing
+    from gentoo_install.plan.bootloader import InstallZfsBootMenu
+    from gentoo_install.plan.kernel import WriteKernelCmdline
+
+    installation = zfs_installation()
+    nodes = [
+        Existing(id=DeviceId("datadisk"), selector="/dev/disk/by-id/virtio-data", wipe=True),
+        ZfsPool(id=DeviceId("tank"), vdevs=(DeviceId("datadisk"),), name="tank"),
+        *installation.disk.graph.nodes.values(),
+    ]
+    installation = replace(
+        installation,
+        disk=replace(installation.disk, graph=DeviceGraph.build(nodes)),
+    )
+    expected_pool = "zpcala"
+    expected_dataset = "zpcala/ROOT/gentoo/root"
+    facts = bootloader.boot_facts(installation)
+
+    zbm = next(
+        one
+        for one in bootloader.build(installation)
+        if isinstance(one, InstallZfsBootMenu)
+    )
+    systemd_boot = replace(
+        installation,
+        bootloader=replace(installation.bootloader, kind=Bootloader.SYSTEMD_BOOT),
+    )
+    cmdline = next(
+        one
+        for one in kernel.build(systemd_boot)
+        if isinstance(one, WriteKernelCmdline)
+    )
+    assert (facts.pool, facts.pool_dataset) == (expected_pool, expected_dataset)
+    assert (zbm.pool, zbm.dataset) == (facts.pool, facts.pool_dataset)
+    assert (cmdline.root, cmdline.dataset) == (facts.root, facts.dataset)
 
 
 def test_the_dropbear_port_written_is_the_port_the_configuration_asked_for() -> None:

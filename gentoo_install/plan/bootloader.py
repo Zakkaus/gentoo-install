@@ -15,12 +15,13 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Final
 
-from ..errors import ConfigError, NothingToBoot
+from ..errors import ConfigError, InvalidLayout, NothingToBoot
 from ..model import compat
 from ..model.config import Bootloader, Firmware, InitSystem, InstallConfig, RemoteUnlock
 from ..model.device import (
     Existing,
     DeviceId,
+    Filesystem,
     MdRaid,
     Mountpoint,
     Partition,
@@ -28,6 +29,7 @@ from ..model.device import (
     PartitionTable,
     ZfsDataset,
     ZfsPool,
+    Subvolume,
 )
 from .operations import CommandOutput, Context, Operation, Stage
 from .portage import Emerge, InstallMode, PortageConfigKind, WritePortageConfig
@@ -90,6 +92,21 @@ EFI_PACKAGE: Final[str] = "sys-boot/efibootmgr"
 #: It names the image after the kernel, so the name is looked up, not assumed.
 ZBM_DIRECTORY: Final[str] = "EFI/zbm"
 FALLBACK_IMAGE: Final[str] = "EFI/BOOT/BOOTX64.EFI"
+
+
+@dataclass(frozen=True, kw_only=True)
+class BootFacts:
+    """Boot inputs derived once from the device graph and configuration."""
+
+    root: DeviceId | None
+    dataset: str
+    root_parameters: tuple[str, ...]
+    containers: tuple[DeviceId, ...]
+    arrays: tuple[DeviceId, ...]
+    keymap: str
+    unlock_parameters: tuple[str, ...]
+    pool: str
+    pool_dataset: str
 
 #: ZFSBootMenu's dracut tree is separate from the installed system's tree.
 ZBM_REMOTE_CONFIG: Final[PurePosixPath] = PurePosixPath(
@@ -441,6 +458,7 @@ class InstallZfsBootMenu(Operation):
 
 def build(config: InstallConfig) -> list[Operation]:
     kind = config.bootloader.kind
+    facts = boot_facts(config)
     mount = compat.esp_mount(config.disk.graph)
     esp = mount.path if mount is not None else None
     esp_device = _esp_partition(config)
@@ -457,12 +475,12 @@ def build(config: InstallConfig) -> list[Operation]:
     if kind is Bootloader.GRUB:
         operations += [
             WriteGrubDefaults(
-                kernel_params=(*unlock_parameters(config), *config.bootloader.kernel_params),
+                kernel_params=(*facts.unlock_parameters, *config.bootloader.kernel_params),
                 cryptodisk=compat.boot_is_encrypted(config.disk.graph),
                 serial=serial_console(config),
-                luks=initramfs_devices(config)[0],
-                arrays=initramfs_devices(config)[1],
-                keymap=initramfs_keymap(config),
+                luks=facts.containers,
+                arrays=facts.arrays,
+                keymap=facts.keymap,
             ),
             InstallGrub(
                 firmware=config.bootloader.firmware,
@@ -490,7 +508,6 @@ def build(config: InstallConfig) -> list[Operation]:
             ShowTheBootMenu(esp=esp),
         ]
     elif kind is Bootloader.ZFSBOOTMENU and esp is not None and esp_device is not None:
-        pool, dataset = _root_pool_and_dataset(config)
         operations += [
             # Without the stub systemd ships behind its `boot` flag,
             # generate-zbm writes loose components and no bootable image.
@@ -510,8 +527,8 @@ def build(config: InstallConfig) -> list[Operation]:
             )
         operations += [
             InstallZfsBootMenu(
-                pool=pool,
-                dataset=dataset,
+                pool=facts.pool,
+                dataset=facts.pool_dataset,
                 esp=esp,
                 esp_device=esp_device,
                 kernel_params=config.bootloader.kernel_params,
@@ -519,6 +536,52 @@ def build(config: InstallConfig) -> list[Operation]:
             ),
         ]
     return operations
+
+
+def boot_facts(config: InstallConfig) -> BootFacts:
+    """Derive every root and initramfs input shared by boot planners."""
+    graph = config.disk.graph
+    root = graph[config.disk.root]
+    source = graph[root.source] if isinstance(root, Mountpoint) else root
+    if isinstance(source, ZfsDataset):
+        pool = graph[source.pool]
+        if not isinstance(pool, ZfsPool):
+            raise InvalidLayout(f"{source.id} does not refer to a ZFS pool")
+        root_device: DeviceId | None = None
+        dataset = f"{pool.name}/{source.name}"
+        root_parameters: tuple[str, ...] = ()
+        pool_name = pool.name
+        pool_dataset = dataset
+    elif isinstance(source, Subvolume):
+        filesystem = graph[source.filesystem]
+        if not isinstance(filesystem, Filesystem):
+            raise InvalidLayout(f"{source.id} does not refer to a filesystem")
+        root_device = filesystem.device
+        dataset = ""
+        root_parameters = (f"rootflags=subvol={source.name}",)
+        pool_name = ""
+        pool_dataset = ""
+    elif isinstance(source, Filesystem):
+        root_device = source.device
+        dataset = ""
+        root_parameters = ()
+        pool_name = ""
+        pool_dataset = ""
+    else:
+        raise InvalidLayout(f"{config.disk.root} is not something a boot entry can mount")
+    containers = tuple(node.backing for node in compat.early_containers(graph))
+    arrays = tuple(node.id for node in graph.of_type(MdRaid))
+    return BootFacts(
+        root=root_device,
+        dataset=dataset,
+        root_parameters=root_parameters,
+        containers=containers,
+        arrays=arrays,
+        keymap=initramfs_keymap(config),
+        unlock_parameters=unlock_parameters(config),
+        pool=pool_name,
+        pool_dataset=pool_dataset,
+    )
 
 
 def _bios_boot_devices(config: InstallConfig) -> tuple[DeviceId, ...]:
@@ -608,10 +671,8 @@ def initramfs_devices(config: InstallConfig) -> tuple[tuple[DeviceId, ...], tupl
     One function for both command line writers: deriving it twice is how
     systemd-boot came to omit the arrays that GRUB was given.
     """
-    graph = config.disk.graph
-    containers = tuple(node.backing for node in compat.early_containers(graph))
-    arrays = tuple(node.id for node in graph.of_type(MdRaid))
-    return containers, arrays
+    facts = boot_facts(config)
+    return facts.containers, facts.arrays
 
 
 def array_parameters(context: Context, devices: tuple[DeviceId, ...]) -> tuple[str, ...]:
@@ -665,25 +726,3 @@ def _esp_partition(config: InstallConfig) -> DeviceId | None:
         if isinstance(graph[parent], Existing):
             return graph[parent].id
     return None
-
-
-def _root_pool_and_dataset(config: InstallConfig) -> tuple[str, str]:
-    """The pool `/` is on and the dataset that holds it, from one graph edge.
-
-    Both were read separately, and the pool was whichever `ZfsPool` came first
-    in the graph: a layout with a data pool beside the root pool had
-    `bootfs=tank/ROOT/gentoo` set on `tank`, a dataset no pool has, and the
-    install stopped at the bootloader with everything else already written.
-    Reordering two equivalent `disk.devices` entries changed the answer.
-    """
-    graph = config.disk.graph
-    root = graph.nodes.get(config.disk.root)
-    if not isinstance(root, Mountpoint):
-        return "", ""
-    dataset = graph.nodes.get(root.source)
-    if not isinstance(dataset, ZfsDataset):
-        return "", ""
-    pool = graph.nodes.get(dataset.pool)
-    if not isinstance(pool, ZfsPool):
-        return "", ""
-    return pool.name, f"{pool.name}/{dataset.name}"
