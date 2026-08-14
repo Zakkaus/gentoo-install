@@ -121,6 +121,24 @@ class Screen(Protocol):
         """Block until a key press and return its name."""
 
 
+def band(screen: Screen, line: int, left: str, right: str = "") -> None:
+    """One full-width reversed row, `left` at the margin and `right` at the end.
+
+    Reverse video is an attribute rather than a glyph, so a console with no
+    colour and no line-drawing font still shows the edge; a box drawn from
+    `U+2500` would be a row of question marks on the medium's own font.
+
+    `right` is dropped rather than truncated when the two cannot both fit: half
+    a count reads as a different count.
+    """
+    _, columns = screen.size()
+    head = truncate(left, columns)
+    room = columns - width(head) - 1
+    tail = right if right and width(right) <= room else ""
+    padding = columns - width(head) - width(tail)
+    screen.write(line, 0, f"{head}{' ' * padding}{tail}", highlight=True)
+
+
 @dataclass(frozen=True)
 class Item(Generic[V]):
     """One row of a menu."""
