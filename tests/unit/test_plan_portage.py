@@ -1169,7 +1169,10 @@ def test_the_first_snapshot_uses_portages_keyserver_policy() -> None:
     )
 
 
-def test_the_first_snapshot_keeps_portages_empty_keyserver_policy() -> None:
+def test_an_empty_keyserver_policy_still_names_one() -> None:
+    """gemato tries WKD and falls back to a keyserver. A stage3 configures
+    none, so a WKD that does not answer ended the install at `No keyserver
+    available` with the snapshot already downloaded."""
     from gentoo_install.plan.operations import CommandOutput
     from gentoo_install.plan import portage as plan_portage
     from .recorder import Recorder
@@ -1181,13 +1184,16 @@ def test_the_first_snapshot_keeps_portages_empty_keyserver_policy() -> None:
 
     recorder = Recorder(answering=answer)
     plan_portage.WebrsyncRepository().apply(recorder)
-    assert recorder.in_target[-1] == ("emerge-webrsync",)
+    assert recorder.in_target[-1] == (
+        "env", f"PORTAGE_GPG_KEY_SERVER={plan_portage.KEY_SERVER}", "emerge-webrsync"
+    )
 
 
-def test_an_unreadable_keyserver_policy_leaves_it_unset() -> None:
+def test_an_unreadable_keyserver_policy_falls_back_to_gentoos_own() -> None:
     """`portageq` cannot answer before this operation has fetched a snapshot:
     `repos.conf` names `/var/db/repos/gentoo` and nothing has created it, so it
-    exits 1. Treating that as a fault stopped every install at step 21 of 51.
+    exits 1. Treating that as a fault stopped every install at step 21 of 51,
+    and treating it as `no keyserver` stopped every one of them at gemato.
     """
     from gentoo_install.plan.operations import CommandOutput
     from gentoo_install.plan import portage as plan_portage
@@ -1202,8 +1208,9 @@ def test_an_unreadable_keyserver_policy_leaves_it_unset() -> None:
 
     recorder = Recorder(answering=answer)
     plan_portage.WebrsyncRepository().apply(recorder)
-    assert ("emerge-webrsync",) in recorder.in_target
-    assert not any(command[0] == "env" for command in recorder.in_target)
+    assert recorder.in_target[-1] == (
+        "env", f"PORTAGE_GPG_KEY_SERVER={plan_portage.KEY_SERVER}", "emerge-webrsync"
+    )
 
 
 def test_a_pinned_package_reaches_usepkg_exclude_without_its_version() -> None:
