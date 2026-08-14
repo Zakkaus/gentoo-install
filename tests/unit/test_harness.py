@@ -2005,9 +2005,16 @@ def test_the_input_method_check_names_something_the_file_can_hold() -> None:
 
 
 def test_no_input_method_asks_for_no_environment() -> None:
+    """Built here rather than named: this test pointed at `vm-gnome` until that
+    fixture was given ibus, and a fixture is free to change what it installs."""
+    from dataclasses import replace
+
     from gentoo_install.exec.config import load
     from tests.vm.installed import checks
 
-    installation = load(Path("tests/fixtures/vm-gnome.toml"))
+    chosen = load(Path("tests/fixtures/vm-gnome.toml"))
+    installation = replace(
+        chosen, packages=replace(chosen.packages, applications=())
+    )
 
     assert [one for one in checks(installation) if one.name == "inputmethod"] == []

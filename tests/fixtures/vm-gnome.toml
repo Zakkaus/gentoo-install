@@ -99,4 +99,7 @@ options = ["umask=0077"]
 [packages]
 desktop = "gnome"
 display_manager = "gdm"
-applications = ["noto-cjk", "pipewire"]
+# ibus, not fcitx: twelve ibus groups were in the catalog and no fixture had
+# ever installed one, so only the fcitx half of `framework_conflict()` and of
+# `INPUT_ENVIRONMENT` had ever reached a machine.
+applications = ["ibus", "ibus-pinyin", "noto-cjk", "pipewire"]
