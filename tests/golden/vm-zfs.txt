@@ -47,7 +47,6 @@
   resolve sys-process/cronie sys-kernel/installkernel sys-kernel/dracut sys-kernel/linux-firmware sys-fs/dosfstools sys-kernel/gentoo-kernel-bin sys-fs/zfs sys-boot/zfsbootmenu sys-boot/efibootmgr sys-apps/systemd together before installing the requested packages
 
 [system]
-  keep proxy environment for direct connection in the installed system
   generate and verify locales en_US.UTF-8
   set the system locale to en_US.UTF-8
   set the timezone to UTC

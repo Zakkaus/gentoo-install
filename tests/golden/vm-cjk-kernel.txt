@@ -42,7 +42,6 @@
   resolve sys-process/cronie sys-kernel/installkernel sys-kernel/dracut sys-kernel/linux-firmware sys-fs/dosfstools sys-fs/e2fsprogs sys-kernel/gentoo-cjk-kernel-bin sys-boot/grub sys-boot/efibootmgr together before installing the requested packages
 
 [system]
-  keep proxy environment for direct connection in the installed system
   generate and verify locales en_US.UTF-8
   set the system locale to en_US.UTF-8
   set the timezone to UTC
