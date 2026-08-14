@@ -14,6 +14,7 @@ import tarfile
 from pathlib import Path
 
 DEFAULT_SIZE_MIB = 64
+RESULT_BUFFER_BYTES = 64 * 1024 * 1024
 
 
 class ResultError(Exception):
@@ -60,6 +61,8 @@ def console_command(directory: str) -> str:
 
 def read_console(said: bytes) -> dict[str, bytes]:
     """The archive out of what the console printed."""
+    if len(said) > RESULT_BUFFER_BYTES:
+        raise ResultError("the console result exceeds the configured size limit")
     opened = said.rfind(CONSOLE_OPEN.encode())
     closed = said.rfind(CONSOLE_CLOSE.encode())
     if opened < 0 or closed < opened:
@@ -72,14 +75,19 @@ def read_console(said: bytes) -> dict[str, bytes]:
     except (binascii.Error, ValueError) as error:
         raise ResultError(f"the console result is not base64: {error}") from error
     files: dict[str, bytes] = {}
+    total = 0
     try:
         with tarfile.open(fileobj=io.BytesIO(packed), mode="r:gz") as archive:
             for member in archive:
                 if not member.isfile():
                     continue
+                if member.size > RESULT_BUFFER_BYTES - total:
+                    raise ResultError("the console result files exceed the configured size limit")
                 extracted = archive.extractfile(member)
                 if extracted is not None:
-                    files[member.name.removeprefix("./")] = extracted.read()
+                    data = extracted.read()
+                    total += len(data)
+                    files[member.name.removeprefix("./")] = data
     except (tarfile.TarError, EOFError) as error:
         raise ResultError(f"the console result is not a tar archive: {error}") from error
     if not files:

@@ -631,6 +631,39 @@ def test_a_worker_that_ends_without_reporting_becomes_an_error() -> None:
     assert _unanswered({"vm-lvm": ended}, nothing_queued=True) == ["vm-lvm"]
 
 
+def test_console_buffer_keeps_the_tail_of_long_output() -> None:
+    from io import BytesIO
+
+    from tests.vm.console import ConsoleTimeout, SerialConsole
+
+    class Channel:
+        closed = False
+
+        def __init__(self) -> None:
+            self.chunks = [b"old output", b"current failure"]
+
+        def recv(self, size: int) -> bytes:
+            return self.chunks.pop(0) if self.chunks else b""
+
+        def sendall(self, data: bytes) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    console = SerialConsole(Channel(), BytesIO(), buffer_limit=len(b"current failure"))
+    with pytest.raises(ConsoleTimeout, match="current failure"):
+        console.expect(r"never appears", timeout=0.1)
+
+
+def test_result_archive_rejects_data_above_its_bound() -> None:
+    from tests.vm.results import RESULT_BUFFER_BYTES, ResultError, read_console
+
+    said = b"x" * (RESULT_BUFFER_BYTES + 1)
+    with pytest.raises(ResultError, match="size limit"):
+        read_console(said)
+
+
 def test_unknown_telemetry_does_not_make_a_quiet_guest_stuck(tmp_path: Path) -> None:
     """Three failed API reads were treated as three proofs that counters were flat."""
     from tests.vm.cluster import WATCH_STRIKES, Watchdog

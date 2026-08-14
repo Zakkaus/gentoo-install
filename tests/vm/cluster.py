@@ -74,7 +74,13 @@ from .proxmox import (
     append_to_cmdline,
     append_to_cmdline_blind,
 )
-from .results import CONSOLE_CLOSE, ResultError, console_command, read_console
+from .results import (
+    CONSOLE_CLOSE,
+    RESULT_BUFFER_BYTES,
+    ResultError,
+    console_command,
+    read_console,
+)
 from .workdir import WorkdirError, confined
 
 REPOSITORY: Final[Path] = Path(__file__).resolve().parents[2]
@@ -1574,6 +1580,9 @@ class Reconnecting:
             # a prompt, and ordinary shell waits below are looking for text.
             self.console.send("")
 
+    def set_buffer_limit(self, limit: int) -> None:
+        cast(SerialConsole, self.console).set_buffer_limit(limit)
+
     def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
         return self._with_reconnect(
             timeout,
@@ -1935,6 +1944,7 @@ def collect(guest: Guest, link: "Reconnecting", log: Path) -> dict[str, bytes]:
     it, so the answer is another console, not another install.
     """
     last: Exception | None = None
+    link.set_buffer_limit(RESULT_BUFFER_BYTES)
     for attempt in range(COLLECT_TRIES):
         try:
             link.run(f"cp /run/gentoo-install/install.jsonl {RESULT_DIR}/ 2>/dev/null || true")
@@ -1947,6 +1957,7 @@ def collect(guest: Guest, link: "Reconnecting", log: Path) -> dict[str, bytes]:
             if attempt + 1 == COLLECT_TRIES:
                 break
             link.reopen()
+            link.set_buffer_limit(RESULT_BUFFER_BYTES)
     raise ResultError(f"the results could not be read back: {last}")
 
 
