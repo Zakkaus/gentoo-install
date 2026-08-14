@@ -30,7 +30,7 @@ import uuid
 import urllib.request
 from dataclasses import dataclass, field, replace
 from enum import Enum
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from collections import Counter
 from collections.abc import Callable, Mapping
 from typing import Final, Protocol, TypeVar, cast
@@ -83,6 +83,7 @@ from .results import (
     read_console,
 )
 from .workdir import WorkdirError, confined
+from .installed import checks, stage_passphrase_commands
 
 REPOSITORY: Final[Path] = Path(__file__).resolve().parents[2]
 WORKROOT: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/cluster"
@@ -804,14 +805,8 @@ def stage_passphrases(link: Reconnecting, installation: InstallConfig) -> None:
     read`, which is the installer refusing correctly and the harness not having
     done its part.
     """
-    graph = installation.disk.graph
-    wanted = [node.passphrase_file for node in graph.of_type(Luks) if node.passphrase_file]
-    wanted += [node.passphrase_file for node in graph.of_type(ZfsPool) if node.passphrase_file]
-    for source in wanted:
-        parent = PurePosixPath(source).parent
-        link.run(f"mkdir -p {parent} && chmod 700 {parent}")
-        link.run(f"printf '%s' '{DISK_PASSPHRASE}' > {source}")
-        link.run(f"chmod 600 {source}")
+    for command in stage_passphrase_commands(installation):
+        link.run(command)
 
 
 def rewrite_fixtures(
@@ -1761,13 +1756,11 @@ class Reconnecting:
 #: so the harness can log into what it built; nothing else uses it.
 INSTALLED_PASSWORD: Final[str] = "install"
 
-#: What the installed system is asked about, and what the answer has to hold.
-#: One table, so a check cannot be added without saying what would fail it.
+# Existing tests inspect the invariant checks independently of fixture checks.
 INSIDE: Final[tuple[tuple[str, str, str], ...]] = (
     ("os-release", "cat /etc/os-release", "Gentoo"),
-    ("fstab", "cat /etc/fstab", "UUID="),
+    ("fstab", "cat /etc/fstab", r"^UUID=\S+\s+/\s+\S+"),
 )
-
 
 def _asked_for(installation: InstallConfig) -> list[tuple[str, str, str]]:
     """What this particular configuration should have produced.
@@ -1777,39 +1770,7 @@ def _asked_for(installation: InstallConfig) -> list[tuple[str, str, str]]:
     wrong hostname, the wrong root filesystem or the wrong locale passed every
     check, and a run that installed the wrong system was recorded as `ok`.
     """
-    graph = installation.disk.graph
-    root = graph.nodes.get(installation.disk.root)
-    source = graph.nodes.get(root.source) if isinstance(root, Mountpoint) else None
-    checks = [
-        ("locale", "locale", f"LANG={installation.system.locale}"),
-        ("hostname", "hostname", installation.system.hostname),
-    ]
-    if isinstance(source, Filesystem):
-        # The type as `findmnt` names it, on the row for `/`: an xfs root that
-        # came up as ext4 is an install that went wrong quietly.
-        checks.append(
-            (
-                "root filesystem",
-                "findmnt --noheadings --output FSTYPE /",
-                source.kind.value,
-            )
-        )
-    elif isinstance(source, Subvolume):
-        checks.append(("root filesystem", "findmnt --noheadings --output FSTYPE /", "btrfs"))
-    elif isinstance(source, ZfsDataset):
-        checks.append(("root filesystem", "findmnt --noheadings --output FSTYPE /", "zfs"))
-    checks.append(
-        (
-            "init",
-            # Not `ls -l /sbin/init`: on OpenRC that is sysvinit's own binary,
-            # a regular file whose listing never carries the word, so the check
-            # could not pass. Both inits leave a directory under /run.
-            "test -d /run/openrc && echo openrc || "
-            "{ test -d /run/systemd/system && echo systemd || echo unknown; }",
-            "systemd" if installation.system.init is InitSystem.SYSTEMD else "openrc",
-        )
-    )
-    return checks
+    return [(check.name, check.command, check.pattern) for check in checks(installation)]
 
 
 #: How long SeaBIOS and GRUB take to reach the cryptomount prompt. Nothing on
@@ -1928,9 +1889,9 @@ def boot_and_check(
     except (ConsoleTimeout, ConsoleClosed) as error:
         return f"root could not log into the installed system: {error}"[:200]
 
-    for name, command, wanted in (*INSIDE, *_asked_for(installation)):
+    for name, command, wanted in _asked_for(installation):
         said = link.expect_output(command, timeout=120.0)
-        if wanted and wanted.encode() not in said:
+        if said != wanted.encode() and re.search(wanted.encode(), said) is None:
             return f"{name}: the installed system does not say {wanted!r}"
     return ""
 

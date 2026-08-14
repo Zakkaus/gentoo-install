@@ -1596,6 +1596,86 @@ LOGIN_SCREEN: Final[dict[str, str]] = {
 }
 
 
+@dataclass(frozen=True)
+class Effects:
+    """Derived values changed by one TUI choice."""
+
+    use_flags: tuple[str, ...] = ()
+    video_cards: tuple[str, ...] = ()
+    user_groups: tuple[str, ...] = ()
+    profile: str = ""
+    display_manager_changed: bool = False
+    networking_changed: bool = False
+    kept_display_manager: str = ""
+    withdrawn_use: tuple[str, ...] = ()
+    withdrawn_video_cards: tuple[str, ...] = ()
+
+    @property
+    def has_changes(self) -> bool:
+        """Whether the choice has a value to confirm."""
+        return bool(
+            self.use_flags
+            or self.video_cards
+            or self.user_groups
+            or self.profile
+            or self.display_manager_changed
+            or self.networking_changed
+            or self.kept_display_manager
+        )
+
+    @property
+    def editable_row(self) -> Callable[..., Answer[InstallConfig]] | None:
+        """The row containing values that can be inspected after consent."""
+        if self.use_flags:
+            return use_flags_screen
+        if self.video_cards:
+            return video_cards_screen
+        return None
+
+
+def derive_effects(
+    before: InstallConfig,
+    after: InstallConfig,
+    context: Context,
+    kept_display_manager: str = "",
+) -> Effects:
+    """Derive every value one choice adds, replaces, or withdraws."""
+    return Effects(
+        use_flags=_new(automatic_values.use_flags, before, after, context.groups),
+        video_cards=_new(automatic_values.video_cards, before, after, context.groups),
+        user_groups=_new(automatic_values.user_groups, before, after, context.groups),
+        profile=after.portage.profile if after.portage.profile != before.portage.profile else "",
+        display_manager_changed=(
+            after.packages.display_manager != before.packages.display_manager
+        ),
+        networking_changed=after.system.networking is not before.system.networking,
+        kept_display_manager=kept_display_manager,
+        withdrawn_use=tuple(
+            one.value for one in automatic_values.use_flags(before, context.groups)
+        )
+        + tuple(_derived_by(before, context)),
+        withdrawn_video_cards=tuple(
+            one.value for one in automatic_values.video_cards(before, context.groups)
+        ),
+    )
+
+
+def apply_effects(after: InstallConfig, effects: Effects) -> InstallConfig:
+    """Pin additions while removing only values derived by the replaced choice."""
+    kept_use = tuple(one for one in after.portage.use if one not in effects.withdrawn_use)
+    kept_cards = tuple(
+        one for one in after.portage.video_cards if one not in effects.withdrawn_video_cards
+    )
+    return replace(
+        after,
+        portage=replace(
+            after.portage,
+            use=(*kept_use, *effects.use_flags),
+            video_cards=(*kept_cards, *effects.video_cards),
+        ),
+    )
+
+
 def _desktop_proposes(
     changed: InstallConfig, before: InstallConfig, context: Context, desktop: str
 ) -> InstallConfig:
@@ -1649,46 +1729,38 @@ def settle(
     Declining cancels the choice. The flags are not optional extras that come
     with it; they are what makes it work.
     """
-    flags = _new(automatic_values.use_flags, before, after, context.groups)
-    cards = _new(automatic_values.video_cards, before, after, context.groups)
-    joins = _new(automatic_values.user_groups, before, after, context.groups)
-    profile = after.portage.profile if after.portage.profile != before.portage.profile else ""
-    moved = (
-        after.packages.display_manager != before.packages.display_manager
-        or after.system.networking is not before.system.networking
-        or bool(kept_display_manager)
-    )
-    if not (flags or cards or joins or profile or moved):
+    effects = derive_effects(before, after, context, kept_display_manager)
+    if not effects.has_changes:
         return Answer(Outcome.CHOSE, after)
     translate = context.translate
     lines = []
-    if cards:
-        lines.append(f"VIDEO_CARDS: {' '.join(cards)}")
-    if flags:
-        lines.append(f"USE: {' '.join(flags)}")
-    if after.packages.display_manager != before.packages.display_manager:
+    if effects.video_cards:
+        lines.append(f"VIDEO_CARDS: {' '.join(effects.video_cards)}")
+    if effects.use_flags:
+        lines.append(f"USE: {' '.join(effects.use_flags)}")
+    if effects.display_manager_changed:
         lines.append(
             f"{translate('Display manager')}: {after.packages.display_manager}"
         )
-    elif kept_display_manager:
+    elif effects.kept_display_manager:
         lines.append(
-            f"{translate('Display manager')}: {kept_display_manager} "
+            f"{translate('Display manager')}: {effects.kept_display_manager} "
             f"({translate('kept')})"
         )
-    if after.system.networking is not before.system.networking:
+    if effects.networking_changed:
         lines.append(f"{translate('Network')}: {after.system.networking.value}")
-    if joins:
+    if effects.user_groups:
         # Not pinned into the account: `AddUserToGroups` derives them from the
         # same catalog at build time, so the account is put in them whether or
         # not one exists when the driver is chosen.
-        lines.append(f"{translate('Extra groups')}: {' '.join(joins)}")
-    if profile:
-        lines.append(f"{translate('Profile')}: {profile}")
+        lines.append(f"{translate('Extra groups')}: {' '.join(effects.user_groups)}")
+    if effects.profile:
+        lines.append(f"{translate('Profile')}: {effects.profile}")
     # A third answer only when there is something to open. The row is derived
     # from what actually changed: with a profile and no flags it offered `Yes,
     # and open VIDEO_CARDS`, which edits a value this choice did not touch.
-    where = use_flags_screen if flags else video_cards_screen if cards else None
-    named = translate("USE flags") if flags else translate("VIDEO_CARDS")
+    where = effects.editable_row
+    named = translate("USE flags") if effects.use_flags else translate("VIDEO_CARDS")
     # Yes first and preselected. Declining cancels the desktop the operator
     # just chose, and these values are what makes it work rather than extras
     # that come with it, so the cursor starting on `No` offered the refusal as
@@ -1723,21 +1795,7 @@ def settle(
     # to GNOME left `qt6` and `sddm` behind and read as
     # `wayland qt6 networkmanager sddm gnome gtk`. What the operator typed is
     # not derivable and stays; what the last choice derived goes with it.
-    withdrawn = {one.value for one in automatic_values.use_flags(before, context.groups)}
-    withdrawn |= _derived_by(before, context)
-    kept = tuple(one for one in after.portage.use if one not in withdrawn)
-    dropped = {one.value for one in automatic_values.video_cards(before, context.groups)}
-    pinned = replace(
-        after,
-        portage=replace(
-            after.portage,
-            use=(*kept, *flags),
-            video_cards=(
-                *(one for one in after.portage.video_cards if one not in dropped),
-                *cards,
-            ),
-        ),
-    )
+    pinned = apply_effects(after, effects)
     if answered.unwrap() == "open" and where is not None:
         opened = where(screen, pinned, context)
         if opened.chosen:
@@ -1939,10 +1997,8 @@ def _adds(
     without having to pick one to find out.
     """
     would = replace(config, packages=apply(config.packages, name))
-    added = (
-        *_new(automatic_values.video_cards, config, would, context.groups),
-        *_new(automatic_values.use_flags, config, would, context.groups),
-    )
+    effects = derive_effects(config, would, context)
+    added = (*effects.video_cards, *effects.use_flags)
     return f" (+{' '.join(added)})" if added else ""
 
 

@@ -307,9 +307,11 @@ def test_the_installed_checks_read_the_files_the_plan_writes() -> None:
     `/etc/environment`, so it could not see the file the install had written
     and reported a mismatch on a correct system for every desktop run."""
     from gentoo_install.plan.packages import ENVIRONMENT_FILE
-    from tests.vm.run import INSTALLED
+    from tests.vm.installed import checks
+    from gentoo_install.exec.config import load
 
-    asked = dict(INSTALLED)["inputmethod"]
+    installation = load(Path("tests/fixtures/vm-desktop.toml"))
+    asked = next(one.command for one in checks(installation) if one.name == "inputmethod")
     missing = [str(one) for one in ENVIRONMENT_FILE.values() if str(one) not in asked]
     assert not missing, (missing, asked)
     # And nothing the plan stopped writing: a path left behind reads as
@@ -448,10 +450,10 @@ def test_the_boot_check_asks_what_the_fixture_asked_for() -> None:
     }
     for name, (host, filesystem, init, locale) in wanted.items():
         said = {one: value for one, _, value in _asked_for(load(Path("tests/fixtures") / f"{name}.toml"))}
-        assert said["hostname"] == host, name
-        assert said["root filesystem"] == filesystem, name
-        assert said["init"] == init, name
-        assert said["locale"] == f"LANG={locale}", name
+        assert re.search(said["hostname"], host) or re.search(said["hostname"], f'hostname="{host}"'), name
+        assert re.search(said["root filesystem"], filesystem), name
+        assert re.search(said["init"], init), name
+        assert re.search(said["locale"], f"LANG={locale}"), name
 
 
 def test_every_fixture_has_a_boot_check_that_can_fail() -> None:
@@ -467,6 +469,41 @@ def test_every_fixture_has_a_boot_check_that_can_fail() -> None:
         empty = [one for one, _, value in checks if not value]
         assert not empty, f"{fixture.name}: {empty}"
         assert len(checks) >= 4, f"{fixture.name}: {checks}"
+
+
+def test_local_and_cluster_use_the_same_installed_contract() -> None:
+    """Both transport adapters must derive checks from one specification."""
+    from tests.vm.cluster import _asked_for
+    from tests.vm.installed import checks
+    from tests.vm.run import _from_config
+    from gentoo_install.exec.config import load
+
+    for path in sorted(Path("tests/fixtures").glob("*.toml")):
+        installation = load(path)
+        expected = [(one.name, one.pattern) for one in checks(installation)]
+        assert _from_config(path) == expected
+        assert [(name, pattern) for name, _, pattern in _asked_for(installation)] == expected
+
+
+def test_a_single_runner_check_cannot_be_added_without_breaking_parity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A runner-local extra check must be visible as a contract mismatch."""
+    from gentoo_install.exec.config import load
+    from tests.vm import cluster, run
+    from tests.vm.installed import checks
+
+    path = Path("tests/fixtures/ext4-bios.toml")
+    installation = load(path)
+    original = cluster._asked_for
+    monkeypatch.setattr(
+        cluster,
+        "_asked_for",
+        lambda config: [*original(config), ("sabotage", "true", "^true$")],
+    )
+    assert [(name, pattern) for name, pattern in run._from_config(path)] != [
+        (name, pattern) for name, _, pattern in cluster._asked_for(installation)
+    ]
 
 
 def test_a_fixture_named_twice_is_refused_before_any_guest_is_built() -> None:
