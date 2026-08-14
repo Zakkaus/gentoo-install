@@ -10,6 +10,7 @@ import re
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Callable
 from typing import Any, cast
 
 import pytest
@@ -2308,3 +2309,95 @@ def test_a_worker_cannot_hold_the_interpreter_open_after_the_schedule_ends() -> 
     assert daemons, "a worker thread is started without saying whether it is a daemon"
     for value in daemons:
         assert isinstance(value, ast.Constant) and value.value is True
+def test_the_unlock_waits_for_the_daemon_rather_than_racing_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The harness connected the moment qemu started, and qemu's user-mode
+    network accepts a forwarded connection whether or not anything listens
+    behind it: the client waited out `ConnectTimeout` and reported
+    `Connection timed out during banner exchange` for a daemon seconds from
+    starting."""
+    import subprocess as commands
+
+    from tests.vm import run as vm_run
+
+    attempts = {"n": 0}
+
+    def answering(argv: object, **rest: object) -> commands.CompletedProcess[str]:
+        attempts["n"] += 1
+        if attempts["n"] < 3:
+            return commands.CompletedProcess(
+                [], 255, "", "kex_exchange_identification: Connection reset by peer"
+            )
+        return commands.CompletedProcess([], 255, "", "Permission denied (publickey).")
+
+    monkeypatch.setattr("subprocess.run", answering)
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    vm_run.wait_for_unlock_daemon(tmp_path / "key", 2222)
+
+    assert attempts["n"] == 3
+
+
+def test_a_port_nothing_ever_answers_stops_the_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Bounded: a daemon that never starts must end the run rather than hold
+    it open for the whole campaign."""
+    import subprocess as commands
+
+    from tests.vm import run as vm_run
+
+    def refusing(argv: object, **rest: object) -> commands.CompletedProcess[str]:
+        return commands.CompletedProcess([], 255, "", "Connection refused")
+
+    monkeypatch.setattr("subprocess.run", refusing)
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    monkeypatch.setattr("time.monotonic", _ticking())
+
+    with pytest.raises(RuntimeError, match="no ssh daemon"):
+        vm_run.wait_for_unlock_daemon(tmp_path / "key", 2222, patience=10.0)
+
+
+def _ticking() -> Callable[[], float]:
+    """A clock that advances a second each time it is read, so a bounded wait
+    ends without the test waiting for it."""
+    ticks = {"at": 0.0}
+
+    def now() -> float:
+        ticks["at"] += 1.0
+        return ticks["at"]
+
+    return now
+
+
+def test_the_unlock_asks_for_the_daemon_before_it_speaks(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A helper nothing calls is a helper that fixes nothing: the wait has to
+    happen inside `remote_unlock`, before the passphrase is offered."""
+    import subprocess as commands
+
+    from gentoo_install.exec.config import load
+    from tests.vm import run as vm_run
+
+    order: list[str] = []
+
+    def waited(key: object, port: object, **rest: object) -> None:
+        order.append("waited")
+
+    class Spoke:
+        returncode = 0
+
+        def communicate(self, text: object = None, timeout: object = None) -> tuple[str, str]:
+            order.append("spoke")
+            return "", ""
+
+    monkeypatch.setattr(vm_run, "wait_for_unlock_daemon", waited)
+    monkeypatch.setattr("subprocess.Popen", lambda *argv, **rest: Spoke())
+    monkeypatch.setattr(
+        vm_run, "ssh", lambda *argv, **rest: commands.CompletedProcess([], 0, "available", "")
+    )
+    installation = load(Path("tests/fixtures/vm-unlock.toml"))
+    vm_run.remote_unlock(tmp_path / "key", 2222, installation)
+
+    assert order == ["waited", "spoke"]

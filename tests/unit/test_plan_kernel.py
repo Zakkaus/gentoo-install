@@ -32,7 +32,9 @@ def test_grub_remote_unlock_keeps_the_system_dracut_path() -> None:
     recorder = Recorder()
     operation.apply(recorder)
 
-    written = recorder.files[PurePosixPath("/etc/dracut.conf.d/crypt-ssh.conf")]
+    written = recorder.files[
+        PurePosixPath("/etc/dracut.conf.d/99-gentoo-install-crypt-ssh.conf")
+    ]
     assert 'dropbear_port="2222"' in written
     assert 'dropbear_rsa_key="SYSTEM"' in written
     assert 'install_items+=" /sbin/cryptsetup "' in written

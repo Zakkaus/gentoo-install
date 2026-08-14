@@ -226,6 +226,50 @@ def push_config(key: Path, port: int, path: str, contents: str) -> None:
         raise RuntimeError(f"the live SSH configuration push failed: {result.stderr.strip()}")
 
 
+#: How long the initramfs is given to reach its ssh daemon. The guest has to
+#: POST, load a bootloader and unpack an initramfs first, and the harness used
+#: to connect the moment qemu started: user-mode networking accepts the
+#: forwarded connection whether or not anything listens behind it, so the
+#: client waited out `ConnectTimeout` and reported
+#: `Connection timed out during banner exchange` for a daemon that was seconds
+#: from starting. The reset the ZFSBootMenu fixture answered is the same race
+#: caught a moment earlier.
+DAEMON_PATIENCE: Final[float] = 180.0
+DAEMON_PAUSE: Final[float] = 3.0
+
+
+def wait_for_unlock_daemon(
+    key: Path, port: int, *, host: str = "127.0.0.1", patience: float = DAEMON_PATIENCE
+) -> None:
+    """Block until the initramfs answers on the forwarded port.
+
+    `ssh -O check`-style probing is not available for a host that has never
+    been connected, so this asks for the banner and nothing else: exit code 255
+    with no shell is what a working daemon returns for `BatchMode` without a
+    key it trusts, and a refused or silent port is what it does not.
+    """
+    deadline = time.monotonic() + patience
+    last = ""
+    while time.monotonic() < deadline:
+        probe = subprocess.run(
+            [
+                "ssh", "-p", str(port), "-i", str(key),
+                "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+                "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+                f"root@{host}", "true",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        said = f"{probe.stdout}{probe.stderr}"
+        if probe.returncode == 0 or "Permission denied" in said:
+            return
+        last = said.strip()[-200:]
+        time.sleep(DAEMON_PAUSE)
+    raise RuntimeError(f"no ssh daemon on port {port} after {patience:.0f}s: {last}")
+
+
 def remote_unlock(
     key: Path,
     port: int,
@@ -239,6 +283,7 @@ def remote_unlock(
     if commands is None:
         raise RuntimeError("remote unlock is disabled")
     command, proof = commands
+    wait_for_unlock_daemon(key, port, host=host)
     process = subprocess.Popen(
         [
             "ssh", "-p", str(port), "-i", str(key),

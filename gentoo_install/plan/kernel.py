@@ -345,7 +345,7 @@ class ConfigureRemoteUnlock(Operation):
 
     def describe(self) -> str:
         if not self.system_initramfs:
-            return "write /etc/dracut.conf.d/crypt-ssh.conf to omit ssh from the system initramfs"
+            return "write /etc/dracut.conf.d/99-gentoo-install-crypt-ssh.conf to omit ssh from the system initramfs"
         return f"configure remote unlock over ssh on port {self.port}"
 
     def apply(self, context: Context) -> None:
@@ -356,7 +356,7 @@ class ConfigureRemoteUnlock(Operation):
         ).apply(context)
         if not self.system_initramfs:
             context.write(
-                PurePosixPath("/etc/dracut.conf.d/crypt-ssh.conf"),
+                PurePosixPath("/etc/dracut.conf.d/99-gentoo-install-crypt-ssh.conf"),
                 'omit_dracutmodules+=" crypt-ssh "\n',
             )
             return
@@ -372,7 +372,7 @@ class ConfigureRemoteUnlock(Operation):
             'install_items+=" /sbin/cryptsetup "',
         ]
         context.write(
-            PurePosixPath("/etc/dracut.conf.d/crypt-ssh.conf"),
+            PurePosixPath("/etc/dracut.conf.d/99-gentoo-install-crypt-ssh.conf"),
             "".join(f"{line}\n" for line in lines),
         )
 
