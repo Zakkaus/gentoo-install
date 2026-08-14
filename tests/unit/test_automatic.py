@@ -24,6 +24,7 @@ from gentoo_install.model.config import (
 )
 from gentoo_install.plan import automatic, bootloader as plan_bootloader, kernel as plan_kernel
 from gentoo_install.tui import screens
+from gentoo_install.tui.overview import overview_screen
 from gentoo_install.tui.widgets import Answer, Outcome
 
 from .layouts import config, encrypted_root, ext4_on_gpt, zfs_root
@@ -749,7 +750,7 @@ def test_the_overview_names_the_values_nobody_typed() -> None:
         bootloader=replace(config().bootloader, kernel_params=("quiet",)),
     )
     drawn = FakeScreen(keys=["q"], lines=120, columns=130)
-    screens.overview_screen(drawn, installation, at)
+    overview_screen(drawn, installation, at)
     page = drawn.last
     assert "added for you" in page
     for value in ("nvidia", "pipewire", "screencast", "root=UUID="):
@@ -774,14 +775,14 @@ def test_the_overview_exports_without_taking_the_key_that_installs() -> None:
     at.publish_config = publish
     installation = config(ext4_on_gpt())
     # The cursor opens on `Start the installation`; No to the confirmation.
-    accepted = screens.overview_screen(
+    accepted = overview_screen(
         FakeScreen(keys=["\n", "\n"], lines=60, columns=130), installation, at
     )
     assert sent == [], "the first row published instead of installing"
     assert accepted.outcome is Outcome.BACK
 
     # One row down is the export, then a key to leave the address, then cancel.
-    screens.overview_screen(
+    overview_screen(
         FakeScreen(keys=["KEY_DOWN", "\n", "\n", "q"], lines=60, columns=130), installation, at
     )
     assert len(sent) == 1
@@ -789,7 +790,7 @@ def test_the_overview_exports_without_taking_the_key_that_installs() -> None:
     # And a row of the summary answers nothing: the screen stays rather than
     # starting an install because the cursor was resting on a value.
     reading = FakeScreen(keys=["KEY_DOWN", "KEY_DOWN", "\n", "q"], lines=60, columns=130)
-    stayed = screens.overview_screen(reading, installation, at)
+    stayed = overview_screen(reading, installation, at)
     assert stayed.outcome is Outcome.CANCELLED
     assert len(sent) == 1
 
@@ -807,7 +808,7 @@ def test_a_pastebin_that_refuses_leaves_the_overview_standing() -> None:
     at = context()
     at.publish_config = refuse
     # Export, acknowledge the failure, then enter and No.
-    answer = screens.overview_screen(
+    answer = overview_screen(
         FakeScreen(keys=["KEY_UP", "\n", "\n", "\n", "\n"], lines=60, columns=130),
         config(ext4_on_gpt()),
         at,

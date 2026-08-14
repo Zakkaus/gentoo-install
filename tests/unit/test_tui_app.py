@@ -29,6 +29,7 @@ from gentoo_install.model.validate import validate
 from gentoo_install.model import compat
 from gentoo_install.tui import app, screens, settings
 from gentoo_install.tui.app import run
+from gentoo_install.tui.overview import overview_screen
 from gentoo_install.tui.widgets import Outcome
 
 from .fake_screen import FakeScreen
@@ -53,7 +54,7 @@ def staged(text: str) -> str:
 
 def context() -> screens.Context:
     STAGED.clear()
-    return screens.Context(
+    return app.MainMenuContext(screens.Context(
         translate=Catalog("en"),
         disks=DISKS,
         groups=load_catalog(),
@@ -63,7 +64,7 @@ def context() -> screens.Context:
         # The rows that offer a share of memory have nothing to offer at zero,
         # which is not the machine any of these tests is about.
         memory=Size(16 * 1024**3),
-    )
+    ))
 
 
 def row(label: str) -> int:
@@ -1337,7 +1338,7 @@ def test_what_still_asks_before_it_changes() -> None:
     data, opens a second question, or starts the install asks first."""
     import inspect
 
-    source = inspect.getsource(screens)
+    source = inspect.getsource(screens) + inspect.getsource(overview_screen)
     asked = {
         "This erases every partition on the disk.",
         "Encrypt the root filesystem?",
@@ -2170,7 +2171,7 @@ def test_the_overview_says_so_rather_than_leaving_curses_with_a_traceback() -> N
         config(), packages=replace(config().packages, applications=("wechat",))
     )
     screen = FakeScreen(keys=["\n"], lines=30, columns=110)
-    answer = screens.overview_screen(screen, wanted, at)
+    answer = overview_screen(screen, wanted, at)
     assert answer.outcome is Outcome.CANCELLED
     assert "gentoo-zh" in "\n".join(screen.frames[0])
 

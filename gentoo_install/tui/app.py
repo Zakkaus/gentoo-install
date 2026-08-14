@@ -18,7 +18,8 @@ from ..model import compat
 from ..model.config import InstallConfig
 from ..errors import GentooInstallError
 from ..plan.build import build
-from .screens import Context, overview_screen
+from .overview import overview_screen
+from .screens import Context
 from .screens import _say as say
 from .settings import SETTINGS, UNSET, Setting, shown_value, style_of, unanswered
 from .widgets import Item, Menu, Outcome, Screen, Style, TextField
@@ -26,6 +27,15 @@ from .widgets import Item, Menu, Outcome, Screen, Style, TextField
 
 #: The default name for a saved configuration, offered as the field's example.
 SAVE_AS: Final[str] = "my-install.toml"
+
+
+class MainMenuContext(Context):
+    """A leaf-screen context extended with main-menu session state."""
+
+    def __init__(self, base: Context) -> None:
+        self.__dict__ = base.__dict__.copy()
+        self.columns = 80
+        self.visited = set()
 
 
 
@@ -72,6 +82,8 @@ class Finished:
 
 
 def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
+    if not isinstance(context, MainMenuContext):
+        context = MainMenuContext(context)
     current = start
     #: Kept across redraws: coming back to the top after every edit makes the
     #: operator hunt for where they were.
