@@ -77,6 +77,10 @@ class ProxmoxError(Exception):
     """The cluster refused a call, or a task it accepted did not finish."""
 
 
+class GrubNotReadable(ProxmoxError):
+    """GRUB produced no serial output that identifies a readable menu."""
+
+
 class ProxmoxNotFound(ProxmoxError):
     """The requested cluster object no longer exists."""
 
@@ -749,7 +753,10 @@ GRUB_HOLD: Final[str] = "\x0e\x10"
 #: draws the entries by cursor position and prints nothing else worth matching.
 #: Matching an entry title instead matched `Booting \`Boot LiveCD'`, which is
 #: printed after the countdown has already run out.
-GRUB_COUNTDOWN: Final[str] = r"highlighted entry|GNU GRUB|Minimal BASH-like"
+GRUB_COUNTDOWN: Final[str] = (
+    r"starting serial terminal on interface serial0|"
+    r"highlighted entry|GNU GRUB|Minimal BASH-like"
+)
 
 
 def hold_the_menu(console: Line, timeout: float = 300.0) -> bytes:
@@ -759,7 +766,10 @@ def hold_the_menu(console: Line, timeout: float = 300.0) -> bytes:
     drawn is consumed the moment it appears, the countdown never prints, and
     there is then nothing to match on.
     """
-    seen = console.expect(GRUB_COUNTDOWN, timeout=timeout)
+    try:
+        seen = console.expect(GRUB_COUNTDOWN, timeout=timeout)
+    except (ConsoleTimeout, ConsoleClosed) as error:
+        raise GrubNotReadable(str(error)) from error
     console.send_raw(GRUB_HOLD)
     return seen
 
@@ -778,8 +788,11 @@ def append_to_cmdline(console: Line, extra: str, timeout: float = 30.0) -> None:
     landed on it, and the entry booted unchanged with a broken search line.
     """
     hold_the_menu(console)
-    screen = _editor_screen(console, timeout)
-    down = _line_of_linux(screen)
+    try:
+        screen = _editor_screen(console, timeout)
+        down = _line_of_linux(screen)
+    except ProxmoxError as error:
+        raise GrubNotReadable(str(error)) from error
     console.send_raw(GRUB_NEXT_LINE * down + GRUB_END_OF_LINE)
     time.sleep(0.5)
     console.send_raw(f" {extra}")
@@ -855,7 +868,7 @@ def append_to_cmdline_blind(
             # new one: the first guest to take a second attempt reported `the
             # guest closed the serial connection` a minute in.
             guest.reset()
-            link.reopen()
+            link.reopen(solicit_prompt=False)
             console = link.console
     raise ProxmoxError(f"the kernel never spoke after editing GRUB blind: {last}")
 
@@ -886,7 +899,7 @@ class Reopenable(Protocol):
 
     console: Line
 
-    def reopen(self) -> None: ...
+    def reopen(self, *, solicit_prompt: bool = True) -> None: ...
 
 
 #: How long an escape is left alone before the next key, so the two are not
