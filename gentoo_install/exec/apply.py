@@ -33,6 +33,7 @@ from ..log import Journal
 from ..plan.disk import STAGE3_CACHE
 from ..plan.operations import CommandOutput, Operation
 from . import fetch, packages
+from .preflight import SecretStore
 from .probe import Probe
 from .runner import Runner, open_in_target, under, write_file
 
@@ -47,6 +48,7 @@ class Machine:
     work: Path
     mountpoint: Path = Path("/mnt/gentoo")
     keys: dict[DeviceId, PurePosixPath] = field(default_factory=dict)
+    secrets: SecretStore | None = None
     given_up: set[str] = field(default_factory=set)
 
     @property
@@ -142,9 +144,16 @@ class Machine:
 
     def passphrase(self, device: DeviceId) -> str:
         """The passphrase itself, for a command that reads one on stdin."""
-        node = self.config.disk.graph[device]
-        source = node.passphrase_file if isinstance(node, (Luks, ZfsPool)) else ""
-        return fetch.passphrase_for(device, source)
+        try:
+            return self._secret_path(device).read_text()
+        except OSError as error:
+            raise InvalidLayout(f"approved passphrase for {device} cannot be read: {error}") from error
+
+    def _secret_path(self, device: DeviceId) -> Path:
+        return (self.secrets or SecretStore(self.work)).path(device)
+
+    def cleanup_secrets(self) -> None:
+        (self.secrets or SecretStore(self.work)).cleanup()
 
     def key_file(self, device: DeviceId) -> PurePosixPath:
         """Where the passphrase is staged, as a path on the installing system.
@@ -157,11 +166,9 @@ class Machine:
         known = self.keys.get(device)
         if known is not None:
             return known
-        node = self.config.disk.graph[device]
-        source = node.passphrase_file if isinstance(node, (Luks, ZfsPool)) else ""
-        path = self.work / "keys" / str(device)
-        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        write_file(path, fetch.passphrase_for(device, source), 0o600)
+        path = self._secret_path(device)
+        if not path.is_file():
+            raise InvalidLayout(f"approved passphrase for {device} was not staged")
         staged = PurePosixPath(path)
         self.keys[device] = staged
         return staged
@@ -342,23 +349,26 @@ def apply(
     """
     total = len(operations)
     opened = time.monotonic()
-    for position, operation in enumerate(operations):
-        counted = f"[{position + 1}/{total} {_elapsed(time.monotonic() - opened)}]"
-        if operation.survives_a_reboot and (position, identity(operation)) in finished:
-            machine.runner.log(
-                f"{counted} [{operation.stage.value}] done earlier: {operation.describe()}"
-            )
-            continue
-        if on_start is not None:
-            on_start(operation)
-        machine.runner.log(f"{counted} [{operation.stage.value}] {operation.describe()}")
-        started = time.monotonic()
-        try:
-            operation.apply(machine)
-        except GentooInstallError:
-            _record(machine, operation, started, "failed", position)
-            raise
-        _record(machine, operation, started, "done", position)
+    try:
+        for position, operation in enumerate(operations):
+            counted = f"[{position + 1}/{total} {_elapsed(time.monotonic() - opened)}]"
+            if operation.survives_a_reboot and (position, identity(operation)) in finished:
+                machine.runner.log(
+                    f"{counted} [{operation.stage.value}] done earlier: {operation.describe()}"
+                )
+                continue
+            if on_start is not None:
+                on_start(operation)
+            machine.runner.log(f"{counted} [{operation.stage.value}] {operation.describe()}")
+            started = time.monotonic()
+            try:
+                operation.apply(machine)
+            except GentooInstallError:
+                _record(machine, operation, started, "failed", position)
+                raise
+            _record(machine, operation, started, "done", position)
+    finally:
+        machine.cleanup_secrets()
 
 
 def _elapsed(seconds: float) -> str:

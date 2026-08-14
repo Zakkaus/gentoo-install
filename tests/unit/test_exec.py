@@ -21,10 +21,10 @@ from gentoo_install.exec.probe import Machine as ProbedMachine
 from gentoo_install.exec.probe import Probe
 from gentoo_install.exec.runner import Result, Runner, under
 from gentoo_install.model.config import Bootloader, BootloaderConfig, Firmware, InstallConfig
-from gentoo_install.model.device import DeviceId, Existing, Node
+from gentoo_install.model.device import DeviceId, Existing, Luks, Node
 from gentoo_install.plan.operations import CommandOutput
 
-from .layouts import config, encrypted_root, ext4_on_gpt, i
+from .layouts import config, encrypted_root, ext4_on_gpt, i, zfs_root
 
 
 def runner(tmp_path: Path) -> Runner:
@@ -592,28 +592,127 @@ def test_the_measured_order_is_used_only_when_the_configuration_asks() -> None:
     assert not plain.argv_starting("rank-mirrors")
 
 
-def test_no_passphrase_is_invented_when_none_was_supplied() -> None:
-    """A configuration error, not an integrity one: exit code 3 says the data
-    could not be trusted, and a missing passphrase is not that."""
-    with pytest.raises(ConfigError, match="names no passphrase_file"):
-        fetch.passphrase_for(DeviceId("crypt"), "")
-
-
-def test_a_passphrase_comes_from_the_file_the_layout_names(tmp_path: Path) -> None:
-    """A path, never the passphrase: the configuration is copied into the
-    target and the log is what people paste into bug reports."""
-    source = tmp_path / "key"
-    source.write_text("open sesame\n")
-    assert fetch.passphrase_for(DeviceId("crypt"), str(source)) == "open sesame"
-
-
 def test_an_empty_or_missing_passphrase_file_is_named(tmp_path: Path) -> None:
-    empty = tmp_path / "empty"
-    empty.write_text("")
-    with pytest.raises(ConfigError, match="is empty"):
-        fetch.passphrase_for(DeviceId("crypt"), str(empty))
-    with pytest.raises(ConfigError, match="cannot be read"):
-        fetch.passphrase_for(DeviceId("crypt"), str(tmp_path / "absent"))
+    from gentoo_install.exec.preflight import SecretStore
+
+    source = tmp_path / "key"
+    source.write_text("")
+    store = SecretStore(tmp_path / "work")
+    problems = preflight._passphrase_problems(
+        config(
+            [
+                replace(node, passphrase_file=str(source))
+                if isinstance(node, Luks)
+                else node
+                for node in encrypted_root()
+            ]
+        ),
+        probe_of(tmp_path),
+        store,
+    )
+    assert "is empty" in problems[0]
+    source.unlink()
+    problems = preflight._passphrase_problems(
+        config(
+            [
+                replace(node, passphrase_file=str(source))
+                if isinstance(node, Luks)
+                else node
+                for node in encrypted_root()
+            ]
+        ),
+        probe_of(tmp_path),
+        store,
+    )
+    assert "cannot be read" in problems[0]
+
+
+def test_apply_uses_the_preflight_approved_passphrase_after_source_mutation(
+    tmp_path: Path,
+) -> None:
+    from gentoo_install.exec.preflight import SecretStore
+    from gentoo_install.model.device import ZfsPool
+    from gentoo_install.plan.disk import CreateZpool
+    from .layouts import zfs_root
+
+    source = tmp_path / "key"
+    source.write_text("approved-passphrase")
+    installation = config(
+        [
+            replace(node, passphrase_file=str(source)) if isinstance(node, ZfsPool) else node
+            for node in zfs_root()
+        ]
+    )
+    store = SecretStore(tmp_path / "work")
+    assert preflight._passphrase_problems(installation, probe_of(tmp_path), store) == []
+    source.write_text("changed-after-preflight")
+
+    class Capturing(Runner):
+        input_text: str | None = None
+
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            self.input_text = input_text
+            return Result(tuple(argv), 0, "", "", 0.0)
+
+    class Echoing(Probe):
+        def resolve(self, device: DeviceId, selector: str) -> str:
+            return selector
+
+        def wait_for(self, path: str, seconds: float = 15.0) -> str:
+            return path
+
+    answering = Capturing(log=lambda line: None)
+    machine = apply.Machine(
+        config=installation,
+        runner=answering,
+        probe=Echoing(runner=answering, work=tmp_path),
+        work=tmp_path / "work",
+        secrets=store,
+    )
+    pool = next(one for one in installation.disk.graph.of_type(ZfsPool))
+    CreateZpool(
+        pool=pool.id,
+        vdevs=pool.vdevs,
+        name=pool.name,
+        topology=pool.topology,
+        encrypted=True,
+    ).apply(machine)
+    assert answering.input_text == "approved-passphrase"
+    store.cleanup()
+    assert not store.path(pool.id).exists()
+
+
+def test_apply_uses_the_approved_passphrase_after_source_disappearance(tmp_path: Path) -> None:
+    from gentoo_install.exec.preflight import SecretStore
+    from gentoo_install.model.device import ZfsPool
+
+    source = tmp_path / "key"
+    source.write_text("approved-passphrase")
+    installation = config(
+        [
+            replace(node, passphrase_file=str(source)) if isinstance(node, ZfsPool) else node
+            for node in zfs_root()
+        ]
+    )
+    store = SecretStore(tmp_path / "work")
+    assert preflight._passphrase_problems(installation, probe_of(tmp_path), store) == []
+    source.unlink()
+    machine = apply.Machine(
+        config=installation,
+        runner=runner(tmp_path),
+        probe=probe_of(tmp_path),
+        work=tmp_path / "work",
+        secrets=store,
+    )
+    pool = next(one for one in installation.disk.graph.of_type(ZfsPool))
+    assert machine.passphrase(pool.id) == "approved-passphrase"
 
 
 def test_a_medium_without_the_release_key_fetches_one_rather_than_stopping(tmp_path: Path) -> None:
