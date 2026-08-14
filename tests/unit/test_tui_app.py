@@ -2898,6 +2898,26 @@ def test_a_desktop_proposes_its_login_screen_and_a_network_manager() -> None:
     assert kept.packages.display_manager == "greetd"
 
 
+def test_a_desktop_withdraws_derived_networking_but_keeps_an_operator_choice() -> None:
+    from gentoo_install.model.config import Networking
+
+    at = context()
+    plasma = screens.desktop_screen(
+        FakeScreen(keys=[*down(4), "\n", "\n"], lines=30), config(), at
+    ).unwrap()
+    assert plasma.system.networking is Networking.NETWORKMANAGER_WPA
+
+    explicit_at = context()
+    explicit = screens.networking_screen(
+        FakeScreen(keys=["KEY_UP", "\n"], lines=30), config(), explicit_at
+    ).unwrap()
+    assert explicit.system.networking is Networking.BUILTIN
+    kept = screens.desktop_screen(
+        FakeScreen(keys=[*down(4), "\n", "\n"], lines=30), explicit, explicit_at
+    ).unwrap()
+    assert kept.system.networking is Networking.BUILTIN
+
+
 def test_a_proposed_display_manager_is_withdrawn_but_an_operator_choice_is_kept() -> None:
     at = context()
     plasma = screens.desktop_screen(
@@ -2968,6 +2988,21 @@ def test_switching_desktops_takes_the_last_one_s_use_flags_with_it() -> None:
         FakeScreen(keys=["KEY_UP", "KEY_UP", "\n", "\n"], lines=30), typed, at
     ).unwrap()
     assert "lto" in after.portage.use
+
+
+def test_an_operator_use_flag_survives_the_desktop_that_derived_the_same_flag() -> None:
+    at = context()
+    plasma = screens.desktop_screen(
+        FakeScreen(keys=[*down(4), "\n", "\n"], lines=30), config(), at
+    ).unwrap()
+    explicit = screens.use_flags_screen(
+        FakeScreen(keys=["\n", "\n"], lines=30), plasma, at
+    ).unwrap()
+    assert "qt6" in explicit.portage.use
+    swapped = screens.desktop_screen(
+        FakeScreen(keys=["KEY_UP", "KEY_UP", "\n", "\n"], lines=30), explicit, at
+    ).unwrap()
+    assert "qt6" in swapped.portage.use
 
 
 def test_the_password_fields_are_one_form_the_arrows_move_between() -> None:

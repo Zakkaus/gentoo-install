@@ -16,6 +16,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any, cast
 
+import threading
+
 import pytest
 
 from tests.vm import proxmox
@@ -1364,6 +1366,7 @@ def test_no_marker_appears_in_the_command_that_prints_it() -> None:
     result archive in ninety seconds, and the network probe on its first pass
     with no address on the interface at all."""
     from tests.vm import cluster
+    from tests.vm.console import command_begin, command_done, marked_command
     from tests.vm.results import CONSOLE_CLOSE, CONSOLE_OPEN, console_command
 
     watched = (
@@ -1371,13 +1374,13 @@ def test_no_marker_appears_in_the_command_that_prints_it() -> None:
         cluster.NETWORK_DONE,
         CONSOLE_OPEN,
         CONSOLE_CLOSE,
-        cluster._begin(7),
-        cluster._done(7),
+        command_begin(7),
+        command_done(7),
     )
     commands = (
         console_command("/tmp/results"),
         cluster.NETWORK_PROBE,
-        cluster._marked("findmnt --output TARGET,SOURCE,FSTYPE", 7),
+        marked_command("findmnt --output TARGET,SOURCE,FSTYPE", 7),
     )
     for command in commands:
         for marker in watched:
@@ -1395,16 +1398,17 @@ def test_a_command_answers_with_what_it_printed_and_not_with_its_own_echo() -> N
     import subprocess
 
     from tests.vm import cluster
+    from tests.vm.console import command_begin, command_done, marked_command
 
-    command = cluster._marked("findmnt --output TARGET,SOURCE,FSTYPE", 7)
+    command = marked_command("findmnt --output TARGET,SOURCE,FSTYPE", 7)
     # `sh -x`-free: the echo is what a terminal adds, so it is written here.
     said = subprocess.run(
         ["sh", "-c", f"printf '%s\n' {shlex.quote(command)}; {command}"],
         capture_output=True,
         check=False,
     ).stdout
-    answer = said.split(cluster._begin(7).encode())[-1]
-    answer = answer.split(cluster._done(7).encode())[0]
+    answer = said.split(command_begin(7).encode())[-1]
+    answer = answer.split(command_done(7).encode())[0]
     assert b"findmnt" not in answer, answer
     assert b"TARGET,SOURCE,FSTYPE" not in answer, answer
 
@@ -2800,16 +2804,40 @@ def test_a_guest_is_given_an_address_rather_than_asking_for_one() -> None:
 
     command = configure_statically("10.31.0.113")
     assert "\n" not in command, "one line: this goes to a serial console"
-    # Probed before it is taken: an address somebody else holds is a collision
-    # with a real machine, so that guest asks the DHCP server instead.
-    assert "arping -D" in command
-    assert command.index("arping -D") < command.index("addr add")
-    # Walks forward instead of asking the DHCP server: this segment carries
-    # other people's machines and that server answers intermittently.
-    assert "n=$((n + 1))" in command, command
+    assert "arping -D" not in command
+    assert "addr add 10.31.0.113/24" in command
     assert f"via {GUEST_GATEWAY}" in command
     for one in GUEST_RESOLVERS:
         assert f"nameserver {one}" in command
+
+
+def test_two_workers_reserve_different_static_addresses(tmp_path: Path) -> None:
+    """The interleaving is forced rather than hoped for: the occupancy probe
+    holds the first caller inside the critical section long enough for the
+    second to reach it, so an unlocked pool hands both the same address and
+    the assertion fails. Racing two plain threads passed either way.
+    """
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    from tests.vm.cluster import AddressPool
+
+    entered = threading.Event()
+
+    def probe(address: str) -> bool:
+        if not entered.is_set():
+            entered.set()
+            time.sleep(0.3)
+        return False
+
+    pool = AddressPool(tmp_path, probe)
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        first = workers.submit(pool.reserve, "10.31.0.150")
+        entered.wait(timeout=5)
+        second = workers.submit(pool.reserve, "10.31.0.150")
+        addresses = [first.result(timeout=30), second.result(timeout=30)]
+
+    assert set(addresses) == {"10.31.0.150", "10.31.0.151"}
 
 
 def test_a_guest_leaves_its_own_address_alone_on_the_next_pass() -> None:
@@ -2830,7 +2858,7 @@ def test_a_guest_leaves_its_own_address_alone_on_the_next_pass() -> None:
     assert subprocess.run(["bash", "-n", "-c", command], capture_output=True).returncode == 0
     # The guard comes first, and nothing else runs when a route is already there.
     assert command.startswith("ip -4 route show default | grep -q . || {"), command[:80]
-    assert command.index("arping") > command.index("|| {")
+    assert command.index("addr add") > command.index("|| {")
     # `exit` would end the login shell this runs in, not just the command.
     assert "exit 0" not in command
 
@@ -2849,9 +2877,7 @@ def test_the_address_range_avoids_the_machines_already_on_the_segment() -> None:
 
     assert GUEST_ADDRESS_BASE >= 150, GUEST_ADDRESS_BASE
     command = configure_statically(static_address(VMID_FIRST + 5))
-    assert "n=155;" in command, command
-    # Bounded: the walk stops rather than running off the end of the network.
-    assert "-le 249" in command, command
+    assert "addr add 10.31.0.155/24" in command, command
 
 
 def test_a_request_that_started_no_task_is_named_rather_than_crashed() -> None:
