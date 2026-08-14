@@ -320,14 +320,23 @@ class WritePortageConfig(Operation):
         context.write(self.path, "".join(f"{line}\n" for line in self.lines))
 
 
-def quoted(value: str) -> str:
-    """One make.conf value, as bash reads it back literally.
+#: Values bash has to expand when it sources make.conf rather than read back as
+#: text. `CFLAGS="${COMMON_FLAGS}"` is the stage3's own idiom, and escaping it
+#: handed gcc the literal `${COMMON_FLAGS}` as a filename: every source build
+#: stopped at `linker input file not found`.
+EXPANDED: Final[frozenset[str]] = frozenset({"CFLAGS", "CXXFLAGS", "FCFLAGS", "FFLAGS"})
+
+
+def quoted(key: str, value: str) -> str:
+    """One make.conf value, as bash reads it back.
 
     Portage sources the file, so an unescaped `"` ends the value early and an
     unescaped `$` expands there instead of when the command runs. `FETCHCOMMAND`
-    holds both, and writing it plainly gave wget no URL at all; make.globals
-    escapes the same three characters.
+    holds both and needs the escaping make.globals gives it; make.globals leaves
+    the four flag variables unescaped for the same reason this does.
     """
+    if key in EXPANDED:
+        return f'"{value}"'
     escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$")
     return f'"{escaped}"'
 
@@ -345,11 +354,11 @@ def merge(existing: str, wanted: Sequence[tuple[str, str]]) -> str:
     for line in existing.splitlines():
         key = line.split("=", 1)[0].strip() if "=" in line and not line.lstrip().startswith("#") else ""
         if key in replacing:
-            kept.append(f"{key}={quoted(replacing[key])}")
+            kept.append(f"{key}={quoted(key, replacing[key])}")
             seen.add(key)
             continue
         kept.append(line)
-    added = [f"{key}={quoted(value)}" for key, value in wanted if key not in seen]
+    added = [f"{key}={quoted(key, value)}" for key, value in wanted if key not in seen]
     if added:
         if kept and kept[-1].strip():
             kept.append("")

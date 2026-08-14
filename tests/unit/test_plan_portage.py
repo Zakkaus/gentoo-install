@@ -1475,3 +1475,40 @@ def test_git_reaches_the_proxy_with_the_password_it_demands() -> None:
     )
 
     assert "secret" in apply_all(installation).files[PurePosixPath("/etc/gitconfig")]
+
+
+def test_the_flag_variables_still_follow_common_flags() -> None:
+    """The stage3 writes `CFLAGS="${COMMON_FLAGS}"` and this installer keeps
+    that idiom. Escaping the `$` handed gcc the literal `${COMMON_FLAGS}` as a
+    filename, and every source build stopped at `linker input file not found`.
+    """
+    import subprocess
+
+    from gentoo_install.plan.portage import FETCHCOMMAND, merge
+
+    written = merge(
+        "",
+        (
+            ("COMMON_FLAGS", "-O2 -pipe"),
+            ("CFLAGS", "${COMMON_FLAGS}"),
+            ("CXXFLAGS", "${COMMON_FLAGS}"),
+            ("FETCHCOMMAND", FETCHCOMMAND),
+        ),
+    )
+    read_back = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source /dev/stdin; printf "%s\\n%s\\n%s" "$CFLAGS" "$CXXFLAGS" "$FETCHCOMMAND"',
+        ],
+        input=written,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.split("\n")
+
+    # Expanded, because bash is what expands them when Portage sources the file.
+    assert read_back[0] == "-O2 -pipe"
+    assert read_back[1] == "-O2 -pipe"
+    # Not expanded: the fetcher substitutes these, long after the file is read.
+    assert "${URI}" in read_back[2]
