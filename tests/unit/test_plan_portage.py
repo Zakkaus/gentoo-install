@@ -182,11 +182,19 @@ def test_proxy_clients_route_portage_and_keep_credentials_out_of_descriptions() 
     assert all(secret not in operation.describe() for operation in portage.build(installation, MIRROR))
 
 
-def test_proxy_clients_clear_route_when_proxy_is_empty() -> None:
+def test_no_proxy_leaves_every_client_as_the_distribution_shipped_it() -> None:
+    """Writing an empty proxy is not the same as writing nothing.
+    `FETCHCOMMAND` reached `make.conf` on a machine with no proxy, and
+    `emerge-webrsync` runs it for a snapshot whose URL it supplies itself, so
+    wget answered `missing URL` and the install stopped with no tree.
+    """
     recorder = apply_all(config())
     make_conf = recorder.files[PurePosixPath("/etc/portage/make.conf")]
-    assert 'http_proxy=""' in make_conf
-    assert 'no_proxy=""' in make_conf
+    for name in ("http_proxy", "https_proxy", "ftp_proxy", "all_proxy", "no_proxy",
+                 "FETCHCOMMAND", "RESUMECOMMAND", "RSYNC_PROXY"):
+        assert name not in make_conf
+    for path in ("/etc/wgetrc", "/etc/curlrc", "/etc/gitconfig"):
+        assert PurePosixPath(path) not in recorder.files
 
 
 def test_l10n_is_derived_from_the_locales_rather_than_listed_twice() -> None:
