@@ -1927,3 +1927,56 @@ def test_a_healthy_init_is_judged_by_the_marker_it_prints() -> None:
     broken = dict(healthy)
     broken["failed.txt"] = b"cronie.service loaded failed failed\n"
     assert check_expected(broken, fixture) != 0
+
+
+def test_a_proxy_on_the_workstation_must_be_listening_before_the_run() -> None:
+    """The install fails at the stage3 fetch when it is not, and that reads as
+    a defect in the proxy support the fixture exists to prove."""
+    import socket
+    from dataclasses import replace
+
+    from gentoo_install.exec.config import load
+    from tests.vm.run import GATEWAY, require_proxy
+
+    root = Path(__file__).resolve().parents[1]
+    installation = load(root / "fixtures" / "vm-proxy.toml")
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        port = listener.getsockname()[1]
+        require_proxy(
+            replace(
+                installation,
+                proxy=replace(installation.proxy, url=f"socks5h://{GATEWAY}:{port}"),
+            )
+        )
+    with pytest.raises(SystemExit) as refused:
+        require_proxy(
+            replace(
+                installation,
+                proxy=replace(installation.proxy, url=f"socks5h://{GATEWAY}:{port}"),
+            )
+        )
+    assert str(port) in str(refused.value)
+
+
+def test_a_proxy_somewhere_else_is_not_checked_against_this_workstation() -> None:
+    """An operator's own intranet proxy is unreachable from here by design, and
+    refusing the run on that would refuse every real configuration."""
+    from dataclasses import replace
+
+    from gentoo_install.exec.config import load
+    from tests.vm.run import free_port, require_proxy
+
+    root = Path(__file__).resolve().parents[1]
+    installation = load(root / "fixtures" / "vm-proxy.toml")
+    # A port nothing holds, so dropping the address check would make this
+    # raise. `1080` would not: the workstation runs a proxy there during a
+    # proxy run, and the test would pass for the wrong reason.
+    port = free_port()
+    require_proxy(
+        replace(
+            installation,
+            proxy=replace(installation.proxy, url=f"socks5h://192.0.2.9:{port}"),
+        )
+    )

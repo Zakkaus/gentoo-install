@@ -21,6 +21,8 @@ import time
 from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
+from typing import Final
+from urllib.parse import urlsplit
 
 from gentoo_install.model.config import Bootloader, Firmware as BootFirmware, InitSystem, InstallConfig
 from gentoo_install.model.device import (
@@ -95,11 +97,38 @@ def claim(workdir: Path) -> int:
     return handle
 
 
+#: qemu's user-mode network puts the workstation here, so a fixture that
+#: names a proxy on the host names this address.
+GATEWAY: Final[str] = "10.0.2.2"
+
+
 def free_port() -> int:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port: int = probe.getsockname()[1]
     return port
+
+
+def require_proxy(installation: InstallConfig) -> None:
+    """Refuse a run whose proxy is not listening, before anything is built.
+
+    A fixture reaches the workstation at qemu's user-mode gateway, which is
+    `127.0.0.1` from here. Without this the install fails at the stage3 fetch
+    and reads exactly like a defect in the proxy support it was meant to prove.
+    """
+    url = installation.proxy.url
+    if not url:
+        return
+    parsed = urlsplit(url)
+    if parsed.hostname != GATEWAY or parsed.port is None:
+        return
+    with socket.socket() as probe:
+        probe.settimeout(5.0)
+        if probe.connect_ex(("127.0.0.1", parsed.port)) != 0:
+            raise SystemExit(
+                f"{url} names this workstation, and nothing is listening on "
+                f"port {parsed.port}; start the proxy before the run"
+            )
 
 
 def _target_paths(workdir: Path, installation: InstallConfig) -> tuple[Path, ...]:
@@ -570,7 +599,11 @@ def _perform(args: argparse.Namespace, medium: Medium, workdir: Path) -> int:
     ssh_port = args.ssh_port or free_port()
     key = ssh_keypair(workdir)
     requested = load(REPOSITORY / "tests" / args.install) if args.install else None
-    remote_port = free_port() if requested is not None and requested.kernel.remote_unlock.enabled else None
+    if requested is not None:
+        require_proxy(requested)
+    remote_port = (
+        free_port() if requested is not None and requested.kernel.remote_unlock.enabled else None
+    )
     result_disk = create_disk(workdir / "result.img")
     driver_iso = build_driver(workdir / "driver.iso") if args.install and not args.boot_installed else None
     targets: tuple[Path, ...] = ()
