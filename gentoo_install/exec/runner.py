@@ -184,16 +184,16 @@ class Runner:
     def _environment(self) -> dict[str, str] | None:
         values = dict(self.environment)
         # Password-bearing proxy URLs stay in tool configuration, never process environment.
-        if self.proxy is not None and self.proxy.url and not self.proxy.password:
+        if self.proxy is not None and self.proxy.enabled and not self.proxy.password:
             values.update(
                 {
-                    "http_proxy": self.proxy.url,
-                    "https_proxy": self.proxy.url,
-                    "all_proxy": self.proxy.url,
+                    "http_proxy": self.proxy.redacted_url,
+                    "https_proxy": self.proxy.redacted_url,
+                    "all_proxy": self.proxy.redacted_url,
                     "no_proxy": ",".join(self.proxy.bypass),
-                    "HTTP_PROXY": self.proxy.url,
-                    "HTTPS_PROXY": self.proxy.url,
-                    "ALL_PROXY": self.proxy.url,
+                    "HTTP_PROXY": self.proxy.redacted_url,
+                    "HTTPS_PROXY": self.proxy.redacted_url,
+                    "ALL_PROXY": self.proxy.redacted_url,
                     "NO_PROXY": ",".join(self.proxy.bypass),
                 }
             )

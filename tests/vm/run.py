@@ -116,7 +116,7 @@ def require_proxy(installation: InstallConfig) -> None:
     `127.0.0.1` from here. Without this the install fails at the stage3 fetch
     and reads exactly like a defect in the proxy support it was meant to prove.
     """
-    url = installation.proxy.url
+    url = installation.proxy.redacted_url
     if not url:
         return
     parsed = urlsplit(url)

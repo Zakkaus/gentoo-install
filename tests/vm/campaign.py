@@ -179,6 +179,9 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         # it. It needs a SOCKS5 listener on the workstation, so `run.py` refuses
         # the run rather than reporting a proxy defect the fixture cannot show.
         Run("fixtures/vm-proxy.toml"),
+        # The same layout through an HTTP proxy: the two kinds take
+        # different fetchers, and only SOCKS5 had installed a machine.
+        Run("fixtures/vm-proxy-http.toml"),
         Run("fixtures/vm-unlock.toml"),
         # The same configuration again, killed partway and finished with
         # --resume: the one path nothing else reaches.

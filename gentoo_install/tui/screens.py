@@ -15,7 +15,6 @@ from enum import Enum
 from itertools import takewhile
 from pathlib import PurePosixPath
 from typing import Callable, Final, Generic, Sequence, TypeVar, TypedDict
-from urllib.parse import urlsplit
 
 from ..i18n import Catalog, truncate
 from ..exec import fetch
@@ -44,6 +43,7 @@ from ..model.config import (
     PackagesConfig,
     PortageConfig,
     ProxyConfig,
+    ProxyKind,
     Sync,
     User,
 )
@@ -642,46 +642,41 @@ def proxy_screen(screen: Screen, config: InstallConfig, context: Context) -> Ans
     translate = context.translate
     current = config.proxy
 
+    kind_answer = Menu(
+        title=translate("Proxy type"),
+        items=[Item(kind.value, kind) for kind in ProxyKind],
+        current=current.kind,
+        footer=footer(translate),
+    ).run(screen)
+    if not kind_answer.chosen:
+        return Answer(kind_answer.outcome)
+    selected_kind = kind_answer.unwrap()
+
     def validated(values: list[str]) -> Answer[InstallConfig] | FormRejected:
-        url, hosts = (one.strip() for one in values)
-        if url:
-            try:
-                parts = urlsplit(url)
-            except ValueError:
-                return FormRejected(translate("Proxy URL must include a host"), {0: url, 1: hosts})
-            if parts.scheme.lower() not in {"http", "https", "socks5", "socks5h"}:
-                return FormRejected(
-                    translate("Proxy URL must use http://, https://, socks5:// or socks5h://"),
-                    {0: url, 1: hosts},
-                )
-            try:
-                hostname = parts.hostname
-                parts.port
-            except ValueError:
-                hostname = None
-            if not hostname or any(char.isspace() for char in hostname):
-                return FormRejected(translate("Proxy URL must include a host"), {0: url, 1: hosts})
-            if parts.path not in ("", "/") or parts.query or parts.fragment:
-                return FormRejected(
-                    translate("Proxy URL must contain only a scheme, host and port"),
-                    {0: url, 1: hosts},
-                )
+        host, port, username, password, hosts = (one.strip() for one in values)
+        if not host and (port or username or password or hosts):
+            return FormRejected(translate("Proxy host is required when proxy fields are set"), {0: host})
+        if port and (not port.isdecimal() or not 1 <= int(port) <= 65535):
+            return FormRejected(translate("Proxy port must be between 1 and 65535"), {1: port})
+        if any(ord(char) < 0x20 or ord(char) == 0x7F for char in password):
+            return FormRejected(translate("Proxy password contains control characters"), {3: password})
         bypass = tuple(one for one in (item.strip() for item in hosts.split(",")) if one)
         if any(any(char.isspace() for char in item) for item in bypass):
             return FormRejected(translate("Bypass hosts must not contain spaces"), {1: hosts})
-        selected = replace(config, proxy=ProxyConfig(url=url, bypass=bypass))
+        selected = replace(config, proxy=ProxyConfig(
+            kind=selected_kind, host=host, port=int(port or "0"), username=username,
+            password=password, bypass=bypass,
+        ))
         fetch.configure_proxy(selected.proxy)
         return Answer(Outcome.CHOSE, selected)
 
     return Form(
         title=translate("Proxy"),
         fields=[
-            Field(
-                label=translate("Proxy URL"),
-                value=current.url,
-                secret=True,
-                placeholder=translate("empty for direct; socks5 resolves locally, socks5h at the proxy"),
-            ),
+            Field(label=translate("Proxy host"), value=current.host),
+            Field(label=translate("Proxy port"), value=str(current.port) if current.port else ""),
+            Field(label=translate("Proxy username"), value=current.username),
+            Field(label=translate("Proxy password"), value=current.password, secret=True),
             Field(
                 label=translate("Bypass hosts"),
                 value=", ".join(current.bypass),

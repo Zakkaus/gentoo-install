@@ -38,7 +38,7 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 
 <!-- fact: proxy -->
 
-**工作階段 Proxy** `[proxy]` 設定表接受 `url` 與 `bypass`。URL 可使用 `http://`、`https://`、`socks5://` 與 `socks5h://`，也可包含認證資訊；URL 留白表示直接連線，這是預設值。`socks5` 在本機解析主機名稱，`socks5h` 在 Proxy 解析主機名稱；因此 live 環境無法解析內部主機名稱時，需要使用 `socks5h`。介面主選單有包含 URL 與略過主機欄位的 `Proxy` 列；URL 欄位是密碼欄位，不會回顯密碼。`bypass` 在介面中是逗號分隔的值，在 TOML 中是清單。
+**工作階段 Proxy** `[proxy]` 設定表接受 `kind`、`host`、`port`、可選的 `username` 與 `password`，以及 `bypass`。`kind` 可以是 `http`、`https` 或 `socks5`；`host` 留白表示直接連線，這是預設值。SOCKS5 會導出為 `socks5h://`，所以由 Proxy 解析主機名稱以存取內網。介面主選單為每個值提供欄位，並以選單選擇 Proxy 類型。`bypass` 在介面中是逗號分隔的值，在 TOML 中是清單。
 
 選取 Proxy 後，設定的 Proxy 用於 stage3 與其簽署金鑰、主儲存庫與 overlay 版本查詢，以及 `gitweb.gentoo.org` 的 ZFS ebuild 查詢。它也用於透過 `make.conf` 與 `FETCHCOMMAND`/`RESUMECOMMAND` 的 Portage 下載、`wget`、`curl`、`git`、GnuPG、binhost、overlay 與 paste 上傳。時鐘、初始連線檢查與選單前的鏡像檢查都在取得設定前執行，因此不在此設定涵蓋範圍內。安裝器會將認證資訊排除在 dry-run 說明與發佈的設定之外；發佈的設定與已安裝系統都只保留不含認證資訊的端點及略過清單。
 
@@ -159,7 +159,11 @@ cd gentoo-install-master
 config_version = 1
 
 [proxy]
-url = "socks5h://operator:secret@proxy.example:1080"
+kind = "socks5"
+host = "proxy.example"
+port = 1080
+username = "operator"
+password = "secret"
 bypass = ["localhost", "intranet.example"]
 
 [system]

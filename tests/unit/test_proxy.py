@@ -10,11 +10,15 @@ import pytest
 
 from gentoo_install.exec import fetch
 from gentoo_install.exec.runner import Runner
-from gentoo_install.model.config import ProxyConfig
+from gentoo_install.model.config import ProxyConfig, ProxyKind
 
 
 PROXY = ProxyConfig(
-    url="http://operator:secret@proxy.example:8080",
+    kind=ProxyKind.HTTP,
+    host="proxy.example",
+    port=8080,
+    username="operator",
+    password="secret",
     bypass=("localhost", "internal.example"),
 )
 
@@ -62,15 +66,8 @@ def test_http_proxy_opener_keeps_credentials_out_of_environment_and_bypasses_hos
     assert "secret" not in str(fetch._CURRENT_PROXY.get())
 
 
-@pytest.mark.parametrize(
-    ("scheme", "expected_type", "resolves"),
-    [("socks5", 1, True), ("socks5h", 3, False)],
-)
 def test_socks_scheme_controls_local_name_resolution(
     monkeypatch: pytest.MonkeyPatch,
-    scheme: str,
-    expected_type: int,
-    resolves: bool,
 ) -> None:
     sent: list[bytes] = []
 
@@ -92,11 +89,10 @@ def test_socks_scheme_controls_local_name_resolution(
         "getaddrinfo",
         lambda *args, **kwargs: [(2, 1, 6, "", ("127.0.0.1", 80))],
     )
-    fetch._socks_connect(ProxyConfig(url=f"{scheme}://proxy.example:1080"), "internal.example", 80, 3.0)
+    fetch._socks_connect(ProxyConfig(kind=ProxyKind.SOCKS5, host="proxy.example", port=1080), "internal.example", 80, 3.0)
 
     request = sent[-1]
-    assert request[3] == expected_type
-    assert (scheme == "socks5") is resolves
+    assert request[3] == 3
 
 
 def test_runner_redacts_proxy_credentials_in_dry_run_and_result_command() -> None:

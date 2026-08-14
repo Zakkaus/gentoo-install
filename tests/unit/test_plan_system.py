@@ -14,6 +14,7 @@ from gentoo_install.model.config import (
     InstallConfig,
     Logger,
     ProxyConfig,
+    ProxyKind,
     SystemConfig,
     User,
 )
@@ -78,7 +79,11 @@ def test_installed_system_keeps_proxy_endpoint_and_bypass_without_credentials() 
     installation = replace(
         config(),
         proxy=ProxyConfig(
-            url="socks5h://operator:secret@proxy.example:1080",
+            kind=ProxyKind.SOCKS5,
+            host="proxy.example",
+            port=1080,
+            username="operator",
+            password="secret",
             bypass=("localhost", "corp.example"),
         ),
     )
@@ -1267,7 +1272,11 @@ def test_a_configured_proxy_still_reaches_the_installed_system() -> None:
     from gentoo_install.plan import system as plan_system
 
     installation = replace(
-        config(), proxy=ProxyConfig(url="http://operator:secret@proxy.example:8080")
+        config(),
+        proxy=ProxyConfig(
+            kind=ProxyKind.HTTP, host="proxy.example", port=8080,
+            username="operator", password="secret",
+        ),
     )
     written = [
         one for one in plan_system.build(installation)

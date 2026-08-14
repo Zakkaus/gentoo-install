@@ -8,6 +8,7 @@ import pytest
 
 from gentoo_install.exec.config import load
 from gentoo_install.model.config import InstallConfig, Overlay, PortageConfig, ProxyConfig, User
+from gentoo_install.model.config import ProxyKind
 from gentoo_install.model.device import DeviceGraph, DeviceId, Existing, PartitionTable
 from gentoo_install.model.parse import _NODES, parse
 from gentoo_install.model.serialise import KINDS, REDACTED, SECRET, to_toml
@@ -108,7 +109,21 @@ def test_proxy_credentials_round_trip_and_are_removed_from_published_config() ->
     published = to_toml(config, publishing=True)
     assert "secret" not in published
     assert "operator" not in published
-    assert "socks5h://proxy.example:1080" in published
+    assert 'kind = "socks5"' in published
+    assert 'host = "proxy.example"' in published
+
+
+def test_proxy_with_every_field_round_trips() -> None:
+    config = parse(tomllib.loads((FIXTURES / "proxy" / "config.toml").read_text()))
+    assert config.proxy == ProxyConfig(
+        kind=ProxyKind.SOCKS5,
+        host="proxy.example",
+        port=1080,
+        username="operator",
+        password="secret",
+        bypass=("localhost", "intranet.example"),
+    )
+    assert _round_trip(config) == config
 
 
 def test_a_published_configuration_still_parses() -> None:

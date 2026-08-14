@@ -21,6 +21,7 @@ from gentoo_install.model.config import (
     PackagesConfig,
     PortageConfig,
     ProxyConfig,
+    ProxyKind,
     Sync,
     SystemConfig,
 )
@@ -168,7 +169,11 @@ def test_proxy_clients_route_portage_and_keep_credentials_out_of_descriptions() 
     installation = replace(
         config(),
         proxy=ProxyConfig(
-            url=f"https://operator:{secret}@proxy.example:8443",
+            kind=ProxyKind.HTTPS,
+            host="proxy.example",
+            port=8443,
+            username="operator",
+            password=secret,
             bypass=("localhost", "intranet.example"),
         ),
     )
@@ -180,16 +185,18 @@ def test_proxy_clients_route_portage_and_keep_credentials_out_of_descriptions() 
     assert secret not in make_conf
     assert secret in recorder.files[PurePosixPath("/etc/wgetrc")]
     assert secret in recorder.files[portage.CURL_PROXY_CONFIG]
+    # git talks to the proxy itself, and the file is `0600` like the others.
     assert secret in recorder.files[PurePosixPath("/etc/gitconfig")]
-    # Not dirmngr.conf: `getuto` rebuilds /etc/portage/gnupg from a staging
-    # directory afterwards, so anything written there is thrown away. It reaches
-    # the proxy through its own `honor-http-proxy` and `http_proxy` instead.
+    # dirmngr.conf too, but written after `getuto` rebuilds the directory: the
+    # endpoint in the environment carries no credential, so a proxy that wants
+    # one answered `keyserver refresh failed: Not authenticated`.
+    assert secret in recorder.files[PurePosixPath("/etc/portage/gnupg/dirmngr.conf")]
     assert all(secret not in operation.describe() for operation in portage.build(installation, MIRROR))
 
 
 def test_socks_proxy_uses_curl_for_portage_and_leaves_wget_and_dirmngr_direct() -> None:
     installation = replace(
-        config(), proxy=ProxyConfig(url="socks5h://installer:secret@proxy.example:1080")
+        config(), proxy=ProxyConfig(kind=ProxyKind.SOCKS5, host="proxy.example", port=1080, username="installer", password="secret")
     )
 
     recorder = apply_all(installation)
@@ -219,7 +226,7 @@ def test_socks_proxy_uses_curl_for_portage_and_leaves_wget_and_dirmngr_direct() 
 
 
 def test_http_proxy_keeps_wget_for_portage_and_configures_wget_and_dirmngr() -> None:
-    installation = replace(config(), proxy=ProxyConfig(url="http://installer:secret@proxy.example:8080"))
+    installation = replace(config(), proxy=ProxyConfig(kind=ProxyKind.HTTP, host="proxy.example", port=8080, username="installer", password="secret"))
 
     recorder = apply_all(installation)
     make_conf = recorder.files[PurePosixPath("/etc/portage/make.conf")]
@@ -227,10 +234,10 @@ def test_http_proxy_keeps_wget_for_portage_and_configures_wget_and_dirmngr() -> 
     assert 'FETCHCOMMAND="wget ' in make_conf
     assert 'RESUMECOMMAND="wget ' in make_conf
     assert "http_proxy = http://proxy.example:8080" in recorder.files[PurePosixPath("/etc/wgetrc")]
-    # dirmngr reaches the proxy through `honor-http-proxy` and the environment
-    # `http_proxy`, which is why an HTTP proxy needs no file of its own.
     assert 'http_proxy="http://proxy.example:8080"' in make_conf
-    assert PurePosixPath("/etc/portage/gnupg/dirmngr.conf") not in recorder.files
+    written = recorder.files[PurePosixPath("/etc/portage/gnupg/dirmngr.conf")]
+    assert "honor-http-proxy" in written
+    assert "http-proxy http://installer:secret@proxy.example:8080" in written
 
 
 def test_no_proxy_leaves_every_client_as_the_distribution_shipped_it() -> None:
@@ -963,7 +970,7 @@ def test_a_key_the_file_already_has_is_replaced_in_place() -> None:
 def test_make_conf_values_survive_being_sourced_by_portage() -> None:
     installation = replace(
         config(),
-        proxy=ProxyConfig(url='socks5h://user:pass@proxy.example:1080'),
+        proxy=ProxyConfig(kind=ProxyKind.SOCKS5, host="proxy.example", port=1080, username="user", password="pass"),
         portage=replace(
             config().portage,
             makeopts='-j8 "quoted" $expanded \\literal',
@@ -1401,7 +1408,7 @@ def test_a_proxy_with_a_private_file_turns_userfetch_off() -> None:
     read config from /etc/gentoo-install/curl-proxy.conf` for every distfile
     and the install stopped at `linux-firmware`."""
     installation = replace(
-        config(), proxy=ProxyConfig(url="socks5h://installer:secret@proxy.example:1080")
+        config(), proxy=ProxyConfig(kind=ProxyKind.SOCKS5, host="proxy.example", port=1080, username="installer", password="secret")
     )
 
     make_conf = apply_all(installation).files[PurePosixPath("/etc/portage/make.conf")]
@@ -1418,3 +1425,53 @@ def test_no_proxy_leaves_userfetch_alone() -> None:
     make_conf = apply_all(config()).files[PurePosixPath("/etc/portage/make.conf")]
 
     assert "userfetch" not in make_conf
+
+
+def test_the_keyring_proxy_is_written_after_getuto_rebuilds_the_directory() -> None:
+    """`getuto` rebuilds `/etc/portage/gnupg` from a staging copy, so a proxy
+    line written before it is discarded. Its own file carries
+    `honor-http-proxy` and the endpoint in the environment has no credentials,
+    so the tree's signature check answered `Not authenticated`."""
+    from gentoo_install.plan import portage
+
+    installation = replace(
+        config(), proxy=ProxyConfig(kind=ProxyKind.HTTP, host="proxy.example", port=8080,
+                                    username="operator", password="secret")
+    )
+    recorder = apply_all(installation)
+    written = recorder.files[PurePosixPath("/etc/portage/gnupg/dirmngr.conf")]
+
+    assert "honor-http-proxy" in written
+    assert "secret" in written
+    # The same operation runs getuto and writes the file, so nothing can be
+    # ordered between them.
+    running = [
+        one for one in portage.build(installation, MIRROR)
+        if isinstance(one, portage.PrepareBinhostTrust)
+    ]
+    assert len(running) == 1
+    assert running[0].proxy.enabled
+
+
+def test_a_socks_proxy_writes_no_keyring_proxy() -> None:
+    """dirmngr has no SOCKS support at all, and `http-proxy socks5h://...`
+    answers `Invalid URI`."""
+    installation = replace(
+        config(), proxy=ProxyConfig(kind=ProxyKind.SOCKS5, host="proxy.example", port=1080)
+    )
+
+    assert PurePosixPath("/etc/portage/gnupg/dirmngr.conf") not in apply_all(installation).files
+
+
+def test_git_reaches_the_proxy_with_the_password_it_demands() -> None:
+    """`/etc/gitconfig` is `0600`, the same protection the curl configuration
+    gets. Without the credential the proxy answered
+    `cannot complete SOCKS5 connection to github.com. (2)` and the tree sync
+    stopped."""
+    installation = replace(
+        config(),
+        proxy=ProxyConfig(kind=ProxyKind.SOCKS5, host="proxy.example", port=1080,
+                          username="operator", password="secret"),
+    )
+
+    assert "secret" in apply_all(installation).files[PurePosixPath("/etc/gitconfig")]

@@ -38,7 +38,7 @@ gentoo-install は Linux ライブ環境で動作し、amd64 アーキテクチ�
 
 <!-- fact: proxy -->
 
-**セッションプロキシ** `[proxy]` テーブルは `url` と `bypass` を受け付けます。URL は `http://`、`https://`、`socks5://`、`socks5h://` を使用でき、認証情報も含められます。URL が空の場合は直接接続となり、これが既定値です。`socks5` はホスト名をローカルで解決し、`socks5h` はプロキシで解決します。そのため、ライブ環境が内部ホスト名を解決できない場合は `socks5h` が必要です。メインメニューには URL とバイパスホストの 2 フィールドを持つ `Proxy` 行があります。URL フィールドは secret として扱われ、パスワードを表示しません。`bypass` はインターフェイスではコンマ区切りの値、TOML ではリストです。
+**セッションプロキシ** `[proxy]` テーブルは `kind`、`host`、`port`、任意の `username` と `password`、`bypass` を受け付けます。`kind` は `http`、`https`、`socks5` のいずれかです。`host` が空の場合は直接接続となり、これが既定値です。SOCKS5 は `socks5h://` を導出し、内部ホスト名をプロキシで解決します。メインメニューには値ごとのフィールドとプロキシ種類のメニューがあります。`bypass` はインターフェイスではコンマ区切りの値、TOML ではリストです。
 
 プロキシを選択した後、設定したプロキシは stage3 と署名鍵、メインツリーおよび overlay のバージョン取得、`gitweb.gentoo.org` の ZFS ebuild 取得、`make.conf` と `FETCHCOMMAND`/`RESUMECOMMAND` を通る Portage のダウンロード、`wget`、`curl`、`git`、GnuPG、binhost、overlay、paste のアップロードに使用されます。時計、初期接続検査、メニュー前のミラー検査は設定を取得する前に実行されるため、この設定の対象外です。インストーラは dry-run の説明と公開設定から認証情報を除外します。公開設定とインストール済みシステムには、認証情報を含まないエンドポイントとバイパスリストだけが残ります。
 
@@ -159,7 +159,11 @@ cd gentoo-install-master
 config_version = 1
 
 [proxy]
-url = "socks5h://operator:secret@proxy.example:1080"
+kind = "socks5"
+host = "proxy.example"
+port = 1080
+username = "operator"
+password = "secret"
 bypass = ["localhost", "intranet.example"]
 
 [system]
