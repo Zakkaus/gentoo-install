@@ -24,7 +24,7 @@ from gentoo_install.model.device import (
 from gentoo_install.model.size import Size
 from gentoo_install.exec.config import load
 from gentoo_install.exec.probe import amd64_profiles, profiles_from_eselect
-from gentoo_install.model.validate import validate
+from gentoo_install.model.validate import validate, zfs_kernel_ceiling
 from gentoo_install.model.parse import parse
 
 from .layouts import encrypted_root, config, ext4_on_gpt, i, zfs_root
@@ -858,3 +858,21 @@ def test_a_zfs_kernel_ceiling_refuses_above_and_accepts_below() -> None:
         validate(above, zfs_kernel_max="7.0")
     validate(below, zfs_kernel_max="7.0")
     validate(same_minor, zfs_kernel_max="7.0")
+
+
+def test_zfs_ceiling_is_derived_from_portage_rdepend() -> None:
+    assert zfs_kernel_ceiling(
+        "sys-fs/zfs-2.4.3", "dist-kernel-cap? ( dist-kernel? ( <virtual/dist-kernel-7.1 ) )"
+    ).maximum == "7.0"
+
+
+def test_an_unpinned_kernel_is_left_to_portage() -> None:
+    """`sys-fs/zfs` carries `dist-kernel-cap? ( dist-kernel? (
+    <virtual/dist-kernel-7.1 ) )`, so an unpinned kernel is bounded by the
+    dependency. Refusing one stopped every `dist-bin` ZFS install at step 28.
+    """
+    from gentoo_install.model.validate import KernelCeiling, zfs_kernel_version_problem
+
+    assert zfs_kernel_version_problem("", KernelCeiling(maximum="7.0")) is None
+    assert zfs_kernel_version_problem("6.18.41", KernelCeiling(maximum="7.0")) is None
+    assert zfs_kernel_version_problem("7.1.0", KernelCeiling(maximum="7.0")) is not None

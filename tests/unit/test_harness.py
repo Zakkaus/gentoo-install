@@ -1433,6 +1433,35 @@ def test_a_screen_is_replayed_into_a_grid_rather_than_flattened() -> None:
     assert drawn[4] == "third"
 
 
+def test_vt_screen_retains_an_escape_split_between_serial_reads() -> None:
+    from tests.vm.tui import VTScreen
+
+    prefix = b"\x1b[2J\x1b[Halpha"
+    control = b"\x1b[3;5H"
+    suffix = b"X"
+    whole = VTScreen()
+    whole.feed(prefix + control + suffix)
+    split = VTScreen()
+    split.feed(prefix + control[:3])
+    split.feed(control[3:] + suffix)
+
+    assert split.rows() == whole.rows()
+    assert split.cursor == whole.cursor
+    assert split.rows()[2] == "    X"
+
+
+def test_vt_screen_positions_wide_characters_by_terminal_cell_width() -> None:
+    from tests.vm.tui import VTScreen
+
+    screen = VTScreen(columns=8, lines=2)
+    text = "\\u754c".encode().decode("unicode_escape")
+    wide = text.encode()
+    screen.feed(wide + b"ab")
+
+    assert screen.rows()[0] == text + "ab"
+    assert screen.cursor == (0, 4)
+
+
 def test_a_worker_that_answered_and_exited_is_not_reported_twice() -> None:
     """The schedule reported `vm-xfs` twice: once with the error it raised,
     once as a worker that never reported."""

@@ -30,6 +30,7 @@ PORTAGE_PREREQUISITES: Final[tuple[type[Operation], ...]] = (
     kernel.AcceptKernelVersion,
     kernel.RequestCjkKernel,
     kernel.RequestDistKernelModules,
+    kernel.VerifyZfsKernelCompatibility,
 )
 
 
