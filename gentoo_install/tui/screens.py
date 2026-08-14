@@ -98,6 +98,31 @@ from .widgets import (
 Step = Callable[[Screen, InstallConfig, "Context"], Answer[InstallConfig]]
 
 
+class ValueKind(Enum):
+    """A configuration value whose source must survive a later choice."""
+
+    USE_FLAG = "use flag"
+    VIDEO_CARD = "video card"
+    NETWORKING = "networking"
+    DISPLAY_MANAGER = "display manager"
+
+
+class ValueSource(Enum):
+    """Whether the operator or a TUI choice supplied a value."""
+
+    OPERATOR = "operator"
+    DERIVED = "derived"
+
+
+@dataclass(frozen=True)
+class ValueProvenance:
+    """The source of one value in the current TUI session."""
+
+    kind: ValueKind
+    value: str
+    source: ValueSource
+
+
 class Context:
     """What the screens need besides the configuration itself."""
 
@@ -204,9 +229,7 @@ class Context:
         #: more than one device, and a single flag confirmed for the first
         #: disk authorised a second one the prompt never named.
         self.confirmed: set[str] = set()
-        #: A desktop proposal is withdrawn with that desktop; an explicit edit
-        #: clears this marker even when it chooses the same manager.
-        self.proposed_display_manager: str = ""
+        self.provenance: set[ValueProvenance] = set()
         #: The hand-written partition table, when the layout is manual.
         self.layout = manual.Layout()
         #: Whether the disk comes from that table rather than a template.
@@ -1543,7 +1566,7 @@ def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> A
             ),
         )
     manager = config.packages.display_manager
-    was_proposed = bool(manager and context.proposed_display_manager == manager)
+    was_proposed = _has_derived(context, ValueKind.DISPLAY_MANAGER, manager)
     kept_manager = (
         manager
         if manager and not was_proposed and desktop != config.packages.desktop
@@ -1551,13 +1574,7 @@ def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> A
     )
     changed = _desktop_proposes(changed, config, context, desktop)
     login = LOGIN_SCREEN.get(desktop, "")
-    proposed = (
-        login
-        if login
-        and changed.packages.display_manager == login
-        and (was_proposed or not manager)
-        else ""
-    )
+    effects = derive_effects(config, changed, context, kept_manager)
     answered = settle(
         screen,
         context,
@@ -1566,11 +1583,7 @@ def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> A
         kept_display_manager=kept_manager,
     )
     if answered.chosen:
-        context.proposed_display_manager = (
-            proposed
-            if answered.unwrap().packages.display_manager == proposed
-            else ""
-        )
+        _record_derived(context, answered.unwrap(), effects)
     return answered
 
 
@@ -1642,11 +1655,14 @@ def derive_effects(
         networking_changed=after.system.networking is not before.system.networking,
         kept_display_manager=kept_display_manager,
         withdrawn_use=tuple(
-            one.value for one in automatic_values.use_flags(before, context.groups)
-        )
-        + tuple(_derived_by(before, context)),
+            one.value
+            for one in context.provenance
+            if one.kind is ValueKind.USE_FLAG and one.source is ValueSource.DERIVED
+        ),
         withdrawn_video_cards=tuple(
-            one.value for one in automatic_values.video_cards(before, context.groups)
+            one.value
+            for one in context.provenance
+            if one.kind is ValueKind.VIDEO_CARD and one.source is ValueSource.DERIVED
         ),
     )
 
@@ -1678,8 +1694,7 @@ def _desktop_proposes(
     installed desktop had the settings panel and not the service behind it.
     """
     if (
-        context.proposed_display_manager
-        and context.proposed_display_manager == before.packages.display_manager
+        _has_derived(context, ValueKind.DISPLAY_MANAGER, before.packages.display_manager)
     ):
         changed = replace(
             changed,
@@ -1692,7 +1707,7 @@ def _desktop_proposes(
         changed = replace(
             changed, packages=replace(changed.packages, display_manager=login)
         )
-    if before.system.networking is Networking.BUILTIN:
+    if not _has_operator(context, ValueKind.NETWORKING, before.system.networking.value):
         changed = replace(
             changed,
             system=replace(changed.system, networking=Networking.NETWORKMANAGER_WPA),
@@ -1799,19 +1814,56 @@ def settle(
     return Answer(Outcome.CHOSE, pinned)
 
 
-def _derived_by(config: InstallConfig, context: Context) -> set[str]:
-    """The USE every group this configuration selects asks for.
+def _has_derived(context: Context, kind: ValueKind, value: str) -> bool:
+    """Whether this value came from the current automatic proposal."""
+    return ValueProvenance(kind, value, ValueSource.DERIVED) in context.provenance
 
-    `automatic.use_flags` reports only what is not already in `portage.use`,
-    and a pinned flag is in there, so it stops reporting the very values that
-    have to be withdrawn. The catalog is asked directly instead.
-    """
-    from ..plan import packages as plan_packages
 
-    return {
-        flag
-        for group in plan_packages.groups(config, context.groups)
-        for flag in group.use
+def _has_operator(context: Context, kind: ValueKind, value: str) -> bool:
+    """Whether the operator selected this value in its own row."""
+    return ValueProvenance(kind, value, ValueSource.OPERATOR) in context.provenance
+
+
+def _record_derived(context: Context, after: InstallConfig, effects: Effects) -> None:
+    """Replace the previous choice's derived values with the new choice's."""
+    context.provenance = {
+        one for one in context.provenance if one.source is not ValueSource.DERIVED
+    }
+    context.provenance.update(
+        ValueProvenance(ValueKind.USE_FLAG, value, ValueSource.DERIVED)
+        for value in effects.use_flags
+    )
+    context.provenance.update(
+        ValueProvenance(ValueKind.VIDEO_CARD, value, ValueSource.DERIVED)
+        for value in effects.video_cards
+    )
+    if effects.networking_changed:
+        context.provenance.add(
+            ValueProvenance(
+                ValueKind.NETWORKING,
+                after.system.networking.value,
+                ValueSource.DERIVED,
+            )
+        )
+    if effects.display_manager_changed:
+        context.provenance.add(
+            ValueProvenance(
+                ValueKind.DISPLAY_MANAGER,
+                after.packages.display_manager,
+                ValueSource.DERIVED,
+            )
+        )
+
+
+def _record_operator(context: Context, kind: ValueKind, values: Sequence[str]) -> None:
+    """Mark values edited in their own row as operator choices."""
+    kept = {
+        one
+        for one in context.provenance
+        if one.kind is not kind or one.source is not ValueSource.DERIVED
+    }
+    context.provenance = kept | {
+        ValueProvenance(kind, value, ValueSource.OPERATOR) for value in values
     }
 
 
@@ -1921,7 +1973,11 @@ def display_manager_screen(
         return chosen
     answered = settle(screen, context, config, chosen.unwrap())
     if answered.chosen:
-        context.proposed_display_manager = ""
+        _record_operator(
+            context,
+            ValueKind.DISPLAY_MANAGER,
+            (answered.unwrap().packages.display_manager,),
+        )
     return answered
 
 
@@ -3428,9 +3484,11 @@ def networking_screen(
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
+    chosen = answer.unwrap()
+    _record_operator(context, ValueKind.NETWORKING, (chosen.value,))
     return Answer(
         Outcome.CHOSE,
-        replace(config, system=replace(config.system, networking=answer.unwrap())),
+        replace(config, system=replace(config.system, networking=chosen)),
     )
 
 
@@ -4461,8 +4519,10 @@ def use_flags_screen(
     )
     if not answer.chosen:
         return Answer(answer.outcome)
+    values = answer.unwrap()
+    _record_operator(context, ValueKind.USE_FLAG, values)
     return Answer(
-        Outcome.CHOSE, replace(config, portage=replace(config.portage, use=answer.unwrap()))
+        Outcome.CHOSE, replace(config, portage=replace(config.portage, use=values))
     )
 
 
@@ -4487,9 +4547,11 @@ def video_cards_screen(
     )
     if not answer.chosen:
         return Answer(answer.outcome)
+    values = answer.unwrap()
+    _record_operator(context, ValueKind.VIDEO_CARD, values)
     return Answer(
         Outcome.CHOSE,
-        replace(config, portage=replace(config.portage, video_cards=answer.unwrap())),
+        replace(config, portage=replace(config.portage, video_cards=values)),
     )
 
 

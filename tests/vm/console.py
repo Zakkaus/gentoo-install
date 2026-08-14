@@ -19,6 +19,27 @@ _ANSI = re.compile(
 
 CONSOLE_BUFFER_BYTES = 4 * 1024 * 1024
 
+_BEGIN_TEXT = "MARK_{token}_BEGIN"
+_DONE_TEXT = "MARK_{token}_DONE"
+
+
+def marked_command(command: str, token: int) -> str:
+    """Wrap a command with markers that cannot match its echoed input."""
+    return (
+        f"printf 'MARK_%s_BEGIN\\n' {token}; {command}; "
+        f"printf 'MARK_%s_DONE\\n' {token}"
+    )
+
+
+def command_begin(token: int) -> str:
+    """Return the marker printed before a command's output."""
+    return _BEGIN_TEXT.format(token=token)
+
+
+def command_done(token: int) -> str:
+    """Return the marker printed after a command's output."""
+    return _DONE_TEXT.format(token=token)
+
 
 class ConsoleTimeout(Exception):
     """A pattern did not appear on the console within its deadline."""
@@ -225,8 +246,8 @@ class SerialConsole:
         from the expanded marker.
         """
         token = next(self._tokens)
-        self.send(f"{command}; echo MARK_$(({token}+0))_END")
-        self.expect(rf"MARK_{token}_END", timeout)
+        self.send(marked_command(command, token))
+        self.expect(command_done(token), timeout)
 
     def expect_command(self, command: str, timeout: float = 120.0) -> bytes:
         """Run a command and answer with what it printed.
@@ -236,8 +257,9 @@ class SerialConsole:
         what the machine said.
         """
         token = next(self._tokens)
-        self.send(f"{command}; echo MARK_$(({token}+0))_END")
-        return self.expect(rf"MARK_{token}_END", timeout)
+        self.send(marked_command(command, token))
+        said = self.expect(command_done(token), timeout)
+        return said.split(command_done(token).encode())[0]
 
     def login(self, user: str, password: str | None, prompt: str) -> None:
         self.expect(r"login:", timeout=300.0)

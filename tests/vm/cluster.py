@@ -16,6 +16,7 @@ what separates a slow mirror from a dead guest.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import itertools
 import json
 import os
@@ -58,6 +59,9 @@ from .console import (
     ConsoleIdle,
     ConsoleTimeout,
     SerialConsole,
+    command_begin,
+    command_done,
+    marked_command,
 )
 from .driver import build as build_driver, digest as driver_digest, remote_name
 from .monitor import keys_for
@@ -87,6 +91,7 @@ from .installed import checks, stage_passphrase_commands
 
 REPOSITORY: Final[Path] = Path(__file__).resolve().parents[2]
 WORKROOT: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/cluster"
+ADDRESS_POOL_ROOT: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/address-pool"
 
 #: Outside any one round's work directory: the ISO stays on the node between
 #: rounds, so the record of what was uploaded has to outlive the round that
@@ -697,7 +702,7 @@ def static_address(vmid: int) -> str:
 
 
 def configure_statically(address: str) -> str:
-    """Give the interface `address`, or the next free one after it.
+    """Give the interface the address reserved by the scheduler.
 
     This segment carries other people's machines: a probe found 10.31.0.106
     through .115 answering with locally administered MAC addresses, none of
@@ -706,7 +711,6 @@ def configure_statically(address: str) -> str:
     on a Raspberry Pi here and answers intermittently.
     """
     network, last = address.rsplit(".", 1)
-    ceiling = GUEST_ADDRESS_BASE + (VMID_LAST - VMID_FIRST)
     gateway = GUEST_GATEWAY
     prefix = GUEST_PREFIX
     # `\\n` for printf, not a real newline: the whole thing is one line sent to
@@ -719,20 +723,22 @@ def configure_statically(address: str) -> str:
         # then tore the working configuration down again.
         "ip -4 route show default | grep -q . || { "
         'for one in /sys/class/net/e*; do dev=$(basename "$one"); ip link set "$dev" up; '
-        # The next free address from this one, rather than the DHCP server: an
-        # address somebody else holds is a collision with a real machine, and
-        # this segment has machines scattered through the range. `arping -D`
-        # is a duplicate-address probe: it asks whether anything answers and
-        # says so without claiming it.
-        f'n={last}; while [ "$n" -le {ceiling} ]; do '
-        'if arping -D -c 2 -w 3 -I "$dev" ' + f"{network}.$n" + ' >/dev/null 2>&1; then '
-        'ip -4 addr add ' + f"{network}.$n/{prefix}" + ' dev "$dev" 2>/dev/null && break; fi; '
-        'n=$((n + 1)); done; '
+        f'ip -4 addr add {network}.{last}/{prefix} dev "$dev"; '
         f'ip -4 route replace default via {gateway} dev "$dev" 2>/dev/null; '
         "done; }; "
         f"printf '{resolvers}' > /etc/resolv.conf; "
         "ip -4 route show default | grep -q . || true"
     )
+
+
+def _address_is_taken(address: str) -> bool:
+    """Check occupancy before the scheduler reserves an address."""
+    result = subprocess.run(
+        ["arping", "-D", "-c", "2", "-w", "3", address],
+        capture_output=True,
+        check=False,
+    )
+    return result.returncode != 0
 
 
 #: What the official minimal medium asks before it hands over a shell, and
@@ -761,7 +767,7 @@ def reach_prompt(link: Reconnecting, patience: float = PROMPT_PATIENCE) -> None:
     raise ConsoleTimeout(f"the medium did not reach a shell in {patience:.0f}s")
 
 
-def wait_for_network(link: Reconnecting, vmid: int = 0) -> None:
+def wait_for_network(link: Reconnecting, vmid: int = 0, address: str = "") -> None:
     """Configure the guest's interface, then wait until it can reach a mirror.
 
     The medium boots with `nodhcp` and leaves the link unconfigured, so
@@ -773,7 +779,7 @@ def wait_for_network(link: Reconnecting, vmid: int = 0) -> None:
     server, which is what a run outside the cluster does.
     """
     deadline = time.monotonic() + NETWORK_PATIENCE
-    configure = configure_statically(static_address(vmid)) if vmid else ASK_FOR_IPV4
+    configure = configure_statically(address or static_address(vmid)) if vmid else ASK_FOR_IPV4
     asked = False
     while time.monotonic() < deadline:
         said = link.expect_output(NETWORK_PROBE, timeout=180.0)
@@ -1027,7 +1033,43 @@ class Running:
     guest: Stoppable
     watch: Watchdog
     reservation_bytes: int
+    address: str = ""
     created: bool = False
+
+
+class AddressPool:
+    """Reserve static addresses under one host-wide scheduler lock."""
+
+    def __init__(self, root: Path, probe: Callable[[str], bool]) -> None:
+        self._root = root
+        self._probe = probe
+        self._lock_path = root / "address.lock"
+        self._leases = root / "addresses"
+
+    def reserve(self, preferred: str) -> str:
+        self._root.mkdir(parents=True, exist_ok=True)
+        self._leases.mkdir(exist_ok=True)
+        with self._lock_path.open("a+") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            held = {path.name for path in self._leases.iterdir()}
+            network, last = preferred.rsplit(".", 1)
+            ceiling = GUEST_ADDRESS_BASE + (VMID_LAST - VMID_FIRST)
+            for number in range(int(last), ceiling + 1):
+                address = f"{network}.{number}"
+                if address in held or self._probe(address):
+                    continue
+                lease = self._leases / address
+                try:
+                    lease.touch(exist_ok=False)
+                except FileExistsError:
+                    continue
+                return address
+        raise ProxmoxError(f"no static address is available from {preferred}")
+
+    def release(self, address: str) -> None:
+        with self._lock_path.open("a+") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            (self._leases / address).unlink(missing_ok=True)
 
 
 def _execution(
@@ -1038,6 +1080,7 @@ def _execution(
     workdir: Path,
     vmid: int,
     nonce: str,
+    address: str = "",
 ) -> Running:
     log = workdir / f"{job.name}.log"
     guest = Guest(
@@ -1059,6 +1102,7 @@ def _execution(
         guest,
         Watchdog(log=log, counters=lambda: guest.transferred()),
         job.reservation_bytes,
+        address,
     )
 
 
@@ -1080,6 +1124,7 @@ def _reserve_job(
     driver: str,
     workdir: Path,
     held_vmids: frozenset[int],
+    address: str = "",
 ) -> Job:
     """Create a cluster guest before recording its lease and dispatch."""
     excluded = set(held_vmids)
@@ -1087,7 +1132,7 @@ def _reserve_job(
     conflict: CreateConflict | None = None
     for _ in range(RESERVATION_TRIES):
         vmid = api.free_vmid(frozenset(excluded))
-        execution = _execution(api, node, job, driver, workdir, vmid, nonce)
+        execution = _execution(api, node, job, driver, workdir, vmid, nonce, address)
         guest = cast(Guest, execution.guest)
         try:
             guest.create()
@@ -1169,7 +1214,7 @@ def install_one(
         # cluster hands out a real configuration, and it is IPv6 with DNS64.
         # Writing IPv4 resolvers over it left every mirror unreachable:
         # `Failed to connect to mirrors.tuna.tsinghua.edu.cn:443 after 111 ms`.
-        wait_for_network(link, guest.vmid)
+        wait_for_network(link, guest.vmid, held.address)
         stage_passphrases(link, load(job.fixture))
         link.run("mkdir -p /mnt/driver")
         link.run("mountpoint -q /mnt/driver || mount -o ro /dev/sr1 /mnt/driver")
@@ -1331,6 +1376,7 @@ def run(
     api = Api()
     workdir.mkdir(parents=True, exist_ok=True)
     reconcile(api, workdir)
+    addresses = AddressPool(ADDRESS_POOL_ROOT, _address_is_taken)
     # Packed: the ingress refuses the 1.4 MiB loose-file CD with `413`.
     staging = workdir / f".driver-{uuid.uuid4().hex}.iso"
     built_path = build_driver(
@@ -1404,14 +1450,20 @@ def run(
                     for one in scheduled.values()
                     if one.holds_resources and one.vmid
                 )
-                job = _reserve_job(
-                    api,
-                    node.name,
-                    job,
-                    driver,
-                    workdir,
-                    held_vmids,
-                )
+                address = addresses.reserve(f"{GUEST_NETWORK}.{GUEST_ADDRESS_BASE}")
+                try:
+                    job = _reserve_job(
+                        api,
+                        node.name,
+                        job,
+                        driver,
+                        workdir,
+                        held_vmids,
+                        address,
+                    )
+                except Exception:
+                    addresses.release(address)
+                    raise
                 execution = job.execution
                 if execution is None:
                     raise ProxmoxError(f"{job.name} has no reserved guest")
@@ -1470,6 +1522,8 @@ def run(
             job = scheduled[outcome.name].answered(outcome)
             if outcome.removed and job.lease is not None:
                 job.lease.unlink(missing_ok=True)
+                if job.execution is not None and job.execution.address:
+                    addresses.release(job.execution.address)
             job = job.collect(collected)
             collected += 1
             scheduled[job.name] = job
@@ -1519,26 +1573,10 @@ RECONNECT_TRIES: Final[int] = 4
 #: whole in the line the console is given: the shell echoes that line back,
 #: and a reader waiting for the end marker matched the echo and returned
 #: before the command had run. `printf` assembles them in the guest instead.
-_BEGIN_TEXT: Final[str] = "MARK_{token}_BEGIN"
-_DONE_TEXT: Final[str] = "MARK_{token}_DONE"
 _LIVE_PROMPT: Final[str] = "root@livecd ~ # "
 
 
 _Result = TypeVar("_Result")
-
-
-def _marked(command: str, token: int) -> str:
-    return (
-        f"printf 'MARK_%s_BEGIN\\n' {token}; {command}; printf 'MARK_%s_DONE\\n' {token}"
-    )
-
-
-def _begin(token: int) -> str:
-    return _BEGIN_TEXT.format(token=token)
-
-
-def _done(token: int) -> str:
-    return _DONE_TEXT.format(token=token)
 
 
 def _remaining(deadline: float) -> float:
@@ -1600,8 +1638,8 @@ class Reconnecting:
     def run(self, command: str, timeout: float = 120.0) -> None:
         def run_once(deadline: float) -> None:
             token = next(self._marks)
-            self.console.send(_marked(command, token))
-            self.console.expect(_done(token), _remaining(deadline))
+            self.console.send(marked_command(command, token))
+            self.console.expect(command_done(token), _remaining(deadline))
 
         self._with_reconnect(timeout, run_once)
 
@@ -1632,8 +1670,8 @@ class Reconnecting:
             after_reconnect = sent
             if not sent:
                 sent = True
-                self.console.send(_marked(command, token))
-            completion = _done(token)
+                self.console.send(marked_command(command, token))
+            completion = command_done(token)
             if after_reconnect:
                 completion = rf"{completion}|{re.escape(_LIVE_PROMPT)}"
             while True:
@@ -1663,10 +1701,10 @@ class Reconnecting:
         """
         def collect_once(deadline: float) -> bytes:
             token = next(self._marks)
-            self.console.send(_marked(command, token))
-            self.console.expect(_begin(token), _remaining(deadline))
-            said = self.console.expect(_done(token), _remaining(deadline))
-            return said.split(_DONE_TEXT.format(token=token).encode())[0]
+            self.console.send(marked_command(command, token))
+            self.console.expect(command_begin(token), _remaining(deadline))
+            said = self.console.expect(command_done(token), _remaining(deadline))
+            return said.split(command_done(token).encode())[0]
 
         return self._with_reconnect(timeout, collect_once)
 

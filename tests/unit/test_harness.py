@@ -7,7 +7,9 @@ process it drove, so nothing else in the run can notice a failure for it.
 from __future__ import annotations
 
 import re
+from io import BytesIO
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -691,6 +693,45 @@ def test_console_buffer_keeps_the_tail_of_long_output() -> None:
     console = SerialConsole(Channel(), BytesIO(), buffer_limit=len(b"current failure"))
     with pytest.raises(ConsoleTimeout, match="current failure"):
         console.expect(r"never appears", timeout=0.1)
+
+
+def test_local_and_cluster_consoles_frame_commands_identically() -> None:
+    from tests.vm.cluster import Reconnecting
+    from tests.vm.console import SerialConsole
+
+    class Channel:
+        closed = False
+
+        def __init__(self) -> None:
+            self.sent: list[bytes] = []
+
+        def recv(self, size: int) -> bytes:
+            return b"MARK_1_DONE\n"
+
+        def sendall(self, data: bytes) -> None:
+            self.sent.append(data)
+
+        def close(self) -> None:
+            return None
+
+    local_channel = Channel()
+    SerialConsole(local_channel, BytesIO()).run("printf output")
+    cluster_lines: list[str] = []
+
+    class ClusterConsole:
+        def send(self, line: str) -> None:
+            cluster_lines.append(line)
+
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+            return b"MARK_1_DONE\n"
+
+    Reconnecting(lambda: cast(Any, ClusterConsole())).run("printf output")
+    expected = (
+        "printf 'MARK_%s_BEGIN\\n' 1; printf output; "
+        "printf 'MARK_%s_DONE\\n' 1"
+    )
+    assert local_channel.sent == [expected.encode() + b"\n"]
+    assert cluster_lines == [expected]
 
 
 def test_result_archive_rejects_data_above_its_bound() -> None:

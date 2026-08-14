@@ -573,7 +573,12 @@ def _input_devices(config: InstallConfig, context: Context) -> str:
 
 def _display_manager(config: InstallConfig, context: Context) -> str:
     chosen = config.packages.display_manager
-    if chosen and context.proposed_display_manager == chosen:
+    if chosen and any(
+        one.kind is screens.ValueKind.DISPLAY_MANAGER
+        and one.value == chosen
+        and one.source is screens.ValueSource.DERIVED
+        for one in context.provenance
+    ):
         return f"{chosen} ({context.translate('proposed')})"
     return chosen or context.translate("none")
 
