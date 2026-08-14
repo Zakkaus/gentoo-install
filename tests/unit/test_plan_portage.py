@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 
 from dataclasses import fields, replace
@@ -1295,3 +1297,25 @@ def test_unpacking_a_stage3_says_it_is_still_unpacking() -> None:
     ran = next(one for one in recorder.commands if one and one[0] == "tar")
     assert f"--checkpoint={plan_portage.UNPACK_CHECKPOINT}" in ran, ran
     assert "--checkpoint-action=echo" in ran, ran
+
+
+def test_make_conf_values_survive_being_sourced_by_portage() -> None:
+    """`FETCHCOMMAND` carries both a quote and a `$`, and writing it plainly
+    ended the value at the first quote, so `emerge-webrsync` ran a wget with no
+    URL and no tree ever arrived."""
+    from gentoo_install.plan.portage import FETCHCOMMAND, RESUMECOMMAND, merge
+
+    written = merge("", (("FETCHCOMMAND", FETCHCOMMAND), ("RESUMECOMMAND", RESUMECOMMAND)))
+    for line in written.splitlines():
+        if not line.startswith(("FETCHCOMMAND=", "RESUMECOMMAND=")):
+            continue
+        key, _, value = line.partition("=")
+        # bash reads the file, so bash decides what the value is.
+        read_back = subprocess.run(
+            ["bash", "-c", f'{line}\nprintf %s "${{{key}}}"'],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        assert read_back == (FETCHCOMMAND if key == "FETCHCOMMAND" else RESUMECOMMAND)
+        assert "${URI}" in read_back
