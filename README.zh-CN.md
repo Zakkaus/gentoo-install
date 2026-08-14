@@ -60,7 +60,7 @@ gentoo-install 在 Linux live 环境中运行，用于安装 amd64 架构的 Gen
 
 代理路径已有聚焦单元测试和 plan 测试，覆盖 SOCKS5 DNS 模式、dry-run 输出与发布配置中的认证信息移除，以及已安装系统保留不含认证信息的端点。带版本标记的集群执行已覆盖反向：`vm-proxy-dead` fixture 把代理指向没有进程监听的端口，安装在 stage3 下载阶段以 `Connection refused` 停止，因此执行到达镜像就表示代理被绕过。
 
-版本 `9215c4b9e66` 的两次执行覆盖正向：`vm-proxy` 通过要求密码的 SOCKS5 代理完成安装，`vm-proxy-http` 通过 HTTP 代理完成安装，两者都写入 57 个操作，其中 93 个二进制软件包来自二进制主机、14 个由源代码编译。要求密码的 HTTP 或 HTTPS 代理无法检查主树快照的签名，因为 `emerge-webrsync` 只把不含认证信息的端点交给 gemato。dirmngr 完全不支持 SOCKS，因此 SOCKS5 下密钥更新需要直连 keyserver。
+版本 `4d8512a496d` 的两次执行覆盖正向：`vm-proxy` 通过要求密码的 SOCKS5 代理完成安装，`vm-proxy-http` 通过 HTTP 代理完成安装，两者都写入 57 个操作，其中 93 个二进制软件包来自二进制主机、14 个由源代码编译。要求密码的 HTTP 或 HTTPS 代理无法检查主树快照的签名，因为 `emerge-webrsync` 只把不含认证信息的端点交给 gemato。dirmngr 完全不支持 SOCKS，因此 SOCKS5 下密钥更新需要直连 keyserver。
 
 CJK 文本控制台显示目前没有验证证据。ext2 和 ext3 也没有针对其配置的自动化测试。`tests/fixtures/` 下的文件只验证配置模型；文件存在并不表示对应组合已完成端到端安装和引导验证。
 
