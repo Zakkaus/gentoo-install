@@ -2186,3 +2186,60 @@ def test_a_missing_stage3_is_not_asked_for_again(
     with pytest.raises(DownloadFailed):
         fetch._download("https://distfiles.invalid/gone.tar.xz", tmp_path / "gone.tar.xz")
     assert tries["n"] == 1
+
+
+def test_a_name_that_does_not_resolve_is_waited_out(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`Temporary failure in name resolution` says the resolver may answer in a
+    minute, and six seconds of retry ended installs on a network whose only
+    resolver answers intermittently."""
+    import socket as network
+
+    from gentoo_install.exec import fetch
+    from gentoo_install.errors import DownloadFailed
+
+    waited: list[float] = []
+    tries = {"n": 0}
+
+    def flaky(url: str, target: Path, log: object = None, proxy: object = None) -> None:
+        tries["n"] += 1
+        if tries["n"] < 2:
+            cause = network.gaierror(network.EAI_AGAIN, "Temporary failure in name resolution")
+            raise DownloadFailed(f"{url} could not be fetched: {cause}") from cause
+        target.write_bytes(b"stage3")
+
+    monkeypatch.setattr(fetch, "_download_over_any_family", flaky)
+    import time as clock
+
+    monkeypatch.setattr(clock, "sleep", waited.append)
+    fetch._download("https://distfiles.invalid/stage3.tar.xz", tmp_path / "stage3.tar.xz")
+
+    assert waited == [fetch.UNRESOLVED_PAUSE]
+
+
+def test_a_refused_connection_is_not_waited_out_as_long(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A host that answers `Connection refused` is answering; only the resolver
+    earns the long pause."""
+    from gentoo_install.exec import fetch
+    from gentoo_install.errors import DownloadFailed
+
+    waited: list[float] = []
+    tries = {"n": 0}
+
+    def flaky(url: str, target: Path, log: object = None, proxy: object = None) -> None:
+        tries["n"] += 1
+        if tries["n"] < 2:
+            cause = ConnectionRefusedError("Connection refused")
+            raise DownloadFailed(f"{url} could not be fetched: {cause}") from cause
+        target.write_bytes(b"stage3")
+
+    monkeypatch.setattr(fetch, "_download_over_any_family", flaky)
+    import time as clock
+
+    monkeypatch.setattr(clock, "sleep", waited.append)
+    fetch._download("https://distfiles.invalid/stage3.tar.xz", tmp_path / "stage3.tar.xz")
+
+    assert waited == [fetch.ONLINE_PAUSE]
