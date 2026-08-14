@@ -625,9 +625,6 @@ def check_expected(results: dict[str, bytes], config: Path) -> int:
         text = results.get(f"{name}.txt", b"").decode("utf-8", "replace")
         if re.search(pattern, text, re.MULTILINE) is None:
             missing.append(f"{name}.txt does not match {pattern}")
-    failed = results.get("failed.txt", b"").decode("utf-8", "replace").strip()
-    if failed:
-        missing.append(f"systemd reports failed units: {failed.splitlines()[0]}")
     skipped = results.get("skipped.txt", b"").decode("utf-8", "replace").strip()
     if skipped and skipped.isdigit() and int(skipped) == 0:
         # An interrupted run that resumed and repeated everything partitioned a

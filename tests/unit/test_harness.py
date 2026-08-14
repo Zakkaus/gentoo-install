@@ -1798,8 +1798,10 @@ def test_a_check_whose_name_has_a_space_is_written_to_one_file() -> None:
     Alpine run ended there with the install already finished.
     """
     import subprocess
+    from typing import cast
 
     from tests.vm import run as vm_run
+    from tests.vm.console import SerialConsole
 
     class Recording:
         def __init__(self) -> None:
@@ -1812,9 +1814,30 @@ def test_a_check_whose_name_has_a_space_is_written_to_one_file() -> None:
 
     console = Recording()
     installation = load(Path(__file__).resolve().parents[1] / "fixtures" / "vm-btrfs.toml")
-    vm_run.check_installed(console, installation)  # type: ignore[arg-type]
+    vm_run.check_installed(cast("SerialConsole", console), installation)
     assert any("root filesystem" in one for one in console.commands)
     for command in console.commands:
         assert subprocess.run(
             ["bash", "-n", "-c", command], capture_output=True
         ).returncode == 0, command
+
+
+def test_a_healthy_init_is_judged_by_the_marker_it_prints() -> None:
+    """The shared contract gives `failed` the pattern `NO-FAILED-UNITS`, and a
+    second rule here failed the run on any output at all, so the marker that
+    means success read as the failure it rules out: a clean Alpine install
+    reported `systemd reports failed units: NO-FAILED-UNITS`.
+    """
+    from tests.vm.installed import checks
+    from tests.vm.run import check_expected
+    from gentoo_install.exec.config import load
+
+    fixture = Path(__file__).resolve().parents[1] / "fixtures" / "vm-btrfs.toml"
+    healthy = {
+        f"{one.name}.txt": one.pattern.replace("\\", "").encode() + b"\n"
+        for one in checks(load(fixture))
+    }
+    assert check_expected(healthy, fixture) == 0
+    broken = dict(healthy)
+    broken["failed.txt"] = b"cronie.service loaded failed failed\n"
+    assert check_expected(broken, fixture) != 0
