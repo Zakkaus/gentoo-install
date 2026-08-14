@@ -36,6 +36,12 @@ gentoo-install は Linux ライブ環境で動作し、amd64 アーキテクチ�
 
 **Portage** 設定項目には、profile、`MAKEOPTS`、`USE`、`ACCEPT_KEYWORDS`、`L10N`、ミラー、リポジトリ同期方式が含まれます。gentoo-zh と gig の overlay は個別に選択できます。インターフェイス言語として `zh-TW`、`zh-CN`、`ja`、`ko` のいずれかを選択すると、gentoo-zh のパッチ適用済みバイナリカーネルとその overlay も選択されます。`en` を選択した場合は自動的に選択されません。公式と gentoo-zh のバイナリパッケージ取得元は、それぞれ独立した設定と鍵を使用します。
 
+<!-- fact: proxy -->
+
+**セッションプロキシ** `[proxy]` テーブルは `url` と `bypass` を受け付けます。URL は `http://`、`https://`、`socks5://`、`socks5h://` を使用でき、認証情報も含められます。URL が空の場合は直接接続となり、これが既定値です。`socks5` はホスト名をローカルで解決し、`socks5h` はプロキシで解決します。そのため、ライブ環境が内部ホスト名を解決できない場合は `socks5h` が必要です。メインメニューには URL とバイパスホストの 2 フィールドを持つ `Proxy` 行があります。URL フィールドは secret として扱われ、パスワードを表示しません。`bypass` はインターフェイスではコンマ区切りの値、TOML ではリストです。
+
+プロキシを選択した後、設定したプロキシは stage3 と署名鍵、メインツリーおよび overlay のバージョン取得、`gitweb.gentoo.org` の ZFS ebuild 取得、`make.conf` と `FETCHCOMMAND`/`RESUMECOMMAND` を通る Portage のダウンロード、`wget`、`curl`、`git`、GnuPG、binhost、overlay、paste のアップロードに使用されます。時計、初期接続検査、メニュー前のミラー検査は設定を取得する前に実行されるため、この設定の対象外です。インストーラは dry-run の説明と公開設定から認証情報を除外します。公開設定とインストール済みシステムには、認証情報を含まないエンドポイントとバイパスリストだけが残ります。
+
 <!-- fact: plan-records -->
 
 **計画と記録** dry run はストレージハードウェアを調査せずに操作計画を表示します。実際のインストールでは、再利用するデバイスから調査した mdraid メタデータを追加したうえで同じ planner を使用するため、ハードウェアに依存する検証結果が変わる場合があります。`install.log` はコマンド出力を記録し、`install.jsonl` は操作、パッケージの取得元、バイナリパッケージのフォールバック理由を記録します。メニューは設定を `paste.gentoozh.org` にアップロードする前に、`password_hash` と `root_password_hash` の値だけを `removed-before-publishing` に置き換えます。その他の設定値はアップロードに残ります。メニューはアップロード先ページのアドレスをテキストと QR コードで表示します。
@@ -51,6 +57,8 @@ gentoo-install は Linux ライブ環境で動作し、amd64 アーキテクチ�
 2026 年 8 月 11 日付のリビジョン付きエンドツーエンド記録は、Arch Linux、openSUSE、Debian、Fedora、自前でビルドした gentoo-cjk minimal ISO からのインストールと起動をそれぞれ 1 回ずつ対象としています。これらの記録は、インストーラリビジョン [`b931ef46fc15ed50385f70467f2bfb0a8d1fd154`](https://github.com/Zakkaus/gentoo-install/commit/b931ef46fc15ed50385f70467f2bfb0a8d1fd154) を対象としています。gentoo-cjk の記録は ZFS と ZFSBootMenu を使用し、ほかの 4 件は ext4 を使用しています。記録されたリビジョンがインストーラと一致し、インストールの終了コードが `0` で、インストール済みシステムが起動し、起動後の設定検査に合格した場合に限り、その実行を現在の根拠として扱います。
 
 その他の実装済みの組み合わせは、エンドツーエンド未検証です。現在の根拠は、initramfs の SSH ロック解除、greetd のデスクトップセッション、GNOME 以外での ibus を対象としていません。公式 Gentoo minimal ISO、Alpine または Gig-OS のライブメディア、binhost 障害時のフォールバックも対象としていません。
+
+プロキシ経路には、SOCKS5 の DNS モード、dry-run 出力と公開設定での認証情報の除去、インストール済みシステムに残る認証情報なしのエンドポイントを対象とする単体テストと plan テストがあります。リビジョンを記録したクラスタ実行が逆方向を裏づけます。`vm-proxy-dead` フィクスチャは待ち受けのないポートをプロキシに指定し、インストールは stage3 のダウンロードで `Connection refused` により停止します。ミラーに到達する実行はプロキシが迂回されたことを示します。動作するプロキシを通してインストールを完了した実行はまだないため、順方向は未検証です。
 
 CJK のテキストコンソール表示にも現在の検証根拠はありません。ext2 と ext3 には、各設定に対する自動テストもありません。`tests/fixtures/` のファイルは設定モデルのみを検証し、対応する組み合わせのインストールと起動を証明するものではありません。
 
@@ -144,6 +152,68 @@ cd gentoo-install-master
 <!-- fact: config-dry-run -->
 
 解析と計画ではストレージハードウェアを調査しないため、ターゲットディスクがないマシンでも `--dry-run` で設定を確認できます。
+
+次の完全な設定は、認証情報と 2 つのバイパスホストを持つプロキシを示します。認証情報は例であり、実行前に置き換える必要があります。
+
+```toml
+config_version = 1
+
+[proxy]
+url = "socks5h://operator:secret@proxy.example:1080"
+bypass = ["localhost", "intranet.example"]
+
+[system]
+hostname = "proxy-target"
+timezone = "UTC"
+locales = ["en_US.UTF-8"]
+locale = "en_US.UTF-8"
+init = "openrc"
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
+
+[portage]
+profile = "default/linux/amd64/23.0"
+makeopts = "-j4"
+
+[portage.binhost]
+official = false
+
+[bootloader]
+firmware = "bios"
+
+[disk]
+root = "mnt-root"
+
+[[disk.devices]]
+kind = "existing"
+id = "disk"
+selector = "/dev/disk/by-id/virtio-target0"
+wipe = true
+
+[[disk.devices]]
+kind = "table"
+id = "table"
+disk = "disk"
+table = "mbr"
+
+[[disk.devices]]
+kind = "partition"
+id = "rootpart"
+table = "table"
+index = 1
+role = "data"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "rootfs"
+device = "rootpart"
+type = "ext4"
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-root"
+source = "rootfs"
+path = "/"
+```
 
 ## バイナリパッケージ
 

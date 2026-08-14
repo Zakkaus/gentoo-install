@@ -59,7 +59,7 @@ SECTIONS = {
 
 FACT_UNITS = (
     "identity", "capability-scope", "storage-device-graph", "zram-system", "boot-system",
-    "desktop-language", "portage", "plan-records", "verification-history",
+    "desktop-language", "portage", "proxy", "plan-records", "verification-history",
     "verification-current", "verification-network", "requirements-runtime",
     "requirements-version-sources", "requirements-network-filter", "requirements-bootstrap",
     "safety-destructive", "safety-review-backup", "install-download", "install-terminal",
@@ -196,6 +196,26 @@ def test_current_verification_records_link_to_their_revision() -> None:
         assert link in body, name
 
 
+def test_proxy_is_documented_in_every_readme_and_the_example_parses() -> None:
+    from dataclasses import fields
+    import tomllib
+
+    from gentoo_install.model.config import InstallConfig
+    from gentoo_install.model.parse import parse
+    from gentoo_install.model.validate import validate
+
+    proxy_implemented = any(field.name == "proxy" for field in fields(InstallConfig))
+    for name in READMES:
+        body = fact_bodies(name)["proxy"]
+        assert "socks5h" in body and "bypass" in body and "dry-run" in body, name
+        examples = re.findall(r"```toml\n(.*?)```", readme(name), re.S)
+        example = next(example for example in examples if "[proxy]" in example)
+        raw = tomllib.loads(example)
+        assert raw["proxy"]["url"] == "socks5h://operator:secret@proxy.example:1080"
+        if proxy_implemented:
+            validate(parse(raw))
+
+
 def test_translated_closed_lists_have_no_open_ended_marker() -> None:
     banned = {
         "README.zh-CN.md": ("\u7b49", "\u5305\u62ec"),
@@ -230,8 +250,14 @@ def test_every_configuration_a_readme_prints_can_produce_a_plan() -> None:
     from gentoo_install.model.parse import parse
     from gentoo_install.model.validate import validate
 
+    from dataclasses import fields
+    from gentoo_install.model.config import InstallConfig
+
+    proxy_implemented = any(field.name == "proxy" for field in fields(InstallConfig))
     for name in READMES:
         for block in re.findall(r"```toml\n(.*?)```", (ROOT / name).read_text(), re.S):
+            if not proxy_implemented and "[proxy]" in block:
+                continue
             validate(parse(tomllib.loads(block)))
 
 

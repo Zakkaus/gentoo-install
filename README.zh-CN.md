@@ -36,6 +36,12 @@ gentoo-install 在 Linux live 环境中运行，用于安装 amd64 架构的 Gen
 
 **Portage** 配置项包括 profile、`MAKEOPTS`、`USE`、`ACCEPT_KEYWORDS`、`L10N`、镜像和仓库同步方式。gentoo-zh 和 gig overlay 可以分别选择。界面语言选择 `zh-TW`、`zh-CN`、`ja` 或 `ko` 时，也会选择 gentoo-zh 的补丁二进制内核及其 overlay；选择 `en` 时不会自动选择。官方与 gentoo-zh 的二进制软件包来源分别使用独立的设置和密钥。
 
+<!-- fact: proxy -->
+
+**会话代理** `[proxy]` 配置表接受 `url` 和 `bypass`。URL 可以使用 `http://`、`https://`、`socks5://` 和 `socks5h://`，也可以包含认证信息；URL 留空表示直接连接，这是默认值。`socks5` 在本地解析主机名，`socks5h` 在代理端解析主机名；因此 live 环境无法解析内部主机名时需要使用 `socks5h`。界面主菜单有包含 URL 和绕过主机字段的 `Proxy` 行；URL 字段是密码字段，不会回显密码。`bypass` 在界面中是逗号分隔的值，在 TOML 中是列表。
+
+选择代理后，配置的代理用于 stage3 及其签名密钥、主仓库与 overlay 版本查询，以及 `gitweb.gentoo.org` 的 ZFS ebuild 查询。它也用于通过 `make.conf` 和 `FETCHCOMMAND`/`RESUMECOMMAND` 的 Portage 下载、`wget`、`curl`、`git`、GnuPG、binhost、overlay 及 paste 上传。时钟、初始连接检查和菜单前的镜像检查都在获得配置前执行，因此不在此设置覆盖范围内。安装程序会将认证信息排除在 dry-run 描述和发布的配置之外；发布的配置与已安装系统都只保留不含认证信息的端点和绕过列表。
+
 <!-- fact: plan-records -->
 
 **计划与记录** dry run 会在不探测存储硬件的情况下显示操作计划。实际安装使用相同的规划器，但会先加入从复用设备探测到的 mdraid 元数据，因此依赖硬件的验证结果可能不同。`install.log` 记录命令输出，`install.jsonl` 记录操作、软件包来源和二进制软件包降级原因。菜单将配置上传至 `paste.gentoozh.org` 前，只会把 `password_hash` 和 `root_password_hash` 的值替换为 `removed-before-publishing`；其他配置值仍会上传。菜单会以文本和 QR 码显示上传页面的网址。
@@ -51,6 +57,8 @@ gentoo-install 在 Linux live 环境中运行，用于安装 amd64 架构的 Gen
 2026 年 8 月 11 日的端到端记录均标有安装程序修订版，覆盖从 Arch Linux、openSUSE、Debian、Fedora 和自行构建的 gentoo-cjk minimal ISO 各安装并引导一次。这些记录覆盖安装程序修订版 [`b931ef46fc15ed50385f70467f2bfb0a8d1fd154`](https://github.com/Zakkaus/gentoo-install/commit/b931ef46fc15ed50385f70467f2bfb0a8d1fd154)。gentoo-cjk 记录使用 ZFS 和 ZFSBootMenu，其余四条记录使用 ext4。只有在记录的修订版与安装程序匹配、安装退出码为 `0`、已安装系统成功引导，且引导后配置检查通过时，该次运行才算当前证据。
 
 其他已实现组合仍未完成端到端验证。当前证据未覆盖 initramfs SSH 解锁、greetd 桌面会话或 GNOME 以外的 ibus。当前证据也未覆盖官方 Gentoo minimal ISO、Alpine 或 Gig-OS live 介质，以及 binhost 失败时的降级。
+
+代理路径已有聚焦单元测试和 plan 测试，覆盖 SOCKS5 DNS 模式、dry-run 输出与发布配置中的认证信息移除，以及已安装系统保留不含认证信息的端点。带版本标记的集群执行已覆盖反向：`vm-proxy-dead` fixture 把代理指向没有进程监听的端口，安装在 stage3 下载阶段以 `Connection refused` 停止，因此执行到达镜像就表示代理被绕过。尚未有任何执行通过可用的代理完成安装，正向行为仍未验证。
 
 CJK 文本控制台显示目前没有验证证据。ext2 和 ext3 也没有针对其配置的自动化测试。`tests/fixtures/` 下的文件只验证配置模型；文件存在并不表示对应组合已完成端到端安装和引导验证。
 
@@ -144,6 +152,68 @@ cd gentoo-install-master
 <!-- fact: config-dry-run -->
 
 解析与计划阶段不会探测存储硬件，因此没有目标磁盘的机器也能通过 `--dry-run` 检查配置。
+
+以下完整配置演示包含认证信息和两个绕过主机。认证信息只是示例，执行前必须替换：
+
+```toml
+config_version = 1
+
+[proxy]
+url = "socks5h://operator:secret@proxy.example:1080"
+bypass = ["localhost", "intranet.example"]
+
+[system]
+hostname = "proxy-target"
+timezone = "UTC"
+locales = ["en_US.UTF-8"]
+locale = "en_US.UTF-8"
+init = "openrc"
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
+
+[portage]
+profile = "default/linux/amd64/23.0"
+makeopts = "-j4"
+
+[portage.binhost]
+official = false
+
+[bootloader]
+firmware = "bios"
+
+[disk]
+root = "mnt-root"
+
+[[disk.devices]]
+kind = "existing"
+id = "disk"
+selector = "/dev/disk/by-id/virtio-target0"
+wipe = true
+
+[[disk.devices]]
+kind = "table"
+id = "table"
+disk = "disk"
+table = "mbr"
+
+[[disk.devices]]
+kind = "partition"
+id = "rootpart"
+table = "table"
+index = 1
+role = "data"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "rootfs"
+device = "rootpart"
+type = "ext4"
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-root"
+source = "rootfs"
+path = "/"
+```
 
 ## 二进制软件包
 

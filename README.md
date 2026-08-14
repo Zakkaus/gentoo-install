@@ -36,6 +36,12 @@ The system configuration can configure zram independently of the device graph an
 
 **Portage.** The configuration covers the profile, `MAKEOPTS`, `USE`, `ACCEPT_KEYWORDS`, `L10N`, mirrors and repository synchronization. The gentoo-zh and gig overlays can be selected independently. Selecting `zh-TW`, `zh-CN`, `ja` or `ko` as the interface language also selects the gentoo-zh patched binary kernel and its overlay; selecting `en` does not. Official and gentoo-zh binary package sources have separate settings and keys.
 
+<!-- fact: proxy -->
+
+**Session proxy.** The `[proxy]` table accepts `url` and `bypass`. The URL accepts `http://`, `https://`, `socks5://` and `socks5h://`, with optional credentials; an empty URL selects direct connection, which is the default. `socks5` resolves host names locally, while `socks5h` resolves them at the proxy, so an internal host name requires `socks5h` when the live environment cannot resolve it. The interface has a `Proxy` row with URL and bypass fields; the URL field is secret and does not echo a password. The bypass value is a comma-separated interface value and a list in TOML.
+
+After the proxy is selected, the configured proxy is used for stage3 and its signing key, main-tree and overlay version lookups, the `gitweb.gentoo.org` ZFS ebuild lookup, Portage downloads through `make.conf` and `FETCHCOMMAND`/`RESUMECOMMAND`, `wget`, `curl`, `git`, GnuPG, the binhost, overlays and paste upload. The clock, initial connectivity check and pre-menu mirror check run before the configuration is available and therefore are not covered by this setting. The installer keeps the credential out of dry-run descriptions and publishes a credential-free proxy endpoint with the bypass list; the installed system receives that endpoint and list.
+
 <!-- fact: plan-records -->
 
 **Plan and records.** A dry run prints an operation plan without probing storage hardware. A real installation uses the same planner after adding probed mdraid metadata for reused devices, so hardware-dependent validation can change the result. `install.log` records command output, and `install.jsonl` records operations, package sources and binary-package degradation reasons. Before uploading a configuration to `paste.gentoozh.org`, the menu replaces only `password_hash` and `root_password_hash` values with `removed-before-publishing`; the other configuration values remain in the upload. The menu displays the resulting page address as text and as a QR code.
@@ -51,6 +57,8 @@ Historical end-to-end records used the amd64 Gentoo minimal ISO at installer rev
 Revision-tagged end-to-end records dated 2026-08-11 cover one installation and boot from each of Arch Linux, openSUSE, Debian, Fedora and a self-built gentoo-cjk minimal ISO. The records cover installer revision [`b931ef46fc15ed50385f70467f2bfb0a8d1fd154`](https://github.com/Zakkaus/gentoo-install/commit/b931ef46fc15ed50385f70467f2bfb0a8d1fd154). The gentoo-cjk record uses ZFS and ZFSBootMenu; the other four use ext4. A run counts as current evidence only when its recorded revision matches the installer, its installation exit code is `0`, the installed system boots and the post-boot configuration checks pass.
 
 Other implemented combinations remain unverified end to end. Current evidence does not cover initramfs SSH unlock, greetd desktop sessions or ibus outside GNOME. It also does not cover the official Gentoo minimal ISO, Alpine or Gig-OS live media, or binary-host failure fallback.
+
+The proxy path has focused unit and plan coverage, including SOCKS5 DNS mode, redaction in dry-run output and published configuration, and the credential-free endpoint retained in the installed system. A revision-tagged cluster run covers the negative direction: the `vm-proxy-dead` fixture points the proxy at a port where nothing listens, and the install stops at the stage3 download with `Connection refused`, so a run that reached the mirror would show the proxy had been bypassed. No run has yet completed an installation through a working proxy, so the positive direction remains unverified.
 
 CJK text-console rendering has no current verification evidence. ext2 and ext3 additionally have no focused automated configuration test. Files under `tests/fixtures/` exercise the configuration model; their presence does not establish an end-to-end installation and boot result.
 
@@ -144,6 +152,68 @@ Configuration files use TOML. The top-level `config_version` field selects the s
 <!-- fact: config-dry-run -->
 
 Parsing and planning do not probe storage hardware. A machine without the target disk can therefore check a configuration with `--dry-run`.
+
+The following complete configuration demonstrates a proxy with credentials and two bypass hosts. The credential is an example and must be replaced before execution:
+
+```toml
+config_version = 1
+
+[proxy]
+url = "socks5h://operator:secret@proxy.example:1080"
+bypass = ["localhost", "intranet.example"]
+
+[system]
+hostname = "proxy-target"
+timezone = "UTC"
+locales = ["en_US.UTF-8"]
+locale = "en_US.UTF-8"
+init = "openrc"
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
+
+[portage]
+profile = "default/linux/amd64/23.0"
+makeopts = "-j4"
+
+[portage.binhost]
+official = false
+
+[bootloader]
+firmware = "bios"
+
+[disk]
+root = "mnt-root"
+
+[[disk.devices]]
+kind = "existing"
+id = "disk"
+selector = "/dev/disk/by-id/virtio-target0"
+wipe = true
+
+[[disk.devices]]
+kind = "table"
+id = "table"
+disk = "disk"
+table = "mbr"
+
+[[disk.devices]]
+kind = "partition"
+id = "rootpart"
+table = "table"
+index = 1
+role = "data"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "rootfs"
+device = "rootpart"
+type = "ext4"
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-root"
+source = "rootfs"
+path = "/"
+```
 
 ## Binary packages
 
