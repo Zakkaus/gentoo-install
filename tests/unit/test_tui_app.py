@@ -1616,6 +1616,22 @@ def test_the_console_font_is_a_row_and_the_size_with_no_cjk_says_why() -> None:
     assert chosen.unwrap().system.console_font is ConsoleFontSize.SIZE_16X32
 
 
+def test_empty_makeopts_summary_names_the_stage3_default() -> None:
+    """An empty value is preserved by the plan, so its summary must say stage3 default."""
+    at = context()
+    empty = config()
+    setting = next(one for group in settings.SETTINGS for one in group.rows if one.key == "makeopts")
+    assert settings.shown_value(setting, empty, at) == "stage3 default"
+
+
+def test_console_font_is_available_for_standard_kernel_without_console_cjk() -> None:
+    """Font size is a general setting when the console does not render CJK."""
+    at = context()
+    standard = config()
+    setting = next(one for group in settings.SETTINGS for one in group.rows if one.key == "console_font")
+    assert setting.unavailable(standard, at) == ""
+
+
 def test_the_overlay_address_is_held_in_one_place() -> None:
     """`_with_gentoo_zh` carried its own literal beside the table in
     `model/mirrors.py`, and the overlay has moved host once already."""

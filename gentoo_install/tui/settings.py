@@ -650,7 +650,7 @@ def _license(config: InstallConfig, context: Context) -> str:
 def _makeopts(config: InstallConfig, context: Context) -> str:
     if config.portage.makeopts:
         return config.portage.makeopts
-    return f"-j{context.cores} ({context.translate('this machine')})"
+    return context.translate("stage3 default")
 
 
 def _cflags(config: InstallConfig, context: Context) -> str:
@@ -684,7 +684,7 @@ def _erase(config: InstallConfig, context: Context) -> str:
 def _cjk_kernel_only(config: InstallConfig, context: Context) -> str:
     """A font with CJK glyphs draws nothing without the patch that lets the
     console show them, so the size is a choice only under that kernel."""
-    if config.kernel.source not in CJK_KERNELS:
+    if config.system.console_cjk and config.kernel.source not in CJK_KERNELS:
         return context.translate("only the cjk kernel draws CJK on the console")
     return ""
 
