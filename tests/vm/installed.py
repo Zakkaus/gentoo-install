@@ -45,8 +45,23 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
     if installation.system.networking is not Networking.NONE:
         result.append(InstalledCheck("network", "systemctl list-unit-files --state=enabled --no-legend --no-pager; rc-update show default", re.escape(network_service(installation.system))))
     groups = load_catalog()
-    if any(groups[name].input_method for name in installation.packages.applications if name in groups):
-        result.append(InstalledCheck("inputmethod", "cat /etc/environment /etc/env.d/90input-method 2>/dev/null", "DefaultIM="))
+    frameworks = {
+        groups[name].input_framework
+        for name in installation.packages.applications
+        if name in groups and groups[name].input_method
+    }
+    for framework in sorted(one for one in frameworks if one):
+        # What the environment file actually carries. `DefaultIM=` was asserted
+        # here for three weeks and lives in the user's `fcitx5/profile`, so the
+        # check could only ever fail; `vm-desktop` was the first fixture to
+        # reach it and it did have a working input method.
+        result.append(
+            InstalledCheck(
+                "inputmethod",
+                "cat /etc/environment /etc/env.d/90input-method 2>/dev/null",
+                re.escape(f"XMODIFIERS=@im={framework}"),
+            )
+        )
     graph = installation.disk.graph
     esp = compat.esp_mount(graph)
     if esp is not None:
