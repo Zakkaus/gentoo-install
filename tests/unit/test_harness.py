@@ -2018,3 +2018,36 @@ def test_no_input_method_asks_for_no_environment() -> None:
     )
 
     assert [one for one in checks(installation) if one.name == "inputmethod"] == []
+
+
+def test_a_fixture_meant_to_fail_passes_by_failing() -> None:
+    """`vm-proxy-dead` points the proxy at a port nothing listens on, so an
+    install that finishes proves the setting was bypassed. Reported as a
+    failure every round, it taught everyone to read past red."""
+    from tests.vm.campaign import Outcome, Run, mark_for
+
+    dead = Run("fixtures/vm-proxy-dead.toml", expect_failure=True)
+    log = Path(__file__).resolve().parents[1] / "fixtures" / "vm-proxy-dead.toml"
+
+    assert Outcome(dead, 4, 1.0, log).passed
+    assert not Outcome(dead, 0, 1.0, log).passed
+    assert mark_for(Outcome(dead, 0, 1.0, log)) == "BYPASS"
+
+    ordinary = Run("fixtures/vm-btrfs.toml")
+    assert Outcome(ordinary, 0, 1.0, log).passed
+    assert not Outcome(ordinary, 4, 1.0, log).passed
+
+
+def test_the_campaign_expects_exactly_the_fixtures_that_cannot_finish() -> None:
+    """A second fixture marked this way would be a fixture nobody notices
+    failing, so the set is named here as well as there."""
+    from tests.vm.campaign import STAGES
+
+    named = {
+        Path(run.config).stem
+        for runs in STAGES.values()
+        for run in runs
+        if run.expect_failure
+    }
+
+    assert named == {"vm-proxy-dead"}
