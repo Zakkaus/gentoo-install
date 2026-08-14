@@ -1,6 +1,16 @@
 # Interface strings, Japanese. The key is the English source.
 [strings]
 "Disks" = "ディスク"
+"Proxy" = "プロキシ"
+"Proxy URL" = "プロキシ URL"
+"Bypass hosts" = "バイパスするホスト"
+"empty for direct; socks5 resolves locally, socks5h at the proxy" = "空欄で直接接続。socks5 はローカル、socks5h はプロキシで名前解決"
+"comma-separated host names" = "ホスト名をコンマ区切り"
+"Proxy URL must use http://, https://, socks5:// or socks5h://" = "プロキシ URL は http://、https://、socks5://、socks5h:// のいずれかです"
+"Proxy URL must include a host" = "プロキシ URL にホストが必要です"
+"Proxy URL must contain only a scheme, host and port" = "プロキシ URL にはスキーム、ホスト、ポートだけを指定します"
+"Bypass hosts must not contain spaces" = "バイパスするホストに空白を含めることはできません"
+"{count} hosts bypass" = "{count} ホストをバイパス"
 "Portage" = "Portage"
 "Desktop and applications" = "デスクトップとアプリケーション"
 "Overview" = "概要"

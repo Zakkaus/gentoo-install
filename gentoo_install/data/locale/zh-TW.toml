@@ -1,6 +1,16 @@
 # 介面字串，正體中文。鍵是英文原文，查不到就退回原文。
 [strings]
 "Disks" = "磁碟"
+"Proxy" = "Proxy"
+"Proxy URL" = "Proxy URL"
+"Bypass hosts" = "略過 Proxy 的主機"
+"empty for direct; socks5 resolves locally, socks5h at the proxy" = "留白表示直接連線；socks5 在本機解析，socks5h 在 Proxy 解析"
+"comma-separated host names" = "以逗號分隔主機名稱"
+"Proxy URL must use http://, https://, socks5:// or socks5h://" = "Proxy URL 必須使用 http://、https://、socks5:// 或 socks5h://"
+"Proxy URL must include a host" = "Proxy URL 必須包含主機"
+"Proxy URL must contain only a scheme, host and port" = "Proxy URL 只能包含通訊協定、主機與連接埠"
+"Bypass hosts must not contain spaces" = "略過主機不能包含空白"
+"{count} hosts bypass" = "略過 {count} 個主機"
 "Portage" = "Portage"
 "Desktop and applications" = "桌面與應用程式"
 "Overview" = "總覽"

@@ -1,6 +1,16 @@
 # Interface strings, Korean. The key is the English source.
 [strings]
 "Disks" = "디스크"
+"Proxy" = "프록시"
+"Proxy URL" = "프록시 URL"
+"Bypass hosts" = "우회 호스트"
+"empty for direct; socks5 resolves locally, socks5h at the proxy" = "비우면 직접 연결합니다. socks5는 로컬에서, socks5h는 프록시에서 이름을 확인합니다"
+"comma-separated host names" = "호스트 이름을 쉼표로 구분"
+"Proxy URL must use http://, https://, socks5:// or socks5h://" = "프록시 URL은 http://, https://, socks5:// 또는 socks5h://여야 합니다"
+"Proxy URL must include a host" = "프록시 URL에 호스트가 필요합니다"
+"Proxy URL must contain only a scheme, host and port" = "프록시 URL에는 스킴, 호스트, 포트만 포함해야 합니다"
+"Bypass hosts must not contain spaces" = "우회 호스트에는 공백을 포함할 수 없습니다"
+"{count} hosts bypass" = "{count}개 호스트 우회"
 "Portage" = "Portage"
 "Desktop and applications" = "데스크톱과 응용 프로그램"
 "Overview" = "요약"

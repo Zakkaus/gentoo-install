@@ -15,7 +15,7 @@ from pathlib import PurePosixPath
 from typing import Any, Final
 
 from . import config as model_config
-from .config import InstallConfig
+from .config import InstallConfig, ProxyConfig
 from .device import (
     Existing,
     Filesystem,
@@ -100,6 +100,8 @@ def _section(name: str, value: object, prefix: str = "", *, publishing: bool = F
         if publishing and field.name in SECRET:
             keys.append(f"{field.name} = {_value(REDACTED)}")
             continue
+        if publishing and isinstance(value, ProxyConfig) and field.name == "url":
+            held = value.redacted_url
         keys.append(f"{field.name} = {_value(held)}")
     if not keys and not nested:
         return []

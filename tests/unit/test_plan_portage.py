@@ -18,6 +18,7 @@ from gentoo_install.model.config import (
     Overlay,
     PackagesConfig,
     PortageConfig,
+    ProxyConfig,
     Sync,
     SystemConfig,
 )
@@ -158,6 +159,34 @@ def test_make_conf_carries_the_flags_the_configuration_set() -> None:
     assert 'MAKEOPTS="-j8"' in written
     assert 'USE="dracut cjk"' in written
     assert 'VIDEO_CARDS="amdgpu"' in written
+
+
+def test_proxy_clients_route_portage_and_keep_credentials_out_of_descriptions() -> None:
+    secret = "s3cr3t"
+    installation = replace(
+        config(),
+        proxy=ProxyConfig(
+            url=f"https://operator:{secret}@proxy.example:8443",
+            bypass=("localhost", "intranet.example"),
+        ),
+    )
+    recorder = apply_all(installation)
+    make_conf = recorder.files[PurePosixPath("/etc/portage/make.conf")]
+    assert 'http_proxy="https://proxy.example:8443"' in make_conf
+    assert 'RSYNC_PROXY="proxy.example:8443"' in make_conf
+    assert 'no_proxy="localhost,intranet.example"' in make_conf
+    assert secret not in make_conf
+    assert secret in recorder.files[PurePosixPath("/etc/wgetrc")]
+    assert secret in recorder.files[PurePosixPath("/etc/gitconfig")]
+    assert secret in recorder.files[PurePosixPath("/etc/portage/gnupg/dirmngr.conf")]
+    assert all(secret not in operation.describe() for operation in portage.build(installation, MIRROR))
+
+
+def test_proxy_clients_clear_route_when_proxy_is_empty() -> None:
+    recorder = apply_all(config())
+    make_conf = recorder.files[PurePosixPath("/etc/portage/make.conf")]
+    assert 'http_proxy=""' in make_conf
+    assert 'no_proxy=""' in make_conf
 
 
 def test_l10n_is_derived_from_the_locales_rather_than_listed_twice() -> None:

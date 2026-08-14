@@ -21,6 +21,7 @@ CONFIG_VERSION_KEY: Final[str] = "config_version"
 
 #: Persisted table sections in TOML order. The disk graph stays last.
 PERSISTED_SECTIONS: Final[tuple[str, ...]] = (
+    "proxy",
     "system",
     "portage",
     "kernel",
@@ -33,6 +34,52 @@ PERSISTED_SECTIONS: Final[tuple[str, ...]] = (
 class InitSystem(Enum):
     OPENRC = "openrc"
     SYSTEMD = "systemd"
+
+
+@dataclass(frozen=True)
+class ProxyConfig:
+    """The optional proxy used by installer and target network clients.
+
+    ``url`` may carry RFC 3986 user information. It is kept in the saved
+    configuration because the target needs the same credentials; callers that
+    display it must use :attr:`redacted_url`.
+    """
+
+    url: str = ""
+    bypass: tuple[str, ...] = ()
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.url)
+
+    @property
+    def redacted_url(self) -> str:
+        """The URL with user information removed for screen and log output."""
+        from urllib.parse import urlsplit, urlunsplit
+
+        if not self.url:
+            return ""
+        parts = urlsplit(self.url)
+        host = parts.hostname or ""
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"
+        if parts.port is not None:
+            host = f"{host}:{parts.port}"
+        return urlunsplit((parts.scheme, host, parts.path, parts.query, parts.fragment))
+
+    @property
+    def username(self) -> str:
+        """The optional URL user information, percent-decoded."""
+        from urllib.parse import unquote, urlsplit
+
+        return unquote(urlsplit(self.url).username or "")
+
+    @property
+    def password(self) -> str:
+        """The optional URL password, percent-decoded."""
+        from urllib.parse import unquote, urlsplit
+
+        return unquote(urlsplit(self.url).password or "")
 
 
 class KernelSource(Enum):
@@ -376,6 +423,7 @@ class PackagesConfig:
 @dataclass(frozen=True)
 class InstallConfig:
     disk: DiskConfig
+    proxy: ProxyConfig = field(default_factory=ProxyConfig)
     system: SystemConfig = field(default_factory=SystemConfig)
     portage: PortageConfig = field(default_factory=PortageConfig)
     kernel: KernelConfig = field(default_factory=KernelConfig)

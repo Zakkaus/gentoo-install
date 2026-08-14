@@ -13,6 +13,7 @@ from gentoo_install.model.config import (
     InitSystem,
     InstallConfig,
     Logger,
+    ProxyConfig,
     SystemConfig,
     User,
 )
@@ -71,6 +72,23 @@ def test_a_locale_that_locale_gen_skipped_is_generated_again_and_then_checked() 
         "en_US.UTF-8 UTF-8\nzh_TW.UTF-8 UTF-8\n"
     )
     assert not recorder.argv_starting("localedef")
+
+
+def test_installed_system_keeps_proxy_endpoint_and_bypass_without_credentials() -> None:
+    installation = replace(
+        config(),
+        proxy=ProxyConfig(
+            url="socks5h://operator:secret@proxy.example:1080",
+            bypass=("localhost", "corp.example"),
+        ),
+    )
+    written = apply_all(installation, generated=generated(installation)).files
+    environment = written[PurePosixPath("/etc/environment")]
+    profile = written[PurePosixPath("/etc/profile.d/gentoo-install-proxy.sh")]
+    assert "socks5h://proxy.example:1080" in environment
+    assert "localhost,corp.example" in environment
+    assert "secret" not in environment
+    assert "secret" not in profile
 
 
 def test_locale_gen_exiting_zero_is_not_taken_as_proof_the_locale_exists() -> None:

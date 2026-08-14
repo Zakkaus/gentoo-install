@@ -15,8 +15,10 @@ from enum import Enum
 from itertools import takewhile
 from pathlib import PurePosixPath
 from typing import Callable, Final, Generic, Sequence, TypeVar, TypedDict
+from urllib.parse import urlsplit
 
 from ..i18n import Catalog, truncate
+from ..exec import fetch
 from ..model import compat
 from ..model.config import (
     SystemConfig,
@@ -41,6 +43,7 @@ from ..model.config import (
     Overlay,
     PackagesConfig,
     PortageConfig,
+    ProxyConfig,
     Sync,
     User,
 )
@@ -632,6 +635,62 @@ def system_screen(screen: Screen, config: InstallConfig, context: Context) -> An
         Outcome.CHOSE,
         replace(config, system=replace(config.system, hostname=answer.unwrap() or "gentoo")),
     )
+
+
+def proxy_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
+    """Set the session proxy before any network-derived setting is read."""
+    translate = context.translate
+    current = config.proxy
+
+    def validated(values: list[str]) -> Answer[InstallConfig] | FormRejected:
+        url, hosts = (one.strip() for one in values)
+        if url:
+            try:
+                parts = urlsplit(url)
+            except ValueError:
+                return FormRejected(translate("Proxy URL must include a host"), {0: url, 1: hosts})
+            if parts.scheme.lower() not in {"http", "https", "socks5", "socks5h"}:
+                return FormRejected(
+                    translate("Proxy URL must use http://, https://, socks5:// or socks5h://"),
+                    {0: url, 1: hosts},
+                )
+            try:
+                hostname = parts.hostname
+                parts.port
+            except ValueError:
+                hostname = None
+            if not hostname or any(char.isspace() for char in hostname):
+                return FormRejected(translate("Proxy URL must include a host"), {0: url, 1: hosts})
+            if parts.path not in ("", "/") or parts.query or parts.fragment:
+                return FormRejected(
+                    translate("Proxy URL must contain only a scheme, host and port"),
+                    {0: url, 1: hosts},
+                )
+        bypass = tuple(one for one in (item.strip() for item in hosts.split(",")) if one)
+        if any(any(char.isspace() for char in item) for item in bypass):
+            return FormRejected(translate("Bypass hosts must not contain spaces"), {1: hosts})
+        selected = replace(config, proxy=ProxyConfig(url=url, bypass=bypass))
+        fetch.configure_proxy(selected.proxy)
+        return Answer(Outcome.CHOSE, selected)
+
+    return Form(
+        title=translate("Proxy"),
+        fields=[
+            Field(
+                label=translate("Proxy URL"),
+                value=current.url,
+                secret=True,
+                placeholder=translate("empty for direct; socks5 resolves locally, socks5h at the proxy"),
+            ),
+            Field(
+                label=translate("Bypass hosts"),
+                value=", ".join(current.bypass),
+                placeholder=translate("comma-separated host names"),
+            ),
+        ],
+        footer=footer(translate),
+        done=translate("Done"),
+    ).run_validated(screen, validated)
 
 
 def init_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
@@ -3243,6 +3302,7 @@ def saved_config_screen(
         try:
             loaded = context.load_config(answer.unwrap())
             context.hydrate_disk(loaded)
+            fetch.configure_proxy(loaded.proxy)
             return Answer(Outcome.CHOSE, loaded)
         except GentooInstallError as error:
             # Back to the list rather than out of the installer: the file being

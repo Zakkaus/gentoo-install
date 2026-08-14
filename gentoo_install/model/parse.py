@@ -11,6 +11,7 @@ import tomllib
 from enum import Enum
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, Sequence, TypeVar
+from urllib.parse import unquote, urlsplit
 
 from ..errors import ConfigError
 from . import config as model_config
@@ -41,6 +42,7 @@ from .config import (
     Sync,
     PackagesConfig,
     PortageConfig,
+    ProxyConfig,
     SystemConfig,
     User,
 )
@@ -91,12 +93,45 @@ def parse(raw: Mapping[str, Any]) -> InstallConfig:
     return InstallConfig(
         config_version=version,
         disk=_disk(_table(raw, "disk", "", required=True), "disk"),
+        proxy=_proxy(_table(raw, "proxy", ""), "proxy"),
         system=_system(_table(raw, "system", ""), "system"),
         portage=_portage(_table(raw, "portage", ""), "portage"),
         kernel=_kernel(_table(raw, "kernel", ""), "kernel"),
         bootloader=_bootloader(_table(raw, "bootloader", ""), "bootloader"),
         packages=_packages(_table(raw, "packages", ""), "packages"),
     )
+
+
+def _proxy(raw: Mapping[str, Any], at: str) -> ProxyConfig:
+    _reject_unknown(raw, at, {"url", "bypass"})
+    default = ProxyConfig()
+    url = _str(raw, "url", at, default.url).strip()
+    if url:
+        try:
+            parts = urlsplit(url)
+            hostname = parts.hostname
+            parts.port
+        except ValueError as error:
+            raise ConfigError(f"{_at('url', at)} has an invalid host or port") from error
+        if parts.scheme.lower() not in {"http", "https", "socks5", "socks5h"}:
+            raise ConfigError(
+                f"{_at('url', at)} must use http://, https://, socks5:// or socks5h://"
+            )
+        if not hostname or any(char.isspace() for char in hostname):
+            raise ConfigError(f"{_at('url', at)} must include a proxy host")
+        if parts.path not in ("", "/") or parts.query or parts.fragment:
+            raise ConfigError(f"{_at('url', at)} must contain only a scheme, host and port")
+        if any(
+            any(ord(char) < 0x20 or ord(char) == 0x7F for char in unquote(value or ""))
+            for value in (parts.username, parts.password)
+        ):
+            raise ConfigError(f"{_at('url', at)} credentials contain control characters")
+    bypass = _strings(raw, "bypass", at, default.bypass)
+    if any(not host.strip() or any(char.isspace() for char in host) for host in bypass):
+        raise ConfigError(f"{_at('bypass', at)} must contain non-empty host names")
+    if not url and bypass:
+        raise ConfigError(f"{_at('bypass', at)} requires a proxy URL")
+    return ProxyConfig(url=url, bypass=tuple(host.strip() for host in bypass))
 
 
 def _system(raw: Mapping[str, Any], at: str) -> SystemConfig:

@@ -7,19 +7,24 @@ not match is a failed install, not a reason to try another mirror.
 from __future__ import annotations
 
 import contextlib
+import contextvars
 import errno
 import hashlib
+import http.client
 import json
 import socket
+import ssl
 import time
+import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from email.utils import parsedate_to_datetime
 from itertools import takewhile
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from collections.abc import Iterator
-from typing import Any, Callable, Final
+from typing import Any, Callable, Final, cast
 
 from ..errors import (
     CommandFailed,
@@ -32,6 +37,7 @@ from ..errors import (
 from ..model import paste
 from ..model.device import DeviceId
 from ..model.validate import KernelCeiling
+from ..model.config import ProxyConfig
 from .probe import RELEASE_KEY
 from .runner import Runner
 
@@ -59,8 +65,28 @@ PROBE_WORKERS: Final[int] = 8
 #: about the bytes beside it, so it is refused rather than trusted.
 MARKER_SCHEMA: Final[str] = "gentoo-install-stage3-1"
 
+_CURRENT_PROXY: contextvars.ContextVar[ProxyConfig | None] = contextvars.ContextVar(
+    "gentoo_install_proxy", default=None
+)
 
-def stage3(mirror: str, variant: str, fingerprint: str, work: Path, runner: Runner) -> Path:
+
+def configure_proxy(proxy: ProxyConfig | None) -> None:
+    """Set the proxy used by fetch entry points that have no explicit proxy."""
+    _CURRENT_PROXY.set(proxy)
+
+
+def _read_for(url: str, proxy: ProxyConfig | None) -> str:
+    return _read(url) if proxy is None else _read(url, proxy)
+
+
+def stage3(
+    mirror: str,
+    variant: str,
+    fingerprint: str,
+    work: Path,
+    runner: Runner,
+    proxy: ProxyConfig | None = None,
+) -> Path:
     """Download the newest stage3 of `variant`, verify it, return where it is.
 
     A `.verified` marker beside the archive lets an interrupted install skip a
@@ -68,8 +94,11 @@ def stage3(mirror: str, variant: str, fingerprint: str, work: Path, runner: Runn
     that digest is recomputed here, because an empty marker beside a replaced
     or corrupted archive was an integrity check that verified nothing.
     """
+    selected = proxy if proxy is not None else _bootstrap_proxy(work)
+    if selected is not None:
+        configure_proxy(selected)
     builds = f"{mirror.rstrip('/')}/{STAGE3_PATH}"
-    where = _newest(builds, variant)
+    where = _newest(builds, variant, selected)
     name = where.rsplit("/", 1)[-1]
     work.mkdir(parents=True, exist_ok=True)
     archive = work / name
@@ -77,16 +106,32 @@ def stage3(mirror: str, variant: str, fingerprint: str, work: Path, runner: Runn
     if marker.is_file() and archive.is_file() and _marker_matches(marker, archive, fingerprint):
         return archive
 
-    _download(f"{builds}/{where}", archive, runner.log)
+    _download(f"{builds}/{where}", archive, runner.log, proxy=selected)
     digests = work / f"{name}.DIGESTS"
-    _download(f"{builds}/{where}.DIGESTS", digests, runner.log)
-    _import_release_key(runner, work)
+    _download(f"{builds}/{where}.DIGESTS", digests, runner.log, proxy=selected)
+    _import_release_key(runner, work, selected)
     _verify_signature(digests, fingerprint, runner)
     _verify_digest(archive, digests)
     marker.write_text(
         f"{MARKER_SCHEMA}\n{name}\n{_sha512(archive)}\n{fingerprint.lower()}\n"
     )
     return archive
+
+
+def _bootstrap_proxy(work: Path) -> ProxyConfig | None:
+    """Read the plan-written proxy before the stage3 has replaced `/etc`."""
+    try:
+        root = work.parents[2]
+        raw = tomllib.loads((root / "etc/gentoo-install/proxy.toml").read_text())
+    except (OSError, IndexError, tomllib.TOMLDecodeError):
+        return None
+    url = raw.get("url", "")
+    bypass = raw.get("bypass", [])
+    if not isinstance(url, str) or not isinstance(bypass, list) or not all(
+        isinstance(item, str) for item in bypass
+    ):
+        return None
+    return ProxyConfig(url=url, bypass=tuple(bypass))
 
 
 def _marker_matches(marker: Path, archive: Path, fingerprint: str) -> bool:
@@ -108,7 +153,9 @@ def _sha512(path: Path) -> str:
     return reader.hexdigest()
 
 
-def rank_mirrors(candidates: tuple[str, ...]) -> tuple[str, ...]:
+def rank_mirrors(
+    candidates: tuple[str, ...], proxy: ProxyConfig | None = None
+) -> tuple[str, ...]:
     """Fastest first, measured. A mirror that fails or times out keeps its place
     at the end rather than disappearing: a slow mirror still installs, and a
     measurement that found nothing must not leave an empty list.
@@ -116,16 +163,16 @@ def rank_mirrors(candidates: tuple[str, ...]) -> tuple[str, ...]:
     # Concurrently: the China list is twenty-three sites, and measuring them
     # one after another costs two minutes when most of them time out.
     with ThreadPoolExecutor(max_workers=PROBE_WORKERS) as pool:
-        times = list(pool.map(_probe, candidates))
+        times = list(pool.map(lambda mirror: _probe(mirror, proxy), candidates))
     measured = [(time, position, mirror) for position, (time, mirror) in enumerate(zip(times, candidates))]
     return tuple(mirror for _, _, mirror in sorted(measured))
 
 
-def _probe(mirror: str) -> float:
+def _probe(mirror: str, proxy: ProxyConfig | None = None) -> float:
     url = f"{mirror.rstrip('/')}/{PROBE_FILE}"
     started = time.monotonic()
     try:
-        with urllib.request.urlopen(_asked(url), timeout=PROBE_TIMEOUT) as response:
+        with _urlopen(_asked(url), proxy, PROBE_TIMEOUT) as response:
             response.read(1 << 16)
     except (urllib.error.URLError, TimeoutError, OSError):
         return float("inf")
@@ -158,11 +205,11 @@ def passphrase_for(device: DeviceId, source: str) -> str:
 READ_TRIES: Final[int] = 4
 
 
-def _read_patiently(url: str) -> str:
+def _read_patiently(url: str, proxy: ProxyConfig | None = None) -> str:
     last: DownloadFailed | None = None
     for attempt in range(READ_TRIES):
         try:
-            return _read(url)
+            return _read(url) if proxy is None else _read(url, proxy)
         except DownloadFailed as error:
             last = error
             if attempt + 1 < READ_TRIES:
@@ -171,7 +218,9 @@ def _read_patiently(url: str) -> str:
     raise last
 
 
-def _newest(builds: str, variant: str) -> str:
+def _newest(
+    builds: str, variant: str, proxy: ProxyConfig | None = None
+) -> str:
     """The current archive's path under `releases/amd64/autobuilds`.
 
     `latest-stage3-amd64-<variant>.txt`, not the directory index: an index is
@@ -190,7 +239,7 @@ def _newest(builds: str, variant: str) -> str:
     """
     pointer = f"{builds}/latest-stage3-amd64-{variant}.txt"
     paths: list[str] = []
-    for line in _read_patiently(pointer).splitlines():
+    for line in _read_patiently(pointer, proxy).splitlines():
         said = line.strip()
         if not said or said.startswith(("#", "-----", "Hash:")):
             continue
@@ -209,7 +258,9 @@ def _newest(builds: str, variant: str) -> str:
 RELEASE_KEYRING: Final[str] = "https://qa-reports.gentoo.org/output/service-keys.gpg"
 
 
-def _import_release_key(runner: Runner, work: Path) -> None:
+def _import_release_key(
+    runner: Runner, work: Path, proxy: ProxyConfig | None = None
+) -> None:
     """Load the key a stage3 signature is checked against.
 
     Trust comes from `RELENG_FINGERPRINT`, not from where the key came from: a
@@ -220,7 +271,7 @@ def _import_release_key(runner: Runner, work: Path) -> None:
     if not RELEASE_KEY.is_file():
         source = work / "gentoo-release.gpg"
         work.mkdir(parents=True, exist_ok=True)
-        _download(RELEASE_KEYRING, source)
+        _download(RELEASE_KEYRING, source, proxy=proxy)
     result = runner.run(["gpg", "--quiet", "--import", str(source)], check=False)
     if result.returncode != 0:
         # Named here rather than left to the verification below, which would
@@ -228,12 +279,14 @@ def _import_release_key(runner: Runner, work: Path) -> None:
         raise PreflightFailed(f"{source} could not be imported: {result.stdout.strip()}")
 
 
-def text(url: str) -> str:
+def text(url: str, proxy: ProxyConfig | None = None) -> str:
     """A short document, such as a public key someone pasted somewhere."""
-    return _read(paste.raw_url(url))
+    return _read_for(paste.raw_url(url), proxy)
 
 
-def upload(body: str, export: paste.Export) -> str:
+def upload(
+    body: str, export: paste.Export, proxy: ProxyConfig | None = None
+) -> str:
     """Create a paste and return the address of the page that shows it.
 
     Offered after a run has already finished or failed, so every failure here
@@ -246,7 +299,7 @@ def upload(body: str, export: paste.Export) -> str:
         **{"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+        with _urlopen(request, proxy, TIMEOUT) as response:
             answered = json.loads(response.read().decode())
     except (urllib.error.URLError, TimeoutError, OSError) as error:
         raise UploadFailed(f"{paste.HOST} did not take the paste: {error}") from error
@@ -276,11 +329,11 @@ CLOCK_URL: Final[str] = "http://distfiles.gentoo.org/"
 CLOCK_TOLERANCE: Final[float] = 24 * 3600.0
 
 
-def network_time() -> float:
+def network_time(proxy: ProxyConfig | None = None) -> float:
     """Seconds since the epoch from a `Date` header, or 0 when unread."""
     try:
         request = _asked(CLOCK_URL, method="HEAD")
-        with urllib.request.urlopen(request, timeout=PROBE_TIMEOUT) as response:
+        with _urlopen(request, proxy, PROBE_TIMEOUT) as response:
             stamp = response.headers.get("Date", "")
     except (urllib.error.URLError, TimeoutError, OSError):
         return 0.0
@@ -298,7 +351,7 @@ COUNTRY_URLS: Final[tuple[str, ...]] = (
 )
 
 
-def egress_country() -> str:
+def egress_country(proxy: ProxyConfig | None = None) -> str:
     """The two-letter country the machine reaches the internet from, or empty.
 
     Which mirrors are worth offering follows from where the packets come out,
@@ -308,7 +361,7 @@ def egress_country() -> str:
     """
     for url in COUNTRY_URLS:
         try:
-            answer = _read(url)
+            answer = _read_for(url, proxy)
         except DownloadFailed:
             continue
         for line in answer.splitlines():
@@ -331,7 +384,7 @@ ONLINE_TRIES: Final[int] = 5
 ONLINE_PAUSE: Final[float] = 2.0
 
 
-def why_unreachable(url: str) -> str:
+def why_unreachable(url: str, proxy: ProxyConfig | None = None) -> str:
     """Empty when the URL answers, and why it did not otherwise.
 
     The reason is carried out, not discarded. `cannot reach X` sent a run to
@@ -342,7 +395,10 @@ def why_unreachable(url: str) -> str:
     said = ""
     for attempt in range(ONLINE_TRIES):
         try:
-            _read(url)
+            if proxy is None:
+                _read(url)
+            else:
+                _read(url, proxy)
         except DownloadFailed as error:
             said = str(error)
             if attempt + 1 < ONLINE_TRIES:
@@ -352,28 +408,32 @@ def why_unreachable(url: str) -> str:
     return said
 
 
-def reachable(url: str) -> bool:
+def reachable(url: str, proxy: ProxyConfig | None = None) -> bool:
     """Whether a URL answers, tried `ONLINE_TRIES` times.
 
     Asked of the address the run will actually read rather than of any host: a
     machine behind a portal resolves names and still cannot fetch anything.
     """
-    return not why_unreachable(url)
+    return not (why_unreachable(url) if proxy is None else why_unreachable(url, proxy))
 
 
-def online() -> bool:
+def online(proxy: ProxyConfig | None = None) -> bool:
     """Whether the package site answers. The menu reads every version from it."""
-    return reachable(f"{PACKAGES_API}/sys-kernel/gentoo-kernel-bin.json")
+    url = f"{PACKAGES_API}/sys-kernel/gentoo-kernel-bin.json"
+    return reachable(url) if proxy is None else reachable(url, proxy)
 
 
-def why_mirror_unreachable(mirror: str, variant: str) -> str:
+def why_mirror_unreachable(
+    mirror: str, variant: str, proxy: ProxyConfig | None = None
+) -> str:
     """Empty when the mirror answers, and why it did not otherwise."""
-    return why_unreachable(
-        f"{mirror.rstrip('/')}/{STAGE3_PATH}/latest-stage3-amd64-{variant}.txt"
-    )
+    url = f"{mirror.rstrip('/')}/{STAGE3_PATH}/latest-stage3-amd64-{variant}.txt"
+    return why_unreachable(url) if proxy is None else why_unreachable(url, proxy)
 
 
-def mirror_online(mirror: str, variant: str) -> bool:
+def mirror_online(
+    mirror: str, variant: str, proxy: ProxyConfig | None = None
+) -> bool:
     """Whether the mirror an install was told to use answers.
 
     The stage3 comes from here and nothing else has to answer: a run given a
@@ -382,16 +442,18 @@ def mirror_online(mirror: str, variant: str) -> bool:
     was not.
     """
     return reachable(
-        f"{mirror.rstrip('/')}/{STAGE3_PATH}/latest-stage3-amd64-{variant}.txt"
+        f"{mirror.rstrip('/')}/{STAGE3_PATH}/latest-stage3-amd64-{variant}.txt", proxy
     )
 
 
-def package_versions(atom: str) -> tuple[tuple[str, bool], ...]:
+def package_versions(
+    atom: str, proxy: ProxyConfig | None = None
+) -> tuple[tuple[str, bool], ...]:
     """Versions of a main-tree package, newest first, each with whether it is
     stable on amd64. Read live: the installing system need not be Gentoo and
     need not carry a repository at all."""
     try:
-        document = json.loads(_read(f"{PACKAGES_API}/{atom}.json"))
+        document = json.loads(_read_for(f"{PACKAGES_API}/{atom}.json", proxy))
     except (DownloadFailed, ValueError):
         return ()
     found = [
@@ -402,7 +464,9 @@ def package_versions(atom: str) -> tuple[tuple[str, bool], ...]:
     return tuple(sorted(found, key=lambda pair: _version_key(pair[0]), reverse=True))
 
 
-def overlay_versions(atom: str) -> tuple[tuple[str, bool], ...]:
+def overlay_versions(
+    atom: str, proxy: ProxyConfig | None = None
+) -> tuple[tuple[str, bool], ...]:
     """Versions of a gentoo-zh package, from the overlay's own file listing.
 
     None is stable: the overlay is keyworded `~amd64` throughout, which is what
@@ -410,7 +474,7 @@ def overlay_versions(atom: str) -> tuple[tuple[str, bool], ...]:
     """
     _, _, name = atom.partition("/")
     try:
-        listing = json.loads(_read(f"{OVERLAY_API}/{atom}"))
+        listing = json.loads(_read_for(f"{OVERLAY_API}/{atom}", proxy))
     except (DownloadFailed, ValueError):
         return ()
     if not isinstance(listing, list):
@@ -424,15 +488,20 @@ def overlay_versions(atom: str) -> tuple[tuple[str, bool], ...]:
     return tuple((version, False) for version in sorted(named, key=_version_key, reverse=True))
 
 
-def zfs_kernel_max() -> KernelCeiling:
+def zfs_kernel_max(proxy: ProxyConfig | None = None) -> KernelCeiling:
     """The highest kernel `sys-fs/zfs` builds a module for, or unknown.
 
     `MODULES_KERNEL_MAX` in the newest ebuild. A real ceiling: 2.4.3 stops at
     7.0, so a 7.1 kernel leaves a ZFS root with no module to import the pool.
     """
-    for version, _ in package_versions("sys-fs/zfs"):
+    versions = (
+        package_versions("sys-fs/zfs")
+        if proxy is None
+        else package_versions("sys-fs/zfs", proxy)
+    )
+    for version, _ in versions:
         try:
-            ebuild = _read(f"{GITWEB}/sys-fs/zfs/zfs-{version}.ebuild")
+            ebuild = _read_for(f"{GITWEB}/sys-fs/zfs/zfs-{version}.ebuild", proxy)
         except DownloadFailed:
             return KernelCeiling(None)
         for line in ebuild.splitlines():
@@ -457,6 +526,138 @@ def _asked(url: str, *, data: bytes | None = None, method: str = "GET", **header
     return urllib.request.Request(
         url, data=data, method=method, headers={"User-Agent": USER_AGENT, **headers}
     )
+
+
+def _bypassed(url: str, proxy: ProxyConfig) -> bool:
+    host = urllib.parse.urlsplit(url).hostname
+    if not host:
+        return False
+    lowered = host.lower()
+    for raw_item in proxy.bypass:
+        item = raw_item.lower().lstrip(".")
+        if item == "*":
+            return True
+        if item.startswith("*."):
+            item = item[2:]
+        if lowered == item or lowered.endswith(f".{item}"):
+            return True
+    return False
+
+
+def _urlopen(
+    request: urllib.request.Request,
+    proxy: ProxyConfig | None,
+    timeout: float,
+) -> Any:
+    """Open a request through the configured proxy without exposing credentials."""
+    selected = proxy if proxy is not None else _CURRENT_PROXY.get()
+    if selected is None or not selected.url or _bypassed(request.full_url, selected):
+        return urllib.request.urlopen(request, timeout=timeout)
+    if selected.url.lower().split(":", 1)[0] in {"socks5", "socks5h"}:
+        return _socks_open(request, selected, timeout)
+    # ProxyHandler keeps credentials inside the opener and never places them in
+    # argv or the process environment.
+    handlers = urllib.request.ProxyHandler({"http": selected.url, "https": selected.url})
+    opener_handlers: list[Any] = [handlers]
+    if selected.username or selected.password:
+        passwords = urllib.request.HTTPPasswordMgrWithDefaultRealm()
+        passwords.add_password(None, selected.url, selected.username, selected.password)
+        passwords.add_password(
+            None, selected.redacted_url, selected.username, selected.password
+        )
+        opener_handlers.append(urllib.request.ProxyBasicAuthHandler(passwords))
+    return urllib.request.build_opener(*opener_handlers).open(request, timeout=timeout)
+
+
+def _recv(sock: socket.socket, size: int) -> bytes:
+    chunks: list[bytes] = []
+    while sum(map(len, chunks)) < size:
+        chunk = sock.recv(size - sum(map(len, chunks)))
+        if not chunk:
+            raise OSError("SOCKS5 proxy closed the connection")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _socks_connect(proxy: ProxyConfig, host: str, port: int, timeout: float | None) -> socket.socket:
+    parts = urllib.parse.urlsplit(proxy.url)
+    if not parts.hostname:
+        raise OSError("SOCKS5 proxy has no host")
+    proxy_port = parts.port or 1080
+    sock = socket.create_connection((parts.hostname, proxy_port), timeout)
+    username, password = proxy.username.encode(), proxy.password.encode()
+    methods = b"\x00\x02" if username or password else b"\x00"
+    sock.sendall(b"\x05" + bytes((len(methods),)) + methods)
+    answer = _recv(sock, 2)
+    if answer[0] != 5 or answer[1] == 255:
+        sock.close()
+        raise OSError("SOCKS5 proxy rejected authentication")
+    if answer[1] == 2:
+        if len(username) > 255 or len(password) > 255:
+            sock.close()
+            raise OSError("SOCKS5 credentials are too long")
+        sock.sendall(b"\x01" + bytes((len(username),)) + username + bytes((len(password),)) + password)
+        if _recv(sock, 2) != b"\x01\x00":
+            sock.close()
+            raise OSError("SOCKS5 proxy rejected credentials")
+    remote_dns = parts.scheme.lower() == "socks5h"
+    if remote_dns:
+        encoded = host.encode()
+        address = b"\x03" + bytes((len(encoded),)) + encoded
+    else:
+        resolved = cast(str, socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)[0][4][0])
+        packed = socket.inet_pton(socket.AF_INET6 if ":" in resolved else socket.AF_INET, resolved)
+        address = (b"\x04" if ":" in resolved else b"\x01") + packed
+    sock.sendall(b"\x05\x01\x00" + address + port.to_bytes(2, "big"))
+    reply = _recv(sock, 4)
+    if reply[1] != 0:
+        sock.close()
+        raise OSError(f"SOCKS5 proxy CONNECT failed ({reply[1]})")
+    length = {1: 4, 4: 16}.get(reply[3])
+    if length is None:
+        length = _recv(sock, 1)[0]
+    _recv(sock, length + 2)
+    return sock
+
+
+def _socks_open(request: urllib.request.Request, proxy: ProxyConfig, timeout: float) -> Any:
+    parts = urllib.parse.urlsplit(request.full_url)
+    if not parts.hostname:
+        raise urllib.error.URLError("request has no host")
+    if parts.scheme == "https":
+        context = ssl.create_default_context()
+
+        class Secure(http.client.HTTPSConnection):
+            def connect(self) -> None:
+                self.sock = _socks_connect(proxy, self.host, self.port, self.timeout)
+                self.sock = context.wrap_socket(self.sock, server_hostname=self.host)
+
+        opener = urllib.request.build_opener(_SocksHTTPSHandler(Secure))
+    else:
+        class Plain(http.client.HTTPConnection):
+            def connect(self) -> None:
+                self.sock = _socks_connect(proxy, self.host, self.port, self.timeout)
+
+        opener = urllib.request.build_opener(_SocksHTTPHandler(Plain))
+    return opener.open(request, timeout=timeout)
+
+
+class _SocksHTTPHandler(urllib.request.HTTPHandler):
+    def __init__(self, connection: type[http.client.HTTPConnection]) -> None:
+        super().__init__()
+        self._connection = connection
+
+    def http_open(self, request: urllib.request.Request) -> Any:
+        return self.do_open(self._connection, request)
+
+
+class _SocksHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, connection: type[http.client.HTTPSConnection]) -> None:
+        super().__init__()
+        self._connection = connection
+
+    def https_open(self, request: urllib.request.Request) -> Any:
+        return self.do_open(self._connection, request)
 
 
 #: Errno values that mean the address family this machine tried has no route
@@ -506,9 +707,9 @@ def _over(family: int) -> Iterator[None]:
 _FAMILIES: Final[tuple[int, ...]] = (socket.AF_INET, socket.AF_INET6)
 
 
-def _read(url: str) -> str:
+def _read(url: str, proxy: ProxyConfig | None = None) -> str:
     try:
-        return _read_once(url)
+        return _read_once(url) if proxy is None else _read_once(url, proxy)
     except DownloadFailed as first:
         if not _unroutable(first.__cause__ or first):
             raise
@@ -516,21 +717,26 @@ def _read(url: str) -> str:
     for family in _FAMILIES:
         try:
             with _over(family):
-                return _read_once(url)
+                return _read_once(url) if proxy is None else _read_once(url, proxy)
         except DownloadFailed as again:
             last = again
     raise last
 
 
-def _read_once(url: str) -> str:
+def _read_once(url: str, proxy: ProxyConfig | None = None) -> str:
     try:
-        with urllib.request.urlopen(_asked(url), timeout=TIMEOUT) as response:
+        with _urlopen(_asked(url), proxy, TIMEOUT) as response:
             return str(response.read().decode("utf-8", "replace"))
     except (urllib.error.URLError, TimeoutError, OSError) as error:
         raise DownloadFailed(f"{url} could not be read: {error}") from error
 
 
-def _download(url: str, target: Path, log: Callable[[str], None] | None = None) -> None:
+def _download(
+    url: str,
+    target: Path,
+    log: Callable[[str], None] | None = None,
+    proxy: ProxyConfig | None = None,
+) -> None:
     """Written beside the target and renamed, so an interrupted download never
     leaves a short file that looks complete.
 
@@ -539,7 +745,7 @@ def _download(url: str, target: Path, log: Callable[[str], None] | None = None) 
     family with no route fails before a byte arrives.
     """
     try:
-        _download_once(url, target, log)
+        _download_once(url, target, log, proxy)
         return
     except DownloadFailed as first:
         if not _unroutable(first.__cause__ or first):
@@ -548,7 +754,7 @@ def _download(url: str, target: Path, log: Callable[[str], None] | None = None) 
     for family in _FAMILIES:
         try:
             with _over(family):
-                _download_once(url, target, log)
+                _download_once(url, target, log, proxy)
                 return
         except DownloadFailed as again:
             last = again
@@ -577,10 +783,15 @@ def _progress(name: str, got: int, total: int | None) -> str:
     return f"{name}: {megabytes:.0f} MiB"
 
 
-def _download_once(url: str, target: Path, log: Callable[[str], None] | None = None) -> None:
+def _download_once(
+    url: str,
+    target: Path,
+    log: Callable[[str], None] | None = None,
+    proxy: ProxyConfig | None = None,
+) -> None:
     partial = target.with_suffix(target.suffix + ".part")
     try:
-        with urllib.request.urlopen(_asked(url), timeout=TIMEOUT) as response, partial.open("wb") as handle:
+        with _urlopen(_asked(url), proxy, TIMEOUT) as response, partial.open("wb") as handle:
             total = _content_length(response)
             got = 0
             said = time.monotonic()

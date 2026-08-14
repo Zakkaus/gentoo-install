@@ -400,6 +400,17 @@ def _mirror(config: InstallConfig, context: Context) -> str:
     return f"{chosen.site}{measured}" + (f", {', '.join(overlays)}" if overlays else "")
 
 
+def _proxy(config: InstallConfig, context: Context) -> str:
+    """Show the proxy endpoint without exposing URL credentials."""
+    proxy = config.proxy
+    if not proxy.url:
+        return context.translate("off")
+    value = proxy.redacted_url
+    if proxy.bypass:
+        value += f"  {context.translate('{count} hosts bypass').format(count=len(proxy.bypass))}"
+    return value
+
+
 def _firmware(config: InstallConfig, context: Context) -> str:
     """The value alone. The row cannot be edited and already draws the reason
     beside it, so a `(detected)` suffix said the same word twice."""
@@ -812,6 +823,7 @@ NETWORK: Final[tuple[Setting, ...]] = (
 #: The menu, flat and in the order it is drawn. One row per decision.
 SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("firmware", "Firmware", _firmware, None),
+    Setting("proxy", "Proxy", _proxy, screens.proxy_screen),
     Setting("keymap", "Keyboard layout", lambda c, x: c.system.keymap, screens.keymap_screen),
     Setting(
         "language",
