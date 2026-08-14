@@ -170,6 +170,10 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         Run("fixtures/vm-bios-luks.toml", firmware="bios"),
         # sshd with a key that can reach it, and the initramfs daemon that
         # unlocks the root: `remote_unlock` was off in every other fixture.
+        # The proxy pointed at a port nothing listens on: a run that reaches
+        # the mirror proves something bypassed it, so this one is expected to
+        # fail at the stage3 download and its failure is the result.
+        Run("fixtures/vm-proxy-dead.toml"),
         Run("fixtures/vm-unlock.toml"),
         # The same configuration again, killed partway and finished with
         # --resume: the one path nothing else reaches.

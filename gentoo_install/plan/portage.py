@@ -7,11 +7,13 @@ before a key can be imported, an imported key stays untrusted until `lsign`, and
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import PurePosixPath
 from typing import Final, Sequence
+from urllib.parse import urlsplit, urlunsplit
 
 from ..errors import CommandFailed, ConfigError
 from ..model import mirrors
@@ -22,6 +24,7 @@ from ..model.config import (
     Keywords,
     MirrorRegion,
     PortageConfig,
+    ProxyConfig,
     Sync,
 )
 from ..model.validate import parse_profile_list, validate_profile
@@ -46,6 +49,19 @@ AUTOUNMASK_FILES: Final[tuple[str, ...]] = (
     "/etc/portage/package.use/zz-autounmask",
     "/etc/portage/package.accept_keywords/zz-autounmask",
     "/etc/portage/package.license/zz-autounmask",
+)
+
+PROXY_BOOTSTRAP: Final[PurePosixPath] = PurePosixPath(
+    "/etc/gentoo-install/proxy.toml"
+)
+
+FETCHCOMMAND: Final[str] = (
+    'wget -t 3 -T 60 --passive-ftp -U "Portage (Gentoo, '
+    'https://www.gentoo.org) distfile-fetch" -O "${DISTDIR}/${FILE}" "${URI}"'
+)
+RESUMECOMMAND: Final[str] = (
+    'wget -c -t 3 -T 60 --passive-ftp -U "Portage (Gentoo, '
+    'https://www.gentoo.org) distfile-fetch" -O "${DISTDIR}/${FILE}" "${URI}"'
 )
 
 #: What is absent matters as much as what is here, and the reason for each
@@ -90,14 +106,21 @@ class InstallStage3(Operation):
     stage: Stage = Stage.STAGE3
     mirror: str
     variant: str
+    proxy: ProxyConfig = ProxyConfig()
 
     def describe(self) -> str:
+        route = f" via {self.proxy.redacted_url}" if self.proxy.enabled else " directly"
         return (
-            f"download the newest {self.variant} stage3 from {self.mirror}, verify it "
+            f"download the newest {self.variant} stage3 from {self.mirror}{route}, verify it "
             f"against {RELENG_FINGERPRINT[-16:]} and unpack it into the target"
         )
 
     def apply(self, context: Context) -> None:
+        context.write(
+            PROXY_BOOTSTRAP,
+            _proxy_toml(self.proxy),
+            mode=0o600,
+        )
         archive = context.fetch_stage3(self.mirror, self.variant, RELENG_FINGERPRINT)
         context.run(
             [
@@ -112,6 +135,55 @@ class InstallStage3(Operation):
                 f"--checkpoint={UNPACK_CHECKPOINT}",
                 "--checkpoint-action=echo",
             ]
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class WriteProxyClients(Operation):
+    """Configure clients that Portage invokes without putting credentials in argv."""
+
+    stage: Stage = Stage.PORTAGE
+    proxy: ProxyConfig
+
+    def describe(self) -> str:
+        route = self.proxy.redacted_url if self.proxy.enabled else "direct connection"
+        return f"configure Portage, wget, curl, git and gpg for {route}"
+
+    def apply(self, context: Context) -> None:
+        proxy = self.proxy
+        endpoint = _proxy_endpoint(proxy)
+        bypass = ",".join(proxy.bypass)
+        context.write(
+            PurePosixPath("/etc/wgetrc"),
+            f"use_proxy = {'on' if proxy.enabled else 'off'}\n"
+            f"http_proxy = {endpoint}\nhttps_proxy = {endpoint}\n"
+            f"no_proxy = {bypass}\nproxy_user = {proxy.username}\n"
+            f"proxy_password = {proxy.password}\n",
+            mode=0o600,
+        )
+        context.write(
+            PurePosixPath("/etc/curlrc"),
+            f"proxy = {endpoint}\n"
+            f"noproxy = {bypass}\n"
+            f"proxy-user = {proxy.username}:{proxy.password}\n",
+            mode=0o600,
+        )
+        context.write(
+            PurePosixPath("/etc/gitconfig"),
+            "[http]\n"
+            f"\tproxy = {proxy.url}\n"
+            f"\tnoProxy = {bypass}\n",
+            mode=0o600,
+        )
+        context.write(
+            PurePosixPath("/etc/portage/gnupg/dirmngr.conf"),
+            f"http-proxy {proxy.url}\n" if proxy.enabled else "",
+            mode=0o600,
+        )
+        context.write(
+            PROXY_BOOTSTRAP,
+            _proxy_toml(proxy),
+            mode=0o600,
         )
 
 
@@ -827,7 +899,7 @@ def build(
     portage = config.portage
     gentoo = PurePosixPath("/var/db/repos/gentoo")
     operations: list[Operation] = [
-        InstallStage3(mirror=mirror, variant=variant_of(config)),
+        InstallStage3(mirror=mirror, variant=variant_of(config), proxy=config.proxy),
         MountChrootFilesystems(),
         SeedResolver(),
     ]
@@ -838,6 +910,7 @@ def build(
             speed_test=portage.mirrors.speed_test,
             appended=_appended_distfiles(portage),
         ),
+        WriteProxyClients(proxy=config.proxy),
         CreateAutounmaskFiles(),
     ]
     if _uses_binhost(portage):
@@ -997,9 +1070,52 @@ def make_conf(
         ("ACCEPT_LICENSE", " ".join(licenses or portage.accept_license)),
         ("L10N", " ".join(_l10n(config))),
     ]
+    proxy = config.proxy
+    endpoint = _proxy_endpoint(proxy)
+    settings += [
+        ("http_proxy", endpoint),
+        ("https_proxy", endpoint),
+        ("ftp_proxy", endpoint),
+        ("all_proxy", endpoint),
+        ("no_proxy", ",".join(proxy.bypass)),
+        ("FETCHCOMMAND", FETCHCOMMAND),
+        ("RESUMECOMMAND", RESUMECOMMAND),
+    ]
+    if proxy.enabled and urlsplit(proxy.url).scheme.lower() in {"http", "https"}:
+        settings.append(("RSYNC_PROXY", _rsync_proxy(proxy)))
     if _uses_binhost(portage):
         settings.append(("FEATURES", "getbinpkg"))
     return tuple(settings)
+
+
+def _proxy_endpoint(proxy: ProxyConfig) -> str:
+    """The proxy URL without user information, for process environments."""
+    if not proxy.url:
+        return ""
+    parts = urlsplit(proxy.url)
+    host = parts.hostname or ""
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    if parts.port is not None:
+        host = f"{host}:{parts.port}"
+    return urlunsplit((parts.scheme, host, "", "", ""))
+
+
+def _rsync_proxy(proxy: ProxyConfig) -> str:
+    """The host:port form rsync reads from `RSYNC_PROXY`."""
+    parts = urlsplit(proxy.url)
+    host = parts.hostname or ""
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    return f"{host}:{parts.port or 8080}"
+
+
+def _proxy_toml(proxy: ProxyConfig) -> str:
+    """The credential-bearing bootstrap file read only by the installer."""
+    return (
+        f"url = {json.dumps(proxy.url)}\n"
+        f"bypass = {json.dumps(list(proxy.bypass))}\n"
+    )
 
 
 def _uses_binhost(portage: PortageConfig) -> bool:

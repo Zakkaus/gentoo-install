@@ -1,6 +1,16 @@
 # 界面字符串，简体中文。键是英文原文，查不到就退回原文。
 [strings]
 "Disks" = "磁盘"
+"Proxy" = "代理"
+"Proxy URL" = "代理 URL"
+"Bypass hosts" = "绕过代理的主机"
+"empty for direct; socks5 resolves locally, socks5h at the proxy" = "留空表示直连；socks5 在本地解析，socks5h 在代理端解析"
+"comma-separated host names" = "用逗号分隔主机名"
+"Proxy URL must use http://, https://, socks5:// or socks5h://" = "代理 URL 必须使用 http://、https://、socks5:// 或 socks5h://"
+"Proxy URL must include a host" = "代理 URL 必须包含主机"
+"Proxy URL must contain only a scheme, host and port" = "代理 URL 只能包含协议、主机和端口"
+"Bypass hosts must not contain spaces" = "绕过主机不能包含空格"
+"{count} hosts bypass" = "绕过 {count} 个主机"
 "Portage" = "Portage"
 "Desktop and applications" = "桌面与应用程序"
 "Overview" = "总览"

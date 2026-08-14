@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
+import shlex
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import PurePosixPath
 from types import MappingProxyType
 from typing import Final, Mapping
+from urllib.parse import urlsplit, urlunsplit
 
 from ..errors import InvalidLayout, LocaleMissing
 from ..model import compat
@@ -17,6 +20,7 @@ from ..model.config import (
     InstallConfig,
     Logger,
     Networking,
+    ProxyConfig,
     SystemConfig,
     User,
 )
@@ -62,6 +66,38 @@ class NetworkService(Enum):
     DHCPCD = "dhcpcd"
     NETWORKMANAGER = "NetworkManager"
     NETIFRC_INTERFACE = "netifrc-interface"
+
+
+@dataclass(frozen=True, kw_only=True)
+class WriteProxyEnvironment(Operation):
+    """Keep the selected route available to clients after the first boot."""
+
+    stage: Stage = Stage.SYSTEM
+    proxy: ProxyConfig
+
+    def describe(self) -> str:
+        route = self.proxy.redacted_url if self.proxy.enabled else "direct connection"
+        return f"keep proxy environment for {route} in the installed system"
+
+    def apply(self, context: Context) -> None:
+        endpoint = _proxy_endpoint(self.proxy)
+        bypass = ",".join(self.proxy.bypass)
+        values = {
+            "http_proxy": endpoint,
+            "https_proxy": endpoint,
+            "ftp_proxy": endpoint,
+            "all_proxy": endpoint,
+            "no_proxy": bypass,
+        }
+        environment = "".join(
+            f"{key}={json.dumps(value)}\n{key.upper()}={json.dumps(value)}\n"
+            for key, value in values.items()
+        )
+        context.write(PurePosixPath("/etc/environment"), environment)
+        profile = "".join(
+            f"export {key}={shlex.quote(value)}\n" for key, value in values.items()
+        )
+        context.write(PurePosixPath("/etc/profile.d/gentoo-install-proxy.sh"), profile)
 
 
 @dataclass(frozen=True)
@@ -927,6 +963,7 @@ class EnableService(Operation):
 def build(config: InstallConfig) -> list[Operation]:
     system = config.system
     operations: list[Operation] = [
+        WriteProxyEnvironment(proxy=config.proxy),
         GenerateLocales(locales=system.locales),
         SelectLocale(locale=system.locale, init=system.init),
         SetTimezone(timezone=system.timezone),
@@ -1085,6 +1122,19 @@ def build(config: InstallConfig) -> list[Operation]:
         ]
     operations += _zfs_services(config)
     return operations
+
+
+def _proxy_endpoint(proxy: ProxyConfig) -> str:
+    """The proxy URL without user information, for process environments."""
+    if not proxy.url:
+        return ""
+    parts = urlsplit(proxy.url)
+    host = parts.hostname or ""
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    if parts.port is not None:
+        host = f"{host}:{parts.port}"
+    return urlunsplit((parts.scheme, host, "", "", ""))
 
 
 def _zfs_services(config: InstallConfig) -> list[Operation]:

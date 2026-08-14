@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from gentoo_install.model.config import InstallConfig, Overlay, PortageConfig, User
+from gentoo_install.exec.config import load
+from gentoo_install.model.config import InstallConfig, Overlay, PortageConfig, ProxyConfig, User
 from gentoo_install.model.device import DeviceGraph, DeviceId, Existing, PartitionTable
 from gentoo_install.model.parse import _NODES, parse
 from gentoo_install.model.serialise import KINDS, REDACTED, SECRET, to_toml
@@ -97,6 +98,17 @@ def test_a_published_configuration_carries_no_password_hash() -> None:
     assert "rootrootroot" not in published
     assert "useruseruser" not in published
     assert published.count(REDACTED) == 2
+
+
+def test_proxy_credentials_round_trip_and_are_removed_from_published_config() -> None:
+    path = FIXTURES / "proxy" / "config.toml"
+    config = load(path)
+
+    assert _round_trip(config).proxy == config.proxy
+    published = to_toml(config, publishing=True)
+    assert "secret" not in published
+    assert "operator" not in published
+    assert "socks5h://proxy.example:1080" in published
 
 
 def test_a_published_configuration_still_parses() -> None:

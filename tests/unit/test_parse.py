@@ -15,6 +15,7 @@ from gentoo_install.model.config import (
     KernelSource,
     Keywords,
     MirrorRegion,
+    ProxyConfig,
 )
 from gentoo_install.model.device import (
     DeviceId,
@@ -93,6 +94,28 @@ def test_defaults_apply_when_a_section_is_absent() -> None:
     assert config.system.hostname == "gentoo"
     assert config.portage.binhost.official is True
     assert config.bootloader.kind is Bootloader.GRUB
+
+
+def test_proxy_url_preserves_credentials_and_bypass_hosts() -> None:
+    raw = fixture()
+    raw["proxy"] = {
+        "url": "socks5h://operator:secret@proxy.example:1080",
+        "bypass": ["localhost", "internal.example"],
+    }
+    config = parse(raw)
+    assert config.proxy == ProxyConfig(
+        url="socks5h://operator:secret@proxy.example:1080",
+        bypass=("localhost", "internal.example"),
+    )
+    assert config.proxy.redacted_url == "socks5h://proxy.example:1080"
+
+
+@pytest.mark.parametrize("scheme", ["ftp", "ssh"])
+def test_proxy_url_rejects_unsupported_schemes(scheme: str) -> None:
+    raw = fixture()
+    raw["proxy"] = {"url": f"{scheme}://proxy.example:8080"}
+    with pytest.raises(ConfigError, match="proxy.*use"):
+        parse(raw)
 
 
 def test_a_newer_config_version_is_refused_with_an_actionable_message() -> None:

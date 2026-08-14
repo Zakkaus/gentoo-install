@@ -13,6 +13,7 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Collection, Final, Mapping
+from urllib.parse import unquote, urlsplit
 
 from ..errors import CommandFailed, ValidationFailed
 from . import compat
@@ -156,6 +157,7 @@ def validate(
 ) -> None:
     address_facts = _derive_address_facts(config)
     problems = [
+        *_proxy_problems(config),
         *_layout_problems(config),
         *compat.filesystem_label_problems(config),
         *root_size_problems(config),
@@ -177,6 +179,38 @@ def validate(
         raise ValidationFailed(
             "the configuration does not describe an installable system:\n  " + "\n  ".join(problems)
         )
+
+
+def _proxy_problems(config: InstallConfig) -> list[str]:
+    """Check proxy syntax for configurations built without the TOML parser."""
+    proxy = config.proxy
+    if not proxy.url:
+        if proxy.bypass:
+            return ["proxy bypass hosts require a proxy URL"]
+        return []
+    try:
+        parts = urlsplit(proxy.url)
+    except ValueError:
+        return ["proxy URL has an invalid host or port"]
+    if parts.scheme.lower() not in {"http", "https", "socks5", "socks5h"}:
+        return ["proxy URL must use http, https, socks5 or socks5h"]
+    try:
+        host = parts.hostname
+        port = parts.port
+    except ValueError:
+        return ["proxy URL has an invalid host or port"]
+    if not host or any(char.isspace() for char in host):
+        return ["proxy URL must include a host"]
+    if parts.path not in ("", "/") or parts.query or parts.fragment:
+        return ["proxy URL must contain only a scheme, host and port"]
+    if any(
+        any(ord(char) < 0x20 or ord(char) == 0x7F for char in unquote(value or ""))
+        for value in (parts.username, parts.password)
+    ):
+        return ["proxy URL credentials contain control characters"]
+    if any(not item.strip() or any(char.isspace() for char in item) for item in proxy.bypass):
+        return ["proxy bypass hosts must be non-empty host names"]
+    return []
 
 
 def _zfs_kernel_problems(

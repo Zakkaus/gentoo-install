@@ -15,12 +15,14 @@ import signal
 import subprocess
 import threading
 import time
+import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Callable, Sequence
 
 from ..errors import CommandFailed
 from ..log import Journal
+from ..model.config import ProxyConfig
 
 
 @dataclass(frozen=True)
@@ -33,7 +35,7 @@ class Result:
 
     @property
     def command(self) -> str:
-        return shlex.join(self.argv)
+        return shlex.join(_display_argv(self.argv))
 
 
 @dataclass
@@ -53,6 +55,7 @@ class Runner:
     #: Prepended to every command, which is how `run_in_target` chroots.
     prefix: tuple[str, ...] = ()
     environment: dict[str, str] = field(default_factory=dict)
+    proxy: ProxyConfig | None = None
     history: list[Result] = field(default_factory=list)
 
     def run(
@@ -65,10 +68,10 @@ class Runner:
     ) -> Result:
         full = (*self.prefix, *argv)
         if self.dry_run:
-            self.log(f"would run: {shlex.join(full)}")
+            self.log(f"would run: {shlex.join(_display_argv(full))}")
             return Result(argv=full, returncode=0, stdout="", stderr="", seconds=0.0)
         started = time.monotonic()
-        self.log(f"run: {shlex.join(full)}")
+        self.log(f"run: {shlex.join(_display_argv(full))}")
         try:
             output, returncode = self._stream(full, input_text, timeout)
         except FileNotFoundError as error:
@@ -95,7 +98,7 @@ class Runner:
         )
         self.history.append(result)
         if self.journal is not None:
-            self.journal.command(result.argv, result.returncode, result.seconds)
+            self.journal.command(_display_argv(result.argv), result.returncode, result.seconds)
             if "emerge" in full:
                 self.journal.packages(result.stdout)
         if check and result.returncode != 0:
@@ -159,7 +162,9 @@ class Runner:
         # A timer that fired after the command already exited must not turn a
         # clean run into a timeout, so the signal decides, not the flag alone.
         if expired.is_set() and returncode < 0:
-            raise CommandFailed(f"{shlex.join(argv)} did not finish within {timeout}s")
+            raise CommandFailed(
+                f"{shlex.join(_display_argv(argv))} did not finish within {timeout}s"
+            )
         return "".join(lines), returncode
 
     def in_target(self, target: Path) -> Runner:
@@ -172,13 +177,51 @@ class Runner:
             prefix=("chroot", str(target)),
             # The target's /boot is already mounted where the layout says it is.
             environment={**self.environment, "DONT_MOUNT_BOOT": "1"},
+            proxy=self.proxy,
             history=self.history,
         )
 
     def _environment(self) -> dict[str, str] | None:
-        if not self.environment:
+        values = dict(self.environment)
+        # Password-bearing proxy URLs stay in tool configuration, never process environment.
+        if self.proxy is not None and self.proxy.url and not self.proxy.password:
+            values.update(
+                {
+                    "http_proxy": self.proxy.url,
+                    "https_proxy": self.proxy.url,
+                    "all_proxy": self.proxy.url,
+                    "no_proxy": ",".join(self.proxy.bypass),
+                    "HTTP_PROXY": self.proxy.url,
+                    "HTTPS_PROXY": self.proxy.url,
+                    "ALL_PROXY": self.proxy.url,
+                    "NO_PROXY": ",".join(self.proxy.bypass),
+                }
+            )
+        if not values:
             return None
-        return {**os.environ, **self.environment}
+        return {**os.environ, **values}
+
+
+def _display_argv(argv: Sequence[str]) -> tuple[str, ...]:
+    """Redact URL user information before a command reaches logs or journals."""
+    shown: list[str] = []
+    for value in argv:
+        try:
+            parts = urllib.parse.urlsplit(value)
+        except ValueError:
+            shown.append(value)
+            continue
+        if parts.scheme and parts.hostname and parts.username is not None:
+            host = parts.hostname
+            if ":" in host and not host.startswith("["):
+                host = f"[{host}]"
+            if parts.port is not None:
+                host = f"{host}:{parts.port}"
+            value = urllib.parse.urlunsplit(
+                (parts.scheme, host, parts.path, parts.query, parts.fragment)
+            )
+        shown.append(value)
+    return tuple(shown)
 
 
 #: What a failing command's own error looks like. Portage keeps printing after
