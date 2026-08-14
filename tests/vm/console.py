@@ -17,6 +17,8 @@ _ANSI = re.compile(
     rb"|\x1b[=>]"
 )
 
+CONSOLE_BUFFER_BYTES = 4 * 1024 * 1024
+
 
 class ConsoleTimeout(Exception):
     """A pattern did not appear on the console within its deadline."""
@@ -114,7 +116,15 @@ class _Socket:
 class SerialConsole:
     """Reads and writes a serial port, with expect semantics."""
 
-    def __init__(self, sock: Channel, log: IO[bytes], errors: Path | None = None) -> None:
+    def __init__(
+        self,
+        sock: Channel,
+        log: IO[bytes],
+        errors: Path | None = None,
+        buffer_limit: int = CONSOLE_BUFFER_BYTES,
+    ) -> None:
+        if buffer_limit <= 0:
+            raise ValueError("console buffer limit must be positive")
         self._sock = sock
         self._log = log
         #: Where qemu wrote its own stderr. It names whatever killed it, and
@@ -122,6 +132,8 @@ class SerialConsole:
         #: hung: three rounds were diagnosed by inference instead.
         self._errors = errors
         self._buffer = b""
+        self._last_chunk = b""
+        self._buffer_limit = buffer_limit
         self._tokens: Iterator[int] = itertools.count(1)
 
     @classmethod
@@ -236,6 +248,7 @@ class SerialConsole:
         self.expect(prompt, timeout=60.0)
 
     def _read_once(self) -> None:
+        self._last_chunk = b""
         chunk = self._sock.recv(4096)
         if not chunk:
             # Empty means nothing arrived before the read timed out, which is
@@ -246,7 +259,15 @@ class SerialConsole:
             return
         self._log.write(chunk)
         self._log.flush()
-        self._buffer += chunk
+        self._last_chunk = chunk
+        self._buffer = (self._buffer + chunk)[-self._buffer_limit :]
+
+    def set_buffer_limit(self, limit: int) -> None:
+        """Set the retained tail size for the next reads."""
+        if limit <= 0:
+            raise ValueError("console buffer limit must be positive")
+        self._buffer_limit = limit
+        self._buffer = self._buffer[-limit:]
 
     def _why_closed(self) -> str:
         transport_reason = getattr(self._sock, "why_closed", "")
@@ -278,12 +299,11 @@ class SerialConsole:
         got = bytearray(self._buffer)
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
-            before = len(self._buffer)
             try:
                 self._read_once()
+                got += self._last_chunk
             except ConsoleClosed:
                 break
-            got += self._buffer[before:]
         self._buffer = b""
         return bytes(got)
 
