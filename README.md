@@ -6,7 +6,7 @@ English | [正體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md) | [�
 
 gentoo-install runs in a Linux live environment to install an amd64 Gentoo system. An interactive menu or a TOML configuration file specifies the installation. The interface is available in English, Traditional Chinese, Simplified Chinese, Japanese and Korean.
 
-![The menu showing the installation decisions](screenshot.png)
+![The menu showing the installation decisions](screenshot-en.png)
 
 ![The cjktty console rendering Simplified Chinese, Traditional Chinese, Japanese and Korean](cjk-console.png)
 
