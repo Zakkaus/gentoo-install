@@ -51,6 +51,9 @@ AUTOUNMASK_FILES: Final[tuple[str, ...]] = (
     "/etc/portage/package.license/zz-autounmask",
 )
 
+#: Where Gentoo publishes the keys gemato refreshes.
+KEY_SERVER: Final[str] = "hkps://keys.gentoo.org"
+
 PROXY_BOOTSTRAP: Final[PurePosixPath] = PurePosixPath(
     "/etc/gentoo-install/proxy.toml"
 )
@@ -420,11 +423,13 @@ class WebrsyncRepository(Operation):
             ["portageq", "envvar", "PORTAGE_GPG_KEY_SERVER"], check=False
         )
         readable = isinstance(policy, CommandOutput) and policy.returncode == 0
-        server = policy.strip() if readable else ""
-        command = ["emerge-webrsync"]
-        if server:
-            command = ["env", f"PORTAGE_GPG_KEY_SERVER={server}", *command]
-        context.run_in_target(command)
+        # Gentoo's own when the stage3 names none: gemato tries WKD first and
+        # falls back to a keyserver, and with none configured a WKD that does
+        # not answer ends the install at `No keyserver available`.
+        server = (policy.strip() if readable else "") or KEY_SERVER
+        context.run_in_target(
+            ["env", f"PORTAGE_GPG_KEY_SERVER={server}", "emerge-webrsync"]
+        )
 
 
 #: Records between the lines tar prints while unpacking. One every few
