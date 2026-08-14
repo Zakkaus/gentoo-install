@@ -684,7 +684,15 @@ def initramfs_keymap(config: InstallConfig) -> str:
     """Only when an encrypted device asks for a passphrase before the console
     keymap is loaded, and only when it differs from the default."""
     wanted = config.system.keymap_initramfs or config.system.keymap
-    if wanted == "us" or not compat.early_containers(config.disk.graph):
+    graph = config.disk.graph
+    native_encrypted_root = any(
+        pool.encrypted
+        for pool in graph.of_type(ZfsPool)
+        if pool.id in graph.ancestors_of(config.disk.root)
+    )
+    if wanted == "us" or (
+        not compat.early_containers(graph) and not native_encrypted_root
+    ):
         return ""
     return wanted
 
