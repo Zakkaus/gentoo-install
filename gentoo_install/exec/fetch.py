@@ -738,6 +738,20 @@ def _read_once(url: str, proxy: ProxyConfig | None = None) -> str:
 DOWNLOAD_TRIES: Final[int] = 3
 
 
+#: How long a name may stay unresolvable before the install gives up. A
+#: resolver that answers intermittently is the common case on the networks this
+#: installer is used from, and `Temporary failure in name resolution` says so;
+#: six seconds of retry ended installs a resolver would have served a minute
+#: later. `SYNC_PAUSE` waits this long for a mirror rewriting its Manifests.
+UNRESOLVED_PAUSE: Final[float] = 30.0
+
+
+def _unresolved(error: BaseException) -> bool:
+    """Whether the name did not resolve, rather than the host refusing."""
+    reason = getattr(error, "reason", error)
+    return isinstance(reason, socket.gaierror) and reason.errno == socket.EAI_AGAIN
+
+
 def _permanent(error: BaseException) -> bool:
     """Whether trying again cannot help. A missing archive stays missing; a
     timeout, a reset, or `429 Too Many Requests` is a moment rather than an
@@ -767,7 +781,10 @@ def _download(
                 raise
             last = error
             if attempt + 1 < DOWNLOAD_TRIES:
-                time.sleep(ONLINE_PAUSE * 2**attempt)
+                cause = error.__cause__ or error
+                time.sleep(
+                    UNRESOLVED_PAUSE if _unresolved(cause) else ONLINE_PAUSE * 2**attempt
+                )
     assert last is not None
     raise last
 
