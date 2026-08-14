@@ -2163,3 +2163,70 @@ def test_a_console_that_refuses_to_close_does_not_stop_the_reconnect() -> None:
     link.reopen(solicit_prompt=False)
 
     assert opened == ["open", "open"]
+def test_the_pinned_names_come_from_the_mirror_table() -> None:
+    """Listing them beside the mirrors is how the two lists drift apart. Every
+    mirror this installer can be pointed at has to be reachable when the
+    segment's own resolver is not answering."""
+    from urllib.parse import urlsplit
+
+    from gentoo_install.model import mirrors
+    from tests.vm.cluster import UNMIRRORED, wanted_names
+
+    named = set(wanted_names())
+    for site in (*mirrors.GENTOO_SITES, *mirrors.GENTOOZH_SITES):
+        for url in (site.distfiles, site.git, site.rsync):
+            if not url:
+                continue
+            host = urlsplit(url).hostname or url.split("::", 1)[0].split("/", 1)[0]
+            assert host in named, host
+    assert set(UNMIRRORED) <= named
+
+
+def test_nothing_reaches_etc_hosts_unless_it_was_asked_for() -> None:
+    """With names carried in, a resolver failure inside the installer would go
+    unnoticed, so the run would prove less than it says."""
+    from tests.vm.cluster import configure_statically
+
+    assert "/etc/hosts" not in configure_statically("10.31.0.150")
+    assert "/etc/hosts" in configure_statically("10.31.0.150", "1.2.3.4 example\\n")
+
+
+def test_the_carried_names_are_written_before_the_first_probe() -> None:
+    """The segment's resolver answers the probe and stops answering twenty
+    steps later. Carrying the names only when the probe fails left every guest
+    that reached a mirror once depending on it for the rest of the install."""
+    from tests.vm import cluster
+
+    sent: list[str] = []
+
+    class Link:
+        def run(self, command: str, timeout: float = 120.0) -> None:
+            sent.append(command)
+
+        def expect_output(self, command: str, timeout: float = 180.0) -> bytes:
+            sent.append(command)
+            return cluster.NETWORK_UP.encode()
+
+    cluster.wait_for_network(cast(Any, Link()), 9300, "10.31.0.150", "1.2.3.4 example\\n")
+
+    assert sent, "nothing was sent to the guest"
+    assert "/etc/hosts" in sent[0]
+    assert cluster.NETWORK_PROBE in sent[1]
+
+
+def test_nothing_is_carried_when_it_was_not_asked_for() -> None:
+    from tests.vm import cluster
+
+    sent: list[str] = []
+
+    class Link:
+        def run(self, command: str, timeout: float = 120.0) -> None:
+            sent.append(command)
+
+        def expect_output(self, command: str, timeout: float = 180.0) -> bytes:
+            sent.append(command)
+            return cluster.NETWORK_UP.encode()
+
+    cluster.wait_for_network(cast(Any, Link()), 9300, "10.31.0.150")
+
+    assert not any("/etc/hosts" in one for one in sent)

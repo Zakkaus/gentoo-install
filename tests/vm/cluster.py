@@ -23,6 +23,7 @@ import os
 import queue
 import signal
 import re
+import socket
 import subprocess
 import sys
 import threading
@@ -721,7 +722,58 @@ def static_address(vmid: int) -> str:
     return f"{GUEST_NETWORK}.{GUEST_ADDRESS_BASE + vmid - VMID_FIRST}"
 
 
-def configure_statically(address: str) -> str:
+#: What an install reaches that is not a mirror. `model/mirrors.py` lists the
+#: rest, and listing them twice is how the two lists drift apart.
+UNMIRRORED: Final[tuple[str, ...]] = ("keys.gentoo.org",)
+
+
+def wanted_names() -> tuple[str, ...]:
+    """Every host an install resolves, from the mirror table and the few that
+    are not mirrors."""
+    from urllib.parse import urlsplit
+
+    found: set[str] = set(UNMIRRORED)
+    for site in (*mirrors.GENTOO_SITES, *mirrors.GENTOOZH_SITES):
+        for url in (site.distfiles, site.git, site.rsync):
+            if not url:
+                continue
+            # An rsync URI is `host::module`, which `urlsplit` reads as a path.
+            host = urlsplit(url).hostname or url.split("::", 1)[0].split("/", 1)[0]
+            if host:
+                found.add(host)
+    return tuple(sorted(found))
+
+
+def pinned_hosts() -> str:
+    """`/etc/hosts` lines for those names, resolved on this machine.
+
+    The guests on this segment resolve nothing at all while the resolver behind
+    `10.31.0.254` is down, and every run stopped at the stage3 fetch with
+    `Temporary failure in name resolution`. This workstation still resolves, so
+    the answers are carried in rather than asked for. Off unless `--pin-hosts`
+    says otherwise: with it on, a name the installer fails to resolve by itself
+    would still be reached, and the run would prove less than it says.
+    """
+    lines: list[str] = []
+    for name in wanted_names():
+        try:
+            address = socket.getaddrinfo(name, 443, socket.AF_INET)[0][4][0]
+        except OSError:
+            continue
+        lines.append(f"{address} {name}")
+    return "".join(f"{line}\\n" for line in lines)
+
+
+def carry_hosts(pinned: str) -> str:
+    """Append the answers this machine has to the guest's `/etc/hosts`.
+
+    Appended rather than written: the medium's own entry for localhost is in
+    there, and replacing the file takes it away.
+    """
+    return f"printf '{pinned}' >> /etc/hosts"
+
+
+def configure_statically(address: str, pinned: str = "") -> str:
     """Give the interface the address reserved by the scheduler.
 
     This segment carries other people's machines: a probe found 10.31.0.106
@@ -736,6 +788,7 @@ def configure_statically(address: str) -> str:
     # `\\n` for printf, not a real newline: the whole thing is one line sent to
     # a serial console, and a literal break there is two commands.
     resolvers = "".join(f"nameserver {one}\\n" for one in GUEST_RESOLVERS)
+    carried = carry_hosts(pinned) + "; " if pinned else ""
     return (
         # Nothing at all once there is a default route. Without this guard the
         # second pass probed the address the first pass had taken, `arping -D`
@@ -747,6 +800,9 @@ def configure_statically(address: str) -> str:
         f'ip -4 route replace default via {gateway} dev "$dev" 2>/dev/null; '
         "done; }; "
         f"printf '{resolvers}' > /etc/resolv.conf; "
+        # Appended, never written: the medium's own entry for localhost is in
+        # there and replacing the file takes it away.
+        f"{carried}"
         "ip -4 route show default | grep -q . || true"
     )
 
@@ -787,7 +843,9 @@ def reach_prompt(link: Reconnecting, patience: float = PROMPT_PATIENCE) -> None:
     raise ConsoleTimeout(f"the medium did not reach a shell in {patience:.0f}s")
 
 
-def wait_for_network(link: Reconnecting, vmid: int = 0, address: str = "") -> None:
+def wait_for_network(
+    link: Reconnecting, vmid: int = 0, address: str = "", pinned: str = ""
+) -> None:
     """Configure the guest's interface, then wait until it can reach a mirror.
 
     The medium boots with `nodhcp` and leaves the link unconfigured, so
@@ -799,7 +857,17 @@ def wait_for_network(link: Reconnecting, vmid: int = 0, address: str = "") -> No
     server, which is what a run outside the cluster does.
     """
     deadline = time.monotonic() + NETWORK_PATIENCE
-    configure = configure_statically(address or static_address(vmid)) if vmid else ASK_FOR_IPV4
+    configure = (
+        configure_statically(address or static_address(vmid), pinned)
+        if vmid
+        else ASK_FOR_IPV4
+    )
+    # Before the probe, not with the configuration that only runs when the
+    # probe fails: the segment's resolver answers the probe and stops answering
+    # twenty steps later, so a guest that reached a mirror once was left
+    # depending on it for the rest of the install.
+    if pinned:
+        link.run(carry_hosts(pinned), timeout=120.0)
     asked = False
     while time.monotonic() < deadline:
         said = link.expect_output(NETWORK_PROBE, timeout=180.0)
@@ -1205,6 +1273,7 @@ def install_one(
     revision: str = "",
     execution: Running | None = None,
     remote_key: Path | None = None,
+    pinned: str = "",
 ) -> Outcome:
     """Build a guest, install into it, read the result, delete the guest."""
     started = time.monotonic()
@@ -1240,7 +1309,7 @@ def install_one(
         # cluster hands out a real configuration, and it is IPv6 with DNS64.
         # Writing IPv4 resolvers over it left every mirror unreachable:
         # `Failed to connect to mirrors.tuna.tsinghua.edu.cn:443 after 111 ms`.
-        wait_for_network(link, guest.vmid, held.address)
+        wait_for_network(link, guest.vmid, held.address, pinned)
         stage_passphrases(link, load(job.fixture))
         link.run("mkdir -p /mnt/driver")
         link.run("mountpoint -q /mnt/driver || mount -o ro /dev/sr1 /mnt/driver")
@@ -1346,6 +1415,7 @@ def answer_once(
     revision: str = "",
     execution: Running | None = None,
     remote_key: Path | None = None,
+    pinned: str = "",
 ) -> None:
     """Run one job and put exactly one outcome on the queue, whatever happens.
 
@@ -1367,6 +1437,7 @@ def answer_once(
             revision,
             execution,
             remote_key,
+            pinned,
         )
         outcome = replace(outcome, vmid=outcome.vmid or vmid)
         done.put(outcome)
@@ -1391,6 +1462,7 @@ def run(
     stamp: int = 0,
     region: MirrorRegion = MirrorRegion.GLOBAL,
     sync: Sync = Sync.RSYNC,
+    pin_hosts: bool = False,
 ) -> list[Outcome]:
     """Every job, collected one at a time as each finishes.
 
@@ -1406,6 +1478,7 @@ def run(
     reconcile(api, workdir)
     addresses = AddressPool(ADDRESS_POOL_ROOT, _address_is_taken)
     remote_key = ssh_keypair(workdir) if any(job.remote_unlock for job in jobs) else None
+    pinned = pinned_hosts() if pin_hosts else ""
     public_key = remote_key.with_suffix(".pub").read_text().strip() if remote_key else ""
     # Packed: the ingress refuses the 1.4 MiB loose-file CD with `413`.
     staging = workdir / f".driver-{uuid.uuid4().hex}.iso"
@@ -1516,6 +1589,7 @@ def run(
                         revision,
                         execution,
                         remote_key,
+                        pinned,
                     ),
                     daemon=False,
                 )
@@ -2224,6 +2298,14 @@ def main(argv: list[str] | None = None) -> int:
         help="which mirror region every fixture is rewritten to use",
     )
     parser.add_argument(
+        "--pin-hosts",
+        action="store_true",
+        help=(
+            "carry this machine's answers for the mirror host names into each "
+            "guest's /etc/hosts, for a segment whose resolver is down"
+        ),
+    )
+    parser.add_argument(
         "--sync",
         choices=[one.value for one in Sync],
         default=Sync.RSYNC.value,
@@ -2253,6 +2335,7 @@ def main(argv: list[str] | None = None) -> int:
         int(time.time()),
         MirrorRegion(args.region),
         Sync(args.sync),
+        args.pin_hosts,
     )
     passed = [
         one
