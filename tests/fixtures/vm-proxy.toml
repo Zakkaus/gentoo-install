@@ -1,15 +1,19 @@
-# The negative direction of the proxy option: every fetch is pointed at a port
-# nothing listens on, so the install must stop rather than reach the network
-# directly. `vm-proxy` is the same layout with a proxy that works.
+# Every fetch goes through a SOCKS5 proxy that demands a password. `vm-proxy-dead`
+# proves the failure direction; nothing had ever proved that an install completes
+# when the proxy works, which is what an operator on an intranet actually needs.
+#
+# `10.0.2.2` is the workstation as qemu's user-mode network presents it, so this
+# fixture runs under `tests/vm/run.py` and not on the cluster.
 #
 # The root hash below is `install`, produced by `openssl passwd -6`.
 config_version = 1
 
 [proxy]
-url = "http://127.0.0.1:1"
+url = "socks5h://installer:secret@10.0.2.2:1080"
+bypass = ["localhost", "127.0.0.1"]
 
 [system]
-hostname = "btrfsbox"
+hostname = "proxybox"
 timezone = "Asia/Taipei"
 locales = ["en_US.UTF-8", "zh_TW.UTF-8"]
 locale = "zh_TW.UTF-8"

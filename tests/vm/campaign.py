@@ -174,6 +174,11 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         # the mirror proves something bypassed it, so this one is expected to
         # fail at the stage3 download and its failure is the result.
         Run("fixtures/vm-proxy-dead.toml"),
+        # The direction that matters to an operator on an intranet, and the one
+        # nothing covered: the proxy answers and the install completes through
+        # it. It needs a SOCKS5 listener on the workstation, so `run.py` refuses
+        # the run rather than reporting a proxy defect the fixture cannot show.
+        Run("fixtures/vm-proxy.toml"),
         Run("fixtures/vm-unlock.toml"),
         # The same configuration again, killed partway and finished with
         # --resume: the one path nothing else reaches.
