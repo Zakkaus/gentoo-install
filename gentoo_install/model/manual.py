@@ -317,6 +317,11 @@ def _index_of(entry: Slice) -> int:
     return entry.partition_number if entry.partition_number is not None else entry.index
 
 
+def _has_existing_slices(slices: list[Slice]) -> bool:
+    """Whether the disk still has any partition entry from before this run."""
+    return any(entry.status.exists for entry in slices)
+
+
 def _table_nodes(disk: Disk, prefix: str) -> list[Node]:
     """The disk and its table, or nothing when no row edits the table.
 
@@ -325,16 +330,14 @@ def _table_nodes(disk: Disk, prefix: str) -> list[Node]:
     """
     if not disk.writes_the_table():
         return []
-    untouched = any(
-        one.status.exists and one.status is not SliceStatus.DELETE for one in disk.slices
-    ) or any(one.status is SliceStatus.DELETE for one in disk.slices)
+    has_existing_slices = _has_existing_slices(disk.slices)
     return [
-        Existing(id=DeviceId(prefix), selector=disk.selector, wipe=not untouched),
+        Existing(id=DeviceId(prefix), selector=disk.selector, wipe=not has_existing_slices),
         PartitionTable(
             id=DeviceId(f"{prefix}-table"),
             disk=DeviceId(prefix),
             table=disk.table,
-            create=not untouched,
+            create=not has_existing_slices,
             remove=tuple(
                 _index_of(one) for one in disk.slices if one.status is SliceStatus.DELETE
             ),
