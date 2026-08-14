@@ -312,6 +312,9 @@ def _refusing_api(
         ("GET", "/nodes", 502),
         ("GET", "/nodes", 503),
         ("GET", "/nodes", 504),
+        # The cluster proxy could not reach the node. `infra-node3` answered
+        # this while restarting and ended a campaign at its first dispatch.
+        ("GET", "/nodes/node/qemu/9306/status", 595),
         ("POST", "/nodes/node/qemu/9300/termproxy", 500),
         ("GET", "/nodes/node/tasks/UPID%3Anode%3Atask/status", 500),
     ],
@@ -2968,3 +2971,24 @@ def test_the_blind_edit_presses_before_the_menu_boots_itself() -> None:
     # Not so early that the firmware has not reached GRUB either: SeaBIOS and
     # the medium's own search take a few seconds before the menu is drawn.
     assert BIOS_MENU_DELAY >= 4.0
+
+
+def test_a_refusal_from_the_node_itself_is_not_transient() -> None:
+    """`403` is an answer, and retrying it wastes the window a real failure
+    needs."""
+    import io
+    import urllib.error
+
+    from tests.vm.proxmox import ProxmoxError, ProxmoxTransientError, _http_exception
+
+    error = urllib.error.HTTPError(
+        "https://pve.invalid/api2/json/nodes/infra-node3/qemu/9306/status",
+        403,
+        "Permission check failed",
+        Message(),
+        io.BytesIO(b""),
+    )
+    classified = _http_exception("GET", "/nodes/infra-node3/qemu/9306/status", error)
+
+    assert isinstance(classified, ProxmoxError)
+    assert not isinstance(classified, ProxmoxTransientError)

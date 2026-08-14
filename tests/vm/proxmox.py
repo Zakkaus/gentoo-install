@@ -127,7 +127,10 @@ def _http_exception(method: str, path: str, error: urllib.error.HTTPError) -> Pr
         re.fullmatch(r"/nodes/[^/]+/qemu/\d+/termproxy(?:\?.*)?", path) is not None
         or re.fullmatch(r"/nodes/[^/]+/tasks/[^/]+/status(?:\?.*)?", path) is not None
     )
-    if error.code in (429, 502, 503, 504) or retryable_500:
+    # 595 is the cluster proxy saying it could not reach the node, not the node
+    # saying no: `infra-node3` answered it four times while restarting, and the
+    # fourth ended a twenty-two guest campaign at its first dispatch.
+    if error.code in (429, 502, 503, 504, 595) or retryable_500:
         return ProxmoxTransientError(message)
     return ProxmoxError(message)
 
