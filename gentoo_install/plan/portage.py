@@ -57,6 +57,9 @@ KEY_SERVER: Final[str] = "hkps://keys.gentoo.org"
 PROXY_BOOTSTRAP: Final[PurePosixPath] = PurePosixPath(
     "/etc/gentoo-install/proxy.toml"
 )
+CURL_PROXY_CONFIG: Final[PurePosixPath] = PurePosixPath(
+    "/etc/gentoo-install/curl-proxy.conf"
+)
 
 FETCHCOMMAND: Final[str] = (
     'wget -t 3 -T 60 --passive-ftp -U "Portage (Gentoo, '
@@ -65,6 +68,19 @@ FETCHCOMMAND: Final[str] = (
 RESUMECOMMAND: Final[str] = (
     'wget -c -t 3 -T 60 --passive-ftp -U "Portage (Gentoo, '
     'https://www.gentoo.org) distfile-fetch" -O "${DISTDIR}/${FILE}" "${URI}"'
+)
+#: `-K` rather than the command line: `/proc/<pid>/cmdline` is world readable
+#: and the file this names carries the proxy's password. curl treats a missing
+#: file as an error, and `WriteProxyClients` writes it before the first fetch.
+CURL_FETCHCOMMAND: Final[str] = (
+    f'curl -K {CURL_PROXY_CONFIG} --fail --location --retry 3 '
+    '--connect-timeout 60 --output '
+    '"${DISTDIR}/${FILE}" "${URI}"'
+)
+CURL_RESUMECOMMAND: Final[str] = (
+    f'curl -K {CURL_PROXY_CONFIG} --fail --location --retry 3 '
+    '--connect-timeout 60 --continue-at - --output '
+    '"${DISTDIR}/${FILE}" "${URI}"'
 )
 
 #: What is absent matters as much as what is here, and the reason for each
@@ -161,17 +177,20 @@ class WriteProxyClients(Operation):
         bypass = ",".join(proxy.bypass)
         context.write(
             PurePosixPath("/etc/wgetrc"),
-            f"use_proxy = {'on' if proxy.enabled else 'off'}\n"
-            f"http_proxy = {endpoint}\nhttps_proxy = {endpoint}\n"
-            f"no_proxy = {bypass}\nproxy_user = {proxy.username}\n"
-            f"proxy_password = {proxy.password}\n",
+            (
+                f"use_proxy = on\nhttp_proxy = {endpoint}\nhttps_proxy = {endpoint}\n"
+                f"no_proxy = {bypass}\nproxy_user = {proxy.username}\n"
+                f"proxy_password = {proxy.password}\n"
+                if proxy.over_http
+                else "use_proxy = off\n"
+            ),
             mode=0o600,
         )
         context.write(
-            PurePosixPath("/etc/curlrc"),
-            f"proxy = {endpoint}\n"
-            f"noproxy = {bypass}\n"
-            f"proxy-user = {proxy.username}:{proxy.password}\n",
+            CURL_PROXY_CONFIG,
+            f'proxy = "{endpoint}"\n'
+            f'noproxy = "{bypass}"\n'
+            f'proxy-user = "{proxy.username}:{proxy.password}"\n',
             mode=0o600,
         )
         context.write(
@@ -179,11 +198,6 @@ class WriteProxyClients(Operation):
             "[http]\n"
             f"\tproxy = {proxy.url}\n"
             f"\tnoProxy = {bypass}\n",
-            mode=0o600,
-        )
-        context.write(
-            PurePosixPath("/etc/portage/gnupg/dirmngr.conf"),
-            f"http-proxy {proxy.url}\n" if proxy.enabled else "",
             mode=0o600,
         )
         context.write(
@@ -1096,20 +1110,44 @@ def make_conf(
     proxy = config.proxy
     if proxy.enabled:
         endpoint = _proxy_endpoint(proxy)
+        fetchcommand = CURL_FETCHCOMMAND if proxy.over_socks else FETCHCOMMAND
+        resumecommand = CURL_RESUMECOMMAND if proxy.over_socks else RESUMECOMMAND
+        # `http_proxy` names an HTTP proxy and nothing else. `getuto` writes
+        # `honor-http-proxy` into its own dirmngr.conf, so a SOCKS URL there
+        # made the tree's signature check answer `keyserver refresh failed:
+        # Invalid URI`. dirmngr cannot use SOCKS at all; `all_proxy` is the
+        # one curl reads and dirmngr ignores.
+        named = ("all_proxy",) if proxy.over_socks else (
+            "http_proxy", "https_proxy", "ftp_proxy", "all_proxy"
+        )
+        settings += [(name, endpoint) for name in named]
         settings += [
-            ("http_proxy", endpoint),
-            ("https_proxy", endpoint),
-            ("ftp_proxy", endpoint),
-            ("all_proxy", endpoint),
             ("no_proxy", ",".join(proxy.bypass)),
-            ("FETCHCOMMAND", FETCHCOMMAND),
-            ("RESUMECOMMAND", RESUMECOMMAND),
+            ("FETCHCOMMAND", fetchcommand),
+            ("RESUMECOMMAND", resumecommand),
         ]
-        if urlsplit(proxy.url).scheme.lower() in {"http", "https"}:
+        if proxy.over_http:
             settings.append(("RSYNC_PROXY", _rsync_proxy(proxy)))
-    if _uses_binhost(portage):
-        settings.append(("FEATURES", "getbinpkg"))
+    features = _features(config)
+    if features:
+        settings.append(("FEATURES", " ".join(features)))
     return tuple(settings)
+
+
+def _features(config: InstallConfig) -> tuple[str, ...]:
+    """One `FEATURES` value, because two would leave two lines and bash keeps
+    the last.
+
+    `userfetch` is Portage's own default and it drops the fetch to the
+    `portage` user, which cannot read the `0600` files holding the proxy's
+    password: curl answered `cannot read config from` for every distfile.
+    """
+    wanted: list[str] = []
+    if _uses_binhost(config.portage):
+        wanted.append("getbinpkg")
+    if config.proxy.enabled and (config.proxy.over_socks or config.proxy.username):
+        wanted.append("-userfetch")
+    return tuple(wanted)
 
 
 def _proxy_endpoint(proxy: ProxyConfig) -> str:
