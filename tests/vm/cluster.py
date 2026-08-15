@@ -786,8 +786,18 @@ def carry_hosts(pinned: str) -> str:
 
     Appended rather than written: the medium's own entry for localhost is in
     there, and replacing the file takes it away.
+
+    Answered afterwards rather than assumed: three rounds wrote this file and
+    then failed to resolve a name that was in it, which the log could not tell
+    apart from the file never being written.
     """
-    return f"printf '{pinned}' >> /etc/hosts"
+    first = pinned.split("\\n", 1)[0].split(" ", 1)[-1] if pinned else ""
+    return (
+        f"printf '{pinned}' >> /etc/hosts; "
+        f"printf 'PINNED_%s_LINES\\n' \"$(grep -c . /etc/hosts)\"; "
+        f"getent hosts {first} > /dev/null && printf 'PINNED_ANSWERS\\n' "
+        f"|| printf 'PINNED_UNANSWERED\\n'"
+    )
 
 
 def configure_statically(address: str, pinned: str = "") -> str:
