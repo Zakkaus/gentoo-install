@@ -53,13 +53,12 @@ def _labelled(setting: Setting, current: InstallConfig, context: Context) -> str
     return f"{label} [{context.translate(named)}]" if named else label
 
 
-def _menu_footer(context: Context, config: InstallConfig) -> str:
+def _menu_footer(context: Context) -> str:
     """Label the main-menu action by what Enter opens."""
     return "  ".join(
         (
             f"[enter] {context.translate('Open')}",
             f"[q] {context.translate('Cancel')}",
-            _legend(config, context),
         )
     )
 
@@ -117,7 +116,8 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
             title="gentoo-install",
             items=items,
             cursor=cursor,
-            footer=_menu_footer(context, current),
+            footer=_menu_footer(context),
+            legend=_legend(current, context),
         )
         answer = menu.run(screen)
         cursor = menu.cursor

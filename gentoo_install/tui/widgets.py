@@ -121,22 +121,28 @@ class Screen(Protocol):
         """Block until a key press and return its name."""
 
 
+def spread(left: str, right: str, columns: int) -> str:
+    """`left` at the margin and `right` at the end of one row that wide.
+
+    `right` is dropped rather than truncated when the two cannot both fit: half
+    a count reads as a different count, and half a legend explains a mark the
+    reader can no longer see named.
+    """
+    head = truncate(left, columns)
+    room = columns - width(head) - 1
+    tail = right if right and width(right) <= room else ""
+    return f"{head}{' ' * (columns - width(head) - width(tail))}{tail}"
+
+
 def band(screen: Screen, line: int, left: str, right: str = "") -> None:
-    """One full-width reversed row, `left` at the margin and `right` at the end.
+    """One full-width reversed row.
 
     Reverse video is an attribute rather than a glyph, so a console with no
     colour and no line-drawing font still shows the edge; a box drawn from
     `U+2500` would be a row of question marks on the medium's own font.
-
-    `right` is dropped rather than truncated when the two cannot both fit: half
-    a count reads as a different count.
     """
     _, columns = screen.size()
-    head = truncate(left, columns)
-    room = columns - width(head) - 1
-    tail = right if right and width(right) <= room else ""
-    padding = columns - width(head) - width(tail)
-    screen.write(line, 0, f"{head}{' ' * padding}{tail}", highlight=True)
+    screen.write(line, 0, spread(left, right, columns), highlight=True)
 
 
 @dataclass(frozen=True)
@@ -187,6 +193,9 @@ class _Menu(Generic[V, A]):
     #: keeps the binary behavior unless it opts in.
     tri_state: bool = False
     footer: str = ""
+    #: What the marks in the body mean, kept at the end of the footer line so
+    #: it does not read as one more key.
+    legend: str = ""
     #: Lines drawn between the title and the rows. For a question whose
     #: subject is a list: the title is one line and truncated to the width.
     preamble: tuple[str, ...] = ()
@@ -315,8 +324,11 @@ class _Menu(Generic[V, A]):
                 highlight=index == cursor,
                 style=item.style,
             )
-        if self.footer:
-            screen.write(lines - 1, 0, truncate(self.footer, columns))
+        if self.footer or self.legend:
+            # Held apart rather than run together: the keys and what the marks
+            # mean are two things to read, and one line of `[enter] open
+            # [q] cancel * required ~ never opened` reads as neither.
+            screen.write(lines - 1, 0, spread(self.footer, self.legend, columns))
         screen.show()
 
     def _display_rows(self, columns: int) -> list[tuple[int | None, str]]:
@@ -371,6 +383,9 @@ class TextField:
     #: Shown instead of the characters typed, for a password.
     masked: bool = False
     footer: str = ""
+    #: What the marks in the body mean, kept at the end of the footer line so
+    #: it does not read as one more key.
+    legend: str = ""
     #: Drawn inside the field while it is empty, so a field that takes an
     #: unusual value still says what that value looks like.
     placeholder: str = ""
@@ -422,8 +437,11 @@ class TextField:
         # drawn only when there is no `detail` naming the exact string.
         inside = f"{shown}_" if typed else f"_{truncate(self.placeholder, room - 1)}"
         screen.write(row, 2, f"[ {inside}{' ' * (room - width(inside))} ]", highlight=True)
-        if self.footer:
-            screen.write(lines - 1, 0, truncate(self.footer, columns))
+        if self.footer or self.legend:
+            # Held apart rather than run together: the keys and what the marks
+            # mean are two things to read, and one line of `[enter] open
+            # [q] cancel * required ~ never opened` reads as neither.
+            screen.write(lines - 1, 0, spread(self.footer, self.legend, columns))
         screen.show()
 
 
@@ -444,6 +462,9 @@ class Confirm:
     #: sixty characters and its last component names the same disk.
     also: tuple[str, ...] = ()
     footer: str = ""
+    #: What the marks in the body mean, kept at the end of the footer line so
+    #: it does not read as one more key.
+    legend: str = ""
     #: The two answers, already translated by the caller. Defaulted so a test
     #: needs no catalog, and passed in everywhere the operator will read them.
     no: str = "No"
@@ -457,6 +478,7 @@ class Confirm:
             typed = TextField(
                 title=self.title,
                 footer=self.footer,
+                legend=self.legend,
                 placeholder=self.placeholder,
                 detail=self.detail,
             ).run(screen)
@@ -467,6 +489,7 @@ class Confirm:
             title=self.title,
             items=[Item(label=self.no, value=False), Item(label=self.yes, value=True)],
             footer=self.footer,
+            legend=self.legend,
             current=self.current,
         )
         answer = menu.run(screen)
@@ -535,6 +558,9 @@ class Form:
     title: str
     fields: list[Field]
     footer: str = ""
+    #: What the marks in the body mean, kept at the end of the footer line so
+    #: it does not read as one more key.
+    legend: str = ""
     done: str = "Done"
     #: Drawn under the title after one of the answers was rejected. Retrying
     #: with the values kept is the point: an
@@ -643,6 +669,9 @@ class Form:
             )
         end = min(len(self.fields) + offset + 1, lines - 2)
         screen.write(end, 2, self.done, highlight=cursor == len(self.fields))
-        if self.footer:
-            screen.write(lines - 1, 0, truncate(self.footer, columns))
+        if self.footer or self.legend:
+            # Held apart rather than run together: the keys and what the marks
+            # mean are two things to read, and one line of `[enter] open
+            # [q] cancel * required ~ never opened` reads as neither.
+            screen.write(lines - 1, 0, spread(self.footer, self.legend, columns))
         screen.show()
