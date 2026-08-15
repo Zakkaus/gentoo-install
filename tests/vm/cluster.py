@@ -713,7 +713,14 @@ GUEST_ADDRESS_BASE: Final[int] = 150
 #: Every resolver, in the order glibc tries them. The router's own is first
 #: because it resolves names on this network too; the public ones follow so a
 #: guest is not stranded when that Pi is busy.
-GUEST_RESOLVERS: Final[tuple[str, ...]] = (GUEST_GATEWAY, "1.1.1.1", "8.8.8.8")
+#: A resolver of ours on the guest segment, asked before anything else. The
+#: segment's own answers arrive intermittently — a guest resolved a mirror at
+#: one step and failed on the next five seconds later — and `1.1.1.1` and
+#: `8.8.8.8` are outside China, where this cluster is. `gi-resolver` is an
+#: Alpine container at this address running dnsmasq over Chinese forwarders.
+GUEST_RESOLVER: Final[str] = "10.31.0.199"
+
+GUEST_RESOLVERS: Final[tuple[str, ...]] = (GUEST_RESOLVER, GUEST_GATEWAY, "223.5.5.5")
 
 
 #: What a guest outside the cluster does, where no address is reserved for it.
