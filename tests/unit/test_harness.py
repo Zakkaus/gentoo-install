@@ -2473,3 +2473,16 @@ def test_nothing_pinned_carries_nothing() -> None:
 
 
 
+
+
+def test_the_diagnostic_asks_python_as_well_as_getent() -> None:
+    """The installer resolves with Python, so `getent` answering says nothing
+    about it: twenty-three mirrors failed with `EAI_AGAIN` in a guest whose
+    `/etc/hosts` held every one of their names and answered `PINNED_IN_FILES`
+    in the same breath."""
+    from tests.vm.cluster import carried_hosts
+
+    asked = " ".join(carried_hosts("1.1.1.1 first.example\\n2.2.2.2 last.example\\n"))
+
+    assert "socket.getaddrinfo" in asked
+    assert "PINNED_PYTHON_RESOLVES" in asked and "PINNED_PYTHON_FAILS" in asked
