@@ -1105,9 +1105,12 @@ def free_slots(
         by_memory = max(0, int(room // need))
         # A node that is out of cores is out of slots whatever its memory says:
         # `infra-node1` sat at 100% of four cores with 7 GiB free, and the
-        # cluster proxy answered 595 for the node next to it.
+        # cluster proxy answered 595 for the node next to it. One guest per
+        # free core, not one per its vCPU count: cpu time is shared rather than
+        # handed out, and requiring a heavy guest's four to be free left five
+        # fixtures unschedulable on a four-core node.
         spare = node.free_cores - NODE_HEADROOM_CORES - cores_held.get(node.name, 0)
-        by_cores = max(0, int(spare // GUEST_CORES))
+        by_cores = max(0, int(spare))
         per_node.append([node] * min(by_memory, by_cores))
     # One from each node in turn, rather than a node's whole share before the
     # next one is touched: five guests went onto `infra-node5` and left the
@@ -1138,7 +1141,7 @@ def room_for(
     spare = (
         node.free_cores - NODE_HEADROOM_CORES - (cores_placed or {}).get(node.name, 0)
     )
-    return room >= job.reservation_bytes and spare >= job.cores
+    return room >= job.reservation_bytes and spare >= 1.0
 
 
 class Stoppable(Protocol):
@@ -1253,7 +1256,10 @@ def _reserved_cores(scheduled: Mapping[str, Job]) -> Counter[str]:
             continue
         if job.node is None:
             raise ProxmoxError(f"{job.name} holds resources without a node")
-        held[job.node] += job.cores
+        # One per guest, matching what `free_slots` subtracts: a guest's
+        # sustained load is not its vCPU count, and counting that made a heavy
+        # job need more cores than any node in this cluster has.
+        held[job.node] += 1
     return held
 
 
