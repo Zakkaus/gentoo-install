@@ -782,7 +782,14 @@ class ConsoleChannel:
         raise ProxmoxError(f"no console for vm {vmid} on {node}: {last}")
 
     def recv(self, size: int) -> bytes:
-        got = self._socket.read()
+        try:
+            got = self._socket.read()
+        except WebSocketError:
+            # A frame this reader cannot parse ends the connection the same way
+            # a reset does. `read` already closed the socket, so the caller
+            # sees a closed console and reopens it; raised, it went past every
+            # `except ConsoleClosed` and ended the run.
+            return b""
         now = time.monotonic()
         if not got and now - self._last_said > self.KEEPALIVE:
             self._socket.send(b"2")
