@@ -268,6 +268,9 @@ class Outcome:
     #: Which VMID the job held. Zero for an outcome raised before one was
     #: taken, which is the only case that reserves nothing.
     vmid: int = 0
+    #: Whether the node's own console proxy went away rather than the guest.
+    #: The node gets no more guests this campaign.
+    proxy_dropped: bool = False
 
 
 @dataclass(frozen=True)
@@ -1410,14 +1413,16 @@ def install_one(
         return outcome
     except (ConsoleTimeout, ConsoleClosed) as error:
         verdict = Verdict.STUCK if watch.stuck else Verdict.ERROR
+        dropped = console_proxy_dropped(log)
         outcome = Outcome(
             job.name,
             verdict,
             time.monotonic() - started,
-            str(error)[:300],
+            dropped or str(error)[:300],
             log,
             phase=phase,
             revision=revision,
+            proxy_dropped=bool(dropped),
         )
         return outcome
     except (ProxmoxError, ResultError, OSError) as error:
@@ -1536,6 +1541,10 @@ def run(
     revision = revision_identity(driver_path)
     medium, urls, medium_sha512 = current_minimal()
     prepared: set[str] = set()
+    # A node whose console proxy went away takes no more guests: three runs on
+    # `infra-node3` were lost to the same dropped ssh while their installs
+    # were going perfectly well.
+    unreachable: set[str] = set()
     done: queue.Queue[Outcome] = queue.Queue()
     scheduled = {job.name: job for job in jobs}
     collected = 0
@@ -1548,7 +1557,11 @@ def run(
             running = [job for job in scheduled.values() if job.running]
             placed = _reserved_bytes(scheduled)
             cores_placed = _reserved_cores(scheduled)
-            slots = free_slots(api, placed, cores_placed)
+            slots = [
+                node
+                for node in free_slots(api, placed, cores_placed)
+                if node.name not in unreachable
+            ]
             if limit:
                 slots = slots[: max(0, limit - len(running))]
             if waiting and not running and not slots:
@@ -1689,6 +1702,9 @@ def run(
                     f"  {outcome.name} still holds a slot on {job.node}",
                     file=sys.stderr,
                 )
+            if outcome.proxy_dropped and job.node is not None:
+                unreachable.add(job.node)
+                print(f"  {job.node} takes no more guests this campaign", file=sys.stderr)
             print(
                 f"{outcome.verdict.value:6} {outcome.name:34} {outcome.seconds / 60:5.1f}m "
                 f"{outcome.detail}",
@@ -2183,6 +2199,41 @@ def collect(guest: Guest, link: "Reconnecting", log: Path) -> dict[str, bytes]:
 #: stopped. The worker is blocked reading a console, and closing that console
 #: is what wakes it, so this covers the read timeout and not an install.
 ABANDON_PATIENCE: Final[float] = 120.0
+
+
+#: What `termproxy` leaves in the console when it reached the guest's node
+#: over ssh and that connection went away. It names the node, not the guest:
+#: `10.31.0.200` to `.205` are the six nodes, and guests start at `.150`.
+PROXY_DROPPED: Final[re.Pattern[str]] = re.compile(
+    r"(?:Read from remote host (?P<host>\S+?): Connection reset"
+    r"|ssh: connect to host (?P<refused>\S+) port 22"
+    r"|client_loop: send disconnect)"
+)
+
+#: How much of the log's tail carries the reason a console went away.
+PROXY_TAIL_BYTES: Final[int] = 4096
+
+
+def console_proxy_dropped(log: Path) -> str:
+    """Say so when the node's console proxy went away rather than the guest.
+
+    A console that reaches another node runs over node-to-node ssh, and when
+    that ends the guest's log carries ssh's own words with no `| ` prefix.
+    Three guests on `infra-node3` were failed for a marker that never arrived
+    while their installs were running perfectly well.
+    """
+    try:
+        with log.open("rb") as reading:
+            reading.seek(0, 2)
+            reading.seek(max(0, reading.tell() - PROXY_TAIL_BYTES))
+            tail = reading.read().decode("utf-8", "replace")
+    except OSError:
+        return ""
+    found = PROXY_DROPPED.search(tail)
+    if found is None:
+        return ""
+    host = found.group("host") or found.group("refused") or "the node"
+    return f"the node's console proxy went away: {found.group(0)} ({host})"
 
 
 def _abandon(
