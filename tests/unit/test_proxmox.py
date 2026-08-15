@@ -3229,3 +3229,32 @@ def test_a_driver_cd_old_enough_to_belong_to_nobody_is_named() -> None:
     stale = Stored().stale_drivers("infra-node6", "gi-driver-thisrun.iso", day)
 
     assert stale == ["gi-driver-abandoned.iso"]
+
+
+def test_a_frame_the_reader_cannot_parse_closes_the_console() -> None:
+    """`_protocol_error` raises `WebSocketError`, which is not a `ConsoleClosed`
+    and not an `OSError`: it went past every reconnect handler. A corrupt frame
+    is one more way for a connection to end, and the reader above reopens a
+    closed one."""
+    from tests.vm.proxmox import ConsoleChannel
+    from tests.vm.websocket import WebSocketError
+
+    class Corrupt:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def read(self) -> bytes:
+            self.closed = True
+            raise WebSocketError("the server sent an invalid websocket control frame")
+
+        def send(self, data: bytes, opcode: int = 2) -> None:
+            pass
+
+        def close(self) -> None:
+            self.closed = True
+
+    socket = Corrupt()
+    channel = ConsoleChannel(cast(Any, socket))
+
+    assert channel.recv(4096) == b""
+    assert channel.closed, "the reader reopens a closed console"
