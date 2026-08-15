@@ -27,7 +27,7 @@ from gentoo_install.model.device import (
 )
 from gentoo_install.model.validate import validate
 from gentoo_install.model import compat
-from gentoo_install.tui import app, screens, settings
+from gentoo_install.tui import app, widgets, screens, settings
 from gentoo_install.tui.app import run
 from gentoo_install.tui.overview import overview_screen
 from gentoo_install.tui.widgets import Outcome
@@ -888,7 +888,26 @@ def test_compiler_group_uses_tool_translation() -> None:
 
 
 def test_main_menu_enter_action_is_open() -> None:
-    assert "[enter] Open" in app._menu_footer(context(), config())
+    assert "[enter] Open" in app._menu_footer(context())
+
+
+def test_the_footer_keys_and_the_legend_are_not_one_run_of_text() -> None:
+    """`[enter] open  [q] cancel  * required  ~ never opened` on one line reads
+    as neither the keys nor the legend. The legend sits at the end of the line,
+    and is dropped rather than cut when the two cannot both fit."""
+    keys = app._menu_footer(context())
+    legend = app._legend(config(), context())
+
+    assert legend, "a fresh configuration has rows that were never opened"
+    assert legend not in keys
+
+    wide = widgets.spread(keys, legend, 80)
+    assert wide.startswith(keys)
+    assert wide.endswith(legend)
+    assert wide[len(keys) : -len(legend)].strip() == "", "one gap, not a divider"
+
+    narrow = widgets.spread(keys, legend, len(keys) + 2)
+    assert legend not in narrow
 
 
 def test_language_section_reaches_every_language_setting_from_the_menu() -> None:
