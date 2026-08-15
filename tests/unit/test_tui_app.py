@@ -1303,8 +1303,10 @@ def test_the_version_list_is_read_from_the_machine_and_not_held_here() -> None:
     screen = FakeScreen(keys=["KEY_DOWN", "\n"], lines=20, columns=100)
     answer = screens.kernel_version_screen(screen, config(), at)
     assert answer.unwrap().kernel.version == "7.1.7"
-    assert "~amd64" in screen.frames[0][3]
-    assert "amd64" in "\n".join(screen.frames[0])
+    # Whichever frame carries the list: a screen drawn before it, to say why
+    # the network lookup is pausing, is not the one under test.
+    assert any("~amd64" in line for frame in screen.frames for line in frame)
+    assert any("amd64" in "\n".join(frame) for frame in screen.frames)
 
 
 def test_a_medium_with_no_repository_asks_for_the_version_instead() -> None:
@@ -3046,3 +3048,26 @@ def test_a_row_names_its_state_beside_the_label() -> None:
     for label, shown in named.items():
         assert shown != ctx.translate(label)
         assert shown.endswith("]")
+
+
+def test_the_interface_says_why_it_stopped_answering() -> None:
+    """The version lookup is a network request, and the interface stopped
+    answering keys while it ran with nothing on screen to say why. On a slow
+    link that reads as a program that has died."""
+    at = context()
+    drawn: list[list[str]] = []
+
+    def slow(atom: str) -> tuple[tuple[str, bool], ...]:
+        # Whatever is on the screen when the request starts is what the
+        # operator looks at for as long as it takes.
+        drawn.append([line for line in screen.frames[-1] if line.strip()])
+        return (("7.1.7", False),)
+
+    at.kernel_versions = slow
+    screen = FakeScreen(keys=["\n"], lines=20, columns=100)
+    screens.kernel_version_screen(screen, config(), at)
+
+    assert drawn, "the lookup ran before anything was drawn"
+    said = "\n".join(drawn[0])
+    assert "reading the versions" in said
+    assert "sys-kernel/" in said

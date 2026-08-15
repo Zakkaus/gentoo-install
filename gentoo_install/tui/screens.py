@@ -83,6 +83,7 @@ from ..plan.packages import INPUT_CONFIGURATION_DISABLED, INPUT_CONFIGURATION_EN
 from ..plan.packages import driver_conflict, framework_conflict
 from ..plan import system as plan_system
 from .widgets import (
+    band,
     MINIMUM_COLUMNS,
     Answer,
     Confirm,
@@ -1362,6 +1363,23 @@ KERNELS: tuple[tuple[KernelSource, str], ...] = (
 )
 
 
+def _while_reading(
+    screen: Screen, context: Context, package: str
+) -> tuple[tuple[str, bool], ...]:
+    """Read the versions with the reason for the pause on the screen.
+
+    The lookup is a network request and the interface stopped answering keys
+    while it ran, with nothing to say why: on a slow link that reads as a
+    program that has died. Drawn before the call and left there, because the
+    call is what returns.
+    """
+    screen.clear()
+    band(screen, 0, context.translate("Kernel"), package)
+    screen.write(2, 2, context.translate("reading the versions this package offers"))
+    screen.show()
+    return context.kernel_versions(package)
+
+
 def _within(
     offered: tuple[tuple[str, bool], ...], ceiling: str
 ) -> tuple[tuple[str, bool], ...]:
@@ -1398,7 +1416,7 @@ def kernel_version_screen(
     translate = context.translate
     package = config.kernel.package or KERNEL_PACKAGES[config.kernel.source]
     ceiling = context.zfs_kernel_max if config.disk.graph.of_type(ZfsPool) else ""
-    offered = _within(context.kernel_versions(package), ceiling)
+    offered = _within(_while_reading(screen, context, package), ceiling)
     if not offered:
         typed = TextField(
             title=f"{package}  {translate('version')}",

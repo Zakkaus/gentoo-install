@@ -532,3 +532,4 @@
 "no user password and no authorised ssh key usable by sshd" = "沒有使用者密碼，也沒有 sshd 用得上的授權 ssh 金鑰"
 "the root password hash is empty, locked, or malformed, and no user password or usable ssh key can log into the installed system" = "root 密碼雜湊是空的、已鎖定或格式錯誤，而且沒有任何使用者密碼或可用的 ssh 金鑰能登入安裝完成的系統"
 "the separate /boot is encrypted or not vfat, so systemd-boot cannot read its kernels or entries" = "獨立的 /boot 已加密或不是 vfat，因此 systemd-boot 無法讀取其中的核心與開機項目"
+"reading the versions this package offers" = "正在讀取這個套件提供的版本"
