@@ -145,8 +145,14 @@ class Recorder:
             raise DownloadFailed(f"nothing staged for {url}")
         return self.pages[url]
 
-    def fetch_stage3(self, mirror: str, variant: str, fingerprint: str) -> PurePosixPath:
-        self.commands.append(("fetch-stage3", mirror, variant, fingerprint))
+    def fetch_stage3(
+        self,
+        mirror: str,
+        variant: str,
+        fingerprint: str,
+        fallbacks: Sequence[str] = (),
+    ) -> PurePosixPath:
+        self.commands.append(("fetch-stage3", mirror, variant, fingerprint, *fallbacks))
         return PurePosixPath("/var/cache/gentoo-install/stage3.tar.xz")
 
     def zfs_kernel_max(self) -> KernelCeiling:

@@ -151,9 +151,17 @@ class Context(Protocol):
         half-configured with nobody watching.
         """
 
-    def fetch_stage3(self, mirror: str, variant: str, fingerprint: str) -> PurePosixPath:
+    def fetch_stage3(
+        self,
+        mirror: str,
+        variant: str,
+        fingerprint: str,
+        fallbacks: Sequence[str] = (),
+    ) -> PurePosixPath:
         """Download the newest stage3 of `variant`, check its signature against
-        `fingerprint` and its digest, and return where it was written."""
+        `fingerprint` and its digest, and return where it was written.
+
+        `fallbacks` are tried in order when a mirror cannot be reached at all."""
 
     def zfs_kernel_max(self) -> KernelCeiling:
         """Read the selected target tree's authoritative ZFS kernel ceiling."""

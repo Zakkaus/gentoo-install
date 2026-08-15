@@ -24,7 +24,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from typing import Any, Callable, Final, cast
 
 from ..errors import (
@@ -87,6 +87,7 @@ def stage3(
     work: Path,
     runner: Runner,
     proxy: ProxyConfig | None = None,
+    fallbacks: Sequence[str] = (),
 ) -> Path:
     """Download the newest stage3 of `variant`, verify it, return where it is.
 
@@ -94,7 +95,32 @@ def stage3(
     download of several gigabytes. It names the digest it was written for and
     that digest is recomputed here, because an empty marker beside a replaced
     or corrupted archive was an integrity check that verified nothing.
+
+    `fallbacks` are tried in order when the first mirror cannot be reached at
+    all: a name that does not resolve or a host that refuses ends one mirror,
+    not the install, and the machine already has a list of them. A mirror that
+    answers with a file failing its signature is a different thing and stops
+    everything.
     """
+    last: DownloadFailed | None = None
+    for one in (mirror, *fallbacks):
+        try:
+            return _stage3_from(one, variant, fingerprint, work, runner, proxy)
+        except DownloadFailed as failed:
+            last = failed
+            runner.log(f"{one} did not serve the stage3: {failed}")
+    assert last is not None
+    raise last
+
+
+def _stage3_from(
+    mirror: str,
+    variant: str,
+    fingerprint: str,
+    work: Path,
+    runner: Runner,
+    proxy: ProxyConfig | None = None,
+) -> Path:
     selected = proxy if proxy is not None else _bootstrap_proxy(work)
     if selected is not None:
         configure_proxy(selected)

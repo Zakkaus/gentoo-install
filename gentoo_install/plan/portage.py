@@ -126,6 +126,10 @@ class InstallStage3(Operation):
     mirror: str
     variant: str
     proxy: ProxyConfig = ProxyConfig()
+    #: The rest of the region's sites, in order. A mirror that cannot be
+    #: reached at all ends that mirror, not the install: the stage3 fetch was
+    #: the one step in the whole plan with no second address to try.
+    fallbacks: tuple[str, ...] = ()
 
     def describe(self) -> str:
         route = f" via {self.proxy.redacted_url}" if self.proxy.enabled else " directly"
@@ -140,7 +144,9 @@ class InstallStage3(Operation):
             _proxy_toml(self.proxy),
             mode=0o600,
         )
-        archive = context.fetch_stage3(self.mirror, self.variant, RELENG_FINGERPRINT)
+        archive = context.fetch_stage3(
+            self.mirror, self.variant, RELENG_FINGERPRINT, self.fallbacks
+        )
         context.run(
             [
                 "tar", "--extract",
@@ -996,6 +1002,21 @@ class AcceptTestingGlobally(Operation):
         context.append(PurePosixPath("/etc/portage/make.conf"), 'ACCEPT_KEYWORDS="~amd64"\n')
 
 
+def _other_mirrors(config: InstallConfig, chosen: str) -> tuple[str, ...]:
+    """Every other site of the configured region, in its order.
+
+    The stage3 fetch was the one step with a single address: a mirror whose
+    name did not resolve ended the install three minutes in, with the disks
+    already partitioned and mounted.
+    """
+    sites = mirrors.gentoo_sites(config.portage.mirrors.region)
+    return tuple(
+        site.distfiles
+        for site in sites
+        if site.distfiles and site.distfiles.rstrip("/") != chosen.rstrip("/")
+    )
+
+
 def build(
     config: InstallConfig,
     mirror: str,
@@ -1006,7 +1027,12 @@ def build(
     portage = config.portage
     gentoo = PurePosixPath("/var/db/repos/gentoo")
     operations: list[Operation] = [
-        InstallStage3(mirror=mirror, variant=variant_of(config), proxy=config.proxy),
+        InstallStage3(
+            mirror=mirror,
+            variant=variant_of(config),
+            proxy=config.proxy,
+            fallbacks=_other_mirrors(config, mirror),
+        ),
         MountChrootFilesystems(),
         SeedResolver(),
     ]
