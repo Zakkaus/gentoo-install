@@ -3174,13 +3174,13 @@ def test_a_node_out_of_cores_offers_no_slot_however_much_memory_it_has() -> None
     offered = [node.name for node in free_slots(Saturated())]
 
     assert "busy" not in offered
-    assert offered == ["idle"], "one two-core guest on a node with 3.2 cores free"
+    assert offered == ["idle", "idle"], "two guests on a node with 3.2 cores free"
 
 
 def test_cores_this_schedule_has_placed_are_subtracted_too() -> None:
     """A guest's load takes minutes to show in what the node reports, the same
     lag the memory reservation exists for."""
-    from tests.vm.cluster import GUEST_CORES, GUEST_MEMORY_MIB, NODE_HEADROOM_BYTES, free_slots
+    from tests.vm.cluster import GUEST_MEMORY_MIB, NODE_HEADROOM_BYTES, free_slots
     from tests.vm.proxmox import Api, Node
 
     guest = GUEST_MEMORY_MIB * 1024**2
@@ -3199,9 +3199,11 @@ def test_cores_this_schedule_has_placed_are_subtracted_too() -> None:
                 )
             ]
 
-    assert len(free_slots(Idle())) == 3
-    assert len(free_slots(Idle(), None, {"one": GUEST_CORES * 2})) == 1
-    assert free_slots(Idle(), None, {"one": GUEST_CORES * 3}) == []
+    # One per guest, not one per vCPU: a node with 7 cores free carries six
+    # after the headroom, and each guest already placed there takes one.
+    assert len(free_slots(Idle())) == 6
+    assert len(free_slots(Idle(), None, {"one": 4})) == 2
+    assert free_slots(Idle(), None, {"one": 6}) == []
 
 
 def test_a_driver_cd_old_enough_to_belong_to_nobody_is_named() -> None:
@@ -3296,3 +3298,24 @@ def test_a_delete_refused_for_another_reason_is_not_retried() -> None:
 
     assert isinstance(answered, ProxmoxError)
     assert not isinstance(answered, ProxmoxTransientError)
+
+
+def test_a_heavy_guest_still_fits_a_four_core_node() -> None:
+    """Every node in this cluster has four cores and a heavy guest asks for
+    four vCPUs. Requiring those to be free meant `btrfs-luks`, `vm-desktop`,
+    `vm-gnome`, `vm-openrc-desktop` and `zfs-zbm` could never be placed at all:
+    a round dispatched three light fixtures and stalled."""
+    from tests.vm.cluster import HEAVY_MEMORY_MIB, Job, NODE_HEADROOM_BYTES, room_for
+    from tests.vm.proxmox import Node
+
+    node = Node(
+        name="infra-node4",
+        free_bytes=NODE_HEADROOM_BYTES + HEAVY_MEMORY_MIB * 1024**2,
+        cores=4,
+        free_cores=3.5,
+    )
+    heavy = Job(name="vm-desktop", fixture=Path("vm-desktop.toml"), heavy=True)
+
+    assert heavy.cores == 4, "a heavy guest does ask for four"
+    assert room_for(node, heavy)
+    assert not room_for(node, heavy, None, {"infra-node4": 3}), "three guests already there"
