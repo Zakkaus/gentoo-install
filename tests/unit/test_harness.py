@@ -2051,3 +2051,41 @@ def test_the_campaign_expects_exactly_the_fixtures_that_cannot_finish() -> None:
     }
 
     assert named == {"vm-proxy-dead"}
+
+
+def test_a_hypervisor_that_stops_answering_is_not_a_living_guest(tmp_path: Path) -> None:
+    """`vm-desktop` sat for sixty-eight minutes on a node that had stopped
+    answering, its console silent and its counters unreadable, and every look
+    called it alive. One unanswered request is noise; a run of them is the
+    watchdog going blind, and a blind watchdog must end the guest rather than
+    wait out the ceiling."""
+    from tests.vm.cluster import BLIND_SAMPLES, Watchdog
+
+    log = tmp_path / "guest.log"
+    log.write_text("")
+    watchdog = Watchdog(log=log, counters=lambda: None)
+
+    for _ in range(BLIND_SAMPLES - 1):
+        assert watchdog.moved(), "one unreadable sample alone is not proof"
+        assert not watchdog.stuck
+    assert not watchdog.moved()
+
+    assert watchdog.stuck
+    assert "did not answer" in (watchdog.idle_reason() or "")
+
+
+def test_a_guest_still_printing_survives_an_unreadable_counter(tmp_path: Path) -> None:
+    """The counters go unreadable for a node under load while the guest is
+    fine, and the console is the other half of the answer."""
+    from tests.vm.cluster import BLIND_SAMPLES, Watchdog
+
+    log = tmp_path / "guest.log"
+    log.write_text("")
+    watchdog = Watchdog(log=log, counters=lambda: None)
+
+    for step in range(BLIND_SAMPLES * 3):
+        log.write_text("x" * (step + 1) * 4096)
+        assert watchdog.moved()
+
+    assert not watchdog.stuck
+    assert watchdog.idle_reason() is None
