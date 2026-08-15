@@ -2965,12 +2965,17 @@ def test_the_blind_edit_presses_before_the_menu_boots_itself() -> None:
     a kernel that was never told to use the serial port, and `vm-bios`,
     `vm-bios-luks` and `ext4-bios` ended every round at `the kernel never spoke
     after editing GRUB blind`."""
-    from tests.vm.proxmox import BIOS_MENU_DELAY, BIOS_MENU_TIMEOUT
+    from tests.vm.proxmox import BIOS_ATTEMPTS, BIOS_MENU_TIMEOUT
 
-    assert BIOS_MENU_DELAY < BIOS_MENU_TIMEOUT, (BIOS_MENU_DELAY, BIOS_MENU_TIMEOUT)
-    # Not so early that the firmware has not reached GRUB either: SeaBIOS and
-    # the medium's own search take a few seconds before the menu is drawn.
-    assert BIOS_MENU_DELAY >= 4.0
+    for delay, _ in BIOS_ATTEMPTS:
+        assert delay < BIOS_MENU_TIMEOUT, (delay, BIOS_MENU_TIMEOUT)
+    # Not every sample early: SeaBIOS and the medium's own search take a few
+    # seconds before the menu is drawn, and a node at full load takes longer.
+    # One sample under four seconds is deliberate; all of them would be blind
+    # in the other direction.
+    assert max(delay for delay, _ in BIOS_ATTEMPTS) >= 6.0
+    assert len({delay for delay, _ in BIOS_ATTEMPTS}) > 1, "one delay is one guess"
+    assert len({down for _, down in BIOS_ATTEMPTS}) > 1, "one line is one guess"
 
 
 def test_a_refusal_from_the_node_itself_is_not_transient() -> None:
