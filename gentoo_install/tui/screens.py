@@ -83,6 +83,7 @@ from ..plan.packages import INPUT_CONFIGURATION_DISABLED, INPUT_CONFIGURATION_EN
 from ..plan.packages import driver_conflict, framework_conflict
 from ..plan import system as plan_system
 from .widgets import (
+    Accepts,
     band,
     MINIMUM_COLUMNS,
     Answer,
@@ -659,8 +660,6 @@ def proxy_screen(screen: Screen, config: InstallConfig, context: Context) -> Ans
             return FormRejected(translate("Proxy host is required when proxy fields are set"), {0: host})
         if port and (not port.isdecimal() or not 1 <= int(port) <= 65535):
             return FormRejected(translate("Proxy port must be between 1 and 65535"), {1: port})
-        if any(ord(char) < 0x20 or ord(char) == 0x7F for char in password):
-            return FormRejected(translate("Proxy password contains control characters"), {3: password})
         bypass = tuple(one for one in (item.strip() for item in hosts.split(",")) if one)
         if any(any(char.isspace() for char in item) for item in bypass):
             return FormRejected(translate("Bypass hosts must not contain spaces"), {1: hosts})
@@ -674,13 +673,26 @@ def proxy_screen(screen: Screen, config: InstallConfig, context: Context) -> Ans
     return Form(
         title=translate("Proxy"),
         fields=[
-            Field(label=translate("Proxy host"), value=current.host),
-            Field(label=translate("Proxy port"), value=str(current.port) if current.port else ""),
-            Field(label=translate("Proxy username"), value=current.username),
+            Field(
+                label=translate("Proxy host"),
+                value=current.host,
+                accepts=Accepts.NO_SPACE,
+            ),
+            Field(
+                label=translate("Proxy port"),
+                value=str(current.port) if current.port else "",
+                accepts=Accepts.DIGITS,
+            ),
+            Field(
+                label=translate("Proxy username"),
+                value=current.username,
+                accepts=Accepts.NO_SPACE,
+            ),
             Field(label=translate("Proxy password"), value=current.password, secret=True),
             Field(
                 label=translate("Bypass hosts"),
                 value=", ".join(current.bypass),
+                accepts=Accepts.NO_SPACE,
                 placeholder=translate("comma-separated host names"),
             ),
         ],

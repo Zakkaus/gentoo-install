@@ -519,3 +519,42 @@ def test_a_band_counts_cells_not_characters() -> None:
     band(screen, 0, "\u5b89\u88dd", "\u5b8c\u6210")
 
     assert width(screen._current[0]) == 30
+
+
+def test_a_field_refuses_a_character_it_can_never_hold() -> None:
+    """Rejecting the submitted form tells the operator they were wrong; the
+    field can tell them before they are. A host name never holds a space."""
+    from gentoo_install.tui.widgets import Accepts, Field, Form
+
+    screen = FakeScreen(keys=["a", " ", "b", "\t", "\n"], lines=20, columns=60)
+    answered = Form(
+        title="Proxy",
+        fields=[Field(label="host", accepts=Accepts.NO_SPACE)],
+        footer="",
+    ).run(screen)
+
+    assert answered.unwrap() == ["ab"]
+
+
+def test_a_port_field_takes_digits_and_nothing_else() -> None:
+    from gentoo_install.tui.widgets import Accepts, Field, Form
+
+    screen = FakeScreen(keys=["8", "o", "0", "-", "8", "\t", "\n"], lines=20, columns=60)
+    answered = Form(
+        title="Proxy",
+        fields=[Field(label="port", accepts=Accepts.DIGITS)],
+        footer="",
+    ).run(screen)
+
+    assert answered.unwrap() == ["808"]
+
+
+def test_a_field_with_no_rule_takes_what_it_is_given() -> None:
+    """Most fields hold prose; a table that refused by default would be a rule
+    nobody asked for."""
+    from gentoo_install.tui.widgets import Field, Form
+
+    screen = FakeScreen(keys=["a", " ", "b", "\t", "\n"], lines=20, columns=60)
+    answered = Form(title="Any", fields=[Field(label="free")], footer="").run(screen)
+
+    assert answered.unwrap() == ["a b"]
