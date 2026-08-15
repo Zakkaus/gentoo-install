@@ -2352,3 +2352,48 @@ def test_a_prompt_that_never_takes_a_name_ends_rather_than_answers_for_ever(
 
     assert not cluster._name_the_user(cast(Any, Deaf()))
     assert len(offered) == cluster.LOGIN_TRIES
+
+
+def test_a_console_that_ends_in_the_node_s_own_ssh_names_the_node(tmp_path: Path) -> None:
+    """`termproxy` reaches a guest on another node over ssh, and when that ends
+    the log carries ssh's own words with no `| ` prefix. Three guests on
+    `infra-node3` were failed for a marker that never arrived while their
+    installs were running: one had just printed `Installation finished`."""
+    from tests.vm.cluster import console_proxy_dropped
+
+    log = tmp_path / "vm-lvm.log"
+    log.write_text(
+        "| >>> Emerging (1 of 2) sys-kernel/linux-firmware-20260622::gentoo\n"
+        "Read from remote host 10.31.0.202: Connection reset by peer\n"
+        "Connection to 10.31.0.202 closed.\n"
+        "client_loop: send disconnect: Broken pipe\n"
+    )
+
+    said = console_proxy_dropped(log)
+
+    assert "10.31.0.202" in said
+    assert "console proxy" in said
+
+
+def test_a_console_refused_by_the_node_names_it_too(tmp_path: Path) -> None:
+    from tests.vm.cluster import console_proxy_dropped
+
+    log = tmp_path / "vm-desktop.log"
+    log.write_text("ssh: connect to host 10.31.0.202 port 22: Connection refused\n")
+
+    assert "10.31.0.202" in console_proxy_dropped(log)
+
+
+def test_an_ordinary_console_timeout_blames_no_node(tmp_path: Path) -> None:
+    """The guest's own words must not read as the node going away, or a healthy
+    node stops taking guests for an install that hung by itself."""
+    from tests.vm.cluster import console_proxy_dropped
+
+    log = tmp_path / "vm-zfs.log"
+    log.write_text(
+        "| >>> Emerging (5 of 9) sys-fs/zfs-2.4.0::gentoo\n"
+        "| ssh-keygen: generating new host keys\n"
+        "| * Starting sshd ...\n"
+    )
+
+    assert console_proxy_dropped(log) == ""
