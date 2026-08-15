@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -1286,12 +1287,36 @@ def test_a_schedule_that_ends_early_stops_the_guests_it_left_running() -> None:
 
 
 def test_scheduler_workers_are_owned_by_the_scheduler() -> None:
-    import inspect
-
+    """No guest outlives the process. The worker's own `finally` cannot carry
+    that, because a daemon thread wedged on a console is cut short at
+    interpreter shutdown, so the closing path removes every guest the schedule
+    built rather than only the ones a job still counts as running."""
     from tests.vm import cluster
 
-    source = inspect.getsource(cluster.run)
-    assert "daemon=False" in source
+    class Machine:
+        def __init__(self) -> None:
+            self.removed = False
+
+        def stop(self) -> None:
+            pass
+
+        def destroy(self, patience: float = 0.0) -> None:
+            self.removed = True
+
+    finished, wedged = Machine(), Machine()
+    jobs = {
+        name: cluster.Job(
+            name=name,
+            fixture=Path(f"{name}.toml"),
+            execution=cast(Any, SimpleNamespace(guest=machine)),
+            thread=None,
+        )
+        for name, machine in (("done", finished), ("stuck", wedged))
+    }
+
+    cluster._abandon_jobs(jobs)
+
+    assert finished.removed and wedged.removed
 
 
 def test_a_removed_guest_gives_its_vmid_back(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2259,3 +2284,27 @@ def test_a_campaign_answers_every_signal_that_asks_it_to_stop() -> None:
     finally:
         for one, was in before.items():
             signals.signal(one, was)
+
+
+def test_a_worker_cannot_hold_the_interpreter_open_after_the_schedule_ends() -> None:
+    """Two schedules ended by SIGTERM removed every guest and then hung at
+    interpreter shutdown, joining workers still reading the consoles of guests
+    that no longer existed. `_abandon` already destroys what a timed-out worker
+    was holding, which is why its docstring says the workers are daemons."""
+    import ast
+
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "vm" / "cluster.py").read_text()
+    daemons = [
+        keyword.value
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "Thread"
+        for keyword in node.keywords
+        if keyword.arg == "daemon"
+    ]
+
+    assert daemons, "a worker thread is started without saying whether it is a daemon"
+    for value in daemons:
+        assert isinstance(value, ast.Constant) and value.value is True
