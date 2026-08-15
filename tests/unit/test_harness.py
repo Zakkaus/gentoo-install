@@ -2441,13 +2441,16 @@ def test_the_carried_hosts_fit_one_console_line_each() -> None:
     carrying every pinned address is 1349 characters, and two guests in six
     wrote an `/etc/hosts` whose late entries were never there — while the
     first entry, which the diagnostic asked about, always was."""
-    from tests.vm.cluster import CONSOLE_LINE_BYTES, carried_hosts, pinned_hosts
+    from tests.vm.cluster import carried_hosts, pinned_hosts
 
     commands = carried_hosts(pinned_hosts())
 
     assert len(commands) > 3, "the whole block does not go in one line"
+    # A number, not the constant the code uses: an assertion that reads its
+    # own setting cannot fail when that setting is wrong, and this one passed
+    # with the limit raised to 100000.
     for command in commands:
-        assert len(command) <= CONSOLE_LINE_BYTES + 32, command[:80]
+        assert len(command) <= 256, f"{len(command)} characters: {command[:60]}"
     assert any("PINNED_IN_FILES" in one for one in commands)
 
 
