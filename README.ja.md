@@ -238,3 +238,9 @@ path = "/"
 <!-- fact: contributing -->
 
 [CONTRIBUTING.md](CONTRIBUTING.md) では、開発環境、アーキテクチャ、必要な検査について説明しています。
+
+## ライセンス
+
+<!-- fact: license -->
+
+本プロジェクトは GNU General Public License バージョン 2 のもとで配布される。全文は [LICENSE](LICENSE) にある。

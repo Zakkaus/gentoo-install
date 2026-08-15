@@ -238,3 +238,9 @@ path = "/"
 <!-- fact: contributing -->
 
 개발 환경, 아키텍처, 필수 검사는 [CONTRIBUTING.md](CONTRIBUTING.md)에 설명되어 있다.
+
+## 라이선스
+
+<!-- fact: license -->
+
+이 프로젝트는 GNU General Public License 버전 2에 따라 배포된다. 전문은 [LICENSE](LICENSE)에 있다.

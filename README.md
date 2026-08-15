@@ -238,3 +238,9 @@ For `gentoo-install`, `0` means successful completion and `1` means configuratio
 <!-- fact: contributing -->
 
 [CONTRIBUTING.md](CONTRIBUTING.md) describes the development setup, architecture and required checks.
+
+## License
+
+<!-- fact: license -->
+
+gentoo-install is distributed under the GNU General Public License version 2. The full text is in [LICENSE](LICENSE).
