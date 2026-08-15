@@ -2521,3 +2521,37 @@ def test_every_pinned_line_is_counted_not_just_the_ends() -> None:
     assert commands.index(counted[0]) > commands.index(written[-1]), (
         "counted after the last batch was written"
     )
+
+
+def test_a_lease_older_than_any_run_is_taken_over(tmp_path: Path) -> None:
+    """A schedule that is killed never releases what it took. Sixteen rounds
+    left a hundred leases behind and the pool was empty from the first
+    dispatch of the next: the whole campaign died at `no static address is
+    available from 10.31.0.150`."""
+    import os
+    import time
+
+    from tests.vm.cluster import LEASE_SECONDS, AddressPool
+
+    pool = AddressPool(tmp_path, lambda address: False)
+    leases = tmp_path / "addresses"
+    leases.mkdir()
+    stale = leases / "10.31.0.150"
+    stale.touch()
+    old = time.time() - LEASE_SECONDS - 60
+    os.utime(stale, (old, old))
+
+    assert pool.reserve("10.31.0.150") == "10.31.0.150"
+
+
+def test_a_lease_of_a_running_guest_is_left_alone(tmp_path: Path) -> None:
+    """Six hours is longer than any run, so a guest still installing keeps the
+    address it was given."""
+    from tests.vm.cluster import AddressPool
+
+    pool = AddressPool(tmp_path, lambda address: False)
+    leases = tmp_path / "addresses"
+    leases.mkdir()
+    (leases / "10.31.0.150").touch()
+
+    assert pool.reserve("10.31.0.150") == "10.31.0.151"

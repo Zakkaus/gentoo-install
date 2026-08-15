@@ -1245,6 +1245,12 @@ class Running:
     created: bool = False
 
 
+#: How long an address lease is honoured. Longer than the longest run, so a
+#: guest still installing never loses its address, and short enough that a
+#: killed schedule frees what it took before the next campaign.
+LEASE_SECONDS: Final[float] = 6 * 60 * 60.0
+
+
 class AddressPool:
     """Reserve static addresses under one host-wide scheduler lock."""
 
@@ -1259,7 +1265,16 @@ class AddressPool:
         self._leases.mkdir(exist_ok=True)
         with self._lock_path.open("a+") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            held = {path.name for path in self._leases.iterdir()}
+            # A lease older than any run cannot belong to a live guest, and a
+            # schedule that was killed never released its own: sixteen rounds
+            # left a hundred of them and the pool was empty from the first
+            # dispatch of the next.
+            now = time.time()
+            held = {
+                path.name
+                for path in self._leases.iterdir()
+                if now - path.stat().st_mtime < LEASE_SECONDS
+            }
             network, last = preferred.rsplit(".", 1)
             ceiling = GUEST_ADDRESS_BASE + (VMID_LAST - VMID_FIRST)
             for number in range(int(last), ceiling + 1):
@@ -1270,7 +1285,10 @@ class AddressPool:
                 try:
                     lease.touch(exist_ok=False)
                 except FileExistsError:
-                    continue
+                    # Only reached for a lease older than any run, which the
+                    # loop above already decided is nobody's: taking it over
+                    # is the point, and the timestamp says it is ours now.
+                    lease.touch()
                 return address
         raise ProxmoxError(f"no static address is available from {preferred}")
 
