@@ -76,3 +76,12 @@ class UploadFailed(GentooInstallError):
 class CommandFailed(GentooInstallError):
     """An external command exited non-zero. The operation did not finish, which
     is a different thing from data that cannot be trusted."""
+
+
+class ConversionFailed(GentooInstallError):
+    """The in-place swap could not be completed.
+
+    Carries what was put back and what was not: this is the one step with no
+    second attempt, and an operator reading it is deciding between a reboot
+    and a rescue medium.
+    """
