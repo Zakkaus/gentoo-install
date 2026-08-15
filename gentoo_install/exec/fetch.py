@@ -783,7 +783,22 @@ def _resolver_state(url: str) -> str:
         )
     except OSError:
         in_file = False
-    return f" [{order}; {host} in /etc/hosts: {in_file}]"
+    return f" [{order}; {host} in /etc/hosts: {in_file}; {_resolvers(Path("/etc/resolv.conf"))}]"
+
+
+def _resolvers(path: Path) -> str:
+    """The servers the C library would have asked, at the moment of the failure.
+
+    A guest reached its mirrors through `curl` and then failed the same names
+    from this process minutes later, which only `/etc/resolv.conf` as it stood
+    at each moment can separate.
+    """
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return "resolv.conf unreadable"
+    servers = [line.split()[1] for line in lines if line.startswith("nameserver ")]
+    return f"nameservers {servers}" if servers else "no nameserver line"
 
 
 def _read_once(url: str, proxy: ProxyConfig | None = None) -> str:
