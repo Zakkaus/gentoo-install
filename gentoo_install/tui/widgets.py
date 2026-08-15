@@ -475,12 +475,36 @@ class Confirm:
         return Answer(Outcome.CHOSE, answer.unwrap())
 
 
+class Accepts(Enum):
+    """What a field takes at a keystroke.
+
+    Rejecting a submitted form tells the operator they were wrong; refusing the
+    key tells them before they are. A host name can never hold a space, so the
+    space is simply not typed.
+    """
+
+    ANYTHING = "anything"
+    #: Host names, bypass lists and user names.
+    NO_SPACE = "no space"
+    #: Ports. The range stays a rejection: `70000` is five valid keystrokes.
+    DIGITS = "digits"
+
+    def holds(self, character: str) -> bool:
+        if self is Accepts.NO_SPACE:
+            return not character.isspace()
+        if self is Accepts.DIGITS:
+            return character.isdigit()
+        return True
+
+
 @dataclass
 class Field:
     """One line of a `Form`."""
 
     label: str
     value: str = ""
+    #: What this field takes, from the table above.
+    accepts: Accepts = Accepts.ANYTHING
     #: Drawn inside the box while it is empty.
     placeholder: str = ""
     #: Drawn as asterisks. A password read over a shoulder is the reason, and
@@ -575,6 +599,7 @@ class Form:
                 and pressed.isprintable()
                 and cursor < len(self.fields)
                 and not self.fields[cursor].toggle
+                and self.fields[cursor].accepts.holds(pressed)
             ):
                 typed[cursor].append(pressed)
                 touched = True

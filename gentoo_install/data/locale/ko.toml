@@ -11,7 +11,6 @@
 "comma-separated host names" = "호스트 이름을 쉼표로 구분"
 "Proxy host is required when proxy fields are set" = "프록시 항목을 지정하면 호스트가 필요합니다"
 "Proxy port must be between 1 and 65535" = "프록시 포트는 1에서 65535 사이여야 합니다"
-"Proxy password contains control characters" = "프록시 비밀번호에 제어 문자가 있습니다"
 "Bypass hosts must not contain spaces" = "우회 호스트에는 공백을 포함할 수 없습니다"
 "{count} hosts bypass" = "{count}개 호스트 우회"
 "Portage" = "Portage"

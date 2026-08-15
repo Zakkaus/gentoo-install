@@ -11,7 +11,6 @@
 "comma-separated host names" = "用逗号分隔主机名"
 "Proxy host is required when proxy fields are set" = "设置代理字段时必须填写代理主机"
 "Proxy port must be between 1 and 65535" = "代理端口必须在 1 到 65535 之间"
-"Proxy password contains control characters" = "代理密码包含控制字符"
 "Bypass hosts must not contain spaces" = "绕过主机不能包含空格"
 "{count} hosts bypass" = "绕过 {count} 个主机"
 "Portage" = "Portage"
