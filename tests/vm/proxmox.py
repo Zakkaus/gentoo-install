@@ -167,6 +167,9 @@ class Node:
     name: str
     free_bytes: int
     cores: int
+    #: Cores this node is not already using, measured rather than derived: the
+    #: cluster runs other people's machines and their load is not in `cores`.
+    free_cores: float = 0.0
 
 
 class Api:
@@ -274,6 +277,7 @@ class Api:
                 name=one["node"],
                 free_bytes=int(one.get("maxmem", 0)) - int(one.get("mem", 0)),
                 cores=int(one.get("maxcpu", 0)),
+                free_cores=int(one.get("maxcpu", 0)) * (1.0 - float(one.get("cpu", 0.0))),
             )
             for one in self.call("GET", "/nodes")
             if one.get("status") == "online"

@@ -48,7 +48,7 @@ class FakeApi:
         self.created: dict[int, str] = {}
 
     def nodes(self) -> list[Node]:
-        return [Node("node", 64 * 1024**3, 16)]
+        return [Node("node", 64 * 1024**3, 16, free_cores=16.0)]
 
     def free_vmid(self, held: frozenset[int] = frozenset()) -> int:
         vmid = next(
@@ -173,6 +173,7 @@ def test_non_double_memory_reservation_is_admitted_in_exact_bytes(
         "node",
         cluster.NODE_HEADROOM_BYTES + reservation,
         16,
+        free_cores=16.0,
     )
 
     class CapacityApi:

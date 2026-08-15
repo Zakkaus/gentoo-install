@@ -164,6 +164,11 @@ HEAVY_CORES: Final[int] = 4
 #: spare stops answering, and this cluster runs other people's machines.
 NODE_HEADROOM_BYTES: Final[int] = 2 * 1024**3
 
+#: Cores left to the node itself. `pveproxy` answers 595 through the
+#: cluster proxy when a node is saturated, and a node carrying four
+#: two-core guests on four cores has nothing left to answer with.
+NODE_HEADROOM_CORES: Final[float] = 1.0
+
 #: How often the watchdog looks, and how many quiet looks end a guest. Ten
 #: minutes because a stage3 extract and a kernel build both write progress more
 #: often than that, and half an hour of silence is not a slow mirror.
@@ -1062,7 +1067,11 @@ def trusted_revision(identity: str) -> bool:
     return bool(identity) and (dirty is None or dirty.group(1) == "0")
 
 
-def free_slots(api: Api, placed: Mapping[str, int] | None = None) -> list[Node]:
+def free_slots(
+    api: Api,
+    placed: Mapping[str, int] | None = None,
+    cores_placed: Mapping[str, int] | None = None,
+) -> list[Node]:
     """One entry per guest the cluster can still hold, most free node first.
 
     A node appears as many times as it has room for, not once: returning one
@@ -1077,10 +1086,17 @@ def free_slots(api: Api, placed: Mapping[str, int] | None = None) -> list[Node]:
     """
     need = GUEST_MEMORY_MIB * 1024**2
     held = placed or {}
+    cores_held = cores_placed or {}
     per_node: list[list[Node]] = []
     for node in api.nodes():
         room = node.free_bytes - NODE_HEADROOM_BYTES - held.get(node.name, 0)
-        per_node.append([node] * max(0, int(room // need)))
+        by_memory = max(0, int(room // need))
+        # A node that is out of cores is out of slots whatever its memory says:
+        # `infra-node1` sat at 100% of four cores with 7 GiB free, and the
+        # cluster proxy answered 595 for the node next to it.
+        spare = node.free_cores - NODE_HEADROOM_CORES - cores_held.get(node.name, 0)
+        by_cores = max(0, int(spare // GUEST_CORES))
+        per_node.append([node] * min(by_memory, by_cores))
     # One from each node in turn, rather than a node's whole share before the
     # next one is touched: five guests went onto `infra-node5` and left the
     # other five idle, so one node carried every build while the shared
@@ -1093,7 +1109,12 @@ def free_slots(api: Api, placed: Mapping[str, int] | None = None) -> list[Node]:
     return slots
 
 
-def room_for(node: Node, job: Job, placed: Mapping[str, int] | None = None) -> bool:
+def room_for(
+    node: Node,
+    job: Job,
+    placed: Mapping[str, int] | None = None,
+    cores_placed: Mapping[str, int] | None = None,
+) -> bool:
     """Whether this node can carry this job now.
 
     A slot list built from the light size does not answer for a larger job:
@@ -1102,7 +1123,10 @@ def room_for(node: Node, job: Job, placed: Mapping[str, int] | None = None) -> b
     """
     held = (placed or {}).get(node.name, 0)
     room = node.free_bytes - NODE_HEADROOM_BYTES - held
-    return room >= job.reservation_bytes
+    spare = (
+        node.free_cores - NODE_HEADROOM_CORES - (cores_placed or {}).get(node.name, 0)
+    )
+    return room >= job.reservation_bytes and spare >= job.cores
 
 
 class Stoppable(Protocol):
@@ -1207,6 +1231,17 @@ def _reserved_bytes(scheduled: Mapping[str, Job]) -> Counter[str]:
         if job.node is None or job.execution is None:
             raise ProxmoxError(f"{job.name} holds resources without an execution")
         held[job.node] += job.execution.reservation_bytes
+    return held
+
+
+def _reserved_cores(scheduled: Mapping[str, Job]) -> Counter[str]:
+    held: Counter[str] = Counter()
+    for job in scheduled.values():
+        if not job.holds_resources:
+            continue
+        if job.node is None:
+            raise ProxmoxError(f"{job.name} holds resources without a node")
+        held[job.node] += job.cores
     return held
 
 
@@ -1504,7 +1539,8 @@ def run(
             waiting = [job for job in scheduled.values() if job.status is JobStatus.WAITING]
             running = [job for job in scheduled.values() if job.running]
             placed = _reserved_bytes(scheduled)
-            slots = free_slots(api, placed)
+            cores_placed = _reserved_cores(scheduled)
+            slots = free_slots(api, placed, cores_placed)
             if limit:
                 slots = slots[: max(0, limit - len(running))]
             if waiting and not running and not slots:
@@ -1528,7 +1564,11 @@ def run(
                 # node with one light slot left is how the hypervisor came to
                 # kill it. A light job behind it still goes now.
                 index = next(
-                    (at for at, one in enumerate(waiting) if room_for(slots[0], one, placed)),
+                    (
+                        at
+                        for at, one in enumerate(waiting)
+                        if room_for(slots[0], one, placed, cores_placed)
+                    ),
                     None,
                 )
                 if index is None:

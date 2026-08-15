@@ -801,9 +801,9 @@ def test_a_node_offers_a_slot_for_every_guest_it_can_hold() -> None:
     class Counted(Api):
         def nodes(self) -> list[Node]:
             return [
-                Node(name="big", free_bytes=NODE_HEADROOM_BYTES + guest * 3, cores=4),
-                Node(name="one", free_bytes=NODE_HEADROOM_BYTES + guest, cores=4),
-                Node(name="none", free_bytes=NODE_HEADROOM_BYTES + guest - 1, cores=4),
+                Node(name="big", free_bytes=NODE_HEADROOM_BYTES + guest * 3, cores=4, free_cores=64.0),
+                Node(name="one", free_bytes=NODE_HEADROOM_BYTES + guest, cores=4, free_cores=64.0),
+                Node(name="none", free_bytes=NODE_HEADROOM_BYTES + guest - 1, cores=4, free_cores=64.0),
             ]
 
     names = [node.name for node in free_slots(Counted(host="nowhere.invalid"))]
@@ -1037,7 +1037,7 @@ def test_guests_already_placed_are_subtracted_from_what_a_node_reports() -> None
 
     class Lagging(Api):
         def nodes(self) -> list[Node]:
-            return [Node(name="one", free_bytes=NODE_HEADROOM_BYTES + guest * 3, cores=4)]
+            return [Node(name="one", free_bytes=NODE_HEADROOM_BYTES + guest * 3, cores=4, free_cores=64.0)]
 
     api = Lagging(host="nowhere.invalid")
     assert len(free_slots(api)) == 3
@@ -1754,6 +1754,7 @@ def test_a_node_with_one_light_slot_left_is_not_given_a_heavy_guest() -> None:
         name="infra-node1",
         free_bytes=NODE_HEADROOM_BYTES + GUEST_MEMORY_MIB * 1024**2,
         cores=4,
+            free_cores=64.0,
     )
     assert room_for(one_slot, light)
     assert not room_for(one_slot, heavy)
@@ -1762,6 +1763,7 @@ def test_a_node_with_one_light_slot_left_is_not_given_a_heavy_guest() -> None:
         name="infra-node2",
         free_bytes=NODE_HEADROOM_BYTES + 2 * GUEST_MEMORY_MIB * 1024**2,
         cores=4,
+            free_cores=64.0,
     )
     assert room_for(two_slots, heavy)
 
@@ -2774,6 +2776,7 @@ def test_slots_are_offered_one_node_at_a_time() -> None:
             name=name,
             free_bytes=NODE_HEADROOM_BYTES + guests * GUEST_MEMORY_MIB * 1024**2,
             cores=4,
+            free_cores=64.0,
         )
 
     class Cluster(Api):
@@ -3125,3 +3128,66 @@ def test_a_task_that_failed_is_still_a_failure() -> None:
 
     with pytest.raises(ProxmoxError, match="unable to open disk image"):
         Refusing().wait("infra-node6", "UPID:infra-node6:0:0:0:qmdestroy:9300:zakk@pve:")
+
+
+def test_a_node_out_of_cores_offers_no_slot_however_much_memory_it_has() -> None:
+    """`infra-node1` sat at 100% of its four cores with 7 GiB free while the
+    schedule counted memory alone, and the cluster proxy answered 595 for the
+    node beside it. Cores are measured rather than derived: the cluster runs
+    other people's machines and their load is not in `cores`."""
+    from tests.vm.cluster import GUEST_MEMORY_MIB, NODE_HEADROOM_BYTES, free_slots
+    from tests.vm.proxmox import Api, Node
+
+    guest = GUEST_MEMORY_MIB * 1024**2
+
+    class Saturated(Api):
+        def __init__(self) -> None:
+            pass
+
+        def nodes(self) -> list[Node]:
+            return [
+                Node(
+                    name="busy",
+                    free_bytes=NODE_HEADROOM_BYTES + guest * 4,
+                    cores=4,
+                    free_cores=0.2,
+                ),
+                Node(
+                    name="idle",
+                    free_bytes=NODE_HEADROOM_BYTES + guest * 4,
+                    cores=4,
+                    free_cores=3.2,
+                ),
+            ]
+
+    offered = [node.name for node in free_slots(Saturated())]
+
+    assert "busy" not in offered
+    assert offered == ["idle"], "one two-core guest on a node with 3.2 cores free"
+
+
+def test_cores_this_schedule_has_placed_are_subtracted_too() -> None:
+    """A guest's load takes minutes to show in what the node reports, the same
+    lag the memory reservation exists for."""
+    from tests.vm.cluster import GUEST_CORES, GUEST_MEMORY_MIB, NODE_HEADROOM_BYTES, free_slots
+    from tests.vm.proxmox import Api, Node
+
+    guest = GUEST_MEMORY_MIB * 1024**2
+
+    class Idle(Api):
+        def __init__(self) -> None:
+            pass
+
+        def nodes(self) -> list[Node]:
+            return [
+                Node(
+                    name="one",
+                    free_bytes=NODE_HEADROOM_BYTES + guest * 8,
+                    cores=8,
+                    free_cores=7.0,
+                )
+            ]
+
+    assert len(free_slots(Idle())) == 3
+    assert len(free_slots(Idle(), None, {"one": GUEST_CORES * 2})) == 1
+    assert free_slots(Idle(), None, {"one": GUEST_CORES * 3}) == []
