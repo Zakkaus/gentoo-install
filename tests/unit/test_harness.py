@@ -2500,3 +2500,24 @@ def test_the_resolver_is_told_to_read_the_file() -> None:
     assert "nsswitch.conf" in commands[0]
     assert "hosts: files dns" in commands[0]
     assert commands.index(next(one for one in commands if "/etc/hosts" in one)) > 0
+
+
+def test_every_pinned_line_is_counted_not_just_the_ends() -> None:
+    """The block is written in batches, so the first and last name are in the
+    first and last of them: a batch lost in between leaves both ends in place.
+    `mirrors.ustc.edu.cn` sits in the middle and was the name the install could
+    not resolve while the guest answered `PINNED_IN_FILES`."""
+    from tests.vm.cluster import PINNED_MARK, carried_hosts, pinned_hosts
+
+    commands = carried_hosts(pinned_hosts())
+    counted = [one for one in commands if "_OF_" in one]
+    written = [one for one in commands if ">> /etc/hosts" in one]
+    marks = sum(one.count(PINNED_MARK) for one in written)
+
+    assert len(counted) == 1, "one count, after every batch"
+    wanted = len([one for one in pinned_hosts().split("\\n") if one])
+    assert f"_OF_{wanted}" in counted[0]
+    assert marks == wanted, f"{marks} of {wanted} lines carry the mark to count"
+    assert commands.index(counted[0]) > commands.index(written[-1]), (
+        "counted after the last batch was written"
+    )
