@@ -32,6 +32,11 @@ PERSISTED_SECTIONS: Final[tuple[str, ...]] = (
 )
 
 
+class DiskMode(Enum):
+    PARTITION = "partition"
+    IN_PLACE = "in-place"
+
+
 class InitSystem(Enum):
     OPENRC = "openrc"
     SYSTEMD = "systemd"
@@ -421,8 +426,9 @@ class BootloaderConfig:
 @dataclass(frozen=True)
 class DiskConfig:
     graph: DeviceGraph
-    #: Named explicitly: a malformed graph can hold two mountpoints for `/`.
+    #: Empty means the running layout supplies the root.
     root: DeviceId
+    mode: DiskMode = DiskMode.PARTITION
 
 
 @dataclass(frozen=True)
