@@ -3093,3 +3093,35 @@ def test_a_stop_still_stops_this_runs_machine() -> None:
 
     assert stopped == ["/nodes/node/qemu/9302/status/stop"]
     assert not guest._booted
+
+
+def test_a_task_that_finished_with_warnings_finished(capsys: pytest.CaptureFixture[str]) -> None:
+    """Proxmox writes `WARNINGS: n` for a task that did its work and logged
+    something on the way. Three `qmdestroy` tasks ended that way and the
+    schedule printed `the guest was not removed` for machines that were gone."""
+    from tests.vm.proxmox import Api
+
+    class Answering(Api):
+        def __init__(self) -> None:
+            pass
+
+        def call(self, method: str, path: str, **fields: object) -> dict[str, object]:
+            return {"status": "stopped", "exitstatus": "WARNINGS: 2"}
+
+    Answering().wait("infra-node6", "UPID:infra-node6:0:0:0:qmdestroy:9300:zakk@pve:")
+
+    assert "WARNINGS: 2" in capsys.readouterr().err
+
+
+def test_a_task_that_failed_is_still_a_failure() -> None:
+    from tests.vm.proxmox import Api, ProxmoxError
+
+    class Refusing(Api):
+        def __init__(self) -> None:
+            pass
+
+        def call(self, method: str, path: str, **fields: object) -> dict[str, object]:
+            return {"status": "stopped", "exitstatus": "unable to open disk image"}
+
+    with pytest.raises(ProxmoxError, match="unable to open disk image"):
+        Refusing().wait("infra-node6", "UPID:infra-node6:0:0:0:qmdestroy:9300:zakk@pve:")

@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import re
 import ssl
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -69,6 +70,10 @@ ISO_STORAGE: Final[str] = "local"
 #: node that stopped answering does not hold the whole campaign.
 API_TIMEOUT: Final[float] = 60.0
 TASK_POLL: Final[float] = 2.0
+
+#: What Proxmox writes as a task's exit status when it finished its work
+#: and logged a warning while doing it.
+TASK_WARNED: Final[str] = "WARNINGS:"
 CLEANUP_PAUSE: Final[float] = 2.0
 CLEANUP_PATIENCE: Final[float] = 300.0
 
@@ -248,7 +253,15 @@ class Api:
                 time.sleep(min(TASK_POLL, max(0.0, deadline - time.monotonic())))
                 continue
             if status.get("status") == "stopped":
-                exit_status = status.get("exitstatus", "")
+                exit_status = str(status.get("exitstatus", ""))
+                if exit_status.startswith(TASK_WARNED):
+                    # Proxmox says `WARNINGS: n` for a task that did its work
+                    # and logged something: a `qmdestroy` that could not reach
+                    # one disk still removed the guest, and reading it as a
+                    # failure printed `the guest was not removed` for three
+                    # machines that were gone.
+                    print(f"{upid} {exit_status}", file=sys.stderr)
+                    return
                 if exit_status != "OK":
                     raise ProxmoxError(f"{upid} ended with {exit_status!r}")
                 return
