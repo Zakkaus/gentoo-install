@@ -2437,10 +2437,10 @@ def test_a_file_that_cannot_be_written_does_not_end_the_run(tmp_path: Path) -> N
 
 
 def test_the_carried_hosts_fit_one_console_line_each() -> None:
-    """A tty edits in canonical mode and drops what does not fit. One line
-    carrying every pinned address is 1349 characters, and two guests in six
-    wrote an `/etc/hosts` whose late entries were never there — while the
-    first entry, which the diagnostic asked about, always was."""
+    """A tty edits in canonical mode and drops what does not fit, and one line
+    carrying every pinned address is 1349 characters. Nothing here was ever
+    measured being cut: the guests that were suspected of it all answered
+    `PINNED_IN_FILES`. The split is what keeps the question from returning."""
     from tests.vm.cluster import carried_hosts, pinned_hosts
 
     commands = carried_hosts(pinned_hosts())
