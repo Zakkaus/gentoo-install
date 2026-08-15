@@ -24,6 +24,7 @@ from .config import (
     BootloaderConfig,
     ConsoleFontSize,
     DiskConfig,
+    DiskMode,
     Firewall,
     Firmware,
     InitSystem,
@@ -317,15 +318,18 @@ def _packages(raw: Mapping[str, Any], at: str) -> PackagesConfig:
         display_manager=_str(raw, "display_manager", at, default.display_manager),
     )
 
-
 def _disk(raw: Mapping[str, Any], at: str) -> DiskConfig:
-    _reject_unknown(raw, at, {"root", "devices"})
+    _reject_unknown(raw, at, {"root", "devices", "mode"})
+    mode = _enum(raw, "mode", at, DiskMode, DiskMode.PARTITION)
     devices = _tables(raw, "devices", at)
-    if not devices:
-        raise ConfigError(f"{at}.devices is empty; nothing to install onto")
     nodes = [_node(entry, f"{at}.devices[{n}]") for n, entry in enumerate(devices)]
-    return DiskConfig(graph=DeviceGraph.build(nodes), root=DeviceId(_str(raw, "root", at, required=True)))
-
+    if mode is DiskMode.PARTITION and not nodes:
+        raise ConfigError(f"{at}.devices is empty; nothing to install onto")
+    return DiskConfig(
+        graph=DeviceGraph.build(nodes),
+        root=DeviceId(_str(raw, "root", at)),
+        mode=mode,
+    )
 
 def _node(raw: Mapping[str, Any], at: str) -> Node:
     kind = _str(raw, "kind", at, required=True)

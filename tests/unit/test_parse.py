@@ -12,6 +12,7 @@ from gentoo_install.model.config import (
     BinhostChannel,
     Bootloader,
     ConsoleFontSize,
+    DiskMode,
     InitSystem,
     KernelSource,
     Keywords,
@@ -88,6 +89,13 @@ def test_parsing_needs_no_hardware() -> None:
     assert parse(raw).disk.graph.nodes[DeviceId("disk")]
 
 
+def test_in_place_mode_has_no_device_graph_or_root() -> None:
+    raw = fixture()
+    raw["disk"] = {"mode": "in-place"}
+    disk = parse(raw).disk
+    assert disk.mode is DiskMode.IN_PLACE
+    assert not disk.graph.nodes
+    assert not disk.root
 def test_defaults_apply_when_a_section_is_absent() -> None:
     raw = fixture()
     for section in ("system", "portage", "kernel", "bootloader", "packages"):

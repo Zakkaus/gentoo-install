@@ -16,7 +16,7 @@ from pathlib import PurePosixPath
 from typing import Any, Final
 
 from . import config as model_config
-from .config import InstallConfig, ProxyConfig
+from .config import DiskMode, InstallConfig, ProxyConfig
 from .device import (
     Existing,
     Filesystem,
@@ -144,7 +144,11 @@ _NOTHING: Final[_Nothing] = _Nothing()
 
 
 def _disk(config: InstallConfig) -> list[str]:
-    lines = ["", "[disk]", f'root = "{config.disk.root}"']
+    lines = ["", "[disk]"]
+    if config.disk.mode is not DiskMode.PARTITION:
+        lines.append(f'mode = "{config.disk.mode.value}"')
+        return lines
+    lines.append(f'root = "{config.disk.root}"')
     for node in config.disk.graph.nodes.values():
         kind = KINDS.get(type(node))
         if kind is None:
@@ -161,7 +165,6 @@ def _disk(config: InstallConfig) -> list[str]:
             named = RENAMED.get((type(node), field.name), field.name)
             lines.append(f"{named} = {_value(held)}")
     return lines
-
 
 def _value(held: Any) -> str:
     if isinstance(held, bool):

@@ -10,7 +10,8 @@ import pytest
 
 from gentoo_install.errors import ConfigError, ValidationFailed
 from gentoo_install.model import compat
-from gentoo_install.model.config import InitSystem, InstallConfig
+from gentoo_install.model.config import DiskMode, InitSystem, InstallConfig
+from gentoo_install.model.device import DeviceGraph
 from gentoo_install.model.device import (
     Existing,
     Filesystem,
@@ -48,6 +49,25 @@ def test_the_profile_probe_reads_current_amd64_paths(tmp_path: Path) -> None:
     )
 
 
+def test_an_in_place_configuration_validates_without_a_device_graph() -> None:
+    installation = replace(config(), disk=replace(config().disk, graph=DeviceGraph.build(()), root=i(""), mode=DiskMode.IN_PLACE))
+    validate(installation)
+
+
+def test_in_place_mode_rejects_a_device_graph() -> None:
+    installation = replace(config(), disk=replace(config().disk, mode=DiskMode.IN_PLACE))
+    with pytest.raises(ValidationFailed, match="disk.devices is not allowed"):
+        validate(installation)
+
+
+def test_in_place_mode_rejects_a_graph_root() -> None:
+    installation = replace(config(), disk=replace(config().disk, graph=DeviceGraph.build(()), mode=DiskMode.IN_PLACE))
+    with pytest.raises(ValidationFailed, match="disk.root is not allowed"):
+        validate(installation)
+
+
+def test_partition_mode_is_unaffected() -> None:
+    validate(config())
 def test_a_plain_uefi_install_validates() -> None:
     validate(config())
 

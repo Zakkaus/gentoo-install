@@ -17,7 +17,8 @@ from typing import Collection, Final, Mapping
 
 from ..errors import CommandFailed, ValidationFailed
 from . import compat
-from .config import InitSystem, InstallConfig, Networking, ProxyKind
+from .compat import Trait
+from .config import Bootloader, DiskMode, InitSystem, InstallConfig, Networking, ProxyKind
 from .device import (
     DeviceGraph,
     DeviceId,
@@ -185,30 +186,49 @@ def validate(
     ),
 ) -> None:
     address_facts = _derive_address_facts(config)
+    graph_problems: list[str] = []
+    if config.disk.mode is DiskMode.PARTITION:
+        graph_problems = [
+            *_layout_problems(config),
+            *compat.filesystem_label_problems(config),
+            *root_size_problems(config),
+            *_zfs_kernel_problems(config, zfs_kernel_max),
+            *_reuse_problems(config),
+            *_pool_problems(config),
+            *_array_problems(config),
+            *(rule.describe() for rule in compat.violations(config, storage_facts)),
+        ]
     problems = [
+        *_disk_mode_problems(config),
         *_proxy_problems(config),
-        *_layout_problems(config),
-        *compat.filesystem_label_problems(config),
-        *root_size_problems(config),
+        *graph_problems,
         *_profile_problems(config),
         *_repository_profile_problems(config.portage.profile, available_profiles),
-        *_zfs_kernel_problems(config, zfs_kernel_max),
         *_kernel_package_problems(config),
-        *_reuse_problems(config),
-        *_pool_problems(config),
-        *_array_problems(config),
         *_network_problems(config, address_facts.system),
         *_unlock_problems(config, address_facts.remote_unlock),
         *_locale_problems(config),
         *_l10n_problems(config),
         *compat.binhost_subarch_problems(config),
-        *(rule.describe() for rule in compat.violations(config, storage_facts)),
     ]
     if problems:
         raise ValidationFailed(
             "the configuration does not describe an installable system:\n  " + "\n  ".join(problems)
         )
 
+
+def _disk_mode_problems(config: InstallConfig) -> list[str]:
+    disk = config.disk
+    if disk.mode is DiskMode.PARTITION:
+        return []
+    problems: list[str] = []
+    if disk.graph.nodes:
+        problems.append("disk.devices is not allowed in in-place mode")
+    if disk.root:
+        problems.append("disk.root is not allowed in in-place mode")
+    if config.bootloader.kind is Bootloader.ZFSBOOTMENU:
+        problems.append("disk.mode in-place cannot select ZFSBootMenu without a device graph")
+    return problems
 
 def _proxy_problems(config: InstallConfig) -> list[str]:
     """Check proxy syntax for configurations built without the TOML parser."""
