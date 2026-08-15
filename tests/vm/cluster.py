@@ -796,6 +796,10 @@ def pinned_hosts() -> str:
 #: a property of the console rather than something measured on this cluster.
 CONSOLE_LINE_BYTES: Final[int] = 200
 
+#: Written after every pinned address so the guest can count them. A
+#: comment to `/etc/hosts`, which ignores everything after a hash.
+PINNED_MARK: Final[str] = "# gentoo-install"
+
 
 def carried_hosts(pinned: str) -> list[str]:
     """The commands that put those addresses in the guest's `/etc/hosts`.
@@ -815,16 +819,25 @@ def carried_hosts(pinned: str) -> list[str]:
         "printf 'hosts: files dns\\n' > /etc/nsswitch.conf",
         "printf '\\n' >> /etc/hosts",
     ]
+    # Every line carries the marker, so the count below says exactly how many
+    # arrived. Checking the two ends could not: they are in the first and last
+    # batch, and a batch lost in between leaves both of them in place.
+    wanted = 0
     batch = ""
     for line in pinned.split("\\n"):
         if not line:
             continue
-        if len(batch) + len(line) + 2 > CONSOLE_LINE_BYTES:
+        wanted += 1
+        marked = f"{line} {PINNED_MARK}"
+        if len(batch) + len(marked) + 2 > CONSOLE_LINE_BYTES:
             commands.append(f"printf '{batch}' >> /etc/hosts")
             batch = ""
-        batch += f"{line}\\n"
+        batch += f"{marked}\\n"
     if batch:
         commands.append(f"printf '{batch}' >> /etc/hosts")
+    commands.append(
+        f"printf 'PINNED_%s_OF_{wanted}\\n' \"$(grep -c '{PINNED_MARK}' /etc/hosts)\""
+    )
     first = pinned.split("\\n", 1)[0].split(" ", 1)[-1]
     last = [one for one in pinned.split("\\n") if one][-1].split(" ", 1)[-1]
     # Both ends, because a line that was cut kept its beginning: asking only
