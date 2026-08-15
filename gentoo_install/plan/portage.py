@@ -687,6 +687,10 @@ class Emerge(Operation):
             marker = _binpkg_failure(str(error))
             if marker is None or context.degraded(BINARY_PACKAGES):
                 raise
+            if (again := self._one_more_binary_try(context, command)) is not None:
+                marker = again
+            else:
+                return
             context.degrade(BINARY_PACKAGES, f"selected binary package failed: {marker}")
             retry_result = context.run_in_target(self._argv(context, source_only=True), check=False)
             if isinstance(retry_result, CommandOutput) and retry_result.returncode != 0:
@@ -699,7 +703,12 @@ class Emerge(Operation):
             return
         if not _binpkg_failure(str(result)) or context.degraded(BINARY_PACKAGES):
             raise CommandFailed(f"emerge failed with exit {result.returncode}: {str(result).strip()}")
-        reason = f"selected binary package failed: {_binpkg_failure(str(result))}"
+        marker = _binpkg_failure(str(result))
+        if (again := self._one_more_binary_try(context, command)) is not None:
+            marker = again
+        else:
+            return
+        reason = f"selected binary package failed: {marker}"
         context.degrade(BINARY_PACKAGES, reason)
         retry = self._argv(context, source_only=True)
         retry_result = context.run_in_target(retry, check=False)
@@ -707,6 +716,23 @@ class Emerge(Operation):
             raise CommandFailed(
                 f"source retry failed with exit {retry_result.returncode}: {str(retry_result).strip()}"
             )
+
+    def _one_more_binary_try(self, context: Context, command: list[str]) -> str | None:
+        """Run the same emerge again, and answer what still names a binary
+        failure, or `None` when the second run succeeded.
+
+        One dropped TLS handshake would otherwise compile a whole group from
+        source: `libtommath` failed that way inside the plasma group, and
+        rebuilding all of it costs hours against a package that downloads in
+        seconds.
+        """
+        try:
+            again = context.run_in_target(command, check=False)
+        except CommandFailed as error:
+            return _binpkg_failure(str(error)) or str(error).strip()
+        if not isinstance(again, CommandOutput) or again.returncode == 0:
+            return None
+        return _binpkg_failure(str(again)) or str(again).strip()
 
     def _argv(self, context: Context, *, source_only: bool) -> list[str]:
         argv = ["emerge", *EMERGE_OPTIONS]
