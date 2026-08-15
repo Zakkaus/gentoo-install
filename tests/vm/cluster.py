@@ -168,6 +168,8 @@ NODE_HEADROOM_BYTES: Final[int] = 2 * 1024**3
 #: often than that, and half an hour of silence is not a slow mirror.
 WATCH_EVERY: Final[float] = 600.0
 WATCH_STRIKES: Final[int] = 3
+#: Samples the hypervisor may refuse before its silence is the guest's.
+BLIND_SAMPLES: Final[int] = WATCH_STRIKES * 2
 
 #: Between starting one guest and the next. They all reach for the same mirror
 #: in their first minute, and twelve starting together each failed the
@@ -403,6 +405,8 @@ class Watchdog:
     _moved: int = field(default=0, init=False)
     _counter_before: int = field(default=0, init=False)
     _counter_after: int = field(default=0, init=False)
+    #: Consecutive samples the hypervisor would not answer.
+    _blind: int = field(default=0, init=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def moved(self) -> bool:
@@ -415,9 +419,17 @@ class Watchdog:
     def _observe(self, talking: bool) -> bool:
         traffic = self.counters()
         if traffic is None:
+            # One unanswered request is not evidence about the guest. A run of
+            # them is: `vm-desktop` sat on a node that had stopped answering
+            # for sixty-eight minutes with the console silent and the counters
+            # unreadable, and the watchdog called that alive every time.
             if talking:
                 self.strikes = 0
-            return True
+                self._blind = 0
+                return True
+            self._blind += 1
+            return self._blind < BLIND_SAMPLES
+        self._blind = 0
         self._counter_before = self._moved
         self._counter_after = traffic
         working = traffic - self._moved >= QUIET_BYTES
@@ -432,6 +444,12 @@ class Watchdog:
         with self._lock:
             if self._observe(talking=False):
                 return None
+            if self._blind:
+                minutes = self._blind * WATCH_EVERY / 60
+                return (
+                    f"the hypervisor did not answer for {minutes:.0f}m "
+                    "and the console said nothing"
+                )
             return (
                 "counters were flat "
                 f"({self._counter_before} -> {self._counter_after} bytes)"
@@ -439,7 +457,7 @@ class Watchdog:
 
     @property
     def stuck(self) -> bool:
-        return self.strikes >= WATCH_STRIKES
+        return self.strikes >= WATCH_STRIKES or self._blind >= BLIND_SAMPLES
 
 
 def _download(url: str, target: Path) -> None:
