@@ -799,11 +799,15 @@ def carry_hosts(pinned: str) -> str:
     apart from the file never being written.
     """
     first = pinned.split("\\n", 1)[0].split(" ", 1)[-1] if pinned else ""
+    # `-s files`, not a plain lookup: a name DNS can also answer proves nothing
+    # about the file, and the first diagnostic could not tell them apart.
+    # Newline first, because the medium's own `/etc/hosts` may not end in one
+    # and the first pinned entry would be glued to its last line.
     return (
-        f"printf '{pinned}' >> /etc/hosts; "
+        f"printf '\\n{pinned}' >> /etc/hosts; "
         f"printf 'PINNED_%s_LINES\\n' \"$(grep -c . /etc/hosts)\"; "
-        f"getent hosts {first} > /dev/null && printf 'PINNED_ANSWERS\\n' "
-        f"|| printf 'PINNED_UNANSWERED\\n'"
+        f"getent -s files hosts {first} > /dev/null && printf 'PINNED_IN_FILES\\n' "
+        f"|| printf 'PINNED_NOT_IN_FILES\\n'"
     )
 
 

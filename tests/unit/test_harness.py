@@ -2440,11 +2440,11 @@ def test_the_carried_hosts_say_whether_they_answer() -> None:
     said = carry_hosts("210.28.130.3 mirrors.nju.edu.cn\\n20.27.177.113 github.com\\n")
 
     assert ">> /etc/hosts" in said
-    assert "getent hosts mirrors.nju.edu.cn" in said
-    assert "PINNED_ANSWERS" in said and "PINNED_UNANSWERED" in said
+    assert "getent -s files hosts mirrors.nju.edu.cn" in said
+    assert "PINNED_IN_FILES" in said and "PINNED_NOT_IN_FILES" in said
 
 
 def test_nothing_pinned_asks_nothing() -> None:
     from tests.vm.cluster import carry_hosts
 
-    assert "getent hosts " in carry_hosts("")
+    assert "getent -s files hosts " in carry_hosts("")
