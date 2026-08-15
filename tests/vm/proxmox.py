@@ -569,6 +569,14 @@ class Guest:
             time.sleep(self.KEY_PAUSE)
 
     def stop(self) -> None:
+        """Stop the machine this run created, and only that one.
+
+        `destroy` has checked the tag since a VMID was found not to be proof of
+        ownership; this did not, and three call sites reach it without going
+        through `destroy`. VMIDs are recycled between fixtures inside one
+        campaign — 9302 carried three guests in seventy minutes — so a stale
+        `Guest` had nothing between it and another run's machine.
+        """
         try:
             status = self.api.call(
                 "GET", f"/nodes/{self.node}/qemu/{self.vmid}/status/current"
@@ -579,12 +587,30 @@ class Guest:
         if str(status.get("status")) != "running":
             self._booted = False
             return
+        if not self._is_ours():
+            raise ProxmoxError(
+                f"vm {self.vmid} on {self.node} is not this run's machine; not stopping it"
+            )
         self.api.wait(
             self.node,
             self.api.call("POST", f"/nodes/{self.node}/qemu/{self.vmid}/status/stop"),
             patience=180.0,
         )
         self._booted = False
+
+    def _is_ours(self) -> bool:
+        """Whether the machine at this VMID still carries this harness's tag.
+
+        A VMID is not proof: the range already held a production template, and
+        within one campaign a failed run's VMID is handed straight to the next.
+        """
+        if not VMID_FIRST <= self.vmid <= VMID_LAST:
+            return False
+        try:
+            config = self.api.call("GET", f"/nodes/{self.node}/qemu/{self.vmid}/config")
+        except ProxmoxNotFound:
+            return False
+        return TAG in str(config.get("tags", "")).split(";")
 
     def destroy(self, patience: float = CLEANUP_PATIENCE) -> None:
         """Remove the machine and its disks.

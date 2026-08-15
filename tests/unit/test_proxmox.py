@@ -2542,6 +2542,9 @@ def test_a_stop_task_failure_does_not_mark_the_guest_stopped() -> None:
         def call(self, method: str, path: str, **form: Any) -> Any:
             if path.endswith("/status/current"):
                 return {"status": "running"}
+            # The ownership check reads this before anything is stopped.
+            if path.endswith("/config"):
+                return {"tags": TAG}
             return "UPID:node:stop"
 
         def wait(self, node: str, upid: str, patience: float = 1800.0) -> None:
@@ -3039,3 +3042,54 @@ def test_a_refusal_from_the_node_itself_is_not_transient() -> None:
 
     assert isinstance(classified, ProxmoxError)
     assert not isinstance(classified, ProxmoxTransientError)
+
+
+def test_a_stop_refuses_a_machine_that_is_not_this_runs() -> None:
+    """`destroy` has checked the tag since a VMID was found not to be proof of
+    ownership; `stop` had no check at all, and three call sites reach it without
+    going through `destroy`. VMIDs are recycled between fixtures inside one
+    campaign: 9302 carried three guests in seventy minutes."""
+    stopped: list[str] = []
+
+    class Someone(Api):
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            if path.endswith("/status/current"):
+                return {"status": "running"}
+            if path.endswith("/config"):
+                return {"tags": "somebody-else"}
+            stopped.append(path)
+            return "UPID:node:stop"
+
+        def wait(self, node: str, upid: str, patience: float = 1800.0) -> None:
+            return None
+
+    guest = Guest(Someone(), "node", 9302, GuestSpec(name="x", iso="x"))
+    guest._booted = True
+    with pytest.raises(ProxmoxError, match="not this run's machine"):
+        guest.stop()
+
+    assert stopped == []
+    assert guest._booted
+
+
+def test_a_stop_still_stops_this_runs_machine() -> None:
+    stopped: list[str] = []
+
+    class Ours(Api):
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            if path.endswith("/status/current"):
+                return {"status": "running"}
+            if path.endswith("/config"):
+                return {"tags": f"other;{TAG}"}
+            stopped.append(path)
+            return "UPID:node:stop"
+
+        def wait(self, node: str, upid: str, patience: float = 1800.0) -> None:
+            return None
+
+    guest = Guest(Ours(), "node", 9302, GuestSpec(name="x", iso="x"))
+    guest._booted = True
+    guest.stop()
+
+    assert stopped == ["/nodes/node/qemu/9302/status/stop"]
+    assert not guest._booted
