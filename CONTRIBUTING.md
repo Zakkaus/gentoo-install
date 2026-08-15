@@ -62,3 +62,17 @@ Comments explain only a non-obvious invariant, constraint, trade-off or workarou
 Each commit contains one logical change and all code, tests, generated files and documentation needed to make that change true. The subject uses `module: summary`, is imperative and is at most 69 characters.
 
 A body is added only when the subject cannot carry the reason. It states the cause and effect without narrating the diff or listing routine checks.
+
+## Derived code
+
+Code may be taken from a project whose licence is compatible with GPL-2:
+`distro2gentoo` and `catalyst` are GPL-2, `oddlama/gentoo-install` and
+`gentoo-install-zh` are MIT. `archinstall` is GPL-3 and nothing may be taken
+from it while this repository is GPL-2 without an `or later` clause.
+
+A derivation is recorded in three places in the commit that introduces it: a
+comment at the top of the file naming the source project, file and licence and
+saying that it was modified, a line in [CREDITS.md](CREDITS.md), and the reason
+in the commit body. Derived code still has to satisfy everything else here: the
+three layers, the annotations, the named exceptions and a test that fails
+without it.
