@@ -695,8 +695,11 @@ def test_a_selected_binary_fetch_failure_retries_from_source() -> None:
     ).apply(recorder)
 
     emerges = [argv for argv in recorder.in_target if argv[0] == "emerge"]
-    assert len(emerges) == 2
+    # Binaries, binaries again because one dropped handshake is not the host
+    # being gone, then source.
+    assert len(emerges) == 3
     assert "--getbinpkg=n" in emerges[-1] and "--usepkg=n" in emerges[-1]
+    assert "--getbinpkg=n" not in emerges[1]
     assert recorder.degraded(portage.BINARY_PACKAGES)
 
 
@@ -1595,8 +1598,11 @@ def test_a_binary_whose_download_broke_retries_from_source() -> None:
     ).apply(recorder)
 
     emerges = [argv for argv in recorder.in_target if argv[0] == "emerge"]
-    assert len(emerges) == 2
+    # Binaries, binaries again because one dropped handshake is not the host
+    # being gone, then source.
+    assert len(emerges) == 3
     assert "--getbinpkg=n" in emerges[-1] and "--usepkg=n" in emerges[-1]
+    assert "--getbinpkg=n" not in emerges[1]
     assert recorder.degraded(portage.BINARY_PACKAGES)
 
 
@@ -1615,4 +1621,30 @@ def test_a_source_build_that_failed_is_not_called_a_binary_failure() -> None:
             packages=("kde-plasma/plasma-meta",), summary="install the plasma group"
         ).apply(recorder)
 
+    assert not recorder.degraded(portage.BINARY_PACKAGES)
+
+
+def test_a_binary_that_downloads_on_the_second_try_compiles_nothing() -> None:
+    """A dropped TLS handshake is not the binary host being gone. Degrading on
+    the first one rebuilds a whole group from source: `libtommath` failed that
+    way inside the plasma group, which downloads in seconds and compiles in
+    hours."""
+    recorder = Recorder()
+    tries: list[int] = []
+
+    def answering(argv: Sequence[str]) -> CommandOutput:
+        if argv[0] != "emerge":
+            return CommandOutput("", 0)
+        tries.append(1)
+        return CommandOutput(SSL_DROPPED, 1) if len(tries) == 1 else CommandOutput("", 0)
+
+    recorder.answering = answering
+
+    portage.Emerge(
+        packages=("kde-plasma/plasma-meta",), summary="install the plasma group"
+    ).apply(recorder)
+
+    emerges = [argv for argv in recorder.in_target if argv[0] == "emerge"]
+    assert len(emerges) == 2
+    assert all("--getbinpkg=n" not in argv for argv in emerges)
     assert not recorder.degraded(portage.BINARY_PACKAGES)
