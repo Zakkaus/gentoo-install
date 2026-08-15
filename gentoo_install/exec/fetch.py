@@ -758,12 +758,40 @@ def _read(url: str, proxy: ProxyConfig | None = None) -> str:
     raise last
 
 
+def _resolver_state(url: str) -> str:
+    """What the machine says about this name, when a fetch could not read it.
+
+    Twenty-three mirrors failed with `EAI_AGAIN` in guests whose `/etc/hosts`
+    held every one of their names, and no diagnostic outside the failing
+    process could tell which of the two was wrong.
+    """
+    host = urllib.parse.urlsplit(url).hostname
+    if host is None:
+        return ""
+    try:
+        nsswitch = Path("/etc/nsswitch.conf").read_text(encoding="utf-8")
+    except OSError:
+        nsswitch = ""
+    order = next(
+        (line.strip() for line in nsswitch.splitlines() if line.startswith("hosts:")),
+        "no hosts line",
+    )
+    try:
+        in_file = any(
+            host in line.split("#", 1)[0].split()
+            for line in Path("/etc/hosts").read_text(encoding="utf-8").splitlines()
+        )
+    except OSError:
+        in_file = False
+    return f" [{order}; {host} in /etc/hosts: {in_file}]"
+
+
 def _read_once(url: str, proxy: ProxyConfig | None = None) -> str:
     try:
         with _urlopen(_asked(url), proxy, TIMEOUT) as response:
             return str(response.read().decode("utf-8", "replace"))
     except (urllib.error.URLError, TimeoutError, OSError) as error:
-        raise DownloadFailed(f"{url} could not be read: {error}") from error
+        raise DownloadFailed(f"{url} could not be read: {error}{_resolver_state(url)}") from error
 
 
 #: A stage3 is a quarter of a gigabyte over whatever link the operator has, so
