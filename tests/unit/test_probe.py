@@ -3,6 +3,7 @@ from dataclasses import FrozenInstanceError
 from pathlib import Path
 from typing import Sequence
 
+import json
 import pytest
 
 from gentoo_install.exec import probe
@@ -59,6 +60,77 @@ class PartitionListing(Runner):
             stderr="",
             seconds=0.0,
         )
+
+class StorageListing(Runner):
+    def run(self, argv: Sequence[str], **rest: object) -> Result:
+        if argv[0] == "findmnt":
+            output = json.dumps({"filesystems": [
+                {"target": "/", "source": "/dev/mapper/vg-root", "fstype": "ext4", "avail": 12345},
+                {"target": "/boot", "source": "/dev/sda2", "fstype": "ext4"},
+                {"target": "/boot/efi", "source": "/dev/sda1", "fstype": "vfat"},
+            ]})
+        elif argv[0] == "lsblk":
+            output = json.dumps({"blockdevices": [
+                {"path": "/dev/mapper/vg-root", "type": "lvm", "pkname": "/dev/md0"},
+                {"path": "/dev/md0", "type": "md", "pkname": "/dev/cryptroot"},
+                {"path": "/dev/cryptroot", "type": "crypt", "pkname": "/dev/sda3"},
+                {"path": "/dev/sda3", "type": "part", "fstype": "LVM2_member", "pkname": "/dev/sda"},
+                {"path": "/dev/sda1", "type": "part", "parttype": "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"},
+            ]})
+        else:
+            output = "root-uuid\n"
+        return Result(argv=tuple(argv), returncode=0, stdout=output, stderr="", seconds=0.0)
+
+
+class FailedStorageListing(Runner):
+    def run(self, argv: Sequence[str], **rest: object) -> Result:
+        return Result(argv=tuple(argv), returncode=1, stdout="not available\n", stderr="", seconds=0.0)
+
+
+def test_storage_layout_reads_each_storage_fact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    efi = tmp_path / "efi"
+    efi.mkdir()
+    monkeypatch.setattr(probe, "EFI_MARKER", efi)
+
+    layout = Probe(runner=StorageListing(log=lambda line: None), work=tmp_path).storage_layout()
+
+    assert layout.root_device == "/dev/mapper/vg-root"
+    assert layout.root_filesystem_type == "ext4"
+    assert layout.root_uuid == "root-uuid"
+    assert layout.root_on_lvm is True
+    assert layout.root_on_luks is True
+    assert layout.root_on_mdraid is True
+    assert layout.root_below_device == "/dev/md0"
+    assert layout.boot_device == "/dev/sda2"
+    assert layout.boot_same_filesystem is False
+    assert layout.esp_device == "/dev/sda1"
+    assert layout.esp_mountpoint == "/boot/efi"
+    assert layout.uefi is True
+    assert layout.root_free_bytes == 12345
+
+
+def test_storage_layout_leaves_facts_absent_when_commands_fail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(probe, "EFI_MARKER", tmp_path / "absent")
+
+    layout = Probe(runner=FailedStorageListing(log=lambda line: None), work=tmp_path).storage_layout()
+
+    assert layout.root_device is None
+    assert layout.root_filesystem_type is None
+    assert layout.root_uuid is None
+    assert layout.root_on_lvm is None
+    assert layout.root_on_luks is None
+    assert layout.root_on_mdraid is None
+    assert layout.root_below_device is None
+    assert layout.boot_device is None
+    assert layout.boot_same_filesystem is None
+    assert layout.esp_device is None
+    assert layout.esp_mountpoint is None
+    assert layout.uefi is False
+    assert layout.root_free_bytes is None
 
 
 def test_a_disk_probe_keeps_the_kernel_path_that_the_display_tuple_lost(
@@ -138,3 +210,32 @@ def test_an_installed_machine_is_not_called_a_live_medium(
             return Result(argv=tuple(argv), returncode=0, stdout="zfs\n", stderr="", seconds=0.0)
 
     assert probe.Probe(runner=Installed(log=lambda line: None), work=tmp_path).live_medium() == ""
+
+
+def test_the_esp_is_the_one_something_is_mounted_from(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """This workstation carries two vfat partitions and the unmounted one comes
+    first in `lsblk`. Returning at the first match named a partition nothing
+    boots from and left the mount point empty beside it."""
+    from gentoo_install.exec.probe import _esp_from_blocks
+
+    esp_type = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
+    blocks = (
+        {"path": "/dev/nvme1n1p1", "parttype": esp_type},
+        {"path": "/dev/nvme0n1p1", "parttype": esp_type},
+    )
+    mounts = ({"source": "/dev/nvme0n1p1", "target": "/boot/efi", "fstype": "vfat"},)
+
+    assert _esp_from_blocks(blocks, mounts) == ("/dev/nvme0n1p1", "/boot/efi")
+
+
+def test_an_esp_nothing_is_mounted_from_is_still_named(tmp_path: Path) -> None:
+    """A machine that has not mounted its esp still has one, and the install
+    has to know which partition it is."""
+    from gentoo_install.exec.probe import _esp_from_blocks
+
+    esp_type = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
+    blocks = ({"path": "/dev/sda1", "parttype": esp_type},)
+
+    assert _esp_from_blocks(blocks, ()) == ("/dev/sda1", None)

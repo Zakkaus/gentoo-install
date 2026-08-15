@@ -116,6 +116,169 @@ class ProbedPartition:
     device_type: str
 
 
+@dataclass(frozen=True)
+class StorageLayout:
+    """Facts about the filesystems and block-device stack running the system."""
+
+    root_device: str | None
+    root_filesystem_type: str | None
+    root_uuid: str | None
+    root_on_lvm: bool | None
+    root_on_luks: bool | None
+    root_on_mdraid: bool | None
+    root_below_device: str | None
+    boot_device: str | None
+    boot_same_filesystem: bool | None
+    esp_device: str | None
+    esp_mountpoint: str | None
+    uefi: bool
+    root_free_bytes: int | None
+
+
+def _mount_entries(document: object) -> tuple[Mapping[str, object], ...]:
+    if not isinstance(document, Mapping):
+        return ()
+    roots = document.get("filesystems")
+    if not isinstance(roots, list):
+        return ()
+    found: list[Mapping[str, object]] = []
+
+    def visit(value: object) -> None:
+        if not isinstance(value, Mapping):
+            return
+        found.append(value)
+        children = value.get("children")
+        if isinstance(children, list):
+            for child in children:
+                visit(child)
+
+    for root in roots:
+        visit(root)
+    return tuple(found)
+
+
+def _block_entries(document: object) -> tuple[Mapping[str, object], ...]:
+    if not isinstance(document, Mapping):
+        return ()
+    roots = document.get("blockdevices")
+    if not isinstance(roots, list):
+        return ()
+
+    found: list[Mapping[str, object]] = []
+
+
+    def visit(value: object) -> None:
+        if not isinstance(value, Mapping):
+            return
+        found.append(value)
+        children = value.get("children")
+        if isinstance(children, list):
+            for child in children:
+                visit(child)
+
+    for root in roots:
+        visit(root)
+    return tuple(found)
+
+
+def _entry_int(entry: Mapping[str, object] | None, key: str) -> int | None:
+    value = entry.get(key) if entry is not None else None
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+def _entry_text(entry: Mapping[str, object], key: str) -> str | None:
+    value = entry.get(key)
+    return value if isinstance(value, str) and value else None
+
+
+def _device_path(value: object) -> str | None:
+    if not isinstance(value, str) or not value:
+        return None
+    return value if value.startswith("/dev/") else f"/dev/{value}"
+
+
+def _root_stack(
+    root_device: str, entries: tuple[Mapping[str, object], ...]
+) -> tuple[bool | None, bool | None, bool | None, str | None]:
+    by_path = {
+        path: entry
+        for entry in entries
+        if (path := _device_path(entry.get("path") or entry.get("name"))) is not None
+    }
+    root = by_path.get(root_device)
+    if root is None:
+        return None, None, None, None
+
+    lvm = False
+    luks = False
+    mdraid = False
+    below: str | None = None
+    current: Mapping[str, object] | None = root
+    visited: set[str] = set()
+    while current is not None:
+        path = _device_path(current.get("path") or current.get("name"))
+        if path is None or path in visited:
+            break
+        visited.add(path)
+        kind = _entry_text(current, "type")
+        filesystem = _entry_text(current, "fstype")
+        lvm = lvm or kind == "lvm" or filesystem == "LVM2_member"
+        luks = luks or kind == "crypt" or filesystem in {"crypto_LUKS", "luks"}
+        mdraid = mdraid or (
+            kind == "md"
+            or (kind is not None and kind.startswith("raid"))
+            or filesystem == "linux_raid_member"
+        )
+        parent = _device_path(current.get("pkname"))
+        if below is None:
+            below = parent
+        current = by_path.get(parent) if parent is not None else None
+    return lvm, luks, mdraid, below
+
+
+
+
+def _esp_from_mounts(
+    entries: tuple[Mapping[str, object], ...],
+) -> tuple[str | None, str | None]:
+    for entry in entries:
+        target = _entry_text(entry, "target")
+        source = _entry_text(entry, "source")
+        if (
+            target in {"/efi", "/boot", "/boot/efi"}
+            and _entry_text(entry, "fstype") == "vfat"
+            and source is not None
+        ):
+            return source, target
+    return None, None
+
+
+def _esp_from_blocks(
+    entries: tuple[Mapping[str, object], ...], mounts: tuple[Mapping[str, object], ...]
+) -> tuple[str | None, str | None]:
+    esp_type = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
+    # A mounted one first, and only then one that is merely of the type: this
+    # machine carries two vfat partitions and the unmounted one comes first in
+    # `lsblk`, so returning at the first match named a partition nothing boots
+    # from and left the mount point empty beside it.
+    unmounted: str | None = None
+    for entry in entries:
+        if _entry_text(entry, "parttype") != esp_type:
+            continue
+        device = _device_path(entry.get("path") or entry.get("name"))
+        if device is None:
+            continue
+        for mount in mounts:
+            if _entry_text(mount, "source") == device:
+                target = _entry_text(mount, "target")
+                if target is not None:
+                    return device, target
+        if unmounted is None:
+            unmounted = device
+    if unmounted is not None:
+        return unmounted, None
+    return _esp_from_mounts(mounts)
+
+
 def _lsblk_children(value: object) -> tuple[ProbedPartition, ...]:
     if not isinstance(value, Mapping):
         return ()
@@ -636,6 +799,75 @@ class Probe:
                 break
         found = [portage for kernel, portage in CPU_FLAGS.items() if kernel in reported]
         return tuple(sorted(set(found)))
+
+    def storage_layout(self) -> StorageLayout:
+        """Read the running root, boot filesystems, and block-device stack."""
+        mounts_result = self.runner.run(
+            ["findmnt", "--json", "--bytes", "--output", "TARGET,SOURCE,FSTYPE,AVAIL"],
+            check=False,
+        )
+        mounts: tuple[Mapping[str, object], ...] = ()
+        if mounts_result.returncode == 0:
+            try:
+                mounts = _mount_entries(json.loads(mounts_result.stdout))
+            except json.JSONDecodeError:
+                mounts = ()
+        root = next((entry for entry in mounts if _entry_text(entry, "target") == "/"), None)
+        boot = next(
+            (entry for entry in mounts if _entry_text(entry, "target") == "/boot"),
+            None,
+        )
+        root_device = _entry_text(root, "source") if root is not None else None
+        root_type = _entry_text(root, "fstype") if root is not None else None
+        blocks_result = self.runner.run(
+            ["lsblk", "--json", "--bytes", "--paths", "--output", "NAME,PATH,TYPE,FSTYPE,UUID,PKNAME,PARTTYPE"],
+            check=False,
+        )
+        blocks: tuple[Mapping[str, object], ...] = ()
+        if blocks_result.returncode == 0:
+            try:
+                blocks = _block_entries(json.loads(blocks_result.stdout))
+            except json.JSONDecodeError:
+                blocks = ()
+        root_uuid: str | None = None
+        if root_device is not None and root_device.startswith("/dev/"):
+            root_block = next(
+                (entry for entry in blocks if _device_path(entry.get("path") or entry.get("name")) == root_device),
+                None,
+            )
+            root_uuid = _entry_text(root_block, "uuid") if root_block is not None else None
+            uuid_result = self.runner.run(
+                ["blkid", "--probe", "--match-tag", "UUID", "--output", "value", root_device],
+                check=False,
+            )
+            if uuid_result.returncode == 0 and uuid_result.stdout.strip():
+                root_uuid = uuid_result.stdout.strip()
+        lvm, luks, mdraid, below = (
+            _root_stack(root_device, blocks)
+            if root_device is not None and root_device.startswith("/dev/")
+            else (None, None, None, None)
+        )
+        esp_device, esp_mountpoint = _esp_from_blocks(blocks, mounts)
+        uefi = EFI_MARKER.is_dir()
+        return StorageLayout(
+            root_device=root_device,
+            root_filesystem_type=root_type,
+            root_uuid=root_uuid,
+            root_on_lvm=lvm,
+            root_on_luks=luks,
+            root_on_mdraid=mdraid,
+            root_below_device=below,
+            boot_device=_entry_text(boot, "source") if boot is not None else root_device,
+            boot_same_filesystem=(
+                None
+                if root is None
+                else boot is None or _entry_text(root, "source") == _entry_text(boot, "source")
+            ),
+            esp_device=esp_device if uefi else None,
+            esp_mountpoint=esp_mountpoint if uefi else None,
+            uefi=uefi,
+            root_free_bytes=_entry_int(root, "avail") if root is not None else None,
+        )
 
     def supports_v3(self) -> bool:
         """Whether this CPU runs `x86-64-v3` binaries.
