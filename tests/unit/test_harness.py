@@ -1381,6 +1381,9 @@ def test_the_walk_does_not_escape_out_of_a_row_that_never_opened(
                 b"\x1b[21B\r[enter] Continue"
             )
 
+        def close(self) -> None:
+            pass
+
     import time as clock
 
     monkeypatch.setattr(clock, "sleep", lambda seconds: None)
@@ -1435,6 +1438,9 @@ def test_the_walk_waits_for_a_drawn_menu_after_the_echoed_launch_command(
                 return b"python3 -m gentoo_install # gentoo-install\r\n"
             return menu
 
+        def close(self) -> None:
+            pass
+
     import time as clock
 
     monkeypatch.setattr(clock, "sleep", lambda seconds: None)
@@ -1463,6 +1469,9 @@ def test_menu_readiness_keeps_one_deadline_and_reports_the_last_screen(
         def snapshot(self, seconds: float) -> bytes:
             self.windows.append(seconds)
             return b"still only the echoed gentoo-install command"
+
+        def close(self) -> None:
+            pass
 
     moments = iter((10.0, 10.0, 12.5, 13.0))
     monkeypatch.setattr(tui, "MENU_PATIENCE", 3.0)
@@ -1651,6 +1660,9 @@ def test_bios_grub_serial_start_signal_stops_the_countdown() -> None:
         def send_raw(self, keys: str) -> None:
             sent.append(keys)
 
+        def close(self) -> None:
+            pass
+
     proxmox.hold_the_menu(cast(Any, Console()), timeout=1.0)
     assert sent == [proxmox.GRUB_HOLD]
 
@@ -1719,6 +1731,9 @@ class _PatternConsole:
         if found is None:
             raise ConsoleTimeout(f"never matched {pattern!r}")
         return self.output[: found.end()]
+
+    def close(self) -> None:
+        pass
 
 
 def test_wait_for_accepts_a_live_prompt_after_reconnect() -> None:
@@ -1803,6 +1818,9 @@ def test_reconnects_share_the_callers_deadline(
                 raise ConsoleClosed("the guest closed the serial connection")
             now[0] += timeout
             raise ConsoleTimeout(f"never matched {pattern!r}")
+
+        def close(self) -> None:
+            pass
 
     def open_console() -> Missing:
         nonlocal opened
@@ -2089,3 +2107,59 @@ def test_a_guest_still_printing_survives_an_unreadable_counter(tmp_path: Path) -
 
     assert not watchdog.stuck
     assert watchdog.idle_reason() is None
+
+
+def test_reopening_a_console_closes_the_one_it_replaces() -> None:
+    """`termproxy` holds the guest's serial chardev until its client goes away.
+    `vm-btrfs` reconnected as the installed system switched root, the previous
+    session was still draining the stream, and the new one read nothing for the
+    rest of the run."""
+    from tests.vm.cluster import Reconnecting
+
+    order: list[str] = []
+
+    class Session:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def close(self) -> None:
+            order.append(f"closed {self.name}")
+
+        def send(self, line: str) -> None:
+            pass
+
+    names = iter("abcd")
+
+    def open_console() -> Session:
+        name = next(names)
+        order.append(f"opened {name}")
+        return Session(name)
+
+    link = Reconnecting(cast(Any, open_console))
+    link.reopen(solicit_prompt=False)
+
+    assert order == ["opened a", "closed a", "opened b"]
+
+
+def test_a_console_that_refuses_to_close_does_not_stop_the_reconnect() -> None:
+    """The socket is already gone in the case that makes the harness reconnect,
+    so closing it is allowed to fail."""
+    from tests.vm.cluster import Reconnecting
+
+    opened: list[str] = []
+
+    class Broken:
+        def close(self) -> None:
+            raise OSError("already gone")
+
+        def send(self, line: str) -> None:
+            pass
+
+    def open_console() -> Broken:
+        opened.append("open")
+        return Broken()
+
+    link = Reconnecting(cast(Any, open_console))
+    link.reopen(solicit_prompt=False)
+
+    assert opened == ["open", "open"]

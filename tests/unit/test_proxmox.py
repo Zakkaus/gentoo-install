@@ -847,6 +847,9 @@ def test_the_editor_is_reopened_with_escape_not_a_second_e() -> None:
         def closed(self) -> bool:
             return False
 
+        def close(self) -> None:
+            pass
+
     console = Slow()
     screen = _editor_screen(console, 30.0)
     assert b"setparams" in screen
@@ -885,6 +888,9 @@ def test_the_editor_is_asked_for_without_waiting_for_the_menu_again() -> None:
         def closed(self) -> bool:
             return False
 
+        def close(self) -> None:
+            pass
+
     console = Held()
     assert b"setparams" in _editor_screen(console, 30.0)
     assert console.sent == ["e"], console.sent
@@ -922,6 +928,9 @@ def test_a_long_install_is_never_sent_twice_after_a_reconnect() -> None:
                 self.drops -= 1
                 raise ConsoleClosed("the guest closed the serial connection")
             return b"MARK_1_DONE"
+
+        def close(self) -> None:
+            pass
 
     def open_console() -> Flaky:
         opened.append(1)
@@ -966,6 +975,9 @@ def test_wait_for_does_not_resend_after_an_ambiguous_write_failure() -> None:
         def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
             return b"MARK_1_DONE"
 
+        def close(self) -> None:
+            pass
+
     consoles = [Console(fail_write=True), Console(fail_write=False)]
     link = Reconnecting(lambda: consoles.pop(0), tries=2)
     link.wait_for("sh install.sh", timeout=5.0)
@@ -1003,6 +1015,9 @@ def test_a_short_command_is_sent_again_after_a_reconnect() -> None:
             if self.drop:
                 raise ConsoleClosed("dropped")
             return b"done"
+
+        def close(self) -> None:
+            pass
 
     opens = [Once(drop=True), Once(drop=False)]
     link = Reconnecting(lambda: opens.pop(0), tries=3)
@@ -1116,6 +1131,9 @@ def test_the_network_wait_gives_up_rather_than_hanging(
         def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
             return b"NETWORK_DOWN"
 
+        def close(self) -> None:
+            pass
+
     monkeypatch.setattr(cluster, "NETWORK_PATIENCE", 0.3)
     monkeypatch.setattr(cluster, "NETWORK_PAUSE", 0.05)
     link = cluster.Reconnecting(Down, tries=1)
@@ -1145,6 +1163,9 @@ def test_the_network_wait_returns_as_soon_as_the_guest_answers() -> None:
 
         def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
             return b"NETWORK_DOWN" if len(tries) < 3 else b"NETWORK_UP"
+
+        def close(self) -> None:
+            pass
 
     link = cluster.Reconnecting(Late, tries=1)
     cluster.wait_for_network(link)
@@ -1185,6 +1206,9 @@ def test_the_network_probe_is_sent_again_after_a_reconnect() -> None:
             if "BEGIN" in pattern:
                 return b"MARK_2_BEGIN"
             return b"NETWORK_UP\r\nMARK_2_DONE"
+
+        def close(self) -> None:
+            pass
 
     def open_console() -> Probe:
         one = Probe(drop=not opened)
@@ -1303,6 +1327,9 @@ def test_unlock_reconnect_never_solicits_a_shell_prompt() -> None:
         @property
         def closed(self) -> bool:
             return False
+
+        def close(self) -> None:
+            pass
 
     def open_console() -> Console:
         console = Console(drop=not opened)
@@ -1486,6 +1513,9 @@ def test_each_encrypted_boot_path_answers_its_own_number_of_prompts(
         def send_keys(self, keys: list[str]) -> None:
             self.keys.extend(keys)
 
+        def close(self) -> None:
+            pass
+
     for name, firmware, serial_prompts in (
         ("vm-luks", BootFirmware.UEFI, 2),
         ("vm-zfs-encrypted", BootFirmware.UEFI, 1),
@@ -1632,6 +1662,9 @@ def test_a_known_undelivered_boot_response_reopens_without_a_blank_line() -> Non
             if self.is_closed:
                 raise ConsoleClosed("closed", write_may_have_reached_guest=False)
             self.sent.append(line)
+
+        def close(self) -> None:
+            pass
 
     def open_console() -> Channel:
         channel = Channel(closed=not opened)
@@ -1795,6 +1828,9 @@ def test_a_command_is_delivered_after_the_console_was_dropped() -> None:
         @property
         def closed(self) -> bool:
             return not self.alive
+
+        def close(self) -> None:
+            pass
 
     def open_console() -> Dropping:
         one = Dropping(alive=len(opened) > 0)
@@ -2683,6 +2719,9 @@ def test_the_keymap_question_is_answered_rather_than_waited_out() -> None:
         def closed(self) -> bool:
             return False
 
+        def close(self) -> None:
+            pass
+
     console = Asking()
     reach_prompt(Reconnecting(lambda: console, tries=1), patience=30.0)
     assert console.sent == [""], console.sent
@@ -2708,6 +2747,9 @@ def test_the_keymap_question_is_answered_rather_than_waited_out() -> None:
         @property
         def closed(self) -> bool:
             return False
+
+        def close(self) -> None:
+            pass
 
     quiet = Ready()
     reach_prompt(Reconnecting(lambda: quiet, tries=1), patience=30.0)
