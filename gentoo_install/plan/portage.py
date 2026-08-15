@@ -461,9 +461,24 @@ class WebrsyncRepository(Operation):
         # falls back to a keyserver, and with none configured a WKD that does
         # not answer ends the install at `No keyserver available`.
         server = (policy.strip() if readable else "") or KEY_SERVER
-        context.run_in_target(
-            ["env", f"PORTAGE_GPG_KEY_SERVER={server}", "emerge-webrsync"]
-        )
+        # The same patience the later syncs get, and this one needs it more: it
+        # downloads the whole snapshot, looks the signing key up over WKD and
+        # refreshes it from a keyserver, and gemato lets a `ReadTimeout` in the
+        # WKD lookup out rather than falling back. `openrc-sdboot` ended a
+        # cluster round there with the tree never fetched.
+        last: CommandFailed | None = None
+        for attempt in range(SYNC_TRIES):
+            try:
+                context.run_in_target(
+                    ["env", f"PORTAGE_GPG_KEY_SERVER={server}", "emerge-webrsync"]
+                )
+                return
+            except CommandFailed as failed:
+                last = failed
+                if attempt + 1 < SYNC_TRIES:
+                    context.run(["sleep", f"{SYNC_PAUSE * (attempt + 1):g}"])
+        assert last is not None
+        raise last
 
 
 #: Records between the lines tar prints while unpacking. One every few
