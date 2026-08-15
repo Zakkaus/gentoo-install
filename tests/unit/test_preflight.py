@@ -94,3 +94,41 @@ def test_a_new_operation_command_is_probed_without_editing_preflight(tmp_path: P
         operations=(operation,),
     )
     assert asked and "medium-tool" in asked[0]
+
+
+def test_an_install_from_a_machine_that_is_not_a_medium_says_so(tmp_path: Path) -> None:
+    """Nothing named the difference before the disk screen: the installer
+    assumed it was running from a medium. Said rather than refused, because
+    installing from a running system onto a second disk is a real thing to do
+    and the guard that matters is the one on a mounted disk."""
+
+    class Installed(Probe):
+        def live_medium(self) -> str:
+            return ""
+
+        def root_source(self) -> str:
+            return "zfs rpool/ROOT/gentoo"
+
+    report = preflight.check(
+        config(),
+        Installed(runner=Runner(log=lambda line: None), work=tmp_path),
+        operations=(),
+    )
+
+    assert any("does not look like a live medium" in one for one in report.warnings)
+    assert any("rpool/ROOT/gentoo" in one for one in report.warnings)
+    assert not any("live medium" in one for one in report.fatal), "said, not refused"
+
+
+def test_an_install_from_a_medium_says_nothing_about_it(tmp_path: Path) -> None:
+    class OnAMedium(Probe):
+        def live_medium(self) -> str:
+            return "the kernel command line carries root=live:"
+
+    report = preflight.check(
+        config(),
+        OnAMedium(runner=Runner(log=lambda line: None), work=tmp_path),
+        operations=(),
+    )
+
+    assert not any("live medium" in one for one in report.warnings)

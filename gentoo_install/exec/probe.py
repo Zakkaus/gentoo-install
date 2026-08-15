@@ -172,6 +172,9 @@ def _efi_bits() -> int:
 #: Where both install media keep the release engineering public key.
 RELEASE_KEY: Final[Path] = Path("/usr/share/openpgp-keys/gentoo-release.asc")
 MEMINFO: Final[Path] = Path("/proc/meminfo")
+
+#: Read rather than asked for: `findmnt` cannot say what booted this.
+CMDLINE: Final[Path] = Path("/proc/cmdline")
 PROFILES_DESC: Final[Path] = Path("/var/db/repos/gentoo/profiles/profiles.desc")
 
 
@@ -673,6 +676,50 @@ class Probe:
         if loaded.returncode != 0 or not any(path.exists() for path in self.ZFS_LOADED):
             return "this live system cannot load the zfs kernel module"
         return ""
+
+    #: What a dracut live medium puts on the kernel command line. The official
+    #: minimal ISO boots `root=live:CDLABEL=Gentoo-amd64-20260811 rd.live.dir=/
+    #: rd.live.squashimg=image.squashfs` and runs on an overlay over squashfs.
+    LIVE_CMDLINE: Final[tuple[str, ...]] = ("root=live:", "rd.live.")
+
+    #: Root filesystems that no installed machine has. `overlay` is what the
+    #: live medium mounts over its squashfs; `rootfs` is an initramfs that
+    #: never pivoted.
+    LIVE_ROOT_TYPES: Final[frozenset[str]] = frozenset({"overlay", "squashfs", "rootfs", "tmpfs"})
+
+    def live_medium(self) -> str:
+        """What proves this is a live medium, or empty when it is not.
+
+        The installer assumed it, and the assumption is what makes running it
+        on a machine somebody uses dangerous: nothing said so before the disk
+        screen. Read rather than guessed, because a medium can be anything —
+        Alpine, Debian, a Fedora live image.
+        """
+        try:
+            cmdline = CMDLINE.read_text(encoding="utf-8")
+        except OSError:
+            cmdline = ""
+        for marker in self.LIVE_CMDLINE:
+            if marker in cmdline:
+                return f"the kernel command line carries {marker}"
+        said = self.runner.run(
+            ["findmnt", "--noheadings", "--output", "FSTYPE", "--mountpoint", "/"],
+            check=False,
+        )
+        if said.returncode != 0:
+            return ""
+        kind = said.stdout.strip()
+        if kind in self.LIVE_ROOT_TYPES:
+            return f"the root filesystem is {kind}"
+        return ""
+
+    def root_source(self) -> str:
+        """What `/` is mounted from, for the warning that names it."""
+        said = self.runner.run(
+            ["findmnt", "--noheadings", "--output", "FSTYPE,SOURCE", "--mountpoint", "/"],
+            check=False,
+        )
+        return said.stdout.strip() if said.returncode == 0 else ""
 
     def zfs_kernel_max(self, target: Path | None = None) -> KernelCeiling:
         """Read the visible ZFS ebuild's ceiling from Portage metadata."""
