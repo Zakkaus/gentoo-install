@@ -169,6 +169,10 @@ NODE_HEADROOM_BYTES: Final[int] = 2 * 1024**3
 #: two-core guests on four cores has nothing left to answer with.
 NODE_HEADROOM_CORES: Final[float] = 1.0
 
+#: How long a driver CD on a node is left alone. Longer than any run,
+#: so a campaign never removes one another campaign is booting from.
+DRIVER_KEPT_SECONDS: Final[float] = 24 * 60 * 60.0
+
 #: How often the watchdog looks, and how many quiet looks end a guest. Ten
 #: minutes because a stage3 extract and a kernel build both write progress more
 #: often than that, and half an hour of silence is not a slow mirror.
@@ -617,6 +621,10 @@ def prepare(
             raise ProxmoxError(f"no mirror served {medium} to {node}: {last}")
         stamp.parent.mkdir(parents=True, exist_ok=True)
         stamp.write_text(sha512)
+    for stale in api.stale_drivers(node, driver, DRIVER_KEPT_SECONDS):
+        reason = api.remove_iso(node, stale)
+        if reason:
+            print(f"{stale} stayed on {node}: {reason}", file=sys.stderr)
     driver_sha256 = driver_digest(driver_path)
     driver_stamp = trust / "remote" / node / f"{driver}.sha256"
     if driver in api.isos(node):
