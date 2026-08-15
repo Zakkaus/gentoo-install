@@ -78,3 +78,51 @@ def test_every_mirror_refusing_raises_the_last_reason(
             None,
             ("https://second.example",),
         )
+
+
+def test_a_read_that_failed_says_what_the_resolver_was_told(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Twenty-three mirrors failed with `EAI_AGAIN` in guests whose
+    `/etc/hosts` held every one of their names, and no diagnostic outside the
+    failing process could say which of the two was wrong."""
+    hosts = tmp_path / "hosts"
+    hosts.write_text("210.28.130.3 mirrors.nju.edu.cn # gentoo-install\n")
+    nsswitch = tmp_path / "nsswitch.conf"
+    nsswitch.write_text("passwd: files\nhosts: files dns\n")
+
+    real_read = Path.read_text
+
+    def reading(self: Path, *args: object, **rest: object) -> str:
+        if str(self) == "/etc/hosts":
+            return real_read(hosts)
+        if str(self) == "/etc/nsswitch.conf":
+            return real_read(nsswitch)
+        return real_read(self)
+
+    monkeypatch.setattr(Path, "read_text", reading)
+
+    said = fetch._resolver_state("https://mirrors.nju.edu.cn/gentoo/x")
+
+    assert "hosts: files dns" in said
+    assert "mirrors.nju.edu.cn in /etc/hosts: True" in said
+
+
+def test_a_name_absent_from_the_file_is_said_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    hosts = tmp_path / "hosts"
+    hosts.write_text("127.0.0.1 localhost\n")
+    real_read = Path.read_text
+
+    def reading(self: Path, *args: object, **rest: object) -> str:
+        if str(self) == "/etc/hosts":
+            return real_read(hosts)
+        raise OSError("no nsswitch here")
+
+    monkeypatch.setattr(Path, "read_text", reading)
+
+    said = fetch._resolver_state("https://mirrors.ustc.edu.cn/gentoo/x")
+
+    assert "no hosts line" in said
+    assert "mirrors.ustc.edu.cn in /etc/hosts: False" in said
