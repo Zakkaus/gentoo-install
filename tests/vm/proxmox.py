@@ -77,6 +77,9 @@ TASK_WARNED: Final[str] = "WARNINGS:"
 
 #: What every driver CD this harness uploads is named after.
 DRIVER_PREFIX: Final[str] = "gi-driver-"
+
+#: What Proxmox answers when a delete reaches a guest that never stopped.
+STILL_RUNNING: Final[str] = "is running - destroy failed"
 CLEANUP_PAUSE: Final[float] = 2.0
 CLEANUP_PATIENCE: Final[float] = 300.0
 
@@ -134,6 +137,10 @@ def _http_exception(method: str, path: str, error: urllib.error.HTTPError) -> Pr
     retryable_500 = error.code == 500 and (
         re.fullmatch(r"/nodes/[^/]+/qemu/\d+/termproxy(?:\?.*)?", path) is not None
         or re.fullmatch(r"/nodes/[^/]+/tasks/[^/]+/status(?:\?.*)?", path) is not None
+        # `destroy` stops the guest and deletes it, and the stop can fail on
+        # its own: 9302 was left running on a node refusing connections, and
+        # this answer ended the only loop that would have stopped it again.
+        or (STILL_RUNNING in said and method == "DELETE")
     )
     # 595 is the cluster proxy saying it could not reach the node, not the node
     # saying no: `infra-node3` answered it four times while restarting, and the
