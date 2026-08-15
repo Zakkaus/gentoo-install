@@ -11,6 +11,8 @@ import pytest
 
 from gentoo_install.model.config import MirrorRegion, Sync
 from tests.vm import cluster
+
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 from tests.vm.console import ConsoleTimeout, SerialConsole
 from tests.vm.proxmox import Api, Node, ProxmoxNotFound, VMID_FIRST, VMID_LAST
 
@@ -101,6 +103,8 @@ def _rewrite(
     into: Path,
     region: MirrorRegion,
     sync: Sync,
+    public_key: str = "",
+    site: str = "",
 ) -> Path:
     return into
 
@@ -324,3 +328,39 @@ def test_the_init_check_asks_the_running_init_not_a_file_listing() -> None:
         assert init[2] == expected, init
         if wanted:
             assert init[2] == wanted, init
+
+
+def test_a_pinned_site_moves_every_address_that_follows_a_mirror(tmp_path: Path) -> None:
+    """This cluster is in China. A run that reaches for `distfiles.gentoo.org`
+    or `github.com` measures the way out of the country: three rounds died at
+    the stage3 fetch, and a node pulling a 3 MiB template from
+    `download.proxmox.com` connected, was answered 200, and received nothing
+    for fifteen minutes."""
+    from gentoo_install.exec.config import load
+    from gentoo_install.model import mirrors
+
+    job = cluster.Job("vm-binpkg", FIXTURES / "vm-binpkg.toml")
+
+    cluster.rewrite_fixtures([job], tmp_path, MirrorRegion.CN, Sync.GIT, "", "nju")
+    moved = load(tmp_path / "vm-binpkg.toml").portage
+
+    assert moved.mirrors.site == "nju"
+    assert moved.mirrors.gentoo_zh.value == "nju"
+    assert mirrors.gentoo_binhost(moved.mirrors.region, moved.mirrors.site) == (
+        "https://mirrors.nju.edu.cn/gentoo/releases/amd64/binpackages/23.0/x86-64"
+    )
+    assert mirrors.gentoozh(moved.mirrors.gentoo_zh).git == (
+        "https://mirror.nju.edu.cn/git/gentoo-zh.git"
+    )
+
+
+def test_no_site_leaves_the_region_to_choose(tmp_path: Path) -> None:
+    from gentoo_install.exec.config import load
+
+    job = cluster.Job("vm-binpkg", FIXTURES / "vm-binpkg.toml")
+
+    cluster.rewrite_fixtures([job], tmp_path, MirrorRegion.CN, Sync.GIT)
+    moved = load(tmp_path / "vm-binpkg.toml").portage
+
+    assert moved.mirrors.site == ""
+    assert moved.mirrors.gentoo_zh.value == "cernet"

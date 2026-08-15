@@ -1033,7 +1033,7 @@ def test_zero_cluster_capacity_returns_an_error_after_a_deadline(
 
     now = [0.0]
     monkeypatch.setattr(cluster, "Api", lambda: Empty())
-    monkeypatch.setattr(cluster, "rewrite_fixtures", lambda jobs, into, region, sync: into)
+    monkeypatch.setattr(cluster, "rewrite_fixtures", lambda jobs, into, region, sync, public_key="", site="": into)
 
     def build(path: Path, **kwargs: object) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)

@@ -39,7 +39,7 @@ from collections.abc import Callable, Mapping
 from typing import Final, Protocol, TypeVar, cast
 
 from gentoo_install.model.config import Firmware as BootFirmware
-from gentoo_install.model.config import InitSystem, InstallConfig
+from gentoo_install.model.config import GentooZhMirror, InitSystem, InstallConfig
 from gentoo_install.model.device import (
     Existing,
     Filesystem,
@@ -921,27 +921,26 @@ def stage_passphrases(link: Reconnecting, installation: InstallConfig) -> None:
 
 
 def rewrite_fixtures(
-    jobs: list[Job], into: Path, region: MirrorRegion, sync: Sync, public_key: str = ""
+    jobs: list[Job],
+    into: Path,
+    region: MirrorRegion,
+    sync: Sync,
+    public_key: str = "",
+    site: str = "",
 ) -> Path:
-    """Write each fixture out again with its mirror region and sync replaced.
+    """Write each fixture out again with its mirror region, site and sync.
 
     Through the parser and the writer, not a text substitution: a fixture that
     cannot survive the round trip is a defect worth failing on here rather than
     an hour into an install.
 
-    Both defaults come from what this network measured, not from what a
-    Chinese cluster is assumed to look like. Its guests have a ULA address and
-    reach the world through NAT64, and from inside one:
-
-    - `github.com` never connects, so the default `git` sync cannot be used
-      and `rsync` is what the fixtures run with here;
-    - `mirrors.tuna.tsinghua.edu.cn` connects but transfers at 128 KiB/s,
-      which is an hour for one stage3;
-    - `distfiles.gentoo.org`, a CDN, is the fast one, so `global` is the
-      region that finishes.
-
-    The node itself has none of these limits: it fetched a 1 GiB ISO from
-    tuna in the same run. Only the guest network is this shape.
+    `site` names one mirror rather than letting the region pick its first, and
+    it moves everything that follows a mirror: the ebuild repository, the
+    distfiles list, the official binary packages and, when that key also names
+    a gentoo-zh site, the overlay. This cluster is in China and paid for by
+    cheap power there, so a run that reaches for `distfiles.gentoo.org` or
+    `github.com` is a run measuring the way out of the country rather than the
+    installer.
     """
     into.mkdir(parents=True, exist_ok=True)
     for job in jobs:
@@ -950,7 +949,11 @@ def rewrite_fixtures(
         # gentoo-zh from github stopped the install after two hundred seconds
         # of `Could not connect to server`, while every other fetch in the same
         # guest came from a Chinese mirror and worked.
-        chosen = mirrors.gentoozh_for(region)
+        chosen = (
+            GentooZhMirror(site)
+            if site in {one.value for one in GentooZhMirror}
+            else mirrors.gentoozh_for(region)
+        )
         where = mirrors.gentoozh(chosen).git
         moved = replace(
             remote_config(config, public_key) if public_key else config,
@@ -958,7 +961,7 @@ def rewrite_fixtures(
                 config.portage,
                 sync=sync,
                 mirrors=replace(
-                    config.portage.mirrors, region=region, gentoo_zh=chosen
+                    config.portage.mirrors, region=region, site=site, gentoo_zh=chosen
                 ),
                 overlays=tuple(
                     replace(overlay, sync_uri=where)
@@ -1519,6 +1522,7 @@ def run(
     region: MirrorRegion = MirrorRegion.GLOBAL,
     sync: Sync = Sync.RSYNC,
     pin_hosts: bool = False,
+    site: str = "",
 ) -> list[Outcome]:
     """Every job, collected one at a time as each finishes.
 
@@ -1540,9 +1544,9 @@ def run(
     staging = workdir / f".driver-{uuid.uuid4().hex}.iso"
     fixture_dir = workdir / "fixtures"
     if public_key:
-        rewritten = rewrite_fixtures(jobs, fixture_dir, region, sync, public_key)
+        rewritten = rewrite_fixtures(jobs, fixture_dir, region, sync, public_key, site)
     else:
-        rewritten = rewrite_fixtures(jobs, fixture_dir, region, sync)
+        rewritten = rewrite_fixtures(jobs, fixture_dir, region, sync, "", site)
     built_path = build_driver(staging, packed=True, fixtures=rewritten)
     driver_path = retain_driver(workdir, built_path)
     driver = driver_path.name
@@ -2465,6 +2469,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=nonnegative, default=0, help="how many guests at once")
     parser.add_argument("--workdir", type=Path, default=WORKROOT)
     parser.add_argument(
+        "--site",
+        default="",
+        help="pin every mirror to one site by its key in model/mirrors.py",
+    )
+    parser.add_argument(
         "--region",
         choices=[one.value for one in MirrorRegion],
         default=MirrorRegion.GLOBAL.value,
@@ -2509,6 +2518,7 @@ def main(argv: list[str] | None = None) -> int:
         MirrorRegion(args.region),
         Sync(args.sync),
         args.pin_hosts,
+        args.site,
     )
     passed = [
         one
