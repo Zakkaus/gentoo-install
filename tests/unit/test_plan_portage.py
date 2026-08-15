@@ -1512,3 +1512,51 @@ def test_the_flag_variables_still_follow_common_flags() -> None:
     assert read_back[1] == "-O2 -pipe"
     # Not expanded: the fetcher substitutes these, long after the file is read.
     assert "${URI}" in read_back[2]
+
+
+def test_the_first_snapshot_is_tried_again_like_every_later_sync() -> None:
+    """It downloads the whole tree, looks the signing key up over WKD and
+    refreshes it from a keyserver, and gemato lets a `ReadTimeout` in the WKD
+    lookup out rather than falling back. The later syncs have had three
+    attempts since a mirror rewrote its Manifests mid-sync; this one had none,
+    and `openrc-sdboot` ended a cluster round with the tree never fetched."""
+    from gentoo_install.errors import CommandFailed
+    from gentoo_install.plan import portage as plan_portage
+    from .recorder import Recorder
+
+    tries = {"n": 0}
+
+    def answer(argv: Sequence[str]) -> str | None:
+        if "emerge-webrsync" in argv:
+            tries["n"] += 1
+            if tries["n"] < plan_portage.SYNC_TRIES:
+                raise CommandFailed("emerge-webrsync exited 1: requests.exceptions.ReadTimeout")
+        return None
+
+    recorder = Recorder(answering=answer)
+    plan_portage.WebrsyncRepository().apply(recorder)
+
+    assert tries["n"] == plan_portage.SYNC_TRIES
+    assert any("sleep" in one for one in recorder.commands)
+
+
+def test_a_snapshot_that_never_arrives_stops_the_install() -> None:
+    """Bounded, like the later syncs: a mirror that is down has to stop the
+    install rather than be walked around."""
+    from gentoo_install.errors import CommandFailed
+    from gentoo_install.plan import portage as plan_portage
+    from .recorder import Recorder
+
+    tries = {"n": 0}
+
+    def answer(argv: Sequence[str]) -> str | None:
+        if "emerge-webrsync" in argv:
+            tries["n"] += 1
+            raise CommandFailed("emerge-webrsync exited 1")
+        return None
+
+    recorder = Recorder(answering=answer)
+    with pytest.raises(CommandFailed):
+        plan_portage.WebrsyncRepository().apply(recorder)
+
+    assert tries["n"] == plan_portage.SYNC_TRIES
