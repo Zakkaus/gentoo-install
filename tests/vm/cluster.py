@@ -2306,6 +2306,8 @@ def fixtures(names: list[str]) -> list[Job]:
         if not path.is_file():
             raise SystemExit(f"no fixture named {name} at {path}")
         config: InstallConfig = load(path)
+        if config.bootloader.firmware.value == "bios":
+            raise SystemExit(BIOS_IS_LOCAL_ONLY.format(name=name))
         found.append(
             Job(
                 name=name,
@@ -2317,6 +2319,18 @@ def fixtures(names: list[str]) -> list[Job]:
             )
         )
     return found
+
+
+#: Why a BIOS fixture is not dispatched. The medium's own `grub.cfg` runs
+#: `terminal_output gfxterm` and never enables serial input, so under SeaBIOS
+#: GRUB prints `Welcome to GRUB!`, clears the serial terminal and says nothing
+#: more, and no keypress reaches it. Under OVMF the firmware console is the
+#: serial port and the same medium is driven normally.
+BIOS_IS_LOCAL_ONLY: Final[str] = (
+    "{name} boots BIOS, which this cluster cannot drive: the medium's GRUB "
+    "leaves the serial terminal for gfxterm and takes no serial input. "
+    "Run it with tests/vm/run.py, where qemu gives the guest no display."
+)
 
 
 def _leave_on_a_signal() -> None:
