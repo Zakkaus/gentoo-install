@@ -478,6 +478,18 @@ def inspect(
             )
     fatal += [problem.reason for problem in commands.unusable]
 
+    # Said rather than refused: installing from a running system onto a second
+    # disk is a real thing to do, and the guard that matters is below — a disk
+    # with anything mounted on it is not repartitioned. What was missing is
+    # that nothing named the difference before the disk screen.
+    if _disks_at_risk(config.disk.graph) and not probe.live_medium():
+        where = probe.root_source()
+        warnings.append(
+            "this does not look like a live medium"
+            + (f" ({where} is mounted at /)" if where else "")
+            + "; the disks below belong to the machine you are running on"
+        )
+
     for disk in _disks_at_risk(config.disk.graph):
         try:
             path = probe.resolve(disk.id, disk.selector)
