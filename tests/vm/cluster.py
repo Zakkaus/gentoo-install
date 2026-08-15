@@ -829,6 +829,14 @@ def carried_hosts(pinned: str) -> list[str]:
         f"&& getent -s files hosts {last} > /dev/null "
         f"&& printf 'PINNED_IN_FILES\\n' || printf 'PINNED_NOT_IN_FILES\\n'"
     )
+    # The installer resolves with Python, and `getent` answering says nothing
+    # about that: twenty-three mirrors failed with `EAI_AGAIN` in a guest whose
+    # `/etc/hosts` held every one of their names.
+    commands.append(
+        f"python3 -c 'import socket,sys; socket.getaddrinfo(sys.argv[1], 443)' {first} "
+        f"2>/dev/null && printf 'PINNED_PYTHON_RESOLVES\\n' "
+        f"|| printf 'PINNED_PYTHON_FAILS\\n'"
+    )
     return commands
 
 
