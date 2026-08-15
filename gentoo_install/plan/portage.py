@@ -726,7 +726,9 @@ class Emerge(Operation):
 
 def _binpkg_failure(output: str) -> str | None:
     """Return a Portage marker that proves the failure was a binary fetch."""
-    for line in output.splitlines():
+    binaries: set[str] = set()
+    for raw in output.splitlines():
+        line = raw.strip()
         if any(
             marker in line
             for marker in (
@@ -735,7 +737,16 @@ def _binpkg_failure(output: str) -> str | None:
                 "Fetching Binary",
             )
         ):
-            return line.strip()
+            return line
+        # Portage says none of those when the download itself breaks: it
+        # prints wget's `Unable to establish SSL connection.` and fails the
+        # package. What names it a binary is the line that started it, so the
+        # two are read together. `btrfs-luks` lost an hour of install there.
+        if started := re.match(r">>> Emerging binary \(\d+ of \d+\) (\S+)", line):
+            binaries.add(started.group(1).split("::")[0])
+        if failed := re.match(r">>> Failed to emerge (\S+?),", line):
+            if failed.group(1) in binaries:
+                return line
     return None
 
 

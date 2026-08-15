@@ -1560,3 +1560,59 @@ def test_a_snapshot_that_never_arrives_stops_the_install() -> None:
         plan_portage.WebrsyncRepository().apply(recorder)
 
     assert tries["n"] == plan_portage.SYNC_TRIES
+
+
+#: What `btrfs-luks` printed when the binary host dropped one TLS handshake
+#: seventy-five minutes into an install. Portage says none of the markers that
+#: name a binary failure; what names it is the line that started the package.
+SSL_DROPPED = """>>> Emerging binary (89 of 336) app-crypt/libmd-1.2.0::gentoo
+>>> Installing (89 of 336) app-crypt/libmd-1.2.0::gentoo
+>>> Emerging binary (90 of 336) x11-misc/appmenu-gtk-module-25.04::gentoo
+--2026-08-15 19:45:25--  https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64/\
+x11-misc/appmenu-gtk-module/appmenu-gtk-module-25.04-4.gpkg.tar
+Resolving distfiles.gentoo.org... 143.244.51.245, 89.187.187.11
+Connecting to distfiles.gentoo.org|143.244.51.245|:443... connected.
+Unable to establish SSL connection.
+
+>>> Failed to emerge x11-misc/appmenu-gtk-module-25.04, Log file:
+"""
+
+
+def test_a_binary_whose_download_broke_retries_from_source() -> None:
+    """One dropped TLS handshake to the binary host ended a seventy-five minute
+    install with exit 4. Portage prints wget's own words and none of the
+    markers that name a binary failure, so the line that started the package is
+    what says it was one."""
+    recorder = Recorder()
+    recorder.answering = lambda argv: (
+        CommandOutput(SSL_DROPPED, 1)
+        if argv[0] == "emerge" and "--usepkg=n" not in argv
+        else CommandOutput("[ebuild] x11-misc/appmenu-gtk-module-25.04", 0)
+    )
+
+    portage.Emerge(
+        packages=("kde-plasma/plasma-meta",), summary="install the plasma group"
+    ).apply(recorder)
+
+    emerges = [argv for argv in recorder.in_target if argv[0] == "emerge"]
+    assert len(emerges) == 2
+    assert "--getbinpkg=n" in emerges[-1] and "--usepkg=n" in emerges[-1]
+    assert recorder.degraded(portage.BINARY_PACKAGES)
+
+
+def test_a_source_build_that_failed_is_not_called_a_binary_failure() -> None:
+    """The same `Failed to emerge` line, from a package Portage was compiling.
+    Retrying that from source would repeat the build that already failed."""
+    recorder = Recorder()
+    compiled = SSL_DROPPED.replace(
+        ">>> Emerging binary (90 of 336) x11-misc/appmenu-gtk-module-25.04::gentoo",
+        ">>> Emerging (90 of 336) x11-misc/appmenu-gtk-module-25.04::gentoo",
+    )
+    recorder.answering = lambda argv: CommandOutput(compiled, 1)
+
+    with pytest.raises(CommandFailed):
+        portage.Emerge(
+            packages=("kde-plasma/plasma-meta",), summary="install the plasma group"
+        ).apply(recorder)
+
+    assert not recorder.degraded(portage.BINARY_PACKAGES)
