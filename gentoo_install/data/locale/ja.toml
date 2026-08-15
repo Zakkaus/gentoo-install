@@ -531,3 +531,4 @@
 "no user password and no authorised ssh key usable by sshd" = "ユーザーのパスワードがなく、sshd が使える authorized な ssh 鍵もありません"
 "the root password hash is empty, locked, or malformed, and no user password or usable ssh key can log into the installed system" = "root のパスワードハッシュが空、ロック済み、または不正な形式で、インストール後のシステムにログインできるユーザーのパスワードも使用可能な ssh 鍵もありません"
 "the separate /boot is encrypted or not vfat, so systemd-boot cannot read its kernels or entries" = "独立した /boot が暗号化されているか vfat ではないため、systemd-boot はカーネルもエントリーも読み取れません"
+"reading the versions this package offers" = "このパッケージが提供するバージョンを読み込んでいます"
