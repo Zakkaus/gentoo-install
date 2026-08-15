@@ -2266,11 +2266,15 @@ def fixtures(names: list[str]) -> list[Job]:
 
 
 def _leave_on_a_signal() -> None:
-    """Turn SIGTERM into the exception SIGINT already raises.
+    """Unwind on a signal so the closing path runs.
 
     Python's default handler for SIGTERM ends the process without unwinding,
     so no `finally` runs: `kill` on the scheduler left eight guests on the
     cluster with the closing path that removes them never reached.
+
+    SIGINT is claimed too. A shell without job control hands a background
+    campaign `SIG_IGN` for it, CPython keeps an inherited ignore, and
+    `kill -INT` on the schedule then does nothing at all.
     """
 
     def raised(number: int, frame: object) -> None:
@@ -2278,6 +2282,7 @@ def _leave_on_a_signal() -> None:
 
     signal.signal(signal.SIGTERM, raised)
     signal.signal(signal.SIGHUP, raised)
+    signal.signal(signal.SIGINT, raised)
 
 
 def main(argv: list[str] | None = None) -> int:
