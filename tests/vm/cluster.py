@@ -1977,6 +1977,37 @@ def _asked_for(installation: InstallConfig) -> list[tuple[str, str, str]]:
     return [(check.name, check.command, check.pattern) for check in checks(installation)]
 
 
+#: What agetty sleeps before it flushes the serial line and starts reading, so
+#: a name sent the moment `login:` appears is discarded. Its own value plus a
+#: margin, because the sleep starts when the prompt is written.
+AGETTY_FLUSHES_AFTER: Final[float] = 2.0
+
+#: How many times the user name is offered. An empty line brings the prompt
+#: back, so this must end rather than answer for ever.
+LOGIN_TRIES: Final[int] = 4
+
+
+def _name_the_user(link: Reconnecting) -> bool:
+    """Give the login prompt a name, and say whether it took one.
+
+    agetty sleeps a second after writing the prompt and then flushes whatever
+    arrived, so a name typed at once is thrown away and the empty line that
+    follows it brings the prompt back. `openrc-sdboot` and `vm-bios` printed
+    their issue three times and were failed for a password prompt that was
+    never coming.
+    """
+    for _ in range(LOGIN_TRIES):
+        time.sleep(AGETTY_FLUSHES_AFTER)
+        link.respond("root")
+        try:
+            said = link.observe(rf"{PASSWORD_PROMPT}|login:", timeout=60.0)
+        except ConsoleTimeout:
+            continue
+        if b"login:" not in said:
+            return True
+    return False
+
+
 #: How long SeaBIOS and GRUB take to reach the cryptomount prompt. Nothing on
 #: the serial port marks it, so the passphrase is typed after this, and a
 #: wrong guess costs one retry at the next prompt, which is waited for.
@@ -2104,8 +2135,8 @@ def boot_and_check(
         except (ConsoleTimeout, ConsoleClosed) as error:
             return f"the installed system did not reach a login prompt: {error}"[:200]
     try:
-        link.respond("root")
-        link.observe(PASSWORD_PROMPT, timeout=120.0)
+        if not _name_the_user(link):
+            return "the installed system asked for a name and kept asking"
         link.respond(INSTALLED_PASSWORD)
     except ConsoleClosed as error:
         return f"installed login response delivery is unknown: {error}"[:200]
