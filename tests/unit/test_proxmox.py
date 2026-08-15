@@ -10,6 +10,7 @@ from email.message import Message
 import io
 import struct
 from threading import Event
+import time
 import urllib.error
 import urllib.response
 import urllib.request
@@ -2265,6 +2266,9 @@ def test_install_media_download_carries_the_signed_sha512() -> None:
         def __init__(self) -> None:
             self.form: dict[str, Any] = {}
 
+        def stale_drivers(self, node: str, keep: str, older_than: float) -> list[str]:
+            return []
+
         def isos(self, node: str) -> list[str]:
             return []
 
@@ -2304,6 +2308,9 @@ def test_an_existing_install_iso_needs_its_matching_verification_record(
             self.removed: list[str] = []
             self.fetched: list[str] = []
 
+        def stale_drivers(self, node: str, keep: str, older_than: float) -> list[str]:
+            return []
+
         def isos(self, node: str) -> list[str]:
             return ["minimal-a.iso", "driver.iso"]
 
@@ -2342,6 +2349,9 @@ def test_an_existing_install_iso_replaces_a_mismatched_record(tmp_path: Path) ->
         def __init__(self) -> None:
             self.removed: list[str] = []
             self.fetched: list[str] = []
+
+        def stale_drivers(self, node: str, keep: str, older_than: float) -> list[str]:
+            return []
 
         def isos(self, node: str) -> list[str]:
             return ["minimal-a.iso", "driver.iso"]
@@ -3191,3 +3201,31 @@ def test_cores_this_schedule_has_placed_are_subtracted_too() -> None:
     assert len(free_slots(Idle())) == 3
     assert len(free_slots(Idle(), None, {"one": GUEST_CORES * 2})) == 1
     assert free_slots(Idle(), None, {"one": GUEST_CORES * 3}) == []
+
+
+def test_a_driver_cd_old_enough_to_belong_to_nobody_is_named() -> None:
+    """A schedule removes its own driver CD, but one killed outright leaves it:
+    149 were counted across six nodes against a 33 GiB store. Age is what makes
+    the answer safe, because a campaign runs for hours and a file uploaded this
+    minute may be another campaign's."""
+    from tests.vm.proxmox import Api
+
+    day = 24 * 60 * 60.0
+    now = time.time()
+
+    class Stored(Api):
+        def __init__(self) -> None:
+            pass
+
+        def call(self, method: str, path: str, **fields: object) -> Any:
+            return [
+                {"volid": "local:iso/gi-driver-thisrun.iso", "ctime": now - 5 * day},
+                {"volid": "local:iso/gi-driver-abandoned.iso", "ctime": now - 2 * day},
+                {"volid": "local:iso/gi-driver-someone-elses.iso", "ctime": now - 60},
+                {"volid": "local:iso/install-amd64-minimal.iso", "ctime": now - 30 * day},
+                {"volid": "local:iso/harvester-v1.5.0-amd64.iso", "ctime": now - 30 * day},
+            ]
+
+    stale = Stored().stale_drivers("infra-node6", "gi-driver-thisrun.iso", day)
+
+    assert stale == ["gi-driver-abandoned.iso"]

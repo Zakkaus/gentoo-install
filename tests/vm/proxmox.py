@@ -74,6 +74,9 @@ TASK_POLL: Final[float] = 2.0
 #: What Proxmox writes as a task's exit status when it finished its work
 #: and logged a warning while doing it.
 TASK_WARNED: Final[str] = "WARNINGS:"
+
+#: What every driver CD this harness uploads is named after.
+DRIVER_PREFIX: Final[str] = "gi-driver-"
 CLEANUP_PAUSE: Final[float] = 2.0
 CLEANUP_PATIENCE: Final[float] = 300.0
 
@@ -314,6 +317,26 @@ class Api:
     def isos(self, node: str) -> list[str]:
         content = self.call("GET", f"/nodes/{node}/storage/{ISO_STORAGE}/content?content=iso")
         return sorted(str(one["volid"]).split("/")[-1] for one in content)
+
+    def stale_drivers(self, node: str, keep: str, older_than: float) -> list[str]:
+        """Driver CDs on this node that no run can still be using.
+
+        A schedule removes its own, but one killed outright leaves it, and 149
+        of them were counted across six nodes against a 33 GiB store. Age is
+        what makes the answer safe: a campaign runs for hours, so a file older
+        than a day belongs to nobody, while a name a second campaign uploaded
+        this minute is left alone.
+        """
+        content = self.call("GET", f"/nodes/{node}/storage/{ISO_STORAGE}/content?content=iso")
+        now = time.time()
+        found = []
+        for one in content:
+            name = str(one["volid"]).split("/")[-1]
+            if name == keep or not name.startswith(DRIVER_PREFIX):
+                continue
+            if now - float(one.get("ctime", now)) >= older_than:
+                found.append(name)
+        return sorted(found)
 
     def upload_iso(self, node: str, path: Path, name: str) -> str:
         """Put a file on a node's `local` storage and answer its name there.
