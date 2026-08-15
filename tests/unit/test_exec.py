@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 from __future__ import annotations
 
+import os
+
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from typing import AbstractSet, Iterable, Mapping, Sequence
@@ -2244,3 +2246,62 @@ def test_a_refused_connection_is_not_waited_out_as_long(
     fetch._download("https://distfiles.invalid/stage3.tar.xz", tmp_path / "stage3.tar.xz")
 
     assert waited == [fetch.ONLINE_PAUSE]
+
+
+def test_a_written_file_is_whole_or_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A run cut short between the truncate and the write leaves a half
+    written `fstab` or `make.conf`, and `--resume` reads it as the operator's
+    own. The content lands beside the name and is renamed over it."""
+    target = tmp_path / "target"
+    (target / "etc").mkdir(parents=True)
+    runner = Runner(log=lambda line: None)
+    machine = apply.Machine(
+        config=config(),
+        runner=runner,
+        probe=Probe(runner=runner, work=tmp_path),
+        work=tmp_path,
+    )
+    machine.mountpoint = target
+
+    renames: list[tuple[str, str]] = []
+    real_replace = os.replace
+
+    def watched(src: str | Path, dst: str | Path) -> None:
+        renames.append((os.fspath(src), os.fspath(dst)))
+        real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", watched)
+    machine.write(PurePosixPath("/etc/fstab"), "UUID=1 / ext4 defaults 0 1\n")
+
+    assert (target / "etc" / "fstab").read_text().endswith("0 1\n")
+    assert renames, "the content was written straight into the name"
+    source, destination = renames[-1]
+    assert Path(source).name.startswith(".") and source != destination
+    leftovers = [one.name for one in (target / "etc").iterdir() if one.name.startswith(".")]
+    assert not leftovers, f"the file it was written through stayed: {leftovers}"
+
+
+def test_a_symlink_at_the_destination_is_refused_rather_than_replaced(tmp_path: Path) -> None:
+    """`os.replace` takes a symlink's place instead of following it, so the
+    refusal the other paths get has to be made here too."""
+    from gentoo_install.exec.runner import TargetEscape
+
+    target = tmp_path / "target"
+    (target / "etc").mkdir(parents=True)
+    (target / "etc" / "mtab").symlink_to("/proc/self/mounts")
+    runner = Runner(log=lambda line: None)
+    machine = apply.Machine(
+        config=config(),
+        runner=runner,
+        probe=Probe(runner=runner, work=tmp_path),
+        work=tmp_path,
+    )
+    machine.mountpoint = target
+
+    with pytest.raises(TargetEscape):
+        machine.write(PurePosixPath("/etc/mtab"), "nothing\n")
+
+    assert (target / "etc" / "mtab").is_symlink()
+    assert not list((target / "etc").glob(".mtab*")), "the temporary file was removed"

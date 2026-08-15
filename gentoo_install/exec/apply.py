@@ -36,7 +36,7 @@ from ..plan.operations import CommandOutput, Operation
 from . import fetch, packages
 from .preflight import SecretStore
 from .probe import Probe
-from .runner import Runner, open_in_target, under, write_file
+from .runner import Runner, TargetEscape, open_in_target, under, write_file
 
 
 @dataclass
@@ -82,14 +82,30 @@ class Machine:
         return packages.target_is_directory(self.mountpoint, path)
 
     def write(self, path: PurePosixPath, content: str, *, mode: int = 0o644) -> None:
+        # Beside it and renamed over, never in place: a run cut short between
+        # the truncate and the write leaves a half-written `fstab` or
+        # `make.conf`, and `--resume` reads it as the operator's own.
+        beside = path.with_name(f".{path.name}.gentoo-install")
         # The mode is set at open time: writing first and narrowing afterwards
         # leaves a secret readable for the interval in between.
         handle = open_in_target(
-            self.mountpoint, path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode, parents=True
+            self.mountpoint, beside, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode, parents=True
         )
         with os.fdopen(handle, "w") as opened:
             opened.write(content)
-        os.chmod(under(self.mountpoint, path), mode, follow_symlinks=False)
+            opened.flush()
+            os.fsync(opened.fileno())
+        written = under(self.mountpoint, beside)
+        os.chmod(written, mode, follow_symlinks=False)
+        destination = under(self.mountpoint, path)
+        # `os.replace` takes the symlink's place rather than following it, so
+        # the refusal `open_in_target` gives the other paths has to be made
+        # here as well: a stage3 that ships `/etc/mtab` as a link out of the
+        # target must not have it quietly replaced either.
+        if os.path.islink(destination):
+            os.unlink(written)
+            raise TargetEscape(f"{path} in the target is a symlink")
+        os.replace(written, destination)
 
     def read(self, path: PurePosixPath) -> str:
         """Empty for a file that is not there, which is the normal case before
