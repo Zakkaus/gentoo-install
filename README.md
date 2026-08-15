@@ -233,6 +233,14 @@ Binary packages are optional. Disabling them keeps source builds available. The 
 
 For `gentoo-install`, `0` means successful completion and `1` means configuration error. `2` means an `argparse` usage error or preflight failure, and `3` means integrity failure. `4` means download, external-command, OS or uncategorized installer failure, and `5` means operator abort. `bootstrap.sh` can also exit `1` before the Python CLI starts when its Python, required-command or root checks fail.
 
+## Questions
+
+<!-- fact: faq-customisation -->
+
+**Does an installer of this kind take away what makes Gentoo Gentoo?**
+
+No. It performs the base installation and stops there: partitions, a stage3, Portage configuration, a kernel, a bootloader and an optional desktop. Every decision after that remains the operator's, on a system that is an ordinary Gentoo installation with no component of this project left running on it. What it removes is the cost of the first hour, which is what makes Gentoo hard to start with and hard to deploy across many machines or on a VPS.
+
 ## Contributing
 
 <!-- fact: contributing -->
