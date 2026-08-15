@@ -1374,6 +1374,7 @@ def install_one(
             watch=watch,
         )
         files = collect(guest, link, log)
+        keep_results(log, files)
         code = files.get("install.rc", b"").strip()
         if code != b"0":
             outcome = Outcome(
@@ -2166,6 +2167,22 @@ def boot_and_check(
         if said != wanted.encode() and re.search(wanted.encode(), said) is None:
             return f"{name}: the installed system does not say {wanted!r}"
     return ""
+
+
+def keep_results(log: Path, files: Mapping[str, bytes]) -> None:
+    """Write beside the log what the guest handed back.
+
+    Only `install.rc` was read and the rest was dropped, `install.jsonl` with
+    it: the record of which packages came from a binary host, which were
+    compiled and why each degradation happened existed in the guest, crossed
+    the console, and was never written anywhere.
+    """
+    for name, content in files.items():
+        beside = log.with_name(f"{log.stem}.{Path(name).name}")
+        try:
+            beside.write_bytes(content)
+        except OSError as error:
+            print(f"{beside} was not written: {error}", file=sys.stderr)
 
 
 def collect(guest: Guest, link: "Reconnecting", log: Path) -> dict[str, bytes]:

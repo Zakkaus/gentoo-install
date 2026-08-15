@@ -2397,3 +2397,34 @@ def test_an_ordinary_console_timeout_blames_no_node(tmp_path: Path) -> None:
     )
 
     assert console_proxy_dropped(log) == ""
+
+
+def test_what_the_guest_handed_back_is_written_beside_its_log(tmp_path: Path) -> None:
+    """`install.jsonl` says which packages came from a binary host, which were
+    compiled and why each degradation happened. It crossed the console and was
+    dropped: only `install.rc` was ever read."""
+    from tests.vm.cluster import keep_results
+
+    log = tmp_path / "vm-btrfs.log"
+    log.write_text("")
+
+    keep_results(
+        log,
+        {
+            "install.rc": b"0\n",
+            "install.jsonl": b'{"package":"sys-apps/portage","source":"binhost"}\n',
+        },
+    )
+
+    assert (tmp_path / "vm-btrfs.install.rc").read_bytes() == b"0\n"
+    assert b"binhost" in (tmp_path / "vm-btrfs.install.jsonl").read_bytes()
+
+
+def test_a_file_that_cannot_be_written_does_not_end_the_run(tmp_path: Path) -> None:
+    """The install already happened; a directory that refuses a write is not a
+    reason to throw its result away."""
+    from tests.vm.cluster import keep_results
+
+    log = tmp_path / "sub" / "vm-btrfs.log"
+
+    keep_results(log, {"install.rc": b"0\n"})
