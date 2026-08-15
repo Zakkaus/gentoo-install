@@ -1731,9 +1731,9 @@ def test_a_guest_that_compiles_is_given_a_whole_node() -> None:
     from tests.vm.cluster import fixtures as cluster_fixtures
 
     weights = {one.name: one for one in cluster_fixtures(
-        ["vm-binpkg", "vm-zfs", "vm-desktop", "vm-gnome", "btrfs-luks"]
+        ["vm-binpkg", "vm-zfs", "vm-desktop", "vm-gnome", "ext4-bios"]
     )}
-    for name in ("vm-desktop", "vm-gnome", "btrfs-luks"):
+    for name in ("vm-desktop", "vm-gnome", "ext4-bios"):
         job = weights[name]
         assert job.heavy, name
         assert (job.cores, job.memory_mib) == (HEAVY_CORES, HEAVY_MEMORY_MIB), name

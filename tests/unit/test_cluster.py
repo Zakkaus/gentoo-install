@@ -323,22 +323,3 @@ def test_the_init_check_asks_the_running_init_not_a_file_listing() -> None:
         assert init[2] == expected, init
         if wanted:
             assert init[2] == wanted, init
-
-
-def test_a_bios_fixture_is_refused_before_the_cluster_is_asked_anything() -> None:
-    """Three BIOS fixtures failed every cluster round for ten minutes each. The
-    medium's `grub.cfg` runs `terminal_output gfxterm` and never enables serial
-    input, so under SeaBIOS GRUB clears the serial terminal after its banner
-    and no keypress reaches it; `vga` set to `serial0` and to `none` were both
-    measured and both ended at the same clear."""
-    with pytest.raises(SystemExit) as refused:
-        cluster.fixtures(["vm-bios"])
-
-    said = str(refused.value)
-    assert "vm-bios" in said
-    assert "gfxterm" in said
-    assert "tests/vm/run.py" in said
-
-
-def test_a_uefi_fixture_is_still_dispatched() -> None:
-    assert [job.name for job in cluster.fixtures(["vm-btrfs"])] == ["vm-btrfs"]
