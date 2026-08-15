@@ -807,7 +807,14 @@ def carried_hosts(pinned: str) -> list[str]:
     """
     if not pinned:
         return []
-    commands: list[str] = ["printf '\\n' >> /etc/hosts"]
+    # The file is only consulted if `nsswitch.conf` says so, and `getent -s
+    # files` proves nothing about that because it bypasses nsswitch entirely:
+    # a guest answered `PINNED_IN_FILES` and then failed to resolve the same
+    # name twenty-three times.
+    commands: list[str] = [
+        "printf 'hosts: files dns\\n' > /etc/nsswitch.conf",
+        "printf '\\n' >> /etc/hosts",
+    ]
     batch = ""
     for line in pinned.split("\\n"):
         if not line:

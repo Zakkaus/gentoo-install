@@ -2486,3 +2486,17 @@ def test_the_diagnostic_asks_python_as_well_as_getent() -> None:
 
     assert "socket.getaddrinfo" in asked
     assert "PINNED_PYTHON_RESOLVES" in asked and "PINNED_PYTHON_FAILS" in asked
+
+
+def test_the_resolver_is_told_to_read_the_file() -> None:
+    """`/etc/hosts` is consulted only if `nsswitch.conf` says so, and
+    `getent -s files` bypasses nsswitch, so it cannot tell one from the other:
+    a guest answered `PINNED_IN_FILES` and then failed to resolve the same
+    name for twenty-three mirrors in a row."""
+    from tests.vm.cluster import carried_hosts
+
+    commands = carried_hosts("1.1.1.1 first.example\\n2.2.2.2 last.example\\n")
+
+    assert "nsswitch.conf" in commands[0]
+    assert "hosts: files dns" in commands[0]
+    assert commands.index(next(one for one in commands if "/etc/hosts" in one)) > 0
