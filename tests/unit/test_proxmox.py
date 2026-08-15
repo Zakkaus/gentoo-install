@@ -3258,3 +3258,40 @@ def test_a_frame_the_reader_cannot_parse_closes_the_console() -> None:
 
     assert channel.recv(4096) == b""
     assert channel.closed, "the reader reopens a closed console"
+
+
+def test_a_delete_that_found_the_guest_running_is_tried_again() -> None:
+    """`destroy` stops the guest and then deletes it, and the stop can fail on
+    its own: 9302 sat on a node refusing connections, the delete answered
+    `VM 9302 is running - destroy failed`, and that ended the only loop that
+    would have stopped it again. It held its memory until the schedule closed."""
+    from tests.vm.proxmox import ProxmoxTransientError, _http_exception
+
+    error = urllib.error.HTTPError(
+        "https://pve/api2/json/nodes/infra-node3/qemu/9302",
+        500,
+        "VM 9302 is running - destroy failed",
+        Message(),
+        io.BytesIO(b'{"message":"VM 9302 is running - destroy failed\\n","data":null}'),
+    )
+
+    answered = _http_exception("DELETE", "/nodes/infra-node3/qemu/9302?purge=1", error)
+
+    assert isinstance(answered, ProxmoxTransientError)
+
+
+def test_a_delete_refused_for_another_reason_is_not_retried() -> None:
+    from tests.vm.proxmox import ProxmoxError, ProxmoxTransientError, _http_exception
+
+    error = urllib.error.HTTPError(
+        "https://pve/api2/json/nodes/infra-node3/qemu/9302",
+        500,
+        "storage 'ceph-pve' is not online",
+        Message(),
+        io.BytesIO(b'{"message":"storage is not online","data":null}'),
+    )
+
+    answered = _http_exception("DELETE", "/nodes/infra-node3/qemu/9302?purge=1", error)
+
+    assert isinstance(answered, ProxmoxError)
+    assert not isinstance(answered, ProxmoxTransientError)
