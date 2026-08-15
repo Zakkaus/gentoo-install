@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Interface language: which one, and the strings for it.
 
 Source strings are English and are the keys. A tag with no catalog, or a key a

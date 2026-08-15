@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 from dataclasses import replace
 from pathlib import PurePosixPath
 

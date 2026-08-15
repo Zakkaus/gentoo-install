@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Argument parsing and the one place an exception becomes an exit code.
 
 The table is in docs/design.md. Codes 3 and 4 stay apart on purpose: 3 says the

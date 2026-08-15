@@ -243,4 +243,4 @@ path = "/"
 
 <!-- fact: license -->
 
-이 프로젝트는 GNU General Public License 버전 2에 따라 배포된다. 전문은 [LICENSE](LICENSE)에 있다.
+이 프로젝트는 GNU General Public License 버전 2 또는 수령자가 선택하는 이후 버전에 따라 배포된다. 버전 2 전문은 [LICENSE](LICENSE)에 있으며, 각 소스 파일은 `SPDX-License-Identifier: GPL-2.0-or-later`를 가진다.

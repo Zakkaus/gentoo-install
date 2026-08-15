@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """The menu under a real terminal, not the fake screen.
 
 `FakeScreen` proves what the widgets decide; it proves nothing about curses.

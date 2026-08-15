@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Resolve device graph mountpoints for runtime and persistent consumers."""
 
 from __future__ import annotations

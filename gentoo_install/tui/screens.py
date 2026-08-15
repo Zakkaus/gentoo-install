@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """One screen per decision, each a function of the configuration so far.
 
 A screen never mutates what it was given: it returns a new `InstallConfig`, and

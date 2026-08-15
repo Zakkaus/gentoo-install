@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """The whole installation, as data.
 
 `parse.py` builds this from a TOML file and the TUI builds it from answers; both

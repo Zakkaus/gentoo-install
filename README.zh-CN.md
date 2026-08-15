@@ -243,4 +243,4 @@ path = "/"
 
 <!-- fact: license -->
 
-本项目以 GNU General Public License 第 2 版发布，全文见 [LICENSE](LICENSE)。
+本项目以 GNU General Public License 发布，版本为第 2 版，或由接收者选择任何更新的版本。第 2 版全文见 [LICENSE](LICENSE)，每份源代码文件带有 `SPDX-License-Identifier: GPL-2.0-or-later`。

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """The installed-state contract shared by local and cluster runners."""
 
 from __future__ import annotations

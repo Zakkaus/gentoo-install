@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Whether a word the operator typed has the shape its destination needs.
 
 Syntax only. Whether an atom resolves to an ebuild is a question for the

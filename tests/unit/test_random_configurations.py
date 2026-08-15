@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Random configurations through `validate` and `build`.
 
 `GentooInstallError` is an answer: a refusal the operator can read. Anything

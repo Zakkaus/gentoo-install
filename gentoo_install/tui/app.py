@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """The main menu: every setting, its current value, and what edits it.
 
 Not a wizard. The operator opens rows in any order and as often as they like,

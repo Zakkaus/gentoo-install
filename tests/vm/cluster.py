@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Run the install fixtures on the Proxmox cluster, unattended.
 
 One process, many guests. Each guest is a thread that builds a machine, drives

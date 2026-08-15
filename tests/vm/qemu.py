@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """QEMU process management for the test harness."""
 
 from __future__ import annotations

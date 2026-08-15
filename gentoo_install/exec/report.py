@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Persist and publish the artifacts produced by an install run."""
 
 from __future__ import annotations

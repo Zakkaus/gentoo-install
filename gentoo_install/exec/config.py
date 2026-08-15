@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Reading a configuration off this machine.
 
 The model parses a mapping and nothing else. Opening a path is I/O, so it

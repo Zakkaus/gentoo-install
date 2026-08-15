@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Result transfer from guest to host.
 
 The guest writes a tar stream straight onto a raw virtio disk and the host reads it

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Checks that need more than one field, run before anything touches a disk.
 
 Every problem is collected and reported together: fixing one rule per run means

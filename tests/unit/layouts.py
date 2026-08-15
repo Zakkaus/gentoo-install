@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Configurations the compatibility and validation tests start from.
 
 Each builder returns a configuration that breaks no rule, so a test states what

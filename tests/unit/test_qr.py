@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """The QR encoder against `qrencode`, module for module.
 
 The fixtures were produced by `qrencode -l M -m 0 -t ASCII`, one at the byte

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """The pieces every screen is built from.
 
 Each one is a loop over key presses that returns an `Answer`: what the operator

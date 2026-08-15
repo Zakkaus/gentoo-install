@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """`_newest` reads the pointer file, which every mirror serves identically."""
 
 from __future__ import annotations

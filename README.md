@@ -243,4 +243,4 @@ For `gentoo-install`, `0` means successful completion and `1` means configuratio
 
 <!-- fact: license -->
 
-gentoo-install is distributed under the GNU General Public License version 2. The full text is in [LICENSE](LICENSE).
+gentoo-install is distributed under the GNU General Public License, either version 2 or, at the recipient's option, any later version. The version 2 text is in [LICENSE](LICENSE), and every source file carries `SPDX-License-Identifier: GPL-2.0-or-later`.

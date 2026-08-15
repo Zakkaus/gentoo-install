@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Every exception the installer raises. `cli.py` is the only module that maps
 these to exit codes; the table lives in docs/design.md."""
 

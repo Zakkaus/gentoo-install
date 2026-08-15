@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """The mirror tables. Every address here was taken from the project's own list
 rather than derived from a pattern, because the paths do not follow one."""
 

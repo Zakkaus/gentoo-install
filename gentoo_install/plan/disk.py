@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Disks: partition tables, arrays, filesystems and mounts.
 
 The device graph decides the order. Nodes are emitted in topological order so a

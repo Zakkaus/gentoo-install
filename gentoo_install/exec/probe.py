@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """The only module that reads the machine's state.
 
 Everything else asks this. `preflight.py` in particular holds no `os.path` call

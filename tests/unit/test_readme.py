@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """The README set is five files that have to move together.
 
 Five translations drift the moment one of them is edited alone, and the drift

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Desktop profiles and the applications chosen separately from them.
 
 A profile is data, not code: `data/profiles/*.toml` names packages, services and

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Reads the tables shipped beside the code: desktop profiles and app groups.
 
 The plan layer is a pure function of its arguments, so the catalog is read here

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Read package payload contracts from an installed Gentoo target."""
 
 from __future__ import annotations

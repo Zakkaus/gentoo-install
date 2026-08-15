@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Carrying on from where a run stopped.
 
 The question this answers: an install that reached the desktop stage and died

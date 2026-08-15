@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Every row of the menu, opened once and read back.
 
 Two interface defects reached an operator in one session, and neither was a

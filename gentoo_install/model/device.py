@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """The device graph: what the target machine's storage should look like.
 
 Every node carries an id chosen by the configuration, and references its inputs

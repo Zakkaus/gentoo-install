@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Runs an operation list against a machine.
 
 This is the `Context` the plan layer declares. Everything it does goes through

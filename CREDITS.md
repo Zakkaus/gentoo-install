@@ -1,7 +1,8 @@
 # Credits
 
-gentoo-install is licensed under GPL-2. This file records every place its code
-came from something else, so that a reader can find the original and its terms.
+gentoo-install is licensed under GPL-2 or, at the recipient's option, any later
+version. This file records every place its code came from something else, so
+that a reader can find the original and its terms.
 
 ## Derived code
 
@@ -30,5 +31,7 @@ somewhere and the reader deserves to know where.
 | [catalyst](https://github.com/gentoo/catalyst) | GPL-2 | How a Gentoo installation medium is built |
 | [releng](https://gitweb.gentoo.org/proj/releng.git/) | — | What the official install CD contains |
 
-`archinstall` is GPL-3. Nothing may be copied from it while this repository is
-GPL-2 without an `or later` clause.
+`archinstall` is GPL-3. The `or later` clause makes taking code from it lawful,
+and a release that carries any of it is distributed under GPL-3 rather than
+GPL-2. A derivation from it says so in this file, because the terms the whole
+release goes out under change with it.

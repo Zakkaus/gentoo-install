@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """The project's pastebin: where a key is copied from, and where a failed
 install's log is sent so an issue can point at it.
 

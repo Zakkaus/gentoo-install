@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """The real terminal, behind the narrow `Screen` the widgets need."""
 
 from __future__ import annotations

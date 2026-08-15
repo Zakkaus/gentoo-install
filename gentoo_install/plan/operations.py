@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """What an installation is made of: one named operation per thing that happens.
 
 `describe()` is what a dry run prints and `apply()` is what an install performs.

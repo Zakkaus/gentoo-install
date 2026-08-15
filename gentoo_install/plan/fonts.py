@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Font selection configured for the package groups that provide the faces."""
 
 from __future__ import annotations

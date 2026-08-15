@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """A `Context` that records instead of doing.
 
 `apply()` is the half of an operation a golden file cannot see. Recording the

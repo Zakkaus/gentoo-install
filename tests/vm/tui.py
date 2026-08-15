@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Walk the menu in a real terminal, on the medium it ships on.
 
 `tests/unit/` drives the screens through `FakeScreen`, which answers a key and

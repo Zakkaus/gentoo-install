@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Confinement for VM harness artifacts."""
 
 from __future__ import annotations

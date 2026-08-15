@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """A websocket client, enough of RFC 6455 to carry a serial console.
 
 Proxmox hands out a console over `vncwebsocket` and nothing else: the node's
