@@ -788,27 +788,48 @@ def pinned_hosts() -> str:
     return "".join(f"{line}\\n" for line in lines)
 
 
-def carry_hosts(pinned: str) -> str:
-    """Append the answers this machine has to the guest's `/etc/hosts`.
+#: How much of one command line a serial console carries. The tty edits in
+#: canonical mode and drops what does not fit, and one line carrying every
+#: pinned address is 1349 characters: two guests in six wrote a `/etc/hosts`
+#: whose late entries — `mirrors.nju.edu.cn` among them — were never there,
+#: while the first entry the diagnostic asked about always was.
+CONSOLE_LINE_BYTES: Final[int] = 200
 
-    Appended rather than written: the medium's own entry for localhost is in
-    there, and replacing the file takes it away.
 
-    Answered afterwards rather than assumed: three rounds wrote this file and
-    then failed to resolve a name that was in it, which the log could not tell
-    apart from the file never being written.
+def carried_hosts(pinned: str) -> list[str]:
+    """The commands that put those addresses in the guest's `/etc/hosts`.
+
+    Several, not one: the whole block does not survive a single console line.
+    Appended rather than written, and starting on a newline of its own,
+    because the medium's own entry for localhost is in there and it is not
+    required to end in a newline.
     """
-    first = pinned.split("\\n", 1)[0].split(" ", 1)[-1] if pinned else ""
-    # `-s files`, not a plain lookup: a name DNS can also answer proves nothing
-    # about the file, and the first diagnostic could not tell them apart.
-    # Newline first, because the medium's own `/etc/hosts` may not end in one
-    # and the first pinned entry would be glued to its last line.
-    return (
-        f"printf '\\n{pinned}' >> /etc/hosts; "
-        f"printf 'PINNED_%s_LINES\\n' \"$(grep -c . /etc/hosts)\"; "
-        f"getent -s files hosts {first} > /dev/null && printf 'PINNED_IN_FILES\\n' "
-        f"|| printf 'PINNED_NOT_IN_FILES\\n'"
+    if not pinned:
+        return []
+    commands: list[str] = ["printf '\\n' >> /etc/hosts"]
+    batch = ""
+    for line in pinned.split("\\n"):
+        if not line:
+            continue
+        if len(batch) + len(line) + 2 > CONSOLE_LINE_BYTES:
+            commands.append(f"printf '{batch}' >> /etc/hosts")
+            batch = ""
+        batch += f"{line}\\n"
+    if batch:
+        commands.append(f"printf '{batch}' >> /etc/hosts")
+    first = pinned.split("\\n", 1)[0].split(" ", 1)[-1]
+    last = [one for one in pinned.split("\\n") if one][-1].split(" ", 1)[-1]
+    # Both ends, because a line that was cut kept its beginning: asking only
+    # about the first name answered `in files` for three rounds while the
+    # mirror the install actually needed was missing.
+    commands.append(f"printf 'PINNED_%s_LINES\\n' \"$(grep -c . /etc/hosts)\"")
+    commands.append(
+        f"getent -s files hosts {first} > /dev/null "
+        f"&& getent -s files hosts {last} > /dev/null "
+        f"&& printf 'PINNED_IN_FILES\\n' || printf 'PINNED_NOT_IN_FILES\\n'"
     )
+    return commands
+
 
 
 def configure_statically(address: str, pinned: str = "") -> str:
@@ -826,7 +847,9 @@ def configure_statically(address: str, pinned: str = "") -> str:
     # `\\n` for printf, not a real newline: the whole thing is one line sent to
     # a serial console, and a literal break there is two commands.
     resolvers = "".join(f"nameserver {one}\\n" for one in GUEST_RESOLVERS)
-    carried = carry_hosts(pinned) + "; " if pinned else ""
+    # Not here: the addresses are carried in by `carried_hosts` before the
+    # first probe, and writing them again from this line is what made the file
+    # 101 lines when 68 were written.
     return (
         # Nothing at all once there is a default route. Without this guard the
         # second pass probed the address the first pass had taken, `arping -D`
@@ -840,7 +863,6 @@ def configure_statically(address: str, pinned: str = "") -> str:
         f"printf '{resolvers}' > /etc/resolv.conf; "
         # Appended, never written: the medium's own entry for localhost is in
         # there and replacing the file takes it away.
-        f"{carried}"
         "ip -4 route show default | grep -q . || true"
     )
 
@@ -905,7 +927,8 @@ def wait_for_network(
     # twenty steps later, so a guest that reached a mirror once was left
     # depending on it for the rest of the install.
     if pinned:
-        link.run(carry_hosts(pinned), timeout=120.0)
+        for command in carried_hosts(pinned):
+            link.run(command, timeout=120.0)
     asked = False
     while time.monotonic() < deadline:
         said = link.expect_output(NETWORK_PROBE, timeout=180.0)

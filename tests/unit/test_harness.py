@@ -2213,8 +2213,11 @@ def test_nothing_reaches_etc_hosts_unless_it_was_asked_for() -> None:
     unnoticed, so the run would prove less than it says."""
     from tests.vm.cluster import configure_statically
 
+    # Not from this line any more: the addresses are carried in before the
+    # first probe, and writing them twice made the file 101 lines when 68 were
+    # written.
     assert "/etc/hosts" not in configure_statically("10.31.0.150")
-    assert "/etc/hosts" in configure_statically("10.31.0.150", "1.2.3.4 example\\n")
+    assert "/etc/hosts" not in configure_statically("10.31.0.150", "1.2.3.4 example\\n")
 
 
 def test_the_carried_names_are_written_before_the_first_probe() -> None:
@@ -2236,8 +2239,10 @@ def test_the_carried_names_are_written_before_the_first_probe() -> None:
     cluster.wait_for_network(cast(Any, Link()), 9300, "10.31.0.150", "1.2.3.4 example\\n")
 
     assert sent, "nothing was sent to the guest"
-    assert "/etc/hosts" in sent[0]
-    assert cluster.NETWORK_PROBE in sent[1]
+    carried = [one for one in sent if "/etc/hosts" in one]
+    assert carried, "the names were not carried in"
+    probe_at = next(at for at, one in enumerate(sent) if cluster.NETWORK_PROBE in one)
+    assert sent.index(carried[-1]) < probe_at, "carried after the probe"
 
 
 def test_nothing_is_carried_when_it_was_not_asked_for() -> None:
@@ -2431,20 +2436,37 @@ def test_a_file_that_cannot_be_written_does_not_end_the_run(tmp_path: Path) -> N
     keep_results(log, {"install.rc": b"0\n"})
 
 
-def test_the_carried_hosts_say_whether_they_answer() -> None:
-    """Three rounds wrote `/etc/hosts` and then failed to resolve a name that
-    was in it. The log could not tell that apart from the file never being
-    written, so the command answers for itself."""
-    from tests.vm.cluster import carry_hosts
+def test_the_carried_hosts_fit_one_console_line_each() -> None:
+    """A tty edits in canonical mode and drops what does not fit. One line
+    carrying every pinned address is 1349 characters, and two guests in six
+    wrote an `/etc/hosts` whose late entries were never there — while the
+    first entry, which the diagnostic asked about, always was."""
+    from tests.vm.cluster import CONSOLE_LINE_BYTES, carried_hosts, pinned_hosts
 
-    said = carry_hosts("210.28.130.3 mirrors.nju.edu.cn\\n20.27.177.113 github.com\\n")
+    commands = carried_hosts(pinned_hosts())
 
-    assert ">> /etc/hosts" in said
-    assert "getent -s files hosts mirrors.nju.edu.cn" in said
-    assert "PINNED_IN_FILES" in said and "PINNED_NOT_IN_FILES" in said
+    assert len(commands) > 3, "the whole block does not go in one line"
+    for command in commands:
+        assert len(command) <= CONSOLE_LINE_BYTES + 32, command[:80]
+    assert any("PINNED_IN_FILES" in one for one in commands)
 
 
-def test_nothing_pinned_asks_nothing() -> None:
-    from tests.vm.cluster import carry_hosts
+def test_the_diagnostic_asks_about_both_ends() -> None:
+    """A line that was cut kept its beginning, so the first name answers while
+    the mirror the install needs is missing."""
+    from tests.vm.cluster import carried_hosts
 
-    assert "getent -s files hosts " in carry_hosts("")
+    commands = carried_hosts("1.1.1.1 first.example\\n2.2.2.2 last.example\\n")
+    asked = " ".join(commands)
+
+    assert "getent -s files hosts first.example" in asked
+    assert "getent -s files hosts last.example" in asked
+
+
+def test_nothing_pinned_carries_nothing() -> None:
+    from tests.vm.cluster import carried_hosts
+
+    assert carried_hosts("") == []
+
+
+
