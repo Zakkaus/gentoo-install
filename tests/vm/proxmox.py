@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Test machines on a Proxmox VE cluster, driven entirely through its API.
 
 The workstation cannot host the campaign: five guests share its memory with an

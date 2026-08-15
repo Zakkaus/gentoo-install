@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """The cluster backend's parsing and its safety guard, with no cluster."""
 
 from __future__ import annotations

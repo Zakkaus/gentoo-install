@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """The main menu's rows: what each one is called, shows, and edits.
 
 One table, read by the menu to draw itself and by the menu to dispatch. A row

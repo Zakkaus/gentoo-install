@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """One public key, checked before it is the only way into the machine."""
 
 from __future__ import annotations

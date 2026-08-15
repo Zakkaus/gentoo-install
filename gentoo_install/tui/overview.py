@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Render the final configuration and operation overview."""
 
 from __future__ import annotations

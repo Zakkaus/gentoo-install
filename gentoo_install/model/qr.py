@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """A QR code for a short URL, drawn on the console.
 
 Byte mode, error correction level M, versions 1 to 6. That is every code this

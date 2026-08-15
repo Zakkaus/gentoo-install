@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """The harness has to report a failed install as a failed run.
 
 It reads the installer's exit code off the result disk rather than from the

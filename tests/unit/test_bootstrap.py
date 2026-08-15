@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """The launcher runs before the installer does, on a system we did not build.
 
 Every case here drives `bootstrap.sh` itself rather than a copy of its tables,

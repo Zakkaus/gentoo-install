@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Boot an install medium in QEMU and probe it, drive the installer, or hand it
 to a human.
 

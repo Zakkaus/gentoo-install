@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Checks that run before anything is written.
 
 Facts come from `probe.py`; nothing here reads the system itself, so the checks

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Two logs: one to read, one to query.
 
 `install.log` is the running commentary. `install.jsonl` is one JSON object per

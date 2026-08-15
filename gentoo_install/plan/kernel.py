@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Kernel, initramfs and the storage modules dracut has to carry.
 
 The dracut modules are derived from the device graph, never listed by hand: a

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """QEMU's monitor socket, for the console the serial port cannot reach.
 
 GRUB unlocks an encrypted BIOS disk before it reads `grub.cfg`, so its

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Whole-disk layouts, as functions that return a device graph.
 
 A template is not a mode the rest of the installer knows about: it produces the

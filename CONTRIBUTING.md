@@ -65,10 +65,11 @@ A body is added only when the subject cannot carry the reason. It states the cau
 
 ## Derived code
 
-Code may be taken from a project whose licence is compatible with GPL-2:
-`distro2gentoo` and `catalyst` are GPL-2, `oddlama/gentoo-install` and
-`gentoo-install-zh` are MIT. `archinstall` is GPL-3 and nothing may be taken
-from it while this repository is GPL-2 without an `or later` clause.
+Code may be taken from a project whose licence is compatible with GPL-2 or
+later: `distro2gentoo` and `catalyst` are GPL-2, `oddlama/gentoo-install` and
+`gentoo-install-zh` are MIT, and `archinstall` is GPL-3. Taking from a GPL-3
+project is lawful under the `or later` clause and changes what the release goes
+out under: a release carrying any GPL-3 code is distributed under GPL-3.
 
 A derivation is recorded in three places in the commit that introduces it: a
 comment at the top of the file naming the source project, file and licence and

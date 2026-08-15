@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Serial console client: the primary control channel for a test VM."""
 
 from __future__ import annotations

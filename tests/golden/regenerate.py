@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Rewrite every golden plan file. Run it, then read the diff before committing."""
 
 from __future__ import annotations

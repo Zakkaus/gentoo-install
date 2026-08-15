@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """stage3, the chroot, and everything Portage needs before the first emerge.
 
 The order here is not a preference. `getuto` has to build `/etc/portage/gnupg`

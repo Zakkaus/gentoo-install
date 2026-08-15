@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Every fixture's plan, compared against a file in version control.
 
 A diff here is the point: any change to what an install does shows up as a

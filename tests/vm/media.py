@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Install media the harness can boot, and how to get a shell on each."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Run the whole VM matrix unattended, in the order `docs/vm-campaign.md` sets.
 
     python3 -m tests.vm.campaign --stage blocking

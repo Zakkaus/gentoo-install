@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """GRUB, systemd-boot and ZFSBootMenu.
 
 A ZFS root gets no GRUB artefacts at all. The Live ISO's Calamares run installs

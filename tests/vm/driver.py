@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Package the working tree into a second CD the guest can run.
 
 The installer is not on the install medium, so every run builds this from the

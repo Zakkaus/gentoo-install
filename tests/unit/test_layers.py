@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """The three layers, checked by reading the source rather than by convention.
 
 `model/` holds data and validation with no I/O, `plan/` derives operations as
@@ -9,6 +10,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from typing import Final
 
 PACKAGE = Path(__file__).resolve().parents[2] / "gentoo_install"
 
@@ -92,3 +94,25 @@ def test_no_suppression_hides_a_finding() -> None:
             if marker.search(line):
                 offenders.append(f"{module.relative_to(root)}:{number}")
     assert not offenders, offenders
+
+
+#: The grant Zakk chose on 2026-08-15. Machine-readable and per file, because
+#: `or later` decides what a release carrying borrowed code goes out under.
+SPDX: Final[str] = "# SPDX-License-Identifier: GPL-2.0-or-later"
+
+
+def test_every_source_file_states_the_licence() -> None:
+    """The repository is GPL-2 or later. A file that says nothing leaves the
+    question to whoever finds it, and the `or later` clause is what lets code
+    be taken from a GPL-3 project at all."""
+    root = PACKAGE.parent
+    silent = [
+        one.relative_to(root)
+        for one in sorted(root.rglob("*.py"))
+        if one.is_file()
+        and ".git" not in one.parts
+        and "lab" not in one.parts
+        and one.read_text(encoding="utf-8").splitlines()[:1] != [SPDX]
+    ]
+
+    assert not silent, f"no licence on the first line of: {silent}"

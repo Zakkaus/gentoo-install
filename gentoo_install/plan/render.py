@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """The operation list as text.
 
 A dry run prints this and a golden test compares it, so what a reviewer reads is

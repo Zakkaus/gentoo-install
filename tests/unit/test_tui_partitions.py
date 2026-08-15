@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """The hand-written partition table.
 
 Driven through the fake screen like every other widget, so the table can be

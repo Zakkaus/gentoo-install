@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """A hand-written partition list, turned into the same device graph.
 
 The interface edits a list of `Partition` rows; this builds a `DeviceGraph`

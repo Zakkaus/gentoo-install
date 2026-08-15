@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Boot the installer on a guest with one address family and see what it does.
 
 Three networks, one guest each: dual stack, IPv4 only, IPv6 only. The cluster

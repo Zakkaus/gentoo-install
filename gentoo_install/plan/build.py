@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """One configuration in, one ordered operation list out.
 
 Each module contributes the operations for what it owns; the order across them

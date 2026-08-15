@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """TOML to `InstallConfig`.
 
 Nothing here touches the machine. A device selector is carried through as the

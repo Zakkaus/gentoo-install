@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """An `InstallConfig` written back out as the TOML `parse.py` reads.
 
 Driven by the dataclass fields, not by a second list of key names: the parser

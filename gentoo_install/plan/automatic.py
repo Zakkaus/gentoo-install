@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """What the installer puts on the kernel command line and in USE by itself.
 
 The panel shows these beside what the operator typed. A value the installed

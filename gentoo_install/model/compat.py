@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """The one table of combinations that do not work.
 
 A rule is a pair of traits: when the condition holds and the excluded trait holds

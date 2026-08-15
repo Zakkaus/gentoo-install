@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Byte counts and sector arithmetic.
 
 Every length in the disk model is a `Size`. Passing raw integers around is how

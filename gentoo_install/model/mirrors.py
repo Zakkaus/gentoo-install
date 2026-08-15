@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Where each repository is fetched from, as one table per repository.
 
 The main tree and gentoo-zh are separate choices and separate tables: they hold

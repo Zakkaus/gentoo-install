@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """What the panel says the installer adds, against what it actually writes.
 
 `plan/automatic.py` exists so an operator can see the parameters and USE flags

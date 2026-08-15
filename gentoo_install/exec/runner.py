@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """The only module in the package that imports `subprocess`.
 
 Every external command goes through here, so there is one place that owns exit

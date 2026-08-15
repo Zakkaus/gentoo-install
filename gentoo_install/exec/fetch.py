@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """The only module that opens a network connection.
 
 stage3 is verified before it is unpacked and never after: a signature that does

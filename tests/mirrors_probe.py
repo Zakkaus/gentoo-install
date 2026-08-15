@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Ask every mirror in the tables whether it serves what the table claims.
 
 Run by hand, not in the suite: it is a network measurement, and a mirror that

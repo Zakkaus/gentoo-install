@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 """A `Screen` that records what was drawn and replays key presses.
 
 Every widget is driven through this, so the interface is tested without a
