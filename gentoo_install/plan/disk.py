@@ -218,6 +218,10 @@ class CreatePartition(Operation):
     #: Where this partition starts. Only the MBR path needs it: `sgdisk` places a
     #: partition at the first aligned free sector by itself, `parted` does not.
     start: Size
+    #: Where the free extent it was placed in ends, when the table is edited
+    #: rather than written. `100%` reaches past a partition the operator asked
+    #: to keep, and `parted` then refuses the whole edit.
+    limit: Size | None = None
 
     def required_host_commands(self) -> frozenset[str]:
         return frozenset(("sgdisk" if self.table_kind is TableType.GPT else "parted",))
@@ -247,7 +251,10 @@ class CreatePartition(Operation):
                 argv.append(f"--change-name={self.index}:{self.label}")
             context.run([*argv, path])
             return
-        end = str(self.start + self.size) if self.size is not None else "100%"
+        if self.size is not None:
+            end = str(self.start + self.size)
+        else:
+            end = str(self.limit) if self.limit is not None else "100%"
         context.run(
             ["parted", "--script", "--align", "optimal", path, "mkpart", "primary", str(self.start), end]
         )
@@ -1011,6 +1018,7 @@ def _operations_for(
                 size=node.size,
                 label=node.label,
                 start=_start_of(graph, node, storage_facts),
+                limit=_extent_end_of(graph, node, storage_facts),
             ),
         ]
     if isinstance(node, MdRaid):
@@ -1127,6 +1135,30 @@ def _start_of(
             return start
         start = (start + sibling.size).align_up()
     return start
+
+
+def _extent_end_of(
+    graph: DeviceGraph,
+    partition: Partition,
+    storage_facts: StorageFacts | None,
+) -> Size | None:
+    """Where the gap this partition was placed in ends, or None for a fresh
+    table where the rest of the disk is the answer.
+
+    An unsized partition in an edited table would otherwise be written as
+    `100%`, which reaches past every partition the operator asked to keep.
+    """
+    if partition.size is not None or storage_facts is None:
+        return None
+    table = _expect(graph, partition.table, PartitionTable)
+    if table.create:
+        return None
+    extents = storage_facts.free_extents.get(table.id, ())
+    start = _start_of(graph, partition, storage_facts)
+    for extent in extents:
+        if extent.start <= start.bytes <= extent.end:
+            return Size(extent.end + 1).align_down()
+    return None
 
 
 def _into_free_space(
