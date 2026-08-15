@@ -238,3 +238,9 @@ path = "/"
 <!-- fact: contributing -->
 
 [CONTRIBUTING.md](CONTRIBUTING.md) 說明開發環境、架構與必要檢查。
+
+## 授權
+
+<!-- fact: license -->
+
+本專案以 GNU General Public License 第 2 版散布，全文見 [LICENSE](LICENSE)。
