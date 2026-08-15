@@ -381,3 +381,31 @@ def test_the_parser_knows_every_field_the_writer_emits(monkeypatch: pytest.Monke
         if missing:
             unreachable.append(f"{holds.__name__}: {', '.join(sorted(missing))}")
     assert not unreachable, unreachable
+
+
+def test_a_mountpoint_cannot_climb_out_of_the_target() -> None:
+    """`/../outside` is absolute and reaches `/mnt/outside` once it is joined
+    to the install target: the plan would `mkdir --parents` and `mount` there,
+    on the live system rather than the machine being built."""
+    raw = fixture()
+    for node in raw["disk"]["devices"]:
+        if node["kind"] == "mountpoint" and node["path"] == "/efi":
+            node["path"] = "/../outside"
+            break
+    else:
+        raise AssertionError("the fixture no longer mounts an esp")
+
+    with pytest.raises(ConfigError, match="climb out of the target"):
+        parse(raw)
+
+
+def test_an_ordinary_mountpoint_is_still_taken() -> None:
+    raw = fixture()
+    for node in raw["disk"]["devices"]:
+        if node["kind"] == "mountpoint" and node["path"] == "/efi":
+            node["path"] = "/home/zakk"
+            break
+
+    config = parse(raw)
+
+    assert any(str(one.path) == "/home/zakk" for one in config.disk.graph.of_type(Mountpoint))
