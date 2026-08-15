@@ -1640,11 +1640,20 @@ class Reconnecting:
         return cls(lambda: SerialConsole(guest.console(), log.open("ab")), tries)
 
     def reopen(self, *, solicit_prompt: bool = True) -> None:
+        # Before the new one, not after: `termproxy` holds the guest's serial
+        # chardev until its client leaves, and the second session reads nothing.
+        try:
+            self.console.close()
+        except OSError:
+            pass
         self.console = self._open()
         if solicit_prompt:
             # The reopened console shows nothing until the shell is asked for
             # a prompt, and ordinary shell waits below are looking for text.
             self.console.send("")
+
+    def close(self) -> None:
+        self.console.close()
 
     def set_buffer_limit(self, limit: int) -> None:
         cast(SerialConsole, self.console).set_buffer_limit(limit)
