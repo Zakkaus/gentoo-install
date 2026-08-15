@@ -810,24 +810,26 @@ def append_to_cmdline(console: Line, extra: str, timeout: float = 30.0) -> None:
 _PLACED: Final[re.Pattern[bytes]] = re.compile(rb"\x1b\[(\d+);\d+H([^\x1b]*)")
 
 
-#: How long a SeaBIOS guest takes from reset to a GRUB menu waiting for a key.
-#: Nothing announces it: the firmware and GRUB both draw on the VGA this guest
-#: has, and the serial port stays silent until the kernel is told to use it.
-#: The medium's menu waits ten seconds, so this has to land inside that. It was
-#: twelve, which lands after it: the entry had booted and every key went to a
-#: kernel that was never told to speak, so three fixtures ended every round at
-#: `the kernel never spoke after editing GRUB blind`.
-BIOS_MENU_DELAY: Final[float] = 6.0
-
 #: What the medium's menu waits, and what `BIOS_MENU_DELAY` has to stay under.
 #: Read from the ISO's own `grub.cfg`, which sets `timeout=10`.
 BIOS_MENU_TIMEOUT: Final[float] = 10.0
 
-#: Which line below `setparams` the keys move to, tried in this order. The
-#: Gentoo minimal ISO puts `search` between `setparams` and `linux`, so two is
-#: right for it; a medium that lacks it needs one. Nothing can be read to
-#: decide, so each is tried and checked.
-BIOS_DOWN: Final[tuple[int, ...]] = (2, 1, 3)
+#: When to press `e`, counted from the guest being started, paired with the
+#: line to move to. Nothing on the serial port says when the menu appeared —
+#: not SeaBIOS, not `Welcome to GRUB!`, nothing until the kernel speaks — so
+#: the moment is sampled rather than waited for. Six seconds was the only one
+#: tried, and on a node at full load the menu was not up yet: the keypress went
+#: nowhere, the menu timed out into the default entry, and the kernel was never
+#: told to speak. The delays stay under `BIOS_MENU_TIMEOUT` from whenever GRUB
+#: started, which is what makes several of them necessary rather than one long
+#: one.
+BIOS_ATTEMPTS: Final[tuple[tuple[float, int], ...]] = (
+    (6.0, 2),
+    (9.0, 2),
+    (3.0, 2),
+    (6.0, 1),
+    (6.0, 3),
+)
 
 #: What the kernel prints once `console=ttyS0` is on its command line, and the
 #: proof that the edit landed on the right line.
@@ -850,10 +852,10 @@ def append_to_cmdline_blind(
     """
     console = link.console
     last = ""
-    for attempt, down in enumerate(BIOS_DOWN):
+    for attempt, (delay, down) in enumerate(BIOS_ATTEMPTS):
         # Timed, not read: this guest's GRUB draws on VGA and says nothing on
         # the serial port, so there is no menu to wait for.
-        time.sleep(BIOS_MENU_DELAY)
+        time.sleep(delay)
         guest.send_keys(["e"])
         time.sleep(2.0)
         guest.send_keys(["ctrl-n"] * down + ["ctrl-e"])
@@ -863,17 +865,20 @@ def append_to_cmdline_blind(
         guest.send_keys(["ctrl-x"])
         try:
             console.expect(KERNEL_SPEAKS, timeout=patience)
+            print(f"the blind GRUB edit landed at {delay:.0f}s, {down} down", flush=True)
             return
         except (ConsoleTimeout, ConsoleClosed) as error:
             last = str(error)[:200]
-        if attempt + 1 < len(BIOS_DOWN):
+        if attempt + 1 < len(BIOS_ATTEMPTS):
             # A reset drops the console with it, so the next attempt reads a
             # new one: the first guest to take a second attempt reported `the
             # guest closed the serial connection` a minute in.
             guest.reset()
             link.reopen(solicit_prompt=False)
             console = link.console
-    raise ProxmoxError(f"the kernel never spoke after editing GRUB blind: {last}")
+    raise ProxmoxError(
+        f"the kernel never spoke after {len(BIOS_ATTEMPTS)} blind GRUB edits: {last}"
+    )
 
 
 class Line(Protocol):
