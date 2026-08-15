@@ -233,6 +233,14 @@ path = "/"
 
 對 `gentoo-install` 而言，`0` 表示成功完成，`1` 表示設定錯誤。`2` 表示 `argparse` 用法錯誤或 preflight 失敗，`3` 表示完整性驗證失敗。`4` 表示下載、外部指令、作業系統或未分類的安裝器失敗，`5` 表示操作者中止。Python CLI 啟動前，如果 Python、必要指令或 root 權限檢查失敗，`bootstrap.sh` 也可能以 `1` 退出。
 
+## 常見問題
+
+<!-- fact: faq-customisation -->
+
+**這種安裝器會不會讓 Gentoo 失去可自訂性？**
+
+不會。它只做基礎安裝就停手：分割區、stage3、Portage 設定、核心、bootloader，以及選用的桌面。之後的每個決定仍然屬於操作者，而那台機器是一套普通的 Gentoo，上面不留本專案的任何元件。它省掉的是第一個小時的成本，而那正是 Gentoo 難以入門、也難以在大量機器或 VPS 上部署的原因。
+
 ## 參與開發
 
 <!-- fact: contributing -->
