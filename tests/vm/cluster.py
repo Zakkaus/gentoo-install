@@ -788,11 +788,12 @@ def pinned_hosts() -> str:
     return "".join(f"{line}\\n" for line in lines)
 
 
-#: How much of one command line a serial console carries. The tty edits in
-#: canonical mode and drops what does not fit, and one line carrying every
-#: pinned address is 1349 characters: two guests in six wrote a `/etc/hosts`
-#: whose late entries — `mirrors.nju.edu.cn` among them — were never there,
-#: while the first entry the diagnostic asked about always was.
+#: How much of one command line to send at a time. One line carrying every
+#: pinned address is 1349 characters, which is more than a tty edits in
+#: canonical mode without dropping the rest, so the block is split whether or
+#: not it has ever been cut here: forty-two guests answered `PINNED_IN_FILES`
+#: with the whole thing on one line, so the truncation this guards against is
+#: a property of the console rather than something measured on this cluster.
 CONSOLE_LINE_BYTES: Final[int] = 200
 
 
