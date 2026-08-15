@@ -826,3 +826,67 @@ def test_a_pool_busy_with_nothing_mounted_is_named_rather_than_forced(
     with pytest.raises(CommandFailed, match="holder is unknown"):
         operation.apply(unknown)
     assert not any("-f" in one for one in unknown.commands)
+
+
+def _edited_mbr_taking_the_rest() -> DeviceGraph:
+    """The same edited table, with the added partition asking for the rest.
+
+    `_edited_mbr` substitutes a size for `None`, so the case this is about
+    cannot be expressed through it.
+    """
+    from pathlib import PurePosixPath
+
+    return DeviceGraph.build(
+        [
+            Existing(id=DeviceId("d"), selector="/dev/null", wipe=False),
+            PartitionTable(
+                id=DeviceId("t"),
+                disk=DeviceId("d"),
+                table=TableType.MBR,
+                create=False,
+            ),
+            Partition(
+                id=DeviceId("new"),
+                table=DeviceId("t"),
+                index=2,
+                role=PartitionRole.DATA,
+                size=None,
+            ),
+            Filesystem(id=DeviceId("fs"), device=DeviceId("new"), kind=FilesystemType.EXT4),
+            Mountpoint(id=DeviceId("m"), source=DeviceId("fs"), path=PurePosixPath("/")),
+        ]
+    )
+
+
+def test_an_unsized_partition_in_an_edited_table_stops_at_its_gap() -> None:
+    """`100%` reaches to the end of the disk, past every partition the operator
+    asked to keep, and `parted` refuses the whole edit. The planner already
+    knows which gap the partition was placed in, so it carries where that gap
+    ends."""
+    from gentoo_install.plan.disk import _extent_end_of
+
+    graph = _edited_mbr_taking_the_rest()
+    gap = Extent(start=1074790400, end=4294967295)
+    facts = StorageFacts(free_extents={DeviceId("t"): (gap,)})
+    added = next(one for one in graph.of_type(Partition) if one.id == DeviceId("new"))
+
+    limit = _extent_end_of(graph, added, facts)
+
+    assert limit is not None, "an edited table bounds an unsized partition"
+    assert limit.bytes <= gap.end + 1
+    assert limit.bytes > gap.start
+
+
+def test_an_unsized_partition_on_a_fresh_table_still_takes_the_rest() -> None:
+    """A table this run writes has nothing beyond it to protect."""
+    from gentoo_install.plan.disk import _extent_end_of
+
+    graph = DeviceGraph.build(
+        [
+            replace(node, create=True) if isinstance(node, PartitionTable) else node
+            for node in _edited_mbr_taking_the_rest().nodes.values()
+        ]
+    )
+    added = next(one for one in graph.of_type(Partition) if one.id == DeviceId("new"))
+
+    assert _extent_end_of(graph, added, StorageFacts()) is None
