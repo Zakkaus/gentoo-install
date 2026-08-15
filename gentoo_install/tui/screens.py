@@ -384,6 +384,7 @@ def disk_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
         raise DeviceNotFound("this machine has no disk to install onto")
     menu: Menu[str] = Menu(
         title=translate("Disks"),
+        preamble=(translate("The selected disk is rewritten as the install target."),),
         items=[
             # Labelled by the kernel name and valued by the selector: the
             # configuration needs the stable one and the operator reads the
@@ -423,6 +424,7 @@ def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     by_hand = context.choice.layout is Layout.REUSE
     how = Menu[bool](
         title=translate("How is this disk laid out?"),
+        preamble=(translate("Automatic layout replaces the partition table; manual layout controls each partition."),),
         items=[
             Item(
                 label=translate("automatic"),
@@ -478,7 +480,9 @@ def _template_screen(
         0,
     )
     menu: Menu[tuple[Layout | None, FilesystemType]] = Menu(
-        title=translate("Layout"), items=items, footer=footer(translate), cursor=here
+        title=translate("Layout"),
+        preamble=(translate("This choice sets the root filesystem and partition graph."),),
+        items=items, footer=footer(translate), cursor=here
     )
     answer = menu.run(screen)
     if not answer.chosen:
@@ -519,6 +523,7 @@ def _zfs_bootloader(
     translate = context.translate
     answer = Menu(
         title=translate("A ZFS root cannot boot from GRUB. Which bootloader?"),
+        preamble=(translate("The bootloader determines how the ZFS root is found at startup."),),
         items=[
             Item(
                 label="ZFSBootMenu",
@@ -705,6 +710,7 @@ def init_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     translate = context.translate
     menu: Menu[InitSystem] = Menu(
         title=translate("Init system"),
+        preamble=(translate("This selects the service manager and its matching profile."),),
         items=[Item(label=init.value, value=init) for init in InitSystem],
         footer=footer(translate),
         current=config.system.init,
@@ -944,6 +950,7 @@ def mirror_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     while True:
         menu: Menu[str] = Menu(
             title=translate("Mirrors"),
+            preamble=(translate("These sources provide the Gentoo tree, distfiles, overlays, and binary packages."),),
             items=_mirror_fields(current, translate),
             footer=footer(translate),
             cursor=cursor,
@@ -1233,6 +1240,7 @@ def _edit_binhost(
     ]
     menu: Menu[tuple[bool, str]] = Menu(
         title=translate("Gentoo binary packages"),
+        preamble=(translate("Binary packages reduce compilation; source builds remain the fallback."),),
         items=items,
         footer=footer(translate),
         current=(config.portage.binhost.official, config.portage.binhost.subarch),
@@ -1351,6 +1359,7 @@ def bootloader_screen(
         )
     menu: Menu[Bootloader] = Menu(
         title=translate("Bootloader"),
+        preamble=(translate("The bootloader installs the files firmware uses to start the kernel."),),
         items=items,
         footer=footer(translate),
         current=config.bootloader.kind,
@@ -1484,6 +1493,7 @@ def logger_screen(screen: Screen, config: InstallConfig, context: Context) -> An
         return Answer(Outcome.BACK)
     menu: Menu[Logger] = Menu(
         title=translate("System logger"),
+        preamble=(translate("This service records messages from OpenRC after boot."),),
         items=[
             Item(label=one.value, value=one, detail=translate(choice.reason))
             for one, choice in plan_system.LOGGERS.items()
@@ -1517,6 +1527,7 @@ def keywords_screen(
     translate = context.translate
     menu: Menu[Keywords] = Menu(
         title=translate("Package keywords"),
+        preamble=(translate("The keyword policy controls which versions Portage may accept."),),
         items=[
             # The keyword itself, not the enum name: `amd64` and `~amd64` are
             # what the operator will see in every Portage message afterwards.
@@ -1549,6 +1560,7 @@ def kernel_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     translate = context.translate
     menu: Menu[KernelSource] = Menu(
         title=translate("Kernel"),
+        preamble=(translate("The kernel provides the boot environment and CJK console support."),),
         items=[
             # The package name, not the enum value: `dist-bin` says nothing
             # about which kernel is about to be installed.
@@ -1625,6 +1637,7 @@ def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> A
     ]
     menu: Menu[str] = Menu(
         title=translate("Desktop and applications"),
+        preamble=(translate("The desktop selects its profile and proposes login and network services."),),
         items=items,
         current=config.packages.desktop,
         footer=footer(translate),
@@ -2017,6 +2030,7 @@ def graphics_screen(
     while True:
         menu: MultipleChoiceMenu[str] = MultipleChoiceMenu(
             title=translate("Graphics"),
+            preamble=(translate("The drivers set VIDEO_CARDS and install required firmware or packages."),),
             items=items,
             selected={index for index, item in enumerate(items) if item.value in ticked},
             footer=footer(translate),
@@ -2724,6 +2738,7 @@ def packages_screen(
     while True:
         menu: MultipleChoiceMenu[str] = MultipleChoiceMenu(
             title=translate("Applications"),
+            preamble=(translate("These packages supplement the desktop selection."),),
             items=items,
             selected={index for index, item in enumerate(items) if item.value in chosen_already},
             footer=footer(translate),
@@ -2882,6 +2897,7 @@ def timezone_screen(screen: Screen, config: InstallConfig, context: Context) -> 
         )
     chosen_area: Menu[str] = Menu(
         title=translate("Timezone"),
+        preamble=(translate("The installed system uses this zone for local time and schedules."),),
         items=items,
         footer=footer(translate),
         # The BIOS row when the medium read one and the configuration still
@@ -3073,6 +3089,7 @@ def swap_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     ]
     menu: Menu[str] = Menu(
         title=translate("Swap"),
+        preamble=(translate("A swap partition relieves memory pressure and can support hibernation."),),
         items=items,
         current=str(context.choice.swap) if context.choice.swap else "",
         footer=footer(translate),
@@ -3135,6 +3152,7 @@ def zram_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
         return Answer(Outcome.BACK)
     menu: Menu[Size | None] = Menu(
         title=translate("zram"),
+        preamble=(translate("zram creates compressed swap in memory without disk space."),),
         items=items,
         current=config.system.zram,
         footer=footer(translate),
@@ -3186,6 +3204,7 @@ def build_in_ram_screen(
         return Answer(Outcome.BACK)
     menu: Menu[Size | None] = Menu(
         title=translate("Build in RAM"),
+        preamble=(translate("Portage builds in memory; its contents disappear after reboot."),),
         items=items,
         current=config.portage.build_in_ram,
         footer=footer(translate),
@@ -3318,6 +3337,7 @@ def saved_config_screen(
     while True:
         menu: Menu[str] = Menu(
             title=translate("A saved configuration is here. Load it?"),
+        preamble=(translate("Loading a saved file replaces the current answers."),),
             items=items,
             footer=footer(translate),
         )
@@ -3391,6 +3411,7 @@ def table_screen(screen: Screen, config: InstallConfig, context: Context) -> Ans
     items = [Item(label=table.value, value=table) for table in TableType]
     menu: Menu[TableType] = Menu(
         title=translate("Partition table"),
+        preamble=(translate("The table format controls how firmware and the kernel identify partitions."),),
         items=items,
         current=context.choice.table,
         footer=footer(translate),
@@ -3495,6 +3516,7 @@ def console_font_screen(
         )
     answer = Menu(
         title=context.translate("Console font"),
+        preamble=(context.translate("The console font controls glyph sizes before the desktop starts."),),
         items=items,
         footer=footer(context.translate),
         current=config.system.console_font,
@@ -3532,6 +3554,7 @@ def cpu_flags_screen(
     ]
     answer = Menu(
         title=translate("CPU flags"),
+        preamble=(translate("These flags select the instruction set used to compile packages."),),
         items=items,
         footer=footer(translate),
         current=config.portage.cpu_flags,
@@ -3562,6 +3585,7 @@ def networking_screen(
     ]
     menu: Menu[Networking] = Menu(
         title=translate("Network configuration"),
+        preamble=(translate("This selects the service that brings interfaces up."),),
         items=items,
         footer=footer(translate),
         current=config.system.networking,
@@ -3594,6 +3618,7 @@ def firewall_screen(
     items = [Item(label=choice.value, value=choice, detail=detail[choice]) for choice in Firewall]
     menu: Menu[Firewall] = Menu(
         title=translate("Firewall"),
+        preamble=(translate("This installs a packet filter but does not write its policy."),),
         items=items,
         footer=footer(translate),
         current=config.system.firewall,
@@ -3666,6 +3691,7 @@ def partitions_screen(
         items = _partition_rows(context)
         menu: Menu[_Row] = Menu(
             title=_partitions_title(context),
+            preamble=(translate("This editor controls which partitions are kept, formatted, mounted, or erased."),),
             items=items,
             cursor=cursor,
             footer=f"{_layout_problem(context, config)}  {footer(translate)}".strip(),
