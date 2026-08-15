@@ -2429,3 +2429,22 @@ def test_a_file_that_cannot_be_written_does_not_end_the_run(tmp_path: Path) -> N
     log = tmp_path / "sub" / "vm-btrfs.log"
 
     keep_results(log, {"install.rc": b"0\n"})
+
+
+def test_the_carried_hosts_say_whether_they_answer() -> None:
+    """Three rounds wrote `/etc/hosts` and then failed to resolve a name that
+    was in it. The log could not tell that apart from the file never being
+    written, so the command answers for itself."""
+    from tests.vm.cluster import carry_hosts
+
+    said = carry_hosts("210.28.130.3 mirrors.nju.edu.cn\\n20.27.177.113 github.com\\n")
+
+    assert ">> /etc/hosts" in said
+    assert "getent hosts mirrors.nju.edu.cn" in said
+    assert "PINNED_ANSWERS" in said and "PINNED_UNANSWERED" in said
+
+
+def test_nothing_pinned_asks_nothing() -> None:
+    from tests.vm.cluster import carry_hosts
+
+    assert "getent hosts " in carry_hosts("")
