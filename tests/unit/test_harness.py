@@ -2230,3 +2230,32 @@ def test_nothing_is_carried_when_it_was_not_asked_for() -> None:
     cluster.wait_for_network(cast(Any, Link()), 9300, "10.31.0.150")
 
     assert not any("/etc/hosts" in one for one in sent)
+
+
+def test_a_campaign_answers_every_signal_that_asks_it_to_stop() -> None:
+    """A campaign started in the background inherits `SIG_IGN` for SIGINT from
+    a shell without job control, and CPython keeps an inherited ignore: two
+    schedules ignored `kill -INT` entirely and kept seven guests on the cluster
+    until SIGTERM reached them."""
+    import signal as signals
+
+    from tests.vm.cluster import _leave_on_a_signal
+
+    before = {
+        one: signals.getsignal(one)
+        for one in (signals.SIGTERM, signals.SIGHUP, signals.SIGINT)
+    }
+    try:
+        _leave_on_a_signal()
+        installed = {one: signals.getsignal(one) for one in before}
+        # The same function for all three, which SIGINT's inherited handler is
+        # not: the interpreter's own raises `KeyboardInterrupt` as well.
+        assert len(set(map(id, installed.values()))) == 1, (
+            "a signal was left to the handler the campaign inherited"
+        )
+        for one, now in installed.items():
+            with pytest.raises(KeyboardInterrupt, match=f"signal {int(one)}"):
+                cast(Any, now)(int(one), None)
+    finally:
+        for one, was in before.items():
+            signals.signal(one, was)
