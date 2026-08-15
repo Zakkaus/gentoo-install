@@ -1591,7 +1591,10 @@ def run(
                         remote_key,
                         pinned,
                     ),
-                    daemon=False,
+                    # A worker reading the console of a guest the closing path
+                    # already removed never returns, and a schedule ended by a
+                    # signal then hangs at interpreter shutdown joining it.
+                    daemon=True,
                 )
                 scheduled[job.name] = job.started(thread)
                 placed[node.name] += execution.reservation_bytes
@@ -2108,7 +2111,7 @@ def _abandon(
 ) -> None:
     """Stop and remove every guest still running when the schedule ends.
 
-    The workers stay daemon threads, so one wedged on a console cannot hold the
+    The workers are daemon threads, so one wedged on a console cannot hold the
     interpreter open; that makes this the only path that reclaims their guests.
     Without it a scheduler that raised in `free_slots`, `prepare` or the
     bookkeeping left its guests running and holding memory the cluster's own
@@ -2151,6 +2154,17 @@ def _abandon_jobs(scheduled: Mapping[str, Job]) -> None:
         if job.running and job.thread is not None
     }
     _abandon(inflight, running)
+    # The workers are daemons, so what guarantees no guest outlives the process
+    # is here rather than in a thread: every guest this schedule built, not only
+    # the ones a job still counts as running. `destroy` checks the tag and the
+    # nonce, and returns on a guest that is already gone.
+    for name, job in scheduled.items():
+        if job.execution is None:
+            continue
+        try:
+            job.execution.guest.destroy()
+        except ProxmoxError as error:
+            print(f"  {name} outlived the schedule: {error}", file=sys.stderr)
 
 
 def _edit_bios_cmdline(guest: Guest, link: "Reconnecting") -> None:
