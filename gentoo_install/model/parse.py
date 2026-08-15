@@ -460,6 +460,12 @@ def _mountpoint(raw: Mapping[str, Any], at: str) -> Node:
     path = _str(raw, "path", at, required=True)
     if not path.startswith("/"):
         raise ConfigError(f"{at}.path is {path!r}; a mountpoint must be absolute")
+    # Absolute is not inside: `/../outside` reaches `/mnt/outside` once it is
+    # joined to the target, and the plan would `mkdir` and `mount` there.
+    if ".." in PurePosixPath(path).parts:
+        raise ConfigError(
+            f"{at}.path is {path!r}; a mountpoint cannot climb out of the target with `..`"
+        )
     return Mountpoint(
         id=_id(raw, at),
         source=_ref(raw, "source", at),
