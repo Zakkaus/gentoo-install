@@ -2555,3 +2555,18 @@ def test_a_lease_of_a_running_guest_is_left_alone(tmp_path: Path) -> None:
     (leases / "10.31.0.150").touch()
 
     assert pool.reserve("10.31.0.150") == "10.31.0.151"
+
+
+def test_the_guest_is_told_not_to_ask_for_aaaa() -> None:
+    """`/etc/hosts` carries IPv4 addresses only, and an `AF_UNSPEC` lookup asks
+    DNS for the AAAA regardless. A resolver that does not answer turns that
+    into `EAI_AGAIN` for the whole call, so a name that is in the file fails
+    anyway: sixteen rounds ended at the stage3 fetch with `hosts: files dns`
+    and `in /etc/hosts: True` printed beside the error."""
+    from tests.vm.cluster import GUEST_RESOLVER, configure_statically
+
+    written = configure_statically("10.31.0.150")
+
+    assert "options no-aaaa" in written
+    assert f"nameserver {GUEST_RESOLVER}" in written
+    assert written.index("options no-aaaa") < written.index("nameserver")

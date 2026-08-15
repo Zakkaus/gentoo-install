@@ -875,7 +875,14 @@ def configure_statically(address: str, pinned: str = "") -> str:
     prefix = GUEST_PREFIX
     # `\\n` for printf, not a real newline: the whole thing is one line sent to
     # a serial console, and a literal break there is two commands.
-    resolvers = "".join(f"nameserver {one}\\n" for one in GUEST_RESOLVERS)
+    # `no-aaaa` as well as the servers: `/etc/hosts` carries IPv4 addresses
+    # only, and an `AF_UNSPEC` lookup still asks DNS for the AAAA. A resolver
+    # that does not answer turns that into `EAI_AGAIN` for the whole call, so
+    # a name sitting in the file fails anyway — which is what ended sixteen
+    # rounds at the stage3 fetch.
+    resolvers = "options no-aaaa\\n" + "".join(
+        f"nameserver {one}\\n" for one in GUEST_RESOLVERS
+    )
     # Not here: the addresses are carried in by `carried_hosts` before the
     # first probe, and writing them again from this line is what made the file
     # 101 lines when 68 were written.
