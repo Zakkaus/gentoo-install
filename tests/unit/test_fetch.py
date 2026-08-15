@@ -126,3 +126,26 @@ def test_a_name_absent_from_the_file_is_said_so(
 
     assert "no hosts line" in said
     assert "mirrors.ustc.edu.cn in /etc/hosts: False" in said
+
+
+def test_a_failed_read_names_the_servers_the_library_would_have_asked(
+    tmp_path: Path,
+) -> None:
+    resolv = tmp_path / "resolv.conf"
+    resolv.write_text("options no-aaaa\nnameserver 10.31.0.199\nnameserver 223.5.5.5\n")
+    assert fetch._resolvers(resolv) == "nameservers ['10.31.0.199', '223.5.5.5']"
+
+
+def test_a_failed_read_says_so_when_no_resolver_is_configured(tmp_path: Path) -> None:
+    resolv = tmp_path / "resolv.conf"
+    resolv.write_text("options no-aaaa\n")
+    assert fetch._resolvers(resolv) == "no nameserver line"
+
+
+def test_a_failed_read_says_so_when_the_resolver_file_is_missing(tmp_path: Path) -> None:
+    assert fetch._resolvers(tmp_path / "absent") == "resolv.conf unreadable"
+
+
+def test_the_diagnostic_carries_the_resolver_state(tmp_path: Path) -> None:
+    said = fetch._resolver_state("https://mirrors.nju.edu.cn/gentoo/x")
+    assert "nameserver" in said
