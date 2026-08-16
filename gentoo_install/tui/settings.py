@@ -24,7 +24,7 @@ from ..model.config import (
     Keywords,
     Networking,
 )
-from ..plan.kernel import CJK_KERNELS, KERNEL_PACKAGES
+from ..model.compat import CJK_KERNELS, KERNEL_PACKAGES
 from ..model import compat, mirrors
 from ..model.device import (
     DeviceGraph,

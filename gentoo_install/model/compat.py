@@ -55,14 +55,22 @@ from .device import (
 #: to provide.
 CJK_FONT_SIZES = frozenset({ConsoleFontSize.SIZE_8X16})
 
-_KERNEL_PACKAGES: Final[dict[KernelSource, str]] = {
+#: The package that provides each kernel choice. Here rather than in `plan/`
+#: because `traits_of` reads it and `model` is not allowed to call upward;
+#: `plan.kernel` imports this one.
+KERNEL_PACKAGES: Final[dict[KernelSource, str]] = {
     KernelSource.DIST_BIN: "sys-kernel/gentoo-kernel-bin",
     KernelSource.DIST_SOURCE: "sys-kernel/gentoo-kernel",
     KernelSource.CJK_BIN: "sys-kernel/gentoo-cjk-kernel-bin",
     KernelSource.CJK: "sys-kernel/gentoo-cjk-kernel",
 }
+
+#: The kernel choices patched with cjktty, and the packages that carry them.
+#: Derived, not listed again: a second copy of these two names disagrees with
+#: the table above the first time a package is renamed.
+CJK_KERNELS: Final[tuple[KernelSource, ...]] = (KernelSource.CJK_BIN, KernelSource.CJK)
 _CJK_KERNEL_PACKAGES: Final[frozenset[str]] = frozenset(
-    {"sys-kernel/gentoo-cjk-kernel", "sys-kernel/gentoo-cjk-kernel-bin"}
+    KERNEL_PACKAGES[source] for source in CJK_KERNELS
 )
 
 
@@ -406,7 +414,7 @@ def traits_of(
             and _encrypted_pool(graph, config.disk.root)
         ):
             found.add(Trait.NATIVE_ZFS_SYSTEM_INITRAMFS)
-    package = config.kernel.package or _KERNEL_PACKAGES[config.kernel.source]
+    package = config.kernel.package or KERNEL_PACKAGES[config.kernel.source]
     package_name = package.lstrip("=<>~!").split(":", 1)[0]
     package_name = re.sub(r"-r\d+$", "", package_name)
     package_name = re.sub(r"-\d[\w.]*$", "", package_name)

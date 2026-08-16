@@ -663,7 +663,7 @@ def test_the_prebuilt_patched_kernel_is_the_one_a_chinese_interface_takes() -> N
     one: same cjktty patch, same `+cjk` flag, same `virtual/dist-kernel`, and
     nothing to compile on the target."""
     from gentoo_install.model.config import KernelSource
-    from gentoo_install.plan.kernel import CJK_KERNELS, KERNEL_PACKAGES
+    from gentoo_install.model.compat import CJK_KERNELS, KERNEL_PACKAGES
 
     assert KERNEL_PACKAGES[KernelSource.CJK_BIN] == "sys-kernel/gentoo-cjk-kernel-bin"
     assert set(CJK_KERNELS) == {KernelSource.CJK_BIN, KernelSource.CJK}
@@ -680,7 +680,7 @@ def test_the_prebuilt_patched_kernel_is_the_one_a_chinese_interface_takes() -> N
 def test_the_prebuilt_patched_kernel_sits_beside_the_source_one() -> None:
     """`sys-kernel/gentoo-cjk-kernel-bin` is in gentoo-zh: same cjktty patch,
     same `+cjk` flag, same `virtual/dist-kernel`, nothing to compile."""
-    from gentoo_install.plan.kernel import CJK_KERNELS, KERNEL_PACKAGES
+    from gentoo_install.model.compat import CJK_KERNELS, KERNEL_PACKAGES
 
     assert KERNEL_PACKAGES[KernelSource.CJK_BIN] == "sys-kernel/gentoo-cjk-kernel-bin"
     assert set(CJK_KERNELS) == {KernelSource.CJK_BIN, KernelSource.CJK}
