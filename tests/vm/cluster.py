@@ -803,100 +803,13 @@ def wanted_names() -> tuple[str, ...]:
     return tuple(sorted(found))
 
 
-def pinned_hosts() -> str:
-    """`/etc/hosts` lines for those names, resolved on this machine.
-
-    The guests on this segment resolve nothing at all while the resolver behind
-    `10.31.0.254` is down, and every run stopped at the stage3 fetch with
-    `Temporary failure in name resolution`. This workstation still resolves, so
-    the answers are carried in rather than asked for. Off unless `--pin-hosts`
-    says otherwise: with it on, a name the installer fails to resolve by itself
-    would still be reached, and the run would prove less than it says.
-    """
-    lines: list[str] = []
-    for name in wanted_names():
-        try:
-            address = socket.getaddrinfo(name, 443, socket.AF_INET)[0][4][0]
-        except OSError:
-            continue
-        lines.append(f"{address} {name}")
-    return "".join(f"{line}\\n" for line in lines)
-
-
 #: How much of one command line to send at a time. One line carrying every
-#: pinned address is 1349 characters, which is more than a tty edits in
-#: canonical mode without dropping the rest, so the block is split whether or
-#: not it has ever been cut here: forty-two guests answered `PINNED_IN_FILES`
-#: with the whole thing on one line, so the truncation this guards against is
-#: a property of the console rather than something measured on this cluster.
+#: address keeper is four hundred characters, which is more than a tty edits
+#: in canonical mode without dropping the rest: every guest of round 33 died
+#: on `MARK_6_DONE` with the loop on one line.
 CONSOLE_LINE_BYTES: Final[int] = 200
 
-#: Written after every pinned address so the guest can count them. A
-#: comment to `/etc/hosts`, which ignores everything after a hash.
-PINNED_MARK: Final[str] = "# gentoo-install"
-
-
-def carried_hosts(pinned: str) -> list[str]:
-    """The commands that put those addresses in the guest's `/etc/hosts`.
-
-    Several, not one: the whole block does not survive a single console line.
-    Appended rather than written, and starting on a newline of its own,
-    because the medium's own entry for localhost is in there and it is not
-    required to end in a newline.
-    """
-    if not pinned:
-        return []
-    # The file is only consulted if `nsswitch.conf` says so, and `getent -s
-    # files` proves nothing about that because it bypasses nsswitch entirely:
-    # a guest answered `PINNED_IN_FILES` and then failed to resolve the same
-    # name twenty-three times.
-    commands: list[str] = [
-        "printf 'hosts: files dns\\n' > /etc/nsswitch.conf",
-        "printf '\\n' >> /etc/hosts",
-    ]
-    # Every line carries the marker, so the count below says exactly how many
-    # arrived. Checking the two ends could not: they are in the first and last
-    # batch, and a batch lost in between leaves both of them in place.
-    wanted = 0
-    batch = ""
-    for line in pinned.split("\\n"):
-        if not line:
-            continue
-        wanted += 1
-        marked = f"{line} {PINNED_MARK}"
-        if len(batch) + len(marked) + 2 > CONSOLE_LINE_BYTES:
-            commands.append(f"printf '{batch}' >> /etc/hosts")
-            batch = ""
-        batch += f"{marked}\\n"
-    if batch:
-        commands.append(f"printf '{batch}' >> /etc/hosts")
-    commands.append(
-        f"printf 'PINNED_%s_OF_{wanted}\\n' \"$(grep -c '{PINNED_MARK}' /etc/hosts)\""
-    )
-    first = pinned.split("\\n", 1)[0].split(" ", 1)[-1]
-    last = [one for one in pinned.split("\\n") if one][-1].split(" ", 1)[-1]
-    # Both ends, because a line that was cut kept its beginning: asking only
-    # about the first name answered `in files` for three rounds while the
-    # mirror the install actually needed was missing.
-    commands.append(f"printf 'PINNED_%s_LINES\\n' \"$(grep -c . /etc/hosts)\"")
-    commands.append(
-        f"getent -s files hosts {first} > /dev/null "
-        f"&& getent -s files hosts {last} > /dev/null "
-        f"&& printf 'PINNED_IN_FILES\\n' || printf 'PINNED_NOT_IN_FILES\\n'"
-    )
-    # The installer resolves with Python, and `getent` answering says nothing
-    # about that: twenty-three mirrors failed with `EAI_AGAIN` in a guest whose
-    # `/etc/hosts` held every one of their names.
-    commands.append(
-        f"python3 -c 'import socket,sys; socket.getaddrinfo(sys.argv[1], 443)' {first} "
-        f"2>/dev/null && printf 'PINNED_PYTHON_RESOLVES\\n' "
-        f"|| printf 'PINNED_PYTHON_FAILS\\n'"
-    )
-    return commands
-
-
-
-def configure_statically(address: str, pinned: str = "") -> str:
+def configure_statically(address: str) -> str:
     """Give the interface the address reserved by the scheduler.
 
     This segment carries other people's machines: a probe found 10.31.0.106
@@ -915,9 +828,6 @@ def configure_statically(address: str, pinned: str = "") -> str:
     # that does not answer turns that into `EAI_AGAIN` for the whole call, so
     # a name sitting in the file fails anyway — which is what ended sixteen
     # rounds at the stage3 fetch.
-    # Not here: the addresses are carried in by `carried_hosts` before the
-    # first probe, and writing them again from this line is what made the file
-    # 101 lines when 68 were written.
     return (
         # SIGKILL, not SIGTERM: dhcpcd answers a term by releasing the lease
         # and deconfiguring the interface, and it does that after the command
@@ -1036,7 +946,7 @@ def reach_prompt(link: Reconnecting, patience: float = PROMPT_PATIENCE) -> None:
 
 
 def wait_for_network(
-    link: Reconnecting, vmid: int = 0, address: str = "", pinned: str = ""
+    link: Reconnecting, vmid: int = 0, address: str = ""
 ) -> None:
     """Configure the guest's interface, then wait until it can reach a mirror.
 
@@ -1050,7 +960,7 @@ def wait_for_network(
     """
     deadline = time.monotonic() + NETWORK_PATIENCE
     configure = (
-        configure_statically(address or static_address(vmid), pinned)
+        configure_statically(address or static_address(vmid))
         if vmid
         else ASK_FOR_IPV4
     )
@@ -1058,12 +968,9 @@ def wait_for_network(
     # probe fails: the segment's resolver answers the probe and stops answering
     # twenty steps later, so a guest that reached a mirror once was left
     # depending on it for the rest of the install.
-    if pinned:
-        for command in carried_hosts(pinned):
-            link.run(command, timeout=120.0)
-    # Before the probe, for the same reason the pinned names are: a probe that
-    # succeeds returns without ever running the fallback, so a resolver written
-    # only in the fallback reaches the guests that needed it least.
+    # Before the probe: a probe that succeeds returns without ever running the
+    # fallback, so a resolver written only in the fallback reaches the guests
+    # that needed it least.
     link.run(use_our_resolvers(), timeout=120.0)
     asked = False
     while time.monotonic() < deadline:
@@ -1537,7 +1444,6 @@ def install_one(
     revision: str = "",
     execution: Running | None = None,
     remote_key: Path | None = None,
-    pinned: str = "",
 ) -> Outcome:
     """Build a guest, install into it, read the result, delete the guest."""
     started = time.monotonic()
@@ -1573,7 +1479,7 @@ def install_one(
         # cluster hands out a real configuration, and it is IPv6 with DNS64.
         # Writing IPv4 resolvers over it left every mirror unreachable:
         # `Failed to connect to mirrors.tuna.tsinghua.edu.cn:443 after 111 ms`.
-        wait_for_network(link, guest.vmid, held.address, pinned)
+        wait_for_network(link, guest.vmid, held.address)
         stage_passphrases(link, load(job.fixture))
         link.run("mkdir -p /mnt/driver")
         link.run("mountpoint -q /mnt/driver || mount -o ro /dev/sr1 /mnt/driver")
@@ -1690,7 +1596,6 @@ def answer_once(
     revision: str = "",
     execution: Running | None = None,
     remote_key: Path | None = None,
-    pinned: str = "",
 ) -> None:
     """Run one job and put exactly one outcome on the queue, whatever happens.
 
@@ -1712,7 +1617,6 @@ def answer_once(
             revision,
             execution,
             remote_key,
-            pinned,
         )
         outcome = replace(outcome, vmid=outcome.vmid or vmid)
         done.put(outcome)
@@ -1737,7 +1641,6 @@ def run(
     stamp: int = 0,
     region: MirrorRegion = MirrorRegion.GLOBAL,
     sync: Sync = Sync.RSYNC,
-    pin_hosts: bool = False,
     site: str = "",
 ) -> list[Outcome]:
     """Every job, collected one at a time as each finishes.
@@ -1754,7 +1657,6 @@ def run(
     reconcile(api, workdir)
     addresses = AddressPool(ADDRESS_POOL_ROOT, _address_is_taken)
     remote_key = ssh_keypair(workdir) if any(job.remote_unlock for job in jobs) else None
-    pinned = pinned_hosts() if pin_hosts else ""
     public_key = remote_key.with_suffix(".pub").read_text().strip() if remote_key else ""
     # Packed: the ingress refuses the 1.4 MiB loose-file CD with `413`.
     staging = workdir / f".driver-{uuid.uuid4().hex}.iso"
@@ -1878,7 +1780,6 @@ def run(
                         revision,
                         execution,
                         remote_key,
-                        pinned,
                     ),
                     # A worker reading the console of a guest the closing path
                     # already removed never returns, and a schedule ended by a
@@ -2696,14 +2597,6 @@ def main(argv: list[str] | None = None) -> int:
         help="which mirror region every fixture is rewritten to use",
     )
     parser.add_argument(
-        "--pin-hosts",
-        action="store_true",
-        help=(
-            "carry this machine's answers for the mirror host names into each "
-            "guest's /etc/hosts, for a segment whose resolver is down"
-        ),
-    )
-    parser.add_argument(
         "--sync",
         choices=[one.value for one in Sync],
         default=Sync.RSYNC.value,
@@ -2733,7 +2626,6 @@ def main(argv: list[str] | None = None) -> int:
         int(time.time()),
         MirrorRegion(args.region),
         Sync(args.sync),
-        args.pin_hosts,
         args.site,
     )
     passed = [

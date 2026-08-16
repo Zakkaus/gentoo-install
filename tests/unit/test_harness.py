@@ -2208,43 +2208,6 @@ def test_the_pinned_names_come_from_the_mirror_table() -> None:
     assert set(UNMIRRORED) <= named
 
 
-def test_nothing_reaches_etc_hosts_unless_it_was_asked_for() -> None:
-    """With names carried in, a resolver failure inside the installer would go
-    unnoticed, so the run would prove less than it says."""
-    from tests.vm.cluster import configure_statically
-
-    # Not from this line any more: the addresses are carried in before the
-    # first probe, and writing them twice made the file 101 lines when 68 were
-    # written.
-    assert "/etc/hosts" not in configure_statically("10.31.0.150")
-    assert "/etc/hosts" not in configure_statically("10.31.0.150", "1.2.3.4 example\\n")
-
-
-def test_the_carried_names_are_written_before_the_first_probe() -> None:
-    """The segment's resolver answers the probe and stops answering twenty
-    steps later. Carrying the names only when the probe fails left every guest
-    that reached a mirror once depending on it for the rest of the install."""
-    from tests.vm import cluster
-
-    sent: list[str] = []
-
-    class Link:
-        def run(self, command: str, timeout: float = 120.0) -> None:
-            sent.append(command)
-
-        def expect_output(self, command: str, timeout: float = 180.0) -> bytes:
-            sent.append(command)
-            return cluster.NETWORK_UP.encode()
-
-    cluster.wait_for_network(cast(Any, Link()), 9300, "10.31.0.150", "1.2.3.4 example\\n")
-
-    assert sent, "nothing was sent to the guest"
-    carried = [one for one in sent if "/etc/hosts" in one]
-    assert carried, "the names were not carried in"
-    probe_at = next(at for at, one in enumerate(sent) if cluster.NETWORK_PROBE in one)
-    assert sent.index(carried[-1]) < probe_at, "carried after the probe"
-
-
 def test_nothing_is_carried_when_it_was_not_asked_for() -> None:
     from tests.vm import cluster
 
@@ -2434,93 +2397,6 @@ def test_a_file_that_cannot_be_written_does_not_end_the_run(tmp_path: Path) -> N
     log = tmp_path / "sub" / "vm-btrfs.log"
 
     keep_results(log, {"install.rc": b"0\n"})
-
-
-def test_the_carried_hosts_fit_one_console_line_each() -> None:
-    """A tty edits in canonical mode and drops what does not fit, and one line
-    carrying every pinned address is 1349 characters. Nothing here was ever
-    measured being cut: the guests that were suspected of it all answered
-    `PINNED_IN_FILES`. The split is what keeps the question from returning."""
-    from tests.vm.cluster import carried_hosts, pinned_hosts
-
-    commands = carried_hosts(pinned_hosts())
-
-    assert len(commands) > 3, "the whole block does not go in one line"
-    # A number, not the constant the code uses: an assertion that reads its
-    # own setting cannot fail when that setting is wrong, and this one passed
-    # with the limit raised to 100000.
-    for command in commands:
-        assert len(command) <= 256, f"{len(command)} characters: {command[:60]}"
-    assert any("PINNED_IN_FILES" in one for one in commands)
-
-
-def test_the_diagnostic_asks_about_both_ends() -> None:
-    """A line that was cut kept its beginning, so the first name answers while
-    the mirror the install needs is missing."""
-    from tests.vm.cluster import carried_hosts
-
-    commands = carried_hosts("1.1.1.1 first.example\\n2.2.2.2 last.example\\n")
-    asked = " ".join(commands)
-
-    assert "getent -s files hosts first.example" in asked
-    assert "getent -s files hosts last.example" in asked
-
-
-def test_nothing_pinned_carries_nothing() -> None:
-    from tests.vm.cluster import carried_hosts
-
-    assert carried_hosts("") == []
-
-
-
-
-
-def test_the_diagnostic_asks_python_as_well_as_getent() -> None:
-    """The installer resolves with Python, so `getent` answering says nothing
-    about it: twenty-three mirrors failed with `EAI_AGAIN` in a guest whose
-    `/etc/hosts` held every one of their names and answered `PINNED_IN_FILES`
-    in the same breath."""
-    from tests.vm.cluster import carried_hosts
-
-    asked = " ".join(carried_hosts("1.1.1.1 first.example\\n2.2.2.2 last.example\\n"))
-
-    assert "socket.getaddrinfo" in asked
-    assert "PINNED_PYTHON_RESOLVES" in asked and "PINNED_PYTHON_FAILS" in asked
-
-
-def test_the_resolver_is_told_to_read_the_file() -> None:
-    """`/etc/hosts` is consulted only if `nsswitch.conf` says so, and
-    `getent -s files` bypasses nsswitch, so it cannot tell one from the other:
-    a guest answered `PINNED_IN_FILES` and then failed to resolve the same
-    name for twenty-three mirrors in a row."""
-    from tests.vm.cluster import carried_hosts
-
-    commands = carried_hosts("1.1.1.1 first.example\\n2.2.2.2 last.example\\n")
-
-    assert "nsswitch.conf" in commands[0]
-    assert "hosts: files dns" in commands[0]
-    assert commands.index(next(one for one in commands if "/etc/hosts" in one)) > 0
-
-
-def test_every_pinned_line_is_counted_not_just_the_ends() -> None:
-    """The block is written in batches, so the first and last name are in the
-    first and last of them: a batch lost in between leaves both ends in place.
-    `mirrors.ustc.edu.cn` sits in the middle and was the name the install could
-    not resolve while the guest answered `PINNED_IN_FILES`."""
-    from tests.vm.cluster import PINNED_MARK, carried_hosts, pinned_hosts
-
-    commands = carried_hosts(pinned_hosts())
-    counted = [one for one in commands if "_OF_" in one]
-    written = [one for one in commands if ">> /etc/hosts" in one]
-    marks = sum(one.count(PINNED_MARK) for one in written)
-
-    assert len(counted) == 1, "one count, after every batch"
-    wanted = len([one for one in pinned_hosts().split("\\n") if one])
-    assert f"_OF_{wanted}" in counted[0]
-    assert marks == wanted, f"{marks} of {wanted} lines carry the mark to count"
-    assert commands.index(counted[0]) > commands.index(written[-1]), (
-        "counted after the last batch was written"
-    )
 
 
 def test_a_lease_older_than_any_run_is_taken_over(tmp_path: Path) -> None:
