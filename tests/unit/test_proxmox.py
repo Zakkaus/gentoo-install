@@ -1171,7 +1171,7 @@ def test_the_network_wait_returns_as_soon_as_the_guest_answers() -> None:
 
     link = cluster.Reconnecting(Late, tries=1)
     cluster.wait_for_network(link)
-    assert len(tries) == 4
+    assert len(tries) == 5
     assert sum(1 for line in tries if "NETWORK_%s" in line) == 2
     assert "REACH" in tries[-1]
 
@@ -1202,10 +1202,11 @@ def test_the_network_probe_is_sent_again_after_a_reconnect() -> None:
             return False
 
         def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
-            if self.drop:
+            probed = any(cluster.NETWORK_PROBE in line for line in self.sent)
+            if self.drop and probed:
                 self.drop = False
                 raise ConsoleClosed("termproxy disconnected")
-            if not any(cluster.NETWORK_PROBE in line for line in self.sent):
+            if not self.sent:
                 raise ConsoleTimeout("the reopened console received no probe")
             if "BEGIN" in pattern:
                 return b"MARK_2_BEGIN"
@@ -2861,6 +2862,7 @@ def test_a_guest_is_given_an_address_rather_than_asking_for_one() -> None:
         GUEST_RESOLVERS,
         configure_statically,
         static_address,
+        use_our_resolvers,
     )
     from tests.vm.proxmox import VMID_FIRST, VMID_LAST
 
@@ -2875,8 +2877,10 @@ def test_a_guest_is_given_an_address_rather_than_asking_for_one() -> None:
     assert "arping -D" not in command
     assert "addr add 10.31.0.113/24" in command
     assert f"via {GUEST_GATEWAY}" in command
+    resolvers = use_our_resolvers()
+    assert "\n" not in resolvers, "one line: this goes to a serial console"
     for one in GUEST_RESOLVERS:
-        assert f"nameserver {one}" in command
+        assert f"nameserver {one}" in resolvers
 
 
 def test_two_workers_reserve_different_static_addresses(tmp_path: Path) -> None:
