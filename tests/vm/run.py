@@ -154,6 +154,13 @@ def create_target(path: Path, seed: tuple[str, ...] = ()) -> Path:
     Seeded through a raw image and converted: `parted` writes to a file, and
     it cannot read a qcow2.
     """
+    # The first thing this does is delete the file, and the images an in-place
+    # conversion will be given are downloaded once and kept: `lab/vm/cloud/`
+    # holds three of them. A run writes only inside its own directory, so a
+    # path outside `WORKROOT` is a mistake rather than a target, and it is
+    # refused before the unlink rather than diagnosed after it.
+    if WORKROOT not in path.resolve().parents:
+        raise ValueError(f"{path} is not inside {WORKROOT}, and this deletes what it is given")
     path.unlink(missing_ok=True)
     if not seed:
         subprocess.run(
