@@ -70,7 +70,7 @@ gentoo-install は Linux ライブ環境で動作し、amd64 アーキテクチ�
 
 インプレース変換にはエンドツーエンドの記録が 2 件あり、いずれもクラスタではなく単一マシンの QEMU によるものです。リビジョン [`bcc090fab621`](https://github.com/Zakkaus/gentoo-install/commit/bcc090fab621) はパーティション上に ext4 ルートを持つ Debian 12 genericcloud イメージ、リビジョン [`71e751cf14a1`](https://github.com/Zakkaus/gentoo-install/commit/71e751cf14a1) は btrfs ルートを持つ Arch Linux クラウドイメージで、後者では `/swap/swapfile` の行が新しい fstab に引き継がれました。いずれも `uname -r` は `6.18.43-gentoo-dist-bin` を報告し、`emerge` が存在し、元のディストリビューションのパッケージマネージャは存在せず、ルートデバイスは変わらず、実行の記録は `/var/log/gentoo-install` に保存されました。2 件とも BIOS です。UEFI、btrfs サブボリューム上のルート、`vm-convert` クラスタフィクスチャは未検証です。
 
-その他の実装済みの組み合わせは、エンドツーエンド未検証です。現在の根拠は、greetd のデスクトップセッション、GNOME 以外での ibus を対象としていません。公式 Gentoo minimal ISO、Alpine または Gig-OS のライブメディア、binhost 障害時のフォールバックも対象としていません。
+その他の実装済みの組み合わせは、エンドツーエンド未検証です。現在の根拠は、greetd のデスクトップセッション、GNOME 以外での ibus を対象としていません。公式 Gentoo minimal ISO または Gig-OS のライブメディア、binhost 障害時のフォールバックも対象としていません。Alpine のライブメディアには根拠があります。リビジョン [`0827931289d0`](https://github.com/Zakkaus/gentoo-install/commit/0827931289d0) において、`alpine-standard-3.24.1` はシリアルコンソール上で 59 秒以内に root シェルへ到達し、インストーラは 56 の操作を書き込み、57 パッケージをバイナリホストから取得し 12 をコンパイルし、導入されたシステムは起動してレイアウトをマウントし、失敗したユニットはありませんでした。
 
 プロキシ経路には、SOCKS5 の DNS モード、dry-run 出力と公開設定での認証情報の除去、インストール済みシステムに残る認証情報なしのエンドポイントを対象とする単体テストと plan テストがあります。リビジョンを記録したクラスタ実行が逆方向を裏づけます。`vm-proxy-dead` フィクスチャは待ち受けのないポートをプロキシに指定し、インストールは stage3 のダウンロードで `Connection refused` により停止します。ミラーに到達する実行はプロキシが迂回されたことを示します。
 
