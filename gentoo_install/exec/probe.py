@@ -901,6 +901,18 @@ class Probe:
             uefi=uefi,
             root_free_bytes=_entry_int(root, "avail") if root is not None else None,
             root_subvolume=root_subvolume,
+            separate_mounts=tuple(
+                sorted(
+                    {
+                        target
+                        for entry in mounts
+                        if (target := _entry_text(entry, "target"))
+                        and target.startswith("/")
+                        and target.count("/") == 1
+                        and target != "/"
+                    }
+                )
+            ),
             carried_fstab=_fstab_we_do_not_manage(
                 esp_mountpoint if uefi else None,
                 _entry_text(boot, "target") if boot is not None else None,
