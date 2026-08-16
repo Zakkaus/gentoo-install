@@ -895,9 +895,6 @@ def configure_statically(address: str, pinned: str = "") -> str:
     # that does not answer turns that into `EAI_AGAIN` for the whole call, so
     # a name sitting in the file fails anyway — which is what ended sixteen
     # rounds at the stage3 fetch.
-    resolvers = "options no-aaaa\\n" + "".join(
-        f"nameserver {one}\\n" for one in GUEST_RESOLVERS
-    )
     # Not here: the addresses are carried in by `carried_hosts` before the
     # first probe, and writing them again from this line is what made the file
     # 101 lines when 68 were written.
@@ -911,11 +908,29 @@ def configure_statically(address: str, pinned: str = "") -> str:
         f'ip -4 addr add {network}.{last}/{prefix} dev "$dev"; '
         f'ip -4 route replace default via {gateway} dev "$dev" 2>/dev/null; '
         "done; }; "
-        f"printf '{resolvers}' > /etc/resolv.conf; "
         # Appended, never written: the medium's own entry for localhost is in
         # there and replacing the file takes it away.
         "ip -4 route show default | grep -q . || true"
     )
+
+
+def use_our_resolvers() -> str:
+    """Point the guest at the resolver the cluster runs, whatever DHCP said.
+
+    The segment's DHCP server hands out a resolver on a Raspberry Pi that
+    answers intermittently. A guest whose first network probe succeeded kept
+    that resolver for the whole install, which is why one guest in a round
+    fetched its stage3 and the rest failed every mirror.
+    """
+    # `\\n` for printf, not a real newline: the whole thing is one line sent to
+    # a serial console, and a literal break there is two commands.
+    # `no-aaaa` as well as the servers: an `AF_UNSPEC` lookup asks for the AAAA
+    # too, and a resolver that does not answer turns that into `EAI_AGAIN` for
+    # the whole call even when the A record arrived.
+    resolvers = "options no-aaaa\\n" + "".join(
+        f"nameserver {one}\\n" for one in GUEST_RESOLVERS
+    )
+    return f"printf '{resolvers}' > /etc/resolv.conf"
 
 
 def _address_is_taken(address: str) -> bool:
@@ -980,6 +995,10 @@ def wait_for_network(
     if pinned:
         for command in carried_hosts(pinned):
             link.run(command, timeout=120.0)
+    # Before the probe, for the same reason the pinned names are: a probe that
+    # succeeds returns without ever running the fallback, so a resolver written
+    # only in the fallback reaches the guests that needed it least.
+    link.run(use_our_resolvers(), timeout=120.0)
     asked = False
     while time.monotonic() < deadline:
         said = link.expect_output(NETWORK_PROBE, timeout=180.0)

@@ -2563,9 +2563,9 @@ def test_the_guest_is_told_not_to_ask_for_aaaa() -> None:
     into `EAI_AGAIN` for the whole call, so a name that is in the file fails
     anyway: sixteen rounds ended at the stage3 fetch with `hosts: files dns`
     and `in /etc/hosts: True` printed beside the error."""
-    from tests.vm.cluster import GUEST_RESOLVER, configure_statically
+    from tests.vm.cluster import GUEST_RESOLVER, use_our_resolvers
 
-    written = configure_statically("10.31.0.150")
+    written = use_our_resolvers()
 
     assert "options no-aaaa" in written
     assert f"nameserver {GUEST_RESOLVER}" in written

@@ -395,3 +395,16 @@ class _AnsweringLink:
 
     def run(self, command: str, timeout: float = 0.0) -> None:
         self.ran.append(command)
+
+
+def test_the_resolvers_are_written_before_the_first_network_probe() -> None:
+    link = _AnsweringLink(cluster.NETWORK_UP.encode())
+    cluster.wait_for_network(cast(cluster.Reconnecting, link), vmid=9301)
+    written = link.ran.index(cluster.use_our_resolvers())
+    probed = next(i for i, one in enumerate(link.ran) if "NETWORK_%s" in one)
+    assert written < probed
+
+
+def test_the_interface_configuration_no_longer_carries_the_resolvers() -> None:
+    """Two writers of one file is how the fallback undid the early write."""
+    assert "/etc/resolv.conf" not in cluster.configure_statically("10.31.0.150")
