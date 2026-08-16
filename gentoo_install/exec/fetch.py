@@ -783,7 +783,28 @@ def _resolver_state(url: str) -> str:
         )
     except OSError:
         in_file = False
-    return f" [{order}; {host} in /etc/hosts: {in_file}; {_resolvers(Path("/etc/resolv.conf"))}]"
+    return (
+        f" [{order}; {host} in /etc/hosts: {in_file};"
+        f' {_resolvers(Path("/etc/resolv.conf"))}; {_families(host)}]'
+    )
+
+
+def _families(host: str) -> str:
+    """Which address family the C library could still answer for this name.
+
+    A guest answered `getent ahosts` five times out of five and failed the same
+    name from this process twenty seconds later. Asking each family separately
+    separates a resolver that drops the AAAA from one that answers nothing.
+    """
+    answers = []
+    for name, family in (("v4", socket.AF_INET), ("v6", socket.AF_INET6)):
+        try:
+            socket.getaddrinfo(host, None, family)
+        except OSError as error:
+            answers.append(f"{name}={type(error).__name__}:{getattr(error, 'errno', '')}")
+        else:
+            answers.append(f"{name}=ok")
+    return " ".join(answers)
 
 
 def _resolvers(path: Path) -> str:
