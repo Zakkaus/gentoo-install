@@ -785,8 +785,31 @@ def _resolver_state(url: str) -> str:
         in_file = False
     return (
         f" [{order}; {host} in /etc/hosts: {in_file};"
-        f' {_resolvers(Path("/etc/resolv.conf"))}; {_families(host)}]'
+        f' {_resolvers(Path("/etc/resolv.conf"))}; {_families(host)};'
+        f" {_route_to_resolver(Path('/etc/resolv.conf'))}]"
     )
+
+
+def _route_to_resolver(path: Path) -> str:
+    """Whether this process can reach the first resolver, and from which address.
+
+    `getent` answered five times out of five and the same lookup timed out from
+    this process twenty seconds later, which separates a resolver that stopped
+    answering from a guest that lost the address it was answering from.
+    """
+    servers = _resolvers(path)
+    if not servers.startswith("nameservers "):
+        return "no route measured"
+    first = servers.removeprefix("nameservers ").strip("[]'").split("', '")[0]
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.connect((first, 53))
+    except OSError as error:
+        return f"route to {first}: {type(error).__name__}:{getattr(error, 'errno', '')}"
+    else:
+        return f"route to {first} from {probe.getsockname()[0]}"
+    finally:
+        probe.close()
 
 
 def _families(host: str) -> str:

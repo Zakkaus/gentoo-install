@@ -159,3 +159,17 @@ def test_the_diagnostic_separates_the_two_address_families() -> None:
 def test_a_family_that_cannot_be_answered_names_its_error() -> None:
     said = fetch._families("no-such-name.gentoo-install.invalid")
     assert "v4=gaierror" in said
+
+
+def test_the_diagnostic_says_which_address_reaches_the_resolver(tmp_path: Path) -> None:
+    resolv = tmp_path / "resolv.conf"
+    resolv.write_text("nameserver 127.0.0.1\n")
+    assert fetch._route_to_resolver(resolv) == "route to 127.0.0.1 from 127.0.0.1"
+
+
+def test_the_diagnostic_says_so_when_there_is_no_resolver_to_route_to(
+    tmp_path: Path,
+) -> None:
+    resolv = tmp_path / "resolv.conf"
+    resolv.write_text("options no-aaaa\n")
+    assert fetch._route_to_resolver(resolv) == "no route measured"
