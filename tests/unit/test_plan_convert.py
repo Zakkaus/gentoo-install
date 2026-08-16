@@ -238,11 +238,13 @@ class _RunningContext:
 
     target = PurePosixPath("/")
 
+    answers: dict[str, str] = {}
+
     def run(self, argv: list[str], *, check: bool = True, input_text: str | None = None) -> str:
         self.ran.append(argv)
         if argv[0] == "findmnt":
             return "\n".join(self.mounted)
-        return ""
+        return self.answers.get(argv[0], "")
 
 
 def test_the_staging_root_is_unmounted_and_removed() -> None:
@@ -306,3 +308,25 @@ def test_an_unknown_amount_of_room_is_not_a_small_one() -> None:
     """`findmnt` not reporting `avail` is a reason to carry on: refusing there
     would stop machines that are fine."""
     convert.layout_graph(_layout(root_free_bytes=None))
+
+
+def test_the_staging_root_is_created_before_anything_is_written() -> None:
+    """The ordinary path gets `/mnt/gentoo` from the mount operations, and a
+    conversion has none, so `tar --directory` was the first thing to find out."""
+    operations = build(_in_place(), CATALOG, layout=_layout())
+    first = operations[0]
+    assert isinstance(first, convert.Staged)
+    assert isinstance(first.inner, convert.PrepareStaging)
+
+
+def test_a_staging_root_left_from_an_earlier_attempt_is_refused() -> None:
+    context = _RunningContext()
+    context.answers = {"find": "/gentoo-install.new/usr"}
+    with pytest.raises(ConversionFailed, match="earlier attempt"):
+        convert.PrepareStaging().apply(cast(Any, context))
+
+
+def test_an_empty_staging_root_is_accepted() -> None:
+    context = _RunningContext()
+    convert.PrepareStaging().apply(cast(Any, context))
+    assert ["mkdir", "--parents", "/gentoo-install.new"] in context.ran

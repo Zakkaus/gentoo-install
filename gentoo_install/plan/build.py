@@ -153,6 +153,7 @@ def _in_place(
     boot = bootloader.build(derived)
     after_the_swap = tuple(one for one in boot if isinstance(one, AFTER_THE_SWAP))
     staged: list[Operation] = [
+        convert.PrepareStaging(),
         *portage.build(
             derived,
             stage3_mirror(derived, mirror),

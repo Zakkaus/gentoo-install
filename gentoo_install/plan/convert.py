@@ -106,6 +106,39 @@ class SwapDirectories(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
+class PrepareStaging(Operation):
+    """Create the directory the staged system is built in.
+
+    Nothing else does: the ordinary path gets `/mnt/gentoo` from the mount
+    operations, and a conversion has none, so `tar --directory` was the first
+    thing to find out.
+    """
+
+    # `STAGE3`, not `MOUNT`: creating a directory is not a mount, and a
+    # conversion mounts nothing. Sorting is stable, so it stays ahead of the
+    # unpack it exists for.
+    stage: Stage = Stage.STAGE3
+    staging: PurePosixPath = PurePosixPath("/gentoo-install.new")
+
+    def required_host_commands(self) -> frozenset[str]:
+        return frozenset({"mkdir", "find"})
+
+    def describe(self) -> str:
+        return f"create {self.staging} for the staged system"
+
+    def apply(self, context: Context) -> None:
+        context.run(["mkdir", "--parents", str(self.staging)])
+        inside = context.run(
+            ["find", str(self.staging), "-maxdepth", "1", "-mindepth", "1"], check=False
+        ).strip()
+        if inside:
+            raise ConversionFailed(
+                f"{self.staging} is not empty and is left from an earlier attempt: "
+                "remove it before converting"
+            )
+
+
+@dataclass(frozen=True, kw_only=True)
 class LeaveStaging(Operation):
     """Unmount what the chroot bound under the staging root and remove it.
 
