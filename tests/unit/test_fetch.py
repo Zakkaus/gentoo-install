@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from gentoo_install.errors import DownloadFailed
+from gentoo_install.errors import ArchiveDigestMismatch, DownloadFailed
 from gentoo_install.exec import fetch
 from gentoo_install.exec.runner import Runner
 
@@ -202,3 +202,82 @@ def test_the_diagnostic_names_the_interfaces_it_can_see() -> None:
 def test_the_diagnostic_says_whether_the_namespace_is_shared() -> None:
     said = fetch._network_namespace()
     assert said.startswith("namespace ")
+
+
+def test_a_corrupt_archive_moves_to_the_next_mirror(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The signature on the DIGESTS was good, so the metadata is authentic and
+    that mirror's copy of the file is not: `vm-convert` ended four minutes into
+    a run because one copy of a stage3 was corrupt."""
+    asked: list[str] = []
+
+    def serving(
+        mirror: str,
+        variant: str,
+        fingerprint: str,
+        work: Path,
+        runner: Runner,
+        proxy: object = None,
+    ) -> Path:
+        asked.append(mirror)
+        if mirror == "https://first.example":
+            raise ArchiveDigestMismatch("stage3.tar.xz has SHA512 aaa, the DIGESTS file says bbb")
+        return work / "stage3.tar.xz"
+
+    monkeypatch.setattr(fetch, "_stage3_from", serving)
+
+    where = fetch.stage3(
+        "https://first.example",
+        "systemd",
+        "0" * 40,
+        tmp_path,
+        Runner(log=lambda line: None),
+        None,
+        ("https://second.example",),
+    )
+
+    assert where.name == "stage3.tar.xz"
+    assert asked == ["https://first.example", "https://second.example"]
+
+
+def test_every_mirror_serving_a_corrupt_archive_still_stops(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def serving(
+        mirror: str,
+        variant: str,
+        fingerprint: str,
+        work: Path,
+        runner: Runner,
+        proxy: object = None,
+    ) -> Path:
+        raise ArchiveDigestMismatch(f"{mirror} served a corrupt archive")
+
+    monkeypatch.setattr(fetch, "_stage3_from", serving)
+
+    with pytest.raises(ArchiveDigestMismatch, match="second.example"):
+        fetch.stage3(
+            "https://first.example",
+            "systemd",
+            "0" * 40,
+            tmp_path,
+            Runner(log=lambda line: None),
+            None,
+            ("https://second.example",),
+        )
+
+
+def test_a_corrupt_archive_is_removed_so_the_next_mirror_downloads_again(
+    tmp_path: Path
+) -> None:
+    """The download skips a file that is already there, so leaving the bad one
+    would make every fallback verify the same corrupt copy."""
+    archive = tmp_path / "stage3.tar.xz"
+    archive.write_bytes(b"corrupt")
+    digests = tmp_path / "stage3.tar.xz.DIGESTS"
+    digests.write_text("# SHA512 HASH\n" + "0" * 128 + " stage3.tar.xz\n")
+
+    with pytest.raises(ArchiveDigestMismatch):
+        fetch._verify_digest(archive, digests)
+    assert archive.exists(), "the check itself does not remove anything"
