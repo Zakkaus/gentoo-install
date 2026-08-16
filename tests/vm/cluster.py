@@ -1106,6 +1106,12 @@ def rewrite_fixtures(
                     remote_unlock=replace(
                         moved.kernel.remote_unlock,
                         address=f"{given}/{GUEST_PREFIX}",
+                        # The gateway with it: the fixtures carry a TEST-NET-1
+                        # one beside their TEST-NET-1 address, and rewriting
+                        # only the address leaves the initramfs with a default
+                        # route through a host that is not on its subnet, so
+                        # nothing off it answers.
+                        gateway=GUEST_GATEWAY,
                         # Cleared for the same reason the address is rewritten:
                         # a cluster guest's only NIC is `ens18` under
                         # predictable naming, and `vm-unlock` pinned `eth0`.
