@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import ipaddress
 import itertools
 import json
 import os
@@ -2765,6 +2766,26 @@ def _compiles(config: InstallConfig) -> bool:
     return True
 
 
+#: qemu's user-mode network, where `10.0.2.2` is the machine running qemu and
+#: `10.0.2.3` is its resolver. A cluster guest is bridged and has neither, so a
+#: fixture naming one of them can only run under `tests/vm/run.py`. Dispatching
+#: `vm-proxy` and `vm-proxy-http` here anyway cost 116.0 and 112.8 minutes,
+#: both spent timing out on a proxy that was never going to answer.
+USER_MODE_NETWORK: Final[str] = "10.0.2.0/24"
+
+
+def _needs_user_mode_networking(config: InstallConfig) -> str:
+    """The address that only the local hypervisor provides, or empty."""
+    if not config.proxy.host:
+        return ""
+    network = ipaddress.ip_network(USER_MODE_NETWORK)
+    try:
+        host = ipaddress.ip_address(config.proxy.host)
+    except ValueError:
+        return ""
+    return config.proxy.host if host in network else ""
+
+
 def fixtures(names: list[str]) -> list[Job]:
     found: list[Job] = []
     for name in names:
@@ -2772,6 +2793,12 @@ def fixtures(names: list[str]) -> list[Job]:
         if not path.is_file():
             raise SystemExit(f"no fixture named {name} at {path}")
         config: InstallConfig = load(path)
+        local_only = _needs_user_mode_networking(config)
+        if local_only:
+            raise SystemExit(
+                f"{name} reaches {local_only}, which only qemu's user-mode network "
+                "provides: run it with tests/vm/run.py, not on the cluster"
+            )
         convert_to: Path | None = None
         if config.disk.mode is DiskMode.IN_PLACE:
             # A conversion needs a machine to convert, so the job installs one
