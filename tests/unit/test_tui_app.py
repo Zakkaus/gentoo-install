@@ -3091,3 +3091,81 @@ def test_the_interface_says_why_it_stopped_answering() -> None:
     said = "\n".join(drawn[0])
     assert "reading the versions" in said
     assert "sys-kernel/" in said
+
+
+def test_the_conversion_is_not_offered_when_the_machine_refuses_it() -> None:
+    """The refusal is asked before the operator answers twenty screens, and it
+    is shown rather than hidden: a menu that quietly lacks an option teaches
+    nothing about the machine it is running on."""
+    refusing = app.MainMenuContext(screens.Context(
+        translate=Catalog("en"),
+        disks=DISKS,
+        groups=load_catalog(),
+        hash_password=lambda password: f"$6$test${len(password)}",
+        conversion_refused="this is a live medium (gentoo.iso), so there is no system to replace",
+        running_system="",
+    ))
+    screen = FakeScreen(keys=["q"], lines=24, columns=110)
+    screens.install_mode_screen(screen, config(), refusing)
+    drawn = "\n".join(screen.frames[0])
+    assert "live medium" in drawn, drawn
+    assert "replace the running system" not in drawn, drawn
+
+    # Negative control: a machine that can be converted is offered it, and told
+    # what was read, so the operator can see it looked at the right system.
+    offering = app.MainMenuContext(screens.Context(
+        translate=Catalog("en"),
+        disks=DISKS,
+        groups=load_catalog(),
+        hash_password=lambda password: f"$6$test${len(password)}",
+        conversion_refused="",
+        running_system="/dev/vda2 on ext4",
+    ))
+    seen = FakeScreen(keys=["q"], lines=24, columns=110)
+    screens.install_mode_screen(seen, config(), offering)
+    said = "\n".join(seen.frames[0])
+    assert "replace the running system" in said, said
+    assert "/dev/vda2 on ext4" in said, said
+
+    # And a context nobody filled in refuses, rather than offering a conversion
+    # of a machine that was never read.
+    blank = screens.Context(
+        translate=Catalog("en"),
+        disks=DISKS,
+        groups=load_catalog(),
+        hash_password=lambda password: f"$6$test${len(password)}",
+    )
+    assert blank.conversion_refused, "an unread machine is not a convertible one"
+
+
+def test_choosing_the_conversion_drops_the_device_graph() -> None:
+    """`validate()` refuses an in-place configuration that carries a graph: the
+    layout is derived from the running machine. So the screen has to drop the
+    one the operator built, or the Install row reports a configuration that
+    cannot run."""
+    from gentoo_install.model.config import DiskMode
+    from gentoo_install.model.validate import validate
+
+    offering = app.MainMenuContext(screens.Context(
+        translate=Catalog("en"),
+        disks=DISKS,
+        groups=load_catalog(),
+        hash_password=lambda password: f"$6$test${len(password)}",
+        conversion_refused="",
+        running_system="/dev/vda2 on ext4",
+    ))
+    built = config()
+    assert built.disk.graph.nodes, "the fixture starts with a layout"
+
+    screen = FakeScreen(keys=["KEY_DOWN", "\n"], lines=24, columns=110)
+    answer = screens.install_mode_screen(screen, built, offering)
+    converted = answer.unwrap()
+    assert converted.disk.mode is DiskMode.IN_PLACE
+    assert not converted.disk.graph.nodes, converted.disk.graph.nodes
+    validate(converted)
+
+    # Negative control: staying on the disks keeps the layout untouched.
+    staying = FakeScreen(keys=["\n"], lines=24, columns=110)
+    kept = screens.install_mode_screen(staying, built, offering).unwrap()
+    assert kept.disk.mode is DiskMode.PARTITION
+    assert kept.disk.graph.nodes == built.disk.graph.nodes

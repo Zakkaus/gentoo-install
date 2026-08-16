@@ -112,6 +112,7 @@ def in_a_table() -> set[str]:
         DISPLAY_MANAGERS,
         GENTOOZH_CHANNELS,
         GRAPHICS,
+        INSTALL_MODES,
         KERNELS,
         LICENSES,
         SYNC_METHODS,
@@ -119,7 +120,7 @@ def in_a_table() -> set[str]:
 
     tables = (
         KERNELS, LICENSES, GRAPHICS, DISPLAY_MANAGERS,
-        SYNC_METHODS, GENTOOZH_CHANNELS, BINHOSTS,
+        SYNC_METHODS, GENTOOZH_CHANNELS, BINHOSTS, INSTALL_MODES,
     )
     found = {reason for table in tables for _, reason in table}
     # The logger table lives in `plan/` because it also names the package and
