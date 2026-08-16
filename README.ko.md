@@ -68,7 +68,7 @@ gentoo-install은 Linux 라이브 환경에서 실행되어 amd64 아키텍처�
 
 같은 날짜로 클러스터가 아니라 단일 machine에서 QEMU를 직접 실행한 기록도 있으며, 클러스터가 구동할 수 없는 경로를 다룬다. 클러스터의 BIOS 게스트는 커널이 시작하기 전까지 직렬 포트에 아무것도 출력하지 않고, root가 아닌 API 토큰으로는 스크린샷 엔드포인트도 펌웨어 인자 전달도 사용할 수 없다. 따라서 `vm-bios`, `vm-bios-luks`, `ext4-bios`, `mbr-edit`는 `304dffa41602`에서 QEMU로 기록했다. `zfs-zbm`, `vm-proxy`, `vm-proxy-http`는 `15d45598637a`에서 같은 방식이다. 프록시 fixture는 QEMU의 user-mode 네트워크를 통해 호스트의 프록시에 연결하는데, 브리지로 연결된 클러스터 게스트에는 그 주소가 없다.
 
-인플레이스 변환에는 엔드투엔드 기록이 하나 있다. 리비전 [`bcc090fab621`](https://github.com/Zakkaus/gentoo-install/commit/bcc090fab621)에서 단일 기계의 QEMU 위에서 동작하는 Debian 12 genericcloud 이미지가 인플레이스로 변환되어 Gentoo로 부팅되었다. `uname -r`는 `6.18.43-gentoo-dist-bin`을 보고했고, `emerge`가 존재했으며, `dpkg`와 `apt`는 모두 존재하지 않았고, 루트 파일 시스템은 동일한 `/dev/vda1`이었으며, 이 실행의 기록은 `/var/log/gentoo-install`에 보관되었다. 이 기록이 다루는 범위는 배포판 하나, BIOS 펌웨어, 파티션 위의 ext4 루트이다. `vm-convert` 클러스터 픽스처는 아직 통과하지 않았고, 다른 배포판으로부터의 변환은 검증되지 않았다.
+인플레이스 변환에는 엔드투엔드 기록이 둘 있으며, 모두 클러스터가 아니라 단일 기계의 QEMU에서 나왔다. 리비전 [`bcc090fab621`](https://github.com/Zakkaus/gentoo-install/commit/bcc090fab621)은 파티션 위에 ext4 루트를 둔 Debian 12 genericcloud 이미지이고, 리비전 [`71e751cf14a1`](https://github.com/Zakkaus/gentoo-install/commit/71e751cf14a1)은 btrfs 루트를 둔 Arch Linux 클라우드 이미지이며, 후자에서는 `/swap/swapfile` 줄이 새 fstab으로 옮겨졌다. 둘 다 `uname -r`가 `6.18.43-gentoo-dist-bin`을 보고했고, `emerge`가 존재했으며, 원래 배포판의 패키지 관리자는 존재하지 않았고, 루트 장치는 그대로였으며, 실행 기록은 `/var/log/gentoo-install`에 보관되었다. 두 기록 모두 BIOS이다. UEFI, btrfs 서브볼륨 위의 루트, `vm-convert` 클러스터 픽스처는 검증되지 않았다.
 
 그 밖의 구현된 조합은 엔드투엔드 검증을 거치지 않았다. 현재 증거는 greetd 데스크톱 세션, GNOME 외부의 ibus를 다루지 않는다. 공식 Gentoo minimal ISO, Alpine 또는 Gig-OS 라이브 미디어, binhost 장애 시 전환도 다루지 않는다.
 
