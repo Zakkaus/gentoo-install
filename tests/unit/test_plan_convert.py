@@ -74,6 +74,7 @@ def _layout(
     esp_device: str | None = "/dev/vda1",
     esp_mountpoint: str | None = "/boot/efi",
     uefi: bool = True,
+    root_free_bytes: int | None = 20 * 2**30,
 ) -> StorageLayout:
     """A UEFI machine whose root is a plain filesystem on a partition."""
     return StorageLayout(
@@ -89,7 +90,7 @@ def _layout(
         esp_device=esp_device,
         esp_mountpoint=esp_mountpoint,
         uefi=uefi,
-        root_free_bytes=20 * 2**30,
+        root_free_bytes=root_free_bytes,
     )
 
 
@@ -288,3 +289,20 @@ def test_only_the_esp_and_boot_sector_writes_wait_for_the_swap() -> None:
     )
     assert any(isinstance(one, InstallGrub) for one in after)
     assert not any(isinstance(one, InstallGrub) for one in before)
+
+
+def test_a_root_with_no_room_for_both_systems_is_refused() -> None:
+    """The staged system and the running one are on it at the same time, and
+    running out half way leaves a staging root and nothing converted."""
+    with pytest.raises(ConversionUnsupported, match="4 GiB free"):
+        convert.layout_graph(_layout(root_free_bytes=4 * 2**30))
+
+
+def test_a_root_with_room_is_accepted() -> None:
+    convert.layout_graph(_layout(root_free_bytes=convert.CONVERSION_FREE_BYTES))
+
+
+def test_an_unknown_amount_of_room_is_not_a_small_one() -> None:
+    """`findmnt` not reporting `avail` is a reason to carry on: refusing there
+    would stop machines that are fine."""
+    convert.layout_graph(_layout(root_free_bytes=None))
