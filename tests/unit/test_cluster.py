@@ -827,3 +827,27 @@ def test_the_flag_reaches_the_run() -> None:
     code = inspect.getsource(cluster.main)
     assert '"--skip-node"' in code
     assert "args.skip_node" in code
+
+
+def test_the_prompt_fallback_accepts_any_hostname() -> None:
+    """After a reconnect the shell being back at a prompt proves the command
+    returned. The pattern named the live medium, so a guest that had rebooted
+    into the system it installed never matched it: `vm-convert` waited
+    seventy-three minutes on `xfsbox`."""
+    import re
+
+    pattern = re.compile(cluster._ANY_ROOT_PROMPT)
+    for host in ("livecd", "xfsbox", "convertedbox", "gentoo-test.local"):
+        assert pattern.search(f"root@{host} ~ # "), host
+    assert not pattern.search("root@xfsbox /mnt # "), "only the home prompt"
+
+
+def test_the_fallback_is_used_only_after_a_reconnect() -> None:
+    """Before one, the marker is the only proof: a prompt in ordinary output
+    would end the wait while the command was still running."""
+    import inspect
+
+    code = inspect.getsource(cluster.Reconnecting.wait_for)
+    guarded = code.index("if after_reconnect:")
+    used = code.index("_ANY_ROOT_PROMPT")
+    assert guarded < used
