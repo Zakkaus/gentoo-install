@@ -55,6 +55,19 @@ from .device import (
 #: to provide.
 CJK_FONT_SIZES = frozenset({ConsoleFontSize.SIZE_8X16})
 
+#: Profile path segments this installer has no stage3 for, and the reason each
+#: one needs a different tarball rather than a different `eselect profile set`.
+#: `variant_of` maps a profile to a published stage3, and a segment missing
+#: from its table silently gets the plain one: a musl profile on a glibc
+#: stage3 is two C libraries in one system, which no profile switch repairs.
+UNSERVED_PROFILES: Final[dict[str, str]] = {
+    "musl": "musl is a different C library, and the package groups here are built against glibc",
+    "hardened": "hardened needs its own stage3 and toolchain, not a profile switch",
+    "llvm": "the llvm profile needs a stage3 built with that toolchain",
+    "systemd-hardened": "hardened needs its own stage3 and toolchain, not a profile switch",
+}
+
+
 #: The package that provides each kernel choice. Here rather than in `plan/`
 #: because `traits_of` reads it and `model` is not allowed to call upward;
 #: `plan.kernel` imports this one.
