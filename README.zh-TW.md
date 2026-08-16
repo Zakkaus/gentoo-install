@@ -50,7 +50,7 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 
 <!-- fact: plan-records -->
 
-**計畫與記錄** dry run 會在不探測儲存硬體的情況下顯示操作計畫。實際安裝使用相同的規劃器，但會先加入從重用裝置探測到的 mdraid 中繼資料，因此依賴硬體的驗證結果可能不同。`install.log` 記錄指令輸出，`install.jsonl` 記錄操作、套件來源與二進位套件降級原因。選單將設定上傳至 `paste.gentoozh.org` 前，只會把 `password_hash` 與 `root_password_hash` 的值替換為 `removed-before-publishing`；其他設定值仍會上傳。選單會以文字與 QR 碼顯示上傳頁面的網址。
+**計畫與記錄** dry run 會在不探測儲存硬體的情況下顯示操作計畫。實際安裝使用相同的規劃器，但會先加入從重用裝置探測到的 mdraid 中繼資料，因此依賴硬體的驗證結果可能不同。`install.log` 記錄指令輸出，`install.jsonl` 記錄操作、套件來源與二進位套件降級原因。選單將設定上傳至 `paste.gentoozh.org` 前，會把 `password_hash` 與 `root_password_hash` 的值替換為 `removed-before-publishing`，並且完全不寫出代理的 `username` 與 `password` 這兩個鍵；其他設定值仍會上傳。選單會以文字與 QR 碼顯示上傳頁面的網址。
 
 ## 驗證狀態
 

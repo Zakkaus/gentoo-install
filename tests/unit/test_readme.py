@@ -347,3 +347,31 @@ def test_the_readme_set_holds_no_contributor_instructions() -> None:
         said = (ROOT / name).read_text()
         assert "mypy" not in said, name
         assert "pytest" not in said, name
+
+
+def test_the_readme_names_everything_publishing_removes() -> None:
+    """The README said the menu replaces `only` those two values and that the
+    other values remain. `to_toml(publishing=True)` also drops the proxy
+    username and password, and drops them rather than replacing them — so the
+    sentence understated the protection and mis-stated its mechanism, on the
+    one paragraph a reader consults before putting a configuration on a public
+    address."""
+    from dataclasses import fields
+
+    from gentoo_install.model.config import ProxyConfig
+    from gentoo_install.model.serialise import REDACTED, SECRET
+
+    english = (ROOT / "README.md").read_text(encoding="utf-8")
+    said = next(line for line in english.splitlines() if REDACTED in line)
+
+    for name in SECRET:
+        assert f"`{name}`" in said, name
+    # And the keys that are omitted rather than replaced, by their real names.
+    dropped = {"username", "password"}
+    assert dropped <= {field.name for field in fields(ProxyConfig)}, "the model moved"
+    for name in dropped:
+        assert f"`{name}`" in said, name
+
+    # `only` was the word that made it wrong; it must not come back beside the
+    # two hashes it used to qualify.
+    assert "replaces only" not in said, said

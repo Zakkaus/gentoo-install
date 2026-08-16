@@ -50,7 +50,7 @@ After the proxy is selected, the configured proxy is used for stage3 and its sig
 
 <!-- fact: plan-records -->
 
-**Plan and records.** A dry run prints an operation plan without probing storage hardware. A real installation uses the same planner after adding probed mdraid metadata for reused devices, so hardware-dependent validation can change the result. `install.log` records command output, and `install.jsonl` records operations, package sources and binary-package degradation reasons. Before uploading a configuration to `paste.gentoozh.org`, the menu replaces only `password_hash` and `root_password_hash` values with `removed-before-publishing`; the other configuration values remain in the upload. The menu displays the resulting page address as text and as a QR code.
+**Plan and records.** A dry run prints an operation plan without probing storage hardware. A real installation uses the same planner after adding probed mdraid metadata for reused devices, so hardware-dependent validation can change the result. `install.log` records command output, and `install.jsonl` records operations, package sources and binary-package degradation reasons. Before uploading a configuration to `paste.gentoozh.org`, the menu replaces `password_hash` and `root_password_hash` with `removed-before-publishing` and omits the proxy `username` and `password` keys entirely; the other configuration values remain in the upload. The menu displays the resulting page address as text and as a QR code.
 
 ## Verification status
 
