@@ -911,11 +911,12 @@ def configure_statically(address: str, pinned: str = "") -> str:
     # first probe, and writing them again from this line is what made the file
     # 101 lines when 68 were written.
     return (
-        # The DHCP client first: the segment's server runs on a Raspberry Pi
-        # and a lapsed lease takes the address with it. Sixty-one lookups in
-        # round 26 answered `ENETUNREACH` from an installer that had reached a
-        # mirror over the same interface a minute earlier.
-        "pkill -x dhcpcd 2>/dev/null || true; "
+        # SIGKILL, not SIGTERM: dhcpcd answers a term by releasing the lease
+        # and deconfiguring the interface, and it does that after the command
+        # returns. Round 29 measured a full routing table on the console and
+        # `no routes` from the installer four seconds later.
+        "pkill -KILL -x dhcpcd 2>/dev/null; pkill -KILL -x dhclient 2>/dev/null; "
+        "pkill -KILL -x udhcpc 2>/dev/null; "
         # Unconditional, not only when the default route is missing: the guard
         # meant a guest that came up on DHCP never received an address of its
         # own, so it had nothing left once the lease went.
@@ -923,6 +924,8 @@ def configure_statically(address: str, pinned: str = "") -> str:
         f'ip -4 addr add {network}.{last}/{prefix} dev "$dev" 2>/dev/null || true; '
         f'ip -4 route replace default via {gateway} dev "$dev" 2>/dev/null || true; '
         "done; "
+        # The client is dead, so nothing will put these back if they go: report
+        # what is there rather than a bare success, and the log carries it.
         "ip -4 route show default | grep -q . || true"
     )
 

@@ -432,5 +432,8 @@ def test_the_address_does_not_depend_on_the_default_route_being_absent() -> None
     earlier."""
     command = cluster.configure_statically("10.31.0.150")
     assert "route show default | grep -q . || {" not in command
-    assert "pkill -x dhcpcd" in command
+    # SIGKILL: a term makes dhcpcd release the lease and deconfigure the
+    # interface, which is what emptied the routing table under the installer.
+    assert "pkill -KILL -x dhcpcd" in command
+    assert "pkill -x dhcpcd" not in command
     assert "addr add 10.31.0.150/24" in command
