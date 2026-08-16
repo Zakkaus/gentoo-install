@@ -386,3 +386,25 @@ def test_a_separate_boot_that_could_not_be_read_is_refused() -> None:
         convert.layout_graph(
             _layout(boot_same_filesystem=False, boot_filesystem_type=None)
         )
+
+
+def test_the_staging_context_answers_every_member_of_the_context() -> None:
+    """Naming the members by hand is what drifted: a conversion stopped at
+    `make.conf` with `'_StagingContext' object has no attribute 'read'` after
+    it had already downloaded and unpacked a stage3."""
+    from gentoo_install.plan.operations import Context
+
+    wanted = [name for name in dir(Context) if not name.startswith("_")]
+    parent = SimpleNamespace(**{name: name for name in wanted})
+    staged = convert._StagingContext(
+        parent=cast(Any, parent), staging=PurePosixPath("/gentoo-install.new")
+    )
+
+    assert staged.target == PurePosixPath("/gentoo-install.new")
+    missing = [name for name in wanted if not hasattr(staged, name)]
+    assert missing == [], missing
+    # Everything but `target` comes from the parent unchanged.
+    for name in wanted:
+        if name == "target":
+            continue
+        assert getattr(staged, name) == name, name
