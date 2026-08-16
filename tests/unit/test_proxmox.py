@@ -1171,7 +1171,7 @@ def test_the_network_wait_returns_as_soon_as_the_guest_answers() -> None:
 
     link = cluster.Reconnecting(Late, tries=1)
     cluster.wait_for_network(link)
-    assert len(tries) == 6
+    assert len(tries) == 7
     assert sum(1 for line in tries if "NETWORK_%s" in line) == 2
     assert "REACH" in tries[-1]
 
