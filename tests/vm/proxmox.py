@@ -1010,6 +1010,11 @@ class Reopenable(Protocol):
 #: read as one sequence.
 ESCAPE_SETTLES: Final[float] = 2.0
 
+#: Below this, the console said nothing rather than saying the wrong thing. A
+#: menu redraw is hundreds of bytes of escape sequences, so anything under a
+#: line is silence.
+SILENT_CONSOLE_BYTES: Final[int] = 16
+
 
 def _editor_screen(console: Line, timeout: float) -> bytes:
     """Press `e` until GRUB draws the entry, and answer with that screen.
@@ -1041,6 +1046,13 @@ def _editor_screen(console: Line, timeout: float) -> bytes:
         console.send_raw("e")
     # The whole read, not the last snapshot: the last one is empty on a guest
     # that booted while the loop was still pressing, which says nothing.
+    # A silent console and a stubborn GRUB need different answers, so they get
+    # different sentences: `openrc-sdboot` reported two bytes as GRUB's fault.
+    if len(everything.strip()) < SILENT_CONSOLE_BYTES:
+        raise ProxmoxError(
+            f"the console delivered {len(everything)} bytes while the editor was "
+            f"asked for over {timeout:.0f}s: {everything[-400:]!r}"
+        )
     raise ProxmoxError(f"GRUB never opened its editor: {everything[-400:]!r}")
 
 
