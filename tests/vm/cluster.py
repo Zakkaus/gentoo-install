@@ -2292,6 +2292,11 @@ PASSWORD_ECHO_OFF_AFTER: Final[float] = 1.0
 PASSWORD_ECHO_BACKOFF: Final[float] = 2.0
 PASSWORD_ECHO_CATCHES: Final[int] = 3
 
+#: How long the prompt that follows a refusal is waited for before the next
+#: attempt. `login` writes it at once, so this only has to outlast a loaded
+#: node rather than anything the guest is doing.
+REPROMPT_PATIENCE: Final[float] = 30.0
+
 
 def _log_in(link: Reconnecting, password: str) -> str:
     """Log root in, and say what is wrong when it does not happen.
@@ -2321,6 +2326,15 @@ def _log_in(link: Reconnecting, password: str) -> str:
             settle += PASSWORD_ECHO_BACKOFF
             continue
         refusals += 1
+        # `Login incorrect` matches before the prompt that follows it, so the
+        # re-prompt stays in the buffer. `_name_the_user` then reads that one,
+        # calls it a login prompt, and offers the name a second time — and the
+        # second one lands in the password field. `vm-lvm` failed at 55.6
+        # minutes with `root` echoed under `Password:` for exactly that.
+        try:
+            link.observe(r"login:", timeout=REPROMPT_PATIENCE)
+        except ConsoleTimeout:
+            pass
     return "the installed system refused every login"
 
 

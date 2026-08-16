@@ -1058,3 +1058,65 @@ def test_a_fixture_that_needs_user_mode_networking_is_refused_here() -> None:
     assert cluster.fixtures(["vm-proxy-dead"])[0].name == "vm-proxy-dead"
     # And so is every fixture that names no proxy at all.
     assert cluster.fixtures(["vm-xfs", "zfs-zbm"])
+
+
+def test_the_prompt_after_a_refusal_is_read_before_the_name_is_offered_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`Login incorrect` matches before the prompt that follows it, so that
+    prompt stayed in the buffer. `_name_the_user` read it, called it a login
+    prompt, and offered the name again — and the second name landed in the
+    password field. `vm-lvm` failed at 55.6 minutes with `root` echoed under
+    `Password:`, which is what a name in that field looks like.
+    """
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+
+    class Agetty:
+        """A login that writes its prompt and its refusal as separate reads,
+        which is what leaves one of them behind."""
+
+        def __init__(self, refusals: int) -> None:
+            self.refusals = refusals
+            self.sent: list[str] = []
+            self.pending: list[bytes] = []
+            #: What the guest is waiting for. A name sent here is echoed; a
+            #: password is not, which is how the two are told apart below.
+            self.wants = "name"
+            self.into_the_password_field: list[str] = []
+
+        def respond(self, line: str) -> None:
+            self.sent.append(line)
+            if self.wants == "name":
+                self.wants = "password"
+                self.pending.append(b"Password: ")
+                return
+            if line != "install":
+                self.into_the_password_field.append(line)
+            self.wants = "name"
+            if self.refusals > 0 and line != "install":
+                self.refusals -= 1
+                self.pending.append(b"\r\nLogin incorrect\r\n")
+                self.pending.append(b"lvmbox login: ")
+                return
+            if self.refusals > 0:
+                self.refusals -= 1
+                self.pending.append(b"\r\nLogin incorrect\r\n")
+                self.pending.append(b"lvmbox login: ")
+                return
+            self.pending.append(b"lvmbox ~ # ")
+
+        def observe(self, pattern: str, timeout: float = 0.0) -> bytes:
+            if not self.pending:
+                raise ConsoleTimeout("nothing more")
+            return self.pending.pop(0)
+
+    console = Agetty(refusals=2)
+    assert cluster._log_in(cast(cluster.Reconnecting, console), "install") == ""
+    # Nothing but the password ever reached the password field.
+    assert console.into_the_password_field == [], console.sent
+    assert console.sent.count("root") == 3, console.sent
+
+    # Negative control: a login that never comes back still ends rather than
+    # waiting on a prompt that is not coming.
+    stubborn = Agetty(refusals=99)
+    assert "refused" in cluster._log_in(cast(cluster.Reconnecting, stubborn), "install")
