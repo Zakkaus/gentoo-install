@@ -734,3 +734,24 @@ def test_the_carried_fstab_opens_inside_the_staging_root(tmp_path: Path) -> None
     assert opened == [PurePosixPath("/etc/fstab")]
     kept = (staging / "etc" / "fstab").read_text()
     assert "UUID=1" in kept and "/swap/swapfile" in kept
+
+
+def test_a_failed_conversion_still_unmounts_the_staging_root() -> None:
+    """`_release` runs only the closing operations that say they release the
+    machine, and `LeaveStaging` did not. A conversion that stopped therefore
+    left `/proc`, `/sys` and `/dev` bound under `/gentoo-install.new`, and
+    `PrepareStaging` refuses the next attempt because that directory is not
+    empty. Removing it by hand walks those binds into the running `/dev`, which
+    is what happened after the Arch run stopped at operation 34 of 46.
+    """
+    operations = build(_in_place(), CATALOG, layout=_layout())
+    closing = [one for one in operations if one.stage is Stage.FINISH]
+    leaving = [one for one in closing if isinstance(one, convert.LeaveStaging)]
+    assert leaving, closing
+    assert leaving[0].releases_the_machine
+
+    # Negative control: the rest of the closing stage still does not run after
+    # a failure, or an empty chroot's error replaces the one that matters.
+    others = [one for one in closing if not isinstance(one, convert.LeaveStaging)]
+    assert others, "the closing stage has more than the unmount"
+    assert not any(one.releases_the_machine for one in others), others
