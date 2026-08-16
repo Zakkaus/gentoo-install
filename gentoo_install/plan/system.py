@@ -494,7 +494,7 @@ class RequestNetworkUse(Operation):
 class LinkResolvConf(Operation):
     """Point the target's resolver at the one that will run on it.
 
-    `PrepareChroot` copies the installing system's `/etc/resolv.conf` in so the
+    `SeedResolver` copies the installing system's `/etc/resolv.conf` in so the
     emerges can resolve, and nothing takes it out again: the installed machine
     booted with the live medium's nameservers. `systemd-networkd` publishes
     what it learns only through `systemd-resolved`, so the DNS the operator
