@@ -552,3 +552,55 @@ def test_the_converted_machine_is_read_back_the_same_way(monkeypatch: pytest.Mon
     assert "boot_and_check(" in code
     assert "install.sh --config fixtures/" in code
     assert "wait_for_network(" in code, "the installed system has to reach a mirror too"
+
+
+class _LoginConsole:
+    """A serial line that behaves like `login` on the guests.
+
+    It echoes whatever arrives before the prompt has turned the echo off, which
+    is what made `vm-lvm` answer `Login incorrect` after a complete install.
+    """
+
+    def __init__(self, refusals: int) -> None:
+        self.refusals = refusals
+        self.sent: list[str] = []
+        self.answers: list[bytes] = []
+
+    def respond(self, line: str) -> None:
+        self.sent.append(line)
+        if line == "root":
+            self.answers.append(b"Password: ")
+        elif self.refusals > 0:
+            self.refusals -= 1
+            self.answers.append(b"Login incorrect\r\nlogin: ")
+        else:
+            self.answers.append(b"lvmbox ~ # ")
+
+    def observe(self, pattern: str, timeout: float = 0.0) -> bytes:
+        return self.answers.pop(0) if self.answers else b""
+
+
+def test_a_refused_password_is_offered_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`login` writes `Password:` and then turns the echo off; a password sent
+    inside that window is echoed and read as an empty one."""
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    console = _LoginConsole(refusals=1)
+    assert cluster._log_in(cast(cluster.Reconnecting, console), "install") == ""
+    assert console.sent.count("install") == 2, console.sent
+
+
+def test_a_login_that_is_refused_every_time_is_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    console = _LoginConsole(refusals=99)
+    said = cluster._log_in(cast(cluster.Reconnecting, console), "install")
+    assert "refused every login" in said
+
+
+def test_the_password_waits_for_the_echo_to_be_turned_off() -> None:
+    import inspect
+
+    code = inspect.getsource(cluster._log_in)
+    assert "PASSWORD_ECHO_OFF_AFTER" in code
+    assert code.index("PASSWORD_ECHO_OFF_AFTER") < code.index("link.respond(password)")
