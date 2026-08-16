@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -16,7 +16,7 @@ from gentoo_install.plan.build import build
 from gentoo_install.plan.convert import SwapDirectories
 from gentoo_install.plan.operations import Stage
 from gentoo_install.model.config import DiskConfig, DiskMode
-from gentoo_install.errors import ConversionUnsupported
+from gentoo_install.errors import ConversionFailed, ConversionUnsupported
 from gentoo_install.model.device import (
     DeviceGraph,
     DeviceId,
@@ -226,3 +226,40 @@ def test_boot_is_not_one_of_the_directories_that_are_renamed() -> None:
     """A rename refuses a mount point and a directory holding one, and `/boot`
     is one on many machines and holds the esp on many more."""
     assert "boot" not in convert.REPLACED_DIRECTORIES
+
+
+class _RunningContext:
+    """A context that records commands and answers `findmnt` from a list."""
+
+    def __init__(self, mounted: tuple[str, ...] = ()) -> None:
+        self.mounted = mounted
+        self.ran: list[list[str]] = []
+
+    target = PurePosixPath("/")
+
+    def run(self, argv: list[str], *, check: bool = True, input_text: str | None = None) -> str:
+        self.ran.append(argv)
+        if argv[0] == "findmnt":
+            return "\n".join(self.mounted)
+        return ""
+
+
+def test_the_staging_root_is_unmounted_and_removed() -> None:
+    context = _RunningContext(mounted=("/", "/boot"))
+    convert.LeaveStaging().apply(cast(Any, context))
+    assert ["umount", "--recursive", "--lazy", "/gentoo-install.new"] in context.ran
+    assert ["rm", "--recursive", "--force", "/gentoo-install.new"] in context.ran
+
+
+def test_a_staging_root_with_something_still_mounted_is_left_alone() -> None:
+    """`rm` walking into a `/proc` still bound there is not a risk worth taking
+    to tidy up a machine that is already converted."""
+    context = _RunningContext(mounted=("/", "/gentoo-install.new/proc"))
+    with pytest.raises(ConversionFailed, match="still has something mounted"):
+        convert.LeaveStaging().apply(cast(Any, context))
+    assert not any(argv[0] == "rm" for argv in context.ran)
+
+
+def test_the_conversion_ends_by_leaving_no_staging_root() -> None:
+    operations = build(_in_place(), CATALOG, layout=_layout())
+    assert isinstance(operations[-1], convert.LeaveStaging)
