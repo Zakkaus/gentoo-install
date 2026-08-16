@@ -162,3 +162,43 @@ def test_a_filesystem_the_model_has_no_member_for_is_refused() -> None:
 def test_a_root_device_that_could_not_be_read_is_refused() -> None:
     with pytest.raises(ConversionUnsupported, match="could not be read"):
         convert.layout_graph(_layout(root_device=None))
+
+
+def test_the_conversion_stages_everything_then_swaps_then_writes_the_bootloader() -> None:
+    """The stage order the rest of the installer sorts by puts the bootloader
+    before packages. A conversion cannot: the bootloader writes to the root the
+    machine will boot from, and that is the old one until the swap happens."""
+    operations = build(_in_place(), CATALOG, layout=_layout())
+    swapped = next(
+        index
+        for index, operation in enumerate(operations)
+        if isinstance(operation, SwapDirectories)
+    )
+    assert all(isinstance(one, convert.Staged) for one in operations[:swapped])
+    assert not any(isinstance(one, convert.Staged) for one in operations[swapped + 1 :])
+    assert operations[swapped + 1 :], "the bootloader has to follow the swap"
+
+
+def test_nothing_before_the_swap_writes_outside_the_staging_root() -> None:
+    operations = build(_in_place(), CATALOG, layout=_layout())
+    staged = [one for one in operations if isinstance(one, convert.Staged)]
+    assert staged
+    assert all(str(one.staging) == "/gentoo-install.new" for one in staged)
+    assert all("/gentoo-install.new" in one.describe() for one in staged)
+
+
+def test_a_conversion_without_a_probed_layout_is_refused() -> None:
+    with pytest.raises(ConversionUnsupported, match="was not read"):
+        build(_in_place(), CATALOG)
+
+
+def test_the_conversion_formats_nothing_and_mounts_nothing() -> None:
+    """The machine is already running on these filesystems."""
+    operations = build(_in_place(), CATALOG, layout=_layout())
+    stages = {
+        (one.inner.stage if isinstance(one, convert.Staged) else one.stage)
+        for one in operations
+    }
+    assert Stage.FORMAT not in stages
+    assert Stage.PARTITION not in stages
+    assert Stage.MOUNT not in stages
