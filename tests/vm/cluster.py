@@ -80,6 +80,7 @@ from .proxmox import (
     GrubNotReadable,
     Node,
     ProxmoxError,
+    ProxmoxTransientError,
     VMID_FIRST,
     VMID_LAST,
     Line,
@@ -1802,8 +1803,21 @@ def run(
                         held_vmids,
                         address,
                     )
-                except Exception:
-                    raise
+                except ProxmoxTransientError as refused:
+                    # The node, not the job: `POST /nodes/infra-node3/qemu`
+                    # answered `595 Connection refused` and the exception left
+                    # the loop, so the closing path removed five guests that
+                    # were installing. That node takes no more of them and the
+                    # job goes back to the queue.
+                    unreachable.add(node.name)
+                    waiting.insert(index, job)
+                    print(
+                        f"! {node.name} refused a guest ({refused}); "
+                        f"{job.name} goes back to the queue",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    continue
                 execution = job.execution
                 if execution is None:
                     raise ProxmoxError(f"{job.name} has no reserved guest")

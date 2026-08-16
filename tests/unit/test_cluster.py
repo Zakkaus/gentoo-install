@@ -741,3 +741,22 @@ def test_a_fixture_that_does_not_unlock_remotely_keeps_its_addresses() -> None:
         {"vm-xfs": "10.31.0.155"},
     )
     assert load(written / "vm-xfs.toml").kernel.remote_unlock.address == ""
+
+
+def test_a_node_that_refuses_a_guest_does_not_end_the_campaign() -> None:
+    """`POST /nodes/infra-node3/qemu` answered `595 Connection refused` and the
+    exception left the dispatch loop, so the closing path removed five guests
+    that were installing."""
+    import inspect
+
+    from tests.vm.proxmox import ProxmoxTransientError
+
+    code = inspect.getsource(cluster.run)
+    caught = code.index("except ProxmoxTransientError as refused:")
+    reserved = code.index("_reserve_job(")
+    assert reserved < caught, "the guard has to sit on the call that creates the guest"
+    after = code[caught : caught + 900]
+    assert "unreachable.add(node.name)" in after
+    assert "waiting.insert(index, job)" in after
+    assert "continue" in after
+    assert ProxmoxTransientError.__name__ in code
