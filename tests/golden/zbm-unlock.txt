@@ -44,7 +44,7 @@
   set sys-kernel/installkernel to dracut, installing into /boot
   verify the selected kernel against the target sys-fs/zfs ceiling
   accept the linux-firmware licence
-  ask for dhclient and arping, which ZFSBootMenu networking requires
+  ask for dhclient and arping, which the legacy network module requires
   write /etc/dracut.conf.d/zz-gentoo-install-crypt-ssh.conf to omit ssh from the system initramfs
   accept sys-kernel/gentoo-cjk-kernel-bin as testing, with cjk on
   unmask virtual/dist-kernel, which the cjk kernel depends on by revision

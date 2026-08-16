@@ -45,8 +45,9 @@
   set sys-kernel/installkernel to dracut
   ask for sys-apps/systemd[cryptsetup], which provides the unlock generator
   accept the linux-firmware licence
+  ask for dhclient and arping, which the legacy network module requires
   configure remote unlock over ssh on port 2222
-  resolve net-misc/openssh sys-process/cronie sys-kernel/installkernel sys-apps/systemd sys-kernel/dracut sys-kernel/linux-firmware sys-kernel/dracut-crypt-ssh sys-fs/cryptsetup sys-fs/btrfs-progs sys-fs/dosfstools sys-fs/e2fsprogs sys-kernel/gentoo-kernel-bin sys-boot/grub sys-boot/efibootmgr together before installing the requested packages
+  resolve net-misc/openssh sys-process/cronie sys-kernel/installkernel sys-apps/systemd sys-kernel/dracut sys-kernel/linux-firmware sys-kernel/dracut-crypt-ssh sys-apps/iproute2 net-misc/dhcp net-misc/iputils sys-fs/cryptsetup sys-fs/btrfs-progs sys-fs/dosfstools sys-fs/e2fsprogs sys-kernel/gentoo-kernel-bin sys-boot/grub sys-boot/efibootmgr together before installing the requested packages
 
 [system]
   generate and verify locales en_US.UTF-8, zh_TW.UTF-8
@@ -74,7 +75,7 @@
   install the hook that puts a kernel in /boot: emerge sys-kernel/installkernel
   rebuild systemd with the unlock generator: emerge sys-apps/systemd, from source
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
-  install the initramfs ssh daemon: emerge sys-kernel/dracut-crypt-ssh
+  install the initramfs ssh daemon: emerge sys-kernel/dracut-crypt-ssh sys-apps/iproute2 net-misc/dhcp net-misc/iputils
   install the storage tools: emerge sys-fs/cryptsetup sys-fs/btrfs-progs sys-fs/dosfstools sys-fs/e2fsprogs
   install the kernel: emerge sys-kernel/gentoo-kernel-bin
   tell dracut to carry crypt, btrfs, crypt-ssh, network-legacy
