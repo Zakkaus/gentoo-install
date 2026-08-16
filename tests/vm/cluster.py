@@ -2079,16 +2079,18 @@ class Reconnecting:
             lambda deadline: self.console.expect(pattern, _remaining(deadline)),
         )
 
-    def observe(self, pattern: str, timeout: float) -> bytes:
+    def observe(self, pattern: str, timeout: float, *, solicit: bool = False) -> bytes:
         """Wait through a reconnect without writing to the guest.
 
         Boot prompts own the console input field. An empty line there is a
         password attempt, not a harmless request for another shell prompt.
+        `solicit` is for the wait where that does not hold: `login:` is printed
+        once, so a console reopened past it never sees the prompt again.
         """
         return self._with_reconnect(
             timeout,
             lambda deadline: self.console.expect(pattern, _remaining(deadline)),
-            solicit_on_reconnect=False,
+            solicit_on_reconnect=solicit,
         )
 
     def run(self, command: str, timeout: float = 120.0) -> None:
@@ -2569,7 +2571,10 @@ def boot_and_check(
         return unlocked.refused
     if unlocked.state is InstalledBootState.WAIT_LOGIN:
         try:
-            link.observe(r"login:", timeout=BOOT_PATIENCE)
+            # Solicited: run54 reopened the console between `Loading initial
+            # ramdisk` and the kernel's first line, and agetty prints `login:`
+            # once, so the whole patience was spent on a guest that had booted.
+            link.observe(r"login:", timeout=BOOT_PATIENCE, solicit=True)
         except (ConsoleTimeout, ConsoleClosed) as error:
             # The same reason the refused login carries one: `never matched
             # 'login:'` with the console banner as the last output says the

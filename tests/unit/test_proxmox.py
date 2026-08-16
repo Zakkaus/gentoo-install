@@ -1690,7 +1690,7 @@ def test_installed_login_uses_the_login_observed_by_unlock(
         def reopen(self, *, solicit_prompt: bool = True) -> None:
             events.append(f"reopen:{solicit_prompt}")
 
-        def observe(self, pattern: str, timeout: float) -> bytes:
+        def observe(self, pattern: str, timeout: float, *, solicit: bool = False) -> bytes:
             events.append(f"observe:{pattern}")
             if pattern == PASSWORD_PROMPT:
                 return "\u5bc6\u78bc\uff1a".encode()
@@ -3524,7 +3524,7 @@ def test_a_boot_that_never_prompts_says_what_the_console_held(
         def reopen(self, *, solicit_prompt: bool = True) -> None:
             return None
 
-        def observe(self, pattern: str, timeout: float) -> bytes:
+        def observe(self, pattern: str, timeout: float, *, solicit: bool = False) -> bytes:
             raise ConsoleTimeout("never matched 'login:'")
 
     from gentoo_install.exec.config import load
