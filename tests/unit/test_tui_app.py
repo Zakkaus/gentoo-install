@@ -34,7 +34,7 @@ from gentoo_install.tui.overview import overview_screen
 from gentoo_install.tui.widgets import Outcome
 
 from .fake_screen import FakeScreen
-from .layouts import config, encrypted_root, zfs_root
+from .layouts import config, encrypted_root, unlockable_root, zfs_root
 
 DISKS = [("/dev/disk/by-id/virtio-target0", "20 GiB"), ("/dev/disk/by-id/virtio-target1", "40 GiB")]
 
@@ -1845,7 +1845,7 @@ def test_a_bad_port_keeps_the_address_that_was_typed_beside_it() -> None:
     # An encrypted root as well as a key: with neither there is no passphrase
     # prompt to reach, and the screen says so instead of asking.
     with_key = replace(
-        config(encrypted_root()), system=replace(config().system, authorized_keys=(GOOD_KEY,))
+        config(unlockable_root()), system=replace(config().system, authorized_keys=(GOOD_KEY,))
     )
     # Yes to unlocking, then `abc` appended to the port and an address typed.
     # The form comes back with an inline message and both values, so deleting the three
@@ -2305,7 +2305,7 @@ def test_remote_unlock_is_refused_without_a_key_and_without_encryption() -> None
 def test_remote_unlock_is_offered_once_both_hold() -> None:
     at = context()
     both = replace(
-        config(encrypted_root()),
+        config(unlockable_root()),
         system=replace(config().system, authorized_keys=(GOOD_KEY,)),
     )
     screen = FakeScreen(keys=["q"], lines=24, columns=110)

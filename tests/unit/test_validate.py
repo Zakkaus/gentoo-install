@@ -29,7 +29,7 @@ from gentoo_install.exec.probe import amd64_profiles, profiles_from_eselect
 from gentoo_install.model.validate import validate, zfs_kernel_ceiling
 from gentoo_install.model.parse import parse
 
-from .layouts import encrypted_root, config, ext4_on_gpt, i, zfs_root
+from .layouts import encrypted_root, config, ext4_on_gpt, i, unlockable_root, zfs_root
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
@@ -524,7 +524,7 @@ def test_validate_parses_each_configured_network_value_once(
     from gentoo_install.model.config import RemoteUnlock
 
     interface_calls, address_calls = _record_address_parses(monkeypatch)
-    base = config(encrypted_root())
+    base = config(unlockable_root())
     installation = replace(
         base,
         system=replace(
@@ -567,7 +567,7 @@ def test_validate_does_not_reparse_malformed_remote_unlock_values(
     from gentoo_install.model.config import RemoteUnlock
 
     interface_calls, address_calls = _record_address_parses(monkeypatch)
-    base = config(encrypted_root())
+    base = config(unlockable_root())
     installation = replace(
         base,
         system=replace(
@@ -722,7 +722,7 @@ def test_a_remote_unlock_pair_of_one_family_is_a_working_configuration() -> None
     for address, gateway in (("192.0.2.10/24", "192.0.2.1"), ("2001:db8::10/64", "2001:db8::1")):
         validate(
             replace(
-                config(encrypted_root()),
+                config(unlockable_root()),
                 system=replace(config().system, authorized_keys=("ssh-ed25519 AAAA test",)),
                 kernel=replace(
                     KernelConfig(),

@@ -181,6 +181,7 @@ class Trait(Enum):
     REMOTE_UNLOCK = "unlocking the root over ssh"
     NO_AUTHORIZED_KEY = "no authorised ssh key"
     NO_ENCRYPTED_CONTAINER = "no encrypted container to unlock"
+    GRUB_UNLOCKS_BOOT = "GRUB unlocking /boot before it can read a kernel"
     NATIVE_ZFS_SYSTEM_INITRAMFS = "ZFS native encryption with GRUB or systemd-boot"
     FONT_WITHOUT_CJK_GLYPHS = "a console font other than 8x16"
     ROOT_LOCKED = "a root password hash that cannot authenticate"
@@ -278,6 +279,13 @@ RULES: tuple[Rule, ...] = (
     ),
     Rule(
         Trait.REMOTE_UNLOCK,
+        Trait.GRUB_UNLOCKS_BOOT,
+        "GRUB asks for that passphrase at the physical console, so the machine "
+        "stops before the initramfs that runs the ssh daemon: a separate /boot "
+        "outside the container is what a machine unlocked over the network needs",
+    ),
+    Rule(
+        Trait.REMOTE_UNLOCK,
         Trait.NATIVE_ZFS_SYSTEM_INITRAMFS,
         "GRUB and systemd-boot put the ssh helper in the system initramfs, where "
         "it calls cryptsetup and cannot load a native ZFS key",
@@ -353,6 +361,10 @@ def traits_of(
 
     if esp_mount(graph) is None:
         found.add(Trait.NO_MOUNTED_ESP)
+    # GRUB alone: systemd-boot and ZFSBootMenu read the kernel off the esp,
+    # which is not in the container, so their initramfs starts without a key.
+    if config.bootloader.kind is Bootloader.GRUB and boot_is_encrypted(graph):
+        found.add(Trait.GRUB_UNLOCKS_BOOT)
     if _encrypted_esp(graph):
         found.add(Trait.ESP_ENCRYPTED)
     # Where `kernel-install` writes, which is `$BOOT_ROOT`: the XBOOTLDR

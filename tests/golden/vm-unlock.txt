@@ -3,7 +3,8 @@
   wipe existing signatures from disk
   create a gpt partition table on disk as table
   create partition 1 on disk as esp: esp, 512MiB
-  create partition 2 on disk as cryptroot: data, the rest of the disk
+  create partition 2 on disk as boot: data, 1GiB
+  create partition 3 on disk as cryptroot: data, the rest of the disk
   reread the partition table of disk and wait for its nodes
 
 [array]
@@ -11,6 +12,7 @@
   open cryptroot as /dev/mapper/root
 
 [format]
+  make a ext4 filesystem on boot as bootfs labelled BOOT
   make a vfat filesystem on esp as espfs labelled ESP
   make a btrfs filesystem on root-luks as rootfs
   create btrfs subvolume @home on root-luks as sub-home
@@ -18,6 +20,7 @@
 
 [mount]
   mount root-luks at / with compress=zstd:1,subvol=@
+  mount boot at /boot
   mount esp at /efi with umask=0077
   mount root-luks at /home with compress=zstd:1,subvol=@home
 
@@ -43,7 +46,7 @@
   ask for sys-apps/systemd[cryptsetup], which provides the unlock generator
   accept the linux-firmware licence
   configure remote unlock over ssh on port 2222
-  resolve net-misc/openssh sys-process/cronie sys-kernel/installkernel sys-apps/systemd sys-kernel/dracut sys-kernel/linux-firmware sys-kernel/dracut-crypt-ssh sys-fs/cryptsetup sys-fs/btrfs-progs sys-fs/dosfstools sys-kernel/gentoo-kernel-bin sys-boot/grub sys-boot/efibootmgr together before installing the requested packages
+  resolve net-misc/openssh sys-process/cronie sys-kernel/installkernel sys-apps/systemd sys-kernel/dracut sys-kernel/linux-firmware sys-kernel/dracut-crypt-ssh sys-fs/cryptsetup sys-fs/btrfs-progs sys-fs/dosfstools sys-fs/e2fsprogs sys-kernel/gentoo-kernel-bin sys-boot/grub sys-boot/efibootmgr together before installing the requested packages
 
 [system]
   generate and verify locales en_US.UTF-8, zh_TW.UTF-8
@@ -52,7 +55,7 @@
   set the console keymap to us and its font to default8x16
   set the hostname to unlockbox
   give the target its own machine id
-  write /etc/fstab with entries for /, /efi, /home
+  write /etc/fstab with entries for /, /boot, /efi, /home
   treat the hardware clock as UTC
   write /etc/crypttab for root
   authorise 1 ssh key(s) for root
@@ -72,7 +75,7 @@
   rebuild systemd with the unlock generator: emerge sys-apps/systemd, from source
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
   install the initramfs ssh daemon: emerge sys-kernel/dracut-crypt-ssh
-  install the storage tools: emerge sys-fs/cryptsetup sys-fs/btrfs-progs sys-fs/dosfstools
+  install the storage tools: emerge sys-fs/cryptsetup sys-fs/btrfs-progs sys-fs/dosfstools sys-fs/e2fsprogs
   install the kernel: emerge sys-kernel/gentoo-kernel-bin
   tell dracut to carry crypt, btrfs, crypt-ssh, network
   rebuild the initramfs from sys-kernel/gentoo-kernel-bin with the modules written above
@@ -80,7 +83,7 @@
 
 [bootloader]
   install the bootloader: emerge sys-boot/grub sys-boot/efibootmgr
-  write /etc/default/grub with cmdline rd.neednet=1 ip=192.0.2.10::192.0.2.1:255.255.255.0::eth0:none console=ttyS0,115200, cryptodisk enabled and its menu on ttyS0
+  write /etc/default/grub with cmdline rd.neednet=1 ip=192.0.2.10::192.0.2.1:255.255.255.0::eth0:none console=ttyS0,115200, its menu on ttyS0
   install GRUB for uefi on the esp at /efi
 
 [finish]
