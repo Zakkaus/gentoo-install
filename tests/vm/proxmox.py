@@ -905,19 +905,30 @@ BIOS_MENU_TIMEOUT: Final[float] = 10.0
 
 #: When to press `e`, counted from the guest being started, paired with the
 #: line to move to. Nothing on the serial port says when the menu appeared —
-#: not SeaBIOS, not `Welcome to GRUB!`, nothing until the kernel speaks — so
-#: the moment is sampled rather than waited for. Six seconds was the only one
-#: tried, and on a node at full load the menu was not up yet: the keypress went
-#: nowhere, the menu timed out into the default entry, and the kernel was never
-#: told to speak. The delays stay under `BIOS_MENU_TIMEOUT` from whenever GRUB
-#: started, which is what makes several of them necessary rather than one long
-#: one.
+#: not SeaBIOS, not `Welcome to GRUB!`, nothing until the kernel speaks, and
+#: every BIOS log in `lab/` holds the guest's boot and no marker before it — so
+#: the moment is sampled rather than waited for.
+#:
+#: A sample at `d` lands when the menu appeared at some `t` with `d - 10 < t <=
+#: d`, because GRUB counts `BIOS_MENU_TIMEOUT` down from `t` and a key before
+#: `t` goes nowhere. Each attempt is its own boot, so the samples cover the
+#: union of those windows: spacing them under `BIOS_MENU_TIMEOUT` leaves no gap
+#: between the earliest and the latest.
+#:
+#: The samples used to stop at nine seconds, which covered a menu up at nine
+#: and nothing later, and no run has ever printed the line this function prints
+#: when an edit lands. Nodes measured between 80% and 100% busy all night, and
+#: `vm-mdraid`'s readable UEFI menu needed more than thirty seconds there, so
+#: a menu appearing after ten is the case to cover rather than the one to rule
+#: out.
 BIOS_ATTEMPTS: Final[tuple[tuple[float, int], ...]] = (
     (6.0, 2),
     (9.0, 2),
+    (13.0, 2),
+    (17.0, 2),
     (3.0, 2),
     (6.0, 1),
-    (6.0, 3),
+    (13.0, 3),
 )
 
 #: What the kernel prints once `console=ttyS0` is on its command line, and the
