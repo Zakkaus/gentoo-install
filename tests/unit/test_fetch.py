@@ -173,3 +173,21 @@ def test_the_diagnostic_says_so_when_there_is_no_resolver_to_route_to(
     resolv = tmp_path / "resolv.conf"
     resolv.write_text("options no-aaaa\n")
     assert fetch._route_to_resolver(resolv) == "no route measured"
+
+
+def test_the_diagnostic_reads_the_kernel_routing_table(tmp_path: Path) -> None:
+    table = tmp_path / "route"
+    table.write_text(
+        "Iface\tDestination\tGateway\tFlags\n"
+        "ens18\t00000000\tFE001F0A\t0003\n"
+        "ens18\t00001F0A\t00000000\t0001\n"
+    )
+    assert fetch._kernel_routes(table) == (
+        "routes ['ens18:0.0.0.0/10.31.0.254', 'ens18:10.31.0.0/0.0.0.0']"
+    )
+
+
+def test_an_empty_routing_table_is_named_as_such(tmp_path: Path) -> None:
+    table = tmp_path / "route"
+    table.write_text("Iface\tDestination\tGateway\tFlags\n")
+    assert fetch._kernel_routes(table) == "no routes"
