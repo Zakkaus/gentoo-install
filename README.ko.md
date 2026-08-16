@@ -70,7 +70,7 @@ gentoo-install은 Linux 라이브 환경에서 실행되어 amd64 아키텍처�
 
 인플레이스 변환에는 엔드투엔드 기록이 둘 있으며, 모두 클러스터가 아니라 단일 기계의 QEMU에서 나왔다. 리비전 [`bcc090fab621`](https://github.com/Zakkaus/gentoo-install/commit/bcc090fab621)은 파티션 위에 ext4 루트를 둔 Debian 12 genericcloud 이미지이고, 리비전 [`71e751cf14a1`](https://github.com/Zakkaus/gentoo-install/commit/71e751cf14a1)은 btrfs 루트를 둔 Arch Linux 클라우드 이미지이며, 후자에서는 `/swap/swapfile` 줄이 새 fstab으로 옮겨졌다. 둘 다 `uname -r`가 `6.18.43-gentoo-dist-bin`을 보고했고, `emerge`가 존재했으며, 원래 배포판의 패키지 관리자는 존재하지 않았고, 루트 장치는 그대로였으며, 실행 기록은 `/var/log/gentoo-install`에 보관되었다. 두 기록 모두 BIOS이다. UEFI, btrfs 서브볼륨 위의 루트, `vm-convert` 클러스터 픽스처는 검증되지 않았다.
 
-그 밖의 구현된 조합은 엔드투엔드 검증을 거치지 않았다. 현재 증거는 greetd 데스크톱 세션, GNOME 외부의 ibus를 다루지 않는다. 공식 Gentoo minimal ISO, Alpine 또는 Gig-OS 라이브 미디어, binhost 장애 시 전환도 다루지 않는다.
+그 밖의 구현된 조합은 엔드투엔드 검증을 거치지 않았다. 현재 증거는 greetd 데스크톱 세션, GNOME 외부의 ibus를 다루지 않는다. 공식 Gentoo minimal ISO 또는 Gig-OS 라이브 미디어, binhost 장애 시 전환도 다루지 않는다. Alpine 라이브 미디어에는 증거가 있다. 리비전 [`0827931289d0`](https://github.com/Zakkaus/gentoo-install/commit/0827931289d0)에서 `alpine-standard-3.24.1`은 직렬 콘솔에서 59초 안에 root 셸에 도달했고, 설치기는 56개 동작을 기록했으며 57개 패키지를 바이너리 호스트에서 가져오고 12개를 컴파일했고, 설치된 시스템은 부팅하여 레이아웃을 마운트했고 실패한 유닛은 없었다.
 
 프록시 경로에는 SOCKS5 DNS 모드, dry-run 출력과 공개 설정의 인증 정보 제거, 설치된 시스템에 남는 인증 정보 없는 엔드포인트를 다루는 단위 테스트와 plan 테스트가 있다. 리비전이 기록된 클러스터 실행이 역방향을 뒷받침한다. `vm-proxy-dead` 픽스처는 수신 대기가 없는 포트를 프록시로 지정하며, 설치는 stage3 내려받기 단계에서 `Connection refused`로 중단된다. 미러에 도달하는 실행은 프록시가 우회되었음을 뜻한다. 
 
