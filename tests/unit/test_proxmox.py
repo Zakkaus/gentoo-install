@@ -3331,3 +3331,19 @@ def test_a_heavy_guest_still_fits_a_four_core_node() -> None:
     assert heavy.cores == 4, "a heavy guest does ask for four"
     assert room_for(node, heavy)
     assert not room_for(node, heavy, None, {"infra-node4": 3}), "three guests already there"
+
+
+def test_the_editor_is_given_ten_presses_before_it_is_called_a_failure() -> None:
+    """Each attempt costs an escape, a settle and a snapshot. Thirty seconds
+    bought six presses, and `vm-mdraid` lost a run in forty-eight seconds while
+    its node sat at 99.8% CPU. The menu is already held, so waiting longer
+    races nothing."""
+    import inspect
+
+    from tests.vm import proxmox
+
+    one_press = proxmox.ESCAPE_SETTLES + 3.0
+    assert proxmox.EDITOR_PATIENCE >= 10 * one_press, proxmox.EDITOR_PATIENCE
+
+    signature = inspect.signature(proxmox.append_to_cmdline)
+    assert signature.parameters["timeout"].default == proxmox.EDITOR_PATIENCE
