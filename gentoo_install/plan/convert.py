@@ -215,6 +215,9 @@ class PopulateBoot(Operation):
 ROOT_DEVICE: Final[DeviceId] = DeviceId("running-root-device")
 ROOT_FILESYSTEM: Final[DeviceId] = DeviceId("running-root")
 ROOT_MOUNT: Final[DeviceId] = DeviceId("running-root-mount")
+BOOT_DEVICE: Final[DeviceId] = DeviceId("running-boot-device")
+BOOT_FILESYSTEM: Final[DeviceId] = DeviceId("running-boot")
+BOOT_MOUNT: Final[DeviceId] = DeviceId("running-boot-mount")
 ESP_DEVICE: Final[DeviceId] = DeviceId("running-esp-device")
 ESP_FILESYSTEM: Final[DeviceId] = DeviceId("running-esp")
 ESP_MOUNT: Final[DeviceId] = DeviceId("running-esp-mount")
@@ -248,6 +251,22 @@ def layout_graph(layout: StorageLayout) -> DiskConfig:
         ),
         Mountpoint(id=ROOT_MOUNT, source=ROOT_FILESYSTEM, path=PurePosixPath("/")),
     ]
+    if layout.boot_same_filesystem is False:
+        # A separate `/boot` has to be in the new `fstab`: the kernel this
+        # conversion puts there is on that filesystem, and a machine that does
+        # not mount it comes up with an empty `/boot`.
+        if not layout.boot_device or not layout.boot_filesystem_type:
+            raise ConversionUnsupported("the running /boot is a separate filesystem that could not be read")
+        nodes += [
+            Existing(id=BOOT_DEVICE, selector=layout.boot_device),
+            Filesystem(
+                id=BOOT_FILESYSTEM,
+                device=BOOT_DEVICE,
+                kind=_filesystem(layout.boot_filesystem_type, "/boot"),
+                create=False,
+            ),
+            Mountpoint(id=BOOT_MOUNT, source=BOOT_FILESYSTEM, path=PurePosixPath("/boot")),
+        ]
     if layout.uefi:
         if not layout.esp_device:
             raise ConversionUnsupported("the machine booted through UEFI and has no esp")

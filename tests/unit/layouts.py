@@ -115,6 +115,7 @@ def running_layout() -> StorageLayout:
         root_on_mdraid=False,
         root_below_device="/dev/vda",
         boot_device="/dev/vda2",
+        boot_filesystem_type="ext4",
         boot_same_filesystem=True,
         esp_device="/dev/vda1",
         esp_mountpoint="/efi",

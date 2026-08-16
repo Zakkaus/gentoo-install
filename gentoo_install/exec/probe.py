@@ -840,6 +840,9 @@ class Probe:
             root_on_mdraid=mdraid,
             root_below_device=below,
             boot_device=_entry_text(boot, "source") if boot is not None else root_device,
+            boot_filesystem_type=(
+                _entry_text(boot, "fstype") if boot is not None else root_type
+            ),
             boot_same_filesystem=(
                 None
                 if root is None
