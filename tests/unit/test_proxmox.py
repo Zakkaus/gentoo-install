@@ -3113,15 +3113,27 @@ def test_the_blind_edit_leaves_no_gap_in_when_the_menu_could_appear() -> None:
     from tests.vm.proxmox import BIOS_ATTEMPTS, BIOS_MENU_TIMEOUT
 
     delays = sorted({delay for delay, _ in BIOS_ATTEMPTS})
-    # The earliest sample covers a menu that is up at once.
-    assert delays[0] <= BIOS_MENU_TIMEOUT, delays
+    # The cover starts before the menu can: GRUB itself has to load first, and
+    # that finished at 12.7s and 13.6s on the two guests measured. Sampling
+    # earlier than that spends a boot on a menu that is not drawn yet, which is
+    # what the first two sets of samples did with all of theirs.
+    grub_is_loaded = 12.7
+    assert delays[0] - BIOS_MENU_TIMEOUT <= grub_is_loaded, delays
     # No gap: consecutive samples closer together than the countdown.
     for earlier, later in zip(delays, delays[1:]):
         assert later - earlier < BIOS_MENU_TIMEOUT, (earlier, later)
-    # And the cover reaches past a loaded node's menu. `vm-mdraid` needed more
-    # than thirty seconds to open a readable UEFI editor on such a node, so
-    # stopping at nine is what made every BIOS fixture unreachable.
-    assert delays[-1] >= 15.0, delays
+    # And the cover brackets the menu, which was measured rather than guessed:
+    # two guests booted the ordinary medium with nothing typed at them, and
+    # `diskread` stepped by tens of megabytes — GRUB loading the kernel, which
+    # it does when the countdown ends — at 33.4s on an idle node and 59.4s on
+    # one at 98% cpu. The menu is up for `BIOS_MENU_TIMEOUT` before each.
+    idle_kernel_load, busy_kernel_load = 33.4, 59.4
+    for load in (idle_kernel_load, busy_kernel_load):
+        menu = load - BIOS_MENU_TIMEOUT
+        assert any(menu < delay <= menu + BIOS_MENU_TIMEOUT for delay in delays), (
+            load,
+            delays,
+        )
     assert len({down for _, down in BIOS_ATTEMPTS}) > 1, "one line is one guess"
 
     # Bounded: each attempt costs its delay, the keystrokes and a wait for the
