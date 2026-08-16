@@ -330,3 +330,25 @@ def test_an_empty_staging_root_is_accepted() -> None:
     context = _RunningContext()
     convert.PrepareStaging().apply(cast(Any, context))
     assert ["mkdir", "--parents", "/gentoo-install.new"] in context.ran
+
+
+def test_a_staged_operation_keeps_the_requirements_of_the_one_it_wraps() -> None:
+    """`--missing-commands` and the preflight check read this, and a wrapper
+    that answered for itself would have said a conversion needs nothing."""
+    from gentoo_install.exec import preflight
+
+    operations = build(_in_place(), CATALOG, layout=_layout())
+    wanted = preflight.required_commands(_in_place(), operations)
+    assert "tar" in wanted
+    assert "mkdir" in wanted
+
+
+def test_a_staged_operation_reports_whether_it_releases_the_machine() -> None:
+    staged = [
+        one for one in build(_in_place(), CATALOG, layout=_layout())
+        if isinstance(one, convert.Staged)
+    ]
+    assert staged
+    assert all(
+        one.releases_the_machine == one.inner.releases_the_machine for one in staged
+    )

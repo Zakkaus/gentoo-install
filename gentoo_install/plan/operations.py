@@ -189,6 +189,16 @@ class Operation(ABC):
         return frozenset(self.host_commands)
 
     @property
+    def wrapped(self) -> "Operation | None":
+        """The operation this one stands in for, when it stands in for one.
+
+        Preflight keys part of its command table on the operation's type, and
+        a wrapper is not an instance of what it wraps: without this a staged
+        conversion reported that it needed no `tar`.
+        """
+        return None
+
+    @property
     def releases_the_machine(self) -> bool:
         """Whether this still runs once the install has already failed.
 

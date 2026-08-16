@@ -50,6 +50,17 @@ class Staged(Operation):
     inner: Operation
     staging: PurePosixPath = PurePosixPath("/gentoo-install.new")
 
+    @property
+    def wrapped(self) -> Operation | None:
+        # Preflight reads this: `--missing-commands` and the check before an
+        # install key part of their table on the operation's type, and a
+        # wrapper is not an instance of what it wraps.
+        return self.inner
+
+    @property
+    def releases_the_machine(self) -> bool:
+        return self.inner.releases_the_machine
+
     def describe(self) -> str:
         return f"{self.inner.describe()}, in {self.staging}"
 

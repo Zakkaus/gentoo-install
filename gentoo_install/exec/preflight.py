@@ -244,6 +244,9 @@ def _operation_commands(operation: Operation) -> frozenset[str]:
     for operation_type, commands in BY_OPERATION.items():
         if isinstance(operation, operation_type):
             wanted.update(commands)
+    inner = operation.wrapped
+    if inner is not None:
+        wanted.update(_operation_commands(inner))
     return frozenset(wanted)
 
 
