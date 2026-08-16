@@ -19,7 +19,7 @@ from ..model.device import (
     Mountpoint,
     StorageLayout,
 )
-from .operations import Context, Operation, Stage
+from .operations import CommandOutput, Context, Operation, Stage
 
 
 REPLACED_DIRECTORIES: tuple[str, ...] = (
@@ -173,10 +173,18 @@ class PrepareStaging(Operation):
 
     def apply(self, context: Context) -> None:
         context.run(["mkdir", "--parents", str(self.staging)])
-        inside = context.run(
+        listed = context.run(
             ["find", str(self.staging), "-maxdepth", "1", "-mindepth", "1"], check=False
-        ).strip()
-        if inside:
+        )
+        # The status first: the runner merges stderr into stdout, so `find`
+        # printing `Permission denied` reads as a directory with one entry in
+        # it, and a `find` that fails without printing reads as an empty one —
+        # which is the direction that unpacks a stage3 over an earlier attempt.
+        if isinstance(listed, CommandOutput) and listed.returncode != 0:
+            raise ConversionFailed(
+                f"whether {self.staging} is empty could not be read: {str(listed).strip()}"
+            )
+        if str(listed).strip():
             raise ConversionFailed(
                 f"{self.staging} is not empty and is left from an earlier attempt: "
                 "remove it before converting"
@@ -207,6 +215,13 @@ class LeaveStaging(Operation):
         listed = context.run(
             ["findmnt", "--noheadings", "--list", "--output", "TARGET"], check=False
         )
+        # `findmnt` with no filter lists every mount and exits 0, so a non-zero
+        # status is an error rather than an empty answer. Reading it as empty
+        # is what lets the `rm` below walk into a `/proc` still bound here.
+        if isinstance(listed, CommandOutput) and listed.returncode != 0:
+            raise ConversionFailed(
+                f"what is mounted under {self.staging} could not be read: {str(listed).strip()}"
+            )
         under = f"{self.staging}/"
         if any(
             line.strip() == str(self.staging) or line.strip().startswith(under)

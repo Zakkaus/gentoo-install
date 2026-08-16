@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, Sequence, cast
 
 import pytest
 
@@ -540,3 +540,96 @@ def test_carrying_appends_rather_than_replaces() -> None:
     assert "UUID=1\t/\text4" in said, "the generated entries survive"
     assert "/srv" in said
     assert said.index("UUID=1") < said.index("/srv")
+
+
+def test_a_find_that_failed_is_not_read_as_an_empty_staging_root() -> None:
+    """The runner merges stderr into stdout, so a `find` that fails without
+    printing reads as an empty directory and the stage3 is unpacked over an
+    earlier attempt; one that prints reads as a directory with an entry and the
+    operator is told to remove a directory that is empty."""
+    from gentoo_install.errors import ConversionFailed
+    from gentoo_install.plan.operations import CommandOutput
+
+    from .recorder import Recorder
+
+    class FindRefuses(Recorder):
+        def run(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> CommandOutput:
+            self.commands.append(tuple(argv))
+            if argv[0] == "find":
+                return CommandOutput("find: '/gentoo-install.new': Permission denied\n", 1)
+            return CommandOutput("", 0)
+
+    with pytest.raises(ConversionFailed, match="could not be read"):
+        convert.PrepareStaging().apply(FindRefuses())
+
+    class FindSaysNothing(FindRefuses):
+        def run(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> CommandOutput:
+            self.commands.append(tuple(argv))
+            return CommandOutput("", 1 if argv[0] == "find" else 0)
+
+    with pytest.raises(ConversionFailed, match="could not be read"):
+        convert.PrepareStaging().apply(FindSaysNothing())
+
+    # Negative control: an empty staging root is the ordinary case and the
+    # operation must go through it without complaint.
+    class Empty(Recorder):
+        def run(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> CommandOutput:
+            self.commands.append(tuple(argv))
+            return CommandOutput("", 0)
+
+    convert.PrepareStaging().apply(Empty())
+
+    # Negative control: a staging root with something in it still reports that,
+    # and not the unreadable message.
+    class Occupied(Recorder):
+        def run(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> CommandOutput:
+            self.commands.append(tuple(argv))
+            return CommandOutput("/gentoo-install.new/etc\n" if argv[0] == "find" else "", 0)
+
+    with pytest.raises(ConversionFailed, match="left from an earlier attempt"):
+        convert.PrepareStaging().apply(Occupied())
+
+
+def test_a_findmnt_that_failed_does_not_authorise_the_staging_root_to_be_removed() -> None:
+    """`rm --recursive` walking into a `/proc` still bound under the staging
+    root is what the refusal above it exists to prevent, and an unreadable
+    `findmnt` read as "nothing is mounted" walks straight into it."""
+    from gentoo_install.errors import ConversionFailed
+    from gentoo_install.plan.operations import CommandOutput
+
+    from .recorder import Recorder
+
+    class MountsUnreadable(Recorder):
+        def run(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> CommandOutput:
+            self.commands.append(tuple(argv))
+            if argv[0] == "findmnt":
+                return CommandOutput("findmnt: cannot open /proc/self/mountinfo\n", 1)
+            return CommandOutput("", 0)
+
+    recorder = MountsUnreadable()
+    with pytest.raises(ConversionFailed, match="could not be read"):
+        convert.LeaveStaging().apply(recorder)
+    assert not [one for one in recorder.commands if one[0] == "rm"], recorder.commands
+
+    # Negative control: a readable mount table with nothing under the staging
+    # root does authorise the removal.
+    class NothingUnderIt(Recorder):
+        def run(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> CommandOutput:
+            self.commands.append(tuple(argv))
+            return CommandOutput("/\n/boot\n" if argv[0] == "findmnt" else "", 0)
+
+    clean = NothingUnderIt()
+    convert.LeaveStaging().apply(clean)
+    assert [one for one in clean.commands if one[0] == "rm"], clean.commands
