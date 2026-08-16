@@ -137,7 +137,6 @@ def filesystem_label_problems(config: InstallConfig) -> tuple[str, ...]:
 _BOOT = PurePosixPath("/boot")
 _ROOT = PurePosixPath("/")
 _USR = PurePosixPath("/usr")
-#: Where an esp is mounted in the target, in the order the installer prefers.
 #: Where an esp is mounted, in the order the handbook and the installers use.
 #: `/boot/efi` is what `calamares-settings-gig` mounts, so a layout the GUI
 #: installer produces has to be one this validator accepts.

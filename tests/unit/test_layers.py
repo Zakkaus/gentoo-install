@@ -147,3 +147,24 @@ def test_no_definition_in_the_package_is_unreachable() -> None:
                 if len(re.findall(rf"\b{re.escape(name)}\b", everything)) <= 1:
                     orphans.append(f"{path.relative_to(root)}:{node.lineno} {name}")
     assert orphans == [], orphans
+
+
+BANNED_WORDS = (
+    "simply", "note that", "basically", "obviously",
+    "powerful", "robust", "seamlessly", "leverage", "utilize",
+)
+
+
+def test_no_source_file_uses_a_banned_filler_word() -> None:
+    """The list is in CLAUDE.md and had five hits when it was first run: a
+    comment that says a thing is simple says nothing about the thing."""
+    import re
+
+    root = Path(__file__).resolve().parents[2]
+    pattern = re.compile("|".join(rf"\b{word}\b" for word in BANNED_WORDS), re.IGNORECASE)
+    found: list[str] = []
+    for path in sorted((root / "gentoo_install").rglob("*.py")):
+        for number, line in enumerate(path.read_text().splitlines(), 1):
+            if pattern.search(line):
+                found.append(f"{path.relative_to(root)}:{number} {line.strip()[:60]}")
+    assert found == [], found

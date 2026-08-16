@@ -91,7 +91,6 @@ _OTHER: Final[Purpose] = PURPOSES[-1]
 
 
 def purpose_for(key: str) -> Purpose:
-    """The row of the table with that key."""
     return next(one for one in PURPOSES if one.key == key)
 
 

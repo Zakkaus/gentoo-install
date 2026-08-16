@@ -59,7 +59,6 @@ EXPORTS: Final[tuple[Export, ...]] = (
 
 
 def export_for(key: str) -> Export:
-    """The row with that key."""
     return next(one for one in EXPORTS if one.key == key)
 
 

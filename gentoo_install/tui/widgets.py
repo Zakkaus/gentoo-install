@@ -504,7 +504,7 @@ class Accepts(Enum):
 
     Rejecting a submitted form tells the operator they were wrong; refusing the
     key tells them before they are. A host name can never hold a space, so the
-    space is simply not typed.
+    space is not typed.
     """
 
     ANYTHING = "anything"
