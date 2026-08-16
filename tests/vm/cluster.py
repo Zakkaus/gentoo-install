@@ -1706,6 +1706,7 @@ def run(
     site: str = "",
     distfiles: str = "",
     skip_nodes: Sequence[str] = (),
+    allow_nodes: Sequence[str] = (),
 ) -> list[Outcome]:
     """Every job, collected one at a time as each finishes.
 
@@ -1745,11 +1746,9 @@ def run(
     prepared: set[str] = set()
     # A node whose console proxy went away takes no more guests: three runs on
     # `infra-node3` were lost to the same dropped ssh while their installs
-    # were going perfectly well.
-    # Seeded, not only learned: `infra-node3` cost four rounds on 2026-08-16
-    # and the automatic detection has to lose a guest to each bad node before
-    # it acts. Naming one here costs nothing when it is wrong.
-    unreachable: set[str] = set(skip_nodes)
+    # were going perfectly well. The seed is what makes that cost nothing: the
+    # automatic detection has to lose a guest to each bad node before it acts.
+    unreachable: set[str] = (set(KNOWN_BAD_NODES) | set(skip_nodes)) - set(allow_nodes)
     done: queue.Queue[Outcome] = queue.Queue()
     scheduled = {job.name: job for job in jobs}
     collected = 0
@@ -1978,6 +1977,13 @@ _Result = TypeVar("_Result")
 def _remaining(deadline: float) -> float:
     return max(0.0, deadline - time.monotonic())
 
+
+#: Nodes that take no guests until `--allow-node` names them. 66 of the 70
+#: console-proxy drops recorded across every run under `lab/` name
+#: `10.31.0.202`, which is `infra-node3`, and each drop is up to an hour of
+#: install thrown away: `vm-convert` lost 41.7 minutes and `vm-btrfs` 49.2 on
+#: 2026-08-17 alone. Learning it costs a guest per round, so it is named here.
+KNOWN_BAD_NODES: Final[frozenset[str]] = frozenset({"infra-node3"})
 
 #: How many times one guest's console may be reopened before the node itself
 #: is called the problem. A healthy run reconnects a handful of times over an
@@ -2825,6 +2831,13 @@ def main(argv: list[str] | None = None) -> int:
         help="take no guests on this node, before it has cost a guest to learn",
     )
     parser.add_argument(
+        "--allow-node",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help=f"use a node named in KNOWN_BAD_NODES anyway: {' '.join(sorted(KNOWN_BAD_NODES))}",
+    )
+    parser.add_argument(
         "--distfiles",
         default="",
         help=(
@@ -2871,6 +2884,7 @@ def main(argv: list[str] | None = None) -> int:
         args.site,
         args.distfiles,
         args.skip_node,
+        args.allow_node,
     )
     passed = [
         one
