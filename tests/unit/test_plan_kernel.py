@@ -23,6 +23,23 @@ from gentoo_install.model.validate import KernelCeiling
 from .recorder import Recorder
 
 
+def test_no_dracut_config_this_installer_writes_is_a_file_a_package_owns() -> None:
+    """`sys-kernel/dracut-crypt-ssh` installs `/etc/dracut.conf.d/crypt-ssh.conf`,
+    and this installer wrote its own file at that exact path. Portage refused to
+    replace it and left the package's copy as `._cfg0000_crypt-ssh.conf`, which
+    nothing in an install ever applies: `vm-unlock`'s log carries `IMPORTANT:
+    config file '/etc/dracut.conf.d/crypt-ssh.conf' needs updating`.
+
+    The prefix is the other half. dracut reads the directory in lexical order,
+    so a name sorting before what the package or dracut itself ships loses.
+    """
+    owned = {"crypt-ssh.conf", "01-gentoo.conf", "10-hostonly.conf", "11-generic.conf"}
+    ours = kernel.REMOTE_UNLOCK_CONFIG
+    assert ours.parent == PurePosixPath("/etc/dracut.conf.d")
+    assert ours.name not in owned, ours
+    assert all(ours.name > one for one in owned), ours
+
+
 def test_grub_remote_unlock_keeps_the_system_dracut_path() -> None:
     installation = load(Path("tests/fixtures/vm-unlock.toml"))
     operation = next(
@@ -33,7 +50,7 @@ def test_grub_remote_unlock_keeps_the_system_dracut_path() -> None:
     recorder = Recorder()
     operation.apply(recorder)
 
-    written = recorder.files[PurePosixPath("/etc/dracut.conf.d/crypt-ssh.conf")]
+    written = recorder.files[kernel.REMOTE_UNLOCK_CONFIG]
     assert 'dropbear_port="2222"' in written
     assert 'dropbear_rsa_key="SYSTEM"' in written
     assert 'install_items+=" /sbin/cryptsetup "' in written
