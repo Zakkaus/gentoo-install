@@ -897,3 +897,41 @@ def test_an_unpinned_kernel_is_left_to_portage() -> None:
     assert zfs_kernel_version_problem("", KernelCeiling(maximum="7.0")) is None
     assert zfs_kernel_version_problem("6.18.41", KernelCeiling(maximum="7.0")) is None
     assert zfs_kernel_version_problem("7.1.0", KernelCeiling(maximum="7.0")) is not None
+
+
+def test_a_profile_whose_stage3_is_not_fetched_is_refused() -> None:
+    """`variant_of` maps a profile to a published stage3 and its table holds
+    `/no-multilib` and `/desktop`. A musl profile misses it and gets the plain
+    tarball, which is glibc: two C libraries in one system, and `eselect
+    profile set` repairs none of it. The profile list comes from the machine's
+    own repository, so these are choices an operator can make.
+    """
+    from dataclasses import replace
+
+    from gentoo_install.model import compat
+    from gentoo_install.plan.portage import variant_of
+
+    base = config()
+    for segment in compat.UNSERVED_PROFILES:
+        broken = replace(
+            base,
+            portage=replace(base.portage, profile=f"default/linux/amd64/23.0/{segment}"),
+            system=replace(base.system, init=InitSystem.OPENRC),
+        )
+        with pytest.raises(ValidationFailed, match="needs its own stage3"):
+            validate(broken)
+
+        # The reason it has to be refused rather than mapped: the variant this
+        # installer would fetch does not name the profile at all.
+        assert segment not in variant_of(broken), (segment, variant_of(broken))
+
+    # Negative control: the profiles the table does serve are not refused, and
+    # each one changes the tarball that is fetched.
+    for segment, expected in (("no-multilib", "nomultilib"), ("desktop", "desktop")):
+        served = replace(
+            base,
+            portage=replace(base.portage, profile=f"default/linux/amd64/23.0/{segment}"),
+            system=replace(base.system, init=InitSystem.OPENRC),
+        )
+        validate(served)
+        assert variant_of(served) == f"{expected}-openrc", variant_of(served)

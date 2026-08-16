@@ -203,6 +203,7 @@ def validate(
         *_proxy_problems(config),
         *graph_problems,
         *_profile_problems(config),
+        *_unserved_profile_problems(config),
         *_repository_profile_problems(config.portage.profile, available_profiles),
         *_kernel_package_problems(config),
         *_network_problems(config, address_facts.system),
@@ -582,6 +583,19 @@ def _profile_problems(config: InstallConfig) -> list[str]:
         return []
     wanted = "one ending in /systemd" if wants_systemd else "one without /systemd"
     return [f"init is {config.system.init.value} and the profile is {profile}; use {wanted}"]
+
+
+def _unserved_profile_problems(config: InstallConfig) -> list[str]:
+    """A profile whose stage3 Gentoo publishes separately and this installer
+    does not fetch. The profile list comes from the machine's own repository,
+    so these are reachable choices, and taking one silently fetched the plain
+    tarball instead."""
+    segments = set(config.portage.profile.split("/"))
+    return [
+        f"profile {config.portage.profile} needs its own stage3: {reason}"
+        for segment, reason in sorted(compat.UNSERVED_PROFILES.items())
+        if segment in segments
+    ]
 
 
 def _repository_profile_problems(
