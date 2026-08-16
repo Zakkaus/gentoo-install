@@ -156,6 +156,10 @@ def test_worker_failure_reports_outcome_and_releases_vmid(
     monkeypatch.setattr(cluster, "threading", Threading)
     monkeypatch.setattr(cluster, "WATCH_EVERY", 0.001)
     monkeypatch.setattr(cluster, "POLL_WHILE_QUEUED", 0.001)
+    # The occupancy probe shells out to `arping` against a segment this machine
+    # is not on, so without this the test answers whatever the host's network
+    # happens to say and the whole suite was run with it deselected.
+    monkeypatch.setattr(cluster, "_address_is_taken", lambda address: False)
 
     jobs = [
         cluster.Job("first", tmp_path / "first.toml"),
