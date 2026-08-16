@@ -70,6 +70,14 @@ class Staged(Operation):
 
 @dataclass(frozen=True)
 class _StagingContext:
+    """The install context with `target` moved to the staging root.
+
+    Everything else is forwarded rather than listed: naming the members by
+    hand is exactly what drifted, and a conversion stopped at `make.conf`
+    with `'_StagingContext' object has no attribute 'read'` after it had
+    already downloaded and unpacked a stage3.
+    """
+
     parent: Context
     staging: PurePosixPath
 
@@ -77,26 +85,8 @@ class _StagingContext:
     def target(self) -> PurePosixPath:
         return self.staging
 
-    def run(
-        self,
-        argv: Sequence[str],
-        *,
-        check: bool = True,
-        input_text: str | None = None,
-    ) -> str:
-        return self.parent.run(argv, check=check, input_text=input_text)
-
-    def write(self, path: PurePosixPath, content: str, *, mode: int = 0o644) -> None:
-        self.parent.write(path, content, mode=mode)
-
-    def fetch_stage3(
-        self,
-        mirror: str,
-        variant: str,
-        fingerprint: str,
-        fallbacks: Sequence[str] = (),
-    ) -> PurePosixPath:
-        return self.parent.fetch_stage3(mirror, variant, fingerprint, fallbacks)
+    def __getattr__(self, name: str) -> object:
+        return getattr(self.parent, name)
 
 
 @dataclass(frozen=True, kw_only=True)
