@@ -2292,6 +2292,11 @@ PASSWORD_ECHO_OFF_AFTER: Final[float] = 1.0
 PASSWORD_ECHO_BACKOFF: Final[float] = 2.0
 PASSWORD_ECHO_CATCHES: Final[int] = 3
 
+#: What a verdict may carry. The console excerpt above is the reason it is not
+#: the 200 the other verdicts use: an excerpt cut to fit says less than none,
+#: because it reads as the whole screen.
+VERDICT_BYTES: Final[int] = 3600
+
 #: How long the prompt that follows a refusal is waited for before the next
 #: attempt. `login` writes it at once, so this only has to outlast a loaded
 #: node rather than anything the guest is doing.
@@ -2353,7 +2358,13 @@ UNLOCK_TRIES: Final[int] = 5
 #: reached, so this is a read of a screen that has stopped changing rather than
 #: a wait for anything.
 UNLOCK_SCREEN_PATIENCE: Final[float] = 5.0
-UNLOCK_SCREEN_BYTES: Final[int] = 400
+
+#: How much of that screen the verdict carries. Four hundred bytes held the
+#: passphrase prompt and stopped mid-escape-sequence, which answered "the
+#: initramfs is running" and nothing about why its network was not: the lines
+#: before it are the ones that say whether `systemd-networkd` started. Console
+#: output is escape-heavy, so this buys fewer lines than its size suggests.
+UNLOCK_SCREEN_BYTES: Final[int] = 3000
 
 
 class Typeable(Protocol):
@@ -2511,7 +2522,7 @@ def boot_and_check(
             # identically. The screen tells them apart.
             screen = link.console.snapshot(UNLOCK_SCREEN_PATIENCE)
             held = repr(screen[-UNLOCK_SCREEN_BYTES:]) if screen else "nothing"
-            return f"remote unlock failed: {error}; the console held {held}"[:600]
+            return f"remote unlock failed: {error}; the console held {held}"[:VERDICT_BYTES]
         remotely_unlocked = True
         print("installed root unlocked by remote SSH session", flush=True)
     unlocked = _unlock(guest, link, installation, remotely_unlocked)

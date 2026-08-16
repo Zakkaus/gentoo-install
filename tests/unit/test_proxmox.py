@@ -1358,6 +1358,33 @@ def test_a_failed_remote_unlock_answers_with_what_the_console_held(
     assert "GNU GRUB" in refused, refused
     assert stuck_at_grub.console.asked == [cluster.UNLOCK_SCREEN_PATIENCE]
 
+    # Enough of it to reach the lines before the last prompt. `vm-unlock` came
+    # back holding only `Please enter passphrase for disk root`, which says the
+    # initramfs is running and nothing about why its network was not; the lines
+    # above it are the ones naming the services that started.
+    # The marker sits about 2.5 kB before the prompt, which is where the line
+    # that names a service that did or did not start would be. At 400 bytes it
+    # is cut and the verdict says only that a passphrase was asked for.
+    boot = (
+        b"[  OK  ] Started Network Configuration.\r\n"
+        + (
+            b"[  OK  ] Reached target Preparation for Network.\r\n"
+            b"         Starting dracut cmdline hook...\r\n"
+        ) * 25
+        + b"Please enter passphrase for disk root: "
+    )
+    assert len(boot) - boot.index(b"Started Network Configuration") > 2000, len(boot)
+    verbose = Link(boot)
+    said = cluster.boot_and_check(
+        cast(Any, Guest()),
+        cast(Any, verbose),
+        Path("unused"),
+        installation,
+        remote_key=Path("unused.key"),
+    )
+    assert "Started Network Configuration" in said, said
+    assert "passphrase for disk root" in said, said
+
     # Negative control: a console that produced nothing says so, rather than
     # an empty pair of quotes that reads as a screen that was read and blank.
     silent = Link(b"")
