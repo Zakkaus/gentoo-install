@@ -5,6 +5,7 @@ import pytest
 
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
+from typing import Sequence
 
 from gentoo_install.exec.config import load
 from gentoo_install.model.config import Bootloader, BootloaderConfig, Firmware, InstallConfig, RemoteUnlock
@@ -230,3 +231,60 @@ def test_the_bios_grub_describe_names_every_disk_that_gets_a_boot_sector() -> No
     )
     assert "/efi" in on_esp.describe()
     assert "first" not in on_esp.describe(), on_esp.describe()
+
+
+def test_a_firmware_that_refuses_a_boot_entry_still_leaves_a_bootable_machine() -> None:
+    """`EFI/BOOT/BOOTX64.EFI` is what firmware boots with no entry at all, and
+    both bootloaders write it. An NVRAM that is full or read-only belongs to
+    the machine, so failing the install there loses a system that boots."""
+    from gentoo_install.errors import CommandFailed
+    from gentoo_install.model.device import DeviceId
+
+    class NoRoomInNvram(Recorder):
+        #: Every attempt including the refused one, which `in_target` does not
+        #: hold: without it the order assertion below passes either way.
+        attempts: list[tuple[str, ...]] = []
+
+        def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
+            self.attempts.append(tuple(argv))
+            if "--bootloader-id=Gentoo" in argv or argv[0] == "efibootmgr":
+                raise CommandFailed(
+                    "efibootmgr: Could not prepare Boot variable: No space left on device"
+                )
+            return super().run_in_target(argv, check=check)
+
+        def containing_disk(self, device: DeviceId) -> str:
+            return "/dev/vda"
+
+    on_esp = bootloader.InstallGrub(
+        firmware=Firmware.UEFI, esp=PurePosixPath("/efi"), boot_devices=()
+    )
+    recorder = NoRoomInNvram(replies={"grep": "1"})
+    recorder.attempts = []
+    on_esp.apply(recorder)
+
+    assert recorder.degraded(bootloader.NVRAM_ENTRY)
+    # The removable image is written before the entry is asked for, or the
+    # refusal would leave nothing behind at all.
+    tried = [one for one in recorder.attempts if one[0] == "grub-install"]
+    assert "--removable" in tried[0], tried
+    assert "--bootloader-id=Gentoo" in tried[1], tried
+    assert "grub-mkconfig" in {one[0] for one in recorder.in_target}, recorder.in_target
+
+    # Negative control: a firmware that takes the entry is not degraded, and
+    # both installs still run.
+    working = Recorder(replies={"grep": "1"})
+    on_esp.apply(working)
+    assert not working.degraded(bootloader.NVRAM_ENTRY)
+    assert len([one for one in working.in_target if one[0] == "grub-install"]) == 2
+
+    # Negative control: a `grub-install` that fails for any other reason is not
+    # a refused boot entry and still stops the install.
+    class Broken(Recorder):
+        def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
+            if argv[0] == "grub-install":
+                raise CommandFailed("grub-install: error: cannot find EFI directory")
+            return super().run_in_target(argv, check=check)
+
+    with pytest.raises(CommandFailed):
+        on_esp.apply(Broken(replies={"grep": "1"}))
