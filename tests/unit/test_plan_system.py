@@ -826,6 +826,46 @@ def test_openrc_reads_its_containers_from_conf_d_and_not_from_crypttab() -> None
     assert "x-initrd.attach" in systemd.files[PurePosixPath("/etc/crypttab")]
 
 
+def test_the_crypttab_describe_names_only_what_the_file_will_hold() -> None:
+    """An encrypted openrc root is the ordinary case and it is the one where
+    the two disagreed: every entry is opened by the initramfs, so the file is
+    written empty while `--dry-run` said it would name `root`."""
+    only_root = (system.CrypttabEntry(name="root", backing=i("crypt"), initrd_attach=True),)
+    operation = system.WriteCrypttab(entries=only_root, init=InitSystem.OPENRC)
+    recorder = Recorder()
+    operation.apply(recorder)
+
+    assert "root" not in recorder.files[PurePosixPath("/etc/conf.d/dmcrypt")]
+    assert "root" not in operation.describe()
+    assert "empty" in operation.describe(), operation.describe()
+
+    # Not vacuous: on systemd the same entry is written and named.
+    on_systemd = system.WriteCrypttab(entries=only_root, init=InitSystem.SYSTEMD)
+    written = Recorder()
+    on_systemd.apply(written)
+    assert "root" in written.files[PurePosixPath("/etc/crypttab")]
+    assert "root" in on_systemd.describe()
+
+    # The rule rather than the case: every name the describe gives is a name
+    # the file holds, whichever init and whichever mix of entries.
+    for init in (InitSystem.OPENRC, InitSystem.SYSTEMD):
+        mixed = system.WriteCrypttab(entries=entries_for_both(), init=init)
+        seen = Recorder()
+        mixed.apply(seen)
+        holds = "".join(seen.files.values())
+        for entry in entries_for_both():
+            assert (entry.name in mixed.describe()) == (
+                f"={entry.name}" in holds or f"{entry.name}\t" in holds
+            ), (init, entry.name, mixed.describe())
+
+
+def entries_for_both() -> tuple[system.CrypttabEntry, ...]:
+    return (
+        system.CrypttabEntry(name="root", backing=i("crypt"), initrd_attach=True),
+        system.CrypttabEntry(name="data", backing=i("crypt2"), initrd_attach=False),
+    )
+
+
 def test_an_openrc_storage_service_is_enabled_after_its_package_is_merged() -> None:
     """`rc-update add lvm boot` exits 1 with `service does not exist` until
     sys-fs/lvm2 is installed, and that happens with the kernel stack."""

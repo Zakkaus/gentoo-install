@@ -227,7 +227,15 @@ class CreatePartition(Operation):
         return frozenset(("sgdisk" if self.table_kind is TableType.GPT else "parted",))
 
     def describe(self) -> str:
-        extent = str(self.size) if self.size is not None else "the rest of the disk"
+        if self.size is not None:
+            extent = str(self.size)
+        elif self.limit is not None:
+            # An edited table places the partition in one free gap, so "the
+            # rest of the disk" would promise the operator the retained
+            # partitions' space as well.
+            extent = f"the free space from {self.start} to {self.limit}"
+        else:
+            extent = "the rest of the disk"
         name = f" labelled {self.label}" if self.label else ""
         return (
             f"create partition {self.index} on {self.disk} as {self.partition}: "

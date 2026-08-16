@@ -890,3 +890,39 @@ def test_an_unsized_partition_on_a_fresh_table_still_takes_the_rest() -> None:
     added = next(one for one in graph.of_type(Partition) if one.id == DeviceId("new"))
 
     assert _extent_end_of(graph, added, StorageFacts()) is None
+
+
+def test_a_partition_placed_in_a_gap_does_not_promise_the_rest_of_the_disk() -> None:
+    """An edited table places an unsized partition inside one free extent, and
+    `parted` is given that extent's end rather than `100%`. `--dry-run` said
+    "the rest of the disk", which is the retained partitions' space as well —
+    the exact claim the operator opened an edited table to avoid."""
+    from gentoo_install.model.device import PartitionRole, TableType
+
+    def placed(limit: Size | None) -> disk.CreatePartition:
+        return disk.CreatePartition(
+            partition=DeviceId("part"),
+            disk=DeviceId("disk"),
+            table_kind=TableType.MBR,
+            index=2,
+            role=PartitionRole.DATA,
+            size=None,
+            label="",
+            start=Size(2 * 2**30),
+            limit=limit,
+        )
+
+    bounded = placed(Size(10 * 2**30))
+    assert "the rest of the disk" not in bounded.describe(), bounded.describe()
+    assert str(Size(10 * 2**30)) in bounded.describe(), bounded.describe()
+
+    # Negative control: a fresh table really does take the rest, and saying so
+    # is right there.
+    fresh = placed(None)
+    assert "the rest of the disk" in fresh.describe(), fresh.describe()
+
+    # Not a claim about the text alone: what parted is told has to match.
+    recorder = Recorder()
+    bounded.apply(recorder)
+    ends = [one[-1] for one in recorder.commands if one[0] == "parted" and "mkpart" in one]
+    assert ends == [str(Size(10 * 2**30))], recorder.commands
