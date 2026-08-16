@@ -1120,3 +1120,29 @@ def test_the_prompt_after_a_refusal_is_read_before_the_name_is_offered_again(
     # waiting on a prompt that is not coming.
     stubborn = Agetty(refusals=99)
     assert "refused" in cluster._log_in(cast(cluster.Reconnecting, stubborn), "install")
+
+
+def test_a_fixture_that_passes_by_failing_is_not_recorded_as_a_failure() -> None:
+    """`vm-proxy-dead` points every fetch at a port nothing listens on, so
+    `the installer exited 4` is the result it exists to produce. The cluster
+    had no notion of that — `campaign.py` did — so it was the one fixture that
+    could never be green, and a readiness tally counted it as unverified."""
+    import inspect
+
+    assert cluster.EXPECTED_TO_FAIL, "an empty set is the defect this replaced"
+
+    code = inspect.getsource(cluster.install_one)
+    expected = code.index("EXPECTED_TO_FAIL")
+    ordinary = code.index('f"the installer exited {code!r}"')
+    assert expected < ordinary, "the exception has to be read before the general rule"
+
+    # And the two agree on which fixture it is: one fact, two runners.
+    from tests.vm import campaign
+
+    failing = {
+        Path(one.config).stem
+        for stage in campaign.STAGES.values()
+        for one in stage
+        if one.expect_failure
+    }
+    assert failing == set(cluster.EXPECTED_TO_FAIL), (failing, cluster.EXPECTED_TO_FAIL)
