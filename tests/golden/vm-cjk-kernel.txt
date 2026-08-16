@@ -33,7 +33,7 @@
   point repository gentoo at https://github.com/gentoo-mirror/gentoo.git, commit signatures verified
   sync repository gentoo
   point repository gentoo-zh at https://github.com/gentoo-zh/overlay.git
-  sync repository gentoo-zh
+  sync repository gentoo-zh, 4 other sites to fall back on
   accept ~amd64 for packages from gentoo-zh only
   set sys-kernel/installkernel to dracut
   accept the linux-firmware licence

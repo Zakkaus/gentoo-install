@@ -15,15 +15,27 @@ import pytest
 
 from gentoo_install.data import load_catalog
 from gentoo_install.exec.config import load
+from gentoo_install.model.config import DiskMode, InstallConfig
 from gentoo_install.plan.build import build
 from gentoo_install.plan.render import render
+
+from ..unit.layouts import running_layout
 
 HERE = Path(__file__).resolve().parent
 FIXTURES = HERE.parent / "fixtures"
 
 
+def plan_of(installation: InstallConfig) -> str:
+    """An in-place configuration carries no device graph, so its plan is
+    derived from a machine. The fixed layout stands in for one, which is what
+    gives the conversion a golden file at all: without it `build` raises and
+    the fixture had none while every other fixture had one."""
+    layout = running_layout() if installation.disk.mode is DiskMode.IN_PLACE else None
+    return render(build(installation, load_catalog(), layout=layout))
+
+
 def plan_text(name: str) -> str:
-    return render(build(load(FIXTURES / f"{name}.toml"), load_catalog()))
+    return plan_of(load(FIXTURES / f"{name}.toml"))
 
 
 def fixtures() -> list[str]:
@@ -63,5 +75,4 @@ def test_the_order_devices_are_written_in_does_not_change_the_plan(name: str) ->
             graph=DeviceGraph.build(list(reversed(list(installation.disk.graph.nodes.values())))),
         ),
     )
-    catalog = load_catalog()
-    assert render(build(backwards, catalog)) == render(build(installation, catalog))
+    assert plan_of(backwards) == plan_of(installation)
