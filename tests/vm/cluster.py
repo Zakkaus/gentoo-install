@@ -731,9 +731,16 @@ REACHABILITY_PROBE: Final[str] = (
     "printf 'REACH '; for one in " + " ".join(GUEST_RESOLVERS) + "; do "
     'ping -c1 -W2 "$one" >/dev/null 2>&1 '
     "&& printf '%s=up ' \"$one\" || printf '%s=down ' \"$one\"; done; "
-    "printf '\\nLOOKUPS '; for i in 1 2 3 4 5; do "
+    "printf '\\nLOOKUPS_V4 '; for i in 1 2 3 4 5; do "
     "getent ahostsv4 mirrors.ustc.edu.cn >/dev/null 2>&1 "
-    "&& printf 'ok ' || printf 'fail '; done; printf '\\n'"
+    "&& printf 'ok ' || printf 'fail '; done; "
+    # `ahosts` and not only `ahostsv4`: the installer asks `AF_UNSPEC`, which
+    # queries the AAAA as well, and `options no-aaaa` needs glibc 2.36. A
+    # resolver that answers the A and drops the AAAA fails the whole call.
+    "printf '\\nLOOKUPS_ANY '; for i in 1 2 3 4 5; do "
+    "getent ahosts mirrors.ustc.edu.cn >/dev/null 2>&1 "
+    "&& printf 'ok ' || printf 'fail '; done; "
+    "printf '\\nLIBC '; getconf GNU_LIBC_VERSION; printf '\\n'"
 )
 
 
