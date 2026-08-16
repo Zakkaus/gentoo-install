@@ -454,3 +454,30 @@ def test_a_context_without_that_field_still_reaches_the_staging_root() -> None:
     staged = convert._aimed_at(cast(Any, Recorder()), PurePosixPath("/gentoo-install.new"))
     assert staged.target == PurePosixPath("/gentoo-install.new")
     assert staged.read(PurePosixPath("/etc/portage/make.conf")) == "from the parent"
+
+
+def test_the_machine_is_given_the_derived_graph() -> None:
+    """Whatever resolves a `DeviceId` at apply time has to see the graph read
+    from the machine: `write /etc/fstab` stopped twenty-four operations into a
+    real conversion with `no node with id 'running-root-device'`."""
+    from gentoo_install.plan.build import running_config
+
+    running = running_config(_in_place(), _layout())
+    assert running.disk.graph[convert.ROOT_MOUNT] is not None
+    assert running.disk.root == convert.ROOT_MOUNT
+
+
+def test_an_ordinary_configuration_is_handed_back_unchanged() -> None:
+    from gentoo_install.plan.build import running_config
+
+    from .layouts import config
+
+    ordinary = config()
+    assert running_config(ordinary, None) is ordinary
+
+
+def test_a_conversion_without_a_layout_is_refused_there_too() -> None:
+    from gentoo_install.plan.build import running_config
+
+    with pytest.raises(ConversionUnsupported, match="was not read"):
+        running_config(_in_place(), None)

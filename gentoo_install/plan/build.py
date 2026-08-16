@@ -68,6 +68,22 @@ def stage3_mirror(config: InstallConfig, fallback: str = DEFAULT_MIRROR) -> str:
     return offered[0].distfiles if offered else fallback
 
 
+def running_config(config: InstallConfig, layout: StorageLayout | None) -> InstallConfig:
+    """The configuration the operations act on, which is not always the one given.
+
+    A conversion carries no device graph: the layout belongs to the machine and
+    the graph is derived from it. Whatever resolves a `DeviceId` at apply time
+    has to see that derived graph, and the `Machine` was handed the operator's
+    own configuration — `write /etc/fstab` stopped twenty-four operations in
+    with `no node with id 'running-root-device'`.
+    """
+    if config.disk.mode is not DiskMode.IN_PLACE:
+        return config
+    if layout is None:
+        raise ConversionUnsupported("the running layout was not read")
+    return replace(config, disk=convert.layout_graph(layout))
+
+
 def build(
     config: InstallConfig,
     catalog: packages.Catalog,
@@ -142,7 +158,7 @@ def _in_place(
     # The operator's own configuration first, because that is where the rule
     # against writing a device graph beside the mode applies.
     validate(config, storage_facts=StorageFacts())
-    derived = replace(config, disk=convert.layout_graph(layout))
+    derived = running_config(config, layout)
     # And the derived one as an ordinary layout: it describes concrete devices
     # now, so the compatibility table has something to check.
     validate(
