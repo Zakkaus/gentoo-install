@@ -889,6 +889,90 @@ def test_a_package_the_licence_refuses_is_named_as_that_and_not_as_a_typo() -> N
     assert "repositories do not carry" not in str(caught.value)
 
 
+#: What Portage printed when the official binary host timed out during
+#: `emerge --pretend`, verbatim from `vm-gnome`'s log.
+BINHOST_TIMED_OUT: Final[str] = (
+    "!!! [gentoo] Error fetching binhost package info from "
+    "'https://mirrors.nju.edu.cn/gentoo/releases/amd64/binpackages/23.0/x86-64'\n"
+    "!!! [gentoo] <urlopen error timed out>\n"
+    "[ebuild  N    ] dev-perl/Error-0.170.300-r1\n"
+)
+
+
+def test_a_binary_host_that_cannot_be_read_degrades_the_resolve_to_source() -> None:
+    """`vm-gnome` stopped six minutes in, before anything was merged, with
+    every requested package present and visible: `--pretend` fails on an index
+    it cannot fetch. Source is the guaranteed path, so the host is dropped and
+    the install continues."""
+    recorder = Recorder()
+    attempts: list[tuple[str, ...]] = []
+
+    def answer(argv: Sequence[str]) -> str | None:
+        if argv[0] != "emerge":
+            return CommandOutput("", 0)
+        attempts.append(tuple(argv))
+        # Off only when the resolve stops asking the host for anything.
+        if "--getbinpkg=n" in argv:
+            return CommandOutput("[ebuild  N    ] gnome-base/gnome-3.56\n", 0)
+        return CommandOutput(BINHOST_TIMED_OUT, 1)
+
+    recorder.answering = answer
+    check = portage.VerifyPackages(
+        requests=(
+            portage.PackageRequest(atom="gnome-base/gnome", requesters=("the `gnome` group",)),
+        )
+    )
+    check.apply(recorder)
+
+    assert recorder.degraded(portage.BINARY_PACKAGES)
+    # One retry with binaries still on before the whole install is committed to
+    # compiling, the same as `Emerge` makes.
+    assert [("--getbinpkg=n" in one) for one in attempts] == [False, False, True], attempts
+
+    # Negative control: the same unreadable index when binaries are already
+    # gone is a real rejection, not another degradation.
+    already = Recorder()
+    already.given_up.add(portage.BINARY_PACKAGES)
+    tried: list[tuple[str, ...]] = []
+
+    def refuse(argv: Sequence[str]) -> str | None:
+        if argv[0] == "emerge":
+            tried.append(tuple(argv))
+            return CommandOutput(BINHOST_TIMED_OUT, 1)
+        if argv[1] == "pquery":
+            return CommandOutput("gnome-base/gnome\n", 0)
+        return CommandOutput("gnome-base/gnome-3.56\n", 0)
+
+    already.answering = refuse
+    with pytest.raises(ConfigError, match="Error fetching binhost package info"):
+        check.apply(already)
+    assert len(tried) == 1, tried
+
+
+def test_a_rejection_that_is_not_the_binary_host_is_never_degraded() -> None:
+    """The negative control the degradation rests on: a masked package answers
+    with a rejection whatever the binary host is doing, because dropping the
+    host would not make it installable and would compile the whole system."""
+    recorder = Recorder()
+
+    def answer(argv: Sequence[str]) -> str | None:
+        if argv[0] == "emerge":
+            return CommandOutput(PACKAGE_MASKED, 1)
+        if argv[1] == "pquery":
+            return CommandOutput("app-text/catdoc\n", 0)
+        return CommandOutput("", 1)
+
+    recorder.answering = answer
+    check = portage.VerifyPackages(
+        requests=(
+            portage.PackageRequest(atom="app-text/catdoc", requesters=("the `catdoc` group",)),
+        )
+    )
+    with pytest.raises(ConfigError, match="configuration masks"):
+        check.apply(recorder)
+    assert not recorder.degraded(portage.BINARY_PACKAGES)
+
+
 def test_an_unclassified_nonzero_package_probe_is_rejected() -> None:
     recorder = Recorder()
 
