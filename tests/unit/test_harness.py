@@ -2431,3 +2431,55 @@ def test_the_guest_is_told_not_to_ask_for_aaaa() -> None:
     assert "options no-aaaa" in written
     assert f"nameserver {GUEST_RESOLVER}" in written
     assert written.index("options no-aaaa") < written.index("nameserver")
+
+
+def test_the_unlock_waits_for_the_daemon_before_it_connects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The daemon comes up inside an initramfs that has to be unpacked first,
+    and connecting the moment the reset returns answered `Connection timed out
+    during banner exchange` for one that was seconds from starting."""
+    from types import SimpleNamespace
+
+    from tests.vm import run as runner
+
+    answers = ["ssh: connect to host: Connection refused", "Permission denied (publickey)."]
+    asked: list[int] = []
+
+    def probing(argv: list[str], **rest: object) -> object:
+        asked.append(1)
+        said = answers[min(len(asked) - 1, len(answers) - 1)]
+        return SimpleNamespace(returncode=255, stdout="", stderr=said)
+
+    monkeypatch.setattr("subprocess.run", probing)
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+
+    runner.wait_for_unlock_daemon(tmp_path / "key", 2222)
+
+    assert len(asked) == 2, "the first refusal is not the answer"
+
+
+def test_a_daemon_that_never_answers_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    from tests.vm import run as runner
+
+    def refusing(argv: list[str], **rest: object) -> object:
+        return SimpleNamespace(returncode=255, stdout="", stderr="Connection refused")
+
+    monkeypatch.setattr("subprocess.run", refusing)
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+
+    with pytest.raises(RuntimeError, match="no ssh daemon on port 2222"):
+        runner.wait_for_unlock_daemon(tmp_path / "key", 2222, patience=0.01)
+
+
+def test_the_unlock_itself_waits_first() -> None:
+    import inspect
+
+    from tests.vm import run as runner
+
+    code = inspect.getsource(runner.remote_unlock)
+    assert code.index("wait_for_unlock_daemon(") < code.index("subprocess.Popen(")
