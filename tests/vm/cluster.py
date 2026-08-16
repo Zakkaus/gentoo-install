@@ -1957,7 +1957,11 @@ RECONNECT_TRIES: Final[int] = 4
 #: whole in the line the console is given: the shell echoes that line back,
 #: and a reader waiting for the end marker matched the echo and returned
 #: before the command had run. `printf` assembles them in the guest instead.
-_LIVE_PROMPT: Final[str] = "root@livecd ~ # "
+#: A root shell's prompt, whatever the machine calls itself. The live medium
+#: says `livecd`, a machine this installer produced says its own hostname, and
+#: a converted one says a third: `vm-convert` waited seventy-three minutes for
+#: `root@livecd ~ # ` on a guest that had rebooted into `xfsbox`.
+_ANY_ROOT_PROMPT: Final[str] = r"root@[A-Za-z0-9._-]+ ~ # "
 
 
 _Result = TypeVar("_Result")
@@ -2084,7 +2088,7 @@ class Reconnecting:
                 self.console.send(marked_command(command, token))
             completion = command_done(token)
             if after_reconnect:
-                completion = rf"{completion}|{re.escape(_LIVE_PROMPT)}"
+                completion = rf"{completion}|{_ANY_ROOT_PROMPT}"
             while True:
                 try:
                     self.console.expect(completion, _remaining(deadline), idle=idle)
