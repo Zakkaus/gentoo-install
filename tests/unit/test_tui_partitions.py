@@ -1227,3 +1227,20 @@ def test_the_partitions_row_lists_a_hand_written_table() -> None:
     shown = settings._partitions(config(), at)
     assert shown == "/efi 1GiB, / the rest", shown
     assert shown.strip(", ")
+
+
+def test_the_comment_names_every_purpose_that_asks_for_a_mount_point() -> None:
+    """The comment said only `other` asks and `zfs` asks too, so a reader
+    believed a ZFS pool member takes no mount point from the operator."""
+    from gentoo_install.model.manual import PURPOSES
+
+    asking = {one.key for one in PURPOSES if one.asks_mountpoint}
+    assert asking == {"other", "zfs"}, asking
+
+    from pathlib import Path as Where
+
+    source = Where(__file__).resolve().parents[2] / "gentoo_install" / "model" / "manual.py"
+    said = source.read_text()
+    for key in sorted(asking):
+        assert f"`{key}`" in said, f"the comment does not name {key}"
+    assert "Only `other` asks" not in said
