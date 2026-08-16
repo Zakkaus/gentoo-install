@@ -186,6 +186,7 @@ def layout_graph(layout: StorageLayout) -> DiskConfig:
     it carries `create=False`, so no operation derived from it formats
     anything.
     """
+    _room_for_both(layout)
     below = _unsupported_layer(layout)
     if below:
         raise ConversionUnsupported(
@@ -226,6 +227,29 @@ def layout_graph(layout: StorageLayout) -> DiskConfig:
         root=ROOT_MOUNT,
         mode=DiskMode.IN_PLACE,
     )
+
+
+#: What the root filesystem needs free before a conversion starts. The staged
+#: system and the running one are on it at the same time: a base Gentoo with a
+#: binary kernel is about 4 GiB, the ebuild repository 1.5 GiB, and the
+#: binary packages and distfiles fetched on the way another 2 GiB.
+CONVERSION_FREE_BYTES: Final[int] = 10 * 2**30
+
+
+def _room_for_both(layout: StorageLayout) -> None:
+    """Stop before anything is written when the root cannot hold both systems.
+
+    An unknown figure is not a small one: `findmnt` not reporting `avail` is a
+    reason to carry on, because refusing there would stop machines that are
+    fine.
+    """
+    free = layout.root_free_bytes
+    if free is not None and free < CONVERSION_FREE_BYTES:
+        raise ConversionUnsupported(
+            f"the root filesystem has {free // 2**30} GiB free and a conversion needs "
+            f"{CONVERSION_FREE_BYTES // 2**30}: the staged system and the running one "
+            "are on it at the same time"
+        )
 
 
 def _unsupported_layer(layout: StorageLayout) -> str:
