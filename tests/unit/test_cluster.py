@@ -437,3 +437,14 @@ def test_the_address_does_not_depend_on_the_default_route_being_absent() -> None
     assert "pkill -KILL -x dhcpcd" in command
     assert "pkill -x dhcpcd" not in command
     assert "addr add 10.31.0.150/24" in command
+
+
+def test_the_network_is_measured_once_more_after_the_install() -> None:
+    """A console that still has its routes when the installer saw none puts the
+    loss in the installer's view of the machine rather than in the machine."""
+    import inspect
+
+    code = inspect.getsource(cluster.install_one)
+    started = code.index("install.sh --config")
+    collected = code.index("files = collect(")
+    assert "REACHABILITY_PROBE" in code[started:collected]
