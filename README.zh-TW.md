@@ -68,7 +68,7 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 
 同一天另有一批記錄來自單機直接執行 QEMU 而非叢集，涵蓋叢集無法驅動的路徑。叢集上的 BIOS 客機在核心啟動前不會向序列埠寫入任何內容，而非 root 的 API token 呼叫螢幕擷取端點會得到 501，也無法傳遞韌體參數，因此 `vm-bios`、`vm-bios-luks`、`ext4-bios`、`mbr-edit` 的記錄是 `304dffa41602`，由 QEMU 產生。`zfs-zbm`、`vm-proxy`、`vm-proxy-http` 於 `15d45598637a` 同樣如此：代理 fixture 透過 QEMU 的 user-mode 網路連到宿主機上的代理，橋接的叢集客機沒有這個位址。
 
-就地轉換具備單元與計畫層測試，尚無端到端記錄。其操作順序、各項拒絕條件與交換本身均有測試涵蓋，但尚未有任何一次執行完成轉換並開機驗證結果。此路徑應視為未驗證。
+就地轉換已有一筆端到端記錄，修訂版為 [`bcc090fab621`](https://github.com/Zakkaus/gentoo-install/commit/bcc090fab621)。一份 Debian 12 genericcloud 映像在單機 QEMU 上完成就地轉換並以 Gentoo 開機。開機後 `uname -r` 回報 `6.18.43-gentoo-dist-bin`，`emerge` 存在而 `dpkg` 與 `apt` 皆已不存在，根檔案系統仍是同一個 `/dev/vda1`，執行記錄保存於 `/var/log/gentoo-install`。此記錄涵蓋一種發行版、BIOS 韌體與位於分割區上的 ext4 根。`vm-convert` 叢集 fixture 尚未通過，自其他發行版轉換仍未驗證。
 
 其他已實作組合仍未完成端到端驗證。現行實據未涵蓋 greetd 桌面工作階段或 GNOME 以外的 ibus。現行實據也未涵蓋官方 Gentoo minimal ISO、Alpine 或 Gig-OS live 媒介，以及 binhost 失敗時的降級。
 
