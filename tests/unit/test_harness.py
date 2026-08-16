@@ -1036,7 +1036,7 @@ def test_zero_cluster_capacity_returns_an_error_after_a_deadline(
     monkeypatch.setattr(
         cluster,
         "rewrite_fixtures",
-        lambda jobs, into, region, sync, public_key="", site="", unlock_addresses=None: into,
+        lambda jobs, into, region, sync, public_key="", site="", unlock_addresses=None, distfiles="": into,
     )
 
     def build(path: Path, **kwargs: object) -> Path:
