@@ -108,6 +108,7 @@ def _rewrite(
     public_key: str = "",
     site: str = "",
     unlock_addresses: object = None,
+    distfiles: str = "",
 ) -> Path:
     return into
 
