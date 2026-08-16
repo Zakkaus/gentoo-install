@@ -664,3 +664,19 @@ def test_a_bios_conversion_refuses_a_root_that_is_a_whole_disk() -> None:
     # whole-disk root is not this failure and must still be accepted.
     uefi = replace(whole_disk, uefi=True, esp_device="/dev/vda1", esp_mountpoint="/boot/efi")
     assert convert.layout_graph(uefi).mode is DiskMode.IN_PLACE
+
+
+def test_a_conversion_refuses_a_root_on_a_btrfs_subvolume() -> None:
+    """Fedora, Ubuntu and openSUSE all put root on a btrfs subvolume.
+    `layout_graph` emits no `Subvolume`, so `_rootflags` answers nothing and the
+    new command line carries no `rootflags=subvol=`: the initramfs would mount
+    the default subvolume and never see the system that was written into `/@`.
+    """
+    on_a_subvolume = replace(_layout(root_filesystem_type="btrfs"), root_subvolume="/@")
+    with pytest.raises(ConversionUnsupported, match="btrfs subvolume /@"):
+        convert.layout_graph(on_a_subvolume)
+
+    # Negative control: btrfs at the top level is what Arch's cloud image runs,
+    # and it needs no `rootflags=` at all.
+    top_level = replace(on_a_subvolume, root_subvolume=None)
+    assert convert.layout_graph(top_level).mode is DiskMode.IN_PLACE

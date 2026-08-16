@@ -295,6 +295,14 @@ def layout_graph(layout: StorageLayout) -> DiskConfig:
         )
     if not layout.root_device or not layout.root_filesystem_type:
         raise ConversionUnsupported("the running root device could not be read")
+    if layout.root_subvolume:
+        # `layout_graph` emits no Subvolume, so `_rootflags` answers nothing and
+        # the cmdline carries no `rootflags=`: the initramfs would mount the
+        # default subvolume and never see the system that was written.
+        raise ConversionUnsupported(
+            f"the running root is on the btrfs subvolume {layout.root_subvolume}, "
+            "which the conversion cannot carry onto the new command line"
+        )
     if not layout.uefi and layout.root_below_device is None:
         # Measured on an Alpine cloud image, whose ext4 sits on `/dev/vda`
         # itself: `grub-install --target=i386-pc` answers `will not proceed
