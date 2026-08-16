@@ -227,26 +227,6 @@ def _probe(mirror: str, proxy: ProxyConfig | None = None) -> float:
     return time.monotonic() - started
 
 
-def passphrase_for(device: DeviceId, source: str) -> str:
-    """Read an encryption passphrase from the file the layout names.
-
-    A path, never the passphrase itself: the configuration is copied into the
-    target and the log is the file people paste into bug reports.
-    """
-    if not source:
-        raise ConfigError(
-            f"{device} is encrypted but names no passphrase_file, and nothing else asks for one"
-        )
-    path = Path(source)
-    try:
-        passphrase = path.read_text().strip("\n")
-    except OSError as error:
-        raise ConfigError(f"{device}: {source} cannot be read: {error}") from error
-    if not passphrase:
-        raise ConfigError(f"{device}: {source} is empty")
-    return passphrase
-
-
 #: A reset connection is not an answer. `why_unreachable` already retries the
 #: same way and `_newest` did not, so one `Connection reset by peer` from
 #: `distfiles.gentoo.org` ended an install a minute after it started.

@@ -440,22 +440,6 @@ def _squares(matrix: Matrix) -> int:
     return total
 
 
-#: The two shapes rule three looks for, in both directions.
-_FINDER_LIKE: Final[tuple[tuple[bool, ...], ...]] = (
-    (True, False, True, True, True, False, True, False, False, False, False),
-    (False, False, False, False, True, False, True, True, True, False, True),
-)
-
-
-def _finders(matrix: Matrix) -> int:
-    total = 0
-    for line in (*matrix, *zip(*matrix)):
-        for at in range(len(line) - 10):
-            window = tuple(line[at : at + 11])
-            total += 40 if window in _FINDER_LIKE else 0
-    return total
-
-
 def _balance(matrix: Matrix) -> int:
     """How far the proportion of dark modules is from half, in steps of 5%.
 

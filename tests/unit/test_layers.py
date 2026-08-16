@@ -116,3 +116,34 @@ def test_every_source_file_states_the_licence() -> None:
     ]
 
     assert not silent, f"no licence on the first line of: {silent}"
+
+
+def test_no_definition_in_the_package_is_unreachable() -> None:
+    """A rebase left `RemoveUnbootableKernels` and its five helpers in the tree
+    after the operation it replaced them with had landed: the class was there,
+    nothing built it, and nothing tested it."""
+    import ast
+    import re
+
+    root = Path(__file__).resolve().parents[2]
+    everything = "\n".join(
+        path.read_text()
+        for where in ("gentoo_install", "tests")
+        for path in sorted((root / where).rglob("*.py"))
+    )
+    orphans: list[str] = []
+    for path in sorted((root / "gentoo_install").rglob("*.py")):
+        for node in ast.parse(path.read_text()).body:
+            named: list[str] = []
+            if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+                named = [node.name]
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                named = [node.target.id]
+            elif isinstance(node, ast.Assign):
+                named = [one.id for one in node.targets if isinstance(one, ast.Name)]
+            for name in named:
+                if name.startswith("__"):
+                    continue
+                if len(re.findall(rf"\b{re.escape(name)}\b", everything)) <= 1:
+                    orphans.append(f"{path.relative_to(root)}:{node.lineno} {name}")
+    assert orphans == [], orphans

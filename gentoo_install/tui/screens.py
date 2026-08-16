@@ -1068,12 +1068,6 @@ def _mirror_site_row(config: InstallConfig, translate: Catalog) -> Item[str]:
     return Item(label=translate("Gentoo mirror"), value=_SITE, detail=detail)
 
 
-def _mirror_toggle_row(
-    config: InstallConfig, translate: Catalog, label: str, key: str, value: bool
-) -> Item[str]:
-    return Item(label=translate(label), value=key, detail=translate("in use") if value else translate("not used"))
-
-
 def _mirror_measure_row(config: InstallConfig, translate: Catalog) -> Item[str]:
     return Item(
         label=translate("Measure them"), value=_MEASURE,
@@ -2486,63 +2480,6 @@ def _input_configuration_summary(
             "Write the Fcitx profile and input environment for: {engines}."
         ).format(engines=subject)
     return translate("Write the IBus input environment.")
-
-
-def _language_package_screen(
-    screen: Screen,
-    config: InstallConfig,
-    context: Context,
-    title: str,
-    names: Sequence[str],
-) -> Answer[InstallConfig]:
-    """Edit one catalog-defined subset without disturbing other applications."""
-    translate = context.translate
-    selected_names = frozenset(names)
-    have = {overlay.name for overlay in config.portage.overlays}
-    items = [
-        Item(
-            label=name,
-            value=name,
-            detail=" ".join(context.groups[name].packages)
-            + _adds(
-                config,
-                context,
-                lambda packages, one: replace(
-                    packages, applications=(*packages.applications, one)
-                ),
-                name,
-            ),
-            disabled_because=_needs_an_overlay(
-                context.groups[name].repositories, have, translate
-            ),
-        )
-        for name in names
-    ]
-    chosen_already = set(config.packages.applications) & selected_names
-    while True:
-        answer = MultipleChoiceMenu(
-            title=translate(title),
-            items=items,
-            selected={
-                index for index, item in enumerate(items) if item.value in chosen_already
-            },
-            footer=footer(translate),
-        ).run(screen)
-        if not answer.chosen:
-            return Answer(answer.outcome)
-        chosen = tuple(answer.unwrap())
-        kept = tuple(
-            name for name in config.packages.applications if name not in selected_names
-        )
-        edited = replace(
-            config,
-            packages=replace(config.packages, applications=(*kept, *chosen)),
-        )
-        clash = framework_conflict(edited, context.groups)
-        if not clash:
-            return settle(screen, context, config, edited)
-        chosen_already = set(chosen)
-        _say(screen, context, clash)
 
 
 def input_method_screen(
