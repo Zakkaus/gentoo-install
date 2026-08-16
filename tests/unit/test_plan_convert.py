@@ -75,6 +75,7 @@ def _layout(
     esp_mountpoint: str | None = "/boot/efi",
     uefi: bool = True,
     root_free_bytes: int | None = 20 * 2**30,
+    carried_fstab: tuple[str, ...] = (),
     boot_filesystem_type: str | None = "xfs",
     boot_same_filesystem: bool = True,
 ) -> StorageLayout:
@@ -94,6 +95,7 @@ def _layout(
         esp_mountpoint=esp_mountpoint,
         uefi=uefi,
         root_free_bytes=root_free_bytes,
+        carried_fstab=carried_fstab,
     )
 
 
@@ -481,3 +483,60 @@ def test_a_conversion_without_a_layout_is_refused_there_too() -> None:
 
     with pytest.raises(ConversionUnsupported, match="was not read"):
         running_config(_in_place(), None)
+
+
+def test_the_mounts_the_conversion_does_not_manage_are_carried() -> None:
+    """A conversion replaces `/etc`, so a data partition or a swap the operator
+    had would be gone from the new fstab: the machine boots and is wrong in a
+    way nothing here can see."""
+    carried = ("UUID=abc\t/srv\text4\tdefaults\t0\t2", "UUID=def\tnone\tswap\tsw\t0\t0")
+    operations = build(_in_place(), CATALOG, layout=_layout(carried_fstab=carried))
+    appended = [
+        one.inner
+        for one in operations
+        if isinstance(one, convert.Staged)
+        and isinstance(one.inner, convert.CarryFstabEntries)
+    ]
+    assert appended and appended[0].lines == carried
+
+    written = [
+        index
+        for index, one in enumerate(operations)
+        if isinstance(one, convert.Staged) and "fstab" in one.inner.describe()
+    ]
+    assert len(written) == 2, "the file is written, then the rest is appended"
+    assert written[0] < written[1]
+
+
+def test_a_machine_with_nothing_else_mounted_carries_nothing() -> None:
+    operations = build(_in_place(), CATALOG, layout=_layout())
+    appended = [
+        one.inner
+        for one in operations
+        if isinstance(one, convert.Staged)
+        and isinstance(one.inner, convert.CarryFstabEntries)
+    ]
+    assert appended and appended[0].lines == ()
+
+
+def test_carrying_appends_rather_than_replaces() -> None:
+    context = _RunningContext()
+    context.answers = {}
+    written: dict[str, str] = {}
+
+    class Writing(_RunningContext):
+        target = PurePosixPath("/gentoo-install.new")
+
+        def read(self, path: object) -> str:
+            return "# device\tmountpoint\ttype\toptions\tdump\tpass\nUUID=1\t/\text4\tdefaults\t0\t1\n"
+
+        def write(self, path: object, content: str, *, mode: int = 0o644) -> None:
+            written[str(path)] = content
+
+    convert.CarryFstabEntries(lines=("UUID=abc\t/srv\text4\tdefaults\t0\t2",)).apply(
+        cast(Any, Writing())
+    )
+    said = written["/gentoo-install.new/etc/fstab"]
+    assert "UUID=1\t/\text4" in said, "the generated entries survive"
+    assert "/srv" in said
+    assert said.index("UUID=1") < said.index("/srv")

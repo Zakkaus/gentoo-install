@@ -154,6 +154,11 @@ class StorageLayout:
     esp_mountpoint: str | None
     uefi: bool
     root_free_bytes: int | None
+    #: Lines of the running `/etc/fstab` naming a path this installer does not
+    #: manage, verbatim. A conversion replaces `/etc`, and a machine that lost
+    #: its data partition or its swap boots and is wrong in a way no assertion
+    #: here can see.
+    carried_fstab: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, init=False)

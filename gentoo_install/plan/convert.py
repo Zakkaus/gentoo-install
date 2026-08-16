@@ -125,6 +125,32 @@ class SwapDirectories(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
+class CarryFstabEntries(Operation):
+    """Append the running machine's other mounts to the fstab just written.
+
+    A conversion replaces `/etc`, so a data partition, a swap or a bind mount
+    the operator had would be gone from the new file: the machine boots and is
+    wrong in a way nothing here can see. `distro2gentoo` keeps the whole file;
+    this keeps every line naming a path the installer did not write itself.
+    """
+
+    stage: Stage = Stage.SYSTEM
+    lines: tuple[str, ...]
+
+    def describe(self) -> str:
+        return f"carry {len(self.lines)} fstab entries the conversion does not manage"
+
+    def apply(self, context: Context) -> None:
+        if not self.lines:
+            return
+        said = context.read(context.target / "etc/fstab")
+        carried = "\n".join(
+            ["# carried from the system this replaced", *self.lines]
+        )
+        context.write(context.target / "etc/fstab", f"{said.rstrip()}\n{carried}\n")
+
+
+@dataclass(frozen=True, kw_only=True)
 class PrepareStaging(Operation):
     """Create the directory the staged system is built in.
 

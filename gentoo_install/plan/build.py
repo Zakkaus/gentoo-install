@@ -187,6 +187,9 @@ def _in_place(
             packages._required_licenses(derived, chosen),
         ),
         *system.build(derived),
+        # After `WriteFstab`, which is in the same stage and earlier in this
+        # list: the file has to exist before its other mounts are appended.
+        convert.CarryFstabEntries(lines=layout.carried_fstab),
         *kernel.build(derived),
         *(one for one in boot if not isinstance(one, AFTER_THE_SWAP)),
         *packages._build(derived, catalog, chosen),
