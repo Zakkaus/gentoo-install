@@ -2302,6 +2302,13 @@ GRUB_PROMPT_SECONDS: Final[float] = 30.0
 #: unbounded loop would never fail.
 UNLOCK_TRIES: Final[int] = 5
 
+#: What a failed remote unlock reads off the console before answering, and how
+#: much of it the verdict carries. The guest is already at whatever prompt it
+#: reached, so this is a read of a screen that has stopped changing rather than
+#: a wait for anything.
+UNLOCK_SCREEN_PATIENCE: Final[float] = 5.0
+UNLOCK_SCREEN_BYTES: Final[int] = 400
+
 
 class Typeable(Protocol):
     """All the unlock step needs of a guest: GRUB's prompt never reaches the
@@ -2451,7 +2458,14 @@ def boot_and_check(
         try:
             remote_unlock(remote_key, unlock.port, installation, host=remote_host)
         except RuntimeError as error:
-            return f"remote unlock failed: {error}"[:200]
+            # The unlock is attempted over the network and returns before
+            # anything reads the console, so `no ssh daemon on port 2222` was
+            # the whole of what a two-hour run produced: a guest that never
+            # left GRUB and one whose initramfs came up without an address read
+            # identically. The screen tells them apart.
+            screen = link.console.snapshot(UNLOCK_SCREEN_PATIENCE)
+            held = repr(screen[-UNLOCK_SCREEN_BYTES:]) if screen else "nothing"
+            return f"remote unlock failed: {error}; the console held {held}"[:600]
         remotely_unlocked = True
         print("installed root unlocked by remote SSH session", flush=True)
     unlocked = _unlock(guest, link, installation, remotely_unlocked)
