@@ -463,7 +463,10 @@ def test_the_keeper_puts_the_address_back_and_counts_it() -> None:
         assert subprocess.run(["bash", "-n", "-c", command], capture_output=True).returncode == 0
         assert len(command) < cluster.CONSOLE_LINE_BYTES, command
     assert any("10.31.0.152/24" in one for one in written)
-    assert written[-1].endswith("&"), "the keeper outlives the command that starts it"
+    assert " &" in written[-1], "the keeper outlives the command that starts it"
+    # The console wrapper appends `; printf MARK...` to whatever it is given.
+    composed = subprocess.run(["bash", "-n", "-c", f"{written[-1]}; true"], capture_output=True)
+    assert composed.returncode == 0, written[-1]
     assert any(cluster.KEEPER_LOG in one for one in written)
     assert cluster.KEEPER_LOG in cluster.REACHABILITY_PROBE
 

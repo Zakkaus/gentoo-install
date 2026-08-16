@@ -993,7 +993,9 @@ def keep_the_address(address: str) -> list[str]:
     )
     written = [f"rm -f {KEEPER_SCRIPT} {KEEPER_LOG}"]
     written += [f"printf '%s\\n' '{line}' >> {KEEPER_SCRIPT}" for line in lines]
-    written.append(f"nohup sh {KEEPER_SCRIPT} >/dev/null 2>&1 &")
+    # Braced: the console wrapper appends `; printf MARK...`, and a bare `&`
+    # followed by `;` is a syntax error, which ended every guest of round 34.
+    written.append(f"{{ nohup sh {KEEPER_SCRIPT} >/dev/null 2>&1 & }}")
     return written
 
 
