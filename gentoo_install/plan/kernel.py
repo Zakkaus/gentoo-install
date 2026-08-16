@@ -57,7 +57,7 @@ REMOTE_UNLOCK_CONFIG: Final[PurePosixPath] = PurePosixPath(
 
 #: Executables required by dracut's network-legacy module. ZFSBootMenu omits
 #: systemd, so its remote-unlock image cannot use systemd-networkd instead.
-ZBM_LEGACY_NETWORK_PACKAGES: Final[tuple[str, ...]] = (
+LEGACY_NETWORK_PACKAGES: Final[tuple[str, ...]] = (
     "sys-apps/iproute2",
     "net-misc/dhcp",
     "net-misc/iputils",
@@ -245,20 +245,24 @@ class RequestStorageUse(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
-class RequestZfsBootMenuNetworkTools(Operation):
-    """Enable the two optional executables network-legacy checks for."""
+class RequestLegacyNetworkTools(Operation):
+    """Enable the two optional executables network-legacy checks for.
+
+    Both remote-unlock images need them: the ZFSBootMenu one has always
+    omitted systemd, and the system one now does as well.
+    """
 
     stage: Stage = Stage.PORTAGE
 
     def describe(self) -> str:
-        return "ask for dhclient and arping, which ZFSBootMenu networking requires"
+        return "ask for dhclient and arping, which the legacy network module requires"
 
     def apply(self, context: Context) -> None:
         VerifyPackageUse(atom="net-misc/dhcp", flags=("client", "-server")).apply(context)
         VerifyPackageUse(atom="net-misc/iputils", flags=("arping",)).apply(context)
         WritePortageConfig(
             kind=PortageConfigKind.USE,
-            name="zfsbootmenu-network",
+            name="legacy-network",
             lines=("net-misc/dhcp client -server", "net-misc/iputils arping"),
         ).apply(context)
 
@@ -628,10 +632,13 @@ def build(config: InstallConfig) -> list[Operation]:
     if config.kernel.remote_unlock.enabled:
         unlock = config.kernel.remote_unlock
         system_initramfs = config.bootloader.kind is not Bootloader.ZFSBOOTMENU
-        remote_packages: tuple[str, ...] = (REMOTE_UNLOCK_PACKAGE,)
-        if not system_initramfs:
-            operations.append(RequestZfsBootMenuNetworkTools())
-            remote_packages += ZBM_LEGACY_NETWORK_PACKAGES
+        # Both images are the legacy kind now: `crypt-ssh` starts dropbear from
+        # a dracut initqueue hook, so the system initramfs omits systemd too.
+        # `network-legacy` refuses to install without these, and dracut then
+        # refuses `crypt-ssh` with it: `Module 'crypt-ssh' cannot be installed`
+        # stopped an install at the kernel's own postinst.
+        remote_packages: tuple[str, ...] = (REMOTE_UNLOCK_PACKAGE, *LEGACY_NETWORK_PACKAGES)
+        operations.append(RequestLegacyNetworkTools())
         operations += [
             ConfigureRemoteUnlock(port=unlock.port, system_initramfs=system_initramfs),
             Emerge(

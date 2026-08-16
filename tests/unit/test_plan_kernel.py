@@ -64,7 +64,10 @@ def test_grub_remote_unlock_keeps_the_system_dracut_path() -> None:
         for one in kernel.build(installation)
         if isinstance(one, Emerge) and kernel.REMOTE_UNLOCK_PACKAGE in one.packages
     )
-    assert unlock_packages == (kernel.REMOTE_UNLOCK_PACKAGE,)
+    # The legacy network tools come with it: the system image omits systemd
+    # too, so `network-legacy` needs them and dracut refuses `crypt-ssh`
+    # without it.
+    assert unlock_packages == (kernel.REMOTE_UNLOCK_PACKAGE, *kernel.LEGACY_NETWORK_PACKAGES)
 
 
 def test_zfsbootmenu_installs_network_legacy_executables() -> None:
@@ -79,18 +82,18 @@ def test_zfsbootmenu_installs_network_legacy_executables() -> None:
     )
     assert unlock_packages == (
         kernel.REMOTE_UNLOCK_PACKAGE,
-        *kernel.ZBM_LEGACY_NETWORK_PACKAGES,
+        *kernel.LEGACY_NETWORK_PACKAGES,
     )
 
     request = next(
         one
         for one in operations
-        if isinstance(one, kernel.RequestZfsBootMenuNetworkTools)
+        if isinstance(one, kernel.RequestLegacyNetworkTools)
     )
     recorder = Recorder()
     request.apply(recorder)
     assert recorder.files[
-        PurePosixPath("/etc/portage/package.use/zfsbootmenu-network")
+        PurePosixPath("/etc/portage/package.use/legacy-network")
     ] == "net-misc/dhcp client -server\nnet-misc/iputils arping\n"
 
 
@@ -192,6 +195,22 @@ def test_the_unlock_initramfs_omits_systemd_so_its_queue_runs_first() -> None:
     assert "network-legacy" in modules, modules
     assert "network" not in modules, modules
 
+    # The legacy network module refuses to install without dhclient and
+    # arping, and dracut then refuses `crypt-ssh` with it: `Module 'crypt-ssh'
+    # cannot be installed` stopped an install at the kernel's own postinst
+    # when the modules were changed and the packages were not.
+    unlock_packages = next(
+        one.packages
+        for one in kernel.build(installation)
+        if isinstance(one, Emerge) and kernel.REMOTE_UNLOCK_PACKAGE in one.packages
+    )
+    for package in kernel.LEGACY_NETWORK_PACKAGES:
+        assert package in unlock_packages, (package, unlock_packages)
+    assert any(
+        isinstance(one, kernel.RequestLegacyNetworkTools)
+        for one in kernel.build(installation)
+    )
+
     # Negative control: the fixture that does not unlock remotely keeps the
     # ordinary systemd initramfs, so this is not a change to every install.
     plain = load(Path("tests/fixtures/vm-luks.toml"))
@@ -199,4 +218,7 @@ def test_the_unlock_initramfs_omits_systemd_so_its_queue_runs_first() -> None:
     assert "network-legacy" not in kernel.dracut_modules(plain)
     assert not [
         one for one in kernel.build(plain) if isinstance(one, kernel.ConfigureRemoteUnlock)
+    ]
+    assert not [
+        one for one in kernel.build(plain) if isinstance(one, kernel.RequestLegacyNetworkTools)
     ]
