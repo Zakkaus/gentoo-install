@@ -159,6 +159,10 @@ class StorageLayout:
     #: its data partition or its swap boots and is wrong in a way no assertion
     #: here can see.
     carried_fstab: tuple[str, ...] = ()
+    #: The btrfs subvolume the root is mounted from, when it is not the top
+    #: level. `findmnt` writes it into the source as `/dev/sda2[/@]` and into
+    #: the options as `subvol=/@`, and a root read without it names no device.
+    root_subvolume: str | None = None
 
 
 @dataclass(frozen=True, init=False)

@@ -242,3 +242,69 @@ def test_an_esp_nothing_is_mounted_from_is_still_named(tmp_path: Path) -> None:
     blocks = ({"path": "/dev/sda1", "parttype": esp_type},)
 
     assert _esp_from_blocks(blocks, ()) == ("/dev/sda1", None)
+
+
+class SubvolumeListing(Runner):
+    """Verbatim shapes from `findmnt` on btrfs, read on 2026-08-17: a
+    subvolume mount answers `/dev/vda3[/probe-test]` in its source and
+    `subvol=/probe-test` in its options, while the top level answers a plain
+    device and `subvol=/`."""
+
+    def run(self, argv: Sequence[str], **rest: object) -> Result:
+        if argv[0] == "findmnt":
+            output = json.dumps({"filesystems": [
+                {
+                    "target": "/",
+                    "source": "/dev/vda3[/@]",
+                    "fstype": "btrfs",
+                    "avail": 38334017536,
+                    "options": "rw,relatime,compress=zstd:1,subvolid=256,subvol=/@",
+                },
+            ]})
+        elif argv[0] == "lsblk":
+            output = json.dumps({"blockdevices": [
+                {"path": "/dev/vda3", "type": "part", "fstype": "btrfs",
+                 "uuid": "root-uuid", "pkname": "/dev/vda"},
+            ]})
+        else:
+            output = "root-uuid\n"
+        return Result(argv=tuple(argv), returncode=0, stdout=output, stderr="", seconds=0.0)
+
+
+def test_a_subvolume_root_names_its_device_and_its_subvolume(tmp_path: Path) -> None:
+    """`/dev/vda3[/@]` is not a block device. Left whole it matches nothing in
+    `lsblk`, so the uuid and the disk below both come back empty and the
+    conversion builds a graph around a selector no device carries."""
+    found = probe.Probe(runner=SubvolumeListing(log=lambda line: None), work=tmp_path)
+    layout = found.storage_layout()
+
+    assert layout.root_device == "/dev/vda3"
+    # Kept as `findmnt` wrote it, leading slash and all.
+    assert layout.root_subvolume == "/@"
+    # The point of splitting it: everything keyed by the device now resolves.
+    assert layout.root_uuid == "root-uuid"
+    assert layout.root_below_device == "/dev/vda"
+
+
+def test_a_top_level_btrfs_root_is_not_called_a_subvolume(tmp_path: Path) -> None:
+    """Negative control. Arch's cloud image answers `subvol=/` with a plain
+    source, and refusing that would refuse every ordinary btrfs machine."""
+
+    class TopLevel(SubvolumeListing):
+        def run(self, argv: Sequence[str], **rest: object) -> Result:
+            answer = super().run(argv, **rest)
+            if argv[0] != "findmnt":
+                return answer
+            return Result(
+                argv=answer.argv,
+                returncode=0,
+                stdout=answer.stdout.replace("/dev/vda3[/@]", "/dev/vda3").replace(
+                    "subvol=/@", "subvol=/"
+                ),
+                stderr="",
+                seconds=0.0,
+            )
+
+    layout = probe.Probe(runner=TopLevel(log=lambda line: None), work=tmp_path).storage_layout()
+    assert layout.root_device == "/dev/vda3"
+    assert layout.root_subvolume is None

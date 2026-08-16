@@ -201,6 +201,17 @@ def _entry_text(entry: Mapping[str, object], key: str) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+def _source_and_subvolume(source: str | None) -> tuple[str | None, str | None]:
+    """Split `findmnt`'s source into the device and the subvolume it named."""
+    if source is None:
+        return None, None
+    if not (opened := source.find("[")) >= 0 or not source.endswith("]"):
+        return source, None
+    # No `[/]` case: `mount -o subvol=/` still answers a plain source, checked
+    # against btrfs on 2026-08-17, so brackets always name a real subvolume.
+    return source[:opened] or None, source[opened + 1 : -1]
+
+
 def _device_path(value: object) -> str | None:
     if not isinstance(value, str) or not value:
         return None
@@ -814,7 +825,7 @@ class Probe:
     def storage_layout(self) -> StorageLayout:
         """Read the running root, boot filesystems, and block-device stack."""
         mounts_result = self.runner.run(
-            ["findmnt", "--json", "--bytes", "--output", "TARGET,SOURCE,FSTYPE,AVAIL"],
+            ["findmnt", "--json", "--bytes", "--output", "TARGET,SOURCE,FSTYPE,AVAIL,OPTIONS"],
             check=False,
         )
         mounts: tuple[Mapping[str, object], ...] = ()
@@ -828,7 +839,11 @@ class Probe:
             (entry for entry in mounts if _entry_text(entry, "target") == "/boot"),
             None,
         )
-        root_device = _entry_text(root, "source") if root is not None else None
+        # Run against btrfs on 2026-08-17: a subvolume mount answers
+        # `/dev/vda3[/probe-test]`, which names no block device at all.
+        root_device, root_subvolume = _source_and_subvolume(
+            _entry_text(root, "source") if root is not None else None
+        )
         root_type = _entry_text(root, "fstype") if root is not None else None
         blocks_result = self.runner.run(
             ["lsblk", "--json", "--bytes", "--paths", "--output", "NAME,PATH,TYPE,FSTYPE,UUID,PKNAME,PARTTYPE"],
@@ -868,7 +883,11 @@ class Probe:
             root_on_luks=luks,
             root_on_mdraid=mdraid,
             root_below_device=below,
-            boot_device=_entry_text(boot, "source") if boot is not None else root_device,
+            boot_device=(
+                _source_and_subvolume(_entry_text(boot, "source"))[0]
+                if boot is not None
+                else root_device
+            ),
             boot_filesystem_type=(
                 _entry_text(boot, "fstype") if boot is not None else root_type
             ),
@@ -881,6 +900,7 @@ class Probe:
             esp_mountpoint=esp_mountpoint if uefi else None,
             uefi=uefi,
             root_free_bytes=_entry_int(root, "avail") if root is not None else None,
+            root_subvolume=root_subvolume,
             carried_fstab=_fstab_we_do_not_manage(
                 esp_mountpoint if uefi else None,
                 _entry_text(boot, "target") if boot is not None else None,
