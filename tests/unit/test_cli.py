@@ -1123,3 +1123,40 @@ def test_a_layout_that_cannot_be_converted_exits_as_a_preflight_failure(
 
     assert code == EXIT_PREFLIGHT
     assert "zfs" in capsys.readouterr().err
+
+
+def test_a_conversion_acts_on_the_running_root_not_the_mount_point(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every operation after the swap acts on `/`. Left at `--target` they
+    would chroot into a directory the machine does not have."""
+    from dataclasses import replace
+
+    from .layouts import config
+
+    seen: list[Path] = []
+
+    class Recording:
+        def __init__(self, **fields: object) -> None:
+            seen.append(cast(Path, fields["mountpoint"]))
+            self.given_up: set[str] = set()
+            self.runner = fields["runner"]
+
+    converted = replace(
+        config(),
+        disk=DiskConfig(graph=DeviceGraph.build([]), root=DeviceId(""), mode=DiskMode.IN_PLACE),
+    )
+    monkeypatch.setattr(cli, "Machine", Recording)
+    monkeypatch.setattr(cli, "apply", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "_confirmed_swap", lambda arguments, record: True)
+    monkeypatch.setattr(report, "keep_log", lambda work, target, record: None)
+    arguments = argparse.Namespace(
+        work=tmp_path / "work",
+        target=Path("/mnt/gentoo"),
+        skip_preflight=True,
+        resume=False,
+        no_shell=True,
+        dry_run=False,
+    )
+    cli.install(converted, (), arguments, cli.RunState())
+    assert seen == [Path("/")], seen

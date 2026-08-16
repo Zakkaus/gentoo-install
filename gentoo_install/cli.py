@@ -268,21 +268,27 @@ def install(
 ) -> int:
     """Check the machine, then perform every operation in order."""
     work: Path = arguments.work
-    with report.recording(work, arguments.target) as active_report:
+    # A conversion replaces the running userland, so every operation after the
+    # swap acts on `/`. Left at `--target` they would chroot into a directory
+    # the machine does not have.
+    target: Path = (
+        Path("/") if config.disk.mode is DiskMode.IN_PLACE else arguments.target
+    )
+    with report.recording(work, target) as active_report:
         record = active_report.record
         journal = active_report.journal
         runner = Runner(log=record, journal=journal)
         probe = Probe(runner=runner, work=work)
         probe.load()
         if not arguments.skip_preflight:
-            preflight_report = preflight.check(config, probe, str(arguments.target))
+            preflight_report = preflight.check(config, probe, str(target))
             for warning in preflight_report.warnings:
                 record(f"warning: {warning}")
             preflight_report.raise_if_fatal()
         if config.disk.mode is DiskMode.IN_PLACE and not _confirmed_swap(arguments, record):
             return EXIT_CONFIG
         machine = Machine(
-            config=config, runner=runner, probe=probe, work=work, mountpoint=arguments.target
+            config=config, runner=runner, probe=probe, work=work, mountpoint=target
         )
         finished = completed(journal) if arguments.resume else frozenset()
         if arguments.resume:
@@ -320,7 +326,7 @@ def install(
         # Before the closing stage: that stage unmounts the target, so a later
         # copy lands on the install medium's tmpfs and vanishes at reboot.
         try:
-            report.keep_log(work, arguments.target, record)
+            report.keep_log(work, target, record)
         except BaseException as error:
             failure = _first_failure(failure, error, record)
         if failure is None:
@@ -335,7 +341,7 @@ def install(
             raise failure
         counted = journal.counts()
         record(
-            f"installed {len(operations)} operations into {arguments.target}; "
+            f"installed {len(operations)} operations into {target}; "
             f"{counted.get('binary', 0)} packages from a binary host, "
             f"{counted.get('compiled', 0)} compiled"
         )
