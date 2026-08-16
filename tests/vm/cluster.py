@@ -2194,6 +2194,33 @@ def _name_the_user(link: Reconnecting) -> bool:
     return False
 
 
+#: What `login` takes between writing `Password:` and turning the echo off. A
+#: password sent inside that window is echoed and read as an empty one:
+#: `vm-lvm` printed `install` under the prompt and answered `Login incorrect`
+#: after an install that was otherwise complete.
+PASSWORD_ECHO_OFF_AFTER: Final[float] = 1.0
+
+
+def _log_in(link: Reconnecting, password: str) -> str:
+    """Log root in, and say what is wrong when it does not happen.
+
+    Empty on success. A refused password is retried, because the reason it was
+    refused is a race with the terminal rather than the password being wrong.
+    """
+    for _ in range(LOGIN_TRIES):
+        if not _name_the_user(link):
+            return "the installed system asked for a name and kept asking"
+        time.sleep(PASSWORD_ECHO_OFF_AFTER)
+        link.respond(password)
+        try:
+            said = link.observe(r"#|\$|Login incorrect", timeout=120.0)
+        except ConsoleTimeout as error:
+            return f"root could not log into the installed system: {error}"[:200]
+        if b"Login incorrect" not in said:
+            return ""
+    return "the installed system refused every login"
+
+
 #: How long SeaBIOS and GRUB take to reach the cryptomount prompt. Nothing on
 #: the serial port marks it, so the passphrase is typed after this, and a
 #: wrong guess costs one retry at the next prompt, which is waited for.
@@ -2362,15 +2389,11 @@ def boot_and_check(
         except (ConsoleTimeout, ConsoleClosed) as error:
             return f"the installed system did not reach a login prompt: {error}"[:200]
     try:
-        if not _name_the_user(link):
-            return "the installed system asked for a name and kept asking"
-        link.respond(INSTALLED_PASSWORD)
+        refused = _log_in(link, INSTALLED_PASSWORD)
     except ConsoleClosed as error:
         return f"installed login response delivery is unknown: {error}"[:200]
-    try:
-        link.observe(r"#|\$", timeout=120.0)
-    except (ConsoleTimeout, ConsoleClosed) as error:
-        return f"root could not log into the installed system: {error}"[:200]
+    if refused:
+        return refused
 
     for name, command, wanted in _asked_for(installation):
         said = link.expect_output(command, timeout=120.0)
