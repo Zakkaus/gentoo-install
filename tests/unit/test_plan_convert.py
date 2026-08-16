@@ -670,20 +670,28 @@ def test_a_bios_conversion_refuses_a_root_that_is_a_whole_disk() -> None:
     assert convert.layout_graph(uefi).mode is DiskMode.IN_PLACE
 
 
-def test_a_conversion_refuses_a_root_on_a_btrfs_subvolume() -> None:
-    """Fedora, Ubuntu and openSUSE all put root on a btrfs subvolume.
-    `layout_graph` emits no `Subvolume`, so `_rootflags` answers nothing and the
-    new command line carries no `rootflags=subvol=`: the initramfs would mount
-    the default subvolume and never see the system that was written into `/@`.
+def test_a_conversion_carries_the_btrfs_subvolume_onto_the_command_line() -> None:
+    """Fedora 41 mounts `/dev/vda4[/root]` and Ubuntu `[/@]`. Without a
+    `Subvolume` in the graph, `_rootflags` answers nothing and the new command
+    line carries no `rootflags=subvol=`, so the initramfs mounts the default
+    subvolume instead of the system that was written.
     """
-    on_a_subvolume = replace(_layout(root_filesystem_type="btrfs"), root_subvolume="/@")
-    with pytest.raises(ConversionUnsupported, match="btrfs subvolume /@"):
-        convert.layout_graph(on_a_subvolume)
+    from gentoo_install.model.device import Subvolume
+    from gentoo_install.plan.automatic import _rootflags
+
+    on_a_subvolume = replace(_layout(root_filesystem_type="btrfs"), root_subvolume="/root")
+    disk = convert.layout_graph(on_a_subvolume)
+    carried = [one for one in disk.graph.nodes.values() if isinstance(one, Subvolume)]
+    assert [one.name for one in carried] == ["/root"]
+    assert _rootflags(replace(_in_place(), disk=disk)) == "/root"
 
     # Negative control: btrfs at the top level is what Arch's cloud image runs,
-    # and it needs no `rootflags=` at all.
+    # and inventing a subvolume for it would put a `rootflags=` on a machine
+    # that must not have one.
     top_level = replace(on_a_subvolume, root_subvolume=None)
-    assert convert.layout_graph(top_level).mode is DiskMode.IN_PLACE
+    plain = convert.layout_graph(top_level)
+    assert not [one for one in plain.graph.nodes.values() if isinstance(one, Subvolume)]
+    assert _rootflags(replace(_in_place(), disk=plain)) == ""
 
 
 def test_the_carried_fstab_opens_inside_the_staging_root(tmp_path: Path) -> None:
