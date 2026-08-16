@@ -1190,3 +1190,52 @@ def test_a_refused_login_says_what_the_guest_was_showing(
     theirs = cluster._log_in(cast(cluster.Reconnecting, other), "install")
     assert "Maximum number of tries exceeded" in theirs, theirs
     assert theirs != said, "two different screens gave the same verdict"
+
+
+def test_the_login_wait_asks_again_after_the_console_is_reopened() -> None:
+    """run54 compared against run51 byte for byte at the same point: run51 has
+    the kernel's own first line straight after `Loading initial ramdisk ...`,
+    and run54 has the reconnect banner there instead and nothing after it. The
+    guest had booted; the console was reopened past the prompt.
+
+    `agetty` writes `login:` once, so a wait that never writes to the guest
+    spends the whole of `BOOT_PATIENCE` on a healthy machine.
+    """
+    from tests.vm.console import ConsoleClosed
+
+    class Console:
+        def __init__(self, opened: int) -> None:
+            self.opened = opened
+            self.asked = False
+
+        def expect(self, pattern: str, timeout: float) -> bytes:
+            if self.opened == 1:
+                raise ConsoleClosed("the guest closed the serial connection")
+            # The second console is the reopened one, and the prompt has
+            # already gone by: only a keystroke brings it back.
+            if not self.asked:
+                raise ConsoleClosed("still nothing")
+            return b"gentoo login:"
+
+        def send(self, line: str) -> None:
+            self.asked = True
+
+        def close(self) -> None:
+            return None
+
+    opened: list[Console] = []
+
+    def open_console() -> Any:
+        opened.append(Console(len(opened) + 1))
+        return opened[-1]
+
+    link = cluster.Reconnecting(open_console, tries=4)
+    assert b"login:" in link.observe(r"login:", timeout=30.0, solicit=True)
+
+    # Negative control: the default is still the silent wait, because an empty
+    # line at a passphrase prompt is an attempt rather than a request. Without
+    # soliciting, the same guest never shows the prompt again.
+    opened.clear()
+    silent = cluster.Reconnecting(open_console, tries=4)
+    with pytest.raises(ConsoleClosed):
+        silent.observe(r"login:", timeout=30.0)
