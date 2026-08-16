@@ -2323,6 +2323,19 @@ VERDICT_BYTES: Final[int] = 3600
 REPROMPT_PATIENCE: Final[float] = 30.0
 
 
+def _seen_since(link: Reconnecting, said: bytes) -> str:
+    """What the console holds, for a verdict that would otherwise be a guess.
+
+    The unlock's verdict carried nothing until `#407` and three rounds were
+    spent guessing at it; each round after that answered a different layer
+    because the screen was in the failure. A refused login is the same shape:
+    the pattern that missed is named and what the guest was showing is not.
+    """
+    trailing = link.console.snapshot(UNLOCK_SCREEN_PATIENCE)
+    held = (said + trailing)[-UNLOCK_SCREEN_BYTES:]
+    return repr(held) if held else "nothing"
+
+
 def _log_in(link: Reconnecting, password: str) -> str:
     """Log root in, and say what is wrong when it does not happen.
 
@@ -2343,7 +2356,10 @@ def _log_in(link: Reconnecting, password: str) -> str:
         try:
             said = link.observe(r"#|\$|Login incorrect", timeout=120.0)
         except ConsoleTimeout as error:
-            return f"root could not log into the installed system: {error}"[:200]
+            return (
+                f"root could not log into the installed system: {error}; "
+                f"the console held {_seen_since(link, b'')}"
+            )[:VERDICT_BYTES]
         if b"Login incorrect" not in said:
             return ""
         if password.encode() in said and echoed < PASSWORD_ECHO_CATCHES:
@@ -2360,7 +2376,10 @@ def _log_in(link: Reconnecting, password: str) -> str:
             link.observe(r"login:", timeout=REPROMPT_PATIENCE)
         except ConsoleTimeout:
             pass
-    return "the installed system refused every login"
+    return (
+        "the installed system refused every login; "
+        f"the console held {_seen_since(link, said)}"
+    )[:VERDICT_BYTES]
 
 
 #: How long SeaBIOS and GRUB take to reach the cryptomount prompt. Nothing on

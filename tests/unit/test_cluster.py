@@ -560,6 +560,18 @@ def test_the_converted_machine_is_read_back_the_same_way(monkeypatch: pytest.Mon
     assert "wait_for_network(" in code, "the installed system has to reach a mirror too"
 
 
+class _Screen:
+    """What `Reconnecting.console` offers a verdict that has to say what the
+    guest was showing. The real one is a live console; a test supplies the
+    tail it wants to see in the message."""
+
+    def __init__(self, trailing: bytes = b"") -> None:
+        self.trailing = trailing
+
+    def snapshot(self, seconds: float) -> bytes:
+        return self.trailing
+
+
 class _LoginConsole:
     """A serial line that behaves like `login` on the guests.
 
@@ -571,6 +583,7 @@ class _LoginConsole:
         self.refusals = refusals
         self.sent: list[str] = []
         self.answers: list[bytes] = []
+        self.console = _Screen(b"lvmbox login: ")
 
     def respond(self, line: str) -> None:
         self.sent.append(line)
@@ -618,6 +631,7 @@ class _EchoingConsole:
         self.sent: list[str] = []
         self.settles: list[float] = []
         self.answers: list[bytes] = []
+        self.console = _Screen(b"openrcsdbox login: ")
 
     def respond(self, line: str) -> None:
         self.sent.append(line)
@@ -1079,6 +1093,7 @@ def test_the_prompt_after_a_refusal_is_read_before_the_name_is_offered_again(
             self.refusals = refusals
             self.sent: list[str] = []
             self.pending: list[bytes] = []
+            self.console = _Screen(b"lvmbox login: ")
             #: What the guest is waiting for. A name sent here is echoed; a
             #: password is not, which is how the two are told apart below.
             self.wants = "name"
@@ -1146,3 +1161,32 @@ def test_a_fixture_that_passes_by_failing_is_not_recorded_as_a_failure() -> None
         if one.expect_failure
     }
     assert failing == set(cluster.EXPECTED_TO_FAIL), (failing, cluster.EXPECTED_TO_FAIL)
+
+
+def test_a_refused_login_says_what_the_guest_was_showing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`never matched '#|\\$|Login incorrect'` names the pattern that missed and
+    not what the guest was showing instead, which is how three rounds went on
+    `vm-lvm` guessing at a phase slip. The unlock's verdict carried nothing
+    either until #407, and every round after that answered a different layer
+    because the screen was in the message."""
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+
+    console = _LoginConsole(refusals=99)
+    # The symptom `vm-lvm` showed: the password typed into the name field.
+    console.console = _Screen(b"lvmbox login: install\r\nPassword: ")
+    said = cluster._log_in(cast(cluster.Reconnecting, console), "install")
+
+    assert "refused every login" in said
+    assert "login: install" in said, said
+
+    # Negative control: what the screen holds is what reaches the verdict, so
+    # a different screen gives a different message. Without the snapshot both
+    # of these read identically — which is what the old verdict did for every
+    # failure, whatever the guest was showing.
+    other = _LoginConsole(refusals=99)
+    other.console = _Screen(b"Maximum number of tries exceeded (5)")
+    theirs = cluster._log_in(cast(cluster.Reconnecting, other), "install")
+    assert "Maximum number of tries exceeded" in theirs, theirs
+    assert theirs != said, "two different screens gave the same verdict"
