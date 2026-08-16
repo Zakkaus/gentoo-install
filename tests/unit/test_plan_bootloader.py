@@ -87,7 +87,7 @@ def test_zfsbootmenu_carries_remote_access_in_its_own_image() -> None:
     for operation in kernel.build(installation):
         if isinstance(operation, kernel.ConfigureRemoteUnlock):
             operation.apply(kernel_recorder)
-    assert kernel_recorder.files[PurePosixPath("/etc/dracut.conf.d/crypt-ssh.conf")] == (
+    assert kernel_recorder.files[kernel.REMOTE_UNLOCK_CONFIG] == (
         'omit_dracutmodules+=" crypt-ssh "\n'
     )
     assert "crypt-ssh" not in kernel.dracut_modules(installation)

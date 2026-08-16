@@ -52,6 +52,16 @@ FILESYSTEM_MODULES: Final[dict[FilesystemType, str]] = {FilesystemType.BTRFS: "b
 #: and one of the network managers dracut's network module can drive.
 REMOTE_UNLOCK_PACKAGE: Final[str] = "sys-kernel/dracut-crypt-ssh"
 
+#: Not `crypt-ssh.conf`: `dracut-crypt-ssh` installs a file of exactly that
+#: name, so writing ours there is a CONFIG_PROTECT collision and the merge
+#: leaves the package's copy unapplied as `._cfg0000_crypt-ssh.conf`.
+#: `zz-` and not a digit prefix: dracut sources the directory in lexical order
+#: and the last assignment to a scalar wins, and a digit sorts before every
+#: letter, so `99-` would be read before `crypt-ssh.conf` and lose the port.
+REMOTE_UNLOCK_CONFIG: Final[PurePosixPath] = PurePosixPath(
+    "/etc/dracut.conf.d/zz-gentoo-install-crypt-ssh.conf"
+)
+
 #: Executables required by dracut's network-legacy module. ZFSBootMenu omits
 #: systemd, so its remote-unlock image cannot use systemd-networkd instead.
 ZBM_LEGACY_NETWORK_PACKAGES: Final[tuple[str, ...]] = (
@@ -341,7 +351,7 @@ class ConfigureRemoteUnlock(Operation):
 
     def describe(self) -> str:
         if not self.system_initramfs:
-            return "write /etc/dracut.conf.d/crypt-ssh.conf to omit ssh from the system initramfs"
+            return f"write {REMOTE_UNLOCK_CONFIG} to omit ssh from the system initramfs"
         return f"configure remote unlock over ssh on port {self.port}"
 
     def apply(self, context: Context) -> None:
@@ -352,7 +362,7 @@ class ConfigureRemoteUnlock(Operation):
         ).apply(context)
         if not self.system_initramfs:
             context.write(
-                PurePosixPath("/etc/dracut.conf.d/crypt-ssh.conf"),
+                REMOTE_UNLOCK_CONFIG,
                 'omit_dracutmodules+=" crypt-ssh "\n',
             )
             return
@@ -368,7 +378,7 @@ class ConfigureRemoteUnlock(Operation):
             'install_items+=" /sbin/cryptsetup "',
         ]
         context.write(
-            PurePosixPath("/etc/dracut.conf.d/crypt-ssh.conf"),
+            REMOTE_UNLOCK_CONFIG,
             "".join(f"{line}\n" for line in lines),
         )
 

@@ -620,7 +620,7 @@ def test_the_unlock_daemon_is_keyworded_and_told_where_to_read_its_keys() -> Non
         PurePosixPath("/etc/portage/package.accept_keywords/dracut-crypt-ssh")
     ]
     assert keywords == "sys-kernel/dracut-crypt-ssh ~amd64\n"
-    written = recorder.files[PurePosixPath("/etc/dracut.conf.d/crypt-ssh.conf")]
+    written = recorder.files[kernel.REMOTE_UNLOCK_CONFIG]
     assert 'dropbear_port="222"' in written
     # The `unlock` helper runs cryptsetup and the module does not pull it in.
     assert "/sbin/cryptsetup" in written
@@ -1033,7 +1033,7 @@ def test_the_dropbear_port_written_is_the_port_the_configuration_asked_for() -> 
             operation.apply(recorder)
             ran += 1
     assert ran == 1, "the fixture enables remote unlock, so exactly one is planned"
-    written = recorder.files[PurePosixPath("/etc/dracut.conf.d/crypt-ssh.conf")]
+    written = recorder.files[kernel.REMOTE_UNLOCK_CONFIG]
     assert f'dropbear_port="{asked}"' in written, written
 
 
