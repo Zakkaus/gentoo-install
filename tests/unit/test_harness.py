@@ -2483,3 +2483,34 @@ def test_the_unlock_itself_waits_first() -> None:
 
     code = inspect.getsource(runner.remote_unlock)
     assert code.index("wait_for_unlock_daemon(") < code.index("subprocess.Popen(")
+
+
+def test_the_local_runner_pins_no_interface_name_either() -> None:
+    """`vm-unlock`'s own serial log has `virtio_net virtio0 enp0s2: renamed
+    from eth0` at 156.6 seconds — after `systemd-networkd` started and after
+    `Reached target Network`. The unit generated from `ip=eth0:dhcp` matched a
+    name that no longer existed, so nothing answered on the forwarded port.
+
+    `cluster.rewrite_fixtures` has cleared the interface since #407; this is
+    the other runner, which did not, so the two disagreed about the one
+    parameter that decides whether the initramfs is reachable.
+    """
+    from pathlib import Path
+
+    from gentoo_install.exec.config import load
+    from gentoo_install.plan.bootloader import unlock_parameters
+    from tests.vm.run import remote_config
+
+    for name in ("vm-unlock", "zbm-unlock"):
+        fixture = load(Path(f"tests/fixtures/{name}.toml"))
+        # The negative control is the input: the fixture names a device, which
+        # is a reasonable thing for an operator to write and wrong here.
+        assert fixture.kernel.remote_unlock.interface, name
+
+        prepared = remote_config(fixture, "ssh-ed25519 AAAA test")
+        assert prepared.kernel.remote_unlock.interface == "", name
+
+        address = next(
+            one for one in unlock_parameters(prepared) if one.startswith("ip=")
+        )
+        assert "eth0" not in address, address

@@ -330,7 +330,15 @@ def remote_unlock_commands(installation: InstallConfig) -> tuple[str, str | None
 
 
 def remote_config(installation: InstallConfig, public_key: str) -> InstallConfig:
-    """Replace fixture-only remote credentials with values owned by this run."""
+    """Replace fixture-only remote credentials with values owned by this run.
+
+    The interface goes with the address, for the reason `cluster.rewrite_fixtures`
+    clears it: `vm-unlock` names `eth0`, and udev renames that device. This
+    guest's own serial log has `virtio_net virtio0 enp0s2: renamed from eth0`
+    at 156.6 seconds, after `systemd-networkd` had started and after `Reached
+    target Network` — so the unit generated from `ip=eth0:dhcp` was matching a
+    name that no longer existed, and nothing answered on the forwarded port.
+    """
     unlock = installation.kernel.remote_unlock
     if not unlock.enabled:
         return installation
@@ -339,7 +347,7 @@ def remote_config(installation: InstallConfig, public_key: str) -> InstallConfig
         system=replace(installation.system, authorized_keys=(public_key,)),
         kernel=replace(
             installation.kernel,
-            remote_unlock=replace(unlock, address=""),
+            remote_unlock=replace(unlock, address="", interface=""),
         ),
     )
 
