@@ -218,6 +218,18 @@ class LeaveStaging(Operation):
     def required_host_commands(self) -> frozenset[str]:
         return frozenset({"umount", "findmnt", "rm"})
 
+    @property
+    def releases_the_machine(self) -> bool:
+        """Run after a failure too, because the failure is what needs it.
+
+        A conversion that stopped leaves `/proc`, `/sys` and `/dev` bound under
+        the staging root, which this class's own docstring calls holding the
+        machine at shutdown, and `PrepareStaging` then refuses the next attempt
+        because the directory is not empty. `rm -rf` on it from outside walks
+        those binds into the running system's `/dev`.
+        """
+        return True
+
     def describe(self) -> str:
         return f"unmount and remove {self.staging}"
 
