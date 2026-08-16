@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 from __future__ import annotations
 
+import argparse
 import os
 import shutil
 import time
@@ -1035,3 +1036,39 @@ def test_a_conversion_reads_the_running_layout_even_for_a_dry_run(
     assert code == EXIT_OK
     assert read == ["layout"], "the layout is what a conversion plan is derived from"
     assert "swap" in capsys.readouterr().out
+
+
+def _conversion_arguments(no_shell: bool) -> argparse.Namespace:
+    return argparse.Namespace(no_shell=no_shell)
+
+
+def test_the_swap_is_confirmed_before_it_runs(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The one step with no second attempt. A wrong answer stops the run."""
+    said: list[str] = []
+    monkeypatch.setattr(cli, "_unattended", lambda arguments: False)
+    monkeypatch.setattr("builtins.input", lambda *_: "convert")
+    assert cli._confirmed_swap(_conversion_arguments(False), said.append)
+    printed = capsys.readouterr().out
+    assert "/usr" in printed and "/home" in printed
+
+    monkeypatch.setattr("builtins.input", lambda *_: "yes")
+    assert not cli._confirmed_swap(_conversion_arguments(False), said.append)
+    assert any("not confirmed" in one for one in said)
+
+
+def test_an_unattended_conversion_is_not_asked_but_is_recorded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A question here would hold a serial console open for ever, and the mode
+    in the configuration file is the authorisation."""
+
+    def refuse(*_: object) -> str:
+        raise AssertionError("an unattended run must not be asked")
+
+    monkeypatch.setattr("builtins.input", refuse)
+    monkeypatch.setattr(cli, "_unattended", lambda arguments: True)
+    said: list[str] = []
+    assert cli._confirmed_swap(_conversion_arguments(True), said.append)
+    assert any("/usr" in one for one in said)
