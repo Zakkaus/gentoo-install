@@ -750,7 +750,10 @@ REACHABILITY_PROBE: Final[str] = (
     # measured `ens18` with an address, then the installer four seconds later
     # with no routes, then no `ens18` at all. Only `dmesg` says what removed it.
     "printf '\\nLINKS '; ip -brief link show | tr '\\n' ';'; "
-    "printf '\\nDMESG '; dmesg | tail -6 | tr '\\n' ';'; printf '\\n'"
+    "printf '\\nDMESG '; dmesg | tail -6 | tr '\\n' ';'; "
+    "printf '\\nKEEPER '; wc -l < /tmp/gentoo-install-address-keeper.log "
+    "2>/dev/null || printf 'none'; "
+    "printf '\\n'"
 )
 
 
@@ -954,6 +957,33 @@ def use_our_resolvers() -> str:
     return f"printf '{resolvers}' > /etc/resolv.conf"
 
 
+#: Where the keeper records each time it had to put the address back. The
+#: count is the evidence: a keeper that never fires means something else took
+#: the network, and one that fires every five seconds names the interval.
+KEEPER_LOG: Final[str] = "/tmp/gentoo-install-address-keeper.log"
+
+
+def keep_the_address(address: str) -> str:
+    """Put the address back whenever something takes it away.
+
+    Round 32 measured `ens18` up with `10.31.0.152/24` immediately before the
+    installer and the same interface up with no address after it, with nothing
+    in the kernel log and no network command in the installer's own run list.
+    Rather than name the service that flushes it, this reasserts the
+    configuration and counts how often it had to.
+    """
+    network, last = address.rsplit(".", 1)
+    body = (
+        "while :; do for one in /sys/class/net/e*; do dev=$(basename \"$one\"); "
+        f'ip -4 addr show dev \"$dev\" | grep -q {network}.{last}/{GUEST_PREFIX} || {{ '
+        'ip link set \"$dev\" up; '
+        f'ip -4 addr add {network}.{last}/{GUEST_PREFIX} dev \"$dev\" 2>/dev/null; '
+        f'ip -4 route replace default via {GUEST_GATEWAY} dev \"$dev\" 2>/dev/null; '
+        f"echo readded >> {KEEPER_LOG}; }}; done; sleep 5; done"
+    )
+    return f"nohup sh -c '{body}' >/dev/null 2>&1 &"
+
+
 def _address_is_taken(address: str) -> bool:
     """Check occupancy before the scheduler reserves an address."""
     result = subprocess.run(
@@ -1030,6 +1060,8 @@ def wait_for_network(
             # rest of the install, and a lapsed DHCP lease took it away
             # mid-fetch — sixty-one lookups answered `ENETUNREACH`.
             link.run(configure, timeout=120.0)
+            if vmid:
+                link.run(keep_the_address(address or static_address(vmid)), timeout=120.0)
             link.run(REACHABILITY_PROBE, timeout=120.0)
             return
         # Every pass, not once: the fallback asks a DHCP server that answers
