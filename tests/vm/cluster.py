@@ -1885,6 +1885,13 @@ def _remaining(deadline: float) -> float:
     return max(0.0, deadline - time.monotonic())
 
 
+#: How many times one guest's console may be reopened before the node itself
+#: is called the problem. A healthy run reconnects a handful of times over an
+#: hour; a node whose proxy is refusing grants and closes a session every time,
+#: which raises nothing and burns the whole run ceiling.
+REOPEN_CEILING: Final[int] = 24
+
+
 class Reconnecting:
     """A console that opens another one when the cluster drops it.
 
@@ -1903,6 +1910,7 @@ class Reconnecting:
         self._open = open_console
         self._tries = tries
         self._marks = itertools.count(1)
+        self._reopens = 0
         self.console: Line = open_console()
 
     @classmethod
@@ -1910,6 +1918,16 @@ class Reconnecting:
         return cls(lambda: SerialConsole(guest.console(), log.open("ab")), tries)
 
     def reopen(self, *, solicit_prompt: bool = True) -> None:
+        self._reopens += 1
+        if self._reopens > REOPEN_CEILING:
+            # A node whose proxy is refusing grants a session and closes it at
+            # once, so every reopen succeeds and nothing ever raises: two guests
+            # on `infra-node3` sat at step 11 for forty minutes with their
+            # installs running and no way to read them.
+            raise ConsoleClosed(
+                f"the console was reopened {self._reopens} times and kept closing",
+                write_may_have_reached_guest=False,
+            )
         # Before the new one, not after: `termproxy` holds the guest's serial
         # chardev until its client leaves, and the second session reads nothing.
         try:

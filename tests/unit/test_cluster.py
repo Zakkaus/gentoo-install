@@ -477,3 +477,41 @@ def test_the_keeper_starts_once_the_guest_has_its_address() -> None:
     configured = link.ran.index(cluster.configure_statically(cluster.static_address(9301)))
     kept = link.ran.index(cluster.keep_the_address(cluster.static_address(9301))[-1])
     assert configured < kept
+
+
+def test_a_console_that_keeps_closing_gives_up_instead_of_burning_the_ceiling() -> None:
+    """A node whose proxy is refusing grants a session and closes it at once,
+    so every reopen succeeds and nothing ever raises: two guests sat at step 11
+    for forty minutes with their installs running and no way to read them."""
+    from tests.vm.console import ConsoleClosed
+
+    opened: list[int] = []
+
+    class Closing:
+        def send(self, line: str) -> None:
+            pass
+
+        def send_raw(self, keys: str) -> None:
+            pass
+
+        def snapshot(self, seconds: float) -> bytes:
+            return b""
+
+        @property
+        def closed(self) -> bool:
+            return False
+
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+            raise ConsoleClosed("termproxy disconnected")
+
+        def close(self) -> None:
+            pass
+
+    def open_console() -> Closing:
+        opened.append(1)
+        return Closing()
+
+    link = cluster.Reconnecting(open_console, tries=1000)
+    with pytest.raises(ConsoleClosed, match="kept closing"):
+        link.expect("never", timeout=600.0)
+    assert len(opened) <= cluster.REOPEN_CEILING + 2, opened
