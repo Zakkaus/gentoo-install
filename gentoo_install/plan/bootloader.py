@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Final
 
-from ..errors import ConfigError, InvalidLayout, NothingToBoot
+from ..errors import CommandFailed, ConfigError, InvalidLayout, NothingToBoot
 from ..model import compat
 from ..model.config import Bootloader, Firmware, InitSystem, InstallConfig, RemoteUnlock
 from ..model.device import (
@@ -123,6 +123,25 @@ ZBM_AUTHORIZED_KEYS: Final[PurePosixPath] = ZBM_KEY_DIRECTORY / "root_key"
 ZBM_HOST_KEY_TYPES: Final[tuple[str, ...]] = ("rsa", "ecdsa")
 
 
+#: The firmware boot entry, which is an accelerator and not the boot path.
+#: `EFI/BOOT/BOOTX64.EFI` is what the firmware falls back to with no entry at
+#: all, and both bootloaders write it before asking for one.
+NVRAM_ENTRY: Final[str] = "efi boot entry"
+
+
+def _try_the_nvram_entry(context: Context, argv: list[str]) -> None:
+    """Ask the firmware for a boot entry, and carry on when it refuses.
+
+    An NVRAM that is full or read-only is the machine's, not the install's,
+    and a machine whose fallback image is already in place boots without one.
+    Stopping there loses a complete install to a variable nobody needs.
+    """
+    try:
+        context.run_in_target(argv)
+    except CommandFailed as error:
+        context.degrade(NVRAM_ENTRY, f"the firmware refused a boot entry: {error}")
+
+
 @dataclass(frozen=True, kw_only=True)
 class InstallGrub(Operation):
     stage: Stage = Stage.BOOTLOADER
@@ -145,10 +164,11 @@ class InstallGrub(Operation):
     def apply(self, context: Context) -> None:
         if self.firmware is Firmware.UEFI and self.esp is not None:
             efi = ["grub-install", "--target=x86_64-efi", f"--efi-directory={self.esp}"]
-            context.run_in_target([*efi, "--bootloader-id=Gentoo"])
-            # Also as the removable-media path: firmware that loses its NVRAM
-            # entry, and every firmware that never had one, boots only that.
+            # The removable-media path first, because it is the one that boots
+            # without an NVRAM entry: firmware that loses its entry, and every
+            # firmware that never had one, boots only that.
             context.run_in_target([*efi, "--removable"])
+            _try_the_nvram_entry(context, [*efi, "--bootloader-id=Gentoo"])
         else:
             installed: set[str] = set()
             for device in self.boot_devices:
@@ -439,7 +459,8 @@ class InstallZfsBootMenu(Operation):
         context.run_in_target(["generate-zbm"])
         image = self._image(context)
         context.run_in_target(["install", "-D", "-m0644", image, f"{self.esp}/{FALLBACK_IMAGE}"])
-        context.run_in_target(
+        _try_the_nvram_entry(
+            context,
             [
                 "efibootmgr",
                 "--create",
@@ -447,7 +468,7 @@ class InstallZfsBootMenu(Operation):
                 "--part", str(context.partition_index(self.esp_device)),
                 "--label", "ZFSBootMenu",
                 "--loader", _windows_path(image, self.esp),
-            ]
+            ],
         )
 
     def _image(self, context: Context) -> str:
