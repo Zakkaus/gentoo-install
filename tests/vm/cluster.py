@@ -1563,6 +1563,19 @@ def install_one(
         files = collect(guest, link, log)
         keep_results(log, files)
         code = files.get("install.rc", b"").strip()
+        if job.name in EXPECTED_TO_FAIL:
+            # The install stopping is the whole answer here, so there is no
+            # installed system to boot afterwards and the run ends on this line.
+            stopped = code != b"0"
+            return Outcome(
+                job.name,
+                Verdict.OK if stopped else Verdict.FAIL,
+                time.monotonic() - started,
+                "" if stopped else "the install was supposed to stop and did not",
+                log,
+                phase=phase,
+                revision=revision,
+            )
         if code != b"0":
             outcome = Outcome(
                 job.name,
@@ -1984,6 +1997,13 @@ _Result = TypeVar("_Result")
 def _remaining(deadline: float) -> float:
     return max(0.0, deadline - time.monotonic())
 
+
+#: Fixtures whose install is supposed to stop. `vm-proxy-dead` points every
+#: fetch at a port nothing listens on, so `the installer exited 4` is the
+#: result it exists to produce; recording that as a failure made it the only
+#: fixture that could never be green, and it was counted as unverified for
+#: weeks. `campaign.py` knew this and the cluster did not.
+EXPECTED_TO_FAIL: Final[frozenset[str]] = frozenset({"vm-proxy-dead"})
 
 #: Nodes that take no guests until `--allow-node` names them. 66 of the 70
 #: console-proxy drops recorded across every run under `lab/` name

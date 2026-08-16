@@ -1242,9 +1242,21 @@ def test_a_run_is_not_green_until_the_installed_system_answers() -> None:
 
     source = inspect.getsource(cluster.install_one)
     assert "boot_and_check" in source
-    ok = source.index("Verdict.OK")
     checked = source.index("boot_and_check")
-    assert checked < ok, "the verdict cannot be OK before the system was read"
+
+    # One exception, and it has to be the only one: a fixture in
+    # `EXPECTED_TO_FAIL` stops the install on purpose, so there is no installed
+    # system to read and its verdict is decided before that point. Every other
+    # `Verdict.OK` comes after the machine answered.
+    exception = source.index("EXPECTED_TO_FAIL")
+    early = [
+        at
+        for at in range(len(source))
+        if source.startswith("Verdict.OK", at) and at < checked
+    ]
+    assert len(early) == 1, early
+    assert exception < early[0] < checked, (exception, early, checked)
+    assert "Verdict.OK" in source[checked:], "and the ordinary verdict is after it"
 
 
 def test_installed_boot_attaches_before_reset_without_sending_a_line(
