@@ -14,7 +14,7 @@ from typing import AbstractSet, Final, Iterable, Mapping
 
 from ..errors import DeviceNotFound, PreflightFailed
 from ..model import compat
-from ..model.config import Firmware, InstallConfig
+from ..model.config import DiskMode, Firmware, InstallConfig
 from ..model.device import (
     DeviceGraph,
     DeviceId,
@@ -483,6 +483,14 @@ def inspect(
     # disk is a real thing to do, and the guard that matters is below — a disk
     # with anything mounted on it is not repartitioned. What was missing is
     # that nothing named the difference before the disk screen.
+    if config.disk.mode is DiskMode.IN_PLACE:
+        medium = probe.live_medium()
+        if medium:
+            fatal.append(
+                "in-place conversion replaces the running userland, and this is a live "
+                f"medium ({medium}): install onto a disk instead"
+            )
+
     if _disks_at_risk(config.disk.graph) and not probe.live_medium():
         where = probe.root_source()
         warnings.append(
