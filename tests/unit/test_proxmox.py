@@ -1147,11 +1147,11 @@ def test_the_network_wait_gives_up_rather_than_hanging(
 def test_the_network_wait_returns_as_soon_as_the_guest_answers() -> None:
     from tests.vm import cluster
 
-    tries: list[int] = []
+    tries: list[str] = []
 
     class Late:
         def send(self, line: str) -> None:
-            tries.append(1)
+            tries.append(line)
 
         def send_raw(self, keys: str) -> None:
             pass
@@ -1171,7 +1171,9 @@ def test_the_network_wait_returns_as_soon_as_the_guest_answers() -> None:
 
     link = cluster.Reconnecting(Late, tries=1)
     cluster.wait_for_network(link)
-    assert len(tries) == 3
+    assert len(tries) == 4
+    assert sum(1 for line in tries if "NETWORK_%s" in line) == 2
+    assert "REACH" in tries[-1]
 
 
 def test_the_network_probe_is_sent_again_after_a_reconnect() -> None:
