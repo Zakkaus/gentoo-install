@@ -1040,3 +1040,21 @@ def test_the_seed_and_the_flags_compose_the_way_the_call_site_reads() -> None:
     assert node not in unreachable((), (node,))
     # Negative control: allowing an unrelated node does not clear the seed.
     assert node in unreachable((), ("infra-node9",))
+
+
+def test_a_fixture_that_needs_user_mode_networking_is_refused_here() -> None:
+    """`vm-proxy` and `vm-proxy-http` reach `10.0.2.2`, which is the machine
+    running qemu as its user-mode network presents it. A cluster guest is
+    bridged and has no such host, so every fetch times out: the two of them
+    spent 116.0 and 112.8 minutes proving it in one round."""
+    import pytest
+
+    for name in ("vm-proxy", "vm-proxy-http"):
+        with pytest.raises(SystemExit, match="user-mode network"):
+            cluster.fixtures([name])
+
+    # Negative control: a dead proxy at 127.0.0.1 is dead on any machine, so it
+    # is a real cluster fixture and must not be swept up by the guard.
+    assert cluster.fixtures(["vm-proxy-dead"])[0].name == "vm-proxy-dead"
+    # And so is every fixture that names no proxy at all.
+    assert cluster.fixtures(["vm-xfs", "zfs-zbm"])
