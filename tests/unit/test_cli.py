@@ -1072,3 +1072,54 @@ def test_an_unattended_conversion_is_not_asked_but_is_recorded(
     said: list[str] = []
     assert cli._confirmed_swap(_conversion_arguments(True), said.append)
     assert any("/usr" in one for one in said)
+
+
+def test_a_layout_that_cannot_be_converted_exits_as_a_preflight_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Nothing ran, so code 4 would say a command failed. The machine is one
+    this installer declines to convert, which is what code 2 says."""
+    from dataclasses import replace
+
+    from .layouts import config
+
+    class OnZfs:
+        def __init__(self, **_: object) -> None:
+            pass
+
+        def storage_layout(self) -> StorageLayout:
+            return StorageLayout(
+                root_device="rpool/ROOT/gentoo",
+                root_filesystem_type="zfs",
+                root_uuid=None,
+                root_on_lvm=False,
+                root_on_luks=False,
+                root_on_mdraid=False,
+                root_below_device=None,
+                boot_device=None,
+                boot_same_filesystem=True,
+                esp_device="/dev/nvme0n1p1",
+                esp_mountpoint="/boot/efi",
+                uefi=True,
+                root_free_bytes=20 * 2**30,
+            )
+
+    converted = replace(
+        config(),
+        disk=DiskConfig(graph=DeviceGraph.build([]), root=DeviceId(""), mode=DiskMode.IN_PLACE),
+    )
+    monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
+    monkeypatch.setattr(cli, "_needs_network", lambda arguments: False)
+    monkeypatch.setattr(cli, "load", lambda path: converted)
+    monkeypatch.setattr(cli, "Probe", OnZfs)
+
+    code = main(
+        [
+            "--config", str(tmp_path / "install.toml"),
+            "--work", str(tmp_path / "work"),
+            "--dry-run",
+        ]
+    )
+
+    assert code == EXIT_PREFLIGHT
+    assert "zfs" in capsys.readouterr().err
