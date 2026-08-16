@@ -802,3 +802,39 @@ def test_writing_over_a_partition_this_plan_creates_does_not_condemn_the_disk() 
         ),
     )
     assert compat.destroyed(kept.disk.graph) == ()
+
+
+def test_the_kernel_package_table_is_the_only_one() -> None:
+    """`model/compat.py` and `plan/kernel.py` each held a complete copy, and a
+    package renamed in one of them would have left `traits_of` deciding
+    `CJK_KERNEL` from a name the installer no longer merges."""
+    import ast
+    from pathlib import Path
+
+    from gentoo_install.model import compat
+    from gentoo_install.model.config import KernelSource
+
+    assert set(compat.KERNEL_PACKAGES) == set(KernelSource), "every choice has a package"
+
+    # Derived rather than listed: the cjk set has to move when the table does.
+    assert compat._CJK_KERNEL_PACKAGES == {
+        compat.KERNEL_PACKAGES[source] for source in compat.CJK_KERNELS
+    }
+
+    # No second table anywhere: a dict whose keys are every KernelSource member
+    # is a copy of this one. Matched on the member names rather than on the
+    # enum's identifier, because `import KernelSource as _K` would otherwise
+    # walk straight past — the first version of this check did.
+    members = {source.name for source in KernelSource}
+    root = Path(compat.__file__).resolve().parent.parent
+    copies: list[str] = []
+    for path in sorted(root.rglob("*.py")):
+        if path.resolve() == Path(compat.__file__).resolve():
+            continue
+        for node in ast.walk(ast.parse(path.read_text())):
+            if not isinstance(node, ast.Dict):
+                continue
+            named = {key.attr for key in node.keys if isinstance(key, ast.Attribute)}
+            if named == members:
+                copies.append(f"{path.relative_to(root)}:{node.lineno}")
+    assert copies == [], copies

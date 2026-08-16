@@ -68,7 +68,7 @@ from ..model.device import (
 from ..plan import automatic as automatic_values
 from ..plan import kernel as plan_kernel
 from ..plan.fonts import CJK_SANS_PREFERENCE, CjkFontconfigLocale, FontCategory
-from ..plan.kernel import KERNEL_PACKAGES
+from ..model.compat import KERNEL_PACKAGES
 from ..plan.portage import community_binhost
 from ..plan.operations import Operation
 from ..plan.render import counts
@@ -1570,7 +1570,7 @@ def kernel_screen(screen: Screen, config: InstallConfig, context: Context) -> An
         return Answer(answer.outcome)
     chosen = answer.unwrap()
     changed = replace(config, kernel=replace(config.kernel, source=chosen))
-    if chosen in plan_kernel.CJK_KERNELS:
+    if chosen in compat.CJK_KERNELS:
         # cjk on with it, the mirror of the branch below: `RequestCjkKernel`
         # reads this flag, so choosing the patched kernel and leaving the flag
         # off wrote `-cjk` and compiled the patch out of the package that

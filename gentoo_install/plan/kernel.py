@@ -15,6 +15,7 @@ from typing import Final
 from ..model.config import Bootloader, InitSystem, InstallConfig, KernelSource
 from ..errors import ConfigError, InvalidLayout, NothingToBoot, ValidationFailed
 from ..model import compat
+from ..model.compat import CJK_KERNELS, KERNEL_PACKAGES
 from ..model.validate import zfs_kernel_version_problem
 from ..model.device import (
     DeviceId,
@@ -36,14 +37,6 @@ from .portage import (
     WritePortageConfig,
 )
 from .bootloader import VerifyPackageUse
-
-#: The package that provides each kernel choice.
-KERNEL_PACKAGES: Final[dict[KernelSource, str]] = {
-    KernelSource.DIST_BIN: "sys-kernel/gentoo-kernel-bin",
-    KernelSource.DIST_SOURCE: "sys-kernel/gentoo-kernel",
-    KernelSource.CJK_BIN: "sys-kernel/gentoo-cjk-kernel-bin",
-    KernelSource.CJK: "sys-kernel/gentoo-cjk-kernel",
-}
 
 #: Filesystems whose driver dracut only includes when asked.
 FILESYSTEM_MODULES: Final[dict[FilesystemType, str]] = {FilesystemType.BTRFS: "btrfs"}
@@ -76,7 +69,6 @@ REMOTE_UNLOCK_MODULES: Final[tuple[str, ...]] = ("crypt-ssh", "network")
 
 #: The two packages that carry the cjktty patch, prebuilt and from source.
 #: Both take the `cjk` flag and both are keyworded `~amd64` in gentoo-zh.
-CJK_KERNELS: Final[tuple[KernelSource, ...]] = (KernelSource.CJK_BIN, KernelSource.CJK)
 
 INSTALLKERNEL_STATE: Final[str] = "/var/lib/misc/installkernel"
 #: The cjk USE flag of the patched kernels, which merges the
