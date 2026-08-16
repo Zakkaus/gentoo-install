@@ -408,3 +408,49 @@ def test_the_staging_context_answers_every_member_of_the_context() -> None:
         if name == "target":
             continue
         assert getattr(staged, name) == name, name
+
+
+def test_staging_moves_the_chroot_not_only_the_target() -> None:
+    """`run_in_target` chroots into the machine's own mount point rather than
+    `context.target`, so a context that answered only `target` would have run
+    every `emerge` in the system being replaced."""
+    from dataclasses import dataclass as plain
+    from pathlib import Path as RealPath
+
+    @plain
+    class Machinelike:
+        mountpoint: RealPath = RealPath("/mnt/gentoo")
+
+        @property
+        def target(self) -> PurePosixPath:
+            return PurePosixPath(self.mountpoint)
+
+        def run_in_target(self, argv: list[str], *, check: bool = True) -> str:
+            return f"chroot {self.mountpoint}"
+
+    staged = convert._aimed_at(cast(Any, Machinelike()), PurePosixPath("/gentoo-install.new"))
+
+    assert staged.target == PurePosixPath("/gentoo-install.new")
+    assert staged.run_in_target(["emerge"]) == "chroot /gentoo-install.new"
+
+
+def test_the_live_machine_still_keeps_its_target_in_one_field() -> None:
+    """The move works by replacing that one field. A machine that grew a
+    second copy of the path would keep half of itself aimed at the old root."""
+    from dataclasses import fields
+
+    from gentoo_install.exec.apply import Machine
+
+    assert "mountpoint" in {one.name for one in fields(Machine)}
+
+
+def test_a_context_without_that_field_still_reaches_the_staging_root() -> None:
+    class Recorder:
+        target = PurePosixPath("/mnt/gentoo")
+
+        def read(self, path: PurePosixPath) -> str:
+            return "from the parent"
+
+    staged = convert._aimed_at(cast(Any, Recorder()), PurePosixPath("/gentoo-install.new"))
+    assert staged.target == PurePosixPath("/gentoo-install.new")
+    assert staged.read(PurePosixPath("/etc/portage/make.conf")) == "from the parent"

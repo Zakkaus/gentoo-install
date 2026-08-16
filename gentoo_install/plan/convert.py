@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import importlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any, Final, Protocol, Sequence, cast
 
@@ -65,7 +65,25 @@ class Staged(Operation):
         return f"{self.inner.describe()}, in {self.staging}"
 
     def apply(self, context: Context) -> None:
-        self.inner.apply(cast(Context, _StagingContext(parent=context, staging=self.staging)))
+        self.inner.apply(_aimed_at(context, self.staging))
+
+
+def _aimed_at(parent: Context, staging: PurePosixPath) -> Context:
+    """The same machine with everything aimed at the staging root.
+
+    `run_in_target` chroots into the machine's own mount point rather than
+    `context.target`, so a context that answered only `target` would have run
+    every `emerge` in the system being replaced. The live implementation keeps
+    that path in one field, so moving it moves all of them; a recorder that
+    keeps no such field gets the wrapper, which is enough for one that runs
+    nothing.
+    """
+    if hasattr(parent, "mountpoint"):
+        try:
+            return cast(Context, replace(cast(Any, parent), mountpoint=Path(str(staging))))
+        except TypeError:
+            pass
+    return cast(Context, _StagingContext(parent=parent, staging=staging))
 
 
 @dataclass(frozen=True)
