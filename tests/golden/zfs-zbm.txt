@@ -39,7 +39,7 @@
   point repository gentoo at https://github.com/gentoo-mirror/gentoo.git, commit signatures verified
   sync repository gentoo
   point repository gentoo-zh at https://mirrors.cernet.edu.cn/gentoo-zh.git
-  sync repository gentoo-zh
+  sync repository gentoo-zh, 4 other sites to fall back on
   accept ~amd64 for packages from gentoo-zh only
   set sys-kernel/installkernel to dracut, installing into /boot
   verify the selected kernel against the target sys-fs/zfs ceiling

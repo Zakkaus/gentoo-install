@@ -40,7 +40,7 @@
   point repository gentoo at https://mirrors.ustc.edu.cn/gentoo.git, commit signatures verified
   sync repository gentoo
   point repository gentoo-zh at https://mirrors.cernet.edu.cn/gentoo-zh.git
-  sync repository gentoo-zh
+  sync repository gentoo-zh, 4 other sites to fall back on
   accept ~amd64 for packages from gentoo-zh only
   install the key the community binary packages are signed with: emerge sec-keys/openpgp-keys-gentoozh, from source
   import 38A0234EC16AD42E from /usr/share/openpgp-keys/gentoozh.asc and locally sign it for gentoo-zh
