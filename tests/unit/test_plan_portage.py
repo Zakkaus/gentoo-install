@@ -1856,3 +1856,77 @@ def test_a_binary_that_downloads_on_the_second_try_compiles_nothing() -> None:
     assert len(emerges) == 2
     assert all("--getbinpkg=n" not in argv for argv in emerges)
     assert not recorder.degraded(portage.BINARY_PACKAGES)
+
+
+#: Verbatim from `run54/vm-desktop.install.txt`, which ended at exit 4.
+BACKGROUND_FETCH = """>>> Verifying ebuild manifests
+
+>>> Running pre-merge checks for net-wireless/wireless-regdb-20251007
+ * Fetching in the background:
+ * /var/cache/binhost/gentoo/net-wireless/wireless-regdb/\
+wireless-regdb-20251007-1.gpkg.tar.partial
+ * To view fetch progress, run in another terminal:
+ * tail -f /var/log/emerge-fetch.log
+
+>>> Failed to emerge net-wireless/wireless-regdb-20251007
+"""
+
+
+def test_a_binary_fetched_in_the_background_retries_from_source() -> None:
+    """`vm-desktop` in run54 stopped at exit 4 after twelve minutes. A package
+    whose binary Portage fetches in the background never prints `Emerging
+    binary`, and its failure line carries no comma, so neither half of the
+    existing rule matched. The only line naming it a binary is the
+    `.gpkg.tar.partial` path.
+    """
+    recorder = Recorder()
+    recorder.answering = lambda argv: (
+        CommandOutput(BACKGROUND_FETCH, 1)
+        if argv[0] == "emerge" and "--usepkg=n" not in argv
+        else CommandOutput("[ebuild] net-wireless/wireless-regdb-20251007", 0)
+    )
+
+    portage.Emerge(
+        packages=("kde-plasma/plasma-meta",), summary="install the plasma group"
+    ).apply(recorder)
+
+    emerges = [argv for argv in recorder.in_target if argv[0] == "emerge"]
+    assert "--getbinpkg=n" in emerges[-1] and "--usepkg=n" in emerges[-1]
+    assert recorder.degraded(portage.BINARY_PACKAGES)
+
+
+def test_a_background_fetch_of_a_source_build_is_not_a_binary_failure() -> None:
+    """Negative control. The same shape without the `.gpkg.tar` line is a
+    package Portage was compiling, and retrying it from source repeats the
+    build that already failed."""
+    recorder = Recorder()
+    compiled = "\n".join(
+        line for line in BACKGROUND_FETCH.splitlines() if ".gpkg.tar" not in line
+    )
+    recorder.answering = lambda argv: CommandOutput(compiled, 1)
+
+    with pytest.raises(CommandFailed):
+        portage.Emerge(
+            packages=("kde-plasma/plasma-meta",), summary="install the plasma group"
+        ).apply(recorder)
+
+    assert not recorder.degraded(portage.BINARY_PACKAGES)
+
+
+def test_a_gpkg_for_one_package_does_not_excuse_another_failing() -> None:
+    """Negative control. The binary that was fetched and the package that
+    failed have to be the same one, or every source failure after any binary
+    download would be retried from source for nothing."""
+    recorder = Recorder()
+    other = BACKGROUND_FETCH.replace(
+        ">>> Failed to emerge net-wireless/wireless-regdb-20251007",
+        ">>> Failed to emerge sys-apps/portage-3.0.69",
+    )
+    recorder.answering = lambda argv: CommandOutput(other, 1)
+
+    with pytest.raises(CommandFailed):
+        portage.Emerge(
+            packages=("kde-plasma/plasma-meta",), summary="install the plasma group"
+        ).apply(recorder)
+
+    assert not recorder.degraded(portage.BINARY_PACKAGES)

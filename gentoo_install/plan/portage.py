@@ -819,9 +819,15 @@ class Emerge(Operation):
         return [*argv, "--", *self.packages]
 
 
+#: Portage's own binary package extension, which is what proves a fetch was a
+#: binary one when the path is the only line naming it.
+GPKG_SUFFIX: Final[str] = ".gpkg.tar"
+
+
 def _binpkg_failure(output: str) -> str | None:
     """Return a Portage marker that proves the failure was a binary fetch."""
     binaries: set[str] = set()
+    pending = ""
     for raw in output.splitlines():
         line = raw.strip()
         if any(
@@ -839,7 +845,15 @@ def _binpkg_failure(output: str) -> str | None:
         # two are read together. `btrfs-luks` lost an hour of install there.
         if started := re.match(r">>> Emerging binary \(\d+ of \d+\) (\S+)", line):
             binaries.add(started.group(1).split("::")[0])
-        if failed := re.match(r">>> Failed to emerge (\S+?),", line):
+        # A package whose binary is fetched in the background never reaches
+        # `Emerging binary`, and its failure line carries no comma: `vm-desktop`
+        # stopped at `>>> Failed to emerge net-wireless/wireless-regdb-20251007`
+        # with `.gpkg.tar.partial` as the only proof it was a binary.
+        if checking := re.match(r">>> Running pre-merge checks for (\S+)", line):
+            pending = checking.group(1).split("::")[0]
+        elif GPKG_SUFFIX in line and pending:
+            binaries.add(pending)
+        if failed := re.match(r">>> Failed to emerge (\S+?)(?:,|$)", line):
             if failed.group(1) in binaries:
                 return line
     return None
