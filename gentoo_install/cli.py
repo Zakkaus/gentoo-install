@@ -613,6 +613,30 @@ def _require_network() -> None:
         )
 
 
+def _conversion_offer(probe: Probe) -> tuple[str, str]:
+    """What the running system is, and why it cannot be converted in place.
+
+    The refusal is what the menu shows instead of the option. Everything that
+    would stop a conversion is asked here rather than after the operator has
+    answered twenty screens: a live medium has no system to replace,
+    `layout_graph` refuses a root this installer cannot describe, and a machine
+    that cannot be read at all is refused rather than offered one blind.
+    """
+    medium = probe.live_medium()
+    if medium:
+        return "", f"this is a live medium ({medium}), so there is no system to replace"
+    try:
+        layout = probe.storage_layout()
+    except GentooInstallError as error:
+        return "", str(error)
+    described = f"{layout.root_device} on {layout.root_filesystem_type}"
+    try:
+        convert.layout_graph(layout)
+    except GentooInstallError as error:
+        return described, str(error)
+    return described, ""
+
+
 def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
     """Walk the screens and return what the operator built, or None."""
     runner = Runner(log=lambda line: None)
@@ -623,6 +647,7 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
     lacking = report.absent(preflight.MENU_ONLY)
     if lacking:
         raise errors.PreflightFailed(f"the menu needs {', '.join(sorted(lacking))}")
+    running_system, conversion_refused = _conversion_offer(probe)
     context = screens.Context(
         translate=Catalog(tag_for(override=arguments.lang)),
         ipv4=has_ipv4,
@@ -649,6 +674,8 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         publish_config=report.publish_config,
         zfs_unavailable=probe.zfs_support(),
         configs_here=report.configs_here(app.SAVE_AS),
+        running_system=running_system,
+        conversion_refused=conversion_refused,
         load_config=lambda name: load(Path(name)),
     )
     if not context.disks:

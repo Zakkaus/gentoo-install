@@ -17,6 +17,7 @@ from typing import Callable, Final
 
 from ..model.config import (
     Bootloader,
+    DiskMode,
     Firewall,
     InitSystem,
     InstallConfig,
@@ -691,6 +692,23 @@ def _cjk_kernel_only(config: InstallConfig, context: Context) -> str:
     return ""
 
 
+def _mode(config: InstallConfig, context: Context) -> str:
+    for mode, what in screens.INSTALL_MODES:
+        if mode is config.disk.mode:
+            return context.translate(what)
+    return config.disk.mode.value
+
+
+def _the_conversion_writes_no_layout(config: InstallConfig, context: Context) -> str:
+    """A conversion has no device graph to edit: it is derived from the machine
+    it runs on, and `validate()` refuses one written by hand. The rows stay
+    visible and say why rather than disappearing, or an operator who switched
+    mode by accident sees a menu that lost a row and no reason."""
+    if config.disk.mode is DiskMode.IN_PLACE:
+        return context.translate("the conversion takes the layout from the running system")
+    return ""
+
+
 #: The disk, as one subject. Six rows in a menu of thirty read as six unrelated
 #: decisions; behind one row they read as the layout they describe.
 DISK: Final[tuple[Setting, ...]] = (
@@ -820,6 +838,10 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     ),
     Setting("timezone", "Timezone", lambda c, x: c.system.timezone, screens.timezone_screen),
     Setting("mirror", "Mirrors", _mirror, screens.mirror_screen, required=True, detected=True),
+    # Before the Disk row, because it decides whether that row applies at all.
+    Setting(
+        "mode", "Install mode", _mode, screens.install_mode_screen, required=True, detected=True
+    ),
     Setting(
         "storage",
         "Disk",
@@ -828,6 +850,7 @@ SETTINGS: Final[tuple[Setting, ...]] = (
         required=True,
         rows=DISK,
         detected=True,
+        unavailable=_the_conversion_writes_no_layout,
     ),
     Setting("hostname", "Hostname", lambda c, x: c.system.hostname, screens.system_screen),
     Setting("firstboot", "Run once at first boot", _first_boot, screens.first_boot_screen),

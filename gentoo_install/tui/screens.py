@@ -29,6 +29,7 @@ from ..model.config import (
     Bootloader,
     BootloaderConfig,
     DiskConfig,
+    DiskMode,
     Firewall,
     Firmware,
     GentooZhMirror,
@@ -50,6 +51,7 @@ from ..model.config import (
 )
 from ..model.device import (
     DeviceGraph,
+    DeviceId,
     Existing,
     Filesystem,
     Luks,
@@ -176,8 +178,18 @@ class Context:
         ipv4: bool = True,
         ipv6: bool = True,
         profile_paths: Sequence[str] = (),
+        #: What the running system is, in one line, and why it cannot be
+        #: converted in place. The description is shown so the operator can see
+        #: which machine was read; the refusal is empty when a conversion is
+        #: possible. Both come from `exec/probe.py` and `plan/convert.py`,
+        #: because this layer reads no machine. A machine that could not be
+        #: read refuses the conversion rather than offering one blind.
+        running_system: str = "",
+        conversion_refused: str = "the running system was not read",
     ) -> None:
         self.translate = translate
+        self.running_system = running_system
+        self.conversion_refused = conversion_refused
         self.ipv4 = ipv4
         self.ipv6 = ipv6
         self.profile_paths = tuple(profile_paths)
@@ -375,6 +387,54 @@ def _rebuild(config: InstallConfig, context: Context) -> InstallConfig:
     """
     graph, root = manual.build(context.layout) if context.manual else build(context.choice)
     return replace(config, disk=DiskConfig(graph=graph, root=root))
+
+
+#: What each mode does, in the operator's terms rather than the enum's.
+INSTALL_MODES: tuple[tuple[DiskMode, str], ...] = (
+    (DiskMode.PARTITION, "partition a disk and install onto it"),
+    (DiskMode.IN_PLACE, "replace the running system with Gentoo, keeping its disks"),
+)
+
+
+def install_mode_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """Install onto disks, or convert the machine this is running on.
+
+    The conversion carries no device graph: it is derived from the running
+    machine, and `validate()` refuses one written by hand. So choosing it drops
+    the graph, and choosing the other way back leaves the operator to pick
+    disks again — which is what they would be doing anyway.
+    """
+    translate = context.translate
+    refused = context.conversion_refused
+    preamble = [translate("This is the difference between a new system and this one.")]
+    if context.running_system:
+        preamble.append(translate("Running system: ") + context.running_system)
+    if refused:
+        preamble.append(translate("Conversion is not offered: ") + translate(refused))
+    menu: Menu[DiskMode] = Menu(
+        title=translate("Install mode"),
+        preamble=tuple(preamble),
+        items=[
+            Item(label=translate(what), value=mode)
+            for mode, what in INSTALL_MODES
+            if mode is not DiskMode.IN_PLACE or not refused
+        ],
+        footer=footer(translate),
+        current=config.disk.mode,
+    )
+    answer = menu.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    mode = answer.unwrap()
+    if mode is config.disk.mode:
+        return Answer(Outcome.CHOSE, config)
+    graph = DeviceGraph.build([]) if mode is DiskMode.IN_PLACE else config.disk.graph
+    return Answer(
+        Outcome.CHOSE,
+        replace(config, disk=replace(config.disk, mode=mode, graph=graph, root=DeviceId(""))),
+    )
 
 
 def disk_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
