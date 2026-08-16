@@ -723,6 +723,21 @@ GUEST_RESOLVER: Final[str] = "10.31.0.199"
 GUEST_RESOLVERS: Final[tuple[str, ...]] = (GUEST_RESOLVER, GUEST_GATEWAY, "223.5.5.5")
 
 
+#: Asked once the network is up, because every round so far has failed at the
+#: stage3 while `/etc/resolv.conf` named a resolver nobody had proved the guest
+#: could reach. Read-only: it rewrites nothing, so a run cannot be changed by
+#: being measured.
+REACHABILITY_PROBE: Final[str] = (
+    "printf 'REACH '; for one in " + " ".join(GUEST_RESOLVERS) + "; do "
+    'ping -c1 -W2 "$one" >/dev/null 2>&1 '
+    "&& printf '%s=up ' \"$one\" || printf '%s=down ' \"$one\"; done; "
+    "printf '\\nLOOKUPS '; for i in 1 2 3 4 5; do "
+    "getent ahostsv4 mirrors.ustc.edu.cn >/dev/null 2>&1 "
+    "&& printf 'ok ' || printf 'fail '; done; printf '\\n'"
+)
+
+
+
 #: What a guest outside the cluster does, where no address is reserved for it.
 #: Any daemon from an earlier attempt is stopped first: dhcpcd that finds one
 #: running prints `sending commands to dhcpcd process` and returns at once.
@@ -969,6 +984,7 @@ def wait_for_network(
     while time.monotonic() < deadline:
         said = link.expect_output(NETWORK_PROBE, timeout=180.0)
         if NETWORK_UP.encode() in said:
+            link.run(REACHABILITY_PROBE, timeout=120.0)
             return
         # Every pass, not once: the fallback asks a DHCP server that answers
         # intermittently, and the static path is cheap to repeat.

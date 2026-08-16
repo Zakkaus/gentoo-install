@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 from __future__ import annotations
 
+from typing import cast
+
 import time
 from collections.abc import Callable
 from io import BytesIO
@@ -364,3 +366,32 @@ def test_no_site_leaves_the_region_to_choose(tmp_path: Path) -> None:
 
     assert moved.mirrors.site == ""
     assert moved.mirrors.gentoo_zh.value == "cernet"
+
+
+def test_the_reachability_probe_asks_every_resolver_and_changes_nothing() -> None:
+    probe = cluster.REACHABILITY_PROBE
+    for one in cluster.GUEST_RESOLVERS:
+        assert one in probe
+    assert "> /etc/resolv.conf" not in probe
+    assert "getent ahostsv4" in probe
+
+
+def test_the_network_wait_measures_reachability_once_the_probe_answers() -> None:
+    link = _AnsweringLink(cluster.NETWORK_UP.encode())
+    cluster.wait_for_network(cast(cluster.Reconnecting, link), vmid=9301)
+    assert cluster.REACHABILITY_PROBE in link.ran
+
+
+class _AnsweringLink:
+    """A link whose network probe succeeds on the first pass."""
+
+    def __init__(self, answer: bytes) -> None:
+        self.answer = answer
+        self.ran: list[str] = []
+
+    def expect_output(self, command: str, timeout: float = 0.0) -> bytes:
+        self.ran.append(command)
+        return self.answer
+
+    def run(self, command: str, timeout: float = 0.0) -> None:
+        self.ran.append(command)
