@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Final, Protocol, Sequence, cast
 
-from ..errors import ConversionUnsupported
+from ..errors import ConversionFailed, ConversionUnsupported
 from ..model.config import DiskConfig, DiskMode
 from ..model.device import (
     DeviceGraph,
@@ -103,6 +103,42 @@ class SwapDirectories(Operation):
         module = importlib.import_module("gentoo_install.exec.convert")
         converter = cast(_Converter, module)
         converter.convert(Path(str(self.staging)), self.names)
+
+
+@dataclass(frozen=True, kw_only=True)
+class LeaveStaging(Operation):
+    """Unmount what the chroot bound under the staging root and remove it.
+
+    `disk.finish` cannot be reused: it unmounts everything under the target,
+    and in this mode the target is `/`. What is left otherwise is `/proc` and
+    `/sys` bound into a directory nothing will ever enter again, which holds
+    the machine at shutdown, and a staging root on the disk for ever.
+    """
+
+    stage: Stage = Stage.FINISH
+    staging: PurePosixPath = PurePosixPath("/gentoo-install.new")
+
+    def required_host_commands(self) -> frozenset[str]:
+        return frozenset({"umount", "findmnt", "rm"})
+
+    def describe(self) -> str:
+        return f"unmount and remove {self.staging}"
+
+    def apply(self, context: Context) -> None:
+        context.run(["umount", "--recursive", "--lazy", str(self.staging)], check=False)
+        listed = context.run(
+            ["findmnt", "--noheadings", "--list", "--output", "TARGET"], check=False
+        )
+        under = f"{self.staging}/"
+        if any(
+            line.strip() == str(self.staging) or line.strip().startswith(under)
+            for line in listed.splitlines()
+        ):
+            # Said rather than raised: the machine is converted, and `rm` walking
+            # into a `/proc` still bound here is not a risk worth taking to
+            # tidy up.
+            raise ConversionFailed(f"{self.staging} still has something mounted under it")
+        context.run(["rm", "--recursive", "--force", str(self.staging)])
 
 
 class _BootPopulator(Protocol):

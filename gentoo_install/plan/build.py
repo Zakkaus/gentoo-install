@@ -169,6 +169,7 @@ def _in_place(
         # and until this runs what is there belongs to the old distribution.
         convert.PopulateBoot(),
         *bootloader.build(derived),
+        convert.LeaveStaging(),
     )
 
 
