@@ -148,6 +148,7 @@ class StorageLayout:
     root_on_mdraid: bool | None
     root_below_device: str | None
     boot_device: str | None
+    boot_filesystem_type: str | None
     boot_same_filesystem: bool | None
     esp_device: str | None
     esp_mountpoint: str | None

@@ -75,6 +75,8 @@ def _layout(
     esp_mountpoint: str | None = "/boot/efi",
     uefi: bool = True,
     root_free_bytes: int | None = 20 * 2**30,
+    boot_filesystem_type: str | None = "xfs",
+    boot_same_filesystem: bool = True,
 ) -> StorageLayout:
     """A UEFI machine whose root is a plain filesystem on a partition."""
     return StorageLayout(
@@ -86,7 +88,8 @@ def _layout(
         root_on_mdraid=root_on_mdraid,
         root_below_device="/dev/vda",
         boot_device="/dev/vda2",
-        boot_same_filesystem=True,
+        boot_filesystem_type=boot_filesystem_type,
+        boot_same_filesystem=boot_same_filesystem,
         esp_device=esp_device,
         esp_mountpoint=esp_mountpoint,
         uefi=uefi,
@@ -352,3 +355,34 @@ def test_a_staged_operation_reports_whether_it_releases_the_machine() -> None:
     assert all(
         one.releases_the_machine == one.inner.releases_the_machine for one in staged
     )
+
+
+def test_a_separate_boot_filesystem_reaches_the_new_fstab() -> None:
+    """The kernel this conversion puts in `/boot` is on that filesystem, and a
+    machine that does not mount it comes up with an empty `/boot`."""
+    disk = convert.layout_graph(
+        _layout(boot_same_filesystem=False, boot_filesystem_type="ext4")
+    )
+    mounts = {
+        node.path
+        for node in disk.graph.nodes.values()
+        if isinstance(node, Mountpoint)
+    }
+    assert PurePosixPath("/boot") in mounts
+
+
+def test_a_boot_on_the_root_filesystem_needs_no_entry_of_its_own() -> None:
+    disk = convert.layout_graph(_layout(boot_same_filesystem=True))
+    mounts = {
+        node.path
+        for node in disk.graph.nodes.values()
+        if isinstance(node, Mountpoint)
+    }
+    assert PurePosixPath("/boot") not in mounts
+
+
+def test_a_separate_boot_that_could_not_be_read_is_refused() -> None:
+    with pytest.raises(ConversionUnsupported, match="separate filesystem"):
+        convert.layout_graph(
+            _layout(boot_same_filesystem=False, boot_filesystem_type=None)
+        )
