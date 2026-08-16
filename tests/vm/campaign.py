@@ -6,8 +6,10 @@
 
 Every stage runs its own configurations at once; the stages themselves are
 ordered, and a failure in the first one stops the rest unless `--keep-going`
-says otherwise. Six at a time is what 60 GiB holds at the 8 GiB a guest is
-given, measured rather than assumed.
+says otherwise. How many run at once is decided by `_room_for_a_guest` against
+the memory the machine has at that moment, under a ceiling of `GUESTS`;
+starting `tests/vm/run.py` by hand instead goes around that admission control,
+and four guests started that way left this machine with 788 MiB free.
 """
 
 from __future__ import annotations
