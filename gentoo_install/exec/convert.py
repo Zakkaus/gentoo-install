@@ -32,6 +32,14 @@ def convert(staging: Path, names: Sequence[str], *, root: Path = Path("/")) -> N
             raise ConversionFailed(f"the staging directory has no {name}")
         if os.path.lexists(old):
             raise ConversionFailed(f"{old} is left from an earlier attempt")
+        if os.path.ismount(destination):
+            # Refused here rather than discovered at the rename: a machine with
+            # a separate /var or /usr can never be converted this way, and the
+            # rollback that follows a half-done swap is not the place to learn
+            # it.
+            raise ConversionFailed(
+                f"{destination} is a separate mount, which rename cannot replace"
+            )
         # A distribution without one of these is converted, not refused: a
         # merged-usr Debian has no `/lib64` at all, and renaming what is not
         # there fails half way through with the rest already swapped.

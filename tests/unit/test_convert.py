@@ -215,3 +215,26 @@ def test_a_file_that_is_not_a_kernel_image_is_left_alone(tmp_path: Path) -> None
     convert.populate_boot(staging, root=root)
 
     assert (root / "boot" / "memtest86+.bin").read_text() == "keep"
+
+
+def test_a_separately_mounted_directory_is_refused_before_any_rename(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A machine with a separate /var can never be converted by renaming, and
+    the rollback after a half-done swap is not the place to learn it."""
+    root = tmp_path / "root"
+    staging = root / "new"
+    for name in ("usr", "var"):
+        (root / name).mkdir(parents=True)
+        (staging / name).mkdir(parents=True)
+    (root / "usr" / "kept.txt").write_text("old")
+
+    real = os.path.ismount
+    monkeypatch.setattr(
+        "os.path.ismount", lambda path: str(path).endswith("/var") or real(path)
+    )
+
+    with pytest.raises(ConversionFailed, match="separate mount"):
+        convert.convert(staging, ("usr", "var"), root=root)
+
+    assert (root / "usr" / "kept.txt").read_text() == "old", "nothing was renamed"
