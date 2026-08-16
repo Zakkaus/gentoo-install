@@ -64,13 +64,13 @@ gentoo-install は Linux ライブ環境で動作し、amd64 アーキテクチ�
 
 2026 年 8 月 16 日付のクラスタ記録は、インストーラリビジョン [`a8bf2f3837b6`](https://github.com/Zakkaus/gentoo-install/commit/a8bf2f3837b6) を対象とし、amd64 Gentoo minimal ISO 上で `vm-luks`、`vm-mdraid`、`vm-xfs`、`vm-btrfs`、`vm-f2fs` の 5 件がそれぞれインストールと起動を完了し、起動後の設定チェックをすべて通過しています。`vm-lvm` はリビジョン `073997aa74d2` で同じチェックを通過しています。
 
-2026-08-17 のクラスタ記録は次を追加で対象とします。`openrc-sdboot` はリビジョン `40ea3d90f1cc`、`vm-binpkg`、`vm-btrfs`、`vm-desktop`、`vm-gnome` は `6ba5530fd3c8`、`vm-xfs` は `304dffa41602`、`vm-f2fs`、`vm-mdraid`、`vm-proxy-dead`、`vm-xfs`、`vm-zram` は `7ac43a1d5050` です。
+2026-08-17 のクラスタ記録は次を追加で対象とします。`openrc-sdboot` はリビジョン `40ea3d90f1cc`、`vm-binpkg`、`vm-btrfs`、`vm-desktop`、`vm-gnome` は `6ba5530fd3c8`、`vm-xfs` は `304dffa41602`、`vm-f2fs`、`vm-mdraid`、`vm-proxy-dead`、`vm-xfs`、`vm-zram` は `7ac43a1d5050` です。`d2bed50eed48` の記録は `vm-lvm`、`vm-sdboot`、`vm-unlock` を追加します。`vm-unlock` は initramfs の SSH ロック解除に関する最初のクラスタ記録です。
 
 同じ日付で、クラスタではなく単一マシン上の QEMU による記録もあり、クラスタでは駆動できない経路を対象とします。クラスタの BIOS ゲストはカーネル起動までシリアルポートへ何も出力せず、root 以外の API トークンではスクリーンショットのエンドポイントもファームウェア引数の受け渡しも利用できません。したがって `vm-bios`、`vm-bios-luks`、`ext4-bios`、`mbr-edit` は `304dffa41602` で QEMU から記録しています。`zfs-zbm`、`vm-proxy`、`vm-proxy-http` は `15d45598637a` で同様です。プロキシ用の fixture は QEMU のユーザーモードネットワーク経由でホスト上のプロキシに接続しますが、ブリッジ接続のクラスタゲストにはそのアドレスがありません。
 
 インプレース変換にはユニットテストとプラン層のテストがあり、エンドツーエンドの記録はありません。操作の順序、各種の拒否条件、交換そのものはテストで扱われていますが、実際にマシンを変換して起動を確認した実行はまだありません。この経路は未検証として扱う必要があります。
 
-その他の実装済みの組み合わせは、エンドツーエンド未検証です。現在の根拠は、initramfs の SSH ロック解除、greetd のデスクトップセッション、GNOME 以外での ibus を対象としていません。公式 Gentoo minimal ISO、Alpine または Gig-OS のライブメディア、binhost 障害時のフォールバックも対象としていません。
+その他の実装済みの組み合わせは、エンドツーエンド未検証です。現在の根拠は、greetd のデスクトップセッション、GNOME 以外での ibus を対象としていません。公式 Gentoo minimal ISO、Alpine または Gig-OS のライブメディア、binhost 障害時のフォールバックも対象としていません。
 
 プロキシ経路には、SOCKS5 の DNS モード、dry-run 出力と公開設定での認証情報の除去、インストール済みシステムに残る認証情報なしのエンドポイントを対象とする単体テストと plan テストがあります。リビジョンを記録したクラスタ実行が逆方向を裏づけます。`vm-proxy-dead` フィクスチャは待ち受けのないポートをプロキシに指定し、インストールは stage3 のダウンロードで `Connection refused` により停止します。ミラーに到達する実行はプロキシが迂回されたことを示します。
 
