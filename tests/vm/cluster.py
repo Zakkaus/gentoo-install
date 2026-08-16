@@ -1049,8 +1049,17 @@ def rewrite_fixtures(
     installer.
     """
     into.mkdir(parents=True, exist_ok=True)
-    for job in jobs:
-        config = load(job.fixture)
+    # A conversion job carries two: the ordinary install it runs first and the
+    # in-place fixture it runs against the result. Writing only `fixture` left
+    # the CD without the second one, and the guest answered `no such file`.
+    wanted = [
+        path
+        for job in jobs
+        for path in (job.fixture, job.convert_to)
+        if path is not None
+    ]
+    for source in wanted:
+        config = load(source)
         # The overlay moves with the region. A `cn` run that still cloned
         # gentoo-zh from github stopped the install after two hundred seconds
         # of `Could not connect to server`, while every other fetch in the same
@@ -1077,7 +1086,7 @@ def rewrite_fixtures(
                 ),
             ),
         )
-        (into / job.fixture.name).write_text(to_toml(moved))
+        (into / source.name).write_text(to_toml(moved))
     return into
 
 
