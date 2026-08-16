@@ -45,6 +45,7 @@ from .model.config import (
     PortageConfig,
 )
 from .exec.config import load
+from .plan import convert
 from .plan.build import DEFAULT_MIRROR, build, stage3_mirror
 from .plan.operations import Context, Operation, Stage
 from .plan.portage import variant_of
@@ -272,6 +273,8 @@ def install(
             for warning in preflight_report.warnings:
                 record(f"warning: {warning}")
             preflight_report.raise_if_fatal()
+        if config.disk.mode is DiskMode.IN_PLACE and not _confirmed_swap(arguments, record):
+            return EXIT_CONFIG
         machine = Machine(
             config=config, runner=runner, probe=probe, work=work, mountpoint=arguments.target
         )
@@ -363,6 +366,34 @@ def _release(
             # Release is best-effort because a prior failure owns the exit
             # category, but later release operations still have work to do.
             record(f"warning: {operation.describe()}: {error}")
+
+
+#: What an operator types to authorise the one step with no second attempt.
+SWAP_CONFIRMATION: Final[str] = "convert"
+
+
+def _confirmed_swap(
+    arguments: argparse.Namespace, record: Callable[[str], None]
+) -> bool:
+    """Name what the conversion replaces and what it leaves, then ask once.
+
+    Unattended runs are not asked: `mode = "in-place"` in a configuration file
+    is the authorisation, and a question here would hold a serial console open
+    for ever. The list is recorded either way, so a log says what was replaced.
+    """
+    replaced = ", ".join("/" + name for name in convert.REPLACED_DIRECTORIES)
+    record(f"in-place conversion replaces {replaced} and leaves everything else")
+    if _unattended(arguments):
+        return True
+    print(f"This replaces {replaced} on the running system.")
+    print("Everything else, including /home and /root, is left alone.")
+    print(f"Type {SWAP_CONFIRMATION} to continue, anything else to stop.")
+    answer = input("> ").strip()
+    if answer == SWAP_CONFIRMATION:
+        return True
+    record("in-place conversion was not confirmed")
+    print("nothing was changed", file=sys.stderr)
+    return False
 
 
 def _unattended(arguments: argparse.Namespace) -> bool:
