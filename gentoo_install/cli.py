@@ -46,6 +46,7 @@ from .model.config import (
 )
 from .exec.config import load
 from .plan import convert
+from .plan.convert import SWAP_CONFIRMATION
 from .plan.build import DEFAULT_MIRROR, build, running_config, stage3_mirror
 from .plan.operations import Context, Operation, Stage
 from .plan.portage import variant_of
@@ -387,10 +388,6 @@ def _release(
             # Release is best-effort because a prior failure owns the exit
             # category, but later release operations still have work to do.
             record(f"warning: {operation.describe()}: {error}")
-
-
-#: What an operator types to authorise the one step with no second attempt.
-SWAP_CONFIRMATION: Final[str] = "convert"
 
 
 def _confirmed_swap(

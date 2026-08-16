@@ -22,6 +22,11 @@ from ..model.device import (
 from .operations import CommandOutput, Context, Operation, Stage
 
 
+#: What an operator types to agree to the swap, on the terminal and in the
+#: menu alike. One word in one place: the two asked with different ones, and an
+#: operator who had done it once on the command line could not answer the menu.
+SWAP_CONFIRMATION: Final[str] = "convert"
+
 REPLACED_DIRECTORIES: tuple[str, ...] = (
     "bin",
     "sbin",

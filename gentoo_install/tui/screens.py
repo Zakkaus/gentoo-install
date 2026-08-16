@@ -68,6 +68,7 @@ from ..model.device import (
     ZfsTopology,
 )
 from ..plan import automatic as automatic_values
+from ..plan.convert import REPLACED_DIRECTORIES, SWAP_CONFIRMATION
 from ..plan import kernel as plan_kernel
 from ..plan.fonts import CJK_SANS_PREFERENCE, CjkFontconfigLocale, FontCategory
 from ..model.compat import KERNEL_PACKAGES
@@ -430,11 +431,45 @@ def install_mode_screen(
     mode = answer.unwrap()
     if mode is config.disk.mode:
         return Answer(Outcome.CHOSE, config)
+    if mode is DiskMode.IN_PLACE:
+        agreed = _confirm_the_swap(screen, context)
+        if agreed is not None:
+            return agreed
     graph = DeviceGraph.build([]) if mode is DiskMode.IN_PLACE else config.disk.graph
     return Answer(
         Outcome.CHOSE,
         replace(config, disk=replace(config.disk, mode=mode, graph=graph, root=DeviceId(""))),
     )
+
+
+def _confirm_the_swap(screen: Screen, context: Context) -> Answer[InstallConfig] | None:
+    """None once the operator has typed the word, an outcome to return if not.
+
+    The swap is irreversible: `/home` and `/root` are outside
+    `REPLACED_DIRECTORIES` and survive, but that is not a way back — the old
+    `/usr`, `/etc` and `/var` are gone and the staging root is removed. So the
+    screen names what goes, names what stays, and asks for a word rather than a
+    keypress.
+    """
+    translate = context.translate
+    replaced = ", ".join("/" + name for name in REPLACED_DIRECTORIES)
+    question = Confirm(
+        **answers(translate),
+        title=translate("This replaces the running system and cannot be undone."),
+        phrase=SWAP_CONFIRMATION,
+        detail=(
+            f"{translate('Replaced: ')}{replaced}. "
+            f"{translate('Kept: /home, /root and every other mount.')} "
+            f"{translate('Type the word to confirm.')}"
+        ),
+        footer=footer(translate),
+    )
+    answer = question.run(screen)
+    if not answer.chosen:
+        return Answer(answer.outcome)
+    if answer.unwrap():
+        return None
+    return Answer(Outcome.BACK)
 
 
 def disk_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
