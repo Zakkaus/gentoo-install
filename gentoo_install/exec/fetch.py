@@ -786,8 +786,35 @@ def _resolver_state(url: str) -> str:
     return (
         f" [{order}; {host} in /etc/hosts: {in_file};"
         f' {_resolvers(Path("/etc/resolv.conf"))}; {_families(host)};'
-        f" {_route_to_resolver(Path('/etc/resolv.conf'))}]"
+        f" {_route_to_resolver(Path('/etc/resolv.conf'))};"
+        f" {_kernel_routes(Path('/proc/net/route'))}]"
     )
+
+
+def _kernel_routes(path: Path) -> str:
+    """What the kernel's IPv4 table holds, read without running a command.
+
+    A guest whose shell printed `default via 10.31.0.254 dev ens18` a few
+    seconds earlier answered `ENETUNREACH` from this process, which separates a
+    table that emptied from a socket that cannot use one that is still there.
+    """
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()[1:]
+    except OSError:
+        return "routes unreadable"
+    routes = []
+    for line in lines:
+        fields = line.split()
+        if len(fields) < 3:
+            continue
+        routes.append(f"{fields[0]}:{_dotted(fields[1])}/{_dotted(fields[2])}")
+    return f"routes {routes}" if routes else "no routes"
+
+
+def _dotted(word: str) -> str:
+    """A little-endian hexadecimal address from `/proc/net/route`."""
+    value = int(word, 16)
+    return ".".join(str((value >> shift) & 0xFF) for shift in (0, 8, 16, 24))
 
 
 def _route_to_resolver(path: Path) -> str:
