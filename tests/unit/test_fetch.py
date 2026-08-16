@@ -191,3 +191,14 @@ def test_an_empty_routing_table_is_named_as_such(tmp_path: Path) -> None:
     table = tmp_path / "route"
     table.write_text("Iface\tDestination\tGateway\tFlags\n")
     assert fetch._kernel_routes(table) == "no routes"
+
+
+def test_the_diagnostic_names_the_interfaces_it_can_see() -> None:
+    said = fetch._interfaces()
+    assert said.startswith("interfaces [")
+    assert "lo" in said
+
+
+def test_the_diagnostic_says_whether_the_namespace_is_shared() -> None:
+    said = fetch._network_namespace()
+    assert said.startswith("namespace ")

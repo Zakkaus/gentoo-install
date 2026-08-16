@@ -787,8 +787,32 @@ def _resolver_state(url: str) -> str:
         f" [{order}; {host} in /etc/hosts: {in_file};"
         f' {_resolvers(Path("/etc/resolv.conf"))}; {_families(host)};'
         f" {_route_to_resolver(Path('/etc/resolv.conf'))};"
-        f" {_kernel_routes(Path('/proc/net/route'))}]"
+        f" {_kernel_routes(Path('/proc/net/route'))}; {_interfaces()};"
+        f" {_network_namespace()}]"
     )
+
+
+def _interfaces() -> str:
+    """The interfaces this process can see.
+
+    An empty routing table beside a console that printed a full one is either a
+    namespace with nothing in it or an interface that was deconfigured, and the
+    interface list is what separates them.
+    """
+    try:
+        return f"interfaces {[name for _, name in socket.if_nameindex()]}"
+    except OSError as error:
+        return f"interfaces unreadable: {type(error).__name__}"
+
+
+def _network_namespace() -> str:
+    """Whether this process shares the machine's network namespace."""
+    try:
+        mine = Path("/proc/self/ns/net").readlink()
+        theirs = Path("/proc/1/ns/net").readlink()
+    except OSError as error:
+        return f"namespace unreadable: {type(error).__name__}"
+    return f"namespace {'shared' if mine == theirs else f'{mine} not {theirs}'}"
 
 
 def _kernel_routes(path: Path) -> str:
