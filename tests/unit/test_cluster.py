@@ -410,3 +410,25 @@ def test_the_resolvers_are_written_before_the_first_network_probe() -> None:
 def test_the_interface_configuration_no_longer_carries_the_resolvers() -> None:
     """Two writers of one file is how the fallback undid the early write."""
     assert "/etc/resolv.conf" not in cluster.configure_statically("10.31.0.150")
+
+
+def test_the_guest_holds_its_own_address_once_the_probe_answers() -> None:
+    """A lease from the segment's DHCP server lapses mid-install: sixty-one
+    lookups in round 26 answered `ENETUNREACH` from an installer that had
+    reached a mirror over the same interface a minute earlier."""
+    link = _AnsweringLink(cluster.NETWORK_UP.encode())
+    cluster.wait_for_network(cast(cluster.Reconnecting, link), vmid=9301)
+    configured = link.ran.index(cluster.configure_statically(cluster.static_address(9301)))
+    probed = next(i for i, one in enumerate(link.ran) if "NETWORK_%s" in one)
+    assert probed < configured
+
+
+def test_the_address_does_not_depend_on_the_default_route_being_absent() -> None:
+    """The guard meant a guest that came up on DHCP never got one of its own,
+    so it had nothing left when the lease lapsed: sixty-one lookups answered
+    `ENETUNREACH` from an installer that had reached a mirror a minute
+    earlier."""
+    command = cluster.configure_statically("10.31.0.150")
+    assert "route show default | grep -q . || {" not in command
+    assert "pkill -x dhcpcd" in command
+    assert "addr add 10.31.0.150/24" in command

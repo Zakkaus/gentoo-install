@@ -906,17 +906,18 @@ def configure_statically(address: str, pinned: str = "") -> str:
     # first probe, and writing them again from this line is what made the file
     # 101 lines when 68 were written.
     return (
-        # Nothing at all once there is a default route. Without this guard the
-        # second pass probed the address the first pass had taken, `arping -D`
-        # answered that something holds it — this guest — and the fallback
-        # then tore the working configuration down again.
-        "ip -4 route show default | grep -q . || { "
+        # The DHCP client first: the segment's server runs on a Raspberry Pi
+        # and a lapsed lease takes the address with it. Sixty-one lookups in
+        # round 26 answered `ENETUNREACH` from an installer that had reached a
+        # mirror over the same interface a minute earlier.
+        "pkill -x dhcpcd 2>/dev/null || true; "
+        # Unconditional, not only when the default route is missing: the guard
+        # meant a guest that came up on DHCP never received an address of its
+        # own, so it had nothing left once the lease went.
         'for one in /sys/class/net/e*; do dev=$(basename "$one"); ip link set "$dev" up; '
-        f'ip -4 addr add {network}.{last}/{prefix} dev "$dev"; '
-        f'ip -4 route replace default via {gateway} dev "$dev" 2>/dev/null; '
-        "done; }; "
-        # Appended, never written: the medium's own entry for localhost is in
-        # there and replacing the file takes it away.
+        f'ip -4 addr add {network}.{last}/{prefix} dev "$dev" 2>/dev/null || true; '
+        f'ip -4 route replace default via {gateway} dev "$dev" 2>/dev/null || true; '
+        "done; "
         "ip -4 route show default | grep -q . || true"
     )
 
@@ -1010,6 +1011,12 @@ def wait_for_network(
     while time.monotonic() < deadline:
         said = link.expect_output(NETWORK_PROBE, timeout=180.0)
         if NETWORK_UP.encode() in said:
+            # After the probe, not before it: an interface raised from outside
+            # the medium's own manager is one it then leaves alone. After it
+            # succeeds, though, the guest still has to hold the address for the
+            # rest of the install, and a lapsed DHCP lease took it away
+            # mid-fetch — sixty-one lookups answered `ENETUNREACH`.
+            link.run(configure, timeout=120.0)
             link.run(REACHABILITY_PROBE, timeout=120.0)
             return
         # Every pass, not once: the fallback asks a DHCP server that answers

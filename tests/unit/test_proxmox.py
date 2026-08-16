@@ -1171,7 +1171,7 @@ def test_the_network_wait_returns_as_soon_as_the_guest_answers() -> None:
 
     link = cluster.Reconnecting(Late, tries=1)
     cluster.wait_for_network(link)
-    assert len(tries) == 5
+    assert len(tries) == 6
     assert sum(1 for line in tries if "NETWORK_%s" in line) == 2
     assert "REACH" in tries[-1]
 
@@ -1396,6 +1396,7 @@ def test_the_probe_runs_before_the_guest_is_touched() -> None:
     probe = next(at for at, line in enumerate(code) if "NETWORK_PROBE" in line)
     ask = next(at for at, line in enumerate(code) if "link.run(configure" in line)
     assert probe < ask, "the medium gets its chance before anything is raised"
+    assert ask < len(code), "and the address is pinned once the probe answers"
     assert "ip -4 route show default" in cluster.ASK_FOR_IPV4
 
 
@@ -2928,9 +2929,11 @@ def test_a_guest_leaves_its_own_address_alone_on_the_next_pass() -> None:
 
     command = configure_statically("10.31.0.113")
     assert subprocess.run(["bash", "-n", "-c", command], capture_output=True).returncode == 0
-    # The guard comes first, and nothing else runs when a route is already there.
-    assert command.startswith("ip -4 route show default | grep -q . || {"), command[:80]
-    assert command.index("addr add") > command.index("|| {")
+    # No branch that can tear a working configuration down, and every step
+    # idempotent, because this now runs on a guest that already has a route.
+    assert "dhclient" not in command and "dhcpcd -" not in command
+    assert command.count("addr add") == 1
+    assert "|| true" in command
     # `exit` would end the login shell this runs in, not just the command.
     assert "exit 0" not in command
 
