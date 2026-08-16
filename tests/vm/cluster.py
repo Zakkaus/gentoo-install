@@ -1542,6 +1542,10 @@ def install_one(
             idle=INSTALL_IDLE,
             watch=watch,
         )
+        # A third time, after the install: a console that still has its routes
+        # when the installer saw none puts the loss in the installer's own
+        # view of the machine rather than in the machine.
+        link.run(REACHABILITY_PROBE, timeout=120.0)
         files = collect(guest, link, log)
         keep_results(log, files)
         code = files.get("install.rc", b"").strip()
