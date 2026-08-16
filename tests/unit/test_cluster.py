@@ -450,3 +450,25 @@ def test_the_network_is_measured_once_more_after_the_install() -> None:
     started = code.index("install.sh --config")
     collected = code.index("files = collect(")
     assert "REACHABILITY_PROBE" in code[started:collected]
+
+
+def test_the_keeper_puts_the_address_back_and_counts_it() -> None:
+    """Round 32 measured the interface up with its address immediately before
+    the installer and up with none after it, with nothing in the kernel log and
+    no network command in the installer's own run list."""
+    import subprocess
+
+    command = cluster.keep_the_address("10.31.0.152")
+    assert subprocess.run(["bash", "-n", "-c", command], capture_output=True).returncode == 0
+    assert "10.31.0.152/24" in command
+    assert command.endswith("&"), "the keeper outlives the command that starts it"
+    assert cluster.KEEPER_LOG in command
+    assert cluster.KEEPER_LOG in cluster.REACHABILITY_PROBE
+
+
+def test_the_keeper_starts_once_the_guest_has_its_address() -> None:
+    link = _AnsweringLink(cluster.NETWORK_UP.encode())
+    cluster.wait_for_network(cast(cluster.Reconnecting, link), vmid=9301)
+    configured = link.ran.index(cluster.configure_statically(cluster.static_address(9301)))
+    kept = link.ran.index(cluster.keep_the_address(cluster.static_address(9301)))
+    assert configured < kept
