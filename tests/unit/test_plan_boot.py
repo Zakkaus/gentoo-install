@@ -605,7 +605,7 @@ def test_remote_unlock_adds_the_modules_that_answer_on_the_network() -> None:
 
     wanted = replace(config(), kernel=KernelConfig(remote_unlock=RemoteUnlock(enabled=True)))
     modules = kernel.dracut_modules(wanted)
-    assert "crypt-ssh" in modules and "network" in modules
+    assert "crypt-ssh" in modules and "network-legacy" in modules
     assert "crypt-ssh" not in kernel.dracut_modules(config())
 
 

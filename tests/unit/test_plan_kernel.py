@@ -54,7 +54,7 @@ def test_grub_remote_unlock_keeps_the_system_dracut_path() -> None:
     assert 'dropbear_port="2222"' in written
     assert 'dropbear_rsa_key="SYSTEM"' in written
     assert 'install_items+=" /sbin/cryptsetup "' in written
-    assert kernel.dracut_modules(installation)[-2:] == ("crypt-ssh", "network")
+    assert kernel.dracut_modules(installation)[-2:] == ("crypt-ssh", "network-legacy")
     assert not any(
         isinstance(one, bootloader.ConfigureZfsBootMenuRemoteAccess)
         for one in bootloader.build(installation)
@@ -160,3 +160,43 @@ def test_zfs_kernel_check_reads_target_metadata_and_refuses_unknown() -> None:
     unknown = Recorder()
     with pytest.raises(ValidationFailed, match="kernel ceiling could not be read"):
         kernel.VerifyZfsKernelCompatibility(version="6.12.1").apply(unknown)
+
+
+def test_the_unlock_initramfs_omits_systemd_so_its_queue_runs_first() -> None:
+    """`crypt-ssh` starts dropbear from a dracut initqueue hook. A systemd
+    initramfs asks for the passphrase before it reaches that queue: a guest's
+    own serial log finishes `dracut cmdline hook` and `dracut pre-udev hook`,
+    then prints `Please enter passphrase for disk root`, and never starts
+    `dracut-initqueue` at all — so nothing was ever listening on the port.
+
+    ZFSBootMenu's image omits systemd for the same reason, and that is the only
+    remote-unlock image this installer has ever built successfully.
+    """
+    installation = load(Path("tests/fixtures/vm-unlock.toml"))
+    operation = next(
+        one
+        for one in kernel.build(installation)
+        if isinstance(one, kernel.ConfigureRemoteUnlock)
+    )
+    recorder = Recorder()
+    operation.apply(recorder)
+    written = recorder.files[kernel.REMOTE_UNLOCK_CONFIG]
+
+    assert "omit_dracutmodules" in written, written
+    for module in ("systemd", "systemd-networkd"):
+        assert module in written, (module, written)
+
+    # And the network module has to be the legacy one: with systemd omitted
+    # there is no `systemd-networkd` for dracut's `40network` to pick.
+    modules = kernel.dracut_modules(installation)
+    assert "network-legacy" in modules, modules
+    assert "network" not in modules, modules
+
+    # Negative control: the fixture that does not unlock remotely keeps the
+    # ordinary systemd initramfs, so this is not a change to every install.
+    plain = load(Path("tests/fixtures/vm-luks.toml"))
+    assert not plain.kernel.remote_unlock.enabled, "the control has to be a plain one"
+    assert "network-legacy" not in kernel.dracut_modules(plain)
+    assert not [
+        one for one in kernel.build(plain) if isinstance(one, kernel.ConfigureRemoteUnlock)
+    ]

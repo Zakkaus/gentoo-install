@@ -77,7 +77,7 @@
   install the initramfs ssh daemon: emerge sys-kernel/dracut-crypt-ssh
   install the storage tools: emerge sys-fs/cryptsetup sys-fs/btrfs-progs sys-fs/dosfstools sys-fs/e2fsprogs
   install the kernel: emerge sys-kernel/gentoo-kernel-bin
-  tell dracut to carry crypt, btrfs, crypt-ssh, network
+  tell dracut to carry crypt, btrfs, crypt-ssh, network-legacy
   rebuild the initramfs from sys-kernel/gentoo-kernel-bin with the modules written above
   check the installkernel payload names existing kernel files
 
