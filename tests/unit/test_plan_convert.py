@@ -633,3 +633,34 @@ def test_a_findmnt_that_failed_does_not_authorise_the_staging_root_to_be_removed
     clean = NothingUnderIt()
     convert.LeaveStaging().apply(clean)
     assert [one for one in clean.commands if one[0] == "rm"], clean.commands
+
+
+def test_a_bios_conversion_refuses_a_root_that_is_a_whole_disk() -> None:
+    """Measured on an Alpine 3.21 cloud image: its ext4 sits on `/dev/vda`
+    itself, with a dos label carrying no partitions and SYSLINUX in the boot
+    sector. `grub-install --target=i386-pc /dev/vda` there answers
+
+        warning: Embedding is not possible.
+        error: will not proceed with blocklists.
+
+    The plan rendered all 49 operations against that machine, so without this
+    the conversion emerges a whole system, swaps `/usr`, `/etc` and `/bin`, and
+    only then finds it cannot write a bootloader — with the old system gone.
+    """
+    whole_disk = replace(
+        _layout(uefi=False, esp_device=None, esp_mountpoint=None),
+        root_device="/dev/vda",
+        root_below_device=None,
+    )
+    with pytest.raises(ConversionUnsupported, match="nowhere to embed"):
+        convert.layout_graph(whole_disk)
+
+    # Negative control one: the same machine with root on a partition is what
+    # every ordinary bios install looks like, and it has a post-MBR gap.
+    partitioned = replace(whole_disk, root_device="/dev/vda2", root_below_device="/dev/vda")
+    assert convert.layout_graph(partitioned).mode is DiskMode.IN_PLACE
+
+    # Negative control two: on UEFI nothing is embedded in a boot sector, so a
+    # whole-disk root is not this failure and must still be accepted.
+    uefi = replace(whole_disk, uefi=True, esp_device="/dev/vda1", esp_mountpoint="/boot/efi")
+    assert convert.layout_graph(uefi).mode is DiskMode.IN_PLACE
