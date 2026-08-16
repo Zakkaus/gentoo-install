@@ -209,6 +209,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_machine_state(state)
         print(f"preflight: {error}", file=sys.stderr)
         return EXIT_PREFLIGHT
+    except errors.ConversionUnsupported as error:
+        # Not a command failure: nothing ran. The machine is one this installer
+        # declines to convert, which is what code 2 says.
+        _print_machine_state(state)
+        print(f"conversion: {error}", file=sys.stderr)
+        return EXIT_PREFLIGHT
     except errors.IntegrityError as error:
         _print_machine_state(state)
         print(f"integrity: {error}", file=sys.stderr)
