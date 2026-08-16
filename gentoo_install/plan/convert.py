@@ -129,6 +129,9 @@ class SwapDirectories(Operation):
         converter.convert(Path(str(self.staging)), self.names)
 
 
+FSTAB: Final[PurePosixPath] = PurePosixPath("/etc/fstab")
+
+
 @dataclass(frozen=True, kw_only=True)
 class CarryFstabEntries(Operation):
     """Append the running machine's other mounts to the fstab just written.
@@ -148,11 +151,14 @@ class CarryFstabEntries(Operation):
     def apply(self, context: Context) -> None:
         if not self.lines:
             return
-        said = context.read(context.target / "etc/fstab")
+        # Target-absolute, like every other writer: `Staged` already aims the
+        # context at the staging root, so joining `context.target` again asked
+        # for `/gentoo-install.new/gentoo-install.new/etc/fstab`.
+        said = context.read(FSTAB)
         carried = "\n".join(
             ["# carried from the system this replaced", *self.lines]
         )
-        context.write(context.target / "etc/fstab", f"{said.rstrip()}\n{carried}\n")
+        context.write(FSTAB, f"{said.rstrip()}\n{carried}\n")
 
 
 @dataclass(frozen=True, kw_only=True)
