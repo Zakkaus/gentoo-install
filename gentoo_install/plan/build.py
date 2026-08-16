@@ -165,6 +165,9 @@ def _in_place(
     return (
         *(convert.Staged(stage=operation.stage, inner=operation) for operation in ordered),
         convert.SwapDirectories(),
+        # Between the swap and the bootloader: `grub-mkconfig` reads `/boot`,
+        # and until this runs what is there belongs to the old distribution.
+        convert.PopulateBoot(),
         *bootloader.build(derived),
     )
 

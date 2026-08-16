@@ -202,3 +202,27 @@ def test_the_conversion_formats_nothing_and_mounts_nothing() -> None:
     assert Stage.FORMAT not in stages
     assert Stage.PARTITION not in stages
     assert Stage.MOUNT not in stages
+
+
+def test_the_kernel_reaches_boot_between_the_swap_and_the_bootloader() -> None:
+    """`grub-mkconfig` reads `/boot`, and until this runs what is there belongs
+    to the old distribution."""
+    operations = build(_in_place(), CATALOG, layout=_layout())
+    swapped = next(
+        index for index, one in enumerate(operations) if isinstance(one, SwapDirectories)
+    )
+    populated = next(
+        index for index, one in enumerate(operations)
+        if isinstance(one, convert.PopulateBoot)
+    )
+    grub = next(
+        index for index, one in enumerate(operations)
+        if type(one).__name__ == "InstallGrub"
+    )
+    assert swapped < populated < grub
+
+
+def test_boot_is_not_one_of_the_directories_that_are_renamed() -> None:
+    """A rename refuses a mount point and a directory holding one, and `/boot`
+    is one on many machines and holds the esp on many more."""
+    assert "boot" not in convert.REPLACED_DIRECTORIES
