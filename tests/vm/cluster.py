@@ -1024,6 +1024,7 @@ def rewrite_fixtures(
     sync: Sync,
     public_key: str = "",
     site: str = "",
+    unlock_addresses: Mapping[str, str] | None = None,
 ) -> Path:
     """Write each fixture out again with its mirror region, site and sync.
 
@@ -1044,12 +1045,12 @@ def rewrite_fixtures(
     # in-place fixture it runs against the result. Writing only `fixture` left
     # the CD without the second one, and the guest answered `no such file`.
     wanted = [
-        path
+        (job, path)
         for job in jobs
         for path in (job.fixture, job.convert_to)
         if path is not None
     ]
-    for source in wanted:
+    for job, source in wanted:
         config = load(source)
         # The overlay moves with the region. A `cn` run that still cloned
         # gentoo-zh from github stopped the install after two hundred seconds
@@ -1077,6 +1078,20 @@ def rewrite_fixtures(
                 ),
             ),
         )
+        # The address the initramfs will answer on, which is the one the
+        # scheduler reserved for this guest: a fixture that pins a
+        # documentation address is one the harness can never reach.
+        given = (unlock_addresses or {}).get(job.name, "")
+        if given and moved.kernel.remote_unlock.enabled:
+            moved = replace(
+                moved,
+                kernel=replace(
+                    moved.kernel,
+                    remote_unlock=replace(
+                        moved.kernel.remote_unlock, address=f"{given}/{GUEST_PREFIX}"
+                    ),
+                ),
+            )
         (into / source.name).write_text(to_toml(moved))
     return into
 
@@ -1684,10 +1699,18 @@ def run(
     # Packed: the ingress refuses the 1.4 MiB loose-file CD with `413`.
     staging = workdir / f".driver-{uuid.uuid4().hex}.iso"
     fixture_dir = workdir / "fixtures"
-    if public_key:
-        rewritten = rewrite_fixtures(jobs, fixture_dir, region, sync, public_key, site)
-    else:
-        rewritten = rewrite_fixtures(jobs, fixture_dir, region, sync, "", site)
+    # Reserved before the CD is written, not at dispatch: a fixture that
+    # unlocks over SSH pins the initramfs address, and the harness has to ssh
+    # to that address. `vm-unlock` carried `192.0.2.10`, which is a
+    # documentation address; on the cluster the guest was on 10.31.0.155 and
+    # the unlock answered `No route to host` after ninety minutes.
+    unlock_addresses = {
+        job.name: addresses.reserve(f"{GUEST_NETWORK}.{GUEST_ADDRESS_BASE}")
+        for job in jobs
+    }
+    rewritten = rewrite_fixtures(
+        jobs, fixture_dir, region, sync, public_key, site, unlock_addresses
+    )
     built_path = build_driver(staging, packed=True, fixtures=rewritten)
     driver_path = retain_driver(workdir, built_path)
     driver = driver_path.name
@@ -1768,7 +1791,7 @@ def run(
                     for one in scheduled.values()
                     if one.holds_resources and one.vmid
                 )
-                address = addresses.reserve(f"{GUEST_NETWORK}.{GUEST_ADDRESS_BASE}")
+                address = unlock_addresses[job.name]
                 try:
                     job = _reserve_job(
                         api,
@@ -1780,7 +1803,6 @@ def run(
                         address,
                     )
                 except Exception:
-                    addresses.release(address)
                     raise
                 execution = job.execution
                 if execution is None:
@@ -1844,8 +1866,6 @@ def run(
             job = scheduled[outcome.name].answered(outcome)
             if outcome.removed and job.lease is not None:
                 job.lease.unlink(missing_ok=True)
-                if job.execution is not None and job.execution.address:
-                    addresses.release(job.execution.address)
             job = job.collect(collected)
             collected += 1
             scheduled[job.name] = job
@@ -1863,6 +1883,11 @@ def run(
                 flush=True,
             )
     finally:
+        # Every one, here: they are taken before the first guest exists, so a
+        # run that ends early would otherwise hold ten of them until the lease
+        # expires.
+        for one in unlock_addresses.values():
+            addresses.release(one)
         _abandon_jobs(scheduled)
         for node_name in prepared:
             said = api.remove_iso(node_name, driver)
