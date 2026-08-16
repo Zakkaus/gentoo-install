@@ -108,3 +108,50 @@ def test_the_chinese_default_is_ustc_and_not_tuna() -> None:
     ):
         assert "ustc" in address, address
         assert "tuna" not in address, address
+
+
+def test_the_stage3_follows_a_replaced_mirror_list() -> None:
+    """An operator who points Portage at a caching mirror on the segment and
+    still downloads the stage3 from the public one has the slow half of both.
+    `emerge-webrsync` already reads its snapshots from this list."""
+    from dataclasses import replace
+
+    from gentoo_install.plan.build import stage3_mirror
+
+    from .layouts import config
+
+    ordinary = config()
+    cached = replace(
+        ordinary,
+        portage=replace(
+            ordinary.portage,
+            mirrors=replace(
+                ordinary.portage.mirrors, distfiles=("http://10.31.0.2/gentoo",)
+            ),
+        ),
+    )
+    assert stage3_mirror(cached) == "http://10.31.0.2/gentoo"
+    assert stage3_mirror(ordinary) != "http://10.31.0.2/gentoo"
+
+
+def test_a_replaced_list_beats_the_chosen_site() -> None:
+    """The list is the operator's own answer and the site table is a default."""
+    from dataclasses import replace
+
+    from gentoo_install.plan.build import stage3_mirror
+
+    from .layouts import config
+
+    ordinary = config()
+    both = replace(
+        ordinary,
+        portage=replace(
+            ordinary.portage,
+            mirrors=replace(
+                ordinary.portage.mirrors,
+                site="ustc",
+                distfiles=("http://10.31.0.2/gentoo",),
+            ),
+        ),
+    )
+    assert stage3_mirror(both) == "http://10.31.0.2/gentoo"

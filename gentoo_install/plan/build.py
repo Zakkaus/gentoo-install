@@ -55,6 +55,13 @@ def stage3_mirror(config: InstallConfig, fallback: str = DEFAULT_MIRROR) -> str:
     Only sites that carry `releases/` are considered, whichever was chosen: an
     install told to use one that does not stopped with no stage3 at all.
     """
+    # A replaced list is the whole answer, stage3 included: an operator who
+    # points Portage at a caching mirror on the segment and still downloads
+    # several hundred megabytes of stage3 from the public one has the slow half
+    # of both. `emerge-webrsync` already reads snapshots from this list.
+    replaced = config.portage.mirrors.distfiles
+    if replaced:
+        return replaced[0]
     chosen = config.portage.mirrors.site
     offered = [
         site for site in mirrors.gentoo_sites(config.portage.mirrors.region) if site.releases
