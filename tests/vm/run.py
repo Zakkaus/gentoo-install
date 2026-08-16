@@ -227,6 +227,45 @@ def push_config(key: Path, port: int, path: str, contents: str) -> None:
         raise RuntimeError(f"the live SSH configuration push failed: {result.stderr.strip()}")
 
 
+#: How long the initramfs is given to reach its ssh daemon. The guest has to
+#: POST, load a bootloader and unpack an initramfs first, and connecting the
+#: moment the reset returns answered `Connection timed out during banner
+#: exchange` for a daemon that was seconds from starting.
+DAEMON_PATIENCE: Final[float] = 180.0
+DAEMON_PAUSE: Final[float] = 3.0
+
+
+def wait_for_unlock_daemon(
+    key: Path, port: int, *, host: str = "127.0.0.1", patience: float = DAEMON_PATIENCE
+) -> None:
+    """Block until the initramfs answers on `port`, or say it never did.
+
+    The banner is the whole question: exit 255 with `Permission denied` is a
+    daemon that is up and does not trust this key yet, and a refused or silent
+    port is one that is not.
+    """
+    deadline = time.monotonic() + patience
+    last = ""
+    while time.monotonic() < deadline:
+        probe = subprocess.run(
+            [
+                "ssh", "-p", str(port), "-i", str(key),
+                "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+                "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+                f"root@{host}", "true",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        said = f"{probe.stdout}{probe.stderr}"
+        if probe.returncode == 0 or "Permission denied" in said:
+            return
+        last = said.strip()[-200:]
+        time.sleep(DAEMON_PAUSE)
+    raise RuntimeError(f"no ssh daemon on port {port} after {patience:.0f}s: {last}")
+
+
 def remote_unlock(
     key: Path,
     port: int,
@@ -240,6 +279,9 @@ def remote_unlock(
     if commands is None:
         raise RuntimeError("remote unlock is disabled")
     command, proof = commands
+    # Before the unlock, not racing it: the daemon comes up inside an initramfs
+    # that has to be unpacked first.
+    wait_for_unlock_daemon(key, port, host=host)
     process = subprocess.Popen(
         [
             "ssh", "-p", str(port), "-i", str(key),
