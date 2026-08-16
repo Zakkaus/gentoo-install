@@ -44,30 +44,32 @@
   set sys-kernel/installkernel to dracut, installing into /boot
   verify the selected kernel against the target sys-fs/zfs ceiling
   accept the linux-firmware licence
+  ask for dhclient and arping, which ZFSBootMenu networking requires
+  write /etc/dracut.conf.d/zz-gentoo-install-crypt-ssh.conf to omit ssh from the system initramfs
   accept sys-kernel/gentoo-cjk-kernel-bin as testing, with cjk on
   unmask virtual/dist-kernel, which the cjk kernel depends on by revision
   tell sys-fs/zfs to build against the dist-kernel
   ask for sys-apps/systemd[boot,kernel-install], which is what provides bootctl
-  resolve app-admin/sudo net-misc/openssh sys-process/cronie sys-kernel/installkernel sys-kernel/dracut sys-kernel/linux-firmware sys-fs/dosfstools sys-kernel/gentoo-cjk-kernel-bin sys-fs/zfs sys-boot/zfsbootmenu sys-boot/efibootmgr sys-apps/systemd sys-apps/kbd app-editors/vim together before installing the requested packages
+  resolve app-admin/sudo net-misc/openssh sys-process/cronie sys-kernel/installkernel sys-kernel/dracut sys-kernel/linux-firmware sys-kernel/dracut-crypt-ssh sys-apps/iproute2 net-misc/dhcp net-misc/iputils sys-fs/dosfstools sys-kernel/gentoo-cjk-kernel-bin sys-fs/zfs sys-boot/zfsbootmenu sys-boot/efibootmgr sys-apps/systemd sys-apps/kbd app-editors/vim together before installing the requested packages
 
 [system]
   generate and verify locales en_US.UTF-8, zh_TW.UTF-8
   set the system locale to zh_TW.UTF-8
   set the timezone to Asia/Taipei
   set the console keymap to us and its font to default8x16
-  set the hostname to zfsbox
+  set the hostname to zbmunlockbox
   give the target its own machine id
   write /etc/fstab with entries for /efi
   treat the hardware clock as UTC
   create user zakk in users, wheel, audio, video, render, usb, input with a password
-  authorise 1 ssh key(s) for zakk
+  authorise 1 ssh key(s) for root, zakk
   set the root password
   install sudo: emerge app-admin/sudo
   let the wheel group run sudo, with a password
   install sshd: emerge net-misc/openssh
   ssh password login: off, root: off
   enable sshd at boot
-  generate the ssh host keys
+  generate the ssh host keys so the initramfs and sshd present the same host
   configure the wired interface for DHCP
   enable systemd-networkd at boot
   enable systemd-resolved at boot
@@ -77,6 +79,7 @@
 [kernel]
   install the hook that puts a kernel in /boot: emerge sys-kernel/installkernel
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
+  install ZFSBootMenu ssh support: emerge sys-kernel/dracut-crypt-ssh sys-apps/iproute2 net-misc/dhcp net-misc/iputils
   install the storage tools: emerge sys-fs/dosfstools
   install the kernel and the tools that build a module for it: emerge sys-kernel/gentoo-cjk-kernel-bin sys-fs/zfs, from source
   tell dracut to carry zfs
@@ -88,6 +91,7 @@
 [bootloader]
   install the bootloader: emerge sys-boot/zfsbootmenu sys-boot/efibootmgr
   install the EFI stub generate-zbm builds around: emerge sys-apps/systemd
+  write /etc/zfsbootmenu/dracut.conf.d/dropbear.conf and /etc/cmdline.d/dracut-network.conf, authorise keys at /etc/dropbear/root_key, and generate dedicated host keys under /etc/dropbear
   build ZFSBootMenu into /efi/EFI/zbm and boot zpcala/ROOT/gentoo/root from it
 
 [packages]

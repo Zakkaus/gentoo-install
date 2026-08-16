@@ -68,7 +68,9 @@ def test_grub_remote_unlock_keeps_the_system_dracut_path() -> None:
 
 
 def test_zfsbootmenu_installs_network_legacy_executables() -> None:
-    installation = load(Path("tests/fixtures/zfs-zbm.toml"))
+    """The legacy network tools are the unlock's prerequisite, so the fixture
+    that carries the unlock is the one that asks for them."""
+    installation = load(Path("tests/fixtures/zbm-unlock.toml"))
     operations = kernel.build(installation)
     unlock_packages = next(
         one.packages

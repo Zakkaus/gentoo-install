@@ -1,13 +1,13 @@
-# ZFS root with ZFSBootMenu: the kernel stays in the pool, the esp holds only
-# the ZBM executable. UEFI only, no GRUB.
+# Unlocking a ZFS pool over ssh from inside the ZFSBootMenu image.
 #
-# No remote unlock here: `zbm-unlock.toml` carries that combination. This
-# fixture answers whether ZFSBootMenu boots a machine, and it could not
-# while an unrelated ssh daemon decided its verdict.
+# Split from `zfs-zbm` on 2026-08-17: that fixture carried both, so three
+# runs which built the pool, the image and a machine that booted from it
+# were still recorded as failures because the unlock did not answer on
+# 2222. A fixture reporting on two features reports on neither.
 config_version = 1
 
 [system]
-hostname = "zfsbox"
+hostname = "zbmunlockbox"
 timezone = "Asia/Taipei"
 locales = ["en_US.UTF-8", "zh_TW.UTF-8"]
 locale = "zh_TW.UTF-8"
@@ -23,6 +23,16 @@ authorized_keys = ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB+85deBslaLOMFw71dx23wo
 name = "zakk"
 sudo = true
 password_hash = "$6$rounds=656000$fixedsaltforthetest$0"
+
+[kernel.remote_unlock]
+# ZFSBootMenu is what opens the pool, so the ssh server has to be in its image
+# and not in the system initramfs built afterwards. No other fixture covers
+# that combination.
+enabled = true
+port = 2222
+address = "192.0.2.10/24"
+gateway = "192.0.2.1"
+interface = "eth0"
 
 [portage]
 profile = "default/linux/amd64/23.0/systemd"

@@ -44,7 +44,7 @@ def test_remote_unlock_replaces_fixture_values_without_mutating_fixture() -> Non
     from gentoo_install.exec.config import load
     from tests.vm.run import remote_config
 
-    fixture = Path("tests/fixtures/zfs-zbm.toml")
+    fixture = Path("tests/fixtures/zbm-unlock.toml")
     before = fixture.read_bytes()
     substituted = remote_config(load(fixture), "ssh-ed25519 AAAA harness")
     assert substituted.system.authorized_keys == ("ssh-ed25519 AAAA harness",)
@@ -57,7 +57,7 @@ def test_remote_unlock_replaces_fixture_values_without_mutating_fixture() -> Non
     [
         ("vm-unlock.toml", "unlock", None),
         (
-            "zfs-zbm.toml",
+            "zbm-unlock.toml",
             "zfs load-key -a",
             "zfs get -H -o value keystatus zpcala/ROOT/gentoo/root",
         ),
@@ -83,7 +83,7 @@ def test_zfs_remote_unlock_proof_changes_when_pool_is_renamed() -> None:
     from gentoo_install.model.device import ZfsPool
     from tests.vm.run import remote_unlock_commands
 
-    installation = load(Path("tests/fixtures/zfs-zbm.toml"))
+    installation = load(Path("tests/fixtures/zbm-unlock.toml"))
     pool = installation.disk.graph.of_type(ZfsPool)[0]
     nodes = [
         replace(node, name="renamed") if node.id == pool.id and isinstance(node, ZfsPool) else node
