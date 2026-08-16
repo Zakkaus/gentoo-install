@@ -790,28 +790,6 @@ def static_address(vmid: int) -> str:
     return f"{GUEST_NETWORK}.{GUEST_ADDRESS_BASE + vmid - VMID_FIRST}"
 
 
-#: What an install reaches that is not a mirror. `model/mirrors.py` lists the
-#: rest, and listing them twice is how the two lists drift apart.
-UNMIRRORED: Final[tuple[str, ...]] = ("keys.gentoo.org",)
-
-
-def wanted_names() -> tuple[str, ...]:
-    """Every host an install resolves, from the mirror table and the few that
-    are not mirrors."""
-    from urllib.parse import urlsplit
-
-    found: set[str] = set(UNMIRRORED)
-    for site in (*mirrors.GENTOO_SITES, *mirrors.GENTOOZH_SITES):
-        for url in (site.distfiles, site.git, site.rsync):
-            if not url:
-                continue
-            # An rsync URI is `host::module`, which `urlsplit` reads as a path.
-            host = urlsplit(url).hostname or url.split("::", 1)[0].split("/", 1)[0]
-            if host:
-                found.add(host)
-    return tuple(sorted(found))
-
-
 #: How much of one command line to send at a time. One line carrying every
 #: address keeper is four hundred characters, which is more than a tty edits
 #: in canonical mode without dropping the rest: every guest of round 33 died
