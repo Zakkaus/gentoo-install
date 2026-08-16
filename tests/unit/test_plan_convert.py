@@ -263,3 +263,28 @@ def test_a_staging_root_with_something_still_mounted_is_left_alone() -> None:
 def test_the_conversion_ends_by_leaving_no_staging_root() -> None:
     operations = build(_in_place(), CATALOG, layout=_layout())
     assert isinstance(operations[-1], convert.LeaveStaging)
+
+
+def test_only_the_esp_and_boot_sector_writes_wait_for_the_swap() -> None:
+    """Emerging the bootloader and writing `/etc/default/grub` are ordinary
+    staged work, and leaving them in the irreversible window made it minutes
+    long for no reason."""
+    from gentoo_install.plan.bootloader import InstallGrub
+
+    operations = build(_in_place(), CATALOG, layout=_layout())
+    swapped = next(
+        index for index, one in enumerate(operations) if isinstance(one, SwapDirectories)
+    )
+    before = operations[:swapped]
+    after = operations[swapped:]
+    assert any(
+        isinstance(one, convert.Staged) and type(one.inner).__name__ == "Emerge"
+        and "bootloader" in one.inner.describe()
+        for one in before
+    ), "the bootloader package is emerged before the swap"
+    assert any(
+        isinstance(one, convert.Staged) and type(one.inner).__name__ == "WriteGrubDefaults"
+        for one in before
+    )
+    assert any(isinstance(one, InstallGrub) for one in after)
+    assert not any(isinstance(one, InstallGrub) for one in before)

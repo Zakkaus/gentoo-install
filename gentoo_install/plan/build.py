@@ -112,6 +112,18 @@ def build(
     return tuple(ordered)
 
 
+#: The only bootloader operations that cannot be done before the swap: they
+#: write to the esp or the boot sector of the machine as it will boot, and
+#: `/boot` and the esp are not part of the swap. Emerging the package and
+#: writing `/etc/default/grub` are ordinary staged work, and leaving them in
+#: the irreversible window made it minutes long for no reason.
+AFTER_THE_SWAP: Final[tuple[type[Operation], ...]] = (
+    bootloader.InstallGrub,
+    bootloader.InstallSystemdBoot,
+    bootloader.ShowTheBootMenu,
+)
+
+
 def _in_place(
     config: InstallConfig,
     catalog: packages.Catalog,
@@ -138,6 +150,8 @@ def _in_place(
         storage_facts=StorageFacts(),
     )
     chosen = packages.groups(derived, catalog)
+    boot = bootloader.build(derived)
+    after_the_swap = tuple(one for one in boot if isinstance(one, AFTER_THE_SWAP))
     staged: list[Operation] = [
         *portage.build(
             derived,
@@ -148,6 +162,7 @@ def _in_place(
         ),
         *system.build(derived),
         *kernel.build(derived),
+        *(one for one in boot if not isinstance(one, AFTER_THE_SWAP)),
         *packages._build(derived, catalog, chosen),
         *fonts.build(derived, catalog),
         *portage.finish(derived),
@@ -168,7 +183,7 @@ def _in_place(
         # Between the swap and the bootloader: `grub-mkconfig` reads `/boot`,
         # and until this runs what is there belongs to the old distribution.
         convert.PopulateBoot(),
-        *bootloader.build(derived),
+        *after_the_swap,
         convert.LeaveStaging(),
     )
 
