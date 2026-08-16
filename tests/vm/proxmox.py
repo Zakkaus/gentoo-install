@@ -843,6 +843,14 @@ GRUB_COUNTDOWN: Final[str] = (
 )
 
 
+#: How long GRUB is given to draw its editor. Each attempt costs an escape,
+#: a settle and a snapshot, so thirty seconds bought six presses; `vm-mdraid`
+#: lost a run in forty-eight seconds while its node sat at 99.8% CPU and every
+#: redraw crawled. The menu itself is already held, so waiting longer races
+#: nothing: the countdown is stopped and the guest is not about to boot.
+EDITOR_PATIENCE: Final[float] = 120.0
+
+
 def hold_the_menu(console: Line, timeout: float = 300.0) -> bytes:
     """Wait for GRUB's menu and stop its countdown.
 
@@ -858,7 +866,7 @@ def hold_the_menu(console: Line, timeout: float = 300.0) -> bytes:
     return seen
 
 
-def append_to_cmdline(console: Line, extra: str, timeout: float = 30.0) -> None:
+def append_to_cmdline(console: Line, extra: str, timeout: float = EDITOR_PATIENCE) -> None:
     """Add kernel parameters to the highlighted GRUB entry and boot it.
 
     The medium's own entry writes to the firmware console and says nothing more
