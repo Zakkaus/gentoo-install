@@ -107,6 +107,7 @@ def _rewrite(
     sync: Sync,
     public_key: str = "",
     site: str = "",
+    unlock_addresses: object = None,
 ) -> Path:
     return into
 
@@ -702,3 +703,41 @@ def test_a_busy_guest_with_a_healthy_console_is_left_running(tmp_path: Path) -> 
     held = _held(log, moved=False, stuck=False, busy=True)
     cluster._sweep({"vm-xfs": cast(Any, held)})
     assert not cast(Any, held).guest.stopped
+
+
+def test_the_initramfs_is_given_the_address_the_guest_will_have(tmp_path: Path) -> None:
+    """`vm-unlock` pinned `192.0.2.10`, a documentation address. On the cluster
+    the guest was on 10.31.0.155 and the unlock answered `No route to host`
+    after ninety minutes of installing."""
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.config import MirrorRegion, Sync
+
+    jobs = cluster.fixtures(["vm-unlock"])
+    written = cluster.rewrite_fixtures(
+        jobs,
+        tmp_path / "fixtures",
+        MirrorRegion.CN,
+        Sync.GIT,
+        "",
+        "nju",
+        {"vm-unlock": "10.31.0.155"},
+    )
+    rewritten = load(written / "vm-unlock.toml")
+    assert rewritten.kernel.remote_unlock.address == f"10.31.0.155/{cluster.GUEST_PREFIX}"
+
+
+def test_a_fixture_that_does_not_unlock_remotely_keeps_its_addresses() -> None:
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.config import MirrorRegion, Sync
+
+    jobs = cluster.fixtures(["vm-xfs"])
+    written = cluster.rewrite_fixtures(
+        jobs,
+        Path(cluster.REPOSITORY) / "lab" / ".rewrite-check",
+        MirrorRegion.CN,
+        Sync.GIT,
+        "",
+        "nju",
+        {"vm-xfs": "10.31.0.155"},
+    )
+    assert load(written / "vm-xfs.toml").kernel.remote_unlock.address == ""
