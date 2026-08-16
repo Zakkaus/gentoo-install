@@ -665,3 +665,12 @@ def test_both_fixtures_of_a_conversion_job_reach_the_driver_cd(tmp_path: Path) -
     )
     names = {path.name for path in written.iterdir()}
     assert names == {cluster.CONVERSION_BASE, "vm-convert.toml"}, names
+
+
+def test_the_conversion_keeps_its_own_copy_of_both_logs() -> None:
+    """A conversion run has two installs and their result files have the same
+    names, so writing the second over the first left only one."""
+    import inspect
+
+    code = inspect.getsource(cluster.convert_and_check)
+    assert 'f"convert.{name}"' in code

@@ -2346,7 +2346,10 @@ def convert_and_check(
         watch=watch,
     )
     files = collect(guest, link, log)
-    keep_results(log, files)
+    # Prefixed: the names are the same as the install that produced this
+    # machine, and writing them again left only the conversion's log beside a
+    # run that has two.
+    keep_results(log, {f"convert.{name}": content for name, content in files.items()})
     code = files.get("install.rc", b"").strip()
     if code != b"0":
         return f"the conversion exited {code!r}"
