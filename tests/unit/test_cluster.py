@@ -727,6 +727,44 @@ def test_the_initramfs_is_given_the_address_the_guest_will_have(tmp_path: Path) 
     assert rewritten.kernel.remote_unlock.address == f"10.31.0.155/{cluster.GUEST_PREFIX}"
 
 
+def test_the_initramfs_is_not_pinned_to_an_interface_the_guest_does_not_have(
+    tmp_path: Path,
+) -> None:
+    """`vm-unlock` pinned `eth0` and every cluster guest's only NIC is `ens18`
+    under predictable naming. dracut's `ip=` names the device in its sixth
+    field, so the address was configured on nothing and `rd.neednet=1` waited
+    for a link that never arrived: two hours of installing answered `no ssh
+    daemon on port 2222`."""
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.config import MirrorRegion, Sync
+    from gentoo_install.plan.bootloader import unlock_parameters
+
+    jobs = cluster.fixtures(["vm-unlock"])
+    # The fixture is what an operator on real hardware may well write, and the
+    # rewrite is what makes it true here, so the negative control is the input.
+    assert load(jobs[0].fixture).kernel.remote_unlock.interface == "eth0"
+
+    written = cluster.rewrite_fixtures(
+        jobs,
+        tmp_path / "fixtures",
+        MirrorRegion.CN,
+        Sync.GIT,
+        "",
+        "nju",
+        {"vm-unlock": "10.31.0.155"},
+    )
+    rewritten = load(written / "vm-unlock.toml")
+    assert rewritten.kernel.remote_unlock.interface == ""
+
+    # Not only the field: the parameter the initramfs is handed carries no
+    # device name, which is what lets dracut use whichever NIC came up.
+    parameters = unlock_parameters(rewritten)
+    address = next(one for one in parameters if one.startswith("ip="))
+    fields = address.removeprefix("ip=").split(":")
+    assert fields[0] == "10.31.0.155", fields
+    assert fields[5] == "", fields
+
+
 def test_a_fixture_that_does_not_unlock_remotely_keeps_its_addresses() -> None:
     from gentoo_install.exec.config import load
     from gentoo_install.model.config import MirrorRegion, Sync

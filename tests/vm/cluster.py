@@ -1104,7 +1104,15 @@ def rewrite_fixtures(
                 kernel=replace(
                     moved.kernel,
                     remote_unlock=replace(
-                        moved.kernel.remote_unlock, address=f"{given}/{GUEST_PREFIX}"
+                        moved.kernel.remote_unlock,
+                        address=f"{given}/{GUEST_PREFIX}",
+                        # Cleared for the same reason the address is rewritten:
+                        # a cluster guest's only NIC is `ens18` under
+                        # predictable naming, and `vm-unlock` pinned `eth0`.
+                        # dracut's `ip=` names the device in its sixth field,
+                        # so a name no device carries configures nothing and
+                        # `rd.neednet=1` waits for a link that never arrives.
+                        interface="",
                     ),
                 ),
             )
