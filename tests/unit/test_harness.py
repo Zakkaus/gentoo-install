@@ -2543,3 +2543,36 @@ def test_create_target_refuses_a_path_outside_the_run_directories(tmp_path: Path
     finally:
         inside.unlink(missing_ok=True)
         inside.parent.rmdir()
+
+
+def test_a_failed_remote_unlock_answers_rather_than_raising(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`--boot-installed` powered the machine off and returned the moment the
+    remote unlock failed, so `zbm-unlock` never reached a login: every verdict
+    it produced said only that nothing answered on a forwarded port. The
+    machine is sitting at its own passphrase prompt, and the console gets in,
+    so the failure is answered rather than raised.
+    """
+    from tests.vm import run as harness
+
+    def refuses(*rest: object, **named: object) -> str:
+        raise RuntimeError("no ssh daemon on port 56353 after 180s")
+
+    monkeypatch.setattr(harness, "remote_unlock", refuses)
+    said = harness.try_remote_unlock(Path("/dev/null"), 1, cast(Any, object()))
+    assert "no ssh daemon on port 56353" in said
+
+    # Negative control one: an unlock that worked answers nothing, or the
+    # caller would report a failure on every successful run.
+    monkeypatch.setattr(harness, "remote_unlock", lambda *rest, **named: "proof")
+    assert harness.try_remote_unlock(Path("/dev/null"), 1, cast(Any, object())) == ""
+
+    # Negative control two: only the unlock's own failure is answered. A
+    # KeyboardInterrupt or a programming error still leaves the run.
+    def breaks(*rest: object, **named: object) -> str:
+        raise ValueError("this is not the unlock failing")
+
+    monkeypatch.setattr(harness, "remote_unlock", breaks)
+    with pytest.raises(ValueError):
+        harness.try_remote_unlock(Path("/dev/null"), 1, cast(Any, object()))

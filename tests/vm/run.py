@@ -273,6 +273,15 @@ def wait_for_unlock_daemon(
     raise RuntimeError(f"no ssh daemon on port {port} after {patience:.0f}s: {last}")
 
 
+def try_remote_unlock(key: Path, port: int, installation: InstallConfig) -> str:
+    """Answer the empty string when the unlock worked, or why it did not."""
+    try:
+        remote_unlock(key, port, installation)
+    except RuntimeError as error:
+        return str(error)
+    return ""
+
+
 def remote_unlock(
     key: Path,
     port: int,
@@ -699,17 +708,20 @@ def _perform(args: argparse.Namespace, medium: Medium, workdir: Path) -> int:
             if args.boot_installed:
                 expected = load(REPOSITORY / "tests" / args.install)
                 unlocked_remotely = False
+                unlock_failed = ""
                 if expected.kernel.remote_unlock.enabled:
                     if remote_port is None:
                         raise RuntimeError("remote unlock is enabled without a forwarded port")
-                    try:
-                        remote_unlock(key, remote_port, expected)
-                    except RuntimeError as error:
-                        print(f"FAIL remote unlock: {error}", file=sys.stderr)
-                        power_off(console, vm)
-                        return 1
-                    unlocked_remotely = True
-                    print("installed root unlocked by remote SSH session")
+                    unlock_failed = try_remote_unlock(key, remote_port, expected)
+                    if unlock_failed:
+                        # Not a power-off: the machine is sitting at its own
+                        # passphrase prompt, the console gets in, and a verdict
+                        # that carries what the machine held beats one that
+                        # carries only the port nobody answered on.
+                        print(f"FAIL remote unlock: {unlock_failed}", file=sys.stderr)
+                    else:
+                        unlocked_remotely = True
+                        print("installed root unlocked by remote SSH session")
                 method = unlock_and_login(
                     console, expected, vm.monitor_socket, remote_unlocked=unlocked_remotely
                 )
@@ -719,6 +731,10 @@ def _perform(args: argparse.Namespace, medium: Medium, workdir: Path) -> int:
                 code = report(
                     result_disk, keep=args.keep, assertions=REPOSITORY / "tests" / args.install
                 )
+                if unlock_failed:
+                    # The subject of the fixture is the unlock, so a machine
+                    # that only came up by console has still failed it.
+                    code = code or 1
                 if code == 0:
                     # The boot check is the last reader of the target disk, and
                     # one campaign left 80 GiB of them behind. A failed run
