@@ -6,6 +6,7 @@ import shutil
 import time
 from typing import Sequence, cast
 import re
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -16,7 +17,8 @@ from gentoo_install.exec import report
 from gentoo_install.exec.runner import Runner
 from gentoo_install.cli import EXIT_CONFIG, EXIT_INTEGRITY, EXIT_OK, EXIT_PREFLIGHT, main
 from gentoo_install.errors import ConfigError, IntegrityError
-from gentoo_install.model.device import StorageFacts
+from gentoo_install.model.config import DiskConfig, DiskMode
+from gentoo_install.model.device import DeviceGraph, DeviceId, StorageFacts, StorageLayout
 from gentoo_install.plan.build import DEFAULT_MIRROR
 from gentoo_install.exec.config import load
 
@@ -680,7 +682,7 @@ def test_a_finish_failure_releases_the_machine_and_keeps_its_exit_code(
     monkeypatch.setattr(
         cli,
         "build",
-        lambda chosen, catalog, *, mirror, storage_facts: (
+        lambda chosen, catalog, *, mirror, storage_facts, layout: (
             Partition(),
             FailFinish(),
             FailRelease(),
@@ -732,7 +734,7 @@ def test_a_failure_after_partitioning_says_the_disk_may_not_boot(
     monkeypatch.setattr(
         cli,
         "build",
-        lambda chosen, catalog, *, mirror, storage_facts: (FailPartition(),),
+        lambda chosen, catalog, *, mirror, storage_facts, layout: (FailPartition(),),
     )
     monkeypatch.setattr(report, "keep_log", lambda work, target, record: None)
 
@@ -810,7 +812,7 @@ def test_a_body_failure_before_partitioning_says_nothing_was_written(
     monkeypatch.setattr(
         cli,
         "build",
-        lambda chosen, catalog, *, mirror, storage_facts: (
+        lambda chosen, catalog, *, mirror, storage_facts, layout: (
             FailBeforePartition(),
             Partition(),
         ),
@@ -980,3 +982,56 @@ def test_nothing_is_flushed_on_a_terminal_this_run_does_not_own(
 
     monkeypatch.setattr(system, "stdin", io.StringIO(""))
     cli._forget_what_was_typed()
+
+
+def test_a_conversion_reads_the_running_layout_even_for_a_dry_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A conversion derives its whole plan from the machine it is running on,
+    so a dry run that skipped the probe would have nothing to print."""
+    read: list[str] = []
+
+    class Reading:
+        def __init__(self, **_: object) -> None:
+            pass
+
+        def storage_layout(self) -> StorageLayout:
+            read.append("layout")
+            return StorageLayout(
+                root_device="/dev/vda2",
+                root_filesystem_type="ext4",
+                root_uuid="8f1c0a2e-0000-4000-8000-000000000001",
+                root_on_lvm=False,
+                root_on_luks=False,
+                root_on_mdraid=False,
+                root_below_device="/dev/vda",
+                boot_device="/dev/vda2",
+                boot_same_filesystem=True,
+                esp_device="/dev/vda1",
+                esp_mountpoint="/efi",
+                uefi=True,
+                root_free_bytes=20 * 2**30,
+            )
+
+    from .layouts import config
+
+    converted = replace(
+        config(),
+        disk=DiskConfig(graph=DeviceGraph.build([]), root=DeviceId(""), mode=DiskMode.IN_PLACE),
+    )
+    monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
+    monkeypatch.setattr(cli, "_needs_network", lambda arguments: False)
+    monkeypatch.setattr(cli, "load", lambda path: converted)
+    monkeypatch.setattr(cli, "Probe", Reading)
+
+    code = main(
+        [
+            "--config", str(tmp_path / "install.toml"),
+            "--work", str(tmp_path / "work"),
+            "--dry-run",
+        ]
+    )
+
+    assert code == EXIT_OK
+    assert read == ["layout"], "the layout is what a conversion plan is derived from"
+    assert "swap" in capsys.readouterr().out

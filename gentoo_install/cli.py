@@ -27,7 +27,7 @@ from .exec import fetch, preflight, report
 from .exec.apply import Machine, already_degraded, apply, completed
 from .exec.probe import Probe, probe_storage_facts
 from .exec.runner import Runner
-from .model.device import StorageFacts
+from .model.device import StorageFacts, StorageLayout
 from .model.size import Size
 from .tui import app, screens
 from .tui.curses_screen import CursesScreen, too_small
@@ -37,6 +37,7 @@ from .model.config import (
     BootloaderConfig,
     Binhost,
     DiskConfig,
+    DiskMode,
     Firmware,
     InstallConfig,
     MirrorConfig,
@@ -169,6 +170,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         if _needs_network(arguments):
             _require_mirror(config, arguments.mirror)
         storage_facts = StorageFacts()
+        layout: StorageLayout | None = None
+        if config.disk.mode is DiskMode.IN_PLACE:
+            # Even for a dry run: a conversion's whole plan is derived from the
+            # running machine, so without this there is nothing to print.
+            layout = Probe(
+                runner=Runner(log=lambda line: None), work=arguments.work
+            ).storage_layout()
         if not arguments.dry_run:
             # Before the plan is derived, because `build` validates: a reused
             # esp needs runtime metadata. A dry run remains independent of the
@@ -181,6 +189,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             load_catalog(),
             mirror=arguments.mirror,
             storage_facts=storage_facts,
+            layout=layout,
         )
         if arguments.dry_run:
             print(render(operations), end="")
