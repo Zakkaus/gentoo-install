@@ -60,14 +60,14 @@ class Purpose:
     key: str
     label: str
     role: PartitionRole
-    #: Where it mounts. Empty for a purpose that mounts nothing, and for the
-    #: one purpose that asks.
+    #: Where it mounts. Empty for a purpose that mounts nothing, and for one
+    #: that asks the operator instead.
     mountpoint: str = ""
     filesystem: FilesystemType | None = None
     #: A purpose whose filesystem is fixed by the firmware or the pool takes no
     #: filesystem menu.
     chooses_filesystem: bool = True
-    #: Only `other` asks, because every other purpose already knows.
+    #: `other` and `zfs` ask; the rest already know where they go.
     asks_mountpoint: bool = False
 
 

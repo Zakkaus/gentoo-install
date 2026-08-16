@@ -55,8 +55,12 @@ class PreflightFailed(GentooInstallError):
 
 
 class IntegrityError(GentooInstallError):
-    """A signature, checksum or key fingerprint did not match. Never retried
-    against another mirror: untrusted data stays untrusted."""
+    """A signature, checksum or key fingerprint did not match.
+
+    Never retried against another mirror: untrusted data stays untrusted. The
+    one exception is `ArchiveDigestMismatch`, which says something about that
+    mirror's copy rather than about the release.
+    """
 
 
 class NothingToBoot(GentooInstallError):

@@ -39,7 +39,9 @@ PORTAGE_PREREQUISITES: Final[tuple[type[Operation], ...]] = (
 def stage3_mirror(config: InstallConfig, fallback: str = DEFAULT_MIRROR) -> str:
     """Where the stage3 comes from.
 
-    The site the operator chose, which is the same one `GENTOO_MIRRORS` gets.
+    The site the operator chose, which is the same one `GENTOO_MIRRORS` gets,
+    unless that site carries no `releases/`: the region's first is used then,
+    for the reason given at the line that does it.
     Only `--mirror` was read, so choosing USTC set the mirror for every later
     fetch and downloaded the several hundred megabytes of the stage3 itself
     from `distfiles.gentoo.org`, which is the slow one from China.
