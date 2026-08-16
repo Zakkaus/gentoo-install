@@ -15,6 +15,7 @@ import pytest
 from gentoo_install import cli
 from gentoo_install.exec import fetch
 from gentoo_install.exec import report
+from gentoo_install.exec.probe import Probe as RealProbe
 from gentoo_install.exec.runner import Runner
 from gentoo_install.cli import EXIT_CONFIG, EXIT_INTEGRITY, EXIT_OK, EXIT_PREFLIGHT, main
 from gentoo_install.errors import ConfigError, IntegrityError
@@ -1203,3 +1204,34 @@ def test_the_machine_gets_the_derived_configuration_for_a_conversion(
     cli.install(converted, (), arguments, cli.RunState(), running)
 
     assert seen == [running], "the machine takes the derived one"
+
+
+def test_the_conversion_offer_names_the_command_the_reading_needs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Measured on an Alpine 3.21 cloud image over ssh: busybox ships no
+    `findmnt` and no `lsblk`, so `storage_layout()` came back with every field
+    `None` and the conversion was refused with `the running root device could
+    not be read`. The machine was readable; the package was missing, and the
+    refusal has to say which one so the operator can install it."""
+
+    class Probe:
+        def live_medium(self) -> str:
+            return ""
+
+        def storage_layout(self) -> StorageLayout:
+            raise AssertionError("the layout must not be read without its commands")
+
+    absent: set[str] = {"findmnt", "lsblk"}
+    monkeypatch.setattr(report, "absent", lambda wanted, probe=None: set(absent))
+
+    running, refused = cli._conversion_offer(cast(RealProbe, Probe()))
+    assert running == ""
+    assert "findmnt" in refused and "lsblk" in refused, refused
+
+    # Negative control: with every command present the offer reads the layout,
+    # which this double refuses to answer. A guard that fires unconditionally
+    # would swallow that and return a refusal instead.
+    absent.clear()
+    with pytest.raises(AssertionError, match="must not be read"):
+        cli._conversion_offer(cast(RealProbe, Probe()))

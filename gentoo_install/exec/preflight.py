@@ -60,6 +60,12 @@ BY_OPERATION: Final[dict[type[Operation], tuple[str, ...]]] = {
 #: `password_hash` already, and the menu computes one with `openssl passwd -6`.
 MENU_ONLY: Final[tuple[str, ...]] = ("openssl",)
 
+#: What `Probe.storage_layout` runs to read the machine it is offered to
+#: replace. Alpine's busybox has none of them, and without them every field
+#: comes back empty, so the conversion is refused for a reason that names the
+#: layout rather than the missing package.
+LAYOUT_COMMANDS: Final[tuple[str, ...]] = ("findmnt", "lsblk", "blkid")
+
 #: What each part of a layout adds. Derived from the graph, never a second list.
 BY_FEATURE: Final[dict[str, tuple[str, ...]]] = {
     # `partprobe` is absent here on purpose: it comes from parted, and

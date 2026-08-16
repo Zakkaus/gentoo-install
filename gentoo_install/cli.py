@@ -622,6 +622,12 @@ def _conversion_offer(probe: Probe) -> tuple[str, str]:
     medium = probe.live_medium()
     if medium:
         return "", f"this is a live medium ({medium}), so there is no system to replace"
+    # Measured on an Alpine cloud image: without these the layout reads back
+    # empty and the refusal blamed the root device rather than the package.
+    lacking = report.absent(preflight.LAYOUT_COMMANDS, probe)
+    if lacking:
+        missing = ", ".join(sorted(lacking))
+        return "", f"the running system cannot be read without {missing}"
     try:
         layout = probe.storage_layout()
     except GentooInstallError as error:
