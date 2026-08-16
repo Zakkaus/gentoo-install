@@ -104,6 +104,9 @@ def test_storage_layout_reads_each_storage_fact(
     assert layout.root_on_mdraid is True
     assert layout.root_below_device == "/dev/md0"
     assert layout.boot_device == "/dev/sda2"
+    # The conversion writes an fstab from these facts, and a `/boot` on its own
+    # partition needs a type as well as a device to be mounted at all.
+    assert layout.boot_filesystem_type == "ext4"
     assert layout.boot_same_filesystem is False
     assert layout.esp_device == "/dev/sda1"
     assert layout.esp_mountpoint == "/boot/efi"
