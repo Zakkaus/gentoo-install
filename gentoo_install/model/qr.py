@@ -137,14 +137,14 @@ def _smallest(length: int) -> int:
 
 def _codewords(payload: bytes, version: int) -> list[int]:
     """The data and its error correction, interleaved as the standard orders."""
-    data, ec_count, blocks = BLOCKS[version]
+    data, error_correction_count, blocks = BLOCKS[version]
     bits = _bitstream(payload, data * blocks)
     grouped = [bits[index * data : (index + 1) * data] for index in range(blocks)]
-    corrections = [_remainder(one, ec_count) for one in grouped]
+    corrections = [_remainder(one, error_correction_count) for one in grouped]
     out: list[int] = []
     for column in range(data):
         out += [one[column] for one in grouped]
-    for column in range(ec_count):
+    for column in range(error_correction_count):
         out += [one[column] for one in corrections]
     return out
 

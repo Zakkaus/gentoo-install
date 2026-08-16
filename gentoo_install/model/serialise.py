@@ -70,7 +70,7 @@ def to_toml(config: InstallConfig, *, publishing: bool = False) -> str:
     """The configuration as a file that parses back into the same object.
 
     `publishing` replaces every password hash, for the copy that goes to a
-    pastebin. The result still parses; it just installs no password.
+    pastebin. The result still parses and installs no password.
     """
     lines = [f"{model_config.CONFIG_VERSION_KEY} = {config.config_version}"]
     for name in model_config.PERSISTED_SECTIONS[:-1]:
