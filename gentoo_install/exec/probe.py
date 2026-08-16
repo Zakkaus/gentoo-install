@@ -117,6 +117,35 @@ class ProbedPartition:
     device_type: str
 
 
+#: The mount points a conversion writes itself. Every other line of the
+#: running `/etc/fstab` is carried across.
+_MANAGED_MOUNTS: Final[frozenset[str]] = frozenset({"/", "/boot", "/efi", "/boot/efi"})
+
+
+def _fstab_we_do_not_manage(esp: str | None, boot: str | None) -> tuple[str, ...]:
+    """The running fstab's other mounts, verbatim.
+
+    `distro2gentoo` copies the whole file across and keeps every mount the
+    machine had. This installer writes `/`, `/boot` and the esp from what it
+    probed, because their identifiers are the ones it just read; the rest —
+    a data partition, swap, a bind mount — is the operator's and is carried.
+    """
+    managed = set(_MANAGED_MOUNTS) | {one for one in (esp, boot) if one}
+    try:
+        lines = Path("/etc/fstab").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ()
+    carried = []
+    for line in lines:
+        fields = line.split()
+        if not fields or fields[0].startswith("#") or len(fields) < 2:
+            continue
+        if fields[1] in managed:
+            continue
+        carried.append(line.rstrip())
+    return tuple(carried)
+
+
 def _mount_entries(document: object) -> tuple[Mapping[str, object], ...]:
     if not isinstance(document, Mapping):
         return ()
@@ -852,6 +881,10 @@ class Probe:
             esp_mountpoint=esp_mountpoint if uefi else None,
             uefi=uefi,
             root_free_bytes=_entry_int(root, "avail") if root is not None else None,
+            carried_fstab=_fstab_we_do_not_manage(
+                esp_mountpoint if uefi else None,
+                _entry_text(boot, "target") if boot is not None else None,
+            ),
         )
 
     def supports_v3(self) -> bool:
