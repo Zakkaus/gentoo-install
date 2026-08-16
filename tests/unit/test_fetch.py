@@ -281,3 +281,38 @@ def test_a_corrupt_archive_is_removed_so_the_next_mirror_downloads_again(
     with pytest.raises(ArchiveDigestMismatch):
         fetch._verify_digest(archive, digests)
     assert archive.exists(), "the check itself does not remove anything"
+
+
+def test_a_body_that_stops_early_is_a_download_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`http.client.IncompleteRead` is an `HTTPException` and not an `OSError`,
+    so a server that closed the connection with bytes still promised escaped
+    the handler: the `.part` file stayed behind and the install stopped instead
+    of reaching the next mirror."""
+    import http.client
+
+    assert not issubclass(http.client.IncompleteRead, OSError), "the whole reason"
+
+    class Truncated:
+        def __enter__(self) -> "Truncated":
+            return self
+
+        def __exit__(self, *unused: object) -> None:
+            return None
+
+        @property
+        def headers(self) -> dict[str, str]:
+            return {"Content-Length": "1024"}
+
+        def read(self, size: int = 0) -> bytes:
+            raise http.client.IncompleteRead(b"half", 1020)
+
+    monkeypatch.setattr(fetch, "_urlopen", lambda *unused, **ignored: Truncated())
+    target = tmp_path / "stage3.tar.xz"
+    with pytest.raises(DownloadFailed, match="could not be fetched"):
+        fetch._download("https://example.invalid/stage3.tar.xz", target)
+
+    # The partial file goes with it, or the next mirror verifies this one.
+    assert not target.with_suffix(target.suffix + ".part").exists()
+    assert not target.exists()

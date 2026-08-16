@@ -222,7 +222,7 @@ def _probe(mirror: str, proxy: ProxyConfig | None = None) -> float:
     try:
         with _urlopen(_asked(url), proxy, PROBE_TIMEOUT) as response:
             response.read(1 << 16)
-    except (urllib.error.URLError, TimeoutError, OSError):
+    except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException):
         return float("inf")
     return time.monotonic() - started
 
@@ -329,7 +329,7 @@ def upload(
     try:
         with _urlopen(request, proxy, TIMEOUT) as response:
             answered = json.loads(response.read().decode())
-    except (urllib.error.URLError, TimeoutError, OSError) as error:
+    except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as error:
         raise UploadFailed(f"{paste.HOST} did not take the paste: {error}") from error
     except ValueError as error:
         raise UploadFailed(f"{paste.HOST} answered something that is not JSON") from error
@@ -363,7 +363,7 @@ def network_time(proxy: ProxyConfig | None = None) -> float:
         request = _asked(CLOCK_URL, method="HEAD")
         with _urlopen(request, proxy, PROBE_TIMEOUT) as response:
             stamp = response.headers.get("Date", "")
-    except (urllib.error.URLError, TimeoutError, OSError):
+    except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException):
         return 0.0
     try:
         return parsedate_to_datetime(stamp).timestamp()
@@ -892,7 +892,7 @@ def _read_once(url: str, proxy: ProxyConfig | None = None) -> str:
     try:
         with _urlopen(_asked(url), proxy, TIMEOUT) as response:
             return str(response.read().decode("utf-8", "replace"))
-    except (urllib.error.URLError, TimeoutError, OSError) as error:
+    except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as error:
         raise DownloadFailed(f"{url} could not be read: {error}{_resolver_state(url)}") from error
 
 
@@ -1026,7 +1026,11 @@ def _download_once(
                 if log is not None and time.monotonic() - said >= PROGRESS_INTERVAL:
                     said = time.monotonic()
                     log(_progress(target.name, got, total))
-    except (urllib.error.URLError, TimeoutError, OSError) as error:
+    # `http.client.HTTPException` beside the rest: `IncompleteRead` is one and
+    # is not an `OSError`, so a server closing the connection with bytes still
+    # promised escaped this handler, left the `.part` file behind and stopped
+    # the install instead of reaching the next mirror.
+    except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as error:
         partial.unlink(missing_ok=True)
         raise DownloadFailed(f"{url} could not be fetched: {error}") from error
     partial.replace(target)
