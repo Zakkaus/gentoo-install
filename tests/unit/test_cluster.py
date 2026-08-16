@@ -657,9 +657,11 @@ def test_both_fixtures_of_a_conversion_job_reach_the_driver_cd(tmp_path: Path) -
     """A conversion job carries two: the ordinary install it runs first and the
     in-place fixture it runs against the result. Writing only the first left
     the CD without the second and the guest answered `no such file`."""
+    from gentoo_install.model.config import MirrorRegion, Sync
+
     jobs = cluster.fixtures(["vm-convert"])
     written = cluster.rewrite_fixtures(
-        jobs, tmp_path / "fixtures", cluster.MirrorRegion.CN, cluster.Sync.GIT, site="nju"
+        jobs, tmp_path / "fixtures", MirrorRegion.CN, Sync.GIT, site="nju"
     )
     names = {path.name for path in written.iterdir()}
     assert names == {cluster.CONVERSION_BASE, "vm-convert.toml"}, names
