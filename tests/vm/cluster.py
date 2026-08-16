@@ -740,7 +740,12 @@ REACHABILITY_PROBE: Final[str] = (
     "printf '\\nLOOKUPS_ANY '; for i in 1 2 3 4 5; do "
     "getent ahosts mirrors.ustc.edu.cn >/dev/null 2>&1 "
     "&& printf 'ok ' || printf 'fail '; done; "
-    "printf '\\nLIBC '; getconf GNU_LIBC_VERSION; printf '\\n'"
+    "printf '\\nLIBC '; getconf GNU_LIBC_VERSION; "
+    # The state itself, not only whether it worked: sixty-one lookups answered
+    # `ENETUNREACH` from a guest that had passed this probe a minute earlier,
+    # and only the addresses and routes at each moment say what went.
+    "printf 'ADDRS '; ip -4 -brief address show | tr '\\n' ';'; "
+    "printf '\\nROUTES '; ip -4 route show | tr '\\n' ';'; printf '\\n'"
 )
 
 
@@ -1522,6 +1527,10 @@ def install_one(
         # tell a slow mirror from a dead guest.
         # `wait_for`, not `run`: a console dropped mid-install is reopened and
         # listened to again, never handed the command a second time.
+        # Again, immediately before the installer: the first measurement is
+        # taken a minute earlier and passed on every guest of round 27, whose
+        # installers then found no route at all. This one splits that window.
+        link.run(REACHABILITY_PROBE, timeout=120.0)
         phase = Phase.INSTALL
         link.wait_for(
             f"{{ sh /mnt/driver/install.sh --config fixtures/{job.fixture.name}; "
