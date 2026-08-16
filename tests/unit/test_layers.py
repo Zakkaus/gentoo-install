@@ -133,6 +133,7 @@ def test_no_definition_in_the_package_is_unreachable() -> None:
     )
     orphans: list[str] = []
     for path in sorted((root / "gentoo_install").rglob("*.py")):
+        lines = path.read_text().splitlines()
         for node in ast.parse(path.read_text()).body:
             named: list[str] = []
             if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
@@ -141,10 +142,18 @@ def test_no_definition_in_the_package_is_unreachable() -> None:
                 named = [node.target.id]
             elif isinstance(node, ast.Assign):
                 named = [one.id for one in node.targets if isinstance(one, ast.Name)]
+            # The definition's own text is not a reference to it: a recursive
+            # helper names itself, so counting the whole tree accepted one that
+            # nothing calls.
+            own = "\n".join(lines[node.lineno - 1 : node.end_lineno])
             for name in named:
                 if name.startswith("__"):
                     continue
-                if len(re.findall(rf"\b{re.escape(name)}\b", everything)) <= 1:
+                pattern = rf"\b{re.escape(name)}\b"
+                outside = len(re.findall(pattern, everything)) - len(
+                    re.findall(pattern, own)
+                )
+                if outside == 0:
                     orphans.append(f"{path.relative_to(root)}:{node.lineno} {name}")
     assert orphans == [], orphans
 
