@@ -62,7 +62,7 @@
 [bootloader]
   install the bootloader: emerge sys-boot/grub
   write /etc/default/grub with cmdline console=ttyS0,115200, its menu on ttyS0
-  install GRUB for bios on the boot disk
+  install GRUB for bios on the disk under disk
 
 [finish]
   delete the downloaded stage3 from /var/cache/gentoo-install

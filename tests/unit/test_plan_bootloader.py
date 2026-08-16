@@ -191,3 +191,42 @@ def test_every_zfsbootmenu_host_key_can_be_written_in_the_format_asked_for() -> 
             )
             assert target.is_file(), (keytype, done.stdout, done.stderr)
             assert target.read_bytes().startswith(b"-----BEGIN "), keytype
+
+
+def test_the_bios_grub_describe_names_every_disk_that_gets_a_boot_sector() -> None:
+    """The BIOS branch writes a boot sector to the containing disk of each boot
+    device, and a mirrored root has two. `--dry-run` said "the boot disk",
+    naming neither, so an operator could not see which disks the run rewrites.
+    """
+    from gentoo_install.model.device import DeviceId
+
+    mirrored = bootloader.InstallGrub(
+        firmware=Firmware.BIOS,
+        esp=None,
+        boot_devices=(DeviceId("first"), DeviceId("second")),
+    )
+    said = mirrored.describe()
+    assert "first" in said and "second" in said, said
+    assert "disks" in said, said
+
+    # Not a claim about the text alone: apply writes to exactly those disks.
+    class Disks(Recorder):
+        def containing_disk(self, device: DeviceId) -> str:
+            return f"/dev/{device}"
+
+    recorder = Disks(replies={"grep": "1"})
+    mirrored.apply(recorder)
+    installed = [one[-1] for one in recorder.in_target if one[0] == "grub-install"]
+    assert installed == ["/dev/first", "/dev/second"], installed
+    for disk in installed:
+        assert disk.removeprefix("/dev/") in said, (disk, said)
+
+    # Negative control: the UEFI branch installs on the esp and names it, and
+    # must not start listing devices it does not write a boot sector to.
+    on_esp = bootloader.InstallGrub(
+        firmware=Firmware.UEFI,
+        esp=PurePosixPath("/efi"),
+        boot_devices=(DeviceId("first"),),
+    )
+    assert "/efi" in on_esp.describe()
+    assert "first" not in on_esp.describe(), on_esp.describe()

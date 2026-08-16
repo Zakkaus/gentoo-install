@@ -388,9 +388,18 @@ class WriteCrypttab(Operation):
     init: InitSystem
 
     def describe(self) -> str:
-        names = ", ".join(entry.name for entry in self.entries)
         where = "/etc/crypttab" if self.init is InitSystem.SYSTEMD else "/etc/conf.d/dmcrypt"
-        return f"write {where} for {names}"
+        written = self._written()
+        if not written:
+            return f"write {where} empty: the initramfs opens every encrypted device"
+        return f"write {where} for {', '.join(entry.name for entry in written)}"
+
+    def _written(self) -> tuple[CrypttabEntry, ...]:
+        """openrc's dmcrypt does not open what the initramfs already did, so a
+        describe naming every entry promises a file the run does not write."""
+        if self.init is InitSystem.SYSTEMD:
+            return self.entries
+        return tuple(entry for entry in self.entries if not entry.initrd_attach)
 
     def apply(self, context: Context) -> None:
         if self.init is InitSystem.SYSTEMD:
@@ -406,8 +415,7 @@ class WriteCrypttab(Operation):
         # parser assumes; the root is already open, so it is left out.
         sections = [
             f"target={entry.name}\nsource='UUID={context.device_uuid(entry.backing)}'"
-            for entry in self.entries
-            if not entry.initrd_attach
+            for entry in self._written()
         ]
         context.write(
             PurePosixPath("/etc/conf.d/dmcrypt"), "\n\n".join(sections) + "\n" if sections else ""

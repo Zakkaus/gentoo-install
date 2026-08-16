@@ -132,8 +132,15 @@ class InstallGrub(Operation):
     boot_devices: tuple[DeviceId, ...]
 
     def describe(self) -> str:
-        where = f"the esp at {self.esp}" if self.esp is not None else "the boot disk"
-        return f"install GRUB for {self.firmware.value} on {where}"
+        if self.esp is not None:
+            return f"install GRUB for {self.firmware.value} on the esp at {self.esp}"
+        # Every disk, not "the boot disk": the BIOS branch writes a boot sector
+        # to the containing disk of each boot device, and a mirrored root has
+        # two. The devices rather than the disks, because a disk is resolved
+        # from the machine and `describe` has none.
+        under = ", ".join(str(one) for one in self.boot_devices)
+        disks = "disk" if len(self.boot_devices) == 1 else "disks"
+        return f"install GRUB for {self.firmware.value} on the {disks} under {under}"
 
     def apply(self, context: Context) -> None:
         if self.firmware is Firmware.UEFI and self.esp is not None:

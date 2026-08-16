@@ -48,7 +48,7 @@
   give the target its own machine id
   write /etc/fstab with entries for /, swap
   treat the hardware clock as UTC
-  write /etc/conf.d/dmcrypt for root
+  write /etc/conf.d/dmcrypt empty: the initramfs opens every encrypted device
   start a login on ttyS0 at 115200 baud
   set the root password
   install the network tools: emerge net-misc/netifrc net-misc/dhcpcd
@@ -71,7 +71,7 @@
 [bootloader]
   install the bootloader: emerge sys-boot/grub
   write /etc/default/grub with cmdline console=ttyS0,115200, cryptodisk enabled and its menu on ttyS0
-  install GRUB for bios on the boot disk
+  install GRUB for bios on the disk under disk
 
 [finish]
   delete the downloaded stage3 from /var/cache/gentoo-install
