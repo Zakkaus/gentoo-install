@@ -31,6 +31,7 @@ from ..model.device import (
     PartitionTable,
     RaidMetadata,
     StorageFacts,
+    StorageLayout,
 )
 from ..model.validate import KernelCeiling, ProbedProfile, parse_profile_list, zfs_kernel_ceiling
 from .runner import Runner
@@ -114,25 +115,6 @@ class ProbedPartition:
     size_bytes: int
     filesystem: str
     device_type: str
-
-
-@dataclass(frozen=True)
-class StorageLayout:
-    """Facts about the filesystems and block-device stack running the system."""
-
-    root_device: str | None
-    root_filesystem_type: str | None
-    root_uuid: str | None
-    root_on_lvm: bool | None
-    root_on_luks: bool | None
-    root_on_mdraid: bool | None
-    root_below_device: str | None
-    boot_device: str | None
-    boot_same_filesystem: bool | None
-    esp_device: str | None
-    esp_mountpoint: str | None
-    uefi: bool
-    root_free_bytes: int | None
 
 
 def _mount_entries(document: object) -> tuple[Mapping[str, object], ...]:

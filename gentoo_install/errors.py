@@ -78,6 +78,15 @@ class CommandFailed(GentooInstallError):
     is a different thing from data that cannot be trusted."""
 
 
+class ConversionUnsupported(GentooInstallError):
+    """The running layout is one the conversion cannot rebuild.
+
+    Names the layer that stops it. A root below LUKS, LVM or mdraid needs the
+    whole stack described, not one `Existing` node, and stopping here leaves
+    the machine untouched.
+    """
+
+
 class ConversionFailed(GentooInstallError):
     """The in-place swap could not be completed.
 
