@@ -149,3 +149,13 @@ def test_a_failed_read_says_so_when_the_resolver_file_is_missing(tmp_path: Path)
 def test_the_diagnostic_carries_the_resolver_state(tmp_path: Path) -> None:
     said = fetch._resolver_state("https://mirrors.nju.edu.cn/gentoo/x")
     assert "nameserver" in said
+
+
+def test_the_diagnostic_separates_the_two_address_families() -> None:
+    said = fetch._families("localhost")
+    assert "v4=" in said and "v6=" in said
+
+
+def test_a_family_that_cannot_be_answered_names_its_error() -> None:
+    said = fetch._families("no-such-name.gentoo-install.invalid")
+    assert "v4=gaierror" in said
