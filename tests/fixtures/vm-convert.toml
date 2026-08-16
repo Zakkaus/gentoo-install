@@ -1,0 +1,43 @@
+# The in-place conversion, run against a machine this installer produced.
+#
+# `disk.mode = "in-place"` carries no device graph: the layout is read from
+# the running machine, and `validate()` refuses one written here. The hostname
+# differs from every other fixture so that a guest which rebooted into the old
+# system rather than the converted one is told apart from one that worked.
+#
+# The root hash below is `install`, produced by `openssl passwd -6`. It has to
+# be a real hash: a made-up one is accepted by `usermod --password` and only
+# shows up as a system nobody can log into.
+config_version = 1
+
+[system]
+hostname = "convertedbox"
+timezone = "UTC"
+locales = ["en_US.UTF-8"]
+locale = "en_US.UTF-8"
+init = "systemd"
+networking = "builtin"
+sshd = true
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
+
+[portage]
+profile = "default/linux/amd64/23.0/systemd"
+makeopts = "-j4"
+
+[portage.mirrors]
+region = "global"
+
+[portage.binhost]
+official = true
+community = "off"
+
+[kernel]
+source = "dist-bin"
+
+[bootloader]
+kind = "grub"
+firmware = "uefi"
+kernel_params = ["console=ttyS0,115200"]
+
+[disk]
+mode = "in-place"

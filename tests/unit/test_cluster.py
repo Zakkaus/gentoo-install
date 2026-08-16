@@ -515,3 +515,40 @@ def test_a_console_that_keeps_closing_gives_up_instead_of_burning_the_ceiling() 
     with pytest.raises(ConsoleClosed, match="kept closing"):
         link.expect("never", timeout=600.0)
     assert len(opened) <= cluster.REOPEN_CEILING + 2, opened
+
+
+def test_a_conversion_job_installs_a_machine_before_it_converts_one() -> None:
+    """`mode = "in-place"` carries no device graph, so there is nothing for the
+    scheduler to create. The job installs an ordinary fixture first and runs
+    the conversion against what that produced."""
+    job = cluster.fixtures(["vm-convert"])[0]
+    assert job.name == "vm-convert"
+    assert job.fixture.name == cluster.CONVERSION_BASE
+    assert job.convert_to is not None and job.convert_to.name == "vm-convert.toml"
+
+
+def test_an_ordinary_job_converts_nothing() -> None:
+    job = cluster.fixtures(["vm-xfs"])[0]
+    assert job.convert_to is None
+
+
+def test_the_conversion_base_is_a_layout_the_conversion_accepts() -> None:
+    """A root below LUKS, LVM or mdraid is refused by name, so a base with one
+    would fail every run for a reason that has nothing to do with the swap."""
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.device import Luks, LogicalVolume, MdRaid
+
+    base = load(cluster.REPOSITORY / "tests" / "fixtures" / cluster.CONVERSION_BASE)
+    for stacked in (Luks, LogicalVolume, MdRaid):
+        assert not base.disk.graph.of_type(stacked), stacked.__name__
+
+
+def test_the_converted_machine_is_read_back_the_same_way(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A converted machine that reaches a login prompt with the old hostname
+    booted the system it was replacing, so the same reader has to run again."""
+    import inspect
+
+    code = inspect.getsource(cluster.convert_and_check)
+    assert "boot_and_check(" in code
+    assert "install.sh --config fixtures/" in code
+    assert "wait_for_network(" in code, "the installed system has to reach a mirror too"
