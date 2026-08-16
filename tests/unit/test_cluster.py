@@ -621,8 +621,13 @@ class _Stoppable:
         self.stopped = True
 
 
-def _held(log: Path, moved: bool, stuck: bool) -> object:
-    watch = cluster.Watchdog(log=log, counters=lambda: 0)
+def _held(log: Path, moved: bool, stuck: bool, busy: bool = False) -> object:
+    """`busy` gives the guest moving byte counters, which is a guest whose disk
+    is working while its console has gone."""
+    counters = iter(range(0, 10**9, cluster.QUIET_BYTES * 2))
+    watch = cluster.Watchdog(
+        log=log, counters=(lambda: next(counters)) if busy else (lambda: 0)
+    )
     # One pass so the watchdog has seen the log: the first call always reports
     # growth, from nothing to whatever is there.
     watch.moved()
@@ -674,3 +679,26 @@ def test_the_conversion_keeps_its_own_copy_of_both_logs() -> None:
 
     code = inspect.getsource(cluster.convert_and_check)
     assert 'f"convert.{name}"' in code
+
+
+def test_a_busy_guest_whose_console_went_is_ended_too(tmp_path: Path) -> None:
+    """A node whose proxy is refusing leaves the socket open and silent while
+    the disk stays busy, so the watchdog is right that the guest is alive and
+    the run still cannot be read: `btrfs-luks` sat that way for sixteen
+    minutes."""
+    log = tmp_path / "btrfs-luks.log"
+    log.write_text(
+        "emerging\nRead from remote host 10.31.0.202: Connection reset by peer\n"
+    )
+    held = _held(log, moved=False, stuck=False, busy=True)
+    assert cast(Any, held).watch.moved() is True, "the counters say it is working"
+    cluster._sweep({"btrfs-luks": cast(Any, held)})
+    assert cast(Any, held).guest.stopped
+
+
+def test_a_busy_guest_with_a_healthy_console_is_left_running(tmp_path: Path) -> None:
+    log = tmp_path / "vm-xfs.log"
+    log.write_text("emerging sys-kernel/gentoo-kernel\n")
+    held = _held(log, moved=False, stuck=False, busy=True)
+    cluster._sweep({"vm-xfs": cast(Any, held)})
+    assert not cast(Any, held).guest.stopped
