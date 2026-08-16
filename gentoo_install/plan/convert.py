@@ -295,6 +295,14 @@ def layout_graph(layout: StorageLayout) -> DiskConfig:
         )
     if not layout.root_device or not layout.root_filesystem_type:
         raise ConversionUnsupported("the running root device could not be read")
+    if not layout.uefi and layout.root_below_device is None:
+        # Measured on an Alpine cloud image, whose ext4 sits on `/dev/vda`
+        # itself: `grub-install --target=i386-pc` answers `will not proceed
+        # with blocklists`, and it would answer that after the swap.
+        raise ConversionUnsupported(
+            f"the running root {layout.root_device} is a whole disk with no partition, "
+            "so a bios bootloader has nowhere to embed its core image"
+        )
     nodes: list[object] = [
         Existing(id=ROOT_DEVICE, selector=layout.root_device),
         Filesystem(
