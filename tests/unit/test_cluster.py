@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
 
 import time
 from collections.abc import Callable
@@ -608,3 +608,46 @@ def test_the_password_waits_for_the_echo_to_be_turned_off() -> None:
     code = inspect.getsource(cluster._log_in)
     assert "PASSWORD_ECHO_OFF_AFTER" in code
     assert code.index("PASSWORD_ECHO_OFF_AFTER") < code.index("link.respond(password)")
+
+
+class _Stoppable:
+    def __init__(self) -> None:
+        self.stopped = False
+
+    def stop(self) -> None:
+        self.stopped = True
+
+    def destroy(self) -> None:
+        self.stopped = True
+
+
+def _held(log: Path, moved: bool, stuck: bool) -> object:
+    watch = cluster.Watchdog(log=log, counters=lambda: 0)
+    # One pass so the watchdog has seen the log: the first call always reports
+    # growth, from nothing to whatever is there.
+    watch.moved()
+    watch.strikes = cluster.WATCH_STRIKES if stuck else 0
+    return cluster.Running(guest=cast(Any, _Stoppable()), watch=watch, reservation_bytes=0)
+
+
+def test_a_quiet_guest_whose_node_dropped_the_console_is_ended_at_once(
+    tmp_path: Path,
+) -> None:
+    """A node whose proxy is refusing leaves the socket open and silent, so
+    nothing raises and the guest's own counters still say it is working."""
+    log = tmp_path / "vm-zfs.log"
+    log.write_text(
+        "installing\nRead from remote host 10.31.0.202: Connection reset by peer\n"
+        "Connection to 10.31.0.202 closed.\n"
+    )
+    held = _held(log, moved=False, stuck=False)
+    cluster._sweep({"vm-zfs": cast(Any, held)})
+    assert cast(Any, held).guest.stopped
+
+
+def test_a_quiet_guest_with_a_healthy_console_is_left_running(tmp_path: Path) -> None:
+    log = tmp_path / "vm-xfs.log"
+    log.write_text("emerging sys-kernel/gentoo-kernel\n")
+    held = _held(log, moved=False, stuck=False)
+    cluster._sweep({"vm-xfs": cast(Any, held)})
+    assert not cast(Any, held).guest.stopped

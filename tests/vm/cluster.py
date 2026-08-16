@@ -2608,13 +2608,20 @@ def _sweep(inflight: Mapping[str, Running]) -> None:
     for name, held in list(inflight.items()):
         if held.watch.moved():
             continue
-        if not held.watch.stuck:
+        # A node whose proxy is refusing leaves the socket open and silent, so
+        # nothing raises and the guest's own counters still say it is working:
+        # `vm-zfs` sat that way for thirty-five minutes with its install
+        # running. The tail of its log is the only thing that names it, and it
+        # is only read once the log has stopped growing, so a console that
+        # recovered is not ended for a message that scrolled past.
+        dropped = console_proxy_dropped(held.watch.log)
+        if not held.watch.stuck and not dropped:
             print(
                 f"… {name} quiet for {held.watch.strikes * WATCH_EVERY / 60:.0f}m",
                 flush=True,
             )
             continue
-        print(f"! {name} stopped writing; ending it", flush=True)
+        print(f"! {name} {dropped or 'stopped writing'}; ending it", flush=True)
         try:
             held.guest.stop()
         except ProxmoxError as error:
