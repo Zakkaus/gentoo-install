@@ -651,3 +651,15 @@ def test_a_quiet_guest_with_a_healthy_console_is_left_running(tmp_path: Path) ->
     held = _held(log, moved=False, stuck=False)
     cluster._sweep({"vm-xfs": cast(Any, held)})
     assert not cast(Any, held).guest.stopped
+
+
+def test_both_fixtures_of_a_conversion_job_reach_the_driver_cd(tmp_path: Path) -> None:
+    """A conversion job carries two: the ordinary install it runs first and the
+    in-place fixture it runs against the result. Writing only the first left
+    the CD without the second and the guest answered `no such file`."""
+    jobs = cluster.fixtures(["vm-convert"])
+    written = cluster.rewrite_fixtures(
+        jobs, tmp_path / "fixtures", cluster.MirrorRegion.CN, cluster.Sync.GIT, site="nju"
+    )
+    names = {path.name for path in written.iterdir()}
+    assert names == {cluster.CONVERSION_BASE, "vm-convert.toml"}, names
