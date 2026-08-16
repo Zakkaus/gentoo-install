@@ -1162,3 +1162,44 @@ def test_a_conversion_acts_on_the_running_root_not_the_mount_point(
     )
     cli.install(converted, (), arguments, cli.RunState())
     assert seen == [Path("/")], seen
+
+
+def test_the_machine_gets_the_derived_configuration_for_a_conversion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The check that refuses a mounted disk has to see the empty graph a
+    conversion was given; everything that resolves a `DeviceId` has to see the
+    graph read from the machine."""
+    from dataclasses import replace
+
+    from .layouts import config
+
+    seen: list[object] = []
+
+    class Recording:
+        def __init__(self, **fields: object) -> None:
+            seen.append(fields["config"])
+            self.given_up: set[str] = set()
+            self.runner = fields["runner"]
+
+    converted = replace(
+        config(),
+        disk=DiskConfig(graph=DeviceGraph.build([]), root=DeviceId(""), mode=DiskMode.IN_PLACE),
+    )
+    running = replace(converted, disk=DiskConfig(graph=DeviceGraph.build([]), root=DeviceId("x")))
+    monkeypatch.setattr(cli, "Machine", Recording)
+    monkeypatch.setattr(cli, "apply", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "_confirmed_swap", lambda arguments, record: True)
+    monkeypatch.setattr(report, "keep_log", lambda work, target, record: None)
+    arguments = argparse.Namespace(
+        work=tmp_path / "work",
+        target=Path("/mnt/gentoo"),
+        skip_preflight=True,
+        resume=False,
+        no_shell=True,
+        dry_run=False,
+    )
+
+    cli.install(converted, (), arguments, cli.RunState(), running)
+
+    assert seen == [running], "the machine takes the derived one"

@@ -46,7 +46,7 @@ from .model.config import (
 )
 from .exec.config import load
 from .plan import convert
-from .plan.build import DEFAULT_MIRROR, build, stage3_mirror
+from .plan.build import DEFAULT_MIRROR, build, running_config, stage3_mirror
 from .plan.operations import Context, Operation, Stage
 from .plan.portage import variant_of
 from .plan.render import render, summarise
@@ -196,7 +196,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(render(operations), end="")
             print(summarise(operations))
             return EXIT_OK
-        return install(config, operations, arguments, state)
+        # The derived one for the machine, the operator's own for preflight:
+        # the check that refuses a mounted disk has to see the empty graph a
+        # conversion was given, and everything that resolves a `DeviceId` has
+        # to see the graph read from the machine.
+        return install(config, operations, arguments, state, running_config(config, layout))
     except errors.DeviceNotFound as error:
         _print_machine_state(state)
         print(f"device: {error}", file=sys.stderr)
@@ -265,6 +269,7 @@ def install(
     operations: tuple[Operation, ...],
     arguments: argparse.Namespace,
     state: RunState,
+    running: InstallConfig | None = None,
 ) -> int:
     """Check the machine, then perform every operation in order."""
     work: Path = arguments.work
@@ -288,7 +293,11 @@ def install(
         if config.disk.mode is DiskMode.IN_PLACE and not _confirmed_swap(arguments, record):
             return EXIT_CONFIG
         machine = Machine(
-            config=config, runner=runner, probe=probe, work=work, mountpoint=target
+            config=running if running is not None else config,
+            runner=runner,
+            probe=probe,
+            work=work,
+            mountpoint=target,
         )
         finished = completed(journal) if arguments.resume else frozenset()
         if arguments.resume:
