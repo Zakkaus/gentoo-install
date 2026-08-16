@@ -65,7 +65,10 @@ ZBM_LEGACY_NETWORK_PACKAGES: Final[tuple[str, ...]] = (
 
 #: Modules an initramfs needs to answer on the network before the root is
 #: unlocked. `crypt-ssh` is the module dracut-crypt-ssh installs as 60crypt-ssh.
-REMOTE_UNLOCK_MODULES: Final[tuple[str, ...]] = ("crypt-ssh", "network")
+#: `network-legacy` by name rather than the `network` meta-module: with
+#: systemd omitted there is no `systemd-networkd` for `40network` to pick, and
+#: `crypt-ssh`'s own hooks are the legacy kind.
+REMOTE_UNLOCK_MODULES: Final[tuple[str, ...]] = ("crypt-ssh", "network-legacy")
 
 #: The two packages that carry the cjktty patch, prebuilt and from source.
 #: Both take the `cjk` flag and both are keyworded `~amd64` in gentoo-zh.
@@ -359,6 +362,14 @@ class ConfigureRemoteUnlock(Operation):
             )
             return
         lines = [
+            # `crypt-ssh` starts dropbear from a dracut initqueue hook, and a
+            # systemd initramfs asks for the passphrase before it reaches that
+            # queue: a guest's own serial log has `dracut cmdline hook` and
+            # `dracut pre-udev hook` finishing, then `Please enter passphrase
+            # for disk root`, and `dracut-initqueue` never starting at all. So
+            # nothing was ever listening on the port. ZFSBootMenu's image omits
+            # systemd for the same reason.
+            'omit_dracutmodules+=" systemd systemd-networkd "',
             f'dropbear_port="{self.port}"',
             # SYSTEM converts the target's own host key, so a client that has
             # already trusted this machine does not see a new one at unlock.
