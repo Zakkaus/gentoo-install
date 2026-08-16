@@ -89,6 +89,30 @@ def encrypted_root() -> list[Node]:
     ]
 
 
+def unlockable_root() -> list[Node]:
+    """`encrypted_root` with a /boot outside the container.
+
+    GRUB reads its kernel from /boot, so with /boot on the encrypted root it
+    asks for the passphrase at the physical console and the initramfs that
+    serves the ssh daemon never starts. `vm-unlock` spent three rounds proving
+    it: the console held `Enter passphrase for hd0,gpt2` at fifty-one minutes.
+    """
+    return [
+        Existing(id=i("disk"), selector="/dev/disk/by-id/virtio-target", wipe=True),
+        PartitionTable(id=i("table"), disk=i("disk"), table=TableType.GPT),
+        Partition(id=i("esp"), table=i("table"), index=1, role=PartitionRole.ESP, size=Size.parse("512MiB")),
+        Partition(id=i("bootpart"), table=i("table"), index=2, role=PartitionRole.DATA, size=Size.parse("1GiB")),
+        Partition(id=i("rootpart"), table=i("table"), index=3, role=PartitionRole.DATA, size=None),
+        Filesystem(id=i("espfs"), device=i("esp"), kind=FilesystemType.VFAT, label="ESP"),
+        Filesystem(id=i("bootfs"), device=i("bootpart"), kind=FilesystemType.EXT4, label="BOOT"),
+        Luks(id=i("crypt"), backing=i("rootpart"), name="root", passphrase_file="/run/keys/root"),
+        Filesystem(id=i("rootfs"), device=i("crypt"), kind=FilesystemType.EXT4, label="gentoo"),
+        Mountpoint(id=i("mnt-root"), source=i("rootfs"), path=PurePosixPath("/")),
+        Mountpoint(id=i("mnt-boot"), source=i("bootfs"), path=PurePosixPath("/boot")),
+        Mountpoint(id=i("mnt-esp"), source=i("espfs"), path=PurePosixPath("/efi")),
+    ]
+
+
 def config(nodes: list[Node] | None = None) -> InstallConfig:
     return InstallConfig(
         disk=DiskConfig(graph=DeviceGraph.build(nodes or ext4_on_gpt()), root=i("mnt-root")),

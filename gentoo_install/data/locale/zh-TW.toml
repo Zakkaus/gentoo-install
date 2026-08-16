@@ -455,6 +455,8 @@
 "cjktty patches the kernel VT layer, which no official kernel carries; sys-kernel/gentoo-cjk-kernel is the one that does" = "cjktty 修補核心 VT 層，官方核心都沒有這份補丁，只有 sys-kernel/gentoo-cjk-kernel 有"
 "dracut-crypt-ssh authorises /root/.ssh/authorized_keys, so with none the initramfs runs an ssh daemon nobody can log into" = "dracut-crypt-ssh 使用 /root/.ssh/authorized_keys 授權；沒有公鑰時，任何人都無法登入 initramfs 中的 SSH 服務。"
 "there is no passphrase prompt to reach: the root is not encrypted" = "根檔案系統未加密，因此不存在可供遠端解鎖的密語提示"
+"GRUB asks for that passphrase at the physical console, so the machine stops before the initramfs that runs the ssh daemon: a separate /boot outside the container is what a machine unlocked over the network needs" = "GRUB 會在實體主控台上要求那個密語，機器因此停在執行 ssh 服務的 initramfs 之前：要用網路解鎖的機器需要一個在容器外面的獨立 /boot"
+"GRUB unlocking /boot before it can read a kernel" = "GRUB 必須先解開 /boot 才讀得到核心"
 "sys-kernel/gentoo-cjk-kernel is in that overlay and in no other repository, so the emerge fails once the disks have been partitioned" = "sys-kernel/gentoo-cjk-kernel 僅存在於該 overlay；缺少 overlay 時，emerge 會在磁碟分割後失敗"
 "the cjk kernel builds CONFIG_FONT_CJK_16x16 alone, which pairs with the 8x16 font, because the 32x32 font the patch ships is empty" = "cjk 核心僅啟用 CONFIG_FONT_CJK_16x16；該選項對應 8x16 字型，因為補丁提供的 32x32 字型為空。"
 "sys-boot/zfsbootmenu is in that overlay and in no other repository, so the emerge fails once the disks have already been partitioned" = "sys-boot/zfsbootmenu 僅存在於該 overlay；缺少 overlay 時，emerge 會在磁碟分割後失敗"

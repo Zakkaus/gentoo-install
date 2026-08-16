@@ -281,6 +281,24 @@ def native_zfs_remote_unlock_with_systemd_boot() -> InstallConfig:
     return remote_unlock_of_a_native_zfs_root(Bootloader.SYSTEMD_BOOT)
 
 
+def remote_unlock_with_boot_inside_the_container() -> InstallConfig:
+    """`vm-unlock` was this. The console held `Enter passphrase for hd0,gpt2`
+    fifty-one minutes into the round: GRUB unlocks /boot before it can read a
+    kernel, so it asked at the physical console and the initramfs that serves
+    the ssh daemon never started."""
+    encrypted = [node for node in ext4_on_gpt() if node.id != i("rootfs")]
+    encrypted += [
+        Luks(id=i("crypt"), backing=i("rootpart"), name="root"),
+        Filesystem(id=i("rootfs"), device=i("crypt"), kind=FilesystemType.EXT4),
+    ]
+    installation = config(encrypted)
+    return replace(
+        installation,
+        kernel=KernelConfig(remote_unlock=RemoteUnlock(enabled=True)),
+        system=replace(installation.system, authorized_keys=(VALID_KEY,)),
+    )
+
+
 def a_system_nothing_can_log_into() -> InstallConfig:
     """No root password, no user and no key: the machine boots and refuses
     every login. `zfs-zbm.toml` was this until a VM run reached its prompt."""
@@ -307,6 +325,7 @@ CASES: list[tuple[Callable[[], InstallConfig], Trait, Trait]] = [
     (the_patched_kernel_without_its_overlay, Trait.CJK_KERNEL, Trait.NO_GENTOOZH_OVERLAY),
     (remote_unlock_without_a_key, Trait.REMOTE_UNLOCK, Trait.NO_AUTHORIZED_KEY),
     (remote_unlock_of_an_unencrypted_root, Trait.REMOTE_UNLOCK, Trait.NO_ENCRYPTED_CONTAINER),
+    (remote_unlock_with_boot_inside_the_container, Trait.REMOTE_UNLOCK, Trait.GRUB_UNLOCKS_BOOT),
     (
         native_zfs_remote_unlock_with_systemd_boot,
         Trait.REMOTE_UNLOCK,
@@ -326,6 +345,28 @@ def test_every_rule_in_the_table_has_a_case_that_breaks_it() -> None:
     assert {(when, excludes) for _, when, excludes in CASES} == {
         (rule.when, rule.excludes) for rule in RULES
     }
+
+
+def test_a_bootloader_that_reads_the_kernel_off_the_esp_unlocks_remotely() -> None:
+    """The rule above is GRUB's alone. systemd-boot and ZFSBootMenu read the
+    kernel from the esp, which is not in the container, so their initramfs
+    starts without anyone at the console and refusing them would take the
+    feature away from the layout it works best on."""
+    encrypted = [node for node in ext4_on_gpt() if node.id != i("rootfs")]
+    encrypted += [
+        Luks(id=i("crypt"), backing=i("rootpart"), name="root"),
+        Filesystem(id=i("rootfs"), device=i("crypt"), kind=FilesystemType.EXT4),
+    ]
+    for kind in (Bootloader.SYSTEMD_BOOT, Bootloader.GRUB):
+        installation = boots(config(encrypted), kind, Firmware.UEFI)
+        installation = replace(
+            installation,
+            system=replace(installation.system, authorized_keys=(VALID_KEY,)),
+            kernel=KernelConfig(remote_unlock=RemoteUnlock(enabled=True)),
+        )
+        broken = {(rule.when, rule.excludes) for rule in violations(installation)}
+        pair = (Trait.REMOTE_UNLOCK, Trait.GRUB_UNLOCKS_BOOT)
+        assert (pair in broken) == (kind is Bootloader.GRUB), (kind, broken)
 
 
 def test_a_plain_uefi_install_breaks_no_rule() -> None:

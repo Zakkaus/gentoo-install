@@ -1261,9 +1261,9 @@ def test_remote_unlock_gets_host_keys_without_enabling_target_sshd() -> None:
     from gentoo_install.model.config import KernelConfig, RemoteUnlock
     from gentoo_install.plan.build import build
 
-    from .layouts import config, encrypted_root
+    from .layouts import config, unlockable_root
 
-    base = config(encrypted_root())
+    base = config(unlockable_root())
     installation = replace(
         base,
         system=replace(base.system, sshd=False, authorized_keys=("ssh-ed25519 AAAA test",)),

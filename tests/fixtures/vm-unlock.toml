@@ -1,4 +1,5 @@
-# Remote unlock over ssh from the initramfs, on an encrypted root.
+# Remote unlock over ssh from the initramfs, on an encrypted root with a
+# readable /boot.
 #
 # Nothing had ever enabled it: seventeen fixtures, `remote_unlock` off in
 # every one and not a single authorised key between them, so sshd was
@@ -66,11 +67,24 @@ index = 1
 role = "esp"
 size = "512MiB"
 
+# Outside the container, and this is what the whole fixture turns on: with
+# /boot on the encrypted root, GRUB has to `cryptomount` before it can read
+# grub.cfg, so it asks for the passphrase at the physical console and no
+# initramfs — and no ssh daemon — ever starts. A machine unlocked over the
+# network needs a /boot GRUB can read without a key.
+[[disk.devices]]
+kind = "partition"
+id = "boot"
+table = "table"
+index = 2
+role = "data"
+size = "1GiB"
+
 [[disk.devices]]
 kind = "partition"
 id = "cryptroot"
 table = "table"
-index = 2
+index = 3
 role = "data"
 
 [[disk.devices]]
@@ -79,6 +93,13 @@ id = "espfs"
 device = "esp"
 type = "vfat"
 label = "ESP"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "bootfs"
+device = "boot"
+type = "ext4"
+label = "BOOT"
 
 [[disk.devices]]
 kind = "luks"
@@ -118,6 +139,12 @@ id = "mnt-home"
 source = "sub-home"
 path = "/home"
 options = ["compress=zstd:1"]
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-boot"
+source = "bootfs"
+path = "/boot"
 
 [[disk.devices]]
 kind = "mountpoint"
