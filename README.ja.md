@@ -68,7 +68,7 @@ gentoo-install は Linux ライブ環境で動作し、amd64 アーキテクチ�
 
 同じ日付で、クラスタではなく単一マシン上の QEMU による記録もあり、クラスタでは駆動できない経路を対象とします。クラスタの BIOS ゲストはカーネル起動までシリアルポートへ何も出力せず、root 以外の API トークンではスクリーンショットのエンドポイントもファームウェア引数の受け渡しも利用できません。したがって `vm-bios`、`vm-bios-luks`、`ext4-bios`、`mbr-edit` は `304dffa41602` で QEMU から記録しています。`zfs-zbm`、`vm-proxy`、`vm-proxy-http` は `15d45598637a` で同様です。プロキシ用の fixture は QEMU のユーザーモードネットワーク経由でホスト上のプロキシに接続しますが、ブリッジ接続のクラスタゲストにはそのアドレスがありません。
 
-インプレース変換にはエンドツーエンドの記録が 1 件あります。リビジョン [`bcc090fab621`](https://github.com/Zakkaus/gentoo-install/commit/bcc090fab621) において、単一マシンの QEMU 上で動作する Debian 12 genericcloud イメージがインプレースで変換され、Gentoo として起動しました。`uname -r` は `6.18.43-gentoo-dist-bin` を報告し、`emerge` が存在し、`dpkg` と `apt` はいずれも存在せず、ルートファイルシステムは同一の `/dev/vda1` のままで、この実行の記録は `/var/log/gentoo-install` に保存されました。この記録が対象とするのは 1 つのディストリビューション、BIOS ファームウェア、パーティション上の ext4 ルートです。`vm-convert` クラスタフィクスチャはまだ通過しておらず、他のディストリビューションからの変換は未検証です。
+インプレース変換にはエンドツーエンドの記録が 2 件あり、いずれもクラスタではなく単一マシンの QEMU によるものです。リビジョン [`bcc090fab621`](https://github.com/Zakkaus/gentoo-install/commit/bcc090fab621) はパーティション上に ext4 ルートを持つ Debian 12 genericcloud イメージ、リビジョン [`71e751cf14a1`](https://github.com/Zakkaus/gentoo-install/commit/71e751cf14a1) は btrfs ルートを持つ Arch Linux クラウドイメージで、後者では `/swap/swapfile` の行が新しい fstab に引き継がれました。いずれも `uname -r` は `6.18.43-gentoo-dist-bin` を報告し、`emerge` が存在し、元のディストリビューションのパッケージマネージャは存在せず、ルートデバイスは変わらず、実行の記録は `/var/log/gentoo-install` に保存されました。2 件とも BIOS です。UEFI、btrfs サブボリューム上のルート、`vm-convert` クラスタフィクスチャは未検証です。
 
 その他の実装済みの組み合わせは、エンドツーエンド未検証です。現在の根拠は、greetd のデスクトップセッション、GNOME 以外での ibus を対象としていません。公式 Gentoo minimal ISO、Alpine または Gig-OS のライブメディア、binhost 障害時のフォールバックも対象としていません。
 
