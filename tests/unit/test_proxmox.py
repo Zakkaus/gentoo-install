@@ -3549,3 +3549,40 @@ def test_a_boot_that_never_prompts_says_what_the_console_held(
     )
     assert "Kernel panic" in other, other
     assert other != said
+
+
+def test_a_silent_console_is_not_reported_as_a_stubborn_grub(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`openrc-sdboot` came back with `GRUB never opened its editor: b'\\r\\n'`
+    after two minutes of pressing `e`: two bytes for the whole wait. That is a
+    console that delivered nothing, not a menu that refused to open an editor,
+    and the two need different answers — one is a node, the other is a
+    keystroke count."""
+    from tests.vm import proxmox
+    from tests.vm.proxmox import ProxmoxError
+
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+
+    class Console:
+        def __init__(self, screen: bytes) -> None:
+            self.screen = screen
+
+        def send_raw(self, keys: str) -> None:
+            return None
+
+        def snapshot(self, seconds: float) -> bytes:
+            return self.screen
+
+    with pytest.raises(ProxmoxError, match="the console delivered"):
+        proxmox._editor_screen(cast(Any, Console(b"\r\n")), 0.2)
+
+    # Negative control: a console that drew a menu and still opened no editor
+    # keeps the sentence about GRUB, because that is a different failure.
+    menu = b"\x1b[2J\x1b[01;01HGNU GRUB  version 2.14\r\nGentoo Linux\r\n" * 4
+    with pytest.raises(ProxmoxError, match="GRUB never opened its editor"):
+        proxmox._editor_screen(cast(Any, Console(menu)), 0.2)
+
+    # And a screen holding `setparams` is the editor, so neither fires.
+    editor = b"setparams 'Gentoo'\r\n  linux /boot/vmlinuz root=UUID=...\r\n"
+    assert b"setparams" in proxmox._editor_screen(cast(Any, Console(editor)), 0.2)
