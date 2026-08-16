@@ -898,14 +898,16 @@ def test_the_initramfs_is_not_pinned_to_an_interface_the_guest_does_not_have(
     assert fields[5] == "", fields
 
 
-def test_a_fixture_that_does_not_unlock_remotely_keeps_its_addresses() -> None:
+def test_a_fixture_that_does_not_unlock_remotely_keeps_its_addresses(
+    tmp_path: Path,
+) -> None:
     from gentoo_install.exec.config import load
     from gentoo_install.model.config import MirrorRegion, Sync
 
     jobs = cluster.fixtures(["vm-xfs"])
     written = cluster.rewrite_fixtures(
         jobs,
-        Path(cluster.REPOSITORY) / "lab" / ".rewrite-check",
+        tmp_path / "rewrite-check",
         MirrorRegion.CN,
         Sync.GIT,
         "",
@@ -913,6 +915,10 @@ def test_a_fixture_that_does_not_unlock_remotely_keeps_its_addresses() -> None:
         {"vm-xfs": "10.31.0.155"},
     )
     assert load(written / "vm-xfs.toml").kernel.remote_unlock.address == ""
+    # Outside the repository: this wrote `lab/.rewrite-check` into the working
+    # tree, so every full test run left it untracked and `run.py` stamped the
+    # next campaign `1 uncommitted files`, which makes the measurement worthless.
+    assert Path(cluster.REPOSITORY) not in written.parents, written
 
 
 def test_a_node_that_refuses_a_guest_does_not_end_the_campaign() -> None:
