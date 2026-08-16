@@ -23,7 +23,7 @@ def convert(staging: Path, names: Sequence[str], *, root: Path = Path("/")) -> N
         # step exists to avoid: the window would be the whole copy.
         raise ConversionFailed("the staging directory is not on the root filesystem")
 
-    destinations: list[tuple[str, Path, Path, Path]] = []
+    destinations: list[tuple[str, Path, Path, Path, bool]] = []
     for name in names:
         destination = root / name
         staged = staging / name
@@ -32,15 +32,19 @@ def convert(staging: Path, names: Sequence[str], *, root: Path = Path("/")) -> N
             raise ConversionFailed(f"the staging directory has no {name}")
         if os.path.lexists(old):
             raise ConversionFailed(f"{old} is left from an earlier attempt")
-        destinations.append((name, destination, staged, old))
+        # A distribution without one of these is converted, not refused: a
+        # merged-usr Debian has no `/lib64` at all, and renaming what is not
+        # there fails half way through with the rest already swapped.
+        destinations.append((name, destination, staged, old, os.path.lexists(destination)))
 
-    swapped: list[tuple[str, Path, Path, Path]] = []
+    swapped: list[tuple[str, Path, Path, Path, bool]] = []
     for entry in destinations:
-        name, destination, staged, old = entry
+        name, destination, staged, old, present = entry
         moved_old = False
         try:
-            os.rename(destination, old)
-            moved_old = True
+            if present:
+                os.rename(destination, old)
+                moved_old = True
             os.rename(staged, destination)
         except OSError as error:
             if moved_old:
@@ -48,13 +52,18 @@ def convert(staging: Path, names: Sequence[str], *, root: Path = Path("/")) -> N
                     os.rename(old, destination)
                 except OSError as rollback_error:
                     error.add_note(f"could not restore {name}: {rollback_error}")
-            for swapped_name, swapped_destination, swapped_staged, swapped_old in reversed(swapped):
+            for entry_back in reversed(swapped):
+                swapped_name, swapped_destination, swapped_staged, swapped_old, was_there = (
+                    entry_back
+                )
                 try:
                     os.rename(swapped_destination, swapped_staged)
                 except OSError as rollback_error:
                     error.add_note(
                         f"could not restore {swapped_name}: {rollback_error}"
                     )
+                if not was_there:
+                    continue
                 try:
                     os.rename(swapped_old, swapped_destination)
                 except OSError as rollback_error:
@@ -66,7 +75,9 @@ def convert(staging: Path, names: Sequence[str], *, root: Path = Path("/")) -> N
 
     # Said rather than raised: every name is already swapped by now, so the
     # machine is converted and a directory left behind is not a failure of it.
-    for name, _, _, old in swapped:
+    for name, _, _, old, present in swapped:
+        if not present:
+            continue
         try:
             shutil.rmtree(old)
         except OSError as error:

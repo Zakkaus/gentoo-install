@@ -111,3 +111,50 @@ def test_existing_backup_is_refused_before_any_rename(tmp_path: Path) -> None:
     assert (root / "etc" / "content").read_text() == "old"
     assert (root / "etc.gentoo-install.old" / "content").read_text() == "previous"
     assert (staging / "etc" / "content").read_text() == "new"
+
+
+def test_a_directory_the_machine_lacks_is_moved_into_place(tmp_path: Path) -> None:
+    """A merged-usr Debian has no `/lib64` at all, and renaming what is not
+    there failed half way through with the rest already swapped."""
+    root = tmp_path / "root"
+    staging = tmp_path / "root" / "new"
+    (root / "usr").mkdir(parents=True)
+    (root / "usr" / "old.txt").write_text("old")
+    (staging / "usr").mkdir(parents=True)
+    (staging / "usr" / "new.txt").write_text("new")
+    (staging / "lib64").mkdir()
+    (staging / "lib64" / "new.txt").write_text("new")
+
+    convert.convert(staging, ("usr", "lib64"), root=root)
+
+    assert (root / "usr" / "new.txt").read_text() == "new"
+    assert (root / "lib64" / "new.txt").read_text() == "new"
+    assert not (root / "lib64.gentoo-install.old").exists()
+    assert not (root / "usr.gentoo-install.old").exists()
+
+
+def test_a_rollback_takes_back_a_directory_the_machine_lacked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rolling back a name that had no backup means putting it back in the
+    staging root, not restoring a `.old` that was never made."""
+    root = tmp_path / "root"
+    staging = tmp_path / "root" / "new"
+    (root / "usr").mkdir(parents=True)
+    (staging / "lib64").mkdir(parents=True)
+    (staging / "usr").mkdir()
+
+    real = os.rename
+
+    def failing(source: str, target: str) -> None:
+        if str(target).endswith("usr.gentoo-install.old"):
+            raise OSError(5, "input/output error")
+        real(source, target)
+
+    monkeypatch.setattr("os.rename", failing)
+    with pytest.raises(ConversionFailed, match="usr could not be swapped"):
+        convert.convert(staging, ("lib64", "usr"), root=root)
+
+    assert (staging / "lib64").is_dir(), "the staged one has to go back"
+    assert not (root / "lib64").exists()
+    assert (root / "usr").is_dir()
