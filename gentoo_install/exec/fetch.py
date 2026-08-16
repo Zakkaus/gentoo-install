@@ -28,6 +28,7 @@ from collections.abc import Iterator, Sequence
 from typing import Any, Callable, Final, cast
 
 from ..errors import (
+    ArchiveDigestMismatch,
     CommandFailed,
     ConfigError,
     DownloadFailed,
@@ -97,18 +98,22 @@ def stage3(
     or corrupted archive was an integrity check that verified nothing.
 
     `fallbacks` are tried in order when the first mirror cannot be reached at
-    all: a name that does not resolve or a host that refuses ends one mirror,
-    not the install, and the machine already has a list of them. A mirror that
-    answers with a file failing its signature is a different thing and stops
-    everything.
+    all, and when it answers with an archive that does not match its own signed
+    DIGESTS: both say something about that mirror rather than the release, and
+    `vm-convert` ended four minutes into a run because one copy of a stage3 was
+    corrupt. A DIGESTS file whose signature does not verify is a different
+    thing and stops everything.
     """
-    last: DownloadFailed | None = None
+    last: DownloadFailed | ArchiveDigestMismatch | None = None
     for one in (mirror, *fallbacks):
         try:
             return _stage3_from(one, variant, fingerprint, work, runner, proxy)
         except DownloadFailed as failed:
             last = failed
             runner.log(f"{one} did not serve the stage3: {failed}")
+        except ArchiveDigestMismatch as corrupt:
+            last = corrupt
+            runner.log(f"{one} served a corrupt stage3: {corrupt}")
     assert last is not None
     raise last
 
@@ -138,7 +143,14 @@ def _stage3_from(
     _download(f"{builds}/{where}.DIGESTS", digests, runner.log, proxy=selected)
     _import_release_key(runner, work, selected)
     _verify_signature(digests, fingerprint, runner)
-    _verify_digest(archive, digests)
+    try:
+        _verify_digest(archive, digests)
+    except ArchiveDigestMismatch:
+        # Removed before the next mirror is asked: the download below skips a
+        # file that is already there, so leaving the bad one would make every
+        # fallback verify the same corrupt copy.
+        archive.unlink(missing_ok=True)
+        raise
     marker.write_text(
         f"{MARKER_SCHEMA}\n{name}\n{_sha512(archive)}\n{fingerprint.lower()}\n"
     )
@@ -1080,7 +1092,9 @@ def _verify_digest(archive: Path, digests: Path) -> None:
     wanted = _expected_sha512(digests, archive.name)
     got = _sha512(archive)
     if got != wanted:
-        raise IntegrityError(f"{archive.name} has SHA512 {got}, the DIGESTS file says {wanted}")
+        raise ArchiveDigestMismatch(
+            f"{archive.name} has SHA512 {got}, the DIGESTS file says {wanted}"
+        )
 
 
 def _expected_sha512(digests: Path, name: str) -> str:

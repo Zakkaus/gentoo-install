@@ -78,6 +78,15 @@ class CommandFailed(GentooInstallError):
     is a different thing from data that cannot be trusted."""
 
 
+class ArchiveDigestMismatch(IntegrityError):
+    """A downloaded archive does not match the digest its signed DIGESTS names.
+
+    Separate from the rest of `IntegrityError` because it says something about
+    one mirror rather than about the release: the signature on the DIGESTS was
+    good, so the metadata is authentic and the copy of the file is not.
+    """
+
+
 class ConversionUnsupported(GentooInstallError):
     """The running layout is one the conversion cannot rebuild.
 
