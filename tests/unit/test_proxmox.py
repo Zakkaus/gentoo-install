@@ -2931,7 +2931,10 @@ def test_a_guest_leaves_its_own_address_alone_on_the_next_pass() -> None:
     assert subprocess.run(["bash", "-n", "-c", command], capture_output=True).returncode == 0
     # No branch that can tear a working configuration down, and every step
     # idempotent, because this now runs on a guest that already has a route.
-    assert "dhclient" not in command and "dhcpcd -" not in command
+    # A DHCP client is killed outright, never asked to release: a release
+    # deconfigures the interface, which is what emptied the routing table.
+    assert "pkill -KILL" in command
+    assert "dhcpcd -" not in command and "--release" not in command
     assert command.count("addr add") == 1
     assert "|| true" in command
     # `exit` would end the login shell this runs in, not just the command.
