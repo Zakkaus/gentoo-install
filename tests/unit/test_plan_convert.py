@@ -536,7 +536,11 @@ def test_carrying_appends_rather_than_replaces() -> None:
     convert.CarryFstabEntries(lines=("UUID=abc\t/srv\text4\tdefaults\t0\t2",)).apply(
         cast(Any, Writing())
     )
-    said = written["/gentoo-install.new/etc/fstab"]
+    # Target-absolute: `Staged` roots it, and this test asserting the joined
+    # form is what let `/gentoo-install.new/gentoo-install.new/etc/fstab`
+    # through to a real machine.
+    assert set(written) == {"/etc/fstab"}, written
+    said = written["/etc/fstab"]
     assert "UUID=1\t/\text4" in said, "the generated entries survive"
     assert "/srv" in said
     assert said.index("UUID=1") < said.index("/srv")
@@ -680,3 +684,53 @@ def test_a_conversion_refuses_a_root_on_a_btrfs_subvolume() -> None:
     # and it needs no `rootflags=` at all.
     top_level = replace(on_a_subvolume, root_subvolume=None)
     assert convert.layout_graph(top_level).mode is DiskMode.IN_PLACE
+
+
+def test_the_carried_fstab_opens_inside_the_staging_root(tmp_path: Path) -> None:
+    """Arch's cloud image carries `/swap/swapfile none swap defaults 0 0`, and
+    the conversion stopped at operation 34 of 46 with
+
+        TargetEscape: /gentoo-install.new/etc/fstab:
+        gentoo-install.new is not a directory in the target
+
+    Every fixture and the Debian image carried nothing, so `apply` returned at
+    its first line and this path had never run. The check here is the real
+    `open_in_target`, against a staging root laid out like the machine's.
+    """
+    import os
+
+    from gentoo_install.exec.runner import open_in_target
+
+    staging = tmp_path / "gentoo-install.new"
+    (staging / "etc").mkdir(parents=True)
+    (staging / "etc" / "fstab").write_text("UUID=1\t/\tbtrfs\tdefaults\t0\t1\n")
+
+    opened: list[PurePosixPath] = []
+
+    class Rooted(_RunningContext):
+        target = PurePosixPath("/gentoo-install.new")
+
+        def read(self, path: object) -> str:
+            handle = open_in_target(staging, cast(PurePosixPath, path), os.O_RDONLY)
+            try:
+                return os.read(handle, 4096).decode()
+            finally:
+                os.close(handle)
+
+        def write(self, path: object, content: str, *, mode: int = 0o644) -> None:
+            opened.append(cast(PurePosixPath, path))
+            handle = open_in_target(
+                staging, cast(PurePosixPath, path), os.O_WRONLY | os.O_TRUNC
+            )
+            try:
+                os.write(handle, content.encode())
+            finally:
+                os.close(handle)
+
+    convert.CarryFstabEntries(
+        lines=("/swap/swapfile none swap defaults 0 0",)
+    ).apply(cast(Any, Rooted()))
+
+    assert opened == [PurePosixPath("/etc/fstab")]
+    kept = (staging / "etc" / "fstab").read_text()
+    assert "UUID=1" in kept and "/swap/swapfile" in kept
