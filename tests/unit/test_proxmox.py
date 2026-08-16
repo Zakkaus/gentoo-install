@@ -3488,3 +3488,64 @@ def test_the_cluster_serves_no_screenshot_so_none_is_offered() -> None:
     from tests.vm.proxmox import Guest
 
     assert not hasattr(Guest, "screenshot")
+
+
+def test_a_boot_that_never_prompts_says_what_the_console_held(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`the installed system did not reach a login prompt: never matched
+    'login:'; last output was b'OKstarting serial terminal on interface
+    serial0'` is the verdict `vm-sdboot` and `vm-convert` came back with, and
+    it says the guest was silent and nothing about what it was doing. For the
+    conversion it cannot even be told apart from a failure in the conversion
+    stage, which runs after this point."""
+    from tests.vm import cluster
+    from tests.vm.console import ConsoleTimeout
+
+    class Guest:
+        def stop(self) -> None:
+            return None
+
+        def boot_from_disk(self) -> None:
+            return None
+
+        def start(self) -> None:
+            return None
+
+        def reset(self) -> None:
+            return None
+
+    class Silent:
+        def __init__(self, screen: bytes) -> None:
+            self.console = type(
+                "Screen", (), {"snapshot": lambda _self, seconds: screen}
+            )()
+
+        def reopen(self, *, solicit_prompt: bool = True) -> None:
+            return None
+
+        def observe(self, pattern: str, timeout: float) -> bytes:
+            raise ConsoleTimeout("never matched 'login:'")
+
+    from gentoo_install.exec.config import load
+
+    installation = load(Path("tests/fixtures/vm-xfs.toml"))
+    assert not installation.kernel.remote_unlock.enabled, "no unlock in the way"
+
+    held = b"[  OK  ] Reached target Multi-User System.\r\nA start job is running"
+    said = cluster.boot_and_check(
+        cast(Any, Guest()), cast(Any, Silent(held)), Path("unused"), installation
+    )
+    assert "did not reach a login prompt" in said
+    assert "start job is running" in said, said
+
+    # Negative control: a different screen gives a different verdict. Without
+    # the snapshot both read the same, whatever the guest was showing.
+    other = cluster.boot_and_check(
+        cast(Any, Guest()),
+        cast(Any, Silent(b"Kernel panic - not syncing")),
+        Path("unused"),
+        installation,
+    )
+    assert "Kernel panic" in other, other
+    assert other != said

@@ -2571,7 +2571,16 @@ def boot_and_check(
         try:
             link.observe(r"login:", timeout=BOOT_PATIENCE)
         except (ConsoleTimeout, ConsoleClosed) as error:
-            return f"the installed system did not reach a login prompt: {error}"[:200]
+            # The same reason the refused login carries one: `never matched
+            # 'login:'` with the console banner as the last output says the
+            # guest was silent and nothing about what it was doing. This is the
+            # verdict `vm-sdboot` and `vm-convert` came back with, and a
+            # conversion that never reached its own stage is indistinguishable
+            # from one that failed in it.
+            return (
+                f"the installed system did not reach a login prompt: {error}; "
+                f"the console held {_seen_since(link, b'')}"
+            )[:VERDICT_BYTES]
     try:
         refused = _log_in(link, INSTALLED_PASSWORD)
     except ConsoleClosed as error:
