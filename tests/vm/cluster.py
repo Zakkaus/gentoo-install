@@ -2271,17 +2271,31 @@ def _name_the_user(link: Reconnecting) -> bool:
 #: after an install that was otherwise complete.
 PASSWORD_ECHO_OFF_AFTER: Final[float] = 1.0
 
+#: Added to the settle each time the console proves it lost that race, and how
+#: many of those are absorbed. A fixed wait is a guess about a machine whose
+#: load is not ours to choose: `openrc-sdboot` lost the same second twice on a
+#: node that spent the run between 13% and 85% busy, and `login` gives up after
+#: three attempts of its own, so a race that repeats burns the whole login.
+PASSWORD_ECHO_BACKOFF: Final[float] = 2.0
+PASSWORD_ECHO_CATCHES: Final[int] = 3
+
 
 def _log_in(link: Reconnecting, password: str) -> str:
     """Log root in, and say what is wrong when it does not happen.
 
-    Empty on success. A refused password is retried, because the reason it was
-    refused is a race with the terminal rather than the password being wrong.
+    Empty on success. A password that comes back on the console was read as an
+    empty one, so that attempt is this harness losing a race rather than the
+    installed system refusing a password: it does not count, and the settle
+    grows. A refusal with no echo is counted, so a genuinely wrong password
+    still ends.
     """
-    for _ in range(LOGIN_TRIES):
+    settle = PASSWORD_ECHO_OFF_AFTER
+    refusals = 0
+    echoed = 0
+    while refusals < LOGIN_TRIES:
         if not _name_the_user(link):
             return "the installed system asked for a name and kept asking"
-        time.sleep(PASSWORD_ECHO_OFF_AFTER)
+        time.sleep(settle)
         link.respond(password)
         try:
             said = link.observe(r"#|\$|Login incorrect", timeout=120.0)
@@ -2289,6 +2303,11 @@ def _log_in(link: Reconnecting, password: str) -> str:
             return f"root could not log into the installed system: {error}"[:200]
         if b"Login incorrect" not in said:
             return ""
+        if password.encode() in said and echoed < PASSWORD_ECHO_CATCHES:
+            echoed += 1
+            settle += PASSWORD_ECHO_BACKOFF
+            continue
+        refusals += 1
     return "the installed system refused every login"
 
 
