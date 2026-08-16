@@ -18,6 +18,7 @@ from ..model.device import (
     FilesystemType,
     Mountpoint,
     StorageLayout,
+    Subvolume,
 )
 from .operations import CommandOutput, Context, Operation, Stage
 
@@ -287,6 +288,7 @@ class PopulateBoot(Operation):
 ROOT_DEVICE: Final[DeviceId] = DeviceId("running-root-device")
 ROOT_FILESYSTEM: Final[DeviceId] = DeviceId("running-root")
 ROOT_MOUNT: Final[DeviceId] = DeviceId("running-root-mount")
+ROOT_SUBVOLUME: Final[DeviceId] = DeviceId("running-root-subvolume")
 BOOT_DEVICE: Final[DeviceId] = DeviceId("running-boot-device")
 BOOT_FILESYSTEM: Final[DeviceId] = DeviceId("running-boot")
 BOOT_MOUNT: Final[DeviceId] = DeviceId("running-boot-mount")
@@ -313,14 +315,6 @@ def layout_graph(layout: StorageLayout) -> DiskConfig:
         )
     if not layout.root_device or not layout.root_filesystem_type:
         raise ConversionUnsupported("the running root device could not be read")
-    if layout.root_subvolume:
-        # `layout_graph` emits no Subvolume, so `_rootflags` answers nothing and
-        # the cmdline carries no `rootflags=`: the initramfs would mount the
-        # default subvolume and never see the system that was written.
-        raise ConversionUnsupported(
-            f"the running root is on the btrfs subvolume {layout.root_subvolume}, "
-            "which the conversion cannot carry onto the new command line"
-        )
     if not layout.uefi and layout.root_below_device is None:
         # Measured on an Alpine cloud image, whose ext4 sits on `/dev/vda`
         # itself: `grub-install --target=i386-pc` answers `will not proceed
@@ -337,8 +331,23 @@ def layout_graph(layout: StorageLayout) -> DiskConfig:
             kind=_filesystem(layout.root_filesystem_type, "root"),
             create=False,
         ),
-        Mountpoint(id=ROOT_MOUNT, source=ROOT_FILESYSTEM, path=PurePosixPath("/")),
     ]
+    # Fedora mounts `/dev/vda4[/root]` and Ubuntu `[/@]`. The mount has to name
+    # it: the new fstab's root line and systemd-boot's `rootflags=subvol=` both
+    # come from here, and without it the machine mounts the default subvolume.
+    if layout.root_subvolume:
+        nodes.append(
+            Subvolume(
+                id=ROOT_SUBVOLUME, filesystem=ROOT_FILESYSTEM, name=layout.root_subvolume
+            )
+        )
+    nodes.append(
+        Mountpoint(
+            id=ROOT_MOUNT,
+            source=ROOT_SUBVOLUME if layout.root_subvolume else ROOT_FILESYSTEM,
+            path=PurePosixPath("/"),
+        )
+    )
     if layout.boot_same_filesystem is False:
         # A separate `/boot` has to be in the new `fstab`: the kernel this
         # conversion puts there is on that filesystem, and a machine that does
