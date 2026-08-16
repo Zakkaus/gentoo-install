@@ -12,10 +12,11 @@ from dataclasses import replace
 from typing import Final, Sequence
 
 from ..model import mirrors
-from ..model.config import InstallConfig
-from ..model.device import StorageFacts
+from ..errors import ConversionUnsupported
+from ..model.config import DiskMode, InstallConfig
+from ..model.device import StorageFacts, StorageLayout
 from ..model.validate import validate
-from . import bootloader, disk, fonts, kernel, packages, portage, system
+from . import bootloader, convert, disk, fonts, kernel, packages, portage, system
 from .operations import Operation, Stage
 
 #: The mirror a stage3 is fetched from when the configuration names none.
@@ -73,9 +74,12 @@ def build(
     *,
     mirror: str = DEFAULT_MIRROR,
     storage_facts: StorageFacts | None = None,
+    layout: StorageLayout | None = None,
 ) -> tuple[Operation, ...]:
     """Validate, then derive the whole install. Nothing here touches a machine."""
     facts = storage_facts if storage_facts is not None else StorageFacts()
+    if config.disk.mode is DiskMode.IN_PLACE:
+        return _in_place(config, catalog, mirror, layout)
     validate(config, storage_facts=facts)
     chosen = packages.groups(config, catalog)
     operations: list[Operation] = [
@@ -106,6 +110,63 @@ def build(
         ) + 1
         ordered.insert(after_configuration, portage.VerifyPackages(requests=requests))
     return tuple(ordered)
+
+
+def _in_place(
+    config: InstallConfig,
+    catalog: packages.Catalog,
+    mirror: str,
+    layout: StorageLayout | None,
+) -> tuple[Operation, ...]:
+    """Derive the conversion of a running system, in the order it must run.
+
+    Not the stage order the rest of the installer sorts by: everything that
+    writes has to land in the staging root first, the swap comes after all of
+    it, and the bootloader after the swap, because it writes to the root the
+    machine will boot from and that is the old one until the swap happens.
+    """
+    if layout is None:
+        raise ConversionUnsupported("the running layout was not read")
+    # The operator's own configuration first, because that is where the rule
+    # against writing a device graph beside the mode applies.
+    validate(config, storage_facts=StorageFacts())
+    derived = replace(config, disk=convert.layout_graph(layout))
+    # And the derived one as an ordinary layout: it describes concrete devices
+    # now, so the compatibility table has something to check.
+    validate(
+        replace(derived, disk=replace(derived.disk, mode=DiskMode.PARTITION)),
+        storage_facts=StorageFacts(),
+    )
+    chosen = packages.groups(derived, catalog)
+    staged: list[Operation] = [
+        *portage.build(
+            derived,
+            stage3_mirror(derived, mirror),
+            packages._required_use(chosen),
+            packages._required_video_cards(derived, chosen),
+            packages._required_licenses(derived, chosen),
+        ),
+        *system.build(derived),
+        *kernel.build(derived),
+        *packages._build(derived, catalog, chosen),
+        *fonts.build(derived, catalog),
+        *portage.finish(derived),
+    ]
+    ordered = sorted(
+        (_in_portage_phase(operation) for operation in staged),
+        key=lambda operation: operation.stage.order,
+    )
+    requests = _package_requests(ordered)
+    if requests:
+        after_configuration = max(
+            index for index, operation in enumerate(ordered) if operation.stage is Stage.PORTAGE
+        ) + 1
+        ordered.insert(after_configuration, portage.VerifyPackages(requests=requests))
+    return (
+        *(convert.Staged(stage=operation.stage, inner=operation) for operation in ordered),
+        convert.SwapDirectories(),
+        *bootloader.build(derived),
+    )
 
 
 def _in_portage_phase(operation: Operation) -> Operation:

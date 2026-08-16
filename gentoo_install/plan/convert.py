@@ -20,7 +20,6 @@ from ..model.device import (
     StorageLayout,
 )
 from .operations import Context, Operation, Stage
-from .portage import InstallStage3
 
 
 REPLACED_DIRECTORIES: tuple[str, ...] = (
@@ -39,18 +38,23 @@ class _Converter(Protocol):
 
 
 @dataclass(frozen=True, kw_only=True)
-class InstallStage3InStaging(Operation):
-    """Reuse stage3 fetching while unpacking into the conversion staging root."""
+class Staged(Operation):
+    """Run an operation against the staging root instead of the target.
 
-    stage: Stage = Stage.STAGE3
-    source: InstallStage3
+    Everything before the swap has to land in `/gentoo-install.new`, because
+    the running userland is still the one on disk. One wrapper rather than a
+    staging variant of each operation: the planners stay unaware of the mode.
+    """
+
+    stage: Stage
+    inner: Operation
     staging: PurePosixPath = PurePosixPath("/gentoo-install.new")
 
     def describe(self) -> str:
-        return self.source.describe().replace("into the target", f"into {self.staging}")
+        return f"{self.inner.describe()}, in {self.staging}"
 
     def apply(self, context: Context) -> None:
-        self.source.apply(cast(Context, _StagingContext(parent=context, staging=self.staging)))
+        self.inner.apply(cast(Context, _StagingContext(parent=context, staging=self.staging)))
 
 
 @dataclass(frozen=True)
