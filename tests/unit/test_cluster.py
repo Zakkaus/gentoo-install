@@ -604,6 +604,75 @@ def test_a_login_that_is_refused_every_time_is_reported(
     assert "refused every login" in said
 
 
+class _EchoingConsole:
+    """`login` before it has turned the echo off: the password comes back on
+    the console and is read as an empty one.
+
+    Taken from `openrc-sdboot`'s log, where `Password: ` was followed by
+    `install` on its own line and then `Login incorrect`, against `vm-lvm`'s
+    working exchange where nothing appeared between the two.
+    """
+
+    def __init__(self, echoes: int) -> None:
+        self.echoes = echoes
+        self.sent: list[str] = []
+        self.settles: list[float] = []
+        self.answers: list[bytes] = []
+
+    def respond(self, line: str) -> None:
+        self.sent.append(line)
+        if line == "root":
+            self.answers.append(b"Password: ")
+        elif self.echoes > 0:
+            self.echoes -= 1
+            self.answers.append(f"{line}\r\n\r\nLogin incorrect\r\nlogin: ".encode())
+        else:
+            self.answers.append(b"openrcsdbox ~ # ")
+
+    def observe(self, pattern: str, timeout: float = 0.0) -> bytes:
+        return self.answers.pop(0) if self.answers else b""
+
+
+def test_a_password_the_console_echoed_is_not_counted_as_a_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`openrc-sdboot` lost this race twice. `login` gives up after three
+    attempts of its own, so a race counted against the harness's own budget
+    ends the login before a clean attempt is ever made."""
+    settles: list[float] = []
+    monkeypatch.setattr("time.sleep", lambda seconds: settles.append(seconds))
+    console = _EchoingConsole(echoes=3)
+    assert cluster._log_in(cast(cluster.Reconnecting, console), "install") == ""
+    assert console.sent.count("install") == 4, console.sent
+
+    # The settle grows on each catch rather than staying at a guess.
+    waited = [one for one in settles if one not in (cluster.AGETTY_FLUSHES_AFTER,)]
+    assert waited == [
+        cluster.PASSWORD_ECHO_OFF_AFTER + n * cluster.PASSWORD_ECHO_BACKOFF
+        for n in range(4)
+    ], waited
+
+    # Negative control: a refusal with no echo is the installed system saying
+    # no, and it must end after the ordinary budget rather than be absorbed.
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    silent = _LoginConsole(refusals=99)
+    assert "refused every login" in cluster._log_in(
+        cast(cluster.Reconnecting, silent), "install"
+    )
+    assert silent.sent.count("install") == cluster.LOGIN_TRIES, silent.sent
+
+    # Negative control: an echo that never stops still ends, so a guest whose
+    # console echoes everything cannot hold the schedule open.
+    forever = _EchoingConsole(echoes=999)
+    assert "refused every login" in cluster._log_in(
+        cast(cluster.Reconnecting, forever), "install"
+    )
+    assert (
+        forever.sent.count("install")
+        == cluster.LOGIN_TRIES + cluster.PASSWORD_ECHO_CATCHES
+    ), forever.sent
+
+
 def test_the_password_waits_for_the_echo_to_be_turned_off() -> None:
     import inspect
 
