@@ -133,3 +133,56 @@ def test_an_install_from_a_medium_says_nothing_about_it(tmp_path: Path) -> None:
     )
 
     assert not any("live medium" in one for one in report.warnings)
+
+
+def test_a_conversion_from_a_live_medium_is_refused(tmp_path: Path) -> None:
+    """The conversion replaces the running userland. On a live medium that
+    userland is a squashfs in RAM, so the swap would rename directories the
+    machine loses at the next boot and touch nothing that survives."""
+    from dataclasses import replace
+
+    from gentoo_install.model.config import DiskConfig, DiskMode
+    from gentoo_install.model.device import DeviceGraph, DeviceId
+
+    class OnAMedium(Probe):
+        def live_medium(self) -> str:
+            return "the kernel command line carries root=live:"
+
+    converted = replace(
+        config(),
+        disk=DiskConfig(graph=DeviceGraph.build([]), root=DeviceId(""), mode=DiskMode.IN_PLACE),
+    )
+    report = preflight.check(
+        converted,
+        OnAMedium(runner=Runner(log=lambda line: None), work=tmp_path),
+        operations=(),
+    )
+
+    assert any("in-place conversion" in one for one in report.fatal)
+    assert any("root=live:" in one for one in report.fatal)
+
+
+def test_a_conversion_from_a_running_system_is_allowed(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from gentoo_install.model.config import DiskConfig, DiskMode
+    from gentoo_install.model.device import DeviceGraph, DeviceId
+
+    class Installed(Probe):
+        def live_medium(self) -> str:
+            return ""
+
+        def root_source(self) -> str:
+            return "/dev/vda2"
+
+    converted = replace(
+        config(),
+        disk=DiskConfig(graph=DeviceGraph.build([]), root=DeviceId(""), mode=DiskMode.IN_PLACE),
+    )
+    report = preflight.check(
+        converted,
+        Installed(runner=Runner(log=lambda line: None), work=tmp_path),
+        operations=(),
+    )
+
+    assert not any("in-place conversion" in one for one in report.fatal)
