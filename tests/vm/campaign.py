@@ -160,6 +160,7 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         Run("fixtures/openrc-sdboot.toml"),
         Run("fixtures/vm-zfs-encrypted.toml"),
         Run("fixtures/zfs-zbm.toml"),
+        Run("fixtures/zbm-unlock.toml"),
         Run("fixtures/btrfs-luks.toml"),
         Run("fixtures/ext4-bios.toml", firmware="bios", weight=2, cpus=10),
         Run("fixtures/vm-cjk-kernel.toml"),

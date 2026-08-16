@@ -288,3 +288,42 @@ def test_a_firmware_that_refuses_a_boot_entry_still_leaves_a_bootable_machine() 
 
     with pytest.raises(CommandFailed):
         on_esp.apply(Broken(replies={"grep": "1"}))
+
+
+def test_zfsbootmenu_and_the_unlock_on_top_of_it_are_separate_fixtures() -> None:
+    """`zfs-zbm` carried both. Three cluster runs built the pool, generated the
+    image and booted a machine from it, and were recorded as failures because
+    an ssh daemon did not answer on 2222 — so nothing ever reported on
+    ZFSBootMenu itself. A fixture answering for two features answers for
+    neither."""
+    from pathlib import Path
+
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.config import Bootloader
+
+    plain = load(Path("tests/fixtures/zfs-zbm.toml"))
+    both = load(Path("tests/fixtures/zbm-unlock.toml"))
+
+    for one in (plain, both):
+        assert one.bootloader.kind is Bootloader.ZFSBOOTMENU
+
+    assert not plain.kernel.remote_unlock.enabled, "zfs-zbm answers for ZFSBootMenu alone"
+    assert both.kernel.remote_unlock.enabled, "and the combination keeps a fixture"
+
+    # The operation that carries the combination reaches one plan and not the
+    # other, which is what makes the split a division of work rather than two
+    # copies of one fixture.
+    def builds_remote_access(installation: object) -> bool:
+        from gentoo_install.model.config import InstallConfig
+
+        assert isinstance(installation, InstallConfig)
+        return any(
+            isinstance(one, bootloader.ConfigureZfsBootMenuRemoteAccess)
+            for one in bootloader.build(installation)
+        )
+
+    assert not builds_remote_access(plain)
+    assert builds_remote_access(both)
+
+    # Two machines, so a guest that booted the wrong disk is told apart.
+    assert plain.system.hostname != both.system.hostname

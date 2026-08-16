@@ -801,7 +801,7 @@ def test_the_initramfs_gateway_is_on_the_subnet_its_address_is_on(
 ) -> None:
     """The address was rewritten to the guest's own and the gateway beside it
     was left at `192.0.2.1`, so the initramfs came up with a default route
-    through a host that is not on its subnet. `zfs-zbm` reached the unlock
+    through a host that is not on its subnet. `zbm-unlock` reached the unlock
     twice, at 93.6 and 62.2 minutes, and answered `No route to host` both
     times; the install itself had finished."""
     import ipaddress
@@ -810,7 +810,7 @@ def test_the_initramfs_gateway_is_on_the_subnet_its_address_is_on(
     from gentoo_install.model.config import MirrorRegion, Sync
     from gentoo_install.plan.bootloader import unlock_parameters
 
-    for name in ("vm-unlock", "zfs-zbm"):
+    for name in ("vm-unlock", "zbm-unlock"):
         jobs = cluster.fixtures([name])
         # The negative control is the input: the fixtures ship a documentation
         # address and a documentation gateway, so neither assertion below is
