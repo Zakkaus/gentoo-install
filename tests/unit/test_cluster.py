@@ -796,6 +796,56 @@ def test_the_initramfs_is_given_the_address_the_guest_will_have(tmp_path: Path) 
     assert rewritten.kernel.remote_unlock.address == f"10.31.0.155/{cluster.GUEST_PREFIX}"
 
 
+def test_the_initramfs_gateway_is_on_the_subnet_its_address_is_on(
+    tmp_path: Path,
+) -> None:
+    """The address was rewritten to the guest's own and the gateway beside it
+    was left at `192.0.2.1`, so the initramfs came up with a default route
+    through a host that is not on its subnet. `zfs-zbm` reached the unlock
+    twice, at 93.6 and 62.2 minutes, and answered `No route to host` both
+    times; the install itself had finished."""
+    import ipaddress
+
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.config import MirrorRegion, Sync
+    from gentoo_install.plan.bootloader import unlock_parameters
+
+    for name in ("vm-unlock", "zfs-zbm"):
+        jobs = cluster.fixtures([name])
+        # The negative control is the input: the fixtures ship a documentation
+        # address and a documentation gateway, so neither assertion below is
+        # true of what is read off disk.
+        before = load(jobs[0].fixture).kernel.remote_unlock
+        assert before.gateway != cluster.GUEST_GATEWAY, before.gateway
+        assert ipaddress.ip_address(before.gateway) not in ipaddress.ip_network(
+            f"{cluster.GUEST_NETWORK}.0/{cluster.GUEST_PREFIX}"
+        ), before.gateway
+
+        written = cluster.rewrite_fixtures(
+            jobs,
+            tmp_path / name,
+            MirrorRegion.CN,
+            Sync.GIT,
+            "",
+            "nju",
+            {name: "10.31.0.155"},
+        )
+        unlock = load(written / f"{name}.toml").kernel.remote_unlock
+        assert unlock.gateway == cluster.GUEST_GATEWAY, unlock.gateway
+
+        # The property, not the constant: whatever the pool hands out, the
+        # gateway has to be reachable from the address without a route.
+        address = ipaddress.ip_interface(unlock.address)
+        assert ipaddress.ip_address(unlock.gateway) in address.network, unlock
+
+        # And what the initramfs is actually handed carries it.
+        parameters = unlock_parameters(load(written / f"{name}.toml"))
+        fields = next(one for one in parameters if one.startswith("ip=")).removeprefix(
+            "ip="
+        ).split(":")
+        assert fields[2] == cluster.GUEST_GATEWAY, fields
+
+
 def test_the_initramfs_is_not_pinned_to_an_interface_the_guest_does_not_have(
     tmp_path: Path,
 ) -> None:
