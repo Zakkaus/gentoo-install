@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Start the installer from whatever live system you happen to have booted.
 #
 # POSIX sh on purpose: this runs before anything is installed, and the live

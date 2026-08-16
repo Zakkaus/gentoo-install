@@ -104,18 +104,31 @@ SPDX: Final[str] = "# SPDX-License-Identifier: GPL-2.0-or-later"
 def test_every_source_file_states_the_licence() -> None:
     """The repository is GPL-2 or later. A file that says nothing leaves the
     question to whoever finds it, and the `or later` clause is what lets code
-    be taken from a GPL-3 project at all."""
+    be taken from a GPL-3 project at all.
+
+    Shell as well as Python: the README says every source file carries the
+    identifier, and `bootstrap.sh` — the one file a stranger runs first — did
+    not, because this test only ever looked at `*.py`.
+    """
     root = PACKAGE.parent
-    silent = [
-        one.relative_to(root)
-        for one in sorted(root.rglob("*.py"))
-        if one.is_file()
-        and ".git" not in one.parts
-        and "lab" not in one.parts
-        and one.read_text(encoding="utf-8").splitlines()[:1] != [SPDX]
-    ]
+    silent: list[Path] = []
+    read: list[Path] = []
+    for pattern, line in (("*.py", 0), ("*.sh", 1)):
+        for one in sorted(root.rglob(pattern)):
+            if not one.is_file() or ".git" in one.parts or "lab" in one.parts:
+                continue
+            read.append(one.relative_to(root))
+            # A shell script's first line is its interpreter, so the identifier
+            # is on the second; Python has no such line and uses the first.
+            head = one.read_text(encoding="utf-8").splitlines()[: line + 1]
+            if head[line : line + 1] != [SPDX]:
+                silent.append(one.relative_to(root))
 
     assert not silent, f"no licence on the first line of: {silent}"
+    # Not vacuous: the shell scripts have to be among the files examined, or
+    # narrowing the scan back to Python would pass while the README's claim
+    # about every source file stayed false.
+    assert any(one.suffix == ".sh" for one in read), read[:5]
 
 
 def test_no_definition_in_the_package_is_unreachable() -> None:
