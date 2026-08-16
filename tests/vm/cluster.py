@@ -962,8 +962,12 @@ def use_our_resolvers() -> str:
 #: the network, and one that fires every five seconds names the interval.
 KEEPER_LOG: Final[str] = "/tmp/gentoo-install-address-keeper.log"
 
+#: The keeper itself, written a line at a time because a console line over
+#: `CONSOLE_LINE_BYTES` comes back mangled.
+KEEPER_SCRIPT: Final[str] = "/tmp/gentoo-install-address-keeper.sh"
 
-def keep_the_address(address: str) -> str:
+
+def keep_the_address(address: str) -> list[str]:
     """Put the address back whenever something takes it away.
 
     Round 32 measured `ens18` up with `10.31.0.152/24` immediately before the
@@ -971,17 +975,26 @@ def keep_the_address(address: str) -> str:
     in the kernel log and no network command in the installer's own run list.
     Rather than name the service that flushes it, this reasserts the
     configuration and counts how often it had to.
+
+    A script rather than one command: the whole loop is four hundred bytes and
+    a console line over `CONSOLE_LINE_BYTES` is mangled, which cost round 33.
     """
-    network, last = address.rsplit(".", 1)
-    body = (
-        "while :; do for one in /sys/class/net/e*; do dev=$(basename \"$one\"); "
-        f'ip -4 addr show dev \"$dev\" | grep -q {network}.{last}/{GUEST_PREFIX} || {{ '
-        'ip link set \"$dev\" up; '
-        f'ip -4 addr add {network}.{last}/{GUEST_PREFIX} dev \"$dev\" 2>/dev/null; '
-        f'ip -4 route replace default via {GUEST_GATEWAY} dev \"$dev\" 2>/dev/null; '
-        f"echo readded >> {KEEPER_LOG}; }}; done; sleep 5; done"
+    lines = (
+        "while :; do",
+        'for one in /sys/class/net/e*; do dev=$(basename "$one")',
+        f'ip -4 addr show dev "$dev" | grep -q {address}/{GUEST_PREFIX} && continue',
+        'ip link set "$dev" up',
+        f'ip -4 addr add {address}/{GUEST_PREFIX} dev "$dev" 2>/dev/null',
+        f'ip -4 route replace default via {GUEST_GATEWAY} dev "$dev" 2>/dev/null',
+        f"echo readded >> {KEEPER_LOG}",
+        "done",
+        "sleep 5",
+        "done",
     )
-    return f"nohup sh -c '{body}' >/dev/null 2>&1 &"
+    written = [f"rm -f {KEEPER_SCRIPT} {KEEPER_LOG}"]
+    written += [f"printf '%s\\n' '{line}' >> {KEEPER_SCRIPT}" for line in lines]
+    written.append(f"nohup sh {KEEPER_SCRIPT} >/dev/null 2>&1 &")
+    return written
 
 
 def _address_is_taken(address: str) -> bool:
@@ -1061,7 +1074,8 @@ def wait_for_network(
             # mid-fetch — sixty-one lookups answered `ENETUNREACH`.
             link.run(configure, timeout=120.0)
             if vmid:
-                link.run(keep_the_address(address or static_address(vmid)), timeout=120.0)
+                for command in keep_the_address(address or static_address(vmid)):
+                    link.run(command, timeout=120.0)
             link.run(REACHABILITY_PROBE, timeout=120.0)
             return
         # Every pass, not once: the fallback asks a DHCP server that answers
