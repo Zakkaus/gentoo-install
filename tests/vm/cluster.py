@@ -983,6 +983,12 @@ def wait_for_network(
             # rest of the install, and a lapsed DHCP lease took it away
             # mid-fetch — sixty-one lookups answered `ENETUNREACH`.
             link.run(configure, timeout=120.0)
+            # Again, once the DHCP client is dead: it is left running through
+            # the probe, and a lease taken in that window rewrote the file.
+            # `vm-zfs-mirror` reached the installer with two addresses, two
+            # default routes and `nameserver 10.31.0.252`, and every mirror
+            # failed to resolve.
+            link.run(use_our_resolvers(), timeout=120.0)
             if vmid:
                 for command in keep_the_address(address or static_address(vmid)):
                     link.run(command, timeout=120.0)
@@ -1026,6 +1032,7 @@ def rewrite_fixtures(
     public_key: str = "",
     site: str = "",
     unlock_addresses: Mapping[str, str] | None = None,
+    distfiles: str = "",
 ) -> Path:
     """Write each fixture out again with its mirror region, site and sync.
 
@@ -1069,7 +1076,15 @@ def rewrite_fixtures(
                 config.portage,
                 sync=sync,
                 mirrors=replace(
-                    config.portage.mirrors, region=region, site=site, gentoo_zh=chosen
+                    config.portage.mirrors,
+                    region=region,
+                    site=site,
+                    gentoo_zh=chosen,
+                    # A replaced list, when one is given: a cache on the
+                    # guests' own segment is an address with no name to
+                    # resolve, which is the whole class of failure the first
+                    # thirty rounds died of.
+                    distfiles=(distfiles,) if distfiles else config.portage.mirrors.distfiles,
                 ),
                 overlays=tuple(
                     replace(overlay, sync_uri=where)
@@ -1681,6 +1696,7 @@ def run(
     region: MirrorRegion = MirrorRegion.GLOBAL,
     sync: Sync = Sync.RSYNC,
     site: str = "",
+    distfiles: str = "",
 ) -> list[Outcome]:
     """Every job, collected one at a time as each finishes.
 
@@ -1710,7 +1726,7 @@ def run(
         for job in jobs
     }
     rewritten = rewrite_fixtures(
-        jobs, fixture_dir, region, sync, public_key, site, unlock_addresses
+        jobs, fixture_dir, region, sync, public_key, site, unlock_addresses, distfiles
     )
     built_path = build_driver(staging, packed=True, fixtures=rewritten)
     driver_path = retain_driver(workdir, built_path)
@@ -2753,6 +2769,14 @@ def main(argv: list[str] | None = None) -> int:
         help="pin every mirror to one site by its key in model/mirrors.py",
     )
     parser.add_argument(
+        "--distfiles",
+        default="",
+        help=(
+            "replace GENTOO_MIRRORS with this one address, which the stage3 and "
+            "emerge-webrsync then follow; an address needs no resolver"
+        ),
+    )
+    parser.add_argument(
         "--region",
         choices=[one.value for one in MirrorRegion],
         default=MirrorRegion.GLOBAL.value,
@@ -2789,6 +2813,7 @@ def main(argv: list[str] | None = None) -> int:
         MirrorRegion(args.region),
         Sync(args.sync),
         args.site,
+        args.distfiles,
     )
     passed = [
         one
