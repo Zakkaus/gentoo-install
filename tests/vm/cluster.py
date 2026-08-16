@@ -36,7 +36,7 @@ from enum import Enum
 from pathlib import Path
 from collections import Counter
 from collections.abc import Callable, Mapping
-from typing import Final, Protocol, TypeVar, cast
+from typing import Final, Protocol, TypeVar, cast, Sequence
 
 from gentoo_install.model.config import Firmware as BootFirmware
 from gentoo_install.model.config import (
@@ -1697,6 +1697,7 @@ def run(
     sync: Sync = Sync.RSYNC,
     site: str = "",
     distfiles: str = "",
+    skip_nodes: Sequence[str] = (),
 ) -> list[Outcome]:
     """Every job, collected one at a time as each finishes.
 
@@ -1737,7 +1738,10 @@ def run(
     # A node whose console proxy went away takes no more guests: three runs on
     # `infra-node3` were lost to the same dropped ssh while their installs
     # were going perfectly well.
-    unreachable: set[str] = set()
+    # Seeded, not only learned: `infra-node3` cost four rounds on 2026-08-16
+    # and the automatic detection has to lose a guest to each bad node before
+    # it acts. Naming one here costs nothing when it is wrong.
+    unreachable: set[str] = set(skip_nodes)
     done: queue.Queue[Outcome] = queue.Queue()
     scheduled = {job.name: job for job in jobs}
     collected = 0
@@ -2769,6 +2773,13 @@ def main(argv: list[str] | None = None) -> int:
         help="pin every mirror to one site by its key in model/mirrors.py",
     )
     parser.add_argument(
+        "--skip-node",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="take no guests on this node, before it has cost a guest to learn",
+    )
+    parser.add_argument(
         "--distfiles",
         default="",
         help=(
@@ -2814,6 +2825,7 @@ def main(argv: list[str] | None = None) -> int:
         Sync(args.sync),
         args.site,
         args.distfiles,
+        args.skip_node,
     )
     passed = [
         one
