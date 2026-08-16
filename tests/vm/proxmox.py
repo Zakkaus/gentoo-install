@@ -578,19 +578,6 @@ class Guest:
     def console(self) -> ConsoleChannel:
         return ConsoleChannel.open(self.api, self.node, self.vmid)
 
-    def screenshot(self, into: Path) -> Path | None:
-        """What is on the VGA console. A BIOS guest asking GRUB's own
-        passphrase prompt writes nothing to the serial port, so a run that
-        looks hung is diagnosed here or not at all."""
-        try:
-            raw = self.api.call("GET", f"/nodes/{self.node}/qemu/{self.vmid}/screenshot")
-        except ProxmoxError:
-            return None
-        if not isinstance(raw, str):
-            return None
-        into.write_text(raw)
-        return into
-
     #: Between keystrokes, and how many times one is repeated. Every key is a
     #: separate request over a new TLS connection, and twenty of them in a row
     #: were answered `Remote end closed connection without response`; a dropped

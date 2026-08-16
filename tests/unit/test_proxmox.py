@@ -3433,3 +3433,19 @@ def test_the_editor_is_given_ten_presses_before_it_is_called_a_failure() -> None
 
     signature = inspect.signature(proxmox.append_to_cmdline)
     assert signature.parameters["timeout"].default == proxmox.EDITOR_PATIENCE
+
+
+def test_the_cluster_serves_no_screenshot_so_none_is_offered() -> None:
+    """`Guest.screenshot` read `GET /nodes/{node}/qemu/{vmid}/screenshot` and
+    answered `None` on any `ProxmoxError`. Proxmox VE 9.2.10 answers that path
+    `501 Method 'GET …/screenshot' not implemented`, so it could only ever have
+    answered `None` — a diagnostic that reports "no screen" for ever, on the
+    one path that has no other diagnostic.
+
+    Nothing called it. It is named here so that a reader who wants the VGA
+    console for the BIOS fixtures learns the endpoint does not exist rather
+    than adding a caller and reading `None`.
+    """
+    from tests.vm.proxmox import Guest
+
+    assert not hasattr(Guest, "screenshot")
