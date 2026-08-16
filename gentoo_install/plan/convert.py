@@ -234,8 +234,31 @@ class LeaveStaging(Operation):
     def describe(self) -> str:
         return f"unmount and remove {self.staging}"
 
+    def _mounted_under(self, context: Context) -> list[str]:
+        """Every mount below the staging root, deepest first.
+
+        Deepest first because `/gentoo-install.new/dev/pts` has to go before
+        `/gentoo-install.new/dev`, and `umount` refuses a busy parent.
+        """
+        listed = context.run(
+            ["findmnt", "--noheadings", "--list", "--output", "TARGET"], check=False
+        )
+        if isinstance(listed, CommandOutput) and listed.returncode != 0:
+            return []
+        under = f"{self.staging}/"
+        found = [
+            line.strip()
+            for line in str(listed).splitlines()
+            if line.strip().startswith(under) or line.strip() == str(self.staging)
+        ]
+        return sorted(found, key=lambda one: one.count("/"), reverse=True)
+
     def apply(self, context: Context) -> None:
-        context.run(["umount", "--recursive", "--lazy", str(self.staging)], check=False)
+        # Not `umount --recursive` on the staging root: that needs the root
+        # itself to be a mount, and it is a plain directory, so the command
+        # answered `not mounted` and exited 1 while seventeen binds stayed.
+        for mounted in self._mounted_under(context):
+            context.run(["umount", "--lazy", mounted], check=False)
         listed = context.run(
             ["findmnt", "--noheadings", "--list", "--output", "TARGET"], check=False
         )

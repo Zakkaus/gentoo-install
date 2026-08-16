@@ -255,7 +255,11 @@ class _RunningContext:
 def test_the_staging_root_is_unmounted_and_removed() -> None:
     context = _RunningContext(mounted=("/", "/boot"))
     convert.LeaveStaging().apply(cast(Any, context))
-    assert ["umount", "--recursive", "--lazy", "/gentoo-install.new"] in context.ran
+    # Nothing is mounted under it here, so there is nothing to unmount. The
+    # assertion was `umount --recursive --lazy /gentoo-install.new`, which the
+    # machine answers `not mounted` to, so the test held a call that did
+    # nothing.
+    assert not [one for one in context.ran if one[0] == "umount"], context.ran
     assert ["rm", "--recursive", "--force", "/gentoo-install.new"] in context.ran
 
 
@@ -785,3 +789,57 @@ def test_a_conversion_refuses_a_replaced_directory_that_is_its_own_mount() -> No
     both = replace(fedora, separate_mounts=("/usr", "/var"))
     with pytest.raises(ConversionUnsupported, match=r"/usr, /var are a separate mount"):
         convert.layout_graph(both)
+
+
+def test_the_staging_root_is_unmounted_from_the_deepest_mount_up() -> None:
+    """Read on a Fedora 41 machine after a conversion stopped:
+
+        $ umount --recursive --lazy /gentoo-install.new
+        umount: /gentoo-install.new: not mounted
+        退出碼 1
+
+    `umount --recursive` needs its target to be a mount, and the staging root
+    is a plain directory, so the command failed and seventeen binds stayed
+    under it. `rm -rf` on those walks into the running system's `/dev`.
+    """
+    from gentoo_install.plan.operations import CommandOutput
+
+    from .recorder import Recorder
+
+    mounts = "\n".join(
+        (
+            "/",
+            "/gentoo-install.new/dev",
+            "/gentoo-install.new/dev/pts",
+            "/gentoo-install.new/proc",
+            "/home",
+        )
+    )
+    seen: list[list[str]] = []
+
+    class Mounted(Recorder):
+        def run(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> CommandOutput:
+            seen.append(list(argv))
+            if argv[0] == "findmnt":
+                # Emptied once the unmounts have been issued, as a real one is.
+                remaining = "/\n/home" if any(one[0] == "umount" for one in seen) else mounts
+                return CommandOutput(remaining, 0)
+            return CommandOutput("", 0)
+
+    convert.LeaveStaging().apply(cast(Any, Mounted()))
+
+    unmounted = [one[-1] for one in seen if one[0] == "umount"]
+    assert unmounted == [
+        "/gentoo-install.new/dev/pts",
+        "/gentoo-install.new/dev",
+        "/gentoo-install.new/proc",
+    ], unmounted
+
+    # Negative control one: never `umount --recursive` on the staging root,
+    # which is the call that answered `not mounted` and did nothing.
+    assert not any("--recursive" in one for one in seen if one[0] == "umount"), seen
+
+    # Negative control two: a mount outside the staging root is not touched.
+    assert not any(one.endswith("/home") for one in unmounted), unmounted
