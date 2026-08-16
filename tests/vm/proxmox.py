@@ -891,35 +891,38 @@ _PLACED: Final[re.Pattern[bytes]] = re.compile(rb"\x1b\[(\d+);\d+H([^\x1b]*)")
 BIOS_MENU_TIMEOUT: Final[float] = 10.0
 
 #: When to press `e`, counted from the guest being started, paired with the
-#: line to move to. Nothing on the serial port says when the menu appeared, and
-#: two other ways of finding out were measured and closed on 2026-08-17: the
-#: `screenshot` endpoint answers `501 not implemented`, and `args`, which would
-#: carry SeaBIOS's serial console, is refused to every token but root's.
+#: line to move to. Nothing on the serial port says when the menu appeared —
+#: not SeaBIOS, not `Welcome to GRUB!`, nothing until the kernel speaks, and
+#: every BIOS log in `lab/` holds the guest's boot and no marker before it — so
+#: the moment is sampled rather than waited for.
 #:
-#: What is readable is `diskread`, and it dates the one event that matters.
-#: GRUB loads the kernel and the initramfs when its countdown ends, and that is
-#: tens of megabytes in one step. Two guests booted the ordinary medium with
-#: nothing typed at them:
+#: A sample at `d` lands when the menu appeared at some `t` with `d - 10 < t <=
+#: d`, because GRUB counts `BIOS_MENU_TIMEOUT` down from `t` and a key before
+#: `t` goes nowhere. Each attempt is its own boot, so the samples cover the
+#: union of those windows: spacing them under `BIOS_MENU_TIMEOUT` leaves no gap
+#: between the earliest and the latest.
 #:
-#:   idle node        +86 MB at 12.7s, quiet, +7/20/13 MB from 33.4s
-#:   node at 98% cpu  +86 MB at 13.6s, quiet, +40 MB at 59.4s
+#: The samples used to stop at nine seconds, which covered a menu up at nine
+#: and nothing later, and no run has ever printed the line this function prints
+#: when an edit lands. Nodes measured between 80% and 100% busy all night, and
+#: `vm-mdraid`'s readable UEFI menu needed more than thirty seconds there, so
+#: a menu appearing after ten is the case to cover rather than the one to rule
+#: out.
 #:
-#: So the kernel starts loading at 33s on an idle node and at about 50s on a
-#: busy one, and with `timeout=10` the menu is up for the ten seconds before
-#: that: roughly 23s to 33s, or 39s to 49s. Every sample ever tried was under
-#: 17s, which is why not one run has printed the line below.
-#:
-#: A sample at `d` lands when the menu appeared at some `t` with
-#: `d - BIOS_MENU_TIMEOUT < t <= d`, and each attempt is its own boot, so the
-#: samples cover the union of those windows.
+#: Not later than that, though. `diskread` dates GRUB's countdown on a *cold*
+#: start — the kernel load steps by tens of megabytes at 33.4s on an idle node
+#: and 59.4s at 98% cpu — and moving the samples out to meet it made things
+#: worse, because every attempt here follows a `reset` of a guest that has
+#: already booted once, where the medium is in the host's cache and
+#: `Welcome to GRUB!` arrives 1.9s later. The two clocks are not the same one.
 BIOS_ATTEMPTS: Final[tuple[tuple[float, int], ...]] = (
-    (22.0, 2),
-    (30.0, 2),
-    (38.0, 2),
-    (46.0, 2),
-    (54.0, 2),
-    (30.0, 1),
-    (30.0, 3),
+    (6.0, 2),
+    (9.0, 2),
+    (13.0, 2),
+    (17.0, 2),
+    (3.0, 2),
+    (6.0, 1),
+    (13.0, 3),
 )
 
 #: What the kernel prints once `console=ttyS0` is on its command line, and the
