@@ -172,6 +172,12 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         # which no other fixture asks for; zram was set by none of them; and
         # GRUB opening the container itself to read /boot only happens on an
         # encrypted BIOS disk.
+        # The in-place conversion: `cluster.py` installs `vm-xfs.toml` first and
+        # runs this one against the machine that produced, so the whole path
+        # from staging root to swap to bootloader is exercised on a real
+        # system rather than a plan. Two installs one after the other, so it is
+        # long rather than heavy: the instantaneous cost is one guest's.
+        Run("fixtures/vm-convert.toml"),
         Run("fixtures/vm-raidz.toml"),
         Run("fixtures/vm-zram.toml"),
         Run("fixtures/vm-bios-luks.toml", firmware="bios"),

@@ -9,7 +9,13 @@ from pathlib import PurePosixPath
 
 from gentoo_install.data import load_catalog
 from gentoo_install.model import compat
-from gentoo_install.model.config import Bootloader, InitSystem, InstallConfig, Networking
+from gentoo_install.model.config import (
+    Bootloader,
+    DiskMode,
+    InitSystem,
+    InstallConfig,
+    Networking,
+)
 from gentoo_install.model.device import Filesystem, Luks, Mountpoint, Subvolume, ZfsDataset, ZfsPool
 from gentoo_install.plan.system import _network_service as network_service
 
@@ -63,6 +69,13 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
                 re.escape(f"XMODIFIERS=@im={framework}"),
             )
         )
+    if installation.disk.mode is DiskMode.IN_PLACE:
+        # No graph to derive from: the layout belongs to the machine that was
+        # converted, and the esp and root filesystem are whatever it already
+        # had. `fstab` still has to name the root by UUID, which is the part
+        # the conversion writes.
+        result.append(InstalledCheck("fstab", "cat /etc/fstab", "UUID="))
+        return tuple(result)
     graph = installation.disk.graph
     esp = compat.esp_mount(graph)
     if esp is not None:

@@ -31,6 +31,7 @@ from gentoo_install.model.device import (
     Partition,
     PartitionRole,
     PartitionTable,
+    StorageLayout,
     TableType,
     ZfsDataset,
     ZfsPool,
@@ -96,4 +97,27 @@ def config(nodes: list[Node] | None = None) -> InstallConfig:
         # An empty hash locks root, and `compat` refuses a system nothing can
         # log into. Every layout here is meant to be installable.
         system=SystemConfig(root_password_hash="$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"),
+    )
+
+
+def running_layout() -> StorageLayout:
+    """A UEFI machine whose root is a plain filesystem on a partition.
+
+    What `probe.storage_layout()` reads on the guests the conversion fixture
+    runs against, so a test can derive a conversion without a machine.
+    """
+    return StorageLayout(
+        root_device="/dev/vda2",
+        root_filesystem_type="ext4",
+        root_uuid="8f1c0a2e-0000-4000-8000-000000000001",
+        root_on_lvm=False,
+        root_on_luks=False,
+        root_on_mdraid=False,
+        root_below_device="/dev/vda",
+        boot_device="/dev/vda2",
+        boot_same_filesystem=True,
+        esp_device="/dev/vda1",
+        esp_mountpoint="/efi",
+        uefi=True,
+        root_free_bytes=20 * 2**30,
     )

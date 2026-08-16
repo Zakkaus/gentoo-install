@@ -39,7 +39,12 @@ from collections.abc import Callable, Mapping
 from typing import Final, Protocol, TypeVar, cast
 
 from gentoo_install.model.config import Firmware as BootFirmware
-from gentoo_install.model.config import GentooZhMirror, InitSystem, InstallConfig
+from gentoo_install.model.config import (
+    DiskMode,
+    GentooZhMirror,
+    InitSystem,
+    InstallConfig,
+)
 from gentoo_install.model.device import (
     Existing,
     Filesystem,
@@ -242,6 +247,7 @@ class Phase(Enum):
     BOOT_LIVE = "boot-live"
     INSTALL = "install"
     BOOT_INSTALLED = "boot-installed"
+    CONVERT = "convert"
 
 
 class JobStatus(Enum):
@@ -287,6 +293,9 @@ class Job:
     #: long is compiling, and the configuration is what says whether it does.
     heavy: bool = False
     remote_unlock: bool = False
+    #: The in-place fixture to run once the installed system is up. Set for a
+    #: conversion job, whose `fixture` is the ordinary install it converts.
+    convert_to: Path | None = None
     status: JobStatus = JobStatus.WAITING
     vmid: int = 0
     node: str | None = None
@@ -1535,6 +1544,20 @@ def install_one(
                 revision=revision,
             )
             return outcome
+        if job.convert_to is not None:
+            phase = Phase.CONVERT
+            wrong = convert_and_check(guest, link, log, job.convert_to, held.address, watch)
+            if wrong:
+                outcome = Outcome(
+                    job.name,
+                    Verdict.FAIL,
+                    time.monotonic() - started,
+                    wrong,
+                    log,
+                    phase=phase,
+                    revision=revision,
+                )
+                return outcome
         outcome = Outcome(
             job.name,
             Verdict.OK,
@@ -2255,6 +2278,47 @@ def _unlock(
     )
 
 
+#: The ordinary install a conversion job runs first. Plain by necessity: the
+#: conversion refuses a root below LUKS, LVM or mdraid by name.
+CONVERSION_BASE: Final[str] = "vm-xfs.toml"
+
+
+def convert_and_check(
+    guest: Guest,
+    link: Reconnecting,
+    log: Path,
+    fixture: Path,
+    address: str,
+    watch: "Watchdog",
+) -> str:
+    """Convert the machine this run just installed, then read it back.
+
+    The driver CD is still attached, so the installer that produced this system
+    is the one that converts it. Answers an empty string when the converted
+    machine carries what the conversion asked for.
+    """
+    installation = load(fixture)
+    wait_for_network(link, guest.vmid, address)
+    link.run("mkdir -p /mnt/driver")
+    link.run("mountpoint -q /mnt/driver || mount -o ro /dev/sr1 /mnt/driver")
+    link.run(f"mkdir -p {RESULT_DIR}")
+    link.wait_for(
+        f"{{ sh /mnt/driver/install.sh --config fixtures/{fixture.name}; "
+        f"echo $? > {RESULT_DIR}/install.rc; }} 2>&1 | tee {RESULT_DIR}/install.txt",
+        timeout=RUN_CEILING,
+        idle=INSTALL_IDLE,
+        watch=watch,
+    )
+    files = collect(guest, link, log)
+    keep_results(log, files)
+    code = files.get("install.rc", b"").strip()
+    if code != b"0":
+        return f"the conversion exited {code!r}"
+    # The same reader as the first install: a converted machine that reaches a
+    # login prompt with the old hostname booted the system it was replacing.
+    return boot_and_check(guest, link, log, installation)
+
+
 def boot_and_check(
     guest: Guest,
     link: Reconnecting,
@@ -2559,6 +2623,13 @@ def fixtures(names: list[str]) -> list[Job]:
         if not path.is_file():
             raise SystemExit(f"no fixture named {name} at {path}")
         config: InstallConfig = load(path)
+        convert_to: Path | None = None
+        if config.disk.mode is DiskMode.IN_PLACE:
+            # A conversion needs a machine to convert, so the job installs one
+            # first and this fixture runs on what that produced.
+            convert_to = path
+            path = REPOSITORY / "tests" / "fixtures" / CONVERSION_BASE
+            config = load(path)
         found.append(
             Job(
                 name=name,
@@ -2567,6 +2638,7 @@ def fixtures(names: list[str]) -> list[Job]:
                 disks=max(1, len(config.disk.graph.of_type(Existing))),
                 heavy=_compiles(config),
                 remote_unlock=_requests_remote_unlock(path),
+                convert_to=convert_to,
             )
         )
     return found

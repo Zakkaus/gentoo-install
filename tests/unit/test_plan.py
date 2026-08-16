@@ -9,6 +9,7 @@ import pytest
 from gentoo_install.data import load_catalog
 from gentoo_install.errors import ConfigError, ValidationFailed
 from gentoo_install.model.config import (
+    DiskMode,
     DiskConfig,
     Bootloader,
     BootloaderConfig,
@@ -39,7 +40,7 @@ from gentoo_install.plan.packages import Catalog, Group
 from gentoo_install.plan.portage import Emerge
 from gentoo_install.plan.render import render, summarise
 
-from .layouts import config, ext4_on_gpt, i, zfs_root
+from .layouts import config, ext4_on_gpt, i, running_layout, zfs_root
 from .recorder import Recorder
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
@@ -219,7 +220,11 @@ def test_render_groups_by_stage_and_summarise_counts_them() -> None:
 
 def test_every_operation_describes_itself_in_one_line() -> None:
     for path in sorted(FIXTURES.glob("*.toml")):
-        for operation in build(load(path), load_catalog()):
+        installation = load(path)
+        # A conversion derives its whole plan from the running machine, so the
+        # fixture alone is not enough to build one.
+        layout = running_layout() if installation.disk.mode is DiskMode.IN_PLACE else None
+        for operation in build(installation, load_catalog(), layout=layout):
             described = operation.describe()
             assert described and "\n" not in described, f"{type(operation).__name__} in {path.name}"
 
