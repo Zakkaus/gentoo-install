@@ -1300,6 +1300,76 @@ def test_installed_boot_attaches_before_reset_without_sending_a_line(
     ]
 
 
+def test_a_failed_remote_unlock_answers_with_what_the_console_held(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`no ssh daemon on port 2222 after 180s` was the whole of what a
+    two-hour run produced. The unlock is attempted over the network and returns
+    before anything reads the console, so a guest that never left GRUB and one
+    whose initramfs came up without an address answered identically."""
+    from gentoo_install.exec.config import load
+    from tests.vm import cluster
+
+    class Guest:
+        def stop(self) -> None:
+            return None
+
+        def boot_from_disk(self) -> None:
+            return None
+
+        def start(self) -> None:
+            return None
+
+        def reset(self) -> None:
+            return None
+
+    class Console:
+        def __init__(self, screen: bytes) -> None:
+            self.screen = screen
+            self.asked: list[float] = []
+
+        def snapshot(self, seconds: float) -> bytes:
+            self.asked.append(seconds)
+            return self.screen
+
+    class Link:
+        def __init__(self, screen: bytes) -> None:
+            self.console = Console(screen)
+
+        def reopen(self, *, solicit_prompt: bool = True) -> None:
+            return None
+
+    def refuse(*unused: object, **ignored: object) -> None:
+        raise RuntimeError("no ssh daemon on port 2222 after 180s")
+
+    monkeypatch.setattr(cluster, "remote_unlock", refuse)
+    installation = load(Path("tests/fixtures/vm-unlock.toml"))
+    assert installation.kernel.remote_unlock.enabled, "the fixture under test"
+
+    stuck_at_grub = Link(b"\x1b[2JGNU GRUB  version 2.14\r\nGentoo Linux\r\n")
+    refused = cluster.boot_and_check(
+        cast(Any, Guest()),
+        cast(Any, stuck_at_grub),
+        Path("unused"),
+        installation,
+        remote_key=Path("unused.key"),
+    )
+    assert "no ssh daemon on port 2222" in refused
+    assert "GNU GRUB" in refused, refused
+    assert stuck_at_grub.console.asked == [cluster.UNLOCK_SCREEN_PATIENCE]
+
+    # Negative control: a console that produced nothing says so, rather than
+    # an empty pair of quotes that reads as a screen that was read and blank.
+    silent = Link(b"")
+    assert "the console held nothing" in cluster.boot_and_check(
+        cast(Any, Guest()),
+        cast(Any, silent),
+        Path("unused"),
+        installation,
+        remote_key=Path("unused.key"),
+    )
+
+
 def test_unlock_reconnect_never_solicits_a_shell_prompt() -> None:
     """There is no shell while GRUB owns the console, so a solicitation is an
     empty passphrase and changes the state the reader is trying to observe."""
