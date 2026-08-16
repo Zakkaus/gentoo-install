@@ -361,8 +361,11 @@ def traits_of(
 
     if esp_mount(graph) is None:
         found.add(Trait.NO_MOUNTED_ESP)
-    # GRUB alone: systemd-boot and ZFSBootMenu read the kernel off the esp,
-    # which is not in the container, so their initramfs starts without a key.
+    # GRUB alone, and for two different reasons. systemd-boot reads the kernel
+    # off the esp, which is never in the container. ZFSBootMenu does keep the
+    # kernel in the pool, so it does ask for a key — but it asks from its own
+    # image, which carries `crypt-ssh` and dropbear, so the question reaches
+    # the network rather than the physical console.
     if config.bootloader.kind is Bootloader.GRUB and boot_is_encrypted(graph):
         found.add(Trait.GRUB_UNLOCKS_BOOT)
     if _encrypted_esp(graph):

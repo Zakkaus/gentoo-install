@@ -348,10 +348,10 @@ def test_every_rule_in_the_table_has_a_case_that_breaks_it() -> None:
 
 
 def test_a_bootloader_that_reads_the_kernel_off_the_esp_unlocks_remotely() -> None:
-    """The rule above is GRUB's alone. systemd-boot and ZFSBootMenu read the
-    kernel from the esp, which is not in the container, so their initramfs
-    starts without anyone at the console and refusing them would take the
-    feature away from the layout it works best on."""
+    """The rule above is GRUB's alone, and for two different reasons.
+    systemd-boot reads the kernel off the esp, which is never in the container.
+    ZFSBootMenu keeps the kernel in the pool and does ask for a key, but asks it
+    from its own image, which carries `crypt-ssh` and dropbear."""
     encrypted = [node for node in ext4_on_gpt() if node.id != i("rootfs")]
     encrypted += [
         Luks(id=i("crypt"), backing=i("rootpart"), name="root"),
@@ -879,3 +879,64 @@ def test_the_kernel_package_table_is_the_only_one() -> None:
             if named == members:
                 copies.append(f"{path.relative_to(root)}:{node.lineno}")
     assert copies == [], copies
+
+
+def test_every_way_of_unlocking_remotely_is_decided_and_none_is_decided_twice() -> None:
+    """The nine combinations of root and bootloader, each with remote unlock
+    asked for. Written out because the rules were added one at a time and the
+    reason an operator is shown has to be the reason that applies: an
+    unencrypted pool must not be refused for native encryption, and a native
+    pool under ZFSBootMenu must not be refused at all.
+    """
+    from gentoo_install.model.device import ZfsPool
+
+    def luks() -> list[Node]:
+        nodes = [node for node in ext4_on_gpt() if node.id != i("rootfs")]
+        return nodes + [
+            Luks(id=i("crypt"), backing=i("rootpart"), name="root"),
+            Filesystem(id=i("rootfs"), device=i("crypt"), kind=FilesystemType.EXT4),
+        ]
+
+    def pool(encrypted: bool) -> list[Node]:
+        return [
+            replace(
+                node,
+                encrypted=encrypted,
+                passphrase_file="/run/keys/pool" if encrypted else "",
+            )
+            if isinstance(node, ZfsPool)
+            else node
+            for node in zfs_root()
+        ]
+
+    overlay = PortageConfig(
+        overlays=(Overlay(name="gentoo-zh", sync_uri="https://example.invalid/o.git"),)
+    )
+
+    def refusals(nodes: list[Node], kind: Bootloader) -> set[Trait]:
+        installation = boots(config(nodes), kind, Firmware.UEFI)
+        installation = replace(
+            installation,
+            system=replace(installation.system, authorized_keys=(VALID_KEY,)),
+            kernel=KernelConfig(remote_unlock=RemoteUnlock(enabled=True)),
+            portage=overlay,
+        )
+        return {
+            rule.excludes
+            for rule in violations(installation)
+            if rule.when is Trait.REMOTE_UNLOCK
+        }
+
+    expected: dict[tuple[str, Bootloader], set[Trait]] = {
+        ("luks", Bootloader.GRUB): {Trait.GRUB_UNLOCKS_BOOT},
+        ("luks", Bootloader.SYSTEMD_BOOT): set(),
+        ("native", Bootloader.GRUB): {Trait.NATIVE_ZFS_SYSTEM_INITRAMFS},
+        ("native", Bootloader.SYSTEMD_BOOT): {Trait.NATIVE_ZFS_SYSTEM_INITRAMFS},
+        ("native", Bootloader.ZFSBOOTMENU): set(),
+        ("plain", Bootloader.GRUB): {Trait.NO_ENCRYPTED_CONTAINER},
+        ("plain", Bootloader.SYSTEMD_BOOT): {Trait.NO_ENCRYPTED_CONTAINER},
+        ("plain", Bootloader.ZFSBOOTMENU): {Trait.NO_ENCRYPTED_CONTAINER},
+    }
+    layouts = {"luks": luks(), "native": pool(True), "plain": pool(False)}
+    for (name, kind), wanted in expected.items():
+        assert refusals(layouts[name], kind) == wanted, (name, kind)
