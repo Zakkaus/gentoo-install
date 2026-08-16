@@ -378,6 +378,8 @@ def test_the_reachability_probe_asks_every_resolver_and_changes_nothing() -> Non
     assert "GNU_LIBC_VERSION" in probe
     assert "ip -4 -brief address show" in probe
     assert "ip -4 route show" in probe
+    assert "ip -brief link show" in probe
+    assert "dmesg | tail" in probe
 
 
 def test_the_network_wait_measures_reachability_once_the_probe_answers() -> None:

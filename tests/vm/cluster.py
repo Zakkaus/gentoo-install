@@ -745,7 +745,12 @@ REACHABILITY_PROBE: Final[str] = (
     # `ENETUNREACH` from a guest that had passed this probe a minute earlier,
     # and only the addresses and routes at each moment say what went.
     "printf 'ADDRS '; ip -4 -brief address show | tr '\\n' ';'; "
-    "printf '\\nROUTES '; ip -4 route show | tr '\\n' ';'; printf '\\n'"
+    "printf '\\nROUTES '; ip -4 route show | tr '\\n' ';'; "
+    # The links regardless of address, and the kernel's own account: round 31
+    # measured `ens18` with an address, then the installer four seconds later
+    # with no routes, then no `ens18` at all. Only `dmesg` says what removed it.
+    "printf '\\nLINKS '; ip -brief link show | tr '\\n' ';'; "
+    "printf '\\nDMESG '; dmesg | tail -6 | tr '\\n' ';'; printf '\\n'"
 )
 
 
