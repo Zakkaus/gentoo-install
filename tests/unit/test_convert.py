@@ -158,3 +158,60 @@ def test_a_rollback_takes_back_a_directory_the_machine_lacked(
     assert (staging / "lib64").is_dir(), "the staged one has to go back"
     assert not (root / "lib64").exists()
     assert (root / "usr").is_dir()
+
+
+def test_the_staged_kernel_is_put_into_the_machines_boot(tmp_path: Path) -> None:
+    """`/boot` is not in the swap, so without this the machine keeps the old
+    distribution's kernels and the one just built stays in the staging root."""
+    root = tmp_path / "root"
+    staging = root / "new"
+    (root / "boot").mkdir(parents=True)
+    (root / "boot" / "vmlinuz-6.1.0-debian").write_text("old")
+    (root / "boot" / "initrd.img-6.1.0-debian").write_text("old")
+    (root / "boot" / "grub").mkdir()
+    (root / "boot" / "grub" / "grub.cfg").write_text("old menu")
+    (staging / "boot").mkdir(parents=True)
+    (staging / "boot" / "vmlinuz-6.18.43-gentoo").write_text("new")
+
+    convert.populate_boot(staging, root=root)
+
+    assert (root / "boot" / "vmlinuz-6.18.43-gentoo").read_text() == "new"
+    assert not (root / "boot" / "vmlinuz-6.1.0-debian").exists()
+    assert not (root / "boot" / "initrd.img-6.1.0-debian").exists()
+    # Not a kernel and a directory: `grub` and an esp mounted below `/boot`
+    # both have to survive.
+    assert (root / "boot" / "grub" / "grub.cfg").read_text() == "old menu"
+
+
+def test_a_boot_directory_the_machine_lacks_is_created(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    staging = root / "new"
+    (staging / "boot").mkdir(parents=True)
+    (staging / "boot" / "vmlinuz-6.18.43-gentoo").write_text("new")
+    root.mkdir(exist_ok=True)
+
+    convert.populate_boot(staging, root=root)
+
+    assert (root / "boot" / "vmlinuz-6.18.43-gentoo").read_text() == "new"
+
+
+def test_a_staging_root_without_a_kernel_is_refused(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    (root / "new").mkdir(parents=True)
+    with pytest.raises(ConversionFailed, match="no "):
+        convert.populate_boot(root / "new", root=root)
+
+
+def test_a_file_that_is_not_a_kernel_image_is_left_alone(tmp_path: Path) -> None:
+    """The rule names kernels, not everything: a machine's own `memtest86+` or
+    a signed shim under `/boot` is not this installer's to delete."""
+    root = tmp_path / "root"
+    staging = root / "new"
+    (root / "boot").mkdir(parents=True)
+    (root / "boot" / "memtest86+.bin").write_text("keep")
+    (staging / "boot").mkdir(parents=True)
+    (staging / "boot" / "vmlinuz-6.18.43-gentoo").write_text("new")
+
+    convert.populate_boot(staging, root=root)
+
+    assert (root / "boot" / "memtest86+.bin").read_text() == "keep"

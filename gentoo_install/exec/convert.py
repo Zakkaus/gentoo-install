@@ -82,3 +82,59 @@ def convert(staging: Path, names: Sequence[str], *, root: Path = Path("/")) -> N
             shutil.rmtree(old)
         except OSError as error:
             print(f"{old} stayed behind: {error}", file=sys.stderr)
+
+
+#: What a distribution names a kernel, an initramfs and the two files that go
+#: with them. Files only: `/boot/grub` and the esp mounted under `/boot` are
+#: directories and are left exactly as they are.
+KERNEL_FILES: tuple[str, ...] = (
+    "vmlinuz",
+    "vmlinux",
+    "initrd",
+    "initramfs",
+    "config-",
+    "System.map-",
+)
+
+
+def populate_boot(staging: Path, *, root: Path = Path("/")) -> None:
+    """Put the staged kernel into the machine's own `/boot`.
+
+    Copied rather than renamed, and not part of the swap: `/boot` is a separate
+    mount on many machines and holds the esp as a mount below it on many more,
+    and `rename` refuses both. What it costs is a copy of a few tens of
+    megabytes, inside the irreversible window but at its end.
+
+    The old distribution's kernels are removed once the staged ones are in,
+    because their modules left with `/lib`, so a menu entry for one is an entry
+    that cannot boot.
+    """
+    source = staging / "boot"
+    destination = root / "boot"
+    if not source.is_dir():
+        raise ConversionFailed(f"the staging directory has no {source}")
+    destination.mkdir(parents=True, exist_ok=True)
+    carried: set[str] = set()
+    for entry in sorted(source.iterdir()):
+        target = destination / entry.name
+        try:
+            if entry.is_dir() and not entry.is_symlink():
+                shutil.copytree(entry, target, dirs_exist_ok=True, symlinks=True)
+            else:
+                if target.exists() or target.is_symlink():
+                    target.unlink()
+                shutil.copy2(entry, target, follow_symlinks=False)
+        except OSError as error:
+            raise ConversionFailed(f"{entry.name} could not be put in {destination}: {error}") from error
+        carried.add(entry.name)
+    for entry in sorted(destination.iterdir()):
+        if entry.name in carried or entry.is_dir():
+            continue
+        if not any(entry.name.startswith(one) for one in KERNEL_FILES):
+            continue
+        try:
+            entry.unlink()
+        except OSError as error:
+            # Said rather than raised: the machine is already converted, and a
+            # stale image left behind is a menu entry, not a broken system.
+            print(f"{entry} stayed behind: {error}", file=sys.stderr)

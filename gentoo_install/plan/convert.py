@@ -105,6 +105,31 @@ class SwapDirectories(Operation):
         converter.convert(Path(str(self.staging)), self.names)
 
 
+class _BootPopulator(Protocol):
+    def populate_boot(self, staging: Path, *, root: Path = Path("/")) -> None: ...
+
+
+@dataclass(frozen=True, kw_only=True)
+class PopulateBoot(Operation):
+    """Put the staged kernel into the machine's own `/boot`, after the swap.
+
+    `/boot` is not in the swap: it is a separate mount on many machines and
+    holds the esp below it on many more, and `rename` refuses both. Without
+    this the converted machine keeps the old distribution's kernels and the
+    one that was just built stays in the staging root.
+    """
+
+    stage: Stage = Stage.BOOTLOADER
+    staging: PurePosixPath = PurePosixPath("/gentoo-install.new")
+
+    def describe(self) -> str:
+        return f"put the kernel from {self.staging}/boot into /boot and drop the old images"
+
+    def apply(self, context: Context) -> None:
+        module = importlib.import_module("gentoo_install.exec.convert")
+        cast(_BootPopulator, module).populate_boot(Path(str(self.staging)))
+
+
 #: The synthetic ids. Fixed rather than derived from the device name so that a
 #: plan reads the same whichever disk the machine happens to boot from.
 ROOT_DEVICE: Final[DeviceId] = DeviceId("running-root-device")
