@@ -24,6 +24,12 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 
 系統設定可在裝置圖與 swap 分割區之外，獨立設定 zram。
 
+<!-- fact: in-place-conversion -->
+
+**就地轉換。**在 `[disk]` 表設定 `mode = "in-place"` 時，安裝器取代執行中發行版的使用者空間，而不是分割磁碟。版面由機器讀出，因此該表不帶裝置清單。`/bin`、`/sbin`、`/etc`、`/lib`、`/lib64`、`/usr` 與 `/var` 會被取代；`/home`、`/root`、`/srv`、`/opt` 與其餘所有路徑維持原狀，且 `/etc` 是取代而非合併。
+
+暫存的系統建置在 `/gentoo-install.new`，執行中的系統在此期間不受影響；隨後以 `rename(2)` 逐個目錄交換，只有寫入 esp 或開機磁區的操作排在交換之後。根位於 LUKS、LVM 或 mdraid 之下、根檔案系統為安裝器無法描述的類型、根檔案系統可用空間低於 10 GiB，以及在 live 媒介上執行，這四種情況都會在寫入任何資料之前逐項指名並拒絕。
+
 <!-- fact: boot-system -->
 
 **開機與系統** 開機載入器可選 GRUB 或 systemd-boot，其中 GRUB 支援 UEFI 與 BIOS，systemd-boot 支援 UEFI。安裝器另可設定 systemd 或 OpenRC、dracut、locale、鍵盤配置、時區、主機名稱、DNS、靜態位址與所選的網路管理程式。
@@ -55,6 +61,10 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 <!-- fact: verification-current -->
 
 2026 年 8 月 11 日的端到端記錄均標有安裝器修訂版，涵蓋從 Arch Linux、openSUSE、Debian、Fedora 與自行建置的 gentoo-cjk minimal ISO 各安裝並開機一次。這些記錄涵蓋安裝器修訂版 [`b931ef46fc15ed50385f70467f2bfb0a8d1fd154`](https://github.com/Zakkaus/gentoo-install/commit/b931ef46fc15ed50385f70467f2bfb0a8d1fd154)。gentoo-cjk 記錄使用 ZFS 與 ZFSBootMenu，其餘四筆使用 ext4。只有在記錄的修訂版與安裝器相符、安裝退出碼為 `0`、已安裝系統成功開機，且開機後設定檢查通過時，該次執行才算現行實據。
+
+2026 年 8 月 16 日的叢集記錄標有安裝器修訂版 [`a8bf2f3837b6`](https://github.com/Zakkaus/gentoo-install/commit/a8bf2f3837b6)，在 amd64 Gentoo minimal ISO 上涵蓋 `vm-luks`、`vm-mdraid`、`vm-xfs`、`vm-btrfs` 與 `vm-f2fs`，五者各自完成安裝、開機並通過全部開機後設定檢查。`vm-lvm` 在修訂版 `073997aa74d2` 完成同一組檢查。
+
+就地轉換具備單元與計畫層測試，尚無端到端記錄。其操作順序、各項拒絕條件與交換本身均有測試涵蓋，但尚未有任何一次執行完成轉換並開機驗證結果。此路徑應視為未驗證。
 
 其他已實作組合仍未完成端到端驗證。現行實據未涵蓋 initramfs SSH 解鎖、greetd 桌面工作階段或 GNOME 以外的 ibus。現行實據也未涵蓋官方 Gentoo minimal ISO、Alpine 或 Gig-OS live 媒介，以及 binhost 失敗時的降級。
 

@@ -24,6 +24,12 @@ The paths below are implemented and have automated unit or plan coverage unless 
 
 The system configuration can configure zram independently of the device graph and swap partitions.
 
+<!-- fact: in-place-conversion -->
+
+**In-place conversion.** Setting `mode = "in-place"` in the `[disk]` table replaces the userland of the running distribution with Gentoo instead of partitioning a disk. The layout is read from the machine, so the table carries no device list. `/bin`, `/sbin`, `/etc`, `/lib`, `/lib64`, `/usr` and `/var` are replaced; `/home`, `/root`, `/srv`, `/opt` and every other path are left alone, and `/etc` is replaced rather than merged.
+
+The staged system is built under `/gentoo-install.new` while the running one is untouched, each directory is then exchanged with `rename(2)`, and only the writes to the esp or the boot sector follow the exchange. A root below LUKS, LVM or mdraid, a root filesystem this installer cannot describe, a machine with less than 10 GiB free on the root filesystem, and a live medium are each refused by name before anything is written.
+
 <!-- fact: boot-system -->
 
 **Boot and system.** GRUB supports UEFI and BIOS, and systemd-boot supports UEFI. The installer configures systemd or OpenRC, dracut, locale, keyboard layout, timezone, hostname, DNS, static addresses and the selected network manager.
@@ -55,6 +61,10 @@ Historical end-to-end records used the amd64 Gentoo minimal ISO at installer rev
 <!-- fact: verification-current -->
 
 Revision-tagged end-to-end records dated 2026-08-11 cover one installation and boot from each of Arch Linux, openSUSE, Debian, Fedora and a self-built gentoo-cjk minimal ISO. The records cover installer revision [`b931ef46fc15ed50385f70467f2bfb0a8d1fd154`](https://github.com/Zakkaus/gentoo-install/commit/b931ef46fc15ed50385f70467f2bfb0a8d1fd154). The gentoo-cjk record uses ZFS and ZFSBootMenu; the other four use ext4. A run counts as current evidence only when its recorded revision matches the installer, its installation exit code is `0`, the installed system boots and the post-boot configuration checks pass.
+
+Revision-tagged cluster records dated 2026-08-16 cover installer revision [`a8bf2f3837b6`](https://github.com/Zakkaus/gentoo-install/commit/a8bf2f3837b6) on the amd64 Gentoo minimal ISO: `vm-luks`, `vm-mdraid`, `vm-xfs`, `vm-btrfs` and `vm-f2fs` each installed, booted and answered every post-boot configuration check. `vm-lvm` did so at revision `073997aa74d2`.
+
+The in-place conversion has unit and plan coverage and no end-to-end record. Its operation order, its refusals and the exchange itself are covered by tests; no run has yet converted a machine and booted the result. Treat it as an unverified path.
 
 Other implemented combinations remain unverified end to end. Current evidence does not cover initramfs SSH unlock, greetd desktop sessions or ibus outside GNOME. It also does not cover the official Gentoo minimal ISO, Alpine or Gig-OS live media, or binary-host failure fallback.
 

@@ -24,6 +24,12 @@ gentoo-install은 Linux 라이브 환경에서 실행되어 amd64 아키텍처�
 
 시스템 설정은 장치 그래프와 swap 파티션과 별도로 zram을 구성할 수 있다.
 
+<!-- fact: in-place-conversion -->
+
+**인플레이스 변환.** `[disk]` 테이블에 `mode = "in-place"`를 설정하면 설치 도구는 디스크를 분할하는 대신 실행 중인 배포판의 사용자 공간을 Gentoo로 교체한다. 레이아웃은 기계에서 읽어 오므로 이 테이블은 장치 목록을 담지 않는다. `/bin`, `/sbin`, `/etc`, `/lib`, `/lib64`, `/usr`, `/var`가 교체되고 `/home`, `/root`, `/srv`, `/opt`를 비롯한 나머지 모든 경로는 그대로 남으며, `/etc`는 병합이 아니라 교체다.
+
+스테이징된 시스템은 실행 중인 시스템을 건드리지 않은 채 `/gentoo-install.new` 아래에 구축되고, 그다음 `rename(2)`으로 디렉터리마다 교환된다. 교환 이후에 실행되는 것은 esp 또는 부트 섹터에 쓰는 작업뿐이다. 루트가 LUKS, LVM, mdraid 아래에 있는 경우, 루트 파일 시스템이 이 설치 도구가 기술할 수 없는 종류인 경우, 루트 파일 시스템의 여유 공간이 10 GiB 미만인 경우, 라이브 미디어에서 실행한 경우는 모두 아무것도 쓰기 전에 이유를 밝히고 거부한다.
+
 <!-- fact: boot-system -->
 
 **부팅 및 시스템** 설치 도구에서는 GRUB과 systemd-boot 부트로더를 선택할 수 있다. GRUB은 UEFI와 BIOS를 지원하고 systemd-boot는 UEFI를 지원한다. 설치 도구는 systemd 또는 OpenRC, dracut, locale, 키보드 배열, 시간대, 호스트 이름, DNS, 고정 주소, 선택한 네트워크 관리자를 설정할 수도 있다.
@@ -55,6 +61,10 @@ gentoo-install은 Linux 라이브 환경에서 실행되어 amd64 아키텍처�
 <!-- fact: verification-current -->
 
 2026년 8월 11일 자 리비전 표기 엔드투엔드 기록은 Arch Linux, openSUSE, Debian, Fedora, 자체 빌드한 gentoo-cjk minimal ISO에서 각각 한 번 설치하고 부팅한 결과를 다룬다. 이 기록은 설치 도구 리비전 [`b931ef46fc15ed50385f70467f2bfb0a8d1fd154`](https://github.com/Zakkaus/gentoo-install/commit/b931ef46fc15ed50385f70467f2bfb0a8d1fd154)을 대상으로 한다. gentoo-cjk 기록은 ZFS와 ZFSBootMenu를 사용하며, 나머지 네 건은 ext4를 사용한다. 기록된 리비전이 설치 도구와 일치하고 설치 종료 코드가 `0`이며 설치한 시스템이 부팅되고 부팅 후 설정 검사를 통과한 실행만 현재 증거로 인정된다.
+
+2026년 8월 16일 자 클러스터 기록은 설치 도구 리비전 [`a8bf2f3837b6`](https://github.com/Zakkaus/gentoo-install/commit/a8bf2f3837b6)을 대상으로 하며, amd64 Gentoo minimal ISO에서 `vm-luks`, `vm-mdraid`, `vm-xfs`, `vm-btrfs`, `vm-f2fs` 다섯 건이 각각 설치와 부팅을 마치고 부팅 후 설정 검사를 모두 통과했다. `vm-lvm`은 리비전 `073997aa74d2`에서 같은 검사를 통과했다.
+
+인플레이스 변환에는 단위 테스트와 플랜 계층 테스트가 있으며 엔드투엔드 기록은 없다. 동작 순서, 각 거부 조건, 교환 자체는 테스트가 다루지만 실제로 기계를 변환하고 부팅까지 확인한 실행은 아직 없다. 검증되지 않은 경로로 다루어야 한다.
 
 그 밖의 구현된 조합은 엔드투엔드 검증을 거치지 않았다. 현재 증거는 initramfs SSH 잠금 해제, greetd 데스크톱 세션, GNOME 외부의 ibus를 다루지 않는다. 공식 Gentoo minimal ISO, Alpine 또는 Gig-OS 라이브 미디어, binhost 장애 시 전환도 다루지 않는다.
 

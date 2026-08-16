@@ -24,6 +24,12 @@ gentoo-install 在 Linux live 环境中运行，用于安装 amd64 架构的 Gen
 
 系统配置可以在设备图和 swap 分区之外单独配置 zram。
 
+<!-- fact: in-place-conversion -->
+
+**就地转换。**在 `[disk]` 表设置 `mode = "in-place"` 时，安装程序替换正在运行的发行版的用户空间，而不是分区磁盘。布局由机器读出，因此该表不带设备列表。`/bin`、`/sbin`、`/etc`、`/lib`、`/lib64`、`/usr` 和 `/var` 会被替换；`/home`、`/root`、`/srv`、`/opt` 和其余所有路径保持原样，且 `/etc` 是替换而非合并。
+
+暂存的系统构建在 `/gentoo-install.new`，正在运行的系统在此期间不受影响；随后以 `rename(2)` 逐个目录交换，只有写入 esp 或引导扇区的操作排在交换之后。根位于 LUKS、LVM 或 mdraid 之下、根文件系统为安装程序无法描述的类型、根文件系统可用空间低于 10 GiB，以及在 live 介质上执行，这四种情况都会在写入任何数据之前逐项指名并拒绝。
+
 <!-- fact: boot-system -->
 
 **引导与系统** 引导程序可选择 GRUB 或 systemd-boot，其中 GRUB 支持 UEFI 和 BIOS，systemd-boot 支持 UEFI。还可配置 systemd 或 OpenRC、dracut、locale、键盘布局、时区、主机名、DNS、静态地址和所选的网络管理程序。
@@ -55,6 +61,10 @@ gentoo-install 在 Linux live 环境中运行，用于安装 amd64 架构的 Gen
 <!-- fact: verification-current -->
 
 2026 年 8 月 11 日的端到端记录均标有安装程序修订版，覆盖从 Arch Linux、openSUSE、Debian、Fedora 和自行构建的 gentoo-cjk minimal ISO 各安装并引导一次。这些记录覆盖安装程序修订版 [`b931ef46fc15ed50385f70467f2bfb0a8d1fd154`](https://github.com/Zakkaus/gentoo-install/commit/b931ef46fc15ed50385f70467f2bfb0a8d1fd154)。gentoo-cjk 记录使用 ZFS 和 ZFSBootMenu，其余四条记录使用 ext4。只有在记录的修订版与安装程序匹配、安装退出码为 `0`、已安装系统成功引导，且引导后配置检查通过时，该次运行才算当前证据。
+
+2026 年 8 月 16 日的集群记录标有安装程序修订版 [`a8bf2f3837b6`](https://github.com/Zakkaus/gentoo-install/commit/a8bf2f3837b6)，在 amd64 Gentoo minimal ISO 上覆盖 `vm-luks`、`vm-mdraid`、`vm-xfs`、`vm-btrfs` 和 `vm-f2fs`，五者各自完成安装、引导并通过全部引导后配置检查。`vm-lvm` 在修订版 `073997aa74d2` 完成同一组检查。
+
+就地转换具备单元与计划层测试，尚无端到端记录。其操作顺序、各项拒绝条件与交换本身均有测试覆盖，但尚未有任何一次执行完成转换并引导验证结果。此路径应视为未验证。
 
 其他已实现组合仍未完成端到端验证。当前证据未覆盖 initramfs SSH 解锁、greetd 桌面会话或 GNOME 以外的 ibus。当前证据也未覆盖官方 Gentoo minimal ISO、Alpine 或 Gig-OS live 介质，以及 binhost 失败时的降级。
 

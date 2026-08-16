@@ -84,7 +84,8 @@ SECTIONS = {
 }
 
 FACT_UNITS = (
-    "identity", "capability-scope", "storage-device-graph", "zram-system", "boot-system",
+    "identity", "capability-scope", "storage-device-graph", "zram-system",
+    "in-place-conversion", "boot-system",
     "desktop-language", "portage", "proxy", "plan-records", "verification-history",
     "verification-current", "verification-network", "requirements-runtime",
     "requirements-version-sources", "requirements-network-filter", "requirements-bootstrap",
