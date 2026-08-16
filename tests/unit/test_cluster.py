@@ -458,11 +458,13 @@ def test_the_keeper_puts_the_address_back_and_counts_it() -> None:
     no network command in the installer's own run list."""
     import subprocess
 
-    command = cluster.keep_the_address("10.31.0.152")
-    assert subprocess.run(["bash", "-n", "-c", command], capture_output=True).returncode == 0
-    assert "10.31.0.152/24" in command
-    assert command.endswith("&"), "the keeper outlives the command that starts it"
-    assert cluster.KEEPER_LOG in command
+    written = cluster.keep_the_address("10.31.0.152")
+    for command in written:
+        assert subprocess.run(["bash", "-n", "-c", command], capture_output=True).returncode == 0
+        assert len(command) < cluster.CONSOLE_LINE_BYTES, command
+    assert any("10.31.0.152/24" in one for one in written)
+    assert written[-1].endswith("&"), "the keeper outlives the command that starts it"
+    assert any(cluster.KEEPER_LOG in one for one in written)
     assert cluster.KEEPER_LOG in cluster.REACHABILITY_PROBE
 
 
@@ -470,5 +472,5 @@ def test_the_keeper_starts_once_the_guest_has_its_address() -> None:
     link = _AnsweringLink(cluster.NETWORK_UP.encode())
     cluster.wait_for_network(cast(cluster.Reconnecting, link), vmid=9301)
     configured = link.ran.index(cluster.configure_statically(cluster.static_address(9301)))
-    kept = link.ran.index(cluster.keep_the_address(cluster.static_address(9301)))
+    kept = link.ran.index(cluster.keep_the_address(cluster.static_address(9301))[-1])
     assert configured < kept
