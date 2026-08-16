@@ -763,3 +763,25 @@ def test_a_failed_conversion_still_unmounts_the_staging_root() -> None:
     others = [one for one in closing if not isinstance(one, convert.LeaveStaging)]
     assert others, "the closing stage has more than the unmount"
     assert not any(one.releases_the_machine for one in others), others
+
+
+def test_a_conversion_refuses_a_replaced_directory_that_is_its_own_mount() -> None:
+    """A Fedora 41 cloud image mounts `/var` and `/home` as their own btrfs
+    subvolumes. `exec/convert.py` refuses that at the rename, which arrived at
+    operation 44 of 46 with the whole system already emerged and the staging
+    root left behind; the mount table says it before anything is written.
+    """
+    fedora = replace(_layout(), separate_mounts=("/boot", "/home", "/proc", "/var"))
+    with pytest.raises(ConversionUnsupported, match=r"/var is a separate mount"):
+        convert.layout_graph(fedora)
+
+    # Negative control one: a mount that is not replaced is not a reason to
+    # refuse, or every machine with a separate /home would be turned away.
+    ordinary = replace(fedora, separate_mounts=("/boot", "/home", "/proc"))
+    assert convert.layout_graph(ordinary).mode is DiskMode.IN_PLACE
+
+    # Negative control two: the message names every one of them, because an
+    # operator who moves /var only to be refused for /usr has learned nothing.
+    both = replace(fedora, separate_mounts=("/usr", "/var"))
+    with pytest.raises(ConversionUnsupported, match=r"/usr, /var are a separate mount"):
+        convert.layout_graph(both)
