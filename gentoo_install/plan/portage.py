@@ -968,11 +968,10 @@ class VerifyPackages(Operation):
 
     def apply(self, context: Context) -> None:
         atoms = tuple(request.atom for request in self.requests)
-        output = context.run_in_target(
-            ["emerge", "--pretend", "--quiet", "--", *atoms], check=False
-        )
-        if not isinstance(output, CommandOutput):
-            raise ConfigError("emerge --pretend returned no exit status")
+        output = self._resolve(context, atoms, source_only=context.degraded(BINARY_PACKAGES))
+        if output.returncode == 0:
+            return
+        output = self._without_the_binary_host(context, atoms, output)
         if output.returncode == 0:
             return
 
@@ -1023,6 +1022,55 @@ class VerifyPackages(Operation):
         raise ConfigError(
             f"emerge --pretend rejected packages requested by {', '.join(requesters)}: {detail}"
         )
+
+    def _resolve(
+        self, context: Context, atoms: tuple[str, ...], *, source_only: bool
+    ) -> CommandOutput:
+        without = ("--usepkg=n", "--getbinpkg=n") if source_only else ()
+        output = context.run_in_target(
+            ["emerge", "--pretend", "--quiet", *without, "--", *atoms], check=False
+        )
+        if not isinstance(output, CommandOutput):
+            raise ConfigError("emerge --pretend returned no exit status")
+        return output
+
+    def _without_the_binary_host(
+        self, context: Context, atoms: tuple[str, ...], failed: CommandOutput
+    ) -> CommandOutput:
+        """Resolve again with binaries off when the host's index was the only
+        thing that could not be read.
+
+        `--pretend` fails on an unreadable index, so `vm-gnome` stopped six
+        minutes in with every requested package present and visible. Source is
+        the guaranteed path, so an index that cannot be read degrades to it
+        rather than ending the install.
+        """
+        unreadable = _binhost_unreadable(str(failed))
+        if unreadable is None or context.degraded(BINARY_PACKAGES):
+            return failed
+        # The same retry `Emerge` makes before giving up on binaries: one
+        # dropped connection would otherwise compile the whole install.
+        again = self._resolve(context, atoms, source_only=False)
+        if again.returncode == 0 or _binhost_unreadable(str(again)) is None:
+            return again
+        context.degrade(BINARY_PACKAGES, f"binary host index unreadable: {unreadable}")
+        return self._resolve(context, atoms, source_only=True)
+
+
+#: What Portage prints when it cannot read a binary host's index, taken from
+#: what stopped `vm-gnome`: `!!! [gentoo] Error fetching binhost package info
+#: from 'https://mirrors.nju.edu.cn/gentoo/releases/amd64/binpackages/23.0/
+#: x86-64'`, followed by `!!! [gentoo] <urlopen error timed out>`.
+BINHOST_INDEX_FAILURE: Final[str] = "Error fetching binhost package info"
+
+
+def _binhost_unreadable(output: str) -> str | None:
+    """The line proving the failure was the binary host and not a package."""
+    for raw in output.splitlines():
+        line = raw.strip()
+        if BINHOST_INDEX_FAILURE in line:
+            return line.removeprefix("!!! ")
+    return None
 
 
 def _requesters_ask(request: PackageRequest) -> str:
