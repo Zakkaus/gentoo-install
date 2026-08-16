@@ -273,6 +273,18 @@ def gentoozh_binhost(
     return f"{gentoozh(chosen).distfiles}/{where}/{subarch}"
 
 
+def overlay_sync_uris(name: str, chosen: GentooZhMirror) -> tuple[str, ...]:
+    """Every site carrying that overlay, the chosen one first.
+
+    Only gentoo-zh has a mirror set. `gig` is published from one host, so an
+    install that cannot reach it has nowhere else to look and stops there.
+    """
+    if name != "gentoo-zh":
+        return ()
+    ordered = sorted(GENTOOZH_SITES, key=lambda site: site.key != chosen.value)
+    return tuple(site.git for site in ordered if site.git)
+
+
 def gentoozh_distfiles(chosen: GentooZhMirror) -> tuple[str, ...]:
     """Every site, the chosen one first, the same as `gentoo_distfiles`: a
     mirror behind on one file still has the rest. Portage appends `distfiles/`,

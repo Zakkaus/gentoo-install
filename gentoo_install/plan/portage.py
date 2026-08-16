@@ -577,6 +577,31 @@ class SourcePolicy:
         return self.subset
 
 
+#: What a sync failure says when the site was never reached, so retrying the
+#: same one is pointless and another site is worth trying. Taken from what git
+#: printed on a cluster guest that could not reach the overlay mirror: `fatal:
+#: unable to access 'https://mirror.nju.edu.cn/git/gentoo-zh.git/': Failed to
+#: connect to mirror.nju.edu.cn:443 after 2052 ms: Could not connect to
+#: server`. Every marker names the transport; none of them names content, so a
+#: mirror mid-update never matches.
+UNREACHABLE_MARKERS: Final[tuple[str, ...]] = (
+    "unable to access",
+    "could not connect to server",
+    "failed to connect",
+    "could not resolve host",
+    "name or service not known",
+    "connection refused",
+    "connection timed out",
+    "network is unreachable",
+)
+
+
+def site_unreachable(message: str) -> bool:
+    """Whether a sync failure was the site rather than what it served."""
+    lowered = message.lower()
+    return any(marker in lowered for marker in UNREACHABLE_MARKERS)
+
+
 @dataclass(frozen=True, kw_only=True)
 class SyncRepository(Operation):
     """A directory holding a copy that git did not create makes `emerge --sync`
@@ -585,9 +610,16 @@ class SyncRepository(Operation):
     stage: Stage = Stage.PORTAGE
     name: str
     location: PurePosixPath
+    #: Other sites carrying the same repository, tried in order when the
+    #: configured one cannot be reached. Each one is a whole stanza rather than
+    #: a bare address, so `ConfigureRepository` stays the only writer of that
+    #: file.
+    alternates: tuple[ConfigureRepository, ...] = ()
 
     def describe(self) -> str:
-        return f"sync repository {self.name}"
+        if not self.alternates:
+            return f"sync repository {self.name}"
+        return f"sync repository {self.name}, {len(self.alternates)} other sites to fall back on"
 
     def apply(self, context: Context) -> None:
         context.run_in_target(["rm", "--recursive", "--force", str(self.location)])
@@ -595,7 +627,35 @@ class SyncRepository(Operation):
         context.run_in_target(["chown", "--recursive", "portage:portage", str(self.location)])
 
     def _sync(self, context: Context) -> None:
-        """`emerge --sync`, retried on a mirror that is mid-update.
+        """The configured site, then each alternate that a reachability failure
+        makes worth trying.
+
+        A site that was not reached will not be reached by waiting, and a
+        cluster guest spent fifteen minutes on three attempts at one host
+        before the install stopped. A mirror that answers and serves an
+        incomplete snapshot is the opposite case and is retried where it is.
+        """
+        try:
+            self._attempt(context)
+            return
+        except CommandFailed as failed:
+            last = failed
+        for alternate in self.alternates:
+            if not site_unreachable(str(last)):
+                raise last
+            alternate.apply(context)
+            # git refuses to clone into a directory it did not create, and the
+            # failed attempt may have left one.
+            context.run_in_target(["rm", "--recursive", "--force", str(self.location)])
+            try:
+                self._attempt(context)
+                return
+            except CommandFailed as failed:
+                last = failed
+        raise last
+
+    def _attempt(self, context: Context) -> None:
+        """One site's `emerge --sync`, retried while it is mid-update.
 
         Three of eight guests stopped in the same minute with `Manifest
         mismatch for gui-apps/Manifest.gz __size__: expected: 5745, have:
@@ -615,6 +675,8 @@ class SyncRepository(Operation):
                 return
             except CommandFailed as failed:
                 last = failed
+                if site_unreachable(str(failed)):
+                    raise
                 if attempt + 1 < SYNC_TRIES:
                     context.run(["sleep", f"{SYNC_PAUSE * (attempt + 1):g}"])
         assert last is not None
@@ -1132,7 +1194,22 @@ def build(
                 sync_uri=overlay.sync_uri,
                 verify_commits=False,
             ),
-            SyncRepository(name=overlay.name, location=location),
+            SyncRepository(
+                name=overlay.name,
+                location=location,
+                alternates=tuple(
+                    ConfigureRepository(
+                        name=overlay.name,
+                        location=location,
+                        sync_uri=uri,
+                        verify_commits=False,
+                    )
+                    for uri in mirrors.overlay_sync_uris(
+                        overlay.name, portage.mirrors.gentoo_zh
+                    )
+                    if uri != overlay.sync_uri
+                ),
+            ),
             AcceptOverlayKeywords(repository=overlay.name),
         ]
     if portage.testing_packages:

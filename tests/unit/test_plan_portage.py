@@ -7,7 +7,7 @@ import pytest
 
 from dataclasses import fields, replace
 from pathlib import PurePosixPath
-from typing import Any, Sequence
+from typing import Any, Final, Sequence
 
 from gentoo_install.model.config import (
     Binhost,
@@ -1200,6 +1200,129 @@ def test_a_mirror_rewriting_its_manifests_is_retried_rather_than_fatal(
     stubborn.refusals = plan_portage.SYNC_TRIES
     with pytest.raises(CommandFailed):
         operation.apply(stubborn)
+
+
+#: What a cluster guest's git printed on 2026-08-16 when the overlay mirror was
+#: not reachable, and what portage printed when a mirror was mid-update. The
+#: two are told apart by their text, so both are held here verbatim.
+_UNREACHABLE_SAYS: Final[str] = (
+    "chroot /mnt/gentoo env RSYNC_TIMEOUT=900 emerge --sync gentoo-zh exited 1: "
+    "fatal: unable to access 'https://mirror.nju.edu.cn/git/gentoo-zh.git/': "
+    "Failed to connect to mirror.nju.edu.cn:443 after 2052 ms: "
+    "Could not connect to server | !!! git clone error in /var/db/repos/gentoo-zh"
+)
+_MID_UPDATE_SAYS: Final[str] = (
+    "emerge --sync gentoo exited 1: Manifest mismatch for gui-apps/Manifest.gz "
+    "__size__: expected: 5745, have: 5746"
+)
+
+
+def test_a_site_that_cannot_be_reached_is_told_apart_from_one_mid_update() -> None:
+    from gentoo_install.plan import portage as plan_portage
+
+    assert plan_portage.site_unreachable(_UNREACHABLE_SAYS)
+    # The negative control the whole fallback rests on: a mirror that answered
+    # and served an incomplete snapshot must be retried where it is, because
+    # every other mirror is equally likely to be mid-update.
+    assert not plan_portage.site_unreachable(_MID_UPDATE_SAYS)
+
+
+def test_an_unreachable_overlay_site_moves_to_the_next_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`btrfs-luks` and `vm-zfs-mirror` both stopped fifteen minutes into an
+    install because the one overlay mirror they were pointed at refused the
+    connection, while four other sites carry the same repository."""
+    from typing import Sequence
+
+    from gentoo_install.errors import CommandFailed
+    from gentoo_install.plan import portage as plan_portage
+
+    from .recorder import Recorder
+
+    class Unreachable(Recorder):
+        """Refuses every sync until the repository points at `reachable`."""
+
+        reachable: str = "https://mirrors.ha.edu.cn/gentoo-zh.git"
+        pointed: str = "https://mirror.nju.edu.cn/git/gentoo-zh.git"
+        attempts: int = 0
+
+        def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
+            if "--sync" in argv:
+                self.attempts += 1
+                if self.pointed != self.reachable:
+                    raise CommandFailed(_UNREACHABLE_SAYS)
+            return super().run_in_target(argv, check=check)
+
+        def write(self, path: PurePosixPath, content: str, *, mode: int = 0o644) -> None:
+            for line in content.splitlines():
+                if line.startswith("sync-uri = "):
+                    self.pointed = line.removeprefix("sync-uri = ")
+            super().write(path, content, mode=mode)
+
+    location = PurePosixPath("/var/db/repos/gentoo-zh")
+    alternates = tuple(
+        plan_portage.ConfigureRepository(
+            name="gentoo-zh", location=location, sync_uri=uri, verify_commits=False
+        )
+        for uri in (
+            "https://mirrors.cernet.edu.cn/gentoo-zh.git",
+            "https://mirrors.ha.edu.cn/gentoo-zh.git",
+        )
+    )
+    operation = plan_portage.SyncRepository(
+        name="gentoo-zh", location=location, alternates=alternates
+    )
+    monkeypatch.setattr(plan_portage, "SYNC_PAUSE", 0.0)
+
+    recorder = Unreachable()
+    operation.apply(recorder)
+    assert recorder.pointed == recorder.reachable
+    # One attempt per site and no more: a host that refused the connection is
+    # not waited on, so the three sites cost three attempts rather than nine.
+    assert recorder.attempts == 3, recorder.attempts
+    assert recorder.argv_starting("sleep") == ()
+
+    # The directory is cleared before each retry, or git refuses to clone into
+    # what the failed attempt left behind.
+    cleared = [one for one in recorder.in_target if one[0] == "rm"]
+    assert len(cleared) == 3, cleared
+
+    # Negative control: with no alternates the same failure stops the install.
+    alone = plan_portage.SyncRepository(name="gentoo-zh", location=location)
+    with pytest.raises(CommandFailed):
+        alone.apply(Unreachable())
+
+    # Negative control: a mid-update mirror is retried where it is and never
+    # spends an alternate, however many alternates it has.
+    class MidUpdate(Recorder):
+        attempts: int = 0
+        pointed_at: list[str] = []
+
+        def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
+            if "--sync" in argv:
+                self.attempts += 1
+                raise CommandFailed(_MID_UPDATE_SAYS)
+            return super().run_in_target(argv, check=check)
+
+    stubborn = MidUpdate()
+    with pytest.raises(CommandFailed):
+        operation.apply(stubborn)
+    assert stubborn.attempts == plan_portage.SYNC_TRIES, stubborn.attempts
+
+
+def test_the_overlay_fallback_names_sites_the_mirror_table_carries() -> None:
+    """The alternates are the other sites in the one table, never the chosen
+    one again, and `gig` has none because it is published from one host."""
+    from gentoo_install.model import mirrors
+    from gentoo_install.model.config import GentooZhMirror
+
+    for chosen in GentooZhMirror:
+        uris = mirrors.overlay_sync_uris("gentoo-zh", chosen)
+        assert len(uris) == len(set(uris)), uris
+        assert uris[0] == mirrors.gentoozh(chosen).git
+        assert set(uris) == {site.git for site in mirrors.GENTOOZH_SITES if site.git}
+        assert mirrors.overlay_sync_uris("gig", chosen) == ()
 def test_the_stage3_matches_the_profile_and_not_only_the_init_system() -> None:
     """`eselect profile set` is all the installer runs, and a profile switch
     removes nothing: a no-multilib profile on a multilib stage3 keeps every
