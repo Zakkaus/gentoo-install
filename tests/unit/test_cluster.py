@@ -760,3 +760,50 @@ def test_a_node_that_refuses_a_guest_does_not_end_the_campaign() -> None:
     assert "waiting.insert(index, job)" in after
     assert "continue" in after
     assert ProxmoxTransientError.__name__ in code
+
+
+def test_the_resolvers_are_written_again_once_the_client_is_dead() -> None:
+    """dhcpcd is left running through the probe, and a lease taken in that
+    window rewrote the file: `vm-zfs-mirror` reached the installer with two
+    addresses, two default routes and `nameserver 10.31.0.252`."""
+    link = _AnsweringLink(cluster.NETWORK_UP.encode())
+    cluster.wait_for_network(cast(cluster.Reconnecting, link), vmid=9301)
+    written = [i for i, one in enumerate(link.ran) if one == cluster.use_our_resolvers()]
+    killed = link.ran.index(cluster.configure_statically(cluster.static_address(9301)))
+    assert len(written) == 2, link.ran
+    assert written[0] < killed < written[1]
+
+
+def test_a_round_can_be_pointed_at_one_address(tmp_path: Path) -> None:
+    """A cache on the guests' own segment is an address with no name to
+    resolve, which is the class of failure the first thirty rounds died of."""
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.config import MirrorRegion, Sync
+    from gentoo_install.plan.build import stage3_mirror
+
+    jobs = cluster.fixtures(["vm-xfs"])
+    written = cluster.rewrite_fixtures(
+        jobs,
+        tmp_path / "fixtures",
+        MirrorRegion.CN,
+        Sync.WEBRSYNC,
+        "",
+        "nju",
+        None,
+        "http://10.31.0.2/gentoo",
+    )
+    rewritten = load(written / "vm-xfs.toml")
+    assert rewritten.portage.mirrors.distfiles == ("http://10.31.0.2/gentoo",)
+    # The stage3 has to follow it, or the run downloads the slow half anyway.
+    assert stage3_mirror(rewritten) == "http://10.31.0.2/gentoo"
+
+
+def test_a_round_without_that_address_keeps_the_table(tmp_path: Path) -> None:
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.config import MirrorRegion, Sync
+
+    jobs = cluster.fixtures(["vm-xfs"])
+    written = cluster.rewrite_fixtures(
+        jobs, tmp_path / "plain", MirrorRegion.CN, Sync.GIT, "", "nju"
+    )
+    assert load(written / "vm-xfs.toml").portage.mirrors.distfiles == ()
