@@ -565,3 +565,7 @@
 "Running system: " = "実行中のシステム: "
 "Conversion is not offered: " = "変換は提供しません: "
 "the conversion takes the layout from the running system" = "変換はレイアウトを実行中のシステムから取得します"
+"This replaces the running system and cannot be undone." = "実行中のシステムを置き換えます。元には戻せません。"
+"Replaced: " = "置き換える対象: "
+"Kept: /home, /root and every other mount." = "残す対象: /home、/root、およびその他のマウント。"
+"Type the word to confirm." = "この語を入力して確認してください。"

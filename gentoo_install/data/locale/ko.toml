@@ -565,3 +565,7 @@
 "Running system: " = "실행 중인 시스템: "
 "Conversion is not offered: " = "변환을 제공하지 않습니다: "
 "the conversion takes the layout from the running system" = "변환은 레이아웃을 실행 중인 시스템에서 가져옵니다"
+"This replaces the running system and cannot be undone." = "실행 중인 시스템을 교체하며 되돌릴 수 없습니다."
+"Replaced: " = "교체 대상: "
+"Kept: /home, /root and every other mount." = "유지 대상: /home, /root 및 그 밖의 모든 마운트."
+"Type the word to confirm." = "이 단어를 입력하여 확인하십시오."

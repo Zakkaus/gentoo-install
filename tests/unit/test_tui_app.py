@@ -1432,13 +1432,16 @@ def test_what_still_asks_before_it_changes() -> None:
         "Encrypt this array?",
         "Use DHCP?",
         "Unlock the root over SSH from the initramfs?",
+        "This replaces the running system and cannot be undone.",
         "Install",
     }
     for title in asked:
         assert title in source, title
-    # Five call sites, eight titles: one encryption editor serves three titles,
-    # and the slice screen words its title for a pool or for a partition.
-    assert source.count("Confirm(") == 5
+    # Six call sites, nine titles: one encryption editor serves three titles,
+    # and the slice screen words its title for a pool or for a partition. The
+    # sixth is the in-place swap, which takes a typed word for the same reason
+    # the erase screen does — it cannot be undone.
+    assert source.count("Confirm(") == 6
     # `settle` asks the same kind of question with three answers rather than
     # two, because the third opens the row the values land on.
     assert "This choice also sets" in source
@@ -3145,6 +3148,7 @@ def test_choosing_the_conversion_drops_the_device_graph() -> None:
     cannot run."""
     from gentoo_install.model.config import DiskMode
     from gentoo_install.model.validate import validate
+    from gentoo_install.plan import convert
 
     offering = app.MainMenuContext(screens.Context(
         translate=Catalog("en"),
@@ -3157,12 +3161,24 @@ def test_choosing_the_conversion_drops_the_device_graph() -> None:
     built = config()
     assert built.disk.graph.nodes, "the fixture starts with a layout"
 
-    screen = FakeScreen(keys=["KEY_DOWN", "\n"], lines=24, columns=110)
+    # Down to the conversion, enter, then the word it asks to be typed: a
+    # highlight and enter is not enough for something with no way back.
+    screen = FakeScreen(
+        keys=["KEY_DOWN", "\n", *convert.SWAP_CONFIRMATION, "\n"], lines=24, columns=110
+    )
     answer = screens.install_mode_screen(screen, built, offering)
     converted = answer.unwrap()
     assert converted.disk.mode is DiskMode.IN_PLACE
     assert not converted.disk.graph.nodes, converted.disk.graph.nodes
     validate(converted)
+
+    # The word is required, not decorative: a wrong one leaves the mode alone
+    # and the layout with it. Without this the screen could stop asking and
+    # every assertion above would still pass.
+    refused = FakeScreen(keys=["KEY_DOWN", "\n", *"nope", "\n"], lines=24, columns=110)
+    answer = screens.install_mode_screen(refused, built, offering)
+    assert not answer.chosen, answer.outcome
+    assert built.disk.mode is DiskMode.PARTITION
 
     # Negative control: staying on the disks keeps the layout untouched.
     staying = FakeScreen(keys=["\n"], lines=24, columns=110)
