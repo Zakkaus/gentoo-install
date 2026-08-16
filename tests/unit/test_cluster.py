@@ -917,17 +917,6 @@ def test_a_round_without_that_address_keeps_the_table(tmp_path: Path) -> None:
     assert load(written / "vm-xfs.toml").portage.mirrors.distfiles == ()
 
 
-def test_a_named_node_takes_no_guests_at_all() -> None:
-    """`infra-node3` cost four rounds on 2026-08-16 and the automatic
-    detection has to lose a guest to each bad node before it acts."""
-    import inspect
-
-    code = inspect.getsource(cluster.run)
-    seeded = code.index("unreachable: set[str] = set(skip_nodes)")
-    used = code.index("node.name not in unreachable")
-    assert seeded < used, "the seed has to be in place before the first dispatch"
-
-
 def test_the_flag_reaches_the_run() -> None:
     import inspect
 
@@ -958,3 +947,46 @@ def test_the_fallback_is_used_only_after_a_reconnect() -> None:
     guarded = code.index("if after_reconnect:")
     used = code.index("_ANY_ROOT_PROMPT")
     assert guarded < used
+
+
+def test_a_node_known_to_drop_its_console_takes_no_guests() -> None:
+    """66 of the 70 console-proxy drops recorded under `lab/` name one node,
+    and each one throws away up to an hour of install. The comment claimed the
+    list was seeded; the code only ever held what `--skip-node` passed, so
+    every round paid to learn it again."""
+    import inspect
+
+    assert cluster.KNOWN_BAD_NODES, "an empty seed is the defect this replaced"
+
+    code = inspect.getsource(cluster.run)
+    seeded = code.index("KNOWN_BAD_NODES")
+    filtered = code.index("if node.name not in unreachable")
+    assert seeded < filtered, "the seed has to be in place before the first placement"
+
+    # The seed is a default and not a rule: a node named to `--allow-node`
+    # comes back, or a node repaired between rounds could never be used again.
+    lines = [one.strip() for one in code.splitlines() if "unreachable: set[str]" in one]
+    assert len(lines) == 1, lines
+    assert "allow_nodes" in lines[0], lines[0]
+    assert "skip_nodes" in lines[0], lines[0]
+
+    # And the flag reaches it: an option nothing reads is worse than none.
+    entry = inspect.getsource(cluster.main)
+    assert "--allow-node" in entry
+    assert "args.allow_node," in entry
+
+
+def test_the_seed_and_the_flags_compose_the_way_the_call_site_reads() -> None:
+    """The one line asserted above, evaluated: the seed applies, `--skip-node`
+    adds, and `--allow-node` wins over both."""
+    seed = set(cluster.KNOWN_BAD_NODES)
+    node = sorted(seed)[0]
+
+    def unreachable(skip: tuple[str, ...], allow: tuple[str, ...]) -> set[str]:
+        return (set(cluster.KNOWN_BAD_NODES) | set(skip)) - set(allow)
+
+    assert unreachable((), ()) == seed
+    assert unreachable(("infra-node9",), ()) == seed | {"infra-node9"}
+    assert node not in unreachable((), (node,))
+    # Negative control: allowing an unrelated node does not clear the seed.
+    assert node in unreachable((), ("infra-node9",))
