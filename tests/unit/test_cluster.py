@@ -808,3 +808,22 @@ def test_a_round_without_that_address_keeps_the_table(tmp_path: Path) -> None:
         jobs, tmp_path / "plain", MirrorRegion.CN, Sync.GIT, "", "nju"
     )
     assert load(written / "vm-xfs.toml").portage.mirrors.distfiles == ()
+
+
+def test_a_named_node_takes_no_guests_at_all() -> None:
+    """`infra-node3` cost four rounds on 2026-08-16 and the automatic
+    detection has to lose a guest to each bad node before it acts."""
+    import inspect
+
+    code = inspect.getsource(cluster.run)
+    seeded = code.index("unreachable: set[str] = set(skip_nodes)")
+    used = code.index("node.name not in unreachable")
+    assert seeded < used, "the seed has to be in place before the first dispatch"
+
+
+def test_the_flag_reaches_the_run() -> None:
+    import inspect
+
+    code = inspect.getsource(cluster.main)
+    assert '"--skip-node"' in code
+    assert "args.skip_node" in code
