@@ -70,7 +70,9 @@ gentoo-install 在 Linux live 环境中运行，用于安装 amd64 架构的 Gen
 
 就地转换已有两条端到端记录，均来自单机 QEMU 而非集群。修订版 [`bcc090fab621`](https://github.com/Zakkaus/gentoo-install/commit/bcc090fab621) 是一份根为分区上 ext4 的 Debian 12 genericcloud 映像，修订版 [`71e751cf14a1`](https://github.com/Zakkaus/gentoo-install/commit/71e751cf14a1) 是一份根为 btrfs 的 Arch Linux 云映像，后者的 `/swap/swapfile` 一行被带入新的 fstab。两者的 `uname -r` 都报告 `6.18.43-gentoo-dist-bin`，都有 `emerge` 而原发行版的包管理器均已不存在，根设备未变，执行记录都保存于 `/var/log/gentoo-install`。两条记录都是 BIOS。UEFI、位于 btrfs 子卷上的根，以及 `vm-convert` 集群 fixture 仍未验证。
 
-其他已实现组合仍未完成端到端验证。当前证据未覆盖 greetd 桌面会话或 GNOME 以外的 ibus。当前证据也未覆盖官方 Gentoo minimal ISO 或 Gig-OS live 介质，以及 binhost 失败时的降级。Alpine live 介质已有证据：修订版 [`0827931289d0`](https://github.com/Zakkaus/gentoo-install/commit/0827931289d0) 上，`alpine-standard-3.24.1` 在 59 秒内于串口控制台进入 root shell，安装器写入 56 个操作、57 个软件包取自二进制主机、12 个编译，装出的系统引导、挂载其布局且无失败单元。
+其他已实现组合仍未完成端到端验证。当前证据未覆盖 greetd 桌面会话或 GNOME 以外的 ibus。当前证据也未覆盖官方 Gentoo minimal ISO 或 Gig-OS live 介质，以及 binhost 失败时的降级。
+
+Alpine live 介质在两种固件上都有证据。修订版 [`0827931289d0`](https://github.com/Zakkaus/gentoo-install/commit/0827931289d0) 装出一台 UEFI 的 systemd 机器，56 个操作、57 个二进制软件包、12 个编译。修订版 [`bc8ab3a0edcf`](https://github.com/Zakkaus/gentoo-install/commit/bc8ab3a0edcf) 装出一台根为 ext4 的 BIOS OpenRC 机器，51 个操作、29 个二进制软件包、51 个编译。两次都在 59 秒内进入串口控制台的 root shell。装出的系统都引导、挂载其布局且无失败单元。
 
 代理路径已有聚焦单元测试和 plan 测试，覆盖 SOCKS5 DNS 模式、dry-run 输出与发布配置中的认证信息移除，以及已安装系统保留不含认证信息的端点。带版本标记的集群执行已覆盖反向：`vm-proxy-dead` fixture 把代理指向没有进程监听的端口，安装在 stage3 下载阶段以 `Connection refused` 停止，因此执行到达镜像就表示代理被绕过。
 
