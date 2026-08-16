@@ -1235,3 +1235,23 @@ def test_the_conversion_offer_names_the_command_the_reading_needs(
     absent.clear()
     with pytest.raises(AssertionError, match="must not be read"):
         cli._conversion_offer(cast(RealProbe, Probe()))
+
+
+def test_an_unattended_conversion_still_records_that_ssh_stops() -> None:
+    """Measured on Debian 12 and Arch: once `/usr` and `/etc` belong to the new
+    system, a new ssh login stops working until the machine reboots, while the
+    session that started the run keeps its own mapped binaries. An unattended
+    run is not asked anything, so the warning has to be recorded before that
+    return or the one run nobody is watching never carries it.
+    """
+    said: list[str] = []
+    unattended = argparse.Namespace(no_shell=True)
+
+    assert cli._confirmed_swap(unattended, said.append)
+    assert any(cli.SESSION_IS_THE_LIFELINE in line for line in said), said
+    assert any("in-place conversion replaces" in line for line in said), said
+
+    # Negative control: the sentence has to name ssh and the reboot, or it
+    # tells the operator nothing they can act on.
+    assert "ssh" in cli.SESSION_IS_THE_LIFELINE
+    assert "reboot" in cli.SESSION_IS_THE_LIFELINE

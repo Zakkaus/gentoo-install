@@ -56,6 +56,13 @@ from .plan.render import render, summarise
 #: and no answer at all, takes the global list.
 CN: Final[str] = "CN"
 
+#: What an operator has to know before a conversion starts, because after it
+#: there is no way to tell them.
+SESSION_IS_THE_LIFELINE: Final[str] = (
+    "Keep this session open: once the directories are replaced, a new ssh "
+    "login will not work until the machine reboots."
+)
+
 #: Everything a run needs to keep: the device map, the staged keys, the log.
 WORK = Path("/run/gentoo-install")
 
@@ -401,10 +408,16 @@ def _confirmed_swap(
     """
     replaced = ", ".join("/" + name for name in convert.REPLACED_DIRECTORIES)
     record(f"in-place conversion replaces {replaced} and leaves everything else")
+    # Recorded before the unattended return, because an unattended run is the
+    # one nobody is watching: measured on Debian 12 and Arch, a new ssh login
+    # stops working once `/usr` and `/etc` belong to the new system, while the
+    # session that started the run keeps its own mapped binaries.
+    record(SESSION_IS_THE_LIFELINE)
     if _unattended(arguments):
         return True
     print(f"This replaces {replaced} on the running system.")
     print("Everything else, including /home and /root, is left alone.")
+    print(SESSION_IS_THE_LIFELINE)
     print(f"Type {SWAP_CONFIRMATION} to continue, anything else to stop.")
     answer = input("> ").strip()
     if answer == SWAP_CONFIRMATION:
