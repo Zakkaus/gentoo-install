@@ -430,14 +430,27 @@ class Watchdog:
     _counter_after: int = field(default=0, init=False)
     #: Consecutive samples the hypervisor would not answer.
     _blind: int = field(default=0, init=False)
+    #: Whether the last sample saw nothing new in the log.
+    _silent: bool = field(default=False, init=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def moved(self) -> bool:
         with self._lock:
             size = self.log.stat().st_size if self.log.exists() else 0
             talking = size > self._seen
+            self._silent = not talking
             self._seen = max(self._seen, size)
             return self._observe(talking)
+
+    @property
+    def silent(self) -> bool:
+        """Whether the last sample saw nothing new in the log.
+
+        Separate from `moved`, which is also true for a guest whose console has
+        gone while its disk is still busy: that is the one shape where the log
+        has to be read for the node's own words.
+        """
+        return self._silent
 
     def _observe(self, talking: bool) -> bool:
         traffic = self.counters()
@@ -2596,15 +2609,15 @@ def _sweep(inflight: Mapping[str, Running]) -> None:
     log, so the next question is what was on the screen.
     """
     for name, held in list(inflight.items()):
-        if held.watch.moved():
+        working = held.watch.moved()
+        # Asked whenever the log stopped growing, not only when the guest also
+        # looks idle: a node whose proxy is refusing leaves the socket open and
+        # silent while the disk stays busy, so `moved` is true and this is the
+        # only shape that names it. Read from the log's tail, which a console
+        # that recovered scrolls past on its own.
+        dropped = console_proxy_dropped(held.watch.log) if held.watch.silent else ""
+        if working and not dropped:
             continue
-        # A node whose proxy is refusing leaves the socket open and silent, so
-        # nothing raises and the guest's own counters still say it is working:
-        # `vm-zfs` sat that way for thirty-five minutes with its install
-        # running. The tail of its log is the only thing that names it, and it
-        # is only read once the log has stopped growing, so a console that
-        # recovered is not ended for a message that scrolled past.
-        dropped = console_proxy_dropped(held.watch.log)
         if not held.watch.stuck and not dropped:
             print(
                 f"… {name} quiet for {held.watch.strikes * WATCH_EVERY / 60:.0f}m",
