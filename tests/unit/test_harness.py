@@ -2514,3 +2514,32 @@ def test_the_local_runner_pins_no_interface_name_either() -> None:
             one for one in unlock_parameters(prepared) if one.startswith("ip=")
         )
         assert "eth0" not in address, address
+
+
+def test_create_target_refuses_a_path_outside_the_run_directories(tmp_path: Path) -> None:
+    """Its first act is to delete the file it is given. The images an in-place
+    conversion will be handed are downloaded once and kept — `lab/vm/cloud/`
+    holds three — so a path outside `WORKROOT` is a mistake, and one caught
+    after the unlink is caught too late."""
+    import pytest
+
+    from tests.vm.run import WORKROOT, create_target
+
+    keep = tmp_path / "debian-12-genericcloud-amd64.qcow2"
+    keep.write_bytes(b"not really an image, but it stands for one")
+
+    with pytest.raises(ValueError, match="deletes what it is given"):
+        create_target(keep)
+    assert keep.exists(), "the refusal has to come before the unlink"
+    assert keep.read_bytes().startswith(b"not really"), "and leave it untouched"
+
+    # Negative control: a path inside a run directory is the ordinary case and
+    # still works, or the guard would have stopped every run.
+    inside = WORKROOT / "unit-test-create-target" / "target.qcow2"
+    inside.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        made = create_target(inside)
+        assert made.exists() and made.stat().st_size > 0
+    finally:
+        inside.unlink(missing_ok=True)
+        inside.parent.rmdir()
