@@ -3100,23 +3100,39 @@ def test_an_error_carried_in_a_two_hundred_is_not_thrown_away() -> None:
     assert api.call("PUT", "/nodes/n/qemu/9300/config", description="x") is None
 
 
-def test_the_blind_edit_presses_before_the_menu_boots_itself() -> None:
-    """The medium's `grub.cfg` sets `timeout=10` and the delay before the first
-    key was twelve seconds, so the entry had already booted: every key went to
-    a kernel that was never told to use the serial port, and `vm-bios`,
-    `vm-bios-luks` and `ext4-bios` ended every round at `the kernel never spoke
-    after editing GRUB blind`."""
+def test_the_blind_edit_leaves_no_gap_in_when_the_menu_could_appear() -> None:
+    """A sample at `d` lands only when the menu appeared at some `t` with
+    `d - BIOS_MENU_TIMEOUT < t <= d`, so the samples cover a union of windows
+    and a gap between two of them is a menu time no attempt can catch.
+
+    The samples used to be capped below `BIOS_MENU_TIMEOUT`, which covered a
+    menu up within ten seconds and nothing after: no run has ever printed the
+    line `append_to_cmdline_blind` prints when an edit lands, and every BIOS
+    fixture ended every round at `the kernel never spoke`.
+    """
     from tests.vm.proxmox import BIOS_ATTEMPTS, BIOS_MENU_TIMEOUT
 
-    for delay, _ in BIOS_ATTEMPTS:
-        assert delay < BIOS_MENU_TIMEOUT, (delay, BIOS_MENU_TIMEOUT)
-    # Not every sample early: SeaBIOS and the medium's own search take a few
-    # seconds before the menu is drawn, and a node at full load takes longer.
-    # One sample under four seconds is deliberate; all of them would be blind
-    # in the other direction.
-    assert max(delay for delay, _ in BIOS_ATTEMPTS) >= 6.0
-    assert len({delay for delay, _ in BIOS_ATTEMPTS}) > 1, "one delay is one guess"
+    delays = sorted({delay for delay, _ in BIOS_ATTEMPTS})
+    # The earliest sample covers a menu that is up at once.
+    assert delays[0] <= BIOS_MENU_TIMEOUT, delays
+    # No gap: consecutive samples closer together than the countdown.
+    for earlier, later in zip(delays, delays[1:]):
+        assert later - earlier < BIOS_MENU_TIMEOUT, (earlier, later)
+    # And the cover reaches past a loaded node's menu. `vm-mdraid` needed more
+    # than thirty seconds to open a readable UEFI editor on such a node, so
+    # stopping at nine is what made every BIOS fixture unreachable.
+    assert delays[-1] >= 15.0, delays
     assert len({down for _, down in BIOS_ATTEMPTS}) > 1, "one line is one guess"
+
+    # Bounded: each attempt costs its delay, the keystrokes and a wait for the
+    # kernel, and a schedule cannot give one guest the whole round.
+    import inspect
+
+    from tests.vm import proxmox
+
+    patience = inspect.signature(proxmox.append_to_cmdline_blind).parameters["patience"]
+    worst = sum(delay + 4.0 + float(patience.default) for delay, _ in BIOS_ATTEMPTS)
+    assert worst < 900.0, worst
 
 
 def test_a_refusal_from_the_node_itself_is_not_transient() -> None:
