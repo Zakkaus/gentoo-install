@@ -269,14 +269,6 @@ def _keywords(config: InstallConfig, context: Context) -> str:
     return "~amd64" if config.portage.keywords is Keywords.TESTING else "amd64"
 
 
-def _compiler(config: InstallConfig, context: Context) -> str:
-    """The three the operator is most likely to have changed. The rest are on
-    the screen behind this row."""
-    portage = config.portage
-    jobs = portage.makeopts or f"-j{context.cores}"
-    return f"{jobs}, {portage.common_flags}, {' '.join(portage.accept_license)}"
-
-
 def _bootloader(config: InstallConfig, context: Context) -> str:
     return f"{config.bootloader.kind.value}, {config.bootloader.firmware.value}"
 
@@ -613,13 +605,6 @@ def _other_locales(config: InstallConfig, context: Context) -> str:
     return ", ".join(
         locale for locale in config.system.locales if locale != config.system.locale
     ) or context.translate("none")
-
-
-def _selected_groups(
-    config: InstallConfig, context: Context, offered: tuple[str, ...]
-) -> str:
-    selected = [name for name in config.packages.applications if name in offered]
-    return ", ".join(selected) or context.translate("none")
 
 
 def _input_method(config: InstallConfig, context: Context) -> str:

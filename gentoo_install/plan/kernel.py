@@ -69,11 +69,6 @@ REMOTE_UNLOCK_MODULES: Final[tuple[str, ...]] = ("crypt-ssh", "network")
 CJK_KERNELS: Final[tuple[KernelSource, ...]] = (KernelSource.CJK_BIN, KernelSource.CJK)
 
 INSTALLKERNEL_STATE: Final[str] = "/var/lib/misc/installkernel"
-KERNEL_IMAGES: Final[str] = "/boot"
-
-#: One directory per kernel that can actually load a driver.
-MODULE_DIRECTORY: Final[str] = "/lib/modules"
-
 #: The cjk USE flag of the patched kernels, which merges the
 #: patch's own `cjk.config`. It is on by default, so only turning it off has
 #: to be written.
@@ -501,93 +496,6 @@ class VerifyZfsKernelCompatibility(Operation):
         problem = zfs_kernel_version_problem(self.version, ceiling)
         if problem is not None:
             raise ValidationFailed(problem)
-
-
-#: Names installkernel gives an image, for the cleanup that reads /boot.
-IMAGE_NAMES: Final[tuple[tuple[str, str], ...]] = (
-    ("kernel-", ""),
-    ("vmlinuz-", ""),
-    ("initramfs-", ".img"),
-    ("System.map-", ""),
-    ("config-", ""),
-)
-
-def _version_in(name: str) -> str | None:
-    """The kernel version a file in /boot is named for, or None for a name
-    this does not recognise. Unrecognised is left alone: /boot holds the
-    bootloader's own files and they are nobody's to delete.
-
-    `.old` is one of those names. installkernel keeps the previous image under
-    it, and its version is the one it had, so matching it against the modules
-    that are installed now would delete every backup there is.
-    """
-    if name.endswith(".old"):
-        return None
-    for prefix, suffix in IMAGE_NAMES:
-        if name.startswith(prefix) and name.endswith(suffix):
-            return name[len(prefix) : len(name) - len(suffix) or None]
-    return None
-
-
-def _version_inside(context: Context, name: str) -> str | None:
-    """What the image says it is, or None when nothing said.
-
-    `file` answers `Linux kernel x86 boot executable bzImage, version 6.18.41
-    -gentoo-dist-bin (...)`. None rather than a guess: an unreadable answer is
-    not evidence that the image is wrong, and deleting the only kernel on that
-    basis leaves nothing to boot.
-    """
-    said = context.run_in_target(["file", "--brief", f"{KERNEL_IMAGES}/{name}"], check=False)
-    words = said.split()
-    if "version" not in words:
-        return None
-    return words[words.index("version") + 1] if len(words) > words.index("version") + 1 else None
-
-
-@dataclass(frozen=True, kw_only=True)
-class RemoveUnbootableKernels(Operation):
-    """Delete a kernel image in /boot that has no modules to go with it.
-
-    `sys-fs/zfs` reinstalls the initramfs from its own postinst, and the
-    version it computes off `/usr/src/linux` is `-gentoo-dist` where the
-    prebuilt kernel is `-gentoo-dist-bin`, so kernel-install copies the image
-    a second time under the wrong name. `generate-zbm` then refuses every
-    kernel it can see -- "ignoring inconsistent versions" -- and GRUB would
-    have offered the operator an entry that cannot boot.
-
-    Two tests, because one image failed only the second. An image whose
-    version has no modules directory loads no driver and reaches no root. An
-    image whose file name disagrees with the version string inside it is the
-    one `generate-zbm` names in that message: `sys-fs/zfs` also leaves
-    `/lib/modules/<wrong version>` behind, so the modules test passes and the
-    kernel is still refused.
-
-    `file` reads the string. It is in `@system`, so a stage3 has it.
-    """
-
-    stage: Stage = Stage.KERNEL
-
-    def describe(self) -> str:
-        return "delete any kernel image in /boot that has no modules directory"
-
-    def apply(self, context: Context) -> None:
-        listed = context.run_in_target(["ls", "-1", KERNEL_IMAGES], check=False)
-        known = context.run_in_target(["ls", "-1", MODULE_DIRECTORY], check=False)
-        versions = {line.strip() for line in known.splitlines() if line.strip()}
-        if not versions:
-            # Nothing to compare against: deleting on no evidence is worse
-            # than leaving an image that may be the only one.
-            return
-        for name in (line.strip() for line in listed.splitlines()):
-            version = _version_in(name)
-            if version is None:
-                continue
-            inside = _version_inside(context, name)
-            # Only a disagreement, never an unknown: `file` answering nothing
-            # is not evidence, and this is the last chance to keep a kernel.
-            if version in versions and inside in (None, version):
-                continue
-            context.run_in_target(["rm", "--force", f"{KERNEL_IMAGES}/{name}"])
 
 
 @dataclass(frozen=True, kw_only=True)
