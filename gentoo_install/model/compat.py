@@ -87,9 +87,15 @@ _CJK_KERNEL_PACKAGES: Final[frozenset[str]] = frozenset(
 )
 
 
+#: What each official binary host needs, in the names `CPU_FLAGS_X86` uses.
+#: `fma3` and not `fma`: the psABI names the x86-64-v3 requirement `FMA` and
+#: Portage's variable spells the same instruction set `fma3`, so a requirement
+#: written the psABI way is a name `exec/probe.py` never produces and every
+#: machine is told it lacks it. `tests/unit/test_compat.py` holds the two
+#: vocabularies against each other.
 BINHOST_SUBARCH_REQUIREMENTS: Final[dict[str, frozenset[str]]] = {
     "x86-64": frozenset(),
-    "x86-64-v3": frozenset({"avx2", "bmi1", "bmi2", "f16c", "fma"}),
+    "x86-64-v3": frozenset({"avx2", "bmi1", "bmi2", "f16c", "fma3"}),
 }
 
 

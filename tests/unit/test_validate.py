@@ -452,7 +452,11 @@ def test_an_official_v3_binhost_passes_with_the_required_cpu_flags() -> None:
         base,
         portage=replace(
             base.portage,
-            cpu_flags=("avx2", "bmi1", "bmi2", "f16c", "fma"),
+            # `fma3`, the name `CPU_FLAGS_X86` uses and the one
+            # `exec/probe.py` produces. Written the psABI's way, this test
+            # asserted a vocabulary no machine ever has and passed while
+            # every real machine was refused the v3 binary host.
+            cpu_flags=("avx2", "bmi1", "bmi2", "f16c", "fma3"),
             binhost=replace(base.portage.binhost, subarch="x86-64-v3"),
         ),
     )
