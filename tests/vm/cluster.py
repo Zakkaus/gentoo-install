@@ -2448,6 +2448,35 @@ def _seen_since(link: Reconnecting, said: bytes) -> str:
     return repr(held) if held else "nothing"
 
 
+#: How much of the password has to come back before the attempt is read as
+#: this harness losing the echo race rather than the system refusing a
+#: password. Two characters: `login` turns the echo off partway through, so
+#: what reaches the console is a fragment. `openrc-sdboot` was failed for a
+#: refusal whose console held `nstall` under `Password:`, which the whole-word
+#: check did not see, and the fragment then went to `login` as the password.
+ECHO_FRAGMENT: Final[int] = 2
+
+#: What `login` writes when it will not take a password.
+REFUSED: Final[bytes] = b"Login incorrect"
+
+
+def _echoed_back(said: bytes, password: str) -> bool:
+    """Whether any of the password reached the console.
+
+    Every fragment of it, not the whole word: the echo is turned off between
+    two characters, so which part arrives depends on where that landed. Only
+    what came before `Login incorrect` is searched, because the refusal and
+    the prompt that follows it carry letters of their own: `Login incorrect`
+    holds `in`, and so does `install`.
+    """
+    echo = said.partition(REFUSED)[0]
+    return any(
+        password[at : at + width].encode() in echo
+        for width in range(len(password), ECHO_FRAGMENT - 1, -1)
+        for at in range(len(password) - width + 1)
+    )
+
+
 def _log_in(link: Reconnecting, password: str) -> str:
     """Log root in, and say what is wrong when it does not happen.
 
@@ -2474,7 +2503,7 @@ def _log_in(link: Reconnecting, password: str) -> str:
             )[:VERDICT_BYTES]
         if b"Login incorrect" not in said:
             return ""
-        if password.encode() in said and echoed < PASSWORD_ECHO_CATCHES:
+        if _echoed_back(said, password) and echoed < PASSWORD_ECHO_CATCHES:
             echoed += 1
             settle += PASSWORD_ECHO_BACKOFF
             continue

@@ -1669,3 +1669,70 @@ def test_a_dead_first_resolver_costs_one_second_and_not_ten() -> None:
     attempts = int(cluster.RESOLVER_OPTIONS.split("attempts:")[1])
     seconds = int(cluster.RESOLVER_OPTIONS.split("timeout:")[1].split()[0])
     assert seconds * attempts <= cluster.LOOKUP_PATIENCE, cluster.RESOLVER_OPTIONS
+
+
+class _PartlyEchoingConsole:
+    """`login` turning the echo off partway through the password.
+
+    Taken from `openrc-sdboot` in run65 and `vm-lvm` in run64: the console
+    held a fragment of the password rather than the whole of it, so the
+    whole-word check read the attempt as the installed system refusing a
+    password that was in fact never delivered whole.
+    """
+
+    def __init__(self, echoes: int, keep: int = 1) -> None:
+        self.echoes = echoes
+        #: How many characters `login` swallowed before the echo stopped.
+        self.keep = keep
+        self.sent: list[str] = []
+        self.answers: list[bytes] = []
+        self.console = _Screen(b"openrcsdbox login: ")
+
+    def respond(self, line: str) -> None:
+        self.sent.append(line)
+        if line == "root":
+            self.answers.append(b"Password: ")
+        elif self.echoes > 0:
+            self.echoes -= 1
+            fragment = line[self.keep :]
+            self.answers.append(f"{fragment}\r\n\r\nLogin incorrect\r\nlogin: ".encode())
+        else:
+            self.answers.append(b"openrcsdbox ~ # ")
+
+    def observe(self, pattern: str, timeout: float = 0.0) -> bytes:
+        return self.answers.pop(0) if self.answers else b""
+
+
+def test_a_password_the_console_echoed_part_of_is_not_counted_as_a_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`login` turns the echo off between two characters, so what comes back
+    is a fragment. Counting that as the installed system's refusal spends the
+    harness's whole budget on a race, and `login` gives up after three of its
+    own: `openrc-sdboot` was failed at 41.3 minutes for an install that had
+    completed."""
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    # One more race than the harness has catches for, so a fragment counted as
+    # a refusal spends the whole budget and the login ends with no clean
+    # attempt ever made. Three would leave one, and the test would pass
+    # whether the fragment was seen or not.
+    races = cluster.PASSWORD_ECHO_CATCHES + 1
+    for swallowed in (1, 2, 5):
+        console = _PartlyEchoingConsole(echoes=races, keep=swallowed)
+        assert cluster._log_in(cast(cluster.Reconnecting, console), "install") == "", (
+            swallowed,
+            console.sent,
+        )
+        assert console.sent.count("install") == races + 1, (swallowed, console.sent)
+
+
+def test_a_refusal_holding_none_of_the_password_still_ends_the_login() -> None:
+    """The direction that has to keep working: a genuinely wrong password
+    echoes nothing, and absorbing that would hold the schedule open on a
+    machine nobody can log into."""
+    assert not cluster._echoed_back(b"Login incorrect\r\nlogin: ", "install")
+    # The refusal and the prompt carry letters of their own, and searching
+    # them makes every refusal read as this harness's own race.
+    assert not cluster._echoed_back(b"Login incorrect\r\nlogin: ", "loginx")
+    assert cluster._echoed_back(b"nstall\r\nLogin incorrect", "install")
+    assert cluster._echoed_back(b"inst\r\nLogin incorrect", "install")
