@@ -286,6 +286,17 @@ def test_a_form_shows_every_field_at_once() -> None:
     assert any("Done" in line for line in drawn)
 
 
+def test_a_form_with_an_overlong_wide_label_still_accepts_input() -> None:
+    """`room` was `columns - widest - 10`, which goes negative once a label is
+    wider than the terminal. The trimming loop then deleted a string that was
+    already empty, so the redraw never ended and the form never took a key.
+    """
+    form = Form(title="Network", fields=[Field(label=WIDE * 60)])
+    screen = FakeScreen(keys=["KEY_DOWN", "\n"], lines=24, columns=80)
+
+    assert form.run(screen).unwrap() == [""]
+
+
 def test_escape_leaves_a_form_without_an_answer() -> None:
     form = Form(title="t", fields=[Field(label="a")])
     assert form.run(FakeScreen(keys=["\x1b"])).outcome is Outcome.CANCELLED
