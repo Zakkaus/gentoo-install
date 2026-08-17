@@ -69,6 +69,21 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
                 re.escape(f"XMODIFIERS=@im={framework}"),
             )
         )
+    if (
+        installation.bootloader.kind is Bootloader.ZFSBOOTMENU
+        and installation.kernel.remote_unlock.enabled
+    ):
+        # ZFSBootMenu unlocks the pool from its own image, not the system
+        # initramfs, so the only place the ssh daemon can live is that EFI
+        # file. `zbm-unlock` failed three times saying nothing but that a
+        # forwarded port went unanswered.
+        result.append(
+            InstalledCheck(
+                "zbm dropbear",
+                "lsinitrd /efi/EFI/zbm/*.EFI 2>/dev/null | grep -ci dropbear",
+                r"[1-9]",
+            )
+        )
     if installation.disk.mode is DiskMode.IN_PLACE:
         # No graph to derive from: the layout belongs to the machine that was
         # converted, and the esp and root filesystem are whatever it already

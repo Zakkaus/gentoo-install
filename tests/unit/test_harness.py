@@ -2576,3 +2576,31 @@ def test_a_failed_remote_unlock_answers_rather_than_raising(
     monkeypatch.setattr(harness, "remote_unlock", breaks)
     with pytest.raises(ValueError):
         harness.try_remote_unlock(Path("/dev/null"), 1, cast(Any, object()))
+
+
+def test_a_zfsbootmenu_unlock_fixture_checks_the_image_that_carries_the_daemon() -> None:
+    """ZFSBootMenu unlocks the pool from its own EFI image, not the system
+    initramfs, so that file is the only place the ssh daemon can be.
+    `zbm-unlock` failed three times reporting nothing but a forwarded port
+    that went unanswered, while the machine itself was sound.
+    """
+    from gentoo_install.exec.config import load
+    from tests.vm.installed import checks
+
+    unlocking = load(Path("tests/fixtures/zbm-unlock.toml"))
+    named = {one.name: one for one in checks(unlocking)}
+    assert "zbm dropbear" in named, sorted(named)
+    assert "/efi/EFI/zbm" in named["zbm dropbear"].command
+
+    # Negative control one: ZFSBootMenu without the unlock has no daemon to
+    # look for, and asking for one would fail every ordinary ZBM install.
+    plain = load(Path("tests/fixtures/zfs-zbm.toml"))
+    assert plain.bootloader.kind is unlocking.bootloader.kind
+    assert not plain.kernel.remote_unlock.enabled
+    assert "zbm dropbear" not in {one.name for one in checks(plain)}
+
+    # Negative control two: a remote unlock under another bootloader lives in
+    # the system initramfs, and that image is not on the esp.
+    elsewhere = load(Path("tests/fixtures/vm-unlock.toml"))
+    assert elsewhere.kernel.remote_unlock.enabled
+    assert "zbm dropbear" not in {one.name for one in checks(elsewhere)}
