@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 from dataclasses import replace
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 import pytest
 
 from gentoo_install.data import load_catalog
-from gentoo_install.errors import CommandFailed
+from gentoo_install.errors import CommandFailed, ConfigError
 from gentoo_install.model.config import ConsoleFontSize, InstallConfig, Overlay, User
 from gentoo_install.plan import packages as plan_packages
-from gentoo_install.plan.packages import build
+from gentoo_install.plan.packages import Group, build
 from gentoo_install.plan.portage import Emerge
 
 from .recorder import Recorder
@@ -132,6 +132,90 @@ def test_plasma_declares_the_minizip_compatibility_required_by_its_stack() -> No
 
     for profile in ("plasma", "plasma-full"):
         assert "sys-libs/minizip-ng compat" in catalog[profile].package_use
+
+
+def test_desktop_profiles_preserve_their_composed_values() -> None:
+    catalog = load_catalog()
+
+    assert {
+        name: catalog[name]
+        for name in ("plasma", "plasma-full", "gnome", "gnome-full")
+    } == {
+        "plasma": Group(
+            name="plasma",
+            packages=(
+                "kde-plasma/plasma-meta",
+                "x11-base/xorg-server",
+                "kde-apps/konsole",
+                "kde-apps/dolphin",
+            ),
+            use=("wayland", "qt6", "networkmanager"),
+            profile="default/linux/amd64/23.0/desktop/plasma",
+            package_use=(
+                "app-i18n/fcitx-configtool kcm",
+                "sys-libs/minizip-ng compat",
+            ),
+            input_method_launcher=(
+                "/usr/share/applications/fcitx5-wayland-launcher.desktop"
+            ),
+            wayland=True,
+        ),
+        "plasma-full": Group(
+            name="plasma-full",
+            packages=(
+                "kde-plasma/plasma-meta",
+                "kde-apps/kde-apps-meta",
+                "x11-base/xorg-server",
+            ),
+            use=("wayland", "qt6", "networkmanager"),
+            profile="default/linux/amd64/23.0/desktop/plasma",
+            package_use=(
+                "app-i18n/fcitx-configtool kcm",
+                "sys-libs/minizip-ng compat",
+            ),
+            input_method_launcher=(
+                "/usr/share/applications/fcitx5-wayland-launcher.desktop"
+            ),
+            wayland=True,
+        ),
+        "gnome": Group(
+            name="gnome",
+            packages=("gnome-base/gnome-light", "x11-base/xorg-server"),
+            use=("wayland", "gnome", "networkmanager", "gtk"),
+            profile="default/linux/amd64/23.0/desktop/gnome",
+            wayland=True,
+        ),
+        "gnome-full": Group(
+            name="gnome-full",
+            packages=("gnome-base/gnome", "x11-base/xorg-server"),
+            use=("wayland", "gnome", "networkmanager", "gtk"),
+            profile="default/linux/amd64/23.0/desktop/gnome",
+            wayland=True,
+        ),
+    }
+
+
+def test_profile_base_rejects_an_overlapping_variant_field(tmp_path: Path) -> None:
+    profiles = tmp_path / "profiles"
+    bases = profiles / "base"
+    bases.mkdir(parents=True)
+    (bases / "desktop.toml").write_text('use = ["base"]\n', encoding="utf-8")
+    (profiles / "variant.toml").write_text(
+        'base = "base/desktop.toml"\nuse = ["variant"]\n', encoding="utf-8"
+    )
+
+    with pytest.raises(ConfigError, match=r"base and variant both define: use"):
+        load_catalog(tmp_path)
+
+
+def test_profile_base_cycle_is_rejected(tmp_path: Path) -> None:
+    profiles = tmp_path / "profiles"
+    profiles.mkdir()
+    (profiles / "first.toml").write_text('base = "second.toml"\n', encoding="utf-8")
+    (profiles / "second.toml").write_text('base = "first.toml"\n', encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="base profiles form a cycle"):
+        load_catalog(tmp_path)
 
 
 def test_xfce_declares_the_dbusmenu_flag_its_panel_requires() -> None:
