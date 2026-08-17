@@ -37,7 +37,8 @@ from enum import Enum
 from pathlib import Path
 from collections import Counter
 from collections.abc import Callable, Mapping
-from typing import Final, Protocol, TypeVar, cast, Sequence
+from contextlib import contextmanager
+from typing import Final, Iterator, Protocol, TypeVar, cast, Sequence
 
 from gentoo_install.model.config import Firmware as BootFirmware
 from gentoo_install.model.config import (
@@ -2020,6 +2021,21 @@ KNOWN_BAD_NODES: Final[frozenset[str]] = frozenset()
 REOPEN_CEILING: Final[int] = 24
 
 
+@contextmanager
+def _naming(command: str) -> Iterator[None]:
+    """Put the command into a marker's timeout, which otherwise names a token.
+
+    `vm-convert` ended a 156-minute run with `never matched 'MARK_63_DONE'`,
+    and reading which of sixty-three commands that was took the source.
+    """
+    try:
+        yield
+    except ConsoleIdle as error:
+        raise ConsoleIdle(f"{command!r}: {error}") from error
+    except ConsoleTimeout as error:
+        raise ConsoleTimeout(f"{command!r}: {error}") from error
+
+
 class Reconnecting:
     """A console that opens another one when the cluster drops it.
 
@@ -2098,7 +2114,8 @@ class Reconnecting:
         def run_once(deadline: float) -> None:
             token = next(self._marks)
             self.console.send(marked_command(command, token))
-            self.console.expect(command_done(token), _remaining(deadline))
+            with _naming(command):
+                self.console.expect(command_done(token), _remaining(deadline))
 
         self._with_reconnect(timeout, run_once)
 
@@ -2135,7 +2152,8 @@ class Reconnecting:
                 completion = rf"{completion}|{_ANY_ROOT_PROMPT}"
             while True:
                 try:
-                    self.console.expect(completion, _remaining(deadline), idle=idle)
+                    with _naming(command):
+                        self.console.expect(completion, _remaining(deadline), idle=idle)
                     return
                 except ConsoleIdle as error:
                     if watch is None:
@@ -2161,8 +2179,9 @@ class Reconnecting:
         def collect_once(deadline: float) -> bytes:
             token = next(self._marks)
             self.console.send(marked_command(command, token))
-            self.console.expect(command_begin(token), _remaining(deadline))
-            said = self.console.expect(command_done(token), _remaining(deadline))
+            with _naming(command):
+                self.console.expect(command_begin(token), _remaining(deadline))
+                said = self.console.expect(command_done(token), _remaining(deadline))
             return said.split(command_done(token).encode())[0]
 
         return self._with_reconnect(timeout, collect_once)
