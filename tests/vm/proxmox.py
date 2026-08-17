@@ -838,19 +838,52 @@ GRUB_COUNTDOWN: Final[str] = (
 EDITOR_PATIENCE: Final[float] = 120.0
 
 
-def hold_the_menu(console: Line, timeout: float = 300.0) -> bytes:
-    """Wait for GRUB's menu and stop its countdown.
+#: How long each press is given to show whether the countdown stopped.
+HOLD_CONFIRM: Final[float] = 3.0
 
-    Waiting first, rather than pressing early: a key sent before the menu is
-    drawn is consumed the moment it appears, the countdown never prints, and
-    there is then nothing to match on.
+#: GRUB is at its menu. The wake-up pattern also matches the hypervisor's own
+#: banner, which is not evidence of anything on the guest.
+_MENU_DRAWN: Final[re.Pattern[bytes]] = re.compile(
+    rb"highlighted entry|GNU GRUB|Minimal BASH-like"
+)
+_COUNTING: Final[re.Pattern[bytes]] = re.compile(rb"executed automatically in \d+s")
+_BOOTING: Final[re.Pattern[bytes]] = re.compile(rb"Booting [`\']")
+
+
+def hold_the_menu(console: Line, timeout: float = 300.0) -> bytes:
+    """Wait for GRUB's menu and stop its countdown, and prove it stopped.
+
+    `starting serial terminal on interface serial0` is the hypervisor's own
+    banner, printed before the firmware loads anything, so one press on that
+    match lands in the void: `vm-openrc-desktop` counted `2s 1s 0s`, booted
+    `Boot LiveCD` unedited with no serial console, and the editor was then
+    asked for over the next two and a half minutes on a guest already gone.
     """
+    deadline = time.monotonic() + timeout
     try:
         seen = console.expect(GRUB_COUNTDOWN, timeout=timeout)
     except (ConsoleTimeout, ConsoleClosed) as error:
         raise GrubNotReadable(str(error)) from error
     console.send_raw(GRUB_HOLD)
-    return seen
+    while time.monotonic() < deadline:
+        after = console.snapshot(HOLD_CONFIRM)
+        seen += after
+        if _BOOTING.search(after):
+            raise GrubNotReadable(
+                f"the entry booted before its countdown was held: {seen[-400:]!r}"
+            )
+        if _MENU_DRAWN.search(seen):
+            if not _COUNTING.search(after):
+                return seen
+        elif not after.strip():
+            # Nothing drawn and nothing more arriving: a BIOS medium says
+            # nothing to a serial console before the kernel, so the banner is
+            # the only signal there and one press is all there is to make.
+            return seen
+        # Either GRUB has not drawn yet or it is still counting: the press
+        # before this one reached something that was not GRUB.
+        console.send_raw(GRUB_HOLD)
+    raise GrubNotReadable(f"GRUB kept counting down: {seen[-400:]!r}")
 
 
 def append_to_cmdline(console: Line, extra: str, timeout: float = EDITOR_PATIENCE) -> None:
