@@ -1239,9 +1239,35 @@ def test_the_login_wait_asks_again_after_the_console_is_reopened() -> None:
     assert b"login:" in link.observe(r"login:", timeout=30.0, solicit=True)
 
     # Negative control: the default is still the silent wait, because an empty
-    # line at a passphrase prompt is an attempt rather than a request. Without
-    # soliciting, the same guest never shows the prompt again.
+    # line at a login prompt spends one of agetty's attempts. `boot_and_check`
+    # takes that default and treats a missed prompt as a note rather than a
+    # verdict, since typing a name brings the prompt back for free.
     opened.clear()
     silent = cluster.Reconnecting(open_console, tries=4)
     with pytest.raises(ConsoleClosed):
         silent.observe(r"login:", timeout=30.0)
+
+
+def test_the_boot_check_does_not_spend_an_agetty_attempt_on_the_prompt() -> None:
+    """`vm-lvm` passed run54 in 21.6 minutes with one reconnect and no solicit,
+    and failed run56 in 74.4 minutes with two reconnects and
+
+        Maximum number of tries exceeded (5)
+        lvmbox login: install
+
+    An empty line at a login prompt is one of agetty's attempts. The wait keeps
+    the silent default, and a prompt that went by is carried into the verdict
+    rather than ending the run, because `_name_the_user` types a name and waits
+    for either prompt.
+    """
+    import inspect
+
+    source = inspect.getsource(cluster.boot_and_check)
+    waited = [line for line in source.splitlines() if "observe(r\"login:\"" in line]
+    assert waited, source
+    assert not any("solicit" in line for line in waited), waited
+    # And the miss is not a verdict on its own: nothing returns straight out of
+    # that except, or a machine whose one prompt went by is failed for it.
+    after = source.split("except (ConsoleTimeout, ConsoleClosed) as error:")[1]
+    head = after.split("try:")[0]
+    assert "return" not in head, head

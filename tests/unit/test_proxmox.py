@@ -3527,6 +3527,9 @@ def test_a_boot_that_never_prompts_says_what_the_console_held(
         def observe(self, pattern: str, timeout: float, *, solicit: bool = False) -> bytes:
             raise ConsoleTimeout("never matched 'login:'")
 
+        def respond(self, line: str) -> None:
+            return None
+
     from gentoo_install.exec.config import load
 
     installation = load(Path("tests/fixtures/vm-xfs.toml"))
@@ -3536,6 +3539,9 @@ def test_a_boot_that_never_prompts_says_what_the_console_held(
     said = cluster.boot_and_check(
         cast(Any, Guest()), cast(Any, Silent(held)), Path("unused"), installation
     )
+    # Carried, not returned: a prompt that went by during a reconnect is not a
+    # verdict on its own, because typing a name brings it back. The screen still
+    # reaches the verdict the login exchange then produces.
     assert "did not reach a login prompt" in said
     assert "start job is running" in said, said
 
