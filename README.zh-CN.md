@@ -48,6 +48,16 @@ gentoo-install 在 Linux live 环境中运行，用于安装 amd64 架构的 Gen
 
 选择代理后，配置的代理用于 stage3 及其签名密钥、主仓库与 overlay 版本查询，以及 `gitweb.gentoo.org` 的 ZFS ebuild 查询。它也用于通过 `make.conf` 和 `FETCHCOMMAND`/`RESUMECOMMAND` 的 Portage 下载、`wget`、`curl`、`git`、GnuPG、binhost、overlay 及 paste 上传。时钟、初始连接检查和菜单前的镜像检查都在获得配置前执行，因此不在此设置覆盖范围内。安装程序会将认证信息排除在 dry-run 描述和发布的配置之外；发布的配置与已安装系统都只保留不含认证信息的端点和绕过列表。
 
+<!-- fact: memory-environment -->
+
+**内存环境。** `--ram` 与 `--lowram` 武装一次开机进入常驻内存的活环境，接着询问是否重新启动；这条路没有界面，因为它针对的机器通常只有一条 SSH 连接而没有控制台。`--ram` 用 Gentoo CJK ISO，带有 ZFS，需要约 2 GiB 内存：它的 initramfs 在内存减去 824 MiB 的活镜像后低于 1 GiB 时停在急救 shell。`--lowram` 用 Alpine netboot 套件，较小且没有 `zfs.ko`。两者都不写死版本：发布方各自列出当前的镜像与校验和，武装之前先抓取并验证。
+
+默认启动项一律不改，所以环境没有起来时机器仍然开得了机。`--bypass` 改为替换它，用于会丢弃一次性启动项的固件；这是唯一一条环境没起来就完全开不了机的路径，没有任何路径会自动选它。
+
+<!-- fact: memory-environment-access -->
+
+**用 SSH 观察内存安装。** `--ssh-key` 接受公钥本文、路径、`http` 或 `https` 网址，以及 `github:user` 与 `gitlab:user`；`--ssh-port` 与 `--root-password` 设定其余部分。安装器、选定的配置与密钥都放在 initramfs 内，所以环境运行的是写出该配置的修订，而且在第一次登录之前 `authorized_keys` 已经就位。操作者以 SSH 重新连接观察安装，不必一直开着控制台。回答第一个画面之前不会清除任何数据：该画面提供安装与急救 shell 两项，而且没有超时。
+
 <!-- fact: plan-records -->
 
 **计划与记录** dry run 会在不探测存储硬件的情况下显示操作计划。实际安装使用相同的规划器，但会先加入从复用设备探测到的 mdraid 元数据，因此依赖硬件的验证结果可能不同。`install.log` 记录命令输出，`install.jsonl` 记录操作、软件包来源和二进制软件包降级原因。菜单将配置上传至 `paste.gentoozh.org` 前，会把 `password_hash` 和 `root_password_hash` 的值替换为 `removed-before-publishing`，并且完全不写出代理的 `username` 和 `password` 这两个键；其他配置值仍会上传。菜单会以文本和 QR 码显示上传页面的网址。
@@ -58,7 +68,7 @@ gentoo-install 在 Linux live 环境中运行，用于安装 amd64 架构的 Gen
 
 [`TESTED.md`](TESTED.md) 是验证记录：每一条走过的路径各一行，写明它运行时的安装器修订版与运行的地点。一次运行要记录的修订版与安装器相符、安装退出码为 `0`、装出的系统能引导、且引导后的配置检查全部通过，才算数。
 
-装到磁盘上的路径在集群与单机都有记录，覆盖 ext4、xfs、btrfs、f2fs、ZFS、LVM、mdraid 与 LUKS2,两种固件与两种 init 系统皆有。就地转换运行中的系统有两条记录，都来自 QEMU 且都是 BIOS。引导进内存再安装或写映像的模式已完成设计，尚无任何记录。
+装到磁盘上的路径在集群与单机都有记录，覆盖 ext4、xfs、btrfs、f2fs、ZFS、LVM、mdraid 与 LUKS2,两种固件与两种 init 系统皆有。就地转换运行中的系统有两条记录，都来自 QEMU 且都是 BIOS。武装启动进入内存环境的路径已实现，并有单元与计划层级的测试覆盖；尚无任何一次运行把机器重新启动进入该环境，因此没有记录。写映像的模式仍只完成设计，没有记录。
 
 `tests/fixtures/` 下的文件验证的是配置模型，它们存在并不代表任何一台装出来的机器。
 

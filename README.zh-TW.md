@@ -48,6 +48,16 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 
 選取 Proxy 後，設定的 Proxy 用於 stage3 與其簽署金鑰、主儲存庫與 overlay 版本查詢，以及 `gitweb.gentoo.org` 的 ZFS ebuild 查詢。它也用於透過 `make.conf` 與 `FETCHCOMMAND`/`RESUMECOMMAND` 的 Portage 下載、`wget`、`curl`、`git`、GnuPG、binhost、overlay 與 paste 上傳。時鐘、初始連線檢查與選單前的鏡像檢查都在取得設定前執行，因此不在此設定涵蓋範圍內。安裝器會將認證資訊排除在 dry-run 說明與發佈的設定之外；發佈的設定與已安裝系統都只保留不含認證資訊的端點及略過清單。
 
+<!-- fact: memory-environment -->
+
+**記憶體環境。** `--ram` 與 `--lowram` 武裝一次開機進入常駐記憶體的活環境，接著詢問是否重新開機；這條路沒有介面，因為它針對的機器通常只有一條 SSH 連線而沒有主控台。`--ram` 用 Gentoo CJK ISO，帶有 ZFS，需要約 2 GiB 記憶體：它的 initramfs 在記憶體扣掉 824 MiB 的活映像後低於 1 GiB 時停在急救殼。`--lowram` 用 Alpine netboot 套組，較小且沒有 `zfs.ko`。兩者都不寫死版本：發佈方各自列出目前的映像與校驗和，武裝之前先抓取並驗證。
+
+預設開機項目一律不改，所以環境沒有起來時機器仍然開得了機。`--bypass` 改為替換它，用於會丟棄一次性項目的韌體；這是唯一一條環境沒起來就完全開不了機的路徑，沒有任何路徑會自動選它。
+
+<!-- fact: memory-environment-access -->
+
+**用 SSH 觀察記憶體安裝。** `--ssh-key` 接受公鑰本文、路徑、`http` 或 `https` 網址，以及 `github:user` 與 `gitlab:user`；`--ssh-port` 與 `--root-password` 設定其餘部分。安裝器、選定的設定與金鑰都放在 initramfs 內，所以環境執行的是寫出該設定的修訂，而且在第一次登入之前 `authorized_keys` 已經就位。操作者以 SSH 重新連線觀察安裝，不必一直開著主控台。回答第一個畫面之前不會清除任何資料：該畫面提供安裝與急救殼兩項，而且沒有逾時。
+
 <!-- fact: plan-records -->
 
 **計畫與記錄** dry run 會在不探測儲存硬體的情況下顯示操作計畫。實際安裝使用相同的規劃器，但會先加入從重用裝置探測到的 mdraid 中繼資料，因此依賴硬體的驗證結果可能不同。`install.log` 記錄指令輸出，`install.jsonl` 記錄操作、套件來源與二進位套件降級原因。選單將設定上傳至 `paste.gentoozh.org` 前，會把 `password_hash` 與 `root_password_hash` 的值替換為 `removed-before-publishing`，並且完全不寫出代理的 `username` 與 `password` 這兩個鍵；其他設定值仍會上傳。選單會以文字與 QR 碼顯示上傳頁面的網址。
@@ -58,7 +68,7 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 
 [`TESTED.md`](TESTED.md) 是驗證記錄：每一條走過的路徑各一列，寫明它執行時的安裝器修訂版與執行的地點。一次執行要記錄的修訂版與安裝器相符、安裝退出碼為 `0`、裝出的系統能開機、且開機後的設定檢查全部通過，才算數。
 
-裝到磁碟上的路徑在叢集與單機都有記錄，涵蓋 ext4、xfs、btrfs、f2fs、ZFS、LVM、mdraid 與 LUKS2,兩種韌體與兩種 init 系統皆有。就地轉換執行中的系統有兩筆記錄，都來自 QEMU 且都是 BIOS。開進記憶體再安裝或寫映像檔的模式已完成設計，尚無任何記錄。
+裝到磁碟上的路徑在叢集與單機都有記錄，涵蓋 ext4、xfs、btrfs、f2fs、ZFS、LVM、mdraid 與 LUKS2,兩種韌體與兩種 init 系統皆有。就地轉換執行中的系統有兩筆記錄，都來自 QEMU 且都是 BIOS。武裝開機進入記憶體環境的路徑已實作，並有單元與計畫層級的測試涵蓋；尚無任何一次執行把機器重新開機進入該環境，因此沒有記錄。寫映像檔的模式仍只完成設計，沒有記錄。
 
 `tests/fixtures/` 底下的檔案驗證的是設定模型，它們存在並不代表任何一台裝出來的機器。
 
