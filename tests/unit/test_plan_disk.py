@@ -165,7 +165,7 @@ def test_a_btrfs_scratch_unmount_failure_stops_the_install() -> None:
     class UnmountFails(Recorder):
         def run(
             self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
-        ) -> str:
+        ) -> CommandOutput:
             if argv[0] == "umount":
                 self.commands.append(tuple(argv))
                 return CommandOutput("target is busy", 1)
@@ -182,7 +182,7 @@ def test_a_btrfs_scratch_unmount_does_not_replace_creation_failure() -> None:
     class BothFail(Recorder):
         def run(
             self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
-        ) -> str:
+        ) -> CommandOutput:
             if argv[0] == "umount":
                 self.commands.append(tuple(argv))
                 return CommandOutput("target is busy", 1)
@@ -705,7 +705,7 @@ def test_a_pool_still_busy_after_the_lazy_unmount_is_exported_on_a_later_try(
 
         def run(
             self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
-        ) -> str:
+        ) -> CommandOutput:
             if tuple(argv[:2]) == ("zpool", "export"):
                 self.attempts += 1
                 if self.refusals:
@@ -726,7 +726,7 @@ def test_a_pool_still_busy_after_the_lazy_unmount_is_exported_on_a_later_try(
 
         def run(
             self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
-        ) -> str:
+        ) -> CommandOutput:
             if argv[0] == "findmnt":
                 return CommandOutput("/mnt/gentoo" if self.mounted else "", 0 if self.mounted else 1)
             if tuple(argv[:2]) == ("zfs", "list"):
@@ -774,7 +774,7 @@ def test_a_pool_still_busy_after_the_lazy_unmount_is_exported_on_a_later_try(
     class MountedDataset(Clean):
         def run(
             self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
-        ) -> str:
+        ) -> CommandOutput:
             if tuple(argv[:2]) == ("zfs", "list"):
                 return CommandOutput("rpool\tyes\n", 0)
             return super().run(argv, check=check, input_text=input_text)
@@ -806,7 +806,7 @@ def test_a_pool_busy_with_nothing_mounted_is_named_rather_than_forced(
 
         def run(
             self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
-        ) -> str:
+        ) -> CommandOutput:
             if tuple(argv[:2]) == ("zpool", "export") and "-f" not in argv:
                 raise CommandFailed("zpool export rpool exited 1: pool is busy")
             if tuple(argv[:2]) == ("zfs", "list"):

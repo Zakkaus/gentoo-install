@@ -10,6 +10,7 @@ from typing import Sequence
 from gentoo_install.exec.config import load
 from gentoo_install.model.config import Bootloader, BootloaderConfig, Firmware, InstallConfig, RemoteUnlock
 from gentoo_install.plan import bootloader, kernel
+from gentoo_install.plan.operations import CommandOutput
 
 from .recorder import Recorder
 
@@ -245,7 +246,7 @@ def test_a_firmware_that_refuses_a_boot_entry_still_leaves_a_bootable_machine() 
         #: hold: without it the order assertion below passes either way.
         attempts: list[tuple[str, ...]] = []
 
-        def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
+        def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> CommandOutput:
             self.attempts.append(tuple(argv))
             if "--bootloader-id=Gentoo" in argv or argv[0] == "efibootmgr":
                 raise CommandFailed(
@@ -281,7 +282,7 @@ def test_a_firmware_that_refuses_a_boot_entry_still_leaves_a_bootable_machine() 
     # Negative control: a `grub-install` that fails for any other reason is not
     # a refused boot entry and still stops the install.
     class Broken(Recorder):
-        def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
+        def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> CommandOutput:
             if argv[0] == "grub-install":
                 raise CommandFailed("grub-install: error: cannot find EFI directory")
             return super().run_in_target(argv, check=check)
@@ -337,7 +338,6 @@ def test_an_image_built_without_the_unlock_daemon_is_said_rather_than_shipped() 
 
     Said rather than raised: the console passphrase still unlocks it.
     """
-    from gentoo_install.plan.operations import CommandOutput
 
     installation = load(Path("tests/fixtures/zbm-unlock.toml"))
     built = next(

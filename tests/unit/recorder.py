@@ -18,6 +18,14 @@ from gentoo_install.model.device import DeviceId
 from gentoo_install.model.validate import KernelCeiling
 
 
+def _answered(text: str, returncode: int) -> CommandOutput:
+    """A reply already carrying an exit code keeps it; a bare string takes the
+    caller's. `replies` is typed for `str`, and `CommandOutput` is one, so a
+    test that configures a failure would otherwise have it rebuilt as success.
+    """
+    return text if isinstance(text, CommandOutput) else CommandOutput(text, returncode)
+
+
 @dataclass
 class Recorder:
     target: PurePosixPath = PurePosixPath("/mnt/gentoo")
@@ -42,7 +50,7 @@ class Recorder:
 
     def run(
         self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
-    ) -> str:
+    ) -> CommandOutput:
         self.commands.append(tuple(argv))
         if input_text is not None:
             self.stdin.append(input_text)
@@ -50,31 +58,38 @@ class Recorder:
             raise CommandFailed(f"{argv[0]} exited 1")
         # A CommandOutput, the way the real runner answers: a double returning
         # a bare str hides every caller that reads the exit code for itself.
-        return CommandOutput(self.replies.get(argv[0], ""), 0)
+        return _answered(self.replies.get(argv[0], ""), 0)
 
-    def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
+    def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> CommandOutput:
         """`check=False` returns the output and raises nothing, the way the real
         one does: a double that raises anyway hides every caller that reads an
-        exit code for itself."""
+        exit code for itself.
+
+        Every branch answers a `CommandOutput`, so a caller that degrades or
+        retries on a non-zero code is exercised rather than handed a bare `str`
+        whose truth value reads as success.
+        """
         self.in_target.append(tuple(argv))
         if self.answering is not None:
             said = self.answering(argv)
             if said is not None:
-                return said
+                return _answered(said, 0)
         if argv[0] in self.failures:
             if check:
                 raise CommandFailed(f"{argv[0]} exited 1")
-            return self.replies.get(argv[0], "")
+            return _answered(self.replies.get(argv[0], ""), 1)
         if argv[:3] == ["portageq", "best_visible", "/"]:
             return CommandOutput(f"{argv[-1]}-1\n", 0)
         if argv[:4] == ["portageq", "metadata", "/", "ebuild"]:
             return CommandOutput("+dracut systemd systemd-boot boot kernel-install cryptsetup "
                                  "client server arping dist-kernel cjk elogind\n\n", 0)
         if argv[0] == "test":
-            return CommandOutput(self.replies.get("test", ""), 1 if self.replies.get("test") else 0)
+            return _answered(
+                self.replies.get("test", ""), 1 if self.replies.get("test") else 0
+            )
         if argv[0] == "qlist":
             return CommandOutput("/boot/kernel-6.18.41-gentoo-dist-bin\n/boot/initramfs-6.18.41-gentoo-dist-bin.img\n", 0)
-        return self.replies.get(argv[0], "1")
+        return _answered(self.replies.get(argv[0], "1"), 0)
 
     def write(self, path: PurePosixPath, content: str, *, mode: int = 0o644) -> None:
         self.files[path] = content
