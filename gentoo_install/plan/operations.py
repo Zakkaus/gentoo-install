@@ -12,6 +12,8 @@ keeps it a pure function of the configuration.
 
 from __future__ import annotations
 
+import signal
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
@@ -45,6 +47,20 @@ class Stage(Enum):
         return list(Stage).index(self)
 
 
+def ending(returncode: int) -> str:
+    """How a command ended, in words a reader can act on.
+
+    `subprocess` answers a negative code for a signal, and `emerge failed with
+    exit -13` sent a reader looking for an exit status that does not exist.
+    """
+    if returncode >= 0:
+        return f"exit {returncode}"
+    try:
+        return f"{signal.Signals(-returncode).name} ({-returncode})"
+    except ValueError:
+        return f"signal {-returncode}"
+
+
 class CommandOutput(str):
     """Command text with the exit status retained for callers that inspect it."""
 
@@ -54,6 +70,10 @@ class CommandOutput(str):
         output = super().__new__(cls, stdout)
         output.returncode = returncode
         return output
+
+    @property
+    def ending(self) -> str:
+        return ending(self.returncode)
 
 
 class Context(Protocol):

@@ -130,7 +130,7 @@ def present() -> InstallConfig:
 
 
 def test_a_command_that_fails_raises_with_its_output(tmp_path: Path) -> None:
-    with pytest.raises(CommandFailed, match="exited 3"):
+    with pytest.raises(CommandFailed, match="ended with exit 3"):
         runner(tmp_path).run(["sh", "-c", "echo trouble >&2; exit 3"])
 
 

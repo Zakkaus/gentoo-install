@@ -764,14 +764,14 @@ class Emerge(Operation):
             retry_result = context.run_in_target(self._argv(context, source_only=True), check=False)
             if isinstance(retry_result, CommandOutput) and retry_result.returncode != 0:
                 raise CommandFailed(
-                    f"source retry failed with exit {retry_result.returncode}: "
+                    f"source retry ended with {retry_result.ending}: "
                     f"{str(retry_result).strip()}"
                 )
             return
         if not isinstance(result, CommandOutput) or result.returncode == 0:
             return
         if not _binpkg_failure(str(result)) or context.degraded(BINARY_PACKAGES):
-            raise CommandFailed(f"emerge failed with exit {result.returncode}: {str(result).strip()}")
+            raise CommandFailed(f"emerge ended with {result.ending}: {str(result).strip()}")
         marker = _binpkg_failure(str(result))
         if (again := self._one_more_binary_try(context, command)) is not None:
             marker = again
@@ -783,7 +783,7 @@ class Emerge(Operation):
         retry_result = context.run_in_target(retry, check=False)
         if isinstance(retry_result, CommandOutput) and retry_result.returncode != 0:
             raise CommandFailed(
-                f"source retry failed with exit {retry_result.returncode}: {str(retry_result).strip()}"
+                f"source retry ended with {retry_result.ending}: {str(retry_result).strip()}"
             )
 
     def _one_more_binary_try(self, context: Context, command: list[str]) -> str | None:
