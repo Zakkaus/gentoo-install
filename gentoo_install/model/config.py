@@ -38,6 +38,33 @@ class DiskMode(Enum):
     IMAGE = "image"
 
 
+class MemoryMode(Enum):
+    """Which live environment a one-shot boot entry starts in memory.
+
+    Two rather than one because the Alpine netboot kernel has no `zfs.ko`, so
+    a ZFS layout can only be installed from the Gentoo CJK ISO, which costs
+    gigabytes of memory rather than hundreds of megabytes.
+    """
+
+    RAM = "ram"
+    LOWRAM = "lowram"
+
+
+@dataclass(frozen=True)
+class MemoryLaunch:
+    """What the operator asked the memory environment to be reachable as.
+
+    Not part of `InstallConfig`: it describes the environment that runs the
+    install rather than the system being installed, and it comes from flags
+    because this path has no interface to put it on.
+    """
+
+    mode: MemoryMode
+    ssh_key: str = ""
+    ssh_port: int | None = None
+    root_password: str = ""
+
+
 class InitSystem(Enum):
     OPENRC = "openrc"
     SYSTEMD = "systemd"

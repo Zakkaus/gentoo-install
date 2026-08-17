@@ -10,7 +10,13 @@ import pytest
 
 from gentoo_install.errors import ConfigError, ValidationFailed
 from gentoo_install.model import compat
-from gentoo_install.model.config import DiskMode, InitSystem, InstallConfig
+from gentoo_install.model.config import (
+    DiskMode,
+    InitSystem,
+    InstallConfig,
+    MemoryLaunch,
+    MemoryMode,
+)
 from gentoo_install.model.device import DeviceGraph
 from gentoo_install.model.device import (
     Existing,
@@ -26,7 +32,7 @@ from gentoo_install.model.device import (
 from gentoo_install.model.size import Size
 from gentoo_install.exec.config import load
 from gentoo_install.exec.probe import amd64_profiles, profiles_from_eselect
-from gentoo_install.model.validate import validate, zfs_kernel_ceiling
+from gentoo_install.model.validate import validate, validate_memory_launch, zfs_kernel_ceiling
 from gentoo_install.model.parse import parse
 
 from .layouts import encrypted_root, config, ext4_on_gpt, i, unlockable_root, zfs_root
@@ -133,6 +139,50 @@ def test_partition_mode_is_unaffected() -> None:
     validate(config())
 def test_a_plain_uefi_install_validates() -> None:
     validate(config())
+
+
+def test_lowram_refuses_a_layout_that_needs_zfs() -> None:
+    with pytest.raises(ValidationFailed) as refused:
+        validate_memory_launch(config(zfs_root()), MemoryLaunch(MemoryMode.LOWRAM))
+    said = str(refused.value)
+    assert "layout needs ZFS" in said
+    assert "Alpine netboot kernel has no zfs.ko" in said
+    assert "--ram" in said
+
+
+@pytest.mark.parametrize("port", (0, 65536))
+def test_memory_launch_refuses_ssh_ports_outside_the_tcp_range(port: int) -> None:
+    with pytest.raises(ValidationFailed, match="--ssh-port must be between 1 and 65535"):
+        validate_memory_launch(
+            config(), MemoryLaunch(MemoryMode.RAM, ssh_key="ssh-ed25519 key", ssh_port=port)
+        )
+
+
+def test_a_key_or_a_port_needs_a_password_as_well() -> None:
+    """`catalyst/livecd/files/README.txt` lines 96-98: the LiveCD command line
+    takes `dosshd` and `passwd=foo`, and `dosshd` requires the password because
+    it scrambles the existing one. None of its 35 options names a key or a
+    port, so both of those take effect only once the installer has written
+    them, and sshd is already listening on 22 with the command line's password
+    by then. Asking for a key with no password leaves that window shut.
+    """
+    for launch in (
+        MemoryLaunch(MemoryMode.RAM, ssh_key="ssh-ed25519 AAAA"),
+        MemoryLaunch(MemoryMode.RAM, ssh_port=2222),
+    ):
+        with pytest.raises(ValidationFailed, match="--root-password is needed as well"):
+            validate_memory_launch(config(), launch)
+
+
+def test_a_password_on_its_own_is_the_environment_s_own_mechanism() -> None:
+    """The negative direction, and the case a rule written from expectation
+    rather than from the ISO refused: `--root-password` alone is exactly what
+    `dosshd` documents, so refusing it would refuse the documented way in."""
+    validate_memory_launch(config(), MemoryLaunch(MemoryMode.RAM, root_password="secret"))
+    validate_memory_launch(
+        config(),
+        MemoryLaunch(MemoryMode.RAM, ssh_key="ssh-ed25519 AAAA", root_password="secret"),
+    )
 
 
 def test_the_shipped_fixture_validates() -> None:
