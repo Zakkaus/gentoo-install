@@ -1,0 +1,586 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Arming one boot into a memory-resident live environment.
+
+This plan runs against the machine the operator is logged into, so its context
+is built with `/` as the target rather than a mounted new system. Nothing here
+installs anything: it fetches an image, puts a kernel where this machine's own
+bootloader reads one, and arms a single boot. The install happens afterwards,
+on the ordinary path, inside that environment.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from pathlib import PurePosixPath
+from typing import Final
+
+from ..errors import DownloadFailed, PreflightFailed
+from ..model.config import BootMethod, MemoryLaunch, MemoryMode
+from .operations import CommandOutput, Context, Operation, Stage
+
+#: Where the CJK ISO's releases are listed. The published asset name carries
+#: the build timestamp, so nothing may pin it: an installer that names one
+#: release stops working the week that release is superseded, and the ISO this
+#: was first written against (`20260809T143052Z`) was already gone from the
+#: index by the time the plan was written.
+CJK_RELEASES: Final[str] = (
+    "https://api.github.com/repos/gentoo-zh/gentoo-cjk-livecd/releases/latest"
+)
+
+#: Alpine publishes version, filename and SHA-256 for every flavour in one
+#: document, so the version is read rather than pinned here too.
+ALPINE_RELEASES: Final[str] = (
+    "https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/x86_64/"
+    "latest-releases.yaml"
+)
+ALPINE_NETBOOT_FLAVOUR: Final[str] = "alpine-netboot"
+
+#: Alpine's own repository, which its netboot init fetches `modloop` and the
+#: packages from. `alpine_repo=auto` searches for a `.boot_repository` file and
+#: finds none on a machine that booted from a local kernel.
+ALPINE_REPOSITORY: Final[str] = (
+    "https://dl-cdn.alpinelinux.org/alpine/latest-stable/main"
+)
+
+#: One directory for everything this arms, on the filesystem the bootloader
+#: reads. Named rather than scattered, because disarming has to be able to
+#: delete exactly what arming wrote.
+PLACE: Final[str] = "gentoo-install-ram"
+
+#: What the entry is called wherever the boot method keeps names.
+ENTRY_LABEL: Final[str] = "gentoo-install memory environment"
+
+#: The markers a BIOS GRUB `custom.cfg` entry is written between, so a second
+#: arming replaces the first rather than appending beside it.
+CUSTOM_BEGIN: Final[str] = "### BEGIN gentoo-install memory environment"
+CUSTOM_END: Final[str] = "### END gentoo-install memory environment"
+
+#: What the CJK ISO's own `grub.cfg` passes, read from the ISO on 2026-08-17,
+#: plus the three this path has to add. `dodhcp` because the ISO ships
+#: `nodhcp` and a memory environment with no network cannot fetch a stage3;
+#: `rd.live.ram=1` because the disk holding the ISO is the disk the install
+#: erases; `iso-scan/filename=` because GRUB's `loopback` is visible only
+#: inside GRUB and the initramfs finds the file itself.
+CJK_CMDLINE: Final[tuple[str, ...]] = (
+    "dokeymap",
+    "dodhcp",
+    "rd.live.dir=/",
+    "rd.live.squashimg=image.squashfs",
+    "cdroot",
+    "rd.live.ram=1",
+)
+
+#: `check_live_ram` in the ISO's initramfs enters an emergency shell when
+#: `MemTotal - image` is under `rd.minmem`, which defaults to 1024 MiB. The
+#: `image.squashfs` measured on 2026-08-17 is 824 MiB, so a machine under this
+#: does not boot slowly, it stops at a shell nobody is watching.
+RAM_FLOOR_MIB: Final[int] = 1900
+
+#: Alpine's netboot kernel carries no `zfs.ko`, so a layout needing ZFS is a
+#: refusal rather than an attempt. `model/validate.py` holds that rule; this
+#: constant is what the message names.
+LOWRAM_FLOOR_MIB: Final[int] = 512
+
+
+@dataclass(frozen=True)
+class BootTarget:
+    """What this machine boots with, as `exec/probe.py` answered it.
+
+    Carried rather than probed here: `plan/` derives operations and reads no
+    machine. The four esp fields are absent on a BIOS machine, and the
+    bootloader directory is absent on a UEFI one.
+    """
+
+    method: BootMethod
+    esp_mountpoint: str | None = None
+    esp_device: str | None = None
+    esp_disk: str | None = None
+    esp_partition: int | None = None
+    grub_directory: str | None = None
+
+    @property
+    def place(self) -> PurePosixPath:
+        """Where the kernel and the initramfs go for this method.
+
+        systemd-boot and a UEFI GRUB read from the esp; a BIOS GRUB reads from
+        wherever its own configuration lives, which is `/boot` on every layout
+        this installer produces.
+        """
+        if self.method is BootMethod.BIOS_GRUB:
+            return PurePosixPath("/boot") / PLACE
+        if self.esp_mountpoint is None:
+            raise PreflightFailed(
+                "this machine boots by UEFI and no EFI system partition is mounted, "
+                "so there is nowhere the firmware would read a kernel from"
+            )
+        return PurePosixPath(self.esp_mountpoint) / PLACE
+
+
+@dataclass(frozen=True, kw_only=True)
+class RefuseWithoutABootMethod(Operation):
+    """Nothing may be downloaded before it is known that it can be booted.
+
+    An arming that cannot be undone is the one failure this path must not
+    have, so the refusals come before the fetch rather than after it.
+    """
+
+    stage: Stage = Stage.PREFLIGHT
+    target: BootTarget
+
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "check that this machine can be told to boot once, {}", (
+            self.target.method.value,
+        )
+
+    def apply(self, context: Context) -> None:
+        if self.target.method is BootMethod.NONE:
+            raise PreflightFailed(
+                "no bootloader here can be told to boot once: this needs "
+                "systemd-boot, a UEFI GRUB with efibootmgr, or a BIOS GRUB"
+            )
+        # Reading it forces the layout check in `place` before anything is
+        # fetched, so a UEFI machine with no mounted esp stops here.
+        self.target.place
+
+
+@dataclass(frozen=True, kw_only=True)
+class RefuseTooLittleMemory(Operation):
+    """`--ram` reads the whole squashfs into RAM, and the initramfs stops at an
+    emergency shell rather than saying so on a machine that cannot hold it."""
+
+    stage: Stage = Stage.PREFLIGHT
+    mode: MemoryMode
+
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "check this machine has the {} MiB {} needs", (
+            str(self.floor),
+            f"--{self.mode.value}",
+        )
+
+    @property
+    def floor(self) -> int:
+        return RAM_FLOOR_MIB if self.mode is MemoryMode.RAM else LOWRAM_FLOOR_MIB
+
+    def apply(self, context: Context) -> None:
+        said = context.run(["free", "--mebi", "--total"], check=False)
+        if isinstance(said, CommandOutput) and said.returncode != 0:
+            # Unreadable is not the same as too little, and refusing on a
+            # command that did not run is a refusal nobody can act on.
+            return
+        total = _total_mebibytes(said)
+        if total is not None and total < self.floor:
+            raise PreflightFailed(
+                f"{self.mode.value} needs about {self.floor} MiB and this machine "
+                f"has {total}: the live image is read into memory, and under "
+                "that the initramfs stops at an emergency shell"
+            )
+
+
+@dataclass(frozen=True, kw_only=True)
+class FetchMemoryImage(Operation):
+    """Download the image and check it against the checksum its publisher gives.
+
+    A wrong image is discovered at the next boot, when the machine the
+    operator was logged into is no longer answering.
+    """
+
+    stage: Stage = Stage.STAGE3
+    mode: MemoryMode
+    target: BootTarget
+
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "fetch the {} image and verify its checksum", (self.mode.value,)
+
+    def apply(self, context: Context) -> None:
+        place = self.target.place
+        context.run(["mkdir", "--parents", str(place)])
+        name, url, checksum = (
+            _cjk_release(context) if self.mode is MemoryMode.RAM else _alpine_release(context)
+        )
+        image = place / name
+        context.run(["curl", "--fail", "--location", "--output", str(image), url])
+        said = context.run(["sha256sum", str(image)])
+        got = said.split()[0] if said.split() else ""
+        if got != checksum:
+            context.run(["rm", "--force", str(image)])
+            raise DownloadFailed(
+                f"{name} hashes to {got or 'nothing'} and its publisher says "
+                f"{checksum}, so it was not written where the firmware reads it"
+            )
+
+
+@dataclass(frozen=True, kw_only=True)
+class PlaceMemoryKernel(Operation):
+    """Take the kernel and the initramfs out of the image.
+
+    Only these two are moved. For `--ram` the ISO itself stays where it was
+    downloaded, because `iso-scan/filename` is what the initramfs uses to find
+    it and it does not have to fit on the esp.
+    """
+
+    stage: Stage = Stage.BOOTLOADER
+    mode: MemoryMode
+    target: BootTarget
+
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "unpack the {} kernel and initramfs into {}", (
+            self.mode.value,
+            str(self.target.place),
+        )
+
+    def apply(self, context: Context) -> None:
+        place = self.target.place
+        if self.mode is MemoryMode.RAM:
+            image = _only_image(context, place, ".iso")
+            for member, name in (("/boot/gentoo", "kernel"), ("/boot/gentoo.igz", "initramfs")):
+                context.run(
+                    [
+                        "xorriso",
+                        "-osirrox",
+                        "on",
+                        "-indev",
+                        str(image),
+                        "-extract",
+                        member,
+                        str(place / name),
+                    ]
+                )
+            return
+        archive = _only_image(context, place, ".tar.gz")
+        for member, name in (
+            ("boot/vmlinuz-lts", "kernel"),
+            ("boot/initramfs-lts", "initramfs"),
+        ):
+            context.run(
+                [
+                    "tar",
+                    "--extract",
+                    "--file",
+                    str(archive),
+                    "--directory",
+                    str(place),
+                    "--transform",
+                    f"s|.*|{name}|",
+                    member,
+                ]
+            )
+
+
+@dataclass(frozen=True, kw_only=True)
+class WriteMemoryEntry(Operation):
+    """Write the entry the armed boot selects, in this machine's own format."""
+
+    stage: Stage = Stage.BOOTLOADER
+    mode: MemoryMode
+    target: BootTarget
+    launch: MemoryLaunch
+
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "write a {} entry for the {} environment", (
+            self.target.method.value,
+            self.mode.value,
+        )
+
+    def apply(self, context: Context) -> None:
+        place = self.target.place
+        cmdline = " ".join(self._cmdline(context, place))
+        if self.target.method is BootMethod.SYSTEMD_BOOT:
+            entry = (
+                f"title   {ENTRY_LABEL}\n"
+                f"linux   /{PLACE}/kernel\n"
+                f"initrd  /{PLACE}/initramfs\n"
+                f"options {cmdline}\n"
+            )
+            context.write(
+                PurePosixPath(str(self.target.esp_mountpoint))
+                / "loader"
+                / "entries"
+                / f"{PLACE}.conf",
+                entry,
+            )
+            return
+        # Both GRUBs read their own `custom.cfg`, and a UEFI one is reached
+        # by `--bootnext` into GRUB rather than into the entry directly.
+        _write_custom(context, self.target, cmdline, place)
+
+    def _cmdline(self, context: Context, place: PurePosixPath) -> tuple[str, ...]:
+        if self.mode is MemoryMode.RAM:
+            image = _only_image(context, place, ".iso")
+            label = _volume_label(context, image)
+            words = [
+                f"root=live:CDLABEL={label}",
+                *CJK_CMDLINE,
+                f"iso-scan/filename={_relative_to_mount(self.target, image)}",
+            ]
+            if self.launch.root_password:
+                # `dosshd` scrambles the root password, so it is documented as
+                # requiring `passwd=`: without one the machine comes up with
+                # sshd running and no way to authenticate to it.
+                words += ["dosshd", f"passwd={self.launch.root_password}"]
+            return tuple(words)
+        words = [
+            f"alpine_repo={ALPINE_REPOSITORY}",
+            f"modloop={ALPINE_REPOSITORY.rsplit('/', 1)[0]}/releases/x86_64/netboot/modloop-lts",
+            "ip=dhcp",
+        ]
+        if self.launch.ssh_key:
+            # Alpine's netboot init installs openssh and enables sshd when
+            # this is set; where the key text lands is the booted system's
+            # `firstboot`, which is why the installer writes it as well.
+            words.append(f"ssh_key={self.launch.ssh_key}")
+        return tuple(words)
+
+
+@dataclass(frozen=True, kw_only=True)
+class ArmOneShot(Operation):
+    """Tell this machine to boot the entry once and return to its own.
+
+    One boot, not a new default: a memory environment that does not come up
+    has to leave a machine that still boots. `--bypass` is the other operation
+    and says what it costs.
+    """
+
+    stage: Stage = Stage.BOOTLOADER
+    target: BootTarget
+
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "arm one boot into the memory environment with {}", (
+            self.target.method.value,
+        )
+
+    def apply(self, context: Context) -> None:
+        if self.target.method is BootMethod.SYSTEMD_BOOT:
+            context.run(["bootctl", "set-oneshot", f"{PLACE}.conf"])
+            return
+        context.run(["grub-reboot", ENTRY_LABEL])
+
+
+@dataclass(frozen=True, kw_only=True)
+class ReplaceDefaultBoot(Operation):
+    """`--bypass`: make the memory environment the default rather than a guest.
+
+    This is the one path where an environment that does not come up leaves a
+    machine that does not boot at all, so it is never a fallback something
+    else selects: firmware that drops an `efibootmgr --create-only` write, an
+    NVRAM entry lost to a reset rather than a clean shutdown, and a read-only
+    `grubenv` are all cases where the one-shot is written and ignored, and the
+    operator asks for this having seen that happen.
+    """
+
+    stage: Stage = Stage.BOOTLOADER
+    target: BootTarget
+
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "replace the default boot entry with the memory environment ({})", (
+            self.target.method.value,
+        )
+
+    def apply(self, context: Context) -> None:
+        if self.target.method is BootMethod.SYSTEMD_BOOT:
+            context.run(["bootctl", "set-default", f"{PLACE}.conf"])
+            return
+        # `grub-set-default` writes `saved_entry`, which the shipped
+        # `grub.cfg` reads only when `GRUB_DEFAULT=saved`. Writing the
+        # variable is not enough on a machine whose configuration does not,
+        # so the entry is also made the first one `custom.cfg` offers.
+        context.run(["grub-set-default", ENTRY_LABEL])
+
+
+@dataclass(frozen=True, kw_only=True)
+class DisarmMemoryBoot(Operation):
+    """Undo an arming, for the operator who changed their mind before rebooting."""
+
+    stage: Stage = Stage.FINISH
+    target: BootTarget
+
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "take back the armed boot and delete what it placed", ()
+
+    def apply(self, context: Context) -> None:
+        if self.target.method is BootMethod.SYSTEMD_BOOT:
+            context.run(["bootctl", "set-oneshot", "auto-reboot-to-firmware-setup"], check=False)
+        elif self.target.grub_directory is not None:
+            context.run(
+                ["grub-editenv", f"{self.target.grub_directory}/grubenv", "unset", "next_entry"],
+                check=False,
+            )
+        context.run(["rm", "--recursive", "--force", str(self.target.place)], check=False)
+
+
+def build(
+    *, launch: MemoryLaunch, target: BootTarget, bypass: bool = False
+) -> list[Operation]:
+    """Every operation that arms one boot into the memory environment.
+
+    Order is the stage order the rest of the installer sorts by: the refusals
+    are `PREFLIGHT` so nothing is downloaded onto a machine that cannot boot
+    it, the fetch is `STAGE3`, and placing, writing and arming are
+    `BOOTLOADER`.
+    """
+    arming: Operation = (
+        ReplaceDefaultBoot(target=target) if bypass else ArmOneShot(target=target)
+    )
+    return [
+        RefuseWithoutABootMethod(target=target),
+        RefuseTooLittleMemory(mode=launch.mode),
+        FetchMemoryImage(mode=launch.mode, target=target),
+        PlaceMemoryKernel(mode=launch.mode, target=target),
+        WriteMemoryEntry(mode=launch.mode, target=target, launch=launch),
+        arming,
+    ]
+
+
+def disarm(*, target: BootTarget) -> list[Operation]:
+    """Take back an arming, for the operator who answers no to the reboot.
+
+    A machine left armed reboots into the memory environment the next time
+    anything reboots it, which may be months later and for another reason.
+    """
+    return [DisarmMemoryBoot(target=target)]
+
+
+def _write_custom(
+    context: Context, target: BootTarget, cmdline: str, place: PurePosixPath
+) -> None:
+    """A GRUB entry between markers, so arming twice replaces rather than adds."""
+    if target.grub_directory is None:
+        raise PreflightFailed(
+            "this machine boots with GRUB and no GRUB directory was found, "
+            "so there is nowhere an entry would be read from"
+        )
+    custom = PurePosixPath(target.grub_directory) / "custom.cfg"
+    entry = (
+        f"{CUSTOM_BEGIN}\n"
+        f"menuentry '{ENTRY_LABEL}' {{\n"
+        f"    search --no-floppy --set=root --file /{PLACE}/kernel\n"
+        f"    linux /{PLACE}/kernel {cmdline}\n"
+        f"    initrd /{PLACE}/initramfs\n"
+        f"}}\n"
+        f"{CUSTOM_END}\n"
+    )
+    context.write(custom, _without_previous(context.read(custom)) + entry)
+
+
+def _without_previous(text: str) -> str:
+    """The file with any earlier entry of ours removed, markers included."""
+    if CUSTOM_BEGIN not in text:
+        return text
+    before, _, rest = text.partition(CUSTOM_BEGIN)
+    _, _, after = rest.partition(CUSTOM_END)
+    return before + after.lstrip("\n")
+
+
+def _relative_to_mount(target: BootTarget, image: PurePosixPath) -> str:
+    """`iso-scan/filename` is relative to the filesystem the file is on.
+
+    iso-scan mounts each `/dev/disk/by-uuid/*` and looks for that path inside
+    it, so an absolute path that includes the mount point finds nothing.
+    """
+    if target.method is BootMethod.BIOS_GRUB or target.esp_mountpoint is None:
+        return f"/{image.relative_to('/boot')}" if _under(image, "/boot") else str(image)
+    return f"/{image.relative_to(target.esp_mountpoint)}"
+
+
+def _under(path: PurePosixPath, parent: str) -> bool:
+    return str(path).startswith(parent.rstrip("/") + "/")
+
+
+def _only_image(context: Context, place: PurePosixPath, suffix: str) -> PurePosixPath:
+    """The one file of that kind in the directory this plan owns."""
+    said = context.run(["ls", "--almost-all", str(place)], check=False)
+    names = [one for one in said.split() if one.endswith(suffix)]
+    if len(names) != 1:
+        raise DownloadFailed(
+            f"{place} holds {len(names)} files ending {suffix} and this needs one"
+        )
+    return place / names[0]
+
+
+def _volume_label(context: Context, image: PurePosixPath) -> str:
+    """`root=live:CDLABEL=` has to be the label the ISO actually carries.
+
+    Read from the file rather than composed from its name: the two agree today
+    and a release that changes one without the other boots to a dracut shell
+    saying it cannot find the live image.
+    """
+    said = context.run(
+        ["blkid", "--probe", "--match-tag", "LABEL", "--output", "value", str(image)]
+    )
+    label = said.strip().splitlines()
+    if not label or not label[0].strip():
+        raise DownloadFailed(f"{image} carries no volume label to boot by")
+    return label[0].strip()
+
+
+def _total_mebibytes(said: str) -> int | None:
+    """`free --mebi --total`'s `Total:` row, which is memory plus swap.
+
+    The `Mem:` row is what matters and is the first: swap is not where a live
+    image is read into.
+    """
+    for line in said.splitlines():
+        if line.startswith("Mem:"):
+            fields = line.split()
+            if len(fields) > 1 and fields[1].isdigit():
+                return int(fields[1])
+    return None
+
+
+def _cjk_release(context: Context) -> tuple[str, str, str]:
+    """The newest CJK ISO: its name, its URL and its SHA-256."""
+    said = context.run(["curl", "--fail", "--location", CJK_RELEASES])
+    try:
+        release = json.loads(said)
+    except json.JSONDecodeError as error:
+        raise DownloadFailed(f"the CJK release index is not JSON: {error}") from error
+    assets = {
+        str(one.get("name", "")): str(one.get("browser_download_url", ""))
+        for one in release.get("assets", [])
+    }
+    iso = next((one for one in assets if one.endswith(".iso")), "")
+    if not iso or not assets.get(f"{iso}.sha256"):
+        raise DownloadFailed(
+            "the newest CJK release publishes no ISO with a companion .sha256"
+        )
+    digest = context.run(["curl", "--fail", "--location", assets[f"{iso}.sha256"]])
+    return iso, assets[iso], _first_word(digest, iso)
+
+
+def _alpine_release(context: Context) -> tuple[str, str, str]:
+    """The newest Alpine netboot bundle: its name, its URL and its SHA-256.
+
+    `latest-releases.yaml` is read as records separated by `-` at the start of
+    a line rather than with a YAML parser, because no YAML parser is in the
+    standard library and this file's shape is two levels deep.
+    """
+    said = context.run(["curl", "--fail", "--location", ALPINE_RELEASES])
+    for record in said.split("\n-\n"):
+        fields = dict(_yaml_pairs(record))
+        if fields.get("flavor") != ALPINE_NETBOOT_FLAVOUR:
+            continue
+        name, digest = fields.get("file", ""), fields.get("sha256", "")
+        if not name or not digest:
+            break
+        base = ALPINE_RELEASES.rsplit("/", 1)[0]
+        return name, f"{base}/{name}", digest
+    raise DownloadFailed(
+        f"{ALPINE_RELEASES} names no {ALPINE_NETBOOT_FLAVOUR} with a sha256"
+    )
+
+
+def _yaml_pairs(record: str) -> list[tuple[str, str]]:
+    return [
+        (key.strip(), value.strip().strip('"'))
+        for key, _, value in (line.partition(":") for line in record.splitlines())
+        if key.strip() and value.strip() and not key.startswith(("#", "-"))
+    ]
+
+
+def _first_word(digest: str, name: str) -> str:
+    """A `.sha256` file is `<hex>  <name>`, and taking the whole line compares
+    a hash against a hash and a filename."""
+    fields = digest.split()
+    if not fields or len(fields[0]) != 64:
+        raise DownloadFailed(f"the checksum published beside {name} is not a SHA-256")
+    return fields[0]

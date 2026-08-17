@@ -22,6 +22,10 @@ from typing import ClassVar, Final, Iterable, Mapping
 
 from ..errors import CommandFailed, DeviceNotFound
 from ..model.config import DiskMode, InstallConfig
+# Declared in `model/` because `plan/netboot.py` derives operations from it
+# and `plan/` may not import `exec/`; re-exported here so every caller that
+# asks the probe for the method reads the enum from the same place.
+from ..model.config import BootMethod as BootMethod
 from ..model.device import (
     DeviceGraph,
     DeviceId,
@@ -47,21 +51,6 @@ EFI_WIDTH: Final[Path] = EFI_MARKER / "fw_platform_size"
 #: the kernel booted through EFI; it does not say the variables can be
 #: written, and `efibootmgr --create` is what ZFSBootMenu's install runs.
 EFI_VARIABLES: Final[Path] = EFI_MARKER / "efivars"
-
-
-class BootMethod(Enum):
-    """What arms a one-shot entry on this machine, read rather than chosen.
-
-    Three ways to boot once and return: `bootctl set-oneshot` where
-    systemd-boot owns the esp, `efibootmgr --bootnext` where GRUB does, and
-    GRUB's own `next_entry` on a BIOS machine. Which one applies is a fact
-    about the machine.
-    """
-
-    SYSTEMD_BOOT = "systemd-boot"
-    UEFI_GRUB = "uefi-grub"
-    BIOS_GRUB = "bios-grub"
-    NONE = "none"
 
 
 #: Where a BIOS GRUB keeps its configuration. Both spellings, because Fedora
