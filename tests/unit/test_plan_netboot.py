@@ -418,3 +418,109 @@ def _relabelled(
         return previous(argv) if previous is not None else None
 
     return answer
+
+
+def _appended(recorder: Recorder, keys: tuple[str, ...] = ()) -> None:
+    netboot.AppendConfiguration(
+        target=_target(),
+        launch=_launch(),
+        configuration='[disk]\nmode = "partition"\n',
+        source="/opt/gentoo-install",
+        keys=keys,
+    ).apply(recorder)
+
+
+def test_the_payload_is_appended_to_the_initramfs_rather_than_repacked() -> None:
+    """A newc cpio appended to the compressed initramfs is unpacked by the
+    kernel and its hooks are run by dracut: measured on 2026-08-18 by booting
+    one, where a hook in the appended segment printed at 3.5 seconds. So 1.5
+    KiB of cpio delivers everything and the 55 MiB image is never rewritten.
+    """
+    recorder = _answering()
+    _appended(recorder)
+
+    appended = [
+        one for one in recorder.commands if one[0] == "sh" and "cpio --create" in one[-1]
+    ]
+    assert len(appended) == 1, recorder.commands
+    # Appended, not overwritten: `>` would leave an initramfs holding only the
+    # payload and a machine with no way to mount its root.
+    assert ">>" in appended[0][-1] and ">> " in appended[0][-1], appended
+    assert f"{netboot.PLACE}/initramfs" in appended[0][-1], appended
+
+
+def test_the_archive_is_made_from_inside_the_staging_directory() -> None:
+    """`find` from anywhere else writes the staging prefix into every path, so
+    the payload unpacks to a directory the hook does not look in."""
+    recorder = _answering()
+    _appended(recorder)
+
+    made = next(one for one in recorder.commands if "cpio --create" in one[-1])
+    assert made[-1].startswith("cd ") and "&& find . |" in made[-1], made
+
+
+def test_the_installer_travels_with_its_own_configuration() -> None:
+    """The configuration was written by this revision, so the environment runs
+    this revision rather than whatever a later download would bring."""
+    recorder = _answering()
+    _appended(recorder)
+
+    carried = next(
+        one for one in recorder.commands if one[0] == "sh" and "tar --create" in one[-1]
+    )
+    assert "cd /opt/gentoo-install" in carried[-1], carried
+    assert "gentoo_install bootstrap.sh" in carried[-1], carried
+    assert "__pycache__" in carried[-1], carried
+
+
+def test_a_key_is_written_where_sshd_reads_it_and_not_world_readable() -> None:
+    recorder = _answering()
+    _appended(recorder, keys=("ssh-ed25519 AAAA zakk@box",))
+
+    payload = PurePosixPath(f"{ESP}/{netboot.PLACE}/payload{netboot.PAYLOAD}")
+    assert recorder.files[payload / "authorized_keys"].endswith("zakk@box\n")
+    assert recorder.modes[payload / "authorized_keys"] == 0o600
+    hook = recorder.files[
+        PurePosixPath(f"{ESP}/{netboot.PLACE}/payload/usr/lib/dracut/hooks/pre-pivot/99-gentoo-install.sh")
+    ]
+    assert "/root/.ssh/authorized_keys" in hook, hook
+    assert "chmod 600" in hook, hook
+
+
+def test_the_live_system_asks_before_it_erases_anything() -> None:
+    """`docs/design.md` settles this: the first screen offers two things and
+    neither happens on a timer. A countdown that ends in a partitioned disk is
+    one nobody can lose safely."""
+    recorder = _answering()
+    _appended(recorder)
+
+    start = recorder.files[
+        PurePosixPath(f"{ESP}/{netboot.PLACE}/payload{netboot.PAYLOAD}/start.sh")
+    ]
+    assert "read answer" in start, start
+    assert "install)" in start and "bootstrap.sh --config" in start, start
+    # No timeout anywhere: `read -t` and `sleep` are both ways to answer for
+    # the operator, and the answer they would give erases a disk.
+    assert "read -t" not in start and "sleep" not in start, start
+
+
+def test_no_configuration_appends_nothing() -> None:
+    """`--ram` with no configuration is the rescue path, and a payload with an
+    empty `config.toml` would offer to install from it."""
+    plan = netboot.build(launch=_launch(), target=_target())
+    assert not any(isinstance(one, netboot.AppendConfiguration) for one in plan)
+
+    carrying = netboot.build(
+        launch=_launch(), target=_target(), configuration="x = 1\n", source="/opt/x"
+    )
+    at = next(
+        n for n, one in enumerate(carrying) if isinstance(one, netboot.AppendConfiguration)
+    )
+    placed = next(
+        n for n, one in enumerate(carrying) if isinstance(one, netboot.PlaceMemoryKernel)
+    )
+    entry = next(
+        n for n, one in enumerate(carrying) if isinstance(one, netboot.WriteMemoryEntry)
+    )
+    # After the initramfs is placed and before the entry names it.
+    assert placed < at < entry, [type(one).__name__ for one in carrying]

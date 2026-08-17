@@ -48,6 +48,7 @@ from .model.config import (
 )
 from .exec.config import load_source
 from .model import authorized
+from .model.serialise import to_toml
 from .model.validate import validate_memory_launch
 from .plan import convert, netboot
 from .plan.convert import SWAP_CONFIRMATION
@@ -258,7 +259,18 @@ def _arm_memory_environment(
     """
     probe = Probe(runner=Runner(log=lambda line: None), work=arguments.work)
     target = _boot_target(probe)
-    operations = netboot.build(launch=launch, target=target, bypass=arguments.bypass)
+    operations = netboot.build(
+        launch=launch,
+        target=target,
+        bypass=arguments.bypass,
+        # Rendered rather than the file the operator passed: a run from the
+        # menu has no file, and the environment must install what was chosen.
+        configuration=to_toml(config),
+        # Where this installer is, so the payload carries the revision that
+        # wrote that configuration.
+        source=str(Path(__file__).resolve().parent.parent),
+        keys=tuple(config.system.authorized_keys),
+    )
     if arguments.dry_run:
         print(render(operations), end="")
         print(summarise(operations))
