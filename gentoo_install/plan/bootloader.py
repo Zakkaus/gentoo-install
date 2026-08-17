@@ -398,6 +398,12 @@ class ConfigureZfsBootMenuRemoteAccess(Operation):
                     # ZFSBootMenu deliberately omits the systemd module.
                     'omit_dracutmodules+=" systemd-networkd systemd-battery-check "',
                     f'install_optional_items+=" {ZBM_NETWORK_CONFIG} "',
+                    # The module's own default is `rsa ecdsa ed25519`, and it
+                    # generates each one with `ssh-keygen -m PEM`, which refuses
+                    # ed25519. Its `install()` returns at that failure, after
+                    # the two host keys and before the acl and the start hook,
+                    # which is exactly what the built image held.
+                    f'dropbear_keytypes="{" ".join(ZBM_HOST_KEY_TYPES)}"',
                     f'dropbear_port="{self.unlock.port}"',
                     f"dropbear_rsa_key={ZBM_KEY_DIRECTORY}/ssh_host_rsa_key",
                     f"dropbear_ecdsa_key={ZBM_KEY_DIRECTORY}/ssh_host_ecdsa_key",
