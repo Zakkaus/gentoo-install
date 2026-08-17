@@ -386,3 +386,39 @@ def test_an_image_built_without_the_unlock_daemon_is_said_rather_than_shipped() 
     replace(built, unlocks_remotely=False).apply(quiet)
     assert not quiet.degraded(bootloader.REMOTE_UNLOCK_IMAGE)
     assert not [one for one in quiet.in_target if one[0] == "lsinitrd"], quiet.in_target
+
+
+def test_the_unlock_names_the_key_types_the_module_may_generate() -> None:
+    """Read from `60crypt-ssh/module-setup.sh` v1.0.8, whose `install()` is:
+
+        [[ -z "${dropbear_keytypes}" ]] && dropbear_keytypes="rsa ecdsa ed25519"
+        ...
+        ssh-keygen -t $keyType -f $osshKey -q -N "" -m PEM || { derror; return 1; }
+        ...
+        inst $dropbearKey $installKey        # per key type, inside the loop
+        ...
+        inst_hook pre-udev 99 dropbear-start.sh
+        inst "${dropbear_acl}" /root/.ssh/authorized_keys
+
+    `ssh-keygen -m PEM` refuses ed25519, which is why `ZBM_HOST_KEY_TYPES` has
+    only two entries. Leaving the module on its default put it through the
+    ed25519 iteration, so it returned after installing the two host keys and
+    before the acl and the hook. The image an install produced held exactly
+    `etc/dropbear/dropbear_{ecdsa,rsa}_host_key` and nothing else.
+    """
+    installation = load(Path("tests/fixtures/zbm-unlock.toml"))
+    configured = next(
+        one
+        for one in bootloader.build(installation)
+        if isinstance(one, bootloader.ConfigureZfsBootMenuRemoteAccess)
+    )
+    recorder = Recorder()
+    configured.apply(recorder)
+    written = recorder.files[bootloader.ZBM_REMOTE_CONFIG]
+
+    assert 'dropbear_keytypes="rsa ecdsa"' in written, written
+    # One table, not two: the types the module may generate are the types this
+    # installer converts host keys for, and a second list would drift.
+    assert "ed25519" not in written, written
+    for keytype in bootloader.ZBM_HOST_KEY_TYPES:
+        assert f'dropbear_{keytype}_key=' in written, keytype
