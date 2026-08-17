@@ -29,6 +29,7 @@ from .driver import FIND_DRIVER, REPOSITORY, build as build_driver
 from .installed import checks
 from .media import MEDIA
 from .qemu import Firmware, Vm, VmSpec
+from .run import free_port
 from .workdir import confined
 
 #: Where `pull.sh` keeps the images. A run reads them and writes none of them.
@@ -235,6 +236,7 @@ def boot_and_check(root: Path, workdir: Path, chosen: CloudImage, config: str) -
         firmware=chosen.firmware,
         memory="4G",
         cpus=2,
+        ssh_port=free_port(),
         targets=(root,),
         boot_installed=True,
     )
@@ -304,6 +306,10 @@ def main(argv: list[str] | None = None) -> int:
         firmware=chosen.firmware,
         memory=arguments.memory,
         cpus=arguments.cpus,
+        # A free one rather than the default: two conversions, or a conversion
+        # beside a local install, both asked for 2222 and the second died with
+        # `Could not set up host forwarding rule` and no mention of the port.
+        ssh_port=free_port(),
         driver_iso=driver,
         targets=(root,),
         disks=(cidata,),
