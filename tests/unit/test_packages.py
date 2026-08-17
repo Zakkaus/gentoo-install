@@ -134,6 +134,22 @@ def test_plasma_declares_the_minizip_compatibility_required_by_its_stack() -> No
         assert "sys-libs/minizip-ng compat" in catalog[profile].package_use
 
 
+def test_xfce_declares_the_dbusmenu_flag_its_panel_requires() -> None:
+    """`emerge --pretend` on a cluster run of `vm-openrc-desktop` answered:
+
+        # required by xfce-base/xfce4-panel-4.20.7::gentoo[dbusmenu]
+        # required by xfce-base/thunar-4.20.8::gentoo[trash-panel-plugin]
+        # required by xfce-base/thunar-volman-4.20.0::gentoo
+        # required by xfce-base/xfce4-meta-4.20::gentoo
+        >=dev-libs/libdbusmenu-16.04.0-r4 gtk3
+
+    The rejection is of the whole group, so nothing of the desktop is merged.
+    """
+    catalog = load_catalog()
+
+    assert "dev-libs/libdbusmenu gtk3" in catalog["xfce"].package_use
+
+
 def test_ibus_has_declared_chinese_engines() -> None:
     catalog = load_catalog()
     chinese = {
