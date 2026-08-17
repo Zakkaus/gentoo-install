@@ -2139,3 +2139,76 @@ def test_a_manifest_mismatch_still_gets_the_short_wait() -> None:
         portage.SYNC_PAUSE * (n + 1) for n in range(portage.KEYRING_TRIES - 1)
     ], slept
     assert sum(slept) < 5 * 60, slept
+
+
+def test_a_refused_keyring_refresh_moves_to_another_keyserver() -> None:
+    """Waiting cannot leave a window one host is refusing for. Measured
+    2026-08-17: the cluster's guests read `KEYSERVER_TCP refused` for
+    140.211.166.190 while this workstation received the key from it, and eight
+    of nine run63 guests died after all four attempts asked that one host."""
+    from gentoo_install.errors import CommandFailed
+    from gentoo_install.plan.operations import CommandOutput
+    from gentoo_install.plan import portage as plan_portage
+    from .recorder import Recorder
+
+    asked: list[str] = []
+
+    def answer(argv: Sequence[str]) -> str | None:
+        if tuple(argv[:3]) == ("portageq", "envvar", "PORTAGE_GPG_KEY_SERVER"):
+            return CommandOutput("\n", 0)
+        if "emerge-webrsync" in argv:
+            asked.append(next(one for one in argv if one.startswith("PORTAGE_GPG_KEY")))
+            raise CommandFailed(
+                "emerge-webrsync ended with exit 1: [  ERROR] OpenPGP keyring "
+                "refresh failed: | gpg: keyserver refresh failed: Try again later"
+            )
+        return None
+
+    recorder = Recorder(answering=answer)
+    with pytest.raises(CommandFailed):
+        plan_portage.WebrsyncRepository().apply(recorder)
+
+    assert asked[0] == f"PORTAGE_GPG_KEY_SERVER={plan_portage.KEY_SERVER}"
+    assert len(set(asked)) > 1, asked
+    # Every host in the table is reached before the attempts run out, or a
+    # fallback that is never asked reads as coverage and is not.
+    assert {one.partition("=")[2] for one in asked} == set(plan_portage.KEY_SERVERS)
+
+
+def test_a_manifest_mismatch_keeps_asking_the_same_keyserver() -> None:
+    """The rotation answers a refused keyserver. A mirror rewriting its
+    Manifests is a different failure, and changing the keyserver for it would
+    make the next attempt fetch a key it had no reason to refetch."""
+    from gentoo_install.errors import CommandFailed
+    from gentoo_install.plan.operations import CommandOutput
+    from gentoo_install.plan import portage as plan_portage
+    from .recorder import Recorder
+
+    asked: list[str] = []
+
+    def answer(argv: Sequence[str]) -> str | None:
+        if tuple(argv[:3]) == ("portageq", "envvar", "PORTAGE_GPG_KEY_SERVER"):
+            return CommandOutput("\n", 0)
+        if "emerge-webrsync" in argv:
+            asked.append(next(one for one in argv if one.startswith("PORTAGE_GPG_KEY")))
+            raise CommandFailed("emerge-webrsync exited 1: Manifest mismatch")
+        return None
+
+    recorder = Recorder(answering=answer)
+    with pytest.raises(CommandFailed):
+        plan_portage.WebrsyncRepository().apply(recorder)
+
+    assert len(set(asked)) == 1, asked
+
+
+def test_the_keyserver_policy_the_stage3_names_is_not_asked_twice() -> None:
+    """A stage3 or an operator that names a server has chosen it, so it leads
+    the rotation and does not also appear later in it."""
+    from gentoo_install.plan import portage as plan_portage
+
+    assert plan_portage._key_servers(plan_portage.KEY_SERVER)[0] == plan_portage.KEY_SERVER
+    for chosen in (plan_portage.KEY_SERVER, "hkps://keys.example.invalid"):
+        rotation = plan_portage._key_servers(chosen)
+        assert len(rotation) == len(set(rotation)), rotation
+        assert rotation.count(chosen) == 1, rotation
+        assert set(plan_portage.KEY_SERVERS) <= set(rotation), rotation

@@ -55,6 +55,17 @@ AUTOUNMASK_FILES: Final[tuple[str, ...]] = (
 #: Where Gentoo publishes the keys gemato refreshes.
 KEY_SERVER: Final[str] = "hkps://keys.gentoo.org"
 
+#: Tried in order when the keyring refresh is refused. gemato is given the
+#: release key by path (`-K /usr/share/openpgp-keys/gentoo-release.asc`, in
+#: `emerge-webrsync`), so a keyserver only ever supplies updates to a key whose
+#: fingerprint is already pinned: a second host is a mirror of the same key,
+#: not a weaker check. Measured 2026-08-17: the cluster's guests got
+#: `KEYSERVER_TCP refused` for 140.211.166.190 while this workstation received
+#: the key from it, and `keyserver.ubuntu.com` answered for the same
+#: fingerprint. Asking one host four times cannot leave a window that host is
+#: refusing for.
+KEY_SERVERS: Final[tuple[str, ...]] = (KEY_SERVER, "hkps://keyserver.ubuntu.com")
+
 PROXY_BOOTSTRAP: Final[PurePosixPath] = PurePosixPath(
     "/etc/gentoo-install/proxy.toml"
 )
@@ -501,11 +512,17 @@ class WebrsyncRepository(Operation):
         # refreshes it from a keyserver, and gemato lets a `ReadTimeout` in the
         # WKD lookup out rather than falling back. `openrc-sdboot` ended a
         # cluster round there with the tree never fetched.
+        servers = _key_servers(server)
         last: CommandFailed | None = None
+        refused = 0
         for attempt in range(KEYRING_TRIES):
             try:
                 context.run_in_target(
-                    ["env", f"PORTAGE_GPG_KEY_SERVER={server}", "emerge-webrsync"]
+                    [
+                        "env",
+                        f"PORTAGE_GPG_KEY_SERVER={servers[refused % len(servers)]}",
+                        "emerge-webrsync",
+                    ]
                 )
                 return
             except CommandFailed as failed:
@@ -515,9 +532,10 @@ class WebrsyncRepository(Operation):
                 # A keyserver the whole round is asking at once needs longer
                 # than a mirror rewriting a Manifest, and the two failures are
                 # told apart before the wait rather than after it.
-                pause = (
-                    KEYRING_PAUSE if _keyring_refused(str(failed)) else SYNC_PAUSE
-                ) * (attempt + 1)
+                keyring = _keyring_refused(str(failed))
+                if keyring:
+                    refused += 1
+                pause = (KEYRING_PAUSE if keyring else SYNC_PAUSE) * (attempt + 1)
                 context.run(["sleep", f"{pause:g}"])
         assert last is not None
         raise last
@@ -549,6 +567,15 @@ KEYRING_REFUSED: Final[tuple[str, ...]] = (
 #: mismatch needs.
 KEYRING_TRIES: Final[int] = 4
 KEYRING_PAUSE: Final[float] = 90.0
+
+
+def _key_servers(first: str) -> tuple[str, ...]:
+    """The rotation, with whatever the stage3's own policy named at the front.
+
+    An operator or a stage3 that names a server has chosen it, so it is tried
+    before the fallbacks and is not repeated later in the rotation.
+    """
+    return (first, *(one for one in KEY_SERVERS if one != first))
 
 
 def _keyring_refused(output: str) -> bool:
