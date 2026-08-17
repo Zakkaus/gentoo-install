@@ -770,3 +770,55 @@ def test_the_anthy_group_names_no_backend_of_its_own() -> None:
     group = load_catalog()["anthy"]
     assert group.packages == ("app-i18n/fcitx-anthy",)
     assert not any(name.endswith(("/anthy", "/anthy-unicode")) for name in group.packages)
+
+
+def test_every_recorder_answer_carries_an_exit_code() -> None:
+    """The real `Context.run_in_target` answers a `CommandOutput`, and three
+    of the double's branches answered a bare `str`: a failing command under
+    `check=False`, an injected `answering`, and the fallback. A caller that
+    degrades or retries on a non-zero code was therefore handed an object with
+    no `returncode`, and a non-empty string reads as success.
+    """
+    from gentoo_install.plan.operations import CommandOutput
+
+    recorder = Recorder(replies={"grep": "found"}, failures={"lsblk"})
+    answers = [
+        recorder.run(["grep", "one"]),
+        recorder.run(["unconfigured"]),
+        recorder.run_in_target(["grep", "one"]),
+        recorder.run_in_target(["unconfigured"]),
+        recorder.run_in_target(["lsblk"], check=False),
+        recorder.run_in_target(["portageq", "best_visible", "/", "sys-apps/portage"]),
+    ]
+    assert all(isinstance(one, CommandOutput) for one in answers), [
+        type(one).__name__ for one in answers
+    ]
+
+    injected = Recorder(answering=lambda argv: "said" if argv[0] == "hostnamectl" else None)
+    said = injected.run_in_target(["hostnamectl"])
+    assert isinstance(said, CommandOutput), type(said).__name__
+    assert said == "said"
+
+
+def test_a_failing_command_under_no_check_answers_a_non_zero_code() -> None:
+    """`check=False` is the path a caller takes when it means to read the code
+    itself, so the double answering `0` there makes the failure invisible.
+    """
+    recorder = Recorder(failures={"findmnt"})
+
+    answered = recorder.run_in_target(["findmnt", "/mnt/gentoo"], check=False)
+    assert answered.returncode != 0, answered.returncode
+    assert recorder.run_in_target(["ls"]).returncode == 0
+
+
+def test_a_configured_exit_code_is_not_rebuilt_as_success() -> None:
+    """`replies` is typed for `str` and `CommandOutput` is one, so wrapping
+    every reply discarded the code a test had configured. `VerifyPackages`
+    reads exactly that code to tell a missing ebuild from a working search.
+    """
+    from gentoo_install.plan.operations import CommandOutput
+
+    recorder = Recorder(replies={"emerge": CommandOutput("no ebuild matches", 1)})
+
+    assert recorder.run_in_target(["emerge", "--pretend"]).returncode == 1
+    assert recorder.run(["emerge", "--pretend"]).returncode == 1

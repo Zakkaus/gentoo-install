@@ -1249,7 +1249,7 @@ def test_a_mirror_rewriting_its_manifests_is_retried_rather_than_fatal(
         refusals: int = 2
         attempts: int = 0
 
-        def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
+        def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> CommandOutput:
             if "--sync" in argv:
                 self.attempts += 1
                 if self.refusals:
@@ -1331,7 +1331,7 @@ def test_an_unreachable_overlay_site_moves_to_the_next_one(
         pointed: str = "https://mirror.nju.edu.cn/git/gentoo-zh.git"
         attempts: int = 0
 
-        def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
+        def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> CommandOutput:
             if "--sync" in argv:
                 self.attempts += 1
                 if self.pointed != self.reachable:
@@ -1383,7 +1383,7 @@ def test_an_unreachable_overlay_site_moves_to_the_next_one(
         attempts: int = 0
         pointed_at: list[str] = []
 
-        def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
+        def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> CommandOutput:
             if "--sync" in argv:
                 self.attempts += 1
                 raise CommandFailed(_MID_UPDATE_SAYS)
