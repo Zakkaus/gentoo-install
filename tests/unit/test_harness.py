@@ -2867,3 +2867,46 @@ def test_every_driver_mount_goes_through_the_one_finder() -> None:
     ]
     assert len(naming) == 1, naming
     assert "/dev/sr1 /dev/sr0" in FIND_DRIVER
+
+
+def test_a_conversion_asks_for_a_port_nobody_holds() -> None:
+    """Two runs asked for 2222 and the second died with
+
+        qemu-system-x86_64: -netdev user,...,hostfwd=tcp::2222-:22:
+        Could not set up host forwarding rule 'tcp::2222-:22'
+
+    which names the rule and not the port, and not what already had it.
+    `tests/vm/run.py` has `free_port()` for exactly this; the conversion runner
+    took `VmSpec`'s default instead.
+    """
+    import ast
+    import inspect
+
+    from tests.vm import convert
+
+    for where in (convert.main, convert.boot_and_check):
+        tree = ast.parse(inspect.getsource(where).lstrip())
+        specs = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "VmSpec"
+        ]
+        assert specs, where.__name__
+        for spec in specs:
+            named = {
+                keyword.arg
+                for keyword in spec.keywords
+                if keyword.arg is not None
+            }
+            assert "ssh_port" in named, f"{where.__name__} takes the default port"
+
+
+def test_two_free_ports_in_a_row_differ() -> None:
+    """The negative control for the above: a `free_port()` that answered the
+    same number twice would satisfy the check and collide anyway."""
+    from tests.vm.run import free_port
+
+    seen = {free_port() for _ in range(8)}
+    assert len(seen) > 1, seen
