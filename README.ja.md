@@ -54,35 +54,13 @@ gentoo-install は Linux ライブ環境で動作し、amd64 アーキテクチ�
 
 ## 検証状況
 
-<!-- fact: verification-history -->
+<!-- fact: verification-scope -->
 
-過去のエンドツーエンド記録では、amd64 Gentoo minimal ISO と、インストーラリビジョン `a71f91b4735469bae8ec76af170201acb967a5fe` および `f7257793f95df4b21ebf2ac6a775a343f6205f1b` が使用されました。これらの記録は、一部の UEFI と BIOS インストール、systemd、OpenRC、ext4、btrfs、xfs、LUKS2、LVM、mdraid、Plasma、公式 binhost を対象としていましたが、その後のインストール経路の変更により、現在は過去の根拠としてのみ扱われます。
+[`TESTED.md`](TESTED.md) が検証記録です。実際に動かした経路ごとに 1 行あり、それが動作したインストーラのリビジョンと、動作した場所を記載します。実行が記録として数えられるのは、記録されたリビジョンがインストーラと一致し、インストールの終了コードが `0` で、導入されたシステムが起動し、起動後の設定チェックがすべて通った場合だけです。
 
-<!-- fact: verification-current -->
+ディスクへ導入する経路にはクラスタと単一マシンの記録があり、ext4、xfs、btrfs、f2fs、ZFS、LVM、mdraid、LUKS2 を、両方のファームウェアと両方の init システムで対象としています。動作中のシステムをインプレース変換する経路の記録は 2 件で、いずれも QEMU 上、いずれも BIOS です。RAM へ起動してから導入または イメージを書き込む経路は設計済みで、記録はありません。
 
-2026 年 8 月 11 日付のリビジョン付きエンドツーエンド記録は、Arch Linux、openSUSE、Debian、Fedora、自前でビルドした gentoo-cjk minimal ISO からのインストールと起動をそれぞれ 1 回ずつ対象としています。これらの記録は、インストーラリビジョン [`b931ef46fc15ed50385f70467f2bfb0a8d1fd154`](https://github.com/Zakkaus/gentoo-install/commit/b931ef46fc15ed50385f70467f2bfb0a8d1fd154) を対象としています。gentoo-cjk の記録は ZFS と ZFSBootMenu を使用し、ほかの 4 件は ext4 を使用しています。記録されたリビジョンがインストーラと一致し、インストールの終了コードが `0` で、インストール済みシステムが起動し、起動後の設定検査に合格した場合に限り、その実行を現在の根拠として扱います。
-
-2026 年 8 月 16 日付のクラスタ記録は、インストーラリビジョン [`a8bf2f3837b6`](https://github.com/Zakkaus/gentoo-install/commit/a8bf2f3837b6) を対象とし、amd64 Gentoo minimal ISO 上で `vm-luks`、`vm-mdraid`、`vm-xfs`、`vm-btrfs`、`vm-f2fs` の 5 件がそれぞれインストールと起動を完了し、起動後の設定チェックをすべて通過しています。`vm-lvm` はリビジョン `073997aa74d2` で同じチェックを通過しています。
-
-2026-08-17 のクラスタ記録は次を追加で対象とします。`openrc-sdboot` はリビジョン `40ea3d90f1cc`、`vm-binpkg`、`vm-btrfs`、`vm-desktop`、`vm-gnome` は `6ba5530fd3c8`、`vm-xfs` は `304dffa41602`、`vm-f2fs`、`vm-mdraid`、`vm-proxy-dead`、`vm-xfs`、`vm-zram` は `7ac43a1d5050` です。`d2bed50eed48` の記録は `vm-lvm`、`vm-sdboot`、`vm-unlock` を追加します。リビジョン [`7cf09c2f9d9c`](https://github.com/Zakkaus/gentoo-install/commit/7cf09c2f9d9c) の記録は `vm-btrfs`、`vm-binpkg`、`vm-luks` を追加します。`vm-unlock` は initramfs の SSH ロック解除に関する最初のクラスタ記録です。
-
-同じ日付で、クラスタではなく単一マシン上の QEMU による記録もあり、クラスタでは駆動できない経路を対象とします。クラスタの BIOS ゲストはカーネル起動までシリアルポートへ何も出力せず、root 以外の API トークンではスクリーンショットのエンドポイントもファームウェア引数の受け渡しも利用できません。したがって `vm-bios`、`vm-bios-luks`、`ext4-bios`、`mbr-edit` は `304dffa41602` で QEMU から記録しています。`zfs-zbm`、`vm-proxy`、`vm-proxy-http` は `15d45598637a` で同様です。プロキシ用の fixture は QEMU のユーザーモードネットワーク経由でホスト上のプロキシに接続しますが、ブリッジ接続のクラスタゲストにはそのアドレスがありません。
-
-インプレース変換にはエンドツーエンドの記録が 2 件あり、いずれもクラスタではなく単一マシンの QEMU によるものです。リビジョン [`bcc090fab621`](https://github.com/Zakkaus/gentoo-install/commit/bcc090fab621) はパーティション上に ext4 ルートを持つ Debian 12 genericcloud イメージ、リビジョン [`71e751cf14a1`](https://github.com/Zakkaus/gentoo-install/commit/71e751cf14a1) は btrfs ルートを持つ Arch Linux クラウドイメージで、後者では `/swap/swapfile` の行が新しい fstab に引き継がれました。いずれも `uname -r` は `6.18.43-gentoo-dist-bin` を報告し、`emerge` が存在し、元のディストリビューションのパッケージマネージャは存在せず、ルートデバイスは変わらず、実行の記録は `/var/log/gentoo-install` に保存されました。2 件とも BIOS です。UEFI、btrfs サブボリューム上のルート、`vm-convert` クラスタフィクスチャは未検証です。
-
-その他の実装済みの組み合わせは、エンドツーエンド未検証です。現在の根拠は、greetd のデスクトップセッション、GNOME 以外での ibus を対象としていません。公式 Gentoo minimal ISO または Gig-OS のライブメディア、binhost 障害時のフォールバックも対象としていません。
-
-Alpine のライブメディアは両方のファームウェアで根拠があります。リビジョン [`0827931289d0`](https://github.com/Zakkaus/gentoo-install/commit/0827931289d0) では `alpine-standard-3.24.1` が UEFI の systemd マシンを導入し、56 の操作、57 パッケージをバイナリホストから取得し 12 をコンパイルしました。リビジョン [`bc8ab3a0edcf`](https://github.com/Zakkaus/gentoo-install/commit/bc8ab3a0edcf) では同じメディアが ext4 ルートの BIOS OpenRC マシンを導入し、51 の操作、29 をバイナリホストから、51 をコンパイルしました。いずれもシリアルコンソール上で 59 秒以内に root シェルへ到達し、導入されたシステムは起動してレイアウトをマウントし、失敗したユニットはありませんでした。
-
-プロキシ経路には、SOCKS5 の DNS モード、dry-run 出力と公開設定での認証情報の除去、インストール済みシステムに残る認証情報なしのエンドポイントを対象とする単体テストと plan テストがあります。リビジョンを記録したクラスタ実行が逆方向を裏づけます。`vm-proxy-dead` フィクスチャは待ち受けのないポートをプロキシに指定し、インストールは stage3 のダウンロードで `Connection refused` により停止します。ミラーに到達する実行はプロキシが迂回されたことを示します。
-
-リビジョン `4d8512a496d` の二回の実行が順方向を裏づけます。`vm-proxy` はパスワードを要求する SOCKS5 プロキシを通してインストールを完了し、`vm-proxy-http` は HTTP プロキシを通して完了します。いずれも 57 個の操作を書き込み、93 個のパッケージはバイナリホストから、14 個はソースから構築されます。パスワードを要求する HTTP または HTTPS プロキシでは、メインツリーのスナップショットの署名を検証できません。`emerge-webrsync` が gemato に渡すのは認証情報を含まないエンドポイントだけだからです。dirmngr は SOCKS をまったく扱えないため、SOCKS5 では鍵の更新に keyserver への直接経路が必要です。
-
-CJK のテキストコンソール表示にも現在の検証根拠はありません。ext2 と ext3 には、各設定に対する自動テストもありません。`tests/fixtures/` のファイルは設定モデルのみを検証し、対応する組み合わせのインストールと起動を証明するものではありません。
-
-<!-- fact: verification-network -->
-
-IPv4 のみ、IPv6 のみ、デュアルスタックの VM 検査は、ディスクへアクセスする前に終了します。この検査は、アドレスファミリの検出、`bootstrap.sh --missing-commands`、stage3 pointer の取得だけを確認します。stage3 のダウンロード、リポジトリ同期、binhost へのアクセス、パッケージのインストール、ターゲットシステムの起動は検証しません。
+`tests/fixtures/` 以下のファイルが対象とするのは設定モデルであり、その存在は導入されたマシンについて何も示しません。
 
 ## 要件
 

@@ -1,0 +1,143 @@
+# Verification record
+
+Every claim this project makes about a path working is one row here. A row
+names what was exercised, the installer revision it ran at, and where it ran.
+Nothing is listed as tested because it is implemented; the README carries the
+boundary in prose and points here for the detail.
+
+A run counts only when its recorded revision matches the installer, its
+installation exit code is `0`, the installed system boots, and the post-boot
+configuration checks pass. `tests/fixtures/` files exercise the configuration
+model; their presence establishes nothing about an installed machine.
+
+Three modes are planned and this file has a section for each. Only the first
+two exist today, and the third's table is empty on purpose.
+
+## Mode 1: install onto a disk
+
+The ordinary path: partition, format, unpack a stage3, configure, boot.
+
+### Cluster records
+
+| Revision | Fixtures |
+|---|---|
+| `a8bf2f3837b6` | `vm-luks`, `vm-mdraid`, `vm-xfs`, `vm-btrfs`, `vm-f2fs` |
+| `073997aa74d2` | `vm-lvm` |
+| `40ea3d90f1cc` | `openrc-sdboot` |
+| `6ba5530fd3c8` | `vm-binpkg`, `vm-btrfs`, `vm-desktop`, `vm-gnome` |
+| `304dffa41602` | `vm-xfs` |
+| `7ac43a1d5050` | `vm-f2fs`, `vm-mdraid`, `vm-proxy-dead`, `vm-xfs`, `vm-zram` |
+| `d2bed50eed48` | `vm-lvm`, `vm-sdboot`, `vm-unlock` — the first cluster record of the initramfs SSH unlock |
+| `7cf09c2f9d9c` | `vm-btrfs`, `vm-binpkg`, `vm-luks` |
+
+### Records from QEMU on one machine
+
+These cover what the cluster cannot drive. A BIOS guest there writes nothing to
+its serial port before the kernel starts, and neither a screenshot endpoint nor
+a way to pass firmware arguments is available to a non-root API token.
+
+| Revision | Fixtures | Why not the cluster |
+|---|---|---|
+| `304dffa41602` | `vm-bios`, `vm-bios-luks`, `ext4-bios`, `mbr-edit` | BIOS serial console |
+| `15d45598637a` | `zfs-zbm`, `vm-proxy`, `vm-proxy-http` | the proxy fixtures reach a proxy on the host through QEMU's user-mode network, which a bridged cluster guest does not have |
+| `4d8512a496d` | `vm-proxy` (SOCKS5, password), `vm-proxy-http` | 57 operations, 93 packages from a binary host, 14 compiled |
+
+### Historical records
+
+Revisions `a71f91b4735469bae8ec76af170201acb967a5fe` and
+`f7257793f95df4b21ebf2ac6a775a343f6205f1b` on the amd64 Gentoo minimal ISO
+covered selected UEFI and BIOS installations, systemd and OpenRC, ext4, btrfs,
+xfs, LUKS2, LVM, mdraid, Plasma and the official binhost. Later
+installation-path changes made them historical evidence only.
+
+Revision `b931ef46fc15ed50385f70467f2bfb0a8d1fd154`, dated 2026-08-11, covers
+one installation and boot from each of Arch Linux, openSUSE, Debian, Fedora and
+a self-built gentoo-cjk minimal ISO. The gentoo-cjk record uses ZFS and
+ZFSBootMenu; the other four use ext4.
+
+### Install media
+
+| Medium | Revision | Result |
+|---|---|---|
+| `alpine-standard-3.24.1`, UEFI, systemd | `0827931289d0` | root shell on the serial console in 59s; 56 operations, 57 packages from a binary host, 12 compiled; booted with no failed unit |
+| `alpine-standard-3.24.1`, BIOS, OpenRC, ext4 | `bc8ab3a0edcf` | root shell in 59s; 51 operations, 29 from a binary host, 51 compiled; booted with no failed unit |
+
+The official Gentoo minimal ISO and the Gig-OS ISO are not tested here: they
+run the installer by script, and the gentoo-cjk minimal ISO record above covers
+that path.
+
+### Network modes
+
+The IPv4-only, IPv6-only and dual-stack check stops before disk access. It
+covers address-family detection, `bootstrap.sh --missing-commands` and stage3
+pointer retrieval. It does not cover stage3 download, repository
+synchronization, binhost access, package installation, or a booted target
+system on those network modes.
+
+### Proxy
+
+Focused unit and plan coverage exists for SOCKS5 DNS mode, redaction in dry-run
+output and in published configuration, and the credential-free endpoint
+retained in the installed system.
+
+The negative direction has a revision-tagged cluster run: the `vm-proxy-dead`
+fixture points the proxy at a port where nothing listens and the install stops
+at the stage3 download with `Connection refused`, so a run that reached the
+mirror would show the proxy had been bypassed.
+
+An HTTP or HTTPS proxy that requires a password cannot check the tree
+snapshot's signature: `emerge-webrsync` hands gemato only the credential-free
+endpoint. dirmngr has no SOCKS support at all, so under SOCKS5 the key refresh
+needs a direct route to the keyserver.
+
+## Mode 2: convert a running system in place
+
+Replaces the userland of a running distribution instead of partitioning a disk.
+
+### Records
+
+| Revision | Machine | Result |
+|---|---|---|
+| `bcc090fab621` | Debian 12 genericcloud, ext4 root on a partition, BIOS | converted and booted as Gentoo |
+| `71e751cf14a1` | Arch Linux cloud image, btrfs root, BIOS | converted and booted as Gentoo; `/swap/swapfile` carried into the new fstab |
+
+Both were read on the machine afterwards: `uname -r` gave
+`6.18.43-gentoo-dist-bin`, `emerge` was present and the original
+distribution's package manager was gone, the root device was unchanged, and
+the run's log was in `/var/log/gentoo-install`.
+
+Both records are from QEMU on one machine, and both are BIOS.
+
+### Refusals with a machine behind them
+
+Each of these was met on a real machine and is refused before anything is
+written.
+
+| Machine | Refusal |
+|---|---|
+| Alpine 3.21 cloud image | root is a whole disk with no partition, so `grub-install --target=i386-pc` answers `will not proceed with blocklists` |
+| Alpine 3.21 cloud image, before `apk add util-linux` | `findmnt` and `lsblk` are absent, so the layout reads back empty |
+| Fedora 41 cloud image | a replaced directory that is its own mount used to be refused; it is now replaced by its contents instead |
+
+### Not verified
+
+UEFI conversion, a btrfs subvolume root end to end, and the `vm-convert`
+cluster fixture.
+
+## Mode 3: boot into RAM, then install or write an image
+
+Designed, not implemented. See `docs/design.md` in the workspace.
+
+| Revision | What ran | Result |
+|---|---|---|
+| — | — | nothing yet |
+
+Rows land here for: a machine that boots into the RAM environment and installs
+Gentoo normally; a machine that writes an image with the `dd` mode; and, for
+each, a deliberately failed run proving the machine returns to its original
+system because the boot entry is one-shot.
+
+## Not covered by any record
+
+greetd desktop sessions, ibus outside GNOME, binary-host failure fallback, CJK
+text-console rendering, and focused configuration tests for ext2 and ext3.

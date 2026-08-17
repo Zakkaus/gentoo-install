@@ -54,35 +54,13 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 
 ## 驗證狀態
 
-<!-- fact: verification-history -->
+<!-- fact: verification-scope -->
 
-歷史端到端記錄使用 amd64 Gentoo minimal ISO，安裝器修訂版為 `a71f91b4735469bae8ec76af170201acb967a5fe` 與 `f7257793f95df4b21ebf2ac6a775a343f6205f1b`。這些記錄涵蓋部分 UEFI 與 BIOS 安裝、systemd、OpenRC、ext4、btrfs、xfs、LUKS2、LVM 與 mdraid，也涵蓋 Plasma 與官方 binhost。後續安裝路徑變更使其只能作為歷史實據。
+[`TESTED.md`](TESTED.md) 是驗證記錄：每一條走過的路徑各一列，寫明它執行時的安裝器修訂版與執行的地點。一次執行要記錄的修訂版與安裝器相符、安裝退出碼為 `0`、裝出的系統能開機、且開機後的設定檢查全部通過，才算數。
 
-<!-- fact: verification-current -->
+裝到磁碟上的路徑在叢集與單機都有記錄，涵蓋 ext4、xfs、btrfs、f2fs、ZFS、LVM、mdraid 與 LUKS2,兩種韌體與兩種 init 系統皆有。就地轉換執行中的系統有兩筆記錄，都來自 QEMU 且都是 BIOS。開進記憶體再安裝或寫映像檔的模式已完成設計，尚無任何記錄。
 
-2026 年 8 月 11 日的端到端記錄均標有安裝器修訂版，涵蓋從 Arch Linux、openSUSE、Debian、Fedora 與自行建置的 gentoo-cjk minimal ISO 各安裝並開機一次。這些記錄涵蓋安裝器修訂版 [`b931ef46fc15ed50385f70467f2bfb0a8d1fd154`](https://github.com/Zakkaus/gentoo-install/commit/b931ef46fc15ed50385f70467f2bfb0a8d1fd154)。gentoo-cjk 記錄使用 ZFS 與 ZFSBootMenu，其餘四筆使用 ext4。只有在記錄的修訂版與安裝器相符、安裝退出碼為 `0`、已安裝系統成功開機，且開機後設定檢查通過時，該次執行才算現行實據。
-
-2026 年 8 月 16 日的叢集記錄標有安裝器修訂版 [`a8bf2f3837b6`](https://github.com/Zakkaus/gentoo-install/commit/a8bf2f3837b6)，在 amd64 Gentoo minimal ISO 上涵蓋 `vm-luks`、`vm-mdraid`、`vm-xfs`、`vm-btrfs` 與 `vm-f2fs`，五者各自完成安裝、開機並通過全部開機後設定檢查。`vm-lvm` 在修訂版 `073997aa74d2` 完成同一組檢查。
-
-2026-08-17 的叢集記錄另外涵蓋：`openrc-sdboot` 於 `40ea3d90f1cc`；`vm-binpkg`、`vm-btrfs`、`vm-desktop`、`vm-gnome` 於 `6ba5530fd3c8`；`vm-xfs` 於 `304dffa41602`；`vm-f2fs`、`vm-mdraid`、`vm-proxy-dead`、`vm-xfs`、`vm-zram` 於 `7ac43a1d5050`。`d2bed50eed48` 的記錄再加上 `vm-lvm`、`vm-sdboot` 與 `vm-unlock`，其中 `vm-unlock` 是 initramfs SSH 解鎖的第一筆叢集記錄。修訂版 [`7cf09c2f9d9c`](https://github.com/Zakkaus/gentoo-install/commit/7cf09c2f9d9c) 的記錄再加上 `vm-btrfs`、`vm-binpkg` 與 `vm-luks`。
-
-同一天另有一批記錄來自單機直接執行 QEMU 而非叢集，涵蓋叢集無法驅動的路徑。叢集上的 BIOS 客機在核心啟動前不會向序列埠寫入任何內容，而非 root 的 API token 呼叫螢幕擷取端點會得到 501，也無法傳遞韌體參數，因此 `vm-bios`、`vm-bios-luks`、`ext4-bios`、`mbr-edit` 的記錄是 `304dffa41602`，由 QEMU 產生。`zfs-zbm`、`vm-proxy`、`vm-proxy-http` 於 `15d45598637a` 同樣如此：代理 fixture 透過 QEMU 的 user-mode 網路連到宿主機上的代理，橋接的叢集客機沒有這個位址。
-
-就地轉換已有兩筆端到端記錄，皆來自單機 QEMU 而非叢集。修訂版 [`bcc090fab621`](https://github.com/Zakkaus/gentoo-install/commit/bcc090fab621) 是一份根為分割區上 ext4 的 Debian 12 genericcloud 映像，修訂版 [`71e751cf14a1`](https://github.com/Zakkaus/gentoo-install/commit/71e751cf14a1) 是一份根為 btrfs 的 Arch Linux 雲映像，後者的 `/swap/swapfile` 一行被帶入新的 fstab。兩者的 `uname -r` 都回報 `6.18.43-gentoo-dist-bin`，都有 `emerge` 而原發行版的套件管理器皆已不存在，根裝置未變，執行記錄都保存於 `/var/log/gentoo-install`。兩筆記錄都是 BIOS。UEFI、位於 btrfs 子卷上的根，以及 `vm-convert` 叢集 fixture 仍未驗證。
-
-其他已實作組合仍未完成端到端驗證。現行實據未涵蓋 greetd 桌面工作階段或 GNOME 以外的 ibus。現行實據也未涵蓋官方 Gentoo minimal ISO 或 Gig-OS live 媒介，以及 binhost 失敗時的降級。
-
-Alpine live 媒介在兩種韌體上都有實據。修訂版 [`0827931289d0`](https://github.com/Zakkaus/gentoo-install/commit/0827931289d0) 裝出一台 UEFI 的 systemd 機器，56 個操作、57 個二進位套件、12 個編譯。修訂版 [`bc8ab3a0edcf`](https://github.com/Zakkaus/gentoo-install/commit/bc8ab3a0edcf) 裝出一台根為 ext4 的 BIOS OpenRC 機器，51 個操作、29 個二進位套件、51 個編譯。兩次都在 59 秒內進入序列主控台的 root shell。裝出的系統都開機、掛載其版面且無失敗單元。
-
-Proxy 路徑已有焦點單元測試與 plan 測試，涵蓋 SOCKS5 DNS 模式、dry-run 輸出與發佈設定的認證資訊移除，以及已安裝系統保留不含認證資訊的端點。帶版本標記的叢集執行已涵蓋反向：`vm-proxy-dead` fixture 把 Proxy 指向沒有程序監聽的埠，安裝在 stage3 下載階段以 `Connection refused` 停止，因此執行到達鏡像就表示 Proxy 被繞過。
-
-版本 `4d8512a496d` 的兩次執行涵蓋正向：`vm-proxy` 透過要求密碼的 SOCKS5 Proxy 完成安裝，`vm-proxy-http` 透過 HTTP Proxy 完成安裝，兩者都寫入 57 個操作，其中 93 個套件來自二進位主機、14 個由原始碼編譯。要求密碼的 HTTP 或 HTTPS Proxy 無法檢查主樹快照的簽章，因為 `emerge-webrsync` 只把不含認證資訊的端點交給 gemato。dirmngr 完全不支援 SOCKS，因此 SOCKS5 之下金鑰更新需要直連 keyserver。
-
-CJK 文字主控台顯示目前沒有驗證實據。ext2 與 ext3 也沒有針對其設定的自動化測試。`tests/fixtures/` 下的檔案只驗證設定模型；檔案存在不代表對應組合已完成端到端安裝與開機驗證。
-
-<!-- fact: verification-network -->
-
-純 IPv4、純 IPv6 與雙堆疊的 VM 檢查會在存取磁碟前結束。該檢查只驗證位址家族偵測、`bootstrap.sh --missing-commands` 與 stage3 pointer 讀取，不驗證 stage3 下載、儲存庫同步、binhost 存取、套件安裝或目標系統開機。
+`tests/fixtures/` 底下的檔案驗證的是設定模型，它們存在並不代表任何一台裝出來的機器。
 
 ## 需求
 

@@ -54,35 +54,13 @@ gentoo-install 在 Linux live 环境中运行，用于安装 amd64 架构的 Gen
 
 ## 验证状态
 
-<!-- fact: verification-history -->
+<!-- fact: verification-scope -->
 
-历史端到端记录使用 amd64 Gentoo minimal ISO，安装程序修订版为 `a71f91b4735469bae8ec76af170201acb967a5fe` 和 `f7257793f95df4b21ebf2ac6a775a343f6205f1b`。这些记录覆盖部分 UEFI 和 BIOS 安装、systemd、OpenRC、ext4、btrfs、xfs、LUKS2、LVM 和 mdraid，也覆盖 Plasma 和官方 binhost。后续安装路径变更使其只能作为历史证据。
+[`TESTED.md`](TESTED.md) 是验证记录：每一条走过的路径各一行，写明它运行时的安装器修订版与运行的地点。一次运行要记录的修订版与安装器相符、安装退出码为 `0`、装出的系统能引导、且引导后的配置检查全部通过，才算数。
 
-<!-- fact: verification-current -->
+装到磁盘上的路径在集群与单机都有记录，覆盖 ext4、xfs、btrfs、f2fs、ZFS、LVM、mdraid 与 LUKS2,两种固件与两种 init 系统皆有。就地转换运行中的系统有两条记录，都来自 QEMU 且都是 BIOS。引导进内存再安装或写映像的模式已完成设计，尚无任何记录。
 
-2026 年 8 月 11 日的端到端记录均标有安装程序修订版，覆盖从 Arch Linux、openSUSE、Debian、Fedora 和自行构建的 gentoo-cjk minimal ISO 各安装并引导一次。这些记录覆盖安装程序修订版 [`b931ef46fc15ed50385f70467f2bfb0a8d1fd154`](https://github.com/Zakkaus/gentoo-install/commit/b931ef46fc15ed50385f70467f2bfb0a8d1fd154)。gentoo-cjk 记录使用 ZFS 和 ZFSBootMenu，其余四条记录使用 ext4。只有在记录的修订版与安装程序匹配、安装退出码为 `0`、已安装系统成功引导，且引导后配置检查通过时，该次运行才算当前证据。
-
-2026 年 8 月 16 日的集群记录标有安装程序修订版 [`a8bf2f3837b6`](https://github.com/Zakkaus/gentoo-install/commit/a8bf2f3837b6)，在 amd64 Gentoo minimal ISO 上覆盖 `vm-luks`、`vm-mdraid`、`vm-xfs`、`vm-btrfs` 和 `vm-f2fs`，五者各自完成安装、引导并通过全部引导后配置检查。`vm-lvm` 在修订版 `073997aa74d2` 完成同一组检查。
-
-2026-08-17 的集群记录另外涵盖：`openrc-sdboot` 于 `40ea3d90f1cc`；`vm-binpkg`、`vm-btrfs`、`vm-desktop`、`vm-gnome` 于 `6ba5530fd3c8`；`vm-xfs` 于 `304dffa41602`；`vm-f2fs`、`vm-mdraid`、`vm-proxy-dead`、`vm-xfs`、`vm-zram` 于 `7ac43a1d5050`。`d2bed50eed48` 的记录再加上 `vm-lvm`、`vm-sdboot` 与 `vm-unlock`，其中 `vm-unlock` 是 initramfs SSH 解锁的第一条集群记录。修订版 [`7cf09c2f9d9c`](https://github.com/Zakkaus/gentoo-install/commit/7cf09c2f9d9c) 的记录再加上 `vm-btrfs`、`vm-binpkg` 与 `vm-luks`。
-
-同一天另有一批记录来自单机直接运行 QEMU 而非集群，涵盖集群无法驱动的路径。集群上的 BIOS 客机在内核启动前不会向串口写入任何内容，而非 root 的 API token 调用屏幕截图端点会得到 501，也无法传递固件参数，因此 `vm-bios`、`vm-bios-luks`、`ext4-bios`、`mbr-edit` 的记录是 `304dffa41602`，由 QEMU 产生。`zfs-zbm`、`vm-proxy`、`vm-proxy-http` 于 `15d45598637a` 同样如此：代理 fixture 通过 QEMU 的 user-mode 网络连到宿主机上的代理，桥接的集群客机没有这个地址。
-
-就地转换已有两条端到端记录，均来自单机 QEMU 而非集群。修订版 [`bcc090fab621`](https://github.com/Zakkaus/gentoo-install/commit/bcc090fab621) 是一份根为分区上 ext4 的 Debian 12 genericcloud 映像，修订版 [`71e751cf14a1`](https://github.com/Zakkaus/gentoo-install/commit/71e751cf14a1) 是一份根为 btrfs 的 Arch Linux 云映像，后者的 `/swap/swapfile` 一行被带入新的 fstab。两者的 `uname -r` 都报告 `6.18.43-gentoo-dist-bin`，都有 `emerge` 而原发行版的包管理器均已不存在，根设备未变，执行记录都保存于 `/var/log/gentoo-install`。两条记录都是 BIOS。UEFI、位于 btrfs 子卷上的根，以及 `vm-convert` 集群 fixture 仍未验证。
-
-其他已实现组合仍未完成端到端验证。当前证据未覆盖 greetd 桌面会话或 GNOME 以外的 ibus。当前证据也未覆盖官方 Gentoo minimal ISO 或 Gig-OS live 介质，以及 binhost 失败时的降级。
-
-Alpine live 介质在两种固件上都有证据。修订版 [`0827931289d0`](https://github.com/Zakkaus/gentoo-install/commit/0827931289d0) 装出一台 UEFI 的 systemd 机器，56 个操作、57 个二进制软件包、12 个编译。修订版 [`bc8ab3a0edcf`](https://github.com/Zakkaus/gentoo-install/commit/bc8ab3a0edcf) 装出一台根为 ext4 的 BIOS OpenRC 机器，51 个操作、29 个二进制软件包、51 个编译。两次都在 59 秒内进入串口控制台的 root shell。装出的系统都引导、挂载其布局且无失败单元。
-
-代理路径已有聚焦单元测试和 plan 测试，覆盖 SOCKS5 DNS 模式、dry-run 输出与发布配置中的认证信息移除，以及已安装系统保留不含认证信息的端点。带版本标记的集群执行已覆盖反向：`vm-proxy-dead` fixture 把代理指向没有进程监听的端口，安装在 stage3 下载阶段以 `Connection refused` 停止，因此执行到达镜像就表示代理被绕过。
-
-版本 `4d8512a496d` 的两次执行覆盖正向：`vm-proxy` 通过要求密码的 SOCKS5 代理完成安装，`vm-proxy-http` 通过 HTTP 代理完成安装，两者都写入 57 个操作，其中 93 个二进制软件包来自二进制主机、14 个由源代码编译。要求密码的 HTTP 或 HTTPS 代理无法检查主树快照的签名，因为 `emerge-webrsync` 只把不含认证信息的端点交给 gemato。dirmngr 完全不支持 SOCKS，因此 SOCKS5 下密钥更新需要直连 keyserver。
-
-CJK 文本控制台显示目前没有验证证据。ext2 和 ext3 也没有针对其配置的自动化测试。`tests/fixtures/` 下的文件只验证配置模型；文件存在并不表示对应组合已完成端到端安装和引导验证。
-
-<!-- fact: verification-network -->
-
-纯 IPv4、纯 IPv6 和双栈的 VM 检查会在访问磁盘前结束。该检查只验证地址族检测、`bootstrap.sh --missing-commands` 和 stage3 pointer 读取，不验证 stage3 下载、仓库同步、binhost 访问、软件包安装或目标系统引导。
+`tests/fixtures/` 下的文件验证的是配置模型，它们存在并不代表任何一台装出来的机器。
 
 ## 要求
 
