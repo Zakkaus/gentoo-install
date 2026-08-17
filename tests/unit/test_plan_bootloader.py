@@ -327,3 +327,62 @@ def test_zfsbootmenu_and_the_unlock_on_top_of_it_are_separate_fixtures() -> None
 
     # Two machines, so a guest that booted the wrong disk is told apart.
     assert plain.system.hostname != both.system.hostname
+
+
+def test_an_image_built_without_the_unlock_daemon_is_said_rather_than_shipped() -> None:
+    """`generate-zbm` prints two lines and swallows dracut's own output. Read
+    from the image an install produced, `etc/dropbear/` held the two host keys
+    and nothing else — no authorized key, no start hook — so the machine booted
+    and nothing ever answered on the forwarded port.
+
+    Said rather than raised: the console passphrase still unlocks it.
+    """
+    from gentoo_install.plan.operations import CommandOutput
+
+    installation = load(Path("tests/fixtures/zbm-unlock.toml"))
+    built = next(
+        one
+        for one in bootloader.build(installation)
+        if isinstance(one, bootloader.InstallZfsBootMenu)
+    )
+    assert built.unlocks_remotely
+
+    host_keys_only = "\n".join(
+        (
+            "etc/dropbear",
+            "etc/dropbear/dropbear_ecdsa_host_key",
+            "etc/dropbear/dropbear_rsa_host_key",
+        )
+    )
+
+    class Listing(Recorder):
+        answer = host_keys_only
+
+        def run_in_target(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> CommandOutput:
+            self.in_target.append(tuple(argv))
+            if argv[0] == "find":
+                return CommandOutput("/efi/EFI/zbm/kernel.EFI\n", 0)
+            if argv[0] == "lsinitrd":
+                return CommandOutput(self.answer, 0)
+            return CommandOutput("", 0)
+
+    recorder = Listing()
+    built.apply(recorder)
+    assert recorder.degraded(bootloader.REMOTE_UNLOCK_IMAGE), recorder.in_target
+
+    # Negative control one: an image carrying the acl is not degraded, or every
+    # working unlock would be reported as broken.
+    working = Listing()
+    working.answer = f"{host_keys_only}\nroot/.ssh/authorized_keys"
+    built.apply(working)
+    assert not working.degraded(bootloader.REMOTE_UNLOCK_IMAGE)
+
+    # Negative control two: an install that asked for no remote unlock never
+    # reads the image, so a missing daemon is not reported on it.
+    quiet = Listing()
+    quiet.answer = host_keys_only
+    replace(built, unlocks_remotely=False).apply(quiet)
+    assert not quiet.degraded(bootloader.REMOTE_UNLOCK_IMAGE)
+    assert not [one for one in quiet.in_target if one[0] == "lsinitrd"], quiet.in_target
