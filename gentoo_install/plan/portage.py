@@ -652,7 +652,14 @@ class SyncRepository(Operation):
                 return
             except CommandFailed as failed:
                 last = failed
-        raise last
+        # How many were tried, not only the last one's words: `vm-cjk-kernel`
+        # reported one host refusing a connection where five had, which reads
+        # as one unlucky mirror rather than a guest with no route to any of
+        # them.
+        raise CommandFailed(
+            f"none of the {1 + len(self.alternates)} sites for {self.name} "
+            f"could be synced from: {last}"
+        ) from last
 
     def _attempt(self, context: Context) -> None:
         """One site's `emerge --sync`, retried while it is mid-update.
