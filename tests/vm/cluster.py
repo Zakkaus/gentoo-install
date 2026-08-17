@@ -2013,7 +2013,7 @@ def run(
                 print(f"  {job.node} takes no more guests this campaign", file=sys.stderr)
             print(
                 f"{outcome.verdict.value:6} {outcome.name:34} {outcome.seconds / 60:5.1f}m "
-                f"{outcome.detail}",
+                f"{_one_line(outcome.detail)}",
                 flush=True,
             )
     finally:
@@ -2433,6 +2433,18 @@ VERDICT_BYTES: Final[int] = 3600
 #: attempt. `login` writes it at once, so this only has to outlast a loaded
 #: node rather than anything the guest is doing.
 REPROMPT_PATIENCE: Final[float] = 30.0
+
+
+def _one_line(detail: str) -> str:
+    """The detail with its newlines folded, so a verdict is one line.
+
+    A remote command's output reaches the verdict whole, and `zbm-unlock`'s
+    ran to three lines: the first held only ssh's known-hosts warning, and the
+    two that carried `Key load error: Failed to open key material file` read as
+    unrelated records. A reader looking for one verdict per line finds the
+    wrong one.
+    """
+    return " | ".join(one.strip() for one in detail.splitlines() if one.strip())
 
 
 def _seen_since(link: Reconnecting, said: bytes) -> str:

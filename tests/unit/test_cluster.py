@@ -1736,3 +1736,35 @@ def test_a_refusal_holding_none_of_the_password_still_ends_the_login() -> None:
     assert not cluster._echoed_back(b"Login incorrect\r\nlogin: ", "loginx")
     assert cluster._echoed_back(b"nstall\r\nLogin incorrect", "install")
     assert cluster._echoed_back(b"inst\r\nLogin incorrect", "install")
+
+
+def test_a_verdict_stays_on_one_line_however_many_the_guest_used() -> None:
+    """`zbm-unlock`'s verdict ran to three lines in run65 because the remote
+    command's output reached it whole. The first line held only ssh's
+    known-hosts warning, so a reader taking one line per verdict read the
+    failure as a bare warning and the two lines carrying `Key load error:
+    Failed to open key material file` as unrelated records."""
+    detail = (
+        "remote unlock failed: remote unlock failed: Warning: Permanently "
+        "added '[10.31.0.150]:2222' (ECDSA) to the list of known hosts.\n"
+        "0 / 1 key(s) successfully loaded\n"
+        "Key load error: Failed to open key material file: No such file or directory"
+    )
+    folded = cluster._one_line(detail)
+
+    assert "\n" not in folded, folded
+    assert "Key load error" in folded, folded
+    assert "0 / 1 key(s)" in folded, folded
+    # Joined visibly, or two sentences run together into a third that was
+    # never printed.
+    assert folded.count(" | ") == 2, folded
+
+
+def test_folding_drops_the_blank_lines_a_console_leaves() -> None:
+    assert cluster._one_line("first\n\n  \nsecond\n") == "first | second"
+
+
+def test_a_detail_with_no_newline_is_unchanged() -> None:
+    """Most verdicts are one line already, and rewriting them would change
+    every log this campaign has produced."""
+    assert cluster._one_line("the installer exited b'4'") == "the installer exited b'4'"
