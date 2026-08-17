@@ -2576,13 +2576,13 @@ def test_create_target_refuses_a_path_outside_the_run_directories(tmp_path: Path
     after the unlink is caught too late."""
     import pytest
 
-    from tests.vm.run import WORKROOT, create_target
+    from tests.vm.run import DEFAULT_TARGET_SIZE, WORKROOT, create_target
 
     keep = tmp_path / "debian-12-genericcloud-amd64.qcow2"
     keep.write_bytes(b"not really an image, but it stands for one")
 
     with pytest.raises(ValueError, match="deletes what it is given"):
-        create_target(keep)
+        create_target(keep, DEFAULT_TARGET_SIZE)
     assert keep.exists(), "the refusal has to come before the unlink"
     assert keep.read_bytes().startswith(b"not really"), "and leave it untouched"
 
@@ -2591,11 +2591,114 @@ def test_create_target_refuses_a_path_outside_the_run_directories(tmp_path: Path
     inside = WORKROOT / "unit-test-create-target" / "target.qcow2"
     inside.parent.mkdir(parents=True, exist_ok=True)
     try:
-        made = create_target(inside)
+        made = create_target(inside, DEFAULT_TARGET_SIZE)
         assert made.exists() and made.stat().st_size > 0
     finally:
         inside.unlink(missing_ok=True)
         inside.parent.rmdir()
+
+
+@pytest.mark.parametrize("seed", [(), ("mklabel", "msdos")])
+def test_requested_target_size_reaches_disk_creation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, seed: tuple[str, ...]
+) -> None:
+    """A fixture larger than the former fixed size must reach qemu-img."""
+    from tests.vm import run as runner
+
+    launched: list[list[str]] = []
+
+    def records(command: list[str], **named: object) -> object:
+        launched.append(command)
+        return object()
+
+    monkeypatch.setattr(runner, "WORKROOT", tmp_path)
+    monkeypatch.setattr("tests.vm.run.subprocess.run", records)
+    target = tmp_path / ("seeded" if seed else "blank") / "target.qcow2"
+    target.parent.mkdir()
+
+    runner.create_target(target, "96G", seed)
+
+    creation = next(command for command in launched if command[:2] == ["qemu-img", "create"])
+    assert creation[-1] == "96G"
+
+
+def test_local_runner_options_preserve_defaults_and_accept_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--resolver` without an address is an explicit request to keep the medium."""
+    from tests.vm import run as runner
+
+    captured: list[object] = []
+    medium = SimpleNamespace(name="test", source_stamp=lambda: "test-medium")
+
+    def capture(args: object, received_medium: object, workdir: Path) -> int:
+        captured.append(args)
+        return 0
+
+    monkeypatch.setattr(runner, "MEDIA", {"test": medium})
+    monkeypatch.setattr(runner, "WORKROOT", tmp_path)
+    monkeypatch.setattr(runner, "_revision", lambda: "test-revision")
+    monkeypatch.setattr(runner, "_perform", capture)
+
+    assert runner.main(["--medium", "test"]) == 0
+    assert cast(Any, captured[0]).target_size == runner.DEFAULT_TARGET_SIZE
+    assert cast(Any, captured[0]).resolver == runner.DEFAULT_RESOLVERS
+
+    assert runner.main(
+        ["--medium", "test", "--target-size", "96G", "--resolver", "10.0.2.2"]
+    ) == 0
+    assert cast(Any, captured[1]).target_size == "96G"
+    assert cast(Any, captured[1]).resolver == ["10.0.2.2"]
+
+    assert runner.main(["--medium", "test", "--resolver"]) == 0
+    assert cast(Any, captured[2]).resolver == []
+
+
+def test_requested_resolver_replaces_the_medium_and_none_leaves_it_alone() -> None:
+    """A local mirror can run without either public nameserver."""
+    from tests.vm import run as runner
+    from tests.vm.console import SerialConsole
+
+    class Recording:
+        def __init__(self) -> None:
+            self.commands: list[str] = []
+
+        def run(self, command: str, timeout: float = 120.0) -> None:
+            self.commands.append(command)
+
+    requested = Recording()
+    runner.pin_resolver(cast(SerialConsole, requested), ("10.0.2.2",))
+    assert requested.commands == [
+        "printf %s 'nameserver 10.0.2.2\n' > /etc/resolv.conf"
+    ]
+
+    unchanged = Recording()
+    runner.pin_resolver(cast(SerialConsole, unchanged), ())
+    assert unchanged.commands == []
+
+
+def test_runner_records_the_size_and_effective_resolver() -> None:
+    """The result has enough runner inputs to replay an installation."""
+    from tests.vm import run as runner
+    from tests.vm.console import SerialConsole
+
+    class Recording:
+        def __init__(self) -> None:
+            self.commands: list[str] = []
+
+        def run(self, command: str, timeout: float = 120.0) -> None:
+            self.commands.append(command)
+
+    console = Recording()
+    runner.record_run_options(cast(SerialConsole, console), "96G", ("10.0.2.2",))
+    assert console.commands[0] == f"mkdir -p {runner.RESULT_DIR}"
+    assert "target_size=96G" in console.commands[1]
+    assert "requested_resolver=10.0.2.2" in console.commands[1]
+    assert "cat /etc/resolv.conf" in console.commands[1]
+
+    medium = Recording()
+    runner.record_run_options(cast(SerialConsole, medium), "96G", ())
+    assert "requested_resolver=medium" in medium.commands[1]
 
 
 def test_a_failed_remote_unlock_answers_rather_than_raising(
