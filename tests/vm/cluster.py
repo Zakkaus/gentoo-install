@@ -761,6 +761,12 @@ GUEST_RESOLVER: Final[str] = "10.31.0.199"
 GUEST_RESOLVERS: Final[tuple[str, ...]] = (GUEST_RESOLVER, GUEST_GATEWAY, "223.5.5.5")
 
 
+#: What each lookup in the probe is given. A resolver that has stopped
+#: answering makes `getent` wait for its own timeout, and ten of them cost more
+#: than the probe's whole budget: five guests of run61 were ended at three
+#: minutes with `LOOKUPS_ANY ok fail` as the last line and no install started.
+LOOKUP_PATIENCE: Final[int] = 3
+
 #: Asked once the network is up, because every round so far has failed at the
 #: stage3 while `/etc/resolv.conf` named a resolver nobody had proved the guest
 #: could reach. Read-only: it rewrites nothing, so a run cannot be changed by
@@ -770,13 +776,13 @@ REACHABILITY_PROBE: Final[str] = (
     'ping -c1 -W2 "$one" >/dev/null 2>&1 '
     "&& printf '%s=up ' \"$one\" || printf '%s=down ' \"$one\"; done; "
     "printf '\\nLOOKUPS_V4 '; for i in 1 2 3 4 5; do "
-    "getent ahostsv4 mirrors.ustc.edu.cn >/dev/null 2>&1 "
+    f"timeout {LOOKUP_PATIENCE} getent ahostsv4 mirrors.ustc.edu.cn >/dev/null 2>&1 "
     "&& printf 'ok ' || printf 'fail '; done; "
     # `ahosts` and not only `ahostsv4`: the installer asks `AF_UNSPEC`, which
     # queries the AAAA as well, and `options no-aaaa` needs glibc 2.36. A
     # resolver that answers the A and drops the AAAA fails the whole call.
     "printf '\\nLOOKUPS_ANY '; for i in 1 2 3 4 5; do "
-    "getent ahosts mirrors.ustc.edu.cn >/dev/null 2>&1 "
+    f"timeout {LOOKUP_PATIENCE} getent ahosts mirrors.ustc.edu.cn >/dev/null 2>&1 "
     "&& printf 'ok ' || printf 'fail '; done; "
     "printf '\\nLIBC '; getconf GNU_LIBC_VERSION; "
     # The state itself, not only whether it worked: sixty-one lookups answered
@@ -1007,7 +1013,7 @@ def wait_for_network(
             if vmid:
                 for command in keep_the_address(address or static_address(vmid)):
                     link.run(command, timeout=120.0)
-            link.run(REACHABILITY_PROBE, timeout=120.0)
+            _note_the_probe(link, "network-up")
             return
         # Every pass, not once: the fallback asks a DHCP server that answers
         # intermittently, and the static path is cheap to repeat.
@@ -1501,18 +1507,19 @@ def _reserve_job(
     raise conflict
 
 
-def _note_the_closing_probe(link: Reconnecting) -> None:
-    """The probe after the install answers a question, never the verdict.
+def _note_the_probe(link: Reconnecting, when: str) -> None:
+    """Measure the network, and never make the measurement the verdict.
 
-    Its `getent` calls block on a resolver that has stopped answering, and
-    `vm-btrfs` and `vm-mdraid` were both recorded `ERROR` in run60 at 96 and
-    81 minutes with `installed 54 operations` and `installed 58 operations`
-    already in their logs. The install had finished and written its exit code.
+    `vm-btrfs` and `vm-mdraid` were recorded `ERROR` in run60 at 96 and 81
+    minutes with `installed 54 operations` and `installed 58 operations`
+    already in their logs, and five guests of run61 at three minutes with no
+    install started at all. Both were the probe's own `getent` calls waiting
+    on a resolver that had stopped answering.
     """
     try:
         link.run(REACHABILITY_PROBE, timeout=120.0)
     except (ConsoleTimeout, ConsoleClosed) as error:
-        print(f"the closing reachability probe did not answer: {error}", flush=True)
+        print(f"the {when} reachability probe did not answer: {error}", flush=True)
 
 
 def install_one(
@@ -1574,7 +1581,7 @@ def install_one(
         # Again, immediately before the installer: the first measurement is
         # taken a minute earlier and passed on every guest of round 27, whose
         # installers then found no route at all. This one splits that window.
-        link.run(REACHABILITY_PROBE, timeout=120.0)
+        _note_the_probe(link, "pre-install")
         phase = Phase.INSTALL
         link.wait_for(
             f"{{ sh /mnt/driver/install.sh --config fixtures/{job.fixture.name}; "
@@ -1586,7 +1593,7 @@ def install_one(
         # A third time, after the install: a console that still has its routes
         # when the installer saw none puts the loss in the installer's own
         # view of the machine rather than in the machine.
-        _note_the_closing_probe(link)
+        _note_the_probe(link, "closing")
         files = collect(guest, link, log)
         keep_results(log, files)
         code = files.get("install.rc", b"").strip()
