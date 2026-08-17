@@ -9,6 +9,7 @@ before a key can be imported, an imported key stays untrusted until `lsign`, and
 from __future__ import annotations
 
 import json
+import random
 import re
 import signal
 from dataclasses import dataclass
@@ -536,6 +537,8 @@ class WebrsyncRepository(Operation):
                 if keyring:
                     refused += 1
                 pause = (KEYRING_PAUSE if keyring else SYNC_PAUSE) * (attempt + 1)
+                if keyring:
+                    pause *= random.uniform(*KEYRING_JITTER)
                 context.run(["sleep", f"{pause:g}"])
         assert last is not None
         raise last
@@ -567,6 +570,17 @@ KEYRING_REFUSED: Final[tuple[str, ...]] = (
 #: mismatch needs.
 KEYRING_TRIES: Final[int] = 4
 KEYRING_PAUSE: Final[float] = 90.0
+
+#: What the geometric pause is multiplied by, so a wave of machines that
+#: reached this step together does not ask again together. Measured in run64:
+#: eight guests dispatched in one wave all died 14 to 24 minutes in, while the
+#: five that reached the same step 44 to 107 minutes in all passed, and both
+#: keys answer from `keyserver.ubuntu.com` when one machine asks alone. Without
+#: this the whole wave waits the same 90, 180 and 270 seconds and asks again in
+#: lockstep, so four attempts are one attempt made four times. It only ever
+#: extends: a factor below one would undercut the twelve minutes the geometric
+#: pause exists to buy, and outlasting the round is the whole point.
+KEYRING_JITTER: Final[tuple[float, float]] = (1.0, 2.5)
 
 
 def _key_servers(first: str) -> tuple[str, ...]:

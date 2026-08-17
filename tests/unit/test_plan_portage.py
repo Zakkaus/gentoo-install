@@ -2109,9 +2109,12 @@ def test_a_keyserver_the_whole_round_is_asking_gets_longer_than_a_mirror() -> No
 
     slept = [argv for argv in refused.commands if argv and argv[0] == "sleep"]
     assert len(slept) == portage.KEYRING_TRIES - 1, slept
-    assert [float(one[1]) for one in slept] == [
-        portage.KEYRING_PAUSE * (n + 1) for n in range(portage.KEYRING_TRIES - 1)
-    ], slept
+    # A band rather than the exact seconds: the pause carries a jitter so a
+    # wave does not ask again in lockstep, and it only ever extends.
+    low, high = portage.KEYRING_JITTER
+    for n, one in enumerate(slept):
+        base = portage.KEYRING_PAUSE * (n + 1)
+        assert base * low <= float(one[1]) <= base * high, slept
     # Twelve minutes rather than ninety seconds, which is what outlasts a round.
     assert sum(float(one[1]) for one in slept) > 8 * 60
 
@@ -2212,3 +2215,73 @@ def test_the_keyserver_policy_the_stage3_names_is_not_asked_twice() -> None:
         assert len(rotation) == len(set(rotation)), rotation
         assert rotation.count(chosen) == 1, rotation
         assert set(plan_portage.KEY_SERVERS) <= set(rotation), rotation
+
+
+def test_two_machines_refused_together_do_not_ask_again_together() -> None:
+    """run64 dispatched eight guests in one wave and all eight died 14 to 24
+    minutes in, while the five that reached the same step 44 to 107 minutes in
+    all passed. Without a jitter every machine in a wave waits the same 90, 180
+    and 270 seconds, so four attempts are one attempt made four times."""
+    from gentoo_install.errors import CommandFailed
+    from gentoo_install.plan.operations import CommandOutput
+    from gentoo_install.plan import portage as plan_portage
+    from .recorder import Recorder
+
+    def answer(argv: Sequence[str]) -> str | None:
+        if tuple(argv[:3]) == ("portageq", "envvar", "PORTAGE_GPG_KEY_SERVER"):
+            return CommandOutput("\n", 0)
+        if "emerge-webrsync" in argv:
+            raise CommandFailed(
+                "emerge-webrsync exited 1: gpg: keyserver refresh failed: "
+                "Try again later"
+            )
+        return None
+
+    def waits() -> tuple[float, ...]:
+        recorder = Recorder(answering=answer)
+        with pytest.raises(CommandFailed):
+            plan_portage.WebrsyncRepository().apply(recorder)
+        return tuple(
+            float(one[1]) for one in recorder.commands if one[0] == "sleep"
+        )
+
+    runs = [waits() for _ in range(8)]
+    assert all(len(one) == plan_portage.KEYRING_TRIES - 1 for one in runs), runs
+    assert len(set(runs)) > 1, runs
+    # The shipped band itself, before it is read as the bound below: a floor
+    # that lets the pause shrink to nearly nothing is not a backoff, and a
+    # bound taken from the constant cannot see that.
+    assert plan_portage.KEYRING_JITTER[0] >= 1.0, plan_portage.KEYRING_JITTER
+    assert plan_portage.KEYRING_JITTER[1] <= 4.0, plan_portage.KEYRING_JITTER
+    low, high = plan_portage.KEYRING_JITTER
+    for run in runs:
+        for attempt, waited in enumerate(run, start=1):
+            base = plan_portage.KEYRING_PAUSE * attempt
+            assert base * low <= waited <= base * high, (run, attempt)
+
+
+def test_a_manifest_mismatch_waits_the_same_every_time() -> None:
+    """The jitter answers a wave asking one keyserver at once. A mirror
+    rewriting its Manifests is one machine's problem, and a pause that varies
+    there makes a failure harder to read for nothing."""
+    from gentoo_install.errors import CommandFailed
+    from gentoo_install.plan.operations import CommandOutput
+    from gentoo_install.plan import portage as plan_portage
+    from .recorder import Recorder
+
+    def answer(argv: Sequence[str]) -> str | None:
+        if tuple(argv[:3]) == ("portageq", "envvar", "PORTAGE_GPG_KEY_SERVER"):
+            return CommandOutput("\n", 0)
+        if "emerge-webrsync" in argv:
+            raise CommandFailed("emerge-webrsync exited 1: Manifest mismatch")
+        return None
+
+    def waits() -> tuple[float, ...]:
+        recorder = Recorder(answering=answer)
+        with pytest.raises(CommandFailed):
+            plan_portage.WebrsyncRepository().apply(recorder)
+        return tuple(
+            float(one[1]) for one in recorder.commands if one[0] == "sleep"
+        )
+
+    assert len({waits() for _ in range(8)}) == 1
