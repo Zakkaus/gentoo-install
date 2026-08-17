@@ -894,3 +894,39 @@ def test_the_swap_copies_with_cp_archive_rather_than_a_python_copy() -> None:
             "/var/cache",
         )
     ], recorder.commands
+
+
+def test_nothing_that_runs_after_the_swap_is_pointed_at_the_staging_root() -> None:
+    """Read off a Fedora 41 machine, one operation from the end, with the swap
+    already done and GRUB already written to the real root:
+
+        [1/2 0:00:00] [finish] point /etc/resolv.conf at systemd-resolved
+        rather than the install medium's, in /gentoo-install.new
+        run: chroot /gentoo-install.new ln --symbolic --force ...
+        chroot: failed to run command 'ln': No such file or directory
+
+    `cli.py` runs every `Stage.FINISH` operation after the body, which is after
+    the swap, so the staging root those operations would be pointed at has no
+    userland left in it.
+    """
+    from gentoo_install.data import load_catalog
+    from gentoo_install.model.device import StorageFacts
+    from gentoo_install.plan.operations import Stage
+
+    operations = build(
+        _in_place(),
+        load_catalog(),
+        mirror="https://distfiles.gentoo.org",
+        storage_facts=StorageFacts(),
+        layout=_layout(),
+    )
+    closing = [one for one in operations if one.stage is Stage.FINISH]
+
+    assert closing, "the conversion has no closing stage at all"
+    assert not [one for one in closing if isinstance(one, convert.Staged)], [
+        type(one).__name__ for one in closing
+    ]
+    # And what runs before the swap is still staged, so this did not turn the
+    # wrapper off for everything.
+    body = [one for one in operations if one.stage is not Stage.FINISH]
+    assert [one for one in body if isinstance(one, convert.Staged)], len(body)
