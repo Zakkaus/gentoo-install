@@ -316,3 +316,64 @@ def test_a_body_that_stops_early_is_a_download_failure(
     # The partial file goes with it, or the next mirror verifies this one.
     assert not target.with_suffix(target.suffix + ".part").exists()
     assert not target.exists()
+
+
+def test_an_unreplaceable_stage3_tries_the_next_mirror_and_cleans_up(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The rename sat after the `except`, so a full disk or a changed
+    permission left the raw `OSError`: the mirror fallback never ran, the CLI
+    never classified it, and the `.part` file stayed behind.
+    """
+    mirrors: list[str] = []
+    notices: list[str] = []
+
+    class Response:
+        def __init__(self) -> None:
+            self.headers: dict[str, str] = {}
+            self.body = b"stage3"
+
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *unused: object) -> None:
+            return None
+
+        def read(self, size: int = 0) -> bytes:
+            body, self.body = self.body, b""
+            return body
+
+    def newest(builds: str, variant: str, proxy: object = None) -> str:
+        mirrors.append(builds)
+        return "stage3.tar.xz"
+
+    def opening(*unused: object, **ignored: object) -> Response:
+        return Response()
+
+    def unreplaceable(self: Path, target: Path) -> Path:
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(fetch, "_newest", newest)
+    monkeypatch.setattr(fetch, "_urlopen", opening)
+    monkeypatch.setattr(fetch, "ONLINE_PAUSE", 0.0)
+    monkeypatch.setattr(Path, "replace", unreplaceable)
+
+    with pytest.raises(DownloadFailed, match="could not be fetched"):
+        fetch.stage3(
+            "https://first.example",
+            "systemd",
+            "0" * 40,
+            tmp_path,
+            Runner(log=notices.append),
+            fallbacks=("https://second.example",),
+        )
+
+    assert mirrors == [
+        f"https://first.example/{fetch.STAGE3_PATH}",
+        f"https://second.example/{fetch.STAGE3_PATH}",
+    ]
+    assert len(notices) == 2
+    assert all("did not serve the stage3" in notice for notice in notices)
+    archive = tmp_path / "stage3.tar.xz"
+    assert not archive.exists()
+    assert not archive.with_suffix(archive.suffix + ".part").exists()
