@@ -12,6 +12,71 @@ from typing import Sequence
 from ..errors import ConversionFailed
 
 
+#: Where a mounted directory's own entries are moved while it is replaced.
+#: Inside the mount, so every move is a rename on one filesystem.
+KEPT_ASIDE: str = ".gentoo-install.old"
+
+
+def _mounts_inside(directory: Path) -> list[str]:
+    """Name every entry of `directory` that is itself a mount point."""
+    try:
+        entries = sorted(os.listdir(directory))
+    except OSError:
+        return []
+    return [one for one in entries if os.path.ismount(directory / one)]
+
+
+def _replace_contents(destination: Path, staged: Path) -> None:
+    """Swap what is in a mount point, since the mount point cannot be renamed.
+
+    Not `cp`: every move here is a `rename(2)` on one filesystem, so the window
+    is the entry count rather than the size of `/usr`. `distro2gentoo` copies
+    instead, which also merges -- and this installer replaces `/etc` rather
+    than merging it.
+    """
+    aside = destination / KEPT_ASIDE
+    if os.path.lexists(aside):
+        raise ConversionFailed(f"{aside} is left from an earlier attempt")
+    os.mkdir(aside)
+    moved: list[str] = []
+    arrived: list[str] = []
+    try:
+        for name in sorted(os.listdir(destination)):
+            if name == KEPT_ASIDE:
+                continue
+            os.rename(destination / name, aside / name)
+            moved.append(name)
+        for name in sorted(os.listdir(staged)):
+            os.rename(staged / name, destination / name)
+            arrived.append(name)
+    except OSError as error:
+        for name in reversed(arrived):
+            try:
+                os.rename(destination / name, staged / name)
+            except OSError as rollback_error:
+                error.add_note(f"could not return {name} to the staging root: {rollback_error}")
+        for name in reversed(moved):
+            try:
+                os.rename(aside / name, destination / name)
+            except OSError as rollback_error:
+                error.add_note(f"could not restore {destination / name}: {rollback_error}")
+        raise ConversionFailed(
+            f"{destination} could not be replaced by content: {error}"
+        ) from error
+
+
+def _restore_contents(destination: Path, staged: Path) -> None:
+    """Undo `_replace_contents` when a later directory fails."""
+    aside = destination / KEPT_ASIDE
+    for name in sorted(os.listdir(destination)):
+        if name == KEPT_ASIDE:
+            continue
+        os.rename(destination / name, staged / name)
+    for name in sorted(os.listdir(aside)):
+        os.rename(aside / name, destination / name)
+    os.rmdir(aside)
+
+
 def convert(staging: Path, names: Sequence[str], *, root: Path = Path("/")) -> None:
     """Replace each named directory and remove backups after all swaps finish."""
     try:
@@ -23,7 +88,7 @@ def convert(staging: Path, names: Sequence[str], *, root: Path = Path("/")) -> N
         # step exists to avoid: the window would be the whole copy.
         raise ConversionFailed("the staging directory is not on the root filesystem")
 
-    destinations: list[tuple[str, Path, Path, Path, bool]] = []
+    destinations: list[tuple[str, Path, Path, Path, bool, bool]] = []
     for name in names:
         destination = root / name
         staged = staging / name
@@ -33,27 +98,38 @@ def convert(staging: Path, names: Sequence[str], *, root: Path = Path("/")) -> N
         if os.path.lexists(old):
             raise ConversionFailed(f"{old} is left from an earlier attempt")
         if os.path.ismount(destination):
-            # Refused here rather than discovered at the rename: a machine with
-            # a separate /var or /usr can never be converted this way, and the
-            # rollback that follows a half-done swap is not the place to learn
-            # it.
-            raise ConversionFailed(
-                f"{destination} is a separate mount, which rename cannot replace"
-            )
+            # Counted before anything moves: `rename(2)` answers EBUSY for a
+            # mount point, and finding that out halfway through the entries is
+            # a state with no clean rollback.
+            nested = _mounts_inside(destination)
+            if nested:
+                raise ConversionFailed(
+                    f"{destination} is a separate mount holding {', '.join(nested)}, "
+                    "which rename cannot move"
+                )
         # A distribution without one of these is converted, not refused: a
         # merged-usr Debian has no `/lib64` at all, and renaming what is not
         # there fails half way through with the rest already swapped.
-        destinations.append((name, destination, staged, old, os.path.lexists(destination)))
+        destinations.append(
+            (name, destination, staged, old, os.path.lexists(destination), os.path.ismount(destination))
+        )
+    # Mount points last: replacing one by content is the only step whose
+    # rollback touches more than two renames, so nothing else has to be undone
+    # after one of them succeeded.
+    destinations.sort(key=lambda entry: entry[5])
 
-    swapped: list[tuple[str, Path, Path, Path, bool]] = []
+    swapped: list[tuple[str, Path, Path, Path, bool, bool]] = []
     for entry in destinations:
-        name, destination, staged, old, present = entry
+        name, destination, staged, old, present, mounted = entry
         moved_old = False
         try:
-            if present:
-                os.rename(destination, old)
-                moved_old = True
-            os.rename(staged, destination)
+            if mounted:
+                _replace_contents(destination, staged)
+            else:
+                if present:
+                    os.rename(destination, old)
+                    moved_old = True
+                os.rename(staged, destination)
         except OSError as error:
             if moved_old:
                 try:
@@ -61,9 +137,22 @@ def convert(staging: Path, names: Sequence[str], *, root: Path = Path("/")) -> N
                 except OSError as rollback_error:
                     error.add_note(f"could not restore {name}: {rollback_error}")
             for entry_back in reversed(swapped):
-                swapped_name, swapped_destination, swapped_staged, swapped_old, was_there = (
-                    entry_back
-                )
+                (
+                    swapped_name,
+                    swapped_destination,
+                    swapped_staged,
+                    swapped_old,
+                    was_there,
+                    was_mounted,
+                ) = entry_back
+                if was_mounted:
+                    try:
+                        _restore_contents(swapped_destination, swapped_staged)
+                    except OSError as rollback_error:
+                        error.add_note(
+                            f"could not restore {swapped_name}: {rollback_error}"
+                        )
+                    continue
                 try:
                     os.rename(swapped_destination, swapped_staged)
                 except OSError as rollback_error:
@@ -83,13 +172,14 @@ def convert(staging: Path, names: Sequence[str], *, root: Path = Path("/")) -> N
 
     # Said rather than raised: every name is already swapped by now, so the
     # machine is converted and a directory left behind is not a failure of it.
-    for name, _, _, old, present in swapped:
-        if not present:
+    for name, destination, _, old, present, mounted in swapped:
+        kept = destination / KEPT_ASIDE if mounted else old
+        if not mounted and not present:
             continue
         try:
-            shutil.rmtree(old)
+            shutil.rmtree(kept)
         except OSError as error:
-            print(f"{old} stayed behind: {error}", file=sys.stderr)
+            print(f"{kept} stayed behind: {error}", file=sys.stderr)
 
 
 #: What a distribution names a kernel, an initramfs and the two files that go

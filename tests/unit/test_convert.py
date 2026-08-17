@@ -217,24 +217,68 @@ def test_a_file_that_is_not_a_kernel_image_is_left_alone(tmp_path: Path) -> None
     assert (root / "boot" / "memtest86+.bin").read_text() == "keep"
 
 
-def test_a_separately_mounted_directory_is_refused_before_any_rename(
+def test_a_separately_mounted_directory_is_replaced_by_its_contents(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A machine with a separate /var can never be converted by renaming, and
-    the rollback after a half-done swap is not the place to learn it."""
+    """Fedora mounts `/var` as its own btrfs subvolume, and `rename(2)` cannot
+    replace a mount point. Refusing it kept the whole RPM family out, so the
+    entries move instead: every one is a rename on the same filesystem, which
+    is what `distro2gentoo`'s `cp -a` is not."""
     root = tmp_path / "root"
     staging = root / "new"
     for name in ("usr", "var"):
         (root / name).mkdir(parents=True)
         (staging / name).mkdir(parents=True)
     (root / "usr" / "kept.txt").write_text("old")
+    (root / "var" / "old-log").write_text("from the distribution being replaced")
+    (staging / "usr" / "new.txt").write_text("new")
+    (staging / "var" / "portage").mkdir()
 
     real = os.path.ismount
     monkeypatch.setattr(
         "os.path.ismount", lambda path: str(path).endswith("/var") or real(path)
     )
+    # The directory itself, not its contents: a rename would put a different
+    # directory at that path, which is exactly what a mount point forbids. In a
+    # temporary directory nothing is really mounted, so the inode is what tells
+    # the two paths apart.
+    was = os.stat(root / "var").st_ino
+    ordinary = os.stat(root / "usr").st_ino
 
-    with pytest.raises(ConversionFailed, match="separate mount"):
+    convert.convert(staging, ("usr", "var"), root=root)
+
+    assert os.stat(root / "var").st_ino == was, "the mount point was replaced"
+    assert os.stat(root / "usr").st_ino != ordinary, "an ordinary directory is renamed"
+    # The mount point itself is untouched, and what is in it is the staged set.
+    assert (root / "var" / "portage").is_dir()
+    assert not (root / "var" / "old-log").exists(), "replaced, not merged"
+    assert not (root / "var" / convert.KEPT_ASIDE).exists(), "the kept set is removed"
+    # And the ordinary directory still went by rename.
+    assert (root / "usr" / "new.txt").read_text() == "new"
+    assert not (root / "usr" / "kept.txt").exists()
+
+
+def test_a_mount_inside_a_mounted_directory_is_refused_before_any_move(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Negative control for the above. `rename(2)` answers EBUSY for a mount
+    point, so a `/var` with something mounted under it cannot have its entries
+    moved, and finding that out halfway through has no clean rollback."""
+    root = tmp_path / "root"
+    staging = root / "new"
+    for name in ("usr", "var"):
+        (root / name).mkdir(parents=True)
+        (staging / name).mkdir(parents=True)
+    (root / "var" / "lib").mkdir()
+    (root / "usr" / "kept.txt").write_text("old")
+
+    real = os.path.ismount
+    monkeypatch.setattr(
+        "os.path.ismount",
+        lambda path: str(path).endswith(("/var", "/var/lib")) or real(path),
+    )
+
+    with pytest.raises(ConversionFailed, match="holding lib"):
         convert.convert(staging, ("usr", "var"), root=root)
 
-    assert (root / "usr" / "kept.txt").read_text() == "old", "nothing was renamed"
+    assert (root / "usr" / "kept.txt").read_text() == "old", "nothing was moved"
