@@ -3688,3 +3688,70 @@ def test_an_entry_that_booted_unedited_is_said_at_once() -> None:
 
     with pytest.raises(GrubNotReadable, match="booted before its countdown"):
         hold_the_menu(Console(), timeout=30.0)
+
+
+def test_a_reset_that_timed_out_is_sent_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    """run63 lost `vm-unlock` at 1.2 minutes to
+
+        POST /nodes/infra-node3/qemu/9304/status/reset did not answer:
+        <urlopen error timed out>
+
+    A reset is idempotent: resetting a guest that was already reset does
+    nothing, and a request that timed out may well have arrived. So the one
+    call that cannot be made worse by repeating it was the one not repeated.
+    """
+    from tests.vm.proxmox import Guest, GuestSpec, ProxmoxTransientError
+
+    monkeypatch.setattr("tests.vm.proxmox.time.sleep", lambda seconds: None)
+    tries: list[str] = []
+
+    class Timing:
+        def call(self, method: str, path: str, **form: object) -> str:
+            tries.append(path)
+            if len(tries) < 3:
+                raise ProxmoxTransientError(f"{method} {path} did not answer: timed out")
+            return "UPID:done"
+
+        def wait(self, node: str, upid: str, patience: float = 0.0) -> None:
+            return None
+
+    guest = Guest(
+        api=cast(Any, Timing()),
+        node="infra-node3",
+        vmid=9304,
+        spec=GuestSpec(name="vm-unlock", iso="x"),
+    )
+    guest.reset()
+
+    assert len(tries) == 3, tries
+    assert all(one.endswith("/status/reset") for one in tries), tries
+
+
+def test_a_reset_that_never_answers_still_stops_the_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The negative direction: retrying for ever would hold a node until the
+    schedule ended, which is what the bounded count is for."""
+    from tests.vm.proxmox import Guest, GuestSpec, ProxmoxTransientError, RESET_TRIES
+
+    monkeypatch.setattr("tests.vm.proxmox.time.sleep", lambda seconds: None)
+    tries: list[str] = []
+
+    class Never:
+        def call(self, method: str, path: str, **form: object) -> str:
+            tries.append(path)
+            raise ProxmoxTransientError(f"{method} {path} did not answer: timed out")
+
+        def wait(self, node: str, upid: str, patience: float = 0.0) -> None:
+            return None
+
+    guest = Guest(
+        api=cast(Any, Never()),
+        node="infra-node3",
+        vmid=9304,
+        spec=GuestSpec(name="vm-unlock", iso="x"),
+    )
+    with pytest.raises(ProxmoxTransientError):
+        guest.reset()
+
+    assert len(tries) == RESET_TRIES, tries
