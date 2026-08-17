@@ -77,10 +77,13 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
         # initramfs, so the only place the ssh daemon can live is that EFI
         # file. `zbm-unlock` failed three times saying nothing but that a
         # forwarded port went unanswered.
+        # The acl, not the daemon: `grep -ci dropbear` counts the `etc/dropbear`
+        # host-key paths and answered 3 on an image that authenticates nobody.
         result.append(
             InstalledCheck(
-                "zbm dropbear",
-                "lsinitrd /efi/EFI/zbm/*.EFI 2>/dev/null | grep -ci dropbear",
+                "zbm unlock key",
+                "lsinitrd /efi/EFI/zbm/*.EFI 2>/dev/null "
+                "| grep -cE 'authorized_keys|dropbear-start'",
                 r"[1-9]",
             )
         )
