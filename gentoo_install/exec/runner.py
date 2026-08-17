@@ -252,9 +252,11 @@ def write_file(path: Path, content: str, mode: int = 0o644) -> None:
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     handle = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    # `os.open` applies its mode only when it creates the file, so an existing
+    # 0644 file stays readable through the write without this.
+    os.fchmod(handle, mode)
     with os.fdopen(handle, "w") as opened:
         opened.write(content)
-    path.chmod(mode)
 
 
 def _kill_group(process: subprocess.Popen[str]) -> None:

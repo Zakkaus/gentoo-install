@@ -5,7 +5,7 @@ import os
 
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
-from typing import AbstractSet, Iterable, Mapping, Sequence
+from typing import IO, AbstractSet, Iterable, Mapping, Sequence
 
 import tempfile
 
@@ -2372,3 +2372,34 @@ def test_a_configuration_url_refuses_a_body_past_the_ceiling() -> None:
     exact = Response(64)
     with mock.patch.object(fetch, "_urlopen", lambda *rest: exact):
         assert fetch.read_text("https://example.invalid/ok", ceiling=64) == "x" * 64
+
+
+def test_an_existing_file_is_narrowed_before_the_secret_reaches_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`os.open` applies its mode argument only when it creates the file, so
+    an existing `0644` file stayed world-readable until the `chmod` that once
+    followed the write. `preflight.py` writes LUKS passphrases through this
+    function, and a reused work directory is exactly where an existing file
+    with the wrong mode comes from.
+    """
+    import stat
+
+    from gentoo_install.exec.runner import write_file
+
+    where = tmp_path / "passphrase"
+    where.write_text("older")
+    where.chmod(0o644)
+
+    seen: list[int] = []
+
+    def watched(handle: int, how: str) -> IO[str]:
+        seen.append(stat.S_IMODE(os.fstat(handle).st_mode))
+        return open(handle, how, closefd=True)
+
+    monkeypatch.setattr(os, "fdopen", watched)
+    write_file(where, "secret", 0o600)
+
+    assert seen == [0o600], [oct(one) for one in seen]
+    assert stat.S_IMODE(where.stat().st_mode) == 0o600
+    assert where.read_text() == "secret"
