@@ -1296,3 +1296,49 @@ def test_infra_node3_takes_guests_again() -> None:
 
     entry = inspect.getsource(cluster.main)
     assert "none are named" in entry, entry[:0] or "the empty case is unhandled"
+
+
+def test_a_timed_out_marker_names_the_command_it_was_waiting_on() -> None:
+    """`vm-convert` ended a 156-minute run with
+
+        never matched 'MARK_63_DONE'; last output was b'...grub-core/lib...'
+
+    A token is not a command, and reading which of sixty-three it was took the
+    source. The screen said GRUB was compiling; the message did not say which
+    step was waiting on it.
+    """
+    from tests.vm.console import ConsoleIdle, ConsoleTimeout
+
+    class Console:
+        def __init__(self, error: Exception) -> None:
+            self.error = error
+
+        def send(self, line: str) -> None:
+            return None
+
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+            raise self.error
+
+    link = cluster.Reconnecting(
+        lambda: cast(Any, Console(ConsoleTimeout("never matched 'MARK_63_DONE'"))), tries=1
+    )
+    with pytest.raises(ConsoleTimeout, match="emerge --sync") as caught:
+        link.run("emerge --sync gentoo")
+    assert "MARK_63_DONE" in str(caught.value), "the token is kept as well"
+
+    # Negative control one: the idle failure keeps its own type, or `wait_for`
+    # stops consulting the watchdog and every long build ends as a timeout.
+    idle_link = cluster.Reconnecting(
+        lambda: cast(Any, Console(ConsoleIdle("never matched 'MARK_9_DONE'"))), tries=1
+    )
+    with pytest.raises(ConsoleIdle):
+        idle_link.run("emerge --sync gentoo")
+
+    # Negative control two: a console that answers is not wrapped at all.
+    class Answering(Console):
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+            return b"done"
+
+    cluster.Reconnecting(
+        lambda: cast(Any, Answering(ConsoleTimeout("unused"))), tries=1
+    ).run("true")
