@@ -75,7 +75,7 @@
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
   install the storage tools: emerge sys-fs/dosfstools
   install the kernel and the tools that build a module for it: emerge sys-kernel/gentoo-kernel-bin sys-fs/zfs, building sys-fs/zfs here
-  tell dracut to carry zfs
+  tell dracut to carry zfs, and 13 cloud bus drivers whatever it detects
   copy the installing system's hostid into the target so the pool imports
   rebuild the initramfs from sys-kernel/gentoo-kernel-bin with the modules written above
   check the installkernel payload names existing kernel files
