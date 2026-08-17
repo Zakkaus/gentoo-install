@@ -6,7 +6,7 @@ from __future__ import annotations
 import importlib
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
-from typing import Any, Final, Protocol, Sequence, cast
+from typing import Any, Callable, Final, Protocol, Sequence, cast
 
 from ..errors import ConversionFailed, ConversionUnsupported
 from ..model.config import DiskConfig, DiskMode
@@ -40,7 +40,14 @@ REPLACED_DIRECTORIES: tuple[str, ...] = (
 
 
 class _Converter(Protocol):
-    def convert(self, staging: Path, names: Sequence[str], *, root: Path = Path("/")) -> None: ...
+    def convert(
+        self,
+        staging: Path,
+        names: Sequence[str],
+        *,
+        copy: Callable[[Path, Path], None],
+        root: Path = Path("/"),
+    ) -> None: ...
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -127,7 +134,15 @@ class SwapDirectories(Operation):
     def apply(self, context: Context) -> None:
         module = importlib.import_module("gentoo_install.exec.convert")
         converter = cast(_Converter, module)
-        converter.convert(Path(str(self.staging)), self.names)
+
+        def copy(source: Path, destination: Path) -> None:
+            # `cp --archive`, not `shutil.copytree`: a stage3 carries file
+            # capabilities and xattrs that Python's copy does not restore.
+            context.run(
+                ["cp", "--archive", "--one-file-system", str(source), str(destination)]
+            )
+
+        converter.convert(Path(str(self.staging)), self.names, copy=copy)
 
 
 FSTAB: Final[PurePosixPath] = PurePosixPath("/etc/fstab")

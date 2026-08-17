@@ -10,6 +10,21 @@ from gentoo_install.errors import ConversionFailed
 from gentoo_install.exec import convert
 
 
+def _copy(source: Path, destination: Path) -> None:
+    """What the plan hands over as `cp --archive`, in the test's own terms.
+
+    `copytree` here rather than a runner: what these tests hold is the ordering
+    and the rollback, and the plan's own test holds that the command really is
+    `cp --archive`.
+    """
+    import shutil
+
+    if source.is_dir() and not source.is_symlink():
+        shutil.copytree(source, destination, symlinks=True)
+    else:
+        shutil.copy2(source, destination, follow_symlinks=False)
+
+
 def _directory(path: Path, content: str) -> None:
     path.mkdir()
     (path / "content").write_text(content)
@@ -25,7 +40,7 @@ def test_swapping_several_directories_removes_backups(tmp_path: Path) -> None:
         _directory(root / name, f"old {name}")
         _directory(staging / name, f"new {name}")
 
-    convert.convert(staging, names, root=root)
+    convert.convert(staging, names, copy=_copy, root=root)
 
     for name in names:
         assert (root / name / "content").read_text() == f"new {name}"
@@ -56,7 +71,7 @@ def test_different_filesystem_is_refused_before_any_rename(
     monkeypatch.setattr(os, "stat", fake_stat)
 
     with pytest.raises(ConversionFailed, match="not on the root filesystem"):
-        convert.convert(staging, ("etc",), root=root)
+        convert.convert(staging, ("etc",), copy=_copy, root=root)
     assert (root / "etc" / "content").read_text() == "old"
     assert (staging / "etc" / "content").read_text() == "new"
 
@@ -87,7 +102,7 @@ def test_rename_failure_restores_previous_swaps(
     # Wrapped, not re-raised: `errors.py` owns what leaves this package, and
     # the message still carries what the kernel said.
     with pytest.raises(ConversionFailed, match="injected rename failure"):
-        convert.convert(staging, names, root=root)
+        convert.convert(staging, names, copy=_copy, root=root)
 
     for name in names:
         assert (root / name / "content").read_text() == f"old {name}"
@@ -106,7 +121,7 @@ def test_existing_backup_is_refused_before_any_rename(tmp_path: Path) -> None:
     _directory(root / "etc.gentoo-install.old", "previous")
 
     with pytest.raises(ConversionFailed, match="left from an earlier attempt"):
-        convert.convert(staging, ("etc",), root=root)
+        convert.convert(staging, ("etc",), copy=_copy, root=root)
 
     assert (root / "etc" / "content").read_text() == "old"
     assert (root / "etc.gentoo-install.old" / "content").read_text() == "previous"
@@ -125,7 +140,7 @@ def test_a_directory_the_machine_lacks_is_moved_into_place(tmp_path: Path) -> No
     (staging / "lib64").mkdir()
     (staging / "lib64" / "new.txt").write_text("new")
 
-    convert.convert(staging, ("usr", "lib64"), root=root)
+    convert.convert(staging, ("usr", "lib64"), copy=_copy, root=root)
 
     assert (root / "usr" / "new.txt").read_text() == "new"
     assert (root / "lib64" / "new.txt").read_text() == "new"
@@ -153,7 +168,7 @@ def test_a_rollback_takes_back_a_directory_the_machine_lacked(
 
     monkeypatch.setattr("os.rename", failing)
     with pytest.raises(ConversionFailed, match="usr could not be swapped"):
-        convert.convert(staging, ("lib64", "usr"), root=root)
+        convert.convert(staging, ("lib64", "usr"), copy=_copy, root=root)
 
     assert (staging / "lib64").is_dir(), "the staged one has to go back"
     assert not (root / "lib64").exists()
@@ -245,7 +260,7 @@ def test_a_separately_mounted_directory_is_replaced_by_its_contents(
     was = os.stat(root / "var").st_ino
     ordinary = os.stat(root / "usr").st_ino
 
-    convert.convert(staging, ("usr", "var"), root=root)
+    convert.convert(staging, ("usr", "var"), copy=_copy, root=root)
 
     assert os.stat(root / "var").st_ino == was, "the mount point was replaced"
     assert os.stat(root / "usr").st_ino != ordinary, "an ordinary directory is renamed"
@@ -279,6 +294,64 @@ def test_a_mount_inside_a_mounted_directory_is_refused_before_any_move(
     )
 
     with pytest.raises(ConversionFailed, match="holding lib"):
-        convert.convert(staging, ("usr", "var"), root=root)
+        convert.convert(staging, ("usr", "var"), copy=_copy, root=root)
 
     assert (root / "usr" / "kept.txt").read_text() == "old", "nothing was moved"
+
+
+def test_a_mounted_directory_is_filled_by_copy_when_rename_cannot_cross(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Read off a Fedora 41 machine, at operation 46 of 48:
+
+        [bootloader] atomically swap /bin, /sbin, /etc, /lib, /lib64, /usr, /var
+        the install stopped: ConversionFailed: /var could not be replaced by
+        content: [Errno 18] Invalid cross-device link:
+        '/gentoo-install.new/var/cache' -> '/var/cache'
+
+    A directory reaches this path precisely because it is a separate mount, and
+    Fedora's `/var` is its own btrfs subvolume, so its `st_dev` differs from
+    the staging root's and `rename(2)` cannot reach it. Everything before this
+    had succeeded: the whole userland was built and the swap was the last step.
+    """
+    import errno
+
+    root = tmp_path / "root"
+    staging = root / "new"
+    for name in ("usr", "var"):
+        (root / name).mkdir(parents=True)
+        (staging / name).mkdir(parents=True)
+    (root / "var" / "old-log").mkdir()
+    (staging / "var" / "cache").mkdir()
+    (staging / "var" / "db").mkdir()
+    (staging / "usr" / "new.txt").write_text("new")
+
+    real_mount = os.path.ismount
+    monkeypatch.setattr(
+        "os.path.ismount", lambda path: str(path).endswith("/var") or real_mount(path)
+    )
+    real_rename = os.rename
+    crossed: list[tuple[str, str]] = []
+
+    def rename(source: Path | str, destination: Path | str) -> None:
+        pair = (str(source), str(destination))
+        if str(staging / "var") in pair[0]:
+            crossed.append(pair)
+            raise OSError(errno.EXDEV, "Invalid cross-device link", pair[0], None, pair[1])
+        real_rename(pair[0], pair[1])
+
+    copied: list[tuple[str, str]] = []
+
+    def copy(source: Path, destination: Path) -> None:
+        copied.append((source.name, destination.name))
+        _copy(source, destination)
+
+    monkeypatch.setattr("os.rename", rename)
+    convert.convert(staging, ("usr", "var"), copy=copy, root=root)
+
+    assert crossed, "the test did not reproduce a cross-device rename"
+    assert copied == [("cache", "cache"), ("db", "db")], copied
+    assert (root / "var" / "cache").is_dir() and (root / "var" / "db").is_dir()
+    assert not (root / "var" / "old-log").exists(), "replaced, not merged"
+    assert not (root / "var" / convert.KEPT_ASIDE).exists(), "the kept set is removed"
+    assert (root / "usr" / "new.txt").read_text() == "new", "an ordinary directory renames"
