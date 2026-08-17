@@ -64,7 +64,7 @@ gentoo-install은 Linux 라이브 환경에서 실행되어 amd64 아키텍처�
 
 2026년 8월 16일 자 클러스터 기록은 설치 도구 리비전 [`a8bf2f3837b6`](https://github.com/Zakkaus/gentoo-install/commit/a8bf2f3837b6)을 대상으로 하며, amd64 Gentoo minimal ISO에서 `vm-luks`, `vm-mdraid`, `vm-xfs`, `vm-btrfs`, `vm-f2fs` 다섯 건이 각각 설치와 부팅을 마치고 부팅 후 설정 검사를 모두 통과했다. `vm-lvm`은 리비전 `073997aa74d2`에서 같은 검사를 통과했다.
 
-2026-08-17 클러스터 기록은 다음을 추가로 다룬다. `openrc-sdboot`는 리비전 `40ea3d90f1cc`, `vm-binpkg`, `vm-btrfs`, `vm-desktop`, `vm-gnome`은 `6ba5530fd3c8`, `vm-xfs`는 `304dffa41602`, `vm-f2fs`, `vm-mdraid`, `vm-proxy-dead`, `vm-xfs`, `vm-zram`은 `7ac43a1d5050`이다. `d2bed50eed48` 기록은 `vm-lvm`, `vm-sdboot`, `vm-unlock`을 추가한다. `vm-unlock`은 initramfs SSH 잠금 해제에 대한 첫 클러스터 기록이다.
+2026-08-17 클러스터 기록은 다음을 추가로 다룬다. `openrc-sdboot`는 리비전 `40ea3d90f1cc`, `vm-binpkg`, `vm-btrfs`, `vm-desktop`, `vm-gnome`은 `6ba5530fd3c8`, `vm-xfs`는 `304dffa41602`, `vm-f2fs`, `vm-mdraid`, `vm-proxy-dead`, `vm-xfs`, `vm-zram`은 `7ac43a1d5050`이다. `d2bed50eed48` 기록은 `vm-lvm`, `vm-sdboot`, `vm-unlock`을 추가한다. `vm-unlock`은 initramfs SSH 잠금 해제에 대한 첫 클러스터 기록이다. 리비전 [`7cf09c2f9d9c`](https://github.com/Zakkaus/gentoo-install/commit/7cf09c2f9d9c) 기록은 `vm-btrfs`, `vm-binpkg`, `vm-luks`를 추가한다.
 
 같은 날짜로 클러스터가 아니라 단일 machine에서 QEMU를 직접 실행한 기록도 있으며, 클러스터가 구동할 수 없는 경로를 다룬다. 클러스터의 BIOS 게스트는 커널이 시작하기 전까지 직렬 포트에 아무것도 출력하지 않고, root가 아닌 API 토큰으로는 스크린샷 엔드포인트도 펌웨어 인자 전달도 사용할 수 없다. 따라서 `vm-bios`, `vm-bios-luks`, `ext4-bios`, `mbr-edit`는 `304dffa41602`에서 QEMU로 기록했다. `zfs-zbm`, `vm-proxy`, `vm-proxy-http`는 `15d45598637a`에서 같은 방식이다. 프록시 fixture는 QEMU의 user-mode 네트워크를 통해 호스트의 프록시에 연결하는데, 브리지로 연결된 클러스터 게스트에는 그 주소가 없다.
 

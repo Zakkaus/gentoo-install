@@ -64,7 +64,7 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 
 2026 年 8 月 16 日的叢集記錄標有安裝器修訂版 [`a8bf2f3837b6`](https://github.com/Zakkaus/gentoo-install/commit/a8bf2f3837b6)，在 amd64 Gentoo minimal ISO 上涵蓋 `vm-luks`、`vm-mdraid`、`vm-xfs`、`vm-btrfs` 與 `vm-f2fs`，五者各自完成安裝、開機並通過全部開機後設定檢查。`vm-lvm` 在修訂版 `073997aa74d2` 完成同一組檢查。
 
-2026-08-17 的叢集記錄另外涵蓋：`openrc-sdboot` 於 `40ea3d90f1cc`；`vm-binpkg`、`vm-btrfs`、`vm-desktop`、`vm-gnome` 於 `6ba5530fd3c8`；`vm-xfs` 於 `304dffa41602`；`vm-f2fs`、`vm-mdraid`、`vm-proxy-dead`、`vm-xfs`、`vm-zram` 於 `7ac43a1d5050`。`d2bed50eed48` 的記錄再加上 `vm-lvm`、`vm-sdboot` 與 `vm-unlock`，其中 `vm-unlock` 是 initramfs SSH 解鎖的第一筆叢集記錄。
+2026-08-17 的叢集記錄另外涵蓋：`openrc-sdboot` 於 `40ea3d90f1cc`；`vm-binpkg`、`vm-btrfs`、`vm-desktop`、`vm-gnome` 於 `6ba5530fd3c8`；`vm-xfs` 於 `304dffa41602`；`vm-f2fs`、`vm-mdraid`、`vm-proxy-dead`、`vm-xfs`、`vm-zram` 於 `7ac43a1d5050`。`d2bed50eed48` 的記錄再加上 `vm-lvm`、`vm-sdboot` 與 `vm-unlock`，其中 `vm-unlock` 是 initramfs SSH 解鎖的第一筆叢集記錄。修訂版 [`7cf09c2f9d9c`](https://github.com/Zakkaus/gentoo-install/commit/7cf09c2f9d9c) 的記錄再加上 `vm-btrfs`、`vm-binpkg` 與 `vm-luks`。
 
 同一天另有一批記錄來自單機直接執行 QEMU 而非叢集，涵蓋叢集無法驅動的路徑。叢集上的 BIOS 客機在核心啟動前不會向序列埠寫入任何內容，而非 root 的 API token 呼叫螢幕擷取端點會得到 501，也無法傳遞韌體參數，因此 `vm-bios`、`vm-bios-luks`、`ext4-bios`、`mbr-edit` 的記錄是 `304dffa41602`，由 QEMU 產生。`zfs-zbm`、`vm-proxy`、`vm-proxy-http` 於 `15d45598637a` 同樣如此：代理 fixture 透過 QEMU 的 user-mode 網路連到宿主機上的代理，橋接的叢集客機沒有這個位址。
 
