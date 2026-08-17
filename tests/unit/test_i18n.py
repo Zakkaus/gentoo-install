@@ -15,13 +15,6 @@ def shipped(tag: str) -> dict[str, str]:
     raw = tomllib.loads((LOCALES / f"{tag}.toml").read_text(encoding="utf-8"))
     return {str(key): str(value) for key, value in raw["strings"].items()}
 
-REPRESENTATIVE: dict[str, str] = {
-    "ja": "\u30c7\u30a3\u30b9\u30af",
-    "ko": "\ub514\uc2a4\ud06c",
-    "zh-CN": "\u78c1\u76d8",
-    "zh-TW": "\u78c1\u789f",
-}
-
 
 def test_the_first_variable_that_is_set_decides() -> None:
     """`locale(7)` order, and a variable set to C is a request for the
@@ -76,11 +69,12 @@ def test_every_shipped_catalog_translates_the_same_keys() -> None:
     halfway down."""
     tags = sorted(path.stem for path in LOCALES.glob("*.toml"))
     assert tags == ["ja", "ko", "zh-CN", "zh-TW"]
-    assert set(REPRESENTATIVE) == set(tags)
     keys = [set(shipped(tag)) for tag in tags]
     assert all(other == keys[0] for other in keys[1:])
-    for tag, expected in REPRESENTATIVE.items():
-        assert Catalog(tag)("Disks") == expected
+    for tag in tags:
+        catalog = Catalog(tag)
+        for key, value in shipped(tag).items():
+            assert value and catalog(key) == value, key
 
 
 #: A wide character and a combining mark, by codepoint: no CJK literal belongs
@@ -180,6 +174,36 @@ def in_a_table() -> set[str]:
     return found
 
 
+def operation_templates() -> set[str]:
+    """Description templates the overview passes to the catalog indirectly."""
+    import ast
+
+    from gentoo_install.plan import portage, system
+
+    def templates(expression: ast.expr) -> set[str]:
+        if isinstance(expression, ast.IfExp):
+            return templates(expression.body) | templates(expression.orelse)
+        if not isinstance(expression, ast.Tuple) or not expression.elts:
+            return set()
+        template = expression.elts[0]
+        if isinstance(template, ast.Constant) and isinstance(template.value, str):
+            return {template.value}
+        return set()
+
+    found: set[str] = set()
+    for module in (portage, system):
+        module_path = module.__file__
+        assert module_path is not None
+        tree = ast.parse(Path(module_path).read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef) or node.name != "describe_parts":
+                continue
+            for returned in ast.walk(node):
+                if isinstance(returned, ast.Return) and returned.value is not None:
+                    found |= templates(returned.value)
+    return found
+
+
 def displayed() -> set[str]:
     """Every source string the interface passes through the catalog."""
     import ast
@@ -187,6 +211,7 @@ def displayed() -> set[str]:
     from gentoo_install import tui
 
     found = in_a_table()
+    found |= operation_templates()
     for module in Path(tui.__file__).parent.parent.rglob("*.py"):
         for node in ast.walk(ast.parse(module.read_text(encoding="utf-8"))):
             if not isinstance(node, ast.Call):
@@ -214,6 +239,13 @@ def test_the_catalogs_hold_every_string_the_interface_shows() -> None:
     keys = set(shipped("zh-TW"))
     assert not shown - keys, sorted(shown - keys)
     assert not keys - shown, sorted(keys - shown)
+
+
+def test_operation_templates_keep_their_positional_values() -> None:
+    for tag in ("ja", "ko", "zh-CN", "zh-TW"):
+        strings = shipped(tag)
+        for template in operation_templates():
+            assert strings[template].count("{}") == template.count("{}"), (tag, template)
 
 
 def _shown(value: object) -> list[str]:
@@ -391,3 +423,72 @@ def test_no_catalog_shows_a_particle_the_writer_had_not_chosen() -> None:
             if "{" not in source:
                 continue
             assert not candidates.search(value), f"{catalog.name}: {source}"
+
+
+#: Every operation template carrying more than one placeholder. The values are
+#: substituted in order, so a translation that moves them to suit its own word
+#: order silently renames them: an agent's four catalogs each read `import
+#: <fingerprint> from <key_path>` where the values are `(fingerprint,
+#: key_path, binhost)`, and the same slip put the runlevel where the service
+#: goes and rotated the three names in the stage3 line.
+REVIEWED_TEMPLATES: frozenset[str] = frozenset(
+    {
+        "add unverified binary package host {} at {}",
+        "add verified binary package host {} at {}",
+        "authorise {} ssh key(s) for {}",
+        "configure {} as {}",
+        "create user {} in {} with a password",
+        "create user {} in {} with no password",
+        "download the newest {} stage3 from {} directly,"
+        " verify it against {} and unpack it into the target",
+        "download the newest {} stage3 from {} via {},"
+        " verify it against {} and unpack it into the target",
+        "enable {} in the {} runlevel",
+        "import {} from {} and locally sign it for {}",
+        "point repository {} at {}",
+        "point repository {} at {}, commit signatures verified",
+        "run a script from {} and {} commands once, the first time the system boots",
+        "set the console keymap to {} and its font to {}",
+        "start a login on {} at {} baud",
+        "sync repository {}, {} other sites to fall back on",
+        "write /etc/portage/make.conf with {}; {} mirrors fastest first, measured",
+        "write /etc/portage/make.conf with {}; {} mirrors fastest first, measured,"
+        " {} appended",
+        "write /etc/portage/make.conf with {}; {} mirrors in the configured order",
+        "write /etc/portage/make.conf with {}; {} mirrors in the configured order,"
+        " {} appended",
+        "write a NetworkManager profile for {} as {}",
+        "write {} for {}",
+        "{}: emerge {}",
+        "{}: emerge {}, building {} here",
+        "{}: emerge {}, from source",
+    }
+)
+
+
+def test_every_multi_placeholder_template_has_been_read_by_a_reviewer() -> None:
+    """Placeholder order cannot be checked against meaning by a machine: a
+    translation legitimately moves words, and only a reader knows which value
+    lands in which slot. Counting placeholders passes a catalog that says
+    `from <fingerprint> import <key_path>`, which is what shipped.
+
+    So the set is named here as well as there, and adding a template fails
+    until somebody has read its four translations.
+    """
+    tags = sorted(path.stem for path in LOCALES.glob("*.toml"))
+    # The union, not one catalog: a template added to a single locale would
+    # otherwise pass here and be caught only by the same-keys test.
+    found = {
+        key for tag in tags for key in shipped(tag) if key.count("{}") >= 2
+    }
+
+    assert found == REVIEWED_TEMPLATES, {
+        "added": sorted(found - REVIEWED_TEMPLATES),
+        "gone": sorted(REVIEWED_TEMPLATES - found),
+    }
+    # Same placeholder count in every locale, which is the part a machine can
+    # check: a missing slot raises `IndexError` at format time.
+    for tag in tags:
+        catalog = shipped(tag)
+        for key in sorted(REVIEWED_TEMPLATES):
+            assert catalog[key].count("{}") == key.count("{}"), (tag, key)

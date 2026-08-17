@@ -67,6 +67,12 @@ def generated(installation: InstallConfig) -> str:
     return " ".join(locale.lower().replace("-", "") for locale in installation.system.locales)
 
 
+def test_a_converted_operation_keeps_its_description_byte_for_byte() -> None:
+    operation = system.SetTimezone(timezone="Asia/Tokyo")
+
+    assert operation.describe_parts() == ("set the timezone to {}", ("Asia/Tokyo",))
+    assert operation.describe() == "set the timezone to Asia/Tokyo"
+
 def test_a_locale_that_locale_gen_skipped_is_generated_again_and_then_checked() -> None:
     installation = with_system(locales=("en_US.UTF-8", "zh_TW.UTF-8"))
     recorder = apply_all(installation, generated=generated(installation))

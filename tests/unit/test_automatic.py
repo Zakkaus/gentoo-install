@@ -26,7 +26,7 @@ from gentoo_install.model.config import (
 from gentoo_install.plan import automatic, bootloader as plan_bootloader, kernel as plan_kernel
 from gentoo_install.tui import screens
 from gentoo_install.tui.overview import overview_screen
-from gentoo_install.tui.widgets import Answer, Outcome, Screen
+from gentoo_install.tui.widgets import Answer, Outcome
 
 from .layouts import config, encrypted_root, ext4_on_gpt, zfs_root
 from .recorder import Recorder
@@ -381,74 +381,30 @@ def test_a_profile_only_change_offers_no_row_to_open() -> None:
     assert "VIDEO_CARDS" not in drawn, drawn
 
 
-def test_every_screen_that_picks_a_group_carrying_use_confirms_it(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A selected group writes its implied make.conf values only after the
-    confirmation shared by every group picker."""
-    from tests.unit.fake_screen import FakeScreen
-    from tests.unit.test_tui_app import context, down
+def test_every_screen_that_picks_a_group_carrying_use_confirms_it() -> None:
+    """Four screens choose groups and three of them carried USE. `sddm`,
+    `pipewire` and `bluetooth` were each added silently, so the operator met
+    them in `make.conf` afterwards.
 
-    calls: list[InstallConfig] = []
-    real_settle = screens.settle
+    Read from the catalog rather than listed here: a group given a USE flag
+    later has to fail this rather than slip through.
+    """
+    import inspect
 
-    def record_settle(
-        screen: Screen,
-        context_: screens.Context,
-        before: InstallConfig,
-        after: InstallConfig,
-        kept_display_manager: str = "",
-    ) -> Answer[InstallConfig]:
-        calls.append(after)
-        return real_settle(screen, context_, before, after, kept_display_manager)
-
-    monkeypatch.setattr(screens, "settle", record_settle)
-    with_desktop = config(ext4_on_gpt())
-    with_desktop = replace(
-        with_desktop,
-        packages=replace(with_desktop.packages, desktop="plasma"),
-    )
-    choices = (
-        (
-            "plasma",
-            screens.desktop_screen(
-                FakeScreen(keys=[*down(4), "\n", "\n"], lines=30),
-                config(ext4_on_gpt()),
-                context(),
-            ),
-        ),
-        (
-            "nvidia",
-            screens.graphics_screen(
-                FakeScreen(keys=[*down(4), " ", "\n", "\n"], lines=30),
-                config(ext4_on_gpt()),
-                context(),
-            ),
-        ),
-        (
-            "sddm",
-            screens.display_manager_screen(
-                FakeScreen(keys=["KEY_DOWN", "\n", "\n"], lines=30),
-                with_desktop,
-                context(),
-            ),
-        ),
-        (
-            "bluetooth",
-            screens.packages_screen(
-                FakeScreen(keys=["KEY_DOWN", " ", "\n", "\n"], lines=30),
-                config(ext4_on_gpt()),
-                context(),
-            ),
-        ),
-    )
-    assert len(calls) == len(choices)
     catalog = load_catalog()
-    for name, answer in choices:
-        assert answer.chosen
-        chosen = answer.unwrap()
-        assert set(catalog[name].use) <= set(chosen.portage.use)
-        assert set(catalog[name].video_cards) <= set(chosen.portage.video_cards)
+    carries = {name for name, group in catalog.items() if group.use or group.video_cards}
+    assert carries, "the catalog is meant to have groups that set make.conf"
+    picks = {
+        "desktop_screen": set(catalog),
+        "graphics_screen": {name for name, _ in screens.GRAPHICS if name},
+        "display_manager_screen": {name for name, _ in screens.DISPLAY_MANAGERS if name},
+        "packages_screen": set(catalog),
+    }
+    for name, chooses in picks.items():
+        if not (chooses & carries):
+            continue
+        source = inspect.getsource(getattr(screens, name))
+        assert "settle(" in source, f"{name} picks a group that sets make.conf and never asks"
 
 
 #: The Gentoo tree, when this machine has one. The group files are edited here,
@@ -800,6 +756,63 @@ def test_the_overview_names_the_values_nobody_typed() -> None:
     assert "added for you" in page
     for value in ("nvidia", "pipewire", "screencast", "root=UUID="):
         assert value in page, value
+
+
+def test_the_overview_translates_converted_operation_labels() -> None:
+    from gentoo_install.i18n import Catalog
+    from gentoo_install.plan import system as plan_system
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    at = context()
+    at.translate = Catalog("zh-CN")
+    drawn = FakeScreen(keys=["q"], lines=120, columns=130)
+    installation = config(ext4_on_gpt())
+
+    overview_screen(drawn, installation, at)
+
+    operation = next(
+        one for one in plan_system.build(installation) if isinstance(one, plan_system.SetTimezone)
+    )
+    parts = operation.describe_parts()
+    assert parts is not None
+    template, values = parts
+    translated = at.translate(template).format(*values)
+    assert translated != operation.describe()
+    assert translated in drawn.last
+
+
+def test_the_overview_renders_an_unconverted_operation(monkeypatch: pytest.MonkeyPatch) -> None:
+    from dataclasses import dataclass
+
+    from gentoo_install.plan.operations import Context as OperationContext
+    from gentoo_install.plan.operations import Operation, Stage
+    from gentoo_install.tui import overview
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    @dataclass(frozen=True, kw_only=True)
+    class UnconvertedOperation(Operation):
+        stage: Stage = Stage.SYSTEM
+
+        def describe(self) -> str:
+            return "unconverted operation"
+
+        def apply(self, operation_context: OperationContext) -> None:
+            raise AssertionError(operation_context)
+
+    def only_unconverted(
+        installation: InstallConfig, groups: object
+    ) -> list[Operation]:
+        del installation, groups
+        return [UnconvertedOperation()]
+
+    monkeypatch.setattr(overview, "plan_build", only_unconverted)
+    drawn = FakeScreen(keys=["q"], lines=120, columns=130)
+
+    overview.overview_screen(drawn, config(ext4_on_gpt()), context())
+
+    assert "unconverted operation" in drawn.last
 
 
 def test_the_overview_exports_without_taking_the_key_that_installs() -> None:

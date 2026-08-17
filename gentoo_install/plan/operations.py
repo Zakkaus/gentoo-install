@@ -197,9 +197,17 @@ class Operation(ABC):
     #: operations that serve several phases take it from the caller.
     stage: Stage
 
-    @abstractmethod
+    def describe_parts(self) -> tuple[str, tuple[str, ...]] | None:
+        """The source template and rendered values for a translatable description."""
+        return None
+
     def describe(self) -> str:
         """One line, present tense, naming the concrete arguments."""
+        parts = self.describe_parts()
+        if parts is None:
+            raise NotImplementedError(f"{type(self).__name__} must define describe()")
+        template, values = parts
+        return template.format(*values)
 
     @abstractmethod
     def apply(self, context: Context) -> None: ...

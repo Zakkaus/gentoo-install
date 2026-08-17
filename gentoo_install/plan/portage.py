@@ -132,11 +132,16 @@ class InstallStage3(Operation):
     #: the one step in the whole plan with no second address to try.
     fallbacks: tuple[str, ...] = ()
 
-    def describe(self) -> str:
-        route = f" via {self.proxy.redacted_url}" if self.proxy.enabled else " directly"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        fingerprint = RELENG_FINGERPRINT[-16:]
+        if self.proxy.enabled:
+            return (
+                "download the newest {} stage3 from {} via {}, verify it against {} and unpack it into the target",
+                (self.variant, self.mirror, self.proxy.redacted_url, fingerprint),
+            )
         return (
-            f"download the newest {self.variant} stage3 from {self.mirror}{route}, verify it "
-            f"against {RELENG_FINGERPRINT[-16:]} and unpack it into the target"
+            "download the newest {} stage3 from {} directly, verify it against {} and unpack it into the target",
+            (self.variant, self.mirror, fingerprint),
         )
 
     def apply(self, context: Context) -> None:
@@ -171,9 +176,13 @@ class WriteProxyClients(Operation):
     stage: Stage = Stage.PORTAGE
     proxy: ProxyConfig
 
-    def describe(self) -> str:
-        route = self.proxy.redacted_url if self.proxy.enabled else "direct connection"
-        return f"configure Portage, wget, curl, git and gpg for {route}"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        if self.proxy.enabled:
+            return (
+                "configure Portage, wget, curl, git and gpg for {}",
+                (self.proxy.redacted_url,),
+            )
+        return "configure Portage, wget, curl, git and gpg for direct connection", ()
 
     def apply(self, context: Context) -> None:
         proxy = self.proxy
@@ -232,8 +241,8 @@ class MountChrootFilesystems(Operation):
         # the live medium's own /proc, /sys and /dev.
         return False
 
-    def describe(self) -> str:
-        return "mount transient proc, sys, dev and run filesystems into the target"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "mount transient proc, sys, dev and run filesystems into the target", ()
 
     def apply(self, context: Context) -> None:
         target = context.target
@@ -257,8 +266,8 @@ class SeedResolver(Operation):
         # LinkResolvConf replaces it after the last emerge.
         return True
 
-    def describe(self) -> str:
-        return "seed the target's resolv.conf from the install medium"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "seed the target's resolv.conf from the install medium", ()
 
     def apply(self, context: Context) -> None:
         target = context.target
@@ -280,13 +289,27 @@ class WriteMakeConf(Operation):
     #: repository by how fast the other answers.
     appended: tuple[str, ...] = ()
 
-    def describe(self) -> str:
-        keys = [key for key, _ in self.settings]
-        order = "fastest first, measured" if self.speed_test else "in the configured order"
-        extra = f", {len(self.appended)} appended" if self.appended else ""
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        keys = ", ".join(key for key, _ in self.settings)
+        mirrors = str(len(self.mirrors))
+        if self.speed_test:
+            if self.appended:
+                return (
+                    "write /etc/portage/make.conf with {}; {} mirrors fastest first, measured, {} appended",
+                    (keys, mirrors, str(len(self.appended))),
+                )
+            return (
+                "write /etc/portage/make.conf with {}; {} mirrors fastest first, measured",
+                (keys, mirrors),
+            )
+        if self.appended:
+            return (
+                "write /etc/portage/make.conf with {}; {} mirrors in the configured order, {} appended",
+                (keys, mirrors, str(len(self.appended))),
+            )
         return (
-            f"write /etc/portage/make.conf with {', '.join(keys)}; "
-            f"{len(self.mirrors)} mirrors {order}{extra}"
+            "write /etc/portage/make.conf with {}; {} mirrors in the configured order",
+            (keys, mirrors),
         )
 
     def apply(self, context: Context) -> None:
@@ -321,8 +344,8 @@ class WritePortageConfig(Operation):
     def path(self) -> PurePosixPath:
         return PurePosixPath(f"/etc/portage/{self.kind.value}/{self.name}")
 
-    def describe(self) -> str:
-        return f"write {self.path}"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "write {}", (str(self.path),)
 
     def apply(self, context: Context) -> None:
         context.write(self.path, "".join(f"{line}\n" for line in self.lines))
@@ -379,8 +402,8 @@ def merge(existing: str, wanted: Sequence[tuple[str, str]]) -> str:
 class CreateAutounmaskFiles(Operation):
     stage: Stage = Stage.PORTAGE
 
-    def describe(self) -> str:
-        return "create the three autounmask files emerge writes its decisions into"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "create the three autounmask files emerge writes its decisions into", ()
 
     def apply(self, context: Context) -> None:
         for path in AUTOUNMASK_FILES:
@@ -398,9 +421,13 @@ class ConfigureRepository(Operation):
     #: signature keys mean nothing to rsync, so they are written only for git.
     sync_type: str = "git"
 
-    def describe(self) -> str:
-        verified = ", commit signatures verified" if self.verify_commits else ""
-        return f"point repository {self.name} at {self.sync_uri}{verified}"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        if self.verify_commits:
+            return "point repository {} at {}, commit signatures verified", (
+                self.name,
+                self.sync_uri,
+            )
+        return "point repository {} at {}", (self.name, self.sync_uri)
 
     def apply(self, context: Context) -> None:
         stanza = [
@@ -430,8 +457,8 @@ class ConfigureWebrsyncRepository(Operation):
     name: str
     location: PurePosixPath
 
-    def describe(self) -> str:
-        return f"configure repository {self.name} to sync with emerge-webrsync"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "configure repository {} to sync with emerge-webrsync", (self.name,)
 
     def apply(self, context: Context) -> None:
         stanza = (
@@ -452,8 +479,8 @@ class WebrsyncRepository(Operation):
 
     stage: Stage = Stage.PORTAGE
 
-    def describe(self) -> str:
-        return "fetch the first ebuild repository snapshot with emerge-webrsync"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "fetch the first ebuild repository snapshot with emerge-webrsync", ()
 
     def apply(self, context: Context) -> None:
         # Portage owns this policy in the stage3; overriding it can select a
@@ -617,10 +644,13 @@ class SyncRepository(Operation):
     #: file.
     alternates: tuple[ConfigureRepository, ...] = ()
 
-    def describe(self) -> str:
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
         if not self.alternates:
-            return f"sync repository {self.name}"
-        return f"sync repository {self.name}, {len(self.alternates)} other sites to fall back on"
+            return "sync repository {}", (self.name,)
+        return "sync repository {}, {} other sites to fall back on", (
+            self.name,
+            str(len(self.alternates)),
+        )
 
     def apply(self, context: Context) -> None:
         context.run_in_target(["rm", "--recursive", "--force", str(self.location)])
@@ -696,8 +726,8 @@ class SelectProfile(Operation):
     stage: Stage = Stage.PORTAGE
     profile: str
 
-    def describe(self) -> str:
-        return f"select profile {self.profile}"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "select profile {}", (self.profile,)
 
     def apply(self, context: Context) -> None:
         source = "`eselect profile list` in the target"
@@ -718,8 +748,8 @@ class AcceptOverlayKeywords(Operation):
     stage: Stage = Stage.PORTAGE
     repository: str
 
-    def describe(self) -> str:
-        return f"accept ~amd64 for packages from {self.repository} only"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "accept ~amd64 for packages from {} only", (self.repository,)
 
     def apply(self, context: Context) -> None:
         WritePortageConfig(
@@ -746,12 +776,18 @@ class Emerge(Operation):
     def package_requester(self) -> str:
         return self.requester or f"the `{self.summary}` operation"
 
-    def describe(self) -> str:
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        packages = " ".join(self.packages)
         built = self._built_here()
-        how = f", building {' '.join(built)} here" if built else ""
         if built == self.packages:
-            how = ", from source"
-        return f"{self.summary}: emerge {' '.join(self.packages)}{how}"
+            return "{}: emerge {}, from source", (self.summary, packages)
+        if built:
+            return "{}: emerge {}, building {} here", (
+                self.summary,
+                packages,
+                " ".join(built),
+            )
+        return "{}: emerge {}", (self.summary, packages)
 
     def _built_here(self) -> tuple[str, ...]:
         return self.source.built_from(self.packages)
@@ -894,8 +930,8 @@ class PrepareBinhostTrust(Operation):
     stage: Stage = Stage.PORTAGE
     proxy: ProxyConfig = ProxyConfig()
 
-    def describe(self) -> str:
-        return "run getuto so Portage has a keyring to verify binary packages against"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "run getuto so Portage has a keyring to verify binary packages against", ()
 
     def apply(self, context: Context) -> None:
         try:
@@ -927,10 +963,11 @@ class TrustBinhostKey(Operation):
     fingerprint: str
     key_path: PurePosixPath
 
-    def describe(self) -> str:
-        return (
-            f"import {self.fingerprint[-16:]} from {self.key_path} and locally sign it "
-            f"for {self.binhost}"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "import {} from {} and locally sign it for {}", (
+            self.fingerprint[-16:],
+            str(self.key_path),
+            self.binhost,
         )
 
     def apply(self, context: Context) -> None:
@@ -968,9 +1005,10 @@ class ConfigureBinhost(Operation):
     sync_uri: str
     verify: bool
 
-    def describe(self) -> str:
-        signed = "verified" if self.verify else "unverified"
-        return f"add {signed} binary package host {self.name} at {self.sync_uri}"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        if self.verify:
+            return "add verified binary package host {} at {}", (self.name, self.sync_uri)
+        return "add unverified binary package host {} at {}", (self.name, self.sync_uri)
 
     def apply(self, context: Context) -> None:
         if context.degraded(BINARY_PACKAGES) or context.degraded(binhost_trust(self.name)):
@@ -1001,10 +1039,9 @@ class VerifyPackages(Operation):
     stage: Stage = Stage.PORTAGE
     requests: tuple[PackageRequest, ...]
 
-    def describe(self) -> str:
-        return (
-            f"resolve {' '.join(request.atom for request in self.requests)} together "
-            "before installing the requested packages"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "resolve {} together before installing the requested packages", (
+            " ".join(request.atom for request in self.requests),
         )
 
     def apply(self, context: Context) -> None:
@@ -1128,8 +1165,8 @@ class AcceptTestingPackages(Operation):
     stage: Stage = Stage.PORTAGE
     packages: tuple[str, ...]
 
-    def describe(self) -> str:
-        return f"accept ~amd64 for {' '.join(self.packages)} and nothing else"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "accept ~amd64 for {} and nothing else", (" ".join(self.packages),)
 
     def apply(self, context: Context) -> None:
         WritePortageConfig(
@@ -1146,8 +1183,8 @@ class AcceptTestingGlobally(Operation):
 
     stage: Stage = Stage.FINISH
 
-    def describe(self) -> str:
-        return 'append ACCEPT_KEYWORDS="~amd64" to make.conf, after everything is installed'
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return 'append ACCEPT_KEYWORDS="~amd64" to make.conf, after everything is installed', ()
 
     def apply(self, context: Context) -> None:
         context.append(PurePosixPath("/etc/portage/make.conf"), 'ACCEPT_KEYWORDS="~amd64"\n')

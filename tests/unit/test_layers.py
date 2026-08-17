@@ -371,3 +371,34 @@ def test_the_wide_character_scan_reaches_the_files_it_claims_to() -> None:
     # Not every catalog: `ko.toml` is hangul throughout and carries no hanja,
     # so requiring one per file would fail on a correct translation.
     assert [one for one in catalogs if WIDE.search((root / one).read_text())], catalogs
+
+
+def test_every_operation_still_has_to_say_what_it_does() -> None:
+    """`describe()` stopped being abstract when it gained a default built from
+    `describe_parts()`, so a class defining neither used to fail the type check
+    and now raises at the moment an operator is reading the plan. The
+    guarantee moves here rather than being dropped.
+    """
+    import gentoo_install.plan.operations as operations
+
+    # Imported for their side effect: a subclass is only reachable once the
+    # module defining it has been loaded.
+    for name in ("build", "disk", "system", "portage", "bootloader", "kernel", "convert"):
+        __import__(f"gentoo_install.plan.{name}")
+
+    found: list[type[operations.Operation]] = []
+    pending: list[type[operations.Operation]] = list(operations.Operation.__subclasses__())
+    while pending:
+        one = pending.pop()
+        pending += one.__subclasses__()
+        if not getattr(one, "__abstractmethods__", frozenset()):
+            found.append(one)
+
+    silent = [
+        one.__name__
+        for one in found
+        if one.describe is operations.Operation.describe
+        and one.describe_parts is operations.Operation.describe_parts
+    ]
+    assert not silent, silent
+    assert len(found) > 60, len(found)
