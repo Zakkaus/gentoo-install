@@ -419,22 +419,51 @@ class Machine:
     efi_bits: int = 0
 
 
-#: What the kernel calls a CPU feature, and what portage calls it. Only the
-#: ones `CPU_FLAGS_X86` defines: a name portage does not know is a build
-#: failure, not an optimisation. A value differing from its key is a rename and
-#: nothing else: mapping one feature onto another wrote `avx2` for a Piledriver
-#: that has `bmi1` and no AVX2, and every package built for it died on SIGILL.
+#: Every value `CPU_FLAGS_X86` defines, keyed by what `/proc/cpuinfo` calls
+#: it. Three sources, all read on 2026-08-18 rather than remembered: the 48
+#: entries of `profiles/desc/cpu_flags_x86.desc`, the printed names in
+#: `arch/x86/include/asm/cpufeatures.h`, and `cpuid2cpuflags` run on this
+#: machine to check the result. A name portage does not know is a build
+#: failure, not an optimisation: this table wrote `vaes`, which is a cpuinfo
+#: flag with no portage counterpart, and `avx512vnni` for a flag portage
+#: spells `avx512_vnni`, so that one was never set on a CPU that has it.
+#:
+#: A value differing from its key is a rename and nothing else: mapping one
+#: feature onto another wrote `avx2` for a Piledriver that has `bmi1` and no
+#: AVX2, and every package built for it died on SIGILL.
 CPU_FLAGS: Final[dict[str, str]] = {
-    "aes": "aes", "avx": "avx", "avx2": "avx2", "avx512f": "avx512f",
-    "avx512bw": "avx512bw", "avx512cd": "avx512cd", "avx512dq": "avx512dq",
-    "avx512vl": "avx512vl", "avx512vbmi": "avx512vbmi", "avx512vnni": "avx512vnni",
-    "bmi1": "bmi1", "bmi2": "bmi2", "f16c": "f16c", "fma": "fma3",
-    "mmx": "mmx", "mmxext": "mmxext",
-    "pclmulqdq": "pclmul", "popcnt": "popcnt", "rdrand": "rdrand", "sha_ni": "sha",
-    "sse": "sse", "sse2": "sse2", "pni": "sse3", "sse4_1": "sse4_1",
-    "sse4_2": "sse4_2", "sse4a": "sse4a", "ssse3": "ssse3",
-    "vaes": "vaes", "vpclmulqdq": "vpclmulqdq",
+    "3dnow": "3dnow", "3dnowext": "3dnowext", "aes": "aes",
+    "amx_bf16": "amx_bf16", "amx_int8": "amx_int8", "amx_tile": "amx_tile",
+    "avx": "avx", "avx2": "avx2", "avx_vnni": "avx_vnni",
+    "avx512_4fmaps": "avx512_4fmaps", "avx512_4vnniw": "avx512_4vnniw",
+    "avx512_bf16": "avx512_bf16", "avx512_bitalg": "avx512_bitalg",
+    "avx512_fp16": "avx512_fp16", "avx512_vbmi2": "avx512_vbmi2",
+    "avx512_vnni": "avx512_vnni", "avx512_vp2intersect": "avx512_vp2intersect",
+    "avx512_vpopcntdq": "avx512_vpopcntdq", "avx512bw": "avx512bw",
+    "avx512cd": "avx512cd", "avx512dq": "avx512dq", "avx512er": "avx512er",
+    "avx512f": "avx512f", "avx512ifma": "avx512ifma", "avx512pf": "avx512pf",
+    "avx512vbmi": "avx512vbmi", "avx512vl": "avx512vl",
+    "bmi1": "bmi1", "bmi2": "bmi2", "f16c": "f16c",
+    # Where the two names differ. Four are annotated `[<cpuinfo>] in cpuinfo`
+    # in the description file; `sha_ni` is not, and comes from the kernel's
+    # own header. `popcnt` is annotated there and is the same on both sides.
+    "fma": "fma3", "phe": "padlock", "pclmulqdq": "pclmul", "pni": "sse3",
+    "sha_ni": "sha", "popcnt": "popcnt",
+    "fma4": "fma4", "mmx": "mmx", "mmxext": "mmxext", "rdrand": "rdrand",
+    "sse": "sse", "sse2": "sse2", "sse4_1": "sse4_1", "sse4_2": "sse4_2",
+    "sse4a": "sse4a", "ssse3": "ssse3", "vpclmulqdq": "vpclmulqdq",
+    "xop": "xop",
 }
+
+#: A flag whose presence implies another the kernel does not print beside it.
+#: `mmxext` is `[sse] in cpuinfo` in the description file: AMD reports it and
+#: Intel does not, supporting it through SSE, and `cpuid2cpuflags` emits it
+#: for both. Without this an Intel machine loses the flag it qualifies for.
+IMPLIED_CPU_FLAGS: Final[dict[str, str]] = {"sse": "mmxext"}
+
+#: Named rather than written inline, so the fallback can be exercised against
+#: a file holding one CPU's flags instead of whatever this machine has.
+CPUINFO: Final[Path] = Path("/proc/cpuinfo")
 
 #: Directories under zoneinfo that are not regions: legacy aliases, and the
 #: right and posix trees, which repeat every zone with another leap-second
@@ -815,15 +844,25 @@ class Probe:
         return ("UTC", *found) if found else _carried_timezones()
 
     def cpu_flags(self) -> tuple[str, ...]:
-        """`CPU_FLAGS_X86` for this machine, from /proc/cpuinfo.
+        """`CPU_FLAGS_X86` for this machine.
 
-        Read here rather than run through `cpuid2cpuflags`: that is
-        app-portage/cpuid2cpuflags, which no install medium carries, and the
-        flag names it prints are a fixed mapping of the ones the kernel already
-        reports.
+        `cpuid2cpuflags` when the machine has it, because it is the
+        ecosystem's own answer and is versioned with the tree, so a flag added
+        to `CPU_FLAGS_X86` after this was written still reaches `make.conf`.
+        Both install media carry it: `app-portage/cpuid2cpuflags` is line 56 of
+        `releng`'s `installcd-stage1.spec` and is in the Gig-OS Live ISO's
+        `world`. Its output is taken unfiltered, or a flag newer than this
+        table would be dropped by the very check meant to keep bad ones out.
+
+        The table answers where it is absent, which is an in-place conversion
+        of somebody else's distribution rather than a run from a medium.
         """
+        said = self.runner.run(["cpuid2cpuflags"], check=False)
+        answer = said.stdout.strip()
+        if said.returncode == 0 and answer.startswith("CPU_FLAGS_X86:"):
+            return tuple(sorted(answer.partition(":")[2].split()))
         try:
-            text = Path("/proc/cpuinfo").read_text()
+            text = CPUINFO.read_text()
         except OSError:
             return ()
         reported: set[str] = set()
@@ -833,6 +872,9 @@ class Probe:
                 reported.update(value.split())
                 break
         found = [portage for kernel, portage in CPU_FLAGS.items() if kernel in reported]
+        found += [
+            portage for kernel, portage in IMPLIED_CPU_FLAGS.items() if kernel in reported
+        ]
         return tuple(sorted(set(found)))
 
     def storage_layout(self) -> StorageLayout:
