@@ -708,7 +708,7 @@ def test_an_unrelated_emerge_failure_is_not_misclassified_as_a_binhost_failure()
     recorder = Recorder()
     recorder.answering = lambda argv: CommandOutput("compile failed", 1)
 
-    with pytest.raises(CommandFailed, match="emerge failed"):
+    with pytest.raises(CommandFailed, match="emerge ended with exit 1"):
         portage.Emerge(
             packages=("app-editors/nano",), summary="install the editor"
         ).apply(recorder)
@@ -1930,3 +1930,24 @@ def test_a_gpkg_for_one_package_does_not_excuse_another_failing() -> None:
         ).apply(recorder)
 
     assert not recorder.degraded(portage.BINARY_PACKAGES)
+
+
+def test_a_command_killed_by_a_signal_names_the_signal() -> None:
+    """`vm-xfs` lost 36.9 minutes to `emerge failed with exit -13`, which sent
+    a reader looking for an exit status that does not exist. `subprocess`
+    answers a negative code for a signal, and 13 is SIGPIPE.
+    """
+    from gentoo_install.plan.operations import CommandOutput, ending
+
+    assert ending(-13) == "SIGPIPE (13)"
+    assert CommandOutput("", -9).ending == "SIGKILL (9)"
+
+    # Negative control one: an ordinary status is still an exit status, or
+    # every failing command would read as though something killed it.
+    assert ending(1) == "exit 1"
+    assert ending(0) == "exit 0"
+    assert CommandOutput("", 4).ending == "exit 4"
+
+    # Negative control two: a number with no signal behind it says so rather
+    # than raising, because the message is what a failing run carries out.
+    assert ending(-999) == "signal 999"

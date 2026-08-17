@@ -24,6 +24,7 @@ from typing import Callable, Sequence
 from ..errors import CommandFailed
 from ..log import Journal
 from ..model.config import ProxyConfig
+from ..plan.operations import ending
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,10 @@ class Result:
     @property
     def command(self) -> str:
         return shlex.join(_display_argv(self.argv))
+
+    @property
+    def ending(self) -> str:
+        return ending(self.returncode)
 
 
 @dataclass
@@ -104,7 +109,8 @@ class Runner:
                 self.journal.packages(result.stdout)
         if check and result.returncode != 0:
             raise CommandFailed(
-                f"{result.command} exited {result.returncode}: {_tail(result.stderr or result.stdout)}"
+                f"{result.command} ended with {result.ending}: "
+                f"{_tail(result.stderr or result.stdout)}"
             )
         return result
 
