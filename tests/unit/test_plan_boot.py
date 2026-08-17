@@ -697,67 +697,30 @@ def test_the_prebuilt_patched_kernel_sits_beside_the_source_one() -> None:
         assert any("from source" in line for line in described), source
 
 
-def test_zfsbootmenu_unlocks_once_rather_than_asking_the_initramfs_too() -> None:
-    """ZBM unlocks the pool to read the kernel and the initramfs then asks for
-    the same passphrase again, because kexec does not carry the loaded key."""
-    recorder = Recorder()
-    for operation in kernel.build(zfs_installation()):
-        if isinstance(operation, kernel.StoreZfsKey):
-            operation.apply(recorder)
-    key = PurePosixPath("/etc/zfs/zpcala.key")
-    # No trailing newline: `zfs load-key` trims one, so the file is read the
-    # same either way and this is the form that cannot be wrong.
-    assert recorder.files[key] == "a passphrase"
-    assert recorder.modes[key] == 0o400
-    assert recorder.files[PurePosixPath("/etc/dracut.conf.d/zfs-key.conf")] == (
-        'install_items+=" /etc/zfs/zpcala.key "\n'
-    )
-    # On the installing system: the pool is imported there, and the target has
-    # no `zfs` binary until sys-fs/zfs is merged later in the same stage.
-    assert ("zfs", "set", "keylocation=file:///etc/zfs/zpcala.key", "zpcala") in recorder.commands
-    assert not recorder.in_target
+def test_no_pool_is_pointed_at_a_key_file_zfsbootmenu_cannot_open() -> None:
+    """`zbm-unlock` installed in 75.3 minutes in run65 and then answered, in
+    ZFSBootMenu:
 
+        0 / 1 key(s) successfully loaded
+        Key load error: Failed to open key material file: No such file or directory
 
-def test_a_separate_boot_partition_keeps_the_prompt() -> None:
-    """The key file rides inside the initramfs, so an initramfs on a partition
-    outside the pool would publish the passphrase in the clear."""
-    nodes = [
-        *zfs_root(),
-        Partition(
-            id=i("bootpart"),
-            table=i("table"),
-            index=3,
-            role=PartitionRole.DATA,
-            size=Size.parse("1GiB"),
-        ),
-        Filesystem(id=i("bootfs"), device=i("bootpart"), kind=FilesystemType.EXT4),
-        Mountpoint(id=i("mnt-boot"), source=i("bootfs"), path=PurePosixPath("/boot")),
-    ]
-    outside = replace(zfs_installation(), disk=replace(
-        zfs_installation().disk, graph=DeviceGraph.build(nodes)
-    ))
-    assert not [one for one in kernel.build(outside) if isinstance(one, kernel.StoreZfsKey)]
+    The mechanism this replaced wrote the passphrase to `/etc/zfs/<pool>.key`,
+    packed it into the target initramfs and set `keylocation` to it, on the
+    premise that ZFSBootMenu prompts when its own image has no such path. It
+    does not: it fails, and the pool is then unlockable by nobody, not only by
+    the remote path. `keylocation` stays `prompt` and the second prompt in the
+    target initramfs is the accepted cost, which is what
+    `calamares-settings-gig` already accepts.
+    """
+    from gentoo_install.model.config import Bootloader
 
-
-def test_a_pool_that_is_not_encrypted_needs_no_key_file() -> None:
-    plain = [
-        node if not isinstance(node, ZfsPool) else replace(node, encrypted=False)
-        for node in zfs_root()
-    ]
-    open_pool = replace(zfs_installation(), disk=replace(
-        zfs_installation().disk, graph=DeviceGraph.build(plain)
-    ))
-    assert not [one for one in kernel.build(open_pool) if isinstance(one, kernel.StoreZfsKey)]
-
-
-def test_only_zfsbootmenu_moves_the_key_off_the_prompt() -> None:
-    """Under any other bootloader the initramfs prompt is the only prompt, and
-    a key file beside it would take the passphrase out of the boot path."""
-    grub = replace(
-        zfs_installation(),
-        bootloader=BootloaderConfig(kind=Bootloader.GRUB, firmware=Firmware.UEFI),
-    )
-    assert not [one for one in kernel.build(grub) if isinstance(one, kernel.StoreZfsKey)]
+    for named in (zfs_installation(), replace(zfs_installation(), bootloader=replace(
+        zfs_installation().bootloader, kind=Bootloader.ZFSBOOTMENU
+    ))):
+        for operation in kernel.build(named):
+            described = operation.describe()
+            assert "keylocation" not in described, described
+            assert ".key" not in described, described
 
 
 def test_the_kernel_is_merged_before_anything_that_builds_a_module_for_it() -> None:
@@ -774,16 +737,6 @@ def test_the_kernel_is_merged_before_anything_that_builds_a_module_for_it() -> N
         at for at, one in enumerate(described) if one.startswith("tell dracut to carry zfs")
     )
     assert told < merged < listed < initramfs
-
-
-def test_the_zfs_key_is_set_from_the_installing_system() -> None:
-    """A stage3 has no `zfs` binary until sys-fs/zfs is merged, which happens
-    later in the same stage; the pool is imported here in any case."""
-    recorder = Recorder()
-    for operation in kernel.build(zfs_installation()):
-        if isinstance(operation, kernel.StoreZfsKey):
-            operation.apply(recorder)
-    assert recorder.commands and not recorder.in_target
 
 
 def test_a_tool_that_builds_no_module_is_installed_before_the_kernel() -> None:

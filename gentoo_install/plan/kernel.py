@@ -325,41 +325,6 @@ class WriteDracutModules(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
-class StoreZfsKey(Operation):
-    """Move the pool off a boot-time prompt and onto a key file the target
-    initramfs carries, so the passphrase is asked for once.
-
-    ZFSBootMenu overrides a `file://` keylocation its own image cannot read and
-    prompts instead, and the file exists only in the target initramfs, which is
-    inside the pool that key unlocks.
-    """
-
-    stage: Stage = Stage.KERNEL
-    pool: DeviceId
-    name: str
-
-    @property
-    def key(self) -> PurePosixPath:
-        return PurePosixPath(f"/etc/zfs/{self.name}.key")
-
-    def describe(self) -> str:
-        return f"put the {self.name} key in {self.key} so only ZFSBootMenu asks for it"
-
-    def apply(self, context: Context) -> None:
-        # No trailing newline: `zfs load-key` trims one when it is there, so a
-        # file written without one is read the same either way.
-        context.write(self.key, context.passphrase(self.pool), mode=0o400)
-        context.write(
-            PurePosixPath("/etc/dracut.conf.d/zfs-key.conf"),
-            f'install_items+=" {self.key} "\n',
-        )
-        # On the installing system, not in the target: the pool is imported
-        # here, and a stage3 has no `zfs` binary until sys-fs/zfs is merged
-        # several operations later.
-        context.run(["zfs", "set", f"keylocation=file://{self.key}", self.name])
-
-
-@dataclass(frozen=True, kw_only=True)
 class AcceptFirmwareLicence(Operation):
     """Written rather than left to `--autounmask-license`, so the acceptance is
     a file the installed system keeps and not a decision buried in a log."""
@@ -765,9 +730,6 @@ def build(config: InstallConfig) -> list[Operation]:
         )
     if modules:
         operations.append(WriteDracutModules(modules=modules))
-    pool = _pool_the_initramfs_may_carry(config)
-    if pool is not None:
-        operations.append(StoreZfsKey(pool=pool.id, name=pool.name))
     # Delete first, then rebuild. The misnamed image `sys-fs/zfs` leaves is
     # often the only one in /boot, so deleting it last left generate-zbm with
     # `Unable to find latest kernel`. `emerge --config` reinstalls the image
@@ -791,22 +753,6 @@ def _module_builders(modules: tuple[str, ...]) -> tuple[str, ...]:
         if tool is not None and tool.modules and tool.atom not in wanted:
             wanted.append(tool.atom)
     return tuple(wanted)
-
-
-def _pool_the_initramfs_may_carry(config: InstallConfig) -> ZfsPool | None:
-    """The encrypted pool whose key can go into the initramfs without leaking.
-
-    ZFSBootMenu only, because it is the one bootloader that unlocks the pool
-    itself; without it the initramfs prompt is the only prompt and a key file
-    beside it would remove the passphrase from the boot path entirely.
-    """
-    if config.bootloader.kind is not Bootloader.ZFSBOOTMENU:
-        return None
-    graph = config.disk.graph
-    pools = [pool for pool in graph.of_type(ZfsPool) if pool.encrypted]
-    if len(pools) != 1 or not compat.boot_is_inside(graph, pools[0].id):
-        return None
-    return pools[0]
 
 
 def dracut_modules(config: InstallConfig) -> tuple[str, ...]:

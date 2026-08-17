@@ -675,19 +675,6 @@ def boot_is_encrypted(graph: DeviceGraph) -> bool:
     return any(isinstance(graph[parent], Luks) for parent in graph.ancestors_of(boot.id))
 
 
-def boot_is_inside(graph: DeviceGraph, device: DeviceId) -> bool:
-    """Whether the kernel and initramfs land on something built from `device`.
-
-    A key file baked into the initramfs is only protected if the initramfs is
-    inside the thing that key unlocks; a separate /boot partition puts it in
-    the clear.
-    """
-    boot = _covering_mount(graph, _BOOT)
-    if boot is None:
-        return False
-    return device in graph.ancestors_of(boot.id)
-
-
 def _covering_mount(graph: DeviceGraph, path: PurePosixPath) -> Mountpoint | None:
     """The mount a file at `path` lands on: the deepest one `path` sits under."""
     covering = [mount for mount in graph.of_type(Mountpoint) if path.is_relative_to(mount.path)]
