@@ -2005,12 +2005,13 @@ def _remaining(deadline: float) -> float:
 #: weeks. `campaign.py` knew this and the cluster did not.
 EXPECTED_TO_FAIL: Final[frozenset[str]] = frozenset({"vm-proxy-dead"})
 
-#: Nodes that take no guests until `--allow-node` names them. 66 of the 70
-#: console-proxy drops recorded across every run under `lab/` name
-#: `10.31.0.202`, which is `infra-node3`, and each drop is up to an hour of
-#: install thrown away: `vm-convert` lost 41.7 minutes and `vm-btrfs` 49.2 on
-#: 2026-08-17 alone. Learning it costs a guest per round, so it is named here.
-KNOWN_BAD_NODES: Final[frozenset[str]] = frozenset({"infra-node3"})
+#: Nodes that take no guests until `--allow-node` names them. Empty because
+#: `infra-node3`, which 66 of the 70 recorded console-proxy drops named, took
+#: two fixtures to green on 2026-08-17 with one reconnect each -- fewer than
+#: the same fixtures on nodes that were never excluded. A named node stops
+#: producing the evidence that would clear it, and the automatic detection
+#: still costs one guest if a node goes bad again.
+KNOWN_BAD_NODES: Final[frozenset[str]] = frozenset()
 
 #: How many times one guest's console may be reopened before the node itself
 #: is called the problem. A healthy run reconnects a handful of times over an
@@ -2946,7 +2947,10 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         default=[],
         metavar="NAME",
-        help=f"use a node named in KNOWN_BAD_NODES anyway: {' '.join(sorted(KNOWN_BAD_NODES))}",
+        help=(
+            "use a node named in KNOWN_BAD_NODES anyway: "
+            f"{' '.join(sorted(KNOWN_BAD_NODES)) or 'none are named'}"
+        ),
     )
     parser.add_argument(
         "--distfiles",
