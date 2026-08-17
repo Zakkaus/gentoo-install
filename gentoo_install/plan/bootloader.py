@@ -128,6 +128,12 @@ ZBM_HOST_KEY_TYPES: Final[tuple[str, ...]] = ("rsa", "ecdsa")
 #: all, and both bootloaders write it before asking for one.
 NVRAM_ENTRY: Final[str] = "efi boot entry"
 
+#: What proves the built image can answer an unlock: the acl the daemon reads,
+#: or the hook that starts it. Not the word `dropbear`, which the host-key
+#: paths under `etc/dropbear` match on an image that authenticates nobody.
+ZBM_UNLOCK_MARKERS: Final[tuple[str, ...]] = ("authorized_keys", "dropbear-start")
+REMOTE_UNLOCK_IMAGE: Final[str] = "zfsbootmenu remote unlock"
+
 
 def _try_the_nvram_entry(context: Context, argv: list[str]) -> None:
     """Ask the firmware for a boot entry, and carry on when it refuses.
@@ -414,6 +420,8 @@ class InstallZfsBootMenu(Operation):
     #: than defaulting to partition 1.
     esp_device: DeviceId
     kernel_params: tuple[str, ...]
+    #: Whether the image was configured to answer an unlock over ssh.
+    unlocks_remotely: bool = False
     #: `org.zfsbootmenu:commandline` is the command line of the system ZBM
     #: boots, not of ZBM itself, which is what prompts for a passphrase.
     serial: tuple[str, int] | None
@@ -446,6 +454,27 @@ class InstallZfsBootMenu(Operation):
             f"{kernel}"
         )
 
+    def _say_if_the_image_cannot_unlock(self, context: Context, image: str) -> None:
+        """Read the built image rather than trusting that dracut obeyed.
+
+        `generate-zbm` prints two lines and swallows dracut's own output, so a
+        module listed in the image whose files are not in it leaves a machine
+        that boots and can never be unlocked over ssh. Said rather than raised:
+        the passphrase prompt on the console still works.
+        """
+        listed = context.run_in_target(["lsinitrd", image], check=False)
+        if isinstance(listed, CommandOutput) and listed.returncode != 0:
+            context.degrade(
+                REMOTE_UNLOCK_IMAGE, f"{image} could not be read: {str(listed).strip()[:200]}"
+            )
+            return
+        if not any(marker in str(listed) for marker in ZBM_UNLOCK_MARKERS):
+            context.degrade(
+                REMOTE_UNLOCK_IMAGE,
+                f"{image} carries none of {', '.join(ZBM_UNLOCK_MARKERS)}, "
+                "so only the console can unlock this machine",
+            )
+
     def apply(self, context: Context) -> None:
         context.run_in_target(["zpool", "set", f"bootfs={self.dataset}", self.pool])
         context.run_in_target(
@@ -458,6 +487,8 @@ class InstallZfsBootMenu(Operation):
         context.write(PurePosixPath("/etc/zfsbootmenu/config.yaml"), self._config())
         context.run_in_target(["generate-zbm"])
         image = self._image(context)
+        if self.unlocks_remotely:
+            self._say_if_the_image_cannot_unlock(context, image)
         context.run_in_target(["install", "-D", "-m0644", image, f"{self.esp}/{FALLBACK_IMAGE}"])
         _try_the_nvram_entry(
             context,
@@ -562,6 +593,7 @@ def build(config: InstallConfig) -> list[Operation]:
                 esp_device=esp_device,
                 kernel_params=config.bootloader.kernel_params,
                 serial=serial_console(config),
+                unlocks_remotely=config.kernel.remote_unlock.enabled,
             ),
         ]
     return operations
