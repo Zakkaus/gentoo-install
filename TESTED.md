@@ -28,7 +28,14 @@ The ordinary path: partition, format, unpack a stage3, configure, boot.
 | `304dffa41602` | `vm-xfs` |
 | `7ac43a1d5050` | `vm-f2fs`, `vm-mdraid`, `vm-proxy-dead`, `vm-xfs`, `vm-zram` |
 | `d2bed50eed48` | `vm-lvm`, `vm-sdboot`, `vm-unlock` — the first cluster record of the initramfs SSH unlock |
-| `7cf09c2f9d9c` | `vm-btrfs`, `vm-binpkg`, `vm-luks` |
+| `7cf09c2f9d9c` | `vm-btrfs`, `vm-binpkg`, `vm-luks`, `vm-mdraid`, `vm-f2fs`, `vm-zram`, `vm-zfs-encrypted` — the first cluster record of a ZFS root, of native ZFS encryption, and of the `gentoo-zh` overlay, which no earlier row's fixtures use |
+| `08015b221d73` | `vm-sdboot`, `vm-cjk-kernel` — the first cluster record of the patched CJK console kernel and of `system.console_cjk` |
+| `4ccd3aa34687` | `vm-xfs` |
+
+The last three rows ran `--region cn --site nju --sync webrsync --distfiles
+http://10.31.0.2/gentoo`, so what they establish about mirror selection is
+limited to that region, that site and a distfiles cache on the guests' own
+segment. The parameters the earlier rows used are not recorded.
 
 ### Records from QEMU on one machine
 
@@ -139,5 +146,12 @@ system because the boot entry is one-shot.
 
 ## Not covered by any record
 
-greetd desktop sessions, ibus outside GNOME, binary-host failure fallback, CJK
-text-console rendering, and focused configuration tests for ext2 and ext3.
+greetd desktop sessions, ibus outside GNOME, binary-host failure fallback, and
+focused configuration tests for ext2 and ext3.
+
+CJK text-console rendering is not covered either, and the `vm-cjk-kernel` row
+above does not cover it: that run establishes that the patched kernel merges,
+that `system.console_cjk` reaches the target and that the machine boots with no
+failed unit. Whether the console draws a CJK glyph is a different question, and
+one build answered it wrongly with only `CONFIG_FONT_CJK_16x16` while every
+check passed.
