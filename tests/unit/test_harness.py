@@ -2910,3 +2910,66 @@ def test_two_free_ports_in_a_row_differ() -> None:
 
     seen = {free_port() for _ in range(8)}
     assert len(seen) > 1, seen
+
+
+def test_a_vm_is_asked_to_quit_before_it_is_killed(tmp_path: Path) -> None:
+    """A Fedora conversion wrote a `Gentoo` NVRAM entry and `efibootmgr -v` in
+    that guest answered
+
+        BootOrder: 0002,0001,0003,0000,0004
+        Boot0002* Gentoo  ...\\EFI\\Gentoo\\grubx64.efi
+
+    with Gentoo first. The next VM in the same work directory booted
+    `Boot0001 "Fedora"` and stopped at a missing kernel, and the workdir's
+    `OVMF_VARS.fd` held neither name: `kill()` is SIGKILL, so the pflash write
+    stayed in the host page cache.
+    """
+    import socket as socket_module
+
+    from tests.vm.qemu import Vm
+
+    class Process:
+        def __init__(self) -> None:
+            self.killed = False
+
+        def poll(self) -> int | None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            return 0
+
+        def kill(self) -> None:
+            self.killed = True
+
+    monitor = tmp_path / "monitor.sock"
+    listener = socket_module.socket(socket_module.AF_UNIX)
+    listener.bind(str(monitor))
+    listener.listen(1)
+    try:
+        vm = Vm.__new__(Vm)
+        vm.monitor_socket = monitor
+        vm.serial_socket = tmp_path / "serial.sock"
+        process = Process()
+        vm._process = cast(Any, process)
+
+        vm.shut_down(timeout=5.0)
+        client, _ = listener.accept()
+        with client:
+            assert client.recv(64) == b"quit\n"
+    finally:
+        listener.close()
+    # And the kill still happens, because the monitor is the polite route and
+    # not the guaranteed one.
+    assert process.killed
+
+
+def test_a_vm_exit_takes_the_quit_path() -> None:
+    """The negative control: `__exit__` calling `kill()` straight is what lost
+    the firmware variables, so the path it takes is the contract."""
+    import inspect
+
+    from tests.vm.qemu import Vm
+
+    source = inspect.getsource(Vm.__exit__)
+    assert "self.shut_down()" in source, source
+    assert "self.kill()" not in source, source

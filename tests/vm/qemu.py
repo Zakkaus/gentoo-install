@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import shutil
+import socket
 import subprocess
 from dataclasses import dataclass
 from enum import Enum
@@ -191,6 +192,26 @@ class Vm:
             raise QemuError("the VM was never started")
         return self._process.wait(timeout=timeout)
 
+    def shut_down(self, timeout: float = 60.0) -> None:
+        """Exit qemu the way that flushes its block devices.
+
+        `kill()` is SIGKILL, so a pflash write stays in the host page cache and
+        is lost: a Fedora conversion wrote a `Gentoo` entry, `efibootmgr -v` in
+        that guest answered `BootOrder: 0002,0001,...` with Gentoo first, and
+        the next VM booted a firmware whose `OVMF_VARS.fd` held neither name.
+        """
+        if self._process is not None and self._process.poll() is None:
+            try:
+                with socket.socket(socket.AF_UNIX) as monitor:
+                    monitor.settimeout(10.0)
+                    monitor.connect(str(self.monitor_socket))
+                    monitor.sendall(b"quit\n")
+                self._process.wait(timeout=timeout)
+            except (OSError, subprocess.TimeoutExpired):
+                # The monitor is the polite route and not the guaranteed one.
+                pass
+        self.kill()
+
     def kill(self) -> None:
         if self._process is not None and self._process.poll() is None:
             self._process.kill()
@@ -208,4 +229,4 @@ class Vm:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
-        self.kill()
+        self.shut_down()
