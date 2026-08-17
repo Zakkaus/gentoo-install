@@ -769,26 +769,20 @@ def test_a_failed_conversion_still_unmounts_the_staging_root() -> None:
     assert not any(one.releases_the_machine for one in others), others
 
 
-def test_a_conversion_refuses_a_replaced_directory_that_is_its_own_mount() -> None:
+def test_a_replaced_directory_that_is_its_own_mount_no_longer_refuses() -> None:
     """A Fedora 41 cloud image mounts `/var` and `/home` as their own btrfs
-    subvolumes. `exec/convert.py` refuses that at the rename, which arrived at
-    operation 44 of 46 with the whole system already emerged and the staging
-    root left behind; the mount table says it before anything is written.
+    subvolumes. Refusing that kept the whole RPM family out; `exec/convert.py`
+    replaces a mount point's contents instead, every move a rename on the one
+    filesystem, so the graph has nothing to object to.
     """
     fedora = replace(_layout(), separate_mounts=("/boot", "/home", "/proc", "/var"))
-    with pytest.raises(ConversionUnsupported, match=r"/var is a separate mount"):
-        convert.layout_graph(fedora)
+    assert convert.layout_graph(fedora).mode is DiskMode.IN_PLACE
 
-    # Negative control one: a mount that is not replaced is not a reason to
-    # refuse, or every machine with a separate /home would be turned away.
-    ordinary = replace(fedora, separate_mounts=("/boot", "/home", "/proc"))
-    assert convert.layout_graph(ordinary).mode is DiskMode.IN_PLACE
-
-    # Negative control two: the message names every one of them, because an
-    # operator who moves /var only to be refused for /usr has learned nothing.
-    both = replace(fedora, separate_mounts=("/usr", "/var"))
-    with pytest.raises(ConversionUnsupported, match=r"/usr, /var are a separate mount"):
-        convert.layout_graph(both)
+    # Negative control: the layers the graph genuinely cannot describe are
+    # still refused, so this did not turn the whole check off.
+    on_lvm = replace(fedora, root_on_lvm=True)
+    with pytest.raises(ConversionUnsupported, match="below LVM"):
+        convert.layout_graph(on_lvm)
 
 
 def test_the_staging_root_is_unmounted_from_the_deepest_mount_up() -> None:

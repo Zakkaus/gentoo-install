@@ -338,18 +338,6 @@ def layout_graph(layout: StorageLayout) -> DiskConfig:
         )
     if not layout.root_device or not layout.root_filesystem_type:
         raise ConversionUnsupported("the running root device could not be read")
-    # `exec/convert.py` refuses the same thing at the rename, which on a Fedora
-    # cloud image arrived at operation 44 of 46 with the whole system already
-    # emerged. The mount table says it before anything is written.
-    mounted = [
-        name for name in REPLACED_DIRECTORIES if f"/{name}" in layout.separate_mounts
-    ]
-    if mounted:
-        raise ConversionUnsupported(
-            f"{', '.join('/' + one for one in mounted)} "
-            f"{'is' if len(mounted) == 1 else 'are'} a separate mount, "
-            "which rename cannot replace"
-        )
     if not layout.uefi and layout.root_below_device is None:
         # Measured on an Alpine cloud image, whose ext4 sits on `/dev/vda`
         # itself: `grub-install --target=i386-pc` answers `will not proceed
