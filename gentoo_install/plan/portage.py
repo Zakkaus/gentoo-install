@@ -502,7 +502,7 @@ class WebrsyncRepository(Operation):
         # WKD lookup out rather than falling back. `openrc-sdboot` ended a
         # cluster round there with the tree never fetched.
         last: CommandFailed | None = None
-        for attempt in range(SYNC_TRIES):
+        for attempt in range(KEYRING_TRIES):
             try:
                 context.run_in_target(
                     ["env", f"PORTAGE_GPG_KEY_SERVER={server}", "emerge-webrsync"]
@@ -510,8 +510,15 @@ class WebrsyncRepository(Operation):
                 return
             except CommandFailed as failed:
                 last = failed
-                if attempt + 1 < SYNC_TRIES:
-                    context.run(["sleep", f"{SYNC_PAUSE * (attempt + 1):g}"])
+                if attempt + 1 >= KEYRING_TRIES:
+                    break
+                # A keyserver the whole round is asking at once needs longer
+                # than a mirror rewriting a Manifest, and the two failures are
+                # told apart before the wait rather than after it.
+                pause = (
+                    KEYRING_PAUSE if _keyring_refused(str(failed)) else SYNC_PAUSE
+                ) * (attempt + 1)
+                context.run(["sleep", f"{pause:g}"])
         assert last is not None
         raise last
 
@@ -526,6 +533,29 @@ UNPACK_CHECKPOINT: Final[int] = 20000
 #: minute apart cover it without walking around a mismatch that is real.
 SYNC_TRIES: Final[int] = 3
 SYNC_PAUSE: Final[float] = 30.0
+
+#: What a keyserver under load answers. gemato refreshes the signing key to
+#: check revocations, and ten cluster guests asking one host inside three
+#: minutes got nine of these: run62 lost every fixture but `vm-f2fs`, which
+#: reached the same step at 49.6 minutes and passed.
+KEYRING_REFUSED: Final[tuple[str, ...]] = (
+    "keyserver refresh failed",
+    "openpgp keyring refresh failed",
+    "no keyserver available",
+)
+
+#: Tries and the first pause for that case only. Geometric, so four attempts
+#: span about twelve minutes rather than the ninety seconds a Manifest
+#: mismatch needs.
+KEYRING_TRIES: Final[int] = 4
+KEYRING_PAUSE: Final[float] = 90.0
+
+
+def _keyring_refused(output: str) -> bool:
+    """Whether the failure was the keyring refresh rather than the snapshot."""
+    lowered = output.lower()
+    return any(marker in lowered for marker in KEYRING_REFUSED)
+
 
 #: Portage's own default is 180, and a mirror that queues rather than refuses
 #: spends longer than that before it sends a byte: USTC answers `Upstream
