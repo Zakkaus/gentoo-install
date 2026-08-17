@@ -2068,17 +2068,23 @@ def test_no_input_method_asks_for_no_environment() -> None:
     assert [one for one in checks(installation) if one.name == "inputmethod"] == []
 
 
-def test_a_fixture_meant_to_fail_passes_by_failing() -> None:
-    """`vm-proxy-dead` points the proxy at a port nothing listens on, so an
-    install that finishes proves the setting was bypassed. Reported as a
-    failure every round, it taught everyone to read past red."""
-    from tests.vm.campaign import Outcome, Run, mark_for
+def test_a_fixture_meant_to_fail_proves_its_failure_path(tmp_path: Path) -> None:
+    """`vm-proxy-dead` succeeds only after its dead proxy refuses the stage3
+    download; another non-zero result proves no such thing."""
+    from tests.vm.campaign import ExpectedFailure, Outcome, Run, mark_for
 
-    dead = Run("fixtures/vm-proxy-dead.toml", expect_failure=True)
-    log = Path(__file__).resolve().parents[1] / "fixtures" / "vm-proxy-dead.toml"
+    expected = ExpectedFailure(returncode=1, signal="Connection refused")
+    dead = Run("fixtures/vm-proxy-dead.toml", expect_failure=expected)
+    log = tmp_path / "proxy-dead.log"
+    log.write_text("the stage3 could not be fetched: [Errno 111] Connection refused\n")
 
-    assert Outcome(dead, 4, 1.0, log).passed
-    assert not Outcome(dead, 0, 1.0, log).passed
+    assert Outcome(dead, 1, 1.0, log).passed
+    assert not Outcome(dead, 124, 1.0, log).passed
+
+    log.write_text("configuration parse error\n")
+    unrelated = Outcome(dead, 1, 1.0, log)
+    assert not unrelated.passed
+    assert mark_for(unrelated) == "FAIL"
     assert mark_for(Outcome(dead, 0, 1.0, log)) == "BYPASS"
 
     ordinary = Run("fixtures/vm-btrfs.toml")
@@ -2089,16 +2095,58 @@ def test_a_fixture_meant_to_fail_passes_by_failing() -> None:
 def test_the_campaign_expects_exactly_the_fixtures_that_cannot_finish() -> None:
     """A second fixture marked this way would be a fixture nobody notices
     failing, so the set is named here as well as there."""
-    from tests.vm.campaign import STAGES
+    from tests.vm.campaign import ExpectedFailure, STAGES
 
-    named = {
-        Path(run.config).stem
+    expected = {
+        Path(run.config).stem: run.expect_failure
         for runs in STAGES.values()
         for run in runs
-        if run.expect_failure
+        if run.expect_failure is not None
     }
 
-    assert named == {"vm-proxy-dead"}
+    assert expected == {
+        "vm-proxy-dead": ExpectedFailure(returncode=1, signal="Connection refused")
+    }
+
+
+def test_campaign_collects_an_outcome_from_every_worker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A launch error must not hide completed guests or prevent their summary."""
+    import subprocess
+
+    from tests.vm import campaign
+
+    runs = [
+        campaign.Run("fixtures/timeout.toml"),
+        campaign.Run("fixtures/oserror.toml"),
+        campaign.Run("fixtures/complete.toml"),
+    ]
+    announced: list[str] = []
+
+    def fake_perform(run: campaign.Run) -> campaign.Outcome:
+        if run.config.endswith("timeout.toml"):
+            raise subprocess.TimeoutExpired(run.argv(), 1.0)
+        if run.config.endswith("oserror.toml"):
+            raise OSError("could not launch guest")
+        return campaign.Outcome(run, 0, 1.0, tmp_path / "complete.log")
+
+    monkeypatch.setattr(campaign, "LOGS", tmp_path)
+    monkeypatch.setattr(campaign, "wait_for_room", lambda: None)
+    monkeypatch.setattr(campaign, "perform", fake_perform)
+    monkeypatch.setattr(campaign, "announce", lambda outcome: announced.append(outcome.run.name))
+
+    outcomes = campaign.parallel(runs)
+
+    assert sorted(outcome.run.name for outcome in outcomes) == sorted(run.name for run in runs)
+    assert sorted(announced) == sorted(run.name for run in runs)
+    by_name = {outcome.run.name: outcome for outcome in outcomes}
+    assert not by_name[runs[0].name].passed
+    assert "TimeoutExpired" in (by_name[runs[0].name].error or "")
+    assert not by_name[runs[1].name].passed
+    assert "OSError" in (by_name[runs[1].name].error or "")
+    assert by_name[runs[2].name].passed
+    assert campaign.report(outcomes) == 1
 
 
 def test_a_hypervisor_that_stops_answering_is_not_a_living_guest(tmp_path: Path) -> None:

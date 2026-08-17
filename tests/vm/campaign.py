@@ -90,6 +90,14 @@ TIMEOUT: Final[float] = 5400.0
 
 
 @dataclass(frozen=True)
+class ExpectedFailure:
+    """Exit result that proves a negative fixture reached its failure path."""
+
+    returncode: int
+    signal: str
+
+
+@dataclass(frozen=True)
 class Run:
     """One invocation of `tests.vm.run`."""
 
@@ -105,12 +113,8 @@ class Run:
     #: at zero for a run that installs binary packages: more cores do nothing
     #: for a download, and they would be taken from a run that is compiling.
     cpus: int = 0
-    #: Whether the install is meant to stop. `vm-proxy-dead` points the proxy
-    #: at a port nothing listens on, so an install that finishes proves the
-    #: setting was bypassed: its failure is the result. Reported as `ok` when it
-    #: fails and as a failure when it does not, because a fixture that is always
-    #: red teaches everyone to read past red.
-    expect_failure: bool = False
+    #: The result that proves a negative fixture exercised the path it names.
+    expect_failure: ExpectedFailure | None = None
     #: What this costs the machine, against `CAPACITY`. Two for a run that
     #: compiles a kernel or a desktop: those saturate their vCPUs for half an
     #: hour, and packing them beside each other makes every one of them slower
@@ -189,7 +193,10 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         # The proxy pointed at a port nothing listens on: a run that reaches
         # the mirror proves something bypassed it, so this one is expected to
         # fail at the stage3 download and its failure is the result.
-        Run("fixtures/vm-proxy-dead.toml", expect_failure=True),  # see cluster.EXPECTED_TO_FAIL
+        Run(
+            "fixtures/vm-proxy-dead.toml",
+            expect_failure=ExpectedFailure(1, "Connection refused"),
+        ),  # see cluster.EXPECTED_TO_FAIL
         # The direction that matters to an operator on an intranet, and the one
         # nothing covered: the proxy answers and the install completes through
         # it. It needs a SOCKS5 listener on the workstation, so `run.py` refuses
@@ -224,15 +231,39 @@ class Outcome:
     returncode: int
     seconds: float
     log: Path
+    error: str | None = None
 
     @property
     def passed(self) -> bool:
-        return (self.returncode != 0) if self.run.expect_failure else (self.returncode == 0)
+        expected = self.run.expect_failure
+        if self.error is not None:
+            return False
+        if expected is None:
+            return self.returncode == 0
+        try:
+            said = self.log.read_text(errors="replace")
+        except OSError:
+            return False
+        return self.returncode == expected.returncode and expected.signal in said
+
+
+def _log_for(run: Run) -> Path:
+    return LOGS / f"{run.name}.log"
+
+
+def _failed_outcome(run: Run, started: float, error: Exception) -> Outcome:
+    return Outcome(
+        run,
+        1,
+        time.monotonic() - started,
+        _log_for(run),
+        f"{type(error).__name__}: {error}",
+    )
 
 
 def perform(run: Run) -> Outcome:
     LOGS.mkdir(parents=True, exist_ok=True)
-    log = LOGS / f"{run.name}.log"
+    log = _log_for(run)
     started = time.monotonic()
     with log.open("w") as handle:
         finished = subprocess.run(
@@ -260,11 +291,13 @@ ALREADY_RUNNING: Final[str] = "another run holds"
 def mark_for(outcome: Outcome) -> str:
     if outcome.passed:
         return "ok  "
+    if outcome.error is not None:
+        return "FAIL"
+    if outcome.run.expect_failure is not None:
+        # A clean exit proves the proxy was bypassed; another failure proved
+        # neither the expected path nor a completed installation.
+        return "BYPASS" if outcome.returncode == 0 else "FAIL"
     said = outcome.log.read_text(errors="replace")
-    if outcome.run.expect_failure:
-        # It finished, and finishing is the defect: the fetch reached the mirror
-        # with a proxy that cannot carry it.
-        return "BYPASS"
     if HOST_KILLED in said:
         return "HOST"
     return "LOCK" if ALREADY_RUNNING in said else "FAIL"
@@ -289,19 +322,20 @@ def parallel(runs: Sequence[Run]) -> list[Outcome]:
     seats = Semaphore(GUESTS)
 
     def carried(one: Run) -> Outcome:
-        # Held for the whole run, released whatever happened: a run that raised
-        # while holding two units would shrink the machine for the rest of the
-        # campaign.
         seats.acquire()
-        # After the seat and before the run: the ceiling bounds how many can
-        # ever be waiting, and this decides whether one more fits right now.
-        wait_for_room()
-        for _ in range(one.weight):
-            room.acquire()
+        # Counted rather than assumed: an exception between two acquisitions
+        # would otherwise release a unit the worker never held.
+        held = 0
         try:
+            # After the seat and before the run: the ceiling bounds how many can
+            # ever be waiting, and this decides whether one more fits right now.
+            wait_for_room()
+            for _ in range(one.weight):
+                room.acquire()
+                held += 1
             return perform(one)
         finally:
-            for _ in range(one.weight):
+            for _ in range(held):
                 room.release()
             seats.release()
 
@@ -310,9 +344,16 @@ def parallel(runs: Sequence[Run]) -> list[Outcome]:
     ordered = sorted(runs, key=lambda one: -one.weight)
     done: list[Outcome] = []
     with ThreadPoolExecutor(max_workers=len(ordered) or 1) as pool:
-        waiting = [pool.submit(carried, one) for one in ordered]
+        waiting = {
+            pool.submit(carried, one): (one, time.monotonic())
+            for one in ordered
+        }
         for finished in as_completed(waiting):
-            outcome = finished.result()
+            try:
+                outcome = finished.result()
+            except Exception as error:
+                run, started = waiting[finished]
+                outcome = _failed_outcome(run, started, error)
             announce(outcome)
             done.append(outcome)
     return done
@@ -389,7 +430,8 @@ def report(done: Sequence[Outcome]) -> int:
         )
     print(f"\n{len(done) - len(failed)}/{len(done)} passed")
     for one in failed:
-        print(f"  {one.run.name}: exit {one.returncode}, {one.log}")
+        detail = f", {one.error}" if one.error is not None else ""
+        print(f"  {one.run.name}: exit {one.returncode}{detail}, {one.log}")
     lines = [f"{mark_for(one)} {one.run.name}" for one in done]
     lines.append(f"{len(done) - len(failed)}/{len(done)} passed")
     (LOGS / "summary.txt").write_text("\n".join(lines) + "\n")
