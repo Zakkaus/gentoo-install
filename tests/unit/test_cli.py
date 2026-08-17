@@ -1255,3 +1255,57 @@ def test_an_unattended_conversion_still_records_that_ssh_stops() -> None:
     # tells the operator nothing they can act on.
     assert "ssh" in cli.SESSION_IS_THE_LIFELINE
     assert "reboot" in cli.SESSION_IS_THE_LIFELINE
+
+
+def test_a_symlinked_log_directory_in_the_target_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The copy ran as root through a lexical `target / "var/log/..."` join and
+    a plain `shutil.copy2`, so a `var/log/gentoo-install` symlink in the target
+    wrote the run's log outside it. A conversion replaces a running system's
+    userland, where `/var/log` holds whatever that distribution left there.
+    """
+    from gentoo_install.exec.report import keep_log
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (tmp_path / "install.log").write_text("the run\n")
+
+    target = tmp_path / "target"
+    (target / "var/log").mkdir(parents=True)
+    # A directory, not a file: `mkdir(exist_ok=True)` refuses a symlink to a
+    # file by itself, so only this shape reaches `copy2` and writes outside.
+    (target / "var/log/gentoo-install").symlink_to(outside, target_is_directory=True)
+
+    monkeypatch.setattr(Path, "is_mount", lambda self: self == target)
+    said: list[str] = []
+    keep_log(tmp_path, target, said.append)
+
+    assert list(outside.iterdir()) == [], list(outside.iterdir())
+    assert said and "could not be copied" in said[0], said
+
+
+def test_a_log_directory_that_is_a_real_directory_still_receives_the_log(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The negative control for the refusal above: the ordinary target, where
+    nothing on the way is a symlink, still gets both run files."""
+    import stat
+
+    from gentoo_install.exec.report import keep_log
+
+    (tmp_path / "install.log").write_text("the run\n")
+    (tmp_path / "install.log").chmod(0o600)
+    (tmp_path / "install.jsonl").write_text('{"one": 1}\n')
+
+    target = tmp_path / "target"
+    target.mkdir()
+    monkeypatch.setattr(Path, "is_mount", lambda self: self == target)
+    said: list[str] = []
+    keep_log(tmp_path, target, said.append)
+
+    kept = target / "var/log/gentoo-install"
+    assert (kept / "install.log").read_text() == "the run\n"
+    assert (kept / "install.jsonl").read_text() == '{"one": 1}\n'
+    assert stat.S_IMODE((kept / "install.log").stat().st_mode) == 0o600
+    assert said and "the log of this run is in" in said[0], said
