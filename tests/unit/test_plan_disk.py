@@ -252,11 +252,23 @@ def test_a_reference_to_the_wrong_kind_of_node_is_named_rather_than_asserted() -
         disk.build(config(nodes))
 
 
-def test_the_topological_order_is_the_same_every_time() -> None:
-    graph = DeviceGraph.build(ext4_on_gpt())
-    assert [node.id for node in disk.topological(graph)] == [
-        node.id for node in disk.topological(graph)
-    ]
+def test_the_topological_order_ignores_the_order_of_the_graph_input() -> None:
+    expected = (
+        i("disk"),
+        i("table"),
+        i("esp"),
+        i("rootpart"),
+        i("espfs"),
+        i("rootfs"),
+        i("mnt-esp"),
+        i("mnt-root"),
+    )
+    nodes = ext4_on_gpt()
+    graphs = (DeviceGraph.build(nodes), DeviceGraph.build(reversed(nodes)))
+    assert tuple(tuple(node.id for node in disk.topological(graph)) for graph in graphs) == (
+        expected,
+        expected,
+    )
 
 
 def test_every_disk_operation_lands_in_a_disk_stage() -> None:

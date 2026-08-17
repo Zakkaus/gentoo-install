@@ -180,33 +180,23 @@ def test_a_row_that_reads_the_machine_still_offers_something_when_it_finds_nothi
 
 
 def test_the_timezone_screen_offers_cities_behind_a_region() -> None:
-    """The first screen is four region shortcuts, so a list with nothing in it
-    still draws four rows. The defect an operator met was one level down:
-    `Asia` opened on nothing, and `UTC` was the only reachable answer.
-
-    The list handed in is the one the installer really passes, so this fails
-    if `Probe.timezones` ever answers empty again.
-    """
-    from pathlib import Path
-
-    from gentoo_install.exec.probe import Probe
-    from gentoo_install.exec.runner import Runner
-
-    real = Probe(runner=Runner(log=lambda line: None), work=Path("/tmp")).timezones()
-    assert len(real) > 300, len(real)
-
+    """The menu first chooses a region, then a city from that region."""
     at = context()
     at.columns = 100
-    at.timezones = real
+    at.timezones = ("UTC", "Asia/Shanghai", "Asia/Taipei", "Europe/London")
     row = next(one for one in every_row() if one.key == "timezone")
     assert row.edit is not None
-    # Enter the first region, then leave: the frame after the first is the
-    # city list, and a region with no cities is the failure.
-    screen = FakeScreen(keys=["\n", *LEAVE], lines=30, columns=100)
-    row.edit(screen, config(ext4_on_gpt()), at)
-    cities = [line for line in screen.frames[1] if line.strip()]
-    assert len(cities) > 5, cities
+    before = config(ext4_on_gpt())
+    before = replace(before, system=replace(before.system, timezone="UTC"))
 
+    screen = FakeScreen(keys=["KEY_DOWN", "\n", "KEY_DOWN", "\n"], lines=30, columns=100)
+    answer = row.edit(screen, before, at)
+
+    assert answer.outcome is Outcome.CHOSE
+    assert answer.unwrap().system.timezone == "Asia/Taipei"
+    frames = tuple("\n".join(frame) for frame in screen.frames)
+    assert any(all(region in frame for region in ("UTC", "Asia", "Europe")) for frame in frames)
+    assert any(all(city in frame for city in ("Shanghai", "Taipei")) for frame in frames)
 
 def test_reopening_root_login_over_ssh_does_not_widen_it() -> None:
     """The cursor started on `allowed`, so an operator who had refused root

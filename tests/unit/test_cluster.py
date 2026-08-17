@@ -447,15 +447,64 @@ def test_the_address_does_not_depend_on_the_default_route_being_absent() -> None
     assert "addr add 10.31.0.150/24" in command
 
 
-def test_the_network_is_measured_once_more_after_the_install() -> None:
-    """A console that still has its routes when the installer saw none puts the
-    loss in the installer's view of the machine rather than in the machine."""
-    import inspect
+def test_the_network_is_measured_once_more_after_the_install(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The post-install probe has to precede collection of the guest results."""
+    events: list[str] = []
 
-    code = inspect.getsource(cluster.install_one)
-    started = code.index("install.sh --config")
-    collected = code.index("files = collect(")
-    assert "REACHABILITY_PROBE" in code[started:collected]
+    class Guest:
+        vmid = 9301
+
+        def start(self) -> None:
+            return None
+
+        def reset(self) -> None:
+            return None
+
+        def destroy(self) -> None:
+            return None
+
+    class Link:
+        console = object()
+
+        def run(self, command: str, timeout: float = 0.0) -> None:
+            events.append(command)
+
+        def wait_for(
+            self, command: str, timeout: float, idle: float, watch: cluster.Watchdog
+        ) -> None:
+            events.append(command)
+
+    def collect(guest: object, link: object, log: Path) -> dict[str, bytes]:
+        events.append("collect")
+        return {"install.rc": b"1"}
+
+    guest = Guest()
+    log = tmp_path / "network.log"
+    job = cluster.Job("network", FIXTURES / "ext4-bios.toml")
+    held = cluster.Running(
+        guest=cast(Any, guest),
+        watch=cluster.Watchdog(log, lambda: 0),
+        reservation_bytes=0,
+        created=True,
+    )
+    link = Link()
+    monkeypatch.setattr(cluster.Reconnecting, "to", lambda guest, log: link)
+    monkeypatch.setattr(cluster, "reach_prompt", lambda link: None)
+    monkeypatch.setattr(cluster, "append_to_cmdline", lambda link, extra: None)
+    monkeypatch.setattr(cluster, "wait_for_network", lambda link, vmid, address: None)
+    monkeypatch.setattr(cluster, "stage_passphrases", lambda link, config: None)
+    monkeypatch.setattr(cluster, "collect", collect)
+    outcome = cluster.install_one(
+        cast(Api, object()), "node", job, "driver.iso", tmp_path, execution=held
+    )
+
+    installed = next(index for index, event in enumerate(events) if "install.sh --config" in event)
+    probes = [index for index, event in enumerate(events) if event == cluster.REACHABILITY_PROBE]
+    assert outcome.verdict is cluster.Verdict.FAIL
+    assert len(probes) == 2
+    assert probes[0] < installed < probes[1] < events.index("collect")
 
 
 def test_the_keeper_puts_the_address_back_and_counts_it() -> None:
