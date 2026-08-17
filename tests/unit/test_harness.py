@@ -1690,6 +1690,11 @@ def test_bios_grub_serial_start_signal_stops_the_countdown() -> None:
         def send_raw(self, keys: str) -> None:
             sent.append(keys)
 
+        def snapshot(self, seconds: float) -> bytes:
+            # A BIOS medium draws nothing to a serial console before the
+            # kernel, so there is no countdown to confirm stopped.
+            return b""
+
         def close(self) -> None:
             pass
 

@@ -16,7 +16,7 @@ import urllib.error
 import urllib.response
 import urllib.request
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Final, cast
 
 import threading
 
@@ -3592,3 +3592,99 @@ def test_a_silent_console_is_not_reported_as_a_stubborn_grub(
     # And a screen holding `setparams` is the editor, so neither fires.
     editor = b"setparams 'Gentoo'\r\n  linux /boot/vmlinuz root=UUID=...\r\n"
     assert b"setparams" in proxmox._editor_screen(cast(Any, Console(editor)), 0.2)
+
+
+#: What `run60/vm-openrc-desktop.log` held, in the order it arrived. The first
+#: line is the hypervisor's, not the guest's.
+BANNER: Final[bytes] = b"OKstarting serial terminal on interface serial0\r\n"
+FIRMWARE: Final[bytes] = b'BdsDxe: loading Boot0002 "UEFI QEMU DVD-ROM QM00003 "\r\n'
+MENU: Final[bytes] = b"GNU GRUB  version 2.14\r\n   Press enter to boot the selected OS\r\n"
+COUNTS: Final[tuple[bytes, ...]] = tuple(
+    b"   The highlighted entry will be executed automatically in %ds." % n
+    for n in (2, 1, 0)
+)
+BOOTED: Final[bytes] = b"  Booting `Boot LiveCD (kernel: gentoo)'\n\r\n\r"
+
+
+def test_the_hold_is_pressed_until_grub_stops_counting() -> None:
+    """`GRUB_COUNTDOWN` also matches `starting serial terminal on interface
+    serial0`, which the hypervisor prints before the firmware loads anything.
+    One press there landed in the void, `vm-openrc-desktop` counted `2s 1s 0s`
+    and booted `Boot LiveCD` unedited with no serial console, and the editor
+    was asked for over the next two and a half minutes on a guest already gone.
+    """
+    from tests.vm.proxmox import hold_the_menu
+
+    class Console:
+        """GRUB draws two snapshots after the banner and counts until a press
+        arrives while its menu is up."""
+
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+            self.frames = [FIRMWARE, MENU + COUNTS[0], COUNTS[1], b""]
+            self.held_at: int | None = None
+
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+            return BANNER
+
+        def send_raw(self, keys: str) -> None:
+            self.sent.append(keys)
+            # Only a press that arrives while the menu is drawn stops it.
+            if self.held_at is None and len(self.sent) >= 3:
+                self.held_at = len(self.sent)
+
+        def snapshot(self, seconds: float) -> bytes:
+            if self.held_at is not None:
+                return b""
+            return self.frames.pop(0) if self.frames else b""
+
+        def send(self, line: str) -> None:
+            self.sent.append(line)
+
+        @property
+        def closed(self) -> bool:
+            return False
+
+        def close(self) -> None:
+            pass
+
+    console = Console()
+    seen = hold_the_menu(console, timeout=30.0)
+
+    assert console.sent == ["\x0e\x10"] * 3, console.sent
+    assert b"GNU GRUB" in seen
+
+
+def test_an_entry_that_booted_unedited_is_said_at_once() -> None:
+    """Two and a half minutes were spent asking for an editor after the guest
+    had booted. The boot line is on the same screen, so it is a verdict rather
+    than a wait.
+    """
+    from tests.vm.proxmox import GrubNotReadable, hold_the_menu
+
+    class Console:
+        def __init__(self) -> None:
+            self.frames = [MENU + COUNTS[0], COUNTS[2] + BOOTED]
+            self.sent: list[str] = []
+
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+            return BANNER
+
+        def send_raw(self, keys: str) -> None:
+            self.sent.append(keys)
+
+        def snapshot(self, seconds: float) -> bytes:
+            return self.frames.pop(0) if self.frames else b""
+
+        def send(self, line: str) -> None:
+            self.sent.append(line)
+
+        @property
+        def closed(self) -> bool:
+            return False
+
+        def close(self) -> None:
+            pass
+
+    with pytest.raises(GrubNotReadable, match="booted before its countdown"):
+        hold_the_menu(Console(), timeout=30.0)
