@@ -185,8 +185,9 @@ class SerialConsole:
         matcher = re.compile(pattern.encode())
         # Two deadlines, whichever comes first: the ceiling bounds a guest that
         # prints for ever, and the idle window ends one that stopped.
-        ceiling = time.monotonic() + timeout
-        idle_deadline = time.monotonic() + idle if idle else ceiling
+        started = time.monotonic()
+        ceiling = started + timeout
+        idle_deadline = started + idle if idle else ceiling
         deadline = min(ceiling, idle_deadline)
         seen = len(self._buffer)
         while time.monotonic() < deadline:
@@ -202,9 +203,19 @@ class SerialConsole:
                 seen = len(self._buffer)
                 idle_deadline = time.monotonic() + idle
                 deadline = min(ceiling, idle_deadline)
-        error = ConsoleIdle if idle and idle_deadline < ceiling else ConsoleTimeout
+        silent = bool(idle) and idle_deadline < ceiling
+        error = ConsoleIdle if silent else ConsoleTimeout
+        # Which bound was reached, before the screen rather than after it: a
+        # verdict is truncated to a few hundred bytes, and `vm-unlock` reported
+        # only the pattern and a gcc line, so whether it went quiet or ran out
+        # of ceiling could not be told from the verdict at all.
+        why = (
+            f"nothing arrived for {idle:.0f}s"
+            if silent
+            else f"{time.monotonic() - started:.0f}s of {timeout:.0f}s elapsed"
+        )
         raise error(
-            f"never matched {pattern!r}; "
+            f"never matched {pattern!r}, {why}; "
             f"last output was {strip_ansi(self._buffer)[-600:]!r}"
         )
 
