@@ -1,24 +1,9 @@
 # KDE Plasma with the KDE application set, which is what a Plasma release
 # ships and what `kde-apps-meta` pulls in.
+base = "base/plasma.toml"
+
 packages = [
     "kde-plasma/plasma-meta",
     "kde-apps/kde-apps-meta",
     "x11-base/xorg-server",
 ]
-use = ["wayland", "qt6", "networkmanager"]
-# `kcm` is a local flag of `app-i18n/fcitx-configtool`, and its `kcm?` block
-# pulls nine kde-frameworks packages plus libplasma. Declared by the desktop
-# that already has them rather than by the fcitx5 group, which would install
-# Plasma alongside GNOME. Harmless when fcitx5 is not chosen: the line names a
-# package that is not merged.
-package_use = [
-    "app-i18n/fcitx-configtool kcm",
-    "sys-libs/minizip-ng compat",
-]
-wayland = true
-profile = "default/linux/amd64/23.0/desktop/plasma"
-
-# KWin starts the input method itself on a Wayland session, and this is the key
-# the Virtual keyboard KCM writes. The launcher entry speaks input-method-v2;
-# `org.fcitx.Fcitx5.desktop` is the autostart entry and integrates incorrectly.
-input_method_launcher = "/usr/share/applications/fcitx5-wayland-launcher.desktop"

@@ -19,6 +19,7 @@ DATA: Final[Path] = Path(__file__).resolve().parent / "data"
 KEYS: Final[frozenset[str]] = frozenset(
     {
         "packages", "services", "use", "repositories", "video_cards", "files",
+        "base",
         "input_method", "schemas", "wayland", "package_use", "accept_license",
         "display_manager", "profile", "input_framework", "input_method_launcher",
         "wayland_files", "user_groups", "user_services", "accept_keywords",
@@ -44,15 +45,7 @@ def load_catalog(root: Path | None = None) -> Catalog:
 
 
 def _load(path: Path) -> Group:
-    try:
-        raw = tomllib.loads(path.read_text(encoding="utf-8"))
-    except OSError as error:
-        raise ConfigError(f"{path}: {error}") from error
-    except tomllib.TOMLDecodeError as error:
-        raise ConfigError(f"{path}: {error}") from error
-    unknown = sorted(set(raw) - KEYS)
-    if unknown:
-        raise ConfigError(f"{path} has unknown keys: {', '.join(unknown)}")
+    raw = _compose(path)
     return Group(
         name=path.stem,
         label=_text(raw, "label", path),
@@ -84,6 +77,40 @@ def _load(path: Path) -> Group:
         user_groups=_strings(raw, "user_groups", path),
         user_services=_strings(raw, "user_services", path),
     )
+
+
+def _compose(
+    path: Path, ancestors: frozenset[Path] = frozenset()
+) -> dict[str, object]:
+    resolved = path.resolve()
+    if resolved in ancestors:
+        raise ConfigError(f"{path}: base profiles form a cycle")
+    raw = _read(path)
+    base = raw.pop("base", None)
+    if base is None:
+        return raw
+    if not isinstance(base, str):
+        raise ConfigError(f"{path}: base must be a string")
+    inherited = _compose(path.parent / base, ancestors | {resolved})
+    overlap = sorted(set(inherited) & set(raw))
+    if overlap:
+        raise ConfigError(
+            f"{path}: base and variant both define: {', '.join(overlap)}"
+        )
+    return inherited | raw
+
+
+def _read(path: Path) -> dict[str, object]:
+    try:
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    except OSError as error:
+        raise ConfigError(f"{path}: {error}") from error
+    except tomllib.TOMLDecodeError as error:
+        raise ConfigError(f"{path}: {error}") from error
+    unknown = sorted(set(raw) - KEYS)
+    if unknown:
+        raise ConfigError(f"{path} has unknown keys: {', '.join(unknown)}")
+    return raw
 
 
 def _files(raw: dict[str, object], path: Path, key: str = "files") -> tuple[GroupFile, ...]:
