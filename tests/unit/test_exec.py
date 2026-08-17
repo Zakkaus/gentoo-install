@@ -21,10 +21,11 @@ from gentoo_install.errors import (
 )
 from gentoo_install.exec import apply, fetch, preflight, report as exec_report
 from gentoo_install.exec.probe import Machine as ProbedMachine
-from gentoo_install.exec.probe import Probe
+from gentoo_install.exec.probe import Probe, probe_storage_facts
 from gentoo_install.exec.runner import Result, Runner, under
-from gentoo_install.model.config import Bootloader, BootloaderConfig, Firmware, InstallConfig
+from gentoo_install.model.config import Bootloader, BootloaderConfig, DiskMode, Firmware, InstallConfig
 from gentoo_install.model.device import DeviceId, Existing, Luks, Node
+from gentoo_install.model.size import Size
 from gentoo_install.plan.operations import CommandOutput
 
 from .layouts import config, encrypted_root, ext4_on_gpt, i, zfs_root
@@ -406,6 +407,47 @@ def test_a_uefi_boot_without_efivarfs_is_fatal(tmp_path: Path) -> None:
     fine = preflight.inspect(config(), described(efi_variables=True), probe_of(tmp_path))
     assert not [one for one in fine.fatal if "efivarfs" in one], fine.fatal
 
+
+def test_an_uefi_image_needs_no_firmware_state_or_target_disk(tmp_path: Path) -> None:
+    installation = config()
+    image = replace(
+        installation,
+        disk=replace(
+            installation.disk,
+            mode=DiskMode.IMAGE,
+            image="/var/tmp/target.raw",
+            size=Size.parse("20GiB"),
+        ),
+    )
+    wanted = preflight.required_commands(image)
+    report = preflight.inspect(
+        image,
+        described(uefi=False, efi_variables=False, efi_bits=32, commands=wanted),
+        probe_of(tmp_path),
+    )
+    assert {"test", "truncate", "losetup"} <= wanted
+    assert not [
+        reason
+        for reason in report.fatal
+        if "EFI" in reason or "not present on this machine" in reason
+    ], report.fatal
+
+
+
+def test_an_image_reads_no_storage_facts_from_its_future_loop_device(tmp_path: Path) -> None:
+    installation = config()
+    image = replace(
+        installation,
+        disk=replace(
+            installation.disk,
+            mode=DiskMode.IMAGE,
+            image="/var/tmp/target.raw",
+            size=Size.parse("20GiB"),
+        ),
+    )
+    facts = probe_storage_facts(image, probe_of(tmp_path))
+    assert not facts.mdraid_metadata
+    assert not facts.free_extents
 
 def test_a_bios_configuration_needs_no_firmware_variables(tmp_path: Path) -> None:
     """Nothing writes an EFI variable on a BIOS install, so their absence is

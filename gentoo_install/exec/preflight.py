@@ -205,6 +205,8 @@ class Report:
 def _configured_commands(config: InstallConfig) -> frozenset[str]:
     graph = config.disk.graph
     wanted = set(ALWAYS) | set(STAGE3_COMMANDS)
+    if config.disk.mode is DiskMode.IMAGE:
+        wanted |= {"test", "truncate", "losetup"}
     for table in graph.of_type(PartitionTable):
         wanted |= set(BY_FEATURE["gpt" if table.table is TableType.GPT else "mbr"])
     if graph.of_type(Luks):
@@ -335,12 +337,18 @@ def _capacity_problems(config: InstallConfig, probe: Probe) -> list[str]:
         disk = graph[table.disk]
         if not isinstance(disk, Existing):
             continue
-        try:
-            path = probe.resolve(disk.id, disk.selector)
-            capacity = probe.disk_bytes(path)
-        except DeviceNotFound:
-            # Already reported by the loop that resolves every wiped disk.
-            continue
+        path = ""
+        if config.disk.mode is DiskMode.IMAGE:
+            if config.disk.size is None:
+                continue
+            capacity = config.disk.size.bytes
+        else:
+            try:
+                path = probe.resolve(disk.id, disk.selector)
+                capacity = probe.disk_bytes(path)
+            except DeviceNotFound:
+                # Already reported by the loop that resolves every wiped disk.
+                continue
         if not capacity:
             # Fatal, not skipped: this table is about to be rewritten, and a
             # capacity the machine would not report is not permission to write
@@ -355,7 +363,7 @@ def _capacity_problems(config: InstallConfig, probe: Probe) -> list[str]:
             for one in graph.of_type(Partition)
             if one.table == table.id and one.size is not None
         )
-        if not table.create:
+        if not table.create and config.disk.mode is not DiskMode.IMAGE:
             # An edited table keeps every partition the configuration does not
             # remove, and their space is claimed as much as a new one's.
             try:
@@ -453,13 +461,13 @@ def inspect(
         fatal.append("the installer has to run as root")
     if machine.architecture != "x86_64":
         fatal.append(f"this build installs amd64 and the machine reports {machine.architecture}")
-
+    targets_machine_firmware = config.disk.mode is not DiskMode.IMAGE
     wants_uefi = config.bootloader.firmware is Firmware.UEFI
-    if wants_uefi and not machine.uefi:
-        fatal.append("the configuration boots by UEFI and this machine booted by BIOS")
-    if not wants_uefi and machine.uefi:
+    if targets_machine_firmware and wants_uefi and not machine.uefi:
+        fatal.append(f"the configuration boots by UEFI and this machine booted by BIOS")
+    if targets_machine_firmware and not wants_uefi and machine.uefi:
         warnings.append("the configuration boots by BIOS on a machine that booted by UEFI")
-    if wants_uefi and machine.uefi and not machine.efi_variables:
+    if targets_machine_firmware and wants_uefi and machine.uefi and not machine.efi_variables:
         # Fatal: `efibootmgr --create` is what the ZFSBootMenu install runs,
         # and GRUB's `--bootloader-id` entry needs the same. The operator can
         # mount it, so the message says which command.
@@ -467,9 +475,9 @@ def inspect(
             "the firmware variables are not readable: mount efivarfs with "
             "`mount -t efivarfs efivarfs /sys/firmware/efi/efivars` before installing"
         )
-    if wants_uefi and machine.efi_bits == 32:
+    if targets_machine_firmware and wants_uefi and machine.efi_bits == 32:
         # Fatal rather than a warning: the install would finish and the
-        # firmware would then refuse the amd64 executable it was handed.
+        # firmware then refuse the amd64 executable it was handed.
         fatal.append(
             "this machine booted through 32-bit EFI firmware, which cannot load "
             "the amd64 EFI executables an amd64 install writes"
@@ -500,22 +508,25 @@ def inspect(
                 f"medium ({medium}): install onto a disk instead"
             )
 
-    if _disks_at_risk(config.disk.graph) and not probe.live_medium():
-        where = probe.root_source()
-        warnings.append(
-            "this does not look like a live medium"
-            + (f" ({where} is mounted at /)" if where else "")
-            + "; the disks below belong to the machine you are running on"
-        )
+    if config.disk.mode is not DiskMode.IMAGE:
+        if _disks_at_risk(config.disk.graph) and not probe.live_medium():
+            where = probe.root_source()
+            warnings.append(
+                "this does not look like a live medium"
+                + (f" ({where} is mounted at /)" if where else "")
+                + "; the disks below belong to the machine you are running on"
+            )
 
-    for disk in _disks_at_risk(config.disk.graph):
-        try:
-            path = probe.resolve(disk.id, disk.selector)
-        except DeviceNotFound as error:
-            fatal.append(str(error))
-            continue
-        if probe.mounted(path, ignoring=str(config_target)):
-            fatal.append(f"{path} is mounted; the installer will not repartition a disk in use")
+        for disk in _disks_at_risk(config.disk.graph):
+            try:
+                path = probe.resolve(disk.id, disk.selector)
+            except DeviceNotFound as error:
+                fatal.append(str(error))
+                continue
+            if probe.mounted(path, ignoring=str(config_target)):
+                fatal.append(
+                    f"{path} is mounted; the installer will not repartition a disk in use"
+                )
 
     if config.disk.graph.of_type(ZfsPool):
         # The commands alone are not enough: a medium can carry the userland

@@ -34,6 +34,25 @@ from .layouts import encrypted_root, config, ext4_on_gpt, i, unlockable_root, zf
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
 
+def image_config() -> InstallConfig:
+    installation = config()
+    image = "/var/tmp/target.raw"
+    graph = DeviceGraph.build(
+        replace(node, selector=image) if isinstance(node, Existing) else node
+        for node in installation.disk.graph.nodes.values()
+    )
+    return replace(
+        installation,
+        disk=replace(
+            installation.disk,
+            graph=graph,
+            mode=DiskMode.IMAGE,
+            image=image,
+            size=Size.parse("20GiB"),
+        ),
+    )
+
+
 def test_the_profile_probe_reads_current_amd64_paths(tmp_path: Path) -> None:
     desc = tmp_path / "profiles.desc"
     desc.write_text(
@@ -64,6 +83,50 @@ def test_in_place_mode_rejects_a_graph_root() -> None:
     installation = replace(config(), disk=replace(config().disk, graph=DeviceGraph.build(()), mode=DiskMode.IN_PLACE))
     with pytest.raises(ValidationFailed, match="disk.root is not allowed"):
         validate(installation)
+
+
+def test_an_image_configuration_validates() -> None:
+    validate(image_config())
+
+
+def test_image_mode_requires_an_image_file() -> None:
+    installation = image_config()
+    with pytest.raises(ValidationFailed, match="disk.image is required"):
+        validate(replace(installation, disk=replace(installation.disk, image="")))
+
+
+def test_image_mode_requires_a_size() -> None:
+    installation = image_config()
+    with pytest.raises(ValidationFailed, match="disk.size is required"):
+        validate(replace(installation, disk=replace(installation.disk, size=None)))
+
+
+def test_image_mode_refuses_a_physical_disk_selector() -> None:
+    installation = image_config()
+    graph = DeviceGraph.build(
+        replace(node, selector="/dev/disk/by-id/virtio-target")
+        if isinstance(node, Existing)
+        else node
+        for node in installation.disk.graph.nodes.values()
+    )
+    with pytest.raises(ValidationFailed, match="physical disk"):
+        validate(replace(installation, disk=replace(installation.disk, graph=graph)))
+
+
+def test_image_mode_refuses_a_device_path_as_the_image_file() -> None:
+    installation = image_config()
+    device = "/dev/vda"
+    graph = DeviceGraph.build(
+        replace(node, selector=device) if isinstance(node, Existing) else node
+        for node in installation.disk.graph.nodes.values()
+    )
+    with pytest.raises(ValidationFailed, match="disk.image must name a file"):
+        validate(
+            replace(
+                installation,
+                disk=replace(installation.disk, graph=graph, image=device),
+            )
+        )
 
 
 def test_partition_mode_is_unaffected() -> None:

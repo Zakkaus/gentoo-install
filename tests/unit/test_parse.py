@@ -96,6 +96,26 @@ def test_in_place_mode_has_no_device_graph_or_root() -> None:
     assert disk.mode is DiskMode.IN_PLACE
     assert not disk.graph.nodes
     assert not disk.root
+
+
+def test_image_mode_parses_its_file_size_and_wipe_policy() -> None:
+    raw = fixture()
+    raw["disk"].update(
+        {
+            "mode": "image",
+            "image": "/var/tmp/target.raw",
+            "size": "20GiB",
+            "wipe": True,
+        }
+    )
+    raw["disk"]["devices"][0]["selector"] = "/var/tmp/target.raw"
+    disk = parse(raw).disk
+    assert disk.mode is DiskMode.IMAGE
+    assert disk.image == "/var/tmp/target.raw"
+    assert disk.size == Size.parse("20GiB")
+    assert disk.wipe
+
+
 def test_defaults_apply_when_a_section_is_absent() -> None:
     raw = fixture()
     for section in ("system", "portage", "kernel", "bootloader", "packages"):

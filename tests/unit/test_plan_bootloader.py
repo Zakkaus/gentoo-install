@@ -8,9 +8,13 @@ from pathlib import Path, PurePosixPath
 from typing import Sequence
 
 from gentoo_install.exec.config import load
-from gentoo_install.model.config import Bootloader, BootloaderConfig, Firmware, InstallConfig, RemoteUnlock
+from gentoo_install.model.config import (
+    Bootloader, BootloaderConfig, DiskMode, Firmware, InstallConfig, RemoteUnlock
+)
+from gentoo_install.model.size import Size
 from gentoo_install.plan import bootloader, kernel
 from gentoo_install.plan.operations import CommandOutput
+from gentoo_install.plan.portage import Emerge
 
 from .recorder import Recorder
 
@@ -289,6 +293,36 @@ def test_a_firmware_that_refuses_a_boot_entry_still_leaves_a_bootable_machine() 
 
     with pytest.raises(CommandFailed):
         on_esp.apply(Broken(replies={"grep": "1"}))
+
+
+def test_an_image_forces_grub_and_leaves_the_installer_nvram_alone() -> None:
+    installation = load(Path("tests/fixtures/vm-btrfs.toml"))
+    image = replace(
+        installation,
+        disk=replace(
+            installation.disk,
+            mode=DiskMode.IMAGE,
+            image="/var/tmp/target.raw",
+            size=Size.parse("20GiB"),
+        ),
+    )
+    operations = bootloader.build(image)
+    install = next(one for one in operations if isinstance(one, bootloader.InstallGrub))
+    assert install.force
+    assert not install.write_nvram
+    assert all(
+        bootloader.EFI_PACKAGE not in one.packages
+        for one in operations
+        if isinstance(one, Emerge)
+    )
+
+    recorder = Recorder(replies={"grep": "1"})
+    install.apply(recorder)
+    invoked = [one for one in recorder.in_target if one[0] == "grub-install"]
+    assert len(invoked) == 1
+    assert "--force" in invoked[0]
+    assert "--removable" in invoked[0]
+    assert "--bootloader-id=Gentoo" not in invoked[0]
 
 
 def test_zfsbootmenu_and_the_unlock_on_top_of_it_are_separate_fixtures() -> None:

@@ -51,6 +51,7 @@ class Machine:
     keys: dict[DeviceId, PurePosixPath] = field(default_factory=dict)
     secrets: SecretStore | None = None
     given_up: set[str] = field(default_factory=set)
+    image_devices: dict[DeviceId, str] = field(default_factory=dict)
 
     @property
     def target(self) -> PurePosixPath:
@@ -134,7 +135,7 @@ class Machine:
         """
         node = self.config.disk.graph[device]
         if isinstance(node, Existing):
-            return self.probe.resolve(device, node.selector)
+            return self.image_devices.get(device) or self.probe.resolve(device, node.selector)
         if isinstance(node, Partition):
             return self._partition_path(node)
         if isinstance(node, Luks):
@@ -146,6 +147,15 @@ class Machine:
             if isinstance(group, VolumeGroup):
                 return f"/dev/{group.name}/{node.name}"
         return self.probe.path_of(device)
+
+    def remember_image_device(self, device: DeviceId, path: str) -> None:
+        self.image_devices[device] = path
+
+    def image_device_path(self, device: DeviceId) -> str | None:
+        return self.image_devices.get(device)
+
+    def release_image_device(self, device: DeviceId) -> None:
+        self.image_devices.pop(device, None)
 
     def _partition_path(self, node: Partition) -> str:
         """`/dev/vdb` plus index 2 is `/dev/vdb2`, but `/dev/nvme0n1` plus 2 is

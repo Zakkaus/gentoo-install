@@ -11,7 +11,7 @@ import re
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, Final, cast
 
 import pytest
 
@@ -133,6 +133,19 @@ def test_every_configuration_the_campaign_names_exists() -> None:
             assert (root / run.config).is_file(), f"{stage}: {run.config}"
 
 
+#: Fixtures the local campaign does not run, and why. Named rather than
+#: derived from the disk mode: a blanket exemption lets the next unrun fixture
+#: in without anybody noticing, which is what this check exists to stop.
+NOT_IN_THE_CAMPAIGN: Final[frozenset[str]] = frozenset(
+    {
+        # An image install writes a file rather than the guest's own disk, and
+        # what has to boot is that file attached as a second disk. Nothing in
+        # `tests/vm/campaign.py` boots a file yet.
+        "vm-image.toml",
+    }
+)
+
+
 def test_the_campaign_covers_every_vm_fixture() -> None:
     """A fixture nobody runs is a path nobody tests, and the point of the
     matrix is that the list cannot quietly fall behind."""
@@ -141,19 +154,28 @@ def test_the_campaign_covers_every_vm_fixture() -> None:
     root = Path(__file__).resolve().parents[1]
     named = {Path(run.config).name for runs in STAGES.values() for run in runs}
     available = {path.name for path in (root / "fixtures").glob("*.toml")}
-    assert available - named == set(), sorted(available - named)
+    assert available - named == NOT_IN_THE_CAMPAIGN, sorted(
+        (available - named) ^ NOT_IN_THE_CAMPAIGN
+    )
 
 
 def test_every_fixture_names_a_disk_the_harness_creates() -> None:
     """Three of them named `virtio-target` with no number, from before the
     harness numbered the serials, so preflight refused them twenty seconds in
-    and they had never once installed anything."""
-    from gentoo_install.model.device import Existing
+    and they had never once installed anything.
+
+    An image fixture is exempt: its `existing` node names the file the
+    installer creates, and `validate()` refuses a `/dev/` selector there."""
     from gentoo_install.exec.config import load
+    from gentoo_install.model.config import DiskMode
+    from gentoo_install.model.device import Existing
 
     root = Path(__file__).resolve().parents[1]
     for path in sorted((root / "fixtures").glob("*.toml")):
-        for disk in load(path).disk.graph.of_type(Existing):
+        installation = load(path)
+        if installation.disk.mode is DiskMode.IMAGE:
+            continue
+        for disk in installation.disk.graph.of_type(Existing):
             # `virtio-targetN` is what `tests/vm/qemu.py` gives each target
             # disk as its serial, and udev makes the by-id name from that.
             assert re.fullmatch(

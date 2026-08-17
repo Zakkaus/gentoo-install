@@ -50,6 +50,8 @@ class Recorder:
     #: `None` falls through to the ordinary behaviour.
     answering: Callable[[Sequence[str]], str | None] | None = None
     zfs_ceiling: KernelCeiling = field(default_factory=lambda: KernelCeiling(None))
+    image_devices: dict[DeviceId, str] = field(default_factory=dict)
+    existing_paths: set[str] = field(default_factory=set)
 
     def run(
         self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
@@ -59,6 +61,8 @@ class Recorder:
             self.stdin.append(input_text)
         if argv[0] in self.failures:
             raise CommandFailed(f"{argv[0]} exited 1")
+        if argv[:2] == ["test", "-e"]:
+            return CommandOutput("", 0 if argv[2] in self.existing_paths else 1)
         # A CommandOutput, the way the real runner answers: a double returning
         # a bare str hides every caller that reads the exit code for itself.
         return _answered(self.replies.get(argv[0], ""), 0)
@@ -109,7 +113,16 @@ class Recorder:
         self.files[path] = self.files.get(path, "") + content
 
     def device_path(self, device: DeviceId) -> str:
-        return f"/dev/mapper/{device}"
+        return self.image_devices.get(device, f"/dev/mapper/{device}")
+
+    def remember_image_device(self, device: DeviceId, path: str) -> None:
+        self.image_devices[device] = path
+
+    def image_device_path(self, device: DeviceId) -> str | None:
+        return self.image_devices.get(device)
+
+    def release_image_device(self, device: DeviceId) -> None:
+        self.image_devices.pop(device, None)
 
     #: Directories the double reports as already mounted, for the resume path.
     mounts: set[str] = field(default_factory=set)

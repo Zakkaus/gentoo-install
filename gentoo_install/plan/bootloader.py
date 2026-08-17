@@ -18,7 +18,7 @@ from typing import Final
 
 from ..errors import CommandFailed, ConfigError, InvalidLayout, NothingToBoot
 from ..model import compat
-from ..model.config import Bootloader, Firmware, InitSystem, InstallConfig, RemoteUnlock
+from ..model.config import Bootloader, DiskMode, Firmware, InitSystem, InstallConfig, RemoteUnlock
 from ..model.device import (
     Existing,
     DeviceId,
@@ -155,6 +155,8 @@ class InstallGrub(Operation):
     esp: PurePosixPath | None
     #: Devices whose containing disks receive GRUB on a BIOS machine.
     boot_devices: tuple[DeviceId, ...]
+    force: bool = False
+    write_nvram: bool = True
 
     def describe(self) -> str:
         if self.esp is not None:
@@ -168,13 +170,15 @@ class InstallGrub(Operation):
         return f"install GRUB for {self.firmware.value} on the {disks} under {under}"
 
     def apply(self, context: Context) -> None:
+        force = ["--force"] if self.force else []
         if self.firmware is Firmware.UEFI and self.esp is not None:
-            efi = ["grub-install", "--target=x86_64-efi", f"--efi-directory={self.esp}"]
+            efi = ["grub-install", *force, "--target=x86_64-efi", f"--efi-directory={self.esp}"]
             # The removable-media path first, because it is the one that boots
             # without an NVRAM entry: firmware that loses its entry, and every
             # firmware that never had one, boots only that.
             context.run_in_target([*efi, "--removable"])
-            _try_the_nvram_entry(context, [*efi, "--bootloader-id=Gentoo"])
+            if self.write_nvram:
+                _try_the_nvram_entry(context, [*efi, "--bootloader-id=Gentoo"])
         else:
             installed: set[str] = set()
             for device in self.boot_devices:
@@ -183,7 +187,7 @@ class InstallGrub(Operation):
                     continue
                 installed.add(disk)
                 context.run_in_target(
-                    ["grub-install", "--target=i386-pc", disk]
+                    ["grub-install", *force, "--target=i386-pc", disk]
                 )
         context.run_in_target(["grub-mkconfig", "--output", "/boot/grub/grub.cfg"])
         # grub-mkconfig exits 0 having found no kernel, and the machine then
@@ -428,6 +432,7 @@ class InstallZfsBootMenu(Operation):
     kernel_params: tuple[str, ...]
     #: Whether the image was configured to answer an unlock over ssh.
     unlocks_remotely: bool = False
+    write_nvram: bool = True
     #: `org.zfsbootmenu:commandline` is the command line of the system ZBM
     #: boots, not of ZBM itself, which is what prompts for a passphrase.
     serial: tuple[str, int] | None
@@ -496,17 +501,18 @@ class InstallZfsBootMenu(Operation):
         if self.unlocks_remotely:
             self._say_if_the_image_cannot_unlock(context, image)
         context.run_in_target(["install", "-D", "-m0644", image, f"{self.esp}/{FALLBACK_IMAGE}"])
-        _try_the_nvram_entry(
-            context,
-            [
-                "efibootmgr",
-                "--create",
-                "--disk", context.containing_disk(self.esp_device),
-                "--part", str(context.partition_index(self.esp_device)),
-                "--label", "ZFSBootMenu",
-                "--loader", _windows_path(image, self.esp),
-            ],
-        )
+        if self.write_nvram:
+            _try_the_nvram_entry(
+                context,
+                [
+                    "efibootmgr",
+                    "--create",
+                    "--disk", context.containing_disk(self.esp_device),
+                    "--part", str(context.partition_index(self.esp_device)),
+                    "--label", "ZFSBootMenu",
+                    "--loader", _windows_path(image, self.esp),
+                ],
+            )
 
     def _image(self, context: Context) -> str:
         """Whatever generate-zbm wrote. It names the image after the kernel
@@ -529,9 +535,15 @@ def build(config: InstallConfig) -> list[Operation]:
     esp = mount.path if mount is not None else None
     esp_device = _esp_partition(config)
     packages = BOOTLOADER_PACKAGES[kind]
-    if config.bootloader.firmware is Firmware.UEFI and kind is not Bootloader.SYSTEMD_BOOT:
+    write_nvram = config.disk.mode is not DiskMode.IMAGE
+    if (
+        config.bootloader.firmware is Firmware.UEFI
+        and kind is not Bootloader.SYSTEMD_BOOT
+        and write_nvram
+    ):
         # GRUB only: `bootctl install` writes the boot entry through efivarfs
-        # itself, so systemd-boot needs no efibootmgr.
+        # itself, so systemd-boot needs no efibootmgr. Nor does an image
+        # install, whose NVRAM is not the one that will boot it.
         packages = (*packages, EFI_PACKAGE)
     operations: list[Operation] = []
     if packages:
@@ -552,6 +564,8 @@ def build(config: InstallConfig) -> list[Operation]:
                 firmware=config.bootloader.firmware,
                 esp=esp,
                 boot_devices=_bios_boot_devices(config),
+                force=config.disk.mode is DiskMode.IMAGE,
+                write_nvram=write_nvram,
             ),
         ]
     elif kind is Bootloader.SYSTEMD_BOOT and esp is not None:
@@ -600,6 +614,7 @@ def build(config: InstallConfig) -> list[Operation]:
                 kernel_params=config.bootloader.kernel_params,
                 serial=serial_console(config),
                 unlocks_remotely=config.kernel.remote_unlock.enabled,
+                write_nvram=write_nvram,
             ),
         ]
     return operations
