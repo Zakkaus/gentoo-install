@@ -48,6 +48,16 @@ The staged system is built under `/gentoo-install.new` while the running one is 
 
 After the proxy is selected, the configured proxy is used for stage3 and its signing key, main-tree and overlay version lookups, the `gitweb.gentoo.org` ZFS ebuild lookup, Portage downloads through `make.conf` and `FETCHCOMMAND`/`RESUMECOMMAND`, `wget`, `curl`, `git`, GnuPG, the binhost, overlays and paste upload. The clock, initial connectivity check and pre-menu mirror check run before the configuration is available and therefore are not covered by this setting. The installer keeps the credential out of dry-run descriptions and publishes a credential-free proxy endpoint with the bypass list; the installed system receives that endpoint and list.
 
+<!-- fact: memory-environment -->
+
+**Memory environment.** `--ram` and `--lowram` arm one boot into a live environment held in memory, then ask whether to reboot; there is no interface on this path, because the machine it addresses usually has one SSH session and no console. `--ram` uses the Gentoo CJK ISO, which carries ZFS and needs about 2 GiB of RAM, because its initramfs stops at an emergency shell when memory less the 824 MiB live image falls under 1 GiB. `--lowram` uses the Alpine netboot bundle, which is smaller and has no `zfs.ko`. Neither pins a version: both publishers list the current image with its checksum, which is fetched and verified before anything is armed.
+
+The default boot entry is never changed, so an environment that does not come up leaves a machine that still boots. `--bypass` replaces it instead, for firmware that drops a one-shot entry; it is the one path where an environment that does not come up leaves a machine that does not boot at all, and nothing selects it automatically.
+
+<!-- fact: memory-environment-access -->
+
+**Watching a memory install over SSH.** `--ssh-key` accepts a literal public key, a path, an `http` or `https` URL, or `github:user` and `gitlab:user`; `--ssh-port` and `--root-password` set the rest. The installer, the chosen configuration and the keys travel inside the initramfs, so the environment runs the revision that wrote that configuration and reaches `authorized_keys` before the first login. The operator reconnects over SSH and watches the install rather than holding a console open. Nothing is erased until the first screen is answered: it offers the install and a rescue shell, and has no timeout.
+
 <!-- fact: plan-records -->
 
 **Plan and records.** A dry run prints an operation plan without probing storage hardware. A real installation uses the same planner after adding probed mdraid metadata for reused devices, so hardware-dependent validation can change the result. `install.log` records command output, and `install.jsonl` records operations, package sources and binary-package degradation reasons. Before uploading a configuration to `paste.gentoozh.org`, the menu replaces `password_hash` and `root_password_hash` with `removed-before-publishing` and omits the proxy `username` and `password` keys entirely; the other configuration values remain in the upload. The menu displays the resulting page address as text and as a QR code.
@@ -58,7 +68,7 @@ After the proxy is selected, the configured proxy is used for stage3 and its sig
 
 [`TESTED.md`](TESTED.md) is the verification record: one row for each exercised path, naming the installer revision it ran at and where it ran. A run counts only when its recorded revision matches the installer, its installation exit code is `0`, the installed system boots, and the post-boot configuration checks pass.
 
-Installing onto a disk has cluster and single-machine records across ext4, xfs, btrfs, f2fs, ZFS, LVM, mdraid and LUKS2, on both firmwares and both init systems. Converting a running system in place has two records, both from QEMU and both BIOS. Booting into RAM to install or to write an image is designed and has no record at all.
+Installing onto a disk has cluster and single-machine records across ext4, xfs, btrfs, f2fs, ZFS, LVM, mdraid and LUKS2, on both firmwares and both init systems. Converting a running system in place has two records, both from QEMU and both BIOS. Arming a boot into a memory environment is implemented and covered by unit and plan tests; no run has rebooted a machine into one, so it has no record. Writing an image is designed and has no record at all.
 
 Files under `tests/fixtures/` exercise the configuration model; their presence establishes nothing about an installed machine.
 
