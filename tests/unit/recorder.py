@@ -63,6 +63,12 @@ class Recorder:
             raise CommandFailed(f"{argv[0]} exited 1")
         if argv[:2] == ["test", "-e"]:
             return CommandOutput("", 0 if argv[2] in self.existing_paths else 1)
+        if self.answering is not None:
+            # Both methods, or a hook covering one of them leaves the other
+            # answering an empty string that every caller reads as success.
+            said = self.answering(argv)
+            if said is not None:
+                return _answered(said, 0)
         # A CommandOutput, the way the real runner answers: a double returning
         # a bare str hides every caller that reads the exit code for itself.
         return _answered(self.replies.get(argv[0], ""), 0)

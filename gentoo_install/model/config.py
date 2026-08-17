@@ -38,6 +38,23 @@ class DiskMode(Enum):
     IMAGE = "image"
 
 
+class BootMethod(Enum):
+    """What arms a one-shot entry on a machine, read rather than chosen.
+
+    Three ways to boot once and return: `bootctl set-oneshot` where
+    systemd-boot owns the esp, `efibootmgr --bootnext` where GRUB does, and
+    GRUB's own `next_entry` on a BIOS machine. Which one applies is a fact
+    about the machine, answered by `exec/probe.py`; it is declared here
+    because `plan/netboot.py` derives operations from it and `plan/` may not
+    import `exec/`.
+    """
+
+    SYSTEMD_BOOT = "systemd-boot"
+    UEFI_GRUB = "uefi-grub"
+    BIOS_GRUB = "bios-grub"
+    NONE = "none"
+
+
 class MemoryMode(Enum):
     """Which live environment a one-shot boot entry starts in memory.
 
