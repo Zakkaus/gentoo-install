@@ -16,6 +16,7 @@ import re
 import shutil
 import time
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import ClassVar, Final, Iterable, Mapping
 
@@ -46,6 +47,29 @@ EFI_WIDTH: Final[Path] = EFI_MARKER / "fw_platform_size"
 #: the kernel booted through EFI; it does not say the variables can be
 #: written, and `efibootmgr --create` is what ZFSBootMenu's install runs.
 EFI_VARIABLES: Final[Path] = EFI_MARKER / "efivars"
+
+
+class BootMethod(Enum):
+    """What arms a one-shot entry on this machine, read rather than chosen.
+
+    Three ways to boot once and return: `bootctl set-oneshot` where
+    systemd-boot owns the esp, `efibootmgr --bootnext` where GRUB does, and
+    GRUB's own `next_entry` on a BIOS machine. Which one applies is a fact
+    about the machine.
+    """
+
+    SYSTEMD_BOOT = "systemd-boot"
+    UEFI_GRUB = "uefi-grub"
+    BIOS_GRUB = "bios-grub"
+    NONE = "none"
+
+
+#: Where a BIOS GRUB keeps its configuration. Both spellings, because Fedora
+#: and openSUSE use `grub2` and Debian and Arch use `grub`.
+GRUB_DIRECTORIES: Final[tuple[Path, ...]] = (
+    Path("/boot/grub"),
+    Path("/boot/grub2"),
+)
 
 
 def _efi_variables() -> bool:
@@ -995,6 +1019,24 @@ class Probe:
         if kind in self.LIVE_ROOT_TYPES:
             return f"the root filesystem is {kind}"
         return ""
+
+    def boot_method(self) -> BootMethod:
+        """How a one-shot entry is armed here, or `NONE` when none of the three is.
+
+        `bootctl status` before `efibootmgr`: a machine with systemd-boot on
+        its esp also has writable efivars, so asking about the variables first
+        would answer `UEFI_GRUB` for a machine GRUB does not manage.
+        """
+        if _efi_variables():
+            said = self.runner.run(["bootctl", "status"], check=False)
+            if said.returncode == 0 and "systemd-boot" in said.stdout:
+                return BootMethod.SYSTEMD_BOOT
+            if shutil.which("efibootmgr") is not None:
+                return BootMethod.UEFI_GRUB
+            return BootMethod.NONE
+        if any(one.is_dir() for one in GRUB_DIRECTORIES):
+            return BootMethod.BIOS_GRUB
+        return BootMethod.NONE
 
     def root_source(self) -> str:
         """What `/` is mounted from, for the warning that names it."""

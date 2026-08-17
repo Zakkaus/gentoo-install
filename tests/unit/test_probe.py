@@ -308,3 +308,70 @@ def test_a_top_level_btrfs_root_is_not_called_a_subvolume(tmp_path: Path) -> Non
     layout = probe.Probe(runner=TopLevel(log=lambda line: None), work=tmp_path).storage_layout()
     assert layout.root_device == "/dev/vda3"
     assert layout.root_subvolume is None
+
+
+def test_systemd_boot_is_asked_about_before_the_efi_variables(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A machine with systemd-boot on its esp also has writable efivars, so
+    reading the variables first answers `uefi-grub` for a machine GRUB does not
+    manage and arms the wrong one-shot: `bootctl set-oneshot` is what that
+    machine understands, and `efibootmgr --bootnext` names an entry GRUB never
+    wrote.
+    """
+    monkeypatch.setattr(probe, "_efi_variables", lambda: True)
+    monkeypatch.setattr("shutil.which", lambda name: f"/usr/bin/{name}")
+    asked: list[tuple[str, ...]] = []
+
+    class Bootctl(Runner):
+        def run(self, argv: Sequence[str], **rest: object) -> Result:
+            asked.append(tuple(argv))
+            return Result(
+                argv=tuple(argv),
+                returncode=0,
+                stdout="System:\n     Firmware: UEFI 2.70\n Boot Loader: systemd-boot 257\n",
+                stderr="",
+                seconds=0.0,
+            )
+
+    method = probe.Probe(runner=Bootctl(log=lambda line: None), work=tmp_path).boot_method()
+
+    assert method is probe.BootMethod.SYSTEMD_BOOT
+    assert asked and asked[0][0] == "bootctl", asked
+
+
+def test_a_uefi_machine_without_systemd_boot_uses_efibootmgr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(probe, "_efi_variables", lambda: True)
+    monkeypatch.setattr("shutil.which", lambda name: f"/usr/bin/{name}")
+
+    class NoBootctl(Runner):
+        def run(self, argv: Sequence[str], **rest: object) -> Result:
+            return Result(argv=tuple(argv), returncode=1, stdout="", stderr="", seconds=0.0)
+
+    method = probe.Probe(runner=NoBootctl(log=lambda line: None), work=tmp_path).boot_method()
+
+    assert method is probe.BootMethod.UEFI_GRUB
+
+
+def test_a_bios_machine_is_found_by_its_grub_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both spellings: Fedora and openSUSE use `grub2`, Debian and Arch use
+    `grub`, and a machine with neither has no way to be armed."""
+    # The shipped value first, because the patch below replaces it and a check
+    # that only reads the patched one cannot notice a spelling going missing.
+    assert {one.name for one in probe.GRUB_DIRECTORIES} == {"grub", "grub2"}, (
+        probe.GRUB_DIRECTORIES
+    )
+
+    monkeypatch.setattr(probe, "_efi_variables", lambda: False)
+    absent = tmp_path / "absent"
+    monkeypatch.setattr(probe, "GRUB_DIRECTORIES", (absent, tmp_path / "grub2"))
+
+    quiet = Runner(log=lambda line: None)
+    assert probe.Probe(runner=quiet, work=tmp_path).boot_method() is probe.BootMethod.NONE
+
+    (tmp_path / "grub2").mkdir()
+    assert probe.Probe(runner=quiet, work=tmp_path).boot_method() is probe.BootMethod.BIOS_GRUB
