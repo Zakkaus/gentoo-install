@@ -193,6 +193,7 @@ def validate(
     zfs_kernel_max: str | None | _ZfsKernelCeilingNotChecked = (
         _ZFS_KERNEL_CEILING_NOT_CHECKED
     ),
+    supports_v3: bool | None = None,
 ) -> None:
     address_facts = _derive_address_facts(config)
     graph_problems: list[str] = []
@@ -219,7 +220,7 @@ def validate(
         *_unlock_problems(config, address_facts.remote_unlock),
         *_locale_problems(config),
         *_l10n_problems(config),
-        *compat.binhost_subarch_problems(config),
+        *compat.binhost_subarch_problems(config, supports_v3),
     ]
     if problems:
         raise ValidationFailed(

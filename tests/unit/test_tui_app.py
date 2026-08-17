@@ -3206,3 +3206,21 @@ def test_choosing_the_conversion_drops_the_device_graph() -> None:
     kept = screens.install_mode_screen(staying, built, offering).unwrap()
     assert kept.disk.mode is DiskMode.PARTITION
     assert kept.disk.graph.nodes == built.disk.graph.nodes
+
+
+def test_a_cpu_that_cannot_run_v3_cannot_be_made_to_choose_it() -> None:
+    """The row is shown with its reason rather than hidden, because an option
+    that vanishes reads as a broken installer. Shown is not selectable: the
+    cursor skips a disabled row, so an operator pressing down past the end of
+    the list still leaves with `x86-64`. Held by the skip in `_move`, which is
+    what a control removing it turns red; `Menu._accept` refuses a disabled
+    row as well, and removing that alone changes nothing because the cursor
+    never reaches one."""
+    old = context()
+    old.supports_v3 = False
+    screen = FakeScreen(keys=["KEY_DOWN", "KEY_DOWN", "KEY_DOWN", "\n"])
+    answer = screens._edit_binhost(screen, old, config())
+
+    assert answer is not None
+    assert answer.portage.binhost.subarch == "x86-64", answer.portage.binhost
+    assert "this CPU cannot run it" in screen.last

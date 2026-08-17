@@ -349,6 +349,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if _needs_network(arguments):
             _require_mirror(config, arguments.mirror)
         storage_facts = StorageFacts()
+        loader_v3: bool | None = None
         layout: StorageLayout | None = None
         if config.disk.mode is DiskMode.IN_PLACE:
             # Even for a dry run: a conversion's whole plan is derived from the
@@ -360,15 +361,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             # Before the plan is derived, because `build` validates: a reused
             # esp needs runtime metadata. A dry run remains independent of the
             # selected hardware.
-            storage_facts = probe_storage_facts(
-                config, Probe(runner=Runner(log=lambda line: None), work=arguments.work)
-            )
+            reading = Probe(runner=Runner(log=lambda line: None), work=arguments.work)
+            storage_facts = probe_storage_facts(config, reading)
+            # `ld.so --help`, the loader's own answer about this machine: a dry
+            # run stays independent of the hardware, so it is not read there.
+            loader_v3 = reading.supports_v3()
         operations = build(
             config,
             load_catalog(),
             mirror=arguments.mirror,
             storage_facts=storage_facts,
             layout=layout,
+            supports_v3=loader_v3,
         )
         if arguments.dry_run:
             print(render(operations), end="")

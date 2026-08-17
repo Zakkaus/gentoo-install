@@ -726,7 +726,10 @@ def test_the_whole_plan_passes_one_facts_value_to_validation_and_disk_derivation
     seen: list[StorageFacts] = []
 
     def validated(
-        installation: InstallConfig, *, storage_facts: StorageFacts
+        installation: InstallConfig,
+        *,
+        storage_facts: StorageFacts,
+        supports_v3: bool | None = None,
     ) -> None:
         seen.append(storage_facts)
 
