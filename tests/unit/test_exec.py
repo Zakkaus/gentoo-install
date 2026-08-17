@@ -1036,7 +1036,17 @@ def test_a_cpu_flag_is_renamed_and_never_swapped_for_another(tmp_path: Path) -> 
     from gentoo_install.exec.probe import CPU_FLAGS
 
     renamed = {kernel: portage for kernel, portage in CPU_FLAGS.items() if kernel != portage}
-    assert renamed == {"fma": "fma3", "pclmulqdq": "pclmul", "sha_ni": "sha", "pni": "sse3"}
+    # `phe` was missing until the whole of `cpu_flags_x86.desc` was read: the
+    # five below are every name that differs between /proc/cpuinfo and that
+    # file, four of them annotated there as `[<cpuinfo>] in cpuinfo` and
+    # `sha_ni` taken from the kernel's own `cpufeatures.h`.
+    assert renamed == {
+        "fma": "fma3",
+        "pclmulqdq": "pclmul",
+        "phe": "padlock",
+        "sha_ni": "sha",
+        "pni": "sse3",
+    }
     assert CPU_FLAGS["bmi1"] == "bmi1" and CPU_FLAGS["bmi2"] == "bmi2"
     # One kernel name per portage name: two keys sharing a value is a swap.
     values = [portage for portage in CPU_FLAGS.values()]
