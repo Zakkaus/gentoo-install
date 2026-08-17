@@ -1531,7 +1531,7 @@ def test_the_probe_after_the_install_cannot_fail_the_run() -> None:
             asked.append(command)
             raise ConsoleTimeout("never matched a marker")
 
-    cluster._note_the_closing_probe(cast(Any, Timing()))
+    cluster._note_the_probe(cast(Any, Timing()), "closing")
     assert asked == [cluster.REACHABILITY_PROBE], asked
 
 
@@ -1544,7 +1544,7 @@ def test_the_closing_probe_is_still_asked_when_it_can_answer() -> None:
         def run(self, command: str, timeout: float = 120.0) -> None:
             answered.append(command)
 
-    cluster._note_the_closing_probe(cast(Any, Answering()))
+    cluster._note_the_probe(cast(Any, Answering()), "closing")
     assert answered == [cluster.REACHABILITY_PROBE], answered
 
 
@@ -1594,3 +1594,43 @@ def test_a_truncated_verdict_still_says_which_bound_was_reached() -> None:
         # Before the screen, so a verdict cut to VERDICT_BYTES keeps it.
         assert said.index(wanted) < said.index("last output was"), said
         assert said.index(wanted) < cluster.OUTCOME_BYTES, said
+
+
+def test_the_probe_costs_less_than_its_own_budget() -> None:
+    """Five guests of run61 were ended at three minutes with
+
+        REACH 10.31.0.199=down 10.31.0.254=up 223.5.5.5=up
+        LOOKUPS_V4 ok fail fail fail fail
+        LOOKUPS_ANY ok fail
+
+    as the last line of the log and no install started. `getent` waits for its
+    own resolver timeout, and ten of those cost more than the 120s the probe is
+    given, so a diagnostic ended every run it was measuring.
+    """
+    import subprocess
+
+    probe = cluster.REACHABILITY_PROBE
+    # Two `getent` sites, each inside a five-iteration loop, so ten lookups run.
+    sites = probe.count("getent ")
+    assert sites == 2, sites
+    assert probe.count(f"timeout {cluster.LOOKUP_PATIENCE} getent ") == sites, probe
+    assert probe.count("for i in 1 2 3 4 5; do") == sites, probe
+    # The whole worst case against the 120s the three call sites give it: ten
+    # bounded lookups, three pings at `-W2`, and the `ip` and `dmesg` reads.
+    assert sites * 5 * cluster.LOOKUP_PATIENCE + 3 * 2 < 120
+    assert subprocess.run(["bash", "-n", "-c", probe], capture_output=True).returncode == 0
+
+
+def test_no_reachability_probe_is_ever_the_verdict() -> None:
+    """The probe is read three times and none of them decides anything: the
+    network is what `wait_for_network` waits for, and this only records what
+    the guest saw at that moment.
+    """
+    import inspect
+
+    for where in (cluster.install_one, cluster.answer_once, cluster.wait_for_network):
+        source = inspect.getsource(where)
+        assert "link.run(REACHABILITY_PROBE" not in source, where.__name__
+    # And the one place that does run it swallows a timeout, which the tests
+    # above hold.
+    assert "link.run(REACHABILITY_PROBE" in inspect.getsource(cluster._note_the_probe)
