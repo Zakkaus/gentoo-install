@@ -1634,3 +1634,29 @@ def test_no_reachability_probe_is_ever_the_verdict() -> None:
     # And the one place that does run it swallows a timeout, which the tests
     # above hold.
     assert "link.run(REACHABILITY_PROBE" in inspect.getsource(cluster._note_the_probe)
+
+
+def test_a_dead_first_resolver_costs_one_second_and_not_ten() -> None:
+    """`resolv.conf(5)` on this machine: `timeout:n` is "the amount of time the
+    resolver will wait for a response from a remote name server before retrying
+    the query via a different name server", default `RES_TIMEOUT`, and
+    `attempts:n` defaults to 2. So a first nameserver that has stopped
+    answering costs ten seconds on every lookup.
+
+    Five guests of run61 had `REACH 10.31.0.199=down` with the gateway and
+    `223.5.5.5` both answering ping, `LOOKUPS_V4 ok fail fail fail fail`, and
+    no install started; two more failed at `OpenPGP keyring refresh failed`,
+    which is the same lookups from inside `emerge-webrsync`.
+    """
+    written = cluster.use_our_resolvers()
+
+    assert f"options no-aaaa {cluster.RESOLVER_OPTIONS}" in written, written
+    assert "timeout:1" in cluster.RESOLVER_OPTIONS, cluster.RESOLVER_OPTIONS
+    # Every resolver is still offered, in order: the point is what a dead one
+    # costs, not dropping it.
+    for one in cluster.GUEST_RESOLVERS:
+        assert f"nameserver {one}" in written, one
+    # The whole worst case now fits the probe's budget, which it did not before.
+    attempts = int(cluster.RESOLVER_OPTIONS.split("attempts:")[1])
+    seconds = int(cluster.RESOLVER_OPTIONS.split("timeout:")[1].split()[0])
+    assert seconds * attempts <= cluster.LOOKUP_PATIENCE, cluster.RESOLVER_OPTIONS
