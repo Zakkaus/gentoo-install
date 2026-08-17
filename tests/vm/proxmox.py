@@ -70,6 +70,12 @@ ISO_STORAGE: Final[str] = "local"
 #: Long enough for a stage3 to extract over a slow mirror, short enough that a
 #: node that stopped answering does not hold the whole campaign.
 API_TIMEOUT: Final[float] = 60.0
+
+#: A reset is idempotent, so a request that may or may not have arrived is
+#: safe to send again: resetting a guest that was already reset does nothing.
+#: run63 lost `vm-unlock` at 1.2 minutes to one `<urlopen error timed out>`.
+RESET_TRIES: Final[int] = 3
+RESET_PAUSE: Final[float] = 5.0
 TASK_POLL: Final[float] = 2.0
 
 #: What Proxmox writes as a task's exit status when it finished its work
@@ -552,9 +558,26 @@ class Guest:
         the run read an empty serial port for five minutes. Resetting once the
         console is up puts the whole boot on the wire.
         """
-        self.api.wait(
-            self.node, self.api.call("POST", f"/nodes/{self.node}/qemu/{self.vmid}/status/reset")
-        )
+        # Retried, because resetting a guest that was already reset does
+        # nothing and a request that timed out may well have arrived: run63
+        # lost `vm-unlock` at 1.2 minutes to one
+        # `POST .../status/reset did not answer: <urlopen error timed out>`.
+        last: ProxmoxTransientError | None = None
+        for attempt in range(RESET_TRIES):
+            try:
+                self.api.wait(
+                    self.node,
+                    self.api.call(
+                        "POST", f"/nodes/{self.node}/qemu/{self.vmid}/status/reset"
+                    ),
+                )
+                return
+            except ProxmoxTransientError as error:
+                last = error
+                if attempt + 1 < RESET_TRIES:
+                    time.sleep(RESET_PAUSE * (attempt + 1))
+        assert last is not None
+        raise last
 
     def transferred(self) -> int | None:
         """Bytes this guest has received and written since it started.
