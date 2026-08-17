@@ -1044,6 +1044,7 @@ def _download_once(
                 if log is not None and time.monotonic() - said >= PROGRESS_INTERVAL:
                     said = time.monotonic()
                     log(_progress(target.name, got, total))
+        partial.replace(target)
     # `http.client.HTTPException` beside the rest: `IncompleteRead` is one and
     # is not an `OSError`, so a server closing the connection with bytes still
     # promised escaped this handler, left the `.part` file behind and stopped
@@ -1051,7 +1052,6 @@ def _download_once(
     except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as error:
         partial.unlink(missing_ok=True)
         raise DownloadFailed(f"{url} could not be fetched: {error}") from error
-    partial.replace(target)
 
 
 def _verify_signature(digests: Path, fingerprint: str, runner: Runner) -> None:
