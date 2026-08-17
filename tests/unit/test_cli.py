@@ -172,7 +172,7 @@ def test_an_error_with_no_name_of_its_own_still_becomes_an_exit_code(
     def boom(*_: object, **__: object) -> None:
         raise OSError(28, "No space left on device")
 
-    monkeypatch.setattr(cli, "load", boom)
+    monkeypatch.setattr(cli, "load_source", boom)
     code = main(["--config", str(FIXTURES / "vm-binpkg.toml")])
     assert code == cli.EXIT_COMMAND
     assert "No space left" in capsys.readouterr().err
@@ -186,7 +186,7 @@ def test_an_unexpected_error_is_named_rather_than_traced(
     def boom(*_: object, **__: object) -> None:
         raise RuntimeError("something nobody predicted")
 
-    monkeypatch.setattr(cli, "load", boom)
+    monkeypatch.setattr(cli, "load_source", boom)
     assert main(["--config", str(FIXTURES / "vm-binpkg.toml")]) == cli.EXIT_COMMAND
     assert "unexpected RuntimeError" in capsys.readouterr().err
 
@@ -709,7 +709,7 @@ def test_a_finish_failure_releases_the_machine_and_keeps_its_exit_code(
 
     monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
     monkeypatch.setattr(cli, "_needs_network", lambda arguments: False)
-    monkeypatch.setattr(cli, "load", lambda path: config())
+    monkeypatch.setattr(cli, "load_source", lambda path: config())
     monkeypatch.setattr(
         cli, "probe_storage_facts", lambda chosen, probe: StorageFacts()
     )
@@ -761,7 +761,7 @@ def test_a_failure_after_partitioning_says_the_disk_may_not_boot(
 
     monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
     monkeypatch.setattr(cli, "_needs_network", lambda arguments: False)
-    monkeypatch.setattr(cli, "load", lambda path: config())
+    monkeypatch.setattr(cli, "load_source", lambda path: config())
     monkeypatch.setattr(
         cli, "probe_storage_facts", lambda chosen, probe: StorageFacts()
     )
@@ -797,7 +797,7 @@ def test_a_failure_before_partitioning_says_nothing_was_written(
     def invalid(path: Path) -> InstallConfig:
         raise ConfigError("the configuration is invalid")
 
-    monkeypatch.setattr(cli, "load", invalid)
+    monkeypatch.setattr(cli, "load_source", invalid)
     code = main(["--config", str(tmp_path / "install.toml"), "--dry-run"])
 
     said = capsys.readouterr().err
@@ -839,7 +839,7 @@ def test_a_body_failure_before_partitioning_says_nothing_was_written(
 
     monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
     monkeypatch.setattr(cli, "_needs_network", lambda arguments: False)
-    monkeypatch.setattr(cli, "load", lambda path: config())
+    monkeypatch.setattr(cli, "load_source", lambda path: config())
     monkeypatch.setattr(
         cli, "probe_storage_facts", lambda chosen, probe: StorageFacts()
     )
@@ -1056,7 +1056,7 @@ def test_a_conversion_reads_the_running_layout_even_for_a_dry_run(
     )
     monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
     monkeypatch.setattr(cli, "_needs_network", lambda arguments: False)
-    monkeypatch.setattr(cli, "load", lambda path: converted)
+    monkeypatch.setattr(cli, "load_source", lambda path: converted)
     monkeypatch.setattr(cli, "Probe", Reading)
 
     code = main(
@@ -1145,7 +1145,7 @@ def test_a_layout_that_cannot_be_converted_exits_as_a_preflight_failure(
     )
     monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
     monkeypatch.setattr(cli, "_needs_network", lambda arguments: False)
-    monkeypatch.setattr(cli, "load", lambda path: converted)
+    monkeypatch.setattr(cli, "load_source", lambda path: converted)
     monkeypatch.setattr(cli, "Probe", OnZfs)
 
     code = main(
@@ -1341,3 +1341,42 @@ def test_a_log_directory_that_is_a_real_directory_still_receives_the_log(
     assert (kept / "install.jsonl").read_text() == '{"one": 1}\n'
     assert stat.S_IMODE((kept / "install.log").stat().st_mode) == 0o600
     assert said and "the log of this run is in" in said[0], said
+
+
+def test_a_dry_run_takes_its_configuration_from_a_url(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Every mode takes its configuration the same way; what differs between
+    installing, converting and writing an image is what the configuration
+    says, not where it came from. `load_source` existed with no caller, so
+    `--config` still turned a URL into a filename and answered that no such
+    file exists.
+    """
+    from gentoo_install.exec import config as loader
+
+    asked: list[str] = []
+    body = (FIXTURES / "ext4-bios.toml").read_text()
+
+    def reading(url: str, *, ceiling: int) -> str:
+        asked.append(url)
+        return body
+
+    monkeypatch.setattr(fetch, "read_text", reading)
+    assert main(["--config", "https://example.invalid/machine.toml", "--dry-run"]) == EXIT_OK
+    assert asked == ["https://example.invalid/machine.toml"], asked
+    assert "operations:" in capsys.readouterr().out.splitlines()[-1]
+    assert loader.looks_like_a_url("https://example.invalid/machine.toml")
+
+
+def test_a_local_configuration_never_reaches_the_network(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The negative direction: accepting a URL must not send an ordinary path
+    through the fetcher, which would need a network to read a file."""
+
+    def refuse(url: str, *, ceiling: int) -> str:
+        raise AssertionError(f"a path was fetched: {url}")
+
+    monkeypatch.setattr(fetch, "read_text", refuse)
+    assert main(["--config", str(FIXTURES / "ext4-bios.toml"), "--dry-run"]) == EXIT_OK
+    assert "operations:" in capsys.readouterr().out.splitlines()[-1]

@@ -44,7 +44,7 @@ from .model.config import (
     MirrorRegion,
     PortageConfig,
 )
-from .exec.config import load
+from .exec.config import load_source
 from .plan import convert
 from .plan.convert import SWAP_CONFIRMATION
 from .plan.build import DEFAULT_MIRROR, build, running_config, stage3_mirror
@@ -89,7 +89,10 @@ def parser() -> argparse.ArgumentParser:
     parsed = argparse.ArgumentParser(
         prog="gentoo-install", description="Install Gentoo from a configuration file or a menu."
     )
-    parsed.add_argument("--config", type=Path, help="install from this file instead of the menu")
+    parsed.add_argument(
+        "--config",
+        help="install from this file or URL instead of the menu",
+    )
     parsed.add_argument(
         "--dry-run",
         action="store_true",
@@ -164,7 +167,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return EXIT_ABORTED
             config = chosen
         else:
-            config = load(arguments.config)
+            config = load_source(arguments.config)
         if arguments.missing_commands:
             print(
                 "\n".join(
@@ -692,7 +695,7 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         configs_here=report.configs_here(app.SAVE_AS),
         running_system=running_system,
         conversion_refused=conversion_refused,
-        load_config=lambda name: load(Path(name)),
+        load_config=load_source,
     )
     if not context.disks:
         raise errors.DeviceNotFound("this machine reports no disk to install onto")
