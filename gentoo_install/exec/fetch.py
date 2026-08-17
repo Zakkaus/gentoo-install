@@ -888,6 +888,24 @@ def _resolvers(path: Path) -> str:
     return f"nameservers {servers}" if servers else "no nameserver line"
 
 
+def read_text(url: str, *, ceiling: int) -> str:
+    """Read a small document, refusing a body past `ceiling`.
+
+    One byte past the cap is read on purpose: a body exactly at the cap is
+    allowed, and anything longer is refused without the rest of it ever being
+    read. A configuration is kilobytes, and a redirect into an ISO is the case
+    this exists to stop.
+    """
+    try:
+        with _urlopen(_asked(url), _CURRENT_PROXY.get(), TIMEOUT) as response:
+            body = response.read(ceiling + 1)
+    except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as error:
+        raise DownloadFailed(f"{url} could not be read: {error}{_resolver_state(url)}") from error
+    if len(body) > ceiling:
+        raise DownloadFailed(f"{url} is larger than {ceiling} bytes")
+    return str(body.decode("utf-8", "replace"))
+
+
 def _read_once(url: str, proxy: ProxyConfig | None = None) -> str:
     try:
         with _urlopen(_asked(url), proxy, TIMEOUT) as response:

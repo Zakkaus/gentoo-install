@@ -2305,3 +2305,70 @@ def test_a_symlink_at_the_destination_is_refused_rather_than_replaced(tmp_path: 
 
     assert (target / "etc" / "mtab").is_symlink()
     assert not list((target / "etc").glob(".mtab*")), "the temporary file was removed"
+
+
+def test_a_configuration_can_be_read_from_a_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every mode takes its configuration the same way, so where it came from
+    is not what tells installing, converting and writing an image apart. A URL
+    is fetched; anything else is a path."""
+    from gentoo_install.exec import config as loader
+    from gentoo_install.exec import fetch
+
+    body = Path("tests/fixtures/vm-binpkg.toml").read_text(encoding="utf-8")
+    asked: list[str] = []
+
+    def answer(url: str, *, ceiling: int) -> str:
+        asked.append(url)
+        assert ceiling == loader.URL_CEILING
+        return body
+
+    monkeypatch.setattr(fetch, "read_text", answer)
+    from_url = loader.load_source("https://example.invalid/machine.toml")
+    assert asked == ["https://example.invalid/machine.toml"]
+
+    # Negative control one: a path is still opened, not fetched.
+    asked.clear()
+    from_path = loader.load_source("tests/fixtures/vm-binpkg.toml")
+    assert not asked, asked
+    assert from_path == from_url, "one source, one configuration"
+
+    # Negative control two: a body that is not TOML names the URL rather than
+    # a temporary file nobody can look at.
+    monkeypatch.setattr(fetch, "read_text", lambda url, *, ceiling: "<html>404</html>")
+    with pytest.raises(ConfigError, match="example.invalid/machine.toml"):
+        loader.load_source("https://example.invalid/machine.toml")
+
+
+def test_a_configuration_url_refuses_a_body_past_the_ceiling() -> None:
+    """A configuration is kilobytes. A redirect into an ISO is what the cap is
+    for, and it is refused without the rest of the body being read."""
+    from unittest import mock
+
+    from gentoo_install.exec import fetch
+    from gentoo_install.errors import DownloadFailed
+
+    class Response:
+        def __init__(self, size: int) -> None:
+            self.size = size
+            self.asked: list[int] = []
+
+        def read(self, amount: int) -> bytes:
+            self.asked.append(amount)
+            return b"x" * min(self.size, amount)
+
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *rest: object) -> None:
+            return None
+
+    huge = Response(1 << 24)
+    with mock.patch.object(fetch, "_urlopen", lambda *rest: huge):
+        with pytest.raises(DownloadFailed, match="larger than 64 bytes"):
+            fetch.read_text("https://example.invalid/big", ceiling=64)
+    assert huge.asked == [65], "one byte past the cap, not the whole body"
+
+    # Negative control: a body at the cap is allowed.
+    exact = Response(64)
+    with mock.patch.object(fetch, "_urlopen", lambda *rest: exact):
+        assert fetch.read_text("https://example.invalid/ok", ceiling=64) == "x" * 64
