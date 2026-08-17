@@ -154,6 +154,8 @@ def test_desktop_profiles_preserve_their_composed_values() -> None:
             package_use=(
                 "app-i18n/fcitx-configtool kcm",
                 "sys-libs/minizip-ng compat",
+                "kde-plasma/kwin lock",
+                "kde-plasma/kwin-x11 lock",
             ),
             input_method_launcher=(
                 "/usr/share/applications/fcitx5-wayland-launcher.desktop"
@@ -172,6 +174,8 @@ def test_desktop_profiles_preserve_their_composed_values() -> None:
             package_use=(
                 "app-i18n/fcitx-configtool kcm",
                 "sys-libs/minizip-ng compat",
+                "kde-plasma/kwin lock",
+                "kde-plasma/kwin-x11 lock",
             ),
             input_method_launcher=(
                 "/usr/share/applications/fcitx5-wayland-launcher.desktop"
@@ -232,6 +236,38 @@ def test_xfce_declares_the_dbusmenu_flag_its_panel_requires() -> None:
     catalog = load_catalog()
 
     assert "dev-libs/libdbusmenu gtk3" in catalog["xfce"].package_use
+
+
+def test_flclash_declares_the_dbusmenu_flag_its_indicator_requires() -> None:
+    """A second group needs the same flag for a different reason, so it is
+    declared twice rather than once somewhere neither group names.
+    `run59/btrfs-luks.log`, `emerge --pretend` at operation 20:
+
+        # required by dev-libs/libayatana-appindicator-0.5.94::gentoo
+        # required by net-proxy/flclash-bin-0.8.95::gentoo-zh
+        # required by net-proxy/flclash-bin (argument)
+        >=dev-libs/libdbusmenu-16.04.0-r4 gtk3
+    """
+    catalog = load_catalog()
+
+    assert "dev-libs/libdbusmenu gtk3" in catalog["flclash"].package_use
+
+
+def test_plasma_declares_the_screen_lock_its_session_requires() -> None:
+    """From the same run:
+
+        # required by kde-plasma/plasma-meta-6.6.6::gentoo
+        >=kde-plasma/kwin-6.6.6 lock
+        # required by kde-plasma/plasma-meta-6.6.6::gentoo[X]
+        >=kde-plasma/kwin-x11-6.6.6 lock
+
+    Both variants need it, so it belongs to the base rather than to either.
+    """
+    catalog = load_catalog()
+
+    for profile in ("plasma", "plasma-full"):
+        assert "kde-plasma/kwin lock" in catalog[profile].package_use, profile
+        assert "kde-plasma/kwin-x11 lock" in catalog[profile].package_use, profile
 
 
 def test_ibus_has_declared_chinese_engines() -> None:
