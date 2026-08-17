@@ -206,13 +206,25 @@ def _in_place(
             index for index, operation in enumerate(ordered) if operation.stage is Stage.PORTAGE
         ) + 1
         ordered.insert(after_configuration, portage.VerifyPackages(requests=requests))
+    # `cli.py` runs every `Stage.FINISH` operation after the body, so those run
+    # after the swap and the staging root they would be pointed at no longer has
+    # a userland: a Fedora conversion stopped at `chroot /gentoo-install.new ln`
+    # with `failed to run command 'ln': No such file or directory`, one
+    # operation from the end and with the machine already converted. They are
+    # placed here in the order they run rather than staged where they were.
+    closing = tuple(one for one in ordered if one.stage is Stage.FINISH)
     return (
-        *(convert.Staged(stage=operation.stage, inner=operation) for operation in ordered),
+        *(
+            convert.Staged(stage=operation.stage, inner=operation)
+            for operation in ordered
+            if operation.stage is not Stage.FINISH
+        ),
         convert.SwapDirectories(),
         # Between the swap and the bootloader: `grub-mkconfig` reads `/boot`,
         # and until this runs what is there belongs to the old distribution.
         convert.PopulateBoot(),
         *after_the_swap,
+        *closing,
         convert.LeaveStaging(),
     )
 
