@@ -1,12 +1,16 @@
 use = ["wayland", "qt6", "networkmanager"]
-# `kcm` is a local flag of `app-i18n/fcitx-configtool`, and its `kcm?` block
-# pulls nine kde-frameworks packages plus libplasma. Declared by the desktop
-# that already has them rather than by the fcitx5 group, which would install
-# Plasma alongside GNOME. Harmless when fcitx5 is not chosen: the line names a
-# package that is not merged.
 package_use = [
+    # `kcm` is a local flag of `app-i18n/fcitx-configtool`, and its `kcm?` block
+    # pulls nine kde-frameworks packages plus libplasma. Declared by the desktop
+    # that already has them rather than by the fcitx5 group, which would install
+    # Plasma alongside GNOME. Harmless when fcitx5 is not chosen: the line names
+    # a package that is not merged.
     "app-i18n/fcitx-configtool kcm",
     "sys-libs/minizip-ng compat",
+    # `plasma-meta` requires `kwin[lock]` and, through its `X` flag,
+    # `kwin-x11[lock]`; neither is on by default in the desktop/plasma profile.
+    "kde-plasma/kwin lock",
+    "kde-plasma/kwin-x11 lock",
 ]
 wayland = true
 profile = "default/linux/amd64/23.0/desktop/plasma"

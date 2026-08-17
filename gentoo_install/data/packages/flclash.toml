@@ -3,3 +3,6 @@
 # packages the prebuilt one.
 packages = ["net-proxy/flclash-bin"]
 repositories = ["gentoo-zh"]
+# `libayatana-appindicator` needs libdbusmenu's `gtk3`, which is off by
+# default, so `emerge --pretend` rejected every package the run asked for.
+package_use = ["dev-libs/libdbusmenu gtk3"]
