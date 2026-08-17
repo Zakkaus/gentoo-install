@@ -49,7 +49,12 @@ from .installed import checks, stage_passphrase_commands
 
 WORKROOT = Path.home() / "code/gentoo-install/lab/vm/runs"
 #: Big enough for a stage3, a desktop and the swap a fixture may ask for.
-TARGET_SIZE = "40G"
+DEFAULT_TARGET_SIZE = "40G"
+#: Slirp reads the host's `/etc/resolv.conf` once at startup, so a host that
+#: changes resolver mid-run strands an install that is half an hour in with
+#: `Temporary failure in name resolution`. Pinning one is what avoids that;
+#: `--resolver` with no address leaves the medium's own alone instead.
+DEFAULT_RESOLVERS: Final[tuple[str, ...]] = ("1.1.1.1", "8.8.8.8")
 
 #: The password in `fixtures/vm-binpkg.toml`, as plain text. It exists so the
 #: harness can log into what it installed; nothing else uses it.
@@ -148,7 +153,9 @@ SEEDED: dict[str, tuple[str, ...]] = {
 }
 
 
-def create_target(path: Path, seed: tuple[str, ...] = ()) -> Path:
+def create_target(
+    path: Path, size: str = DEFAULT_TARGET_SIZE, seed: tuple[str, ...] = ()
+) -> Path:
     """A disk for the installer to partition, thrown away with the run.
 
     Seeded through a raw image and converted: `parted` writes to a file, and
@@ -164,7 +171,7 @@ def create_target(path: Path, seed: tuple[str, ...] = ()) -> Path:
     path.unlink(missing_ok=True)
     if not seed:
         subprocess.run(
-            ["qemu-img", "create", "-f", "qcow2", str(path), TARGET_SIZE],
+            ["qemu-img", "create", "-f", "qcow2", str(path), size],
             check=True,
             capture_output=True,
         )
@@ -172,7 +179,7 @@ def create_target(path: Path, seed: tuple[str, ...] = ()) -> Path:
     raw = path.with_suffix(".raw")
     raw.unlink(missing_ok=True)
     subprocess.run(
-        ["qemu-img", "create", "-f", "raw", str(raw), TARGET_SIZE],
+        ["qemu-img", "create", "-f", "raw", str(raw), size],
         check=True,
         capture_output=True,
     )
@@ -368,7 +375,7 @@ def remote_config(installation: InstallConfig, public_key: str) -> InstallConfig
     )
 
 
-def reach_shell(console: SerialConsole, medium: Medium) -> None:
+def reach_shell(console: SerialConsole, medium: Medium, resolvers: Sequence[str]) -> None:
     if medium.login_user is None:
         console.expect(medium.root_prompt, timeout=300.0)
     else:
@@ -376,7 +383,7 @@ def reach_shell(console: SerialConsole, medium: Medium) -> None:
     if medium.become_root:
         console.send(medium.become_root)
         console.expect(r"root@", timeout=60.0)
-    pin_resolver(console)
+    pin_resolver(console, resolvers)
     for command in medium.prepare:
         # `bootstrap.sh` prints the package manager line and stops rather than
         # running it, which is what an operator wants and what left every
@@ -384,14 +391,24 @@ def reach_shell(console: SerialConsole, medium: Medium) -> None:
         console.run(command, timeout=600.0)
 
 
-def pin_resolver(console: SerialConsole) -> None:
-    """Point the guest at a fixed resolver rather than at qemu's forwarder.
+def pin_resolver(console: SerialConsole, resolvers: Sequence[str]) -> None:
+    """Use requested nameservers, or keep the install medium's configuration."""
+    if resolvers:
+        contents = "".join(f"nameserver {resolver}\n" for resolver in resolvers)
+        console.run(f"printf %s {shlex.quote(contents)} > /etc/resolv.conf")
 
-    Slirp reads the host's `/etc/resolv.conf` once at startup, so a host that
-    changes resolver mid-run strands an install that is half an hour in with
-    `Temporary failure in name resolution`.
-    """
-    console.run("printf 'nameserver 1.1.1.1\\nnameserver 8.8.8.8\\n' > /etc/resolv.conf")
+
+def record_run_options(console: SerialConsole, target_size: str, resolvers: Sequence[str]) -> None:
+    """Save the selected inputs and effective resolver for result replay."""
+    selected = "".join(f"requested_resolver={resolver}\n" for resolver in resolvers)
+    if not selected:
+        selected = "requested_resolver=medium\n"
+    contents = f"target_size={target_size}\n{selected}resolv.conf:\n"
+    console.run(f"mkdir -p {RESULT_DIR}")
+    console.run(
+        f"{{ printf %s {shlex.quote(contents)}; cat /etc/resolv.conf; }} "
+        f"> {RESULT_DIR}/runner.txt"
+    )
 
 
 
@@ -569,6 +586,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--medium", choices=sorted(MEDIA), default="official-minimal")
     parser.add_argument("--firmware", choices=[f.value for f in Firmware], default="uefi")
     parser.add_argument(
+        "--target-size",
+        default=DEFAULT_TARGET_SIZE,
+        metavar="SIZE",
+        help="size passed to qemu-img for each target disk",
+    )
+    parser.add_argument(
+        "--resolver",
+        nargs="*",
+        default=DEFAULT_RESOLVERS,
+        metavar="ADDRESS",
+        help="nameservers written to the medium; pass without ADDRESS to preserve its resolver",
+    )
+    parser.add_argument(
         "--ssh-port",
         type=int,
         default=0,
@@ -687,7 +717,7 @@ def _perform(args: argparse.Namespace, medium: Medium, workdir: Path) -> int:
             targets = wanted
         else:
             seed = SEEDED.get(Path(args.install).stem if args.install else "", ())
-            targets = tuple(create_target(path, seed) for path in wanted)
+            targets = tuple(create_target(path, args.target_size, seed) for path in wanted)
 
     spec = VmSpec(
         medium=medium,
@@ -741,7 +771,9 @@ def _perform(args: argparse.Namespace, medium: Medium, workdir: Path) -> int:
                     # keeps its disk: that is the only copy of what went wrong.
                     _discard(targets, keep=args.keep)
                 return code
-            reach_shell(console, medium)
+            resolvers = tuple(args.resolver)
+            reach_shell(console, medium, resolvers)
+            record_run_options(console, args.target_size, resolvers)
             print(f"[{time.monotonic() - started:5.1f}s] root shell on serial")
 
             install_key(console, key.with_suffix(".pub").read_text().strip())
