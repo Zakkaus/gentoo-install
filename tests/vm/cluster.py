@@ -1782,11 +1782,20 @@ def run(
             running = [job for job in scheduled.values() if job.running]
             placed = _reserved_bytes(scheduled)
             cores_placed = _reserved_cores(scheduled)
-            slots = [
-                node
-                for node in free_slots(api, placed, cores_placed)
-                if node.name not in unreachable
-            ]
+            try:
+                slots = [
+                    node
+                    for node in free_slots(api, placed, cores_placed)
+                    if node.name not in unreachable
+                ]
+            except ProxmoxTransientError as error:
+                # No slots this round, not the end of the schedule: run58 lost
+                # seven fixtures to one `GET /nodes did not answer: Remote end
+                # closed connection without response`, with every guest still
+                # installing. `capacity_since` below is what ends a schedule
+                # that genuinely has nowhere to run.
+                print(f"the cluster's capacity could not be read: {error}", flush=True)
+                slots = []
             if limit:
                 slots = slots[: max(0, limit - len(running))]
             if waiting and not running and not slots:

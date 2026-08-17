@@ -1342,3 +1342,33 @@ def test_a_timed_out_marker_names_the_command_it_was_waiting_on() -> None:
     cluster.Reconnecting(
         lambda: cast(Any, Answering(ConsoleTimeout("unused"))), tries=1
     ).run("true")
+
+
+def test_a_capacity_read_that_did_not_answer_does_not_end_the_schedule() -> None:
+    """run58 lost seven fixtures to one line:
+
+        ProxmoxTransientError: GET /nodes did not answer:
+        Remote end closed connection without response
+
+    Every guest was still installing. The dispatch already treats a transient
+    refusal as the node's problem and puts the job back; the capacity read
+    beside it had no such guard, so the exception left the loop and the closing
+    path removed the guests.
+    """
+    import inspect
+
+    code = inspect.getsource(cluster.run)
+    slots = code.index("free_slots(api")
+    guarded = code.index("except ProxmoxTransientError", 0, slots + 400)
+    assert guarded > slots, "the capacity read is inside the guard"
+    # It answers with no slots rather than swallowing the failure silently:
+    # a schedule that can never place anything ends on `capacity_since`.
+    after = code[guarded:guarded + 600]
+    assert "slots = []" in after, after
+    assert "capacity_since" in code, "the timeout that ends a hopeless schedule"
+
+    # Negative control: the dispatch's own guard is a different one and stays,
+    # or a node that refuses a guest would take every following job too.
+    assert code.count("except ProxmoxTransientError") >= 2, code.count(
+        "except ProxmoxTransientError"
+    )
