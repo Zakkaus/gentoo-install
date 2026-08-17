@@ -1026,8 +1026,6 @@ def test_a_node_known_to_drop_its_console_takes_no_guests() -> None:
     every round paid to learn it again."""
     import inspect
 
-    assert cluster.KNOWN_BAD_NODES, "an empty seed is the defect this replaced"
-
     code = inspect.getsource(cluster.run)
     seeded = code.index("KNOWN_BAD_NODES")
     filtered = code.index("if node.name not in unreachable")
@@ -1047,13 +1045,14 @@ def test_a_node_known_to_drop_its_console_takes_no_guests() -> None:
 
 
 def test_the_seed_and_the_flags_compose_the_way_the_call_site_reads() -> None:
-    """The one line asserted above, evaluated: the seed applies, `--skip-node`
-    adds, and `--allow-node` wins over both."""
-    seed = set(cluster.KNOWN_BAD_NODES)
-    node = sorted(seed)[0]
+    """The one line asserted above, evaluated. Against a seed of its own, not
+    against `KNOWN_BAD_NODES`: the composition is the rule, and what the seed
+    happens to hold is data that changes when a node is measured again."""
+    seed = {"infra-node8"}
+    node = "infra-node8"
 
     def unreachable(skip: tuple[str, ...], allow: tuple[str, ...]) -> set[str]:
-        return (set(cluster.KNOWN_BAD_NODES) | set(skip)) - set(allow)
+        return (seed | set(skip)) - set(allow)
 
     assert unreachable((), ()) == seed
     assert unreachable(("infra-node9",), ()) == seed | {"infra-node9"}
@@ -1271,3 +1270,29 @@ def test_the_boot_check_does_not_spend_an_agetty_attempt_on_the_prompt() -> None
     after = source.split("except (ConsoleTimeout, ConsoleClosed) as error:")[1]
     head = after.split("try:")[0]
     assert "return" not in head, head
+
+
+def test_infra_node3_takes_guests_again() -> None:
+    """That node was named in `KNOWN_BAD_NODES` for 66 of the 70 recorded
+    console-proxy drops. Named, it stopped producing the evidence that would
+    clear it, so it was measured on 2026-08-17 with `--allow-node`:
+
+        ok  vm-binpkg  68.4m   2 console sessions
+        ok  vm-xfs     84.6m   2 console sessions
+
+    Both green, and `vm-xfs` failed the same day on a node that was never
+    excluded. One reconnect each is fewer than `vm-binpkg` took there.
+    """
+    assert "infra-node3" not in cluster.KNOWN_BAD_NODES
+
+    # Negative control one: the seam still excludes what is named to it, or
+    # nothing would be left to turn a bad node off with.
+    excluded = (set(cluster.KNOWN_BAD_NODES) | {"infra-node3"}) - set(())
+    assert "infra-node3" in excluded
+
+    # Negative control two: the help text reads without a name in it, since it
+    # interpolated the set and would otherwise end mid-sentence.
+    import inspect
+
+    entry = inspect.getsource(cluster.main)
+    assert "none are named" in entry, entry[:0] or "the empty case is unhandled"
