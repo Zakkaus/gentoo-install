@@ -761,6 +761,13 @@ GUEST_RESOLVER: Final[str] = "10.31.0.199"
 GUEST_RESOLVERS: Final[tuple[str, ...]] = (GUEST_RESOLVER, GUEST_GATEWAY, "223.5.5.5")
 
 
+#: `resolv.conf(5)`: the defaults are `timeout:5 attempts:2`, so a first
+#: nameserver that has stopped answering costs ten seconds on every lookup
+#: before the second one is asked. Five guests of run61 had
+#: `REACH 10.31.0.199=down` with the gateway and `223.5.5.5` both answering,
+#: and their installs never started.
+RESOLVER_OPTIONS: Final[str] = "timeout:1 attempts:2"
+
 #: What each lookup in the probe is given. A resolver that has stopped
 #: answering makes `getent` wait for its own timeout, and ten of them cost more
 #: than the probe's whole budget: five guests of run61 were ended at three
@@ -883,7 +890,7 @@ def use_our_resolvers() -> str:
     # `no-aaaa` as well as the servers: an `AF_UNSPEC` lookup asks for the AAAA
     # too, and a resolver that does not answer turns that into `EAI_AGAIN` for
     # the whole call even when the A record arrived.
-    resolvers = "options no-aaaa\\n" + "".join(
+    resolvers = f"options no-aaaa {RESOLVER_OPTIONS}\\n" + "".join(
         f"nameserver {one}\\n" for one in GUEST_RESOLVERS
     )
     return f"printf '{resolvers}' > /etc/resolv.conf"
