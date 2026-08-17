@@ -18,7 +18,16 @@ from typing import Collection, Final, Mapping
 from ..errors import CommandFailed, ValidationFailed
 from . import compat
 from .compat import Trait
-from .config import Bootloader, DiskMode, InitSystem, InstallConfig, Networking, ProxyKind
+from .config import (
+    Bootloader,
+    DiskMode,
+    InitSystem,
+    InstallConfig,
+    MemoryLaunch,
+    MemoryMode,
+    Networking,
+    ProxyKind,
+)
 from .device import (
     DeviceGraph,
     DeviceId,
@@ -215,6 +224,46 @@ def validate(
     if problems:
         raise ValidationFailed(
             "the configuration does not describe an installable system:\n  " + "\n  ".join(problems)
+        )
+
+
+#: What the LiveCD kernel command line accepts, read from
+#: `catalyst/livecd/files/README.txt` lines 96-98: `dosshd` starts sshd and
+#: `passwd=foo` sets the root password, which `dosshd` requires because it
+#: scrambles the password first. None of its 35 options names a key or a port.
+LIVECD_TAKES_A_KEY: Final[bool] = False
+
+
+def validate_memory_launch(config: InstallConfig, launch: MemoryLaunch) -> None:
+    """Refuse a memory environment that cannot do what was asked of it.
+
+    A password is the environment's own mechanism rather than a fallback, so it
+    is what the other two options depend on: a key and a port take effect only
+    once the installer has written them, and sshd is already listening on 22
+    with the command line's password by then.
+    """
+    problems: list[str] = []
+    if launch.mode is MemoryMode.LOWRAM and config.disk.graph.of_type(ZfsPool):
+        problems.append(
+            "the layout needs ZFS, the Alpine netboot kernel has no zfs.ko, "
+            "and --ram is the mode whose Gentoo CJK ISO carries it"
+        )
+    if launch.ssh_port is not None and not 1 <= launch.ssh_port <= 65535:
+        problems.append("--ssh-port must be between 1 and 65535")
+    later = [
+        name
+        for name, given in (("--ssh-key", launch.ssh_key), ("--ssh-port", launch.ssh_port))
+        if given
+    ]
+    if later and not launch.root_password and not LIVECD_TAKES_A_KEY:
+        problems.append(
+            f"{' and '.join(later)} take effect only after the installer writes them, "
+            "and until then sshd listens on 22 with the password the kernel command "
+            "line gave it, so --root-password is needed as well"
+        )
+    if problems:
+        raise ValidationFailed(
+            "the memory environment cannot start:\n  " + "\n  ".join(problems)
         )
 
 

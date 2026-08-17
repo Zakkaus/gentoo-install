@@ -15,11 +15,11 @@ import pytest
 from gentoo_install import cli
 from gentoo_install.exec import fetch
 from gentoo_install.exec import report
-from gentoo_install.exec.probe import Probe as RealProbe
+from gentoo_install.exec.probe import BootMethod, Probe as RealProbe
 from gentoo_install.exec.runner import Runner
 from gentoo_install.cli import EXIT_CONFIG, EXIT_INTEGRITY, EXIT_OK, EXIT_PREFLIGHT, main
 from gentoo_install.errors import ConfigError, IntegrityError
-from gentoo_install.model.config import DiskConfig, DiskMode
+from gentoo_install.model.config import DiskConfig, DiskMode, MemoryLaunch, MemoryMode
 from gentoo_install.model.device import DeviceGraph, DeviceId, StorageFacts, StorageLayout
 from gentoo_install.plan.build import DEFAULT_MIRROR
 from gentoo_install.exec.config import load
@@ -33,6 +33,73 @@ def test_a_dry_run_prints_every_stage_and_exits_clean(capsys: pytest.CaptureFixt
     assert code == EXIT_OK
     assert "[partition]" in printed and "[bootloader]" in printed
     assert "operations:" in printed.splitlines()[-1]
+
+
+@pytest.mark.parametrize(
+    ("flag", "mode"),
+    (("--ram", MemoryMode.RAM), ("--lowram", MemoryMode.LOWRAM)),
+)
+def test_memory_mode_flags_choose_the_named_environment(flag: str, mode: MemoryMode) -> None:
+    arguments = cli.parser().parse_args([flag])
+    assert cli._memory_launch(arguments) == MemoryLaunch(mode)
+    with_credentials = cli.parser().parse_args(
+        [
+            flag,
+            "--ssh-key",
+            "ssh-ed25519 public-key",
+            "--ssh-port",
+            "2222",
+            "--root-password",
+            "secret",
+        ]
+    )
+    assert cli._memory_launch(with_credentials) == MemoryLaunch(
+        mode,
+        ssh_key="ssh-ed25519 public-key",
+        ssh_port=2222,
+        root_password="secret",
+    )
+
+
+def test_memory_mode_flags_are_mutually_exclusive() -> None:
+    with pytest.raises(SystemExit):
+        cli.parser().parse_args(["--ram", "--lowram"])
+
+
+def test_memory_key_must_be_a_file_or_ssh_public_key(tmp_path: Path) -> None:
+    key = tmp_path / "key.pub"
+    key.write_text("public key", encoding="utf-8")
+    from_file = cli._memory_launch(
+        cli.parser().parse_args(["--ram", "--ssh-key", str(key)])
+    )
+    assert from_file is not None and from_file.ssh_key == str(key)
+    with pytest.raises(ConfigError, match="readable file or an ssh- prefixed"):
+        cli._memory_launch(
+            cli.parser().parse_args(["--ram", "--ssh-key", "not-a-public-key"])
+        )
+
+
+@pytest.mark.parametrize("mode", ("--ram", "--lowram"))
+def test_memory_modes_require_a_one_shot_boot_entry(
+    mode: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    monkeypatch.setattr(RealProbe, "boot_method", lambda self: BootMethod.NONE)
+    code = main(["--config", str(FIXTURES / "btrfs-luks.toml"), "--dry-run", mode])
+    assert code == EXIT_PREFLIGHT
+    assert "cannot arm a one-shot boot entry" in capsys.readouterr().err
+
+
+def test_ram_warns_but_proceeds_for_a_layout_without_zfs(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    monkeypatch.setattr(RealProbe, "boot_method", lambda self: BootMethod.SYSTEMD_BOOT)
+    code = main(["--config", str(FIXTURES / "btrfs-luks.toml"), "--dry-run", "--ram"])
+    said = capsys.readouterr()
+    assert code == EXIT_OK
+    assert "warning: --ram is slower for a layout without ZFS" in said.err
+    assert "operations:" in said.out
 
 
 def test_a_dry_run_touches_nothing(monkeypatch: pytest.MonkeyPatch) -> None:

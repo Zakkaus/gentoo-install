@@ -25,9 +25,9 @@ from .errors import GentooInstallError
 from .data import load_catalog
 from .exec import fetch, preflight, report
 from .exec.apply import Machine, already_degraded, apply, completed
-from .exec.probe import Probe, probe_storage_facts
+from .exec.probe import BootMethod, Probe, probe_storage_facts
 from .exec.runner import Runner
-from .model.device import StorageFacts, StorageLayout
+from .model.device import StorageFacts, StorageLayout, ZfsPool
 from .model.size import Size
 from .tui import app, screens
 from .tui.curses_screen import CursesScreen, too_small
@@ -40,11 +40,14 @@ from .model.config import (
     DiskMode,
     Firmware,
     InstallConfig,
+    MemoryLaunch,
+    MemoryMode,
     MirrorConfig,
     MirrorRegion,
     PortageConfig,
 )
 from .exec.config import load_source
+from .model.validate import validate_memory_launch
 from .plan import convert
 from .plan.convert import SWAP_CONFIRMATION
 from .plan.build import DEFAULT_MIRROR, build, running_config, stage3_mirror
@@ -131,13 +134,89 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="install without checking the machine first, for a harness that knows what it booted",
     )
+    memory = parsed.add_mutually_exclusive_group()
+    memory.add_argument(
+        "--ram",
+        dest="memory_mode",
+        action="store_const",
+        const=MemoryMode.RAM,
+        help="boot the whole Gentoo CJK ISO in memory",
+    )
+    memory.add_argument(
+        "--lowram",
+        dest="memory_mode",
+        action="store_const",
+        const=MemoryMode.LOWRAM,
+        help="boot the Alpine netboot environment in memory",
+    )
+    parsed.add_argument(
+        "--ssh-key",
+        default="",
+        help="a readable public-key file or an ssh- prefixed public key for the memory environment",
+    )
+    parsed.add_argument(
+        "--ssh-port",
+        type=int,
+        help="the port where the memory environment's sshd listens",
+    )
+    parsed.add_argument(
+        "--root-password",
+        default="",
+        help="the root password for the memory environment",
+    )
     return parsed
+
+
+def _memory_launch(arguments: argparse.Namespace) -> MemoryLaunch | None:
+    mode = arguments.memory_mode
+    if mode is None:
+        if arguments.ssh_key or arguments.ssh_port is not None or arguments.root_password:
+            raise errors.ConfigError(
+                "--ssh-key, --ssh-port and --root-password require --ram or --lowram"
+            )
+        return None
+    if arguments.ssh_key and not (
+        arguments.ssh_key.startswith("ssh-") or _is_readable_file(arguments.ssh_key)
+    ):
+        raise errors.ConfigError(
+            "--ssh-key must be a readable file or an ssh- prefixed public key"
+        )
+    return MemoryLaunch(
+        mode=mode,
+        ssh_key=arguments.ssh_key,
+        ssh_port=arguments.ssh_port,
+        root_password=arguments.root_password,
+    )
+
+
+def _is_readable_file(name: str) -> bool:
+    try:
+        with Path(name).open("rb"):
+            return True
+    except OSError:
+        return False
+
+
+def _validate_memory_launch(
+    config: InstallConfig, launch: MemoryLaunch, probe: Probe
+) -> None:
+    validate_memory_launch(config, launch)
+    if probe.boot_method() is BootMethod.NONE:
+        raise errors.PreflightFailed(
+            f"--{launch.mode.value} cannot arm a one-shot boot entry on this machine"
+        )
+    if launch.mode is MemoryMode.RAM and not config.disk.graph.of_type(ZfsPool):
+        print(
+            "warning: --ram is slower for a layout without ZFS; --lowram uses the smaller Alpine netboot",
+            file=sys.stderr,
+        )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = parser().parse_args(argv)
     state = RunState(disk_was_written=bool(arguments.resume))
     try:
+        launch = _memory_launch(arguments)
         _require_root(arguments)
         if _needs_network(arguments):
             # Before any reachability check: an unset clock makes every HTTPS
@@ -168,6 +247,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             config = chosen
         else:
             config = load_source(arguments.config)
+        if launch is not None:
+            _validate_memory_launch(config, launch, _probe_for(arguments))
         if arguments.missing_commands:
             print(
                 "\n".join(
