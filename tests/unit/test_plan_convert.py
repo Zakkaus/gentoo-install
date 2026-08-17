@@ -790,7 +790,7 @@ def test_the_staging_root_is_unmounted_from_the_deepest_mount_up() -> None:
 
         $ umount --recursive --lazy /gentoo-install.new
         umount: /gentoo-install.new: not mounted
-        退出碼 1
+        exit status 1
 
     `umount --recursive` needs its target to be a mount, and the staging root
     is a plain directory, so the command failed and seventeen binds stayed
