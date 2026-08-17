@@ -1372,3 +1372,92 @@ def test_a_driver_list_of_nothing_writes_no_add_drivers_line() -> None:
 
     written = recorder.files[PurePosixPath("/etc/dracut.conf.d/10-gentoo-install.conf")]
     assert "add_drivers" not in written, written
+
+
+#: One real `ip -o link show`, read from this workstation on 2026-08-17. The
+#: escaped `\   ` before `link/ether` and the `altname` fields are what the
+#: command actually prints, and a parser written against a tidier idea of the
+#: format finds no address at all.
+IP_LINK_SAMPLE = (
+    "1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN mode "
+    "DEFAULT group default qlen 1000\\    link/loopback 00:00:00:00:00:00 brd "
+    "00:00:00:00:00:00\n"
+    "2: enp14s0: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 qdisc fq state DOWN "
+    "mode DEFAULT group default qlen 1000\\    link/ether a0:ad:9f:bd:f0:5f brd "
+    "ff:ff:ff:ff:ff:ff\\    altname enxa0ad9fbdf05f\n"
+    "3: eno1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP mode "
+    "DEFAULT group default qlen 1000\\    link/ether a0:ad:9f:bd:f0:5e brd "
+    "ff:ff:ff:ff:ff:ff\\    altname enp13s0\\    altname enxa0ad9fbdf05e\n"
+    "8: tailscale0: <POINTOPOINT,MULTICAST,NOARP,UP,LOWER_UP> mtu 1280 qdisc fq "
+    "state UNKNOWN mode DEFAULT group default qlen 500\\    link/none \n"
+)
+
+
+def _wired(
+    *,
+    interface: str = "eno1",
+    networking: Networking | None = None,
+) -> system.WriteNetworkConfig:
+    from gentoo_install.model.config import InitSystem, Networking as Backend
+
+    return system.WriteNetworkConfig(
+        networking=networking if networking is not None else Backend.BUILTIN,
+        init=InitSystem.SYSTEMD,
+        interface=interface,
+        addresses=("192.0.2.7/24",),
+        gateways=("192.0.2.1",),
+        dns=(),
+    )
+
+
+def _linked(sample: str = IP_LINK_SAMPLE) -> Recorder:
+    """`run` reads `replies`, keyed by the first word; `answering` is the hook
+    `run_in_target` consults and this operation does not go through it."""
+    return Recorder(replies={"ip": sample})
+
+
+def test_a_static_address_is_matched_by_mac_rather_than_by_interface_name() -> None:
+    """The target's kernel can name the same card differently from the kernel
+    the installer runs under, and a `Name=` nothing matches leaves the machine
+    with no address and no way in. `reinstall` records a DMIT machine whose
+    Debian normal and cloud kernels named one NIC two ways."""
+    recorder = _linked()
+    _wired().apply(recorder)
+
+    written = recorder.files[PurePosixPath("/etc/systemd/network/20-wired.network")]
+    assert "MACAddress=a0:ad:9f:bd:f0:5e" in written, written
+    assert "Name=" not in written, written
+
+
+def test_two_links_sharing_one_mac_keep_the_name() -> None:
+    """Azure's accelerated networking gives the VF the synthetic NIC's address,
+    so a MAC match would match both and the operator's name is the only thing
+    that tells them apart."""
+    doubled = IP_LINK_SAMPLE.replace("a0:ad:9f:bd:f0:5f", "a0:ad:9f:bd:f0:5e")
+    recorder = _linked(doubled)
+    _wired().apply(recorder)
+
+    written = recorder.files[PurePosixPath("/etc/systemd/network/20-wired.network")]
+    assert "Name=eno1" in written, written
+    assert "MACAddress" not in written, written
+
+
+def test_an_interface_this_environment_does_not_have_keeps_the_name() -> None:
+    """The operator may name the interface the target will have rather than one
+    present now, and a MAC that cannot be read is not a reason to write none."""
+    recorder = _linked()
+    _wired(interface="eth0").apply(recorder)
+
+    written = recorder.files[PurePosixPath("/etc/systemd/network/20-wired.network")]
+    assert "Name=eth0" in written, written
+
+
+def test_networkmanager_is_matched_by_mac_too() -> None:
+    """`interface-name` has the same failure as `Name=`, and the keyfile's own
+    key for the address is `[802-3-ethernet] mac-address`."""
+    recorder = _linked()
+    _wired(networking=Networking.NETWORKMANAGER_WPA).apply(recorder)
+
+    written = recorder.files[system.NM_PROFILE]
+    assert "mac-address=a0:ad:9f:bd:f0:5e" in written, written
+    assert "interface-name" not in written, written

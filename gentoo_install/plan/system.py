@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shlex
 from dataclasses import dataclass
 from enum import Enum
@@ -37,7 +38,7 @@ from ..model.device import (
 )
 from .bootloader import serial_console
 from .mounts import resolve_mounts
-from .operations import Context, Operation, Stage
+from .operations import CommandOutput, Context, Operation, Stage
 from .portage import Emerge, PortageConfigKind, WritePortageConfig
 
 #: Console fonts `sys-apps/kbd` installs, by the cell size they draw.
@@ -584,24 +585,31 @@ class WriteNetworkConfig(Operation):
                 return
             # 0600 or NetworkManager refuses to read it, and says so only in
             # its own log while the machine sits with no address.
-            context.write(NM_PROFILE, self._networkmanager(), mode=0o600)
+            context.write(
+                NM_PROFILE,
+                self._networkmanager(self._permanent_address(context)),
+                mode=0o600,
+            )
             return
         if config is NetworkConfig.NETWORKD:
             context.write(
-                PurePosixPath("/etc/systemd/network/20-wired.network"), self._networkd()
+                PurePosixPath("/etc/systemd/network/20-wired.network"),
+                self._networkd(self._permanent_address(context)),
             )
             return
         if self.addresses and not self.interface:
             return
         context.write(PurePosixPath("/etc/conf.d/net"), self._netifrc())
 
-    def _networkmanager(self) -> str:
+    def _networkmanager(self, address: str = "") -> str:
         """A keyfile connection. The gateway rides on the first address of its
         own family, which is the form `nm-settings-keyfile` documents."""
         lines = [
             "[connection]\nid=wired\ntype=ethernet\nautoconnect=true\n",
         ]
-        if self.interface:
+        if address:
+            lines.append(f"\n[802-3-ethernet]\nmac-address={address}\n")
+        elif self.interface:
             lines.append(f"interface-name={self.interface}\n")
         for family, wanted in (("ipv4", self._of(4)), ("ipv6", self._of(6))):
             lines.append(f"\n[{family}]\n")
@@ -623,8 +631,41 @@ class WriteNetworkConfig(Operation):
     def _of(self, family: int) -> tuple[str, ...]:
         return tuple(one for one in self.addresses if _family(one) == str(family))
 
-    def _networkd(self) -> str:
-        match = f"Name={self.interface}\n" if self.interface else "Name=en*\nName=eth*\n"
+    def _permanent_address(self, context: Context) -> str:
+        """The interface's MAC, when exactly one link in this environment has it.
+
+        The target's kernel can name the same card differently from the kernel
+        this installer runs under, and a match nothing satisfies leaves the
+        installed machine with no address and no way in: `reinstall` records a
+        DMIT machine whose Debian normal and cloud kernels named one NIC two
+        ways (`fix-eth-name.sh:8-19`). Two links sharing a MAC is Azure's
+        accelerated networking, where the VF carries the synthetic NIC's
+        address, so there the operator's name is what tells them apart and the
+        name is kept.
+        """
+        if not self.interface:
+            return ""
+        said = context.run(["ip", "-o", "link", "show"], check=False)
+        if isinstance(said, CommandOutput) and said.returncode != 0:
+            return ""
+        addresses: dict[str, str] = {}
+        for line in said.splitlines():
+            name, _, rest = line.partition(": ")[2].partition(": ")
+            found = re.search(r"link/ether ([0-9a-f:]{17})", rest)
+            if found:
+                addresses[name.partition("@")[0]] = found.group(1)
+        mine = addresses.get(self.interface, "")
+        if not mine or list(addresses.values()).count(mine) != 1:
+            return ""
+        return mine
+
+    def _networkd(self, address: str = "") -> str:
+        if address:
+            match = f"MACAddress={address}\n"
+        elif self.interface:
+            match = f"Name={self.interface}\n"
+        else:
+            match = "Name=en*\nName=eth*\n"
         lines = [f"[Match]\n{match}", "[Network]\n"]
         if self.addresses:
             lines += [f"Address={one}\n" for one in self.addresses]
