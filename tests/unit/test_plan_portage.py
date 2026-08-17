@@ -1951,3 +1951,70 @@ def test_a_command_killed_by_a_signal_names_the_signal() -> None:
     # Negative control two: a number with no signal behind it says so rather
     # than raising, because the message is what a failing run carries out.
     assert ending(-999) == "signal 999"
+
+
+def test_a_sync_that_ran_out_of_sites_says_how_many_it_tried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`vm-cjk-kernel` ended run58 with
+
+        emerge --sync gentoo-zh ended with exit 1: fatal: unable to access
+        'https://mirrors.ha.edu.cn/git/gentoo-zh.git/': Failed to connect
+
+    which reads as one unlucky mirror. The log held five hosts, every one of
+    them refused, which is a guest with no route rather than a bad mirror.
+    """
+    from gentoo_install.plan import portage as plan_portage
+
+    from .recorder import Recorder
+
+    location = PurePosixPath("/var/db/repos/gentoo-zh")
+    alternates = tuple(
+        plan_portage.ConfigureRepository(
+            name="gentoo-zh", location=location, sync_uri=uri, verify_commits=False
+        )
+        for uri in (
+            "https://mirrors.cernet.edu.cn/gentoo-zh.git",
+            "https://mirrors.ha.edu.cn/gentoo-zh.git",
+        )
+    )
+
+    class NeverReachable(Recorder):
+        def run_in_target(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> CommandOutput:
+            self.in_target.append(tuple(argv))
+            if "--sync" in argv:
+                raise CommandFailed(
+                    "emerge --sync gentoo-zh ended with exit 1: fatal: unable to access "
+                    "'https://mirrors.ha.edu.cn/git/gentoo-zh.git/': Could not connect to server"
+                )
+            return CommandOutput("", 0)
+
+    monkeypatch.setattr(plan_portage, "SYNC_PAUSE", 0.0)
+    with pytest.raises(CommandFailed, match="none of the 3 sites for gentoo-zh") as caught:
+        plan_portage.SyncRepository(
+            name="gentoo-zh", location=location, alternates=alternates
+        ).apply(NeverReachable())
+    # The last host's own words are kept: the count says how wide the failure
+    # was and the message says what the failure looked like.
+    assert "Could not connect to server" in str(caught.value)
+
+    # Negative control: a sync that succeeds on an alternate raises nothing, so
+    # the count is not reported for a run that recovered.
+    class SecondSiteAnswers(Recorder):
+        tries = 0
+
+        def run_in_target(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> CommandOutput:
+            self.in_target.append(tuple(argv))
+            if "--sync" in argv:
+                type(self).tries += 1
+                if type(self).tries == 1:
+                    raise CommandFailed("could not connect to server")
+            return CommandOutput("", 0)
+
+    plan_portage.SyncRepository(
+        name="gentoo-zh", location=location, alternates=alternates
+    ).apply(SecondSiteAnswers())
