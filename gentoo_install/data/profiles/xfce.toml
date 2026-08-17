@@ -1,3 +1,7 @@
 packages = ["xfce-base/xfce4-meta", "x11-base/xorg-server"]
 use = ["gtk", "networkmanager"]
+# `xfce4-meta` reaches `xfce4-panel[dbusmenu]` through
+# `thunar[trash-panel-plugin]`, and libdbusmenu's `gtk3` is not on by default,
+# so `emerge --pretend` rejected the whole group.
+package_use = ["dev-libs/libdbusmenu gtk3"]
 profile = "default/linux/amd64/23.0/desktop"
