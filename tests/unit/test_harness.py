@@ -2589,18 +2589,23 @@ def test_a_zfsbootmenu_unlock_fixture_checks_the_image_that_carries_the_daemon()
 
     unlocking = load(Path("tests/fixtures/zbm-unlock.toml"))
     named = {one.name: one for one in checks(unlocking)}
-    assert "zbm dropbear" in named, sorted(named)
-    assert "/efi/EFI/zbm" in named["zbm dropbear"].command
+    assert "zbm unlock key" in named, sorted(named)
+    asked = named["zbm unlock key"].command
+    assert "/efi/EFI/zbm" in asked
+    # The acl or the hook, not the word `dropbear`: the image carries
+    # `etc/dropbear/ssh_host_rsa_key`, so counting that word answered 3 for an
+    # image with no authorized key and no start hook in it at all.
+    assert "authorized_keys" in asked and "dropbear-start" in asked, asked
 
     # Negative control one: ZFSBootMenu without the unlock has no daemon to
     # look for, and asking for one would fail every ordinary ZBM install.
     plain = load(Path("tests/fixtures/zfs-zbm.toml"))
     assert plain.bootloader.kind is unlocking.bootloader.kind
     assert not plain.kernel.remote_unlock.enabled
-    assert "zbm dropbear" not in {one.name for one in checks(plain)}
+    assert "zbm unlock key" not in {one.name for one in checks(plain)}
 
     # Negative control two: a remote unlock under another bootloader lives in
     # the system initramfs, and that image is not on the esp.
     elsewhere = load(Path("tests/fixtures/vm-unlock.toml"))
     assert elsewhere.kernel.remote_unlock.enabled
-    assert "zbm dropbear" not in {one.name for one in checks(elsewhere)}
+    assert "zbm unlock key" not in {one.name for one in checks(elsewhere)}
