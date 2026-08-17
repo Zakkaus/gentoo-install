@@ -1508,3 +1508,41 @@ def test_a_dropped_console_still_ends_a_guest_that_moves_nothing(tmp_path: Path)
     with pytest.raises(ConsoleClosed):
         quiet.wait_for("emerge --ask=n @world", timeout=0.0, idle=1.0)
     assert len(opened) == 1, len(opened)
+
+
+def test_the_probe_after_the_install_cannot_fail_the_run() -> None:
+    """`vm-btrfs` and `vm-mdraid` were both recorded `ERROR` in run60 at 96 and
+    81 minutes with
+
+        installed 54 operations into /mnt/gentoo; 0 packages from a binary host
+        installed 58 operations into /mnt/gentoo; 0 packages from a binary host
+
+    already in their logs. The install had finished and written its exit code,
+    and what timed out was the reachability probe that runs after it, whose
+    `getent` calls block on a resolver that has stopped answering. That probe
+    answers a question about a failure; it is not one.
+    """
+    from tests.vm.console import ConsoleTimeout
+
+    asked: list[str] = []
+
+    class Timing:
+        def run(self, command: str, timeout: float = 120.0) -> None:
+            asked.append(command)
+            raise ConsoleTimeout("never matched a marker")
+
+    cluster._note_the_closing_probe(cast(Any, Timing()))
+    assert asked == [cluster.REACHABILITY_PROBE], asked
+
+
+def test_the_closing_probe_is_still_asked_when_it_can_answer() -> None:
+    """Swallowing the failure must not mean skipping the probe, or the
+    diagnosis it exists for goes with it."""
+    answered: list[str] = []
+
+    class Answering:
+        def run(self, command: str, timeout: float = 120.0) -> None:
+            answered.append(command)
+
+    cluster._note_the_closing_probe(cast(Any, Answering()))
+    assert answered == [cluster.REACHABILITY_PROBE], answered

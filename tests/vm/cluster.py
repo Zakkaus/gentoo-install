@@ -1496,6 +1496,20 @@ def _reserve_job(
     raise conflict
 
 
+def _note_the_closing_probe(link: Reconnecting) -> None:
+    """The probe after the install answers a question, never the verdict.
+
+    Its `getent` calls block on a resolver that has stopped answering, and
+    `vm-btrfs` and `vm-mdraid` were both recorded `ERROR` in run60 at 96 and
+    81 minutes with `installed 54 operations` and `installed 58 operations`
+    already in their logs. The install had finished and written its exit code.
+    """
+    try:
+        link.run(REACHABILITY_PROBE, timeout=120.0)
+    except (ConsoleTimeout, ConsoleClosed) as error:
+        print(f"the closing reachability probe did not answer: {error}", flush=True)
+
+
 def install_one(
     api: Api,
     node: str,
@@ -1567,7 +1581,7 @@ def install_one(
         # A third time, after the install: a console that still has its routes
         # when the installer saw none puts the loss in the installer's own
         # view of the machine rather than in the machine.
-        link.run(REACHABILITY_PROBE, timeout=120.0)
+        _note_the_closing_probe(link)
         files = collect(guest, link, log)
         keep_results(log, files)
         code = files.get("install.rc", b"").strip()
