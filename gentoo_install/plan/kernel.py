@@ -267,18 +267,60 @@ class RequestLegacyNetworkTools(Operation):
         ).apply(context)
 
 
+#: The bus and NIC drivers a cloud guest needs before it can find its root or
+#: its network. Gentoo's dracut is `hostonly="yes"` with
+#: `hostonly_mode="sloppy"` (`/usr/lib/dracut/dracut.conf.d/01-gentoo.conf`),
+#: so an initramfs carries what the hardware present at build time needs. A
+#: provider that attaches the disk differently on the next boot then has an
+#: image with no driver for it: `reinstall` records Azure NVMe as invisible
+#: without `pci_hyperv` in the initramfs, and an install that reports success
+#: and never boots again is unrecoverable without the provider's console.
+#:
+#: One list rather than a table keyed by provider, because the provider is not
+#: what decides: `reinstall` derives the driver from the device's own `/sys`
+#: ancestry, and a name in DMI says nothing about which bus the next boot uses.
+CLOUD_DRIVERS: Final[tuple[str, ...]] = (
+    # KVM, and what most providers present
+    "virtio_pci",
+    "virtio_blk",
+    "virtio_scsi",
+    "virtio_net",
+    # AWS: Nitro is NVMe and ena, and its older instances are Xen
+    "nvme",
+    "ena",
+    "xen_blkfront",
+    "xen_netfront",
+    # Azure: synthetic SCSI and NIC, and the bus its NVMe sits below
+    "hv_storvsc",
+    "hv_netvsc",
+    "pci_hyperv",
+    "mana",
+    # GCP's own NIC
+    "gve",
+)
+
+
 @dataclass(frozen=True, kw_only=True)
 class WriteDracutModules(Operation):
     stage: Stage = Stage.KERNEL
     modules: tuple[str, ...]
+    #: Drivers named regardless of what dracut detected. `add_drivers+=` is
+    #: dracut's own key for this (`dracut.conf(5)`).
+    drivers: tuple[str, ...] = CLOUD_DRIVERS
 
     def describe(self) -> str:
-        return f"tell dracut to carry {', '.join(self.modules)}"
+        carried = f"tell dracut to carry {', '.join(self.modules)}"
+        if not self.drivers:
+            return carried
+        return f"{carried}, and {len(self.drivers)} cloud bus drivers whatever it detects"
 
     def apply(self, context: Context) -> None:
+        lines = [f'add_dracutmodules+=" {" ".join(self.modules)} "']
+        if self.drivers:
+            lines.append(f'add_drivers+=" {" ".join(self.drivers)} "')
         context.write(
             PurePosixPath("/etc/dracut.conf.d/10-gentoo-install.conf"),
-            f'add_dracutmodules+=" {" ".join(self.modules)} "\n',
+            "\n".join(lines) + "\n",
         )
 
 

@@ -66,7 +66,7 @@
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
   install the storage tools: emerge sys-fs/mdadm sys-fs/dosfstools sys-fs/e2fsprogs
   install the kernel: emerge sys-kernel/gentoo-kernel-bin
-  tell dracut to carry mdraid
+  tell dracut to carry mdraid, and 13 cloud bus drivers whatever it detects
   rebuild the initramfs from sys-kernel/gentoo-kernel-bin with the modules written above
   check the installkernel payload names existing kernel files
 

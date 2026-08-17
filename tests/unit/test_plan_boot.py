@@ -770,7 +770,9 @@ def test_the_kernel_is_merged_before_anything_that_builds_a_module_for_it() -> N
     initramfs = next(at for at, one in enumerate(described) if one.startswith("rebuild the initramfs"))
     # The dracut module list is written after the merge, or the kernel's own
     # postinst asks for a zfs module whose userland is not installed yet.
-    listed = next(at for at, one in enumerate(described) if one == "tell dracut to carry zfs")
+    listed = next(
+        at for at, one in enumerate(described) if one.startswith("tell dracut to carry zfs")
+    )
     assert told < merged < listed < initramfs
 
 

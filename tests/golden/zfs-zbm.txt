@@ -79,7 +79,7 @@
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
   install the storage tools: emerge sys-fs/dosfstools
   install the kernel and the tools that build a module for it: emerge sys-kernel/gentoo-cjk-kernel-bin sys-fs/zfs, from source
-  tell dracut to carry zfs
+  tell dracut to carry zfs, and 13 cloud bus drivers whatever it detects
   put the zpcala key in /etc/zfs/zpcala.key so only ZFSBootMenu asks for it
   copy the installing system's hostid into the target so the pool imports
   rebuild the initramfs from sys-kernel/gentoo-cjk-kernel-bin with the modules written above

@@ -1332,3 +1332,43 @@ def test_a_configured_proxy_still_reaches_the_installed_system() -> None:
 
     assert len(written) == 1
     assert "secret" not in written[0].describe()
+
+
+def test_the_initramfs_carries_the_cloud_bus_drivers_whatever_dracut_detected() -> None:
+    """Gentoo's dracut is `hostonly="yes"` with `hostonly_mode="sloppy"`, read
+    from `/usr/lib/dracut/dracut.conf.d/01-gentoo.conf`, so an initramfs
+    carries what the hardware present at build time needs. A provider that
+    attaches the disk by a different bus on the next boot then has an image
+    with no driver for it. `reinstall` records Azure NVMe as invisible without
+    `pci_hyperv` in the initramfs, and that failure is an install that reported
+    success and never booted again.
+
+    `add_drivers+=` is dracut's own key for naming a module regardless of
+    detection (`dracut.conf(5)`).
+    """
+    from gentoo_install.plan.kernel import CLOUD_DRIVERS, WriteDracutModules
+
+    recorder = Recorder()
+    WriteDracutModules(modules=("btrfs",)).apply(recorder)
+
+    written = recorder.files[PurePosixPath("/etc/dracut.conf.d/10-gentoo-install.conf")]
+    assert 'add_dracutmodules+=" btrfs "' in written, written
+    assert "add_drivers+=" in written, written
+    # The three that decide whether a machine finds its root at all on the
+    # three providers whose bus differs from the one it installed on.
+    for driver in ("pci_hyperv", "nvme", "virtio_blk"):
+        assert driver in written, driver
+    assert all(one in written for one in CLOUD_DRIVERS), written
+
+
+def test_a_driver_list_of_nothing_writes_no_add_drivers_line() -> None:
+    """The negative direction: the key is only written when there is something
+    to name, so an empty list is not `add_drivers+=" "`, which dracut reads as
+    a driver whose name is the empty string."""
+    from gentoo_install.plan.kernel import WriteDracutModules
+
+    recorder = Recorder()
+    WriteDracutModules(modules=("btrfs",), drivers=()).apply(recorder)
+
+    written = recorder.files[PurePosixPath("/etc/dracut.conf.d/10-gentoo-install.conf")]
+    assert "add_drivers" not in written, written
