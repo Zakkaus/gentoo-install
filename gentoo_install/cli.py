@@ -25,7 +25,7 @@ from .errors import GentooInstallError
 from .data import load_catalog
 from .exec import fetch, preflight, report
 from .exec.apply import Machine, already_degraded, apply, completed
-from .exec.probe import BootMethod, Probe, probe_storage_facts
+from .exec.probe import GRUB_DIRECTORIES, BootMethod, Probe, probe_storage_facts
 from .exec.runner import Runner
 from .model.device import StorageFacts, StorageLayout, ZfsPool
 from .model.size import Size
@@ -47,8 +47,9 @@ from .model.config import (
     PortageConfig,
 )
 from .exec.config import load_source
+from .model import authorized
 from .model.validate import validate_memory_launch
-from .plan import convert
+from .plan import convert, netboot
 from .plan.convert import SWAP_CONFIRMATION
 from .plan.build import DEFAULT_MIRROR, build, running_config, stage3_mirror
 from .plan.operations import Context, Operation, Stage
@@ -164,29 +165,12 @@ def parser() -> argparse.ArgumentParser:
         default="",
         help="the root password for the memory environment",
     )
-    return parsed
-
-
-def _memory_launch(arguments: argparse.Namespace) -> MemoryLaunch | None:
-    mode = arguments.memory_mode
-    if mode is None:
-        if arguments.ssh_key or arguments.ssh_port is not None or arguments.root_password:
-            raise errors.ConfigError(
-                "--ssh-key, --ssh-port and --root-password require --ram or --lowram"
-            )
-        return None
-    if arguments.ssh_key and not (
-        arguments.ssh_key.startswith("ssh-") or _is_readable_file(arguments.ssh_key)
-    ):
-        raise errors.ConfigError(
-            "--ssh-key must be a readable file or an ssh- prefixed public key"
-        )
-    return MemoryLaunch(
-        mode=mode,
-        ssh_key=arguments.ssh_key,
-        ssh_port=arguments.ssh_port,
-        root_password=arguments.root_password,
+    parsed.add_argument(
+        "--bypass",
+        action="store_true",
+        help="replace the default boot entry instead of arming one boot",
     )
+    return parsed
 
 
 def _is_readable_file(name: str) -> bool:
@@ -195,6 +179,41 @@ def _is_readable_file(name: str) -> bool:
             return True
     except OSError:
         return False
+
+
+def _memory_launch(arguments: argparse.Namespace) -> MemoryLaunch | None:
+    mode = arguments.memory_mode
+    if mode is None:
+        if (
+            arguments.ssh_key
+            or arguments.ssh_port is not None
+            or arguments.root_password
+            or arguments.bypass
+        ):
+            raise errors.ConfigError(
+                "--ssh-key, --ssh-port, --root-password and --bypass require "
+                "--ram or --lowram"
+            )
+        return None
+    if arguments.ssh_key:
+        # Classified here so `github:zakkaus` and a URL are accepted, and a
+        # path is checked while the operator is still at the keyboard: a
+        # filename that is a typo otherwise fails after the reboot, in the
+        # environment they can no longer log in to.
+        source = authorized.classify(arguments.ssh_key)
+        if source.kind is authorized.KeySourceKind.PATH and not _is_readable_file(
+            source.value
+        ):
+            raise errors.ConfigError(
+                f"--ssh-key {source.value} is not a readable file, an ssh- "
+                "prefixed public key, a URL, or github:/gitlab: and a username"
+            )
+    return MemoryLaunch(
+        mode=mode,
+        ssh_key=arguments.ssh_key,
+        ssh_port=arguments.ssh_port,
+        root_password=arguments.root_password,
+    )
 
 
 def _validate_memory_launch(
@@ -210,6 +229,72 @@ def _validate_memory_launch(
             "warning: --ram is slower for a layout without ZFS; --lowram uses the smaller Alpine netboot",
             file=sys.stderr,
         )
+
+
+def _boot_target(probe: Probe) -> netboot.BootTarget:
+    """What `plan/netboot.py` needs about this machine's own bootloader."""
+    layout = probe.storage_layout()
+    esp = layout.esp_device
+    return netboot.BootTarget(
+        method=probe.boot_method(),
+        esp_mountpoint=layout.esp_mountpoint,
+        esp_device=esp,
+        esp_disk=probe.disk_of_path(esp) if esp is not None else None,
+        esp_partition=probe.partition_number_of_path(esp) if esp is not None else None,
+        grub_directory=next(
+            (str(one) for one in GRUB_DIRECTORIES if one.is_dir()), None
+        ),
+    )
+
+
+def _arm_memory_environment(
+    config: InstallConfig, launch: MemoryLaunch, arguments: argparse.Namespace
+) -> int:
+    """Place the environment and arm one boot into it, then ask about rebooting.
+
+    This path returns instead of installing: what it arms happens after the
+    reboot, and running the install now would install onto the disk the
+    operator asked to be erased from a live environment.
+    """
+    probe = Probe(runner=Runner(log=lambda line: None), work=arguments.work)
+    target = _boot_target(probe)
+    operations = netboot.build(launch=launch, target=target, bypass=arguments.bypass)
+    if arguments.dry_run:
+        print(render(operations), end="")
+        print(summarise(operations))
+        return EXIT_OK
+    machine = Machine(
+        config=config,
+        runner=probe.runner,
+        probe=probe,
+        work=arguments.work,
+        # `/`, not a mounted new system: everything this places goes on the
+        # machine the operator is logged into.
+        mountpoint=Path("/"),
+    )
+    apply(operations, machine, on_start=lambda one: print(one.describe()))
+    return _reboot_or_disarm(target, arguments, machine)
+
+
+def _reboot_or_disarm(
+    target: netboot.BootTarget, arguments: argparse.Namespace, machine: Machine
+) -> int:
+    """Ask, or say what is armed and leave it to the operator.
+
+    A question on a run nobody is watching is a run that waits for ever, so an
+    unattended one is told what was armed and returns rather than rebooting a
+    machine on its own.
+    """
+    if _unattended(arguments):
+        print("armed. `reboot` when ready; `--disarm` takes it back.")
+        return EXIT_OK
+    print("The memory environment is armed for the next boot.")
+    print("Type reboot to restart into it, anything else to take it back.")
+    if input("> ").strip() == "reboot":
+        machine.run(["reboot"])
+        return EXIT_OK
+    apply(netboot.disarm(target=target), machine, on_start=lambda one: print(one.describe()))
+    return EXIT_ABORTED
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -249,6 +334,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             config = load_source(arguments.config)
         if launch is not None:
             _validate_memory_launch(config, launch, _probe_for(arguments))
+            return _arm_memory_environment(config, launch, arguments)
         if arguments.missing_commands:
             print(
                 "\n".join(

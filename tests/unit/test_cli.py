@@ -73,9 +73,24 @@ def test_memory_key_must_be_a_file_or_ssh_public_key(tmp_path: Path) -> None:
         cli.parser().parse_args(["--ram", "--ssh-key", str(key)])
     )
     assert from_file is not None and from_file.ssh_key == str(key)
-    with pytest.raises(ConfigError, match="readable file or an ssh- prefixed"):
+    with pytest.raises(ConfigError, match="not a readable file"):
         cli._memory_launch(
             cli.parser().parse_args(["--ram", "--ssh-key", "not-a-public-key"])
+        )
+
+    # The four other forms reach the executor without being read here.
+    for value in (
+        "github:zakkaus",
+        "gitlab:zakkaus",
+        "https://example.invalid/key.pub",
+        "ssh-ed25519 AAAAC3Nz zakk@box",
+    ):
+        given = cli._memory_launch(cli.parser().parse_args(["--ram", "--ssh-key", value]))
+        assert given is not None and given.ssh_key == value, value
+
+    with pytest.raises(ConfigError, match="scheme: ftp"):
+        cli._memory_launch(
+            cli.parser().parse_args(["--ram", "--ssh-key", "ftp://host/key.pub"])
         )
 
 
@@ -1447,3 +1462,68 @@ def test_a_local_configuration_never_reaches_the_network(
     monkeypatch.setattr(fetch, "read_text", refuse)
     assert main(["--config", str(FIXTURES / "ext4-bios.toml"), "--dry-run"]) == EXIT_OK
     assert "operations:" in capsys.readouterr().out.splitlines()[-1]
+
+
+def _memory_machine(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A UEFI machine with a mounted esp, so the memory plan can be derived."""
+    from gentoo_install.model.device import StorageLayout
+
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    monkeypatch.setattr(RealProbe, "boot_method", lambda self: BootMethod.SYSTEMD_BOOT)
+    monkeypatch.setattr(
+        RealProbe,
+        "storage_layout",
+        lambda self: StorageLayout(
+            root_device="/dev/vda2",
+            root_filesystem_type="btrfs",
+            root_uuid=None,
+            root_on_lvm=None,
+            root_on_luks=None,
+            root_on_mdraid=None,
+            root_below_device=None,
+            boot_device=None,
+            boot_filesystem_type=None,
+            boot_same_filesystem=True,
+            esp_device="/dev/vda1",
+            esp_mountpoint="/boot/efi",
+            uefi=True,
+            root_free_bytes=None,
+        ),
+    )
+    monkeypatch.setattr(RealProbe, "disk_of_path", lambda self, path: "/dev/vda")
+    monkeypatch.setattr(RealProbe, "partition_number_of_path", lambda self, path: 1)
+
+
+def test_a_memory_run_prints_the_arming_plan_and_not_the_install(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """What `--ram` arms happens after the reboot. Falling through to the
+    install would partition the disk now, from the system being replaced."""
+    _memory_machine(monkeypatch)
+    code = main(["--config", str(FIXTURES / "btrfs-luks.toml"), "--dry-run", "--ram"])
+    said = capsys.readouterr()
+    assert code == EXIT_OK
+    assert "arm one boot into the memory environment" in said.out, said.out
+    assert "partition" not in said.out.lower(), said.out
+
+
+def test_bypass_prints_the_replacing_operation_instead(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--bypass` is the path for firmware that drops a one-shot write, and it
+    is the only one that touches the default entry."""
+    _memory_machine(monkeypatch)
+    code = main(
+        ["--config", str(FIXTURES / "btrfs-luks.toml"), "--dry-run", "--ram", "--bypass"]
+    )
+    said = capsys.readouterr()
+    assert code == EXIT_OK
+    assert "replace the default boot entry" in said.out, said.out
+    assert "arm one boot" not in said.out, said.out
+
+
+def test_bypass_without_a_memory_mode_is_refused() -> None:
+    """It changes what a machine boots by default, so it may not be a flag
+    that does nothing when the mode it belongs to was not asked for."""
+    with pytest.raises(ConfigError, match="require --ram or --lowram"):
+        cli._memory_launch(cli.parser().parse_args(["--bypass"]))
