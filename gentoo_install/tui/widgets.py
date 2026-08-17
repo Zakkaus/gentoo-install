@@ -642,12 +642,13 @@ class Form:
             screen.write(1, 2, truncate(message, columns - 2), style=Style.REQUIRED)
             offset = 3
         widest = max((width(field.label) for field in self.fields), default=0)
-        room = columns - widest - 10
+        room = max(2, columns - widest - 10)
+        widest = min(widest, columns - room - 10)
         for index, field in enumerate(self.fields):
             row = index + offset
             if row >= lines - 1:
                 break
-            screen.write(row, 2, field.label)
+            screen.write(row, 2, truncate(field.label, widest))
             if field.toggle:
                 screen.write(
                     row,
