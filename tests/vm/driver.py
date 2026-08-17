@@ -19,13 +19,22 @@ from .media import MediaError
 REPOSITORY = Path(__file__).resolve().parents[2]
 LABEL = "GENTOO-INSTALL"
 
-#: What the guest runs to put the installer on its PYTHONPATH. `/dev/sr1` is
-#: mounted read-only, so nothing is unpacked and nothing is written back.
-ENTRY = """#!/bin/sh
+#: How the guest finds the driver CD. It is the second one when an install
+#: medium is booted and the only one when a guest boots from its own disk.
+#: One line, because a caller sends it down a serial console as one command,
+#: and the exit status is `mountpoint`'s answer, not the last failed mount's.
+FIND_DRIVER = (
+    "mkdir -p /mnt/driver; mountpoint -q /mnt/driver || "
+    "for candidate in /dev/sr1 /dev/sr0; do "
+    'mount -o ro "$candidate" /mnt/driver 2>/dev/null && break; done; '
+    "mountpoint -q /mnt/driver"
+)
+
+#: What the guest runs to put the installer on its PYTHONPATH.
+ENTRY = f"""#!/bin/sh
 # Mount the driver CD and run the installer from it.
 set -e
-mkdir -p /mnt/driver
-mountpoint -q /mnt/driver || mount -o ro /dev/sr1 /mnt/driver
+{FIND_DRIVER}
 cd /mnt/driver
 # --no-shell: the harness drives a serial console, where stdin is a terminal,
 # and the offer of a root shell would sit there waiting for an answer.
@@ -43,8 +52,8 @@ UNPACKED = "/tmp/gentoo-install-driver"
 #: writes nothing there but Python still wants somewhere to put bytecode.
 PACKED_ENTRY = f"""#!/bin/sh
 set -e
-mkdir -p /mnt/driver {UNPACKED}
-mountpoint -q /mnt/driver || mount -o ro /dev/sr1 /mnt/driver
+mkdir -p {UNPACKED}
+{FIND_DRIVER}
 tar xzf /mnt/driver/{PAYLOAD} -C {UNPACKED}
 cd {UNPACKED}
 # Through the launcher, because that is the entry point an operator uses and
