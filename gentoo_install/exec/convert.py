@@ -3,13 +3,20 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import shutil
 import sys
+from enum import Enum
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
 
 from ..errors import ConversionFailed
+
+#: Copies one tree into a destination the caller names, preserving what a
+#: stage3 needs. The plan hands over `cp --archive`: `shutil.copytree` restores
+#: neither xattrs nor file capabilities.
+Copier = Callable[[Path, Path], None]
 
 
 #: Where a mounted directory's own entries are moved while it is replaced.
@@ -26,20 +33,40 @@ def _mounts_inside(directory: Path) -> list[str]:
     return [one for one in entries if os.path.ismount(directory / one)]
 
 
-def _replace_contents(destination: Path, staged: Path) -> None:
+class Arrival(Enum):
+    """How an entry reached the destination, because undoing the two differs.
+
+    A renamed entry goes back; a copied one is deleted, and its original is
+    still in the staging root.
+    """
+
+    COPIED = "copied"
+    RENAMED = "renamed"
+
+
+def _remove(path: Path) -> None:
+    """Delete a copy that arrived, on the way back out of a failure."""
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink(missing_ok=True)
+
+
+def _replace_contents(destination: Path, staged: Path, copy: Copier) -> None:
     """Swap what is in a mount point, since the mount point cannot be renamed.
 
-    Not `cp`: every move here is a `rename(2)` on one filesystem, so the window
-    is the entry count rather than the size of `/usr`. `distro2gentoo` copies
-    instead, which also merges -- and this installer replaces `/etc` rather
-    than merging it.
+    Moving the destination's own entries aside is a `rename(2)` inside the
+    mount. Bringing the staged ones in crosses out of the staging root, and a
+    directory reaches this function precisely because it is a separate mount:
+    Fedora's `/var` is its own btrfs subvolume, so `rename` answered
+    `[Errno 18] Invalid cross-device link` on the first entry.
     """
     aside = destination / KEPT_ASIDE
     if os.path.lexists(aside):
         raise ConversionFailed(f"{aside} is left from an earlier attempt")
     os.mkdir(aside)
     moved: list[str] = []
-    arrived: list[str] = []
+    arrived: list[tuple[str, Arrival]] = []
     try:
         for name in sorted(os.listdir(destination)):
             if name == KEPT_ASIDE:
@@ -47,12 +74,22 @@ def _replace_contents(destination: Path, staged: Path) -> None:
             os.rename(destination / name, aside / name)
             moved.append(name)
         for name in sorted(os.listdir(staged)):
-            os.rename(staged / name, destination / name)
-            arrived.append(name)
-    except OSError as error:
-        for name in reversed(arrived):
             try:
-                os.rename(destination / name, staged / name)
+                os.rename(staged / name, destination / name)
+            except OSError as error:
+                if error.errno != errno.EXDEV:
+                    raise
+                copy(staged / name, destination / name)
+                arrived.append((name, Arrival.COPIED))
+                continue
+            arrived.append((name, Arrival.RENAMED))
+    except OSError as error:
+        for name, how in reversed(arrived):
+            try:
+                if how is Arrival.RENAMED:
+                    os.rename(destination / name, staged / name)
+                else:
+                    _remove(destination / name)
             except OSError as rollback_error:
                 error.add_note(f"could not return {name} to the staging root: {rollback_error}")
         for name in reversed(moved):
@@ -77,7 +114,9 @@ def _restore_contents(destination: Path, staged: Path) -> None:
     os.rmdir(aside)
 
 
-def convert(staging: Path, names: Sequence[str], *, root: Path = Path("/")) -> None:
+def convert(
+    staging: Path, names: Sequence[str], *, copy: Copier, root: Path = Path("/")
+) -> None:
     """Replace each named directory and remove backups after all swaps finish."""
     try:
         same = os.stat(staging).st_dev == os.stat(root).st_dev
@@ -124,7 +163,7 @@ def convert(staging: Path, names: Sequence[str], *, root: Path = Path("/")) -> N
         moved_old = False
         try:
             if mounted:
-                _replace_contents(destination, staged)
+                _replace_contents(destination, staged, copy)
             else:
                 if present:
                     os.rename(destination, old)

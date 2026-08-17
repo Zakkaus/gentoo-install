@@ -56,7 +56,7 @@ def test_partition_mode_keeps_the_ordinary_list() -> None:
 def test_conversion_operation_describes_and_applies(monkeypatch: pytest.MonkeyPatch) -> None:
     called: list[tuple[Path, tuple[str, ...]]] = []
 
-    def convert(staging: Any, names: tuple[str, ...]) -> None:
+    def convert(staging: Any, names: tuple[str, ...], *, copy: Any) -> None:
         called.append((staging, names))
 
     from gentoo_install.exec import convert as executor
@@ -841,3 +841,56 @@ def test_the_staging_root_is_unmounted_from_the_deepest_mount_up() -> None:
 
     # Negative control two: a mount outside the staging root is not touched.
     assert not any(one.endswith("/home") for one in unmounted), unmounted
+
+
+def test_the_swap_copies_with_cp_archive_rather_than_a_python_copy() -> None:
+    """A mount point rename cannot cross is filled by copy, and what does the
+    copying decides whether the new userland keeps its file capabilities.
+    `shutil.copytree` restores neither those nor xattrs, and the same reason
+    already made the stage3 unpack use GNU tar rather than `tarfile`.
+    """
+    from pathlib import Path
+
+    from .recorder import Recorder
+
+    recorder = Recorder()
+    copied: list[tuple[str, str]] = []
+
+    class Module:
+        @staticmethod
+        def convert(
+            staging: Path,
+            names: object,
+            *,
+            copy: object,
+            root: Path = Path("/"),
+        ) -> None:
+            assert callable(copy)
+            copy(Path("/gentoo-install.new/var/cache"), Path("/var/cache"))
+            copied.append((str(staging), str(root)))
+
+    import importlib
+
+    original = importlib.import_module
+
+    def importing(name: str, package: str | None = None) -> Any:
+        return Module if name == "gentoo_install.exec.convert" else original(name, package)
+
+    saved = importlib.import_module
+    importlib.import_module = importing
+    try:
+        SwapDirectories(names=("var",)).apply(recorder)
+    finally:
+        importlib.import_module = saved
+
+    assert copied, "the converter was never called"
+    written = [argv for argv in recorder.commands if argv and argv[0] == "cp"]
+    assert written == [
+        (
+            "cp",
+            "--archive",
+            "--one-file-system",
+            "/gentoo-install.new/var/cache",
+            "/var/cache",
+        )
+    ], recorder.commands
