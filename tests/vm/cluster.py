@@ -2569,20 +2569,20 @@ def boot_and_check(
     unlocked = _unlock(guest, link, installation, remotely_unlocked)
     if unlocked.refused:
         return unlocked.refused
+    missed_the_prompt = ""
     if unlocked.state is InstalledBootState.WAIT_LOGIN:
         try:
-            # Solicited: run54 reopened the console between `Loading initial
-            # ramdisk` and the kernel's first line, and agetty prints `login:`
-            # once, so the whole patience was spent on a guest that had booted.
-            link.observe(r"login:", timeout=BOOT_PATIENCE, solicit=True)
+            # Unsolicited: the empty line a reconnect used to send is counted by
+            # agetty as one of its attempts, and `vm-lvm` came back with
+            # `Maximum number of tries exceeded (5)` after two reconnects where
+            # the same fixture passed with one and no solicit.
+            link.observe(r"login:", timeout=BOOT_PATIENCE)
         except (ConsoleTimeout, ConsoleClosed) as error:
-            # The same reason the refused login carries one: `never matched
-            # 'login:'` with the console banner as the last output says the
-            # guest was silent and nothing about what it was doing. This is the
-            # verdict `vm-sdboot` and `vm-convert` came back with, and a
-            # conversion that never reached its own stage is indistinguishable
-            # from one that failed in it.
-            return (
+            # Not fatal: agetty prints `login:` once, so a console reopened past
+            # it never sees the prompt again, while `_name_the_user` types a
+            # name and waits for either prompt and gets in anyway. Kept for the
+            # verdict, which otherwise says nothing about what the guest showed.
+            missed_the_prompt = (
                 f"the installed system did not reach a login prompt: {error}; "
                 f"the console held {_seen_since(link, b'')}"
             )[:VERDICT_BYTES]
@@ -2591,7 +2591,7 @@ def boot_and_check(
     except ConsoleClosed as error:
         return f"installed login response delivery is unknown: {error}"[:200]
     if refused:
-        return refused
+        return f"{missed_the_prompt}; {refused}"[:VERDICT_BYTES] if missed_the_prompt else refused
 
     for name, command, wanted in _asked_for(installation):
         said = link.expect_output(command, timeout=120.0)
