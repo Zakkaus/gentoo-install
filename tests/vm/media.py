@@ -79,18 +79,8 @@ class Medium:
         return kernel, initrd
 
     def source_stamp(self) -> str:
-        """What identifies the ISO's content, for the cache and for the record
-        a campaign result carries. The digest is what actually decides; size and
-        mtime only keep a gigabyte from being hashed on every run."""
-        state = self.iso.stat()
-        quick = CACHE / self.name / f"{self.iso.stem}.quick"
-        seen = _read(quick).split()
-        if len(seen) == 3 and seen[0] == str(state.st_size) and seen[1] == str(state.st_mtime_ns):
-            return seen[2]
-        digest = _sha256(self.iso)
-        quick.parent.mkdir(parents=True, exist_ok=True)
-        quick.write_text(f"{state.st_size} {state.st_mtime_ns} {digest}")
-        return digest
+        """What identifies the ISO's content for the cache and campaign record."""
+        return _sha256(self.iso)
 
 
 def _read(path: Path) -> str:
