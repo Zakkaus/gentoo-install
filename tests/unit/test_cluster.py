@@ -1610,14 +1610,23 @@ def test_the_probe_costs_less_than_its_own_budget() -> None:
     import subprocess
 
     probe = cluster.REACHABILITY_PROBE
-    # Two `getent` sites, each inside a five-iteration loop, so ten lookups run.
-    sites = probe.count("getent ")
-    assert sites == 2, sites
-    assert probe.count(f"timeout {cluster.LOOKUP_PATIENCE} getent ") == sites, probe
-    assert probe.count("for i in 1 2 3 4 5; do") == sites, probe
-    # The whole worst case against the 120s the three call sites give it: ten
-    # bounded lookups, three pings at `-W2`, and the `ip` and `dmesg` reads.
-    assert sites * 5 * cluster.LOOKUP_PATIENCE + 3 * 2 < 120
+    # Every lookup is bounded, wherever it sits.
+    lookups = probe.count("getent ")
+    assert lookups >= 2, lookups
+    assert probe.count(f"timeout {cluster.LOOKUP_PATIENCE} getent ") == lookups, probe
+    # Two of them are inside a five-iteration loop, so the worst case counts
+    # those five times and the rest once.
+    looped = probe.count("for i in 1 2 3 4 5; do")
+    assert looped == 2, looped
+    worst = (
+        looped * 5 * cluster.LOOKUP_PATIENCE
+        + (lookups - looped) * cluster.LOOKUP_PATIENCE
+        + 3 * 2
+        + cluster.KEYSERVER_PATIENCE
+    )
+    # Against the 120s the three call sites give it, with room for the `ip`
+    # and `dmesg` reads that follow.
+    assert worst < 90, worst
     assert subprocess.run(["bash", "-n", "-c", probe], capture_output=True).returncode == 0
 
 

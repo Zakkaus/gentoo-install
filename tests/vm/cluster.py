@@ -31,6 +31,7 @@ import sys
 import threading
 import time
 import uuid
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field, replace
 from enum import Enum
@@ -60,6 +61,8 @@ from gentoo_install.model.config import MirrorRegion, Sync
 from gentoo_install.model import mirrors
 from gentoo_install.exec.config import load
 from gentoo_install.model.serialise import to_toml
+from gentoo_install.plan.portage import KEY_SERVER
+
 from .console import (
     DISK_PASSPHRASE,
     PASSPHRASE_PROMPT,
@@ -761,6 +764,14 @@ GUEST_RESOLVER: Final[str] = "10.31.0.199"
 GUEST_RESOLVERS: Final[tuple[str, ...]] = (GUEST_RESOLVER, GUEST_GATEWAY, "223.5.5.5")
 
 
+#: What the keyserver connect is given. Longer than a lookup because a TLS
+#: handshake is not a name: measured 1.3s from this workstation.
+KEYSERVER_PATIENCE: Final[int] = 5
+
+#: The host `WebrsyncRepository` hands gemato, derived from the installer's own
+#: constant rather than repeated: the probe asks about a name, not a URL.
+KEY_SERVER_HOST: Final[str] = urllib.parse.urlparse(KEY_SERVER).hostname or KEY_SERVER
+
 #: `resolv.conf(5)`: the defaults are `timeout:5 attempts:2`, so a first
 #: nameserver that has stopped answering costs ten seconds on every lookup
 #: before the second one is asked. Five guests of run61 had
@@ -791,6 +802,18 @@ REACHABILITY_PROBE: Final[str] = (
     "printf '\\nLOOKUPS_ANY '; for i in 1 2 3 4 5; do "
     f"timeout {LOOKUP_PATIENCE} getent ahosts mirrors.ustc.edu.cn >/dev/null 2>&1 "
     "&& printf 'ok ' || printf 'fail '; done; "
+    # The keyserver by name and by family, and a connect rather than a ping:
+    # nine guests of run62 stopped at `gpg: keyserver refresh failed: Try again
+    # later` with every mirror reachable, and that message says nothing about
+    # which of the name, the family or the route was missing. From this
+    # workstation the same host answers `HTTP 200` in 1.3s over IPv4.
+    f"printf '\\nKEYSERVER_V4 '; timeout {LOOKUP_PATIENCE} getent ahostsv4 "
+    f"{KEY_SERVER_HOST} 2>/dev/null | head -1 || printf 'unresolved'; "
+    f"printf '\\nKEYSERVER_ANY '; timeout {LOOKUP_PATIENCE} getent ahosts "
+    f"{KEY_SERVER_HOST} 2>/dev/null | head -1 || printf 'unresolved'; "
+    "printf '\\nKEYSERVER_TCP '; "
+    f"timeout {KEYSERVER_PATIENCE} bash -c '</dev/tcp/{KEY_SERVER_HOST}/443' 2>/dev/null "
+    "&& printf 'open' || printf 'refused'; "
     "printf '\\nLIBC '; getconf GNU_LIBC_VERSION; "
     # The state itself, not only whether it worked: sixty-one lookups answered
     # `ENETUNREACH` from a guest that had passed this probe a minute earlier,
