@@ -950,3 +950,66 @@ def test_every_way_of_unlocking_remotely_is_decided_and_none_is_decided_twice() 
     layouts = {"luks": luks(), "native": pool(True), "plain": pool(False)}
     for (name, kind), wanted in expected.items():
         assert refusals(layouts[name], kind) == wanted, (name, kind)
+
+
+def test_every_binhost_requirement_is_a_flag_the_probe_can_produce() -> None:
+    """A requirement written in the psABI's spelling is a name that never
+    arrives. The x86-64-v3 level is documented as needing `FMA`, and Portage's
+    `CPU_FLAGS_X86` spells that instruction set `fma3`, so `{"fma"}` made every
+    machine report the flag missing and refused the official v3 binary host on
+    all of them. The screen said `needs CPU flags fma, which this machine does
+    not provide` beside a flag list that read `fma3`.
+    """
+    from gentoo_install.exec.probe import CPU_FLAGS
+    from gentoo_install.model.compat import BINHOST_SUBARCH_REQUIREMENTS
+
+    produced = set(CPU_FLAGS.values())
+    for subarch, required in BINHOST_SUBARCH_REQUIREMENTS.items():
+        unreachable = sorted(required - produced)
+        assert not unreachable, (subarch, unreachable)
+
+
+def test_a_machine_with_the_v3_flags_is_not_refused_the_v3_binhost() -> None:
+    """The rule has to be able to pass. It could not: no configuration reached
+    `binhost_subarch_problems` with a flag named `fma`, because the probe maps
+    the kernel's `fma` to `fma3` before the configuration ever holds it."""
+    from gentoo_install.exec.probe import CPU_FLAGS
+    from gentoo_install.model.compat import (
+        BINHOST_SUBARCH_REQUIREMENTS,
+        binhost_subarch_problems,
+    )
+
+    # What this machine's own `/proc/cpuinfo` flags become, for the flags the
+    # level needs: the mapping is what the probe applies, not a second copy.
+    kernel_flags = {"avx2", "bmi1", "bmi2", "f16c", "fma"}
+    theirs = tuple(sorted({CPU_FLAGS[one] for one in kernel_flags}))
+    assert set(theirs) >= BINHOST_SUBARCH_REQUIREMENTS["x86-64-v3"], theirs
+
+    base = config()
+    chosen = replace(
+        base,
+        portage=replace(
+            base.portage,
+            cpu_flags=theirs,
+            binhost=replace(base.portage.binhost, official=True, subarch="x86-64-v3"),
+        ),
+    )
+    assert binhost_subarch_problems(chosen) == ()
+
+
+def test_a_machine_without_them_is_still_refused() -> None:
+    """The negative direction, or a rule loosened until it cannot fire reads
+    as a rule and is not one."""
+    from gentoo_install.model.compat import binhost_subarch_problems
+
+    base = config()
+    chosen = replace(
+        base,
+        portage=replace(
+            base.portage,
+            cpu_flags=("mmx", "sse2"),
+            binhost=replace(base.portage.binhost, official=True, subarch="x86-64-v3"),
+        ),
+    )
+    problems = binhost_subarch_problems(chosen)
+    assert problems and "fma3" in problems[0], problems
