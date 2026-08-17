@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Final
 
@@ -22,6 +23,39 @@ _READERS = frozenset({"read_text", "read_bytes", "write_text", "write_bytes", "o
 
 def _modules(layer: str) -> list[Path]:
     return sorted(one for one in (PACKAGE / layer).rglob("*.py") if one.is_file())
+
+
+def _imports(tree: ast.AST) -> set[str]:
+    """Return the modules named by ordinary and from-import statements."""
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            prefix = "." * node.level
+            if node.level == 0 and node.module == "gentoo_install":
+                imported.update(f"{node.module}.{alias.name}" for alias in node.names)
+            elif node.module is not None:
+                imported.add(prefix + node.module)
+            else:
+                imported.update(prefix + alias.name for alias in node.names)
+    return imported
+
+
+def _imports_module(imported: str, module: str) -> bool:
+    return imported == module or imported.startswith(f"{module}.")
+
+
+def test_import_scan_handles_import_and_from_import() -> None:
+    """`from subprocess import run` bypassed the Import-only command boundary."""
+    assert _imports(ast.parse("import subprocess")) == {"subprocess"}
+    assert _imports(ast.parse("from subprocess import run")) == {"subprocess"}
+
+
+def test_import_scan_handles_relative_and_package_imports() -> None:
+    """Both spellings can cross a layer boundary."""
+    tree = ast.parse("from ..exec import Machine\nfrom gentoo_install import tui")
+    assert _imports(tree) == {"..exec", "gentoo_install.tui"}
 
 
 def _calls(tree: ast.AST) -> list[tuple[str, int]]:
@@ -52,14 +86,11 @@ def test_the_model_layer_runs_no_command() -> None:
     """`exec/runner.py` is the only module allowed to import subprocess."""
     for layer in ("model", "plan"):
         for module in _modules(layer):
-            tree = ast.parse(module.read_text())
-            imported = {
-                alias.name
-                for node in ast.walk(tree)
-                if isinstance(node, ast.Import)
-                for alias in node.names
-            }
-            assert "subprocess" not in imported, module
+            imported = _imports(ast.parse(module.read_text()))
+            offenders = sorted(
+                name for name in imported if _imports_module(name, "subprocess")
+            )
+            assert not offenders, f"{module}: imports {offenders}"
 
 
 def test_the_model_layer_imports_nothing_below_it() -> None:
@@ -68,10 +99,15 @@ def test_the_model_layer_imports_nothing_below_it() -> None:
     forbidden = {"model": ("plan", "exec", "tui"), "plan": ("exec", "tui")}
     for layer, below in forbidden.items():
         for module in _modules(layer):
-            source = module.read_text()
+            imported = _imports(ast.parse(module.read_text()))
             for other in below:
-                assert f"from ..{other}" not in source, f"{module}: imports {other}"
-                assert f"from gentoo_install.{other}" not in source, f"{module}: {other}"
+                forbidden_modules = (f"..{other}", f"gentoo_install.{other}")
+                offenders = sorted(
+                    name
+                    for name in imported
+                    if any(_imports_module(name, forbidden) for forbidden in forbidden_modules)
+                )
+                assert not offenders, f"{module}: imports {offenders}"
 
 
 def test_no_suppression_hides_a_finding() -> None:
@@ -132,43 +168,118 @@ def test_every_source_file_states_the_licence() -> None:
     assert any(one.suffix == ".sh" for one in read), read[:5]
 
 
+Reference = tuple[Path, int, int]
+ReferenceGraph = dict[str, list[Reference]]
+
+
+def _import_aliases(tree: ast.AST) -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        for alias in node.names:
+            if alias.asname is not None:
+                aliases[alias.asname] = alias.name
+    return aliases
+
+
+def _reference_graph(trees: Mapping[Path, ast.AST]) -> ReferenceGraph:
+    """Map every loaded name and attribute to its source location."""
+    graph: ReferenceGraph = {}
+    for path, tree in trees.items():
+        aliases = _import_aliases(tree)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+                name = aliases.get(node.id, node.id)
+            elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
+                name = node.attr
+            else:
+                continue
+            assert node.end_lineno is not None
+            graph.setdefault(name, []).append((path, node.lineno, node.end_lineno))
+    return graph
+
+
+def _defined_names(tree: ast.Module) -> list[tuple[ast.stmt, str]]:
+    definitions: list[tuple[ast.stmt, str]] = []
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+            definitions.append((node, node.name))
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            definitions.append((node, node.target.id))
+        elif isinstance(node, ast.Assign):
+            definitions.extend(
+                (node, target.id) for target in node.targets if isinstance(target, ast.Name)
+            )
+    return definitions
+
+
+def _referenced_outside(
+    name: str, path: Path, definition: ast.stmt, graph: ReferenceGraph
+) -> bool:
+    end_line = definition.end_lineno
+    assert end_line is not None
+    for reference_path, line, reference_end in graph.get(name, []):
+        inside_definition = (
+            reference_path == path
+            and definition.lineno <= line
+            and reference_end <= end_line
+        )
+        if not inside_definition:
+            return True
+    return False
+
+
+def test_reference_graph_ignores_comments_and_strings() -> None:
+    """A name in prose is not a reachable definition."""
+    declaring = Path("declaring.py")
+    definition_tree = ast.parse("class Forgotten:\n    pass\n")
+    definition = definition_tree.body[0]
+    assert isinstance(definition, ast.ClassDef)
+    graph = _reference_graph(
+        {
+            declaring: definition_tree,
+            Path("commentary.py"): ast.parse('# Forgotten\nmessage = "Forgotten"\n'),
+        }
+    )
+    assert not _referenced_outside("Forgotten", declaring, definition, graph)
+    graph = _reference_graph(
+        {
+            declaring: definition_tree,
+            Path("consumer.py"): ast.parse("Forgotten()"),
+        }
+    )
+    assert _referenced_outside("Forgotten", declaring, definition, graph)
+    alias_graph = _reference_graph(
+        {
+            declaring: definition_tree,
+            Path("consumer.py"): ast.parse(
+                "from declaring import Forgotten as remembered\nremembered()"
+            ),
+        }
+    )
+    assert _referenced_outside("Forgotten", declaring, definition, alias_graph)
+
+
 def test_no_definition_in_the_package_is_unreachable() -> None:
     """A rebase left `RemoveUnbootableKernels` and its five helpers in the tree
     after the operation it replaced them with had landed: the class was there,
     nothing built it, and nothing tested it."""
-    import ast
-    import re
-
     root = Path(__file__).resolve().parents[2]
-    everything = "\n".join(
-        path.read_text()
+    source_paths = [
+        path
         for where in ("gentoo_install", "tests")
         for path in sorted((root / where).rglob("*.py"))
-    )
+    ]
+    trees = {path: ast.parse(path.read_text()) for path in source_paths}
+    graph = _reference_graph(trees)
     orphans: list[str] = []
     for path in sorted((root / "gentoo_install").rglob("*.py")):
-        lines = path.read_text().splitlines()
-        for node in ast.parse(path.read_text()).body:
-            named: list[str] = []
-            if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
-                named = [node.name]
-            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-                named = [node.target.id]
-            elif isinstance(node, ast.Assign):
-                named = [one.id for one in node.targets if isinstance(one, ast.Name)]
-            # The definition's own text is not a reference to it: a recursive
-            # helper names itself, so counting the whole tree accepted one that
-            # nothing calls.
-            own = "\n".join(lines[node.lineno - 1 : node.end_lineno])
-            for name in named:
-                if name.startswith("__"):
-                    continue
-                pattern = rf"\b{re.escape(name)}\b"
-                outside = len(re.findall(pattern, everything)) - len(
-                    re.findall(pattern, own)
-                )
-                if outside == 0:
-                    orphans.append(f"{path.relative_to(root)}:{node.lineno} {name}")
+        for node, name in _defined_names(trees[path]):
+            if name.startswith("__"):
+                continue
+            if not _referenced_outside(name, path, node, graph):
+                orphans.append(f"{path.relative_to(root)}:{node.lineno} {name}")
     assert orphans == [], orphans
 
 

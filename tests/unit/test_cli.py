@@ -35,12 +35,44 @@ def test_a_dry_run_prints_every_stage_and_exits_clean(capsys: pytest.CaptureFixt
     assert "operations:" in printed.splitlines()[-1]
 
 
-def test_a_dry_run_touches_nothing(capsys: pytest.CaptureFixture[str]) -> None:
-    """The only proof available at this layer: no operation was applied, and the
-    text names devices by id rather than by a path it went looking for."""
+def test_a_dry_run_touches_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The preview never invokes an operation's executor."""
+    from collections.abc import Callable
+    from dataclasses import dataclass
+
+    from gentoo_install.plan.operations import Context, Operation, Stage
+
+    executed: list[Context] = []
+
+    @dataclass(frozen=True, kw_only=True)
+    class RecordingOperation(Operation):
+        stage: Stage = Stage.PARTITION
+        executor: Callable[[Context], None]
+
+        def describe(self) -> str:
+            return "record execution"
+
+        def apply(self, context: Context) -> None:
+            self.executor(context)
+
+    operation = RecordingOperation(executor=executed.append)
+    monkeypatch.setattr(
+        cli,
+        "build",
+        lambda chosen, catalog, *, mirror, storage_facts, layout: (operation,),
+    )
+    code = main(["--config", str(FIXTURES / "ext4-bios.toml"), "--dry-run"])
+    assert code == EXIT_OK
+    assert executed == []
+
+
+def test_a_dry_run_names_devices_by_id_rather_than_by_path(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A separate property from applying nothing: the preview must not have
+    gone looking for a node under `/dev` to print."""
     main(["--config", str(FIXTURES / "ext4-bios.toml"), "--dry-run"])
-    printed = capsys.readouterr().out
-    assert "/dev/" not in printed
+    assert "/dev/" not in capsys.readouterr().out
 
 
 def test_a_missing_file_is_a_configuration_error(capsys: pytest.CaptureFixture[str]) -> None:

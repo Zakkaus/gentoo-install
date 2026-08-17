@@ -93,7 +93,13 @@ def test_socks_scheme_controls_local_name_resolution(
     fetch._socks_connect(ProxyConfig(kind=ProxyKind.SOCKS5, host="proxy.example", port=1080), "internal.example", 80, 3.0)
 
     request = sent[-1]
-    assert request[3] == 3
+    assert request[:4] == b"\x05\x01\x00\x03"
+    host_end = 5 + request[4]
+    host = request[5:host_end].decode("ascii")
+    port = request[host_end:]
+    assert host == "internal.example"
+    assert len(port) == 2
+    assert int.from_bytes(port, "big") == 80
 
 
 def test_runner_redacts_proxy_credentials_in_dry_run_and_result_command() -> None:
