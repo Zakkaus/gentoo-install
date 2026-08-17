@@ -41,6 +41,9 @@ class Recorder:
     #: Commands whose first word is here raise instead of returning.
     failures: set[str] = field(default_factory=set)
     given_up: set[str] = field(default_factory=set)
+    #: Why each one was given up. The reason is what `install.jsonl` records
+    #: and what an operator reads, so a double that drops it cannot hold it.
+    degradations: dict[str, str] = field(default_factory=dict)
     #: Consulted before the replies table, and injected rather than assigned
     #: over the bound method: five tests replaced `run_in_target` itself, which
     #: mypy accepted only under `# type: ignore[method-assign]`. Answering
@@ -131,6 +134,7 @@ class Recorder:
 
     def degrade(self, what: str, reason: str) -> None:
         self.given_up.add(what)
+        self.degradations[what] = reason
 
     def degraded(self, what: str) -> bool:
         return what in self.given_up
