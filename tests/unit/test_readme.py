@@ -86,8 +86,8 @@ SECTIONS = {
 FACT_UNITS = (
     "identity", "capability-scope", "storage-device-graph", "zram-system",
     "in-place-conversion", "boot-system",
-    "desktop-language", "portage", "proxy", "plan-records", "verification-history",
-    "verification-current", "verification-network", "requirements-runtime",
+    "desktop-language", "portage", "proxy", "plan-records", "verification-scope",
+    "requirements-runtime",
     "requirements-version-sources", "requirements-network-filter", "requirements-bootstrap",
     "safety-destructive", "safety-review-backup", "install-download", "install-terminal",
     "install-config-workflow", "install-root-shell", "resume-behavior", "resume-limits",
@@ -160,15 +160,10 @@ def test_every_readme_carries_the_same_nonempty_factual_units() -> None:
 
 def test_reviewed_cross_locale_claims_stay_attached_to_their_factual_units() -> None:
     common = {
-        "verification-history": (
-            "amd64", "Gentoo minimal ISO", "a71f91b4735469bae8ec76af170201acb967a5fe",
-            "f7257793f95df4b21ebf2ac6a775a343f6205f1b",
-        ),
-        "verification-current": (
-            "ext2", "ext3", "tests/fixtures/",
-            "b931ef46fc15ed50385f70467f2bfb0a8d1fd154",
-        ),
-        "verification-network": ("IPv4", "IPv6", "bootstrap.sh --missing-commands", "stage3"),
+        # The records themselves live in `TESTED.md`, which is one file rather
+        # than five: what every README has to carry is the boundary and the
+        # pointer, or a reader takes an implemented path for a tested one.
+        "verification-scope": ("TESTED.md", "tests/fixtures/", "ext4", "LUKS2"),
         "requirements-version-sources": (
             "packages.gentoo.org", "api.github.com/repos/gentoo-zh/overlay/contents",
             "gitweb.gentoo.org",
@@ -216,13 +211,31 @@ def test_reviewed_cross_locale_claims_stay_attached_to_their_factual_units() -> 
         assert "zram" in bodies["zram-system"], name
 
 
-def test_current_verification_records_link_to_their_revision() -> None:
-    revision = "b931ef46fc15ed50385f70467f2bfb0a8d1fd154"
-    link = f"https://github.com/Zakkaus/gentoo-install/commit/{revision}"
+def test_the_record_file_holds_what_the_readmes_stopped_carrying() -> None:
+    """Five copies of a record set drift; one does not. What the READMEs keep
+    is the boundary and the pointer, and `TESTED.md` keeps the rows."""
+    from pathlib import Path
+
+    record = Path("TESTED.md").read_text(encoding="utf-8")
+    for revision in (
+        "b931ef46fc15ed50385f70467f2bfb0a8d1fd154",
+        "7cf09c2f9d9c",
+        "bcc090fab621",
+        "71e751cf14a1",
+        "0827931289d0",
+    ):
+        assert revision in record, revision
+    # A section for each mode, including the one with nothing in it yet: an
+    # absent section reads as an oversight, an empty one as a fact.
+    for heading in ("## Mode 1", "## Mode 2", "## Mode 3"):
+        assert heading in record, heading
+    assert "nothing yet" in record, "the unimplemented mode says so"
+
+    # And every README points at it rather than repeating it.
     for name in READMES:
-        body = fact_bodies(name)["verification-current"]
-        assert revision in body, name
-        assert link in body, name
+        body = fact_bodies(name)["verification-scope"]
+        assert "TESTED.md" in body, name
+        assert "b931ef46" not in body, f"{name} still carries a record"
 
 
 def test_proxy_is_documented_in_every_readme_and_the_example_parses() -> None:

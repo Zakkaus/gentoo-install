@@ -54,35 +54,13 @@ After the proxy is selected, the configured proxy is used for stage3 and its sig
 
 ## Verification status
 
-<!-- fact: verification-history -->
+<!-- fact: verification-scope -->
 
-Historical end-to-end records used the amd64 Gentoo minimal ISO at installer revisions `a71f91b4735469bae8ec76af170201acb967a5fe` and `f7257793f95df4b21ebf2ac6a775a343f6205f1b`. Those records covered selected UEFI and BIOS installations, systemd and OpenRC, ext4, btrfs, xfs, LUKS2, LVM, mdraid, Plasma and the official binhost, but later installation-path changes made them historical evidence only.
+[`TESTED.md`](TESTED.md) is the verification record: one row for each exercised path, naming the installer revision it ran at and where it ran. A run counts only when its recorded revision matches the installer, its installation exit code is `0`, the installed system boots, and the post-boot configuration checks pass.
 
-<!-- fact: verification-current -->
+Installing onto a disk has cluster and single-machine records across ext4, xfs, btrfs, f2fs, ZFS, LVM, mdraid and LUKS2, on both firmwares and both init systems. Converting a running system in place has two records, both from QEMU and both BIOS. Booting into RAM to install or to write an image is designed and has no record at all.
 
-Revision-tagged end-to-end records dated 2026-08-11 cover one installation and boot from each of Arch Linux, openSUSE, Debian, Fedora and a self-built gentoo-cjk minimal ISO. The records cover installer revision [`b931ef46fc15ed50385f70467f2bfb0a8d1fd154`](https://github.com/Zakkaus/gentoo-install/commit/b931ef46fc15ed50385f70467f2bfb0a8d1fd154). The gentoo-cjk record uses ZFS and ZFSBootMenu; the other four use ext4. A run counts as current evidence only when its recorded revision matches the installer, its installation exit code is `0`, the installed system boots and the post-boot configuration checks pass.
-
-Revision-tagged cluster records dated 2026-08-16 cover installer revision [`a8bf2f3837b6`](https://github.com/Zakkaus/gentoo-install/commit/a8bf2f3837b6) on the amd64 Gentoo minimal ISO: `vm-luks`, `vm-mdraid`, `vm-xfs`, `vm-btrfs` and `vm-f2fs` each installed, booted and answered every post-boot configuration check. `vm-lvm` did so at revision `073997aa74d2`.
-
-Further cluster records dated 2026-08-17 cover `openrc-sdboot` at `40ea3d90f1cc`; `vm-binpkg`, `vm-btrfs`, `vm-desktop` and `vm-gnome` at `6ba5530fd3c8`; `vm-xfs` at `304dffa41602`; and `vm-f2fs`, `vm-mdraid`, `vm-proxy-dead`, `vm-xfs` and `vm-zram` at `7ac43a1d5050`. Records at `d2bed50eed48` add `vm-lvm`, `vm-sdboot` and `vm-unlock`, the first cluster record of the initramfs SSH unlock. Records at [`7cf09c2f9d9c`](https://github.com/Zakkaus/gentoo-install/commit/7cf09c2f9d9c) add `vm-btrfs`, `vm-binpkg` and `vm-luks`.
-
-Records of the same date from a single machine running QEMU directly, rather than the cluster, cover the paths the cluster cannot drive. A BIOS guest on this cluster writes nothing to its serial port before the kernel starts, and neither a screenshot endpoint nor a way to pass firmware arguments is available to a non-root API token, so `vm-bios`, `vm-bios-luks`, `ext4-bios` and `mbr-edit` are recorded at `304dffa41602` from QEMU. `zfs-zbm`, `vm-proxy` and `vm-proxy-http` are recorded at `15d45598637a` the same way: the proxy fixtures reach a proxy on the host through QEMU's user-mode network, which a bridged cluster guest does not have.
-
-The in-place conversion has two end-to-end records, both from QEMU on a single machine rather than the cluster. At [`bcc090fab621`](https://github.com/Zakkaus/gentoo-install/commit/bcc090fab621) a Debian 12 genericcloud image with an ext4 root on a partition was converted and booted as Gentoo; at [`71e751cf14a1`](https://github.com/Zakkaus/gentoo-install/commit/71e751cf14a1) an Arch Linux cloud image with a btrfs root did the same, and its `/swap/swapfile` line was carried into the new fstab. Both answered `6.18.43-gentoo-dist-bin` to `uname -r`, had `emerge` and neither distribution's package manager, kept the same root device, and kept the run's log in `/var/log/gentoo-install`. Both records are BIOS. UEFI, a btrfs subvolume root and the `vm-convert` cluster fixture remain unverified.
-
-Other implemented combinations remain unverified end to end. Current evidence does not cover greetd desktop sessions or ibus outside GNOME. It also does not cover the official Gentoo minimal ISO or Gig-OS live media, or binary-host failure fallback.
-
-The Alpine live medium is covered on both firmwares. At [`0827931289d0`](https://github.com/Zakkaus/gentoo-install/commit/0827931289d0) `alpine-standard-3.24.1` installed a UEFI systemd machine, 56 operations with 57 packages from a binary host and 12 compiled; at [`bc8ab3a0edcf`](https://github.com/Zakkaus/gentoo-install/commit/bc8ab3a0edcf) the same medium installed a BIOS OpenRC machine on ext4, 51 operations with 29 from a binary host and 51 compiled. Both reached a root shell on the serial console in 59 seconds, and both installed systems booted, mounted their layout and reported no failed unit.
-
-The proxy path has focused unit and plan coverage, including SOCKS5 DNS mode, redaction in dry-run output and published configuration, and the credential-free endpoint retained in the installed system. A revision-tagged cluster run covers the negative direction: the `vm-proxy-dead` fixture points the proxy at a port where nothing listens, and the install stops at the stage3 download with `Connection refused`, so a run that reached the mirror would show the proxy had been bypassed. 
-
-Two runs at revision `4d8512a496d` cover the positive direction: `vm-proxy` completes an installation through a SOCKS5 proxy that demands a password, and `vm-proxy-http` through an HTTP proxy, each writing 57 operations with 93 packages from a binary host and 14 compiled. An HTTP or HTTPS proxy that requires a password cannot check the tree snapshot's signature: `emerge-webrsync` hands gemato only the credential-free endpoint. dirmngr has no SOCKS support at all, so under SOCKS5 the key refresh needs a direct route to the keyserver.
-
-CJK text-console rendering has no current verification evidence. ext2 and ext3 additionally have no focused automated configuration test. Files under `tests/fixtures/` exercise the configuration model; their presence does not establish an end-to-end installation and boot result.
-
-<!-- fact: verification-network -->
-
-The IPv4-only, IPv6-only and dual-stack VM check stops before disk access. It checks address-family detection, `bootstrap.sh --missing-commands` and stage3 pointer retrieval; it does not verify stage3 download, repository synchronization, binhost access, package installation or a booted target system on those network modes.
+Files under `tests/fixtures/` exercise the configuration model; their presence establishes nothing about an installed machine.
 
 ## Requirements
 

@@ -54,35 +54,13 @@ gentoo-install은 Linux 라이브 환경에서 실행되어 amd64 아키텍처�
 
 ## 검증 상태
 
-<!-- fact: verification-history -->
+<!-- fact: verification-scope -->
 
-과거 엔드투엔드 기록은 amd64 Gentoo minimal ISO와 설치 도구 리비전 `a71f91b4735469bae8ec76af170201acb967a5fe` 및 `f7257793f95df4b21ebf2ac6a775a343f6205f1b`를 사용했다. 해당 기록은 일부 UEFI와 BIOS 설치, systemd, OpenRC, ext4, btrfs, xfs, LUKS2, LVM, mdraid, Plasma, 공식 binhost를 다뤘지만 이후 설치 경로가 변경되어 현재는 과거 증거로만 인정된다.
+[`TESTED.md`](TESTED.md)이 검증 기록이다. 실제로 수행한 경로마다 한 행이 있으며, 그것이 동작한 설치기 리비전과 동작한 장소를 적는다. 어떤 실행이 기록으로 인정되려면 기록된 리비전이 설치기와 일치하고, 설치 종료 코드가 `0`이며, 설치된 시스템이 부팅하고, 부팅 후 구성 점검이 모두 통과해야 한다.
 
-<!-- fact: verification-current -->
+디스크에 설치하는 경로에는 클러스터와 단일 기계의 기록이 있으며 ext4, xfs, btrfs, f2fs, ZFS, LVM, mdraid, LUKS2를 두 펌웨어와 두 init 시스템에서 다룬다. 동작 중인 시스템을 인플레이스로 변환하는 경로의 기록은 둘이고, 모두 QEMU에서 나왔으며 모두 BIOS이다. RAM으로 부팅한 뒤 설치하거나 이미지를 기록하는 경로는 설계만 되어 있고 기록이 없다.
 
-2026년 8월 11일 자 리비전 표기 엔드투엔드 기록은 Arch Linux, openSUSE, Debian, Fedora, 자체 빌드한 gentoo-cjk minimal ISO에서 각각 한 번 설치하고 부팅한 결과를 다룬다. 이 기록은 설치 도구 리비전 [`b931ef46fc15ed50385f70467f2bfb0a8d1fd154`](https://github.com/Zakkaus/gentoo-install/commit/b931ef46fc15ed50385f70467f2bfb0a8d1fd154)을 대상으로 한다. gentoo-cjk 기록은 ZFS와 ZFSBootMenu를 사용하며, 나머지 네 건은 ext4를 사용한다. 기록된 리비전이 설치 도구와 일치하고 설치 종료 코드가 `0`이며 설치한 시스템이 부팅되고 부팅 후 설정 검사를 통과한 실행만 현재 증거로 인정된다.
-
-2026년 8월 16일 자 클러스터 기록은 설치 도구 리비전 [`a8bf2f3837b6`](https://github.com/Zakkaus/gentoo-install/commit/a8bf2f3837b6)을 대상으로 하며, amd64 Gentoo minimal ISO에서 `vm-luks`, `vm-mdraid`, `vm-xfs`, `vm-btrfs`, `vm-f2fs` 다섯 건이 각각 설치와 부팅을 마치고 부팅 후 설정 검사를 모두 통과했다. `vm-lvm`은 리비전 `073997aa74d2`에서 같은 검사를 통과했다.
-
-2026-08-17 클러스터 기록은 다음을 추가로 다룬다. `openrc-sdboot`는 리비전 `40ea3d90f1cc`, `vm-binpkg`, `vm-btrfs`, `vm-desktop`, `vm-gnome`은 `6ba5530fd3c8`, `vm-xfs`는 `304dffa41602`, `vm-f2fs`, `vm-mdraid`, `vm-proxy-dead`, `vm-xfs`, `vm-zram`은 `7ac43a1d5050`이다. `d2bed50eed48` 기록은 `vm-lvm`, `vm-sdboot`, `vm-unlock`을 추가한다. `vm-unlock`은 initramfs SSH 잠금 해제에 대한 첫 클러스터 기록이다. 리비전 [`7cf09c2f9d9c`](https://github.com/Zakkaus/gentoo-install/commit/7cf09c2f9d9c) 기록은 `vm-btrfs`, `vm-binpkg`, `vm-luks`를 추가한다.
-
-같은 날짜로 클러스터가 아니라 단일 machine에서 QEMU를 직접 실행한 기록도 있으며, 클러스터가 구동할 수 없는 경로를 다룬다. 클러스터의 BIOS 게스트는 커널이 시작하기 전까지 직렬 포트에 아무것도 출력하지 않고, root가 아닌 API 토큰으로는 스크린샷 엔드포인트도 펌웨어 인자 전달도 사용할 수 없다. 따라서 `vm-bios`, `vm-bios-luks`, `ext4-bios`, `mbr-edit`는 `304dffa41602`에서 QEMU로 기록했다. `zfs-zbm`, `vm-proxy`, `vm-proxy-http`는 `15d45598637a`에서 같은 방식이다. 프록시 fixture는 QEMU의 user-mode 네트워크를 통해 호스트의 프록시에 연결하는데, 브리지로 연결된 클러스터 게스트에는 그 주소가 없다.
-
-인플레이스 변환에는 엔드투엔드 기록이 둘 있으며, 모두 클러스터가 아니라 단일 기계의 QEMU에서 나왔다. 리비전 [`bcc090fab621`](https://github.com/Zakkaus/gentoo-install/commit/bcc090fab621)은 파티션 위에 ext4 루트를 둔 Debian 12 genericcloud 이미지이고, 리비전 [`71e751cf14a1`](https://github.com/Zakkaus/gentoo-install/commit/71e751cf14a1)은 btrfs 루트를 둔 Arch Linux 클라우드 이미지이며, 후자에서는 `/swap/swapfile` 줄이 새 fstab으로 옮겨졌다. 둘 다 `uname -r`가 `6.18.43-gentoo-dist-bin`을 보고했고, `emerge`가 존재했으며, 원래 배포판의 패키지 관리자는 존재하지 않았고, 루트 장치는 그대로였으며, 실행 기록은 `/var/log/gentoo-install`에 보관되었다. 두 기록 모두 BIOS이다. UEFI, btrfs 서브볼륨 위의 루트, `vm-convert` 클러스터 픽스처는 검증되지 않았다.
-
-그 밖의 구현된 조합은 엔드투엔드 검증을 거치지 않았다. 현재 증거는 greetd 데스크톱 세션, GNOME 외부의 ibus를 다루지 않는다. 공식 Gentoo minimal ISO 또는 Gig-OS 라이브 미디어, binhost 장애 시 전환도 다루지 않는다. 
-
-Alpine 라이브 미디어는 두 펌웨어 모두에서 증거가 있다. 리비전 [`0827931289d0`](https://github.com/Zakkaus/gentoo-install/commit/0827931289d0)에서 `alpine-standard-3.24.1`은 UEFI systemd 기계를 설치했고, 56개 동작과 바이너리 호스트에서 가져온 57개 패키지 및 12개 컴파일을 기록했다. 리비전 [`bc8ab3a0edcf`](https://github.com/Zakkaus/gentoo-install/commit/bc8ab3a0edcf)에서는 같은 미디어가 ext4 루트의 BIOS OpenRC 기계를 설치했고, 51개 동작과 바이너리 호스트에서 가져온 29개 및 51개 컴파일을 기록했다. 두 경우 모두 직렬 콘솔에서 59초 안에 root 셸에 도달했고, 설치된 시스템은 부팅하여 레이아웃을 마운트했고 실패한 유닛은 없었다.
-
-프록시 경로에는 SOCKS5 DNS 모드, dry-run 출력과 공개 설정의 인증 정보 제거, 설치된 시스템에 남는 인증 정보 없는 엔드포인트를 다루는 단위 테스트와 plan 테스트가 있다. 리비전이 기록된 클러스터 실행이 역방향을 뒷받침한다. `vm-proxy-dead` 픽스처는 수신 대기가 없는 포트를 프록시로 지정하며, 설치는 stage3 내려받기 단계에서 `Connection refused`로 중단된다. 미러에 도달하는 실행은 프록시가 우회되었음을 뜻한다. 
-
-리비전 `4d8512a496d`의 두 실행이 순방향을 뒷받침한다. `vm-proxy`는 비밀번호를 요구하는 SOCKS5 프록시를 통해 설치를 마치고, `vm-proxy-http`는 HTTP 프록시를 통해 마친다. 둘 다 57개의 작업을 기록하며 93개 패키지는 바이너리 호스트에서 오고 14개는 소스에서 빌드된다. 비밀번호를 요구하는 HTTP 또는 HTTPS 프록시로는 메인 트리 스냅숏의 서명을 검증할 수 없다. `emerge-webrsync`가 gemato에 넘기는 것은 인증 정보가 없는 엔드포인트뿐이기 때문이다. dirmngr는 SOCKS를 전혀 지원하지 않으므로 SOCKS5에서는 키 갱신에 keyserver로의 직접 경로가 필요하다.
-
-CJK 텍스트 콘솔 표시에도 현재 검증 증거가 없다. ext2와 ext3에는 해당 설정을 다루는 자동화 테스트도 없다. `tests/fixtures/`의 파일은 설정 모델만 검증하며 해당 조합의 설치와 부팅을 입증하지 않는다.
-
-<!-- fact: verification-network -->
-
-IPv4 전용, IPv6 전용, 듀얼 스택 VM 검사는 디스크에 접근하기 전에 끝난다. 이 검사는 주소 계열 감지, `bootstrap.sh --missing-commands`, stage3 pointer 가져오기만 확인한다. stage3 다운로드, 저장소 동기화, binhost 접근, 패키지 설치, 대상 시스템 부팅은 검증하지 않는다.
+`tests/fixtures/` 아래의 파일이 다루는 것은 구성 모델이며, 그 존재는 설치된 기계에 대해 아무것도 입증하지 않는다.
 
 ## 요구 사항
 
