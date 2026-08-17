@@ -9,6 +9,7 @@ of these was true when it was written and each one drifted once.
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 from typing import Final
 
@@ -190,3 +191,72 @@ def test_no_source_file_uses_a_banned_filler_word() -> None:
             if pattern.search(line):
                 found.append(f"{path.relative_to(root)}:{number} {line.strip()[:60]}")
     assert found == [], found
+
+
+#: The one hit `AGENTS.md` allows outside the catalogs. The console pattern
+#: has to match text a localized system emits.
+CJK_EXCEPTIONS: Final[frozenset[str]] = frozenset({"tests/vm/console.py"})
+
+#: Written as escapes, not as a literal range: this file is scanned too.
+WIDE: Final[re.Pattern[str]] = re.compile("[\u4e00-\u9fff]")
+
+
+def _wide_character_scan() -> tuple[list[str], list[str]]:
+    """Return the offending `path:line` list and every path that was read.
+
+    Both are returned from one walk so that a test can hold the denominator.
+    A scan that stops reading files reports no offenders, and a separate
+    file count would not notice.
+    """
+    root = PACKAGE.parent
+    offenders: list[str] = []
+    scanned: list[str] = []
+    for pattern in ("*.py", "*.toml"):
+        for path in sorted(root.rglob(pattern)):
+            where = str(path.relative_to(root))
+            if "/.git/" in f"/{where}" or "__pycache__" in where:
+                continue
+            body = path.read_text()
+            scanned.append(where)
+            if where.startswith("gentoo_install/data/locale/") or where in CJK_EXCEPTIONS:
+                continue
+            for number, line in enumerate(body.splitlines(), 1):
+                if WIDE.search(line):
+                    offenders.append(f"{where}:{number}")
+    return offenders, scanned
+
+
+def test_no_wide_character_is_written_into_code_or_a_data_file() -> None:
+    """`AGENTS.md` carries this as a grep and nothing ran it, so one line of
+    Chinese sat in a docstring in `tests/unit/test_plan_convert.py` and was
+    found by a review rather than by the suite. A comment nobody on the
+    project can read splits one codebase into two languages; a test needing a
+    wide character writes it as a codepoint escape.
+    """
+    offenders, _ = _wide_character_scan()
+    assert not offenders, offenders
+
+
+def test_the_wide_character_scan_reaches_the_files_it_claims_to() -> None:
+    """The denominator, read from the same walk as the offender list. Every
+    excepted path is named by a file that was actually read and does carry a
+    wide character, so an exception that stopped being needed fails here
+    rather than sitting as dead weight.
+    """
+    offenders, scanned = _wide_character_scan()
+    assert not offenders, offenders
+
+    root = PACKAGE.parent
+    assert sum(1 for one in scanned if one.endswith(".py")) > 100, len(scanned)
+    assert sum(1 for one in scanned if one.endswith(".toml")) > 30, len(scanned)
+    assert "tests/unit/test_layers.py" in scanned
+
+    for where in CJK_EXCEPTIONS:
+        assert where in scanned, where
+        assert WIDE.search((root / where).read_text()), where
+
+    catalogs = [one for one in scanned if one.startswith("gentoo_install/data/locale/")]
+    assert catalogs, scanned[:5]
+    # Not every catalog: `ko.toml` is hangul throughout and carries no hanja,
+    # so requiring one per file would fail on a correct translation.
+    assert [one for one in catalogs if WIDE.search((root / one).read_text())], catalogs
