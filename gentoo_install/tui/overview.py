@@ -30,6 +30,15 @@ def _counted(operations: Sequence[Operation], translate: Catalog) -> str:
     )
 
 
+def _operation_label(operation: Operation, translate: Catalog) -> str:
+    """Return an operation label, including older descriptions without parts."""
+    parts = operation.describe_parts()
+    if parts is None:
+        return operation.describe()
+    template, values = parts
+    return translate(template).format(*values)
+
+
 def overview_screen(
     screen: Screen, config: InstallConfig, context: Context
 ) -> Answer[InstallConfig]:
@@ -70,7 +79,9 @@ def overview_screen(
             for one in given
         ]
     items.append(Item(label=f"— {translate('Operations')} —", value=0))
-    items += [Item(label=operation.describe(), value=0) for operation in operations]
+    items += [
+        Item(label=_operation_label(one, translate), value=0) for one in operations
+    ]
     items.insert(
         0,
         Item(

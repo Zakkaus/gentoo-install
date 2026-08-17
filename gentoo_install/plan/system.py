@@ -75,8 +75,8 @@ class WriteProxyEnvironment(Operation):
     stage: Stage = Stage.SYSTEM
     proxy: ProxyConfig
 
-    def describe(self) -> str:
-        return f"keep proxy environment for {self.proxy.redacted_url} in the installed system"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "keep proxy environment for {} in the installed system", (self.proxy.redacted_url,)
 
     def apply(self, context: Context) -> None:
         # `/etc/environment` is replaced, not appended to, so a run with no
@@ -190,8 +190,8 @@ class GenerateLocales(Operation):
     stage: Stage = Stage.SYSTEM
     locales: tuple[str, ...]
 
-    def describe(self) -> str:
-        return f"generate and verify locales {', '.join(self.locales)}"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "generate and verify locales {}", (", ".join(self.locales),)
 
     def apply(self, context: Context) -> None:
         content = "".join(f"{locale} {_charmap(locale)}\n" for locale in self.locales)
@@ -226,8 +226,8 @@ class SelectLocale(Operation):
     locale: str
     init: InitSystem
 
-    def describe(self) -> str:
-        return f"set the system locale to {self.locale}"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "set the system locale to {}", (self.locale,)
 
     def apply(self, context: Context) -> None:
         if self.init is InitSystem.SYSTEMD:
@@ -242,8 +242,8 @@ class SetTimezone(Operation):
     stage: Stage = Stage.SYSTEM
     timezone: str
 
-    def describe(self) -> str:
-        return f"set the timezone to {self.timezone}"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "set the timezone to {}", (self.timezone,)
 
     def apply(self, context: Context) -> None:
         context.run_in_target(
@@ -262,8 +262,8 @@ class ConfigureConsole(Operation):
     font: str
     init: InitSystem
 
-    def describe(self) -> str:
-        return f"set the console keymap to {self.keymap} and its font to {self.font}"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "set the console keymap to {} and its font to {}", (self.keymap, self.font)
 
     def apply(self, context: Context) -> None:
         if self.init is InitSystem.SYSTEMD:
@@ -281,8 +281,8 @@ class SetHostname(Operation):
     hostname: str
     init: InitSystem
 
-    def describe(self) -> str:
-        return f"set the hostname to {self.hostname}"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "set the hostname to {}", (self.hostname,)
 
     def apply(self, context: Context) -> None:
         if self.init is InitSystem.SYSTEMD:
@@ -302,8 +302,8 @@ class WriteMachineId(Operation):
     stage: Stage = Stage.SYSTEM
     init: InitSystem
 
-    def describe(self) -> str:
-        return "give the target its own machine id"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "give the target its own machine id", ()
 
     def apply(self, context: Context) -> None:
         if self.init is InitSystem.SYSTEMD:
@@ -343,11 +343,11 @@ class WriteFstab(Operation):
     stage: Stage = Stage.SYSTEM
     entries: tuple[FstabEntry, ...]
 
-    def describe(self) -> str:
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
         mounts = ", ".join(
             "swap" if entry.kind == "swap" else str(entry.path) for entry in self.entries
         )
-        return f"write /etc/fstab with entries for {mounts}"
+        return "write /etc/fstab with entries for {}", (mounts,)
 
     def apply(self, context: Context) -> None:
         lines = ["# device\tmountpoint\ttype\toptions\tdump\tpass"]
@@ -387,12 +387,12 @@ class WriteCrypttab(Operation):
     entries: tuple[CrypttabEntry, ...]
     init: InitSystem
 
-    def describe(self) -> str:
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
         where = "/etc/crypttab" if self.init is InitSystem.SYSTEMD else "/etc/conf.d/dmcrypt"
         written = self._written()
         if not written:
-            return f"write {where} empty: the initramfs opens every encrypted device"
-        return f"write {where} for {', '.join(entry.name for entry in written)}"
+            return "write {} empty: the initramfs opens every encrypted device", (where,)
+        return "write {} for {}", (where, ", ".join(entry.name for entry in written))
 
     def _written(self) -> tuple[CrypttabEntry, ...]:
         """openrc's dmcrypt does not open what the initramfs already did, so a
@@ -430,9 +430,11 @@ class CreateUser(Operation):
     shell: str
     password_hash: str
 
-    def describe(self) -> str:
-        locked = "no password" if not self.password_hash else "a password"
-        return f"create user {self.name} in {', '.join(self.groups)} with {locked}"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        groups = ", ".join(self.groups)
+        if self.password_hash:
+            return "create user {} in {} with a password", (self.name, groups)
+        return "create user {} in {} with no password", (self.name, groups)
 
     def apply(self, context: Context) -> None:
         context.run_in_target(
@@ -452,8 +454,12 @@ class SetRootPassword(Operation):
     stage: Stage = Stage.SYSTEM
     password_hash: str
 
-    def describe(self) -> str:
-        return "set the root password" if self.password_hash else "lock the root account"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return (
+            ("set the root password", ())
+            if self.password_hash
+            else ("lock the root account", ())
+        )
 
     def apply(self, context: Context) -> None:
         _set_password(context, "root", self.password_hash)
@@ -463,8 +469,8 @@ class SetRootPassword(Operation):
 class GrantSudo(Operation):
     stage: Stage = Stage.SYSTEM
 
-    def describe(self) -> str:
-        return "let the wheel group run sudo, with a password"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "let the wheel group run sudo, with a password", ()
 
     def apply(self, context: Context) -> None:
         context.write(
@@ -479,8 +485,8 @@ class RequestNetworkUse(Operation):
     stage: Stage = Stage.PORTAGE
     lines: tuple[str, ...]
 
-    def describe(self) -> str:
-        return f"ask for {'; '.join(self.lines)}"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "ask for {}", ("; ".join(self.lines),)
 
     def apply(self, context: Context) -> None:
         WritePortageConfig(
@@ -509,8 +515,8 @@ class LinkResolvConf(Operation):
     stage: Stage = Stage.FINISH
     init: InitSystem
 
-    def describe(self) -> str:
-        return "point /etc/resolv.conf at systemd-resolved rather than the install medium's"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "point /etc/resolv.conf at systemd-resolved rather than the install medium's", ()
 
     def apply(self, context: Context) -> None:
         context.run_in_target(
@@ -543,18 +549,28 @@ class WriteNetworkConfig(Operation):
     gateways: tuple[str, ...] = ()
     dns: tuple[str, ...] = ()
 
-    def describe(self) -> str:
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
         config = NETWORK_BACKENDS[self.networking].for_init(self.init).config
         if config is NetworkConfig.NONE:
-            return "leave the network unconfigured"
-        where = self.interface or "the wired interface"
+            return "leave the network unconfigured", ()
         if config is NetworkConfig.NETWORKMANAGER:
             if not self.addresses:
-                return f"leave the interfaces to NetworkManager ({self.networking.value})"
-            return f"write a NetworkManager profile for {where} as {', '.join(self.addresses)}"
+                return "leave the interfaces to NetworkManager ({})", (self.networking.value,)
+            if self.interface:
+                return "write a NetworkManager profile for {} as {}", (
+                    self.interface,
+                    ", ".join(self.addresses),
+                )
+            return "write a NetworkManager profile for the wired interface as {}", (
+                ", ".join(self.addresses),
+            )
         if self.addresses:
-            return f"configure {where} as {', '.join(self.addresses)}"
-        return f"configure {where} for DHCP"
+            if self.interface:
+                return "configure {} as {}", (self.interface, ", ".join(self.addresses))
+            return "configure the wired interface as {}", (", ".join(self.addresses),)
+        if self.interface:
+            return "configure {} for DHCP", (self.interface,)
+        return "configure the wired interface for DHCP", ()
 
     def apply(self, context: Context) -> None:
         config = NETWORK_BACKENDS[self.networking].for_init(self.init).config
@@ -647,8 +663,8 @@ class LinkNetifrcService(Operation):
     stage: Stage = Stage.SYSTEM
     interface: str
 
-    def describe(self) -> str:
-        return f"enable net.{self.interface} so netifrc applies the static address"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "enable net.{} so netifrc applies the static address", (self.interface,)
 
     def apply(self, context: Context) -> None:
         service = f"net.{self.interface}"
@@ -673,9 +689,9 @@ class WriteAuthorizedKeys(Operation):
     #: happen.
     accounts: tuple[tuple[str, str], ...]
 
-    def describe(self) -> str:
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
         who = ", ".join(name for name, _ in self.accounts)
-        return f"authorise {len(self.keys)} ssh key(s) for {who}"
+        return "authorise {} ssh key(s) for {}", (str(len(self.keys)), who)
 
     def apply(self, context: Context) -> None:
         body = "".join(f"{key}\n" for key in self.keys)
@@ -699,9 +715,14 @@ class WriteSshdConfig(Operation):
     password_login: bool
     root_login: bool
 
-    def describe(self) -> str:
-        password = "on" if self.password_login else "off"
-        return f"ssh password login: {password}, root: {'on' if self.root_login else 'off'}"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        if self.password_login:
+            if self.root_login:
+                return "ssh password login: on, root: on", ()
+            return "ssh password login: on, root: off", ()
+        if self.root_login:
+            return "ssh password login: off, root: on", ()
+        return "ssh password login: off, root: off", ()
 
     def apply(self, context: Context) -> None:
         answer = "yes" if self.password_login else "no"
@@ -736,8 +757,8 @@ class EnableSerialGetty(Operation):
     port: str
     baud: int
 
-    def describe(self) -> str:
-        return f"start a login on {self.port} at {self.baud} baud"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "start a login on {} at {} baud", (self.port, str(self.baud))
 
     def apply(self, context: Context) -> None:
         # The id field takes at most four characters, so sysvinit drops a
@@ -763,8 +784,8 @@ class ConfigureZram(Operation):
     size: Size
     init: InitSystem
 
-    def describe(self) -> str:
-        return f"configure {self.size} of compressed swap in memory"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "configure {} of compressed swap in memory", (str(self.size),)
 
     def apply(self, context: Context) -> None:
         if self.init is InitSystem.SYSTEMD:
@@ -795,9 +816,9 @@ class WriteMdadmConf(Operation):
     stage: Stage = Stage.SYSTEM
     arrays: tuple[MdRaid, ...]
 
-    def describe(self) -> str:
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
         paths = ", ".join(f"/dev/md/{array.name}" for array in self.arrays)
-        return f"write /etc/mdadm.conf for {paths}"
+        return "write /etc/mdadm.conf for {}", (paths,)
 
     def apply(self, context: Context) -> None:
         definitions = "".join(
@@ -819,8 +840,12 @@ class SetHardwareClock(Operation):
     utc: bool
     init: InitSystem
 
-    def describe(self) -> str:
-        return f"treat the hardware clock as {'UTC' if self.utc else 'local time'}"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return (
+            ("treat the hardware clock as UTC", ())
+            if self.utc
+            else ("treat the hardware clock as local time", ())
+        )
 
     def apply(self, context: Context) -> None:
         if self.init is InitSystem.OPENRC:
@@ -870,13 +895,20 @@ class WriteFirstBoot(Operation):
     url: str
     init: InitSystem
 
-    def describe(self) -> str:
-        parts = []
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        if self.url and self.commands:
+            return (
+                "run a script from {} and {} commands once, the first time the system boots",
+                (self.url, str(len(self.commands))),
+            )
         if self.url:
-            parts.append(f"a script from {self.url}")
+            return "run a script from {} once, the first time the system boots", (self.url,)
         if self.commands:
-            parts.append(f"{len(self.commands)} commands")
-        return f"run {' and '.join(parts)} once, the first time the system boots"
+            return (
+                "run {} commands once, the first time the system boots",
+                (str(len(self.commands)),),
+            )
+        return "run  once, the first time the system boots", ()
 
     def apply(self, context: Context) -> None:
         fetched = context.fetch_text(self.url) if self.url else ""
@@ -937,9 +969,10 @@ class GenerateHostKeys(Operation):
     stage: Stage = Stage.SYSTEM
     remote_unlock: bool = False
 
-    def describe(self) -> str:
-        wanted = " so the initramfs and sshd present the same host" if self.remote_unlock else ""
-        return f"generate the ssh host keys{wanted}"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        if self.remote_unlock:
+            return "generate the ssh host keys so the initramfs and sshd present the same host", ()
+        return "generate the ssh host keys", ()
 
     def apply(self, context: Context) -> None:
         # `-A` makes only what is missing, so a resumed run leaves the keys a
@@ -957,10 +990,10 @@ class EnableService(Operation):
     init: InitSystem
     runlevel: str = "default"
 
-    def describe(self) -> str:
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
         if self.init is InitSystem.SYSTEMD:
-            return f"enable {self.service} at boot"
-        return f"enable {self.service} in the {self.runlevel} runlevel"
+            return "enable {} at boot", (self.service,)
+        return "enable {} in the {} runlevel", (self.service, self.runlevel)
 
     def apply(self, context: Context) -> None:
         if self.init is InitSystem.SYSTEMD:
