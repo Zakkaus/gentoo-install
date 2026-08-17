@@ -144,12 +144,22 @@ _NOTHING: Final[_Nothing] = _Nothing()
 
 
 def _disk(config: InstallConfig) -> list[str]:
+    disk = config.disk
     lines = ["", "[disk]"]
-    if config.disk.mode is not DiskMode.PARTITION:
-        lines.append(f'mode = "{config.disk.mode.value}"')
+    if disk.mode is DiskMode.IN_PLACE:
+        lines.append(f'mode = "{disk.mode.value}"')
         return lines
-    lines.append(f'root = "{config.disk.root}"')
-    for node in config.disk.graph.nodes.values():
+    if disk.mode is DiskMode.IMAGE:
+        lines += [
+            f'mode = "{disk.mode.value}"',
+            f'image = {_value(disk.image)}',
+            f"size = {_value(disk.size)}" if disk.size is not None else "",
+        ]
+        if disk.wipe:
+            lines.append("wipe = true")
+        lines = [line for line in lines if line]
+    lines.append(f'root = "{disk.root}"')
+    for node in disk.graph.nodes.values():
         kind = KINDS.get(type(node))
         if kind is None:
             raise KeyError(f"{type(node).__name__} has no kind to write it as")

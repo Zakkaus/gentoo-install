@@ -35,6 +35,7 @@ PERSISTED_SECTIONS: Final[tuple[str, ...]] = (
 class DiskMode(Enum):
     PARTITION = "partition"
     IN_PLACE = "in-place"
+    IMAGE = "image"
 
 
 class InitSystem(Enum):
@@ -429,6 +430,10 @@ class DiskConfig:
     #: Empty means the running layout supplies the root.
     root: DeviceId
     mode: DiskMode = DiskMode.PARTITION
+    #: The sparse file attached as the graph's disk in image mode.
+    image: str = ""
+    size: Size | None = None
+    wipe: bool = False
 
 
 @dataclass(frozen=True)

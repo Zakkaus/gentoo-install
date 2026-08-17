@@ -319,16 +319,19 @@ def _packages(raw: Mapping[str, Any], at: str) -> PackagesConfig:
     )
 
 def _disk(raw: Mapping[str, Any], at: str) -> DiskConfig:
-    _reject_unknown(raw, at, {"root", "devices", "mode"})
+    _reject_unknown(raw, at, {"root", "devices", "mode", "image", "size", "wipe"})
     mode = _enum(raw, "mode", at, DiskMode, DiskMode.PARTITION)
     devices = _tables(raw, "devices", at)
     nodes = [_node(entry, f"{at}.devices[{n}]") for n, entry in enumerate(devices)]
-    if mode is DiskMode.PARTITION and not nodes:
+    if mode in (DiskMode.PARTITION, DiskMode.IMAGE) and not nodes:
         raise ConfigError(f"{at}.devices is empty; nothing to install onto")
     return DiskConfig(
         graph=DeviceGraph.build(nodes),
         root=DeviceId(_str(raw, "root", at)),
         mode=mode,
+        image=_str(raw, "image", at),
+        size=_size(raw, "size", at),
+        wipe=_bool(raw, "wipe", at, False),
     )
 
 def _node(raw: Mapping[str, Any], at: str) -> Node:

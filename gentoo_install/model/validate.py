@@ -187,7 +187,7 @@ def validate(
 ) -> None:
     address_facts = _derive_address_facts(config)
     graph_problems: list[str] = []
-    if config.disk.mode is DiskMode.PARTITION:
+    if config.disk.mode in (DiskMode.PARTITION, DiskMode.IMAGE):
         graph_problems = [
             *_layout_problems(config),
             *compat.filesystem_label_problems(config),
@@ -222,6 +222,25 @@ def _disk_mode_problems(config: InstallConfig) -> list[str]:
     disk = config.disk
     if disk.mode is DiskMode.PARTITION:
         return []
+    if disk.mode is DiskMode.IMAGE:
+        image_problems: list[str] = []
+        if not disk.image:
+            image_problems.append("disk.image is required in image mode")
+        elif disk.image.startswith("/dev/"):
+            image_problems.append("disk.image must name a file rather than a physical disk")
+        if disk.size is None:
+            image_problems.append("disk.size is required in image mode")
+        for device in disk.graph.of_type(Existing):
+            if device.selector.startswith("/dev/"):
+                image_problems.append(
+                    f"disk.devices {device.id} selects a physical disk in image mode"
+                )
+            elif device.selector != disk.image:
+                image_problems.append(
+                    f"disk.devices {device.id} selects {device.selector!r} in image mode; "
+                    "use disk.image rather than a physical disk"
+                )
+        return image_problems
     problems: list[str] = []
     if disk.graph.nodes:
         problems.append("disk.devices is not allowed in in-place mode")

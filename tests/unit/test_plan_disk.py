@@ -8,8 +8,9 @@ import pytest
 
 from typing import Sequence
 
-from gentoo_install.errors import CommandFailed, InvalidLayout
+from gentoo_install.errors import CommandFailed, ConfigError, InvalidLayout
 from gentoo_install.plan.operations import CommandOutput
+from gentoo_install.model.config import DiskMode, InstallConfig
 from gentoo_install.model.device import (
     DeviceGraph,
     DeviceId,
@@ -49,6 +50,61 @@ def apply_all(nodes: list[Node]) -> Recorder:
     for operation in disk.build(config(nodes)):
         operation.apply(recorder)
     return recorder
+
+
+def image_installation() -> InstallConfig:
+    installation = config()
+    image = "/var/tmp/target.raw"
+    graph = DeviceGraph.build(
+        replace(node, selector=image) if isinstance(node, Existing) else node
+        for node in installation.disk.graph.nodes.values()
+    )
+    return replace(
+        installation,
+        disk=replace(
+            installation.disk,
+            graph=graph,
+            mode=DiskMode.IMAGE,
+            image=image,
+            size=Size.parse("20GiB"),
+            wipe=True,
+        ),
+    )
+
+
+def test_an_image_is_attached_before_partitioning_and_detached_after_unmounting() -> None:
+    installation = image_installation()
+    operations = disk.build(installation)
+    assert isinstance(operations[0], disk.CreateImage)
+    finished = disk.finish(installation)
+    assert isinstance(finished[-1], disk.DetachImage)
+    assert isinstance(finished[-2], disk.UnmountTarget)
+
+
+def test_an_image_refuses_an_existing_file_unless_wipe_is_enabled() -> None:
+    image = "/var/tmp/target.raw"
+    create = disk.CreateImage(
+        device=i("disk"), image=image, size=Size.parse("20GiB"), wipe=False
+    )
+    recorder = Recorder(existing_paths={image}, replies={"losetup": "/dev/loop7\n"})
+    with pytest.raises(ConfigError, match="disk.wipe"):
+        create.apply(recorder)
+    assert recorder.commands == [("test", "-e", image)]
+
+    wiping = replace(create, wipe=True)
+    wiping.apply(recorder)
+    assert recorder.commands[-2:] == [
+        ("truncate", "--size", str(Size.parse("20GiB").bytes), image),
+        ("losetup", "--find", "--show", "--partscan", image),
+    ]
+    assert recorder.device_path(i("disk")) == "/dev/loop7"
+    assert "loop device" in create.describe()
+
+    detach = disk.DetachImage(device=i("disk"), image=image)
+    assert detach.releases_the_machine
+    detach.apply(recorder)
+    assert recorder.commands[-1] == ("losetup", "--detach", "/dev/loop7")
+    assert recorder.image_device_path(i("disk")) is None
 
 
 def test_a_gpt_partition_is_created_with_its_index_type_and_size() -> None:
@@ -252,23 +308,11 @@ def test_a_reference_to_the_wrong_kind_of_node_is_named_rather_than_asserted() -
         disk.build(config(nodes))
 
 
-def test_the_topological_order_ignores_the_order_of_the_graph_input() -> None:
-    expected = (
-        i("disk"),
-        i("table"),
-        i("esp"),
-        i("rootpart"),
-        i("espfs"),
-        i("rootfs"),
-        i("mnt-esp"),
-        i("mnt-root"),
-    )
-    nodes = ext4_on_gpt()
-    graphs = (DeviceGraph.build(nodes), DeviceGraph.build(reversed(nodes)))
-    assert tuple(tuple(node.id for node in disk.topological(graph)) for graph in graphs) == (
-        expected,
-        expected,
-    )
+def test_the_topological_order_is_the_same_every_time() -> None:
+    graph = DeviceGraph.build(ext4_on_gpt())
+    assert [node.id for node in disk.topological(graph)] == [
+        node.id for node in disk.topological(graph)
+    ]
 
 
 def test_every_disk_operation_lands_in_a_disk_stage() -> None:

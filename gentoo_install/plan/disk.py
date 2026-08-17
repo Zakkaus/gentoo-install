@@ -11,10 +11,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import Callable, Final, cast
+from typing import Callable, Final, Protocol, cast
 
-from ..errors import CommandFailed, InvalidLayout
-from ..model.config import InstallConfig
+from ..errors import CommandFailed, ConfigError, InvalidLayout
+from ..model.config import DiskMode, InstallConfig
 from ..model.device import (
     DeviceGraph,
     DeviceId,
@@ -142,6 +142,73 @@ class ReleaseTarget(Operation):
             # check=False throughout: none of these existing is the normal case
             # on a first run.
             context.run(list(argv), check=False)
+
+
+class _ImageContext(Protocol):
+    def remember_image_device(self, device: DeviceId, path: str) -> None: ...
+
+    def image_device_path(self, device: DeviceId) -> str | None: ...
+
+    def release_image_device(self, device: DeviceId) -> None: ...
+
+
+@dataclass(frozen=True, kw_only=True)
+class CreateImage(Operation):
+    """Create a sparse file and attach it as the graph's whole disk."""
+
+    stage: Stage = Stage.PARTITION
+    host_commands = ("test", "truncate", "losetup")
+    device: DeviceId
+    image: str
+    size: Size
+    wipe: bool
+
+    @property
+    def survives_a_reboot(self) -> bool:
+        return False
+
+    def describe(self) -> str:
+        return f"create a {self.size} sparse image at {self.image} and attach it as a loop device"
+
+    def apply(self, context: Context) -> None:
+        if not self.wipe:
+            exists = context.run(["test", "-e", self.image], check=False)
+            if not isinstance(exists, CommandOutput):
+                raise CommandFailed(f"cannot determine whether {self.image} already exists")
+            if exists.returncode == 0:
+                raise ConfigError(f"{self.image} already exists; set disk.wipe = true to overwrite it")
+            if exists.returncode != 1:
+                raise CommandFailed(f"cannot determine whether {self.image} already exists")
+        context.run(["truncate", "--size", str(self.size.bytes), self.image])
+        loop = context.run(["losetup", "--find", "--show", "--partscan", self.image]).strip()
+        if not loop:
+            raise CommandFailed(f"losetup attached {self.image} but returned no loop device")
+        cast(_ImageContext, context).remember_image_device(self.device, loop)
+
+
+@dataclass(frozen=True, kw_only=True)
+class DetachImage(Operation):
+    """Detach the loop device attached for an image installation."""
+
+    stage: Stage = Stage.FINISH
+    host_commands = ("losetup",)
+    device: DeviceId
+    image: str
+
+    @property
+    def releases_the_machine(self) -> bool:
+        return True
+
+    def describe(self) -> str:
+        return f"detach the loop device for image {self.image}"
+
+    def apply(self, context: Context) -> None:
+        image_context = cast(_ImageContext, context)
+        loop = image_context.image_device_path(self.device)
+        if loop is None:
+            return
+        context.run(["losetup", "--detach", loop])
+        image_context.release_image_device(self.device)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -899,11 +966,14 @@ class UnmountTarget(Operation):
 
 
 def finish(config: InstallConfig) -> list[Operation]:
-    return [
+    operations: list[Operation] = [
         # Before the unmount, which is the last chance to write to the target.
         DiscardStage3(),
         UnmountTarget(pools=tuple(pool.name for pool in config.disk.graph.of_type(ZfsPool))),
     ]
+    if config.disk.mode is DiskMode.IMAGE:
+        operations.append(DetachImage(device=_image_device(config), image=config.disk.image))
+    return operations
 
 
 def build(
@@ -911,9 +981,20 @@ def build(
 ) -> list[Operation]:
     graph = config.disk.graph
     facts = storage_facts if storage_facts is not None else StorageFacts()
-    operations: list[Operation] = [
-        ReleaseTarget(steps=_teardown(graph))
-    ]
+    operations: list[Operation] = []
+    if config.disk.mode is DiskMode.IMAGE:
+        image_size = config.disk.size
+        if image_size is None:
+            raise InvalidLayout("image mode has no image size")
+        operations.append(
+            CreateImage(
+                device=_image_device(config),
+                image=config.disk.image,
+                size=image_size,
+                wipe=config.disk.wipe,
+            )
+        )
+    operations.append(ReleaseTarget(steps=_teardown(graph)))
     mounts: list[Operation] = []
     for node in topological(graph):
         for operation in _operations_for(graph, node, facts):
@@ -925,6 +1006,17 @@ def build(
     # Every partition exists before the first mkfs, so the stage decides here
     # too, not only once the whole plan is assembled.
     return sorted(operations, key=lambda operation: operation.stage.order)
+
+
+def _image_device(config: InstallConfig) -> DeviceId:
+    devices = tuple(
+        device.id
+        for device in config.disk.graph.of_type(Existing)
+        if device.selector == config.disk.image
+    )
+    if len(devices) != 1:
+        raise InvalidLayout("image mode needs exactly one Existing device selecting disk.image")
+    return devices[0]
 
 
 def topological(graph: DeviceGraph) -> tuple[Node, ...]:

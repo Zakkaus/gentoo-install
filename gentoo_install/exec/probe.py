@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import ClassVar, Final, Iterable, Mapping
 
 from ..errors import CommandFailed, DeviceNotFound
-from ..model.config import InstallConfig
+from ..model.config import DiskMode, InstallConfig
 from ..model.device import (
     DeviceGraph,
     DeviceId,
@@ -1296,6 +1296,8 @@ def _carried_timezones() -> tuple[str, ...]:
 
 def probe_storage_facts(config: InstallConfig, probe: Probe) -> StorageFacts:
     """Read runtime storage evidence once for validation and plan derivation."""
+    if config.disk.mode is DiskMode.IMAGE:
+        return StorageFacts()
     graph = config.disk.graph
     metadata = {
         one.id: probe.mdraid_metadata(one.selector) for one in graph.of_type(Existing)
