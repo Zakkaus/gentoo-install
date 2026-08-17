@@ -42,17 +42,22 @@ def only_python(tmp_path: Path) -> str:
     return str(directory)
 
 
-def run(tmp_path: Path, release: str, *arguments: str, path: str) -> str:
+def run(
+    tmp_path: Path, release: str, *arguments: str, path: str
+) -> subprocess.CompletedProcess[str]:
     """Drive the launcher with another distribution's /etc/os-release."""
     where = tmp_path / "os-release"
     where.write_text(release)
-    finished = subprocess.run(
+    return subprocess.run(
         [SHELL, str(LAUNCHER), *arguments],
         cwd=REPOSITORY,
         env={"OS_RELEASE": str(where), "PATH": path},
         capture_output=True,
         text=True,
     )
+
+
+def output(finished: subprocess.CompletedProcess[str]) -> str:
     return finished.stdout + finished.stderr
 
 
@@ -123,7 +128,9 @@ def test_each_live_system_gets_its_own_package_manager(
     tmp_path: Path, release: str, manager: str
 ) -> None:
     """With no python on PATH the launcher still has to say how to get one."""
-    said = run(tmp_path, release, path="/nonexistent")
+    finished = run(tmp_path, release, path="/nonexistent")
+    said = output(finished)
+    assert finished.returncode == 1
     assert "needs python 3.11 or newer" in said
     assert f"{manager} python3" in said
 
@@ -131,7 +138,7 @@ def test_each_live_system_gets_its_own_package_manager(
 def test_a_broken_path_still_reaches_the_message(tmp_path: Path) -> None:
     """`dirname` is on PATH too, so finding the script's own directory must not
     need it: the operator would otherwise get a shell error and no reason."""
-    said = run(tmp_path, "ID=debian\n", path="/nonexistent")
+    said = output(run(tmp_path, "ID=debian\n", path="/nonexistent"))
     assert "command not found" not in said
     assert "needs python 3.11" in said
 
@@ -141,8 +148,8 @@ def test_a_missing_tool_is_named_as_the_package_of_that_distribution(tmp_path: P
     comes from gdisk on Debian and from gptfdisk everywhere else."""
     arguments = ("--config", "tests/fixtures/vm-luks.toml")
     lean = only_python(tmp_path)
-    debian = run(tmp_path, "ID=debian\n", *arguments, path=lean)
-    arch = run(tmp_path, "ID=arch\n", *arguments, path=lean)
+    debian = output(run(tmp_path, "ID=debian\n", *arguments, path=lean))
+    arch = output(run(tmp_path, "ID=arch\n", *arguments, path=lean))
     assert "missing commands:" in debian
     assert "apt-get install -y" in debian and "gdisk" in debian
     assert "pacman" in arch and "gptfdisk" in arch
@@ -151,13 +158,13 @@ def test_a_missing_tool_is_named_as_the_package_of_that_distribution(tmp_path: P
 def test_a_package_is_never_named_twice(tmp_path: Path) -> None:
     """`btrfs` and `mkfs.btrfs` both come from btrfs-progs, and naming it twice
     reads as though it has to be installed twice."""
-    said = run(
+    said = output(run(
         tmp_path,
         "ID=arch\n",
         "--config",
         "tests/fixtures/vm-luks.toml",
         path=only_python(tmp_path),
-    )
+    ))
     listed = [line for line in said.splitlines() if line.startswith("run: ")]
     assert listed, said
     packages = listed[0].removeprefix("run: ").split()
@@ -168,7 +175,7 @@ def test_a_dry_run_needs_none_of_the_tools(tmp_path: Path) -> None:
     """It performs nothing, and refusing it on a machine without them takes
     away the one way to check a file before reaching the target. Found by
     running the launcher on the Live ISO, which ships no lvm."""
-    said = run(
+    finished = run(
         tmp_path,
         "ID=gentoo\n",
         "--config",
@@ -176,17 +183,21 @@ def test_a_dry_run_needs_none_of_the_tools(tmp_path: Path) -> None:
         "--dry-run",
         path=only_python(tmp_path),
     )
+    said = output(finished)
+    assert finished.returncode == 0
     assert "missing commands:" not in said
 
 
 def test_an_install_still_names_what_is_missing(tmp_path: Path) -> None:
-    said = run(
+    finished = run(
         tmp_path,
         "ID=gentoo\n",
         "--config",
         "tests/fixtures/vm-lvm.toml",
         path=only_python(tmp_path),
     )
+    said = output(finished)
+    assert finished.returncode == 1
     assert "missing commands:" in said
 
 
@@ -218,7 +229,7 @@ def test_fedora_gets_the_package_that_actually_ships_sgdisk(tmp_path: Path) -> N
     none of the other packages on the line either."""
     arguments = ("--config", "tests/fixtures/vm-luks.toml")
     for release in ("ID=fedora\n", 'ID=rocky\nID_LIKE="rhel centos fedora"\n'):
-        said = run(tmp_path, release, *arguments, path=only_python(tmp_path))
+        said = output(run(tmp_path, release, *arguments, path=only_python(tmp_path)))
         assert "gdisk" in said and "gptfdisk" not in said
 
 
@@ -226,8 +237,15 @@ def test_alpine_names_each_util_linux_tool_on_its_own(tmp_path: Path) -> None:
     """Alpine's `util-linux` package is a 1.5 kB placeholder that installs
     nothing; the tools are one package each, so `apk add util-linux` left the
     same commands missing and the operator looping on the same message."""
-    said = run(tmp_path, "ID=alpine\n", "--config", "tests/fixtures/vm-luks.toml",
-               path=only_python(tmp_path))
+    said = output(
+        run(
+            tmp_path,
+            "ID=alpine\n",
+            "--config",
+            "tests/fixtures/vm-luks.toml",
+            path=only_python(tmp_path),
+        )
+    )
     assert "apk add" in said
     for named in ("lsblk", "findmnt", "blkid"):
         assert named in said, named
@@ -239,8 +257,15 @@ def test_no_distribution_is_told_to_install_a_package_named_chroot(tmp_path: Pat
     """`chroot` and `hostid` are coreutils everywhere; no distribution ships a
     package under either name."""
     for release in ("ID=alpine\n", "ID=arch\n", "ID=fedora\n", "ID=debian\n"):
-        said = run(tmp_path, release, "--config", "tests/fixtures/vm-zfs.toml",
-                   path=only_python(tmp_path))
+        said = output(
+            run(
+                tmp_path,
+                release,
+                "--config",
+                "tests/fixtures/vm-zfs.toml",
+                path=only_python(tmp_path),
+            )
+        )
         # The install line only: the line above it lists the missing commands,
         # where the word `chroot` belongs.
         line = next(one for one in said.splitlines() if one.startswith("run: "))
@@ -313,13 +338,13 @@ def test_arch_is_told_what_it_cannot_supply_instead_of_a_failing_command(
     names every missing command. The zfs pair has no official package, so the
     line for them says so rather than putting them in a `pacman` command that
     answers `target not found`."""
-    said = run(
+    said = output(run(
         tmp_path,
         "ID=arch\n",
         "--config",
         "tests/fixtures/vm-zfs.toml",
         path=only_python(tmp_path),
-    )
+    ))
     assert "missing commands:" in said
     assert "this system has no package for:" in said
     for command in ("zpool", "zfs"):
