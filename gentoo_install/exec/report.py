@@ -3,13 +3,16 @@
 
 from __future__ import annotations
 
+import os
 import shutil
+import stat
 import tomllib
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
+from typing import Final
+from pathlib import Path, PurePosixPath
 
 from .. import errors
 from ..errors import GentooInstallError
@@ -20,7 +23,7 @@ from ..model.config import InstallConfig
 from ..model.serialise import to_toml
 from . import fetch, preflight
 from .probe import Probe
-from .runner import write_file
+from .runner import TargetEscape, open_in_target, write_file
 
 
 class RunFile(Enum):
@@ -65,6 +68,12 @@ def recording(work: Path, target: Path) -> Iterator[ActiveReport]:
         )
 
 
+#: Target-absolute, so `open_in_target` refuses a symlink on the way. A
+#: conversion replaces a running system's userland, where `/var/log` is
+#: whatever that distribution left there.
+LOG_DIRECTORY: Final[PurePosixPath] = PurePosixPath("/var/log/gentoo-install")
+
+
 def keep_log(work: Path, target: Path, record: Callable[[str], None]) -> None:
     """Copy the run's log onto the installed system."""
     if not target.is_mount():
@@ -73,12 +82,20 @@ def keep_log(work: Path, target: Path, record: Callable[[str], None]) -> None:
         return
     kept = target / "var/log/gentoo-install"
     try:
-        kept.mkdir(parents=True, exist_ok=True)
         for name in RunFile:
             source = work / name.value
-            if source.is_file():
-                shutil.copy2(source, kept / name.value)
-    except OSError as error:
+            if not source.is_file():
+                continue
+            handle = open_in_target(
+                target,
+                LOG_DIRECTORY / name.value,
+                os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+                stat.S_IMODE(source.stat().st_mode),
+                parents=True,
+            )
+            with os.fdopen(handle, "wb") as opened:
+                opened.write(source.read_bytes())
+    except (OSError, TargetEscape) as error:
         record(f"warning: the log could not be copied to {kept}: {error}")
         return
     # The target is about to be unmounted, while the work copy lasts to reboot.
