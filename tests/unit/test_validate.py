@@ -431,37 +431,48 @@ def test_a_root_with_room_passes() -> None:
     validate(config(nodes))
 
 
-def test_an_official_v3_binhost_requires_the_cpu_flags_it_serves() -> None:
+def test_an_official_v3_binhost_is_refused_when_the_loader_says_no() -> None:
+    """`ld.so --help` decides, not a flag list: it is what `docs/design.md`
+    names and what the menu greys the row out on."""
     base = config()
     selected = replace(
         base,
         portage=replace(
             base.portage,
-            cpu_flags=("sse2",),
             binhost=replace(base.portage.binhost, subarch="x86-64-v3"),
         ),
     )
 
-    with pytest.raises(ValidationFailed, match="x86-64-v3.*avx2"):
-        validate(selected)
+    with pytest.raises(ValidationFailed, match="ld.so --help"):
+        validate(selected, supports_v3=False)
 
 
-def test_an_official_v3_binhost_passes_with_the_required_cpu_flags() -> None:
+def test_an_official_v3_binhost_passes_when_the_loader_says_yes() -> None:
     base = config()
     selected = replace(
         base,
         portage=replace(
             base.portage,
-            # `fma3`, the name `CPU_FLAGS_X86` uses and the one
-            # `exec/probe.py` produces. Written the psABI's way, this test
-            # asserted a vocabulary no machine ever has and passed while
-            # every real machine was refused the v3 binary host.
-            cpu_flags=("avx2", "bmi1", "bmi2", "f16c", "fma3"),
             binhost=replace(base.portage.binhost, subarch="x86-64-v3"),
         ),
     )
 
-    validate(selected)
+    validate(selected, supports_v3=True)
+
+
+def test_a_configuration_validated_without_a_machine_is_not_refused_v3() -> None:
+    """A dry run reads no machine. Refusing there refuses a configuration
+    written for another one, which is what `--dry-run` is for."""
+    base = config()
+    validate(
+        replace(
+            base,
+            portage=replace(
+                base.portage,
+                binhost=replace(base.portage.binhost, subarch="x86-64-v3"),
+            ),
+        )
+    )
 
 
 def test_a_profile_that_disagrees_with_the_init_is_refused() -> None:

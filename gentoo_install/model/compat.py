@@ -87,31 +87,34 @@ _CJK_KERNEL_PACKAGES: Final[frozenset[str]] = frozenset(
 )
 
 
-#: What each official binary host needs, in the names `CPU_FLAGS_X86` uses.
-#: `fma3` and not `fma`: the psABI names the x86-64-v3 requirement `FMA` and
-#: Portage's variable spells the same instruction set `fma3`, so a requirement
-#: written the psABI way is a name `exec/probe.py` never produces and every
-#: machine is told it lacks it. `tests/unit/test_compat.py` holds the two
-#: vocabularies against each other.
-BINHOST_SUBARCH_REQUIREMENTS: Final[dict[str, frozenset[str]]] = {
-    "x86-64": frozenset(),
-    "x86-64-v3": frozenset({"avx2", "bmi1", "bmi2", "f16c", "fma3"}),
-}
+#: The official binary hosts this installer knows how to point Portage at.
+#: A subarchitecture outside this set is a refusal rather than a URL composed
+#: from it, because a host that does not exist answers 404 an hour in.
+BINHOST_SUBARCHS: Final[frozenset[str]] = frozenset({"x86-64", "x86-64-v3"})
 
 
-def binhost_subarch_problems(config: InstallConfig) -> tuple[str, ...]:
-    """Reject an official binary host whose instruction set the CPU lacks."""
+def binhost_subarch_problems(
+    config: InstallConfig, supports_v3: bool | None = None
+) -> tuple[str, ...]:
+    """Reject an official binary host this machine cannot run or reach.
+
+    `supports_v3` is `ld.so --help`'s own answer, read by `exec/probe.py`, and
+    `None` when no machine was read. The loader decides rather than a flag
+    list derived from `/proc/cpuinfo`: the psABI names the x86-64-v3
+    requirement `FMA` and `CPU_FLAGS_X86` spells that instruction set `fma3`,
+    and a second derivation written the psABI's way refused the v3 host on
+    every machine that qualifies for it. `docs/design.md` names the loader as
+    the source in two places; this is the only check that reads it.
+    """
     binhost = config.portage.binhost
     if not binhost.official:
         return ()
-    required = BINHOST_SUBARCH_REQUIREMENTS.get(binhost.subarch)
-    if required is None:
+    if binhost.subarch not in BINHOST_SUBARCHS:
         return (f"official binhost subarch {binhost.subarch!r} is not supported",)
-    missing = sorted(required.difference(config.portage.cpu_flags))
-    if missing:
+    if binhost.subarch == "x86-64-v3" and supports_v3 is False:
         return (
-            f"official binhost subarch {binhost.subarch!r} needs CPU flags "
-            f"{', '.join(missing)}, which this machine does not provide",
+            "official binhost subarch 'x86-64-v3' needs a CPU this one is not: "
+            "`ld.so --help` does not list x86-64-v3 as supported",
         )
     return ()
 

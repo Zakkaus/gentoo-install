@@ -141,7 +141,7 @@ def test_a_dry_run_touches_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         cli,
         "build",
-        lambda chosen, catalog, *, mirror, storage_facts, layout: (operation,),
+        lambda chosen, catalog, *, mirror, storage_facts, layout, supports_v3: (operation,),
     )
     code = main(["--config", str(FIXTURES / "ext4-bios.toml"), "--dry-run"])
     assert code == EXIT_OK
@@ -798,7 +798,7 @@ def test_a_finish_failure_releases_the_machine_and_keeps_its_exit_code(
     monkeypatch.setattr(
         cli,
         "build",
-        lambda chosen, catalog, *, mirror, storage_facts, layout: (
+        lambda chosen, catalog, *, mirror, storage_facts, layout, supports_v3: (
             Partition(),
             FailFinish(),
             FailRelease(),
@@ -850,7 +850,7 @@ def test_a_failure_after_partitioning_says_the_disk_may_not_boot(
     monkeypatch.setattr(
         cli,
         "build",
-        lambda chosen, catalog, *, mirror, storage_facts, layout: (FailPartition(),),
+        lambda chosen, catalog, *, mirror, storage_facts, layout, supports_v3: (FailPartition(),),
     )
     monkeypatch.setattr(report, "keep_log", lambda work, target, record: None)
 
@@ -928,7 +928,7 @@ def test_a_body_failure_before_partitioning_says_nothing_was_written(
     monkeypatch.setattr(
         cli,
         "build",
-        lambda chosen, catalog, *, mirror, storage_facts, layout: (
+        lambda chosen, catalog, *, mirror, storage_facts, layout, supports_v3: (
             FailBeforePartition(),
             Partition(),
         ),

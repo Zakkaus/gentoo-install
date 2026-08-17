@@ -952,64 +952,56 @@ def test_every_way_of_unlocking_remotely_is_decided_and_none_is_decided_twice() 
         assert refusals(layouts[name], kind) == wanted, (name, kind)
 
 
-def test_every_binhost_requirement_is_a_flag_the_probe_can_produce() -> None:
-    """A requirement written in the psABI's spelling is a name that never
-    arrives. The x86-64-v3 level is documented as needing `FMA`, and Portage's
-    `CPU_FLAGS_X86` spells that instruction set `fma3`, so `{"fma"}` made every
-    machine report the flag missing and refused the official v3 binary host on
-    all of them. The screen said `needs CPU flags fma, which this machine does
-    not provide` beside a flag list that read `fma3`.
+def test_the_loader_and_not_a_flag_list_decides_the_v3_binhost() -> None:
+    """`ld.so --help` lists the subarchitectures it would search, and
+    `docs/design.md` names it as the source in two places. Deriving the same
+    fact a second time from `/proc/cpuinfo` refused the v3 host on every
+    machine that qualifies for it: the psABI names the requirement `FMA` and
+    `CPU_FLAGS_X86` spells that instruction set `fma3`, so the requirement was
+    a name no configuration can hold and the test covering it wrote `fma` too.
     """
-    from gentoo_install.exec.probe import CPU_FLAGS
-    from gentoo_install.model.compat import BINHOST_SUBARCH_REQUIREMENTS
-
-    produced = set(CPU_FLAGS.values())
-    for subarch, required in BINHOST_SUBARCH_REQUIREMENTS.items():
-        unreachable = sorted(required - produced)
-        assert not unreachable, (subarch, unreachable)
-
-
-def test_a_machine_with_the_v3_flags_is_not_refused_the_v3_binhost() -> None:
-    """The rule has to be able to pass. It could not: no configuration reached
-    `binhost_subarch_problems` with a flag named `fma`, because the probe maps
-    the kernel's `fma` to `fma3` before the configuration ever holds it."""
-    from gentoo_install.exec.probe import CPU_FLAGS
-    from gentoo_install.model.compat import (
-        BINHOST_SUBARCH_REQUIREMENTS,
-        binhost_subarch_problems,
-    )
-
-    # What this machine's own `/proc/cpuinfo` flags become, for the flags the
-    # level needs: the mapping is what the probe applies, not a second copy.
-    kernel_flags = {"avx2", "bmi1", "bmi2", "f16c", "fma"}
-    theirs = tuple(sorted({CPU_FLAGS[one] for one in kernel_flags}))
-    assert set(theirs) >= BINHOST_SUBARCH_REQUIREMENTS["x86-64-v3"], theirs
-
-    base = config()
-    chosen = replace(
-        base,
-        portage=replace(
-            base.portage,
-            cpu_flags=theirs,
-            binhost=replace(base.portage.binhost, official=True, subarch="x86-64-v3"),
-        ),
-    )
-    assert binhost_subarch_problems(chosen) == ()
-
-
-def test_a_machine_without_them_is_still_refused() -> None:
-    """The negative direction, or a rule loosened until it cannot fire reads
-    as a rule and is not one."""
     from gentoo_install.model.compat import binhost_subarch_problems
 
     base = config()
-    chosen = replace(
+    v3 = replace(
         base,
         portage=replace(
             base.portage,
-            cpu_flags=("mmx", "sse2"),
+            # Deliberately empty: the flag list is no longer what decides, so
+            # a machine whose loader says yes is not refused for lacking one.
+            cpu_flags=(),
             binhost=replace(base.portage.binhost, official=True, subarch="x86-64-v3"),
         ),
     )
-    problems = binhost_subarch_problems(chosen)
-    assert problems and "fma3" in problems[0], problems
+    assert binhost_subarch_problems(v3, True) == ()
+    refused = binhost_subarch_problems(v3, False)
+    assert refused and "ld.so --help" in refused[0], refused
+    # Unread is not the same as unsupported: a dry run reads no machine, and
+    # refusing there would refuse a configuration written for another one.
+    assert binhost_subarch_problems(v3, None) == ()
+
+
+def test_a_subarch_no_official_host_publishes_is_refused() -> None:
+    """A host that does not exist answers 404 an hour into the install."""
+    from gentoo_install.model.compat import binhost_subarch_problems
+
+    base = config()
+    invented = replace(
+        base,
+        portage=replace(
+            base.portage,
+            binhost=replace(base.portage.binhost, official=True, subarch="x86-64-v9"),
+        ),
+    )
+    assert binhost_subarch_problems(invented, True), "an unknown subarch has to be refused"
+
+
+def test_the_subarch_table_holds_what_the_menu_offers() -> None:
+    """One table: the screen that offers a subarchitecture and the check that
+    validates it read the same set, or the menu offers what validation
+    refuses."""
+    from gentoo_install.model.compat import BINHOST_SUBARCHS
+    from gentoo_install.tui.screens import BINHOSTS
+
+    offered = {subarch for (_, subarch), _ in BINHOSTS}
+    assert offered <= BINHOST_SUBARCHS, offered - BINHOST_SUBARCHS

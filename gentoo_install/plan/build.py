@@ -100,12 +100,13 @@ def build(
     mirror: str = DEFAULT_MIRROR,
     storage_facts: StorageFacts | None = None,
     layout: StorageLayout | None = None,
+    supports_v3: bool | None = None,
 ) -> tuple[Operation, ...]:
     """Validate, then derive the whole install. Nothing here touches a machine."""
     facts = storage_facts if storage_facts is not None else StorageFacts()
     if config.disk.mode is DiskMode.IN_PLACE:
-        return _in_place(config, catalog, mirror, layout)
-    validate(config, storage_facts=facts)
+        return _in_place(config, catalog, mirror, layout, supports_v3)
+    validate(config, storage_facts=facts, supports_v3=supports_v3)
     chosen = packages.groups(config, catalog)
     operations: list[Operation] = [
         *disk.build(config, facts),
@@ -154,6 +155,7 @@ def _in_place(
     catalog: packages.Catalog,
     mirror: str,
     layout: StorageLayout | None,
+    supports_v3: bool | None = None,
 ) -> tuple[Operation, ...]:
     """Derive the conversion of a running system, in the order it must run.
 
@@ -166,13 +168,14 @@ def _in_place(
         raise ConversionUnsupported("the running layout was not read")
     # The operator's own configuration first, because that is where the rule
     # against writing a device graph beside the mode applies.
-    validate(config, storage_facts=StorageFacts())
+    validate(config, storage_facts=StorageFacts(), supports_v3=supports_v3)
     derived = running_config(config, layout)
     # And the derived one as an ordinary layout: it describes concrete devices
     # now, so the compatibility table has something to check.
     validate(
         replace(derived, disk=replace(derived.disk, mode=DiskMode.PARTITION)),
         storage_facts=StorageFacts(),
+        supports_v3=supports_v3,
     )
     chosen = packages.groups(derived, catalog)
     boot = bootloader.build(derived)
