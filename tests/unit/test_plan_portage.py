@@ -1770,7 +1770,10 @@ def test_a_snapshot_that_never_arrives_stops_the_install() -> None:
     with pytest.raises(CommandFailed):
         plan_portage.WebrsyncRepository().apply(recorder)
 
-    assert tries["n"] == plan_portage.SYNC_TRIES
+    # `KEYRING_TRIES`, not `SYNC_TRIES`: the first sync outlasts a keyserver a
+    # whole cluster round is asking at once, and how long it waits between
+    # attempts is what the failure decides.
+    assert tries["n"] == plan_portage.KEYRING_TRIES
 
 
 #: What `btrfs-luks` printed when the binary host dropped one TLS handshake
@@ -2076,3 +2079,63 @@ def test_a_signalled_emerge_that_printed_something_is_not_blamed_on_the_host() -
     with pytest.raises(CommandFailed, match="SIGKILL"):
         portage.Emerge(packages=("sys-devel/gcc",), summary="install gcc").apply(recorder)
     assert not recorder.degraded(portage.BINARY_PACKAGES)
+
+
+def test_a_keyserver_the_whole_round_is_asking_gets_longer_than_a_mirror() -> None:
+    """run62 dispatched ten guests and nine stopped inside ten minutes at
+
+        OpenPGP keyring refresh failed: | gpg: keyserver refresh failed:
+        Try again later
+
+    while `vm-f2fs` reached the same step at 49.6 minutes and passed. So the
+    keyserver was not unreachable, it was being asked by a whole round at once,
+    and three tries over ninety seconds is not enough to outlast that. A
+    Manifest mismatch is the opposite case and still gets the short wait.
+    """
+    refused = Recorder()
+
+    def refusing(argv: Sequence[str]) -> CommandOutput | None:
+        if argv[-1] != "emerge-webrsync":
+            return None
+        raise CommandFailed(
+            "emerge-webrsync ended with exit 1: [  ERROR] OpenPGP keyring "
+            "refresh failed: | gpg: keyserver refresh failed: Try again later"
+        )
+
+    refused.answering = refusing
+
+    with pytest.raises(CommandFailed):
+        portage.WebrsyncRepository().apply(refused)
+
+    slept = [argv for argv in refused.commands if argv and argv[0] == "sleep"]
+    assert len(slept) == portage.KEYRING_TRIES - 1, slept
+    assert [float(one[1]) for one in slept] == [
+        portage.KEYRING_PAUSE * (n + 1) for n in range(portage.KEYRING_TRIES - 1)
+    ], slept
+    # Twelve minutes rather than ninety seconds, which is what outlasts a round.
+    assert sum(float(one[1]) for one in slept) > 8 * 60
+
+
+def test_a_manifest_mismatch_still_gets_the_short_wait() -> None:
+    """The negative direction: a mirror rewriting its Manifests answers within
+    a minute, and waiting twelve for it turns a transient into a stall."""
+    mismatch = Recorder()
+
+    def mismatching(argv: Sequence[str]) -> CommandOutput | None:
+        if argv[-1] != "emerge-webrsync":
+            return None
+        raise CommandFailed(
+            "emerge-webrsync ended with exit 1: Manifest mismatch for "
+            "gui-apps/Manifest.gz __size__: expected: 5745, have: 5746"
+        )
+
+    mismatch.answering = mismatching
+
+    with pytest.raises(CommandFailed):
+        portage.WebrsyncRepository().apply(mismatch)
+
+    slept = [float(argv[1]) for argv in mismatch.commands if argv and argv[0] == "sleep"]
+    assert slept == [
+        portage.SYNC_PAUSE * (n + 1) for n in range(portage.KEYRING_TRIES - 1)
+    ], slept
+    assert sum(slept) < 5 * 60, slept
