@@ -1546,3 +1546,51 @@ def test_the_closing_probe_is_still_asked_when_it_can_answer() -> None:
 
     cluster._note_the_closing_probe(cast(Any, Answering()))
     assert answered == [cluster.REACHABILITY_PROBE], answered
+
+
+def test_a_truncated_verdict_still_says_which_bound_was_reached() -> None:
+    """`vm-unlock` was recorded in run59 as
+
+        '{ sh /mnt/driver/install.sh --config fixtures/vm-unlock.toml; ... }':
+        never matched 'MARK_27_DONE|root@[A-Za-z0-9._-]+ ~ # '; last output was
+        b'msoft-float -fno-omit-frame-pointer -fno-dwarf2-cfi-asm -m
+
+    and that is the whole verdict: `VERDICT_BYTES` cut it there. Whether the
+    guest went quiet or ran out of ceiling decides whether the next question is
+    about the installer or about the schedule, and the message said neither
+    because the reason came after the screen.
+    """
+    from tests.vm.console import ConsoleIdle, ConsoleTimeout, SerialConsole
+
+    class Silent:
+        closed = False
+
+        def recv(self, size: int) -> bytes:
+            return b""
+
+        def sendall(self, data: bytes) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    def console(log: Path) -> SerialConsole:
+        return SerialConsole(cast(Any, Silent()), log.open("wb"))
+
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as where:
+        quiet = console(Path(where) / "a.log")
+        quiet._buffer = b"x" * 4000
+        with pytest.raises(ConsoleIdle) as idled:
+            quiet.expect("never-here", timeout=30.0, idle=0.2)
+        spent = console(Path(where) / "b.log")
+        with pytest.raises(ConsoleTimeout) as ceilinged:
+            spent.expect("never-here", timeout=0.2)
+
+    for raised, wanted in ((idled, "nothing arrived for"), (ceilinged, "elapsed")):
+        said = str(raised.value)
+        assert wanted in said, said
+        # Before the screen, so a verdict cut to VERDICT_BYTES keeps it.
+        assert said.index(wanted) < said.index("last output was"), said
+        assert said.index(wanted) < cluster.OUTCOME_BYTES, said

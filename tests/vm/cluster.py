@@ -208,6 +208,11 @@ STAGGER: Final[float] = 20.0
 #: minutes with eighteen jobs waiting.
 POLL_WHILE_QUEUED: Final[float] = 20.0
 
+#: How much of an exception reaches the schedule's one-line outcome. Three
+#: call sites each wrote `300`, and `VERDICT_BYTES` is twelve times that, so a
+#: reader of one number could not tell what a verdict had room for.
+OUTCOME_BYTES: Final[int] = 300
+
 #: The outer bound, reached only by a guest that keeps printing and never
 #: finishes. Twelve of one round hit the three-hour version of it with a
 #: repository listing still scrolling, so the ceiling is generous and
@@ -1655,7 +1660,7 @@ def install_one(
             job.name,
             verdict,
             time.monotonic() - started,
-            dropped or str(error)[:300],
+            dropped or str(error)[:OUTCOME_BYTES],
             log,
             phase=phase,
             revision=revision,
@@ -1667,7 +1672,7 @@ def install_one(
             job.name,
             Verdict.ERROR,
             time.monotonic() - started,
-            str(error)[:300],
+            str(error)[:OUTCOME_BYTES],
             log,
             phase=phase,
             revision=revision,
@@ -1730,7 +1735,7 @@ def answer_once(
                 job.name,
                 Verdict.ERROR,
                 0.0,
-                f"{type(error).__name__}: {error}"[:300],
+                f"{type(error).__name__}: {error}"[:OUTCOME_BYTES],
                 removed=False,
                 revision=revision,
                 vmid=vmid,
