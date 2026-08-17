@@ -44,9 +44,13 @@ def _in_place() -> InstallConfig:
 
 
 def test_partition_mode_keeps_the_ordinary_list() -> None:
-    ordinary = build(config(), CATALOG)
-    explicit = build(replace(config(), disk=replace(config().disk)), CATALOG)
-    assert tuple(type(operation) for operation in explicit) == tuple(type(operation) for operation in ordinary)
+    partitioned = build(
+        replace(config(), disk=replace(config().disk, mode=DiskMode.PARTITION)),
+        CATALOG,
+    )
+    conversion = build(_in_place(), CATALOG, layout=_layout())
+    assert any(isinstance(operation, plan_disk.CreatePartition) for operation in partitioned)
+    assert not any(isinstance(operation, plan_disk.CreatePartition) for operation in conversion)
 
 
 def test_conversion_operation_describes_and_applies(monkeypatch: pytest.MonkeyPatch) -> None:

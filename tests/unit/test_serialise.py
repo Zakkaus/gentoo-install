@@ -10,8 +10,8 @@ import pytest
 from gentoo_install.exec.config import load
 from gentoo_install.model.config import InstallConfig, Overlay, PortageConfig, ProxyConfig, User
 from gentoo_install.model.config import ProxyKind
-from gentoo_install.model.device import DeviceGraph, DeviceId, Existing, PartitionTable
-from gentoo_install.model.parse import _NODES, parse
+from gentoo_install.model.device import DeviceGraph, DeviceId, Existing, Node, PartitionTable
+from gentoo_install.model.parse import parse
 from gentoo_install.model.serialise import KINDS, REDACTED, SECRET, to_toml
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
@@ -32,8 +32,14 @@ def test_runtime_storage_facts_are_not_configuration_fields() -> None:
     assert "free_extents" not in {field.name for field in fields(PartitionTable)}
 
 
-def test_every_node_kind_can_be_written() -> None:
-    assert set(KINDS.values()) == set(_NODES)
+@pytest.mark.parametrize("kind", tuple(KINDS), ids=lambda kind: KINDS[kind])
+def test_every_node_kind_survives_a_toml_round_trip(kind: type[Node]) -> None:
+    for path in sorted(FIXTURES.glob("*.toml")):
+        config = parse(tomllib.loads(path.read_text()))
+        if any(isinstance(node, kind) for node in config.disk.graph.nodes.values()):
+            assert _round_trip(config) == config
+            return
+    raise AssertionError(f"no fixture carries {kind.__name__}")
 
 
 def test_a_table_edited_in_place_survives() -> None:

@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 from __future__ import annotations
 
-import re
 from dataclasses import replace
 from pathlib import PurePosixPath
 from typing import Callable
@@ -601,15 +600,28 @@ def test_formatting_a_partition_the_operator_kept_counts_as_destruction() -> Non
 
 
 def test_the_erase_row_and_the_in_use_check_read_the_same_rule() -> None:
-    """Two lists of destructive targets drift, and the one that drifted was the
-    preflight copy: it named the disk only when a table was written."""
-    import inspect
-
+    """Formatting a retained partition must block both the preflight and the
+    main-menu confirmation until the operator names it."""
     from gentoo_install.exec import preflight
     from gentoo_install.tui import settings
+    from tests.unit.test_tui_app import context
 
-    for source in (inspect.getsource(preflight._disks_at_risk), inspect.getsource(settings._erase)):
-        assert "compat.destroyed(" in source, source
+    installation = config(
+        [
+            Existing(id=i("part"), selector="/dev/sda2", wipe=False),
+            Filesystem(
+                id=i("fs"), device=i("part"), kind=FilesystemType.EXT4, create=True
+            ),
+            Mountpoint(id=i("root"), source=i("fs"), path=PurePosixPath("/")),
+        ]
+    )
+    assert [one.selector for one in preflight._disks_at_risk(installation.disk.graph)] == [
+        "/dev/sda2"
+    ]
+    at = context()
+    assert settings._erase(installation, at) == settings.UNSET
+    at.confirmed = {"/dev/sda2"}
+    assert settings._erase(installation, at) == at.translate("confirmed")
 
 
 def test_an_encrypted_boot_beside_a_plain_esp_is_a_working_layout() -> None:
@@ -807,19 +819,17 @@ def test_every_way_of_writing_over_a_kept_device_names_it(layout: str) -> None:
     assert [one.selector for one in named] == ["/dev/sda2"]
 
 
-def test_the_cases_cover_every_entry_in_the_write_table() -> None:
-    """An entry added to `_writes_over` without a layout here is one nothing
-    proves, and it reads as covered."""
-    import inspect
+def test_every_write_case_leaves_the_erase_row_unanswered() -> None:
+    """Each write over a retained partition needs an explicit confirmation."""
+    from gentoo_install.tui import settings
+    from tests.unit.test_tui_app import context
 
-    in_table = set(re.findall(r"isinstance\(node, \(?([\w, ]+)\)?\)", inspect.getsource(compat._writes_over)))
-    named = {one.strip() for group in in_table for one in group.split(",")}
-    exercised = {
-        type(node).__name__
-        for layout in OVER_A_KEPT_PARTITION.values()
-        for node in layout
-    }
-    assert named - exercised == set(), named - exercised
+    for name, nodes in OVER_A_KEPT_PARTITION.items():
+        at = context()
+        installation = config(nodes)
+        assert settings._erase(installation, at) == settings.UNSET, name
+        at.confirmed = {"/dev/sda2"}
+        assert settings._erase(installation, at) == at.translate("confirmed"), name
 
 
 def test_writing_over_a_partition_this_plan_creates_does_not_condemn_the_disk() -> None:

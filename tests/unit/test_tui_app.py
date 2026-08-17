@@ -38,6 +38,15 @@ from .layouts import config, encrypted_root, unlockable_root, zfs_root
 
 DISKS = [("/dev/disk/by-id/virtio-target0", "20 GiB"), ("/dev/disk/by-id/virtio-target1", "40 GiB")]
 
+REQUIRED_ROW_VALUES: dict[str, str] = {
+    "mirror": "required",
+    "mode": "partition a disk and install onto it",
+    "storage": "virtio-target, gpt +2",
+    "compiler": "stage3 default, -O2 -pipe (stage3 default) +3",
+    "root": "set",
+    "erase": "required",
+}
+
 #: A real key, from ssh-keygen: the checker walks the body, so a made-up
 #: string would fail for the wrong reason.
 GOOD_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB+85deBslaLOMFw71dx23wo7fFT76GVcEyQS9IdVvvT test@example"
@@ -88,12 +97,24 @@ def test_every_row_is_reachable_and_shows_its_current_value() -> None:
     """More rows than an 80x24 console holds, so the list scrolls and the test
     walks it rather than reading one frame."""
     at = context()
+    installation = config()
     screen = FakeScreen(keys=[*down(len(settings.SETTINGS)), "q", "KEY_DOWN", "\n"])
-    run(screen, config(), at)
+    run(screen, installation, at)
     seen = "\n".join("\n".join(frame) for frame in screen.frames)
+    assert {setting.key for setting in settings.SETTINGS if setting.required} == set(
+        REQUIRED_ROW_VALUES
+    )
     for setting in settings.SETTINGS:
         assert setting.label in seen, setting.label
-        assert setting.value(config(), at) in seen or setting.required, setting.label
+        if setting.required:
+            expected = REQUIRED_ROW_VALUES[setting.key]
+            assert any(
+                setting.label in line and line.rstrip().endswith(f"  {expected}")
+                for frame in screen.frames
+                for line in frame
+            ), setting.label
+        else:
+            assert setting.value(installation, at) in seen, setting.label
 
 
 def test_the_firmware_row_is_shown_and_not_chosen() -> None:
