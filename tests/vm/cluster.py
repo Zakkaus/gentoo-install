@@ -414,6 +414,14 @@ class Job:
 QUIET_BYTES: Final[int] = 1024 * 1024
 
 
+#: What a guest still moving bytes buys back after its console dropped. The
+#: transport outage is not the guest's silence: `vm-gnome` was compiling git
+#: when one `Connection reset by peer` ended 167 minutes of work.
+RECONNECT_GRANT: Final[float] = 900.0
+#: At most this many, so a console that never comes back still ends the run.
+RECONNECT_GRANTS: Final[int] = 4
+
+
 @dataclass
 class Watchdog:
     """Whether a guest is still doing anything.
@@ -2174,7 +2182,7 @@ class Reconnecting:
                         f"{error}; console was silent for {idle:.0f}s and {reason}"
                     ) from error
 
-        self._with_reconnect(timeout, wait_once)
+        self._with_reconnect(timeout, wait_once, watch=watch)
 
     def expect_output(self, command: str, timeout: float = 120.0) -> bytes:
         """Run a command and answer with what it printed, and nothing else.
@@ -2201,20 +2209,38 @@ class Reconnecting:
         operation: Callable[[float], _Result],
         *,
         solicit_on_reconnect: bool = True,
+        watch: Watchdog | None = None,
     ) -> _Result:
+        """Run `operation`, reopening the console under it while time is left.
+
+        A `watch` makes the deadline conditional: the console going is not the
+        guest going, and `vm-gnome` lost 167 minutes of compiling to one
+        `Connection reset by peer` because the two were treated as the same
+        thing. A silent console already asks the counters through
+        `ConsoleIdle`; this asks them on the other failure as well.
+        """
         deadline = time.monotonic() + timeout
-        closed: ConsoleClosed | None = None
-        for attempt in range(self._tries):
-            if closed is not None and _remaining(deadline) <= 0.0:
-                raise closed
+        granted = 0
+        attempt = 0
+        while True:
             try:
                 return operation(deadline)
-            except ConsoleClosed as error:
-                closed = error
-                if attempt + 1 == self._tries or _remaining(deadline) <= 0.0:
-                    raise
+            except ConsoleClosed:
+                attempt += 1
+                if attempt >= self._tries or _remaining(deadline) <= 0.0:
+                    # `moved()` is asked once, and only here: it takes a sample
+                    # the scheduler's sweep also reads.
+                    if watch is None or granted >= RECONNECT_GRANTS or not watch.moved():
+                        raise
+                    granted += 1
+                    attempt = 0
+                    deadline = time.monotonic() + RECONNECT_GRANT
+                    print(
+                        f"… the console dropped and the guest is still working, "
+                        f"{RECONNECT_GRANT / 60:.0f}m more",
+                        flush=True,
+                    )
                 self.reopen(solicit_prompt=solicit_on_reconnect)
-        raise ConsoleClosed("the console could not be reopened")
 
     def send(self, line: str) -> None:
         self._reopen_if_closed()

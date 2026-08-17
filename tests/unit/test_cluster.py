@@ -1372,3 +1372,90 @@ def test_a_capacity_read_that_did_not_answer_does_not_end_the_schedule() -> None
     assert code.count("except ProxmoxTransientError") >= 2, code.count(
         "except ProxmoxTransientError"
     )
+
+
+def test_a_dropped_console_does_not_end_a_guest_that_is_still_working(
+    tmp_path: Path,
+) -> None:
+    """`vm-gnome` was at `[26/539]` compiling git when its websocket answered
+    `[Errno 104] Connection reset by peer`, and the verdict threw away 167
+    minutes. A silent console already asks the hypervisor's counters through
+    `ConsoleIdle`; a broken one did not ask at all, so the two ways a console
+    can stop carrying bytes had opposite answers about the same live guest.
+    """
+    from tests.vm.console import ConsoleClosed
+
+    class Console:
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+            raise ConsoleClosed("the connection broke: [Errno 104] Connection reset by peer")
+
+        def send(self, line: str) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    opened: list[Console] = []
+    sampled: list[int] = []
+
+    def counters() -> int | None:
+        # A guest whose disk keeps growing while its console says nothing.
+        sampled.append(len(sampled))
+        return cluster.QUIET_BYTES * 2 * (len(sampled) + 1)
+
+    log = tmp_path / "serial.log"
+    log.write_bytes(b"")
+    watch = cluster.Watchdog(log=log, counters=counters)
+
+    def open_console() -> Any:
+        opened.append(Console())
+        return opened[-1]
+
+    link = cluster.Reconnecting(open_console, tries=2)
+    with pytest.raises(ConsoleClosed):
+        link.wait_for("emerge --ask=n @world", timeout=0.0, idle=1.0, watch=watch)
+
+    # Asked once per grant, and the last decision short-circuits on the count
+    # rather than taking a sample it will not use.
+    assert len(sampled) == cluster.RECONNECT_GRANTS, sampled
+    # It reconnected, and it stopped: a run that never gives up holds a node
+    # for the rest of the schedule.
+    assert 1 < len(opened) <= cluster.REOPEN_CEILING, len(opened)
+
+
+def test_a_dropped_console_still_ends_a_guest_that_moves_nothing(tmp_path: Path) -> None:
+    """The negative direction. Without it the change reads as "reconnect for
+    ever", which is how a dead guest holds a node until the schedule ends.
+    """
+    from tests.vm.console import ConsoleClosed
+
+    class Console:
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+            raise ConsoleClosed("the connection broke: [Errno 104] Connection reset by peer")
+
+        def send(self, line: str) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    log = tmp_path / "serial.log"
+    log.write_bytes(b"")
+    opened: list[Console] = []
+
+    def open_console() -> Any:
+        opened.append(Console())
+        return opened[-1]
+
+    still = cluster.Watchdog(log=log, counters=lambda: 0)
+    link = cluster.Reconnecting(open_console, tries=2)
+    with pytest.raises(ConsoleClosed):
+        link.wait_for("emerge --ask=n @world", timeout=0.0, idle=1.0, watch=still)
+    assert len(opened) == 1, len(opened)
+
+    # And with no watchdog at all, which is what `run` and `expect_output` use.
+    opened.clear()
+    quiet = cluster.Reconnecting(open_console, tries=2)
+    with pytest.raises(ConsoleClosed):
+        quiet.wait_for("emerge --ask=n @world", timeout=0.0, idle=1.0)
+    assert len(opened) == 1, len(opened)
