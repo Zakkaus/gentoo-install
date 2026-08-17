@@ -2018,3 +2018,61 @@ def test_a_sync_that_ran_out_of_sites_says_how_many_it_tried(
     plan_portage.SyncRepository(
         name="gentoo-zh", location=location, alternates=alternates
     ).apply(SecondSiteAnswers())
+
+
+def test_an_emerge_the_binary_host_killed_falls_back_to_source() -> None:
+    """`run56/vm-xfs.log`, the install's first emerge:
+
+        2641: !!! [gentoo] Error fetching binhost package info from
+              'https://mirrors.nju.edu.cn/gentoo/releases/amd64/...'
+        2642: !!! [gentoo] <urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING]>
+        2718: [34/51] [system] install sshd: emerge net-misc/openssh
+        2720: the install stopped: CommandFailed: emerge failed with exit -13
+
+    Portage's stdout is a pipe and therefore block-buffered, so the signal
+    lost every line it had printed and `_binpkg_failure` had no text to read.
+    A binary host that kills emerge is a binary host failure, and the policy
+    for one is a warning and a source build, not a stopped install.
+    """
+    import signal
+
+    recorder = Recorder()
+    tries: list[int] = []
+
+    def answering(argv: Sequence[str]) -> CommandOutput | None:
+        if argv[0] != "emerge":
+            return None
+        if "--usepkg=n" in argv:
+            return CommandOutput("[ebuild] net-misc/openssh-10.4", 0)
+        tries.append(len(tries))
+        return CommandOutput("", -signal.SIGPIPE)
+
+    recorder.answering = answering
+    portage.Emerge(packages=("net-misc/openssh",), summary="install sshd").apply(recorder)
+
+    emerges = [argv for argv in recorder.in_target if argv[0] == "emerge"]
+    # Binaries, binaries again because one dropped handshake is not the host
+    # being gone, then source.
+    assert len(emerges) == 3, emerges
+    assert "--getbinpkg=n" in emerges[-1] and "--usepkg=n" in emerges[-1]
+    assert recorder.degraded(portage.BINARY_PACKAGES)
+    assert "SIGPIPE" in recorder.degradations[portage.BINARY_PACKAGES]
+
+
+def test_a_signalled_emerge_that_printed_something_is_not_blamed_on_the_host() -> None:
+    """The negative control. A build killed by the out-of-memory killer prints
+    plenty first, and calling that a binhost failure would rebuild it from
+    source and be killed the same way an hour later.
+    """
+    import signal
+
+    recorder = Recorder()
+    recorder.answering = lambda argv: (
+        CommandOutput(">>> Compiling source in /var/tmp/portage/...", -signal.SIGKILL)
+        if argv[0] == "emerge"
+        else None
+    )
+
+    with pytest.raises(CommandFailed, match="SIGKILL"):
+        portage.Emerge(packages=("sys-devel/gcc",), summary="install gcc").apply(recorder)
+    assert not recorder.degraded(portage.BINARY_PACKAGES)

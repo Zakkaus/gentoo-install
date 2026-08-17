@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import signal
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import PurePosixPath
@@ -768,14 +769,18 @@ class Emerge(Operation):
             else:
                 return
             context.degrade(BINARY_PACKAGES, f"selected binary package failed: {marker}")
-            retry_result = context.run_in_target(self._argv(context, source_only=True), check=False)
-            if isinstance(retry_result, CommandOutput) and retry_result.returncode != 0:
-                raise CommandFailed(
-                    f"source retry ended with {retry_result.ending}: "
-                    f"{str(retry_result).strip()}"
-                )
+            self._from_source(context)
             return
         if not isinstance(result, CommandOutput) or result.returncode == 0:
+            return
+        if (killed := _binhost_killed_emerge(result)) and not context.degraded(
+            BINARY_PACKAGES
+        ):
+            second = context.run_in_target(command, check=False)
+            if not isinstance(second, CommandOutput) or second.returncode == 0:
+                return
+            context.degrade(BINARY_PACKAGES, killed)
+            self._from_source(context)
             return
         if not _binpkg_failure(str(result)) or context.degraded(BINARY_PACKAGES):
             raise CommandFailed(f"emerge ended with {result.ending}: {str(result).strip()}")
@@ -784,10 +789,11 @@ class Emerge(Operation):
             marker = again
         else:
             return
-        reason = f"selected binary package failed: {marker}"
-        context.degrade(BINARY_PACKAGES, reason)
-        retry = self._argv(context, source_only=True)
-        retry_result = context.run_in_target(retry, check=False)
+        context.degrade(BINARY_PACKAGES, f"selected binary package failed: {marker}")
+        self._from_source(context)
+
+    def _from_source(self, context: Context) -> None:
+        retry_result = context.run_in_target(self._argv(context, source_only=True), check=False)
         if isinstance(retry_result, CommandOutput) and retry_result.returncode != 0:
             raise CommandFailed(
                 f"source retry ended with {retry_result.ending}: {str(retry_result).strip()}"
@@ -829,6 +835,20 @@ class Emerge(Operation):
 #: Portage's own binary package extension, which is what proves a fetch was a
 #: binary one when the path is the only line naming it.
 GPKG_SUFFIX: Final[str] = ".gpkg.tar"
+
+
+def _binhost_killed_emerge(result: CommandOutput) -> str | None:
+    """Whether emerge died on a signal before printing a single byte.
+
+    Its stdout is a pipe and therefore block-buffered, so a signal loses
+    everything it had written, and the only network it touches before its
+    first line is the binary host. `vm-xfs` died with `SIGPIPE (13)` and no
+    output on the install's first emerge, seventy-seven lines after
+    `mirrors.nju.edu.cn` dropped a TLS handshake mid-fetch.
+    """
+    if result.returncode != -signal.SIGPIPE or str(result).strip():
+        return None
+    return "the binary host killed emerge with SIGPIPE before it printed anything"
 
 
 def _binpkg_failure(output: str) -> str | None:
