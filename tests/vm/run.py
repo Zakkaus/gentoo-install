@@ -41,7 +41,7 @@ from gentoo_install.model.manual import dataset_for
 
 from .console import DISK_PASSPHRASE, PASSPHRASE_PROMPT, PASSWORD_PROMPT, SerialConsole
 from .monitor import type_text
-from .driver import REPOSITORY, build as build_driver
+from .driver import FIND_DRIVER, REPOSITORY, build as build_driver
 from .media import MEDIA, Medium
 from .qemu import Firmware, Vm, VmSpec
 from .results import collect_command, create_disk, read_disk
@@ -491,8 +491,7 @@ def interrupt_and_resume(console: SerialConsole, config: str) -> None:
     that takes long enough to interrupt reliably, and everything before it is
     exactly the destructive part a resumed run must not repeat.
     """
-    console.run("mkdir -p /mnt/driver")
-    console.run("mountpoint -q /mnt/driver || mount -o ro /dev/sr1 /mnt/driver")
+    console.run(FIND_DRIVER)
     console.run(f"mkdir -p {RESULT_DIR}")
     # In the background, with a watcher that kills it once the log says the
     # partitioning is behind us. `pkill -f` on the module name: bootstrap.sh
@@ -526,8 +525,7 @@ def interrupt_and_resume(console: SerialConsole, config: str) -> None:
 
 def run_installer(console: SerialConsole, config: str, extra: str = "") -> None:
     """Run the installer from the driver CD and keep everything it printed."""
-    console.run("mkdir -p /mnt/driver")
-    console.run("mountpoint -q /mnt/driver || mount -o ro /dev/sr1 /mnt/driver")
+    console.run(FIND_DRIVER)
     console.run(f"mkdir -p {RESULT_DIR}")
     # tee, not a redirect: the serial console is the only way to watch a run
     # that takes half an hour, and a redirect makes it silent until it ends.

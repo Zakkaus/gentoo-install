@@ -72,7 +72,7 @@ from .console import (
     command_done,
     marked_command,
 )
-from .driver import build as build_driver, digest as driver_digest, remote_name
+from .driver import FIND_DRIVER, build as build_driver, digest as driver_digest, remote_name
 from .monitor import keys_for
 from .proxmox import (
     Api,
@@ -1545,8 +1545,7 @@ def install_one(
         # `Failed to connect to mirrors.tuna.tsinghua.edu.cn:443 after 111 ms`.
         wait_for_network(link, guest.vmid, held.address)
         stage_passphrases(link, load(job.fixture))
-        link.run("mkdir -p /mnt/driver")
-        link.run("mountpoint -q /mnt/driver || mount -o ro /dev/sr1 /mnt/driver")
+        link.run(FIND_DRIVER)
         link.run(f"mkdir -p {RESULT_DIR}")
         # tee, not a redirect: the serial console is the only way to watch a
         # run that takes half an hour, and it is what the watchdog reads to
@@ -2557,8 +2556,7 @@ def convert_and_check(
     """
     installation = load(fixture)
     wait_for_network(link, guest.vmid, address)
-    link.run("mkdir -p /mnt/driver")
-    link.run("mountpoint -q /mnt/driver || mount -o ro /dev/sr1 /mnt/driver")
+    link.run(FIND_DRIVER)
     link.run(f"mkdir -p {RESULT_DIR}")
     link.wait_for(
         f"{{ sh /mnt/driver/install.sh --config fixtures/{fixture.name}; "

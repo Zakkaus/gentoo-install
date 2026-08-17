@@ -2765,3 +2765,83 @@ def test_a_zfsbootmenu_unlock_fixture_checks_the_image_that_carries_the_daemon()
     elsewhere = load(Path("tests/fixtures/vm-unlock.toml"))
     assert elsewhere.kernel.remote_unlock.enabled
     assert "zbm unlock key" not in {one.name for one in checks(elsewhere)}
+
+
+def test_the_driver_cd_is_found_rather_than_numbered(tmp_path: Path) -> None:
+    """`/dev/sr1` was hardcoded in four places. It is the second CD only when
+    an install medium is booted: a guest booting from its own disk, which is
+    what an in-place conversion of a cloud image does, has the driver as
+    `/dev/sr0` and every one of those four mounts failed.
+
+    Run against a fake `mount` on PATH, the one-line form tries each candidate
+    in turn, stops at the first that succeeds, and answers with `mountpoint`
+    rather than with the last failed mount.
+    """
+    import subprocess
+
+    from tests.vm.driver import ENTRY, FIND_DRIVER, PACKED_ENTRY
+
+    assert "\n" not in FIND_DRIVER, "a console sends this as one command"
+    assert FIND_DRIVER in ENTRY and FIND_DRIVER in PACKED_ENTRY
+
+    fake = tmp_path / "bin"
+    fake.mkdir()
+    calls = tmp_path / "calls"
+    (fake / "mount").write_text(
+        "#!/bin/sh\n"
+        f'printf "%s\\n" "$*" >> {calls}\n'
+        'for one in "$@"; do case "$one" in /dev/sr0) exit 0;; esac; done\n'
+        "exit 32\n"
+    )
+    (fake / "mountpoint").write_text(
+        f'#!/bin/sh\n[ -f {tmp_path}/is-mounted ] && exit 0\nexit 1\n'
+    )
+    (fake / "mkdir").write_text("#!/bin/sh\nexit 0\n")
+    for one in fake.iterdir():
+        one.chmod(0o755)
+    environment = {"PATH": f"{fake}:/usr/bin:/bin"}
+
+    refused = subprocess.run(
+        ["sh", "-c", FIND_DRIVER], env=environment, capture_output=True, text=True
+    )
+    assert refused.returncode != 0, refused
+    assert calls.read_text().split("\n")[:2] == [
+        "-o ro /dev/sr1 /mnt/driver",
+        "-o ro /dev/sr0 /mnt/driver",
+    ], calls.read_text()
+
+    (tmp_path / "is-mounted").touch()
+    accepted = subprocess.run(
+        ["sh", "-c", FIND_DRIVER], env=environment, capture_output=True, text=True
+    )
+    assert accepted.returncode == 0, accepted
+
+
+def test_every_driver_mount_goes_through_the_one_finder() -> None:
+    """The denominator: no caller keeps its own device number, so fixing one
+    place fixed all of them."""
+    from tests.vm.driver import REPOSITORY
+
+    from tests.vm.driver import FIND_DRIVER
+
+    offenders: list[str] = []
+    read: list[str] = []
+    for name in ("run.py", "cluster.py", "campaign.py"):
+        path = REPOSITORY / "tests" / "vm" / name
+        read.append(name)
+        for number, line in enumerate(path.read_text().splitlines(), 1):
+            if "/dev/sr" in line and not line.lstrip().startswith("#"):
+                offenders.append(f"{name}:{number}: {line.strip()}")
+    assert read == ["run.py", "cluster.py", "campaign.py"], read
+    assert not offenders, offenders
+
+    # And the one place that does name devices is the finder itself, so the
+    # count above is zero because the callers use it rather than because the
+    # scan missed them.
+    source = (REPOSITORY / "tests" / "vm" / "driver.py").read_text()
+    naming = [
+        line for line in source.splitlines()
+        if "/dev/sr" in line and not line.lstrip().startswith("#")
+    ]
+    assert len(naming) == 1, naming
+    assert "/dev/sr1 /dev/sr0" in FIND_DRIVER
