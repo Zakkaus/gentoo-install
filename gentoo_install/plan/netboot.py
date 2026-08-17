@@ -267,6 +267,130 @@ class PlaceMemoryKernel(Operation):
             )
 
 
+#: Where the payload lands inside the initramfs, and where the hook puts it
+#: in the live system. One name, because the hook that copies it and the
+#: installer that reads it are written apart.
+PAYLOAD: Final[str] = "/gentoo-install"
+
+#: What `local` runs at boot on an OpenRC live system. The Gentoo minimal ISO
+#: and the CJK one built from it are both OpenRC.
+AUTOSTART: Final[str] = "/etc/local.d/99-gentoo-install.start"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AppendConfiguration(Operation):
+    """Put the configuration and the keys inside the initramfs.
+
+    A newc cpio appended to the compressed initramfs is unpacked by the kernel
+    and its hooks are run by dracut, which was measured on 2026-08-18 by
+    booting one: a `cmdline` hook in the appended segment printed its marker at
+    3.5 seconds. So a 1.5 KiB segment delivers everything rather than the whole
+    55 MiB image being repacked. `lsinitrd` does not list the appended segment,
+    so it cannot be used to check this.
+    """
+
+    stage: Stage = Stage.BOOTLOADER
+    target: BootTarget
+    launch: MemoryLaunch
+    #: The operator's configuration, already rendered. Carried rather than
+    #: read, because `plan/` does no I/O.
+    configuration: str
+    #: Where this installer is running from. Its own tree goes in the payload:
+    #: 1.4 MiB packed, and it guarantees the memory environment runs the
+    #: revision that wrote the configuration rather than whatever a later
+    #: download would bring.
+    source: str
+    keys: tuple[str, ...] = ()
+
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "put the installer, the configuration and {} key(s) inside the initramfs", (
+            str(len(self.keys)),
+        )
+
+    def apply(self, context: Context) -> None:
+        staging = self.target.place / "payload"
+        inside = PurePosixPath(str(staging) + PAYLOAD)
+        context.run(["mkdir", "--parents", str(inside)])
+        context.write(inside / "config.toml", self.configuration)
+        if self.keys:
+            context.write(
+                inside / "authorized_keys",
+                "".join(f"{one}\n" for one in self.keys),
+                mode=0o600,
+            )
+        # `bootstrap.sh` runs the tree beside it, so both go in together.
+        context.run(
+            [
+                "sh",
+                "-c",
+                f"cd {self.source} && tar --create --exclude=__pycache__ "
+                f"gentoo_install bootstrap.sh | tar --extract --directory {inside}",
+            ]
+        )
+        context.write(inside / "start.sh", _start(), mode=0o755)
+        hooks = staging / "usr/lib/dracut/hooks/pre-pivot"
+        context.run(["mkdir", "--parents", str(hooks)])
+        context.write(hooks / "99-gentoo-install.sh", _handover(), mode=0o755)
+        # `find | cpio` from inside the staging directory, or every path in the
+        # archive carries the staging prefix and lands nowhere the hook looks.
+        context.run(
+            [
+                "sh",
+                "-c",
+                f"cd {staging} && find . | cpio --create --format=newc "
+                f">> {self.target.place / 'initramfs'}",
+            ]
+        )
+        context.run(["rm", "--recursive", "--force", str(staging)])
+
+
+def _start() -> str:
+    """What the live system runs at boot. It asks before it erases anything.
+
+    Two answers and no timeout: a countdown that ends in a partitioned disk is
+    a countdown nobody can lose safely, and this path is reached by rebooting
+    a machine whose operator may still be reconnecting to it.
+    """
+    return (
+        "#!/bin/sh\n"
+        f"cd {PAYLOAD} || exit 0\n"
+        "printf '\\n'\n"
+        "printf 'gentoo-install is in memory. The disk has not been touched.\\n'\n"
+        "printf '  install  reinstall this machine from the delivered configuration\\n'\n"
+        "printf '  shell    leave this and use the live system as a rescue medium\\n'\n"
+        "printf 'install or shell> '\n"
+        "read answer\n"
+        'case "$answer" in\n'
+        f"install) exec sh ./bootstrap.sh --config {PAYLOAD}/config.toml ;;\n"
+        "*) printf 'nothing was changed\\n' ;;\n"
+        "esac\n"
+    )
+
+
+def _handover() -> str:
+    """What runs in the initramfs to hand the payload to the live system.
+
+    `pre-pivot`, because `$NEWROOT` is mounted by then and writable: with
+    `rd.live.ram=1` the squashfs is read-only but `dmsquash-live-root` puts an
+    overlay over it, so what is written here survives that boot.
+    """
+    return (
+        "#!/bin/sh\n"
+        f'[ -d "$NEWROOT" ] || exit 0\n'
+        f'mkdir -p "$NEWROOT{PAYLOAD}" "$NEWROOT/root/.ssh"\n'
+        f'cp -a {PAYLOAD}/. "$NEWROOT{PAYLOAD}/" 2>/dev/null || exit 0\n'
+        f'if [ -f "$NEWROOT{PAYLOAD}/authorized_keys" ]; then\n'
+        f'    cp "$NEWROOT{PAYLOAD}/authorized_keys" "$NEWROOT/root/.ssh/authorized_keys"\n'
+        f'    chmod 700 "$NEWROOT/root/.ssh"\n'
+        f'    chmod 600 "$NEWROOT/root/.ssh/authorized_keys"\n'
+        "fi\n"
+        f'mkdir -p "$NEWROOT/etc/local.d"\n'
+        f'printf \'#!/bin/sh\\nexec /bin/sh {PAYLOAD}/start.sh\\n\' '
+        f'> "$NEWROOT{AUTOSTART}"\n'
+        f'chmod 755 "$NEWROOT{AUTOSTART}"\n'
+    )
+
+
 @dataclass(frozen=True, kw_only=True)
 class WriteMemoryEntry(Operation):
     """Write the entry the armed boot selects, in this machine's own format."""
@@ -409,7 +533,13 @@ class DisarmMemoryBoot(Operation):
 
 
 def build(
-    *, launch: MemoryLaunch, target: BootTarget, bypass: bool = False
+    *,
+    launch: MemoryLaunch,
+    target: BootTarget,
+    bypass: bool = False,
+    configuration: str = "",
+    source: str = "",
+    keys: tuple[str, ...] = (),
 ) -> list[Operation]:
     """Every operation that arms one boot into the memory environment.
 
@@ -421,14 +551,29 @@ def build(
     arming: Operation = (
         ReplaceDefaultBoot(target=target) if bypass else ArmOneShot(target=target)
     )
-    return [
+    operations: list[Operation] = [
         RefuseWithoutABootMethod(target=target),
         RefuseTooLittleMemory(mode=launch.mode),
         FetchMemoryImage(mode=launch.mode, target=target),
         PlaceMemoryKernel(mode=launch.mode, target=target),
+    ]
+    if configuration:
+        # After the kernel is placed and before the entry names it: the
+        # appended segment goes on the initramfs that operation just wrote.
+        operations.append(
+            AppendConfiguration(
+                target=target,
+                launch=launch,
+                configuration=configuration,
+                source=source,
+                keys=keys,
+            )
+        )
+    operations += [
         WriteMemoryEntry(mode=launch.mode, target=target, launch=launch),
         arming,
     ]
+    return operations
 
 
 def disarm(*, target: BootTarget) -> list[Operation]:
