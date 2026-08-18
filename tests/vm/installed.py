@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import PurePosixPath
+from typing import Final
 
 from gentoo_install.data import load_catalog
 from gentoo_install.model import compat
@@ -18,6 +19,7 @@ from gentoo_install.model.config import (
 )
 from gentoo_install.model.device import Filesystem, Luks, Mountpoint, Subvolume, ZfsDataset, ZfsPool
 from gentoo_install.plan.system import _network_service as network_service
+from gentoo_install.plan.packages import ENVIRONMENT_FILE, input_environment
 
 from .console import DISK_PASSPHRASE
 
@@ -52,6 +54,12 @@ CPU_FLAGS_COMMAND: str = (
     "command -v cpuid2cpuflags >/dev/null 2>&1 && "
     "printf 'CPUFLAGS-TOOL %s\\n' \"$(cpuid2cpuflags)\" || true"
 )
+
+
+INPUT_METHOD_BINARIES: Final[dict[str, str]] = {
+    "fcitx": "fcitx5",
+    "ibus": "ibus-daemon",
+}
 
 
 def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
@@ -101,6 +109,32 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
                 )
                 for resolver in installation.system.dns
             )
+    if installation.packages.display_manager == "greetd":
+        if installation.system.init is InitSystem.SYSTEMD:
+            result.append(
+                InstalledCheck(
+                    "greetd service",
+                    "systemctl is-enabled greetd.service; systemctl is-active greetd.service",
+                    r"(?m)^enabled$\n^active$",
+                )
+            )
+        else:
+            result.append(
+                InstalledCheck(
+                    "greetd service",
+                    "rc-update show default; pgrep -x greetd",
+                    r"(?ms)(?=.*^display-manager\s+\|\s+default$)(?=.*^[1-9][0-9]*$)",
+                )
+            )
+        result.append(
+            InstalledCheck(
+                "greetd config",
+                "cat /etc/greetd/config.toml",
+                r"(?ms)\A(?!.*\bagreety\b)"
+                r"(?=.*^command = \"tuigreet .*--sessions /usr/share/wayland-sessions"
+                r" --xsessions /usr/share/xsessions\"$)",
+            )
+        )
     groups = load_catalog()
     frameworks = {
         groups[name].input_framework
@@ -108,15 +142,17 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
         if name in groups and groups[name].input_method
     }
     for framework in sorted(one for one in frameworks if one):
-        # What the environment file actually carries. `DefaultIM=` was asserted
-        # here for three weeks and lives in the user's `fcitx5/profile`, so the
-        # check could only ever fail; `vm-desktop` was the first fixture to
-        # reach it and it did have a working input method.
+        binary = INPUT_METHOD_BINARIES[framework]
+        environment = ENVIRONMENT_FILE[installation.system.init]
+        wanted = (f"/usr/bin/{binary}", *input_environment(installation, groups))
+        pattern = "(?ms)" + "".join(
+            rf"(?=.*^{re.escape(line)}$)" for line in wanted
+        )
         result.append(
             InstalledCheck(
                 "inputmethod",
-                "cat /etc/environment /etc/env.d/90input-method 2>/dev/null",
-                re.escape(f"XMODIFIERS=@im={framework}"),
+                f"command -v {binary}; cat {environment}",
+                pattern,
             )
         )
     if (
