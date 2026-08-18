@@ -20,6 +20,8 @@ from gentoo_install.errors import (
     PreflightFailed,
 )
 from gentoo_install.exec import apply, fetch, preflight, report as exec_report
+from gentoo_install.exec.config import load
+from gentoo_install.log import Journal
 from gentoo_install.exec.probe import Machine as ProbedMachine
 from gentoo_install.exec.probe import Probe, probe_storage_facts
 from gentoo_install.exec.runner import Result, Runner, under
@@ -27,6 +29,7 @@ from gentoo_install.model.config import Bootloader, BootloaderConfig, DiskMode, 
 from gentoo_install.model.device import DeviceId, Existing, Luks, Node
 from gentoo_install.model.size import Size
 from gentoo_install.plan.operations import CommandOutput
+from gentoo_install.plan import portage
 
 from .layouts import config, encrypted_root, ext4_on_gpt, i, zfs_root
 
@@ -258,6 +261,83 @@ def test_a_live_command_keeps_its_nonzero_status_with_output(tmp_path: Path) -> 
     assert isinstance(output, CommandOutput)
     assert output.returncode == 1
     assert "not a mountpoint" in output
+
+def test_an_unreadable_binhost_is_journalled_and_the_run_finishes(tmp_path: Path) -> None:
+    installation = load(Path("tests/fixtures/vm-binhost-fallback.toml"))
+    endpoint = "https://mirror.xtom.com.hk/gentoo/releases/amd64/binpackages/23.0/x86-64"
+    unreadable = (
+        f"!!! [gentoo] Error fetching binhost package info from '{endpoint}'\n"
+        "!!! HTTP Error 404: Not Found\n"
+    )
+    reason = f"binary host index unreadable: [gentoo] Error fetching binhost package info from '{endpoint}'"
+    messages: list[str] = []
+    journal = Journal(path=tmp_path / "install.jsonl")
+
+    class BinhostUnavailable(Runner):
+        def __init__(self) -> None:
+            super().__init__(log=messages.append, journal=journal)
+            self.commands: list[tuple[str, ...]] = []
+
+        def in_target(self, target: Path) -> Runner:
+            return self
+
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            command = tuple(argv)
+            self.commands.append(command)
+            if command[0] != "emerge":
+                raise AssertionError(command)
+            if "--pretend" in command:
+                output = (
+                    "[ebuild  N    ] app-editors/nano-8\n"
+                    if "--getbinpkg=n" in command
+                    else unreadable
+                )
+                return Result(command, 0 if "--getbinpkg=n" in command else 1, output, "", 0.0)
+            assert "--usepkg=n" in command and "--getbinpkg=n" in command
+            return Result(command, 0, "[ebuild  N    ] app-editors/nano-8\n", "", 0.0)
+
+    runner = BinhostUnavailable()
+    machine = apply.Machine(
+        config=installation,
+        runner=runner,
+        probe=Probe(runner=runner, work=tmp_path),
+        work=tmp_path,
+    )
+    operations = (
+        portage.VerifyPackages(
+            requests=(
+                portage.PackageRequest(
+                    atom="app-editors/nano",
+                    requesters=("the `editor` group",),
+                ),
+            )
+        ),
+        portage.Emerge(packages=("app-editors/nano",), summary="install the editor"),
+    )
+
+    apply.apply(operations, machine)
+
+    recorded = list(journal.replay())
+    degraded = [entry for entry in recorded if entry["event"] == "degraded"]
+    completed = [entry for entry in recorded if entry["event"] == "operation"]
+    assert degraded == [
+        {
+            "event": "degraded",
+            "what": portage.BINARY_PACKAGES,
+            "reason": reason,
+        }
+    ]
+    assert messages.count(f"WARNING: {portage.BINARY_PACKAGES} is unavailable, so {reason}") == 1
+    assert [entry["status"] for entry in completed] == ["done", "done"]
+    assert [entry["describe"] for entry in completed][-1] == "install the editor: emerge app-editors/nano"
+    assert [("--getbinpkg=n" in command) for command in runner.commands] == [False, False, True, True]
 
 
 def test_a_live_findmnt_result_enables_the_lazy_unmount_fallback(tmp_path: Path) -> None:
