@@ -1874,6 +1874,30 @@ def test_wait_for_does_not_accept_the_original_command_echo() -> None:
         link.wait_for("install --config vm-raidz.toml", timeout=10.0)
 
 
+def test_an_idle_verdict_names_the_counters_before_the_console_tail() -> None:
+    """A verdict is cut to `OUTCOME_BYTES`, and `zbm-unlock`'s console tail
+    filled all 300 of them, so the round could not say whether the guest's
+    counters had moved — which is the whole question a STUCK asks. The reason
+    goes first, where truncation cannot reach it."""
+    from tests.vm import cluster
+    from tests.vm.console import ConsoleIdle, ConsoleTimeout
+
+    sent: list[str] = []
+    idle = ConsoleIdle(
+        "never matched 'MARK_26_DONE', nothing arrived for 1200s; last output "
+        "was " + "b'0.1/src/shared/data-fd-util.c [294/2044] compiling'" * 6
+    )
+    link = cluster.Reconnecting(lambda: _PatternConsole(idle, sent))
+    watch = cluster.Watchdog(log=Path("/nonexistent"), counters=lambda: 0)
+
+    with pytest.raises(ConsoleTimeout) as raised:
+        link.wait_for("sh install.sh", timeout=10.0, idle=1200.0, watch=watch)
+
+    said = str(raised.value)[: cluster.OUTCOME_BYTES]
+    assert "counters were flat" in said, said
+    assert said.startswith("the console was silent for 1200s"), said
+
+
 def test_wait_for_still_accepts_the_done_marker() -> None:
     from tests.vm import cluster
 
