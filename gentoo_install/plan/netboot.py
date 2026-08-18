@@ -453,6 +453,10 @@ PAYLOAD: Final[str] = "/gentoo-install"
 #: The archive `initramfs-init` unpacks after it has built Alpine's sysroot.
 APKOVL: Final[str] = "gentoo-install.apkovl.tar.gz"
 
+#: The marker that keeps Alpine's default boot services on a machine that
+#: brings its own apkovl. `initramfs-init` removes it after reading it.
+DEFAULT_SERVICES: Final[str] = "/etc/.default_boot_services"
+
 #: The login profile that sources the first screen in each environment. CJK
 #: root uses bash; Alpine root uses ash and reads `.profile`.
 AUTOSTART: Final[dict[MemoryMode, str]] = {
@@ -535,6 +539,10 @@ class AppendConfiguration(Operation):
                 payload_staging / AUTOSTART[self.launch.mode].lstrip("/"),
                 _source_start(),
             )
+            # `initramfs-init` adds `modloop`, `mdev`, `hwdrivers` and the rest
+            # only when there is no apkovl or this file is in it, so ours came
+            # up with no `/lib/modules` at all (`initramfs-init.in:950`).
+            context.write(payload_staging / DEFAULT_SERVICES.lstrip("/"), "")
             apkovl = staging / APKOVL
             context.run(
                 [
