@@ -308,6 +308,12 @@ class Job:
     #: The in-place fixture to run once the installed system is up. Set for a
     #: conversion job, whose `fixture` is the ordinary install it converts.
     convert_to: Path | None = None
+    #: Where `rewrite_fixtures` put the copy the guest is handed. The checks
+    #: come from that copy and not from `fixture`: the rewrite moves the
+    #: mirror, the sync and, for a fixture that pins one, the machine's own
+    #: address, so a check derived from the original asserts what the guest
+    #: was never asked to install.
+    installed_config: Path | None = None
     status: JobStatus = JobStatus.WAITING
     vmid: int = 0
     node: str | None = None
@@ -1629,7 +1635,7 @@ def install_one(
         # Writing IPv4 resolvers over it left every mirror unreachable:
         # `Failed to connect to mirrors.tuna.tsinghua.edu.cn:443 after 111 ms`.
         wait_for_network(link, guest.vmid, held.address)
-        stage_passphrases(link, load(job.fixture))
+        stage_passphrases(link, load(job.installed_config or job.fixture))
         link.run(FIND_DRIVER)
         link.run(f"mkdir -p {RESULT_DIR}")
         # tee, not a redirect: the serial console is the only way to watch a
@@ -1684,7 +1690,14 @@ def install_one(
         # the machine it produced comes up and carries what was asked for, and
         # nothing in the log above can answer that.
         phase = Phase.BOOT_INSTALLED
-        wrong = boot_and_check(guest, link, log, load(job.fixture), remote_key, held.address)
+        wrong = boot_and_check(
+            guest,
+            link,
+            log,
+            load(job.installed_config or job.fixture),
+            remote_key,
+            held.address,
+        )
         if wrong:
             outcome = Outcome(
                 job.name,
@@ -1851,6 +1864,9 @@ def run(
     rewritten = rewrite_fixtures(
         jobs, fixture_dir, region, sync, public_key, site, unlock_addresses, distfiles
     )
+    # Rebuilt rather than mutated: `Job` is frozen so that a scheduler state
+    # change is always a new object.
+    jobs = [replace(job, installed_config=rewritten / job.fixture.name) for job in jobs]
     built_path = build_driver(staging, packed=True, fixtures=rewritten)
     driver_path = retain_driver(workdir, built_path)
     driver = driver_path.name
