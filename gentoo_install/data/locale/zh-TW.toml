@@ -153,6 +153,8 @@
 
 # 授權與編譯
 "Licenses to accept" = "接受哪些授權"
+"Accept every license" = "接受全部授權"
+"every license, including proprietary ones" = "全部授權，包含專有軟體"
 "Licenses" = "授權"
 "free software and free documentation only" = "僅自由軟體與自由文件"
 "also firmware and other redistributable binaries" = "另含韌體等可再散布二進位檔"

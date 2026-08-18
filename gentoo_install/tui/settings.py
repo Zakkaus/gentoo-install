@@ -848,6 +848,11 @@ NETWORK: Final[tuple[Setting, ...]] = (
     Setting("firewall", "Firewall", _firewall, screens.firewall_screen),
 )
 
+def _every_license(config: InstallConfig, context: Context) -> str:
+    every = tuple(config.portage.accept_license) == ("*",)
+    return context.translate("yes" if every else "no")
+
+
 INSTALL_MODE: Final[Setting] = Setting(
     "mode", "Install mode", _mode, screens.install_mode_screen, required=True, detected=True
 )
@@ -867,6 +872,16 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     ),
     Setting("timezone", "Timezone", lambda c, x: c.system.timezone, screens.timezone_screen),
     Setting("mirror", "Mirrors", _mirror, screens.mirror_screen, required=True, detected=True),
+    # Above the row that opens the rest of the install: the licence question
+    # is otherwise two levels down under Compiler, and the operator meets it
+    # as a refusal — `net-im/wemeet` masked, the install over — rather than as
+    # a menu.
+    Setting(
+        "every_license",
+        "Accept every license",
+        _every_license,
+        screens.accept_every_license_screen,
+    ),
     # Before the Disk row, because it decides whether that row applies at all.
     INSTALL_MODE,
     Setting(

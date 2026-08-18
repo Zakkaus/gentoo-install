@@ -153,6 +153,8 @@
 
 # Licenses and compilation
 "Licenses to accept" = "受け入れるライセンス"
+"Accept every license" = "すべてのライセンスを受け入れる"
+"every license, including proprietary ones" = "プロプライエタリを含むすべてのライセンス"
 "Licenses" = "ライセンス"
 "free software and free documentation only" = "自由ソフトウェアと自由文書のみ"
 "also firmware and other redistributable binaries" = "ファームウェアなど再配布可能なバイナリも含む"

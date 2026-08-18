@@ -3265,3 +3265,50 @@ def test_a_cpu_that_cannot_run_v3_cannot_be_made_to_choose_it() -> None:
     assert answer is not None
     assert answer.portage.binhost.subarch == "x86-64", answer.portage.binhost
     assert "this CPU cannot run it" in screen.last
+
+
+def test_the_licence_button_offers_every_licence_and_the_default() -> None:
+    """A machine that needs `net-im/wemeet` or an NVIDIA driver meets the
+    licence question as a refusal — the group masked, the install over — and
+    the Licenses row is two levels down under Compiler. This row is at the
+    top level and offers two answers, so opening it and accepting keeps what
+    it held, which every other row does as well."""
+    import pathlib
+    from typing import Any, cast
+
+    from gentoo_install.exec.config import load
+
+    here = pathlib.Path(__file__).resolve().parents[1]
+    config = load(here / "fixtures" / "vm-desktop.toml")
+    assert tuple(config.portage.accept_license) != ("*",)
+
+    # The menu opens on the value the configuration holds, which is the
+    # second row here, so `*` is one press up.
+    screen = FakeScreen(keys=["KEY_UP", "\n"])
+    widened = screens.accept_every_license_screen(cast(Any, screen), config, context())
+
+    assert widened.chosen
+    assert widened.unwrap().portage.accept_license == ("*",)
+
+    # And the second row is the profile's own, so the answer is reversible
+    # from the same place it was given.
+    back = screens.accept_every_license_screen(
+        cast(Any, FakeScreen(keys=["KEY_DOWN", "\n"])), widened.unwrap(), context()
+    )
+    kept = screens.accept_every_license_screen(
+        cast(Any, FakeScreen(keys=["\n"])), widened.unwrap(), context()
+    )
+    assert kept.unwrap().portage.accept_license == ("*",)
+
+    assert back.unwrap().portage.accept_license == screens.DEFAULT_LICENSES
+
+
+def test_the_licence_button_sits_above_the_row_that_opens_the_install() -> None:
+    """Above the install-mode row, where it is read before anything else is
+    chosen, and not two levels down where the refusal finds the operator
+    first."""
+    from gentoo_install.tui.settings import SETTINGS
+
+    names = [one.key for one in SETTINGS]
+    assert "every_license" in names, names
+    assert names.index("every_license") < names.index("mode"), names

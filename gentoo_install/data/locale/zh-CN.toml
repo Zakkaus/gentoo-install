@@ -153,6 +153,8 @@
 
 # 许可与编译
 "Licenses to accept" = "接受哪些许可"
+"Accept every license" = "接受全部许可"
+"every license, including proprietary ones" = "全部许可，包含专有软件"
 "Licenses" = "许可"
 "free software and free documentation only" = "仅自由软件与自由文档"
 "also firmware and other redistributable binaries" = "另含固件等可再分发二进制文件"
