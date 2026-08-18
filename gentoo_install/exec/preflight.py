@@ -48,6 +48,10 @@ STAGE3_COMMANDS: Final[tuple[str, ...]] = ("tar", "xz", "gpg", "gpg-agent")
 #: Commands every install needs, whatever the layout is.
 ALWAYS: Final[tuple[str, ...]] = (
     "tar", "gpg", "mount", "umount", "findmnt", "lsblk", "blkid", "chroot", "udevadm", "swapon",
+    # Reached through a context method rather than an operation's own list, so
+    # the plan runs them on every configuration: `install` mounts the chroot's
+    # filesystems, `mkdir` makes every mount point, `sleep` spaces a retry.
+    "install", "mkdir", "sleep",
 )
 
 #: Commands reached through context methods or helper subprocesses.
@@ -72,13 +76,17 @@ BY_FEATURE: Final[dict[str, tuple[str, ...]]] = {
     # `partprobe` is absent here on purpose: it comes from parted, and
     # `RereadPartitionTable` falls back to `blockdev --rereadpt` without it.
     "gpt": ("sgdisk", "blockdev", "wipefs"),
-    "mbr": ("parted", "partprobe", "wipefs"),
-    "luks": ("cryptsetup",),
+    # `blockdev` as well: the reread falls back to it, and an MBR layout
+    # reaches the same operation a GPT one does.
+    "mbr": ("parted", "partprobe", "wipefs", "blockdev"),
+    # `dmsetup` as well: `OpenLuks` lists the mapper's own devices before it
+    # opens one, and a medium without it stops with the disks partitioned.
+    "luks": ("cryptsetup", "dmsetup"),
     "mdraid": ("mdadm",),
     # The binaries the operations invoke, not the multicall name: a medium
     # carrying lvm without its symlinks passes on `lvm` and dies at `pvcreate`
     # with the disks already partitioned.
-    "lvm": ("pvcreate", "vgcreate", "lvcreate"),
+    "lvm": ("pvcreate", "vgcreate", "lvcreate", "vgchange"),
     "swap": ("mkswap", "swapoff"),
     # `hostid`, not `zgenhostid`: the host reads its own id and the target
     # writes it, so the tool that writes runs inside the chroot.

@@ -64,15 +64,21 @@ package_for() {
 	sgdisk:alpine) printf 'sgdisk' ;;
 	sgdisk:*) printf 'gptfdisk' ;;
 	partprobe:* | parted:*) printf 'parted' ;;
-	install:* | sleep:*) printf 'coreutils' ;;
+	install:* | sleep:* | mkdir:*) printf 'coreutils' ;;
 	mkfs.vfat:* | mkfs.fat:*) printf 'dosfstools' ;;
 	mkfs.btrfs:* | btrfs:*) printf 'btrfs-progs' ;;
 	cryptsetup:*) printf 'cryptsetup' ;;
 	mdadm:*) printf 'mdadm' ;;
+	# Read from each distribution on 2026-08-19: Alpine and Arch ship
+	# `device-mapper`, Gentoo puts `dmsetup` in lvm2, and Debian names the
+	# package after the command, which the fallback already covers.
+	dmsetup:gentoo) printf 'sys-fs/lvm2' ;;
+	dmsetup:alpine | dmsetup:arch | dmsetup:fedora | dmsetup:rhel | dmsetup:centos \
+		| dmsetup:suse | dmsetup:opensuse*) printf 'device-mapper' ;;
 	# The multicall name and the three binaries the operations invoke: all of
 	# them come from lvm2, and the three reached the fallback and were printed
 	# as package names no distribution has.
-	lvm:* | pvcreate:* | vgcreate:* | lvcreate:*) printf 'lvm2' ;;
+	lvm:* | pvcreate:* | vgcreate:* | lvcreate:* | vgchange:*) printf 'lvm2' ;;
 	gpg:*) printf 'gnupg' ;;
 	gpg-agent:gentoo | gpg-agent:arch) printf 'gnupg' ;;
 	gpg-agent:alpine | gpg-agent:debian | gpg-agent:ubuntu) printf 'gpg-agent' ;;

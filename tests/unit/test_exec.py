@@ -2556,3 +2556,33 @@ def test_an_existing_file_is_narrowed_before_the_secret_reaches_it(
     assert seen == [0o600], [oct(one) for one in seen]
     assert stat.S_IMODE(where.stat().st_mode) == 0o600
     assert where.read_text() == "secret"
+
+
+def test_preflight_asks_for_every_command_the_plan_will_run() -> None:
+    """Two tables for one rule set: `BY_FEATURE` in `preflight.py` and the
+    `host_commands` each operation declares. They had already drifted —
+    `OpenLuks` lists `dmsetup` and the `luks` row did not, so a medium without
+    it passed preflight and stopped with the disks already partitioned."""
+    from gentoo_install.data import load_catalog
+    from gentoo_install.exec import preflight as check
+    from gentoo_install.plan.build import build
+
+    catalog = load_catalog()
+    fixtures = Path(__file__).resolve().parents[1] / "fixtures"
+    for name in (
+        "vm-luks",
+        "btrfs-luks",
+        "vm-lvm",
+        "vm-mdraid",
+        "vm-zfs",
+        "vm-xfs",
+        "vm-zram",
+        "ext2",
+    ):
+        config = load(fixtures / f"{name}.toml")
+        planned = check.required_commands(config, build(config, catalog))
+        configured = check.required_commands(config)
+        # `partprobe` is the one deliberate omission, and it carries its
+        # reason at the head of the table: the operation degrades to
+        # `blockdev --rereadpt` without it.
+        assert planned - configured - {"partprobe"} == set(), (name, planned - configured)
