@@ -219,37 +219,19 @@ def _fstab_we_do_not_manage(esp: str | None, boot: str | None) -> tuple[str, ...
     return tuple(carried)
 
 
-def _mount_entries(document: object) -> tuple[Mapping[str, object], ...]:
+def _entries(document: object, key: str) -> tuple[Mapping[str, object], ...]:
+    """Every node under `key`, parents before their children.
+
+    `findmnt --json` nests a mount's submounts and `lsblk --json` nests a
+    disk's partitions, both under `children`, so one reader answers for both:
+    they differed only in the key and in one blank line.
+    """
     if not isinstance(document, Mapping):
         return ()
-    roots = document.get("filesystems")
+    roots = document.get(key)
     if not isinstance(roots, list):
         return ()
     found: list[Mapping[str, object]] = []
-
-    def visit(value: object) -> None:
-        if not isinstance(value, Mapping):
-            return
-        found.append(value)
-        children = value.get("children")
-        if isinstance(children, list):
-            for child in children:
-                visit(child)
-
-    for root in roots:
-        visit(root)
-    return tuple(found)
-
-
-def _block_entries(document: object) -> tuple[Mapping[str, object], ...]:
-    if not isinstance(document, Mapping):
-        return ()
-    roots = document.get("blockdevices")
-    if not isinstance(roots, list):
-        return ()
-
-    found: list[Mapping[str, object]] = []
-
 
     def visit(value: object) -> None:
         if not isinstance(value, Mapping):
@@ -953,7 +935,7 @@ class Probe:
         mounts: tuple[Mapping[str, object], ...] = ()
         if mounts_result.returncode == 0:
             try:
-                mounts = _mount_entries(json.loads(mounts_result.stdout))
+                mounts = _entries(json.loads(mounts_result.stdout), "filesystems")
             except json.JSONDecodeError:
                 mounts = ()
         root = next((entry for entry in mounts if _entry_text(entry, "target") == "/"), None)
@@ -974,7 +956,7 @@ class Probe:
         blocks: tuple[Mapping[str, object], ...] = ()
         if blocks_result.returncode == 0:
             try:
-                blocks = _block_entries(json.loads(blocks_result.stdout))
+                blocks = _entries(json.loads(blocks_result.stdout), "blockdevices")
             except json.JSONDecodeError:
                 blocks = ()
         root_uuid: str | None = None
