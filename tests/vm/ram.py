@@ -89,6 +89,29 @@ def arm(console: SerialConsole, config: str, mode: str) -> None:
     )
 
 
+def arm_bypass(console: SerialConsole, config: str, mode: str) -> bytes:
+    """Replace the default entry, and require it to have moved.
+
+    The one-shot's promise is the opposite of this one: `--bypass` exists for
+    firmware that drops a one-shot, and it is the only path where an
+    environment that does not come up leaves a machine that does not boot.
+    """
+    before = read_the_default_entry(console)
+    console.run("mkdir -p /tmp/gentoo-install-results", timeout=60.0)
+    console.run(
+        f"sh /mnt/driver/install.sh --config {config} --{mode} --bypass 2>&1 "
+        "| tee /tmp/gentoo-install-results/arm.txt",
+        timeout=ARM_CEILING,
+    )
+    after = read_the_default_entry(console)
+    if not _default_changed(before, after):
+        raise RuntimeError(
+            "the default boot entry did not move, which is the whole of what "
+            f"--bypass does: {before!r} then {after!r}"
+        )
+    return after
+
+
 def arm_and_confirm(console: SerialConsole, config: str, mode: str) -> bytes:
     """Arm one boot and reject a missing one-shot or a moved default entry."""
     before = read_the_default_entry(console)
@@ -424,6 +447,9 @@ def run_fallback(
 RAN: Final[dict[str, str]] = {
     "install": "memory mode installed Gentoo from the environment it delivered",
     "fallback": "memory mode proved a broken one-shot returns to its own system twice",
+    "bypass": (
+        "memory mode replaced the default entry and came up in the environment twice"
+    ),
     "both": (
         "memory mode installed Gentoo and proved a broken one-shot returns twice"
     ),
@@ -432,6 +458,64 @@ RAN: Final[dict[str, str]] = {
 
 def _what_ran(part: str) -> str:
     return RAN[part]
+
+
+def run_bypass(
+    chosen: CloudImage,
+    config: str,
+    driver: Path,
+    workdir: Path,
+    *,
+    mode: str,
+    memory: str,
+    cpus: int,
+    keep: bool,
+) -> None:
+    """Replace the default entry, and require both boots to reach the environment.
+
+    One boot is what `--ram` alone proves. The second is what separates this
+    path from it: a replaced default entry comes up in the environment again,
+    which is why this is the one path an environment that does not come up
+    leaves unbootable.
+    """
+    workdir.mkdir(parents=True, exist_ok=True)
+    root = overlay(chosen.image, workdir)
+    cidata = seed(workdir)
+    verified = False
+    started = time.monotonic()
+    try:
+        spec = VmSpec(
+            medium=MEDIA["official-minimal"],
+            workdir=workdir,
+            firmware=chosen.firmware,
+            memory=memory,
+            cpus=cpus,
+            ssh_port=free_port(),
+            driver_iso=driver,
+            targets=(root,),
+            disks=(cidata,),
+            boot_installed=True,
+        )
+        with Vm(spec) as vm:
+            console = SerialConsole.connect(vm.serial_socket, vm.serial_log)
+            reach_root(console, chosen)
+            wait_for_driver(console)
+            install_tools(console, chosen, config, mode)
+            arm_bypass(console, config, mode)
+            for boot in ("first", "second"):
+                console.run("reboot", timeout=60.0)
+                refused = came_up(console, mode)
+                if refused:
+                    raise RuntimeError(f"the {boot} boot after --bypass: {refused}")
+                print(
+                    f"[{time.monotonic() - started:5.1f}s] the {boot} boot came up "
+                    "in the memory environment",
+                    flush=True,
+                )
+        verified = True
+    finally:
+        if verified and not keep:
+            root.unlink(missing_ok=True)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -449,7 +533,7 @@ def main(argv: list[str] | None = None) -> int:
     # The two halves are an hour apart, and the fallback is the one a change to
     # the boot entry has to be measured against.
     parser.add_argument(
-        "--part", choices=("both", "install", "fallback"), default="both"
+        "--part", choices=("both", "install", "fallback", "bypass"), default="both"
     )
     arguments = parser.parse_args(argv)
     chosen: CloudImage = IMAGES[arguments.image]
@@ -465,6 +549,17 @@ def main(argv: list[str] | None = None) -> int:
                 arguments.config,
                 driver,
                 workdir / "install",
+                mode=arguments.mode,
+                memory=arguments.memory,
+                cpus=arguments.cpus,
+                keep=arguments.keep,
+            )
+        if arguments.part == "bypass":
+            run_bypass(
+                chosen,
+                arguments.config,
+                driver,
+                workdir / "bypass",
                 mode=arguments.mode,
                 memory=arguments.memory,
                 cpus=arguments.cpus,
