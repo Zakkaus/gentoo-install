@@ -37,7 +37,7 @@ The ordinary path: partition, format, unpack a stage3, configure, boot.
 | `7e79962bcb0a` | `vm-lvm`, `vm-xfs`, `openrc-sdboot`, `vm-btrfs`, `vm-f2fs`, `vm-mdraid` — `vm-bios` and `ext4-bios` failed in the same round against a prompt pattern that this revision predates, so that round says nothing about BIOS |
 | `4f8bd68b8d09` | `ext4-bios`, `vm-bios-luks` — the first BIOS records since the blind serial login was measured rather than timed |
 | `a2db147436af` | `ext2`, `ext3`, `mbr-edit`, `static-ip`, `vm-lvm`, `vm-xfs`, `vm-f2fs` — the first records of ext2, of ext3, of a machine that configures its own address, and of an edited MBR table on the cluster |
-| `c345afa30b7c` | `ext2`, `vm-binpkg`, `openrc-sdboot`, `vm-mdraid`, `vm-luks`, `vm-btrfs` |
+| `c345afa30b7c` | `ext2`, `vm-binpkg`, `openrc-sdboot`, `vm-mdraid`, `vm-luks`, `vm-btrfs`, `vm-sdboot`, `vm-zram` — eight of the round's ten; `ext3` was refused by its own login, which `3bdd6a0e78a8` addresses, and the source-built kernel was still compiling when the round was ended |
 
 Every row from `08015b221d73` onward ran `--region cn --site nju --sync
 webrsync --distfiles http://10.31.0.2/gentoo`, so what they establish about
