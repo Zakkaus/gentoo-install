@@ -24,7 +24,7 @@ from typing import Final
 
 from .console import ConsoleClosed, ConsoleTimeout, SerialConsole
 from .convert import IMAGES, CloudImage, install_tools, overlay, reach_root, seed
-from .driver import build as build_driver
+from .driver import build as build_driver, wait_for_driver
 from .media import MEDIA
 from .qemu import Vm, VmSpec
 from .run import free_port
@@ -145,6 +145,10 @@ def main(argv: list[str] | None = None) -> int:
         reach_root(console, chosen)
         print(f"[{time.monotonic() - started:5.1f}s] root shell on serial", flush=True)
         before = read_the_default_entry(console)
+        # Before anything asks the CD for a file: the guest's shell answers
+        # before its ATAPI devices are enumerated, and `sh` exits 2 for a
+        # script it cannot open, which reads as the installer refusing.
+        wait_for_driver(console)
         install_tools(console, chosen, arguments.config)
         arm(console, arguments.config, arguments.mode)
         code = console.expect_command(

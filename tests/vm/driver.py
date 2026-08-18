@@ -12,7 +12,9 @@ import shutil
 import subprocess
 import tempfile
 import hashlib
+import time
 from pathlib import Path
+from typing import Final, Protocol
 
 from .media import MediaError
 
@@ -29,6 +31,47 @@ FIND_DRIVER = (
     'mount -o ro "$candidate" /mnt/driver 2>/dev/null && break; done; '
     "mountpoint -q /mnt/driver"
 )
+
+class DriverNotFound(RuntimeError):
+    """The guest never saw the CD the harness attached."""
+
+
+class Console(Protocol):
+    """The two console calls this needs, so either runner's console fits."""
+
+    def run(self, command: str, timeout: float = ...) -> None: ...
+
+    def expect_command(self, command: str, timeout: float = ...) -> bytes: ...
+
+
+#: How long the driver CD is waited for, and how often it is tried again. The
+#: guest's ATAPI devices are not enumerated when its shell first answers: a
+#: Debian cloud image under KVM reached a root prompt at 7.3 seconds and both
+#: `/dev/sr0` and `/dev/sr1` answered `Can't open blockdev`, so the installer
+#: was started with `sh /mnt/driver/install.sh` against nothing and `sh` exited
+#: 2 for a file it could not open.
+DRIVER_PATIENCE: Final[float] = 120.0
+DRIVER_RETRY: Final[float] = 3.0
+
+
+def wait_for_driver(console: Console, patience: float = DRIVER_PATIENCE) -> None:
+    """Mount the driver CD, waiting for the guest to notice it has one."""
+    deadline = time.monotonic() + patience
+    while True:
+        console.run(FIND_DRIVER, timeout=180.0)
+        said = console.expect_command(
+            "mountpoint -q /mnt/driver && echo DRIVER-READY || echo DRIVER-ABSENT",
+            timeout=60.0,
+        )
+        if b"DRIVER-READY" in said:
+            return
+        if time.monotonic() >= deadline:
+            raise DriverNotFound(
+                f"no driver CD at /mnt/driver after {patience:.0f}s; the guest "
+                f"answered {said!r}"
+            )
+        time.sleep(DRIVER_RETRY)
+
 
 #: What the guest runs to put the installer on its PYTHONPATH.
 ENTRY = f"""#!/bin/sh
