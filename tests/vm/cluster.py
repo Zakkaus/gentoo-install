@@ -2380,7 +2380,11 @@ class Reconnecting:
             with _naming(command):
                 self.console.expect(command_begin(token), _remaining(deadline))
                 said = self.console.expect(command_done(token), _remaining(deadline))
-            return said.split(command_done(token).encode())[0]
+            # Without the carriage returns: a serial line ends every one of
+            # them `\r\n`, so a pattern anchored with `$` matches nothing at
+            # all. `btrfs-luks` was failed at 130.3 minutes for an
+            # `inputmethod` check whose three lines were on the console.
+            return said.split(command_done(token).encode())[0].replace(b"\r", b"")
 
         return self._with_reconnect(
             timeout, collect_once, retry_timeout=_marker_lost
