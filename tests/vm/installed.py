@@ -31,6 +31,29 @@ class InstalledCheck:
     pattern: str
 
 
+#: Read on the installed machine, against the tree that machine has: every
+#: `CPU_FLAGS_X86` value portage accepts is one line of
+#: `profiles/desc/cpu_flags_x86.desc`, so a name that is not there is a name
+#: portage does not know. `vaes` was written for three weeks and is a cpuinfo
+#: flag with no portage counterpart at all; nothing in the unit tests could
+#: see it, because the authority is a file only the installed system has.
+#:
+#: The comparison against `cpuid2cpuflags` is printed when the tool is there
+#: and is not what the check passes on: the installer does not merge it, so a
+#: pattern accepting its absence would be a rule that cannot fail.
+CPU_FLAGS_COMMAND: str = (
+    "desc=$(portageq get_repo_path / gentoo)/profiles/desc/cpu_flags_x86.desc; "
+    "unknown=''; "
+    "for one in $(portageq envvar CPU_FLAGS_X86); do "
+    'grep -q "^$one - " "$desc" || unknown="$unknown $one"; '
+    "done; "
+    'if [ -n "$unknown" ]; then printf \'CPUFLAGS-UNKNOWN:%s\\n\' "$unknown"; '
+    "else echo CPUFLAGS-ALL-KNOWN; fi; "
+    "command -v cpuid2cpuflags >/dev/null 2>&1 && "
+    "printf 'CPUFLAGS-TOOL %s\\n' \"$(cpuid2cpuflags)\" || true"
+)
+
+
 def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
     """Derive every installed-state check from the configuration."""
     result = [
@@ -43,6 +66,7 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
                        _kernel_pattern(installation)),
         InstalledCheck("resolver", "readlink -f /etc/resolv.conf; test -s /etc/resolv.conf && echo RESOLVCONF-OK || echo RESOLVCONF-EMPTY", "RESOLVCONF-OK"),
         InstalledCheck("portage", "emerge --info >/dev/null 2>&1 && echo EMERGE-OK || echo EMERGE-FAIL", "EMERGE-OK"),
+        InstalledCheck("cpu-flags", CPU_FLAGS_COMMAND, "CPUFLAGS-ALL-KNOWN"),
         InstalledCheck("init", "test -d /run/openrc && echo openrc || { test -d /run/systemd/system && echo systemd || echo unknown; }", "systemd" if installation.system.init is InitSystem.SYSTEMD else "openrc"),
     ]
     if installation.system.init is InitSystem.SYSTEMD:
