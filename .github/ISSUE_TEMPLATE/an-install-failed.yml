@@ -1,0 +1,59 @@
+name: An install failed
+description: A run that stopped, or produced a system that does not boot.
+labels: [install]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A report that names the revision, the medium and the configuration can
+        be reproduced. One that names a machine's passphrase has to be
+        discarded, so redact secrets before pasting. Do not report a
+        vulnerability here — `SECURITY.md` has the private address.
+  - type: input
+    id: revision
+    attributes:
+      label: Installer revision
+      description: The first line of `install.log`, or the commit you cloned.
+      placeholder: ce95e7df72cd
+    validations:
+      required: true
+  - type: input
+    id: medium
+    attributes:
+      label: Install medium
+      description: Which image was booted, with its build date.
+      placeholder: install-amd64-minimal-20260816T170110Z
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What the machine said
+      description: >
+        The last operation printed and the error under it. `install.log` and
+        `install.jsonl` are in `/var/log/gentoo-install` on the installed
+        system, and under `--work` while a run is going. A paste address from
+        the overview's publish action is better than a screenshot.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: configuration
+    attributes:
+      label: Configuration
+      description: >
+        The TOML the run was given, with `password_hash`, `root_password_hash`
+        and any proxy credentials removed. Publishing from the menu removes
+        them for you.
+      render: toml
+    validations:
+      required: true
+  - type: textarea
+    id: disks
+    attributes:
+      label: What the disks looked like before
+      description: >
+        `lsblk -o NAME,SIZE,FSTYPE,PARTTYPENAME,MOUNTPOINTS` from the live
+        medium, when the failure touched partitioning, filesystems or the
+        bootloader.
+      render: text
