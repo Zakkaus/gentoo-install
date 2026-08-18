@@ -708,12 +708,12 @@ def test_a_password_the_console_echoed_is_not_counted_as_a_refusal(
     assert cluster._log_in(cast(cluster.Reconnecting, console), "install") == ""
     assert console.sent.count("install") == 4, console.sent
 
-    # The settle grows on each catch rather than staying at a guess.
-    waited = [one for one in settles if one not in (cluster.AGETTY_FLUSHES_AFTER,)]
-    assert waited == [
+    # Every sleep, unfiltered: the settle's second step is `AGETTY_FLUSHES_AFTER`
+    # itself now that the first is zero, and a filter by value drops it.
+    assert settles == [
         cluster.PASSWORD_ECHO_OFF_AFTER + n * cluster.PASSWORD_ECHO_BACKOFF
         for n in range(4)
-    ], waited
+    ], settles
 
     # Negative control: a refusal with no echo is the installed system saying
     # no, and it must end after the ordinary budget rather than be absorbed.
@@ -1824,3 +1824,21 @@ def test_a_reopen_that_is_waiting_for_a_shell_still_asks_for_one() -> None:
     link.reopen()
 
     assert opened[-1].sent == [""], opened[-1].sent
+
+
+def test_the_first_password_is_sent_the_moment_the_prompt_is_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`tests/vm/run.py` sends it at once and passes: `vm-lvm` installs and
+    logs in locally on the same fixture and the same installer revision, and
+    failed on the cluster in four rounds where a second went first. `login`
+    turns the echo off before it writes the prompt, so there is no window to
+    wait out; the growth stays for the console that proves otherwise by
+    echoing."""
+    settles: list[float] = []
+    monkeypatch.setattr("time.sleep", lambda seconds: settles.append(seconds))
+    console = _LoginConsole(refusals=0)
+
+    assert cluster._log_in(cast(cluster.Reconnecting, console), "install") == ""
+    assert settles == [0.0], settles
+    assert cluster.PASSWORD_ECHO_OFF_AFTER == 0.0, cluster.PASSWORD_ECHO_OFF_AFTER
