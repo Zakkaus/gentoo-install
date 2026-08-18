@@ -197,6 +197,20 @@ class InstallGrub(Operation):
         ).strip()
         if not entries.isdigit() or int(entries) == 0:
             raise NothingToBoot("grub.cfg has no menu entry; /boot holds no kernel")
+        # grub-mkconfig writes `grub.cfg.new` and copies it over `grub.cfg`
+        # last (`util/grub-mkconfig.in`), so the new file surviving means the
+        # config in place is the one that was already there. A converted Debian
+        # machine kept its own single `menuentry` that way, counted it as
+        # success, and booted to `Failed to boot both default and fallback
+        # entries` against a kernel the conversion had replaced.
+        gone = context.run_in_target(
+            ["test", "!", "-e", "/boot/grub/grub.cfg.new"], check=False
+        )
+        if not isinstance(gone, CommandOutput) or gone.returncode != 0:
+            raise NothingToBoot(
+                "grub-mkconfig left /boot/grub/grub.cfg.new behind, so the "
+                "configuration in place is the one it was meant to replace"
+            )
 
 
 @dataclass(frozen=True, kw_only=True)

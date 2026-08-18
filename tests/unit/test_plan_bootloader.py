@@ -456,3 +456,34 @@ def test_the_unlock_names_the_key_types_the_module_may_generate() -> None:
     assert "ed25519" not in written, written
     for keytype in bootloader.ZBM_HOST_KEY_TYPES:
         assert f'dropbear_{keytype}_key=' in written, keytype
+
+
+def test_a_config_grub_mkconfig_never_put_in_place_stops_the_install() -> None:
+    """`grub-mkconfig` writes `grub.cfg.new` and copies it over `grub.cfg`
+    last, so the new file surviving means the configuration in place is the
+    one it was meant to replace. A converted Debian machine kept its own
+    single `menuentry` that way — the count passed — and booted to `Failed to
+    boot both default and fallback entries` against a kernel the conversion
+    had already replaced. Read off that disk: `grub.cfg` dated 2026-08-06 and
+    `grub.cfg.new` dated 2026-08-18, 3231 bytes, beside a Gentoo kernel."""
+    from gentoo_install.errors import NothingToBoot
+    from gentoo_install.model.device import DeviceId
+
+    operation = bootloader.InstallGrub(
+        firmware=Firmware.BIOS,
+        esp=None,
+        boot_devices=(DeviceId("first"),),
+    )
+
+    class Disks(Recorder):
+        def containing_disk(self, device: DeviceId) -> str:
+            return f"/dev/{device}"
+
+    # `replies["test"]` non-empty is how this recorder says a `test` exits
+    # non-zero, which here is `test ! -e` finding the file still there.
+    left_behind = Disks(replies={"grep": "1", "test": "still there"})
+    with pytest.raises(NothingToBoot, match="grub.cfg.new"):
+        operation.apply(left_behind)
+
+    replaced = Disks(replies={"grep": "1"})
+    operation.apply(replaced)
