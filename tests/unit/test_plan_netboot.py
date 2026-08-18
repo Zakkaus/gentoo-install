@@ -7,7 +7,7 @@ import json
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from collections.abc import Callable
-from typing import Sequence
+from typing import Final, Sequence
 
 import pytest
 
@@ -79,7 +79,15 @@ def _launch(
     )
 
 
-def _answering(mode: MemoryMode = MemoryMode.RAM, *, digest: str = DIGEST) -> Recorder:
+ALPINE_ARCHIVE: Final[str] = "alpine-netboot-3.24.1-x86_64.tar.gz"
+
+
+def _answering(
+    mode: MemoryMode = MemoryMode.RAM,
+    *,
+    digest: str = DIGEST,
+    archive: str = ALPINE_ARCHIVE,
+) -> Recorder:
     """A machine that answers everything this plan asks it."""
 
     def answer(argv: Sequence[str]) -> str | None:
@@ -95,7 +103,7 @@ def _answering(mode: MemoryMode = MemoryMode.RAM, *, digest: str = DIGEST) -> Re
         if argv[0] == "sha256sum":
             return f"{digest}  {argv[1]}\n"
         if argv[0] == "ls":
-            name = ISO if mode is MemoryMode.RAM else "alpine-netboot-3.24.1-x86_64.tar.gz"
+            name = ISO if mode is MemoryMode.RAM else archive
             return f"{name}\nkernel\ninitramfs\n"
         if argv[0] == "blkid":
             return "Gentoo-CJK-amd64-20260813\n"
@@ -287,6 +295,46 @@ def test_the_lowram_cmdline_names_the_repository_alpine_fetches_modloop_from() -
     entry = recorder.files[PurePosixPath(f"{ESP}/loader/entries/{netboot.PLACE}.conf")]
     assert f"alpine_repo={netboot.ALPINE_REPOSITORY}" in entry, entry
     assert "modloop=" in entry and "ip=dhcp" in entry, entry
+
+
+def _modloop(entry: str) -> str:
+    words = [one for one in entry.split() if one.startswith("modloop=")]
+    assert len(words) == 1, entry
+    return words[0]
+
+
+def _lowram_entry(archive: str) -> str:
+    recorder = _answering(MemoryMode.LOWRAM, archive=archive)
+    netboot.WriteMemoryEntry(
+        mode=MemoryMode.LOWRAM, target=_target(), launch=_launch(MemoryMode.LOWRAM)
+    ).apply(recorder)
+    return recorder.files[PurePosixPath(f"{ESP}/loader/entries/{netboot.PLACE}.conf")]
+
+
+def test_the_modloop_is_the_one_beside_the_kernel_that_was_downloaded() -> None:
+    """`netboot/` holds whatever release is newest, so a machine armed the day
+    before an Alpine release would boot a kernel from one version and mount a
+    modloop from the next, whose `modules/$(uname -r)` does not exist."""
+    assert _modloop(_lowram_entry("alpine-netboot-3.24.1-x86_64.tar.gz")).endswith(
+        "/releases/x86_64/netboot-3.24.1/modloop-lts"
+    ), _lowram_entry("alpine-netboot-3.24.1-x86_64.tar.gz")
+
+
+def test_the_modloop_follows_the_machine_rather_than_this_file() -> None:
+    """Alpine publishes `netboot-<version>/modloop-lts` under every
+    architecture's own directory, checked against `latest-stable/releases/` for
+    `x86_64` and `aarch64` on 2026-08-18."""
+    word = _modloop(_lowram_entry("alpine-netboot-3.24.1-aarch64.tar.gz"))
+    assert "/releases/aarch64/netboot-3.24.1/" in word, word
+    assert "x86_64" not in word, word
+
+
+def test_an_archive_named_otherwise_is_refused_rather_than_guessed() -> None:
+    """A URL composed from a name that does not parse would be fetched by
+    `wget` inside the booted medium, where its failure is a warning on a screen
+    nobody is watching and a system with no modules."""
+    with pytest.raises(DownloadFailed):
+        _lowram_entry("netboot.tar.gz")
 
 
 def test_a_key_given_for_lowram_reaches_alpines_own_option() -> None:
