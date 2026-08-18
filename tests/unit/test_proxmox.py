@@ -1488,15 +1488,15 @@ def test_every_question_asked_inside_names_what_would_fail_it() -> None:
     from pathlib import Path as _Path
 
     from gentoo_install.exec.config import load
-    from tests.vm.cluster import INSIDE, _asked_for
+    from tests.vm.cluster import _asked_for
 
     # The exemption this test used to carry was the defect: `hostname` and
     # `kernel` were skipped for comparing against nothing, and they were the
     # two a guest could get wrong without failing.
     asked = _asked_for(load(_Path("tests/fixtures/vm-xfs.toml")))
-    named = {name for name, _, _ in (*INSIDE, *asked)}
+    named = {name for name, _, _ in asked}
     assert {"os-release", "fstab", "locale", "hostname", "root filesystem", "init"} <= named
-    for name, command, wanted in (*INSIDE, *asked):
+    for name, command, wanted in asked:
         assert command.strip(), name
         assert wanted, f"{name} compares against nothing"
 
@@ -1720,9 +1720,8 @@ def test_installed_login_uses_the_login_observed_by_unlock(
             events.append(f"respond:{line}")
 
         def expect_output(self, command: str, timeout: float = 120.0) -> bytes:
-            for _, expected_command, wanted in (
-                *cluster.INSIDE,
-                *cluster._asked_for(load(Path("tests/fixtures/vm-luks.toml"))),
+            for _, expected_command, wanted in cluster._asked_for(
+                load(Path("tests/fixtures/vm-luks.toml"))
             ):
                 if command == expected_command:
                     return wanted.encode()
@@ -3976,3 +3975,19 @@ def test_the_deadline_outlasts_a_loaded_node_and_the_interval_does_not() -> None
     attempts = AUTOLOGIN_DEADLINE / (AUTOLOGIN_TYPING + AUTOLOGIN_INTERVAL)
     assert attempts >= 10, f"{attempts:.0f} attempts is too few"
     assert AUTOLOGIN_TYPING >= 48.7, "measured on infra-node5, the fastest of three"
+
+
+def test_the_installed_checks_come_from_one_table() -> None:
+    """`cluster.py` carried its own `INSIDE` pair for `os-release` and
+    `fstab`, which `installed.checks()` already derives from the
+    configuration. Two tables for one rule set is what lets the answers
+    diverge; the shared contract is the one the runners read."""
+    from pathlib import Path as _Path
+
+    from gentoo_install.exec.config import load
+    from tests.vm import cluster
+    from tests.vm.installed import checks
+
+    assert not hasattr(cluster, "INSIDE")
+    named = {check.name for check in checks(load(_Path("tests/fixtures/vm-xfs.toml")))}
+    assert {"os-release", "fstab"} <= named, named
