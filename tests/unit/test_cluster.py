@@ -1167,6 +1167,9 @@ def test_the_prompt_after_a_refusal_is_read_before_the_name_is_offered_again(
             self.sent.append(line)
             if self.wants == "name":
                 self.wants = "password"
+                # Echoed, because agetty echoes a name: the harness reads its
+                # own name back to know the prompt after it is a fresh one.
+                self.pending.append(line.encode() + b"\r\n")
                 self.pending.append(b"Password: ")
                 return
             if line != "install":
@@ -2259,3 +2262,69 @@ def test_the_passphrase_prompt_gets_a_growing_settle(
 class _Keyboard:
     def send_keys(self, keys: list[str]) -> None:
         return None
+
+
+def test_a_stale_password_prompt_does_not_take_the_password(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`ext3` was failed at 33.6 minutes with
+
+        Maximum number of tries exceeded install\r\r\nPassword:
+
+    on its console: `login` had given up, agetty printed a fresh name prompt
+    and swallowed the name typed into its flush window, and the `Password:`
+    the attempt before had left in the buffer read as an answer — so the
+    password went into the name field. The name's own echo tells them apart."""
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+
+    class Agetty:
+        """A guest at a name prompt, with one prompt left over from before.
+
+        The first name lands in agetty's flush window and is discarded, which
+        is the state the harness cannot see and the echo reports.
+        """
+
+        console = _Screen(b"")
+
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+            self.pending: list[bytes] = [b"Password: "]
+            self.wants = "name"
+            self.flushed = False
+            self.names: list[str] = []
+
+        def respond(self, line: str) -> None:
+            self.sent.append(line)
+            if self.wants == "name":
+                if not self.flushed:
+                    self.flushed = True
+                    return
+                self.names.append(line)
+                self.pending.append(line.encode() + b"\r\n")
+                self.pending.append(b"Password: ")
+                self.wants = "password"
+                return
+            self.wants = "name"
+            if self.names[-1:] == [cluster.NAME] and line == "install":
+                self.pending.append(b"\r\nplain ~ # ")
+                return
+            self.pending.append(b"\r\nLogin incorrect\r\nplain login: ")
+
+        def observe(self, pattern: str, timeout: float = 0.0, *, solicit: bool = False) -> bytes:
+            import re as _re
+
+            while self.pending:
+                said = self.pending.pop(0)
+                if _re.search(pattern.encode(), said):
+                    return said
+            raise ConsoleTimeout(f"never matched {pattern!r}")
+
+    console = Agetty()
+
+    assert cluster._log_in(cast(cluster.Reconnecting, console), "install") == "", (
+        console.sent
+    )
+    # The password reached the password field and nothing else did: the name
+    # was offered twice because the first one was flushed.
+    assert console.names == [cluster.NAME], console.names
+    assert console.sent == [cluster.NAME, cluster.NAME, "install"], console.sent
