@@ -1018,9 +1018,17 @@ def _yaml_pairs(record: str) -> list[tuple[str, str]]:
 
 
 def _first_word(digest: str, name: str) -> str:
-    """A `.sha256` file is `<hex>  <name>`, and taking the whole line compares
-    a hash against a hash and a filename."""
-    fields = digest.split()
-    if not fields or len(fields[0]) != 64:
-        raise DownloadFailed(f"the checksum published beside {name} is not a SHA-256")
-    return fields[0]
+    """The hash out of a `.sha256` file, which is `<hex>  <name>` per line.
+
+    Not the first word of the file: the CJK release publishes `# SHA256 HASH`
+    above the hash, and the first `--ram` run to reach the download refused
+    with `the checksum published beside … is not a SHA-256` because it had
+    read that comment. The line naming this file is taken when there is one,
+    since a file listing several is answered by the wrong hash otherwise.
+    """
+    lines = [line.split() for line in digest.splitlines()]
+    named = [one for one in lines if len(one) >= 2 and one[1].lstrip("*") == name]
+    for fields in named or lines:
+        if fields and len(fields[0]) == 64:
+            return fields[0]
+    raise DownloadFailed(f"the checksum published beside {name} is not a SHA-256")
