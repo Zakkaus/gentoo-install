@@ -174,6 +174,51 @@ def test_the_patched_kernel_is_keyworded_and_its_cjk_flag_is_left_alone() -> Non
     )
 
 
+def test_the_source_kernel_fixture_builds_and_rebuilds_the_kernel() -> None:
+    installation = load(Path("tests/fixtures/vm-source-kernel.toml"))
+    assert installation.kernel.source is KernelSource.DIST_SOURCE
+
+    from gentoo_install.plan.kernel import (
+        ConfigureInstallKernel,
+        RebuildInitramfs,
+        RequireKernelImage,
+    )
+
+    operations = kernel.build(installation)
+    merges = [
+        one
+        for one in operations
+        if isinstance(one, Emerge) and one.summary == "install the kernel"
+    ]
+    assert len(merges) == 1, merges
+    merge = merges[0]
+    installkernel = next(one for one in operations if isinstance(one, ConfigureInstallKernel))
+    rebuild = next(one for one in operations if isinstance(one, RebuildInitramfs))
+    require = next(one for one in operations if isinstance(one, RequireKernelImage))
+
+    assert merge.packages == ("sys-kernel/gentoo-kernel",)
+    assert merge.source == SourcePolicy.build_all()
+    assert operations.index(installkernel) < operations.index(merge) < operations.index(rebuild)
+    assert operations.index(rebuild) < operations.index(require)
+
+
+def test_the_source_kernel_is_excluded_from_binary_packages() -> None:
+    installation = load(Path("tests/fixtures/vm-source-kernel.toml"))
+    merge = next(
+        one
+        for one in kernel.build(installation)
+        if isinstance(one, Emerge) and one.summary == "install the kernel"
+    )
+    recorder = Recorder()
+    merge.apply(recorder)
+
+    command = recorder.only("emerge")
+    excluded = command[command.index("--usepkg-exclude") + 1]
+    assert command[command.index("--getbinpkg=y")] == "--getbinpkg=y"
+    assert "sys-kernel/gentoo-kernel" in excluded.split()
+    assert command[-1] == "sys-kernel/gentoo-kernel"
+
+
 def test_a_sources_package_is_refused_rather_than_left_unbuilt() -> None:
     """It would unpack a tree nothing compiles, and the failure would be a
     bootloader pointing at an empty /boot an hour after the disks were written."""

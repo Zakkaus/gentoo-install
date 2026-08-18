@@ -178,6 +178,11 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         # initramfs support are one path each, and neither had been walked.
         Run("fixtures/ext2.toml", firmware="bios"),
         Run("fixtures/ext3.toml", firmware="bios"),
+        # The kernel every other fixture takes as a binary package. Building it
+        # is a different path: the configuration, the build, `installkernel`
+        # and the initramfs are produced rather than unpacked, and about an
+        # hour on four cores, so it gets the weight a desktop gets.
+        Run("fixtures/vm-source-kernel.toml", weight=2, cpus=10),
         # A machine that configures its own address instead of asking for one.
         # The model has carried static addressing since the beginning and no
         # fixture set it, so nothing had ever installed a machine that comes up
