@@ -55,20 +55,22 @@ def test_a_chrooted_runner_writes_to_the_same_journal(tmp_path: Path) -> None:
 
 def test_a_journal_carries_what_the_run_was(tmp_path: Path) -> None:
     """`--resume` skips operations by position and description, so a journal
-    from another configuration would skip the wrong ones and one from before a
-    reboot would skip operations whose result the reboot discarded. The
-    journal had no way to say which run wrote it."""
+    from another configuration would skip the wrong ones, one from before a
+    reboot would skip operations whose result the reboot discarded, and one
+    from another installer would skip whatever now sits at those positions.
+    The journal had no way to say which run wrote it."""
     from gentoo_install.log import Journal
 
     journal = Journal(path=tmp_path / "install.jsonl")
     assert journal.identity() is None, "a journal that recorded nothing claims nothing"
 
-    journal.started(configuration="abc123", session="a-boot-id")
+    written = {"configuration": "abc123", "session": "a-boot-id", "installer": "def456"}
+    journal.started(**written)
     journal.operation(stage="partition", described="do something", seconds=1.0)
-    assert journal.identity() == ("abc123", "a-boot-id")
+    assert journal.identity() == written
 
     # Read back from the file, not from memory: a resumed run is a new process.
-    assert Journal(path=tmp_path / "install.jsonl").identity() == ("abc123", "a-boot-id")
+    assert Journal(path=tmp_path / "install.jsonl").identity() == written
 
 
 def test_an_identity_entry_missing_a_field_is_not_an_identity(tmp_path: Path) -> None:
@@ -79,5 +81,9 @@ def test_an_identity_entry_missing_a_field_is_not_an_identity(tmp_path: Path) ->
     from gentoo_install.log import Journal
 
     path = tmp_path / "install.jsonl"
-    path.write_text(json.dumps({"event": "started", "configuration": "abc123"}) + "\n")
-    assert Journal(path=path).identity() is None
+    for missing in Journal.IDENTITY:
+        entry = {"event": "started"} | {
+            name: "held" for name in Journal.IDENTITY if name != missing
+        }
+        path.write_text(json.dumps(entry) + "\n")
+        assert Journal(path=path).identity() is None, missing

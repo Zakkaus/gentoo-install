@@ -1718,8 +1718,9 @@ def test_a_resume_refuses_a_journal_from_another_run(tmp_path: Path) -> None:
     """The README documents `--resume` for the same live session, installer
     and configuration because nothing checked any of it: a resume replays
     operations by position and description, so a journal from a different
-    configuration skips the wrong ones and one from before a reboot skips
-    operations whose result the reboot discarded."""
+    configuration skips the wrong ones, one from before a reboot skips
+    operations whose result the reboot discarded, and one from a different
+    installer skips whatever now sits at those positions."""
     import json
 
     import pytest as _pytest
@@ -1730,31 +1731,33 @@ def test_a_resume_refuses_a_journal_from_another_run(tmp_path: Path) -> None:
 
     said: list[str] = []
     path = tmp_path / "install.jsonl"
+    same = {
+        "configuration": "digest-of-the-file",
+        "session": "the-boot-id",
+        "installer": "digest-of-the-tree",
+    }
 
-    def journal_of(configuration: str, session: str) -> Journal:
-        path.write_text(
-            json.dumps(
-                {"event": "started", "configuration": configuration, "session": session}
-            )
-            + "\n"
-        )
+    def journal_of(**changed: str) -> Journal:
+        entry = {"event": "started", **same, **changed}
+        path.write_text(json.dumps(entry) + "\n")
         return Journal(path=path)
 
-    same = ("digest-of-the-file", "the-boot-id")
-
-    # The ordinary resume: same configuration, same session.
-    cli._refuse_a_different_run(journal_of(*same), same, said.append)
+    cli._refuse_a_different_run(journal_of(), same, said.append)
     assert said == []
 
     with _pytest.raises(ResumeRefused, match="different configuration"):
-        cli._refuse_a_different_run(journal_of("another-digest", same[1]), same, said.append)
+        cli._refuse_a_different_run(journal_of(configuration="another"), same, said.append)
 
     with _pytest.raises(ResumeRefused, match="rebooted"):
-        cli._refuse_a_different_run(journal_of(same[0], "another-boot-id"), same, said.append)
+        cli._refuse_a_different_run(journal_of(session="another"), same, said.append)
 
-    # A machine whose kernel publishes no boot id: the configuration still has
-    # to match, and the session cannot be compared either way.
-    cli._refuse_a_different_run(journal_of(same[0], ""), (same[0], ""), said.append)
+    with _pytest.raises(ResumeRefused, match="different installer"):
+        cli._refuse_a_different_run(journal_of(installer="another"), same, said.append)
+
+    # A machine whose kernel publishes no boot id: the rest still has to match,
+    # and the session cannot be compared either way.
+    without = {**same, "session": ""}
+    cli._refuse_a_different_run(journal_of(session=""), without, said.append)
 
     # A journal from a run that predates this carries on as it always did, and
     # says so rather than refusing.
@@ -1763,22 +1766,53 @@ def test_a_resume_refuses_a_journal_from_another_run(tmp_path: Path) -> None:
     assert said and "records no identity" in said[-1], said
 
 
-def test_the_identity_of_a_run_is_the_configuration_it_was_given() -> None:
+def test_every_refusal_names_a_field_the_identity_carries() -> None:
+    """A refusal for a field the journal does not record is one no run can
+    trigger, and a field with no refusal is one no run is refused for."""
+    from gentoo_install import cli
+    from gentoo_install.log import Journal
+
+    assert set(cli._RESUME_REFUSALS) == set(Journal.IDENTITY)
+
+
+def test_the_identity_of_a_run_is_what_would_change_its_plan() -> None:
     """Two configurations that differ anywhere have to differ here, or a
     resume accepts a journal written for the other one."""
     from dataclasses import replace as _replace
 
     from gentoo_install import cli
+    from gentoo_install.log import Journal
 
     from .layouts import config
 
     first = config()
-    digest, session = cli._run_identity(first)
-    assert len(digest) == 64, digest
-    assert cli._run_identity(first)[0] == digest, "the same file answers the same"
+    identity = cli._run_identity(first)
+    assert set(identity) == set(Journal.IDENTITY), identity
+    assert len(identity["configuration"]) == 64
+    assert len(identity["installer"]) == 64
+    assert cli._run_identity(first) == identity, "the same run answers the same"
 
     other = _replace(first, system=_replace(first.system, hostname="somewhere-else"))
-    assert cli._run_identity(other)[0] != digest
+    assert cli._run_identity(other)["configuration"] != identity["configuration"]
+    # The other two are the machine's and the installer's, not the file's.
+    assert cli._run_identity(other)["session"] == identity["session"]
+    assert cli._run_identity(other)["installer"] == identity["installer"]
 
-    # The session is the machine's, not the configuration's.
-    assert session == cli._run_identity(other)[1]
+
+def test_the_installer_digest_reads_the_source_it_is_running_from() -> None:
+    """A digest that ignored a file would call two installers the same, and
+    the file most likely to differ is the one somebody edited on the medium."""
+    import hashlib
+    from pathlib import Path as _Path
+
+    from gentoo_install import cli
+
+    root = _Path(cli.__file__).resolve().parent
+    files = sorted(root.rglob("*.py"))
+    assert len(files) > 30, files
+
+    digest = hashlib.sha256()
+    for path in files:
+        digest.update(str(path.relative_to(root)).encode("utf-8"))
+        digest.update(path.read_bytes())
+    assert cli.installer_digest() == digest.hexdigest()

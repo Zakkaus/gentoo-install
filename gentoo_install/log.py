@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, ClassVar, Iterator
 
 #: How emerge announces each package it is about to merge.
 _MERGE_LINE = re.compile(r"^\[(?P<kind>binary|ebuild)[^\]]*\]\s+(?P<atom>\S+)", re.MULTILINE)
@@ -51,24 +51,36 @@ class Journal:
         for atom, source in merged(output):
             self.write("package", atom=atom, source=source.value)
 
-    def started(self, *, configuration: str, session: str) -> None:
+    #: What a run records about itself, in the order a resume compares them.
+    IDENTITY: ClassVar[tuple[str, ...]] = ("configuration", "session", "installer")
+
+    def started(self, *, configuration: str, session: str, installer: str) -> None:
         """What this run is, so a later `--resume` can refuse a different one.
 
-        `configuration` is a digest of the file the run was given and
-        `session` is the machine's boot id: a resume that skips operations by
-        their position and description would otherwise skip them on a plan
-        that no longer says the same thing.
+        A digest of the file the run was given, the machine's boot id and a
+        digest of the installer's own source: a resume that skips operations by
+        their position and description would otherwise skip them on a plan that
+        no longer says the same thing, on a machine that no longer holds what
+        the first run left, or against an installer that numbers them
+        differently.
         """
-        self.write("started", configuration=configuration, session=session)
+        self.write(
+            "started", configuration=configuration, session=session, installer=installer
+        )
 
-    def identity(self) -> tuple[str, str] | None:
-        """What the first run recorded, or None for a journal without one."""
+    def identity(self) -> dict[str, str] | None:
+        """What the first run recorded, or None for a journal without one.
+
+        Every field or none: a partial entry is what a run killed mid-write
+        leaves, and half an identity that happens to match is worse than no
+        identity at all.
+        """
         for entry in self.replay():
-            if entry.get("event") == "started":
-                configuration = entry.get("configuration")
-                session = entry.get("session")
-                if isinstance(configuration, str) and isinstance(session, str):
-                    return configuration, session
+            if entry.get("event") != "started":
+                continue
+            held = {name: entry.get(name) for name in self.IDENTITY}
+            if all(isinstance(value, str) for value in held.values()):
+                return {name: str(value) for name, value in held.items()}
         return None
 
     def degraded(self, what: str, reason: str) -> None:
