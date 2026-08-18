@@ -2600,6 +2600,11 @@ PASSWORD_ECHO_CATCHES: Final[int] = 3
 #: because it reads as the whole screen.
 VERDICT_BYTES: Final[int] = 3600
 
+#: How much of a failed check's answer the verdict carries. The tail rather
+#: than the head: a `cat` of a configuration file ends with the lines the
+#: pattern was looking for.
+ANSWER_BYTES: Final[int] = 1200
+
 #: How long the prompt that follows a refusal is waited for before the next
 #: attempt. `login` writes it at once, so this only has to outlast a loaded
 #: node rather than anything the guest is doing.
@@ -2986,7 +2991,14 @@ def boot_and_check(
     for name, command, wanted in _asked_for(installation):
         said = link.expect_output(command, timeout=120.0)
         if said != wanted.encode() and re.search(wanted.encode(), said) is None:
-            return f"{name}: the installed system does not say {wanted!r}"
+            # With the answer, not only the pattern: `greetd config: the
+            # installed system does not say '(?ms)...'` is the same verdict
+            # whether the file was never written, was written and still names
+            # `agreety`, or does not exist at all.
+            return (
+                f"{name}: the installed system does not say {wanted!r}; "
+                f"it said {said[-ANSWER_BYTES:]!r}"
+            )[:VERDICT_BYTES]
     return ""
 
 

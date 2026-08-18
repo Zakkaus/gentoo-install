@@ -3991,3 +3991,55 @@ def test_the_installed_checks_come_from_one_table() -> None:
     assert not hasattr(cluster, "INSIDE")
     named = {check.name for check in checks(load(_Path("tests/fixtures/vm-xfs.toml")))}
     assert {"os-release", "fstab"} <= named, named
+
+
+def test_a_failed_installed_check_answers_with_what_the_machine_said(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`greetd config: the installed system does not say '(?ms)...'` was the
+    whole of a 49-minute verdict. The same sentence covers a file never
+    written, a file written and still naming `agreety`, and no file at all,
+    and the round after it could only guess which."""
+    from gentoo_install.exec.config import load
+    from tests.vm import cluster
+
+    class Guest:
+        def stop(self) -> None:
+            return None
+
+        def boot_from_disk(self) -> None:
+            return None
+
+        def start(self) -> None:
+            return None
+
+        def reset(self) -> None:
+            return None
+
+    held = b"[default_session]\r\ncommand = \"agreety --cmd /bin/sh\"\r\nuser = \"greetd\"\r\n"
+
+    class Link:
+        def reopen(self, *, solicit_prompt: bool = True) -> None:
+            return None
+
+        def observe(self, *unused: object, **ignored: object) -> bytes:
+            return b""
+
+        def expect_output(self, command: str, timeout: float = 0.0) -> bytes:
+            return held
+
+    def unlocked(*unused: object) -> cluster.UnlockResult:
+        return cluster.UnlockResult(cluster.InstalledBootState.LOGIN_READY, "")
+
+    monkeypatch.setattr(cluster, "_unlock", unlocked)
+    monkeypatch.setattr(cluster, "_log_in", lambda *unused: "")
+
+    refused = cluster.boot_and_check(
+        cast(Any, Guest()),
+        cast(Any, Link()),
+        Path("unused"),
+        load(Path("tests/fixtures/vm-greetd.toml")),
+    )
+
+    assert "does not say" in refused, refused
+    assert "agreety" in refused, "the answer, not only the pattern"
