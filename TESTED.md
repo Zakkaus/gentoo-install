@@ -80,10 +80,10 @@ ZFSBootMenu; the other four use ext4.
 |---|---|---|
 | `alpine-standard-3.24.1`, UEFI, systemd | `0827931289d0` | root shell on the serial console in 59s; 56 operations, 57 packages from a binary host, 12 compiled; booted with no failed unit |
 | `alpine-standard-3.24.1`, BIOS, OpenRC, ext4 | `bc8ab3a0edcf` | root shell in 59s; 51 operations, 29 from a binary host, 51 compiled; booted with no failed unit |
+| `install-amd64-minimal-20260816T170110Z`, UEFI, systemd, xfs | `86cca05b314f` | installed `vm-xfs` in one run: 56 operations, 61 packages from a binary host, 12 compiled, then the disk it wrote booted, logged in on the console and passed every installed-state check |
 
-The official Gentoo minimal ISO and the Gig-OS ISO are not tested here: they
-run the installer by script, and the gentoo-cjk minimal ISO record above covers
-that path.
+The Gig-OS ISO is not tested here: it runs the installer by script, and the
+gentoo-cjk minimal ISO record above covers that path.
 
 ### Network modes
 
