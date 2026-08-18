@@ -42,6 +42,8 @@ The ordinary path: partition, format, unpack a stage3, configure, boot.
 | `e2986684da66` | `ext3`, `vm-unlock`, `vm-zfs-mirror`, `vm-raidz` — `ext3` and `vm-unlock` are the two the login work fixed: `login` prints `Maximum number of tries exceeded` instead of a third refusal, and it prints all three in the installed system's own locale |
 | `7fcc7edcec6b` | `openrc-sdboot`, `mbr-edit` — `mbr-edit`'s first record at all: it installed in 46.6 minutes in an earlier round and lost the login every time |
 | `18f150282cb1` | `vm-lvm`, `static-ip`, `ext2` — three of three |
+| `3692e4b29743` | `vm-zfs`, `vm-f2fs`, `vm-luks`, `vm-lvm`, `vm-mdraid`, `vm-unlock`, `vm-xfs`, `vm-zram` — eight of ten; `ext3` was refused by its own login again, which `2849e42a151a` addresses |
+| `2849e42a151a` | `ext3` — the first record of `ext3` since the harness waits for the name's echo before the password prompt, the race that had left `Password:` in the buffer and typed the password into the name field |
 
 Every row from `08015b221d73` onward ran `--region cn --site nju --sync
 webrsync --distfiles http://10.31.0.2/gentoo`, so what they establish about
