@@ -287,7 +287,10 @@ def test_a_staging_root_with_something_still_mounted_is_left_alone() -> None:
 
 def test_the_conversion_ends_by_leaving_no_staging_root() -> None:
     operations = build(_in_place(), CATALOG, layout=_layout())
-    assert isinstance(operations[-1], convert.LeaveStaging)
+    # Second to last: the flush is after it, because removing the staging root
+    # is itself a write into a filesystem nothing will unmount.
+    assert isinstance(operations[-2], convert.LeaveStaging)
+    assert isinstance(operations[-1], convert.FlushToDisk)
 
 
 def test_only_the_esp_and_boot_sector_writes_wait_for_the_swap() -> None:
@@ -939,3 +942,31 @@ def test_nothing_that_runs_after_the_swap_is_pointed_at_the_staging_root() -> No
     # wrapper off for everything.
     body = [one for one in operations if one.stage is not Stage.FINISH]
     assert [one for one in body if isinstance(one, convert.Staged)], len(body)
+
+
+def test_a_conversion_flushes_before_anything_reboots_the_machine() -> None:
+    """An ordinary install unmounts the target, which flushes it. A conversion
+    never unmounts anything — its target is `/`, still mounted and running —
+    and the cost was measured twice on a converted Debian guest: `grub-mkconfig`
+    reported the new kernel and exited, and `/boot/grub/grub.cfg` on disk was
+    still the one Debian shipped, naming a kernel the conversion had deleted.
+    Run again from a live medium against the same disk, the same command wrote
+    the file in one second."""
+    operations = build(_in_place(), CATALOG, layout=_layout())
+    flushes = [one for one in operations if isinstance(one, convert.FlushToDisk)]
+
+    assert len(flushes) == 1, [one.describe() for one in operations[-6:]]
+    assert flushes[0].stage is Stage.FINISH, flushes[0]
+    # After everything, including the staging root's removal: that unmounts
+    # and deletes, and its writes need flushing too.
+    assert operations.index(flushes[0]) == len(operations) - 1, [
+        one.describe() for one in operations[-4:]
+    ]
+    assert _in_place().disk.mode is DiskMode.IN_PLACE
+
+
+def test_an_ordinary_install_does_not_carry_that_operation() -> None:
+    """It unmounts the target, and the unmount is the flush."""
+    operations = build(config(), CATALOG)
+
+    assert not [one for one in operations if isinstance(one, convert.FlushToDisk)]

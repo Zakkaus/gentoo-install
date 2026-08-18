@@ -231,6 +231,9 @@ def _in_place(
         *after_the_swap,
         *closing,
         convert.LeaveStaging(),
+        # Last, after the staging root is gone: everything above it wrote into
+        # a filesystem that stays mounted, and nothing else will flush it.
+        convert.FlushToDisk(),
     )
 
 
