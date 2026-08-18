@@ -130,7 +130,12 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
             InstalledCheck(
                 "greetd config",
                 "cat /etc/greetd/config.toml",
-                r"(?ms)\A(?!.*\bagreety\b)"
+                # The refusal is a `command` line running agreety, not the
+                # word: greetd 0.10.3 ships the comment "`agreety` is the
+                # bundled agetty/login-lookalike" two lines above the command,
+                # and the ebuild's patch leaves it there, so a check for the
+                # word alone could never pass.
+                r"(?ms)\A(?!.*^\s*command\s*=\s*\"agreety)"
                 r"(?=.*^command = \"tuigreet .*--sessions /usr/share/wayland-sessions"
                 r" --xsessions /usr/share/xsessions\"$)",
             )

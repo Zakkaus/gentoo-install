@@ -537,7 +537,7 @@ def test_greetd_config_check_requires_tuigreet_session_directories() -> None:
         InstalledCheck(
             "greetd config",
             "cat /etc/greetd/config.toml",
-            r"(?ms)\A(?!.*\bagreety\b)"
+            r"(?ms)\A(?!.*^\s*command\s*=\s*\"agreety)"
             r"(?=.*^command = \"tuigreet .*--sessions /usr/share/wayland-sessions"
             r" --xsessions /usr/share/xsessions\"$)",
         )
@@ -548,7 +548,10 @@ def test_greetd_config_check_requires_tuigreet_session_directories() -> None:
         ' --xsessions /usr/share/xsessions"\n'
     )
     assert re.search(actual[0].pattern, configured)
-    assert not re.search(actual[0].pattern, f"# agreety\n{configured}")
+    # The comment the ebuild's file carries above the command, which this test
+    # used to require a failure for and which no machine is without.
+    assert re.search(actual[0].pattern, f"# `agreety` is the bundled\n{configured}")
+    assert not re.search(actual[0].pattern, f'command = "agreety --cmd /bin/sh"\n{configured}')
     assert not re.search(actual[0].pattern, 'command = "tuigreet"\n')
 
 

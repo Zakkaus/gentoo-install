@@ -1444,3 +1444,57 @@ def test_a_group_somebody_typed_is_not_reported_as_automatic() -> None:
     )
     shown = {one.value for one in automatic.user_groups(installation, load_catalog())}
     assert "pipewire" not in shown, shown
+
+
+#: `/etc/greetd/config.toml` as `gui-libs/greetd-0.10.3-r1` installs it: the
+#: upstream file with the ebuild's `correct_user_config_toml` patch applied,
+#: read from the tarball and the patch rather than remembered.
+EBUILD_GREETD_CONFIG = '''[terminal]
+# The VT to run the greeter on. Can be "next", "current" or a number
+# designating the VT.
+vt = 7
+
+# The default session, also known as the greeter.
+[default_session]
+
+# `agreety` is the bundled agetty/login-lookalike. You can replace `/bin/sh`
+# with whatever you want started, such as `sway`.
+command = "agreety --cmd /bin/sh"
+
+# The user to run the command as. The privileges this user must have depends
+# on the greeter. A graphical greeter may for example require the user to be
+# in the `video` group.
+user = "greetd"
+'''
+
+
+def test_the_greetd_check_passes_the_file_the_installer_leaves_behind() -> None:
+    """The check refused `vm-greetd` after 49 minutes for holding the word
+    `agreety`, which the ebuild's file carries in a comment two lines above
+    the command and which `UpdateGreetdConfig` does not touch: it rewrites the
+    command line and nothing else. The check could not pass on any machine."""
+    import re
+
+    from gentoo_install.exec.config import load
+    from gentoo_install.plan.packages import _replace_greetd_command
+    from tests.vm.installed import checks
+
+    assert "agreety" in EBUILD_GREETD_CONFIG, "the comment this is about"
+
+    group = load_catalog()["greetd"]
+    declared = {str(one.path): one.content for one in group.files}
+    import tomllib
+
+    command = tomllib.loads(declared["/etc/greetd/config.toml"])["default_session"]["command"]
+    left_behind = _replace_greetd_command(EBUILD_GREETD_CONFIG, command)
+
+    pattern = next(
+        check.pattern
+        for check in checks(load(Path("tests/fixtures/vm-greetd.toml")))
+        if check.name == "greetd config"
+    )
+    assert re.search(pattern, left_behind) is not None, left_behind
+
+    # And it still refuses the file before the installer touched it, which is
+    # the machine where tuigreet was installed and never reached.
+    assert re.search(pattern, EBUILD_GREETD_CONFIG) is None
