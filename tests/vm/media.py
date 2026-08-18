@@ -181,8 +181,11 @@ GIGOS = Medium(
 
 OFFICIAL_MINIMAL = Medium(
     name="official-minimal",
-    iso=ISO_CACHE / "install-amd64-minimal-20260712T170110Z.iso",
-    volume_label="Gentoo-amd64-20260712",
+    # Repinned 2026-08-18: the autobuilds directory keeps a few weeks, and
+    # `20260712T170110Z` answers 404 on every mirror. Volume label read with
+    # `xorriso -toc`, not composed from the name.
+    iso=ISO_CACHE / "install-amd64-minimal-20260816T170110Z.iso",
+    volume_label="Gentoo-amd64-20260816",
     kernel_in_iso="/boot/gentoo",
     initrd_in_iso="/boot/gentoo.igz",
     # The official medium logs root in automatically and needs no credentials.
