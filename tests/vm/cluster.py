@@ -2248,8 +2248,12 @@ class Reconnecting:
                     reason = watch.idle_reason()
                     if reason is None:
                         continue
+                    # The reason first and the console tail after it: a
+                    # verdict is cut to `OUTCOME_BYTES`, and the console tail
+                    # alone filled all 300 of `zbm-unlock`'s, so the round
+                    # could not say whether its counters had moved.
                     raise ConsoleTimeout(
-                        f"{error}; console was silent for {idle:.0f}s and {reason}"
+                        f"the console was silent for {idle:.0f}s and {reason}: {error}"
                     ) from error
 
         self._with_reconnect(timeout, wait_once, watch=watch)
