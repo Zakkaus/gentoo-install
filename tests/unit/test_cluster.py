@@ -207,7 +207,7 @@ def test_non_double_memory_reservation_is_admitted_in_exact_bytes(
 
     execution = cluster.Running(
         Guest(),
-        cluster.Watchdog(tmp_path / "odd-sized.log", lambda: 0),
+        cluster.Watchdog(tmp_path / "odd-sized.log", lambda: (0, 0.0)),
         job.reservation_bytes,
     )
     dispatched = job.dispatch(
@@ -254,7 +254,7 @@ def _timed_wait(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     clock: list[float],
-    counters: Callable[[], int | None],
+    counters: Callable[[], tuple[int, float] | None],
     output_at: float | None = None,
 ) -> tuple[cluster.Reconnecting, cluster.Watchdog]:
     monkeypatch.setattr(time, "monotonic", lambda: clock[0])
@@ -270,9 +270,9 @@ def test_install_wait_continues_when_silent_guest_moves_bytes(
     clock = [0.0]
     traffic = [0]
 
-    def counters() -> int:
+    def counters() -> tuple[int, float]:
         traffic[0] += cluster.QUIET_BYTES * 2
-        return traffic[0]
+        return traffic[0], 0.0
 
     link, watch = _timed_wait(monkeypatch, tmp_path, clock, counters, output_at=3.0)
     link.wait_for("install", timeout=5.0, idle=2.0, watch=watch)
@@ -285,7 +285,7 @@ def test_install_wait_names_silent_console_and_flat_counters(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     clock = [0.0]
-    link, watch = _timed_wait(monkeypatch, tmp_path, clock, lambda: 0)
+    link, watch = _timed_wait(monkeypatch, tmp_path, clock, lambda: (0, 0.0))
     watch.log.write_bytes(b"output before the idle window\n")
 
     with pytest.raises(ConsoleTimeout) as raised:
@@ -304,9 +304,9 @@ def test_run_ceiling_ends_silent_guest_that_keeps_moving_bytes(
     clock = [0.0]
     readings = [0]
 
-    def counters() -> int:
+    def counters() -> tuple[int, float]:
         readings[0] += 1
-        return readings[0] * cluster.QUIET_BYTES * 2
+        return readings[0] * cluster.QUIET_BYTES * 2, 0.0
 
     link, watch = _timed_wait(monkeypatch, tmp_path, clock, counters)
     with pytest.raises(ConsoleTimeout, match="never matched"):
@@ -492,7 +492,7 @@ def test_the_network_is_measured_once_more_after_the_install(
     job = cluster.Job("network", FIXTURES / "mbr-edit.toml")
     held = cluster.Running(
         guest=cast(Any, guest),
-        watch=cluster.Watchdog(log, lambda: 0),
+        watch=cluster.Watchdog(log, lambda: (0, 0.0)),
         reservation_bytes=0,
         created=True,
     )
@@ -769,7 +769,8 @@ def _held(log: Path, moved: bool, stuck: bool, busy: bool = False) -> object:
     is working while its console has gone."""
     counters = iter(range(0, 10**9, cluster.QUIET_BYTES * 2))
     watch = cluster.Watchdog(
-        log=log, counters=(lambda: next(counters)) if busy else (lambda: 0)
+        log=log,
+        counters=(lambda: (next(counters), 0.0)) if busy else (lambda: (0, 0.0)),
     )
     # One pass so the watchdog has seen the log: the first call always reports
     # growth, from nothing to whatever is there.
@@ -1580,10 +1581,10 @@ def test_a_dropped_console_does_not_end_a_guest_that_is_still_working(
     opened: list[Console] = []
     sampled: list[int] = []
 
-    def counters() -> int | None:
+    def counters() -> tuple[int, float] | None:
         # A guest whose disk keeps growing while its console says nothing.
         sampled.append(len(sampled))
-        return cluster.QUIET_BYTES * 2 * (len(sampled) + 1)
+        return cluster.QUIET_BYTES * 2 * (len(sampled) + 1), 0.0
 
     log = tmp_path / "serial.log"
     log.write_bytes(b"")
@@ -1629,7 +1630,7 @@ def test_a_dropped_console_still_ends_a_guest_that_moves_nothing(tmp_path: Path)
         opened.append(Console())
         return opened[-1]
 
-    still = cluster.Watchdog(log=log, counters=lambda: 0)
+    still = cluster.Watchdog(log=log, counters=lambda: (0, 0.0))
     link = cluster.Reconnecting(open_console, tries=2)
     with pytest.raises(ConsoleClosed):
         link.wait_for("emerge --ask=n @world", timeout=0.0, idle=1.0, watch=still)

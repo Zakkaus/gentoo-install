@@ -583,8 +583,8 @@ class Guest:
         assert last is not None
         raise last
 
-    def transferred(self) -> int | None:
-        """Bytes this guest has received and written since it started.
+    def transferred(self) -> tuple[int, float] | None:
+        """Bytes this guest has received and written, and its CPU share.
 
         What the watchdog reads when the console is silent: an install
         downloading a stage3 prints nothing for minutes, and ending it for
@@ -596,7 +596,12 @@ class Guest:
             # One unanswered request is not evidence about the guest, and a
             # watchdog that raises here stops the whole schedule.
             return None
-        return int(status.get("netin", 0)) + int(status.get("diskwrite", 0))
+        moved = int(status.get("netin", 0)) + int(status.get("diskwrite", 0))
+        # The share of a core the guest is using, from the same reading. A
+        # compile whose build directory is in RAM moves no bytes at all:
+        # `vm-binhost-fallback` was ended for 7781 bytes in twenty minutes
+        # while it was building grub.
+        return moved, float(status.get("cpu", 0.0))
 
     def running(self) -> bool:
         status = self.api.call("GET", f"/nodes/{self.node}/qemu/{self.vmid}/status/current")

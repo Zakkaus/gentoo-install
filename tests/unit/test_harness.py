@@ -820,7 +820,7 @@ def test_a_guest_that_could_not_be_removed_keeps_its_slot(
         job = cluster.Job(name, Path(f"tests/fixtures/{name}.toml"))
         execution = cluster.Running(
             Guest(),
-            cluster.Watchdog(Path(f"/nonexistent/{name}.log"), lambda: 0),
+            cluster.Watchdog(Path(f"/nonexistent/{name}.log"), lambda: (0, 0.0)),
             job.reservation_bytes,
         )
         return job.dispatch(
@@ -990,7 +990,9 @@ def test_unknown_telemetry_does_not_make_a_quiet_guest_stuck(tmp_path: Path) -> 
 
     log = tmp_path / "quiet.log"
     log.write_bytes(b"")
-    answers: list[int | None] = [None] * WATCH_STRIKES + [10] * (WATCH_STRIKES + 1)
+    answers: list[tuple[int, float] | None] = [None] * WATCH_STRIKES + [
+        (10, 0.0)
+    ] * (WATCH_STRIKES + 1)
     watch = Watchdog(log, lambda: answers.pop(0))
     unknown = [watch.moved() for _ in range(WATCH_STRIKES)]
     assert unknown == [True] * WATCH_STRIKES
@@ -2015,7 +2017,7 @@ def test_an_idle_verdict_names_the_counters_before_the_console_tail() -> None:
         "was " + "b'0.1/src/shared/data-fd-util.c [294/2044] compiling'" * 6
     )
     link = cluster.Reconnecting(lambda: _PatternConsole(idle, sent))
-    watch = cluster.Watchdog(log=Path("/nonexistent"), counters=lambda: 0)
+    watch = cluster.Watchdog(log=Path("/nonexistent"), counters=lambda: (0, 0.0))
 
     with pytest.raises(ConsoleTimeout) as raised:
         link.wait_for("sh install.sh", timeout=10.0, idle=1200.0, watch=watch)

@@ -667,7 +667,7 @@ def test_the_watchdog_counts_quiet_looks_not_elapsed_time(tmp_path: Path) -> Non
 
     log = tmp_path / "run.log"
     log.write_bytes(b"booting\n")
-    watch = Watchdog(log=log, counters=lambda: 0)
+    watch = Watchdog(log=log, counters=lambda: (0, 0.0))
     # Read into locals: mypy narrows a property and never widens it again,
     # because it cannot see `moved()` changing what `stuck` answers.
     first = (watch.moved(), watch.stuck)
@@ -694,13 +694,33 @@ def test_a_silent_guest_that_is_still_downloading_is_left_alone(tmp_path: Path) 
     log.write_bytes(b"downloading\n")
     moving = [0]
 
-    def counters() -> int:
+    def counters() -> tuple[int, float]:
         moving[0] += QUIET_BYTES * 2
-        return moving[0]
+        return moving[0], 0.0
 
     watch = Watchdog(log=log, counters=counters)
     looks = [watch.moved() for _ in range(WATCH_STRIKES + 2)]
     assert looks == [True] * (WATCH_STRIKES + 2)
+    assert not watch.stuck
+
+
+def test_a_guest_compiling_in_memory_is_not_read_as_stuck(tmp_path: Path) -> None:
+    """`vm-binhost-fallback` was ended at 48.8 minutes with
+
+        the console was silent for 1200s and counters were flat
+        (16883546473 -> 16883554254 bytes)
+
+    while it was building grub. A build whose directory is in RAM writes no
+    disk and answers no network, so the bytes are the wrong question on their
+    own; the guest's share of a core answers it."""
+    from tests.vm.cluster import BUSY_CPU, WATCH_STRIKES, Watchdog
+
+    log = tmp_path / "compiling.log"
+    log.write_bytes(b"")
+    watch = Watchdog(log=log, counters=lambda: (5_000_000, BUSY_CPU))
+    looks = [watch.moved() for _ in range(WATCH_STRIKES + 2)]
+
+    assert looks == [True] * (WATCH_STRIKES + 2), looks
     assert not watch.stuck
 
 
@@ -710,7 +730,7 @@ def test_a_guest_moving_nothing_at_all_is_stuck(tmp_path: Path) -> None:
 
     log = tmp_path / "dead.log"
     log.write_bytes(b"")
-    watch = Watchdog(log=log, counters=lambda: 5_000_000)
+    watch = Watchdog(log=log, counters=lambda: (5_000_000, 0.0))
     quiet = [watch.moved() for _ in range(WATCH_STRIKES + 1)]
     assert quiet[1:] == [False] * WATCH_STRIKES
     assert watch.stuck
@@ -732,7 +752,7 @@ def test_a_stuck_guest_is_stopped_and_not_deleted_by_the_sweep(tmp_path: Path) -
 
     log = tmp_path / "quiet.log"
     log.write_bytes(b"")
-    watch = Watchdog(log=log, counters=lambda: 0, strikes=WATCH_STRIKES - 1)
+    watch = Watchdog(log=log, counters=lambda: (0, 0.0), strikes=WATCH_STRIKES - 1)
     inflight = {
         "vm-zfs": Running(
             guest=Quiet(),
@@ -2225,7 +2245,7 @@ def test_a_reserved_guest_is_not_created_twice_and_is_still_cleaned_up(
     job = Job(name="reserved", fixture=tmp_path / "reserved.toml", iso="minimal.iso")
     execution = Running(
         guest,
-        Watchdog(log=log, counters=lambda: 0),
+        Watchdog(log=log, counters=lambda: (0, 0.0)),
         job.reservation_bytes,
         created=True,
     )

@@ -428,6 +428,11 @@ class Job:
 #: slowest this network has served one is 40 KiB/s, which is 24 MiB.
 QUIET_BYTES: Final[int] = 1024 * 1024
 
+#: The share of a core a working guest holds. A hung one reads 0.00 and a
+#: guest at a prompt is near it; `vm-binhost-fallback` was compiling grub at
+#: this and above while its counters moved 7781 bytes in twenty minutes.
+BUSY_CPU: Final[float] = 0.10
+
 
 #: What a guest still moving bytes buys back after its console dropped. The
 #: transport outage is not the guest's silence: `vm-gnome` was compiling git
@@ -448,12 +453,13 @@ class Watchdog:
     """
 
     log: Path
-    counters: Callable[[], int | None]
+    counters: Callable[[], tuple[int, float] | None]
     strikes: int = 0
     _seen: int = field(default=0, init=False)
     _moved: int = field(default=0, init=False)
     _counter_before: int = field(default=0, init=False)
     _counter_after: int = field(default=0, init=False)
+    _cpu: float = field(default=0.0, init=False)
     #: Consecutive samples the hypervisor would not answer.
     _blind: int = field(default=0, init=False)
     #: Whether the last sample saw nothing new in the log.
@@ -492,10 +498,14 @@ class Watchdog:
             self._blind += 1
             return self._blind < BLIND_SAMPLES
         self._blind = 0
+        moved, self._cpu = traffic
         self._counter_before = self._moved
-        self._counter_after = traffic
-        working = traffic - self._moved >= QUIET_BYTES
-        self._moved = max(self._moved, traffic)
+        self._counter_after = moved
+        # Either signal is enough. A compile whose build directory is in RAM
+        # writes nothing and answers no network, and `vm-binhost-fallback` was
+        # ended for that at 48.8 minutes with grub half built.
+        working = moved - self._moved >= QUIET_BYTES or self._cpu >= BUSY_CPU
+        self._moved = max(self._moved, moved)
         if talking or working:
             self.strikes = 0
             return True
@@ -514,7 +524,8 @@ class Watchdog:
                 )
             return (
                 "counters were flat "
-                f"({self._counter_before} -> {self._counter_after} bytes)"
+                f"({self._counter_before} -> {self._counter_after} bytes, "
+                f"cpu {self._cpu:.2f})"
             )
 
     @property
