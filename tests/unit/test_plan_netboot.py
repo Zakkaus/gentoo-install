@@ -524,3 +524,78 @@ def test_no_configuration_appends_nothing() -> None:
     )
     # After the initramfs is placed and before the entry names it.
     assert placed < at < entry, [type(one).__name__ for one in carrying]
+
+
+def _custom(recorder: Recorder) -> str:
+    return recorder.files[PurePosixPath("/boot/grub/custom.cfg")]
+
+
+def test_a_separate_boot_partition_gets_a_path_relative_to_itself() -> None:
+    """GRUB's paths are relative to the filesystem its `root` names, which is
+    the `/boot` partition when there is one."""
+    recorder = _answering()
+    target = netboot.BootTarget(
+        method=BootMethod.BIOS_GRUB,
+        grub_directory="/boot/grub",
+        boot_on_the_root_filesystem=False,
+    )
+    netboot.WriteMemoryEntry(mode=MemoryMode.RAM, target=target, launch=_launch()).apply(
+        recorder
+    )
+
+    written = _custom(recorder)
+    assert f"linux /{netboot.PLACE}/kernel" in written, written
+    assert "/boot/gentoo-install-ram" not in written, written
+
+
+def test_boot_on_the_root_filesystem_gets_the_boot_prefix() -> None:
+    """The same file is `/boot/gentoo-install-ram/kernel` to GRUB when `/boot`
+    is a directory rather than a mount. Written the other way, the `search`
+    matches nothing, `root` is left alone, and the entry stops in GRUB with
+    the kernel not found — the machine still boots its own system, and the
+    armed one never runs."""
+    recorder = _answering()
+    target = netboot.BootTarget(
+        method=BootMethod.BIOS_GRUB,
+        grub_directory="/boot/grub",
+        boot_on_the_root_filesystem=True,
+    )
+    netboot.WriteMemoryEntry(mode=MemoryMode.RAM, target=target, launch=_launch()).apply(
+        recorder
+    )
+
+    written = _custom(recorder)
+    for line in ("search", "linux", "initrd"):
+        named = next(one for one in written.splitlines() if one.strip().startswith(line))
+        assert f"/boot/{netboot.PLACE}/" in named, named
+
+
+def test_the_three_lines_of_an_entry_never_disagree_about_the_path() -> None:
+    """`search` sets `root` by finding that exact path, so a `linux` line
+    naming another one is an entry that finds a filesystem and then asks it
+    for a file it does not have."""
+    for on_root in (True, False, None):
+        recorder = _answering()
+        target = netboot.BootTarget(
+            method=BootMethod.BIOS_GRUB,
+            grub_directory="/boot/grub",
+            boot_on_the_root_filesystem=on_root,
+        )
+        netboot.WriteMemoryEntry(
+            mode=MemoryMode.RAM, target=target, launch=_launch()
+        ).apply(recorder)
+
+        written = _custom(recorder)
+        searched = next(
+            one.split()[-1] for one in written.splitlines() if "search" in one
+        )
+        loaded = next(
+            one.split()[1] for one in written.splitlines() if one.strip().startswith("linux")
+        )
+        assert searched == loaded, (on_root, searched, loaded)
+
+
+def test_an_unread_boot_layout_is_treated_as_a_separate_partition() -> None:
+    """Every layout this installer produces has one, so that is the answer
+    when nothing read the machine."""
+    assert netboot.BootTarget(method=BootMethod.BIOS_GRUB).grub_prefix == ""

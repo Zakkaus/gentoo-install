@@ -1527,3 +1527,38 @@ def test_bypass_without_a_memory_mode_is_refused() -> None:
     that does nothing when the mode it belongs to was not asked for."""
     with pytest.raises(ConfigError, match="require --ram or --lowram"):
         cli._memory_launch(cli.parser().parse_args(["--bypass"]))
+
+
+def test_the_boot_target_carries_whether_boot_is_its_own_filesystem(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GRUB's paths are relative to the filesystem its `root` names, so an
+    entry written without this fact points at `/gentoo-install-ram/kernel` on
+    a machine whose file is at `/boot/gentoo-install-ram/kernel`, and the
+    armed boot stops in GRUB. The probe answers it; this holds the wiring."""
+    from gentoo_install.model.device import StorageLayout
+
+    for same in (True, False, None):
+        monkeypatch.setattr(
+            RealProbe,
+            "storage_layout",
+            lambda self, answer=same: StorageLayout(
+                root_device="/dev/vda2",
+                root_filesystem_type="ext4",
+                root_uuid=None,
+                root_on_lvm=None,
+                root_on_luks=None,
+                root_on_mdraid=None,
+                root_below_device=None,
+                boot_device=None,
+                boot_filesystem_type=None,
+                boot_same_filesystem=answer,
+                esp_device=None,
+                esp_mountpoint=None,
+                uefi=False,
+                root_free_bytes=None,
+            ),
+        )
+        monkeypatch.setattr(RealProbe, "boot_method", lambda self: BootMethod.BIOS_GRUB)
+        probe = RealProbe(runner=Runner(log=lambda line: None), work=Path("/tmp"))
+        assert cli._boot_target(probe).boot_on_the_root_filesystem is same, same

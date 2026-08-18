@@ -98,6 +98,18 @@ class BootTarget:
     esp_disk: str | None = None
     esp_partition: int | None = None
     grub_directory: str | None = None
+    #: Whether `/boot` is a directory on the root filesystem rather than a
+    #: mount of its own. GRUB's paths are relative to the filesystem its
+    #: `root` names, so the same file is `/gentoo-install-ram/kernel` when
+    #: `/boot` is its own partition and `/boot/gentoo-install-ram/kernel` when
+    #: it is not. `None` is unread, and is treated as separate because that is
+    #: what every layout this installer produces has.
+    boot_on_the_root_filesystem: bool | None = None
+
+    @property
+    def grub_prefix(self) -> str:
+        """What a path in a GRUB entry has to start with on this machine."""
+        return "/boot" if self.boot_on_the_root_filesystem else ""
 
     @property
     def place(self) -> PurePosixPath:
@@ -595,12 +607,18 @@ def _write_custom(
             "so there is nowhere an entry would be read from"
         )
     custom = PurePosixPath(target.grub_directory) / "custom.cfg"
+    # Relative to the filesystem GRUB's `root` names, which is the partition
+    # holding `/boot` when that is a mount and the root filesystem when it is
+    # a directory. Written the first way on a machine of the second kind, the
+    # `search` matches nothing, `root` is left alone, and the entry stops in
+    # GRUB with the kernel not found.
+    at = f"{target.grub_prefix}/{PLACE}"
     entry = (
         f"{CUSTOM_BEGIN}\n"
         f"menuentry '{ENTRY_LABEL}' {{\n"
-        f"    search --no-floppy --set=root --file /{PLACE}/kernel\n"
-        f"    linux /{PLACE}/kernel {cmdline}\n"
-        f"    initrd /{PLACE}/initramfs\n"
+        f"    search --no-floppy --set=root --file {at}/kernel\n"
+        f"    linux {at}/kernel {cmdline}\n"
+        f"    initrd {at}/initramfs\n"
         f"}}\n"
         f"{CUSTOM_END}\n"
     )
