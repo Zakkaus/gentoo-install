@@ -2163,19 +2163,32 @@ KNOWN_BAD_NODES: Final[frozenset[str]] = frozenset()
 REOPEN_CEILING: Final[int] = 24
 
 
+#: How much of a command a verdict carries. `vm-zram` ended a round with a
+#: mirror probe naming eight URLs, and the command alone filled all 300 bytes
+#: of the verdict: the reason it failed was never written down.
+COMMAND_IN_A_VERDICT: Final[int] = 80
+
+
+def _shortened(command: str) -> str:
+    if len(command) <= COMMAND_IN_A_VERDICT:
+        return command
+    return f"{command[:COMMAND_IN_A_VERDICT]}… ({len(command)} chars)"
+
+
 @contextmanager
 def _naming(command: str) -> Iterator[None]:
     """Put the command into a marker's timeout, which otherwise names a token.
 
     `vm-convert` ended a 156-minute run with `never matched 'MARK_63_DONE'`,
-    and reading which of sixty-three commands that was took the source.
+    and reading which of sixty-three commands that was took the source. Enough
+    of it to recognise it, and no more: the reason has to fit as well.
     """
     try:
         yield
     except ConsoleIdle as error:
-        raise ConsoleIdle(f"{command!r}: {error}") from error
+        raise ConsoleIdle(f"{error} while running {_shortened(command)!r}") from error
     except ConsoleTimeout as error:
-        raise ConsoleTimeout(f"{command!r}: {error}") from error
+        raise ConsoleTimeout(f"{error} while running {_shortened(command)!r}") from error
 
 
 class Reconnecting:
