@@ -41,3 +41,29 @@ def test_security_names_what_publishing_actually_removes() -> None:
     assert dropped <= {field.name for field in fields(ProxyConfig)}, "the model moved"
     for name in dropped:
         assert name in paragraph, name
+
+
+def test_the_issue_form_asks_for_files_that_exist() -> None:
+    """The form names where a run's record is. A path or a filename that has
+    moved sends every reporter to an empty directory, and the report that
+    comes back cannot be reproduced."""
+    from gentoo_install.exec.report import LOG_DIRECTORY, RunFile
+
+    form = (ROOT / ".github" / "ISSUE_TEMPLATE" / "an-install-failed.yml").read_text(
+        encoding="utf-8"
+    )
+    assert str(LOG_DIRECTORY) in form, LOG_DIRECTORY
+    for held in RunFile:
+        assert held.value in form, held.value
+
+    # And what it promises the publish action removes.
+    for name in SECRET:
+        assert name in form, name
+
+
+def test_the_issue_form_sends_a_vulnerability_somewhere_else() -> None:
+    """An installer that runs as root gets reports that should not be public
+    until they are fixed. The link is the only thing standing between a
+    reporter and the issue tracker."""
+    config = (ROOT / ".github" / "ISSUE_TEMPLATE" / "config.yml").read_text(encoding="utf-8")
+    assert "SECURITY.md" in config, config
