@@ -198,6 +198,7 @@ layout and bootloader. One disk has been written this way and read back.
 | `6502c213269e` | the same, with the guarded entry | GRUB read the machine's own menu on the failed boot itself and booted Debian from it: `the failed one-shot returned to the cloud system` at 237.3s, `the second reboot still reached the cloud system` at 246.0s |
 | `6fa74c99ab94` | `--bypass`, `--lowram`, on a Debian 12 genericcloud machine, UEFI | re-measured once the firmware kept its variables: `the first boot came up in the memory environment` at 97.0s and `the second boot came up in the memory environment` at 114.7s, so replacing the default entry survives a power cycle |
 | `f5b6d5e142fd` | `--ram` on a Debian 12 genericcloud machine, UEFI, answering `install` | installed Gentoo from inside the Gentoo CJK ISO environment and passed the same installed-state checks: `logged into the installed system (console)` at 532.8s, `the installed system booted, mounted its layout and has no failed unit` |
+| `e430b3fadbfe` | the same, once the firmware kept its variables | installed from the Gentoo CJK ISO environment again and booted the disk it wrote: `logged into the installed system (console)` at 531.8s, `memory install booted its disk and passed the shared installed-state checks` at 534.5s |
 
 Both environments install, and they needed different work to get there: the
 CJK ISO answered `live system: gentoo` with `python3.14`, `mount`, `tar` and
