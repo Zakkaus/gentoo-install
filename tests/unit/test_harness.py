@@ -3877,3 +3877,18 @@ def test_the_mirror_check_cannot_match_its_own_command() -> None:
         command.group(0)
     )
     assert 'rb"MIRROR_BYTES=[1-9][0-9]*"' in source, "and the check wants a count"
+
+
+def test_a_run_of_one_half_does_not_claim_the_other() -> None:
+    """`--part install` ended with `proved a broken one-shot returns twice`
+    and nothing in that run had armed a broken entry. A closing line is a
+    claim, and a claim about a guest that was never started is the shape of
+    failure this suite exists to catch."""
+    from tests.vm import ram
+
+    assert set(ram.RAN) == {"install", "fallback", "both"}
+    assert "one-shot" not in ram.RAN["install"], ram.RAN["install"]
+    assert "installed Gentoo" not in ram.RAN["fallback"], ram.RAN["fallback"]
+    # And the whole run still says both, because it did both.
+    assert "installed Gentoo" in ram.RAN["both"]
+    assert "one-shot" in ram.RAN["both"]
