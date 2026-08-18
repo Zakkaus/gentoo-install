@@ -2285,3 +2285,63 @@ def test_a_manifest_mismatch_waits_the_same_every_time() -> None:
         )
 
     assert len({waits() for _ in range(8)}) == 1
+
+
+def test_an_overlay_key_that_cannot_be_fetched_degrades_rather_than_ends_the_run() -> None:
+    """`sec-keys/openpgp-keys-gentoozh` carries the key the community binary
+    packages are signed with, and its distfile is on no Gentoo mirror: a guest
+    whose route to `distfiles.gentoozh.org` was down answered `404` from the
+    local mirror, `Temporary failure in name resolution` from the rest, and
+    the whole install ended with exit 4 — disk partitioned, stage3 unpacked,
+    machine unusable. Every binary-host failure degrades to source."""
+    from gentoo_install.plan.portage import BINARY_PACKAGES, Emerge, SourcePolicy
+
+    recorder = Recorder()
+    recorder.failures.add("emerge")
+    operation = Emerge(
+        packages=("sec-keys/openpgp-keys-gentoozh",),
+        summary="install the key the community binary packages are signed with",
+        source=SourcePolicy.build_all(),
+        repository_bootstrap=True,
+        degrades=BINARY_PACKAGES,
+    )
+
+    operation.apply(recorder)
+
+    assert recorder.degraded(BINARY_PACKAGES), recorder.given_up
+    assert "openpgp-keys-gentoozh" in recorder.degradations[BINARY_PACKAGES]
+
+
+def test_the_plan_marks_that_key_as_one_the_run_may_lose() -> None:
+    """The operation degrades only because the plan says it may. Without this
+    the constructor test above passes on an object no planner ever builds."""
+    from gentoo_install.plan.portage import BINARY_PACKAGES, Emerge
+
+    installation = with_portage(
+        binhost=Binhost(official=True, community=BinhostChannel.STABLE)
+    )
+    operations = portage.build(installation, MIRROR)
+    keys = [
+        one
+        for one in operations
+        if isinstance(one, Emerge) and "openpgp-keys-gentoozh" in " ".join(one.packages)
+    ]
+
+    assert len(keys) == 1, [one.describe() for one in operations]
+    assert keys[0].degrades == BINARY_PACKAGES, keys[0]
+
+
+def test_an_emerge_the_machine_needs_still_ends_the_run() -> None:
+    """The same failure without `degrades` is what every package the machine
+    has to boot with uses, and it has to stop the install."""
+    import pytest as _pytest
+
+    from gentoo_install.errors import CommandFailed
+    from gentoo_install.plan.portage import Emerge
+
+    recorder = Recorder()
+    recorder.failures.add("emerge")
+    operation = Emerge(packages=("sys-kernel/gentoo-kernel-bin",), summary="the kernel")
+
+    with _pytest.raises(CommandFailed):
+        operation.apply(recorder)

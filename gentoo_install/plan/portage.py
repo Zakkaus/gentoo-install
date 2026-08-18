@@ -839,6 +839,10 @@ class Emerge(Operation):
     repository_bootstrap: bool = False
     mode: InstallMode = InstallMode.NORMAL
     source: SourcePolicy = SourcePolicy.binaries_allowed()
+    #: What to degrade rather than fail, when this emerge is what enables an
+    #: optional path. Empty means the install stops, which is right for
+    #: everything the machine needs to boot.
+    degrades: str = ""
 
     def __post_init__(self) -> None:
         self.source.built_from(self.packages)
@@ -870,6 +874,8 @@ class Emerge(Operation):
         except CommandFailed as error:
             marker = _binpkg_failure(str(error))
             if marker is None or context.degraded(BINARY_PACKAGES):
+                if self._optional(context, str(error)):
+                    return
                 raise
             if (again := self._one_more_binary_try(context, command)) is not None:
                 marker = again
@@ -890,6 +896,8 @@ class Emerge(Operation):
             self._from_source(context)
             return
         if not _binpkg_failure(str(result)) or context.degraded(BINARY_PACKAGES):
+            if self._optional(context, str(result)):
+                return
             raise CommandFailed(f"emerge ended with {result.ending}: {str(result).strip()}")
         marker = _binpkg_failure(str(result))
         if (again := self._one_more_binary_try(context, command)) is not None:
@@ -898,6 +906,19 @@ class Emerge(Operation):
             return
         context.degrade(BINARY_PACKAGES, f"selected binary package failed: {marker}")
         self._from_source(context)
+
+    def _optional(self, context: Context, said: str) -> bool:
+        """Whether this failure degrades a path instead of ending the install.
+
+        `sec-keys/openpgp-keys-gentoozh` is the whole of it today: its distfile
+        is not on the Gentoo mirrors, so a machine whose only route to
+        `distfiles.gentoozh.org` is down took the install down with it, exit 4
+        with the disk already partitioned and the stage3 unpacked.
+        """
+        if not self.degrades:
+            return False
+        context.degrade(self.degrades, f"{' '.join(self.packages)} did not merge: {said.strip()[:200]}")
+        return True
 
     def _from_source(self, context: Context) -> None:
         retry_result = context.run_in_target(self._argv(context, source_only=True), check=False)
@@ -1421,6 +1442,7 @@ def build(
                 summary="install the key the community binary packages are signed with",
                 source=SourcePolicy.build_all(),
                 repository_bootstrap=True,
+                degrades=BINARY_PACKAGES,
             ),
             TrustBinhostKey(
                 binhost="gentoo-zh",
