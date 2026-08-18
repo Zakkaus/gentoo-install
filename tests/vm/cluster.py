@@ -2408,8 +2408,16 @@ def _name_the_user(link: Reconnecting) -> bool:
     their issue three times and were failed for a password prompt that was
     never coming.
     """
-    for _ in range(LOGIN_TRIES):
-        time.sleep(AGETTY_FLUSHES_AFTER)
+    for attempt in range(LOGIN_TRIES):
+        # Nothing before the first name. `tests/vm/run.py` types it the moment
+        # the prompt is read and passes: `vm-lvm` installs and logs in locally
+        # on the same fixture and the same revision, and failed on the cluster
+        # in four rounds where a blind two seconds went first. The caller has
+        # already waited for `login:`, so the prompt is there.
+        if attempt:
+            # It came back, so that name did not take. This is the wait agetty
+            # needs, and it belongs where the console has proved it.
+            time.sleep(AGETTY_FLUSHES_AFTER)
         link.respond("root")
         try:
             said = link.observe(rf"{PASSWORD_PROMPT}|login:", timeout=60.0)
@@ -2420,11 +2428,13 @@ def _name_the_user(link: Reconnecting) -> bool:
     return False
 
 
-#: What `login` takes between writing `Password:` and turning the echo off. A
-#: password sent inside that window is echoed and read as an empty one:
-#: `vm-lvm` printed `install` under the prompt and answered `Login incorrect`
-#: after an install that was otherwise complete.
-PASSWORD_ECHO_OFF_AFTER: Final[float] = 1.0
+#: What is waited after `Password:` before the password is sent. Zero: the
+#: implementation that passes sends it the moment the prompt is read, and
+#: `vm-lvm` failed on the cluster in four rounds where it was sent a second
+#: later. `login` turns the echo off before it writes the prompt, so there is
+#: no window to wait out; the growth below is kept for the console that proves
+#: otherwise by echoing.
+PASSWORD_ECHO_OFF_AFTER: Final[float] = 0.0
 
 #: Added to the settle each time the console proves it lost that race, and how
 #: many of those are absorbed. A fixed wait is a guess about a machine whose

@@ -2346,11 +2346,9 @@ def test_a_worker_cannot_hold_the_interpreter_open_after_the_schedule_ends() -> 
 def test_a_name_typed_the_moment_the_prompt_appears_is_offered_again(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """agetty sleeps a second after writing `login:` and then flushes the
-    serial line, so a name sent at once is thrown away and the empty line
-    behind it brings the prompt back. `openrc-sdboot` and `vm-bios` printed
-    their issue three times and were failed for a password prompt that was
-    never coming."""
+    """A prompt that comes back means the name did not take, and it is offered
+    again. `openrc-sdboot` and `vm-bios` printed their issue three times and
+    were failed for a password prompt that was never coming."""
     from tests.vm import cluster
 
     monkeypatch.setattr(cluster, "AGETTY_FLUSHES_AFTER", 0.0)
@@ -2365,7 +2363,7 @@ def test_a_name_typed_the_moment_the_prompt_appears_is_offered_again(
             return said.pop(0)
 
     assert cluster._name_the_user(cast(Any, Prompting()))
-    assert offered == ["root", "root", "root"], "the flushed name is offered again"
+    assert offered == ["root", "root", "root"], "the name is offered again"
 
 
 def test_a_prompt_that_never_takes_a_name_ends_rather_than_answers_for_ever(
