@@ -714,6 +714,8 @@ class WriteMemoryEntry(Operation):
     target: BootTarget
     launch: MemoryLaunch
     region: MirrorRegion = MirrorRegion.GLOBAL
+    #: `--bypass`, which the entry itself has to carry on a GRUB machine.
+    bypass: bool = False
 
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
         return "write a {} entry for the {} environment", (
@@ -741,7 +743,7 @@ class WriteMemoryEntry(Operation):
             return
         # Both GRUBs read their own `custom.cfg`, and a UEFI one is reached
         # by `--bootnext` into GRUB rather than into the entry directly.
-        _write_custom(context, self.target, cmdline, place)
+        _write_custom(context, self.target, cmdline, place, bypass=self.bypass)
 
     def _cmdline(self, context: Context, place: PurePosixPath) -> tuple[str, ...]:
         if self.mode is MemoryMode.RAM:
@@ -898,7 +900,13 @@ def build(
             )
         )
     operations.append(
-        WriteMemoryEntry(mode=launch.mode, target=target, launch=launch, region=region)
+        WriteMemoryEntry(
+            mode=launch.mode,
+            target=target,
+            launch=launch,
+            region=region,
+            bypass=bypass,
+        )
     )
     if launch.mode is MemoryMode.LOWRAM:
         operations.append(DiscardTheArchive())
@@ -916,7 +924,12 @@ def disarm(*, target: BootTarget) -> list[Operation]:
 
 
 def _write_custom(
-    context: Context, target: BootTarget, cmdline: str, place: PurePosixPath
+    context: Context,
+    target: BootTarget,
+    cmdline: str,
+    place: PurePosixPath,
+    *,
+    bypass: bool = False,
 ) -> None:
     """A GRUB entry between markers, so arming twice replaces rather than adds."""
     if target.grub_directory is None:
@@ -944,8 +957,15 @@ def _write_custom(
     # found.` and `Press any key to continue...`: a machine armed from far away
     # then waits at a menu nobody is at. `$prefix` carries its own device, so
     # rereading the machine's own configuration works whatever `search` set.
+    # `grub-set-default` writes `saved_entry`, which a machine whose
+    # configuration says `GRUB_DEFAULT=0` never reads: a `--bypass` guest
+    # rebooted straight into `Booting \'Debian GNU/Linux\'` with our entry
+    # selected in `grubenv`. `custom.cfg` is sourced at the end of `grub.cfg`,
+    # after its own `set default`, so this assignment is the one that stands.
+    chooses = f"set default='{ENTRY_LABEL}'\n" if bypass else ""
     entry = (
         f"{CUSTOM_BEGIN}\n"
+        f"{chooses}"
         f"menuentry '{ENTRY_LABEL}' {{\n"
         f"    search --no-floppy --set=root --file {at}/kernel\n"
         f"    if [ -f {at}/kernel -a -f {at}/initramfs ]; then\n"
