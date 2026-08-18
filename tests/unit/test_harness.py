@@ -2939,6 +2939,51 @@ def test_every_driver_mount_goes_through_the_one_finder() -> None:
     assert "/dev/sr1 /dev/sr0" in FIND_DRIVER
 
 
+def test_a_conversion_marks_home_and_checks_the_marker_after_boot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The marker write and read must both be wired to the conversion path."""
+    from gentoo_install.exec.config import load
+    from tests.vm import convert
+
+    class Console:
+        def __init__(self) -> None:
+            self.commands: list[str] = []
+            self.asked: list[str] = []
+            self.answer = b""
+
+        def run(self, command: str, timeout: float = 0.0) -> None:
+            self.commands.append(command)
+
+        def expect_output(self, command: str, timeout: float = 0.0) -> bytes:
+            self.asked.append(command)
+            return self.answer
+
+        def expect_command(self, command: str, timeout: float = 0.0) -> bytes:
+            raise AssertionError("the preservation check used expect_command")
+
+    console = Console()
+    convert.convert(cast(Any, console), "fixtures/vm-convert.toml")
+    assert console.commands[0] == (
+        f"printf '%s\\n' {convert.HOME_MARKER} > {convert.HOME_MARKER_PATH}"
+    )
+
+    installation = load(Path("tests/fixtures/vm-convert.toml"))
+    assert convert.HOME_MARKER_CHECK in convert.conversion_checks(installation)
+    monkeypatch.setattr(
+        convert,
+        "conversion_checks",
+        lambda _: (convert.HOME_MARKER_CHECK,),
+    )
+    console.answer = f"{convert.HOME_MARKER}\n".encode()
+    assert convert.check_installed(cast(Any, console), installation) == ""
+    assert console.asked == [convert.HOME_MARKER_CHECK.command]
+
+    for answer in (b"", b"not-the-home-marker\n"):
+        console.answer = answer
+        assert "home marker" in convert.check_installed(cast(Any, console), installation)
+
+
 def test_a_conversion_asks_for_a_port_nobody_holds() -> None:
     """Two runs asked for 2222 and the second died with
 
