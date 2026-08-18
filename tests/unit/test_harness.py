@@ -3419,6 +3419,24 @@ class _MissingCommands:
         return b"gpg\r\ngpg-agent\r\n"
 
 
+def test_the_harness_installs_what_it_reads_the_machine_with() -> None:
+    """`read_the_boot_order` printed `NO-EFIBOOTMGR` on every conversion,
+    because the cloud images have no `efibootmgr` and the installer never asks
+    for one — it merges `sys-boot/efibootmgr` into the target instead. That
+    reading is the only place a Fedora conversion's surviving `Boot0001
+    "Fedora"` was ever visible."""
+    from typing import Any, cast
+
+    from tests.vm.convert import IMAGES, install_tools
+
+    console = _MissingCommands()
+    install_tools(cast(Any, console), IMAGES["debian"], "fixtures/vm-convert.toml")
+
+    installs = [one for one in console.ran if "apt-get" in one]
+    assert len(installs) == 1, console.ran
+    assert "efibootmgr" in installs[0], installs[0]
+
+
 def test_the_missing_commands_are_installed_before_the_conversion() -> None:
     """`--missing-commands` prints bare names. The reading this replaces looked
     for `run: ` and for the package manager's own name, matched neither,
@@ -3433,7 +3451,7 @@ def test_the_missing_commands_are_installed_before_the_conversion() -> None:
 
     installs = [one for one in console.ran if "apt-get" in one]
     assert len(installs) == 1, console.ran
-    assert installs[0].endswith("gpg gpg-agent"), installs[0]
+    assert "gpg gpg-agent" in installs[0], installs[0]
 
 
 def test_the_checks_come_from_the_config_the_guest_was_handed(tmp_path: Path) -> None:
