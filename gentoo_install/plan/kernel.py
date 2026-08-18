@@ -13,7 +13,7 @@ from pathlib import PurePosixPath
 from typing import Final
 
 from ..model.config import Bootloader, InitSystem, InstallConfig, KernelSource
-from ..errors import ConfigError, InvalidLayout, NothingToBoot, ValidationFailed
+from ..errors import ConfigError, NothingToBoot, ValidationFailed
 from ..model import compat
 from ..model.compat import CJK_KERNELS, KERNEL_PACKAGES
 from ..model.validate import zfs_kernel_version_problem

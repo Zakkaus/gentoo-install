@@ -36,7 +36,7 @@ from ..plan.operations import CommandOutput, Operation
 from . import fetch, packages
 from .preflight import SecretStore
 from .probe import Probe
-from .runner import Runner, TargetEscape, open_in_target, under, write_file
+from .runner import Runner, TargetEscape, open_in_target, under
 
 
 @dataclass

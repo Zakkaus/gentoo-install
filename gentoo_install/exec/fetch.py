@@ -37,7 +37,6 @@ from ..errors import (
     UploadFailed,
 )
 from ..model import paste
-from ..model.device import DeviceId
 from ..model.validate import KernelCeiling
 from ..model.config import ProxyConfig
 from .probe import RELEASE_KEY

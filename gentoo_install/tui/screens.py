@@ -14,10 +14,9 @@ from copy import deepcopy
 from dataclasses import dataclass, replace
 from enum import Enum
 from itertools import takewhile
-from pathlib import PurePosixPath
-from typing import Callable, Final, Generic, Sequence, TypeVar, TypedDict
+from typing import Callable, Final, Sequence
 
-from ..i18n import Catalog, truncate
+from ..i18n import Catalog
 from ..exec import fetch
 from ..model import compat
 from ..model.config import (
@@ -70,15 +69,11 @@ from ..model.device import (
 )
 from ..plan import automatic as automatic_values
 from ..plan.convert import REPLACED_DIRECTORIES, SWAP_CONFIRMATION
-from ..plan import kernel as plan_kernel
 from ..plan.fonts import CJK_SANS_PREFERENCE, CjkFontconfigLocale, FontCategory
 from ..model.compat import KERNEL_PACKAGES
-from ..plan.portage import community_binhost
-from ..plan.operations import Operation
-from ..plan.render import counts
-from ..model.size import ZERO, Size
+from ..model.size import Size
 from ..errors import ConfigError, DeviceNotFound, GentooInstallError, ValidationFailed
-from ..model import atoms, manual, mirrors, paste, qr, sshkey
+from ..model import atoms, manual, paste, sshkey
 from ..model.templates import Choice, Layout, build
 from ..model.validate import validate
 from ..plan.packages import Catalog as Groups

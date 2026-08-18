@@ -8,9 +8,8 @@ is missing. That keeps a configuration file checkable on any machine.
 
 from __future__ import annotations
 
-import tomllib
 from enum import Enum
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Any, Mapping, Sequence, TypeVar
 
 from ..errors import ConfigError
