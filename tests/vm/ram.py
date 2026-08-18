@@ -418,6 +418,22 @@ def run_fallback(
             root.unlink(missing_ok=True)
 
 
+#: What the closing line says, per half. A run of one half claimed both: a
+#: `--part install` run ended with `proved a broken one-shot returns twice`
+#: and nothing had armed a broken one.
+RAN: Final[dict[str, str]] = {
+    "install": "memory mode installed Gentoo from the environment it delivered",
+    "fallback": "memory mode proved a broken one-shot returns to its own system twice",
+    "both": (
+        "memory mode installed Gentoo and proved a broken one-shot returns twice"
+    ),
+}
+
+
+def _what_ran(part: str) -> str:
+    return RAN[part]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image", choices=sorted(IMAGES), default="debian")
@@ -476,10 +492,7 @@ def main(argv: list[str] | None = None) -> int:
     ) as error:
         print(f"FAIL {error}", file=sys.stderr, flush=True)
         return 1
-    print(
-        "memory mode installed Gentoo and proved a broken one-shot returns twice",
-        flush=True,
-    )
+    print(_what_ran(arguments.part), flush=True)
     return 0
 
 
