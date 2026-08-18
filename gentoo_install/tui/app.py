@@ -20,8 +20,8 @@ from ..model.config import DiskMode, InstallConfig
 from ..errors import GentooInstallError
 from ..plan.build import build
 from .overview import overview_screen
-from .screens import Context
-from .screens import _say as say
+from .context import Context
+from .context import say
 from .settings import SETTINGS, UNSET, Setting, settings_for, shown_value, style_of, unanswered
 from .widgets import Item, Menu, Outcome, Screen, Style, TextField
 

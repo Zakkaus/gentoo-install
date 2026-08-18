@@ -12,7 +12,7 @@ from ..plan import automatic as automatic_values
 from ..plan.build import build as plan_build
 from ..plan.operations import Operation
 from ..plan.render import counts
-from .screens import Context, _say, answers, footer, show_address
+from .context import Context, answers, footer, say, show_address
 from .settings import SETTINGS, UNSET
 from .widgets import Answer, Confirm, Item, Menu, Outcome, Screen
 
@@ -47,7 +47,7 @@ def overview_screen(
     try:
         operations = plan_build(config, context.groups)
     except GentooInstallError as error:
-        _say(screen, context, str(error).splitlines()[-1].strip())
+        say(screen, context, str(error).splitlines()[-1].strip())
         return Answer(Outcome.CANCELLED)
     items: list[Item[int]] = []
     for group in SETTINGS:
@@ -115,7 +115,7 @@ def overview_screen(
         try:
             show_address(screen, context, context.publish_config(config))
         except GentooInstallError as error:
-            _say(screen, context, str(error))
+            say(screen, context, str(error))
     confirmed = Confirm(
         **answers(translate),
         title=translate("Install"),

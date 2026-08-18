@@ -420,3 +420,29 @@ def test_the_proxy_endpoint_is_defined_once() -> None:
     ]
 
     assert defined == ["portage.py"], defined
+
+
+def test_the_tui_context_knows_nothing_about_a_screen() -> None:
+    """`Context`, the footer and the one-line acknowledgement moved out of
+    `screens.py` because `settings.py`, `overview.py`, `app.py` and `cli.py`
+    all reached into a screen module for them. The move is only worth its
+    churn while the direction stays one way: an import of `screens` or
+    `settings` from here is the cycle that put them together in the first
+    place."""
+    tui = PACKAGE / "tui"
+    imported = _imports(ast.parse((tui / "context.py").read_text()))
+
+    forbidden = {name for name in imported if name.split(".")[-1] in {"screens", "settings"}}
+    assert not forbidden, forbidden
+
+    # And the names it owns are not defined a second time next door, which is
+    # how a moved definition comes back as a copy.
+    owned = {"Context", "footer", "answers", "say", "show_address"}
+    for neighbour in ("screens.py", "settings.py", "overview.py", "app.py"):
+        tree = ast.parse((tui / neighbour).read_text())
+        defined = {
+            node.name
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in owned
+        }
+        assert not defined, f"{neighbour} defines {defined} again"

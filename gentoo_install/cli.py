@@ -37,6 +37,7 @@ from .exec.runner import Runner
 from .model.device import StorageFacts, StorageLayout, ZfsPool
 from .model.size import Size
 from .tui import app, screens
+from .tui import context as tui_context
 from .tui.curses_screen import CursesScreen, too_small
 from .i18n import Catalog, tag_for
 from .model import mirrors, qr, templates
@@ -889,7 +890,7 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         raise errors.PreflightFailed(f"the menu needs {', '.join(sorted(lacking))}")
     running_system, conversion_refused = _conversion_offer(probe)
     image_write_refused = _image_write_offer(probe)
-    context = screens.Context(
+    context = tui_context.Context(
         translate=Catalog(tag_for(override=arguments.lang)),
         ipv4=has_ipv4,
         ipv6=has_ipv6,

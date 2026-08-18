@@ -30,6 +30,7 @@ from gentoo_install.model.device import (
 from gentoo_install.model.validate import validate
 from gentoo_install.model import compat
 from gentoo_install.tui import app, widgets, screens, settings
+from gentoo_install.tui import context as tui_context
 from gentoo_install.tui.app import run
 from gentoo_install.tui.overview import overview_screen
 from gentoo_install.tui.widgets import Outcome
@@ -63,9 +64,9 @@ def staged(text: str) -> str:
     return "/run/keys/tui"
 
 
-def context() -> screens.Context:
+def context() -> tui_context.Context:
     STAGED.clear()
-    return app.MainMenuContext(screens.Context(
+    return app.MainMenuContext(tui_context.Context(
         translate=Catalog("en"),
         disks=DISKS,
         groups=load_catalog(),
@@ -2598,7 +2599,7 @@ def test_cancelled_manual_layout_restores_the_opening_table(
 
     before = deepcopy(at.layout)
 
-    def mutate(_: object, context: screens.Context, __: object) -> None:
+    def mutate(_: object, context: tui_context.Context, __: object) -> None:
         context.layout.disks[0].slices[0] = replace(
             context.layout.disks[0].slices[0], mountpoint="/changed"
         )
@@ -3122,7 +3123,7 @@ def test_the_conversion_is_not_offered_when_the_machine_refuses_it() -> None:
     """The refusal is asked before the operator answers twenty screens, and it
     is shown rather than hidden: a menu that quietly lacks an option teaches
     nothing about the machine it is running on."""
-    refusing = app.MainMenuContext(screens.Context(
+    refusing = app.MainMenuContext(tui_context.Context(
         translate=Catalog("en"),
         disks=DISKS,
         groups=load_catalog(),
@@ -3138,7 +3139,7 @@ def test_the_conversion_is_not_offered_when_the_machine_refuses_it() -> None:
 
     # Negative control: a machine that can be converted is offered it, and told
     # what was read, so the operator can see it looked at the right system.
-    offering = app.MainMenuContext(screens.Context(
+    offering = app.MainMenuContext(tui_context.Context(
         translate=Catalog("en"),
         disks=DISKS,
         groups=load_catalog(),
@@ -3154,7 +3155,7 @@ def test_the_conversion_is_not_offered_when_the_machine_refuses_it() -> None:
 
     # And a context nobody filled in refuses, rather than offering a conversion
     # of a machine that was never read.
-    blank = screens.Context(
+    blank = tui_context.Context(
         translate=Catalog("en"),
         disks=DISKS,
         groups=load_catalog(),
@@ -3172,7 +3173,7 @@ def test_choosing_the_conversion_drops_the_device_graph() -> None:
     from gentoo_install.model.validate import validate
     from gentoo_install.plan import convert
 
-    offering = app.MainMenuContext(screens.Context(
+    offering = app.MainMenuContext(tui_context.Context(
         translate=Catalog("en"),
         disks=DISKS,
         groups=load_catalog(),
@@ -3210,7 +3211,7 @@ def test_choosing_the_conversion_drops_the_device_graph() -> None:
 
 def test_dd_mode_is_offered_only_from_a_live_or_memory_environment() -> None:
     unsafe = app.MainMenuContext(
-        screens.Context(
+        tui_context.Context(
             translate=Catalog("en"),
             disks=DISKS,
             groups=load_catalog(),
@@ -3223,7 +3224,7 @@ def test_dd_mode_is_offered_only_from_a_live_or_memory_environment() -> None:
     assert "write a prepared image" not in "\n".join(hidden.frames[0])
 
     safe = app.MainMenuContext(
-        screens.Context(
+        tui_context.Context(
             translate=Catalog("en"),
             disks=DISKS,
             groups=load_catalog(),

@@ -762,7 +762,8 @@ def test_a_mirror_with_no_ipv6_is_refused_on_an_ipv6_only_machine() -> None:
     from gentoo_install.data import load_catalog
     from gentoo_install.i18n import Catalog
     from gentoo_install.model import mirrors
-    from gentoo_install.tui.screens import Context, _unreachable_here
+    from gentoo_install.tui.context import Context
+    from gentoo_install.tui.screens import _unreachable_here
 
     def machine(ipv4: bool) -> Context:
         return Context(
