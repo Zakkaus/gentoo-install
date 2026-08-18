@@ -27,6 +27,7 @@ from gentoo_install.model.config import InstallConfig
 
 from .console import PASSWORD_PROMPT, SerialConsole
 from .driver import FIND_DRIVER, REPOSITORY, build as build_driver
+from .media import MediaError
 from .installed import InstalledCheck, checks
 from .media import MEDIA
 from .qemu import Firmware, Vm, VmSpec
@@ -107,6 +108,8 @@ IMAGES: Final[dict[str, CloudImage]] = {
             "dnf",
             "dnf install -y --setopt=install_weak_deps=False",
             Firmware.UEFI,
+            {"mkfs.vfat": "dosfstools", "sgdisk": "gdisk", "mkfs.btrfs": "btrfs-progs",
+             "pvcreate": "lvm2", "partprobe": "parted"},
         ),
         CloudImage(
             "debian",
@@ -114,6 +117,9 @@ IMAGES: Final[dict[str, CloudImage]] = {
             "apt-get",
             "apt-get update && apt-get install -y --no-install-recommends",
             Firmware.UEFI,
+            {"mkfs.vfat": "dosfstools", "sgdisk": "gdisk", "mkfs.btrfs": "btrfs-progs",
+             "mkfs.xfs": "xfsprogs", "pvcreate": "lvm2", "partprobe": "parted",
+             "zpool": "zfsutils-linux"},
         ),
         CloudImage(
             "arch",
@@ -121,6 +127,9 @@ IMAGES: Final[dict[str, CloudImage]] = {
             "pacman",
             "pacman -Sy --noconfirm",
             Firmware.UEFI,
+            {"mkfs.vfat": "dosfstools", "sgdisk": "gptfdisk", "mkfs.btrfs": "btrfs-progs",
+             "mkfs.xfs": "xfsprogs", "pvcreate": "lvm2", "partprobe": "parted",
+             "zpool": "zfs-utils"},
         ),
     )
 }
@@ -226,9 +235,29 @@ def install_tools(console: SerialConsole, chosen: CloudImage, config: str) -> No
         for name in (line.strip() for line in said.splitlines())
         if name and " " not in name and not name.startswith("MARK_")
     ]
+    commands = [name for name in wanted]
     wanted += list(chosen.tools)
     if wanted:
         console.run(f"{chosen.install} {' '.join(sorted(set(wanted)))}", timeout=1800.0)
+    # Checked afterwards, because a package manager given one name it does not
+    # know installs nothing at all: `apt-get ... efibootmgr gpg gpg-agent
+    # mkfs.vfat` answered `Unable to locate package mkfs.vfat` and left the
+    # machine without any of them, and the arming then refused for a boot
+    # method whose only missing piece was `efibootmgr`.
+    asked = sorted(set(commands) | set(chosen.tools))
+    if not asked:
+        return
+    said = console.expect_output(
+        "for one in " + " ".join(asked) + "; do "
+        'command -v "$one" >/dev/null || printf "absent=%s\\n" "$one"; done',
+        timeout=300.0,
+    ).decode("utf-8", "replace")
+    absent = [line.split("=", 1)[1] for line in said.split() if line.startswith("absent=")]
+    if absent:
+        raise MediaError(
+            f"{chosen.install.split()[0]} left {', '.join(absent)} missing, "
+            "so the run would refuse for a command nobody installed"
+        )
 
 def write_home_marker(console: SerialConsole) -> None:
     """Write the conversion's unique sentinel outside the replaced tree."""
