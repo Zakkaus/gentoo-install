@@ -153,6 +153,8 @@
 
 # Licenses and compilation
 "Licenses to accept" = "허용할 라이선스"
+"Accept every license" = "모든 라이선스 수용"
+"every license, including proprietary ones" = "독점 소프트웨어를 포함한 모든 라이선스"
 "Licenses" = "라이선스"
 "free software and free documentation only" = "자유 소프트웨어와 자유 문서만"
 "also firmware and other redistributable binaries" = "펌웨어 등 재배포 가능한 바이너리도 포함"
