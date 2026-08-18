@@ -4267,3 +4267,42 @@ def test_a_lowram_install_failure_carries_the_installers_own_log() -> None:
     # And it reads between the markers, because several of these commands name
     # their own answer.
     assert "expect_output" in asked and "expect_command" not in asked, asked
+
+
+def test_a_fixture_whose_site_is_the_test_keeps_it() -> None:
+    """`vm-binhost-fallback` names `xtom-hk`, whose binary package index
+    answers 404, and it is green only when Portage drops that host and
+    compiles from source. `--site nju` rewrote it to a working mirror, so the
+    guest installed 42 minutes of binary packages and the verdict said the
+    degradation path works."""
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.config import MirrorRegion, Sync
+    from tests.vm import cluster
+
+    fixtures = Path(__file__).resolve().parents[1] / "fixtures"
+    kept = cluster.Job(name="vm-binhost-fallback", fixture=fixtures / "vm-binhost-fallback.toml")
+    moved = cluster.Job(name="vm-btrfs", fixture=fixtures / "vm-btrfs.toml")
+    pinned = load(kept.fixture).portage.mirrors.site
+    assert pinned and pinned != "nju", "the fixture pins a site of its own"
+
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as where:
+        written = cluster.rewrite_fixtures(
+            [kept, moved], Path(where) / "fixtures", MirrorRegion.CN, Sync.WEBRSYNC, site="nju"
+        )
+        assert load(written / kept.fixture.name).portage.mirrors.site == pinned
+        assert load(written / moved.fixture.name).portage.mirrors.site == "nju"
+
+
+def test_every_fixture_that_keeps_its_site_pins_one() -> None:
+    """A name in the table whose fixture does not pin a site keeps nothing and
+    reads as protection that is not there."""
+    from gentoo_install.exec.config import load
+    from tests.vm import cluster
+
+    fixtures = Path(__file__).resolve().parents[1] / "fixtures"
+    for name in cluster.KEEPS_ITS_SITE:
+        path = fixtures / f"{name}.toml"
+        assert path.is_file(), name
+        assert load(path).portage.mirrors.site, name

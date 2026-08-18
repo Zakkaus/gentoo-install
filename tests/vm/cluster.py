@@ -1159,7 +1159,7 @@ def rewrite_fixtures(
                 mirrors=replace(
                     config.portage.mirrors,
                     region=region,
-                    site=site,
+                    site=config.portage.mirrors.site if job.name in KEEPS_ITS_SITE else site,
                     gentoo_zh=chosen,
                     # A replaced list, when one is given: a cache on the
                     # guests' own segment is an address with no name to
@@ -2172,6 +2172,13 @@ def _remaining(deadline: float) -> float:
 #: fixture that could never be green, and it was counted as unverified for
 #: weeks. `campaign.py` knew this and the cluster did not.
 EXPECTED_TO_FAIL: Final[frozenset[str]] = frozenset({"vm-proxy-dead"})
+
+#: Fixtures whose mirror site is the thing under test, so `--site` must not
+#: move it. `vm-binhost-fallback` names `xtom-hk`, whose binary package index
+#: answers 404, and the run is green only if Portage drops that host and
+#: compiles from source. Rewritten to a working site it installed from a
+#: binhost in 42 minutes and proved nothing.
+KEEPS_ITS_SITE: Final[frozenset[str]] = frozenset({"vm-binhost-fallback"})
 
 #: Nodes that take no guests until `--allow-node` names them. Empty because
 #: `infra-node3`, which 66 of the 70 recorded console-proxy drops named, took
