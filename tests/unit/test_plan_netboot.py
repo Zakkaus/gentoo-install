@@ -704,6 +704,24 @@ def test_the_lowram_payload_is_an_apkovl_at_the_initramfs_root() -> None:
     assert cpio[-1].startswith(f"cd {staging} && find . |"), cpio
 
 
+def test_the_apkovl_keeps_alpines_own_boot_services() -> None:
+    """`initramfs-init` adds `modloop`, `mdev`, `hwdrivers`, `sshd` and the
+    rest only when no apkovl was loaded or this marker is inside the one that
+    was (`initramfs-init.in:950`). Without it the guest came up with no
+    `/lib/modules` at all, and `mount -t efivarfs` answered `No such device`,
+    which the preflight reported as unreadable firmware variables."""
+    recorder = _answering(MemoryMode.LOWRAM)
+    _appended(recorder, mode=MemoryMode.LOWRAM)
+
+    payload = PurePosixPath(f"{ESP}/{netboot.PLACE}/payload/apkovl")
+    marker = payload / netboot.DEFAULT_SERVICES.lstrip("/")
+    assert marker in recorder.files, sorted(recorder.files)
+    assert recorder.files[marker] == ""
+    # Inside the apkovl, not beside it: the initramfs reads it out of the
+    # unpacked sysroot.
+    assert str(marker).startswith(f"{payload}/"), marker
+
+
 def test_the_archive_is_made_from_inside_the_staging_directory() -> None:
     """`find` from anywhere else writes the staging prefix into every path, so
     the payload unpacks to a directory the hook does not look in."""
