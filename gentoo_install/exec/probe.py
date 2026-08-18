@@ -60,6 +60,19 @@ UDEV_NAMES: Final[tuple[str, ...]] = ("udevd", "systemd-udevd")
 
 PROC: Final[Path] = Path("/proc")
 
+#: What makes one live session different from the next. A resumed install must
+#: run on the machine the first one left half-configured, and a reboot both
+#: changes this and empties the tmpfs the run's state lives in.
+BOOT_ID: Final[Path] = PROC / "sys" / "kernel" / "random" / "boot_id"
+
+
+def session_id() -> str:
+    """The machine's boot id, or empty where the kernel does not publish one."""
+    try:
+        return BOOT_ID.read_text().strip()
+    except OSError:
+        return ""
+
 
 def _udev_is_running() -> bool:
     """Whether a udev daemon is on this machine, read from `/proc`."""

@@ -1712,3 +1712,73 @@ def test_missing_commands_is_answered_before_the_arming_refusals(
 
     assert code == cli.EXIT_OK, said
     assert "xorriso" in said, said
+
+
+def test_a_resume_refuses_a_journal_from_another_run(tmp_path: Path) -> None:
+    """The README documents `--resume` for the same live session, installer
+    and configuration because nothing checked any of it: a resume replays
+    operations by position and description, so a journal from a different
+    configuration skips the wrong ones and one from before a reboot skips
+    operations whose result the reboot discarded."""
+    import json
+
+    import pytest as _pytest
+
+    from gentoo_install import cli
+    from gentoo_install.errors import ResumeRefused
+    from gentoo_install.log import Journal
+
+    said: list[str] = []
+    path = tmp_path / "install.jsonl"
+
+    def journal_of(configuration: str, session: str) -> Journal:
+        path.write_text(
+            json.dumps(
+                {"event": "started", "configuration": configuration, "session": session}
+            )
+            + "\n"
+        )
+        return Journal(path=path)
+
+    same = ("digest-of-the-file", "the-boot-id")
+
+    # The ordinary resume: same configuration, same session.
+    cli._refuse_a_different_run(journal_of(*same), same, said.append)
+    assert said == []
+
+    with _pytest.raises(ResumeRefused, match="different configuration"):
+        cli._refuse_a_different_run(journal_of("another-digest", same[1]), same, said.append)
+
+    with _pytest.raises(ResumeRefused, match="rebooted"):
+        cli._refuse_a_different_run(journal_of(same[0], "another-boot-id"), same, said.append)
+
+    # A machine whose kernel publishes no boot id: the configuration still has
+    # to match, and the session cannot be compared either way.
+    cli._refuse_a_different_run(journal_of(same[0], ""), (same[0], ""), said.append)
+
+    # A journal from a run that predates this carries on as it always did, and
+    # says so rather than refusing.
+    path.write_text(json.dumps({"event": "operation", "position": 0}) + "\n")
+    cli._refuse_a_different_run(Journal(path=path), same, said.append)
+    assert said and "records no identity" in said[-1], said
+
+
+def test_the_identity_of_a_run_is_the_configuration_it_was_given() -> None:
+    """Two configurations that differ anywhere have to differ here, or a
+    resume accepts a journal written for the other one."""
+    from dataclasses import replace as _replace
+
+    from gentoo_install import cli
+
+    from .layouts import config
+
+    first = config()
+    digest, session = cli._run_identity(first)
+    assert len(digest) == 64, digest
+    assert cli._run_identity(first)[0] == digest, "the same file answers the same"
+
+    other = _replace(first, system=_replace(first.system, hostname="somewhere-else"))
+    assert cli._run_identity(other)[0] != digest
+
+    # The session is the machine's, not the configuration's.
+    assert session == cli._run_identity(other)[1]
