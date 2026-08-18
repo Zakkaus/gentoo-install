@@ -29,9 +29,13 @@ CJK_RELEASES: Final[str] = (
 )
 
 #: Alpine publishes version, filename and SHA-256 for every flavour in one
-#: document, so the version is read rather than pinned here too.
+#: document per architecture, so the version is read rather than pinned here
+#: and the architecture is substituted rather than written in. Alpine spells
+#: it the way the kernel does: `x86_64` and `aarch64` both answer, checked on
+#: 2026-08-18, and the netboot flavour is present in each with the same
+#: fields.
 ALPINE_RELEASES: Final[str] = (
-    "https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/x86_64/"
+    "https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/{}/"
     "latest-releases.yaml"
 )
 ALPINE_NETBOOT_FLAVOUR: Final[str] = "alpine-netboot"
@@ -42,6 +46,18 @@ ALPINE_NETBOOT_FLAVOUR: Final[str] = "alpine-netboot"
 ALPINE_REPOSITORY: Final[str] = (
     "https://dl-cdn.alpinelinux.org/alpine/latest-stable/main"
 )
+
+#: What the kernel calls a machine and what Gentoo calls the same one. Two
+#: ecosystems name the same architecture differently, the way `fma` and `fma3`
+#: do: `uname -m` answers `x86_64` while the ISO is published as
+#: `install-amd64-…`. Gentoo's own names are the lines of
+#: `profiles/arch.list`. A machine outside this table is refused by name
+#: rather than sent to a URL composed from a guess.
+GENTOO_ARCHITECTURES: Final[dict[str, str]] = {
+    "x86_64": "amd64",
+    "aarch64": "arm64",
+    "i686": "x86",
+}
 
 #: One directory for everything this arms, on the filesystem the bootloader
 #: reads. Named rather than scattered, because disarming has to be able to
@@ -93,6 +109,11 @@ class BootTarget:
     """
 
     method: BootMethod
+    #: What `uname -m` answers here. Both environments are published per
+    #: architecture, so this decides which one is fetched rather than being
+    #: assumed: `--ram` works on any machine the CJK release publishes an ISO
+    #: for, the day it publishes one.
+    architecture: str = "x86_64"
     esp_mountpoint: str | None = None
     esp_device: str | None = None
     esp_disk: str | None = None
@@ -264,7 +285,9 @@ class FetchMemoryImage(Operation):
         place = self.target.place
         context.run(["mkdir", "--parents", str(place)])
         name, url, checksum = (
-            _cjk_release(context) if self.mode is MemoryMode.RAM else _alpine_release(context)
+            _cjk_release(context, self.target.architecture)
+            if self.mode is MemoryMode.RAM
+            else _alpine_release(context, self.target.architecture)
         )
         image = place / name
         context.run(["curl", "--fail", "--location", "--output", str(image), url])
@@ -743,8 +766,19 @@ def _total_mebibytes(said: str) -> int | None:
     return None
 
 
-def _cjk_release(context: Context) -> tuple[str, str, str]:
-    """The newest CJK ISO: its name, its URL and its SHA-256."""
+def _cjk_release(context: Context, machine: str) -> tuple[str, str, str]:
+    """The newest CJK ISO for this machine: its name, its URL and its SHA-256.
+
+    Chosen by the name the release publishes rather than by a list here, so an
+    architecture the project starts building for works without this file
+    changing.
+    """
+    named = GENTOO_ARCHITECTURES.get(machine)
+    if named is None:
+        raise DownloadFailed(
+            f"{machine} is not an architecture Gentoo names, so no ISO can be "
+            f"chosen for it: {', '.join(sorted(GENTOO_ARCHITECTURES))} are"
+        )
     said = context.run(["curl", "--fail", "--location", CJK_RELEASES])
     try:
         release = json.loads(said)
@@ -754,23 +788,29 @@ def _cjk_release(context: Context) -> tuple[str, str, str]:
         str(one.get("name", "")): str(one.get("browser_download_url", ""))
         for one in release.get("assets", [])
     }
-    iso = next((one for one in assets if one.endswith(".iso")), "")
-    if not iso or not assets.get(f"{iso}.sha256"):
+    iso = next(
+        (one for one in assets if one.endswith(".iso") and f"-{named}-" in one), ""
+    )
+    if not iso:
         raise DownloadFailed(
-            "the newest CJK release publishes no ISO with a companion .sha256"
+            f"the newest CJK release publishes no {named} ISO, so --ram cannot "
+            f"run on this machine; --lowram is published for it"
         )
+    if not assets.get(f"{iso}.sha256"):
+        raise DownloadFailed(f"{iso} is published with no companion .sha256")
     digest = context.run(["curl", "--fail", "--location", assets[f"{iso}.sha256"]])
     return iso, assets[iso], _first_word(digest, iso)
 
 
-def _alpine_release(context: Context) -> tuple[str, str, str]:
+def _alpine_release(context: Context, machine: str) -> tuple[str, str, str]:
     """The newest Alpine netboot bundle: its name, its URL and its SHA-256.
 
     `latest-releases.yaml` is read as records separated by `-` at the start of
     a line rather than with a YAML parser, because no YAML parser is in the
     standard library and this file's shape is two levels deep.
     """
-    said = context.run(["curl", "--fail", "--location", ALPINE_RELEASES])
+    index = ALPINE_RELEASES.format(machine)
+    said = context.run(["curl", "--fail", "--location", index])
     for record in said.split("\n-\n"):
         fields = dict(_yaml_pairs(record))
         if fields.get("flavor") != ALPINE_NETBOOT_FLAVOUR:
@@ -778,10 +818,10 @@ def _alpine_release(context: Context) -> tuple[str, str, str]:
         name, digest = fields.get("file", ""), fields.get("sha256", "")
         if not name or not digest:
             break
-        base = ALPINE_RELEASES.rsplit("/", 1)[0]
+        base = index.rsplit("/", 1)[0]
         return name, f"{base}/{name}", digest
     raise DownloadFailed(
-        f"{ALPINE_RELEASES} names no {ALPINE_NETBOOT_FLAVOUR} with a sha256"
+        f"{index} names no {ALPINE_NETBOOT_FLAVOUR} with a sha256"
     )
 
 
