@@ -1178,3 +1178,22 @@ def test_the_kernel_is_unpacked_without_the_ownership_it_was_stored_with() -> No
     for argv in unpacked:
         assert "--no-same-owner" in argv, argv
         assert "--no-same-permissions" in argv, argv
+
+
+def test_the_payload_copy_restores_no_ownership_either() -> None:
+    """The tree goes onto the esp beside the kernel, and vfat has no owners:
+    the copy ended `tar: gentoo_install/cli.py: Cannot change ownership to uid
+    1000, gid 1000: Operation not permitted` with the payload half written."""
+    recorder = _answering()
+    netboot.AppendConfiguration(
+        target=_target(),
+        launch=_launch(),
+        configuration="x",
+        source="/mnt/driver",
+    ).apply(recorder)
+
+    piped = [one for one in recorder.commands if any("tar --create" in a for a in one)]
+    assert len(piped) == 1, recorder.commands
+    line = " ".join(piped[0])
+    assert "--no-same-owner" in line, line
+    assert "--no-same-permissions" in line, line
