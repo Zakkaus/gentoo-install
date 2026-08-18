@@ -38,6 +38,7 @@ from enum import Enum
 from pathlib import Path
 from collections import Counter
 from collections.abc import Callable, Mapping
+from types import MappingProxyType
 from contextlib import contextmanager
 from typing import Final, Iterator, Protocol, TypeVar, cast, Sequence
 
@@ -61,7 +62,7 @@ from gentoo_install.model.config import MirrorRegion, Sync
 from gentoo_install.model import mirrors
 from gentoo_install.exec.config import load
 from gentoo_install.model.serialise import to_toml
-from gentoo_install.plan.portage import KEY_SERVER
+from gentoo_install.plan.portage import BINARY_PACKAGES, KEY_SERVER
 
 from .console import (
     DISK_PASSPHRASE,
@@ -1716,6 +1717,17 @@ def install_one(
                 phase=phase,
                 revision=revision,
             )
+        missing = _degradation_missing(job.name, files) if code == b"0" else ""
+        if missing:
+            return Outcome(
+                job.name,
+                Verdict.FAIL,
+                time.monotonic() - started,
+                missing,
+                log,
+                phase=phase,
+                revision=revision,
+            )
         if code != b"0":
             outcome = Outcome(
                 job.name,
@@ -2179,6 +2191,33 @@ EXPECTED_TO_FAIL: Final[frozenset[str]] = frozenset({"vm-proxy-dead"})
 #: compiles from source. Rewritten to a working site it installed from a
 #: binhost in 42 minutes and proved nothing.
 KEEPS_ITS_SITE: Final[frozenset[str]] = frozenset({"vm-binhost-fallback"})
+
+#: Fixtures whose whole point is that the install gives something up and
+#: carries on, mapped to what `install.jsonl` must record it giving up. Without
+#: this the fixture is green when the install merely finished, which it does
+#: whether or not the host it names ever failed.
+MUST_DEGRADE: Final[Mapping[str, str]] = MappingProxyType(
+    {"vm-binhost-fallback": BINARY_PACKAGES}
+)
+
+
+def _degradation_missing(name: str, files: Mapping[str, bytes]) -> str:
+    """Empty when the journal records what this fixture had to give up."""
+    wanted = MUST_DEGRADE.get(name)
+    if wanted is None:
+        return ""
+    journal = files.get("install.jsonl")
+    if journal is None:
+        return f"{name} has to degrade {wanted!r} and the guest handed back no journal"
+    for line in journal.splitlines():
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            # A run killed mid-write leaves a partial last line.
+            continue
+        if entry.get("event") == "degraded" and entry.get("what") == wanted:
+            return ""
+    return f"{name} finished without degrading {wanted!r}, which is what it exists to measure"
 
 #: Nodes that take no guests until `--allow-node` names them. Empty because
 #: `infra-node3`, which 66 of the 70 recorded console-proxy drops named, took
