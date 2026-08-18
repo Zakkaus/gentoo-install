@@ -53,9 +53,31 @@ EFI_WIDTH: Final[Path] = EFI_MARKER / "fw_platform_size"
 EFI_VARIABLES: Final[Path] = EFI_MARKER / "efivars"
 
 
-#: udev's own socket. Present exactly while udevd is running, so its absence
-#: is what tells a machine managed by mdev apart from one managed by udev.
-UDEV_CONTROL: Final[Path] = Path("/run/udev/control")
+#: What a udev daemon calls itself. `/run/udev/control` was the first test and
+#: it was wrong: the Alpine netboot root has that socket from the `eudev`
+#: package `--install-missing` brings in for `udevadm`, and no daemon behind
+#: it, so the scan below never ran and the install stopped anyway.
+UDEV_NAMES: Final[tuple[str, ...]] = ("udevd", "systemd-udevd")
+
+PROC: Final[Path] = Path("/proc")
+
+
+def _udev_is_running() -> bool:
+    """Whether a udev daemon is on this machine, read from `/proc`."""
+    try:
+        entries = list(PROC.iterdir())
+    except OSError:
+        return True
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        try:
+            name = (entry / "comm").read_text().strip()
+        except OSError:
+            continue
+        if name in UDEV_NAMES:
+            return True
+    return False
 
 
 #: Where a BIOS GRUB keeps its configuration. Both spellings, because Fedora
@@ -659,7 +681,7 @@ class Probe:
             if Path(path).exists():
                 return path
             self.runner.run(["udevadm", "settle"], check=False)
-            if not UDEV_CONTROL.exists():
+            if not _udev_is_running():
                 self.runner.run(["mdev", "-s"], check=False)
             time.sleep(0.5)
         raise DeviceNotFound(f"{path} did not appear within {seconds:.0f}s")
