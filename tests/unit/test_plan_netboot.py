@@ -12,7 +12,7 @@ from typing import Final, Sequence
 import pytest
 
 from gentoo_install.errors import DownloadFailed, PreflightFailed
-from gentoo_install.model.config import BootMethod, MemoryLaunch, MemoryMode
+from gentoo_install.model.config import BootMethod, MemoryLaunch, MemoryMode, MirrorRegion
 from gentoo_install.plan import netboot
 from gentoo_install.plan.operations import CommandOutput, Operation, Stage
 
@@ -244,6 +244,66 @@ def test_the_alpine_bundle_is_read_out_of_the_published_index() -> None:
     assert fetched[0][-1].endswith("alpine-netboot-3.24.1-x86_64.tar.gz"), fetched
 
 
+@pytest.mark.parametrize(
+    ("region", "base"),
+    (
+        (MirrorRegion.CN, "https://mirrors.ustc.edu.cn/alpine"),
+        (MirrorRegion.GLOBAL, "https://dl-cdn.alpinelinux.org/alpine"),
+    ),
+)
+def test_lowram_takes_every_alpine_url_from_the_configured_region(
+    region: MirrorRegion, base: str
+) -> None:
+    """`dl-cdn.alpinelinux.org` is where this installer's own operators cannot
+    reach, and the configuration already carries the region every other mirror
+    follows. Three URLs read it: the release index, the archive beside it and
+    the `alpine_repo=` and `modloop=` the entry carries."""
+    assert set(netboot.ALPINE_MIRRORS) == set(MirrorRegion)
+
+    recorder = _answering(
+        MemoryMode.LOWRAM,
+        digest="9a7769ea8fa1737b1b49d82f1bdd53d0a17338d6d3b7cfc6f2c3ec5158596d8b",
+    )
+    operations = netboot.build(
+        launch=_launch(MemoryMode.LOWRAM), target=_target(), region=region
+    )
+    fetch = next(one for one in operations if isinstance(one, netboot.FetchMemoryImage))
+    entry = next(one for one in operations if isinstance(one, netboot.WriteMemoryEntry))
+    assert fetch.region is region
+    assert entry.region is region
+
+    fetch.apply(recorder)
+    entry.apply(recorder)
+
+    requested = _run(recorder, "curl")
+    assert requested[0][-1] == (
+        f"{base}/latest-stable/releases/{MACHINE}/latest-releases.yaml"
+    ), requested
+    downloaded = next(one for one in requested if "--output" in one)
+    assert downloaded[-1] == (
+        f"{base}/latest-stable/releases/{MACHINE}/{ALPINE_ARCHIVE}"
+    ), downloaded
+    written = recorder.files[PurePosixPath(f"{ESP}/loader/entries/{netboot.PLACE}.conf")]
+    assert f"alpine_repo={base}/latest-stable/main" in written, written
+    assert (
+        f"modloop={base}/latest-stable/releases/{MACHINE}/netboot-3.24.1/modloop-lts"
+        in written
+    ), written
+
+
+def test_the_arming_hands_the_plan_the_region_the_operator_chose() -> None:
+    """The plan cannot read a configuration: `cli.py` holds the model and the
+    region reaches `build()` from there, or every machine fetches Alpine from
+    the global mirror whatever its Mirrors screen said."""
+    import inspect
+
+    from gentoo_install import cli
+
+    source = inspect.getsource(cli._arm_memory_environment)
+    called = source.split("netboot.build(")[1].split("\n    )")[0]
+    assert "region=config.portage.mirrors.region" in called, called
+
+
 def test_the_ram_cmdline_adds_dodhcp_and_finds_the_iso_by_its_own_scanner() -> None:
     """The ISO ships `nodhcp`, so a copied line comes up with no network and
     cannot fetch a stage3. GRUB's `loopback` is visible only inside GRUB, so
@@ -331,7 +391,10 @@ def test_the_lowram_cmdline_names_the_repository_alpine_fetches_modloop_from() -
     ).apply(recorder)
 
     entry = recorder.files[PurePosixPath(f"{ESP}/loader/entries/{netboot.PLACE}.conf")]
-    assert f"alpine_repo={netboot.ALPINE_REPOSITORY}" in entry, entry
+    assert (
+        f"alpine_repo={netboot.ALPINE_REPOSITORY.format(base=netboot.ALPINE_MIRRORS[MirrorRegion.GLOBAL])}"
+        in entry
+    ), entry
     assert "modloop=" in entry and "ip=dhcp" in entry, entry
     assert f"apkovl=/{netboot.APKOVL}" in entry, entry
 
@@ -903,9 +966,9 @@ def test_the_alpine_index_is_asked_for_this_machine() -> None:
     the kernel does; `x86_64` and `aarch64` both answer with a netboot flavour
     and a sha256, checked on 2026-08-18."""
     for machine in ("x86_64", "aarch64"):
-        assert netboot.ALPINE_RELEASES.format(machine).endswith(
-            f"releases/{machine}/latest-releases.yaml"
-        ), machine
+        assert netboot.ALPINE_RELEASES.format(
+            base=netboot.ALPINE_MIRRORS[MirrorRegion.GLOBAL], architecture=machine
+        ).endswith(f"releases/{machine}/latest-releases.yaml"), machine
 
 
 def test_the_iso_is_chosen_by_the_name_the_release_publishes() -> None:
@@ -945,10 +1008,11 @@ def test_no_address_carries_an_architecture_of_its_own() -> None:
     """The one place a machine's name is written is the table. A copy inside
     an address is what has to be found and changed the day arm is tested, and
     the one that is missed sends that machine to another machine's image."""
-    assert "{}" in netboot.ALPINE_RELEASES, netboot.ALPINE_RELEASES
+    assert "{architecture}" in netboot.ALPINE_RELEASES, netboot.ALPINE_RELEASES
     for address in (
         netboot.ALPINE_RELEASES,
         netboot.ALPINE_REPOSITORY,
+        netboot.ALPINE_MODLOOP,
         netboot.CJK_RELEASES,
     ):
         for named in ("x86_64", "amd64", "aarch64", "arm64", "i686", "x86"):
@@ -1200,7 +1264,7 @@ def test_the_lowram_archive_is_deleted_after_the_entry_has_read_its_name() -> No
     with `/gentoo-install-ram holds 0 files ending .tar.gz`: the entry composes
     that URL from this file's name."""
     operations = netboot.build(
-        launch=_launch(MemoryMode.LOWRAM), target=_target(), configuration="x"
+        launch=_launch(MemoryMode.LOWRAM), target=_target(), configuration="x = 1\n"
     )
     kinds = [type(one).__name__ for one in operations]
 
@@ -1216,7 +1280,7 @@ def test_the_lowram_archive_is_deleted_after_the_entry_has_read_its_name() -> No
 def test_the_ram_iso_is_never_discarded() -> None:
     """`iso-scan/filename` names it, so the machine reads it at boot."""
     operations = netboot.build(
-        launch=_launch(MemoryMode.RAM), target=_target(), configuration="x"
+        launch=_launch(MemoryMode.RAM), target=_target(), configuration="x = 1\n"
     )
 
     assert "DiscardTheArchive" not in [type(one).__name__ for one in operations]
