@@ -807,6 +807,37 @@ def _custom(recorder: Recorder) -> str:
     return recorder.files[PurePosixPath("/boot/grub/custom.cfg")]
 
 
+def test_bypass_chooses_the_entry_in_the_file_grub_reads_last() -> None:
+    """Measured on 2026-08-19: `--bypass` wrote `saved_entry=gentoo-install
+    memory environment` into `grubenv` and the machine rebooted into
+    ``Booting `Debian GNU/Linux'``. `grub-set-default` writes a variable a
+    configuration that says `GRUB_DEFAULT=0` never reads, and `custom.cfg` is
+    sourced at the end of `grub.cfg`, after its own `set default`."""
+    for method in (BootMethod.BIOS_GRUB, BootMethod.UEFI_GRUB):
+        recorder = _answering()
+        target = _target(method)
+        netboot.WriteMemoryEntry(
+            mode=MemoryMode.RAM, target=target, launch=_launch(), bypass=True
+        ).apply(recorder)
+
+        custom = _custom(recorder)
+        chooses = f"set default='{netboot.ENTRY_LABEL}'"
+        assert chooses in custom, custom
+        # Before the entry and inside the markers, so taking the arming back
+        # removes the choice with it.
+        assert custom.index(netboot.CUSTOM_BEGIN) < custom.index(chooses), custom
+        assert custom.index(chooses) < custom.index("menuentry"), custom
+
+        without = _answering()
+        netboot.WriteMemoryEntry(
+            mode=MemoryMode.RAM, target=_target(method), launch=_launch()
+        ).apply(without)
+
+        # The one-shot leaves the default alone, which is the whole of its own
+        # promise: `set default` there would arm every boot.
+        assert "set default" not in _custom(without), _custom(without)
+
+
 def test_an_entry_whose_files_are_gone_rereads_the_machines_own_menu() -> None:
     """Measured on 2026-08-19: with the initramfs removed, GRUB answered
 
