@@ -690,7 +690,7 @@ def test_the_live_system_asks_before_it_erases_anything() -> None:
         PurePosixPath(f"{ESP}/{netboot.PLACE}/payload{netboot.PAYLOAD}/start.sh")
     ]
     assert "read answer" in start, start
-    assert "install)" in start and "bootstrap.sh --config" in start, start
+    assert "install)" in start and "bootstrap.sh --no-shell --config" in start, start
     # No timeout anywhere: `read -t` and `sleep` are both ways to answer for
     # the operator, and the answer they would give erases a disk.
     assert "read -t" not in start and "sleep" not in start, start
@@ -1368,3 +1368,72 @@ def test_the_initramfs_is_padded_before_the_segment_is_appended() -> None:
     assert len(appending) == 1, shell
     assert shell.index(padding[0]) < shell.index(appending[0]), shell
     assert "% 4" in padding[0], padding[0]
+
+
+def _only_these_tools(tmp_path: Path, *names: str) -> Path:
+    """A PATH holding these commands and nothing else, so `command -v` is real."""
+    import shutil
+
+    tools = tmp_path / "tools"
+    tools.mkdir(exist_ok=True)
+    for name in names:
+        found = shutil.which(name)
+        assert found, name
+        target = tools / name
+        if not target.exists():
+            target.symlink_to(found)
+    return tools
+
+
+def _fake_apk(tmp_path: Path) -> Path:
+    """An `apk` that reports its arguments and leaves a `python3` behind."""
+    fake = tmp_path / "apk-bin"
+    fake.mkdir(exist_ok=True)
+    apk = fake / "apk"
+    apk.write_text(
+        "#!/bin/sh\n"
+        "printf 'APK %s\\n' \"$*\"\n"
+        f"printf '#!/bin/sh\\nexit 0\\n' > {fake}/python3\n"
+        f"chmod 755 {fake}/python3\n",
+        encoding="utf-8",
+    )
+    apk.chmod(0o755)
+    return fake
+
+
+def _first_screen_with_path(where: Path, answer: str, path: str) -> str:
+    import subprocess
+
+    return subprocess.run(
+        ["sh", "-c", f". {where}/start.sh; echo LOGIN-SHELL-ALIVE"],
+        input=f"{answer}\n",
+        capture_output=True,
+        text=True,
+        check=False,
+        env={"PATH": path},
+    ).stdout
+
+
+def test_the_first_screen_installs_an_interpreter_where_there_is_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Alpine's netboot root has `apk` and no Python, so the first `--lowram`
+    install answered `install` and stopped at `this installer needs python
+    3.11 or newer; found: none`. The environment installs one itself, and a
+    machine that already has one is not sent to a package manager."""
+    where = _payload_at(tmp_path, monkeypatch)
+    tools = _only_these_tools(tmp_path, "sh", "chmod")
+    fake = _fake_apk(tmp_path)
+
+    said = _first_screen_with_path(where, "install", f"{fake}:{tools}")
+
+    assert "APK add --update-cache --quiet python3" in said, said
+    assert "BOOTSTRAP" in said, said
+
+    # The other direction: an environment that has an interpreter installs
+    # nothing, so a `--ram` medium is not sent to a package manager it lacks.
+    already = _only_these_tools(tmp_path, "sh", "chmod", "python3")
+    again = _first_screen_with_path(where, "install", f"{fake}:{already}")
+
+    assert "APK" not in again, again
+    assert "BOOTSTRAP" in again, again
