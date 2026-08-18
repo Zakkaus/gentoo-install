@@ -847,3 +847,82 @@ def test_a_configured_exit_code_is_not_rebuilt_as_success() -> None:
 
     assert recorder.run_in_target(["emerge", "--pretend"]).returncode == 1
     assert recorder.run(["emerge", "--pretend"]).returncode == 1
+
+
+def test_a_filesystem_that_is_kept_is_verified_and_not_formatted() -> None:
+    """`create = false` is how an operator keeps a filesystem the install is
+    to reuse. No fixture sets it, so nothing built `VerifyFilesystem` and
+    nothing held the branch that decides between reusing and destroying."""
+    from dataclasses import replace as _replace
+
+    from gentoo_install.model.device import DeviceGraph, Filesystem
+    from gentoo_install.plan.disk import MakeFilesystem, VerifyFilesystem
+
+    from .layouts import config, ext4_on_gpt, i
+
+    nodes = ext4_on_gpt()
+    kept = [
+        _replace(one, create=False) if isinstance(one, Filesystem) and one.id == i("rootfs") else one
+        for one in nodes
+    ]
+    before = plan_disk.build(config(nodes))
+    after = plan_disk.build(
+        _replace(config(nodes), disk=_replace(config(nodes).disk, graph=DeviceGraph.build(kept)))
+    )
+
+    made = {one.filesystem for one in before if isinstance(one, MakeFilesystem)}
+    assert i("rootfs") in made, "the ordinary layout formats it"
+    verified = {one.filesystem for one in after if isinstance(one, VerifyFilesystem)}
+    assert verified == {i("rootfs")}, verified
+    assert i("rootfs") not in {
+        one.filesystem for one in after if isinstance(one, MakeFilesystem)
+    }, "a kept filesystem must never reach mkfs"
+
+
+def test_the_first_boot_script_is_written_only_when_one_was_asked_for() -> None:
+    """`WriteFirstBoot` runs commands as root on the machine's first boot and
+    no fixture asks for one, so nothing built it."""
+    from dataclasses import replace as _replace
+
+    from gentoo_install.model.config import FirstBoot
+    from gentoo_install.plan.system import WriteFirstBoot, build as build_system
+
+    from .layouts import config
+
+    plain = config()
+    assert not plain.system.first_boot.wanted, "the default asks for nothing"
+    assert not [one for one in build_system(plain) if isinstance(one, WriteFirstBoot)]
+
+    asked = _replace(
+        plain,
+        system=_replace(plain.system, first_boot=FirstBoot(commands=("emerge --sync",))),
+    )
+    written = [one for one in build_system(asked) if isinstance(one, WriteFirstBoot)]
+    assert len(written) == 1, written
+    assert written[0].commands == ("emerge --sync",)
+
+
+def test_the_iwd_backend_asks_for_the_use_flag_that_selects_it() -> None:
+    """`networkmanager` builds against wpa_supplicant unless `iwd` is set, so
+    the flag is what makes the chosen backend the one installed. Only one of
+    the four backends carries a USE line and no fixture picks it."""
+    from dataclasses import replace as _replace
+
+    from gentoo_install.model.config import Networking
+    from gentoo_install.plan.system import NETWORK_BACKENDS, RequestNetworkUse, build as build_system
+
+    from .layouts import config
+
+    carrying = {name for name, backend in NETWORK_BACKENDS.items() if backend.use}
+    assert carrying == {Networking.NETWORKMANAGER_IWD}, carrying
+
+    plain = config()
+    for backend in NETWORK_BACKENDS:
+        chosen = _replace(plain, system=_replace(plain.system, networking=backend))
+        asked = [
+            one for one in build_system(chosen) if isinstance(one, RequestNetworkUse)
+        ]
+        if backend in carrying:
+            assert [one.lines for one in asked] == [NETWORK_BACKENDS[backend].use], backend
+        else:
+            assert not asked, backend
