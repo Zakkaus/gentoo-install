@@ -1343,3 +1343,28 @@ def test_the_arming_declares_the_commands_it_runs() -> None:
     assert "tar" in wanted(lowram), sorted(wanted(lowram))
     for both in ("curl", "sha256sum"):
         assert both in wanted(ram) and both in wanted(lowram), both
+
+
+def test_the_initramfs_is_padded_before_the_segment_is_appended() -> None:
+    """The kernel reads a concatenated initramfs segment only from a four-byte
+    boundary. Measured on this workstation: Alpine's `initramfs-lts` is
+    27951899 bytes, 3 mod 4, and a guest booted with the segment appended to
+    it reached `localhost login:` with no `Loading user settings from` line;
+    one zero byte in front of the same segment answered `Loading user settings
+    from /gentoo-install.apkovl.tar.gz: ok.`"""
+    recorder = _answering(MemoryMode.LOWRAM)
+    netboot.AppendConfiguration(
+        target=_target(),
+        launch=_launch(MemoryMode.LOWRAM),
+        configuration="x",
+        source="/mnt/driver",
+    ).apply(recorder)
+
+    shell = [one[-1] for one in recorder.commands if one[0] == "sh"]
+    padding = [one for one in shell if "dd if=/dev/zero" in one]
+    appending = [one for one in shell if "cpio --create" in one]
+
+    assert len(padding) == 1, shell
+    assert len(appending) == 1, shell
+    assert shell.index(padding[0]) < shell.index(appending[0]), shell
+    assert "% 4" in padding[0], padding[0]
