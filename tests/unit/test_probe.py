@@ -729,6 +729,18 @@ def test_a_machine_with_no_such_variable_answers_unread(
     assert probe.secure_boot() is None
 
 
+def _fake_proc(tmp_path: Path, *names: str) -> Path:
+    """A `/proc` holding one process per name, and one entry that is not one."""
+    proc = tmp_path / "proc"
+    proc.mkdir(exist_ok=True)
+    (proc / "self").mkdir(exist_ok=True)
+    for number, name in enumerate(names, start=100):
+        entry = proc / str(number)
+        entry.mkdir(exist_ok=True)
+        (entry / "comm").write_text(f"{name}\n")
+    return proc
+
+
 class Asking(Runner):
     """A runner that records what was asked and answers nothing."""
 
@@ -748,7 +760,7 @@ def test_a_node_is_scanned_for_where_mdev_is_the_device_manager(
     with no daemon behind it. The `--lowram` install stopped at `/dev/vdc2 did
     not appear within 15s` on a machine whose `/proc/partitions` held `vdc1`
     and `vdc2` and whose `/dev` held neither."""
-    monkeypatch.setattr(probe, "UDEV_CONTROL", tmp_path / "no-udev-here")
+    monkeypatch.setattr(probe, "PROC", _fake_proc(tmp_path, "busybox"))
     asking = Asking()
     reader = Probe(runner=asking, work=tmp_path)
 
@@ -764,9 +776,7 @@ def test_a_machine_running_udev_is_not_sent_to_mdev(
 ) -> None:
     """The other direction: `mdev -s` on a udev machine rebuilds `/dev` from
     mdev's own rules while udevd is writing it."""
-    control = tmp_path / "udev-control"
-    control.write_text("")
-    monkeypatch.setattr(probe, "UDEV_CONTROL", control)
+    monkeypatch.setattr(probe, "PROC", _fake_proc(tmp_path, "udevd"))
     asking = Asking()
     reader = Probe(runner=asking, work=tmp_path)
 
