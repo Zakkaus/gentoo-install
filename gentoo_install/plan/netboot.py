@@ -203,6 +203,49 @@ class RefuseTooLittleMemory(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
+class ClearPreviousArming(Operation):
+    """Take back whatever an earlier run armed, before this one writes.
+
+    A second run that stops at the download or the unpack otherwise leaves the
+    first one's arming in place, and the next reboot — months later, for
+    another reason — enters a memory environment carrying a configuration
+    nobody meant to install any more. `reinstall` clears its own state before
+    it fetches for the same reason (`reinstall.sh:4485-4547`, called at 5016).
+
+    The placed directory goes too: a stale image beside the new one makes the
+    one this plan looks for ambiguous.
+    """
+
+    stage: Stage = Stage.PREFLIGHT
+    target: BootTarget
+
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "take back anything an earlier run armed", ()
+
+    def apply(self, context: Context) -> None:
+        _disarm(context, self.target)
+        context.run(["rm", "--recursive", "--force", str(self.target.place)], check=False)
+
+
+def _disarm(context: Context, target: BootTarget) -> None:
+    """Clear the one-shot this module sets, whichever way it was set.
+
+    `bootctl set-oneshot ""` and not a named entry: `bootctl(1)` says an empty
+    ID unsets the variable, while any other value is another entry to boot
+    next. This asked for `auto-reboot-to-firmware-setup`, which is not a
+    disarm — it is a machine that reboots into its firmware setup instead.
+    """
+    if target.method is BootMethod.SYSTEMD_BOOT:
+        context.run(["bootctl", "set-oneshot", ""], check=False)
+        return
+    if target.grub_directory is not None:
+        context.run(
+            ["grub-editenv", f"{target.grub_directory}/grubenv", "unset", "next_entry"],
+            check=False,
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
 class FetchMemoryImage(Operation):
     """Download the image and check it against the checksum its publisher gives.
 
@@ -547,13 +590,7 @@ class DisarmMemoryBoot(Operation):
         return "take back the armed boot and delete what it placed", ()
 
     def apply(self, context: Context) -> None:
-        if self.target.method is BootMethod.SYSTEMD_BOOT:
-            context.run(["bootctl", "set-oneshot", "auto-reboot-to-firmware-setup"], check=False)
-        elif self.target.grub_directory is not None:
-            context.run(
-                ["grub-editenv", f"{self.target.grub_directory}/grubenv", "unset", "next_entry"],
-                check=False,
-            )
+        _disarm(context, self.target)
         context.run(["rm", "--recursive", "--force", str(self.target.place)], check=False)
 
 
@@ -579,6 +616,9 @@ def build(
     operations: list[Operation] = [
         RefuseWithoutABootMethod(target=target),
         RefuseTooLittleMemory(mode=launch.mode),
+        # After the refusals and before the fetch: a machine this refuses is
+        # one whose earlier arming is not this run's to take back.
+        ClearPreviousArming(target=target),
         FetchMemoryImage(mode=launch.mode, target=target),
         PlaceMemoryKernel(mode=launch.mode, target=target),
     ]
