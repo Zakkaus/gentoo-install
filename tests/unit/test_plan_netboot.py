@@ -1425,11 +1425,15 @@ def test_the_first_screen_mounts_the_firmware_variables(
     install was refused by the preflight with `the firmware variables are not
     readable` on a machine whose own boot entry lives in them. A machine with
     no such directory is not sent to `mount` at all."""
-    efivars = tmp_path / "efivars"
-    efivars.mkdir()
-    monkeypatch.setattr(netboot, "EFIVARS", str(efivars))
+    firmware = tmp_path / "firmware"
+    firmware.mkdir()
+    listed = tmp_path / "mounts"
+    listed.write_text("proc /proc proc rw 0 0\n", encoding="utf-8")
+    monkeypatch.setattr(netboot, "FIRMWARE", str(firmware))
+    monkeypatch.setattr(netboot, "EFIVARS", str(firmware / "efivars"))
+    monkeypatch.setattr(netboot, "MOUNTS", str(listed))
     where = _payload_at(tmp_path, monkeypatch)
-    tools = _only_these_tools(tmp_path, "sh", "chmod", "python3")
+    tools = _only_these_tools(tmp_path, "sh", "chmod", "python3", "mkdir", "grep")
     mounts = tmp_path / "mount-bin"
     mounts.mkdir()
     (mounts / "mount").write_text(
@@ -1439,9 +1443,23 @@ def test_the_first_screen_mounts_the_firmware_variables(
 
     said = _first_screen_with_path(where, "install", f"{mounts}:{tools}")
 
-    assert f"MOUNT -t efivarfs efivarfs {efivars}" in said, said
+    assert f"MOUNT -t efivarfs efivarfs {firmware / 'efivars'}" in said, said
+    # The mount point is made rather than assumed: the refusal came back on a
+    # machine that had the firmware directory and not the one under it.
+    assert (firmware / "efivars").is_dir()
 
-    monkeypatch.setattr(netboot, "EFIVARS", str(tmp_path / "no-firmware-here"))
+    # Already mounted: nothing is attempted, so the console does not carry a
+    # failure that means nothing.
+    listed.write_text(
+        f"efivarfs {firmware / 'efivars'} efivarfs rw 0 0\n", encoding="utf-8"
+    )
+    again = _first_screen_with_path(where, "install", f"{mounts}:{tools}")
+
+    assert "MOUNT" not in again, again
+
+    # And a machine with no firmware directory at all is not sent to `mount`.
+    listed.write_text("proc /proc proc rw 0 0\n", encoding="utf-8")
+    monkeypatch.setattr(netboot, "FIRMWARE", str(tmp_path / "no-firmware-here"))
     elsewhere = tmp_path / "bios"
     elsewhere.mkdir()
     absent = _payload_at(elsewhere, monkeypatch)
