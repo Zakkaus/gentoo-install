@@ -2212,3 +2212,50 @@ def test_a_command_answer_carries_no_carriage_returns() -> None:
 
     assert b"\r" not in said, said
     assert re.search(rb"(?m)^XMODIFIERS=@im=fcitx$", said), said
+
+
+def test_the_passphrase_prompt_gets_a_growing_settle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ZFSBootMenu answered `Key load error: Incorrect key provided for
+    'zpcala'` twice and dropped `zbm-unlock` into its emergency shell after an
+    install that had finished. The passphrase prompt turns the echo off with
+    `TCSAFLUSH`, which discards what was typed before it — the same race the
+    installed system's login lost, and the same answer: wait longer each time
+    rather than repeat the wait that just failed."""
+    import inspect
+
+    waited: list[float] = []
+    monkeypatch.setattr(time, "sleep", lambda seconds: waited.append(seconds))
+
+    class Asking:
+        console = _Screen(b"")
+
+        def __init__(self) -> None:
+            self.said: list[str] = []
+
+        def observe(self, pattern: str, timeout: float, *, solicit: bool = False) -> bytes:
+            return b"Enter passphrase for 'zpcala': "
+
+        def respond(self, line: str) -> None:
+            self.said.append(line)
+
+    link = Asking()
+    from gentoo_install.exec.config import load
+
+    installation = load(FIXTURES / "zbm-unlock.toml")
+    result = cluster._unlock(cast(Any, _Keyboard()), cast(Any, link), installation)
+
+    assert result.refused, result
+    from tests.vm.console import DISK_PASSPHRASE
+
+    assert link.said == [DISK_PASSPHRASE] * cluster.UNLOCK_TRIES, link.said
+    # Growing, not repeated: the second answer waits longer than the first.
+    assert len(waited) >= cluster.UNLOCK_TRIES, waited
+    typed = waited[-cluster.UNLOCK_TRIES:]
+    assert typed == sorted(typed) and typed[-1] > typed[0], waited
+
+
+class _Keyboard:
+    def send_keys(self, keys: list[str]) -> None:
+        return None

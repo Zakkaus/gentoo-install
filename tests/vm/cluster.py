@@ -2834,6 +2834,7 @@ def _unlock(
     if installation.bootloader.firmware is BootFirmware.BIOS:
         time.sleep(GRUB_PROMPT_SECONDS)
         guest.send_keys([*keys_for(DISK_PASSPHRASE), "ret"])
+    settle = PASSWORD_ECHO_OFF_AFTER
     for _ in range(UNLOCK_TRIES):
         try:
             said = link.observe(
@@ -2847,6 +2848,12 @@ def _unlock(
             )
         if any(one.encode() in said for one in LOGIN_PROMPTS):
             return UnlockResult(InstalledBootState.LOGIN_READY)
+        # The same race the installed system's login lost: the prompt turns
+        # the echo off with `TCSAFLUSH`, which discards whatever was typed
+        # before it. `zbm-unlock` answered twice and ZFSBootMenu said `Key
+        # load error: Incorrect key provided` both times.
+        time.sleep(settle)
+        settle += PASSWORD_ECHO_BACKOFF
         try:
             link.respond(DISK_PASSPHRASE)
         except ConsoleClosed as error:
