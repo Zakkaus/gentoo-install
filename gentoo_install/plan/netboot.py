@@ -591,11 +591,17 @@ class WriteMemoryEntry(Operation):
                 f"iso-scan/filename={_relative_to_mount(self.target, image)}",
                 *_inherited_consoles(context),
             ]
+            if self.launch.ssh_key or self.launch.root_password:
+                # `/etc/init.d/autoconfig:146,242` schedules sshd for `dosshd`
+                # and for nothing else, and the medium's default runlevel has
+                # no sshd in it. A key copied to `/root/.ssh` by the initramfs
+                # hook reaches a machine with no daemon listening without this.
+                words.append("dosshd")
             if self.launch.root_password:
-                # `dosshd` scrambles the root password, so it is documented as
-                # requiring `passwd=`: without one the machine comes up with
-                # sshd running and no way to authenticate to it.
-                words += ["dosshd", f"passwd={self.launch.root_password}"]
+                # The medium scrambles root's password when it starts sshd
+                # without one (`autoconfig:551-555`), so a password login needs
+                # this and a key login does not.
+                words.append(f"passwd={self.launch.root_password}")
             return tuple(words)
         words = [
             f"alpine_repo={ALPINE_REPOSITORY}",
