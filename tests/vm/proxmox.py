@@ -103,6 +103,10 @@ class ProxmoxNotFound(ProxmoxError):
     """The requested cluster object no longer exists."""
 
 
+class ForeignGuest(ProxmoxError):
+    """That VMID holds a guest this run did not build, so it is not ours to remove."""
+
+
 class ProxmoxTransientError(ProxmoxError):
     """The call failed in a state the caller may retry."""
 
@@ -703,11 +707,11 @@ class Guest:
                 continue
             tags = str(config.get("tags", "")).split(";")
             if TAG not in tags:
-                raise ProxmoxError(
+                raise ForeignGuest(
                     f"vm {self.vmid} on {self.node} is not tagged {TAG!r}; refusing to remove it"
                 )
             if not self.spec.nonce or self.spec.nonce not in tags:
-                raise ProxmoxError(
+                raise ForeignGuest(
                     f"vm {self.vmid} on {self.node} is not the guest this run built; "
                     "refusing to remove it"
                 )

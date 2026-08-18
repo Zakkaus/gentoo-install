@@ -1155,6 +1155,44 @@ def test_reconcile_removes_only_an_expired_locally_leased_guest(
     assert not any(vmid == 9301 for vmid in api.deleted)
 
 
+def test_a_vmid_a_live_campaign_reused_leaves_the_lease_behind_and_nothing_else(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One schedule died holding 9301; a second one started, was given that
+    VMID, and the third one refused to remove a guest whose nonce is not its
+    own — correctly, and then ended its own run with that exception. A lease
+    naming a guest somebody else now holds is a stale lease."""
+    from typing import Any
+
+    from tests.vm import cluster
+    from tests.vm.proxmox import Api, TAG
+
+    stale = cluster.Lease("node", 9301, "gi-dead-campaign", 10)
+    stale_path = cluster._write_lease(tmp_path, stale)
+
+    class Reused(Api):
+        def __init__(self) -> None:
+            self.deleted: list[int] = []
+
+        def ours(self) -> list[tuple[str, int]]:
+            return [("node", 9301)]
+
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            if path.endswith("/config"):
+                return {"tags": f"{TAG};gi-the-live-campaign"}
+            if method == "DELETE":
+                self.deleted.append(9301)
+                return "UPID:node:delete"
+            raise AssertionError((method, path))
+
+    api = Reused()
+    monkeypatch.setattr(cluster, "_pid_alive", lambda pid: False)
+    cluster.reconcile(api, tmp_path)
+
+    assert api.deleted == [], api.deleted
+    assert not stale_path.exists()
+
+
 def test_workdirs_are_confined_before_any_vm_artifact_is_written(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

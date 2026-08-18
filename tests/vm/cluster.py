@@ -80,6 +80,7 @@ from .monitor import keys_for
 from .proxmox import (
     Api,
     CreateConflict,
+    ForeignGuest,
     Guest,
     GuestSpec,
     GrubNotReadable,
@@ -1258,7 +1259,12 @@ def reconcile(api: Api, workdir: Path) -> None:
             lease.vmid,
             GuestSpec(name="expired-lease", iso="", nonce=lease.nonce),
         )
-        guest.destroy()
+        try:
+            guest.destroy()
+        except ForeignGuest:
+            # A second campaign reused that VMID after this lease's process
+            # died, so the lease is stale and the guest belongs to that run.
+            pass
         path.unlink()
 
 
