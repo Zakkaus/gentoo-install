@@ -2586,3 +2586,37 @@ def test_preflight_asks_for_every_command_the_plan_will_run() -> None:
         # reason at the head of the table: the operation degrades to
         # `blockdev --rereadpt` without it.
         assert planned - configured - {"partprobe"} == set(), (name, planned - configured)
+
+
+def test_one_reader_flattens_both_of_the_json_trees_the_probe_reads() -> None:
+    """`findmnt --json` nests submounts and `lsblk --json` nests partitions,
+    both under `children`. Two copies of the same walker differed only in the
+    key they start from, so a fix to one would have been a fix to half."""
+    from gentoo_install.exec.probe import _entries
+
+    mounts = {
+        "filesystems": [
+            {"target": "/", "children": [{"target": "/efi"}, {"target": "/home"}]},
+            {"target": "/proc"},
+        ]
+    }
+    blocks = {
+        "blockdevices": [
+            {"name": "vda", "children": [{"name": "vda1"}, {"name": "vda2"}]},
+        ]
+    }
+
+    assert [one["target"] for one in _entries(mounts, "filesystems")] == [
+        "/",
+        "/efi",
+        "/home",
+        "/proc",
+    ]
+    assert [one["name"] for one in _entries(blocks, "blockdevices")] == ["vda", "vda1", "vda2"]
+
+    # The key is what selects the tree, and anything else answers empty rather
+    # than reaching into the wrong one.
+    assert _entries(mounts, "blockdevices") == ()
+    assert _entries(blocks, "filesystems") == ()
+    assert _entries("not a document", "filesystems") == ()
+    assert _entries({"filesystems": "not a list"}, "filesystems") == ()
