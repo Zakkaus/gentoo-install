@@ -243,11 +243,16 @@ def test_a_guest_runs_behind_whoever_is_at_the_keyboard() -> None:
     from tests.vm.qemu import _YIELDING, Firmware, VmSpec, Vm
     from tests.vm.media import MEDIA
 
+    # `boot_installed` keeps the medium's kernel and initramfs out of the
+    # argv, so this gate holds whatever the operator has downloaded: the
+    # release the pin names is rotated off the mirrors within weeks, and both
+    # of these turned red on a machine whose ISO cache had been cleaned.
     spec = VmSpec(
         medium=MEDIA["official-minimal"],
         workdir=Path("/tmp"),
         firmware=Firmware.UEFI,
         ssh_port=2222,
+        boot_installed=True,
     )
     argv = Vm(spec)._argv()
     assert argv[: len(_YIELDING)] == list(_YIELDING)
@@ -502,7 +507,10 @@ def test_the_guest_offers_a_monitor_socket() -> None:
     from tests.vm.media import MEDIA
 
     spec = VmSpec(
-        medium=MEDIA["official-minimal"], workdir=Path("/tmp"), firmware=Firmware.BIOS
+        medium=MEDIA["official-minimal"],
+        workdir=Path("/tmp"),
+        firmware=Firmware.BIOS,
+        boot_installed=True,
     )
     argv = Vm(spec)._argv()
     assert "-monitor" in argv
