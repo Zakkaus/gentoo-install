@@ -195,7 +195,7 @@ def reach_root(console: SerialConsole, chosen: CloudImage) -> None:
 def install_tools(console: SerialConsole, chosen: CloudImage, config: str) -> None:
     """Install what the launcher says is missing, the way an operator would."""
     console.run(FIND_DRIVER, timeout=180.0)
-    said = console.expect_command(
+    said = console.expect_output(
         f"sh /mnt/driver/install.sh --config {config} --missing-commands || true",
         timeout=300.0,
     ).decode("utf-8", "replace")
@@ -249,7 +249,7 @@ def boot_and_check(root: Path, workdir: Path, chosen: CloudImage, config: str) -
         console.expect(r"#|\$", timeout=180.0)
         failed: list[str] = []
         for check in checks(installation):
-            said = console.expect_command(check.command, timeout=180.0)
+            said = console.expect_output(check.command, timeout=180.0)
             text = said.decode("utf-8", "replace")
             if not re.search(check.pattern, text, re.MULTILINE):
                 failed.append(f"{check.name} does not match {check.pattern!r}: {text[-200:]!r}")

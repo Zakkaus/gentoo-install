@@ -77,7 +77,7 @@ def read_the_default_entry(console: SerialConsole) -> bytes:
     than assumed: an arming that quietly became the default is the failure
     `--bypass` exists to make explicit.
     """
-    return console.expect_command(
+    return console.expect_output(
         "grub-editenv list 2>/dev/null; efibootmgr 2>/dev/null | grep -i bootorder "
         "|| echo NO-BOOTORDER",
         timeout=60.0,

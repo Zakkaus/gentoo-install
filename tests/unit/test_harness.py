@@ -3243,3 +3243,57 @@ def test_a_guest_that_never_sees_the_cd_says_so(
     console = _CdAppearsLate(ready_after=10**9)
     with pytest.raises(DriverNotFound, match="driver=1"):
         wait_for_driver(cast(Any, console), patience=0.0)
+
+
+class _EchoingChannel:
+    """A shell as a `Channel`: it echoes the line it was given, then answers.
+
+    Every real shell does this, and it is what the check below exists for.
+    """
+
+    def __init__(self) -> None:
+        self.pending = b""
+        self.sent: list[bytes] = []
+
+    def recv(self, size: int) -> bytes:
+        chunk, self.pending = self.pending[:size], self.pending[size:]
+        return chunk
+
+    def sendall(self, data: bytes) -> None:
+        self.sent.append(data)
+        line = data.decode().strip()
+        token = line.split("' ", 1)[1].split(";", 1)[0]
+        self.pending += (
+            f"{line}\r\nMARK_{token}_BEGIN\r\nRESOLVCONF-EMPTY\r\n"
+            f"MARK_{token}_DONE\r\n"
+        ).encode()
+
+    def close(self) -> None:
+        return None
+
+    @property
+    def closed(self) -> bool:
+        return False
+
+
+def test_a_check_reads_the_output_and_not_the_question(tmp_path: Path) -> None:
+    """`checks()` holds commands that name both answers — `echo RESOLVCONF-OK
+    || echo RESOLVCONF-EMPTY` — and the conversion runner matched the pattern
+    against everything up to the marker, which begins with the shell's echo of
+    the command. Every such check passed on any machine."""
+    from typing import Any, cast
+
+    from tests.vm.console import SerialConsole
+
+    channel = _EchoingChannel()
+    with (tmp_path / "console.log").open("wb") as log:
+        console = SerialConsole(cast(Any, channel), log)
+        command = (
+            "test -s /etc/resolv.conf && echo RESOLVCONF-OK || echo RESOLVCONF-EMPTY"
+        )
+        said = console.expect_output(command, timeout=5.0)
+        whole = console.expect_command(command, timeout=5.0)
+
+    assert b"RESOLVCONF-OK" not in said, said
+    assert b"RESOLVCONF-EMPTY" in said, said
+    assert b"RESOLVCONF-OK" in whole, "the echo is what the old reading carried"
