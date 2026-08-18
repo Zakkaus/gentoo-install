@@ -61,6 +61,29 @@ GRUB_DIRECTORIES: Final[tuple[Path, ...]] = (
 )
 
 
+#: Where the firmware publishes whether it is enforcing a signature chain.
+#: The file is the four attribute bytes and then the value, so the state is
+#: its last byte: read on this workstation it is `6 0 0 0 0`, and
+#: `bootctl status` on the same machine prints `Secure Boot: disabled`.
+SECURE_BOOT: Final[Path] = (
+    EFI_VARIABLES / "SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c"
+)
+
+
+def secure_boot() -> bool | None:
+    """Whether the firmware will refuse an unsigned kernel.
+
+    `None` when it cannot be read, which is a BIOS machine or one whose
+    efivarfs is not mounted. Read from the variable rather than through
+    `bootctl`, which a machine without systemd does not have.
+    """
+    try:
+        said = SECURE_BOOT.read_bytes()
+    except OSError:
+        return None
+    return bool(said[-1]) if said else None
+
+
 def _efi_variables() -> bool:
     """Whether efivarfs is mounted and populated.
 

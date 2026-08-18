@@ -599,3 +599,38 @@ def test_an_unread_boot_layout_is_treated_as_a_separate_partition() -> None:
     """Every layout this installer produces has one, so that is the answer
     when nothing read the machine."""
     assert netboot.BootTarget(method=BootMethod.BIOS_GRUB).grub_prefix == ""
+
+
+def test_a_machine_enforcing_secure_boot_is_refused_before_anything_is_fetched() -> None:
+    """Neither image is signed for this machine's own db, so the firmware
+    rejects the kernel and the armed boot goes nowhere. With `--bypass` that
+    entry is the default, which is a machine that does not boot at all."""
+    refusing = netboot.BootTarget(
+        method=BootMethod.BIOS_GRUB, grub_directory="/boot/grub", secure_boot=True
+    )
+    with pytest.raises(PreflightFailed, match="Secure Boot"):
+        netboot.RefuseWithoutABootMethod(target=refusing).apply(Recorder())
+
+
+def test_secure_boot_off_or_unread_is_not_a_refusal() -> None:
+    """A BIOS machine has no such variable, and refusing on a fact nobody
+    could read is a refusal nobody can act on."""
+    for state in (False, None):
+        netboot.RefuseWithoutABootMethod(
+            target=netboot.BootTarget(
+                method=BootMethod.BIOS_GRUB,
+                grub_directory="/boot/grub",
+                secure_boot=state,
+            )
+        ).apply(Recorder())
+
+
+def test_the_refusal_comes_before_the_fetch_in_the_plan() -> None:
+    """An arming half done is the failure this path must not have, so a
+    machine that cannot boot what would be fetched is refused first."""
+    plan = netboot.build(launch=_launch(), target=_target())
+    refusal = next(
+        n for n, one in enumerate(plan) if isinstance(one, netboot.RefuseWithoutABootMethod)
+    )
+    fetch = next(n for n, one in enumerate(plan) if isinstance(one, netboot.FetchMemoryImage))
+    assert refusal < fetch, [type(one).__name__ for one in plan]

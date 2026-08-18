@@ -25,7 +25,13 @@ from .errors import GentooInstallError
 from .data import load_catalog
 from .exec import fetch, preflight, report
 from .exec.apply import Machine, already_degraded, apply, completed
-from .exec.probe import GRUB_DIRECTORIES, BootMethod, Probe, probe_storage_facts
+from .exec.probe import (
+    GRUB_DIRECTORIES,
+    BootMethod,
+    Probe,
+    probe_storage_facts,
+    secure_boot,
+)
 from .exec.runner import Runner
 from .model.device import StorageFacts, StorageLayout, ZfsPool
 from .model.size import Size
@@ -246,6 +252,7 @@ def _boot_target(probe: Probe) -> netboot.BootTarget:
             (str(one) for one in GRUB_DIRECTORIES if one.is_dir()), None
         ),
         boot_on_the_root_filesystem=layout.boot_same_filesystem,
+        secure_boot=secure_boot(),
     )
 
 
