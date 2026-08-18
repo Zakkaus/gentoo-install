@@ -37,6 +37,7 @@ from gentoo_install.model.device import (
 from gentoo_install.model.size import Size
 from gentoo_install.model.validate import validate
 from gentoo_install.model.templates import Layout
+from gentoo_install.tui import context as tui_context
 from gentoo_install.tui import screens
 from gentoo_install.tui.widgets import Outcome
 
@@ -57,7 +58,7 @@ def one_disk(
     )
 
 
-def to_row(at: screens.Context, label: str) -> list[str]:
+def to_row(at: tui_context.Context, label: str) -> list[str]:
     """The keys that reach the partition-screen row with that label.
 
     Counted rather than written out: the screen grew a line per disk, and every
@@ -67,7 +68,7 @@ def to_row(at: screens.Context, label: str) -> list[str]:
     return ["KEY_DOWN"] * labels.index(label) + ["\n"]
 
 
-def opened() -> screens.Context:
+def opened() -> tui_context.Context:
     at = context()
     at.manual = True
     return at
@@ -988,7 +989,7 @@ def test_the_raid_purpose_is_offered_beside_the_pool_member() -> None:
     assert "raid" in keys and "zfs" in keys
 
 
-def without_zfs() -> screens.Context:
+def without_zfs() -> tui_context.Context:
     at = opened()
     at.zfs_unavailable = "this live system has no zpool"
     return at
@@ -1079,6 +1080,7 @@ def test_the_layout_row_opens_on_what_is_already_set() -> None:
     opened on whichever row was listed first, so an operator who pressed enter
     twice changed a setting they were looking at."""
     from gentoo_install.model.device import Filesystem, FilesystemType
+    from gentoo_install.tui import context as tui_context
     from gentoo_install.tui import screens
 
     at = context()
@@ -1095,6 +1097,7 @@ def test_raid_and_the_pool_topology_are_visible_before_they_are_reachable() -> N
     """Both rows appeared only once a partition happened to carry the right
     purpose, so neither feature could be found by anyone who did not already
     know it was there. Drawn always, with the reason when they cannot open."""
+    from gentoo_install.tui import context as tui_context
     from gentoo_install.tui import screens
 
     at = context()
@@ -1158,6 +1161,7 @@ def test_who_lays_the_disk_out_is_asked_before_what_goes_on_it() -> None:
     side, as if `manual` were a fifth filesystem. It is the other question,
     and a list that mixes them offers the automatic path as a default nobody
     was shown an alternative to."""
+    from gentoo_install.tui import context as tui_context
     from gentoo_install.tui import screens
 
     at = context()

@@ -337,6 +337,7 @@ def test_declining_sudo_in_the_menu_keeps_the_account_out_of_wheel() -> None:
     """`_groups_of` strips `wheel` for a plain account and then re-adds every
     name in `user.groups`, so a second copy of the list in the menu handed the
     account the group `/etc/sudoers.d/10-wheel` grants ALL to."""
+    from gentoo_install.tui import context as tui_context
     from gentoo_install.tui import screens
 
     from .fake_screen import FakeScreen
@@ -344,7 +345,7 @@ def test_declining_sudo_in_the_menu_keeps_the_account_out_of_wheel() -> None:
     from gentoo_install.data import load_catalog
     from gentoo_install.i18n import Catalog
 
-    at = screens.Context(
+    at = tui_context.Context(
         translate=Catalog("en"),
         disks=[("/dev/disk/by-id/virtio-target0", "20 GiB")],
         groups=load_catalog(),

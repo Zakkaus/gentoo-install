@@ -24,6 +24,7 @@ from gentoo_install.model.config import (
     SystemConfig,
 )
 from gentoo_install.plan import automatic, bootloader as plan_bootloader, kernel as plan_kernel
+from gentoo_install.tui import context as tui_context
 from gentoo_install.tui import screens
 from gentoo_install.tui.overview import overview_screen
 from gentoo_install.tui.widgets import Answer, Outcome
@@ -497,7 +498,7 @@ def test_the_blocked_row_lists_as_many_names_as_the_terminal_fits() -> None:
 
 
 def _account(
-    keys: list[str], at: screens.Context, start: InstallConfig | None = None
+    keys: list[str], at: tui_context.Context, start: InstallConfig | None = None
 ) -> Answer[InstallConfig]:
     from tests.unit.fake_screen import FakeScreen
 

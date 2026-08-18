@@ -42,7 +42,7 @@ from ..model.device import (
 )
 from ..plan import automatic as automatic_values
 from . import screens
-from .screens import Context, Step, footer
+from .context import Context, Step, ValueKind, ValueSource, footer
 from ..i18n import width
 from .widgets import Answer, Item, Menu, Outcome, Screen, Style
 
@@ -579,9 +579,9 @@ def _input_devices(config: InstallConfig, context: Context) -> str:
 def _display_manager(config: InstallConfig, context: Context) -> str:
     chosen = config.packages.display_manager
     if chosen and any(
-        one.kind is screens.ValueKind.DISPLAY_MANAGER
+        one.kind is ValueKind.DISPLAY_MANAGER
         and one.value == chosen
-        and one.source is screens.ValueSource.DERIVED
+        and one.source is ValueSource.DERIVED
         for one in context.provenance
     ):
         return f"{chosen} ({context.translate('proposed')})"
