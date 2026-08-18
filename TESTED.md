@@ -151,8 +151,8 @@ cluster fixture.
 
 ## Mode 3: boot into RAM, then install or write an image
 
-Implemented and wired into `cli.py`; **no machine has been rebooted into the
-environment it arms.** `--ram` fetches the Gentoo CJK ISO, `--lowram` the
+Implemented and wired into `cli.py`. One machine has been rebooted into the
+environment it arms, on `--lowram`; `--ram` and `dd` have no record. `--ram` fetches the Gentoo CJK ISO, `--lowram` the
 Alpine netboot archive; both place a kernel where the machine's own bootloader
 reads one, deliver the configuration and the installer's own tree in a cpio
 appended to the initramfs, and arm a single boot. `--bypass` replaces the
@@ -166,9 +166,18 @@ layout and bootloader. No machine has been written this way either.
 
 | Revision | What ran | Result |
 |---|---|---|
-| — | — | nothing end to end yet |
+| `6762496a41dd` | `--lowram` on a Debian 12 genericcloud machine, UEFI | armed one boot, left the default entry alone, rebooted, came up in Alpine from RAM with the delivered configuration and asked `install or shell>` |
+| — | `--ram`, `dd` | nothing end to end yet |
 
-Four mechanisms underneath it were measured one guest at a time rather than
+The first record took nine runs, each one step further than the last, and
+every step was a defect nothing in the tree could see: the image written to a
+124 MiB esp, `tar` restoring ownership onto vfat, the archive deleted before
+the entry read its name, an instrument that changed between two readings of
+the boot order, a GRUB entry naming `/boot` on a machine that boots the esp,
+a payload delivered by a dracut hook to an initramfs that runs none, and an
+appended cpio starting three bytes off a four-byte boundary.
+
+Five mechanisms underneath it were measured one guest at a time rather than
 assumed, and each contradicted a reading of the source that preceded it:
 
 | What was asked | How it was answered |
@@ -177,6 +186,7 @@ assumed, and each contradicted a reading of the source that preceded it:
 | Does `iso-scan/filename` find an ISO stored as a file? | The console printed `Copying live image to RAM...` and reached `livecd login:` with the ISO on a plain ext4 filesystem |
 | Is the disk holding the ISO free afterwards? | `/proc/mounts` held 17 mounts and none named `vda`, so `--ram` needs to unmount nothing before erasing. The design text said the opposite, derived from reading `dmsquash-live-root` |
 | Where can the first screen be hung? | Not `/etc/local.d`: that medium's `/etc/init.d/local` discards the output and runs with no controlling terminal, so the question was invisible and the `read` beside it answered itself. `/root/.bash_profile` is where the medium's auto-login and its ssh login both arrive |
+| Does an appended segment reach the initramfs at all? | Only from a four-byte boundary. Alpine's `initramfs-lts` is 27951899 bytes, 3 mod 4, and a guest booted with the segment appended to it printed no sign of the payload; one zero byte in front of the same segment answered `Loading user settings from /gentoo-install.apkovl.tar.gz: ok.` |
 
 Rows land in the table above for: a machine that boots into the RAM environment
 and installs Gentoo normally; a machine that writes an image with the `dd`
