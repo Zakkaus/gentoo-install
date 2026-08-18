@@ -3611,3 +3611,19 @@ def test_the_boot_order_is_read_with_the_same_tools_both_times() -> None:
 
     assert installed < first, "the tools go on before the first reading"
     assert source.index("arm(console") > first, "and the reading before the arming"
+
+
+def test_the_lowram_check_logs_in_where_the_medium_asks_for_one() -> None:
+    """Alpine's netboot console asks for a login and the CJK medium logs root
+    in by itself. The first screen is in root's profile either way, so the
+    ninth `--lowram` run reached `Loading user settings from
+    /gentoo-install.apkovl.tar.gz: ok.` and then `(none) login:` and waited
+    five minutes at a prompt nobody answered."""
+    import inspect
+
+    from tests.vm import ram
+
+    source = inspect.getsource(ram.came_up)
+    assert 'console.send("root")' in source, source
+    assert source.index('mode == "lowram"') < source.index('console.send("root")')
+    assert source.index("PAYLOAD_SPEAKS") > source.index('console.send("root")')

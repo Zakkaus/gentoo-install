@@ -53,6 +53,9 @@ ALPINE_SPEAKS: Final[str] = r"Welcome to Alpine Linux|localhost login:"
 #: configuration arrived, not merely that a live medium booted.
 PAYLOAD_SPEAKS: Final[str] = r"install or shell>"
 
+#: How long the login prompt is given after the medium's banner.
+LOGIN_PATIENCE: Final[float] = 300.0
+
 #: How long that screen is given after the medium speaks. The payload is
 #: copied by a `pre-pivot` hook and started by the medium's own `local`
 #: service, so it follows the login prompt rather than racing it.
@@ -96,6 +99,16 @@ def came_up(console: SerialConsole, mode: str) -> str:
         console.expect(speaks, timeout=MEMORY_BOOT_PATIENCE)
     except (ConsoleTimeout, ConsoleClosed) as error:
         return f"the memory environment never spoke: {error}"[:600]
+    if mode == "lowram":
+        # Alpine's netboot console asks for a login and the CJK medium logs
+        # root in by itself. The first screen is in root's profile either way,
+        # so this console has to log in for the same reason the operator's ssh
+        # session does. Root has no password in a netboot Alpine.
+        try:
+            console.expect(r"login:", timeout=LOGIN_PATIENCE)
+            console.send("root")
+        except (ConsoleTimeout, ConsoleClosed) as error:
+            return f"the environment asked for no login: {error}"[:600]
     try:
         console.expect(PAYLOAD_SPEAKS, timeout=PAYLOAD_PATIENCE)
     except (ConsoleTimeout, ConsoleClosed) as error:
