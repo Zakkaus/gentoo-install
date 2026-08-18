@@ -19,7 +19,7 @@ from gentoo_install.exec.probe import BootMethod, Probe as RealProbe
 from gentoo_install.exec.runner import Runner
 from gentoo_install.cli import EXIT_CONFIG, EXIT_INTEGRITY, EXIT_OK, EXIT_PREFLIGHT, main
 from gentoo_install.errors import ConfigError, IntegrityError
-from gentoo_install.model.config import DiskConfig, DiskMode, MemoryLaunch, MemoryMode
+from gentoo_install.model.config import DiskConfig, DiskMode, ImageFormat, MemoryLaunch, MemoryMode
 from gentoo_install.model.device import DeviceGraph, DeviceId, StorageFacts, StorageLayout
 from gentoo_install.plan.build import DEFAULT_MIRROR
 from gentoo_install.exec.config import load
@@ -34,6 +34,86 @@ def test_a_dry_run_prints_every_stage_and_exits_clean(capsys: pytest.CaptureFixt
     assert "[partition]" in printed and "[bootloader]" in printed
     assert "operations:" in printed.splitlines()[-1]
 
+
+def test_dd_dry_run_renders_its_only_operation_without_a_network(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    configuration = tmp_path / "dd.toml"
+    configuration.write_text(
+        '[disk]\n'
+        'mode = "dd"\n'
+        'source = "/run/prepared.raw.zst"\n'
+        'source_format = "zst"\n'
+        'destination = "/dev/disk/by-id/virtio-target"\n'
+    )
+    monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
+    monkeypatch.setattr(
+        cli, "_check_the_clock", lambda: pytest.fail("dd dry run checked the network clock")
+    )
+
+    assert main(["--config", str(configuration), "--dry-run"]) == EXIT_OK
+    printed = capsys.readouterr().out
+    assert "stream the zst image /run/prepared.raw.zst onto /dev/disk/by-id/virtio-target" in printed
+    assert printed.splitlines()[-1] == "1 operations: partition 1"
+
+def test_dd_execution_skips_target_shell_and_log_handover(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from gentoo_install.plan import dd
+
+    installation = load(FIXTURES / "btrfs-luks.toml")
+    installation = replace(
+        installation,
+        disk=DiskConfig(
+            graph=DeviceGraph.build(()),
+            root=DeviceId(""),
+            mode=DiskMode.DD,
+            source="/run/prepared.raw",
+            source_format=ImageFormat.RAW,
+            destination="/dev/disk/by-id/virtio-target",
+        ),
+    )
+    arguments = argparse.Namespace(
+        work=tmp_path / "work",
+        target=tmp_path / "target",
+        skip_preflight=True,
+        resume=False,
+        no_shell=False,
+    )
+    monkeypatch.setattr(cli, "apply", lambda *args: None)
+    monkeypatch.setattr(report, "offer_paste", lambda *args: None)
+    monkeypatch.setattr(
+        cli, "_offer_a_shell", lambda *args: pytest.fail("dd offered a target shell")
+    )
+    monkeypatch.setattr(
+        report, "keep_log", lambda *args: pytest.fail("dd copied its log into a target")
+    )
+
+    assert cli.install(
+        installation,
+        (dd.WriteImage(
+            source=installation.disk.source,
+            source_format=installation.disk.source_format,
+            destination=installation.disk.destination,
+        ),),
+        arguments,
+        cli.RunState(),
+    ) == EXIT_OK
+
+def test_image_write_offer_requires_a_live_or_memory_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    probe = RealProbe(runner=Runner(log=lambda line: None), work=tmp_path)
+    monkeypatch.setattr(probe, "live_medium", lambda: "")
+    monkeypatch.setattr(probe, "memory_environment", lambda: False)
+    assert "overwrite the installer" in cli._image_write_offer(probe)
+
+    monkeypatch.setattr(probe, "live_medium", lambda: "the root filesystem is overlay")
+    assert cli._image_write_offer(probe) == ""
+
+    monkeypatch.setattr(probe, "live_medium", lambda: "")
+    monkeypatch.setattr(probe, "memory_environment", lambda: True)
+    assert cli._image_write_offer(probe) == ""
 
 @pytest.mark.parametrize(
     ("flag", "mode"),

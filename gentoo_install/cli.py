@@ -321,13 +321,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         launch = _memory_launch(arguments)
         _require_root(arguments)
-        if _needs_network(arguments):
+        if arguments.config is None and _needs_network(arguments):
             # Before any reachability check: an unset clock makes every HTTPS
             # request fail, and the message would name the network instead.
             _check_the_clock()
-            if arguments.config is None:
-                # The menu reads every version from the package site.
-                _require_network()
+            # The menu reads every version from the package site.
+            _require_network()
         if arguments.config is None:
             if arguments.missing_commands:
                 # Nothing to derive a layout from, so answer for the commands
@@ -351,6 +350,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             config = load_source(arguments.config)
         if launch is not None:
+            if arguments.config is not None and _needs_network(arguments):
+                _check_the_clock()
             _validate_memory_launch(config, launch, _probe_for(arguments))
             return _arm_memory_environment(config, launch, arguments)
         if arguments.missing_commands:
@@ -364,7 +365,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             )
             return EXIT_OK
-        if _needs_network(arguments):
+        needs_network = config.disk.mode is not DiskMode.DD and _needs_network(arguments)
+        if needs_network:
+            _check_the_clock()
             _require_mirror(config, arguments.mirror)
         storage_facts = StorageFacts()
         loader_v3: bool | None = None
@@ -375,7 +378,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             layout = Probe(
                 runner=Runner(log=lambda line: None), work=arguments.work
             ).storage_layout()
-        if not arguments.dry_run:
+        if not arguments.dry_run and config.disk.mode is not DiskMode.DD:
             # Before the plan is derived, because `build` validates: a reused
             # esp needs runtime metadata. A dry run remains independent of the
             # selected hardware.
@@ -486,7 +489,9 @@ def install(
         probe = Probe(runner=runner, work=work)
         probe.load()
         if not arguments.skip_preflight:
-            preflight_report = preflight.check(config, probe, str(target))
+            preflight_report = preflight.check(
+                config, probe, str(target), operations=operations
+            )
             for warning in preflight_report.warnings:
                 record(f"warning: {warning}")
             preflight_report.raise_if_fatal()
@@ -529,15 +534,17 @@ def install(
                 _asked,
                 show_the_address,
             )
-            _offer_a_shell(arguments, machine, record, stopped)
+            if config.disk.mode is not DiskMode.DD:
+                _offer_a_shell(arguments, machine, record, stopped)
         except BaseException as error:
             failure = _first_failure(failure, error, record)
-        # Before the closing stage: that stage unmounts the target, so a later
-        # copy lands on the install medium's tmpfs and vanishes at reboot.
-        try:
-            report.keep_log(work, target, record)
-        except BaseException as error:
-            failure = _first_failure(failure, error, record)
+        if config.disk.mode is not DiskMode.DD:
+            # Before the closing stage: that stage unmounts the target, so a later
+            # copy lands on the install medium's tmpfs and vanishes at reboot.
+            try:
+                report.keep_log(work, target, record)
+            except BaseException as error:
+                failure = _first_failure(failure, error, record)
         if failure is None:
             try:
                 apply(closing, machine, finished)
@@ -548,12 +555,15 @@ def install(
             # incomplete target can obscure the error that stopped the run.
             _release(closing, machine, record)
             raise failure
-        counted = journal.counts()
-        record(
-            f"installed {len(operations)} operations into {target}; "
-            f"{counted.get('binary', 0)} packages from a binary host, "
-            f"{counted.get('compiled', 0)} compiled"
-        )
+        if config.disk.mode is DiskMode.DD:
+            record(f"wrote the prepared image to {config.disk.destination}")
+        else:
+            counted = journal.counts()
+            record(
+                f"installed {len(operations)} operations into {target}; "
+                f"{counted.get('binary', 0)} packages from a binary host, "
+                f"{counted.get('compiled', 0)} compiled"
+            )
     return EXIT_OK
 
 
@@ -844,6 +854,12 @@ def _conversion_offer(probe: Probe) -> tuple[str, str]:
         return described, str(error)
     return described, ""
 
+def _image_write_offer(probe: Probe) -> str:
+    """Why the whole-disk image writer must stay unavailable on this machine."""
+    if probe.live_medium() or probe.memory_environment():
+        return ""
+    return "writing an image over the running root would overwrite the installer"
+
 
 def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
     """Walk the screens and return what the operator built, or None."""
@@ -856,6 +872,7 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
     if lacking:
         raise errors.PreflightFailed(f"the menu needs {', '.join(sorted(lacking))}")
     running_system, conversion_refused = _conversion_offer(probe)
+    image_write_refused = _image_write_offer(probe)
     context = screens.Context(
         translate=Catalog(tag_for(override=arguments.lang)),
         ipv4=has_ipv4,
@@ -884,6 +901,7 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
         configs_here=report.configs_here(app.SAVE_AS),
         running_system=running_system,
         conversion_refused=conversion_refused,
+        image_write_refused=image_write_refused,
         load_config=load_source,
     )
     if not context.disks:

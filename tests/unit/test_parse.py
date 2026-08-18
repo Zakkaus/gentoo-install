@@ -13,6 +13,7 @@ from gentoo_install.model.config import (
     Bootloader,
     ConsoleFontSize,
     DiskMode,
+    ImageFormat,
     InitSystem,
     KernelSource,
     Keywords,
@@ -97,6 +98,21 @@ def test_in_place_mode_has_no_device_graph_or_root() -> None:
     assert not disk.graph.nodes
     assert not disk.root
 
+
+def test_dd_mode_parses_a_stream_source_and_whole_disk_destination() -> None:
+    raw = fixture()
+    raw["disk"] = {
+        "mode": "dd",
+        "source": "/run/image.raw.zst",
+        "source_format": "zst",
+        "destination": "/dev/disk/by-id/virtio-target",
+    }
+    disk = parse(raw).disk
+    assert disk.mode is DiskMode.DD
+    assert disk.source == "/run/image.raw.zst"
+    assert disk.source_format is ImageFormat.ZSTD
+    assert disk.destination == "/dev/disk/by-id/virtio-target"
+    assert not disk.graph.nodes
 
 def test_image_mode_parses_its_file_size_and_wipe_policy() -> None:
     raw = fixture()

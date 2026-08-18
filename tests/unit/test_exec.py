@@ -167,6 +167,27 @@ def test_output_arrives_line_by_line_rather_than_at_the_end(tmp_path: Path) -> N
     Runner(log=seen.append).run(["sh", "-c", "echo first; echo second"])
     assert [line for line in seen if line.startswith("| ")] == ["| first", "| second"]
 
+def test_a_pipeline_streams_between_commands(tmp_path: Path) -> None:
+    destination = tmp_path / "image"
+    runner(tmp_path).pipe(
+        ["sh", "-c", "printf prepared-image"],
+        ["sh", "-c", f"cat > {destination}"],
+    )
+    assert destination.read_text() == "prepared-image"
+
+
+def test_a_pipeline_keeps_binary_bytes_out_of_python(tmp_path: Path) -> None:
+    destination = tmp_path / "image"
+    runner(tmp_path).pipe(
+        ["sh", "-c", r"printf '\000\001\377'"],
+        ["sh", "-c", f"cat > {destination}"],
+    )
+    assert destination.read_bytes() == b"\x00\x01\xff"
+
+def test_a_pipeline_source_failure_is_not_hidden_by_dd_success(tmp_path: Path) -> None:
+    with pytest.raises(CommandFailed, match="exit 7"):
+        runner(tmp_path).pipe(["sh", "-c", "exit 7"], ["cat"])
+
 
 def test_a_failure_can_be_asked_for_rather_than_raised(tmp_path: Path) -> None:
     assert runner(tmp_path).run(["false"], check=False).returncode == 1

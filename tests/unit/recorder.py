@@ -30,6 +30,7 @@ def _answered(text: str, returncode: int) -> CommandOutput:
 class Recorder:
     target: PurePosixPath = PurePosixPath("/mnt/gentoo")
     commands: list[tuple[str, ...]] = field(default_factory=list)
+    pipelines: list[tuple[tuple[str, ...], tuple[str, ...]]] = field(default_factory=list)
     in_target: list[tuple[str, ...]] = field(default_factory=list)
     files: dict[PurePosixPath, str] = field(default_factory=dict)
     #: The mode each file was written with. A keyfile NetworkManager refuses
@@ -72,6 +73,9 @@ class Recorder:
         # A CommandOutput, the way the real runner answers: a double returning
         # a bare str hides every caller that reads the exit code for itself.
         return _answered(self.replies.get(argv[0], ""), 0)
+
+    def pipe(self, producer: Sequence[str], consumer: Sequence[str]) -> None:
+        self.pipelines.append((tuple(producer), tuple(consumer)))
 
     def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> CommandOutput:
         """`check=False` returns the output and raises nothing, the way the real

@@ -149,6 +149,14 @@ def _disk(config: InstallConfig) -> list[str]:
     if disk.mode is DiskMode.IN_PLACE:
         lines.append(f'mode = "{disk.mode.value}"')
         return lines
+    if disk.mode is DiskMode.DD:
+        return [
+            *lines,
+            f'mode = "{disk.mode.value}"',
+            f"source = {_value(disk.source)}",
+            f"source_format = {_value(disk.source_format)}",
+            f"destination = {_value(disk.destination)}",
+        ]
     if disk.mode is DiskMode.IMAGE:
         lines += [
             f'mode = "{disk.mode.value}"',

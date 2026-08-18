@@ -145,6 +145,12 @@ reads one, deliver the configuration and the installer's own tree in a cpio
 appended to the initramfs, and arm a single boot. `--bypass` replaces the
 default entry instead of arming one boot.
 
+`dd` writes a prepared image over a whole disk from inside that environment,
+streamed rather than staged, and is offered only on a live medium or in a
+memory environment because writing over the running root is writing over
+yourself. It takes nothing over afterwards: the disk carries the image's own
+layout and bootloader. No machine has been written this way either.
+
 | Revision | What ran | Result |
 |---|---|---|
 | — | — | nothing end to end yet |

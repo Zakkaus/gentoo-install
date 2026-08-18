@@ -30,6 +30,7 @@ from ..model.config import (
     BootloaderConfig,
     DiskConfig,
     DiskMode,
+    ImageFormat,
     Firewall,
     Firmware,
     GentooZhMirror,
@@ -187,10 +188,12 @@ class Context:
         #: read refuses the conversion rather than offering one blind.
         running_system: str = "",
         conversion_refused: str = "the running system was not read",
+        image_write_refused: str = "the memory environment was not read",
     ) -> None:
         self.translate = translate
         self.running_system = running_system
         self.conversion_refused = conversion_refused
+        self.image_write_refused = image_write_refused
         self.ipv4 = ipv4
         self.ipv6 = ipv6
         self.profile_paths = tuple(profile_paths)
@@ -394,33 +397,34 @@ def _rebuild(config: InstallConfig, context: Context) -> InstallConfig:
 INSTALL_MODES: tuple[tuple[DiskMode, str], ...] = (
     (DiskMode.PARTITION, "partition a disk and install onto it"),
     (DiskMode.IN_PLACE, "replace the running system with Gentoo, keeping its disks"),
+    (DiskMode.DD, "write a prepared image over a whole disk"),
 )
 
 
 def install_mode_screen(
     screen: Screen, config: InstallConfig, context: Context
 ) -> Answer[InstallConfig]:
-    """Install onto disks, or convert the machine this is running on.
-
-    The conversion carries no device graph: it is derived from the running
-    machine, and `validate()` refuses one written by hand. So choosing it drops
-    the graph, and choosing the other way back leaves the operator to pick
-    disks again — which is what they would be doing anyway.
-    """
+    """Install onto disks, convert the running system, or write an image."""
     translate = context.translate
     refused = context.conversion_refused
+    image_write_refused = context.image_write_refused
     preamble = [translate("This is the difference between a new system and this one.")]
     if context.running_system:
         preamble.append(translate("Running system: ") + context.running_system)
     if refused:
         preamble.append(translate("Conversion is not offered: ") + translate(refused))
+    if image_write_refused:
+        preamble.append(
+            translate("Image writing is not offered: ") + translate(image_write_refused)
+        )
     menu: Menu[DiskMode] = Menu(
         title=translate("Install mode"),
         preamble=tuple(preamble),
         items=[
             Item(label=translate(what), value=mode)
             for mode, what in INSTALL_MODES
-            if mode is not DiskMode.IN_PLACE or not refused
+            if (mode is not DiskMode.IN_PLACE or not refused)
+            and (mode is not DiskMode.DD or not image_write_refused)
         ],
         footer=footer(translate),
         current=config.disk.mode,
@@ -435,10 +439,98 @@ def install_mode_screen(
         agreed = _confirm_the_swap(screen, context)
         if agreed is not None:
             return agreed
-    graph = DeviceGraph.build([]) if mode is DiskMode.IN_PLACE else config.disk.graph
+    if mode is DiskMode.DD:
+        return Answer(
+            Outcome.CHOSE,
+            replace(
+                config,
+                disk=replace(
+                    config.disk,
+                    mode=mode,
+                    graph=DeviceGraph.build([]),
+                    root=DeviceId(""),
+                    image="",
+                    size=None,
+                    wipe=False,
+                ),
+            ),
+        )
     return Answer(
         Outcome.CHOSE,
-        replace(config, disk=replace(config.disk, mode=mode, graph=graph, root=DeviceId(""))),
+        replace(
+            config,
+            disk=replace(
+                config.disk,
+                mode=mode,
+                graph=DeviceGraph.build([]) if mode is DiskMode.IN_PLACE else config.disk.graph,
+                root=DeviceId(""),
+                source="",
+                source_format=ImageFormat.RAW,
+                destination="",
+            ),
+        ),
+    )
+
+
+def image_source_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """Choose the file whose bytes are streamed onto the destination disk."""
+    translate = context.translate
+    source = TextField(
+        title=translate("Image source"),
+        value=config.disk.source,
+        placeholder=translate("/path/to/image.raw"),
+        footer=footer(translate),
+    ).run(screen)
+    if not source.chosen:
+        return Answer(source.outcome)
+    return Answer(
+        Outcome.CHOSE, replace(config, disk=replace(config.disk, source=source.unwrap()))
+    )
+
+
+def image_format_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """Choose the decoder that emits the prepared image bytes."""
+    translate = context.translate
+    source_format = Menu[ImageFormat](
+        title=translate("Image format"),
+        items=[Item(label=one.value, value=one) for one in ImageFormat],
+        footer=footer(translate),
+        current=config.disk.source_format,
+    ).run(screen)
+    if not source_format.chosen:
+        return Answer(source_format.outcome)
+    return Answer(
+        Outcome.CHOSE,
+        replace(config, disk=replace(config.disk, source_format=source_format.unwrap())),
+    )
+
+
+def image_destination_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """Choose the whole disk that is overwritten by the image."""
+    translate = context.translate
+    if not context.disks:
+        raise DeviceNotFound("this machine has no disk to install onto")
+    destination = Menu[str](
+        title=translate("Destination disk"),
+        preamble=(translate("The selected disk is overwritten by the image."),),
+        items=[
+            Item(label=context.shown_as(name), value=name, detail=detail)
+            for name, detail in context.disks
+        ],
+        footer=footer(translate),
+        current=config.disk.destination,
+    ).run(screen)
+    if not destination.chosen:
+        return Answer(destination.outcome)
+    return Answer(
+        Outcome.CHOSE,
+        replace(config, disk=replace(config.disk, destination=destination.unwrap())),
     )
 
 
