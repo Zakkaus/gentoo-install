@@ -231,7 +231,14 @@ def test_the_record_file_holds_what_the_readmes_stopped_carrying() -> None:
     # absent section reads as an oversight, an empty one as a fact.
     for heading in ("## Mode 1", "## Mode 2", "## Mode 3"):
         assert heading in record, heading
-    assert "nothing yet" in record, "the unimplemented mode says so"
+    # Mode 3 is implemented and no machine has been rebooted into what it
+    # arms. Both halves are asserted: a section that carries only the second
+    # reads as a record, and one that carries only the first reads as a plan.
+    assert "nothing end to end yet" in record, "the unverified mode says so"
+    assert (
+        "no machine has been rebooted into the environment it arms"
+        in " ".join(record.split())
+    ), "the boundary of mode 3 is stated where its rows would go"
 
     # And every README points at it rather than repeating it.
     for name in READMES:

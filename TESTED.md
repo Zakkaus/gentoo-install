@@ -32,8 +32,9 @@ The ordinary path: partition, format, unpack a stage3, configure, boot.
 | `08015b221d73` | `vm-sdboot`, `vm-cjk-kernel` — the first cluster record of the patched CJK console kernel and of `system.console_cjk` |
 | `4ccd3aa34687` | `vm-xfs` |
 | `0d7ddcb22b8e` | `vm-zram`, `vm-sdboot`, `vm-cjk-kernel`, `vm-f2fs`, `zfs-zbm`, `vm-openrc-desktop` — `zfs-zbm` is the first record of a ZFS root under ZFSBootMenu since the key file that image cannot open was removed from that path |
-| `6d386174b295` | `vm-unlock`, `vm-mdraid`, `vm-xfs`, `zfs-zbm`, `vm-binpkg`, `vm-luks` |
+| `6d386174b295` | `vm-unlock`, `vm-mdraid`, `vm-xfs`, `zfs-zbm`, `vm-binpkg`, `vm-luks`, `btrfs-luks` — the first cluster record of a LUKS btrfs root, which took 196 minutes |
 | `1aafd75c4359` | `openrc-sdboot`, `vm-lvm`, `vm-btrfs`, `vm-luks` — the first record of `openrc-sdboot` and `vm-lvm` since the installed-system login stopped being typed on a timer; both had failed in the four rounds before it |
+| `7e79962bcb0a` | `vm-lvm`, `vm-xfs`, `openrc-sdboot`, `vm-btrfs`, `vm-f2fs`, `vm-mdraid` — `vm-bios` and `ext4-bios` failed in the same round against a prompt pattern that this revision predates, so that round says nothing about BIOS |
 
 Every row from `08015b221d73` onward ran `--region cn --site nju --sync
 webrsync --distfiles http://10.31.0.2/gentoo`, so what they establish about
@@ -137,16 +138,31 @@ cluster fixture.
 
 ## Mode 3: boot into RAM, then install or write an image
 
-Designed, not implemented. See `docs/design.md` in the workspace.
+Implemented and wired into `cli.py`; **no machine has been rebooted into the
+environment it arms.** `--ram` fetches the Gentoo CJK ISO, `--lowram` the
+Alpine netboot archive; both place a kernel where the machine's own bootloader
+reads one, deliver the configuration and the installer's own tree in a cpio
+appended to the initramfs, and arm a single boot. `--bypass` replaces the
+default entry instead of arming one boot.
 
 | Revision | What ran | Result |
 |---|---|---|
-| — | — | nothing yet |
+| — | — | nothing end to end yet |
 
-Rows land here for: a machine that boots into the RAM environment and installs
-Gentoo normally; a machine that writes an image with the `dd` mode; and, for
-each, a deliberately failed run proving the machine returns to its original
-system because the boot entry is one-shot.
+Four mechanisms underneath it were measured one guest at a time rather than
+assumed, and each contradicted a reading of the source that preceded it:
+
+| What was asked | How it was answered |
+|---|---|
+| Does an appended newc cpio reach the live system? | A `cmdline` hook inside the appended segment printed to `/dev/kmsg` 3.5s into the boot. `lsinitrd` reads only the first segment and shows nothing, so the static tool answers the opposite way |
+| Does `iso-scan/filename` find an ISO stored as a file? | The console printed `Copying live image to RAM...` and reached `livecd login:` with the ISO on a plain ext4 filesystem |
+| Is the disk holding the ISO free afterwards? | `/proc/mounts` held 17 mounts and none named `vda`, so `--ram` needs to unmount nothing before erasing. The design text said the opposite, derived from reading `dmsquash-live-root` |
+| Where can the first screen be hung? | Not `/etc/local.d`: that medium's `/etc/init.d/local` discards the output and runs with no controlling terminal, so the question was invisible and the `read` beside it answered itself. `/root/.bash_profile` is where the medium's auto-login and its ssh login both arrive |
+
+Rows land in the table above for: a machine that boots into the RAM environment
+and installs Gentoo normally; a machine that writes an image with the `dd`
+mode; and, for each, a deliberately failed run proving the machine returns to
+its original system because the boot entry is one-shot.
 
 ## Not covered by any record
 
