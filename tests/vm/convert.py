@@ -87,6 +87,11 @@ class CloudImage:
     #: A command whose package is not named after it. Every other name goes to
     #: the package manager as it was printed.
     packages: dict[str, str] = field(default_factory=dict)
+    #: What the harness itself reads the machine with, which the installer
+    #: never asks for. `efibootmgr` is the whole of it: `read_the_boot_order`
+    #: printed `NO-EFIBOOTMGR` on every conversion, and that reading is the
+    #: only place a Fedora conversion's `Boot0001 "Fedora"` was ever visible.
+    tools: tuple[str, ...] = ("efibootmgr",)
 
     @property
     def image(self) -> Path:
@@ -221,6 +226,7 @@ def install_tools(console: SerialConsole, chosen: CloudImage, config: str) -> No
         for name in (line.strip() for line in said.splitlines())
         if name and " " not in name and not name.startswith("MARK_")
     ]
+    wanted += list(chosen.tools)
     if wanted:
         console.run(f"{chosen.install} {' '.join(sorted(set(wanted)))}", timeout=1800.0)
 
@@ -299,7 +305,7 @@ def read_the_boot_order(console: SerialConsole) -> str:
     exists, and where it sits in `BootOrder`, is the difference between those
     two and cannot be inferred from `grub-install` saying nothing.
     """
-    said = console.expect_command(
+    said = console.expect_output(
         "efibootmgr -v 2>&1 || echo NO-EFIBOOTMGR", timeout=120.0
     ).decode("utf-8", "replace")
     print("--- firmware boot entries ---", flush=True)
