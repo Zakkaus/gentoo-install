@@ -155,8 +155,9 @@ written.
 
 ### Not verified
 
-UEFI conversion, a btrfs subvolume root end to end, and the `vm-convert`
-cluster fixture.
+A btrfs subvolume root end to end, and the `vm-convert` cluster fixture. UEFI
+conversion moved out of this list when `639c5cd4069f` booted through its own
+firmware entry.
 
 ## Mode 3: boot into RAM, then install or write an image
 
