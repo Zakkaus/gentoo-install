@@ -13,6 +13,7 @@ from types import TracebackType
 from typing import Final, Self
 
 from .media import Medium
+from .results import RESULT_SERIAL
 
 OVMF_CODE = Path("/usr/share/edk2-ovmf/OVMF_CODE_4M.qcow2")
 OVMF_VARS = Path("/usr/share/edk2-ovmf/OVMF_VARS.fd")
@@ -137,9 +138,14 @@ class Vm:
                 "virtio-blk-pci,drive=driver",
             ]
         for index, disk in enumerate(self.spec.disks):
+            # A serial, for the same reason the targets have one: the driver CD
+            # is a virtio disk too, so it takes `/dev/vda` and the results were
+            # written to a read-only device — `tar: /dev/vda: Cannot write:
+            # Operation not permitted` after an install that had finished.
             argv += [
                 "-drive", f"file={disk},format=raw,if=none,id=disk{index}",
-                "-device", f"virtio-blk-pci,drive=disk{index}",
+                "-device",
+                f"virtio-blk-pci,drive=disk{index},serial={RESULT_SERIAL}{index}",
             ]
         for index, target in enumerate(self.spec.targets):
             # A stable serial gives the configuration a selector that survives
