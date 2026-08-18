@@ -3758,3 +3758,105 @@ def test_a_reset_that_never_answers_still_stops_the_run(
         guest.reset()
 
     assert len(tries) == RESET_TRIES, tries
+
+
+class _AutoLoginGuest:
+    """A SeaBIOS guest that answers on the serial port only once the line has
+    been typed into the auto-login shell the VGA console already holds."""
+
+    def __init__(self, answers_after: int = 1) -> None:
+        self.answers_after = answers_after
+        self.typed: list[str] = []
+        self.resets = 0
+
+    def send_keys(self, keys: list[str]) -> None:
+        self.typed.extend(keys)
+
+    def reset(self) -> None:
+        self.resets += 1
+
+
+class _SerialAfterTyping:
+    def __init__(self, guest: _AutoLoginGuest, needed: int) -> None:
+        self.guest = guest
+        self.needed = needed
+        self.console = self
+
+    def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+        from tests.vm.console import ConsoleTimeout
+
+        if self.guest.resets >= self.needed:
+            return b"\r\nroot@livecd ~ # "
+        raise ConsoleTimeout("nothing on the serial port")
+
+    def reopen(self, *, solicit_prompt: bool = True) -> None:
+        return None
+
+
+def test_the_serial_shell_is_asked_for_by_typing_into_the_auto_login(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The blind GRUB edit this replaces never landed. A screenshot through
+    the QEMU monitor shows why: three seconds after the menu the live system
+    is logged in on the VGA console, so the keys reached a shell and the
+    screen held `bash: cserial: command not found`."""
+    from typing import Any, cast
+
+    from tests.vm import proxmox
+
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    guest = _AutoLoginGuest()
+    link = _SerialAfterTyping(guest, needed=0)
+    proxmox.open_a_serial_shell_blind(cast("Any", guest), cast("Any", link))
+
+    typed = "".join(one for one in guest.typed if len(one) == 1)
+    assert "agetty" in "".join(guest.typed) or "agetty" in typed, guest.typed
+    # The command line is not touched: nothing types `console=` anywhere.
+    assert "console=" not in "".join(guest.typed), guest.typed
+    assert guest.resets == 0, "a first attempt that answers resets nothing"
+
+
+def test_a_medium_that_is_slower_gets_another_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A loaded node reaches its auto-login later than an idle one, and the
+    ladder is timed rather than read because nothing is readable until the
+    line lands."""
+    from typing import Any, cast
+
+    from tests.vm import proxmox
+
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    guest = _AutoLoginGuest()
+    link = _SerialAfterTyping(guest, needed=2)
+    proxmox.open_a_serial_shell_blind(cast("Any", guest), cast("Any", link))
+
+    assert guest.resets == 2, guest.resets
+
+
+def test_a_medium_that_never_answers_stops_rather_than_holding_the_schedule(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from typing import Any, cast
+
+    from tests.vm import proxmox
+    from tests.vm.proxmox import AUTOLOGIN_ATTEMPTS, ProxmoxError
+
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    guest = _AutoLoginGuest()
+    link = _SerialAfterTyping(guest, needed=99)
+    with pytest.raises(ProxmoxError, match="no serial shell"):
+        proxmox.open_a_serial_shell_blind(cast("Any", guest), cast("Any", link))
+
+    assert guest.resets == len(AUTOLOGIN_ATTEMPTS) - 1, guest.resets
+
+
+def test_the_ladder_outlasts_a_medium_that_is_merely_slow() -> None:
+    """Measured on 2026-08-18: a SeaBIOS guest was past GRUB and logged in at
+    about fifteen seconds. The first rung is above that, and the last is far
+    enough above it to cover a node under load."""
+    from tests.vm.proxmox import AUTOLOGIN_ATTEMPTS
+
+    assert AUTOLOGIN_ATTEMPTS[0] > 15.0, AUTOLOGIN_ATTEMPTS
+    assert AUTOLOGIN_ATTEMPTS[-1] >= 90.0, AUTOLOGIN_ATTEMPTS
+    assert list(AUTOLOGIN_ATTEMPTS) == sorted(AUTOLOGIN_ATTEMPTS), AUTOLOGIN_ATTEMPTS

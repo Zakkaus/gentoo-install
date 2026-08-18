@@ -1657,10 +1657,14 @@ def test_no_fixture_asks_for_more_jobs_than_a_test_guest_has() -> None:
 def test_a_bios_guest_whose_grub_speaks_is_read_before_it_is_typed_at_blind(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The blind path exists for a GRUB that writes only to VGA. The official
+    """The fallback exists for a GRUB that writes only to VGA. The official
     minimal ISO answers `starting serial terminal on interface serial0` and can
-    be read; typing at it blind landed on no line and three fixtures ended at
-    `the kernel never spoke after editing GRUB blind`."""
+    be read, and a menu that can be read is never typed at blind.
+
+    What the fallback does changed: editing the menu blind never landed, and a
+    screenshot of the guest shows the live system already logged in on the VGA
+    console three seconds later. The medium's own auto-login is asked for a
+    shell on the serial port instead."""
     from typing import Any, cast
 
     from tests.vm import cluster
@@ -1668,13 +1672,13 @@ def test_a_bios_guest_whose_grub_speaks_is_read_before_it_is_typed_at_blind(
     read: list[str] = []
     monkeypatch.setattr(cluster, "append_to_cmdline", lambda link, extra: read.append("read"))
     monkeypatch.setattr(
-        cluster, "append_to_cmdline_blind", lambda guest, link, extra: read.append("blind")
+        cluster, "open_a_serial_shell_blind", lambda guest, link: read.append("shell")
     )
     cluster._edit_bios_cmdline(cast("Any", object()), cast("Any", object()))
     assert read == ["read"], "a menu that can be read is not typed at blind"
 
-    # A GRUB that says nothing still gets the blind attempt, from a menu the
-    # failed one did not touch.
+    # A GRUB that says nothing gets the auto-login attempt, from a fresh boot
+    # because the unreadable menu counted down while the serial wait ran.
     reset: list[str] = []
 
     class Guest:
@@ -1693,7 +1697,7 @@ def test_a_bios_guest_whose_grub_speaks_is_read_before_it_is_typed_at_blind(
     read.clear()
     monkeypatch.setattr(cluster, "append_to_cmdline", silent)
     cluster._edit_bios_cmdline(cast("Any", Guest()), cast("Any", Link()))
-    assert read == ["blind"]
+    assert read == ["shell"]
     assert reset == ["reset", "reopen:False"]
 
 
