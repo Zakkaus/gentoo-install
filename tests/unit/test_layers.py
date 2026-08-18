@@ -460,3 +460,33 @@ def test_the_tui_context_knows_nothing_about_a_screen() -> None:
             if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in owned
         }
         assert not defined, f"{neighbour} defines {defined} again"
+
+
+def test_no_module_imports_a_name_it_never_uses() -> None:
+    """Twenty dead imports were in the tree at once, twelve of them left in
+    `tui/screens.py` by two moves that took their users away. `mypy` does not
+    see them and no lint gate is configured, so an import that survives its
+    last caller reads as a dependency the module still has."""
+    dead: list[str] = []
+    for path in sorted(PACKAGE.rglob("*.py")):
+        source = path.read_text()
+        tree = ast.parse(source)
+        lines = source.splitlines()
+        imported: dict[str, int] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                # `from __future__ import annotations` has no user by design.
+                if isinstance(node, ast.ImportFrom) and node.module == "__future__":
+                    continue
+                for alias in node.names:
+                    imported[alias.asname or alias.name.split(".")[0]] = node.lineno
+        # The import statements themselves are not uses of what they bind.
+        elsewhere = "\n".join(
+            line for number, line in enumerate(lines, 1) if number not in set(imported.values())
+        )
+        dead += [
+            f"{path.relative_to(PACKAGE.parent)}:{line} {name}"
+            for name, line in sorted(imported.items())
+            if not re.search(rf"\b{re.escape(name)}\b", elsewhere)
+        ]
+    assert not dead, dead

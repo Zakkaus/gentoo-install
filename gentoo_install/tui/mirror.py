@@ -11,7 +11,7 @@ from dataclasses import replace
 from typing import Final
 
 from ..i18n import Catalog
-from ..model import compat, mirrors
+from ..model import mirrors
 from ..plan.portage import community_binhost
 from ..model.config import (
     Binhost,

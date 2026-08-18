@@ -22,7 +22,7 @@ from ..plan.build import build
 from .overview import overview_screen
 from .context import Context
 from .context import say
-from .settings import SETTINGS, UNSET, Setting, settings_for, shown_value, style_of, unanswered
+from .settings import SETTINGS, Setting, settings_for, shown_value, style_of, unanswered
 from .widgets import Item, Menu, Outcome, Screen, Style, TextField
 
 

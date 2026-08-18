@@ -17,7 +17,6 @@ from typing import Collection, Final, Mapping
 
 from ..errors import CommandFailed, ValidationFailed
 from . import compat
-from .compat import Trait
 from .config import (
     Bootloader,
     DiskMode,
