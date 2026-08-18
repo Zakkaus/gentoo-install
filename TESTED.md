@@ -31,11 +31,15 @@ The ordinary path: partition, format, unpack a stage3, configure, boot.
 | `7cf09c2f9d9c` | `vm-btrfs`, `vm-binpkg`, `vm-luks`, `vm-mdraid`, `vm-f2fs`, `vm-zram`, `vm-zfs-encrypted` — the first cluster record of a ZFS root, of native ZFS encryption, and of the `gentoo-zh` overlay, which no earlier row's fixtures use |
 | `08015b221d73` | `vm-sdboot`, `vm-cjk-kernel` — the first cluster record of the patched CJK console kernel and of `system.console_cjk` |
 | `4ccd3aa34687` | `vm-xfs` |
+| `0d7ddcb22b8e` | `vm-zram`, `vm-sdboot`, `vm-cjk-kernel`, `vm-f2fs`, `zfs-zbm`, `vm-openrc-desktop` — `zfs-zbm` is the first record of a ZFS root under ZFSBootMenu since the key file that image cannot open was removed from that path |
+| `6d386174b295` | `vm-unlock`, `vm-mdraid`, `vm-xfs`, `zfs-zbm`, `vm-binpkg`, `vm-luks` |
+| `1aafd75c4359` | `openrc-sdboot`, `vm-lvm`, `vm-btrfs`, `vm-luks` — the first record of `openrc-sdboot` and `vm-lvm` since the installed-system login stopped being typed on a timer; both had failed in the four rounds before it |
 
-The last three rows ran `--region cn --site nju --sync webrsync --distfiles
-http://10.31.0.2/gentoo`, so what they establish about mirror selection is
-limited to that region, that site and a distfiles cache on the guests' own
-segment. The parameters the earlier rows used are not recorded.
+Every row from `08015b221d73` onward ran `--region cn --site nju --sync
+webrsync --distfiles http://10.31.0.2/gentoo`, so what they establish about
+mirror selection is limited to that region, that site and a distfiles cache on
+the guests' own segment. The parameters the earlier rows used are not
+recorded.
 
 ### Records from QEMU on one machine
 
