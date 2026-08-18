@@ -90,7 +90,7 @@ from .proxmox import (
     VMID_LAST,
     Line,
     append_to_cmdline,
-    append_to_cmdline_blind,
+    open_a_serial_shell_blind,
 )
 from .results import (
     CONSOLE_CLOSE,
@@ -2906,25 +2906,31 @@ def _abandon_jobs(scheduled: Mapping[str, Job]) -> None:
 
 
 def _edit_bios_cmdline(guest: Guest, link: "Reconnecting") -> None:
-    """Read the menu when GRUB speaks on the serial port, and type blind if not.
+    """Read the menu when GRUB speaks on the serial port, and otherwise ask
+    the medium's own auto-login for a shell on that port.
 
-    SeaBIOS hands over to a GRUB that on some media writes only to VGA, which
-    is why the blind path exists at all. The official minimal ISO answers
-    `starting serial terminal on interface serial0` and can be read, and typing
-    at it blind landed on no line: `vm-bios`, `vm-bios-luks` and `ext4-bios`
-    all ended at `the kernel never spoke after editing GRUB blind` with that
-    line in the log.
+    SeaBIOS hands over to a GRUB that on some media writes only to VGA. Typing
+    at that menu blind never landed: `vm-bios`, `vm-bios-luks` and `ext4-bios`
+    ended at `the kernel never spoke` in every round that tried it, and
+    run66's two took fourteen minutes each to do so. A screenshot taken
+    through the QEMU monitor says why — three seconds after the menu the live
+    system is logged in on the VGA console, so the keys reached a shell and
+    `bash: cserial: command not found` is what the screen held.
+
+    So the command line is left alone. The medium logs root in by itself, and
+    one typed line moves a getty onto the serial port, which is readable from
+    the first attempt.
     """
     try:
         append_to_cmdline(link, EXTRA_CMDLINE)
         return
     except GrubNotReadable:
         pass
-    # The unreadable menu may have counted down while the serial wait ran, so
-    # reset before timing the blind attempt from a fresh boot.
+    # The unreadable menu counted down while the serial wait ran, so the guest
+    # is already past it; the attempt below is timed from a fresh boot.
     guest.reset()
     link.reopen(solicit_prompt=False)
-    append_to_cmdline_blind(guest, link, EXTRA_CMDLINE)
+    open_a_serial_shell_blind(guest, link)
 
 
 def _unanswered(
