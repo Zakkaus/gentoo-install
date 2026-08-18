@@ -439,7 +439,10 @@ BUSY_CPU: Final[float] = 0.10
 #: when one `Connection reset by peer` ended 167 minutes of work.
 RECONNECT_GRANT: Final[float] = 900.0
 #: At most this many, so a console that never comes back still ends the run.
-RECONNECT_GRANTS: Final[int] = 4
+#: Sixteen rather than four: every grant is given only to a guest whose own
+#: counters or CPU say it is working, and `vm-gnome` spent all four of them
+#: still compiling and was ERRORed at 156.5 minutes with the console mid-line.
+RECONNECT_GRANTS: Final[int] = 16
 
 
 @dataclass
@@ -2181,8 +2184,11 @@ KNOWN_BAD_NODES: Final[frozenset[str]] = frozenset()
 #: How many times one guest's console may be reopened before the node itself
 #: is called the problem. A healthy run reconnects a handful of times over an
 #: hour; a node whose proxy is refusing grants and closes a session every time,
-#: which raises nothing and burns the whole run ceiling.
-REOPEN_CEILING: Final[int] = 24
+#: which raises nothing and burns the whole run ceiling. Derived from the
+#: grants, because a ceiling below what the grants can spend ends a working
+#: guest before its last grant: `vm-gnome` was ERRORed mid-compile at 156.5
+#: minutes.
+REOPEN_CEILING: Final[int] = RECONNECT_GRANTS * RECONNECT_TRIES
 
 
 #: How much of a command a verdict carries. `vm-zram` ended a round with a
