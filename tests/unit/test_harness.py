@@ -3126,3 +3126,53 @@ def test_each_mode_waits_for_its_own_medium() -> None:
         assert "never spoke" in ram.came_up(cast(Any, Silent()), mode)
         assert asked == [wanted], (mode, asked)
     assert ram.CJK_SPEAKS != ram.ALPINE_SPEAKS
+
+
+class _CdAppearsLate:
+    """A guest whose shell answers before its ATAPI devices are enumerated,
+    which a Debian cloud image under KVM did at 7.3 seconds."""
+
+    def __init__(self, ready_after: int) -> None:
+        self.ready_after = ready_after
+        self.tries = 0
+
+    def run(self, command: str, timeout: float = 0.0) -> None:
+        return None
+
+    def expect_command(self, command: str, timeout: float = 0.0) -> bytes:
+        self.tries += 1
+        if self.tries > self.ready_after:
+            return b"DRIVER-READY\r\n"
+        return b"DRIVER-ABSENT\r\n"
+
+
+def test_the_driver_cd_is_waited_for_rather_than_asked_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`sh` exits 2 for a script it cannot open, which reads as the installer
+    refusing: the first memory-mode run failed that way with both `/dev/sr0`
+    and `/dev/sr1` answering `Can't open blockdev`."""
+    from typing import Any, cast
+
+    from tests.vm.driver import wait_for_driver
+
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    console = _CdAppearsLate(ready_after=3)
+    wait_for_driver(cast(Any, console))
+
+    assert console.tries == 4, console.tries
+
+
+def test_a_guest_that_never_sees_the_cd_says_so(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bounded: a CD that is genuinely absent has to end the run rather than
+    hold it, and the message carries what the guest answered."""
+    from typing import Any, cast
+
+    from tests.vm.driver import DriverNotFound, wait_for_driver
+
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    console = _CdAppearsLate(ready_after=10**9)
+    with pytest.raises(DriverNotFound, match="DRIVER-ABSENT"):
+        wait_for_driver(cast(Any, console), patience=0.0)
