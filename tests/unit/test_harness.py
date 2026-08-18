@@ -4246,3 +4246,24 @@ def test_the_firmware_and_its_variable_store_are_the_same_build() -> None:
     # And qemu is told the format each one is actually in.
     assert PFLASH_FORMAT[OVMF_CODE.suffix] == "qcow2"
     assert PFLASH_FORMAT[OVMF_VARS.suffix] == PFLASH_FORMAT[OVMF_CODE.suffix]
+
+
+def test_a_lowram_install_failure_carries_the_installers_own_log() -> None:
+    """`FAIL the memory environment did not install: … espfs labelled ESP` came
+    with `/proc/partitions` holding `vdc1` and `vdc2`, `/dev` holding neither,
+    and no way to tell whether `wait_for` had fallen back to `mdev -s` or what
+    stood between the node appearing and the formatter finding nothing. The
+    installer writes every command it runs to its own log, and the diagnostic
+    read everything except that."""
+    import inspect
+
+    from gentoo_install.cli import WORK
+    from gentoo_install.exec.report import RunFile
+    from tests.vm import ram
+
+    asked = inspect.getsource(ram._what_the_disk_holds)
+    assert f"{WORK}/{RunFile.LOG.value}" in asked, asked
+
+    # And it reads between the markers, because several of these commands name
+    # their own answer.
+    assert "expect_output" in asked and "expect_command" not in asked, asked
