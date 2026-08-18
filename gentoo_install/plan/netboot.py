@@ -814,7 +814,16 @@ def _write_custom(
     # a directory. Written the first way on a machine of the second kind, the
     # `search` matches nothing, `root` is left alone, and the entry stops in
     # GRUB with the kernel not found.
-    at = f"{target.grub_prefix}/{PLACE}"
+    # Where the kernel actually is, as the filesystem holding it names it. A
+    # UEFI GRUB reads it off the esp, so the path is relative to the esp and
+    # `grub_prefix` — which describes `/boot` on the root filesystem — would
+    # send `search` after a directory that exists nowhere: the entry then
+    # stopped in GRUB with `you need to load the kernel first.`
+    at = (
+        f"/{PLACE}"
+        if target.method is BootMethod.UEFI_GRUB
+        else f"{target.grub_prefix}/{PLACE}"
+    )
     entry = (
         f"{CUSTOM_BEGIN}\n"
         f"menuentry '{ENTRY_LABEL}' {{\n"

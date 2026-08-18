@@ -1215,3 +1215,37 @@ def test_the_payload_copy_restores_no_ownership_either() -> None:
     line = " ".join(piped[0])
     assert "--no-same-owner" in line, line
     assert "--no-same-permissions" in line, line
+
+
+def test_a_uefi_grub_entry_names_the_path_the_esp_holds() -> None:
+    """The kernel is on the esp and GRUB's `search --file` finds whichever
+    filesystem holds that path. `/boot/gentoo-install-ram/kernel` is on none
+    of them, and the armed machine stopped in GRUB with `you need to load the
+    kernel first.`"""
+    recorder = _answering()
+    netboot.WriteMemoryEntry(
+        mode=MemoryMode.RAM,
+        target=replace(_target(BootMethod.UEFI_GRUB), boot_on_the_root_filesystem=True),
+        launch=_launch(),
+    ).apply(recorder)
+
+    written = _custom(recorder)
+    for line in ("search", "linux", "initrd"):
+        named = next(one for one in written.splitlines() if one.strip().startswith(line))
+        assert f"/{netboot.PLACE}/" in named, named
+        assert "/boot/" not in named, named
+
+
+def test_a_bios_grub_entry_still_names_the_path_boot_holds() -> None:
+    """The other half: a BIOS GRUB reads the kernel from `/boot`, and on a
+    machine whose `/boot` is a directory the path carries it."""
+    recorder = _answering()
+    netboot.WriteMemoryEntry(
+        mode=MemoryMode.RAM,
+        target=replace(_target(BootMethod.BIOS_GRUB), boot_on_the_root_filesystem=True),
+        launch=_launch(),
+    ).apply(recorder)
+
+    written = _custom(recorder)
+    named = next(one for one in written.splitlines() if one.strip().startswith("linux"))
+    assert f"/boot/{netboot.PLACE}/" in named, named
