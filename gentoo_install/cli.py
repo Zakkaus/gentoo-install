@@ -19,7 +19,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Final, Sequence
+from typing import Callable, Final, Mapping, Sequence
 
 from . import errors
 from .errors import GentooInstallError, ResumeRefused
@@ -532,7 +532,7 @@ def install(
         identity = _run_identity(config)
         if arguments.resume:
             _refuse_a_different_run(journal, identity, record)
-        journal.started(configuration=identity[0], session=identity[1])
+        journal.started(**identity)
         finished = completed(journal) if arguments.resume else frozenset()
         if arguments.resume:
             # Replayed before anything runs. The operation that recorded an
@@ -891,18 +891,54 @@ def _image_write_offer(probe: Probe) -> str:
 
 
 
-def _run_identity(config: InstallConfig) -> tuple[str, str]:
-    """What this run is: the configuration it was given and the live session."""
-    written = to_toml(config).encode("utf-8")
-    return hashlib.sha256(written).hexdigest(), probe_module.session_id()
+def installer_digest() -> str:
+    """A digest of the installer's own source, so a resume can tell one
+    installer from another.
+
+    Read rather than declared: the package carries no version, and a live
+    medium is where a source tree is most likely to have been edited between
+    the run that stopped and the run that carries it on.
+    """
+    digest = hashlib.sha256()
+    root = Path(__file__).resolve().parent
+    for path in sorted(root.rglob("*.py")):
+        digest.update(str(path.relative_to(root)).encode("utf-8"))
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def _run_identity(config: InstallConfig) -> dict[str, str]:
+    """What this run is: its configuration, its live session, its installer."""
+    return {
+        "configuration": hashlib.sha256(to_toml(config).encode("utf-8")).hexdigest(),
+        "session": probe_module.session_id(),
+        "installer": installer_digest(),
+    }
+
+
+#: What each mismatch means, in the operator's terms. A resume carries on from
+#: operations recorded by position and text, so every one of these makes the
+#: recorded positions describe something other than the plan about to run.
+_RESUME_REFUSALS: Final[dict[str, str]] = {
+    "configuration": (
+        "this journal was written for a different configuration; start a new "
+        "run or pass the configuration the first one used"
+    ),
+    "session": (
+        "this journal was written before the machine rebooted, and a resumed "
+        "run needs the state the first one left in memory"
+    ),
+    "installer": (
+        "this journal was written by a different installer, which may number "
+        "its operations differently; start a new run"
+    ),
+}
 
 
 def _refuse_a_different_run(
-    journal: Journal, identity: tuple[str, str], record: Callable[[str], None]
+    journal: Journal, identity: Mapping[str, str], record: Callable[[str], None]
 ) -> None:
-    """A resume carries on from operations recorded by position and text, so a
-    journal from another configuration would skip the wrong ones and one from
-    another boot would skip operations whose result the reboot discarded.
+    """Refuse a journal another run wrote.
 
     A journal with no identity is from a run that predates this and is resumed
     the way it always was, with a line saying so.
@@ -911,16 +947,13 @@ def _refuse_a_different_run(
     if held is None:
         record("resuming: the journal records no identity, so it is not checked")
         return
-    if held[0] != identity[0]:
-        raise ResumeRefused(
-            "this journal was written for a different configuration; "
-            "start a new run or pass the configuration the first one used"
-        )
-    if held[1] and identity[1] and held[1] != identity[1]:
-        raise ResumeRefused(
-            "this journal was written before the machine rebooted, and a "
-            "resumed run needs the state the first one left in memory"
-        )
+    for name, refusal in _RESUME_REFUSALS.items():
+        mine, theirs = identity.get(name, ""), held.get(name, "")
+        # An empty value on either side is a machine that cannot answer, and
+        # the boot id is the one that can be missing; comparing against it
+        # would refuse every resume there.
+        if mine and theirs and mine != theirs:
+            raise ResumeRefused(refusal)
 
 def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
     """Walk the screens and return what the operator built, or None."""
