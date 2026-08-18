@@ -68,7 +68,11 @@ The default boot entry is never changed, so an environment that does not come up
 
 [`TESTED.md`](TESTED.md) is the verification record: one row for each exercised path, naming the installer revision it ran at and where it ran. A run counts only when its recorded revision matches the installer, its installation exit code is `0`, the installed system boots, and the post-boot configuration checks pass.
 
-Installing onto a disk has cluster and single-machine records across ext4, xfs, btrfs, f2fs, ZFS, LVM, mdraid and LUKS2, on both firmwares and both init systems. Converting a running system in place has two records, both from QEMU and both BIOS. Arming a boot into a memory environment is implemented and covered by unit and plan tests; no run has rebooted a machine into one, so it has no record. Writing an image is designed and has no record at all.
+Installing onto a disk has cluster and single-machine records across ext4, xfs, btrfs, f2fs, ZFS, LVM, mdraid and LUKS2, on both firmwares and both init systems. Converting a running system in place has three QEMU records: two BIOS records and one UEFI record that booted through its own firmware entry and retained `/home`.
+
+`--ram` and `--lowram` are implemented and wired into `cli.py`; unit and plan tests cover the memory environment's arming path, but no machine has been rebooted into it. `dd` is implemented; its unit and plan tests stream a prepared image onto a whole disk, but no disk has been written this way.
+
+The runner fixture list includes static addressing, ext2, ext3 and a source-built kernel. A runner-level test covers binhost degradation. These tests and fixtures are not end-to-end records.
 
 Files under `tests/fixtures/` exercise the configuration model; their presence establishes nothing about an installed machine.
 
