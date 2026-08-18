@@ -4182,3 +4182,46 @@ def test_a_conversion_reads_its_exit_code_and_not_the_echo() -> None:
         and isinstance(node.value.func, ast.Attribute)
     ]
     assert read == ["expect_output"], read
+
+
+def test_no_installed_check_is_ever_read_with_its_own_echo() -> None:
+    """Twelve of the sixty-nine checks are satisfied by the text of the
+    command that asks them — `echo NO-FAILED-UNITS`, `findmnt … /efi` against
+    `/efi`, `rc-update show default` against `default`. That is harmless only
+    while every reader takes what lies between the two markers: one call site
+    moved to `expect_command` would pass all twelve on any machine, and the
+    conversion's exit code was read that way until today."""
+    import ast
+    import re
+
+    from gentoo_install.exec.config import load
+    from tests.vm.installed import checks
+
+    # First the premise, measured rather than assumed: at least one check does
+    # match its own question, so the rule below is guarding something.
+    echoed = [
+        check.name
+        for check in checks(load(Path("tests/fixtures/zfs-zbm.toml")))
+        if re.search(check.pattern, f"root@livecd ~ # {check.command}\r\n")
+    ]
+    assert echoed, "no check names its own answer, so this rule is dead"
+
+    # `cluster.py` and `convert.py` ask over a console; `run.py` redirects each
+    # answer into a file, where no echo reaches.
+    for module, function in (("cluster", "boot_and_check"), ("convert", "check_installed")):
+        source = Path(f"tests/vm/{module}.py").read_text()
+        tree = ast.parse(source)
+        wanted = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == function
+        )
+        asked = {
+            node.func.attr
+            for node in ast.walk(wanted)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr.startswith("expect_")
+        }
+        assert "expect_command" not in asked, f"{module}.{function} reads the echo: {asked}"
+        assert "expect_output" in asked, f"{module}.{function} asks nothing: {asked}"
