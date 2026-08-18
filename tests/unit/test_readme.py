@@ -187,13 +187,17 @@ def test_reviewed_cross_locale_claims_stay_attached_to_their_factual_units() -> 
         "README.ja.md": "\u3044\u305a\u308c\u304b\u4e00\u65b9",
         "README.ko.md": "\ud558\ub098\ub9cc",
     }
+    # The three the installer now compares, in each locale's own words. The
+    # sentence used to name what was *not* checked; it names what is.
     resume_identity = {
-        "README.md": "same installer revision and the same configuration file",
-        "README.zh-TW.md": "\u540c\u4e00\u500b\u5b89\u88dd\u5668\u4fee\u8a02\u7248\u8207\u540c\u4e00\u4efd\u8a2d\u5b9a\u6a94",
-        "README.zh-CN.md": "\u540c\u4e00\u4e2a\u5b89\u88c5\u7a0b\u5e8f\u4fee\u8ba2\u7248\u4e0e\u540c\u4e00\u4efd\u914d\u7f6e\u6587\u4ef6",
-        "README.ja.md": "\u540c\u3058\u30a4\u30f3\u30b9\u30c8\u30fc\u30e9\u30fc\u30ea\u30d3\u30b8\u30e7\u30f3\u3001\u540c\u3058\u8a2d\u5b9a\u30d5\u30a1\u30a4\u30eb",
-        "README.ko.md": "\ub3d9\uc77c\ud55c \uc124\uce58 \ud504\ub85c\uadf8\ub7a8 \ub9ac\ube44\uc804, \ub3d9\uc77c\ud55c \uc124\uc815 \ud30c\uc77c",
+        "README.md": "same installer and the same configuration file",
+        "README.zh-TW.md": "\u540c\u4e00\u500b\u5b89\u88dd\u5668\u8207\u540c\u4e00\u4efd\u8a2d\u5b9a\u6a94",
+        "README.zh-CN.md": "\u540c\u4e00\u4e2a\u5b89\u88c5\u7a0b\u5e8f\u4e0e\u540c\u4e00\u4efd\u914d\u7f6e\u6587\u4ef6",
+        "README.ja.md": "\u540c\u3058\u30a4\u30f3\u30b9\u30c8\u30fc\u30e9\u30fc\u3001\u540c\u3058\u8a2d\u5b9a\u30d5\u30a1\u30a4\u30eb",
+        "README.ko.md": "\ub3d9\uc77c\ud55c \uc124\uce58 \ud504\ub85c\uadf8\ub7a8, \ub3d9\uc77c\ud55c \uc124\uc815 \ud30c\uc77c",
     }
+    #: Every locale says the installer stops rather than only documenting it.
+    resume_boot_id = dict.fromkeys(resume_identity, "boot id")
     resume_digest_limit = {
         "README.md": "shared helper or constant",
         "README.zh-TW.md": "\u5171\u7528\u8f14\u52a9\u51fd\u5f0f\u6216\u5e38\u6578",
@@ -208,6 +212,7 @@ def test_reviewed_cross_locale_claims_stay_attached_to_their_factual_units() -> 
         assert backups[name] in bodies["safety-review-backup"], name
         assert install_alternatives[name] in bodies["install-config-workflow"], name
         assert resume_identity[name] in bodies["resume-limits"], name
+        assert resume_boot_id[name] in bodies["resume-limits"], name
         assert resume_digest_limit[name] in bodies["resume-limits"], name
         assert "zram" not in bodies["storage-device-graph"], name
         assert "zram" in bodies["zram-system"], name

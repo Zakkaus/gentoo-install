@@ -147,7 +147,7 @@ Before unmounting, an interactive run offers a root shell in the target after ei
 
 <!-- fact: resume-limits -->
 
-Resume is limited to the same live session, the same installer revision and the same configuration file. The default journal is `/run/gentoo-install/install.jsonl`, so it does not survive a reboot. Each operation record contains an identity derived from that operation's class source and field values, so an operation whose identity changed is performed again rather than skipped. A change to a shared helper or constant is outside that identity, and the journal carries no digest of the configuration as a whole, so a different revision or configuration is outside the documented resume scope.
+Resume is limited to the same live session, the same installer and the same configuration file, and the installer now refuses the other cases instead of documenting them. The journal opens with a digest of the configuration, the machine's boot id and a digest of the installer's own source; `--resume` compares all three and stops with an explanatory message on any mismatch. Where the kernel publishes no boot id, only the other two are compared. The default journal is `/run/gentoo-install/install.jsonl`, so it does not survive a reboot in any case. Each operation record also contains an identity derived from that operation's class source and field values, so an operation whose identity changed is performed again rather than skipped; a change to a shared helper or constant is outside that per-operation identity and is covered by the installer digest instead.
 
 ## Configuration files
 
