@@ -402,3 +402,21 @@ def test_every_operation_still_has_to_say_what_it_does() -> None:
     ]
     assert not silent, silent
     assert len(found) > 60, len(found)
+
+
+def test_the_proxy_endpoint_is_defined_once() -> None:
+    """It was written twice, byte for byte, in `plan/portage.py` and
+    `plan/system.py`, while `system.py` already imported from `portage.py`. A
+    second copy of a one-line rule is where the two answers diverge."""
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2] / "gentoo_install" / "plan"
+    defined = [
+        path.name
+        for path in sorted(root.glob("*.py"))
+        for node in ast.walk(ast.parse(path.read_text()))
+        if isinstance(node, ast.FunctionDef) and node.name == "_proxy_endpoint"
+    ]
+
+    assert defined == ["portage.py"], defined
