@@ -789,3 +789,97 @@ def test_the_boot_target_carries_no_fact_nothing_reads() -> None:
         # The declaration itself is one mention; a field nothing reads has
         # exactly that one.
         assert source.count(field.name) > 1, field.name
+
+
+#: What the CERNET index and one build directory answered on 2026-08-18,
+#: trimmed to the lines these two patterns read. The mirror answers 302 to
+#: whichever member is closest, so what a machine sees is this after the
+#: redirect.
+MIRROR_INDEX = (
+    '<a href="/">Home</a><a href="../">../</a>\n'
+    '<a href="20260810T183054Z/">20260810T183054Z/</a>  10-Aug-2026 18:35  -\n'
+    '<a href="20260813T073053Z/">20260813T073053Z/</a>  13-Aug-2026 07:35  -\n'
+    '<a href="mailto:cips@nyist.edu.cn">contact</a>\n'
+)
+MIRROR_BUILD = (
+    '<a href="../">../</a>\n'
+    '<a href="install-amd64-cjk-minimal-20260813T073053Z.iso">…</a> 943M\n'
+    '<a href="install-amd64-cjk-minimal-20260813T073053Z.iso.CONTENTS.gz">…</a>\n'
+    '<a href="install-amd64-cjk-minimal-20260813T073053Z.iso.DIGESTS">…</a>\n'
+    '<a href="install-amd64-cjk-minimal-20260813T073053Z.iso.sha256">…</a>\n'
+)
+MIRROR_ISO = "install-amd64-cjk-minimal-20260813T073053Z.iso"
+
+
+def _mirroring(*, answers: bool = True, digest: str = DIGEST) -> Recorder:
+    def answer(argv: Sequence[str]) -> str | None:
+        if argv[0] != "curl":
+            if argv[0] == "sha256sum":
+                return f"{digest}  {argv[1]}\n"
+            if argv[0] == "ls":
+                return f"{MIRROR_ISO}\nkernel\ninitramfs\n"
+            if argv[0] == "blkid":
+                return "Gentoo-CJK-amd64-20260813\n"
+            return None
+        wanted = argv[-1]
+        if wanted.startswith(netboot.CJK_MIRROR):
+            if not answers:
+                return CommandOutput("", 7)
+            if wanted.endswith(".sha256"):
+                return f"{DIGEST}  {MIRROR_ISO}\n"
+            if wanted.rstrip("/").endswith("Z"):
+                # Each build lists its own name, so a run that took the wrong
+                # directory fetches a URL carrying the wrong timestamp.
+                build = wanted.rstrip("/").rsplit("/", 1)[1]
+                return MIRROR_BUILD.replace("20260813T073053Z", build)
+            return MIRROR_INDEX
+        if wanted == netboot.CJK_RELEASES:
+            return CJK_INDEX
+        if wanted.endswith(".sha256"):
+            return f"{DIGEST}  {ISO}\n"
+        return ""
+
+    recorder = Recorder()
+    recorder.answering = answer
+    return recorder
+
+
+def test_the_iso_comes_from_the_mirror_before_the_release_index() -> None:
+    """The machines this path exists for are in China, and a gigabyte from
+    GitHub's CDN is the slowest part of the whole run. CERNET answers 302 to
+    whichever member mirror is closest."""
+    recorder = _mirroring()
+    netboot.FetchMemoryImage(mode=MemoryMode.RAM, target=_target()).apply(recorder)
+
+    fetched = [one for one in _run(recorder, "curl") if "--output" in one]
+    assert fetched[0][-1].startswith(netboot.CJK_MIRROR), fetched
+    assert fetched[0][-1].endswith(MIRROR_ISO), fetched
+    # The newest build, not the first the index lists.
+    assert "/20260813T073053Z/" in fetched[0][-1], fetched
+    # The release index is not asked at all when the mirror answered.
+    assert not any(netboot.CJK_RELEASES in one for one in recorder.commands)
+
+
+def test_the_newest_build_is_taken_rather_than_the_first() -> None:
+    """The index lists every build it keeps, oldest first, and the newest is
+    the greatest timestamp rather than the last line."""
+    builds = netboot.CJK_BUILD.findall(MIRROR_INDEX)
+    assert builds == ["20260810T183054Z", "20260813T073053Z"], builds
+    assert max(builds) == "20260813T073053Z"
+
+
+def test_a_mirror_that_does_not_answer_falls_back_to_the_release_index() -> None:
+    """A mirror that is down is not a reason to stop: neither route is a
+    single point of failure."""
+    recorder = _mirroring(answers=False)
+    netboot.FetchMemoryImage(mode=MemoryMode.RAM, target=_target()).apply(recorder)
+
+    fetched = [one for one in _run(recorder, "curl") if "--output" in one]
+    assert fetched[0][-1] == f"https://host/{ISO}", fetched
+
+
+def test_only_the_iso_and_its_checksum_are_read_from_a_build() -> None:
+    """`DIGESTS` and `CONTENTS.gz` are in the same directory, and a pattern
+    that took any href would offer one of them as the image."""
+    names = netboot.CJK_ASSET.findall(MIRROR_BUILD)
+    assert names == [MIRROR_ISO, f"{MIRROR_ISO}.sha256"], names
