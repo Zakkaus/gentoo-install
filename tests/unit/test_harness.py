@@ -2706,7 +2706,17 @@ def test_a_name_typed_the_moment_the_prompt_appears_is_offered_again(
     from tests.vm import cluster
 
     monkeypatch.setattr(cluster, "AGETTY_FLUSHES_AFTER", 0.0)
-    said = [b"\r\nopenrcsdbox login: ", b"\r\nopenrcsdbox login: ", b"Password: "]
+    # The name's echo before each answer, because agetty echoes what is typed
+    # at a login prompt and the harness reads its own name back to know that
+    # the prompt after it is a fresh one.
+    said = [
+        b"root\r\n",
+        b"\r\nopenrcsdbox login: ",
+        b"root\r\n",
+        b"\r\nopenrcsdbox login: ",
+        b"root\r\n",
+        b"Password: ",
+    ]
     offered: list[str] = []
 
     class Prompting:

@@ -2538,6 +2538,11 @@ AGETTY_FLUSHES_AFTER: Final[float] = 2.0
 LOGIN_TRIES: Final[int] = 4
 
 
+#: Who the installed system is logged in as. Its echo is what tells a fresh
+#: password prompt from one the attempt before left in the buffer.
+NAME: Final[str] = "root"
+
+
 def _name_the_user(link: Reconnecting) -> bool:
     """Give the login prompt a name, and say whether it took one.
 
@@ -2557,8 +2562,13 @@ def _name_the_user(link: Reconnecting) -> bool:
             # It came back, so that name did not take. This is the wait agetty
             # needs, and it belongs where the console has proved it.
             time.sleep(AGETTY_FLUSHES_AFTER)
-        link.respond("root")
+        link.respond(NAME)
         try:
+            # The echo of the name first: the prompt that follows it is the
+            # one this name produced. `ext3` was failed for a `Password:` left
+            # in the buffer by the attempt before, which read as an answer and
+            # sent the password into the next login prompt's name field.
+            link.observe(rf"{NAME}", timeout=60.0)
             said = link.observe(
                 rf"{PASSWORD_PROMPT}|{'|'.join(LOGIN_PROMPTS)}", timeout=60.0
             )
