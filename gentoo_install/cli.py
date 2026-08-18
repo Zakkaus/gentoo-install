@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import curses
+import hashlib
 import locale
 import os
 import shutil
@@ -21,10 +22,11 @@ from pathlib import Path
 from typing import Callable, Final, Sequence
 
 from . import errors
-from .errors import GentooInstallError
+from .errors import GentooInstallError, ResumeRefused
 from .data import load_catalog
 from .exec import fetch, preflight, report
 from .exec.apply import Machine, already_degraded, apply, completed
+from .exec import probe as probe_module
 from .exec.probe import (
     GRUB_DIRECTORIES,
     BootMethod,
@@ -34,6 +36,7 @@ from .exec.probe import (
     secure_boot,
 )
 from .exec.runner import Runner
+from .log import Journal
 from .model.device import StorageFacts, StorageLayout, ZfsPool
 from .model.size import Size
 from .tui import app, screens
@@ -425,6 +428,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_machine_state(state)
         print(f"device: {error}", file=sys.stderr)
         return EXIT_PREFLIGHT
+    except errors.ResumeRefused as error:
+        # Before the machine state is printed: nothing of this run has touched
+        # the disks, and the state to report is the earlier run's.
+        print(f"resume: {error}", file=sys.stderr)
+        return EXIT_CONFIG
     except errors.ConfigError as error:
         _print_machine_state(state)
         print(f"configuration: {error}", file=sys.stderr)
@@ -521,6 +529,10 @@ def install(
             work=work,
             mountpoint=target,
         )
+        identity = _run_identity(config)
+        if arguments.resume:
+            _refuse_a_different_run(journal, identity, record)
+        journal.started(configuration=identity[0], session=identity[1])
         finished = completed(journal) if arguments.resume else frozenset()
         if arguments.resume:
             # Replayed before anything runs. The operation that recorded an
@@ -877,6 +889,38 @@ def _image_write_offer(probe: Probe) -> str:
         return ""
     return "writing an image over the running root would overwrite the installer"
 
+
+
+def _run_identity(config: InstallConfig) -> tuple[str, str]:
+    """What this run is: the configuration it was given and the live session."""
+    written = to_toml(config).encode("utf-8")
+    return hashlib.sha256(written).hexdigest(), probe_module.session_id()
+
+
+def _refuse_a_different_run(
+    journal: Journal, identity: tuple[str, str], record: Callable[[str], None]
+) -> None:
+    """A resume carries on from operations recorded by position and text, so a
+    journal from another configuration would skip the wrong ones and one from
+    another boot would skip operations whose result the reboot discarded.
+
+    A journal with no identity is from a run that predates this and is resumed
+    the way it always was, with a line saying so.
+    """
+    held = journal.identity()
+    if held is None:
+        record("resuming: the journal records no identity, so it is not checked")
+        return
+    if held[0] != identity[0]:
+        raise ResumeRefused(
+            "this journal was written for a different configuration; "
+            "start a new run or pass the configuration the first one used"
+        )
+    if held[1] and identity[1] and held[1] != identity[1]:
+        raise ResumeRefused(
+            "this journal was written before the machine rebooted, and a "
+            "resumed run needs the state the first one left in memory"
+        )
 
 def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
     """Walk the screens and return what the operator built, or None."""

@@ -51,6 +51,26 @@ class Journal:
         for atom, source in merged(output):
             self.write("package", atom=atom, source=source.value)
 
+    def started(self, *, configuration: str, session: str) -> None:
+        """What this run is, so a later `--resume` can refuse a different one.
+
+        `configuration` is a digest of the file the run was given and
+        `session` is the machine's boot id: a resume that skips operations by
+        their position and description would otherwise skip them on a plan
+        that no longer says the same thing.
+        """
+        self.write("started", configuration=configuration, session=session)
+
+    def identity(self) -> tuple[str, str] | None:
+        """What the first run recorded, or None for a journal without one."""
+        for entry in self.replay():
+            if entry.get("event") == "started":
+                configuration = entry.get("configuration")
+                session = entry.get("session")
+                if isinstance(configuration, str) and isinstance(session, str):
+                    return configuration, session
+        return None
+
     def degraded(self, what: str, reason: str) -> None:
         """A path the install had to give up on, and why. Always recorded: a
         binary host that fell back to compiling is the difference between a

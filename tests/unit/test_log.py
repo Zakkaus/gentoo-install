@@ -51,3 +51,33 @@ def test_a_chrooted_runner_writes_to_the_same_journal(tmp_path: Path) -> None:
     journal = Journal(path=tmp_path / "install.jsonl")
     runner = Runner(log=lambda line: None, journal=journal)
     assert runner.in_target(Path("/mnt/gentoo")).journal is journal
+
+
+def test_a_journal_carries_what_the_run_was(tmp_path: Path) -> None:
+    """`--resume` skips operations by position and description, so a journal
+    from another configuration would skip the wrong ones and one from before a
+    reboot would skip operations whose result the reboot discarded. The
+    journal had no way to say which run wrote it."""
+    from gentoo_install.log import Journal
+
+    journal = Journal(path=tmp_path / "install.jsonl")
+    assert journal.identity() is None, "a journal that recorded nothing claims nothing"
+
+    journal.started(configuration="abc123", session="a-boot-id")
+    journal.operation(stage="partition", described="do something", seconds=1.0)
+    assert journal.identity() == ("abc123", "a-boot-id")
+
+    # Read back from the file, not from memory: a resumed run is a new process.
+    assert Journal(path=tmp_path / "install.jsonl").identity() == ("abc123", "a-boot-id")
+
+
+def test_an_identity_entry_missing_a_field_is_not_an_identity(tmp_path: Path) -> None:
+    """A line written by a future version, or a partial one from a run killed
+    mid-write, must not read as an identity that happens to match."""
+    import json
+
+    from gentoo_install.log import Journal
+
+    path = tmp_path / "install.jsonl"
+    path.write_text(json.dumps({"event": "started", "configuration": "abc123"}) + "\n")
+    assert Journal(path=path).identity() is None
