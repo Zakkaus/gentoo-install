@@ -53,6 +53,11 @@ EFI_WIDTH: Final[Path] = EFI_MARKER / "fw_platform_size"
 EFI_VARIABLES: Final[Path] = EFI_MARKER / "efivars"
 
 
+#: udev's own socket. Present exactly while udevd is running, so its absence
+#: is what tells a machine managed by mdev apart from one managed by udev.
+UDEV_CONTROL: Final[Path] = Path("/run/udev/control")
+
+
 #: Where a BIOS GRUB keeps its configuration. Both spellings, because Fedora
 #: and openSUSE use `grub2` and Debian and Arch use `grub`.
 GRUB_DIRECTORIES: Final[tuple[Path, ...]] = (
@@ -644,12 +649,18 @@ class Probe:
 
         `partprobe` returns before udev has finished creating the nodes, so the
         first operation that wants a new partition would otherwise find nothing.
+        Where mdev is the device manager instead, `udevadm settle` answers at
+        once with no daemon behind it and the node is created by a scan: the
+        `--lowram` environment had `vdc1` and `vdc2` in `/proc/partitions` and
+        neither of them in `/dev`.
         """
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
             if Path(path).exists():
                 return path
             self.runner.run(["udevadm", "settle"], check=False)
+            if not UDEV_CONTROL.exists():
+                self.runner.run(["mdev", "-s"], check=False)
             time.sleep(0.5)
         raise DeviceNotFound(f"{path} did not appear within {seconds:.0f}s")
 

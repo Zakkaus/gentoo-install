@@ -6,6 +6,7 @@ from typing import Sequence
 import json
 import pytest
 
+from gentoo_install.errors import DeviceNotFound
 from gentoo_install.exec import probe
 from gentoo_install.exec.probe import Probe
 from gentoo_install.exec.runner import Result, Runner
@@ -726,3 +727,51 @@ def test_a_machine_with_no_such_variable_answers_unread(
     `disabled`: a refusal built on it would be one nobody can act on."""
     monkeypatch.setattr(probe, "SECURE_BOOT", tmp_path / "absent")
     assert probe.secure_boot() is None
+
+
+class Asking(Runner):
+    """A runner that records what was asked and answers nothing."""
+
+    def __init__(self) -> None:
+        super().__init__(log=lambda line: None)
+        self.asked: list[tuple[str, ...]] = []
+
+    def run(self, argv: Sequence[str], **rest: object) -> Result:
+        self.asked.append(tuple(argv))
+        return Result(argv=tuple(argv), returncode=0, stdout="", stderr="", seconds=0.0)
+
+
+def test_a_node_is_scanned_for_where_mdev_is_the_device_manager(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Alpine's netboot root runs mdev, so `udevadm settle` returns at once
+    with no daemon behind it. The `--lowram` install stopped at `/dev/vdc2 did
+    not appear within 15s` on a machine whose `/proc/partitions` held `vdc1`
+    and `vdc2` and whose `/dev` held neither."""
+    monkeypatch.setattr(probe, "UDEV_CONTROL", tmp_path / "no-udev-here")
+    asking = Asking()
+    reader = Probe(runner=asking, work=tmp_path)
+
+    with pytest.raises(DeviceNotFound):
+        reader.wait_for(str(tmp_path / "vdc2"), seconds=0.6)
+
+    assert ("mdev", "-s") in asking.asked, asking.asked
+    assert ("udevadm", "settle") in asking.asked, asking.asked
+
+
+def test_a_machine_running_udev_is_not_sent_to_mdev(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other direction: `mdev -s` on a udev machine rebuilds `/dev` from
+    mdev's own rules while udevd is writing it."""
+    control = tmp_path / "udev-control"
+    control.write_text("")
+    monkeypatch.setattr(probe, "UDEV_CONTROL", control)
+    asking = Asking()
+    reader = Probe(runner=asking, work=tmp_path)
+
+    with pytest.raises(DeviceNotFound):
+        reader.wait_for(str(tmp_path / "vdc2"), seconds=0.6)
+
+    assert ("mdev", "-s") not in asking.asked, asking.asked
+    assert ("udevadm", "settle") in asking.asked, asking.asked
