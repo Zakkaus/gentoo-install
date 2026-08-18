@@ -39,7 +39,7 @@ from ..model.device import (
 from .bootloader import serial_console
 from .mounts import resolve_mounts
 from .operations import CommandOutput, Context, Operation, Stage
-from .portage import Emerge, PortageConfigKind, WritePortageConfig
+from .portage import Emerge, PortageConfigKind, WritePortageConfig, _proxy_endpoint
 
 #: Console fonts `sys-apps/kbd` installs, by the cell size they draw.
 CONSOLE_FONTS: Final[dict[ConsoleFontSize, str]] = {
@@ -1208,11 +1208,6 @@ def build(config: InstallConfig) -> list[Operation]:
         ]
     operations += _zfs_services(config)
     return operations
-
-
-def _proxy_endpoint(proxy: ProxyConfig) -> str:
-    """The proxy URL without user information, for process environments."""
-    return proxy.redacted_url
 
 
 def _zfs_services(config: InstallConfig) -> list[Operation]:
