@@ -154,8 +154,8 @@ cluster fixture.
 
 ## Mode 3: boot into RAM, then install or write an image
 
-Implemented and wired into `cli.py`. One machine has been rebooted into the
-environment it arms, on `--lowram`; `--ram` and `dd` have no record. `--ram` fetches the Gentoo CJK ISO, `--lowram` the
+Implemented and wired into `cli.py`. Machines have been rebooted into both
+environments it arms; `dd` has no record. `--ram` fetches the Gentoo CJK ISO, `--lowram` the
 Alpine netboot archive; both place a kernel where the machine's own bootloader
 reads one, deliver the configuration and the installer's own tree in a cpio
 appended to the initramfs, and arm a single boot. `--bypass` replaces the
@@ -170,7 +170,14 @@ layout and bootloader. No machine has been written this way either.
 | Revision | What ran | Result |
 |---|---|---|
 | `6762496a41dd` | `--lowram` on a Debian 12 genericcloud machine, UEFI | armed one boot, left the default entry alone, rebooted, came up in Alpine from RAM with the delivered configuration and asked `install or shell>` |
-| — | `--ram`, `dd` | nothing end to end yet |
+| `2f03f85139d2` | `--ram` on the same machine | the same, through the Gentoo CJK ISO: `root=live:CDLABEL=Gentoo-CJK-amd64-20260813`, the live image copied into RAM, `livecd login: root (automatic login)`, then `install or shell>` |
+| — | `dd` | nothing end to end yet |
+
+The two paths deliver the payload differently and each was measured on its
+own: `--ram` through a dracut `pre-pivot` hook on a medium that logs root in
+by itself, `--lowram` through an apkovl on one that asks for a login. The
+`--ram` record followed the `--lowram` one by twenty minutes, because by then
+everything the two share had been found.
 
 The first record took nine runs, each one step further than the last, and
 every step was a defect nothing in the tree could see: the image written to a
