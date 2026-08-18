@@ -251,7 +251,9 @@ def test_a_guest_runs_behind_whoever_is_at_the_keyboard() -> None:
     spec = VmSpec(
         medium=MEDIA["official-minimal"],
         workdir=Path("/tmp"),
-        firmware=Firmware.UEFI,
+        # BIOS, because this asserts the argv prefix and UEFI would want the
+        # machine's OVMF images, which a runner without a hypervisor lacks.
+        firmware=Firmware.BIOS,
         ssh_port=2222,
         boot_installed=True,
     )
@@ -1295,6 +1297,7 @@ def test_negative_cluster_limit_is_refused_before_building() -> None:
         main(["vm-lvm", "--limit", "-1"])
 
 
+@pytest.mark.lab
 def test_zero_cluster_capacity_returns_an_error_after_a_deadline(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1487,6 +1490,7 @@ def test_workdirs_are_confined_before_any_vm_artifact_is_written(
     ) == 1
 
 
+@pytest.mark.lab
 def test_parallel_driver_builds_do_not_share_staging(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2957,6 +2961,7 @@ def test_the_local_runner_pins_no_interface_name_either() -> None:
         assert "eth0" not in address, address
 
 
+@pytest.mark.lab
 def test_create_target_refuses_a_path_outside_the_run_directories(tmp_path: Path) -> None:
     """Its first act is to delete the file it is given. The images an in-place
     conversion will be handed are downloaded once and kept — `lab/vm/cloud/`
@@ -3746,6 +3751,7 @@ def test_a_check_reads_the_output_and_not_the_question(tmp_path: Path) -> None:
     assert b"RESOLVCONF-OK" in whole, "the echo is what the old reading carried"
 
 
+@pytest.mark.lab
 def test_the_driver_medium_reaches_a_guest_with_no_ata_driver(tmp_path: Path) -> None:
     """The Debian genericcloud kernel builds no ATA or AHCI driver, so a
     `media=cdrom` drive gave the guest no `/dev/sr*` at all: measured inside
@@ -4046,7 +4052,7 @@ def test_the_result_disk_is_named_and_not_numbered() -> None:
     spec = VmSpec(
         medium=MEDIA["official-minimal"],
         workdir=Path("/tmp"),
-        firmware=Firmware.UEFI,
+        firmware=Firmware.BIOS,
         disks=(Path("/tmp/result.img"),),
         driver_iso=Path("/tmp/driver.iso"),
         boot_installed=True,

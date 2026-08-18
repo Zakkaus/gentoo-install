@@ -30,4 +30,6 @@ jobs:
       - name: mypy
         run: python -m mypy
       - name: pytest
-        run: python -m pytest -q -p no:cacheprovider
+        # Without the `lab` tests: they read OVMF, a hypervisor, `arping` or a
+        # downloaded ISO, none of which a runner has.
+        run: python -m pytest -q -p no:cacheprovider -m "not lab"

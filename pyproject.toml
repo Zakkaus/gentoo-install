@@ -13,3 +13,10 @@ files = ["gentoo_install", "tests"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+# A test that reads this machine rather than the tree: OVMF firmware, a
+# hypervisor, `arping`, a downloaded ISO. They run here and are skipped by CI
+# with `-m "not lab"`, because a runner has none of those and a green suite
+# that skipped nothing it needed is the point of the marker.
+markers = [
+    "lab: needs this workstation's firmware, tools or downloaded media",
+]
