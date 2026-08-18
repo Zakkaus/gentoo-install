@@ -1768,3 +1768,59 @@ def test_a_detail_with_no_newline_is_unchanged() -> None:
     """Most verdicts are one line already, and rewriting them would change
     every log this campaign has produced."""
     assert cluster._one_line("the installer exited b'4'") == "the installer exited b'4'"
+
+
+class _DroppedOnce:
+    """A console that has been closed and records what is written to it."""
+
+    def __init__(self) -> None:
+        self.sent: list[str] = []
+        self.closed = True
+
+    def send(self, line: str) -> None:
+        self.sent.append(line)
+
+    def send_raw(self, keys: str) -> None:
+        self.sent.append(keys)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_a_reopen_before_a_write_sends_no_empty_line() -> None:
+    """The line the caller is about to write is the request for a prompt, and
+    the empty one a solicit adds is a line the guest answers first. At a
+    `login:` prompt agetty takes it as an attempt and reprints its banner, so
+    every send after it answers the prompt before the one it was written for:
+    `vm-lvm` and `openrc-sdboot` failed that way in three rounds."""
+    opened: list[_DroppedOnce] = []
+
+    def open_console() -> _DroppedOnce:
+        made = _DroppedOnce()
+        made.closed = not opened  # the first is closed, the reopened one is not
+        opened.append(made)
+        return made
+
+    link = cluster.Reconnecting(cast("Any", open_console))
+    link.send("root")
+
+    assert len(opened) == 2, opened
+    assert opened[1].sent == ["root"], opened[1].sent
+    assert "" not in opened[1].sent, opened[1].sent
+
+
+def test_a_reopen_that_is_waiting_for_a_shell_still_asks_for_one() -> None:
+    """The other direction: a console reopened while nothing is being written
+    shows nothing until it is asked, and the waits below look for text."""
+    opened: list[_DroppedOnce] = []
+
+    def open_console() -> _DroppedOnce:
+        made = _DroppedOnce()
+        made.closed = False
+        opened.append(made)
+        return made
+
+    link = cluster.Reconnecting(cast("Any", open_console))
+    link.reopen()
+
+    assert opened[-1].sent == [""], opened[-1].sent

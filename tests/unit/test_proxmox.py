@@ -1957,8 +1957,11 @@ def test_a_command_is_delivered_after_the_console_was_dropped() -> None:
     link = Reconnecting(open_console, tries=4)
     link.send("probe me")
     assert len(opened) == 2, "the closed console has to be replaced before the write"
-    # `reopen` sends an empty line first, to make the shell draw a prompt.
-    assert opened[1].sent == ["", "probe me"]
+    # The command and nothing else. This asserted `["", "probe me"]` while a
+    # reopen before a write also asked for a prompt, and that empty line is
+    # what agetty counted as a login attempt: `vm-lvm` and `openrc-sdboot`
+    # failed in three rounds with the password arriving one prompt late.
+    assert opened[1].sent == ["probe me"]
     assert opened[0].sent == [], "nothing goes into the dropped one"
 
 

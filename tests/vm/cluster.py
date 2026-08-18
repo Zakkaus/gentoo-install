@@ -2339,12 +2339,22 @@ class Reconnecting:
         the command undelivered: `wait_for_network` sent its probe into a
         closed socket and then waited fifteen minutes for output that was
         never going to come. Eight guests failed that way in one round.
+
+        Unsolicited, because the caller is about to write: the line it sends
+        is the request for a prompt, and the empty one a solicit adds is a
+        line the guest answers first. At a `login:` prompt agetty takes it as
+        an attempt and reprints its banner, and every send after that answers
+        the prompt before the one it was written for. `vm-lvm` and
+        `openrc-sdboot` failed that way in run64, run65 and run66: the console
+        held `lvmbox login: ` with an empty line under it, then `root`,
+        `Password:`, an empty password, and `install` echoed at the next
+        `login:`.
         """
         if not self.console.closed:
             return
         for attempt in range(self._tries):
             try:
-                self.reopen()
+                self.reopen(solicit_prompt=False)
                 return
             except (ConsoleClosed, OSError):
                 if attempt + 1 == self._tries:
