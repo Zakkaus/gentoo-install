@@ -1,33 +1,35 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Arm one boot into a memory environment on a running machine, and read it.
+"""Install through a memory environment, then prove an armed failure falls back.
 
-The other runners install onto a disk or convert a running system. This one
-verifies the step before either: `--ram` and `--lowram` place a kernel where
-the machine's own bootloader reads one, arm a single boot, and leave the
-default entry alone. Nothing else in the suite reboots a machine into
-something this installer put there, which is why `TESTED.md` has no row for
-it.
-
-A cloud image is the machine under test, the same one `convert.py` uses: it
-has a bootloader, a disk layout and a distribution that is not Gentoo, so a
-console that comes up Gentoo is the memory environment and nothing else.
+The cloud image under test has its own bootloader, disk layout and non-Gentoo
+system. The runner first boots the delivered `--ram` or `--lowram` environment,
+answers its first screen with `install`, and boots the resulting disk through
+the shared installed-state contract. A separate fresh image arms one boot,
+removes the entry's initramfs, and proves the original system boots twice.
 """
 
 from __future__ import annotations
 
 import argparse
 import re
+import shlex
+import subprocess
 import sys
 import time
 from pathlib import Path
 from typing import Final
 
+from gentoo_install.exec.config import load
+from gentoo_install.model.config import InstallConfig
+from gentoo_install.plan.netboot import ENTRY_LABEL
+
 from .console import ConsoleClosed, ConsoleTimeout, SerialConsole
 from .convert import IMAGES, CloudImage, install_tools, overlay, reach_root, seed
-from .driver import build as build_driver, wait_for_driver
-from .media import MEDIA
+from .driver import REPOSITORY, build as build_driver, wait_for_driver
+from .media import MEDIA, MediaError
 from .qemu import Vm, VmSpec
-from .run import free_port
+from .results import ResultError, create_disk
+from .run import check_installed, free_port, power_off, report, unlock_and_login
 from .workdir import confined
 
 WORKROOT: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/ram"
@@ -61,16 +63,155 @@ LOGIN_PATIENCE: Final[float] = 300.0
 #: service, so it follows the login prompt rather than racing it.
 PAYLOAD_PATIENCE: Final[float] = 300.0
 
+#: A pre-arming file that only the cloud system owns.
+FALLBACK_MARKER: Final[str] = "gentoo-install-ram-fallback-system"
+FALLBACK_MARKER_PATH: Final[str] = f"/var/lib/{FALLBACK_MARKER}"
+#: The normal completion record emitted only after every install operation ends.
+INSTALL_FINISHED: Final[str] = r"installed [0-9]+ operations into /mnt/gentoo;"
+#: What `cli.py` prints instead when an operation raised.
+INSTALL_STOPPED: Final[str] = r"the install stopped:"
+#: Cluster guests kept making progress after three hours, so use its eight-hour
+#: ceiling; its twenty-minute quiet window rejects a stopped serial console.
+INSTALL_CEILING: Final[float] = 8 * 3600.0
+INSTALL_IDLE: Final[float] = 20 * 60.0
+POST_INSTALL_PATIENCE: Final[float] = 600.0
+#: A deleted initramfs prevents this entry from reaching its first screen.
+BROKEN_BOOT_PATIENCE: Final[float] = 180.0
+
 
 def arm(console: SerialConsole, config: str, mode: str) -> None:
     """Run the installer in its memory mode and keep everything it printed."""
     console.run("mkdir -p /tmp/gentoo-install-results", timeout=60.0)
     console.run(
-        f"{{ sh /mnt/driver/install.sh --config {config} --{mode}; echo $? "
-        "> /tmp/gentoo-install-results/arm.rc; } 2>&1 "
+        f"sh /mnt/driver/install.sh --config {config} --{mode} 2>&1 "
         "| tee /tmp/gentoo-install-results/arm.txt",
         timeout=ARM_CEILING,
     )
+
+
+def arm_and_confirm(console: SerialConsole, config: str, mode: str) -> bytes:
+    """Arm one boot and reject a missing one-shot or a moved default entry."""
+    before = read_the_default_entry(console)
+    arm(console, config, mode)
+    after = read_the_default_entry(console)
+    if not _one_shot_is_armed(after):
+        raise RuntimeError(f"GRUB recorded no one-shot entry: {after!r}")
+    if _default_changed(before, after):
+        raise RuntimeError(
+            "the default boot entry changed, which this mode promises not to do: "
+            f"{before!r} then {after!r}"
+        )
+    return after
+
+
+def _one_shot_is_armed(said: bytes) -> bool:
+    """Whether GRUB recorded the entry that its next boot will select."""
+    return any(
+        line.strip() == f"next_entry={ENTRY_LABEL}"
+        for line in said.decode("utf-8", "replace").splitlines()
+    )
+
+
+def break_armed_environment(console: SerialConsole) -> None:
+    """Remove the entry's initramfs without changing its one-shot state.
+
+    The entry loads this exact file. Removing it after arming makes that selected
+    entry unable to start, while leaving GRUB's `next_entry` for the reboot.
+    """
+    said = console.expect_output(
+        "find /boot /efi -type f -path '*/gentoo-install-ram/initramfs' -print "
+        "2>/dev/null",
+        timeout=60.0,
+    )
+    paths = tuple(line for line in said.decode("utf-8", "replace").splitlines() if line)
+    if len(paths) != 1:
+        raise RuntimeError(f"the armed entry has {len(paths)} initramfs files: {paths!r}")
+    initramfs = shlex.quote(paths[0])
+    console.run(f"rm -- {initramfs}", timeout=60.0)
+    broken = console.expect_output(
+        f"if test ! -e {initramfs}; then printf INITRAMFS-BROKEN; "
+        "else printf INITRAMFS-STILL-PRESENT; fi",
+        timeout=60.0,
+    ).strip()
+    if broken != b"INITRAMFS-BROKEN":
+        raise RuntimeError(f"the armed initramfs was not removed: {broken!r}")
+
+
+def memory_did_not_start(console: SerialConsole) -> None:
+    """Require the entry with its missing initramfs to miss the delivered screen."""
+    try:
+        console.expect(PAYLOAD_SPEAKS, timeout=BROKEN_BOOT_PATIENCE)
+    except (ConsoleClosed, ConsoleTimeout):
+        return
+    raise RuntimeError("the entry with its initramfs removed reached the delivered screen")
+
+
+def mark_own_system(console: SerialConsole) -> None:
+    """Write a marker on the cloud disk before its one-shot boot is armed."""
+    console.run(
+        f"printf '%s\\n' {FALLBACK_MARKER} > {FALLBACK_MARKER_PATH}",
+        timeout=60.0,
+    )
+
+
+def require_own_system(console: SerialConsole, chosen: CloudImage) -> None:
+    """Read the cloud marker and its own os-release identity between markers."""
+    said = console.expect_output(
+        f"cat {FALLBACK_MARKER_PATH}; . /etc/os-release; printf 'ID=%s\\n' \"$ID\"",
+        timeout=60.0,
+    )
+    wanted = (FALLBACK_MARKER.encode(), f"ID={chosen.name}".encode())
+    missing = tuple(one.decode() for one in wanted if one not in said)
+    if missing:
+        raise RuntimeError(
+            "the machine did not return to its own system: missing "
+            f"{', '.join(missing)} from {said!r}"
+        )
+
+
+def install_from_memory(console: SerialConsole) -> None:
+    """Choose installation once, then wait for its recorded completion.
+
+    The installer's own refusal is matched beside the completion: it returns
+    to the environment's shell and prints nothing more, so waiting only for
+    the completion spends the whole idle window on a run that already ended.
+    """
+    console.send("install")
+    said = console.expect(
+        rf"{INSTALL_FINISHED}|{INSTALL_STOPPED}",
+        timeout=INSTALL_CEILING,
+        idle=INSTALL_IDLE,
+    )
+    if re.search(INSTALL_STOPPED.encode(), said):
+        console.expect(r"# ", timeout=POST_INSTALL_PATIENCE)
+        raise RuntimeError(
+            f"the memory environment did not install: "
+            f"{said.decode('utf-8', 'replace')[-300:]}; {_what_the_disk_holds(console)}"
+        )
+    console.expect(r"# ", timeout=POST_INSTALL_PATIENCE)
+
+
+def _what_the_disk_holds(console: SerialConsole) -> str:
+    """What the machine says about the disk the install stopped on.
+
+    Read between the markers rather than after the command, because the shell
+    echoes the line it was given and a reader of that echo learns nothing.
+    """
+    answers = []
+    for command in (
+        "cat /proc/partitions",
+        "grep -c . /proc/mounts; grep vd /proc/mounts",
+        "ls -l /dev/vd*",
+        "for one in /proc/[0-9]*/comm; do cat \"$one\"; done | sort -u | tr '\\n' ' '",
+        "command -v mdev; echo mdev=$?",
+        "dmesg | tail -20",
+    ):
+        try:
+            said = console.expect_output(command, timeout=60.0)
+        except (ConsoleClosed, ConsoleTimeout) as error:
+            said = f"unanswered: {error}".encode()
+        answers.append(f"{command}: {said.decode('utf-8', 'replace').strip()}")
+    return " | ".join(answers)
 
 
 def read_the_default_entry(console: SerialConsole) -> bytes:
@@ -116,6 +257,167 @@ def came_up(console: SerialConsole, mode: str) -> str:
     return ""
 
 
+def run_install(
+    chosen: CloudImage,
+    config: str,
+    driver: Path,
+    workdir: Path,
+    *,
+    mode: str,
+    memory: str,
+    cpus: int,
+    keep: bool,
+) -> None:
+    """Install from the delivered screen and boot the target through shared checks."""
+    configuration = REPOSITORY / "tests" / config
+    installation: InstallConfig = load(configuration)
+    workdir.mkdir(parents=True, exist_ok=True)
+    root = overlay(chosen.image, workdir)
+    cidata = seed(workdir)
+    result = create_disk(workdir / "result.img")
+    verified = False
+    started = time.monotonic()
+    try:
+        first = VmSpec(
+            medium=MEDIA["official-minimal"],
+            workdir=workdir,
+            firmware=chosen.firmware,
+            memory=memory,
+            cpus=cpus,
+            ssh_port=free_port(),
+            driver_iso=driver,
+            targets=(root,),
+            disks=(cidata,),
+            boot_installed=True,
+        )
+        with Vm(first) as vm:
+            console = SerialConsole.connect(vm.serial_socket, vm.serial_log)
+            reach_root(console, chosen)
+            print(f"[{time.monotonic() - started:5.1f}s] root shell on serial", flush=True)
+            wait_for_driver(console)
+            install_tools(console, chosen, config, mode)
+            arm_and_confirm(console, config, mode)
+            console.run("reboot", timeout=60.0)
+            refused = came_up(console, mode)
+            if refused:
+                raise RuntimeError(refused)
+            install_from_memory(console)
+            power_off(console, vm)
+
+        installed = VmSpec(
+            medium=MEDIA["official-minimal"],
+            workdir=workdir,
+            firmware=chosen.firmware,
+            memory=memory,
+            cpus=cpus,
+            ssh_port=free_port(),
+            disks=(result,),
+            targets=(root,),
+            boot_installed=True,
+        )
+        with Vm(installed) as vm:
+            console = SerialConsole.connect(vm.serial_socket, workdir / "installed.log")
+            method = unlock_and_login(console, installation)
+            print(
+                f"[{time.monotonic() - started:5.1f}s] logged into the installed system "
+                f"({method})",
+                flush=True,
+            )
+            check_installed(console, installation)
+            power_off(console, vm)
+        if report(result, keep=True, assertions=configuration) != 0:
+            raise RuntimeError("the installed system failed its shared state checks")
+        verified = True
+        print(
+            f"[{time.monotonic() - started:5.1f}s] memory install booted its disk "
+            "and passed the shared installed-state checks",
+            flush=True,
+        )
+    finally:
+        if verified and not keep:
+            root.unlink(missing_ok=True)
+            result.unlink(missing_ok=True)
+
+
+def run_fallback(
+    chosen: CloudImage,
+    config: str,
+    driver: Path,
+    workdir: Path,
+    *,
+    mode: str,
+    memory: str,
+    cpus: int,
+    keep: bool,
+) -> None:
+    """Break one selected entry, then boot the original disk twice."""
+    workdir.mkdir(parents=True, exist_ok=True)
+    root = overlay(chosen.image, workdir)
+    cidata = seed(workdir)
+    verified = False
+    started = time.monotonic()
+    try:
+        armed = VmSpec(
+            medium=MEDIA["official-minimal"],
+            workdir=workdir,
+            firmware=chosen.firmware,
+            memory=memory,
+            cpus=cpus,
+            ssh_port=free_port(),
+            driver_iso=driver,
+            targets=(root,),
+            disks=(cidata,),
+            boot_installed=True,
+        )
+        with Vm(armed) as vm:
+            console = SerialConsole.connect(vm.serial_socket, vm.serial_log)
+            reach_root(console, chosen)
+            mark_own_system(console)
+            wait_for_driver(console)
+            install_tools(console, chosen, config, mode)
+            arm_and_confirm(console, config, mode)
+            break_armed_environment(console)
+            console.run("reboot", timeout=60.0)
+            memory_did_not_start(console)
+
+        returned = VmSpec(
+            medium=MEDIA["official-minimal"],
+            workdir=workdir,
+            firmware=chosen.firmware,
+            memory=memory,
+            cpus=cpus,
+            ssh_port=free_port(),
+            targets=(root,),
+            boot_installed=True,
+        )
+        with Vm(returned) as vm:
+            console = SerialConsole.connect(vm.serial_socket, workdir / "fallback.log")
+            reach_root(console, chosen)
+            require_own_system(console, chosen)
+            if _one_shot_is_armed(read_the_default_entry(console)):
+                raise RuntimeError("the failed entry was still armed after its boot")
+            print(
+                f"[{time.monotonic() - started:5.1f}s] the failed one-shot returned "
+                "to the cloud system",
+                flush=True,
+            )
+            console.run("reboot", timeout=60.0)
+            reach_root(console, chosen)
+            require_own_system(console, chosen)
+            if _one_shot_is_armed(read_the_default_entry(console)):
+                raise RuntimeError("the second boot unexpectedly re-armed the failed entry")
+            power_off(console, vm)
+        verified = True
+        print(
+            f"[{time.monotonic() - started:5.1f}s] the second reboot still reached "
+            "the cloud system",
+            flush=True,
+        )
+    finally:
+        if verified and not keep:
+            root.unlink(missing_ok=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image", choices=sorted(IMAGES), default="debian")
@@ -134,66 +436,44 @@ def main(argv: list[str] | None = None) -> int:
     workdir = confined(WORKROOT / f"{arguments.mode}-{int(time.time())}")
     workdir.mkdir(parents=True)
     print(f"work directory: {workdir}", flush=True)
-
-    driver = build_driver(workdir / "driver.iso")
-    root = overlay(chosen.image, workdir)
-    cidata = seed(workdir)
-
-    spec = VmSpec(
-        medium=MEDIA["official-minimal"],
-        workdir=workdir,
-        firmware=chosen.firmware,
-        memory=arguments.memory,
-        cpus=arguments.cpus,
-        ssh_port=free_port(),
-        driver_iso=driver,
-        targets=(root,),
-        disks=(cidata,),
-        boot_installed=True,
+    try:
+        driver = build_driver(workdir / "driver.iso")
+        run_install(
+            chosen,
+            arguments.config,
+            driver,
+            workdir / "install",
+            mode=arguments.mode,
+            memory=arguments.memory,
+            cpus=arguments.cpus,
+            keep=arguments.keep,
+        )
+        run_fallback(
+            chosen,
+            arguments.config,
+            driver,
+            workdir / "fallback",
+            mode=arguments.mode,
+            memory=arguments.memory,
+            cpus=arguments.cpus,
+            keep=arguments.keep,
+        )
+    except (
+        ConsoleClosed,
+        ConsoleTimeout,
+        MediaError,
+        OSError,
+        ResultError,
+        RuntimeError,
+        subprocess.SubprocessError,
+    ) as error:
+        print(f"FAIL {error}", file=sys.stderr, flush=True)
+        return 1
+    print(
+        "memory mode installed Gentoo and proved a broken one-shot returns twice",
+        flush=True,
     )
-    started = time.monotonic()
-    refused = ""
-    with Vm(spec) as vm:
-        console = SerialConsole.connect(vm.serial_socket, vm.serial_log)
-        reach_root(console, chosen)
-        print(f"[{time.monotonic() - started:5.1f}s] root shell on serial", flush=True)
-        # Before anything asks the CD for a file: the guest's shell answers
-        # before its ATAPI devices are enumerated, and `sh` exits 2 for a
-        # script it cannot open, which reads as the installer refusing.
-        wait_for_driver(console)
-        install_tools(console, chosen, arguments.config, arguments.mode)
-        # After the tools, not before them: the cloud images ship no
-        # `efibootmgr`, so a first reading taken without one answered
-        # `NO-BOOTORDER` and the second answered `BootOrder: 0003,0000,0004`.
-        # Nothing about the machine had changed; the instrument had.
-        before = read_the_default_entry(console)
-        arm(console, arguments.config, arguments.mode)
-        code = console.expect_command(
-            "cat /tmp/gentoo-install-results/arm.rc", timeout=60.0
-        )
-        after = read_the_default_entry(console)
-        print(f"[{time.monotonic() - started:5.1f}s] arming exited {code!r}", flush=True)
-        if b"0" not in code:
-            refused = f"the arming exited {code!r}"
-        elif _default_changed(before, after):
-            refused = (
-                "the default boot entry changed, which this mode promises not to do: "
-                f"{before!r} then {after!r}"
-            )[:600]
-        else:
-            console.run("reboot", timeout=60.0)
-            refused = came_up(console, arguments.mode)
-    if refused:
-        print(f"FAIL {refused}", flush=True)
-    else:
-        print(
-            f"[{time.monotonic() - started:5.1f}s] the machine rebooted into the "
-            "memory environment and it holds the delivered configuration",
-            flush=True,
-        )
-    if not arguments.keep:
-        root.unlink(missing_ok=True)
-    return 1 if refused else 0
+    return 0
 
 
 def _default_changed(before: bytes, after: bytes) -> bool:

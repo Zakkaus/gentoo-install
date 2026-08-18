@@ -207,7 +207,7 @@ def test_non_double_memory_reservation_is_admitted_in_exact_bytes(
 
     execution = cluster.Running(
         Guest(),
-        cluster.Watchdog(tmp_path / "odd-sized.log", lambda: 0),
+        cluster.Watchdog(tmp_path / "odd-sized.log", lambda: (0, 0.0)),
         job.reservation_bytes,
     )
     dispatched = job.dispatch(
@@ -254,7 +254,7 @@ def _timed_wait(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     clock: list[float],
-    counters: Callable[[], int | None],
+    counters: Callable[[], tuple[int, float] | None],
     output_at: float | None = None,
 ) -> tuple[cluster.Reconnecting, cluster.Watchdog]:
     monkeypatch.setattr(time, "monotonic", lambda: clock[0])
@@ -270,9 +270,9 @@ def test_install_wait_continues_when_silent_guest_moves_bytes(
     clock = [0.0]
     traffic = [0]
 
-    def counters() -> int:
+    def counters() -> tuple[int, float]:
         traffic[0] += cluster.QUIET_BYTES * 2
-        return traffic[0]
+        return traffic[0], 0.0
 
     link, watch = _timed_wait(monkeypatch, tmp_path, clock, counters, output_at=3.0)
     link.wait_for("install", timeout=5.0, idle=2.0, watch=watch)
@@ -285,7 +285,7 @@ def test_install_wait_names_silent_console_and_flat_counters(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     clock = [0.0]
-    link, watch = _timed_wait(monkeypatch, tmp_path, clock, lambda: 0)
+    link, watch = _timed_wait(monkeypatch, tmp_path, clock, lambda: (0, 0.0))
     watch.log.write_bytes(b"output before the idle window\n")
 
     with pytest.raises(ConsoleTimeout) as raised:
@@ -304,9 +304,9 @@ def test_run_ceiling_ends_silent_guest_that_keeps_moving_bytes(
     clock = [0.0]
     readings = [0]
 
-    def counters() -> int:
+    def counters() -> tuple[int, float]:
         readings[0] += 1
-        return readings[0] * cluster.QUIET_BYTES * 2
+        return readings[0] * cluster.QUIET_BYTES * 2, 0.0
 
     link, watch = _timed_wait(monkeypatch, tmp_path, clock, counters)
     with pytest.raises(ConsoleTimeout, match="never matched"):
@@ -406,7 +406,9 @@ class _AnsweringLink:
         self.ran.append(command)
         return self.answer
 
-    def run(self, command: str, timeout: float = 0.0) -> None:
+    def run(
+        self, command: str, timeout: float = 0.0, *, repeatable: bool = True
+    ) -> None:
         self.ran.append(command)
 
 
@@ -453,6 +455,7 @@ def test_the_network_is_measured_once_more_after_the_install(
 ) -> None:
     """The post-install probe has to precede collection of the guest results."""
     events: list[str] = []
+    repeatability: dict[str, bool] = {}
 
     class Guest:
         vmid = 9301
@@ -469,8 +472,11 @@ def test_the_network_is_measured_once_more_after_the_install(
     class Link:
         console = object()
 
-        def run(self, command: str, timeout: float = 0.0) -> None:
+        def run(
+            self, command: str, timeout: float = 0.0, *, repeatable: bool = True
+        ) -> None:
             events.append(command)
+            repeatability[command] = repeatable
 
         def wait_for(
             self, command: str, timeout: float, idle: float, watch: cluster.Watchdog
@@ -483,10 +489,10 @@ def test_the_network_is_measured_once_more_after_the_install(
 
     guest = Guest()
     log = tmp_path / "network.log"
-    job = cluster.Job("network", FIXTURES / "ext4-bios.toml")
+    job = cluster.Job("network", FIXTURES / "mbr-edit.toml")
     held = cluster.Running(
         guest=cast(Any, guest),
-        watch=cluster.Watchdog(log, lambda: 0),
+        watch=cluster.Watchdog(log, lambda: (0, 0.0)),
         reservation_bytes=0,
         created=True,
     )
@@ -506,6 +512,8 @@ def test_the_network_is_measured_once_more_after_the_install(
     assert outcome.verdict is cluster.Verdict.FAIL
     assert len(probes) == 2
     assert probes[0] < installed < probes[1] < events.index("collect")
+    partition = next(one for one in events if one.startswith("parted --script"))
+    assert not repeatability[partition]
 
 
 def test_the_keeper_puts_the_address_back_and_counts_it() -> None:
@@ -761,7 +769,8 @@ def _held(log: Path, moved: bool, stuck: bool, busy: bool = False) -> object:
     is working while its console has gone."""
     counters = iter(range(0, 10**9, cluster.QUIET_BYTES * 2))
     watch = cluster.Watchdog(
-        log=log, counters=(lambda: next(counters)) if busy else (lambda: 0)
+        log=log,
+        counters=(lambda: (next(counters), 0.0)) if busy else (lambda: (0, 0.0)),
     )
     # One pass so the watchdog has seen the log: the first call always reports
     # growth, from nothing to whatever is there.
@@ -1398,6 +1407,126 @@ def test_a_timed_out_marker_names_the_command_it_was_waiting_on() -> None:
     ).run("true")
 
 
+
+class _MarkerConsole:
+    def __init__(self, tail: bytes, completes: bool) -> None:
+        self.tail = tail
+        self.completes = completes
+        self.sent: list[str] = []
+        self.echoed = bytearray()
+        self.patterns: list[str] = []
+
+    def send(self, line: str) -> None:
+        self.sent.append(line)
+        self.echoed.extend(line.encode() + b"\r\n")
+
+    def send_raw(self, keys: str) -> None:
+        self.echoed.extend(keys.encode())
+
+    def snapshot(self, seconds: float) -> bytes:
+        return bytes(self.echoed)
+
+    @property
+    def closed(self) -> bool:
+        return False
+
+    def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+        self.patterns.append(pattern)
+        if self.completes:
+            matched = re.search(r"MARK_(\d+)_DONE", pattern)
+            assert matched is not None
+            self.echoed.extend(f"MARK_{matched.group(1)}_DONE\n".encode())
+            return bytes(self.echoed)
+        raise ConsoleTimeout(
+            f"never matched {pattern!r}; last output was {bytes(self.echoed) + self.tail!r}"
+        )
+
+    def close(self) -> None:
+        return None
+
+
+def _marked_token(line: str) -> str:
+    matched = re.search(r"MARK_%s_BEGIN\\n' (\d+)", line)
+    assert matched is not None
+    return matched.group(1)
+
+
+def test_a_lost_marker_is_resent_with_a_fresh_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = [0.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+
+    class ExpiringMarkerConsole(_MarkerConsole):
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+            if self.tail:
+                clock[0] = 2.0
+            return super().expect(pattern, timeout, idle)
+
+    opened: list[_MarkerConsole] = []
+
+    def open_console() -> _MarkerConsole:
+        console = ExpiringMarkerConsole(
+            cluster._SERIAL_TERMINAL_STARTED.encode() if not opened else b"",
+            completes=bool(opened),
+        )
+        opened.append(console)
+        return console
+
+    failure: ConsoleTimeout | None = None
+    try:
+        cluster.Reconnecting(open_console, tries=2).run("true", timeout=1.0)
+    except ConsoleTimeout as error:
+        failure = error
+
+    assert failure is None, failure
+    assert [_marked_token(one.sent[-1]) for one in opened] == ["1", "2"]
+    assert opened[0].echoed.startswith(opened[0].sent[0].encode())
+    assert opened[1].sent[0] == ""
+    assert opened[1].echoed.endswith(b"MARK_2_DONE\n")
+
+
+def test_a_lost_marker_retry_is_bounded_and_keeps_the_console_tail() -> None:
+    opened: list[_MarkerConsole] = []
+
+    def open_console() -> _MarkerConsole:
+        console = _MarkerConsole(cluster._SERIAL_TERMINAL_STARTED.encode(), completes=False)
+        opened.append(console)
+        return console
+
+    failure: ConsoleTimeout | None = None
+    try:
+        cluster.Reconnecting(open_console, tries=3).run("true")
+    except ConsoleTimeout as error:
+        failure = error
+
+    assert failure is not None
+    assert len(opened) == 3, opened
+    assert cluster._SERIAL_TERMINAL_STARTED in str(failure)
+    assert [_marked_token(one.sent[-1]) for one in opened] == ["1", "2", "3"]
+
+
+def test_a_nonrepeatable_marker_loss_is_not_resent() -> None:
+    opened: list[_MarkerConsole] = []
+
+    def open_console() -> _MarkerConsole:
+        console = _MarkerConsole(cluster._SERIAL_TERMINAL_STARTED.encode(), completes=False)
+        opened.append(console)
+        return console
+
+    failure: ConsoleTimeout | None = None
+    try:
+        cluster.Reconnecting(open_console, tries=3).run(
+            "parted --script /dev/vda mklabel gpt", repeatable=False
+        )
+    except ConsoleTimeout as error:
+        failure = error
+
+    assert failure is not None
+    assert len(opened) == 1, opened
+    assert len(opened[0].sent) == 1
+
+
 def test_a_capacity_read_that_did_not_answer_does_not_end_the_schedule() -> None:
     """run58 lost seven fixtures to one line:
 
@@ -1452,10 +1581,10 @@ def test_a_dropped_console_does_not_end_a_guest_that_is_still_working(
     opened: list[Console] = []
     sampled: list[int] = []
 
-    def counters() -> int | None:
+    def counters() -> tuple[int, float] | None:
         # A guest whose disk keeps growing while its console says nothing.
         sampled.append(len(sampled))
-        return cluster.QUIET_BYTES * 2 * (len(sampled) + 1)
+        return cluster.QUIET_BYTES * 2 * (len(sampled) + 1), 0.0
 
     log = tmp_path / "serial.log"
     log.write_bytes(b"")
@@ -1501,7 +1630,7 @@ def test_a_dropped_console_still_ends_a_guest_that_moves_nothing(tmp_path: Path)
         opened.append(Console())
         return opened[-1]
 
-    still = cluster.Watchdog(log=log, counters=lambda: 0)
+    still = cluster.Watchdog(log=log, counters=lambda: (0, 0.0))
     link = cluster.Reconnecting(open_console, tries=2)
     with pytest.raises(ConsoleClosed):
         link.wait_for("emerge --ask=n @world", timeout=0.0, idle=1.0, watch=still)
