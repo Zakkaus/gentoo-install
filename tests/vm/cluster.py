@@ -1159,6 +1159,20 @@ def rewrite_fixtures(
         # scheduler reserved for this guest: a fixture that pins a
         # documentation address is one the harness can never reach.
         given = (unlock_addresses or {}).get(job.name, "")
+        if given and moved.system.addresses:
+            # The installed system's own address, for the same reason: a
+            # fixture pinning one the scheduler did not reserve produces a
+            # machine on somebody else's address, and its own checks then read
+            # the address it was told to have rather than the one it has.
+            moved = replace(
+                moved,
+                system=replace(
+                    moved.system,
+                    addresses=(f"{given}/{GUEST_PREFIX}",),
+                    gateways=(GUEST_GATEWAY,),
+                    dns=GUEST_RESOLVERS,
+                ),
+            )
         if given and moved.kernel.remote_unlock.enabled:
             moved = replace(
                 moved,

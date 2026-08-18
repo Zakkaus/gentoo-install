@@ -2024,6 +2024,35 @@ def test_a_cn_run_clones_the_overlay_from_a_chinese_mirror(tmp_path: Path) -> No
     assert overlay.sync_uri.startswith("https://mirrors.cernet.edu.cn/")
 
 
+def test_a_static_address_is_moved_to_the_one_the_scheduler_reserved(
+    tmp_path: Path,
+) -> None:
+    """A fixture pins one address; the scheduler hands each guest its own. A
+    machine installed on the pinned one comes up where nothing expects it, and
+    its own checks then read the address it was told to have."""
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.config import MirrorRegion, Sync
+    from tests.vm import cluster
+
+    source = Path(__file__).resolve().parents[1] / "fixtures" / "static-ip.toml"
+    pinned = load(source).system.addresses
+    assert pinned, "this fixture exists to carry a static address"
+
+    job = cluster.Job(name="static-ip", fixture=source)
+    written = cluster.rewrite_fixtures(
+        [job],
+        tmp_path / "fixtures",
+        MirrorRegion.CN,
+        Sync.RSYNC,
+        unlock_addresses={"static-ip": "10.31.0.207"},
+    )
+    moved = load(written / source.name).system
+
+    assert moved.addresses == (f"10.31.0.207/{cluster.GUEST_PREFIX}",), moved.addresses
+    assert moved.gateways == (cluster.GUEST_GATEWAY,), moved.gateways
+    assert moved.dns == cluster.GUEST_RESOLVERS, moved.dns
+
+
 def test_a_check_whose_name_has_a_space_is_written_to_one_file() -> None:
     """`root filesystem` is a check name, and an unquoted redirection split it
     into two words: bash answered `syntax error near unexpected token` and the

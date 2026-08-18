@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import pytest
@@ -614,6 +614,44 @@ def networked(installation: InstallConfig) -> Recorder:
 
 NETWORKD = PurePosixPath("/etc/systemd/network/20-wired.network")
 CONFD_NET = PurePosixPath("/etc/conf.d/net")
+
+
+def test_static_ip_fixture_validates_and_writes_the_configured_network_for_both_inits() -> None:
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.validate import validate
+    from tests.vm.installed import checks
+
+    fixture = Path(__file__).resolve().parents[1] / "fixtures" / "static-ip.toml"
+    installation = load(fixture)
+    validate(installation)
+
+    assert installation.system.addresses == ("10.31.0.150/24",)
+    assert installation.system.gateways == ("10.31.0.254",)
+    assert installation.system.dns == ("10.31.0.199", "10.31.0.254")
+
+    expected_checks = {
+        ("address 10.31.0.150/24", "ip -o address show", r"10\.31\.0\.150/24"),
+        (
+            "default route 10.31.0.254",
+            "ip -4 route show default; ip -6 route show default",
+            r"default via 10\.31\.0\.254",
+        ),
+        ("resolver 10.31.0.199", "resolvectl dns", r"10\.31\.0\.199"),
+        ("resolver 10.31.0.254", "resolvectl dns", r"10\.31\.0\.254"),
+    }
+    actual_checks = {(check.name, check.command, check.pattern) for check in checks(installation)}
+    assert expected_checks <= actual_checks
+
+    networkd = networked(installation).files[NETWORKD]
+    assert "Address=10.31.0.150/24" in networkd
+    assert "Gateway=10.31.0.254" in networkd
+    assert "DNS=10.31.0.199" in networkd and "DNS=10.31.0.254" in networkd
+
+    openrc = replace(installation, system=replace(installation.system, init=InitSystem.OPENRC))
+    netifrc = networked(openrc).files[CONFD_NET]
+    assert 'config_ens18="10.31.0.150/24"' in netifrc
+    assert 'routes_ens18="default via 10.31.0.254"' in netifrc
+    assert 'dns_servers_ens18="10.31.0.199 10.31.0.254"' in netifrc
 
 
 def test_a_static_address_carries_its_gateway_and_its_resolvers() -> None:
