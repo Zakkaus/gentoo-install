@@ -142,6 +142,11 @@ NOT_IN_THE_CAMPAIGN: Final[frozenset[str]] = frozenset(
         # what has to boot is that file attached as a second disk. Nothing in
         # `tests/vm/campaign.py` boots a file yet.
         "vm-image.toml",
+        # What the memory environment is asked to install once it comes up.
+        # `tests/vm/ram.py` runs it against a cloud image rather than the
+        # medium the campaign boots, because the machine under test has to
+        # have a bootloader of its own to arm.
+        "vm-ram.toml",
     }
 )
 
@@ -3054,3 +3059,70 @@ def test_the_check_cannot_pass_by_the_tool_being_absent(tmp_path: Path) -> None:
     wanted = next(one for one in checks(config()) if one.name == "cpu-flags")
     assert wanted.pattern == "CPUFLAGS-ALL-KNOWN", wanted
     assert "cpuid2cpuflags" in CPU_FLAGS_COMMAND
+
+
+def test_a_default_entry_that_moved_is_a_failure_and_a_one_shot_is_not() -> None:
+    """The whole promise of this mode is that the default does not change, so
+    it is read before and after rather than assumed. `next_entry` is the
+    one-shot and appears exactly because the arming worked; `saved_entry` and
+    the firmware's `BootOrder` are what must not move."""
+    from tests.vm.ram import _default_changed
+
+    before = b"saved_entry=Debian\n"
+    armed = b"saved_entry=Debian\nnext_entry=gentoo-install memory environment\n"
+    assert not _default_changed(before, armed), "the one-shot is the point"
+
+    moved = b"saved_entry=gentoo-install memory environment\n"
+    assert _default_changed(before, moved)
+
+    order_before = b"BootOrder: 0001,0002\n"
+    order_after = b"BootOrder: 0003,0001,0002\n"
+    assert _default_changed(order_before, order_after)
+
+
+def test_the_memory_run_checks_the_medium_and_the_payload_apart() -> None:
+    """A live medium that booted without the configuration is an environment
+    the operator has to drive by hand, which is not what was asked for. Two
+    claims, two waits, two messages."""
+    from typing import Any, cast
+
+    from tests.vm import ram
+    from tests.vm.console import ConsoleTimeout
+
+    class Booted:
+        """The medium speaks and the payload never does."""
+
+        def __init__(self) -> None:
+            self.asked: list[str] = []
+
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+            self.asked.append(pattern)
+            if pattern == ram.PAYLOAD_SPEAKS:
+                raise ConsoleTimeout("no first screen")
+            return b"livecd login: "
+
+    console = Booted()
+    said = ram.came_up(cast(Any, console), "ram")
+    assert "without its configuration" in said, said
+    assert console.asked == [ram.CJK_SPEAKS, ram.PAYLOAD_SPEAKS], console.asked
+
+
+def test_each_mode_waits_for_its_own_medium() -> None:
+    """`--lowram` boots Alpine and `--ram` boots the CJK ISO, and a run that
+    waited for the wrong banner would pass on a medium it did not ask for."""
+    from typing import Any, cast
+
+    from tests.vm import ram
+    from tests.vm.console import ConsoleTimeout
+
+    for mode, wanted in (("ram", ram.CJK_SPEAKS), ("lowram", ram.ALPINE_SPEAKS)):
+        asked: list[str] = []
+
+        class Silent:
+            def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+                asked.append(pattern)
+                raise ConsoleTimeout("nothing")
+
+        assert "never spoke" in ram.came_up(cast(Any, Silent()), mode)
+        assert asked == [wanted], (mode, asked)
+    assert ram.CJK_SPEAKS != ram.ALPINE_SPEAKS
