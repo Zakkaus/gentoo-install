@@ -4009,7 +4009,7 @@ def test_a_run_of_one_half_does_not_claim_the_other() -> None:
     failure this suite exists to catch."""
     from tests.vm import ram
 
-    assert set(ram.RAN) == {"install", "fallback", "both"}
+    assert set(ram.RAN) == {"install", "fallback", "bypass", "both"}
     assert "one-shot" not in ram.RAN["install"], ram.RAN["install"]
     assert "installed Gentoo" not in ram.RAN["fallback"], ram.RAN["fallback"]
     # And the whole run still says both, because it did both.
@@ -4044,3 +4044,32 @@ def test_the_result_disk_is_named_and_not_numbered() -> None:
     # And the command writes to the name, not to whichever disk came first.
     assert "/dev/vda" not in collect_command("/run/vm-result")
     assert RESULT_DEVICE in collect_command("/run/vm-result")
+def test_bypass_requires_the_default_entry_to_move() -> None:
+    """The one-shot's check is `_default_changed` being false; this path's is
+    the same reading being true. `--bypass` exists for firmware that drops a
+    one-shot, and an arming that left the default alone would look like a pass
+    while the machine boots what it always did."""
+    from tests.vm import ram
+
+    before = b"saved_entry=Debian\n"
+    replaced = b"saved_entry=gentoo-install memory environment\n"
+    assert ram._default_changed(before, replaced)
+    assert not ram._default_changed(before, before)
+    # The closing line says what this half measured and not what the others do.
+    assert "default entry" in ram.RAN["bypass"], ram.RAN["bypass"]
+    assert "one-shot" not in ram.RAN["bypass"], ram.RAN["bypass"]
+
+
+def test_the_bypass_runner_asks_for_two_boots_and_names_the_flag() -> None:
+    """A single boot is what `--ram` alone already proves. The second boot is
+    the difference: a replaced default entry comes up in the environment
+    again, and that is why this path leaves an unbootable machine when the
+    environment does not come up."""
+    import inspect
+
+    from tests.vm import ram
+
+    source = inspect.getsource(ram.run_bypass)
+    assert 'for boot in ("first", "second")' in source, source
+    assert "arm_bypass" in source, source
+    assert "--bypass" in inspect.getsource(ram.arm_bypass)
