@@ -3572,3 +3572,25 @@ def test_a_package_manager_that_installed_nothing_stops_the_run() -> None:
     console.absent = ("efibootmgr", "dosfstools")
     with _pytest.raises(MediaError, match="efibootmgr"):
         install_tools(cast(Any, console), IMAGES["debian"], "fixtures/vm-ram.toml")
+
+
+def test_a_long_command_does_not_fill_the_whole_verdict() -> None:
+    """`vm-zram` ended a round with a mirror probe naming eight URLs, and the
+    command alone filled all 300 bytes a verdict is cut to: what the guest was
+    doing was written down and why it stopped was not."""
+    from tests.vm import cluster
+    from tests.vm.console import ConsoleTimeout
+
+    probe = "for one in " + " ".join(
+        f"https://mirror{n}.example.edu.cn/gentoo/releases/amd64/autobuilds/"
+        "latest-stage3-amd64-systemd.txt"
+        for n in range(8)
+    )
+    with pytest.raises(ConsoleTimeout) as raised:
+        with cluster._naming(probe):
+            raise ConsoleTimeout("never matched 'MARK_9_DONE', 121s of 120s elapsed")
+
+    said = str(raised.value)[: cluster.OUTCOME_BYTES]
+    assert "never matched 'MARK_9_DONE'" in said, said
+    assert said.startswith("never matched"), said
+    assert len(probe) > cluster.OUTCOME_BYTES, "the case this exists for"
