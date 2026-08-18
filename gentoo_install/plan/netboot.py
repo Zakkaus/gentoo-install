@@ -131,6 +131,15 @@ CJK_CMDLINE: Final[tuple[str, ...]] = (
 #: rather than opened here: `plan/` touches no machine of its own.
 RUNNING_CMDLINE: Final[str] = "/proc/cmdline"
 
+#: The one `console=` value that means no console. Alpine's
+#: `setup_inittab_console` returns before writing a single getty when it is
+#: present (`initramfs-init.in:136-140`) and hands `switch_root -c /dev/null`,
+#: and `LIVECD_CONSOLE=null` puts the CJK medium's getty on `/dev/null`.
+#: Carrying it forward would turn "use what the machine uses" into "give the
+#: operator nothing", where writing none at least leaves both media's own
+#: detection to run.
+SILENT_CONSOLES: Final[frozenset[str]] = frozenset({"console=null"})
+
 #: `check_live_ram` in the ISO's initramfs enters an emergency shell when
 #: `MemTotal - image` is under `rd.minmem`, which defaults to 1024 MiB. The
 #: `image.squashfs` measured on 2026-08-17 is 824 MiB, so a machine under this
@@ -820,7 +829,12 @@ def _inherited_consoles(context: Context) -> tuple[str, ...]:
     said = context.run(["cat", RUNNING_CMDLINE], check=False)
     if isinstance(said, CommandOutput) and said.returncode != 0:
         return ()
-    return tuple(word for word in said.split() if word.startswith("console="))
+    return tuple(
+        word
+        for word in said.split()
+        if word.startswith("console=") and word not in SILENT_CONSOLES
+    )
+
 
 
 def _alpine_modloop(archive: PurePosixPath) -> str:
