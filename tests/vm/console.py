@@ -273,6 +273,20 @@ class SerialConsole:
         said = self.expect(command_done(token), timeout)
         return said.split(command_done(token).encode())[0]
 
+    def expect_output(self, command: str, timeout: float = 120.0) -> bytes:
+        """Run a command and answer with what it printed, and nothing else.
+
+        Between the two markers, not up to the last one: the shell echoes the
+        line it was given, so what `expect_command` answers begins with the
+        command itself. A check whose command names its own answer — `echo
+        RESOLVCONF-OK || echo RESOLVCONF-EMPTY` — then matches the question.
+        """
+        token = next(self._tokens)
+        self.send(marked_command(command, token))
+        self.expect(command_begin(token), timeout)
+        said = self.expect(command_done(token), timeout)
+        return said.split(command_done(token).encode())[0]
+
     def login(self, user: str, password: str | None, prompt: str) -> None:
         self.expect(r"login:", timeout=300.0)
         self.send(user)
