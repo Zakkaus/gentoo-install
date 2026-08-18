@@ -571,9 +571,11 @@ class AppendConfiguration(Operation):
 ALPINE_PYTHON: Final[str] = "python3"
 
 #: Where the kernel exposes the firmware variables a UEFI boot entry is
-#: written into. Named here so a test can point the script at a directory of
-#: its own rather than at this machine's.
+#: written into, and where the mounted filesystems are listed. Named here so a
+#: test can point the script at files of its own rather than at this machine's.
+FIRMWARE: Final[str] = "/sys/firmware/efi"
 EFIVARS: Final[str] = "/sys/firmware/efi/efivars"
+MOUNTS: Final[str] = "/proc/mounts"
 
 
 def _ready_the_environment() -> str:
@@ -588,8 +590,14 @@ def _ready_the_environment() -> str:
         # Alpine's netboot init mounts no efivarfs, so the preflight refused
         # the first `--lowram` install with `the firmware variables are not
         # readable` on a machine that boots through them.
-        f"    if [ -d {EFIVARS} ]; then\n"
-        f"        mount -t efivarfs efivarfs {EFIVARS} 2>/dev/null || true\n"
+        f"    if [ -d {FIRMWARE} ] && ! grep -q ' efivarfs ' {MOUNTS}; then\n"
+        # `mkdir` as well: the refusal came back on a machine where the mount
+        # point itself was absent, and the failure is printed rather than
+        # swallowed because the preflight's own message is the only other
+        # evidence there is.
+        f"        mkdir -p {EFIVARS}\n"
+        f"        mount -t efivarfs efivarfs {EFIVARS} || "
+        "printf 'the firmware variables did not mount\\n'\n"
         "    fi\n"
         "    if ! command -v python3 >/dev/null 2>&1 && command -v apk >/dev/null 2>&1; "
         "then\n"
