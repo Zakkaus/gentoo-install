@@ -807,6 +807,29 @@ def _custom(recorder: Recorder) -> str:
     return recorder.files[PurePosixPath("/boot/grub/custom.cfg")]
 
 
+def test_the_entry_carries_what_a_cloud_image_grub_needs() -> None:
+    """Taken from `bin456789/reinstall`, which arms the same kind of machine:
+    an image with a GRUB password refuses an entry that is not
+    `--unrestricted`, Fedora's EFI GRUB has no `all_video` loaded, an LVM
+    `/boot` needs its module, and a `/boot` inside a btrfs subvolume resolves
+    every path against the subvolume unless `btrfs_relative_path` is off."""
+    recorder = _answering()
+    netboot.WriteMemoryEntry(
+        mode=MemoryMode.RAM, target=_target(BootMethod.BIOS_GRUB), launch=_launch()
+    ).apply(recorder)
+
+    custom = _custom(recorder)
+    lines = [one.strip() for one in custom.splitlines()]
+    assert f"menuentry '{netboot.ENTRY_LABEL}' --unrestricted {{" in lines, custom
+    for wanted in ("insmod all_video", "insmod lvm", "set btrfs_relative_path=n"):
+        assert wanted in lines, (wanted, custom)
+    # Before the search, which is the first thing that reads a path.
+    for wanted in ("insmod all_video", "set btrfs_relative_path=n"):
+        assert lines.index(wanted) < next(
+            n for n, one in enumerate(lines) if one.startswith("search ")
+        ), (wanted, custom)
+
+
 def test_bypass_chooses_the_entry_in_the_file_grub_reads_last() -> None:
     """Measured on 2026-08-19: `--bypass` wrote `saved_entry=gentoo-install
     memory environment` into `grubenv` and the machine rebooted into
