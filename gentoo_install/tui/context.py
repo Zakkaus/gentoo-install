@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, Sequence, TypedDict
+from typing import Callable, Generic, Sequence, TypedDict, TypeVar
 
 from ..errors import ConfigError, GentooInstallError
 from ..i18n import Catalog, truncate
@@ -354,3 +354,58 @@ def show_address(screen: Screen, context: Context, url: str) -> None:
     screen.write(min(len(drawn) + 3, lines - 1), 0, context.translate("Continue"))
     screen.show()
     screen.key()
+
+
+T = TypeVar("T")
+
+
+@dataclass(frozen=True)
+class FieldDescriptor(Generic[T]):
+    key: str
+    row: Callable[[T, Catalog], Item[str]]
+    edit: Callable[[Screen, Context, T], T | None]
+
+
+V = TypeVar("V")
+
+
+def current_menu(
+    screen: Screen,
+    context: Context,
+    title: str,
+    items: Sequence[Item[V]],
+    current: V,
+) -> Answer[V]:
+    """A single-choice menu whose current value cannot be omitted."""
+    return Menu(
+        title=title,
+        items=items,
+        footer=footer(context.translate),
+        current=current,
+    ).run(screen)
+
+
+def pick(
+    screen: Screen,
+    context: Context,
+    config: InstallConfig,
+    title: str,
+    offered: list[tuple[V, str]],
+    current: V,
+    apply: Callable[[InstallConfig, V], InstallConfig],
+) -> InstallConfig | None:
+    """One value from a short list, each row carrying what it costs."""
+    translate = context.translate
+    answer = current_menu(
+        screen,
+        context,
+        translate(title),
+        [
+            Item(label=str(getattr(value, "value", value)), value=value, detail=translate(reason))
+            for value, reason in offered
+        ],
+        current,
+    )
+    if not answer.chosen:
+        return None
+    return apply(config, answer.unwrap())

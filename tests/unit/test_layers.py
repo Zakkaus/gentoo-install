@@ -437,7 +437,16 @@ def test_the_tui_context_knows_nothing_about_a_screen() -> None:
 
     # And the names it owns are not defined a second time next door, which is
     # how a moved definition comes back as a copy.
-    owned = {"Context", "footer", "answers", "say", "show_address"}
+    owned = {
+        "Context",
+        "FieldDescriptor",
+        "answers",
+        "current_menu",
+        "footer",
+        "pick",
+        "say",
+        "show_address",
+    }
     for neighbour in ("screens.py", "settings.py", "overview.py", "app.py"):
         tree = ast.parse((tui / neighbour).read_text())
         defined = {
