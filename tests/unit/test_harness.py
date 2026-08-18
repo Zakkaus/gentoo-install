@@ -3415,8 +3415,16 @@ class _MissingCommands:
     def run(self, command: str, timeout: float = 0.0) -> None:
         self.ran.append(command)
 
+    #: What the guest still lacks when the verification runs. Empty is a
+    #: machine where the package manager did what it was asked.
+    absent: tuple[str, ...] = ()
+    #: What `--missing-commands` prints, one bare name per line.
+    missing: tuple[str, ...] = ("gpg", "gpg-agent")
+
     def expect_output(self, command: str, timeout: float = 0.0) -> bytes:
-        return b"gpg\r\ngpg-agent\r\n"
+        if command.startswith("for one in "):
+            return "".join(f"absent={one}\r\n" for one in self.absent).encode()
+        return "".join(f"{one}\r\n" for one in self.missing).encode()
 
 
 def test_the_harness_installs_what_it_reads_the_machine_with() -> None:
@@ -3515,3 +3523,38 @@ def test_the_cluster_seeds_only_the_fixtures_that_ask_for_it() -> None:
 
     source = inspect.getsource(cluster)
     assert "SEEDED.get(job.fixture.stem, ())" in source, "one table, read by stem"
+
+
+def test_a_command_whose_package_is_named_otherwise_is_translated() -> None:
+    """`apt-get ... mkfs.vfat` answers `Unable to locate package mkfs.vfat`
+    and installs **nothing at all**, including the packages it did recognise.
+    The memory-mode arming then refused with `--lowram cannot arm a one-shot
+    boot entry on this machine`, whose only missing piece was `efibootmgr`."""
+    from typing import Any, cast
+
+    from tests.vm.convert import IMAGES, install_tools
+
+    console = _MissingCommands()
+    console.missing = ("gpg", "mkfs.vfat")
+    install_tools(cast(Any, console), IMAGES["debian"], "fixtures/vm-ram.toml")
+
+    installs = [one for one in console.ran if "apt-get" in one]
+    assert len(installs) == 1, console.ran
+    assert "dosfstools" in installs[0], installs[0]
+    assert "mkfs.vfat" not in installs[0], installs[0]
+
+
+def test_a_package_manager_that_installed_nothing_stops_the_run() -> None:
+    """It exits zero for a name it knows and non-zero for one it does not, and
+    either way the run reads the same. What the guest has is what decides."""
+    from typing import Any, cast
+
+    import pytest as _pytest
+
+    from tests.vm.media import MediaError
+    from tests.vm.convert import IMAGES, install_tools
+
+    console = _MissingCommands()
+    console.absent = ("efibootmgr", "dosfstools")
+    with _pytest.raises(MediaError, match="efibootmgr"):
+        install_tools(cast(Any, console), IMAGES["debian"], "fixtures/vm-ram.toml")
