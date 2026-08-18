@@ -544,3 +544,159 @@ def test_the_fallback_agrees_with_the_tool_on_the_same_cpu(
 
     expected = tuple(sorted(SAMPLE_CPUID2CPUFLAGS.partition(":")[2].split()))
     assert reading.cpu_flags() == expected, set(expected) ^ set(reading.cpu_flags())
+
+
+#: One `/proc/cpuinfo` flags line and the `cpuid2cpuflags` answer for the same
+#: CPU, taken on 2026-08-18 by booting the Gentoo CJK ISO under QEMU once per
+#: model. The ISO carries `app-portage/cpuid2cpuflags`, so both halves come
+#: from the same guest and the pair is evidence rather than a transcription.
+#:
+#: Five models, chosen for what they disagree about: `qemu64` has almost
+#: nothing, `Nehalem` is an Intel that reports no `mmxext` and is given one
+#: through `sse`, `Opteron_G3` is an AMD that reports `sse4a`, and `EPYC` and
+#: `Skylake-Client` carry `fma3` and the `bmi` pair. The workstation this was
+#: developed on is a sixth, with the AVX-512 family.
+CPU_SAMPLES: dict[str, tuple[str, str]] = {
+    "EPYC": (
+        (
+            "3dnowprefetch abm adx aes apic arat avx avx2 bmi1 bmi2 clflush clflushopt "
+            "cmov cpuid cr8_legacy cx16 cx8 de extd_apicid f16c fma fpu fsgsbase fxsr "
+            "fxsr_opt hypervisor lahf_lm lm mca mce misalignsse mmx mmxext movbe msr mtrr "
+            "nopl nx osvw pae pat pclmulqdq pdpe1gb pge pni popcnt pse pse36 rdrand "
+            "rdseed rdtscp rep_good sep sha_ni smap smep sse sse2 sse4_1 sse4_2 sse4a "
+            "ssse3 syscall topoext tsc tsc_known_freq vme vmmcall x2apic xgetbv1 xsave "
+            "xsavec xsaveopt xtopology"
+        ),
+        (
+            "aes avx avx2 bmi1 bmi2 f16c fma3 mmx mmxext pclmul popcnt rdrand sha sse "
+            "sse2 sse3 sse4_1 sse4_2 sse4a ssse3"
+        ),
+    ),
+    "Opteron_G3": (
+        (
+            "3dnowprefetch abm apic clflush cmov cpuid cx16 cx8 de extd_apicid fpu fxsr "
+            "hypervisor lahf_lm lm mca mce misalignsse mmx msr mtrr nopl nx pae pat pge "
+            "pni popcnt pse pse36 rdtscp rep_good sep sse sse2 sse4a syscall tsc "
+            "tsc_known_freq vme vmmcall x2apic"
+        ),
+        (
+            "mmx mmxext popcnt sse sse2 sse3 sse4a"
+        ),
+    ),
+    "Skylake-Client": (
+        (
+            "3dnowprefetch abm adx aes apic arat avx avx2 bmi1 bmi2 clflush cmov cpuid "
+            "cx16 cx8 de erms f16c fma fpu fsgsbase fxsr hypervisor invpcid lahf_lm lm "
+            "mca mce mmx movbe msr mtrr nopl nx pae pat pclmulqdq pge pni popcnt pse "
+            "pse36 rdrand rdseed rdtscp sep smap smep sse sse2 sse4_1 sse4_2 ssse3 "
+            "syscall tsc tsc_deadline_timer tsc_known_freq vme vmmcall x2apic xgetbv1 "
+            "xsave xsavec xsaveopt xtopology"
+        ),
+        (
+            "aes avx avx2 bmi1 bmi2 f16c fma3 mmx mmxext pclmul popcnt rdrand sse sse2 "
+            "sse3 sse4_1 sse4_2 ssse3"
+        ),
+    ),
+    "nehalem": (
+        (
+            "3dnowprefetch apic clflush cmov cpuid cx16 cx8 de fpu fxsr hypervisor "
+            "lahf_lm lm mca mce mmx msr mtrr nopl nx pae pat pge pni popcnt pse pse36 sep "
+            "sse sse2 sse4_1 sse4_2 ssse3 syscall tsc tsc_known_freq vme vmmcall x2apic "
+            "xtopology"
+        ),
+        (
+            "mmx mmxext popcnt sse sse2 sse3 sse4_1 sse4_2 ssse3"
+        ),
+    ),
+    "qemu64": (
+        (
+            "3dnowprefetch apic clflush cmov cpuid cx16 cx8 de extd_apicid fpu fxsr "
+            "hypervisor lahf_lm lm mca mce mmx msr mtrr nopl nx pae pat pge pni pse pse36 "
+            "rep_good sep sse sse2 syscall tsc tsc_known_freq vmmcall x2apic xtopology"
+        ),
+        (
+            "mmx mmxext sse sse2 sse3"
+        ),
+    ),
+}
+
+
+@pytest.mark.parametrize("model", sorted(CPU_SAMPLES))
+def test_the_fallback_answers_what_the_tool_answers_on_that_cpu(
+    model: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The table is only right if it agrees with `cpuid2cpuflags` on the same
+    CPU, and one machine cannot show that: `mmxext` is absent from Intel's
+    cpuinfo and present in the tool's answer, and `sse4a` appears on AMD only.
+    """
+    cpuinfo, expected = CPU_SAMPLES[model]
+    written = tmp_path / "cpuinfo"
+    written.write_text(f"flags\t: {cpuinfo}\n", encoding="utf-8")
+    monkeypatch.setattr(probe, "CPUINFO", written)
+    reading = probe.Probe(runner=WithoutTheTool(log=lambda line: None), work=tmp_path)
+
+    assert reading.cpu_flags() == tuple(expected.split()), (
+        model,
+        set(expected.split()) ^ set(reading.cpu_flags()),
+    )
+
+
+def test_the_samples_cover_the_cases_one_machine_cannot_show() -> None:
+    """A sample set that agrees about everything proves only that the tests
+    ran. These four disagreements are why five machines were booted."""
+    answers = {name: set(truth.split()) for name, (_, truth) in CPU_SAMPLES.items()}
+    assert any("sse4a" in one for one in answers.values()), "no AMD sample"
+    assert any("fma3" in one for one in answers.values()), "nothing with FMA3"
+    assert any(len(one) < 6 for one in answers.values()), "nothing minimal"
+    # The implied flag, on a CPU whose own cpuinfo does not name it.
+    intel = {
+        name
+        for name, (cpuinfo, truth) in CPU_SAMPLES.items()
+        if "mmxext" in truth.split() and "mmxext" not in cpuinfo.split()
+    }
+    assert intel, "no sample exercises mmxext being implied by sse"
+
+
+#: What the kernel prints in `/proc/cpuinfo` for each feature this maps, read
+#: from `arch/x86/include/asm/cpufeatures.h` of the running 6.18 kernel on
+#: 2026-08-18. Held here because thirteen of the flags portage defines are on
+#: no CPU any sample was taken from — `3dnow`, `fma4`, `xop`, `padlock`, the
+#: `amx_*` set and four AVX-512 members — so for those this file is the only
+#: evidence that the name on the left of the table is one a machine will ever
+#: report. A key that is not a printed name is a branch that can never fire.
+KERNEL_PRINTS: frozenset[str] = frozenset(
+    (
+    "3dnow 3dnowext aes amx_bf16 amx_int8 amx_tile avx avx2 avx512_4fmaps "
+    "avx512_4vnniw avx512_bf16 avx512_bitalg avx512_fp16 avx512_vbmi2 "
+    "avx512_vnni avx512_vp2intersect avx512_vpopcntdq avx512bw avx512cd "
+    "avx512dq avx512er avx512f avx512ifma avx512pf avx512vbmi avx512vl avx_vnni "
+    "bmi1 bmi2 f16c fma fma4 mmx mmxext pclmulqdq phe pni popcnt rdrand sha_ni "
+    "sse sse2 sse4_1 sse4_2 sse4a ssse3 vpclmulqdq xop"
+    ).split()
+)
+
+
+def test_every_cpuinfo_name_is_one_the_kernel_prints() -> None:
+    """`sha` and `sha_ni` are the shape of this mistake: portage's flag is
+    `sha` and the kernel prints `sha_ni`, so a table keyed by the portage name
+    would match nothing on any machine and say nothing about it."""
+    from gentoo_install.exec.probe import CPU_FLAGS, IMPLIED_CPU_FLAGS
+
+    keys = set(CPU_FLAGS) | set(IMPLIED_CPU_FLAGS)
+    assert keys <= KERNEL_PRINTS, sorted(keys - KERNEL_PRINTS)
+
+
+def test_the_uncovered_flags_are_the_ones_this_file_answers_for() -> None:
+    """Naming the gap, so it is a boundary rather than an omission: these are
+    the flags no sampled CPU has, and the kernel header is what holds their
+    spelling."""
+    covered: set[str] = set()
+    for _, truth in CPU_SAMPLES.values():
+        covered |= set(truth.split())
+    unmeasured = PORTAGE_CPU_FLAGS - covered
+    assert unmeasured, "every flag is measured; this test has nothing left to say"
+    from gentoo_install.exec.probe import CPU_FLAGS
+
+    for portage in sorted(unmeasured):
+        kernel = next(k for k, v in CPU_FLAGS.items() if v == portage)
+        assert kernel in KERNEL_PRINTS, (portage, kernel)

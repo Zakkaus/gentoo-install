@@ -2973,3 +2973,82 @@ def test_a_vm_exit_takes_the_quit_path() -> None:
     source = inspect.getsource(Vm.__exit__)
     assert "self.shut_down()" in source, source
     assert "self.kill()" not in source, source
+
+
+def _run_the_cpu_flags_check(tmp_path: Path, flags: str, known: tuple[str, ...]) -> str:
+    """Execute the installed-state command against a fake portage tree.
+
+    The command is run rather than read: it is shell, and a test that asserts
+    on its text passes for a command that does nothing.
+    """
+    import os
+    import subprocess
+
+    from tests.vm.installed import CPU_FLAGS_COMMAND
+
+    tree = tmp_path / "repo"
+    (tree / "profiles/desc").mkdir(parents=True)
+    (tree / "profiles/desc/cpu_flags_x86.desc").write_text(
+        "".join(f"{one} - Use the {one} instruction set\n" for one in known),
+        encoding="utf-8",
+    )
+    binaries = tmp_path / "bin"
+    binaries.mkdir()
+    portageq = binaries / "portageq"
+    portageq.write_text(
+        "#!/bin/sh\n"
+        'case "$1" in\n'
+        f'get_repo_path) printf \'%s\\n\' "{tree}" ;;\n'
+        f"envvar) printf '%s\\n' '{flags}' ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    portageq.chmod(0o755)
+    environment = dict(os.environ, PATH=f"{binaries}:/usr/bin:/bin")
+    return subprocess.run(
+        ["sh", "-c", CPU_FLAGS_COMMAND],
+        capture_output=True,
+        text=True,
+        env=environment,
+        check=False,
+    ).stdout
+
+
+def test_a_cpu_flag_portage_does_not_define_is_reported(tmp_path: Path) -> None:
+    """`vaes` is a cpuinfo flag with no `CPU_FLAGS_X86` counterpart, and it
+    was written into `make.conf` for three weeks. The authority is a file only
+    the installed system has, so this is read there and nowhere else."""
+    said = _run_the_cpu_flags_check(
+        tmp_path, "aes avx2 vaes", ("aes", "avx", "avx2", "fma3")
+    )
+    assert "CPUFLAGS-UNKNOWN: vaes" in said, said
+    assert "CPUFLAGS-ALL-KNOWN" not in said, said
+
+
+def test_flags_the_tree_defines_pass(tmp_path: Path) -> None:
+    said = _run_the_cpu_flags_check(tmp_path, "aes avx2 fma3", ("aes", "avx", "avx2", "fma3"))
+    assert "CPUFLAGS-ALL-KNOWN" in said, said
+    assert "CPUFLAGS-UNKNOWN" not in said, said
+
+
+def test_a_prefix_of_a_known_flag_is_not_accepted_as_that_flag(tmp_path: Path) -> None:
+    """`grep -q "^$one - "` and not `grep -q "$one"`: `avx` appears inside
+    every `avx512*` line, so a substring check accepts a name the tree does
+    not define."""
+    said = _run_the_cpu_flags_check(tmp_path, "avx512", ("avx", "avx512f"))
+    assert "CPUFLAGS-UNKNOWN: avx512" in said, said
+
+
+def test_the_check_cannot_pass_by_the_tool_being_absent(tmp_path: Path) -> None:
+    """The installer does not merge `cpuid2cpuflags`, so a pattern that
+    accepted its absence would be a rule that never fires. The verdict comes
+    from the tree, and the tool's answer is printed beside it."""
+    from tests.vm.installed import CPU_FLAGS_COMMAND, checks
+    from tests.unit.layouts import config
+
+    said = _run_the_cpu_flags_check(tmp_path, "aes vaes", ("aes",))
+    assert "CPUFLAGS-ALL-KNOWN" not in said, said
+
+    wanted = next(one for one in checks(config()) if one.name == "cpu-flags")
+    assert wanted.pattern == "CPUFLAGS-ALL-KNOWN", wanted
+    assert "cpuid2cpuflags" in CPU_FLAGS_COMMAND
