@@ -391,6 +391,22 @@ def test_the_console_order_is_the_machines_own() -> None:
     assert options.index("console=ttyS0") < options.index("console=tty0"), options
 
 
+def test_the_value_that_means_no_console_is_not_carried_over() -> None:
+    """`console=null` is the one value that asks for nothing. Alpine's
+    `setup_inittab_console` returns before writing a single getty when it sees
+    it (`initramfs-init.in:136-140`) and `switch_root -c /dev/null` follows,
+    and `LIVECD_CONSOLE=null` puts the CJK medium's getty on `/dev/null`, so
+    carrying it forward is worse than carrying nothing."""
+    entry = _ram_entry("root=UUID=1e2c console=null\n")
+    assert "console=" not in entry, entry
+
+
+def test_a_real_console_beside_the_silent_one_still_comes_over() -> None:
+    entry = _ram_entry("root=UUID=1e2c console=null console=ttyS0,115200n8\n")
+    assert "console=ttyS0,115200n8" in entry, entry
+    assert "console=null" not in entry, entry
+
+
 def test_a_machine_that_names_no_console_is_left_alone() -> None:
     """An ordinary workstation boots without one, and writing `console=ttyS0`
     for it would move its first screen to a port that is not there."""
