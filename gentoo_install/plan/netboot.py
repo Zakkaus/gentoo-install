@@ -104,6 +104,14 @@ GENTOO_ARCHITECTURES: Final[dict[str, str]] = {
 #: delete exactly what arming wrote.
 PLACE: Final[str] = "gentoo-install-ram"
 
+#: Where the download lands, on the root filesystem rather than the esp. The
+#: esp is whatever size that machine was given — 124 MiB on a Debian cloud
+#: image — and the images are 373 MB and about a gigabyte, so the first real
+#: `--lowram` run ended at `curl: (23) Failure writing output to destination`
+#: with 111 MB written. The firmware only ever reads a kernel and an initramfs
+#: from the esp, and those are tens of megabytes.
+STAGING: Final[PurePosixPath] = PurePosixPath("/") / PLACE
+
 #: What the entry is called wherever the boot method keeps names.
 ENTRY_LABEL: Final[str] = "gentoo-install memory environment"
 
@@ -301,7 +309,8 @@ class ClearPreviousArming(Operation):
 
     def apply(self, context: Context) -> None:
         _disarm(context, self.target)
-        context.run(["rm", "--recursive", "--force", str(self.target.place)], check=False)
+        for gone in (self.target.place, STAGING):
+            context.run(["rm", "--recursive", "--force", str(gone)], check=False)
 
 
 def _disarm(context: Context, target: BootTarget) -> None:
@@ -338,7 +347,7 @@ class FetchMemoryImage(Operation):
         return "fetch the {} image and verify its checksum", (self.mode.value,)
 
     def apply(self, context: Context) -> None:
-        place = self.target.place
+        place = STAGING
         context.run(["mkdir", "--parents", str(place)])
         name, url, checksum = (
             _cjk_release(context, self.target.architecture)
@@ -378,8 +387,9 @@ class PlaceMemoryKernel(Operation):
 
     def apply(self, context: Context) -> None:
         place = self.target.place
+        context.run(["mkdir", "--parents", str(place)])
         if self.mode is MemoryMode.RAM:
-            image = _only_image(context, place, ".iso")
+            image = _only_image(context, STAGING, ".iso")
             for member, name in (("/boot/gentoo", "kernel"), ("/boot/gentoo.igz", "initramfs")):
                 context.run(
                     [
@@ -394,7 +404,7 @@ class PlaceMemoryKernel(Operation):
                     ]
                 )
             return
-        archive = _only_image(context, place, ".tar.gz")
+        archive = _only_image(context, STAGING, ".tar.gz")
         for member, name in (
             ("boot/vmlinuz-lts", "kernel"),
             ("boot/initramfs-lts", "initramfs"),
@@ -412,6 +422,10 @@ class PlaceMemoryKernel(Operation):
                     member,
                 ]
             )
+        # The archive is transport and nothing reads it again: `modloop=` names
+        # a URL, not this file, and 373 MB on the root filesystem of a machine
+        # about to reboot into memory is 373 MB nobody asked for.
+        context.run(["rm", "--force", str(archive)])
 
 
 #: Where the payload lands inside the initramfs, and where the hook puts it
@@ -592,12 +606,15 @@ class WriteMemoryEntry(Operation):
 
     def _cmdline(self, context: Context, place: PurePosixPath) -> tuple[str, ...]:
         if self.mode is MemoryMode.RAM:
-            image = _only_image(context, place, ".iso")
+            image = _only_image(context, STAGING, ".iso")
             label = _volume_label(context, image)
             words = [
                 f"root=live:CDLABEL={label}",
                 *CJK_CMDLINE,
-                f"iso-scan/filename={_relative_to_mount(self.target, image)}",
+                # The path as it is: `STAGING` is at the root of the root
+                # filesystem, and iso-scan mounts each `by-uuid` device and
+                # looks for that path inside it.
+                f"iso-scan/filename={image}",
                 *_inherited_consoles(context),
             ]
             if self.launch.ssh_key or self.launch.root_password:
@@ -614,7 +631,7 @@ class WriteMemoryEntry(Operation):
             return tuple(words)
         words = [
             f"alpine_repo={ALPINE_REPOSITORY}",
-            f"modloop={_alpine_modloop(_only_image(context, place, '.tar.gz'))}",
+            f"modloop={_alpine_modloop(_only_image(context, STAGING, '.tar.gz'))}",
             "ip=dhcp",
             *_inherited_consoles(context),
         ]
@@ -693,7 +710,8 @@ class DisarmMemoryBoot(Operation):
 
     def apply(self, context: Context) -> None:
         _disarm(context, self.target)
-        context.run(["rm", "--recursive", "--force", str(self.target.place)], check=False)
+        for gone in (self.target.place, STAGING):
+            context.run(["rm", "--recursive", "--force", str(gone)], check=False)
 
 
 def build(
@@ -787,17 +805,6 @@ def _without_previous(text: str) -> str:
     before, _, rest = text.partition(CUSTOM_BEGIN)
     _, _, after = rest.partition(CUSTOM_END)
     return before + after.lstrip("\n")
-
-
-def _relative_to_mount(target: BootTarget, image: PurePosixPath) -> str:
-    """`iso-scan/filename` is relative to the filesystem the file is on.
-
-    iso-scan mounts each `/dev/disk/by-uuid/*` and looks for that path inside
-    it, so an absolute path that includes the mount point finds nothing.
-    """
-    if target.method is BootMethod.BIOS_GRUB or target.esp_mountpoint is None:
-        return f"/{image.relative_to('/boot')}" if _under(image, "/boot") else str(image)
-    return f"/{image.relative_to(target.esp_mountpoint)}"
 
 
 def _under(path: PurePosixPath, parent: str) -> bool:

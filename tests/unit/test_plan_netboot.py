@@ -218,7 +218,11 @@ def test_the_iso_is_taken_from_the_newest_release_rather_than_a_pinned_name() ->
     fetched = [one for one in _run(recorder, "curl") if "--output" in one]
     assert len(fetched) == 1, fetched
     assert fetched[0][-1] == f"https://host/{ISO}", fetched
-    assert f"{ESP}/{netboot.PLACE}/{ISO}" in fetched[0], fetched
+    # On the root filesystem, not the esp: the esp is whatever size that
+    # machine was given, 124 MiB on a Debian cloud image, and this file is
+    # about a gigabyte.
+    assert f"/{netboot.PLACE}/{ISO}" in fetched[0], fetched
+    assert ESP not in " ".join(fetched[0]), fetched
 
 
 def test_an_image_whose_checksum_does_not_match_is_deleted_and_named() -> None:
@@ -1106,3 +1110,56 @@ def test_a_missing_payload_does_not_end_the_operators_session(
     said = _sourced(where, "install")
     assert "LOGIN-SHELL-ALIVE" in said, said
     assert "BOOTSTRAP" not in said, said
+
+
+def test_the_image_is_not_written_where_the_firmware_reads() -> None:
+    """The first real `--lowram` run ended at `curl: (23) Failure writing
+    output to destination` with 111 MB of a 373 MB archive written: the esp on
+    a Debian cloud image is 124 MiB, and it is whatever size that machine was
+    given. The firmware only ever reads a kernel and an initramfs from it."""
+    recorder = _answering(
+        MemoryMode.LOWRAM,
+        digest="9a7769ea8fa1737b1b49d82f1bdd53d0a17338d6d3b7cfc6f2c3ec5158596d8b",
+    )
+    netboot.FetchMemoryImage(mode=MemoryMode.LOWRAM, target=_target()).apply(recorder)
+
+    written = [one for one in _run(recorder, "curl") if "--output" in one]
+    assert len(written) == 1, written
+    output = written[0][written[0].index("--output") + 1]
+    assert output.startswith(f"/{netboot.PLACE}/"), output
+    assert not output.startswith(ESP), output
+
+
+def test_the_kernel_still_lands_where_the_firmware_reads() -> None:
+    """The other half of the same rule: two files of tens of megabytes go to
+    the esp, because that is the only filesystem the firmware reads."""
+    recorder = _answering(MemoryMode.LOWRAM)
+    netboot.PlaceMemoryKernel(mode=MemoryMode.LOWRAM, target=_target()).apply(recorder)
+
+    unpacked = [one for one in _run(recorder, "tar") if "--directory" in one]
+    assert len(unpacked) == 2, unpacked
+    for argv in unpacked:
+        assert argv[argv.index("--directory") + 1] == f"{ESP}/{netboot.PLACE}", argv
+
+
+def test_the_lowram_archive_is_deleted_once_its_two_files_are_out() -> None:
+    """`modloop=` names a URL rather than this file, so nothing reads it
+    again, and it is 373 MB on the root filesystem of a machine that is about
+    to reboot into memory."""
+    recorder = _answering(MemoryMode.LOWRAM)
+    netboot.PlaceMemoryKernel(mode=MemoryMode.LOWRAM, target=_target()).apply(recorder)
+
+    removed = [one for one in _run(recorder, "rm") if any(".tar.gz" in a for a in one)]
+    assert len(removed) == 1, recorder.commands
+
+
+def test_the_ram_image_stays_where_iso_scan_will_look_for_it() -> None:
+    """`iso-scan/filename` is why the ISO does not have to be on the esp: it
+    mounts each `by-uuid` device and looks for that path inside it."""
+    entry = _ram_entry(RUNNING_CMDLINE)
+    word = next(one for one in entry.split() if one.startswith("iso-scan/filename="))
+
+    assert word.endswith(f"/{netboot.PLACE}/{ISO}"), word
+    assert ESP not in word, word
+    removed = [one for one in entry.split() if one.startswith("rm")]
+    assert not removed, "the ISO is read at boot and is not deleted here"
