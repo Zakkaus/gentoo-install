@@ -658,6 +658,31 @@ def test_only_nvidia_widens_accept_license() -> None:
     assert catalog["nvidia"].accept_license == ("@BINARY-REDISTRIBUTABLE",)
 
 
+def test_every_group_whose_package_is_proprietary_accepts_its_licence() -> None:
+    """A real install stopped at
+
+        ConfigError: the `wechat` group asks for
+        `net-im/wechat-universal-bwrap`, which the target's configuration
+        masks; the `wemeet` group asks for `net-im/wemeet`, which the
+        target's configuration masks
+
+    The refusal was right and the catalog was wrong: both are proprietary and
+    neither said so, so `ACCEPT_LICENSE` stayed at the profile's default and
+    `portageq best_visible` answered nothing. Each licence below is the
+    `LICENSE=` line of that package's ebuild in `gentoo-zh`, read on
+    2026-08-19; `flclash` is `GPL-3` and needs nothing."""
+    catalog = load_catalog()
+    wanted = {
+        "wechat": ("all-rights-reserved",),
+        "wemeet": ("wemeet_license",),
+        "dingtalk": ("all-rights-reserved",),
+        "tencent-qq": ("Tencent-QQ",),
+    }
+    for name, licences in wanted.items():
+        assert catalog[name].accept_license == licences, name
+    assert catalog["flclash"].accept_license == ()
+
+
 def test_the_older_amd_group_does_not_suppress_r300() -> None:
     """mesa enables r300 and r600 under the `radeon` umbrella only when
     neither is named explicitly, so `radeon r600` leaves an r300 card on

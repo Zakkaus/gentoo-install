@@ -2,3 +2,6 @@
 # `wechat` package needs a system the sandbox already provides.
 packages = ["net-im/wechat-universal-bwrap"]
 repositories = ["gentoo-zh"]
+# `LICENSE="all-rights-reserved GPL-2"` in the ebuild, so the default @FREE
+# hides it and the install stops at the group check with the package masked.
+accept_license = ["all-rights-reserved"]

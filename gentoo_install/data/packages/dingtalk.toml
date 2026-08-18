@@ -1,2 +1,4 @@
 packages = ["net-im/dingtalk"]
 repositories = ["gentoo-zh"]
+# `LICENSE="all-rights-reserved"`.
+accept_license = ["all-rights-reserved"]
