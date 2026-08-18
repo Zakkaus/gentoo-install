@@ -1867,3 +1867,46 @@ def test_a_line_that_is_not_a_prompt_is_not_taken_for_one() -> None:
         b"Load keymap",
     ):
         assert not re.search(cluster.ROOT_PROMPT.encode(), other), other
+
+
+class _RefusesUntilTheSettleGrows:
+    """`login` on a guest that loses the race without echoing anything.
+
+    `ext3` was refused three times with nothing on the console between
+    `Password:` and `Login incorrect`: part of the password reached `login`
+    and the rest did not, so there was no echo for the harness to notice and
+    the settle it retried with was the settle that had just failed.
+    """
+
+    def __init__(self, needs: float) -> None:
+        self.needs = needs
+        self.settled = 0.0
+        self.sent: list[str] = []
+        self.answers: list[bytes] = []
+        self.console = _Screen(b"plain login: ")
+
+    def slept(self, seconds: float) -> None:
+        self.settled += seconds
+
+    def respond(self, line: str) -> None:
+        self.sent.append(line)
+        if line == "root":
+            self.answers.append(b"Password: ")
+        elif self.settled >= self.needs:
+            self.answers.append(b"plain ~ # ")
+        else:
+            self.answers.append(b"Login incorrect\r\nlogin: ")
+
+    def observe(self, pattern: str, timeout: float = 0.0) -> bytes:
+        return self.answers.pop(0) if self.answers else b""
+
+
+def test_a_refusal_with_no_echo_still_grows_the_settle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    console = _RefusesUntilTheSettleGrows(needs=cluster.PASSWORD_ECHO_BACKOFF)
+    monkeypatch.setattr("time.sleep", console.slept)
+
+    assert cluster._log_in(cast(cluster.Reconnecting, console), "install") == ""
+    assert console.sent.count("install") == 2, console.sent
+    assert console.settled >= cluster.PASSWORD_ECHO_BACKOFF, console.settled

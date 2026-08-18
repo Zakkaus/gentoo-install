@@ -2627,6 +2627,12 @@ def _log_in(link: Reconnecting, password: str) -> str:
             settle += PASSWORD_ECHO_BACKOFF
             continue
         refusals += 1
+        # The settle grows on a plain refusal as well, not only on one whose
+        # echo the console showed: `ext3` was refused three times with nothing
+        # echoed at all, which is the same race losing quietly — some of the
+        # password reached `login` and the rest did not. Repeating the settle
+        # that produced a refusal can only produce another.
+        settle += PASSWORD_ECHO_BACKOFF
         # `Login incorrect` matches before the prompt that follows it, so the
         # re-prompt stays in the buffer. `_name_the_user` then reads that one,
         # calls it a login prompt, and offers the name a second time — and the
