@@ -3192,7 +3192,13 @@ def test_each_mode_waits_for_its_own_medium() -> None:
 
 class _CdAppearsLate:
     """A guest whose shell answers before its ATAPI devices are enumerated,
-    which a Debian cloud image under KVM did at 7.3 seconds."""
+    which a Debian cloud image under KVM did at 7.3 seconds.
+
+    The command is echoed back before its output, because a real shell echoes
+    the line it was given and `expect_command` answers with everything up to
+    the marker. A fake that answers only the output is what let a check match
+    its own question for two revisions.
+    """
 
     def __init__(self, ready_after: int) -> None:
         self.ready_after = ready_after
@@ -3203,9 +3209,8 @@ class _CdAppearsLate:
 
     def expect_command(self, command: str, timeout: float = 0.0) -> bytes:
         self.tries += 1
-        if self.tries > self.ready_after:
-            return b"DRIVER-READY\r\n"
-        return b"DRIVER-ABSENT\r\n"
+        code = 0 if self.tries > self.ready_after else 1
+        return f"{command}\r\ndriver={code}\r\n".encode()
 
 
 def test_the_driver_cd_is_waited_for_rather_than_asked_once(
@@ -3236,5 +3241,5 @@ def test_a_guest_that_never_sees_the_cd_says_so(
 
     monkeypatch.setattr("time.sleep", lambda seconds: None)
     console = _CdAppearsLate(ready_after=10**9)
-    with pytest.raises(DriverNotFound, match="DRIVER-ABSENT"):
+    with pytest.raises(DriverNotFound, match="driver=1"):
         wait_for_driver(cast(Any, console), patience=0.0)

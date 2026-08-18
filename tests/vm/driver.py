@@ -59,11 +59,13 @@ def wait_for_driver(console: Console, patience: float = DRIVER_PATIENCE) -> None
     deadline = time.monotonic() + patience
     while True:
         console.run(FIND_DRIVER, timeout=180.0)
+        # `expect_command` answers with everything up to the marker, and the
+        # shell echoes the line it was given, so a command naming both answers
+        # carries both in its own echo. The value is computed, never typed.
         said = console.expect_command(
-            "mountpoint -q /mnt/driver && echo DRIVER-READY || echo DRIVER-ABSENT",
-            timeout=60.0,
+            "mountpoint -q /mnt/driver; echo driver=$?", timeout=60.0
         )
-        if b"DRIVER-READY" in said:
+        if b"driver=0" in said:
             return
         if time.monotonic() >= deadline:
             raise DriverNotFound(
