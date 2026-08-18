@@ -276,6 +276,7 @@ def _arm_memory_environment(
         # wrote that configuration.
         source=str(Path(__file__).resolve().parent.parent),
         keys=tuple(config.system.authorized_keys),
+        region=config.portage.mirrors.region,
     )
     if arguments.missing_commands:
         # The arming's own commands, not an ordinary install's: `--ram` reads

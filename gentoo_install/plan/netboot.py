@@ -17,7 +17,7 @@ from pathlib import PurePosixPath
 from typing import Final
 
 from ..errors import DownloadFailed, PreflightFailed
-from ..model.config import BootMethod, MemoryLaunch, MemoryMode
+from ..model.config import BootMethod, MemoryLaunch, MemoryMode, MirrorRegion
 from .operations import CommandOutput, Context, Operation, Stage
 
 #: Where the CJK ISO's releases are listed. The published asset name carries
@@ -55,18 +55,23 @@ CJK_ASSET = re.compile(r'href="([^"?/]+\.(?:iso|iso\.sha256))"')
 #: it the way the kernel does: `x86_64` and `aarch64` both answer, checked on
 #: 2026-08-18, and the netboot flavour is present in each with the same
 #: fields.
+
+#: Where each mirror region fetches Alpine from. The China entry is the host
+#: `tests/vm/media.py` already installs Alpine packages from, so it is
+#: measured rather than chosen.
+ALPINE_MIRRORS: Final[dict[MirrorRegion, str]] = {
+    MirrorRegion.CN: "https://mirrors.ustc.edu.cn/alpine",
+    MirrorRegion.GLOBAL: "https://dl-cdn.alpinelinux.org/alpine",
+}
 ALPINE_RELEASES: Final[str] = (
-    "https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/{}/"
-    "latest-releases.yaml"
+    "{base}/latest-stable/releases/{architecture}/latest-releases.yaml"
 )
 ALPINE_NETBOOT_FLAVOUR: Final[str] = "alpine-netboot"
 
 #: Alpine's own repository, which its netboot init installs the packages from.
 #: `alpine_repo=auto` searches for a `.boot_repository` file and finds none on
 #: a machine that booted from a local kernel.
-ALPINE_REPOSITORY: Final[str] = (
-    "https://dl-cdn.alpinelinux.org/alpine/latest-stable/main"
-)
+ALPINE_REPOSITORY: Final[str] = "{base}/latest-stable/main"
 
 #: Where the kernel modules come from. `modloop=` is not read by
 #: `initramfs-init` at all: the reader is `/etc/init.d/modloop` in the booted
@@ -76,8 +81,7 @@ ALPINE_REPOSITORY: Final[str] = (
 #: composes an aarch64 URL and the modloop is the one built beside the kernel
 #: that will be running.
 ALPINE_MODLOOP: Final[str] = (
-    "https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/"
-    "{architecture}/netboot-{version}/modloop-lts"
+    "{base}/latest-stable/releases/{architecture}/netboot-{version}/modloop-lts"
 )
 
 #: What Alpine names a netboot archive. `netboot/` beside it holds whatever
@@ -342,6 +346,7 @@ class FetchMemoryImage(Operation):
     stage: Stage = Stage.STAGE3
     mode: MemoryMode
     target: BootTarget
+    region: MirrorRegion = MirrorRegion.GLOBAL
 
     def required_host_commands(self) -> frozenset[str]:
         return frozenset({"curl", "sha256sum", "mkdir", "rm"})
@@ -355,7 +360,7 @@ class FetchMemoryImage(Operation):
         name, url, checksum = (
             _cjk_release(context, self.target.architecture)
             if self.mode is MemoryMode.RAM
-            else _alpine_release(context, self.target.architecture)
+            else _alpine_release(context, self.target.architecture, self.region)
         )
         image = place / name
         context.run(["curl", "--fail", "--location", "--output", str(image), url])
@@ -700,6 +705,7 @@ class WriteMemoryEntry(Operation):
     mode: MemoryMode
     target: BootTarget
     launch: MemoryLaunch
+    region: MirrorRegion = MirrorRegion.GLOBAL
 
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
         return "write a {} entry for the {} environment", (
@@ -754,9 +760,11 @@ class WriteMemoryEntry(Operation):
                 # this and a key login does not.
                 words.append(f"passwd={self.launch.root_password}")
             return tuple(words)
+        base = ALPINE_MIRRORS[self.region]
+        archive = _only_image(context, STAGING, ".tar.gz")
         words = [
-            f"alpine_repo={ALPINE_REPOSITORY}",
-            f"modloop={_alpine_modloop(_only_image(context, STAGING, '.tar.gz'))}",
+            f"alpine_repo={ALPINE_REPOSITORY.format(base=base)}",
+            f"modloop={_alpine_modloop(archive, self.region)}",
             f"apkovl=/{APKOVL}",
             "ip=dhcp",
             *_inherited_consoles(context),
@@ -848,6 +856,7 @@ def build(
     configuration: str = "",
     source: str = "",
     keys: tuple[str, ...] = (),
+    region: MirrorRegion = MirrorRegion.GLOBAL,
 ) -> list[Operation]:
     """Every operation that arms one boot into the memory environment.
 
@@ -865,7 +874,7 @@ def build(
         # After the refusals and before the fetch: a machine this refuses is
         # one whose earlier arming is not this run's to take back.
         ClearPreviousArming(target=target),
-        FetchMemoryImage(mode=launch.mode, target=target),
+        FetchMemoryImage(mode=launch.mode, target=target, region=region),
         PlaceMemoryKernel(mode=launch.mode, target=target),
     ]
     if configuration:
@@ -880,7 +889,9 @@ def build(
                 keys=keys,
             )
         )
-    operations.append(WriteMemoryEntry(mode=launch.mode, target=target, launch=launch))
+    operations.append(
+        WriteMemoryEntry(mode=launch.mode, target=target, launch=launch, region=region)
+    )
     if launch.mode is MemoryMode.LOWRAM:
         operations.append(DiscardTheArchive())
     operations.append(arming)
@@ -979,7 +990,9 @@ def _inherited_consoles(context: Context) -> tuple[str, ...]:
 
 
 
-def _alpine_modloop(archive: PurePosixPath) -> str:
+def _alpine_modloop(
+    archive: PurePosixPath, region: MirrorRegion = MirrorRegion.GLOBAL
+) -> str:
     """The modloop belonging to the netboot archive this run downloaded."""
     named = ALPINE_ARCHIVE.match(archive.name)
     if named is None:
@@ -987,7 +1000,7 @@ def _alpine_modloop(archive: PurePosixPath) -> str:
             f"{archive.name} is not named as an Alpine netboot archive, so the "
             "modloop its kernel needs cannot be composed from it"
         )
-    return ALPINE_MODLOOP.format(**named.groupdict())
+    return ALPINE_MODLOOP.format(base=ALPINE_MIRRORS[region], **named.groupdict())
 
 
 def _volume_label(context: Context, image: PurePosixPath) -> str:
@@ -1083,14 +1096,16 @@ def _cjk_from_mirror(context: Context, named: str) -> tuple[str, str, str] | Non
     return iso, f"{inside}{iso}", _first_word(digest, iso)
 
 
-def _alpine_release(context: Context, machine: str) -> tuple[str, str, str]:
+def _alpine_release(
+    context: Context, machine: str, region: MirrorRegion = MirrorRegion.GLOBAL
+) -> tuple[str, str, str]:
     """The newest Alpine netboot bundle: its name, its URL and its SHA-256.
 
     `latest-releases.yaml` is read as records separated by `-` at the start of
     a line rather than with a YAML parser, because no YAML parser is in the
     standard library and this file's shape is two levels deep.
     """
-    index = ALPINE_RELEASES.format(machine)
+    index = ALPINE_RELEASES.format(base=ALPINE_MIRRORS[region], architecture=machine)
     said = context.run(["curl", "--fail", "--location", index])
     for record in said.split("\n-\n"):
         fields = dict(_yaml_pairs(record))
