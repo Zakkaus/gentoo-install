@@ -1312,7 +1312,11 @@ def test_the_boot_check_does_not_spend_an_agetty_attempt_on_the_prompt() -> None
     import inspect
 
     source = inspect.getsource(cluster.boot_and_check)
-    waited = [line for line in source.splitlines() if "observe(r\"login:\"" in line]
+    waited = [
+        line
+        for line in source.splitlines()
+        if "observe(" in line and "LOGIN_PROMPTS" in line
+    ]
     assert waited, source
     assert not any("solicit" in line for line in waited), waited
     # And the miss is not a verdict on its own: nothing returns straight out of
@@ -1739,11 +1743,41 @@ class _LoginWithItsOwnLimit:
 
     ISSUE = b"\r\nThis is plain\r\n\r\nplain login: "
 
-    def __init__(self, gives_up: int) -> None:
+    #: The three lines `login` writes, per locale, as codepoints: shadow's own
+    #: `po/zh_TW.po` and `po/zh_CN.po` for the two Chinese ones.
+    WORDING: dict[str, tuple[str, str, str, str]] = {
+        "C": (
+            "Password: ",
+            "Login incorrect",
+            "Maximum number of tries exceeded (3)",
+            "login: ",
+        ),
+        "zh_TW": (
+            "\u5bc6\u78bc\uff1a",
+            "\u767b\u5165\u932f\u8aa4",
+            "\u5df2\u78b0\u5230\u6700\u5927\u5617\u8a66\u6b21\u6578 (3)",
+            "\u4f7f\u7528\u8005\uff1a",
+        ),
+        "zh_CN": (
+            "\u5bc6\u7801\uff1a",
+            "\u767b\u5f55\u9519\u8bef",
+            "\u5df2\u7ecf\u8d85\u8fc7\u6700\u5927\u5c1d\u8bd5\u6b21\u6570 (3)",
+            "\u7528\u6237\u540d\uff1a",
+        ),
+    }
+
+    def __init__(self, gives_up: int, locale: str = "C") -> None:
         #: How many times `login` spends its three tries before the password
         #: is finally taken.
         self.gives_up = gives_up
+        self.password_prompt, self.refusal, self.gave_up, self.name_prompt = (
+            one.encode() for one in self.WORDING[locale]
+        )
         self.tries = 0
+        #: How many waits gave up. A prompt the guest printed in its own
+        #: locale costs the whole re-prompt patience when the harness knows
+        #: only the English one.
+        self.timeouts = 0
         self.sent: list[str] = []
         self.held = b"plain login: "
         self.console = _Screen(b"plain login: ")
@@ -1751,24 +1785,29 @@ class _LoginWithItsOwnLimit:
     def respond(self, line: str) -> None:
         self.sent.append(line)
         if line == "root":
-            self.held += b"root\r\nPassword: "
+            self.held += b"root\r\n" + self.password_prompt
             return
         if self.gives_up == 0:
             self.held += b"\r\nplain ~ # "
             return
         self.tries += 1
         if self.tries < 3:
-            self.held += b"\r\n\r\nLogin incorrect\r\n" + self.ISSUE
+            # `login` asks again itself, in its own locale; agetty and its
+            # English issue only come back after `login` has given up.
+            self.held += (
+                b"\r\n\r\n" + self.refusal + b"\r\nplain " + self.name_prompt
+            )
             return
         self.tries = 0
         self.gives_up -= 1
-        self.held += b"\r\nMaximum number of tries exceeded (3)\r\n" + self.ISSUE
+        self.held += b"\r\n" + self.gave_up + b"\r\n" + self.ISSUE
 
     def observe(
         self, pattern: str, timeout: float = 0.0, *, solicit: bool = False
     ) -> bytes:
         found = re.search(pattern.encode(), self.held)
         if not found:
+            self.timeouts += 1
             raise ConsoleTimeout(f"never matched {pattern!r}")
         said, self.held = self.held[: found.end()], self.held[found.end() :]
         return said
@@ -1802,6 +1841,24 @@ def test_a_login_that_never_takes_the_password_still_ends(
         cast(cluster.Reconnecting, console), "install"
     )
     assert console.sent.count("install") <= cluster.LOGIN_TRIES * 3, console.sent
+
+
+def test_a_login_speaking_the_installed_locale_is_read_the_same_way() -> None:
+    """shadow's `login` is translated, so a fixture installing a Chinese
+    locale is refused in Chinese. `vm-unlock` was failed at 64.0 minutes with
+    the refusal and the name prompt both on its console in `zh_TW`."""
+    for locale in ("zh_TW", "zh_CN"):
+        console = _LoginWithItsOwnLimit(gives_up=1, locale=locale)
+
+        assert cluster._log_in(cast(cluster.Reconnecting, console), "install") == "", (
+            locale,
+            console.sent,
+        )
+        assert console.sent.count("install") == 4, (locale, console.sent)
+        # `login` asks for the name again in its own locale, so a harness that
+        # knows only agetty's English one waits out its re-prompt patience on
+        # every refusal before typing anything.
+        assert console.timeouts == 0, (locale, console.timeouts)
 
 
 def test_a_refusal_holding_none_of_the_password_still_ends_the_login() -> None:
