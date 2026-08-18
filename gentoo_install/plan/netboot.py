@@ -541,12 +541,27 @@ class AppendConfiguration(Operation):
             context.run(["rm", "--recursive", "--force", str(payload_staging)])
         # `find | cpio` from inside the staging directory, or every path in the
         # archive carries the staging prefix and lands nowhere the initramfs reads.
+        image = self.target.place / "initramfs"
+        # Padded to a four-byte boundary first, because the kernel reads
+        # concatenated initramfs segments only from one. Measured on this
+        # workstation on 2026-08-18: Alpine's `initramfs-lts` is 27951899
+        # bytes, 3 mod 4, and a guest booted with the segment appended to it
+        # reached `localhost login:` with no `Loading user settings from` line
+        # at all; one zero byte in front of the same segment answered
+        # `Loading user settings from /gentoo-install.apkovl.tar.gz: ok.`
         context.run(
             [
                 "sh",
                 "-c",
-                f"cd {staging} && find . | cpio --create --format=newc "
-                f">> {self.target.place / 'initramfs'}",
+                f'pad=$(( (4 - $(stat --format=%s {image}) % 4) % 4 )); '
+                f'[ "$pad" -eq 0 ] || dd if=/dev/zero bs=1 count="$pad" >> {image}',
+            ]
+        )
+        context.run(
+            [
+                "sh",
+                "-c",
+                f"cd {staging} && find . | cpio --create --format=newc >> {image}",
             ]
         )
         context.run(["rm", "--recursive", "--force", str(staging)])
