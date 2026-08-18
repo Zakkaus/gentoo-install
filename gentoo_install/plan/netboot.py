@@ -11,6 +11,7 @@ on the ordinary path, inside that environment.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Final
@@ -27,6 +28,26 @@ from .operations import CommandOutput, Context, Operation, Stage
 CJK_RELEASES: Final[str] = (
     "https://api.github.com/repos/gentoo-zh/gentoo-cjk-livecd/releases/latest"
 )
+
+#: The same images through CERNET, which answers 302 to whichever member
+#: mirror is closest. Measured on 2026-08-18: the index lists one directory
+#: per build (`20260813T073053Z/`), each holding the ISO, its `.sha256`, its
+#: `DIGESTS` and a `CONTENTS.gz`, and the redirect landed on
+#: `mirror.nyist.edu.cn` with the ISO at 989376512 bytes.
+#:
+#: Asked before the release index, because the machines this path exists for
+#: are in China and a gigabyte from GitHub's CDN is the slowest part of the
+#: whole run. GitHub answers when the mirror does not, so neither is a single
+#: point of failure.
+CJK_MIRROR: Final[str] = "https://mirrors.cernet.edu.cn/gentoo-zh/gentoo-cjk-livecd/"
+
+#: What a build directory is called there. Read rather than composed: the
+#: name carries a build timestamp and the newest is the greatest of them.
+CJK_BUILD = re.compile(r'href="(\d{8}T\d{6}Z)/"')
+
+#: What an asset is called inside one. The ISO and its checksum are matched
+#: by suffix so a build that adds a file does not confuse this.
+CJK_ASSET = re.compile(r'href="([^"?/]+\.(?:iso|iso\.sha256))"')
 
 #: Alpine publishes version, filename and SHA-256 for every flavour in one
 #: document per architecture, so the version is read rather than pinned here
@@ -782,6 +803,9 @@ def _cjk_release(context: Context, machine: str) -> tuple[str, str, str]:
             f"{machine} is not an architecture Gentoo names, so no ISO can be "
             f"chosen for it: {', '.join(sorted(GENTOO_ARCHITECTURES))} are"
         )
+    from_mirror = _cjk_from_mirror(context, named)
+    if from_mirror is not None:
+        return from_mirror
     said = context.run(["curl", "--fail", "--location", CJK_RELEASES])
     try:
         release = json.loads(said)
@@ -803,6 +827,30 @@ def _cjk_release(context: Context, machine: str) -> tuple[str, str, str]:
         raise DownloadFailed(f"{iso} is published with no companion .sha256")
     digest = context.run(["curl", "--fail", "--location", assets[f"{iso}.sha256"]])
     return iso, assets[iso], _first_word(digest, iso)
+
+
+def _cjk_from_mirror(context: Context, named: str) -> tuple[str, str, str] | None:
+    """The newest build on the mirror, or `None` when it does not answer.
+
+    `None` rather than an exception: a mirror that is down is not a reason to
+    stop, and the release index is asked next.
+    """
+    index = context.run(["curl", "--fail", "--location", CJK_MIRROR], check=False)
+    if isinstance(index, CommandOutput) and index.returncode != 0:
+        return None
+    builds = CJK_BUILD.findall(index)
+    if not builds:
+        return None
+    inside = f"{CJK_MIRROR.rstrip('/')}/{max(builds)}/"
+    listed = context.run(["curl", "--fail", "--location", inside], check=False)
+    if isinstance(listed, CommandOutput) and listed.returncode != 0:
+        return None
+    names = CJK_ASSET.findall(listed)
+    iso = next((one for one in names if one.endswith(".iso") and f"-{named}-" in one), "")
+    if not iso or f"{iso}.sha256" not in names:
+        return None
+    digest = context.run(["curl", "--fail", "--location", f"{inside}{iso}.sha256"])
+    return iso, f"{inside}{iso}", _first_word(digest, iso)
 
 
 def _alpine_release(context: Context, machine: str) -> tuple[str, str, str]:
