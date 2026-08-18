@@ -4073,3 +4073,23 @@ def test_the_bypass_runner_asks_for_two_boots_and_names_the_flag() -> None:
     assert 'for boot in ("first", "second")' in source, source
     assert "arm_bypass" in source, source
     assert "--bypass" in inspect.getsource(ram.arm_bypass)
+
+
+def test_the_bypass_runner_reaches_a_shell_before_it_sends_a_command() -> None:
+    """The delivered screen reads a whole line as its answer, so a marked
+    command typed there is consumed: the second `--bypass` reboot ended at
+    `never matched 'MARK_14_DONE'` with `nothing was changed` on the console."""
+    import inspect
+
+    from tests.vm import ram
+
+    source = inspect.getsource(ram.run_bypass)
+    assert "leave_the_first_screen(console)" in source, source
+    left = source.index("leave_the_first_screen(console)")
+    # Last in the loop body, so the next pass's `reboot` reaches a shell: the
+    # reboot is the first statement of the pass that follows it.
+    assert source.index("came_up(console, mode)") < left, source
+    assert source.index('console.run("reboot"') < left, source
+    assert 'for boot in ("first", "second")' in source, source
+    answered = inspect.getsource(ram.leave_the_first_screen)
+    assert 'console.send("shell")' in answered, answered

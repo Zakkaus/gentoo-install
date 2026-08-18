@@ -280,6 +280,18 @@ def came_up(console: SerialConsole, mode: str) -> str:
     return ""
 
 
+def leave_the_first_screen(console: SerialConsole) -> None:
+    """Answer the delivered screen so the console is at a shell again.
+
+    `run()` sends a marked command, and typed at `install or shell>` the whole
+    line is read as the answer: the screen printed `nothing was changed` and
+    the marker never came back, so the second reboot of a `--bypass` run
+    failed at `never matched 'MARK_14_DONE'`.
+    """
+    console.send("shell")
+    console.expect(r"# ", timeout=POST_INSTALL_PATIENCE)
+
+
 def run_install(
     chosen: CloudImage,
     config: str,
@@ -507,6 +519,9 @@ def run_bypass(
                 refused = came_up(console, mode)
                 if refused:
                     raise RuntimeError(f"the {boot} boot after --bypass: {refused}")
+                # The environment is at its own first screen, and the next
+                # command has to reach a shell rather than that prompt.
+                leave_the_first_screen(console)
                 print(
                     f"[{time.monotonic() - started:5.1f}s] the {boot} boot came up "
                     "in the memory environment",
