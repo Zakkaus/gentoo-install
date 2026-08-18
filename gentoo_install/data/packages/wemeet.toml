@@ -1,2 +1,4 @@
 packages = ["net-im/wemeet"]
 repositories = ["gentoo-zh"]
+# `LICENSE="wemeet_license"`, which is in no licence group at all.
+accept_license = ["wemeet_license"]

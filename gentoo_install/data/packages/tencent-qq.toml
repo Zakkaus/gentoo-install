@@ -1,2 +1,4 @@
 packages = ["net-im/tencent-qq"]
 repositories = ["gentoo-zh"]
+# `LICENSE="Tencent-QQ"`.
+accept_license = ["Tencent-QQ"]
