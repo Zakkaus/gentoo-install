@@ -3411,6 +3411,7 @@ class _MissingCommands:
 
     def __init__(self) -> None:
         self.ran: list[str] = []
+        self.asked: list[str] = []
 
     def run(self, command: str, timeout: float = 0.0) -> None:
         self.ran.append(command)
@@ -3422,6 +3423,7 @@ class _MissingCommands:
     missing: tuple[str, ...] = ("gpg", "gpg-agent")
 
     def expect_output(self, command: str, timeout: float = 0.0) -> bytes:
+        self.asked.append(command)
         if command.startswith("for one in "):
             return "".join(f"absent={one}\r\n" for one in self.absent).encode()
         return "".join(f"{one}\r\n" for one in self.missing).encode()
@@ -3542,6 +3544,13 @@ def test_a_command_whose_package_is_named_otherwise_is_translated() -> None:
     assert len(installs) == 1, console.ran
     assert "dosfstools" in installs[0], installs[0]
     assert "mkfs.vfat" not in installs[0], installs[0]
+    # And the guest is asked for the command, not for the package: `command -v
+    # dosfstools` is false on a machine that has `mkfs.vfat`, which is what
+    # the package installed.
+    asked = [one for one in console.asked if one.startswith("for one in ")]
+    assert len(asked) == 1, console.asked
+    assert "mkfs.vfat" in asked[0], asked[0]
+    assert "dosfstools" not in asked[0], asked[0]
 
 
 def test_a_package_manager_that_installed_nothing_stops_the_run() -> None:
