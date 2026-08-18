@@ -2273,9 +2273,12 @@ class Reconnecting:
         cast(SerialConsole, self.console).set_buffer_limit(limit)
 
     def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+        # `idle` is forwarded, not dropped: `wait_for` passes one and this did
+        # not, so a caller writing the same call here would wait the whole
+        # ceiling on a guest that had stopped speaking.
         return self._with_reconnect(
             timeout,
-            lambda deadline: self.console.expect(pattern, _remaining(deadline)),
+            lambda deadline: self.console.expect(pattern, _remaining(deadline), idle),
         )
 
     def observe(self, pattern: str, timeout: float, *, solicit: bool = False) -> bytes:

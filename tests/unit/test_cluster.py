@@ -2178,3 +2178,30 @@ def test_a_refusal_with_no_echo_still_grows_the_settle(
     assert cluster._log_in(cast(cluster.Reconnecting, console), "install") == ""
     assert console.sent.count("install") == 2, console.sent
     assert console.settled >= cluster.PASSWORD_ECHO_BACKOFF, console.settled
+
+
+def test_a_reconnecting_wait_carries_its_idle_window(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`wait_for` passes an idle window and `expect` dropped it, so the same
+    call written on the other method would sit out the whole ceiling on a
+    guest that had stopped speaking. The console's own `expect` measures the
+    wait from the last byte when it is given one."""
+    seen: list[tuple[str, float, float]] = []
+
+    class Console:
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+            seen.append((pattern, timeout, idle))
+            return b"answered"
+
+        def send(self, line: str) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    link = cluster.Reconnecting(lambda: cast(Any, Console()))
+    link.expect("ready", timeout=90.0, idle=20.0)
+
+    assert seen and seen[0][0] == "ready", seen
+    assert seen[0][2] == 20.0, seen
