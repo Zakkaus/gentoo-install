@@ -166,7 +166,7 @@ default entry instead of arming one boot.
 streamed rather than staged, and is offered only on a live medium or in a
 memory environment because writing over the running root is writing over
 yourself. It takes nothing over afterwards: the disk carries the image's own
-layout and bootloader. No machine has been written this way either.
+layout and bootloader. One disk has been written this way and read back.
 
 | Revision | What ran | Result |
 |---|---|---|

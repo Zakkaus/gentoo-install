@@ -70,7 +70,7 @@ The default boot entry is never changed, so an environment that does not come up
 
 Installing onto a disk has cluster and single-machine records across ext4, xfs, btrfs, f2fs, ZFS, LVM, mdraid and LUKS2, on both firmwares and both init systems. Converting a running system in place has three QEMU records: two BIOS records and one UEFI record that booted through its own firmware entry and retained `/home`.
 
-`--ram` and `--lowram` are implemented and wired into `cli.py`; unit and plan tests cover the memory environment's arming path, but no machine has been rebooted into it. `dd` is implemented; its unit and plan tests stream a prepared image onto a whole disk, but no disk has been written this way.
+`--ram` and `--lowram` each have one QEMU record: a Debian 12 machine armed one boot, kept its default entry, rebooted, and came up in the delivered environment — the Gentoo CJK ISO for `--ram`, the Alpine netboot archive for `--lowram` — carrying the configuration it was given. Installing Gentoo from inside that environment has no record. `dd` has one record: a prepared image written onto a whole disk from a live medium and read back byte for byte, raw and gzipped.
 
 The runner fixture list includes static addressing, ext2, ext3 and a source-built kernel. A runner-level test covers binhost degradation. These tests and fixtures are not end-to-end records.
 
