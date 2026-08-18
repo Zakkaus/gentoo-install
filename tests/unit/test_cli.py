@@ -1687,3 +1687,28 @@ def test_missing_commands_with_a_memory_mode_answers_for_the_arming(
     assert code == cli.EXIT_OK, said
     assert "xorriso" in said, said
     assert "curl" in said, said
+
+
+def test_missing_commands_is_answered_before_the_arming_refusals(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """`--ram cannot arm a one-shot boot entry on this machine` is what a
+    machine without `efibootmgr` answers, and `efibootmgr` is one of the
+    commands being asked about: the guest was refused instead of told, so it
+    installed nothing and the arming failed on the same machine minutes
+    later."""
+    import shutil as _shutil
+
+    from gentoo_install import cli
+
+    fixture = Path("tests/fixtures/vm-ram.toml").resolve()
+    monkeypatch.setattr(_shutil, "which", lambda name, path=None: None)
+    monkeypatch.setattr(RealProbe, "boot_method", lambda self: BootMethod.NONE)
+
+    code = cli.main(
+        ["--config", str(fixture), "--ram", "--missing-commands", "--work", str(tmp_path)]
+    )
+    said = capsys.readouterr().out.split()
+
+    assert code == cli.EXIT_OK, said
+    assert "xorriso" in said, said

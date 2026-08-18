@@ -362,7 +362,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         if launch is not None:
             if arguments.config is not None and _needs_network(arguments):
                 _check_the_clock()
-            _validate_memory_launch(config, launch, _probe_for(arguments))
+            # The refusals come after the question about commands, because
+            # one of them is `--ram cannot arm a one-shot boot entry on this
+            # machine`, which is what a machine without `efibootmgr` answers —
+            # and `efibootmgr` is one of the commands being asked about.
+            if not arguments.missing_commands:
+                _validate_memory_launch(config, launch, _probe_for(arguments))
             return _arm_memory_environment(config, launch, arguments)
         if arguments.missing_commands:
             print(
