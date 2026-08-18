@@ -70,6 +70,17 @@ SECURE_BOOT: Final[Path] = (
 )
 
 
+def architecture() -> str:
+    """What the kernel calls this machine, as `/proc/cpuinfo`'s neighbours do.
+
+    `os.uname().machine` and not a package manager's answer: the memory
+    environments are published under the kernel's spelling on one side and
+    the distribution's on the other, and the conversion belongs where the two
+    names meet rather than here.
+    """
+    return os.uname().machine
+
+
 def secure_boot() -> bool | None:
     """Whether the firmware will refuse an unsigned kernel.
 

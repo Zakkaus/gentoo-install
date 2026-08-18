@@ -28,6 +28,7 @@ from .exec.apply import Machine, already_degraded, apply, completed
 from .exec.probe import (
     GRUB_DIRECTORIES,
     BootMethod,
+    architecture,
     Probe,
     probe_storage_facts,
     secure_boot,
@@ -253,6 +254,7 @@ def _boot_target(probe: Probe) -> netboot.BootTarget:
         ),
         boot_on_the_root_filesystem=layout.boot_same_filesystem,
         secure_boot=secure_boot(),
+        architecture=architecture(),
     )
 
 

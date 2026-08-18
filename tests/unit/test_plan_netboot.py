@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import PurePosixPath
 from collections.abc import Callable
 from typing import Sequence
@@ -89,7 +90,7 @@ def _answering(mode: MemoryMode = MemoryMode.RAM, *, digest: str = DIGEST) -> Re
             wanted = argv[-1]
             if wanted == netboot.CJK_RELEASES:
                 return CJK_INDEX
-            if wanted == netboot.ALPINE_RELEASES:
+            if wanted.endswith("latest-releases.yaml"):
                 return ALPINE_INDEX
             if wanted.endswith(".sha256"):
                 return f"{DIGEST}  {ISO}\n"
@@ -700,3 +701,76 @@ def test_disarming_and_clearing_ask_for_the_same_thing() -> None:
     netboot.ClearPreviousArming(target=_target()).apply(cleared)
 
     assert declined.commands == cleared.commands, (declined.commands, cleared.commands)
+
+
+#: The architectures Gentoo names, read from `profiles/arch.list` on this
+#: machine on 2026-08-18. Held here so the check runs where no repository is
+#: mounted.
+GENTOO_ARCH_NAMES: frozenset[str] = frozenset({"amd64", "arm64", "x86"})
+
+
+def test_every_architecture_this_maps_is_one_gentoo_names() -> None:
+    """`uname -m` answers `x86_64` and the ISO is published as
+    `install-amd64-…`: two ecosystems naming the same machine, the way `fma`
+    and `fma3` do. A name Gentoo does not use finds no asset and the failure
+    reads as a missing release."""
+    assert set(netboot.GENTOO_ARCHITECTURES.values()) <= GENTOO_ARCH_NAMES, sorted(
+        set(netboot.GENTOO_ARCHITECTURES.values()) - GENTOO_ARCH_NAMES
+    )
+
+
+def test_the_alpine_index_is_asked_for_this_machine() -> None:
+    """Alpine publishes one document per architecture and spells it the way
+    the kernel does; `x86_64` and `aarch64` both answer with a netboot flavour
+    and a sha256, checked on 2026-08-18."""
+    for machine in ("x86_64", "aarch64"):
+        assert netboot.ALPINE_RELEASES.format(machine).endswith(
+            f"releases/{machine}/latest-releases.yaml"
+        ), machine
+
+
+def test_the_iso_is_chosen_by_the_name_the_release_publishes() -> None:
+    """So an architecture the project starts building for works the day it
+    does, without this file changing."""
+    recorder = _answering()
+    netboot.FetchMemoryImage(
+        mode=MemoryMode.RAM,
+        target=replace(_target(), architecture="x86_64"),
+    ).apply(recorder)
+
+    fetched = [one for one in _run(recorder, "curl") if "--output" in one]
+    assert fetched[0][-1].endswith(ISO), fetched
+
+
+def test_an_architecture_the_release_has_no_iso_for_is_named() -> None:
+    """`--ram` on a machine the CJK project does not build for is a refusal
+    that says which mode is published for it, rather than a 404 an hour in."""
+    recorder = _answering()
+    with pytest.raises(DownloadFailed, match="arm64 ISO"):
+        netboot.FetchMemoryImage(
+            mode=MemoryMode.RAM,
+            target=replace(_target(), architecture="aarch64"),
+        ).apply(recorder)
+
+
+def test_an_architecture_gentoo_does_not_name_is_refused_by_name() -> None:
+    recorder = _answering()
+    with pytest.raises(DownloadFailed, match="not an architecture Gentoo names"):
+        netboot.FetchMemoryImage(
+            mode=MemoryMode.RAM,
+            target=replace(_target(), architecture="riscv64"),
+        ).apply(recorder)
+
+
+def test_no_address_carries_an_architecture_of_its_own() -> None:
+    """The one place a machine's name is written is the table. A copy inside
+    an address is what has to be found and changed the day arm is tested, and
+    the one that is missed sends that machine to another machine's image."""
+    assert "{}" in netboot.ALPINE_RELEASES, netboot.ALPINE_RELEASES
+    for address in (
+        netboot.ALPINE_RELEASES,
+        netboot.ALPINE_REPOSITORY,
+        netboot.CJK_RELEASES,
+    ):
+        for named in ("x86_64", "amd64", "aarch64", "arm64", "i686", "x86"):
+            assert named not in address, (address, named)
