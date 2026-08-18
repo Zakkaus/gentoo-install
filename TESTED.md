@@ -44,7 +44,7 @@ The ordinary path: partition, format, unpack a stage3, configure, boot.
 | `18f150282cb1` | `vm-lvm`, `static-ip`, `ext2` — three of three |
 | `3692e4b29743` | `vm-zfs`, `vm-f2fs`, `vm-luks`, `vm-lvm`, `vm-mdraid`, `vm-unlock`, `vm-xfs`, `vm-zram` — eight of ten; `ext3` was refused by its own login again, which `2849e42a151a` addresses |
 | `2849e42a151a` | `ext3` — the first record of `ext3` since the harness waits for the name's echo before the password prompt, the race that had left `Password:` in the buffer and typed the password into the name field |
-| `02141f7a9902` | `vm-xfs`, `vm-luks`, `vm-sdboot`, `vm-greetd` — `vm-greetd` is the first record of greetd and tuigreet, and the first of ibus-pinyin under a display manager; the check before it refused every machine for a word its own configuration file carries in a comment |
+| `02141f7a9902` | `vm-xfs`, `vm-luks`, `vm-sdboot`, `vm-greetd`, `vm-zfs-encrypted` — five of the round's six. `vm-greetd` is the first record of greetd and tuigreet, and the first of ibus-pinyin under a display manager; the check before it refused every machine for a word its own configuration file carries in a comment. The sixth, `vm-binhost-fallback`, also passed and is not counted: `--site` had moved it off the host whose index answers 404 |
 | `ce95e7df72cd` | `static-ip`, `vm-btrfs`, `vm-mdraid` |
 
 Every row from `08015b221d73` onward ran `--region cn --site nju --sync
