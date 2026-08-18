@@ -68,11 +68,11 @@ gentoo-install 在 Linux live 环境中运行，用于安装 amd64 架构的 Gen
 
 [`TESTED.md`](TESTED.md) 是验证记录：每一条走过的路径各一行，写明它运行时的安装器修订版与运行的地点。一次运行要记录的修订版与安装器相符、安装退出码为 `0`、装出的系统能引导、且引导后的配置检查全部通过，才算数。
 
-装到磁盘上的路径在集群与单机都有记录，覆盖 ext4、xfs、btrfs、f2fs、ZFS、LVM、mdraid 与 LUKS2，两种固件与两种 init 系统皆有。就地转换运行中的系统已有三条 QEMU 记录：两条 BIOS，以及一条通过自身固件启动项引导并保留 `/home` 的 UEFI 记录。
+装到磁盘上的路径在集群与单机都有记录，覆盖 ext4、xfs、btrfs、f2fs、ZFS、LVM、mdraid 与 LUKS2，两种固件与两种 init 系统皆有。就地转换运行中的系统已有四条 QEMU 记录：两条 BIOS，一条保留 `/home` 的 UEFI，以及一条根文件系统为 btrfs、`/home` 与 `/var` 是 subvolume 的 UEFI。
 
 `--ram` 和 `--lowram` 各有 QEMU 记录：一台 Debian 12 机器武装一次启动、默认启动项未变、重新启动后进入送达的环境——`--ram` 是 Gentoo CJK ISO，`--lowram` 是 Alpine netboot 压缩包——并带着交付给它的配置。在两种环境里回答 `install` 各有一条记录：机器装出 Gentoo、启动它写出的磁盘，并通过共用的安装后检查。另一台机器的武装项被移除 initramfs，在协调器换客机的电源循环之后，接下来两次启动都进入原本的云系统。`dd` 有一条记录：从活介质把准备好的镜像写入整块磁盘并逐字节读回，原始和 gzip 两种格式皆是。
 
-runner 的 fixture 列表包含静态地址、ext2、ext3 和源代码构建的内核。runner 层级的测试覆盖 binhost 降级行为。这些测试和 fixture 都不是端到端记录。
+静态地址、ext2 和 ext3 各自有集群记录。源代码构建的内核和 binhost 降级只有 runner 层级的测试，而 runner 层级的测试不是端到端记录。
 
 `tests/fixtures/` 下的文件验证的是配置模型，它们存在并不代表任何一台装出来的机器。
 

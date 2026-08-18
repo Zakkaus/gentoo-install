@@ -68,11 +68,11 @@ The default boot entry is never changed, so an environment that does not come up
 
 [`TESTED.md`](TESTED.md) is the verification record: one row for each exercised path, naming the installer revision it ran at and where it ran. A run counts only when its recorded revision matches the installer, its installation exit code is `0`, the installed system boots, and the post-boot configuration checks pass.
 
-Installing onto a disk has cluster and single-machine records across ext4, xfs, btrfs, f2fs, ZFS, LVM, mdraid and LUKS2, on both firmwares and both init systems. Converting a running system in place has three QEMU records: two BIOS records and one UEFI record that booted through its own firmware entry and retained `/home`.
+Installing onto a disk has cluster and single-machine records across ext4, xfs, btrfs, f2fs, ZFS, LVM, mdraid and LUKS2, on both firmwares and both init systems. Converting a running system in place has four QEMU records: two on BIOS, one on UEFI that retained `/home`, and one on UEFI whose root is a btrfs filesystem carrying `/home` and `/var` as subvolumes.
 
 `--ram` and `--lowram` each have QEMU records. A Debian 12 machine armed one boot, kept its default entry, rebooted and came up in the delivered environment — the Gentoo CJK ISO for `--ram`, the Alpine netboot archive for `--lowram` — carrying the configuration it was given. Answering `install` there has a record for each environment: the machine installed Gentoo, booted the disk it had written and passed the shared installed-state checks. A second machine had its armed entry's initramfs removed and reached its own cloud system on the two boots that followed, after the power cycle the harness performs between guests. `dd` has one record: a prepared image written onto a whole disk from a live medium and read back byte for byte, raw and gzipped.
 
-The runner fixture list includes static addressing, ext2, ext3 and a source-built kernel. A runner-level test covers binhost degradation. These tests and fixtures are not end-to-end records.
+Static addressing, ext2 and ext3 have cluster records of their own. A source-built kernel and binhost degradation have runner-level tests only, and a runner-level test is not an end-to-end record.
 
 Files under `tests/fixtures/` exercise the configuration model; their presence establishes nothing about an installed machine.
 
