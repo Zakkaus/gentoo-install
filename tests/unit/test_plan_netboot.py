@@ -1326,3 +1326,20 @@ def test_a_checksum_file_with_no_hash_at_all_is_still_refused() -> None:
 
     with pytest.raises(_DownloadFailed, match="not a SHA-256"):
         netboot._first_word("# SHA256 HASH\nnot-a-hash  file.iso\n", ISO)
+
+
+def test_the_arming_declares_the_commands_it_runs() -> None:
+    """`--ram` reads the ISO with `xorriso` and the first run to get past the
+    checksum answered `command: xorriso is not installed` — after fetching a
+    gigabyte. `--missing-commands` reads these, so preflight names it first."""
+    ram = netboot.build(launch=_launch(MemoryMode.RAM), target=_target())
+    lowram = netboot.build(launch=_launch(MemoryMode.LOWRAM), target=_target())
+
+    def wanted(operations: list[Operation]) -> set[str]:
+        return {one for op in operations for one in op.required_host_commands()}
+
+    assert "xorriso" in wanted(ram), sorted(wanted(ram))
+    assert "xorriso" not in wanted(lowram), sorted(wanted(lowram))
+    assert "tar" in wanted(lowram), sorted(wanted(lowram))
+    for both in ("curl", "sha256sum"):
+        assert both in wanted(ram) and both in wanted(lowram), both

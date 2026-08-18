@@ -343,6 +343,9 @@ class FetchMemoryImage(Operation):
     mode: MemoryMode
     target: BootTarget
 
+    def required_host_commands(self) -> frozenset[str]:
+        return frozenset({"curl", "sha256sum", "mkdir", "rm"})
+
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
         return "fetch the {} image and verify its checksum", (self.mode.value,)
 
@@ -378,6 +381,13 @@ class PlaceMemoryKernel(Operation):
     stage: Stage = Stage.BOOTLOADER
     mode: MemoryMode
     target: BootTarget
+
+    def required_host_commands(self) -> frozenset[str]:
+        # `xorriso` reads the ISO and `tar` the netboot archive; a machine
+        # without the one its mode needs refused at the unpack rather than in
+        # preflight, an image and several minutes later.
+        reader = "xorriso" if self.mode is MemoryMode.RAM else "tar"
+        return frozenset({reader, "mkdir", "blkid" if self.mode is MemoryMode.RAM else "ls"})
 
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
         return "unpack the {} kernel and initramfs into {}", (
