@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+import re
 import time
 from collections.abc import Callable
 from io import BytesIO
@@ -1724,6 +1725,83 @@ def test_a_password_the_console_echoed_part_of_is_not_counted_as_a_refusal(
             console.sent,
         )
         assert console.sent.count("install") == races + 1, (swallowed, console.sent)
+
+
+class _LoginWithItsOwnLimit:
+    """`login` as it behaves after three wrong passwords: it prints its own
+    limit instead of a refusal and exits, and agetty starts another one.
+
+    Taken from `ext3` in run78, where the harness waited its whole 120 seconds
+    for a `Login incorrect` that `login` had already decided not to print.
+    Only `observe` patterns that the stream actually holds are answered, so a
+    wait for a word the guest never says fails here as it does on a guest.
+    """
+
+    ISSUE = b"\r\nThis is plain\r\n\r\nplain login: "
+
+    def __init__(self, gives_up: int) -> None:
+        #: How many times `login` spends its three tries before the password
+        #: is finally taken.
+        self.gives_up = gives_up
+        self.tries = 0
+        self.sent: list[str] = []
+        self.held = b"plain login: "
+        self.console = _Screen(b"plain login: ")
+
+    def respond(self, line: str) -> None:
+        self.sent.append(line)
+        if line == "root":
+            self.held += b"root\r\nPassword: "
+            return
+        if self.gives_up == 0:
+            self.held += b"\r\nplain ~ # "
+            return
+        self.tries += 1
+        if self.tries < 3:
+            self.held += b"\r\n\r\nLogin incorrect\r\n" + self.ISSUE
+            return
+        self.tries = 0
+        self.gives_up -= 1
+        self.held += b"\r\nMaximum number of tries exceeded (3)\r\n" + self.ISSUE
+
+    def observe(
+        self, pattern: str, timeout: float = 0.0, *, solicit: bool = False
+    ) -> bytes:
+        found = re.search(pattern.encode(), self.held)
+        if not found:
+            raise ConsoleTimeout(f"never matched {pattern!r}")
+        said, self.held = self.held[: found.end()], self.held[found.end() :]
+        return said
+
+
+def test_login_spending_its_own_three_tries_is_answered_not_waited_out() -> None:
+    """`login` prints `Maximum number of tries exceeded` in place of the third
+    refusal and exits. A harness that knows only `Login incorrect` waits its
+    whole 120 seconds beside an agetty that is already asking for a name:
+    `ext3` was failed at 40.7 minutes for an install that had completed."""
+    console = _LoginWithItsOwnLimit(gives_up=1)
+
+    assert cluster._log_in(cast(cluster.Reconnecting, console), "install") == "", (
+        console.sent
+    )
+    # Three passwords into `login`'s limit and a fourth into the one agetty
+    # started afterwards, which is the attempt the fix exists to make.
+    assert console.sent.count("install") == 4, console.sent
+
+
+def test_a_login_that_never_takes_the_password_still_ends(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The direction that has to keep working: a guest whose `login` gives up
+    for ever is a machine nobody can log into, and answering its prompt again
+    without bound holds the schedule open."""
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    console = _LoginWithItsOwnLimit(gives_up=99)
+
+    assert "refused every login" in cluster._log_in(
+        cast(cluster.Reconnecting, console), "install"
+    )
+    assert console.sent.count("install") <= cluster.LOGIN_TRIES * 3, console.sent
 
 
 def test_a_refusal_holding_none_of_the_password_still_ends_the_login() -> None:

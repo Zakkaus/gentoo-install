@@ -2579,6 +2579,13 @@ ECHO_FRAGMENT: Final[int] = 2
 REFUSED: Final[bytes] = b"Login incorrect"
 
 
+#: What `login` prints instead of a refusal when its own three tries are
+#: gone. `ext3` was failed twice for a `Login incorrect` that was never
+#: coming: the harness waited its whole 120 seconds while agetty reprinted the
+#: prompt beside it, ready for another name.
+GAVE_UP: Final[bytes] = b"Maximum number of tries exceeded"
+
+
 def _echoed_back(said: bytes, password: str) -> bool:
     """Whether any of the password reached the console.
 
@@ -2614,13 +2621,26 @@ def _log_in(link: Reconnecting, password: str) -> str:
         time.sleep(settle)
         link.respond(password)
         try:
-            said = link.observe(r"#|\$|Login incorrect", timeout=120.0)
+            said = link.observe(
+                rf"#|\$|Login incorrect|{GAVE_UP.decode()}", timeout=120.0
+            )
         except ConsoleTimeout as error:
             return (
                 f"root could not log into the installed system: {error}; "
                 f"the console held {_seen_since(link, b'')}"
             )[:VERDICT_BYTES]
-        if b"Login incorrect" not in said:
+        if GAVE_UP in said:
+            # `login` has spent its own three tries and exited; agetty starts
+            # another one, so the name goes in again rather than the run
+            # waiting for a refusal that cannot arrive.
+            refusals += 1
+            settle += PASSWORD_ECHO_BACKOFF
+            try:
+                link.observe(r"login:", timeout=REPROMPT_PATIENCE, solicit=True)
+            except ConsoleTimeout:
+                pass
+            continue
+        if REFUSED not in said:
             return ""
         if _echoed_back(said, password) and echoed < PASSWORD_ECHO_CATCHES:
             echoed += 1
