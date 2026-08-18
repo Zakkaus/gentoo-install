@@ -1014,7 +1014,19 @@ SERIAL_SHELL_SPEAKS: Final[str] = r"root@[^\s]+"
 #: right for both. So the line goes in again every interval until the port
 #: answers or the deadline passes, and the deadline is the only guess left.
 AUTOLOGIN_INTERVAL: Final[float] = 20.0
-AUTOLOGIN_DEADLINE: Final[float] = 360.0
+
+#: What one attempt costs before the port is looked at at all. `send_keys` is
+#: one API request per character with `KEY_PAUSE` after each, and the
+#: 38-character line measured 48.7s, 57.2s and 51.2s on `infra-node5`; the
+#: 61-character line it replaced measured 66s to 70s on `infra-node1`.
+AUTOLOGIN_TYPING: Final[float] = 60.0
+
+#: Twelve attempts at what one of them actually costs. A guest built for the
+#: question answered on its third try on an idle node; the 360s this replaces
+#: bought five on a loaded one, and every BIOS fixture in run71 spent all five
+#: without reaching a shell. The old arithmetic divided the deadline by the
+#: interval alone, which counts the watching and not the typing.
+AUTOLOGIN_DEADLINE: Final[float] = 12 * (AUTOLOGIN_TYPING + AUTOLOGIN_INTERVAL)
 
 
 def open_a_serial_shell_blind(
