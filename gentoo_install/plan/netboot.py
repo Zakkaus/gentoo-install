@@ -591,10 +591,11 @@ def _ready_the_environment() -> str:
         # the first `--lowram` install with `the firmware variables are not
         # readable` on a machine that boots through them.
         f"    if [ -d {FIRMWARE} ] && ! grep -q ' efivarfs ' {MOUNTS}; then\n"
-        # `mkdir` as well: the refusal came back on a machine where the mount
-        # point itself was absent, and the failure is printed rather than
-        # swallowed because the preflight's own message is the only other
-        # evidence there is.
+        # Alpine's `linux-lts` ships `efivarfs.ko.gz`, so the type is a module
+        # and the mount answered `No such device` without this.
+        "        modprobe efivarfs 2>/dev/null || true\n"
+        # The mount point is absent on that guest as well, and the failure is
+        # printed because the preflight's refusal is the only other evidence.
         f"        mkdir -p {EFIVARS}\n"
         f"        mount -t efivarfs efivarfs {EFIVARS} || "
         "printf 'the firmware variables did not mount\\n'\n"

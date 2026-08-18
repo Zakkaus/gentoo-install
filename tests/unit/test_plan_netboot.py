@@ -1436,13 +1436,18 @@ def test_the_first_screen_mounts_the_firmware_variables(
     tools = _only_these_tools(tmp_path, "sh", "chmod", "python3", "mkdir", "grep")
     mounts = tmp_path / "mount-bin"
     mounts.mkdir()
-    (mounts / "mount").write_text(
-        "#!/bin/sh\nprintf 'MOUNT %s\\n' \"$*\"\n", encoding="utf-8"
-    )
-    (mounts / "mount").chmod(0o755)
+    for name in ("mount", "modprobe"):
+        (mounts / name).write_text(
+            f"#!/bin/sh\nprintf '{name.upper()} %s\\n' \"$*\"\n", encoding="utf-8"
+        )
+        (mounts / name).chmod(0o755)
 
     said = _first_screen_with_path(where, "install", f"{mounts}:{tools}")
 
+    # The module first: Alpine's `linux-lts` ships `efivarfs.ko.gz`, so a
+    # mount without it answers `No such device` and the preflight refuses.
+    assert "MODPROBE efivarfs" in said, said
+    assert said.index("MODPROBE") < said.index("MOUNT"), said
     assert f"MOUNT -t efivarfs efivarfs {firmware / 'efivars'}" in said, said
     # The mount point is made rather than assumed: the refusal came back on a
     # machine that had the firmware directory and not the one under it.
