@@ -1418,6 +1418,38 @@ def _first_screen_with_path(where: Path, answer: str, path: str) -> str:
     ).stdout
 
 
+def test_the_first_screen_mounts_the_firmware_variables(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Alpine's netboot init mounts no efivarfs, so the first `--lowram`
+    install was refused by the preflight with `the firmware variables are not
+    readable` on a machine whose own boot entry lives in them. A machine with
+    no such directory is not sent to `mount` at all."""
+    efivars = tmp_path / "efivars"
+    efivars.mkdir()
+    monkeypatch.setattr(netboot, "EFIVARS", str(efivars))
+    where = _payload_at(tmp_path, monkeypatch)
+    tools = _only_these_tools(tmp_path, "sh", "chmod", "python3")
+    mounts = tmp_path / "mount-bin"
+    mounts.mkdir()
+    (mounts / "mount").write_text(
+        "#!/bin/sh\nprintf 'MOUNT %s\\n' \"$*\"\n", encoding="utf-8"
+    )
+    (mounts / "mount").chmod(0o755)
+
+    said = _first_screen_with_path(where, "install", f"{mounts}:{tools}")
+
+    assert f"MOUNT -t efivarfs efivarfs {efivars}" in said, said
+
+    monkeypatch.setattr(netboot, "EFIVARS", str(tmp_path / "no-firmware-here"))
+    elsewhere = tmp_path / "bios"
+    elsewhere.mkdir()
+    absent = _payload_at(elsewhere, monkeypatch)
+    on_bios = _first_screen_with_path(absent, "install", f"{mounts}:{tools}")
+
+    assert "MOUNT" not in on_bios, on_bios
+
+
 def test_the_first_screen_installs_an_interpreter_where_there_is_none(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
