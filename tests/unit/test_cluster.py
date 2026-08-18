@@ -1842,3 +1842,28 @@ def test_the_first_password_is_sent_the_moment_the_prompt_is_read(
     assert cluster._log_in(cast(cluster.Reconnecting, console), "install") == ""
     assert settles == [0.0], settles
     assert cluster.PASSWORD_ECHO_OFF_AFTER == 0.0, cluster.PASSWORD_ECHO_OFF_AFTER
+
+
+def test_the_prompt_a_medium_started_shell_gives_is_a_root_prompt() -> None:
+    """`vm-bios` opened a root shell on the serial port and then waited
+    fifteen minutes for a prompt it was already looking at: the console's last
+    output was ` ~ # `, and the pattern wanted the medium's own hostname in
+    front of it. A shell started by the medium's auto-login carries none,
+    because nothing has set one in that environment yet."""
+    import re
+
+    for prompt in (b"livecd ~ # ", b"localhost ~ # ", b" ~ # ", b"root@livecd ~ # "):
+        assert re.search(cluster.ROOT_PROMPT.encode(), prompt), prompt
+
+
+def test_a_line_that_is_not_a_prompt_is_not_taken_for_one() -> None:
+    """The negative direction: `#` alone appears in half the boot messages,
+    which is why the pattern asks for the tilde and the space around it."""
+    import re
+
+    for other in (
+        b"[    0.000000] Command line: console=ttyS0",
+        b"#### partitioning",
+        b"Load keymap",
+    ):
+        assert not re.search(cluster.ROOT_PROMPT.encode(), other), other

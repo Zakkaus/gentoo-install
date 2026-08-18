@@ -981,12 +981,21 @@ KEYMAP_QUESTION: Final[str] = r"Load keymap|keymap \(Enter for default\)"
 PROMPT_PATIENCE: Final[float] = 900.0
 
 
+#: What a root prompt looks like on a medium this drives. The first two are
+#: the hostname the medium sets; the third is the prompt a shell started by
+#: the medium's own auto-login gives, which carries no hostname because
+#: nothing has set one in that environment yet. `vm-bios` reached exactly
+#: that and waited fifteen minutes for a prompt it was already looking at:
+#: the console's last output was ` ~ # `.
+ROOT_PROMPT: Final[str] = r"livecd .*#|localhost .*#|~ #"
+
+
 def reach_prompt(link: Reconnecting, patience: float = PROMPT_PATIENCE) -> None:
     """Wait for a root prompt, answering the medium's questions on the way."""
     deadline = time.monotonic() + patience
     while time.monotonic() < deadline:
         said = link.expect(
-            rf"livecd .*#|localhost .*#|{KEYMAP_QUESTION}",
+            rf"{ROOT_PROMPT}|{KEYMAP_QUESTION}",
             timeout=max(30.0, deadline - time.monotonic()),
         )
         if not re.search(KEYMAP_QUESTION.encode(), said):
