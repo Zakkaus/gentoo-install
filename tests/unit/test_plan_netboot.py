@@ -333,6 +333,7 @@ def test_the_lowram_cmdline_names_the_repository_alpine_fetches_modloop_from() -
     entry = recorder.files[PurePosixPath(f"{ESP}/loader/entries/{netboot.PLACE}.conf")]
     assert f"alpine_repo={netboot.ALPINE_REPOSITORY}" in entry, entry
     assert "modloop=" in entry and "ip=dhcp" in entry, entry
+    assert f"apkovl=/{netboot.APKOVL}" in entry, entry
 
 
 def _modloop(entry: str) -> str:
@@ -568,10 +569,15 @@ def _relabelled(
     return answer
 
 
-def _appended(recorder: Recorder, keys: tuple[str, ...] = ()) -> None:
+def _appended(
+    recorder: Recorder,
+    *,
+    mode: MemoryMode = MemoryMode.RAM,
+    keys: tuple[str, ...] = (),
+) -> None:
     netboot.AppendConfiguration(
         target=_target(),
-        launch=_launch(),
+        launch=_launch(mode),
         configuration='[disk]\nmode = "partition"\n',
         source="/opt/gentoo-install",
         keys=keys,
@@ -595,6 +601,44 @@ def test_the_payload_is_appended_to_the_initramfs_rather_than_repacked() -> None
     # payload and a machine with no way to mount its root.
     assert ">>" in appended[0][-1] and ">> " in appended[0][-1], appended
     assert f"{netboot.PLACE}/initramfs" in appended[0][-1], appended
+
+
+def test_the_lowram_payload_is_an_apkovl_at_the_initramfs_root() -> None:
+    """Alpine unpacks `apkovl=` into its sysroot and never runs dracut hooks."""
+    recorder = _answering(MemoryMode.LOWRAM)
+    _appended(
+        recorder,
+        mode=MemoryMode.LOWRAM,
+        keys=("ssh-ed25519 AAAA zakk@box",),
+    )
+
+    staging = PurePosixPath(f"{ESP}/{netboot.PLACE}/payload")
+    payload = staging / "apkovl"
+    inside = payload / netboot.PAYLOAD.lstrip("/")
+    assert recorder.files[inside / "config.toml"] == '[disk]\nmode = "partition"\n'
+    assert recorder.files[inside / "start.sh"] == netboot._start()
+    assert recorder.files[payload / "root/.profile"] == netboot._source_start()
+    assert recorder.files[payload / "root/.ssh/authorized_keys"].endswith("zakk@box\n")
+    assert recorder.modes[payload / "root/.ssh/authorized_keys"] == 0o600
+    assert not any("dracut" in str(path) for path in recorder.files), recorder.files
+
+    packed = next(
+        one
+        for one in recorder.commands
+        if one[0] == "sh" and "tar --create --gzip" in one[-1]
+    )
+    assert (
+        packed[-1]
+        == f"cd {payload} && tar --create --gzip --file {staging / netboot.APKOVL} ."
+    ), packed
+    removed = ("rm", "--recursive", "--force", str(payload))
+    cpio = next(
+        one
+        for one in recorder.commands
+        if one[0] == "sh" and "cpio --create" in one[-1]
+    )
+    assert recorder.commands.index(removed) < recorder.commands.index(cpio), recorder.commands
+    assert cpio[-1].startswith(f"cd {staging} && find . |"), cpio
 
 
 def test_the_archive_is_made_from_inside_the_staging_directory() -> None:
@@ -1042,7 +1086,7 @@ def _sourced(where: Path, answer: str) -> str:
     import subprocess
 
     return subprocess.run(
-        ["bash", "-c", f". {where}/start.sh; echo LOGIN-SHELL-ALIVE"],
+        ["sh", "-c", f". {where}/start.sh; echo LOGIN-SHELL-ALIVE"],
         input=f"{answer}\n",
         capture_output=True,
         text=True,
@@ -1078,15 +1122,18 @@ def test_any_other_answer_changes_nothing(
         assert "LOGIN-SHELL-ALIVE" in said, (answer, said)
 
 
-def test_the_first_screen_is_hung_on_the_login_shell_not_a_boot_service() -> None:
-    """OpenRC's `local` runs `local.d/*.start` with `> /dev/null 2>&1` unless
-    `rc_verbose` is set — read from the CJK medium's own `/etc/init.d/local` —
-    and it runs during boot with no controlling terminal. A question printed
-    there is invisible and the `read` beside it answers itself."""
-    assert netboot.AUTOSTART == "/root/.bash_profile", netboot.AUTOSTART
-    assert "local.d" not in netboot._handover(), netboot._handover()
-    # Appended: the file exists on the medium and sources `.bashrc`.
-    assert f'>> "$NEWROOT{netboot.AUTOSTART}"' in netboot._handover()
+def test_the_first_screen_is_hung_on_each_environment_login_profile() -> None:
+    """CJK root runs bash; Alpine root runs ash and reads `.profile`."""
+    assert netboot.AUTOSTART == {
+        MemoryMode.RAM: "/root/.bash_profile",
+        MemoryMode.LOWRAM: "/root/.profile",
+    }
+    assert "local.d" not in netboot._handover(MemoryMode.RAM)
+    # Appended: the file exists on the CJK medium and sources `.bashrc`.
+    assert (
+        f'>> "$NEWROOT{netboot.AUTOSTART[MemoryMode.RAM]}"'
+        in netboot._handover(MemoryMode.RAM)
+    )
 
 
 def test_a_missing_payload_does_not_end_the_operators_session(
