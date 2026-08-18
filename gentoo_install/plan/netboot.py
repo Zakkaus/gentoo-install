@@ -966,7 +966,15 @@ def _write_custom(
     entry = (
         f"{CUSTOM_BEGIN}\n"
         f"{chooses}"
-        f"menuentry '{ENTRY_LABEL}' {{\n"
+        # `--unrestricted`, `insmod` and `btrfs_relative_path` are what
+        # `bin456789/reinstall` carries for the same job: a GRUB password on a
+        # cloud image otherwise asks for one, `all_video` is missing from
+        # Fedora's EFI GRUB, and a `/boot` inside a btrfs subvolume resolves
+        # every path against the subvolume without the third.
+        f"menuentry '{ENTRY_LABEL}' --unrestricted {{\n"
+        "    insmod all_video\n"
+        "    insmod lvm\n"
+        "    set btrfs_relative_path=n\n"
         f"    search --no-floppy --set=root --file {at}/kernel\n"
         f"    if [ -f {at}/kernel -a -f {at}/initramfs ]; then\n"
         f"        linux {at}/kernel {cmdline}\n"
