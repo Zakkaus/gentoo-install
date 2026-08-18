@@ -31,6 +31,7 @@ from gentoo_install.model.validate import validate
 from gentoo_install.model import compat
 from gentoo_install.tui import app, widgets, screens, settings
 from gentoo_install.tui import context as tui_context
+from gentoo_install.tui import mirror
 from gentoo_install.tui.app import run
 from gentoo_install.tui.overview import overview_screen
 from gentoo_install.tui.widgets import Outcome
@@ -145,14 +146,14 @@ def test_a_group_is_a_list_and_never_a_wizard() -> None:
 
 def test_field_editors_have_one_descriptor_for_each_editable_row() -> None:
     at = context()
-    mirror_expected = {screens._REGION, screens._SITE, screens._DISTFILES,
-                       screens._MEASURE, screens._SYNC, screens._BINHOST,
-                       screens._ZH_SITE, screens._ZH_DISTFILES,
-                       screens._ZH_BINHOST, "gig", "guru"}
-    mirror_rows = {item.value for item in screens._mirror_fields(config(), at.translate)
-                   if item.value not in ("", screens._DONE)}
+    mirror_expected = {mirror._REGION, mirror._SITE, mirror._DISTFILES,
+                       mirror._MEASURE, mirror._SYNC, mirror._BINHOST,
+                       mirror._ZH_SITE, mirror._ZH_DISTFILES,
+                       mirror._ZH_BINHOST, "gig", "guru"}
+    mirror_rows = {item.value for item in mirror._mirror_fields(config(), at.translate)
+                   if item.value not in ("", tui_context.DONE)}
     assert mirror_rows <= mirror_expected
-    assert {field.key for field in screens._ALL_MIRROR_FIELDS} == mirror_expected
+    assert {field.key for field in mirror._ALL_MIRROR_FIELDS} == mirror_expected
 
     array_expected = {screens._NAME, screens._LEVEL, screens._METADATA,
                       screens._FILESYSTEM, screens._MOUNTPOINT, screens._LABEL,
@@ -160,9 +161,9 @@ def test_field_editors_have_one_descriptor_for_each_editable_row() -> None:
     array_rows = {
         field.row((at.layout.array, 0), at.translate).value
         for field in screens._ARRAY_FIELDS
-        if field.key != screens._DONE
+        if field.key != tui_context.DONE
     }
-    assert {field.key for field in screens._ARRAY_FIELDS} - {screens._DONE} == array_expected
+    assert {field.key for field in screens._ARRAY_FIELDS} - {tui_context.DONE} == array_expected
     assert array_rows == array_expected
 
 
@@ -665,14 +666,14 @@ def test_v3_is_recommended_only_when_this_cpu_runs_it() -> None:
             binhost=replace(config().portage.binhost, subarch="x86-64-v3"),
         ),
     )
-    answer = screens._edit_binhost(FakeScreen(keys=["\n"]), modern, current)
+    answer = mirror._edit_binhost(FakeScreen(keys=["\n"]), modern, current)
     assert answer is not None
     assert answer.portage.binhost.subarch == "x86-64-v3"
 
     old = context()
     old.supports_v3 = False
     plain = FakeScreen(keys=["\n"])
-    refused = screens._edit_binhost(plain, old, config())
+    refused = mirror._edit_binhost(plain, old, config())
     assert refused is not None
     assert refused.portage.binhost.official is True
     assert refused.portage.binhost.subarch == "x86-64"
@@ -689,7 +690,7 @@ def test_binhost_reopens_on_its_configured_subarchitecture() -> None:
             binhost=replace(config().portage.binhost, official=True, subarch="x86-64"),
         ),
     )
-    answer = screens._edit_binhost(FakeScreen(keys=["\n"]), at, chosen)
+    answer = mirror._edit_binhost(FakeScreen(keys=["\n"]), at, chosen)
     assert answer is not None
     assert answer.portage.binhost.subarch == "x86-64"
 
@@ -800,7 +801,7 @@ def test_the_mirror_row_shows_every_service_and_lets_each_be_chosen() -> None:
     from its name, so each is drawn with where it will come from."""
     at = context()
     screen = FakeScreen(keys=["q"], lines=40, columns=120)
-    screens.mirror_screen(screen, config(), at)
+    mirror.mirror_screen(screen, config(), at)
     drawn = screen.last
     for label in (
         "Region", "Gentoo mirror", "Gentoo distfiles", "Repository sync",
@@ -834,15 +835,15 @@ def test_mirror_subselectors_reopen_on_the_values_their_rows_show() -> None:
     )
 
     sync = FakeScreen(keys=["q"])
-    screens._edit_mirror(sync, at, held, screens._SYNC)
+    mirror._edit_mirror(sync, at, held, mirror._SYNC)
     assert "webrsync" in sync.highlighted[0]
 
     community = FakeScreen(keys=["q"])
-    screens._edit_mirror(community, at, held, screens._ZH_BINHOST)
+    mirror._edit_mirror(community, at, held, mirror._ZH_BINHOST)
     assert "unstable" in community.highlighted[0]
 
     overlay = FakeScreen(keys=["q"])
-    screens._edit_mirror(overlay, at, held, screens._ZH_SITE)
+    mirror._edit_mirror(overlay, at, held, mirror._ZH_SITE)
     expected = at.translate(mirrors.gentoozh(GentooZhMirror.NJU).name)
     assert expected in overlay.highlighted[0]
 
@@ -851,10 +852,10 @@ def test_choosing_a_gentoozh_mirror_is_what_adds_the_overlay() -> None:
     """A mirror chosen for an overlay nobody selected changes nothing, so the
     two are one row."""
     at = context()
-    zh = next(index for index, item in enumerate(screens._mirror_fields(config(), at.translate))
-              if item.value == screens._ZH_SITE)
+    zh = next(index for index, item in enumerate(mirror._mirror_fields(config(), at.translate))
+              if item.value == mirror._ZH_SITE)
     keys = [*down(zh), "\n", "KEY_DOWN", "KEY_DOWN", "\n", *down(20), "\n"]
-    answer = screens.mirror_screen(FakeScreen(keys=keys, lines=40), config(), at)
+    answer = mirror.mirror_screen(FakeScreen(keys=keys, lines=40), config(), at)
     changed = answer.unwrap().portage
     assert [one.name for one in changed.overlays] == ["gentoo-zh"]
     assert changed.mirrors.gentoo_zh is not MirrorConfig().gentoo_zh
@@ -1215,7 +1216,7 @@ def test_the_tree_row_names_the_address_the_chosen_method_uses() -> None:
         (Sync.WEBRSYNC, "GENTOO_MIRRORS"),
     ):
         chosen = replace(config(), portage=replace(config().portage, sync=method))
-        rows = screens._mirror_fields(chosen, at.translate)
+        rows = mirror._mirror_fields(chosen, at.translate)
         detail = next(one.detail for one in rows if one.label == "Gentoo repository")
         assert expected in detail, method
 
@@ -1381,18 +1382,18 @@ def test_a_plain_switch_flips_where_it_stands() -> None:
     at = context()
     start = config()
     blank = FakeScreen(keys=[], lines=20, columns=100)
-    measured = screens._edit_mirror(blank, at, start, screens._MEASURE)
+    measured = mirror._edit_mirror(blank, at, start, mirror._MEASURE)
     assert measured is not None
     assert measured.portage.mirrors.speed_test is not start.portage.mirrors.speed_test
 
-    files = screens._edit_mirror(blank, at, start, screens._DISTFILES)
+    files = mirror._edit_mirror(blank, at, start, mirror._DISTFILES)
     assert files is not None
     assert files.portage.mirrors.gentoo_distfiles is not start.portage.mirrors.gentoo_distfiles
 
-    added = screens._edit_mirror(blank, at, start, "guru")
+    added = mirror._edit_mirror(blank, at, start, "guru")
     assert added is not None
     assert "guru" in {one.name for one in added.portage.overlays}
-    removed = screens._edit_mirror(blank, at, added, "guru")
+    removed = mirror._edit_mirror(blank, at, added, "guru")
     assert removed is not None
     assert "guru" not in {one.name for one in removed.portage.overlays}
 
@@ -1758,7 +1759,7 @@ def test_the_overlay_address_is_held_in_one_place() -> None:
                 mirrors=replace(config().portage.mirrors, gentoo_zh=site),
             ),
         )
-        added = screens._with_gentoo_zh(chosen).overlays[-1]
+        added = tui_context.with_gentoo_zh(chosen).overlays[-1]
         assert added.name == "gentoo-zh"
         assert added.sync_uri == mirrors.gentoozh(site).git
 
@@ -2094,7 +2095,7 @@ def test_selecting_gentoo_zh_turns_its_binary_host_on() -> None:
     from gentoo_install.model.config import BinhostChannel
 
     assert config().portage.binhost.community is BinhostChannel.OFF
-    added = screens._with_gentoo_zh(config())
+    added = tui_context.with_gentoo_zh(config())
     assert any(one.name == "gentoo-zh" for one in added.overlays)
     assert added.binhost.community is BinhostChannel.STABLE
 
@@ -2106,7 +2107,7 @@ def test_selecting_gentoo_zh_turns_its_binary_host_on() -> None:
             binhost=replace(config().portage.binhost, community=BinhostChannel.UNSTABLE),
         ),
     )
-    assert screens._with_gentoo_zh(picked).binhost.community is BinhostChannel.UNSTABLE
+    assert tui_context.with_gentoo_zh(picked).binhost.community is BinhostChannel.UNSTABLE
 
 
 def test_a_grouped_row_uses_the_width_the_terminal_actually_has() -> None:
@@ -2854,9 +2855,15 @@ def test_a_reopened_selector_starts_on_what_is_already_set() -> None:
             "A ZFS root cannot boot from GRUB. Which bootloader?",
         }
     )
-    tree = ast.parse(Path("gentoo_install/tui/screens.py").read_text())
+    # Every module under `tui/`, not one of them: the Mirrors rows moved to
+    # `tui/mirror.py` and a scan of `screens.py` alone stopped seeing two of
+    # the selectors this is about.
+    trees = [
+        ast.parse(one.read_text())
+        for one in sorted(Path("gentoo_install/tui").glob("*.py"))
+    ]
     seen: dict[str, bool] = {}
-    for node in ast.walk(tree):
+    for node in [one for tree in trees for one in ast.walk(tree)]:
         if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
             continue
         if node.func.id != "Menu":
@@ -3261,7 +3268,7 @@ def test_a_cpu_that_cannot_run_v3_cannot_be_made_to_choose_it() -> None:
     old = context()
     old.supports_v3 = False
     screen = FakeScreen(keys=["KEY_DOWN", "KEY_DOWN", "KEY_DOWN", "\n"])
-    answer = screens._edit_binhost(screen, old, config())
+    answer = mirror._edit_binhost(screen, old, config())
 
     assert answer is not None
     assert answer.portage.binhost.subarch == "x86-64", answer.portage.binhost

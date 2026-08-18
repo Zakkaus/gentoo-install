@@ -9,16 +9,19 @@ direction is one way: this module knows nothing about a screen.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
-from typing import Callable, Generic, Sequence, TypedDict, TypeVar
+from typing import Callable, Final, Generic, Sequence, TypedDict, TypeVar
 
 from ..errors import ConfigError, GentooInstallError
 from ..i18n import Catalog, truncate
-from ..model import manual, qr
+from ..model import manual, mirrors, qr
 from ..model.config import (
+    BinhostChannel,
     Firmware,
     InstallConfig,
+    Overlay,
+    PortageConfig,
 )
 from ..model.device import (
     Existing,
@@ -409,3 +412,27 @@ def pick(
     if not answer.chosen:
         return None
     return apply(config, answer.unwrap())
+
+
+DONE: Final[str] = "done"
+TABLE: Final[str] = "table"
+DROP: Final[str] = "drop"
+
+
+def with_gentoo_zh(config: InstallConfig) -> PortageConfig:
+    """The overlay, cloned from the site already chosen for it.
+
+    Read from `model/mirrors.py` and not written here: a literal beside that
+    table is a second address to update, and the overlay has moved once
+    already. A site the operator has not picked yet answers as upstream.
+    """
+    if any(overlay.name == "gentoo-zh" for overlay in config.portage.overlays):
+        return config.portage
+    where = mirrors.gentoozh(config.portage.mirrors.gentoo_zh).git
+    added = (*config.portage.overlays, Overlay(name="gentoo-zh", sync_uri=where))
+    binhost = config.portage.binhost
+    if binhost.community is BinhostChannel.OFF:
+        # On with the overlay: the host serves what that overlay builds, and
+        # `compat.py` is what keeps the two from being set apart.
+        binhost = replace(binhost, community=BinhostChannel.STABLE)
+    return replace(config.portage, overlays=added, binhost=binhost)
