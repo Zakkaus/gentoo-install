@@ -3434,3 +3434,33 @@ def test_the_missing_commands_are_installed_before_the_conversion() -> None:
     installs = [one for one in console.ran if "apt-get" in one]
     assert len(installs) == 1, console.ran
     assert installs[0].endswith("gpg gpg-agent"), installs[0]
+
+
+def test_the_checks_come_from_the_config_the_guest_was_handed(tmp_path: Path) -> None:
+    """`rewrite_fixtures` moves the mirror, the sync and, for a fixture that
+    pins one, the machine's own address. `static-ip` installed on the address
+    the scheduler reserved and was failed for not having the one its fixture
+    names: `address 10.31.0.150/24: the installed system does not say
+    '10\\.31\\.0\\.150/24'`."""
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.config import MirrorRegion, Sync
+    from tests.vm import cluster
+    from tests.vm.installed import checks
+
+    source = Path(__file__).resolve().parents[1] / "fixtures" / "static-ip.toml"
+    job = cluster.Job(name="static-ip", fixture=source)
+    written = cluster.rewrite_fixtures(
+        [job],
+        tmp_path / "fixtures",
+        MirrorRegion.CN,
+        Sync.RSYNC,
+        unlock_addresses={"static-ip": "10.31.0.207"},
+    )
+    from dataclasses import replace as _replace
+
+    job = _replace(job, installed_config=written / source.name)
+
+    handed = load(job.installed_config or job.fixture)
+    patterns = {check.pattern for check in checks(handed)}
+    assert any("10\\.31\\.0\\.207" in one for one in patterns), sorted(patterns)
+    assert not any("10\\.31\\.0\\.150" in one for one in patterns), sorted(patterns)
