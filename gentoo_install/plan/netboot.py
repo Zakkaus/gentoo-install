@@ -940,12 +940,20 @@ def _write_custom(
         if target.method is BootMethod.UEFI_GRUB
         else f"{target.grub_prefix}/{PLACE}"
     )
+    # Guarded, because GRUB answers a missing file with `error: file … not
+    # found.` and `Press any key to continue...`: a machine armed from far away
+    # then waits at a menu nobody is at. `$prefix` carries its own device, so
+    # rereading the machine's own configuration works whatever `search` set.
     entry = (
         f"{CUSTOM_BEGIN}\n"
         f"menuentry '{ENTRY_LABEL}' {{\n"
         f"    search --no-floppy --set=root --file {at}/kernel\n"
-        f"    linux {at}/kernel {cmdline}\n"
-        f"    initrd {at}/initramfs\n"
+        f"    if [ -f {at}/kernel -a -f {at}/initramfs ]; then\n"
+        f"        linux {at}/kernel {cmdline}\n"
+        f"        initrd {at}/initramfs\n"
+        f"    else\n"
+        f"        configfile $prefix/grub.cfg\n"
+        f"    fi\n"
         f"}}\n"
         f"{CUSTOM_END}\n"
     )
