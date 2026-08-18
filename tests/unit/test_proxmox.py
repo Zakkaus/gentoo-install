@@ -3936,8 +3936,16 @@ def test_the_deadline_outlasts_a_loaded_node_and_the_interval_does_not() -> None
     by screenshotting a SeaBIOS guest through the QEMU monitor. A node running
     twelve of them takes longer than any number written here, so the interval
     is short enough to keep trying and the deadline is the only guess."""
-    from tests.vm.proxmox import AUTOLOGIN_DEADLINE, AUTOLOGIN_INTERVAL
+    from tests.vm.proxmox import (
+        AUTOLOGIN_DEADLINE,
+        AUTOLOGIN_INTERVAL,
+        AUTOLOGIN_TYPING,
+    )
 
     assert AUTOLOGIN_INTERVAL <= 30.0, AUTOLOGIN_INTERVAL
-    assert AUTOLOGIN_DEADLINE >= 300.0, AUTOLOGIN_DEADLINE
-    assert AUTOLOGIN_DEADLINE / AUTOLOGIN_INTERVAL >= 10, "too few attempts"
+    # Against what an attempt costs, not against the interval alone: typing is
+    # most of it, so the old reading predicted eighteen attempts where five
+    # happened.
+    attempts = AUTOLOGIN_DEADLINE / (AUTOLOGIN_TYPING + AUTOLOGIN_INTERVAL)
+    assert attempts >= 10, f"{attempts:.0f} attempts is too few"
+    assert AUTOLOGIN_TYPING >= 48.7, "measured on infra-node5, the fastest of three"
