@@ -1,0 +1,2 @@
+[partition]
+  stream the gz image /mnt/driver/fixtures/dd-source.raw.gz onto /dev/disk/by-id/virtio-target0

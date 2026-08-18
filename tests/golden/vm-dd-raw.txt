@@ -1,0 +1,2 @@
+[partition]
+  stream the raw image /mnt/driver/fixtures/dd-source.raw onto /dev/disk/by-id/virtio-target0

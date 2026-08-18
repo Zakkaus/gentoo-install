@@ -154,8 +154,9 @@ cluster fixture.
 
 ## Mode 3: boot into RAM, then install or write an image
 
-Implemented and wired into `cli.py`. Machines have been rebooted into both
-environments it arms; `dd` has no record. `--ram` fetches the Gentoo CJK ISO, `--lowram` the
+Implemented and wired into `cli.py`, and every path in it has a record:
+machines rebooted into both environments it arms, and an image written and
+read back. `--ram` fetches the Gentoo CJK ISO, `--lowram` the
 Alpine netboot archive; both place a kernel where the machine's own bootloader
 reads one, deliver the configuration and the installer's own tree in a cpio
 appended to the initramfs, and arm a single boot. `--bypass` replaces the
@@ -171,7 +172,7 @@ layout and bootloader. No machine has been written this way either.
 |---|---|---|
 | `6762496a41dd` | `--lowram` on a Debian 12 genericcloud machine, UEFI | armed one boot, left the default entry alone, rebooted, came up in Alpine from RAM with the delivered configuration and asked `install or shell>` |
 | `2f03f85139d2` | `--ram` on the same machine | the same, through the Gentoo CJK ISO: `root=live:CDLABEL=Gentoo-CJK-amd64-20260813`, the live image copied into RAM, `livecd login: root (automatic login)`, then `install or shell>` |
-| — | `dd` | nothing end to end yet |
+| `3bdd6a0e78a8` | `dd` on the official minimal medium, raw and `gz` | wrote a 4 MiB image onto a second disk and read it back byte-for-byte, both formats, in 23s each |
 
 The two paths deliver the payload differently and each was measured on its
 own: `--ram` through a dracut `pre-pivot` hook on a medium that logs root in
@@ -198,10 +199,9 @@ assumed, and each contradicted a reading of the source that preceded it:
 | Where can the first screen be hung? | Not `/etc/local.d`: that medium's `/etc/init.d/local` discards the output and runs with no controlling terminal, so the question was invisible and the `read` beside it answered itself. `/root/.bash_profile` is where the medium's auto-login and its ssh login both arrive |
 | Does an appended segment reach the initramfs at all? | Only from a four-byte boundary. Alpine's `initramfs-lts` is 27951899 bytes, 3 mod 4, and a guest booted with the segment appended to it printed no sign of the payload; one zero byte in front of the same segment answered `Loading user settings from /gentoo-install.apkovl.tar.gz: ok.` |
 
-Rows land in the table above for: a machine that boots into the RAM environment
-and installs Gentoo normally; a machine that writes an image with the `dd`
-mode; and, for each, a deliberately failed run proving the machine returns to
-its original system because the boot entry is one-shot.
+What has no record yet: a machine that goes on to install Gentoo from inside
+the environment it came up in, and a deliberately failed arming proving the
+machine returns to its own system because the entry is one-shot.
 
 ## Not covered by any record
 
