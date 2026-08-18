@@ -405,6 +405,10 @@ def test_bootstrap_names_a_package_for_every_command_preflight_wants() -> None:
         ("umount", "debian"),
         ("mount", "ubuntu"),
         ("umount", "ubuntu"),
+        # Debian's package is called `dmsetup`; Alpine, Arch and the rpm
+        # families call it `device-mapper` and Gentoo puts it in lvm2.
+        ("dmsetup", "debian"),
+        ("dmsetup", "ubuntu"),
     }
     wrong: list[str] = []
     for command in sorted(wanted):
