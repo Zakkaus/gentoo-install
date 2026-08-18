@@ -173,6 +173,12 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         # wrapped round them.
         Run("fixtures/vm-xfs.toml"),
         Run("fixtures/vm-btrfs.toml"),
+        # A machine that configures its own address instead of asking for one.
+        # The model has carried static addressing since the beginning and no
+        # fixture set it, so nothing had ever installed a machine that comes up
+        # on an address, a gateway and a resolver it was given. `cluster.py`
+        # rewrites the address to the one the scheduler reserved.
+        Run("fixtures/static-ip.toml"),
         Run("fixtures/vm-openrc-desktop.toml", weight=2, cpus=10),
         Run("fixtures/vm-gnome.toml", weight=2, cpus=10),
         # Three more nothing had ever installed: raidz needs a third disk,

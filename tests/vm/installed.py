@@ -75,6 +75,32 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
         result.extend([InstalledCheck("units", "rc-update show default", "default"), InstalledCheck("failed", "test -z \"$(rc-status --crashed)\" && echo NO-FAILED-UNITS", "NO-FAILED-UNITS")])
     if installation.system.networking is not Networking.NONE:
         result.append(InstalledCheck("network", "systemctl list-unit-files --state=enabled --no-legend --no-pager; rc-update show default", re.escape(network_service(installation.system))))
+    if installation.system.addresses:
+        result.extend(
+            InstalledCheck(
+                f"address {address}",
+                "ip -o address show",
+                re.escape(address),
+            )
+            for address in installation.system.addresses
+        )
+        result.extend(
+            InstalledCheck(
+                f"default route {gateway}",
+                "ip -4 route show default; ip -6 route show default",
+                rf"default via {re.escape(gateway)}",
+            )
+            for gateway in installation.system.gateways
+        )
+        if installation.system.dns and installation.system.init is InitSystem.SYSTEMD:
+            result.extend(
+                InstalledCheck(
+                    f"resolver {resolver}",
+                    "resolvectl dns",
+                    re.escape(resolver),
+                )
+                for resolver in installation.system.dns
+            )
     groups = load_catalog()
     frameworks = {
         groups[name].input_framework
