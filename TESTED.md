@@ -173,6 +173,25 @@ layout and bootloader. One disk has been written this way and read back.
 | `6762496a41dd` | `--lowram` on a Debian 12 genericcloud machine, UEFI | armed one boot, left the default entry alone, rebooted, came up in Alpine from RAM with the delivered configuration and asked `install or shell>` |
 | `2f03f85139d2` | `--ram` on the same machine | the same, through the Gentoo CJK ISO: `root=live:CDLABEL=Gentoo-CJK-amd64-20260813`, the live image copied into RAM, `livecd login: root (automatic login)`, then `install or shell>` |
 | `3bdd6a0e78a8` | `dd` on the official minimal medium, raw and `gz` | wrote a 4 MiB image onto a second disk and read it back byte-for-byte, both formats, in 23s each |
+| `7fcc7edcec6b` | `--lowram` on a Debian 12 genericcloud machine, UEFI, answering `install` | installed Gentoo from inside the memory environment, powered the machine off, booted the disk it had written and passed the shared installed-state checks: `the installed system booted, mounted its layout and has no failed unit` |
+| `7fcc7edcec6b` | `--lowram` on a second machine, its armed entry's initramfs removed | the delivered screen never appeared, and the cloud system's own marker and `/etc/os-release` `ID` were read back on the two boots that followed |
+
+The install record took four more runs, and every one of them stopped on
+something the environment lacks rather than on the installer: no interpreter
+(`this installer needs python 3.11 or newer; found: none`), no tools
+(`missing commands: blkid findmnt gpg … sgdisk … xz`), no firmware variables,
+and underneath all three, no kernel modules at all — `initramfs-init` adds
+`modloop`, `mdev`, `hwdrivers` and `sshd` to the runlevels only when no apkovl
+was loaded or `/etc/.default_boot_services` is inside the one that was. The
+install then stopped once more at `/dev/vdc2 did not appear within 15s` on a
+machine whose `/proc/partitions` held both new partitions: Alpine runs mdev,
+and `udevadm settle` there has no daemon behind it.
+
+The fallback record is measured across a power cycle, which is what the
+harness does between guests. On the failed boot itself GRUB answered ``error:
+file `/gentoo-install-ram/initramfs' not found.`` and `Press any key to
+continue...`, so a machine armed from far away waits at that menu until
+something resets it.
 
 The two paths deliver the payload differently and each was measured on its
 own: `--ram` through a dracut `pre-pivot` hook on a medium that logs root in
