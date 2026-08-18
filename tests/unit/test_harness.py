@@ -3594,3 +3594,20 @@ def test_a_long_command_does_not_fill_the_whole_verdict() -> None:
     assert "never matched 'MARK_9_DONE'" in said, said
     assert said.startswith("never matched"), said
     assert len(probe) > cluster.OUTCOME_BYTES, "the case this exists for"
+
+
+def test_the_boot_order_is_read_with_the_same_tools_both_times() -> None:
+    """The cloud images ship no `efibootmgr`, and `install_tools` puts one on
+    the guest. A first reading taken before that answered `NO-BOOTORDER` and
+    the second `BootOrder: 0003,0000,0004`, so the run reported the default
+    entry as moved by a machine that had not moved it."""
+    import inspect
+
+    from tests.vm import ram
+
+    source = inspect.getsource(ram.main)
+    installed = source.index("install_tools(")
+    first = source.index("before = read_the_default_entry(")
+
+    assert installed < first, "the tools go on before the first reading"
+    assert source.index("arm(console") > first, "and the reading before the arming"
