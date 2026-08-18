@@ -3330,11 +3330,13 @@ def test_a_default_entry_that_moved_is_a_failure_and_a_one_shot_is_not() -> None
     it is read before and after rather than assumed. `next_entry` is the
     one-shot and appears exactly because the arming worked; `saved_entry` and
     the firmware's `BootOrder` are what must not move."""
-    from tests.vm.ram import _default_changed
+    from tests.vm.ram import _default_changed, _one_shot_is_armed
 
     before = b"saved_entry=Debian\n"
     armed = b"saved_entry=Debian\nnext_entry=gentoo-install memory environment\n"
     assert not _default_changed(before, armed), "the one-shot is the point"
+    assert _one_shot_is_armed(armed)
+    assert not _one_shot_is_armed(before)
 
     moved = b"saved_entry=gentoo-install memory environment\n"
     assert _default_changed(before, moved)
@@ -3390,6 +3392,108 @@ def test_each_mode_waits_for_its_own_medium() -> None:
         assert "never spoke" in ram.came_up(cast(Any, Silent()), mode)
         assert asked == [wanted], (mode, asked)
     assert ram.CJK_SPEAKS != ram.ALPINE_SPEAKS
+
+
+def test_memory_install_waits_for_completion_after_the_first_screen() -> None:
+    """The `install` input is consent, not evidence that its installation ended."""
+    from tests.vm import ram
+
+    class Finished:
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+            self.waited: list[tuple[str, float, float]] = []
+
+        def send(self, line: str) -> None:
+            self.sent.append(line)
+
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+            self.waited.append((pattern, timeout, idle))
+            return b""
+
+    console = Finished()
+    ram.install_from_memory(cast(Any, console))
+
+    assert console.sent == ["install"]
+    # The refusal is waited for beside the completion: the installer returns to
+    # the environment's shell and prints nothing more, so a wait for the
+    # completion alone spends the whole idle window on a run that has ended.
+    assert console.waited == [
+        (
+            rf"{ram.INSTALL_FINISHED}|{ram.INSTALL_STOPPED}",
+            ram.INSTALL_CEILING,
+            ram.INSTALL_IDLE,
+        ),
+        (r"# ", ram.POST_INSTALL_PATIENCE, 0.0),
+    ]
+
+
+def test_broken_entry_removes_its_initramfs_and_proves_that_output() -> None:
+    """The one-shot remains armed; only the file its entry loads is removed."""
+    from tests.vm import ram
+
+    class Armed:
+        def __init__(self, broken: bytes) -> None:
+            self.broken = broken
+            self.asked: list[str] = []
+            self.ran: list[str] = []
+
+        def expect_output(self, command: str, timeout: float = 0.0) -> bytes:
+            self.asked.append(command)
+            return (
+                b"/boot/efi/gentoo-install-ram/initramfs\n"
+                if len(self.asked) == 1
+                else self.broken
+            )
+
+        def run(self, command: str, timeout: float = 0.0) -> None:
+            self.ran.append(command)
+
+    broken = Armed(b"INITRAMFS-BROKEN")
+    ram.break_armed_environment(cast(Any, broken))
+    assert broken.ran == ["rm -- /boot/efi/gentoo-install-ram/initramfs"]
+    assert "find /boot /efi" in broken.asked[0]
+
+    with pytest.raises(RuntimeError, match="was not removed"):
+        ram.break_armed_environment(cast(Any, Armed(b"INITRAMFS-STILL-PRESENT")))
+
+
+def test_fallback_requires_the_original_marker_and_os_identity() -> None:
+    """A marker alone could come from an environment that mounted the disk."""
+    from tests.vm import ram
+    from tests.vm.convert import IMAGES
+
+    class Returned:
+        def __init__(self, said: bytes) -> None:
+            self.said = said
+            self.command = ""
+
+        def expect_output(self, command: str, timeout: float = 0.0) -> bytes:
+            self.command = command
+            return self.said
+
+    chosen = IMAGES["debian"]
+    returned = Returned(b"gentoo-install-ram-fallback-system\nID=debian\n")
+    ram.require_own_system(cast(Any, returned), chosen)
+    assert "cat /var/lib/gentoo-install-ram-fallback-system" in returned.command
+    assert 'printf \'ID=%s\\n\' "$ID"' in returned.command
+
+    with pytest.raises(RuntimeError, match="ID=debian"):
+        ram.require_own_system(
+            cast(Any, Returned(b"gentoo-install-ram-fallback-system\nID=gentoo\n")),
+            chosen,
+        )
+
+
+def test_memory_runner_boots_the_target_and_reuses_shared_state_checks() -> None:
+    """The memory environment is not evidence; its installed disk is."""
+    import inspect
+
+    from tests.vm import ram
+
+    source = inspect.getsource(ram.run_install)
+    assert "boot_installed=True" in source, source
+    assert "check_installed(console, installation)" in source, source
+    assert "report(result, keep=True, assertions=configuration)" in source, source
 
 
 class _CdAppearsLate:
@@ -3727,12 +3831,14 @@ def test_the_boot_order_is_read_with_the_same_tools_both_times() -> None:
 
     from tests.vm import ram
 
-    source = inspect.getsource(ram.main)
+    source = inspect.getsource(ram.run_install)
     installed = source.index("install_tools(")
-    first = source.index("before = read_the_default_entry(")
+    arming = source.index("arm_and_confirm(")
+    confirmed = inspect.getsource(ram.arm_and_confirm)
+    first = confirmed.index("before = read_the_default_entry(")
 
-    assert installed < first, "the tools go on before the first reading"
-    assert source.index("arm(console") > first, "and the reading before the arming"
+    assert installed < arming, "the tools go on before the arming"
+    assert confirmed.index("arm(console") > first, "and the reading before the arming"
 
 
 def test_the_lowram_check_logs_in_where_the_medium_asks_for_one() -> None:
