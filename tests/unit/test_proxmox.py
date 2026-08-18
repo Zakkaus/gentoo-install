@@ -3768,15 +3768,23 @@ class _AutoLoginGuest:
         self.answers_after = answers_after
         self.typed: list[str] = []
         self.resets = 0
+        #: How many times the whole line went in. Counting a character would
+        #: count the line's own letters: `setsid agetty` holds four `s`.
+        self.lines = 0
 
     def send_keys(self, keys: list[str]) -> None:
         self.typed.extend(keys)
+        if len(keys) > 1:
+            self.lines += 1
 
     def reset(self) -> None:
         self.resets += 1
 
 
 class _SerialAfterTyping:
+    """A port that answers once the line has been typed `needed` times, which
+    is what a medium still booting looks like."""
+
     def __init__(self, guest: _AutoLoginGuest, needed: int) -> None:
         self.guest = guest
         self.needed = needed
@@ -3785,7 +3793,7 @@ class _SerialAfterTyping:
     def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
         from tests.vm.console import ConsoleTimeout
 
-        if self.guest.resets >= self.needed:
+        if self.guest.lines >= self.needed:
             return b"\r\nroot@livecd ~ # "
         raise ConsoleTimeout("nothing on the serial port")
 
@@ -3806,7 +3814,7 @@ def test_the_serial_shell_is_asked_for_by_typing_into_the_auto_login(
 
     monkeypatch.setattr("time.sleep", lambda seconds: None)
     guest = _AutoLoginGuest()
-    link = _SerialAfterTyping(guest, needed=0)
+    link = _SerialAfterTyping(guest, needed=1)
     proxmox.open_a_serial_shell_blind(cast("Any", guest), cast("Any", link))
 
     typed = "".join(one for one in guest.typed if len(one) == 1)
@@ -3816,22 +3824,24 @@ def test_the_serial_shell_is_asked_for_by_typing_into_the_auto_login(
     assert guest.resets == 0, "a first attempt that answers resets nothing"
 
 
-def test_a_medium_that_is_slower_gets_another_attempt(
+def test_a_medium_that_is_slower_is_typed_at_again(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A loaded node reaches its auto-login later than an idle one, and the
-    ladder is timed rather than read because nothing is readable until the
-    line lands."""
+    """No ladder of fixed delays: every timing guess this replaces failed on a
+    loaded cluster, and `vm-bios` passed only in a round where it was the one
+    guest. The line goes in again until the port answers, and the medium is
+    never reset for being slow."""
     from typing import Any, cast
 
     from tests.vm import proxmox
 
     monkeypatch.setattr("time.sleep", lambda seconds: None)
     guest = _AutoLoginGuest()
-    link = _SerialAfterTyping(guest, needed=2)
+    link = _SerialAfterTyping(guest, needed=3)
     proxmox.open_a_serial_shell_blind(cast("Any", guest), cast("Any", link))
 
-    assert guest.resets == 2, guest.resets
+    assert guest.resets == 0, "a slow medium is typed at again, not reset"
+    assert guest.lines == 3, guest.lines
 
 
 def test_a_medium_that_never_answers_stops_rather_than_holding_the_schedule(
@@ -3840,23 +3850,27 @@ def test_a_medium_that_never_answers_stops_rather_than_holding_the_schedule(
     from typing import Any, cast
 
     from tests.vm import proxmox
-    from tests.vm.proxmox import AUTOLOGIN_ATTEMPTS, ProxmoxError
+    from tests.vm.proxmox import ProxmoxError
 
     monkeypatch.setattr("time.sleep", lambda seconds: None)
     guest = _AutoLoginGuest()
-    link = _SerialAfterTyping(guest, needed=99)
+    # A port that never answers, however many times the line goes in.
+    link = _SerialAfterTyping(guest, needed=10**9)
     with pytest.raises(ProxmoxError, match="no serial shell"):
-        proxmox.open_a_serial_shell_blind(cast("Any", guest), cast("Any", link))
+        proxmox.open_a_serial_shell_blind(
+            cast("Any", guest), cast("Any", link), patience=0.5
+        )
 
-    assert guest.resets == len(AUTOLOGIN_ATTEMPTS) - 1, guest.resets
+    assert guest.typed, "it has to have tried"
 
 
-def test_the_ladder_outlasts_a_medium_that_is_merely_slow() -> None:
-    """Measured on 2026-08-18: a SeaBIOS guest was past GRUB and logged in at
-    about fifteen seconds. The first rung is above that, and the last is far
-    enough above it to cover a node under load."""
-    from tests.vm.proxmox import AUTOLOGIN_ATTEMPTS
+def test_the_deadline_outlasts_a_loaded_node_and_the_interval_does_not() -> None:
+    """An idle node reaches the auto-login in about fifteen seconds, measured
+    by screenshotting a SeaBIOS guest through the QEMU monitor. A node running
+    twelve of them takes longer than any number written here, so the interval
+    is short enough to keep trying and the deadline is the only guess."""
+    from tests.vm.proxmox import AUTOLOGIN_DEADLINE, AUTOLOGIN_INTERVAL
 
-    assert AUTOLOGIN_ATTEMPTS[0] > 15.0, AUTOLOGIN_ATTEMPTS
-    assert AUTOLOGIN_ATTEMPTS[-1] >= 90.0, AUTOLOGIN_ATTEMPTS
-    assert list(AUTOLOGIN_ATTEMPTS) == sorted(AUTOLOGIN_ATTEMPTS), AUTOLOGIN_ATTEMPTS
+    assert AUTOLOGIN_INTERVAL <= 30.0, AUTOLOGIN_INTERVAL
+    assert AUTOLOGIN_DEADLINE >= 300.0, AUTOLOGIN_DEADLINE
+    assert AUTOLOGIN_DEADLINE / AUTOLOGIN_INTERVAL >= 10, "too few attempts"
