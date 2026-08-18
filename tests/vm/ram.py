@@ -227,6 +227,12 @@ def _what_the_disk_holds(console: SerialConsole) -> str:
         "ls -l /dev/vd*",
         "for one in /proc/[0-9]*/comm; do cat \"$one\"; done | sort -u | tr '\\n' ' '",
         "command -v mdev; echo mdev=$?",
+        # The installer's own log, which names every command it ran: whether
+        # `wait_for` fell back to `mdev -s`, and what stood between the node
+        # appearing and the formatter finding nothing, are in it and in no
+        # file either runner keeps.
+        "tail -25 /run/gentoo-install/install.log",
+        "stat -c '%n %F' /dev/vdc /dev/vdc1 /dev/vdc2 2>&1",
         "dmesg | tail -20",
     ):
         try:
