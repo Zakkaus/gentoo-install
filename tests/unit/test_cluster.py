@@ -16,7 +16,7 @@ from gentoo_install.model.config import MirrorRegion, Sync
 from tests.vm import cluster
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
-from tests.vm.console import ConsoleTimeout, SerialConsole
+from tests.vm.console import ConsoleTimeout, SerialConsole, command_done
 from tests.vm.proxmox import Api, Node, ProxmoxNotFound, VMID_FIRST, VMID_LAST
 
 
@@ -2178,3 +2178,37 @@ def test_a_refusal_with_no_echo_still_grows_the_settle(
     assert cluster._log_in(cast(cluster.Reconnecting, console), "install") == ""
     assert console.sent.count("install") == 2, console.sent
     assert console.settled >= cluster.PASSWORD_ECHO_BACKOFF, console.settled
+
+
+def test_a_command_answer_carries_no_carriage_returns() -> None:
+    """A serial line ends every line `\\r\\n`, so a check anchored with `$`
+    matches nothing: `btrfs-luks` was failed at 130.3 minutes for an
+    `inputmethod` check whose three lines were on its console, and `vm-greetd`
+    at 59.2 for a service that was enabled and active."""
+    import re
+
+    token = 7
+
+    class Echoing:
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+
+        def send(self, line: str) -> None:
+            self.sent.append(line)
+
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+            if "BEGIN" in pattern:
+                return b"MARK_7_BEGIN\r\n"
+            return (
+                b"/usr/bin/fcitx5\r\nXMODIFIERS=@im=fcitx\r\n"
+                + command_done(token).encode()
+            )
+
+        def close(self) -> None:
+            return None
+
+    link = cluster.Reconnecting(lambda: cast(Any, Echoing()))
+    said = link.expect_output("command -v fcitx5; cat /etc/environment")
+
+    assert b"\r" not in said, said
+    assert re.search(rb"(?m)^XMODIFIERS=@im=fcitx$", said), said
