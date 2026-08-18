@@ -35,6 +35,9 @@ The ordinary path: partition, format, unpack a stage3, configure, boot.
 | `6d386174b295` | `vm-unlock`, `vm-mdraid`, `vm-xfs`, `zfs-zbm`, `vm-binpkg`, `vm-luks`, `btrfs-luks` — the first cluster record of a LUKS btrfs root, which took 196 minutes |
 | `1aafd75c4359` | `openrc-sdboot`, `vm-lvm`, `vm-btrfs`, `vm-luks` — the first record of `openrc-sdboot` and `vm-lvm` since the installed-system login stopped being typed on a timer; both had failed in the four rounds before it |
 | `7e79962bcb0a` | `vm-lvm`, `vm-xfs`, `openrc-sdboot`, `vm-btrfs`, `vm-f2fs`, `vm-mdraid` — `vm-bios` and `ext4-bios` failed in the same round against a prompt pattern that this revision predates, so that round says nothing about BIOS |
+| `4f8bd68b8d09` | `ext4-bios`, `vm-bios-luks` — the first BIOS records since the blind serial login was measured rather than timed |
+| `a2db147436af` | `ext2`, `ext3`, `mbr-edit`, `static-ip`, `vm-lvm`, `vm-xfs`, `vm-f2fs` — the first records of ext2, of ext3, of a machine that configures its own address, and of an edited MBR table on the cluster |
+| `c345afa30b7c` | `ext2`, `vm-binpkg`, `openrc-sdboot`, `vm-mdraid`, `vm-luks`, `vm-btrfs` |
 
 Every row from `08015b221d73` onward ran `--region cn --site nju --sync
 webrsync --distfiles http://10.31.0.2/gentoo`, so what they establish about
@@ -195,8 +198,10 @@ its original system because the boot entry is one-shot.
 
 ## Not covered by any record
 
-greetd desktop sessions, ibus outside GNOME, binary-host failure fallback, and
-end-to-end ext2 and ext3 installations.
+greetd desktop sessions, ibus outside GNOME, and binary-host failure
+fallback — the last has a test that follows one through the runner to a
+finished run and a journal entry, and no machine has been installed against a
+host that could not answer.
 
 CJK text-console rendering is not covered either, and the `vm-cjk-kernel` row
 above does not cover it: that run establishes that the patched kernel merges,
