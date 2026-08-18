@@ -230,12 +230,14 @@ def install_tools(console: SerialConsole, chosen: CloudImage, config: str) -> No
     # prints: an earlier reading looked for `run: ` and for the installer's own
     # name, found neither, installed nothing, and let the conversion reach a
     # preflight that refused with `these commands are missing: gpg, gpg-agent`.
-    wanted = [
-        chosen.packages.get(name, name)
+    commands = [
+        name
         for name in (line.strip() for line in said.splitlines())
         if name and " " not in name and not name.startswith("MARK_")
     ]
-    commands = [name for name in wanted]
+    # The package names to install; the command names are what is checked
+    # afterwards, and the two differ exactly where `packages` says they do.
+    wanted = [chosen.packages.get(name, name) for name in commands]
     wanted += list(chosen.tools)
     if wanted:
         console.run(f"{chosen.install} {' '.join(sorted(set(wanted)))}", timeout=1800.0)
