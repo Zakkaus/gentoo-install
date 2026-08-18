@@ -4015,3 +4015,32 @@ def test_a_run_of_one_half_does_not_claim_the_other() -> None:
     # And the whole run still says both, because it did both.
     assert "installed Gentoo" in ram.RAN["both"]
     assert "one-shot" in ram.RAN["both"]
+
+
+def test_the_result_disk_is_named_and_not_numbered() -> None:
+    """An install that had finished ended with
+
+        tar: /dev/vda: Cannot write: Operation not permitted
+
+    because the driver CD is a virtio disk too and took `/dev/vda`, leaving
+    the results written at a read-only device. The targets already carry a
+    serial for the same reason; the result disk now does as well."""
+    from tests.vm.qemu import Firmware, Vm, VmSpec
+    from tests.vm.media import MEDIA
+    from tests.vm.results import RESULT_DEVICE, RESULT_SERIAL, collect_command
+
+    spec = VmSpec(
+        medium=MEDIA["official-minimal"],
+        workdir=Path("/tmp"),
+        firmware=Firmware.UEFI,
+        disks=(Path("/tmp/result.img"),),
+        driver_iso=Path("/tmp/driver.iso"),
+        boot_installed=True,
+    )
+    argv = Vm(spec)._argv()
+
+    named = [one for one in argv if one.startswith("virtio-blk-pci,drive=disk0")]
+    assert named == [f"virtio-blk-pci,drive=disk0,serial={RESULT_SERIAL}0"], argv
+    # And the command writes to the name, not to whichever disk came first.
+    assert "/dev/vda" not in collect_command("/run/vm-result")
+    assert RESULT_DEVICE in collect_command("/run/vm-result")

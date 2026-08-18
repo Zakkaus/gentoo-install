@@ -13,6 +13,7 @@ import binascii
 import io
 import tarfile
 from pathlib import Path
+from typing import Final
 
 DEFAULT_SIZE_MIB = 64
 RESULT_BUFFER_BYTES = 64 * 1024 * 1024
@@ -29,7 +30,14 @@ def create_disk(path: Path, size_mib: int = DEFAULT_SIZE_MIB) -> Path:
     return path
 
 
-def collect_command(directory: str, device: str = "/dev/vda") -> str:
+#: The serial QEMU gives the result disk, and the name udev builds from it.
+#: Named rather than numbered: the driver CD is a virtio disk as well, so
+#: `/dev/vda` is whichever of them the kernel enumerated first.
+RESULT_SERIAL: Final[str] = "result"
+RESULT_DEVICE: Final[str] = f"/dev/disk/by-id/virtio-{RESULT_SERIAL}0"
+
+
+def collect_command(directory: str, device: str = RESULT_DEVICE) -> str:
     return f"tar cf {device} -C {directory} ."
 
 
