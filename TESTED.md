@@ -175,6 +175,7 @@ layout and bootloader. One disk has been written this way and read back.
 | `3bdd6a0e78a8` | `dd` on the official minimal medium, raw and `gz` | wrote a 4 MiB image onto a second disk and read it back byte-for-byte, both formats, in 23s each |
 | `7fcc7edcec6b` | `--lowram` on a Debian 12 genericcloud machine, UEFI, answering `install` | installed Gentoo from inside the memory environment, powered the machine off, booted the disk it had written and passed the shared installed-state checks: `the installed system booted, mounted its layout and has no failed unit` |
 | `7fcc7edcec6b` | `--lowram` on a second machine, its armed entry's initramfs removed | the delivered screen never appeared, and the cloud system's own marker and `/etc/os-release` `ID` were read back on the two boots that followed |
+| `6502c213269e` | the same, with the guarded entry | GRUB read the machine's own menu on the failed boot itself and booted Debian from it: `the failed one-shot returned to the cloud system` at 237.3s, `the second reboot still reached the cloud system` at 246.0s |
 
 The install record took four more runs, and every one of them stopped on
 something the environment lacks rather than on the installer: no interpreter
@@ -187,11 +188,15 @@ install then stopped once more at `/dev/vdc2 did not appear within 15s` on a
 machine whose `/proc/partitions` held both new partitions: Alpine runs mdev,
 and `udevadm settle` there has no daemon behind it.
 
-The fallback record is measured across a power cycle, which is what the
-harness does between guests. On the failed boot itself GRUB answered ``error:
-file `/gentoo-install-ram/initramfs' not found.`` and `Press any key to
-continue...`, so a machine armed from far away waits at that menu until
-something resets it.
+That fallback record was measured across the power cycle the harness performs
+between guests, and the failed boot itself did not recover: GRUB answered
+``error: file `/gentoo-install-ram/initramfs' not found.`` and `Press any key
+to continue...`, so a machine armed from far away waited at that menu. The
+entry is now guarded — it loads the kernel only when both files are there and
+rereads the machine's own `grub.cfg` otherwise — and the row below is the same
+fixture measured again with the guard: the console holds `INITRAMFS-BROKEN`,
+then ``Booting `Debian GNU/Linux'`` on that same boot, with no keypress and no
+reset in between.
 
 The two paths deliver the payload differently and each was measured on its
 own: `--ram` through a dracut `pre-pivot` hook on a medium that logs root in
