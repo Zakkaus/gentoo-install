@@ -62,6 +62,7 @@ a way to pass firmware arguments is available to a non-root API token.
 | `304dffa41602` | `vm-bios`, `vm-bios-luks`, `ext4-bios`, `mbr-edit` | BIOS serial console |
 | `15d45598637a` | `zfs-zbm`, `vm-proxy`, `vm-proxy-http` | the proxy fixtures reach a proxy on the host through QEMU's user-mode network, which a bridged cluster guest does not have |
 | `4d8512a496d` | `vm-proxy` (SOCKS5, password), `vm-proxy-http` | 57 operations, 93 packages from a binary host, 14 compiled |
+| `7b08c47f383a` | `vm-bios` | BIOS serial console; 53 operations, 55 packages from a binary host, 20 compiled, then the disk it wrote booted, logged in on the console and passed every installed-state check |
 
 ### Historical records
 
