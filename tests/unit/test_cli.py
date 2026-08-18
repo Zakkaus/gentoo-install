@@ -1655,3 +1655,35 @@ def test_the_boot_target_carries_the_machine_this_is_running_on(
     probe = RealProbe(runner=Runner(log=lambda line: None), work=Path("/tmp"))
 
     assert cli._boot_target(probe).architecture == "aarch64"
+
+
+def test_missing_commands_with_a_memory_mode_answers_for_the_arming(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """`--ram` reads the ISO with `xorriso`, which no ordinary install needs.
+    Asked without the mode, `--missing-commands` answers for a different run
+    than the one about to happen, and the third `--ram` attempt fetched a
+    gigabyte and stopped at `command: xorriso is not installed`."""
+    from gentoo_install import cli
+
+    fixture = Path("tests/fixtures/vm-ram.toml").resolve()
+    import shutil as _shutil
+
+    monkeypatch.setattr(_shutil, "which", lambda name, path=None: None)
+    monkeypatch.setattr(RealProbe, "boot_method", lambda self: BootMethod.BIOS_GRUB)
+
+    code = cli.main(
+        [
+            "--config",
+            str(fixture),
+            "--ram",
+            "--missing-commands",
+            "--work",
+            str(tmp_path),
+        ]
+    )
+
+    said = capsys.readouterr().out.split()
+    assert code == cli.EXIT_OK, said
+    assert "xorriso" in said, said
+    assert "curl" in said, said

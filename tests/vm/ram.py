@@ -161,7 +161,7 @@ def main(argv: list[str] | None = None) -> int:
         # before its ATAPI devices are enumerated, and `sh` exits 2 for a
         # script it cannot open, which reads as the installer refusing.
         wait_for_driver(console)
-        install_tools(console, chosen, arguments.config)
+        install_tools(console, chosen, arguments.config, arguments.mode)
         # After the tools, not before them: the cloud images ship no
         # `efibootmgr`, so a first reading taken without one answered
         # `NO-BOOTORDER` and the second answered `BootOrder: 0003,0000,0004`.

@@ -277,6 +277,16 @@ def _arm_memory_environment(
         source=str(Path(__file__).resolve().parent.parent),
         keys=tuple(config.system.authorized_keys),
     )
+    if arguments.missing_commands:
+        # The arming's own commands, not an ordinary install's: `--ram` reads
+        # the ISO with `xorriso`, which no install needs and which the guest
+        # therefore never had. Asked without the mode, this answers for a
+        # different run than the one about to happen.
+        wanted = set(preflight.ALWAYS)
+        for operation in operations:
+            wanted |= operation.required_host_commands()
+        print("\n".join(sorted(report.absent(frozenset(wanted), probe))))
+        return EXIT_OK
     if arguments.dry_run:
         print(render(operations), end="")
         print(summarise(operations))
