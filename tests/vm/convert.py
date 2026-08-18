@@ -395,12 +395,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[{time.monotonic() - started:5.1f}s] root shell on serial", flush=True)
         install_tools(console, chosen, arguments.config)
         convert(console, arguments.config)
-        code = console.expect_command(
+        # Between the markers, not up to the last one: `expect_command` keeps
+        # the echoed line, whose marker is `MARK_10_BEGIN` on the tenth
+        # command, so `b"0" not in code` answered false for every exit code
+        # the guest could have written.
+        code = console.expect_output(
             "cat /tmp/gentoo-install-results/install.rc", timeout=60.0
         )
         read_the_boot_order(console)
         print(f"[{time.monotonic() - started:5.1f}s] conversion exited {code!r}", flush=True)
-    if b"0" not in code:
+    if code.strip() != b"0":
         if not arguments.keep:
             root.unlink(missing_ok=True)
         return 1

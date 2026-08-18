@@ -4116,3 +4116,69 @@ def test_the_bypass_runner_reaches_a_shell_before_it_sends_a_command() -> None:
     assert 'for boot in ("first", "second")' in source, source
     answered = inspect.getsource(ram.leave_the_first_screen)
     assert 'console.send("shell")' in answered, answered
+
+
+def test_a_conversion_reads_its_exit_code_and_not_the_echo() -> None:
+    """`expect_command` keeps the line the shell echoed, and the tenth command
+    carries `MARK_10_BEGIN`, so `b"0" not in code` was false for every exit
+    code a guest could have written. A conversion that failed was reported as
+    one that worked, and then the boot check ran against a machine nobody had
+    converted."""
+    import itertools
+
+    from tests.vm.console import SerialConsole, command_begin, command_done
+
+    class Echoing(SerialConsole):
+        """A shell: it repeats the line it was given, then answers it."""
+
+        def __init__(self, answer: bytes) -> None:
+            self._buffer = b""
+            self.answer = answer
+            self.sent: list[str] = []
+            # From ten, which is where the marker in the echo first carries a
+            # zero of its own.
+            self._tokens = itertools.count(10)
+
+        def send(self, line: str) -> None:
+            self.sent.append(line)
+            token = len(self.sent) + 9
+            self._buffer += (
+                f"[root@beforeconvert ~]# {line}\r\n".encode()
+                + f"{command_begin(token)}\r\n".encode()
+                + self.answer
+                + f"{command_done(token)}\r\n".encode()
+            )
+
+        def _read_once(self) -> None:
+            return None
+
+    failed = Echoing(b"4\r\n")
+    said = failed.expect_output("cat /tmp/gentoo-install-results/install.rc", timeout=1.0)
+    assert said.strip() == b"4", said
+    assert said.strip() != b"0", "the exit code, not the marker in the echo"
+
+    # And what the old reading saw: `printf 'MARK_%s_BEGIN\n' 10` puts the
+    # token in the line the shell repeats, so the echo alone carries a zero
+    # and `b"0" in code` was true before the guest said anything.
+    echoed = failed.sent[0]
+    assert "' 10;" in echoed and "0" in echoed, echoed
+
+    worked = Echoing(b"0\r\n")
+    assert worked.expect_output(
+        "cat /tmp/gentoo-install-results/install.rc", timeout=1.0
+    ).strip() == b"0"
+
+    # And the conversion reads it that way: the fake above proves what
+    # `expect_output` answers, not what `convert.py` asks for.
+    import ast
+
+    tree = ast.parse(Path("tests/vm/convert.py").read_text())
+    read = [
+        node.value.func.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and any(isinstance(one, ast.Name) and one.id == "code" for one in node.targets)
+        and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Attribute)
+    ]
+    assert read == ["expect_output"], read
