@@ -2516,11 +2516,6 @@ class Reconnecting:
 #: so the harness can log into what it built; nothing else uses it.
 INSTALLED_PASSWORD: Final[str] = "install"
 
-# Existing tests inspect the invariant checks independently of fixture checks.
-INSIDE: Final[tuple[tuple[str, str, str], ...]] = (
-    ("os-release", "cat /etc/os-release", "Gentoo"),
-    ("fstab", "cat /etc/fstab", r"^UUID=\S+\s+/\s+\S+"),
-)
 
 def _asked_for(installation: InstallConfig) -> list[tuple[str, str, str]]:
     """What this particular configuration should have produced.
