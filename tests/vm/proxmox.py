@@ -997,16 +997,20 @@ SERIAL_GETTY: Final[str] = "setsid agetty --autologin root --noclear ttyS0 11520
 #: half the boot messages before it.
 SERIAL_SHELL_SPEAKS: Final[str] = r"root@[^\s]+"
 
-#: How long the medium is given to reach its auto-login before the line is
-#: typed, and how many times. Measured on 2026-08-18 by taking a screenshot of
-#: a SeaBIOS guest through the QEMU monitor: at fifteen seconds it was past
-#: GRUB, past the boot, and sitting at `livecd login: root (automatic login)`
-#: with a shell. The ladder covers a node under load, not a different medium.
-AUTOLOGIN_ATTEMPTS: Final[tuple[float, ...]] = (25.0, 45.0, 90.0)
+#: How often the line is typed again, and for how long altogether. Not a
+#: ladder of fixed delays: every timing guess this replaces failed on a loaded
+#: cluster and `vm-bios` passed only in a round where it was the one guest.
+#: An idle node reaches the auto-login in about fifteen seconds, measured by
+#: screenshotting a SeaBIOS guest through the QEMU monitor; a node running
+#: twelve of them takes as long as it takes, and no number written here is
+#: right for both. So the line goes in again every interval until the port
+#: answers or the deadline passes, and the deadline is the only guess left.
+AUTOLOGIN_INTERVAL: Final[float] = 20.0
+AUTOLOGIN_DEADLINE: Final[float] = 360.0
 
 
 def open_a_serial_shell_blind(
-    guest: Guest, link: "Reopenable", patience: float = 45.0
+    guest: Guest, link: "Reopenable", patience: float = AUTOLOGIN_DEADLINE
 ) -> None:
     """Type into the medium's auto-login shell until the serial port answers.
 
@@ -1022,29 +1026,31 @@ def open_a_serial_shell_blind(
     """
     console = link.console
     last = ""
-    for attempt, delay in enumerate(AUTOLOGIN_ATTEMPTS):
-        # Timed, not read: this guest writes nothing to the serial port until
-        # the line below has been typed, so there is nothing to wait for.
-        time.sleep(delay)
+    typed = 0
+    deadline = time.monotonic() + patience
+    while time.monotonic() < deadline:
+        typed += 1
         # A bare newline first: the auto-login prints its welcome and leaves
         # the cursor after a prompt, and a line typed into a console that has
         # not finished drawing loses its first characters.
         guest.send_keys(["ret"])
-        time.sleep(1.0)
         guest.send_keys(keys_for(SERIAL_GETTY))
         guest.send_keys(["ret"])
         try:
-            console.expect(SERIAL_SHELL_SPEAKS, timeout=patience)
-            print(f"the serial shell answered after {delay:.0f}s", flush=True)
+            console.expect(SERIAL_SHELL_SPEAKS, timeout=AUTOLOGIN_INTERVAL)
+            print(f"the serial shell answered on attempt {typed}", flush=True)
             return
-        except (ConsoleTimeout, ConsoleClosed) as error:
+        except ConsoleTimeout as error:
+            # Typed into a medium that has not reached its shell yet, which is
+            # what a loaded node looks like. The line is harmless there and
+            # goes in again rather than the guest being reset.
             last = str(error)[:200]
-        if attempt + 1 < len(AUTOLOGIN_ATTEMPTS):
-            guest.reset()
+        except ConsoleClosed as error:
+            last = str(error)[:200]
             link.reopen(solicit_prompt=False)
             console = link.console
     raise ProxmoxError(
-        f"no serial shell after {len(AUTOLOGIN_ATTEMPTS)} attempts at the "
+        f"no serial shell in {patience:.0f}s and {typed} attempts at the "
         f"medium's auto-login: {last}"
     )
 
