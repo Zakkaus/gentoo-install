@@ -147,6 +147,11 @@ NOT_IN_THE_CAMPAIGN: Final[frozenset[str]] = frozenset(
         # medium the campaign boots, because the machine under test has to
         # have a bootloader of its own to arm.
         "vm-ram.toml",
+        # The input to the tests that hold what a binary host failing does,
+        # rather than a machine to install: what it describes is a host that
+        # cannot answer, and the cluster has no way to arrange one. The rule
+        # itself is held in `test_exec.py`, through the runner and the journal.
+        "vm-binhost-fallback.toml",
     }
 )
 

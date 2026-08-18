@@ -6,7 +6,7 @@ import subprocess
 import pytest
 
 from dataclasses import fields, replace
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any, Final, Sequence
 
 from gentoo_install.model.config import (
@@ -897,6 +897,55 @@ BINHOST_TIMED_OUT: Final[str] = (
     "!!! [gentoo] <urlopen error timed out>\n"
     "[ebuild  N    ] dev-perl/Error-0.170.300-r1\n"
 )
+
+
+
+def test_the_binhost_fallback_fixture_degrades_the_plan_to_source() -> None:
+    from gentoo_install.exec.config import load
+    from gentoo_install.plan.build import stage3_mirror
+
+    installation = load(Path("tests/fixtures/vm-binhost-fallback.toml"))
+    endpoint = "https://mirror.xtom.com.hk/gentoo/releases/amd64/binpackages/23.0/x86-64"
+    configured = [
+        operation
+        for operation in portage.build(installation, MIRROR)
+        if isinstance(operation, portage.ConfigureBinhost)
+    ]
+    assert stage3_mirror(installation) == "https://mirrors.ustc.edu.cn/gentoo"
+    assert [operation.sync_uri for operation in configured] == [endpoint]
+
+    unreadable = (
+        f"!!! [gentoo] Error fetching binhost package info from '{endpoint}'\n"
+        "!!! HTTP Error 404: Not Found\n"
+    )
+    reason = f"binary host index unreadable: [gentoo] Error fetching binhost package info from '{endpoint}'"
+    recorder = Recorder()
+    attempts: list[tuple[str, ...]] = []
+
+    def answer(argv: Sequence[str]) -> CommandOutput:
+        if argv[0] != "emerge":
+            return CommandOutput("", 0)
+        attempts.append(tuple(argv))
+        if "--getbinpkg=n" in argv:
+            return CommandOutput("[ebuild  N    ] app-editors/nano-8\n", 0)
+        return CommandOutput(unreadable, 1)
+
+    recorder.answering = answer
+    portage.VerifyPackages(
+        requests=(
+            portage.PackageRequest(
+                atom="app-editors/nano",
+                requesters=("the `editor` group",),
+            ),
+        )
+    ).apply(recorder)
+
+    assert recorder.degradations == {portage.BINARY_PACKAGES: reason}
+    assert [("--usepkg=n" in attempt, "--getbinpkg=n" in attempt) for attempt in attempts] == [
+        (False, False),
+        (False, False),
+        (True, True),
+    ]
 
 
 def test_a_binary_host_that_cannot_be_read_degrades_the_resolve_to_source() -> None:
