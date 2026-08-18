@@ -430,6 +430,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--memory", default="4G")
     parser.add_argument("--cpus", type=int, default=4)
     parser.add_argument("--keep", action="store_true")
+    # The two halves are an hour apart, and the fallback is the one a change to
+    # the boot entry has to be measured against.
+    parser.add_argument(
+        "--part", choices=("both", "install", "fallback"), default="both"
+    )
     arguments = parser.parse_args(argv)
     chosen: CloudImage = IMAGES[arguments.image]
 
@@ -438,26 +443,28 @@ def main(argv: list[str] | None = None) -> int:
     print(f"work directory: {workdir}", flush=True)
     try:
         driver = build_driver(workdir / "driver.iso")
-        run_install(
-            chosen,
-            arguments.config,
-            driver,
-            workdir / "install",
-            mode=arguments.mode,
-            memory=arguments.memory,
-            cpus=arguments.cpus,
-            keep=arguments.keep,
-        )
-        run_fallback(
-            chosen,
-            arguments.config,
-            driver,
-            workdir / "fallback",
-            mode=arguments.mode,
-            memory=arguments.memory,
-            cpus=arguments.cpus,
-            keep=arguments.keep,
-        )
+        if arguments.part in ("both", "install"):
+            run_install(
+                chosen,
+                arguments.config,
+                driver,
+                workdir / "install",
+                mode=arguments.mode,
+                memory=arguments.memory,
+                cpus=arguments.cpus,
+                keep=arguments.keep,
+            )
+        if arguments.part in ("both", "fallback"):
+            run_fallback(
+                chosen,
+                arguments.config,
+                driver,
+                workdir / "fallback",
+                mode=arguments.mode,
+                memory=arguments.memory,
+                cpus=arguments.cpus,
+                keep=arguments.keep,
+            )
     except (
         ConsoleClosed,
         ConsoleTimeout,
