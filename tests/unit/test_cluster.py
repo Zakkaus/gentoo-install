@@ -1604,6 +1604,10 @@ def test_a_dropped_console_does_not_end_a_guest_that_is_still_working(
     # It reconnected, and it stopped: a run that never gives up holds a node
     # for the rest of the schedule.
     assert 1 < len(opened) <= cluster.REOPEN_CEILING, len(opened)
+    # The reopen ceiling is what a grant spends, so a ceiling below the grants
+    # ends a working guest before its last one: `vm-gnome` spent all four of
+    # its grants compiling and was ERRORed at 156.5 minutes.
+    assert cluster.REOPEN_CEILING >= cluster.RECONNECT_GRANTS * 2
 
 
 def test_a_dropped_console_still_ends_a_guest_that_moves_nothing(tmp_path: Path) -> None:
