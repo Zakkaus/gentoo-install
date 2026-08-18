@@ -2916,11 +2916,15 @@ LOCALES: tuple[tuple[str, str], ...] = (
 )
 
 #: The zones this installer is aimed at, with UTC for a server.
+#: What the screen offers when the machine's own `/usr/share/zoneinfo` cannot
+#: be read. Every zone `LANGUAGE_DEFAULTS` picks is here: a `ko` interface
+#: pre-filled `Asia/Seoul` and this list could not show it.
 TIMEZONES: tuple[str, ...] = (
     "Asia/Shanghai",
     "Asia/Taipei",
     "Asia/Hong_Kong",
     "Asia/Tokyo",
+    "Asia/Seoul",
     "Europe/London",
     "America/New_York",
     "UTC",

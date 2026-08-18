@@ -3312,3 +3312,19 @@ def test_the_licence_button_sits_above_the_row_that_opens_the_install() -> None:
     names = [one.key for one in SETTINGS]
     assert "every_license" in names, names
     assert names.index("every_license") < names.index("mode"), names
+
+
+def test_every_language_default_names_a_zone_the_screen_can_show() -> None:
+    """The interface language pre-fills a timezone, and the timezone screen
+    falls back to its own list when the machine's `/usr/share/zoneinfo` cannot
+    be read. `ko` picked `Asia/Seoul`, which that list did not hold, so the
+    row showed a value the screen could not offer."""
+    from gentoo_install.tui.screens import LANGUAGE_DEFAULTS, TIMEZONES
+
+    missing = sorted(
+        default.timezone
+        for default in LANGUAGE_DEFAULTS.values()
+        if default.timezone not in TIMEZONES
+    )
+
+    assert not missing, missing
