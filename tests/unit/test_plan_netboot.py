@@ -295,6 +295,23 @@ def test_no_root_password_writes_neither_half() -> None:
     assert "dosshd" not in entry and "passwd=" not in entry, entry
 
 
+def test_a_key_alone_starts_the_daemon_it_is_meant_to_authenticate_to() -> None:
+    """`/etc/init.d/autoconfig:146,242` schedules sshd for `dosshd` and for
+    nothing else, and the medium's default runlevel holds no sshd, so the key
+    the initramfs hook copies to `/root/.ssh` reached a machine with nothing
+    listening."""
+    recorder = _answering()
+    netboot.WriteMemoryEntry(
+        mode=MemoryMode.RAM,
+        target=_target(),
+        launch=_launch(ssh_key="https://github.com/zakkaus.keys"),
+    ).apply(recorder)
+
+    entry = recorder.files[PurePosixPath(f"{ESP}/loader/entries/{netboot.PLACE}.conf")]
+    assert "dosshd" in entry, entry
+    assert "passwd=" not in entry, entry
+
+
 def test_the_lowram_cmdline_names_the_repository_alpine_fetches_modloop_from() -> None:
     """`alpine_repo=auto` searches for a `.boot_repository` file and finds none
     on a machine that booted from a kernel placed on its own disk."""
