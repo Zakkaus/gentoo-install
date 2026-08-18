@@ -1562,3 +1562,16 @@ def test_the_boot_target_carries_whether_boot_is_its_own_filesystem(
         monkeypatch.setattr(RealProbe, "boot_method", lambda self: BootMethod.BIOS_GRUB)
         probe = RealProbe(runner=Runner(log=lambda line: None), work=Path("/tmp"))
         assert cli._boot_target(probe).boot_on_the_root_filesystem is same, same
+
+
+def test_the_boot_target_carries_the_machine_this_is_running_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Both memory environments are published per architecture, so an arming
+    that does not name the machine fetches somebody else's image. `BootTarget`
+    keeps no default for it, and this holds the one call site that fills it."""
+    monkeypatch.setattr(cli, "architecture", lambda: "aarch64")
+    monkeypatch.setattr(RealProbe, "boot_method", lambda self: BootMethod.BIOS_GRUB)
+    probe = RealProbe(runner=Runner(log=lambda line: None), work=Path("/tmp"))
+
+    assert cli._boot_target(probe).architecture == "aarch64"
