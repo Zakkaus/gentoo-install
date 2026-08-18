@@ -232,10 +232,19 @@ def test_the_kernel_reaches_boot_between_the_swap_and_the_bootloader() -> None:
     assert swapped < populated < grub
 
 
-def test_boot_is_not_one_of_the_directories_that_are_renamed() -> None:
-    """A rename refuses a mount point and a directory holding one, and `/boot`
-    is one on many machines and holds the esp on many more."""
-    assert "boot" not in convert.REPLACED_DIRECTORIES
+@pytest.mark.parametrize(
+    ("name", "reason"),
+    (
+        ("home", "user files must survive the in-place conversion"),
+        ("root", "the root user's home must survive the in-place conversion"),
+        ("srv", "service data must survive the in-place conversion"),
+        ("opt", "optional software and data must survive the in-place conversion"),
+        ("boot", "mount points and the ESP cannot be atomically renamed"),
+    ),
+)
+def test_non_system_directories_are_not_replaced(name: str, reason: str) -> None:
+    """The swap covers system directories, not user data or mount points."""
+    assert name not in convert.REPLACED_DIRECTORIES, reason
 
 
 class _RunningContext:

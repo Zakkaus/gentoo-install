@@ -23,10 +23,11 @@ from pathlib import Path
 from typing import Final
 
 from gentoo_install.exec.config import load
+from gentoo_install.model.config import InstallConfig
 
 from .console import PASSWORD_PROMPT, SerialConsole
 from .driver import FIND_DRIVER, REPOSITORY, build as build_driver
-from .installed import checks
+from .installed import InstalledCheck, checks
 from .media import MEDIA
 from .qemu import Firmware, Vm, VmSpec
 from .run import free_port
@@ -39,6 +40,15 @@ WORKROOT: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/converts"
 #: What cloud-init is told to set, so the harness can log in over serial. The
 #: images ship no password at all and no key the harness holds.
 ROOT_PASSWORD: Final[str] = "install"
+#: The payload is also part of the path: `expect_command` would otherwise match
+#: the shell's echo of `cat`, so the marker check must use `expect_output`.
+HOME_MARKER: Final[str] = "gentoo-install-home-survives-conversion-4f9d6e2a"
+HOME_MARKER_PATH: Final[Path] = Path("/home") / f".{HOME_MARKER}"
+HOME_MARKER_CHECK: Final[InstalledCheck] = InstalledCheck(
+    "home marker",
+    f"cat {HOME_MARKER_PATH}",
+    re.escape(HOME_MARKER),
+)
 
 #: Bigger than every image here, so cloud-init's `growpart` and `resizefs`
 #: run on first boot. A 5 GiB Fedora root cannot hold a stage3 and a kernel.
@@ -214,9 +224,33 @@ def install_tools(console: SerialConsole, chosen: CloudImage, config: str) -> No
     if wanted:
         console.run(f"{chosen.install} {' '.join(sorted(set(wanted)))}", timeout=1800.0)
 
+def write_home_marker(console: SerialConsole) -> None:
+    """Write the conversion's unique sentinel outside the replaced tree."""
+    console.run(
+        f"printf '%s\\n' {HOME_MARKER} > {HOME_MARKER_PATH}",
+        timeout=60.0,
+    )
+
+
+def conversion_checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
+    """Add the in-place preservation check to the installed-state contract."""
+    return (*checks(installation), HOME_MARKER_CHECK)
+
+
+def check_installed(console: SerialConsole, installation: InstallConfig) -> str:
+    """Run installed-state checks and return the failures, if any."""
+    failed: list[str] = []
+    for check in conversion_checks(installation):
+        said = console.expect_output(check.command, timeout=180.0)
+        text = said.decode("utf-8", "replace")
+        if not re.search(check.pattern, text, re.MULTILINE):
+            failed.append(f"{check.name} does not match {check.pattern!r}: {text[-200:]!r}")
+    return "; ".join(failed)
+
 
 def convert(console: SerialConsole, config: str) -> None:
     """Run the installer in place and keep everything it printed."""
+    write_home_marker(console)
     console.run("mkdir -p /tmp/gentoo-install-results", timeout=60.0)
     console.run(
         f"{{ sh /mnt/driver/install.sh --config {config}; echo $? "
@@ -224,7 +258,6 @@ def convert(console: SerialConsole, config: str) -> None:
         "| tee /tmp/gentoo-install-results/install.txt",
         timeout=CONVERT_CEILING,
     )
-
 
 def boot_and_check(root: Path, workdir: Path, chosen: CloudImage, config: str) -> str:
     """Boot what the conversion produced and read it. Answer "" when it holds.
@@ -253,13 +286,7 @@ def boot_and_check(root: Path, workdir: Path, chosen: CloudImage, config: str) -
         console.expect(PASSWORD_PROMPT, timeout=120.0)
         console.send(ROOT_PASSWORD)
         console.expect(r"#|\$", timeout=180.0)
-        failed: list[str] = []
-        for check in checks(installation):
-            said = console.expect_output(check.command, timeout=180.0)
-            text = said.decode("utf-8", "replace")
-            if not re.search(check.pattern, text, re.MULTILINE):
-                failed.append(f"{check.name} does not match {check.pattern!r}: {text[-200:]!r}")
-        return "; ".join(failed)
+        return check_installed(console, installation)
 
 
 def read_the_boot_order(console: SerialConsole) -> str:
