@@ -3482,3 +3482,36 @@ def test_the_checks_come_from_the_config_the_guest_was_handed(tmp_path: Path) ->
     patterns = {check.pattern for check in checks(handed)}
     assert any("10\\.31\\.0\\.207" in one for one in patterns), sorted(patterns)
     assert not any("10\\.31\\.0\\.150" in one for one in patterns), sorted(patterns)
+
+
+def test_an_editing_fixture_gets_its_table_before_the_installer_runs() -> None:
+    """`mbr-edit` describes a table the operator already has. `run.py` writes
+    it into the qcow2 before the guest starts; the cluster's disk is made by
+    the hypervisor, so nothing wrote one and the installer refused in five
+    minutes: `/dev/disk/by-id/virtio-target0 did not report its partitions, so
+    what table keeps cannot be counted`."""
+    from gentoo_install.exec.config import load
+    from tests.vm import cluster
+    from tests.vm.run import SEEDED
+
+    assert "mbr-edit" in SEEDED, sorted(SEEDED)
+    source = Path(__file__).resolve().parents[1] / "fixtures" / "mbr-edit.toml"
+    selector = cluster._first_selector(load(source))
+
+    assert selector == "/dev/disk/by-id/virtio-target0", selector
+    # The seed reaches the guest as one `parted` line naming that selector.
+    line = f"parted --script {selector} {' '.join(SEEDED['mbr-edit'])}"
+    assert "mklabel msdos" in line and "mkpart" in line, line
+    assert "/dev/vda" not in line, "the fixture's own selector, not a guessed node"
+
+
+def test_the_cluster_seeds_only_the_fixtures_that_ask_for_it() -> None:
+    """Every other fixture describes a table it creates, and a seeded one
+    would leave the installer keeping partitions the configuration never
+    mentioned."""
+    import inspect
+
+    from tests.vm import cluster
+
+    source = inspect.getsource(cluster)
+    assert "SEEDED.get(job.fixture.stem, ())" in source, "one table, read by stem"

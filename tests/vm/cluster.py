@@ -102,7 +102,7 @@ from .results import (
 )
 from .workdir import WorkdirError, confined
 from .installed import checks, stage_passphrase_commands
-from .run import remote_config, remote_unlock, ssh_keypair
+from .run import SEEDED, remote_config, remote_unlock, ssh_keypair
 
 REPOSITORY: Final[Path] = Path(__file__).resolve().parents[2]
 WORKROOT: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/cluster"
@@ -1288,6 +1288,20 @@ def reconcile(api: Api, workdir: Path) -> None:
         path.unlink()
 
 
+def _first_selector(installation: InstallConfig) -> str:
+    """The disk an editing fixture starts from, named as the fixture names it.
+
+    From the configuration rather than from `/dev/vda`: the fixture chooses a
+    `by-id` path so the guest renumbering its disks cannot move the target,
+    and seeding a different device would leave the installer refusing the one
+    it was given.
+    """
+    for node in installation.disk.graph.of_type(Existing):
+        if node.selector:
+            return node.selector
+    raise ProxmoxError(f"{installation.disk.mode.value} names no disk to seed")
+
+
 def revision_identity(driver: Path) -> str:
     """Git state and exact driver bytes represented by a campaign outcome."""
 
@@ -1646,6 +1660,17 @@ def install_one(
         # Again, immediately before the installer: the first measurement is
         # taken a minute earlier and passed on every guest of round 27, whose
         # installers then found no route at all. This one splits that window.
+        # The table an editing fixture starts from. `run.py` writes it into the
+        # qcow2 before the guest starts; a cluster disk is made by the
+        # hypervisor, so the medium's own `parted` writes it here instead.
+        # Without it `mbr-edit` refuses in five minutes with
+        # `did not report its partitions, so what table keeps cannot be counted`.
+        seeded = SEEDED.get(job.fixture.stem, ())
+        if seeded:
+            selector = _first_selector(load(job.installed_config or job.fixture))
+            link.run(
+                f"parted --script {selector} {' '.join(seeded)}", timeout=180.0
+            )
         _note_the_probe(link, "pre-install")
         phase = Phase.INSTALL
         link.wait_for(
