@@ -387,9 +387,15 @@ class PlaceMemoryKernel(Operation):
 #: installer that reads it are written apart.
 PAYLOAD: Final[str] = "/gentoo-install"
 
-#: What `local` runs at boot on an OpenRC live system. The Gentoo minimal ISO
-#: and the CJK one built from it are both OpenRC.
-AUTOSTART: Final[str] = "/etc/local.d/99-gentoo-install.start"
+#: Where the first screen is hung, which is the login shell rather than a
+#: boot service. OpenRC's `local` runs `local.d/*.start` with
+#: `> /dev/null 2>&1` unless `rc_verbose` is set — read from that medium's own
+#: `/etc/init.d/local` — and it runs during boot with no controlling
+#: terminal, so a question printed there is invisible and the `read` beside it
+#: answers itself. `/root/.bash_profile` runs for the medium's console
+#: auto-login and for an ssh login, which is where the operator is; root's
+#: shell there is `/bin/bash` and the file already exists.
+AUTOSTART: Final[str] = "/root/.bash_profile"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -460,7 +466,12 @@ class AppendConfiguration(Operation):
 
 
 def _start() -> str:
-    """What the live system runs at boot. It asks before it erases anything.
+    """What the operator's login shell runs. It asks before it erases anything.
+
+    Sourced by `.bash_profile` rather than executed by a boot service, so it
+    must not `exit`: that would end the login shell it is running in and drop
+    the operator straight back to a prompt they cannot use. `return` ends a
+    sourced file and nothing else.
 
     Two answers and no timeout: a countdown that ends in a partitioned disk is
     a countdown nobody can lose safely, and this path is reached by rebooting
@@ -468,7 +479,7 @@ def _start() -> str:
     """
     return (
         "#!/bin/sh\n"
-        f"cd {PAYLOAD} || exit 0\n"
+        f"cd {PAYLOAD} || return 0\n"
         "printf '\\n'\n"
         "printf 'gentoo-install is in memory. The disk has not been touched.\\n'\n"
         "printf '  install  reinstall this machine from the delivered configuration\\n'\n"
@@ -476,7 +487,10 @@ def _start() -> str:
         "printf 'install or shell> '\n"
         "read answer\n"
         'case "$answer" in\n'
-        f"install) exec sh ./bootstrap.sh --config {PAYLOAD}/config.toml ;;\n"
+        # `sh`, not `exec sh`: this is sourced, and `exec` would replace the
+        # operator's login shell with the installer and leave them with no
+        # shell when it ends.
+        f"install) sh ./bootstrap.sh --config {PAYLOAD}/config.toml ;;\n"
         "*) printf 'nothing was changed\\n' ;;\n"
         "esac\n"
     )
@@ -499,10 +513,11 @@ def _handover() -> str:
         f'    chmod 700 "$NEWROOT/root/.ssh"\n'
         f'    chmod 600 "$NEWROOT/root/.ssh/authorized_keys"\n'
         "fi\n"
-        f'mkdir -p "$NEWROOT/etc/local.d"\n'
-        f'printf \'#!/bin/sh\\nexec /bin/sh {PAYLOAD}/start.sh\\n\' '
-        f'> "$NEWROOT{AUTOSTART}"\n'
-        f'chmod 755 "$NEWROOT{AUTOSTART}"\n'
+        # Appended, not written: the file exists on the medium and sources
+        # `.bashrc`, and replacing it would take the prompt and the aliases
+        # with it.
+        f'printf \'\\n[ -f {PAYLOAD}/start.sh ] && . {PAYLOAD}/start.sh\\n\' '
+        f'>> "$NEWROOT{AUTOSTART}"\n'
     )
 
 
