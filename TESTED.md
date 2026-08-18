@@ -176,8 +176,14 @@ layout and bootloader. One disk has been written this way and read back.
 | `7fcc7edcec6b` | `--lowram` on a Debian 12 genericcloud machine, UEFI, answering `install` | installed Gentoo from inside the memory environment, powered the machine off, booted the disk it had written and passed the shared installed-state checks: `the installed system booted, mounted its layout and has no failed unit` |
 | `7fcc7edcec6b` | `--lowram` on a second machine, its armed entry's initramfs removed | the delivered screen never appeared, and the cloud system's own marker and `/etc/os-release` `ID` were read back on the two boots that followed |
 | `6502c213269e` | the same, with the guarded entry | GRUB read the machine's own menu on the failed boot itself and booted Debian from it: `the failed one-shot returned to the cloud system` at 237.3s, `the second reboot still reached the cloud system` at 246.0s |
+| `f5b6d5e142fd` | `--ram` on a Debian 12 genericcloud machine, UEFI, answering `install` | installed Gentoo from inside the Gentoo CJK ISO environment and passed the same installed-state checks: `logged into the installed system (console)` at 532.8s, `the installed system booted, mounted its layout and has no failed unit` |
 
-The install record took four more runs, and every one of them stopped on
+Both environments install, and they needed different work to get there: the
+CJK ISO answered `live system: gentoo` with `python3.14`, `mount`, `tar` and
+`swapon` already on it and installed nothing of its own, while the Alpine
+netboot root had to be given an interpreter and thirteen commands first.
+
+The `--lowram` install record took four more runs, and every one of them stopped on
 something the environment lacks rather than on the installer: no interpreter
 (`this installer needs python 3.11 or newer; found: none`), no tools
 (`missing commands: blkid findmnt gpg … sgdisk … xz`), no firmware variables,
