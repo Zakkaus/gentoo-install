@@ -2507,10 +2507,12 @@ def _name_the_user(link: Reconnecting) -> bool:
             time.sleep(AGETTY_FLUSHES_AFTER)
         link.respond("root")
         try:
-            said = link.observe(rf"{PASSWORD_PROMPT}|login:", timeout=60.0)
+            said = link.observe(
+                rf"{PASSWORD_PROMPT}|{'|'.join(LOGIN_PROMPTS)}", timeout=60.0
+            )
         except ConsoleTimeout:
             continue
-        if b"login:" not in said:
+        if not any(one.encode() in said for one in LOGIN_PROMPTS):
             return True
     return False
 
@@ -2575,15 +2577,47 @@ def _seen_since(link: Reconnecting, said: bytes) -> str:
 #: check did not see, and the fragment then went to `login` as the password.
 ECHO_FRAGMENT: Final[int] = 2
 
-#: What `login` writes when it will not take a password.
-REFUSED: Final[bytes] = b"Login incorrect"
+#: What `login` writes when it will not take a password, in each locale a
+#: fixture installs. shadow's `login` is translated, so `vm-unlock` was refused
+#: in Chinese and the harness spent its whole budget waiting for the English
+#: wording. Taken from shadow's own `po/zh_TW.po` and `po/zh_CN.po`; codepoints
+#: rather than literals, because no CJK belongs under `tests/`.
+REFUSALS: Final[tuple[bytes, ...]] = (
+    b"Login incorrect",
+    "\u767b\u5165\u932f\u8aa4".encode(),
+    "\u767b\u5f55\u9519\u8bef".encode(),
+)
+
+#: What `login` prints instead of a refusal when its own three tries are gone.
+#: `ext3` was failed twice for a `Login incorrect` that was never coming: the
+#: harness waited its whole 120 seconds while agetty reprinted the prompt
+#: beside it, ready for another name.
+GAVE_UPS: Final[tuple[bytes, ...]] = (
+    b"Maximum number of tries exceeded",
+    "\u5df2\u78b0\u5230\u6700\u5927\u5617\u8a66\u6b21\u6578".encode(),
+    "\u5df2\u7ecf\u8d85\u8fc7\u6700\u5927\u5c1d\u8bd5\u6b21\u6570".encode(),
+)
+
+#: The name prompt, which `login` translates and agetty does not: a guest
+#: shows agetty's English one first and `login`'s own after a refusal.
+LOGIN_PROMPTS: Final[tuple[str, ...]] = (
+    "login:",
+    "\u4f7f\u7528\u8005\uff1a",
+    "\u7528\u6237\u540d\uff1a",
+)
 
 
-#: What `login` prints instead of a refusal when its own three tries are
-#: gone. `ext3` was failed twice for a `Login incorrect` that was never
-#: coming: the harness waited its whole 120 seconds while agetty reprinted the
-#: prompt beside it, ready for another name.
-GAVE_UP: Final[bytes] = b"Maximum number of tries exceeded"
+def _any_of(words: tuple[bytes, ...]) -> str:
+    """One pattern matching any of these, for a console wait."""
+    return "|".join(re.escape(one.decode()) for one in words)
+
+
+def _held(said: bytes, words: tuple[bytes, ...]) -> bytes:
+    """Whichever of these the console holds, or empty."""
+    for one in words:
+        if one in said:
+            return one
+    return b""
 
 
 def _echoed_back(said: bytes, password: str) -> bool:
@@ -2595,7 +2629,7 @@ def _echoed_back(said: bytes, password: str) -> bool:
     the prompt that follows it carry letters of their own: `Login incorrect`
     holds `in`, and so does `install`.
     """
-    echo = said.partition(REFUSED)[0]
+    echo = said.partition(_held(said, REFUSALS))[0]
     return any(
         password[at : at + width].encode() in echo
         for width in range(len(password), ECHO_FRAGMENT - 1, -1)
@@ -2622,25 +2656,29 @@ def _log_in(link: Reconnecting, password: str) -> str:
         link.respond(password)
         try:
             said = link.observe(
-                rf"#|\$|Login incorrect|{GAVE_UP.decode()}", timeout=120.0
+                rf"#|\$|{_any_of(REFUSALS)}|{_any_of(GAVE_UPS)}", timeout=120.0
             )
         except ConsoleTimeout as error:
             return (
                 f"root could not log into the installed system: {error}; "
                 f"the console held {_seen_since(link, b'')}"
             )[:VERDICT_BYTES]
-        if GAVE_UP in said:
+        if _held(said, GAVE_UPS):
             # `login` has spent its own three tries and exited; agetty starts
             # another one, so the name goes in again rather than the run
             # waiting for a refusal that cannot arrive.
             refusals += 1
             settle += PASSWORD_ECHO_BACKOFF
             try:
-                link.observe(r"login:", timeout=REPROMPT_PATIENCE, solicit=True)
+                link.observe(
+                    rf"{'|'.join(LOGIN_PROMPTS)}",
+                    timeout=REPROMPT_PATIENCE,
+                    solicit=True,
+                )
             except ConsoleTimeout:
                 pass
             continue
-        if REFUSED not in said:
+        if not _held(said, REFUSALS):
             return ""
         if _echoed_back(said, password) and echoed < PASSWORD_ECHO_CATCHES:
             echoed += 1
@@ -2659,7 +2697,7 @@ def _log_in(link: Reconnecting, password: str) -> str:
         # second one lands in the password field. `vm-lvm` failed at 55.6
         # minutes with `root` echoed under `Password:` for exactly that.
         try:
-            link.observe(r"login:", timeout=REPROMPT_PATIENCE)
+            link.observe(rf"{'|'.join(LOGIN_PROMPTS)}", timeout=REPROMPT_PATIENCE)
         except ConsoleTimeout:
             pass
     return (
@@ -2742,7 +2780,7 @@ def _unlock(
     for _ in range(UNLOCK_TRIES):
         try:
             said = link.observe(
-                rf"{PASSPHRASE_PROMPT}|login:",
+                rf"{PASSPHRASE_PROMPT}|{'|'.join(LOGIN_PROMPTS)}",
                 timeout=BOOT_PATIENCE,
             )
         except (ConsoleTimeout, ConsoleClosed) as error:
@@ -2750,7 +2788,7 @@ def _unlock(
                 InstalledBootState.WAIT_LOGIN,
                 f"the encrypted disk asked for nothing and booted nowhere: {error}"[:200],
             )
-        if b"login:" in said:
+        if any(one.encode() in said for one in LOGIN_PROMPTS):
             return UnlockResult(InstalledBootState.LOGIN_READY)
         try:
             link.respond(DISK_PASSPHRASE)
@@ -2859,7 +2897,7 @@ def boot_and_check(
             # agetty as one of its attempts, and `vm-lvm` came back with
             # `Maximum number of tries exceeded (5)` after two reconnects where
             # the same fixture passed with one and no solicit.
-            link.observe(r"login:", timeout=BOOT_PATIENCE)
+            link.observe(rf"{'|'.join(LOGIN_PROMPTS)}", timeout=BOOT_PATIENCE)
         except (ConsoleTimeout, ConsoleClosed) as error:
             # Not fatal: agetty prints `login:` once, so a console reopened past
             # it never sees the prompt again, while `_name_the_user` types a
