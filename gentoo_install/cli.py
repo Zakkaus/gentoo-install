@@ -242,13 +242,9 @@ def _validate_memory_launch(
 def _boot_target(probe: Probe) -> netboot.BootTarget:
     """What `plan/netboot.py` needs about this machine's own bootloader."""
     layout = probe.storage_layout()
-    esp = layout.esp_device
     return netboot.BootTarget(
         method=probe.boot_method(),
         esp_mountpoint=layout.esp_mountpoint,
-        esp_device=esp,
-        esp_disk=probe.disk_of_path(esp) if esp is not None else None,
-        esp_partition=probe.partition_number_of_path(esp) if esp is not None else None,
         grub_directory=next(
             (str(one) for one in GRUB_DIRECTORIES if one.is_dir()), None
         ),

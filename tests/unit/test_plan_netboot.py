@@ -63,9 +63,6 @@ def _target(method: BootMethod = BootMethod.SYSTEMD_BOOT) -> netboot.BootTarget:
     return netboot.BootTarget(
         method=method,
         esp_mountpoint=ESP,
-        esp_device="/dev/nvme0n1p1",
-        esp_disk="/dev/nvme0n1",
-        esp_partition=1,
         grub_directory="/boot/grub",
     )
 
@@ -774,3 +771,21 @@ def test_no_address_carries_an_architecture_of_its_own() -> None:
     ):
         for named in ("x86_64", "amd64", "aarch64", "arm64", "i686", "x86"):
             assert named not in address, (address, named)
+
+
+def test_the_boot_target_carries_no_fact_nothing_reads() -> None:
+    """`esp_disk` and `esp_partition` were computed on every run and read by
+    nothing: both GRUBs are armed with `custom.cfg` and `grub-reboot`, so no
+    `efibootmgr --create-only` call is composed anywhere. Carrying the two
+    facts such a call would need reads as though it were written.
+
+    `test_no_definition_in_the_package_is_unreachable` does not see a dataclass
+    field, so this is what holds it."""
+    import dataclasses
+    import inspect
+
+    source = inspect.getsource(netboot)
+    for field in dataclasses.fields(netboot.BootTarget):
+        # The declaration itself is one mention; a field nothing reads has
+        # exactly that one.
+        assert source.count(field.name) > 1, field.name
