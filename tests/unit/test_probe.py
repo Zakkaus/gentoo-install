@@ -700,3 +700,29 @@ def test_the_uncovered_flags_are_the_ones_this_file_answers_for() -> None:
     for portage in sorted(unmeasured):
         kernel = next(k for k, v in CPU_FLAGS.items() if v == portage)
         assert kernel in KERNEL_PRINTS, (portage, kernel)
+
+
+def test_secure_boot_is_read_from_the_variable_rather_than_bootctl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A machine without systemd has no `bootctl`. The variable is the four
+    attribute bytes and then the value, so the state is its last byte: read on
+    this workstation it is `6 0 0 0 0`, and `bootctl status` on the same
+    machine prints `Secure Boot: disabled`."""
+    written = tmp_path / "SecureBoot"
+    for content, wanted in (
+        (bytes([6, 0, 0, 0, 0]), False),
+        (bytes([6, 0, 0, 0, 1]), True),
+    ):
+        written.write_bytes(content)
+        monkeypatch.setattr(probe, "SECURE_BOOT", written)
+        assert probe.secure_boot() is wanted, content
+
+
+def test_a_machine_with_no_such_variable_answers_unread(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A BIOS machine, or one whose efivarfs is not mounted. Unread is not
+    `disabled`: a refusal built on it would be one nobody can act on."""
+    monkeypatch.setattr(probe, "SECURE_BOOT", tmp_path / "absent")
+    assert probe.secure_boot() is None

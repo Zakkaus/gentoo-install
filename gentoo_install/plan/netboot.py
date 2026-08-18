@@ -98,6 +98,9 @@ class BootTarget:
     esp_disk: str | None = None
     esp_partition: int | None = None
     grub_directory: str | None = None
+    #: Whether the firmware refuses an unsigned kernel. `None` is unread,
+    #: which is a BIOS machine or one whose efivarfs is not mounted.
+    secure_boot: bool | None = None
     #: Whether `/boot` is a directory on the root filesystem rather than a
     #: mount of its own. GRUB's paths are relative to the filesystem its
     #: `root` names, so the same file is `/gentoo-install-ram/kernel` when
@@ -150,6 +153,16 @@ class RefuseWithoutABootMethod(Operation):
             raise PreflightFailed(
                 "no bootloader here can be told to boot once: this needs "
                 "systemd-boot, a UEFI GRUB with efibootmgr, or a BIOS GRUB"
+            )
+        if self.target.secure_boot:
+            # Neither image is signed for this machine's own db, so the
+            # firmware rejects the kernel and the armed boot goes nowhere.
+            # `--bypass` makes that the default, which is a machine that does
+            # not boot at all, so this is refused before anything is fetched.
+            raise PreflightFailed(
+                "this machine enforces Secure Boot and neither memory "
+                "environment is signed for it: turn Secure Boot off in the "
+                "firmware setup, or install from a medium instead"
             )
         # Reading it forces the layout check in `place` before anything is
         # fetched, so a UEFI machine with no mounted esp stops here.
