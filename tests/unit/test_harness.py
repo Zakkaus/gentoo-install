@@ -3130,7 +3130,12 @@ def test_each_mode_waits_for_its_own_medium() -> None:
 
 class _CdAppearsLate:
     """A guest whose shell answers before its ATAPI devices are enumerated,
-    which a Debian cloud image under KVM did at 7.3 seconds."""
+    which a Debian cloud image under KVM did at 7.3 seconds.
+
+    It echoes the command before answering it, which is what a serial console
+    does and what a marker written into the command matches instead of the
+    answer.
+    """
 
     def __init__(self, ready_after: int) -> None:
         self.ready_after = ready_after
@@ -3141,9 +3146,10 @@ class _CdAppearsLate:
 
     def expect_command(self, command: str, timeout: float = 0.0) -> bytes:
         self.tries += 1
+        echoed = command.encode() + b"\r\n"
         if self.tries > self.ready_after:
-            return b"DRIVER-READY\r\n"
-        return b"DRIVER-ABSENT\r\n"
+            return echoed + b"driver=0\r\n"
+        return echoed + b"driver=1\r\n"
 
 
 def test_the_driver_cd_is_waited_for_rather_than_asked_once(
@@ -3174,5 +3180,36 @@ def test_a_guest_that_never_sees_the_cd_says_so(
 
     monkeypatch.setattr("time.sleep", lambda seconds: None)
     console = _CdAppearsLate(ready_after=10**9)
-    with pytest.raises(DriverNotFound, match="DRIVER-ABSENT"):
+    with pytest.raises(DriverNotFound, match="driver=1"):
         wait_for_driver(cast(Any, console), patience=0.0)
+
+
+def test_the_mount_check_reads_the_answer_and_not_the_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A serial console echoes what it was given. The first version wrote
+    `DRIVER-READY` into the command, so the echo matched it and the wait
+    returned at once against a guest with no CD; the run then failed as `sh`
+    exiting 2 for a script it could not open."""
+    from typing import Any, cast
+
+    from tests.vm.driver import DriverNotFound, wait_for_driver
+
+    asked: list[str] = []
+
+    class OnlyEchoes:
+        """A guest that never mounts anything and answers nothing else."""
+
+        def run(self, command: str, timeout: float = 0.0) -> None:
+            return None
+
+        def expect_command(self, command: str, timeout: float = 0.0) -> bytes:
+            asked.append(command)
+            return command.encode() + b"\r\n"
+
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    with pytest.raises(DriverNotFound):
+        wait_for_driver(cast(Any, OnlyEchoes()), patience=0.0)
+    # Whatever the check greps for must not be in what it sends.
+    for command in asked:
+        assert "driver=0" not in command, command

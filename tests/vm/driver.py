@@ -59,11 +59,14 @@ def wait_for_driver(console: Console, patience: float = DRIVER_PATIENCE) -> None
     deadline = time.monotonic() + patience
     while True:
         console.run(FIND_DRIVER, timeout=180.0)
+        # The answer, not the question: a serial console echoes the command
+        # it was given, so a marker written in the command matches itself.
+        # `DRIVER-READY` did exactly that and this returned at once against a
+        # guest with no CD mounted, which then failed as `sh` exiting 2.
         said = console.expect_command(
-            "mountpoint -q /mnt/driver && echo DRIVER-READY || echo DRIVER-ABSENT",
-            timeout=60.0,
+            "mountpoint -q /mnt/driver; echo driver=$?", timeout=60.0
         )
-        if b"DRIVER-READY" in said:
+        if b"driver=0" in said:
             return
         if time.monotonic() >= deadline:
             raise DriverNotFound(
