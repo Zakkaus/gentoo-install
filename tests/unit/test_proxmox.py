@@ -3864,6 +3864,73 @@ def test_a_medium_that_never_answers_stops_rather_than_holding_the_schedule(
     assert guest.typed, "it has to have tried"
 
 
+class _ClosesWhileNothingCrossesIt:
+    """A node's serial session as it behaves during the typing.
+
+    The keys go through the API, so no byte crosses the console for the whole
+    minute the line takes. Measured on a guest built for the question: the
+    session was gone at 0.0s of watching on four attempts out of four, with
+    the guest silent the whole time and the log holding only the node's own
+    `starting serial terminal on interface serial0`.
+    """
+
+    def __init__(self, guest: "_AutoLoginGuest") -> None:
+        self.guest = guest
+        self.console = self
+        self.opened_at_lines = 0
+        self.reopens = 0
+
+    def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+        from tests.vm.console import ConsoleClosed, ConsoleTimeout
+
+        if self.opened_at_lines < self.guest.lines:
+            raise ConsoleClosed(
+                "the guest closed the serial connection",
+                write_may_have_reached_guest=False,
+            )
+        if self.guest.lines >= 1:
+            return b"\r\nroot@livecd ~ # "
+        raise ConsoleTimeout("nothing on the serial port")
+
+    def reopen(self, *, solicit_prompt: bool = True) -> None:
+        self.reopens += 1
+        self.opened_at_lines = self.guest.lines
+
+
+def test_the_console_watched_is_opened_after_the_line_is_typed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Typing one line is 38 characters of one API request each, which took 68
+    seconds on `infra-node1`, and the node closes a session that carries
+    nothing for that long. Watching the session that was open before the
+    typing is watching a session that is already gone."""
+    from typing import Any, cast
+
+    from tests.vm import proxmox
+
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    guest = _AutoLoginGuest()
+    link = _ClosesWhileNothingCrossesIt(guest)
+
+    proxmox.open_a_serial_shell_blind(cast("Any", guest), cast("Any", link))
+
+    assert link.reopens == 1, link.reopens
+    assert guest.lines == 1, guest.lines
+
+
+def test_the_typed_line_stays_short_because_every_character_is_a_request() -> None:
+    """`KEY_PAUSE` alone is 0.12s per character before the request itself, so
+    the length of this line is a fifth of the deadline. Measured: 61 characters
+    took 68s of a 360s budget, leaving five attempts of which none watched a
+    live console."""
+    from tests.vm.proxmox import SERIAL_GETTY
+
+    assert len(SERIAL_GETTY) <= 40, SERIAL_GETTY
+    assert "agetty" in SERIAL_GETTY and "ttyS0" in SERIAL_GETTY, SERIAL_GETTY
+    assert "115200" in SERIAL_GETTY, "the baud has to match the medium's port"
+    assert SERIAL_GETTY.rstrip().endswith("&"), "it cannot hold the shell"
+
+
 def test_the_deadline_outlasts_a_loaded_node_and_the_interval_does_not() -> None:
     """An idle node reaches the auto-login in about fifteen seconds, measured
     by screenshotting a SeaBIOS guest through the QEMU monitor. A node running
