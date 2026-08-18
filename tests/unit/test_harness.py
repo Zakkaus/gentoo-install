@@ -3627,3 +3627,21 @@ def test_the_lowram_check_logs_in_where_the_medium_asks_for_one() -> None:
     assert 'console.send("root")' in source, source
     assert source.index('mode == "lowram"') < source.index('console.send("root")')
     assert source.index("PAYLOAD_SPEAKS") > source.index('console.send("root")')
+
+
+def test_the_mirror_check_cannot_match_its_own_command() -> None:
+    """It asked for `print('BYTES', …)` and looked for `BYTES` in a reply that
+    begins with the shell's echo of that line, so a machine that fetched
+    nothing passed. The count is what the machine produces."""
+    import inspect
+    import re as _re
+
+    from tests.vm import netcheck
+
+    source = inspect.getsource(netcheck)
+    command = _re.search(r"print\('MIRROR_BYTES=%d'[^\n]*", source)
+    assert command is not None, source
+    assert not _re.search(rb"MIRROR_BYTES=[1-9][0-9]*", command.group(0).encode()), (
+        command.group(0)
+    )
+    assert 'rb"MIRROR_BYTES=[1-9][0-9]*"' in source, "and the check wants a count"

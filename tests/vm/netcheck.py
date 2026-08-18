@@ -22,6 +22,7 @@ own before it touches a disk:
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 import time
 from dataclasses import dataclass
@@ -120,12 +121,15 @@ def _check(console: SerialConsole, families: str, driver: str) -> Result:
     if b"RC=0" not in said:
         found.startup = f"the launcher did not answer: {said[-200:]!r}"
 
+    # The count, not a bare marker: the command carries `MIRROR_BYTES` in its
+    # own text and a shell echoes what it was given, so a check for the word
+    # alone passed on a machine that fetched nothing.
     said = console.expect_command(
         f"cd {driver} && python3 -c \"from gentoo_install.exec import fetch; "
-        f"print('BYTES', len(fetch._read('{POINTER}')))\" 2>&1",
+        f"print('MIRROR_BYTES=%d' % len(fetch._read('{POINTER}')))\" 2>&1",
         timeout=300.0,
     )
-    if b"BYTES" not in said:
+    if not re.search(rb"MIRROR_BYTES=[1-9][0-9]*", said):
         found.mirror = f"the pointer file was not fetched: {said[-300:]!r}"
     return found
 
