@@ -351,3 +351,62 @@ def test_arch_is_told_what_it_cannot_supply_instead_of_a_failing_command(
         assert command in said.split("this system has no package for:")[1].splitlines()[0]
     installs = [line for line in said.splitlines() if line.startswith("run: pacman")]
     assert not any("zfs-utils" in line for line in installs), installs
+
+
+def test_install_missing_runs_the_command_it_prints_and_checks_again(
+    tmp_path: Path,
+) -> None:
+    """The memory environment has no second screen to ask at: the operator
+    typed `install` once, and Alpine's netboot root arrives without `sgdisk`,
+    `blkid` or an interpreter. Without the flag the launcher still only prints
+    the command, because a live system is somebody else's machine."""
+    helpers = tmp_path / "helpers"
+    helpers.mkdir()
+    (helpers / "python3").symlink_to(PYTHON)
+    installed = tmp_path / "installed"
+    # An `apk` that reports what it was asked for and, from then on, makes the
+    # installer answer that nothing is missing.
+    (helpers / "apk").write_text(
+        # A redirection, not `touch`: the PATH this case hands the launcher
+        # holds python and this script and nothing else.
+        f"#!/bin/sh\nprintf 'APK %s\\n' \"$*\"\n: > {installed}\n", encoding="utf-8"
+    )
+    (helpers / "apk").chmod(0o755)
+    # The preflight's own answer, so the case does not depend on which tools
+    # this workstation happens to have.
+    module = tmp_path / "fake"
+    (module / "gentoo_install").mkdir(parents=True)
+    (module / "gentoo_install" / "__init__.py").write_text("", encoding="utf-8")
+    (module / "gentoo_install" / "__main__.py").write_text(
+        "import os, sys\n"
+        f"print('' if os.path.exists({str(installed)!r}) else 'sgdisk blkid')\n",
+        encoding="utf-8",
+    )
+    where = tmp_path / "os-release"
+    where.write_text("ID=alpine\n")
+
+    def launch(*arguments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [SHELL, str(LAUNCHER), *arguments],
+            cwd=str(module),
+            env={
+                "OS_RELEASE": str(where),
+                "PATH": str(helpers),
+                "PYTHONPATH": str(module),
+            },
+            capture_output=True,
+            text=True,
+        )
+
+    printed = launch("--config", "x.toml")
+    assert printed.returncode == 1, output(printed)
+    assert "run: apk add --update-cache sgdisk blkid" in output(printed), output(printed)
+    assert "APK" not in output(printed), output(printed)
+    assert not installed.exists()
+
+    ran = launch("--install-missing", "--config", "x.toml")
+    said = output(ran)
+    assert "APK add --update-cache sgdisk blkid" in said, said
+    assert installed.exists()
+    # The flag is consumed here: the installer's own parser has no such option.
+    assert "--install-missing" not in said.replace("run: ", ""), said

@@ -615,7 +615,8 @@ def _start() -> str:
         + _bring_python()
         # `sh`, not `exec sh`: this is sourced, so exec removes the login shell.
         # After consent, `--no-shell` prevents a later prompt from stopping the run.
-        + f"    sh ./bootstrap.sh --no-shell --config {PAYLOAD}/config.toml ;;\n"
+        + "    sh ./bootstrap.sh --no-shell --install-missing "
+        + f"--config {PAYLOAD}/config.toml ;;\n"
         + "*) printf 'nothing was changed\\n' ;;\n"
         "esac\n"
     )
