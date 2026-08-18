@@ -19,6 +19,9 @@ from gentoo_install.plan.operations import CommandOutput, Operation, Stage
 from .recorder import Recorder
 
 ESP = "/boot/efi"
+
+#: What `uname -m` answers on the machine most of these cases stand on.
+MACHINE = "x86_64"
 ISO = "install-amd64-cjk-minimal-20260813T073053Z.iso"
 
 #: One real answer from the release index, trimmed to the fields this reads.
@@ -59,9 +62,12 @@ ALPINE_INDEX = """---
 
 def _target(method: BootMethod = BootMethod.SYSTEMD_BOOT) -> netboot.BootTarget:
     if method is BootMethod.BIOS_GRUB:
-        return netboot.BootTarget(method=method, grub_directory="/boot/grub")
+        return netboot.BootTarget(
+            method=method, architecture=MACHINE, grub_directory="/boot/grub"
+        )
     return netboot.BootTarget(
         method=method,
+        architecture=MACHINE,
         esp_mountpoint=ESP,
         grub_directory="/boot/grub",
     )
@@ -161,7 +167,7 @@ def test_the_plan_refuses_and_checks_before_it_fetches() -> None:
 def test_a_machine_with_no_boot_method_is_refused() -> None:
     with pytest.raises(PreflightFailed, match="boot once"):
         netboot.RefuseWithoutABootMethod(
-            target=netboot.BootTarget(method=BootMethod.NONE)
+            target=_target(BootMethod.NONE)
         ).apply(Recorder())
 
 
@@ -170,7 +176,7 @@ def test_a_uefi_machine_with_no_mounted_esp_is_refused() -> None:
     unmounted one is a refusal rather than a download that lands in `/`."""
     with pytest.raises(PreflightFailed, match="EFI system partition"):
         netboot.RefuseWithoutABootMethod(
-            target=netboot.BootTarget(method=BootMethod.SYSTEMD_BOOT)
+            target=replace(_target(), esp_mountpoint=None)
         ).apply(Recorder())
 
 
@@ -656,11 +662,7 @@ def test_a_separate_boot_partition_gets_a_path_relative_to_itself() -> None:
     """GRUB's paths are relative to the filesystem its `root` names, which is
     the `/boot` partition when there is one."""
     recorder = _answering()
-    target = netboot.BootTarget(
-        method=BootMethod.BIOS_GRUB,
-        grub_directory="/boot/grub",
-        boot_on_the_root_filesystem=False,
-    )
+    target = replace(_target(BootMethod.BIOS_GRUB), boot_on_the_root_filesystem=False)
     netboot.WriteMemoryEntry(mode=MemoryMode.RAM, target=target, launch=_launch()).apply(
         recorder
     )
@@ -677,11 +679,7 @@ def test_boot_on_the_root_filesystem_gets_the_boot_prefix() -> None:
     the kernel not found — the machine still boots its own system, and the
     armed one never runs."""
     recorder = _answering()
-    target = netboot.BootTarget(
-        method=BootMethod.BIOS_GRUB,
-        grub_directory="/boot/grub",
-        boot_on_the_root_filesystem=True,
-    )
+    target = replace(_target(BootMethod.BIOS_GRUB), boot_on_the_root_filesystem=True)
     netboot.WriteMemoryEntry(mode=MemoryMode.RAM, target=target, launch=_launch()).apply(
         recorder
     )
@@ -698,10 +696,8 @@ def test_the_three_lines_of_an_entry_never_disagree_about_the_path() -> None:
     for a file it does not have."""
     for on_root in (True, False, None):
         recorder = _answering()
-        target = netboot.BootTarget(
-            method=BootMethod.BIOS_GRUB,
-            grub_directory="/boot/grub",
-            boot_on_the_root_filesystem=on_root,
+        target = replace(
+            _target(BootMethod.BIOS_GRUB), boot_on_the_root_filesystem=on_root
         )
         netboot.WriteMemoryEntry(
             mode=MemoryMode.RAM, target=target, launch=_launch()
@@ -720,16 +716,14 @@ def test_the_three_lines_of_an_entry_never_disagree_about_the_path() -> None:
 def test_an_unread_boot_layout_is_treated_as_a_separate_partition() -> None:
     """Every layout this installer produces has one, so that is the answer
     when nothing read the machine."""
-    assert netboot.BootTarget(method=BootMethod.BIOS_GRUB).grub_prefix == ""
+    assert _target(BootMethod.BIOS_GRUB).grub_prefix == ""
 
 
 def test_a_machine_enforcing_secure_boot_is_refused_before_anything_is_fetched() -> None:
     """Neither image is signed for this machine's own db, so the firmware
     rejects the kernel and the armed boot goes nowhere. With `--bypass` that
     entry is the default, which is a machine that does not boot at all."""
-    refusing = netboot.BootTarget(
-        method=BootMethod.BIOS_GRUB, grub_directory="/boot/grub", secure_boot=True
-    )
+    refusing = replace(_target(BootMethod.BIOS_GRUB), secure_boot=True)
     with pytest.raises(PreflightFailed, match="Secure Boot"):
         netboot.RefuseWithoutABootMethod(target=refusing).apply(Recorder())
 
@@ -739,11 +733,7 @@ def test_secure_boot_off_or_unread_is_not_a_refusal() -> None:
     could read is a refusal nobody can act on."""
     for state in (False, None):
         netboot.RefuseWithoutABootMethod(
-            target=netboot.BootTarget(
-                method=BootMethod.BIOS_GRUB,
-                grub_directory="/boot/grub",
-                secure_boot=state,
-            )
+            target=replace(_target(BootMethod.BIOS_GRUB), secure_boot=state)
         ).apply(Recorder())
 
 

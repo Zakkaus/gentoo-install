@@ -163,7 +163,7 @@ class BootTarget:
     #: architecture, so this decides which one is fetched rather than being
     #: assumed: `--ram` works on any machine the CJK release publishes an ISO
     #: for, the day it publishes one.
-    architecture: str = "x86_64"
+    architecture: str
     esp_mountpoint: str | None = None
     grub_directory: str | None = None
     #: Whether the firmware refuses an unsigned kernel. `None` is unread,
