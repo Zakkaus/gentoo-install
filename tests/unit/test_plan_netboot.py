@@ -807,6 +807,36 @@ def _custom(recorder: Recorder) -> str:
     return recorder.files[PurePosixPath("/boot/grub/custom.cfg")]
 
 
+def test_an_entry_whose_files_are_gone_rereads_the_machines_own_menu() -> None:
+    """Measured on 2026-08-19: with the initramfs removed, GRUB answered
+
+        error: file `/gentoo-install-ram/initramfs' not found.
+        Press any key to continue...
+
+    and the machine sat there. The default entry being untouched is not enough
+    on its own, because nothing reaches it while GRUB waits for a keypress."""
+    for method in (BootMethod.BIOS_GRUB, BootMethod.UEFI_GRUB):
+        recorder = _answering()
+        target = _target(method)
+        netboot.WriteMemoryEntry(
+            mode=MemoryMode.RAM, target=target, launch=_launch()
+        ).apply(recorder)
+
+        custom = _custom(recorder)
+        lines = [one.strip() for one in custom.splitlines()]
+        guard = next((one for one in lines if one.startswith("if [ -f")), "")
+        assert guard, custom
+        assert guard.endswith("]; then"), guard
+        # Both files, because either one alone leaves the other unchecked and
+        # GRUB stops on whichever is missing.
+        assert guard.count("-f ") == 2, guard
+        assert any(one == "configfile $prefix/grub.cfg" for one in lines), custom
+        # The kernel is only loaded inside the guard.
+        assert lines.index(guard) < next(
+            n for n, one in enumerate(lines) if one.startswith("linux ")
+        ), custom
+
+
 def test_a_separate_boot_partition_gets_a_path_relative_to_itself() -> None:
     """GRUB's paths are relative to the filesystem its `root` names, which is
     the `/boot` partition when there is one."""
