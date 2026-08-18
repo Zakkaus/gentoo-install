@@ -4306,3 +4306,42 @@ def test_every_fixture_that_keeps_its_site_pins_one() -> None:
         path = fixtures / f"{name}.toml"
         assert path.is_file(), name
         assert load(path).portage.mirrors.site, name
+
+
+def test_a_fixture_that_must_degrade_is_failed_when_it_did_not() -> None:
+    """`vm-binhost-fallback` was green because the install finished, which it
+    does whether or not the host it names ever failed: 42 minutes of binary
+    packages downloaded from a working mirror, and the verdict read as proof
+    that the degradation path works. The journal records what a run gave up
+    on, so the fixture's own premise is now part of its verdict."""
+    import json
+
+    from gentoo_install.plan.portage import BINARY_PACKAGES
+    from tests.vm import cluster
+
+    degraded = json.dumps({"event": "degraded", "what": BINARY_PACKAGES, "reason": "404"})
+    other = json.dumps({"event": "degraded", "what": "something else", "reason": "-"})
+
+    assert cluster._degradation_missing("vm-btrfs", {}) == "", "no promise, no requirement"
+    assert cluster._degradation_missing(
+        "vm-binhost-fallback", {"install.jsonl": degraded.encode()}
+    ) == ""
+
+    for held in ({}, {"install.jsonl": b""}, {"install.jsonl": other.encode()}):
+        refused = cluster._degradation_missing("vm-binhost-fallback", held)
+        assert refused, held
+        assert BINARY_PACKAGES in refused, refused
+
+    # A partial last line is what a run killed mid-write leaves behind, and it
+    # must not hide the entry above it.
+    partial = degraded.encode() + b'\n{"event": "degr'
+    assert cluster._degradation_missing("vm-binhost-fallback", {"install.jsonl": partial}) == ""
+
+
+def test_every_fixture_that_must_degrade_keeps_the_site_that_makes_it() -> None:
+    """A fixture required to degrade is required to reach the host that fails
+    it, so `--site` must not move it: the two tables have to agree or the
+    requirement is one no run can meet."""
+    from tests.vm import cluster
+
+    assert set(cluster.MUST_DEGRADE) <= cluster.KEEPS_ITS_SITE, cluster.MUST_DEGRADE
