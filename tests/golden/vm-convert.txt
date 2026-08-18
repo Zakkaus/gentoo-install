@@ -60,3 +60,4 @@
 [finish]
   point /etc/resolv.conf at systemd-resolved rather than the install medium's
   unmount and remove /gentoo-install.new
+  write everything this conversion changed out to the disk

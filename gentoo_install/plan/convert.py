@@ -219,6 +219,31 @@ class PrepareStaging(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
+class FlushToDisk(Operation):
+    """Write the page cache out before anything reboots this machine.
+
+    An ordinary install unmounts the target, which flushes it. A conversion
+    never unmounts anything: its target is `/`, still mounted and still
+    running. What that cost was measured twice on a converted Debian guest —
+    `grub-mkconfig` reported the new kernel and exited, and the file on disk
+    was still the one the distribution shipped, naming a kernel the conversion
+    had deleted. The machine came up in GRUB and stopped at `Failed to boot
+    both default and fallback entries`.
+    """
+
+    stage: Stage = Stage.FINISH
+
+    def required_host_commands(self) -> frozenset[str]:
+        return frozenset({"sync"})
+
+    def describe(self) -> str:
+        return "write everything this conversion changed out to the disk"
+
+    def apply(self, context: Context) -> None:
+        context.run(["sync"])
+
+
+@dataclass(frozen=True, kw_only=True)
 class LeaveStaging(Operation):
     """Unmount what the chroot bound under the staging root and remove it.
 
