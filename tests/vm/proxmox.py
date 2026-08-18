@@ -1061,7 +1061,13 @@ def open_a_serial_shell_blind(
         # guest of its own: 68s of typing, then `ConsoleClosed` at 0.0s of
         # watching, four attempts out of four, with the guest silent
         # throughout. The console that is watched is opened after the typing.
-        link.reopen(solicit_prompt=False)
+        #
+        # Asking for a prompt, not merely opening: `agetty --autologin` prints
+        # one prompt when the shell starts and never prints again, so a
+        # session opened after that shows nothing for ever. Fourteen attempts
+        # over sixteen minutes on `ext4-bios` matched nothing at all with the
+        # session opened silently.
+        link.reopen(solicit_prompt=True)
         console = link.console
         try:
             console.expect(SERIAL_SHELL_SPEAKS, timeout=AUTOLOGIN_INTERVAL)

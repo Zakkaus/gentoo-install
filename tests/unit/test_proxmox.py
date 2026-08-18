@@ -3879,6 +3879,7 @@ class _ClosesWhileNothingCrossesIt:
         self.console = self
         self.opened_at_lines = 0
         self.reopens = 0
+        self.solicited: list[bool] = []
 
     def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
         from tests.vm.console import ConsoleClosed, ConsoleTimeout
@@ -3894,6 +3895,7 @@ class _ClosesWhileNothingCrossesIt:
 
     def reopen(self, *, solicit_prompt: bool = True) -> None:
         self.reopens += 1
+        self.solicited.append(solicit_prompt)
         self.opened_at_lines = self.guest.lines
 
 
@@ -3916,6 +3918,11 @@ def test_the_console_watched_is_opened_after_the_line_is_typed(
 
     assert link.reopens == 1, link.reopens
     assert guest.lines == 1, guest.lines
+    # `agetty --autologin` prints one prompt as the shell starts and never
+    # prints again, so a session opened silently after the typing shows
+    # nothing for ever: `ext4-bios` matched nothing across fourteen attempts
+    # and sixteen minutes that way.
+    assert link.solicited == [True], link.solicited
 
 
 def test_the_typed_line_stays_short_because_every_character_is_a_request() -> None:
