@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Callable
 
 import pytest
@@ -48,6 +48,7 @@ from gentoo_install.model.device import (
     ZfsDataset,
     ZfsPool,
 )
+from gentoo_install.exec.config import load
 from gentoo_install.model.size import Size
 
 from .layouts import config, ext4_on_gpt, i, zfs_root
@@ -338,6 +339,24 @@ def test_each_rule_fires_on_a_configuration_that_breaks_it(
     build: Callable[[], InstallConfig], when: Trait, excludes: Trait
 ) -> None:
     assert (when, excludes) in {(rule.when, rule.excludes) for rule in violations(build())}
+
+
+@pytest.mark.parametrize("name", ["ext2", "ext3"])
+def test_each_legacy_ext_fixture_rejects_a_label_over_16_bytes(name: str) -> None:
+    installation = load(Path("tests/fixtures") / f"{name}.toml")
+    nodes = [
+        replace(node, label="x" * 17)
+        if isinstance(node, Filesystem) and node.id == i("rootfs")
+        else node
+        for node in installation.disk.graph.nodes.values()
+    ]
+    broken = replace(
+        installation,
+        disk=replace(installation.disk, graph=DeviceGraph.build(nodes)),
+    )
+    assert compat.filesystem_label_problems(broken) == (
+        f"filesystem rootfs has a {name} label of 17 bytes, but {name} labels are limited to 16 bytes",
+    )
 
 
 def test_every_rule_in_the_table_has_a_case_that_breaks_it() -> None:

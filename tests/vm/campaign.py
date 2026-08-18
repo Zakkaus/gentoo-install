@@ -173,6 +173,11 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         # wrapped round them.
         Run("fixtures/vm-xfs.toml"),
         Run("fixtures/vm-btrfs.toml"),
+        # The two filesystems `compat.py` carries a label rule apiece for and
+        # nothing had ever made: `mkfs`, the label, the fstab line and the
+        # initramfs support are one path each, and neither had been walked.
+        Run("fixtures/ext2.toml", firmware="bios"),
+        Run("fixtures/ext3.toml", firmware="bios"),
         # A machine that configures its own address instead of asking for one.
         # The model has carried static addressing since the beginning and no
         # fixture set it, so nothing had ever installed a machine that comes up

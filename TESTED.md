@@ -186,7 +186,7 @@ its original system because the boot entry is one-shot.
 ## Not covered by any record
 
 greetd desktop sessions, ibus outside GNOME, binary-host failure fallback, and
-focused configuration tests for ext2 and ext3.
+end-to-end ext2 and ext3 installations.
 
 CJK text-console rendering is not covered either, and the `vm-cjk-kernel` row
 above does not cover it: that run establishes that the patched kernel merges,

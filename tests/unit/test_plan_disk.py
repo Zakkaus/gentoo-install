@@ -38,7 +38,7 @@ from gentoo_install.model.device import (
 )
 from gentoo_install.exec.config import load
 from gentoo_install.model.size import Size
-from gentoo_install.plan import disk
+from gentoo_install.plan import disk, system
 from gentoo_install.plan.operations import Stage
 
 from .layouts import config, ext4_on_gpt, i, zfs_root
@@ -48,6 +48,13 @@ from .recorder import Recorder
 def apply_all(nodes: list[Node]) -> Recorder:
     recorder = Recorder()
     for operation in disk.build(config(nodes)):
+        operation.apply(recorder)
+    return recorder
+
+
+def apply_installation(installation: InstallConfig) -> Recorder:
+    recorder = Recorder()
+    for operation in disk.build(installation):
         operation.apply(recorder)
     return recorder
 
@@ -194,6 +201,25 @@ def test_a_filesystem_is_made_with_the_label_option_its_tool_uses() -> None:
     vfat = recorder.only("mkfs.vfat")
     assert vfat[1:4] == ("-F", "32", "-n")
     assert "ESP" in vfat
+
+
+@pytest.mark.parametrize(
+    ("name", "command"),
+    [("ext2", "mkfs.ext2"), ("ext3", "mkfs.ext3")],
+)
+def test_each_legacy_ext_fixture_uses_its_mkfs_command(name: str, command: str) -> None:
+    installation = load(Path("tests/fixtures") / f"{name}.toml")
+    made = apply_installation(installation).argv_starting(command)
+    assert made == ((command, "-F", "-L", "root", "/dev/mapper/rootpart"),)
+
+
+@pytest.mark.parametrize("name", ["ext2", "ext3"])
+def test_each_legacy_ext_fixture_writes_its_fstab_entry(name: str) -> None:
+    installation = load(Path("tests/fixtures") / f"{name}.toml")
+    recorder = Recorder()
+    system.WriteFstab(entries=system.fstab_entries(installation)).apply(recorder)
+    lines = recorder.files[PurePosixPath("/etc/fstab")].splitlines()
+    assert lines[1] == f"UUID=uuid-of-rootpart\t/\t{name}\tdefaults\t0\t1"
 
 
 def test_swap_is_made_and_then_left_alone() -> None:
