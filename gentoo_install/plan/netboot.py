@@ -432,20 +432,18 @@ class PlaceMemoryKernel(Operation):
 
 
 
-#: Where the payload lands inside the initramfs, and where the hook puts it
-#: in the live system. One name, because the hook that copies it and the
-#: installer that reads it are written apart.
+#: Where the payload lands inside both live systems.
 PAYLOAD: Final[str] = "/gentoo-install"
 
-#: Where the first screen is hung, which is the login shell rather than a
-#: boot service. OpenRC's `local` runs `local.d/*.start` with
-#: `> /dev/null 2>&1` unless `rc_verbose` is set — read from that medium's own
-#: `/etc/init.d/local` — and it runs during boot with no controlling
-#: terminal, so a question printed there is invisible and the `read` beside it
-#: answers itself. `/root/.bash_profile` runs for the medium's console
-#: auto-login and for an ssh login, which is where the operator is; root's
-#: shell there is `/bin/bash` and the file already exists.
-AUTOSTART: Final[str] = "/root/.bash_profile"
+#: The archive `initramfs-init` unpacks after it has built Alpine's sysroot.
+APKOVL: Final[str] = "gentoo-install.apkovl.tar.gz"
+
+#: The login profile that sources the first screen in each environment. CJK
+#: root uses bash; Alpine root uses ash and reads `.profile`.
+AUTOSTART: Final[dict[MemoryMode, str]] = {
+    MemoryMode.RAM: "/root/.bash_profile",
+    MemoryMode.LOWRAM: "/root/.profile",
+}
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -453,11 +451,9 @@ class AppendConfiguration(Operation):
     """Put the configuration and the keys inside the initramfs.
 
     A newc cpio appended to the compressed initramfs is unpacked by the kernel
-    and its hooks are run by dracut, which was measured on 2026-08-18 by
-    booting one: a `cmdline` hook in the appended segment printed its marker at
-    3.5 seconds. So a 1.5 KiB segment delivers everything rather than the whole
-    55 MiB image being repacked. `lsinitrd` does not list the appended segment,
-    so it cannot be used to check this.
+    without repacking its 55 MiB base image. `--ram` uses the appended dracut
+    hook; `--lowram` puts an apkovl in that cpio's root, because Alpine's
+    `initramfs-init` unpacks it into the live sysroot without running dracut.
     """
 
     stage: Stage = Stage.BOOTLOADER
@@ -480,15 +476,23 @@ class AppendConfiguration(Operation):
 
     def apply(self, context: Context) -> None:
         staging = self.target.place / "payload"
-        inside = PurePosixPath(str(staging) + PAYLOAD)
+        payload_staging = (
+            staging
+            if self.launch.mode is MemoryMode.RAM
+            else staging / "apkovl"
+        )
+        inside = payload_staging / PAYLOAD.lstrip("/")
         context.run(["mkdir", "--parents", str(inside)])
         context.write(inside / "config.toml", self.configuration)
         if self.keys:
-            context.write(
-                inside / "authorized_keys",
-                "".join(f"{one}\n" for one in self.keys),
-                mode=0o600,
-            )
+            key_text = "".join(f"{one}\n" for one in self.keys)
+            context.write(inside / "authorized_keys", key_text, mode=0o600)
+            if self.launch.mode is MemoryMode.LOWRAM:
+                context.write(
+                    payload_staging / "root/.ssh/authorized_keys",
+                    key_text,
+                    mode=0o600,
+                )
         # `bootstrap.sh` runs the tree beside it, so both go in together.
         context.run(
             [
@@ -503,11 +507,30 @@ class AppendConfiguration(Operation):
             ]
         )
         context.write(inside / "start.sh", _start(), mode=0o755)
-        hooks = staging / "usr/lib/dracut/hooks/pre-pivot"
-        context.run(["mkdir", "--parents", str(hooks)])
-        context.write(hooks / "99-gentoo-install.sh", _handover(), mode=0o755)
+        if self.launch.mode is MemoryMode.RAM:
+            hooks = staging / "usr/lib/dracut/hooks/pre-pivot"
+            context.run(["mkdir", "--parents", str(hooks)])
+            context.write(
+                hooks / "99-gentoo-install.sh",
+                _handover(self.launch.mode),
+                mode=0o755,
+            )
+        else:
+            context.write(
+                payload_staging / AUTOSTART[self.launch.mode].lstrip("/"),
+                _source_start(),
+            )
+            apkovl = staging / APKOVL
+            context.run(
+                [
+                    "sh",
+                    "-c",
+                    f"cd {payload_staging} && tar --create --gzip --file {apkovl} .",
+                ]
+            )
+            context.run(["rm", "--recursive", "--force", str(payload_staging)])
         # `find | cpio` from inside the staging directory, or every path in the
-        # archive carries the staging prefix and lands nowhere the hook looks.
+        # archive carries the staging prefix and lands nowhere the initramfs reads.
         context.run(
             [
                 "sh",
@@ -522,7 +545,7 @@ class AppendConfiguration(Operation):
 def _start() -> str:
     """What the operator's login shell runs. It asks before it erases anything.
 
-    Sourced by `.bash_profile` rather than executed by a boot service, so it
+    Sourced by a login profile rather than executed by a boot service, so it
     must not `exit`: that would end the login shell it is running in and drop
     the operator straight back to a prompt they cannot use. `return` ends a
     sourced file and nothing else.
@@ -550,8 +573,13 @@ def _start() -> str:
     )
 
 
-def _handover() -> str:
-    """What runs in the initramfs to hand the payload to the live system.
+def _source_start() -> str:
+    """The profile line that presents the delivered installer."""
+    return f"[ -f {PAYLOAD}/start.sh ] && . {PAYLOAD}/start.sh\n"
+
+
+def _handover(mode: MemoryMode) -> str:
+    """What dracut runs to hand the payload to the CJK live system.
 
     `pre-pivot`, because `$NEWROOT` is mounted by then and writable: with
     `rd.live.ram=1` the squashfs is read-only but `dmsquash-live-root` puts an
@@ -570,8 +598,7 @@ def _handover() -> str:
         # Appended, not written: the file exists on the medium and sources
         # `.bashrc`, and replacing it would take the prompt and the aliases
         # with it.
-        f'printf \'\\n[ -f {PAYLOAD}/start.sh ] && . {PAYLOAD}/start.sh\\n\' '
-        f'>> "$NEWROOT{AUTOSTART}"\n'
+        f'printf \'\\n{_source_start()}\' >> "$NEWROOT{AUTOSTART[mode]}"\n'
     )
 
 
@@ -661,6 +688,7 @@ class WriteMemoryEntry(Operation):
         words = [
             f"alpine_repo={ALPINE_REPOSITORY}",
             f"modloop={_alpine_modloop(_only_image(context, STAGING, '.tar.gz'))}",
+            f"apkovl=/{APKOVL}",
             "ip=dhcp",
             *_inherited_consoles(context),
         ]
