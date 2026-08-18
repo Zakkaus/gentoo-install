@@ -690,7 +690,11 @@ def test_the_live_system_asks_before_it_erases_anything() -> None:
         PurePosixPath(f"{ESP}/{netboot.PLACE}/payload{netboot.PAYLOAD}/start.sh")
     ]
     assert "read answer" in start, start
-    assert "install)" in start and "bootstrap.sh --no-shell --config" in start, start
+    assert "install)" in start, start
+    # `--no-shell` so no later question stops an unattended run, and
+    # `--install-missing` because the consent that covers erasing the disk
+    # covers installing the tools that erase it.
+    assert "bootstrap.sh --no-shell --install-missing --config" in start, start
     # No timeout anywhere: `read -t` and `sleep` are both ways to answer for
     # the operator, and the answer they would give erases a disk.
     assert "read -t" not in start and "sleep" not in start, start

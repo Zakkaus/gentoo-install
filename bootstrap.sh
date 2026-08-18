@@ -48,7 +48,9 @@ install_command() {
 	suse | opensuse | opensuse-leap | opensuse-tumbleweed) printf 'zypper --non-interactive install' ;;
 	fedora | rhel | centos) printf 'dnf install -y' ;;
 	gentoo) printf 'emerge --noreplace' ;;
-	alpine) printf 'apk add' ;;
+	# `--update-cache`: a netboot root has a repository file from
+	# `alpine_repo=` and no index beside it, and `apk add` alone selects nothing.
+	alpine) printf 'apk add --update-cache' ;;
 	*) return 1 ;;
 	esac
 }
@@ -139,6 +141,20 @@ python_binary() {
 	return 1
 }
 
+install_missing=no
+# Consumed here rather than passed on: the installer's own parser rejects it,
+# and the memory environment's first screen is where the operator consented.
+count=$#
+while [ "$count" -gt 0 ]; do
+	argument=$1
+	shift
+	count=$((count - 1))
+	case "$argument" in
+	--install-missing) install_missing=yes ;;
+	*) set -- "$@" "$argument" ;;
+	esac
+done
+
 family=$(distribution)
 say "live system: $family"
 
@@ -203,12 +219,27 @@ if [ -n "$missing" ]; then
 	if [ -n "$unavailable" ]; then
 		say "this system has no package for:$unavailable"
 	fi
-	if [ -n "$packages" ] && manager=$(install_command "$family"); then
-		say "run: $manager$packages"
-	else
+	if [ -z "$packages" ] || ! manager=$(install_command "$family"); then
 		say "install what provides them, then run this again"
+		exit 1
 	fi
-	exit 1
+	say "run: $manager$packages"
+	if [ "$install_missing" != yes ]; then
+		exit 1
+	fi
+	# shellcheck disable=SC2086
+	if ! $manager$packages; then
+		say "that command failed, so nothing was installed"
+		exit 1
+	fi
+	if ! missing=$(PYTHONPATH=$HERE "$python" -m gentoo_install --missing-commands "$@" 2>&1); then
+		say "the installer could not list what is missing: $missing"
+		exit 1
+	fi
+	if [ -n "$missing" ]; then
+		say "still missing:$(printf ' %s' $missing)"
+		exit 1
+	fi
 fi
 
 # Last, so the diagnostics above still run for an ordinary user: what needs
