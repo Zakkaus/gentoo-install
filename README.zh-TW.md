@@ -70,7 +70,7 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 
 裝到磁碟上的路徑在叢集與單機都有記錄，涵蓋 ext4、xfs、btrfs、f2fs、ZFS、LVM、mdraid 與 LUKS2，兩種韌體與兩種 init 系統皆有。就地轉換執行中的系統有三筆 QEMU 記錄：兩筆 BIOS，以及一筆透過自身韌體項目開機並保留 `/home` 的 UEFI 記錄。
 
-`--ram` 與 `--lowram` 各有 QEMU 記錄：一台 Debian 12 機器武裝一次開機、預設開機項目未變、重新開機後進入送達的環境——`--ram` 是 Gentoo CJK ISO，`--lowram` 是 Alpine netboot 壓縮檔——並帶著交付給它的設定。在該環境裡回答 `install` 有一筆記錄：機器裝出 Gentoo、開起它寫出的磁碟，並通過共用的安裝後檢查。另一台機器的武裝項目被移除 initramfs，在諧和器換客機的電源循環之後，接續兩次開機都進入原本的雲系統。`dd` 有一筆記錄：從活媒體把準備好的鏡像寫入整顆磁碟並逐位元組讀回，原始與 gzip 兩種格式皆是。
+`--ram` 與 `--lowram` 各有 QEMU 記錄：一台 Debian 12 機器武裝一次開機、預設開機項目未變、重新開機後進入送達的環境——`--ram` 是 Gentoo CJK ISO，`--lowram` 是 Alpine netboot 壓縮檔——並帶著交付給它的設定。在兩種環境裡回答 `install` 各有一筆記錄：機器裝出 Gentoo、開起它寫出的磁碟，並通過共用的安裝後檢查。另一台機器的武裝項目被移除 initramfs，在諧和器換客機的電源循環之後，接續兩次開機都進入原本的雲系統。`dd` 有一筆記錄：從活媒體把準備好的鏡像寫入整顆磁碟並逐位元組讀回，原始與 gzip 兩種格式皆是。
 
 runner 的 fixture 清單包含靜態位址、ext2、ext3 與原始碼建置的核心。runner 層級的測試涵蓋 binhost 降級行為。這些測試與 fixture 都不是端到端記錄。
 
