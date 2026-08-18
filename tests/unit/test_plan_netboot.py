@@ -634,3 +634,69 @@ def test_the_refusal_comes_before_the_fetch_in_the_plan() -> None:
     )
     fetch = next(n for n, one in enumerate(plan) if isinstance(one, netboot.FetchMemoryImage))
     assert refusal < fetch, [type(one).__name__ for one in plan]
+
+
+def test_an_earlier_arming_is_taken_back_before_this_run_writes() -> None:
+    """A second run that stops at the download otherwise leaves the first
+    one's arming in place, and the next reboot — months later, for another
+    reason — enters a memory environment carrying a configuration nobody
+    meant to install any more."""
+    plan = netboot.build(launch=_launch(), target=_target())
+    cleared = next(
+        n for n, one in enumerate(plan) if isinstance(one, netboot.ClearPreviousArming)
+    )
+    refused = next(
+        n for n, one in enumerate(plan) if isinstance(one, netboot.RefuseWithoutABootMethod)
+    )
+    fetch = next(n for n, one in enumerate(plan) if isinstance(one, netboot.FetchMemoryImage))
+    # After the refusals: a machine this refuses is one whose earlier arming
+    # is not this run's to take back.
+    assert refused < cleared < fetch, [type(one).__name__ for one in plan]
+
+
+def test_clearing_unsets_the_one_shot_rather_than_pointing_it_elsewhere() -> None:
+    """`bootctl(1)`: an empty ID unsets the variable, and any other value is
+    another entry to boot next. This asked for
+    `auto-reboot-to-firmware-setup`, which is not a disarm but a machine that
+    reboots into its firmware setup."""
+    recorder = _answering()
+    netboot.ClearPreviousArming(target=_target()).apply(recorder)
+
+    asked = [one for one in recorder.commands if one[0] == "bootctl"]
+    assert asked == [("bootctl", "set-oneshot", "")], asked
+    assert not any("firmware-setup" in " ".join(one) for one in recorder.commands)
+
+
+def test_clearing_a_grub_machine_unsets_next_entry() -> None:
+    recorder = _answering()
+    netboot.ClearPreviousArming(target=_target(BootMethod.BIOS_GRUB)).apply(recorder)
+
+    assert (
+        "grub-editenv",
+        "/boot/grub/grubenv",
+        "unset",
+        "next_entry",
+    ) in recorder.commands, recorder.commands
+
+
+def test_the_placed_directory_goes_with_the_arming() -> None:
+    """A stale image beside the new one makes the one this plan looks for
+    ambiguous, and `_only_image` then refuses a download that succeeded."""
+    recorder = _answering()
+    netboot.ClearPreviousArming(target=_target()).apply(recorder)
+
+    assert any(
+        one[0] == "rm" and str(_target().place) in one for one in recorder.commands
+    ), recorder.commands
+
+
+def test_disarming_and_clearing_ask_for_the_same_thing() -> None:
+    """One way of taking an arming back, or the two drift and the operator
+    who answers no is left with a machine armed differently from one whose
+    run failed."""
+    declined = _answering()
+    _apply(netboot.disarm(target=_target()), declined)
+    cleared = _answering()
+    netboot.ClearPreviousArming(target=_target()).apply(cleared)
+
+    assert declined.commands == cleared.commands, (declined.commands, cleared.commands)
