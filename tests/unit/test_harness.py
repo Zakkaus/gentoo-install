@@ -2501,7 +2501,9 @@ def test_nothing_is_carried_when_it_was_not_asked_for() -> None:
     sent: list[str] = []
 
     class Link:
-        def run(self, command: str, timeout: float = 120.0) -> None:
+        def run(
+            self, command: str, timeout: float = 120.0, *, repeatable: bool = True
+        ) -> None:
             sent.append(command)
 
         def expect_output(self, command: str, timeout: float = 180.0) -> bytes:

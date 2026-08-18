@@ -1058,7 +1058,7 @@ def wait_for_network(
             link.run(use_our_resolvers(), timeout=120.0)
             if vmid:
                 for command in keep_the_address(address or static_address(vmid)):
-                    link.run(command, timeout=120.0)
+                    link.run(command, timeout=120.0, repeatable=False)
             _note_the_probe(link, "network-up")
             return
         # Every pass, not once: the fallback asks a DHCP server that answers
@@ -1669,7 +1669,9 @@ def install_one(
         if seeded:
             selector = _first_selector(load(job.installed_config or job.fixture))
             link.run(
-                f"parted --script {selector} {' '.join(seeded)}", timeout=180.0
+                f"parted --script {selector} {' '.join(seeded)}",
+                timeout=180.0,
+                repeatable=False,
             )
         _note_the_probe(link, "pre-install")
         phase = Phase.INSTALL
@@ -2133,6 +2135,15 @@ RECONNECT_TRIES: Final[int] = 4
 #: `root@livecd ~ # ` on a guest that had rebooted into `xfsbox`.
 _ANY_ROOT_PROMPT: Final[str] = r"root@[A-Za-z0-9._-]+ ~ # "
 
+#: What Proxmox prints when a console session starts. Seen in the middle of a
+#: marked command in run78, whose `MARK_25_DONE` never arrived.
+_SERIAL_TERMINAL_STARTED: Final[str] = "starting serial terminal on interface serial0"
+
+
+def _marker_lost(error: ConsoleTimeout) -> bool:
+    """Whether a console session started under the command that timed out."""
+    return _SERIAL_TERMINAL_STARTED in str(error)
+
 
 _Result = TypeVar("_Result")
 
@@ -2200,9 +2211,8 @@ class Reconnecting:
     running in what the log had already captured. The guest is fine; only the
     connection to it is gone.
 
-    `run` re-sends its command after a reconnect, because the shell never
-    received it. `wait_for` does not: the command is already running in the
-    guest, and sending it again would start a second install.
+    `run` resends repeatable commands; `wait_for` does not, because it could
+    start a second install.
     """
 
     def __init__(self, open_console: Callable[[], Line], tries: int = RECONNECT_TRIES) -> None:
@@ -2265,14 +2275,26 @@ class Reconnecting:
             solicit_on_reconnect=solicit,
         )
 
-    def run(self, command: str, timeout: float = 120.0) -> None:
+    def run(self, command: str, timeout: float = 120.0, *, repeatable: bool = True) -> None:
+        """Send a marked command and wait for its marker.
+
+        `repeatable` is false for a command that must not run twice: `parted`
+        would write a second partition beside the first, and re-sending it
+        after a console session started under it is worse than ending the run.
+        """
+
         def run_once(deadline: float) -> None:
             token = next(self._marks)
             self.console.send(marked_command(command, token))
             with _naming(command):
                 self.console.expect(command_done(token), _remaining(deadline))
 
-        self._with_reconnect(timeout, run_once)
+        self._with_reconnect(
+            timeout,
+            run_once,
+            retry_closed=repeatable,
+            retry_timeout=_marker_lost if repeatable else None,
+        )
 
     def wait_for(
         self,
@@ -2343,13 +2365,17 @@ class Reconnecting:
                 said = self.console.expect(command_done(token), _remaining(deadline))
             return said.split(command_done(token).encode())[0]
 
-        return self._with_reconnect(timeout, collect_once)
+        return self._with_reconnect(
+            timeout, collect_once, retry_timeout=_marker_lost
+        )
 
     def _with_reconnect(
         self,
         timeout: float,
         operation: Callable[[float], _Result],
         *,
+        retry_closed: bool = True,
+        retry_timeout: Callable[[ConsoleTimeout], bool] | None = None,
         solicit_on_reconnect: bool = True,
         watch: Watchdog | None = None,
     ) -> _Result:
@@ -2368,6 +2394,8 @@ class Reconnecting:
             try:
                 return operation(deadline)
             except ConsoleClosed:
+                if not retry_closed:
+                    raise
                 attempt += 1
                 if attempt >= self._tries or _remaining(deadline) <= 0.0:
                     # `moved()` is asked once, and only here: it takes a sample
@@ -2382,6 +2410,14 @@ class Reconnecting:
                         f"{RECONNECT_GRANT / 60:.0f}m more",
                         flush=True,
                     )
+                self.reopen(solicit_prompt=solicit_on_reconnect)
+            except ConsoleTimeout as error:
+                if retry_timeout is None or not retry_timeout(error):
+                    raise
+                attempt += 1
+                if attempt >= self._tries:
+                    raise
+                deadline = time.monotonic() + timeout
                 self.reopen(solicit_prompt=solicit_on_reconnect)
 
     def send(self, line: str) -> None:

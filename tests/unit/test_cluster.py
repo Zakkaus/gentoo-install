@@ -406,7 +406,9 @@ class _AnsweringLink:
         self.ran.append(command)
         return self.answer
 
-    def run(self, command: str, timeout: float = 0.0) -> None:
+    def run(
+        self, command: str, timeout: float = 0.0, *, repeatable: bool = True
+    ) -> None:
         self.ran.append(command)
 
 
@@ -453,6 +455,7 @@ def test_the_network_is_measured_once_more_after_the_install(
 ) -> None:
     """The post-install probe has to precede collection of the guest results."""
     events: list[str] = []
+    repeatability: dict[str, bool] = {}
 
     class Guest:
         vmid = 9301
@@ -469,8 +472,11 @@ def test_the_network_is_measured_once_more_after_the_install(
     class Link:
         console = object()
 
-        def run(self, command: str, timeout: float = 0.0) -> None:
+        def run(
+            self, command: str, timeout: float = 0.0, *, repeatable: bool = True
+        ) -> None:
             events.append(command)
+            repeatability[command] = repeatable
 
         def wait_for(
             self, command: str, timeout: float, idle: float, watch: cluster.Watchdog
@@ -483,7 +489,7 @@ def test_the_network_is_measured_once_more_after_the_install(
 
     guest = Guest()
     log = tmp_path / "network.log"
-    job = cluster.Job("network", FIXTURES / "ext4-bios.toml")
+    job = cluster.Job("network", FIXTURES / "mbr-edit.toml")
     held = cluster.Running(
         guest=cast(Any, guest),
         watch=cluster.Watchdog(log, lambda: 0),
@@ -506,6 +512,8 @@ def test_the_network_is_measured_once_more_after_the_install(
     assert outcome.verdict is cluster.Verdict.FAIL
     assert len(probes) == 2
     assert probes[0] < installed < probes[1] < events.index("collect")
+    partition = next(one for one in events if one.startswith("parted --script"))
+    assert not repeatability[partition]
 
 
 def test_the_keeper_puts_the_address_back_and_counts_it() -> None:
@@ -1396,6 +1404,126 @@ def test_a_timed_out_marker_names_the_command_it_was_waiting_on() -> None:
     cluster.Reconnecting(
         lambda: cast(Any, Answering(ConsoleTimeout("unused"))), tries=1
     ).run("true")
+
+
+
+class _MarkerConsole:
+    def __init__(self, tail: bytes, completes: bool) -> None:
+        self.tail = tail
+        self.completes = completes
+        self.sent: list[str] = []
+        self.echoed = bytearray()
+        self.patterns: list[str] = []
+
+    def send(self, line: str) -> None:
+        self.sent.append(line)
+        self.echoed.extend(line.encode() + b"\r\n")
+
+    def send_raw(self, keys: str) -> None:
+        self.echoed.extend(keys.encode())
+
+    def snapshot(self, seconds: float) -> bytes:
+        return bytes(self.echoed)
+
+    @property
+    def closed(self) -> bool:
+        return False
+
+    def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+        self.patterns.append(pattern)
+        if self.completes:
+            matched = re.search(r"MARK_(\d+)_DONE", pattern)
+            assert matched is not None
+            self.echoed.extend(f"MARK_{matched.group(1)}_DONE\n".encode())
+            return bytes(self.echoed)
+        raise ConsoleTimeout(
+            f"never matched {pattern!r}; last output was {bytes(self.echoed) + self.tail!r}"
+        )
+
+    def close(self) -> None:
+        return None
+
+
+def _marked_token(line: str) -> str:
+    matched = re.search(r"MARK_%s_BEGIN\\n' (\d+)", line)
+    assert matched is not None
+    return matched.group(1)
+
+
+def test_a_lost_marker_is_resent_with_a_fresh_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = [0.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+
+    class ExpiringMarkerConsole(_MarkerConsole):
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+            if self.tail:
+                clock[0] = 2.0
+            return super().expect(pattern, timeout, idle)
+
+    opened: list[_MarkerConsole] = []
+
+    def open_console() -> _MarkerConsole:
+        console = ExpiringMarkerConsole(
+            cluster._SERIAL_TERMINAL_STARTED.encode() if not opened else b"",
+            completes=bool(opened),
+        )
+        opened.append(console)
+        return console
+
+    failure: ConsoleTimeout | None = None
+    try:
+        cluster.Reconnecting(open_console, tries=2).run("true", timeout=1.0)
+    except ConsoleTimeout as error:
+        failure = error
+
+    assert failure is None, failure
+    assert [_marked_token(one.sent[-1]) for one in opened] == ["1", "2"]
+    assert opened[0].echoed.startswith(opened[0].sent[0].encode())
+    assert opened[1].sent[0] == ""
+    assert opened[1].echoed.endswith(b"MARK_2_DONE\n")
+
+
+def test_a_lost_marker_retry_is_bounded_and_keeps_the_console_tail() -> None:
+    opened: list[_MarkerConsole] = []
+
+    def open_console() -> _MarkerConsole:
+        console = _MarkerConsole(cluster._SERIAL_TERMINAL_STARTED.encode(), completes=False)
+        opened.append(console)
+        return console
+
+    failure: ConsoleTimeout | None = None
+    try:
+        cluster.Reconnecting(open_console, tries=3).run("true")
+    except ConsoleTimeout as error:
+        failure = error
+
+    assert failure is not None
+    assert len(opened) == 3, opened
+    assert cluster._SERIAL_TERMINAL_STARTED in str(failure)
+    assert [_marked_token(one.sent[-1]) for one in opened] == ["1", "2", "3"]
+
+
+def test_a_nonrepeatable_marker_loss_is_not_resent() -> None:
+    opened: list[_MarkerConsole] = []
+
+    def open_console() -> _MarkerConsole:
+        console = _MarkerConsole(cluster._SERIAL_TERMINAL_STARTED.encode(), completes=False)
+        opened.append(console)
+        return console
+
+    failure: ConsoleTimeout | None = None
+    try:
+        cluster.Reconnecting(open_console, tries=3).run(
+            "parted --script /dev/vda mklabel gpt", repeatable=False
+        )
+    except ConsoleTimeout as error:
+        failure = error
+
+    assert failure is not None
+    assert len(opened) == 1, opened
+    assert len(opened[0].sent) == 1
 
 
 def test_a_capacity_read_that_did_not_answer_does_not_end_the_schedule() -> None:
