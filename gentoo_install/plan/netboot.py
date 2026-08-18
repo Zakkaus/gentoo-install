@@ -567,6 +567,28 @@ class AppendConfiguration(Operation):
         context.run(["rm", "--recursive", "--force", str(staging)])
 
 
+#: Alpine's package for the interpreter the installer runs on.
+ALPINE_PYTHON: Final[str] = "python3"
+
+
+def _bring_python() -> str:
+    """Put an interpreter in the memory environment that has none.
+
+    Alpine's netboot root ships busybox and `apk` and no Python, so the first
+    `--lowram` install ended at `this installer needs python 3.11 or newer`.
+    `--update-cache` because `alpine_repo=` writes the repository file and
+    leaves no index beside it.
+    """
+    return (
+        "    if ! command -v python3 >/dev/null 2>&1 && command -v apk >/dev/null 2>&1; "
+        "then\n"
+        "        printf 'installing python3 into the memory environment\\n'\n"
+        f"        apk add --update-cache --quiet {ALPINE_PYTHON} || "
+        "printf 'python3 could not be installed\\n'\n"
+        "    fi\n"
+    )
+
+
 def _start() -> str:
     """What the operator's login shell runs. It asks before it erases anything.
 
@@ -589,11 +611,12 @@ def _start() -> str:
         "printf 'install or shell> '\n"
         "read answer\n"
         'case "$answer" in\n'
-        # `sh`, not `exec sh`: this is sourced, and `exec` would replace the
-        # operator's login shell with the installer and leave them with no
-        # shell when it ends.
-        f"install) sh ./bootstrap.sh --config {PAYLOAD}/config.toml ;;\n"
-        "*) printf 'nothing was changed\\n' ;;\n"
+        "install)\n"
+        + _bring_python()
+        # `sh`, not `exec sh`: this is sourced, so exec removes the login shell.
+        # After consent, `--no-shell` prevents a later prompt from stopping the run.
+        + f"    sh ./bootstrap.sh --no-shell --config {PAYLOAD}/config.toml ;;\n"
+        + "*) printf 'nothing was changed\\n' ;;\n"
         "esac\n"
     )
 
