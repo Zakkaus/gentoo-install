@@ -66,6 +66,7 @@ a way to pass firmware arguments is available to a non-root API token.
 | `4d8512a496d` | `vm-proxy` (SOCKS5, password), `vm-proxy-http` | 57 operations, 93 packages from a binary host, 14 compiled |
 | `7b08c47f383a` | `vm-bios` | BIOS serial console; 53 operations, 55 packages from a binary host, 20 compiled, then the disk it wrote booted, logged in on the console and passed every installed-state check |
 | `90516741321b` | `vm-proxy` (SOCKS5, password), `vm-proxy-http` | the proxy runs on the host, which a bridged cluster guest cannot reach; each installed 57 operations, 69 packages from a binary host and 46 compiled, and each disk then booted and passed every installed-state check |
+| `f466b89d8206` | `vm-bios-luks` | BIOS serial console; 57 operations, 59 packages from a binary host, 20 compiled, then the disk it wrote booted, unlocked its root and passed every installed-state check |
 
 ### Historical records
 
