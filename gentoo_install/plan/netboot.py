@@ -61,11 +61,30 @@ ALPINE_RELEASES: Final[str] = (
 )
 ALPINE_NETBOOT_FLAVOUR: Final[str] = "alpine-netboot"
 
-#: Alpine's own repository, which its netboot init fetches `modloop` and the
-#: packages from. `alpine_repo=auto` searches for a `.boot_repository` file and
-#: finds none on a machine that booted from a local kernel.
+#: Alpine's own repository, which its netboot init installs the packages from.
+#: `alpine_repo=auto` searches for a `.boot_repository` file and finds none on
+#: a machine that booted from a local kernel.
 ALPINE_REPOSITORY: Final[str] = (
     "https://dl-cdn.alpinelinux.org/alpine/latest-stable/main"
+)
+
+#: Where the kernel modules come from. `modloop=` is not read by
+#: `initramfs-init` at all: the reader is `/etc/init.d/modloop` in the booted
+#: root, which parses `/proc/cmdline` itself and `wget`s an `http://` value
+#: (`openrc/modloop.initd:16,78`). Both fields are filled from the netboot
+#: archive this run downloaded rather than written in, so an aarch64 machine
+#: composes an aarch64 URL and the modloop is the one built beside the kernel
+#: that will be running.
+ALPINE_MODLOOP: Final[str] = (
+    "https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/"
+    "{architecture}/netboot-{version}/modloop-lts"
+)
+
+#: What Alpine names a netboot archive. `netboot/` beside it holds whatever
+#: release is newest, so pinning the version keeps `modules/$(uname -r)` inside
+#: the modloop matching the kernel taken out of this archive.
+ALPINE_ARCHIVE = re.compile(
+    r"^alpine-netboot-(?P<version>.+)-(?P<architecture>[^-]+)\.tar\.gz$"
 )
 
 #: What the kernel calls a machine and what Gentoo calls the same one. Two
@@ -575,7 +594,7 @@ class WriteMemoryEntry(Operation):
             return tuple(words)
         words = [
             f"alpine_repo={ALPINE_REPOSITORY}",
-            f"modloop={ALPINE_REPOSITORY.rsplit('/', 1)[0]}/releases/x86_64/netboot/modloop-lts",
+            f"modloop={_alpine_modloop(_only_image(context, place, '.tar.gz'))}",
             "ip=dhcp",
         ]
         if self.launch.ssh_key:
@@ -773,6 +792,17 @@ def _only_image(context: Context, place: PurePosixPath, suffix: str) -> PurePosi
             f"{place} holds {len(names)} files ending {suffix} and this needs one"
         )
     return place / names[0]
+
+
+def _alpine_modloop(archive: PurePosixPath) -> str:
+    """The modloop belonging to the netboot archive this run downloaded."""
+    named = ALPINE_ARCHIVE.match(archive.name)
+    if named is None:
+        raise DownloadFailed(
+            f"{archive.name} is not named as an Alpine netboot archive, so the "
+            "modloop its kernel needs cannot be composed from it"
+        )
+    return ALPINE_MODLOOP.format(**named.groupdict())
 
 
 def _volume_label(context: Context, image: PurePosixPath) -> str:
