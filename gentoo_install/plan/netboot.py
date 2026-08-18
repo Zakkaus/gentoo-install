@@ -498,7 +498,11 @@ class AppendConfiguration(Operation):
                 "sh",
                 "-c",
                 f"cd {self.source} && tar --create --exclude=__pycache__ "
-                f"gentoo_install bootstrap.sh | tar --extract --directory {inside}",
+                f"gentoo_install bootstrap.sh | tar --extract --no-same-owner "
+                # The esp is vfat and has no owners: without this the copy ends
+                # `Cannot change ownership to uid 1000` for every file the tree
+                # carries and the arming stops with the payload half written.
+                f"--no-same-permissions --directory {inside}",
             ]
         )
         context.write(inside / "start.sh", _start(), mode=0o755)
