@@ -1249,3 +1249,33 @@ def test_a_bios_grub_entry_still_names_the_path_boot_holds() -> None:
     written = _custom(recorder)
     named = next(one for one in written.splitlines() if one.strip().startswith("linux"))
     assert f"/boot/{netboot.PLACE}/" in named, named
+
+
+def test_the_hash_is_read_past_the_comment_the_release_puts_above_it() -> None:
+    """The CJK release publishes `# SHA256 HASH` on the first line, and the
+    first `--ram` run to reach the download refused with `the checksum
+    published beside … is not a SHA-256` having read that comment. Fetched
+    from the mirror on 2026-08-18."""
+    published = (
+        "# SHA256 HASH\n"
+        "7d0e58aa3680fe777cfa1b80e6f8a55df8af913e01ea17dd4f69f04591b68013  "
+        f"{ISO}\n"
+    )
+
+    assert netboot._first_word(published, ISO).startswith("7d0e58aa"), published
+
+
+def test_a_checksum_file_listing_several_names_the_one_asked_for() -> None:
+    """Answering with the first hash in the file gives the wrong one."""
+    other = "b" * 64
+    wanted = "a" * 64
+    published = f"{other}  something-else.iso\n{wanted}  {ISO}\n"
+
+    assert netboot._first_word(published, ISO) == wanted, published
+
+
+def test_a_checksum_file_with_no_hash_at_all_is_still_refused() -> None:
+    from gentoo_install.errors import DownloadFailed as _DownloadFailed
+
+    with pytest.raises(_DownloadFailed, match="not a SHA-256"):
+        netboot._first_word("# SHA256 HASH\nnot-a-hash  file.iso\n", ISO)
