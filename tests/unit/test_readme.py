@@ -236,7 +236,7 @@ def test_the_record_file_holds_what_the_readmes_stopped_carrying() -> None:
     # and one carrying only the gap reads as a plan.
     assert "nothing end to end yet" in record, "what has no record says so"
     assert (
-        "`--ram` and `dd` have no record" in " ".join(record.split())
+        "`dd` has no record" in " ".join(record.split())
     ), "the boundary of mode 3 is stated where its rows are"
     assert "install or shell>" in record, "and the record says what came up"
 
