@@ -152,6 +152,7 @@ NOT_IN_THE_CAMPAIGN: Final[frozenset[str]] = frozenset(
         # cannot answer, and the cluster has no way to arrange one. The rule
         # itself is held in `test_exec.py`, through the runner and the journal.
         "vm-binhost-fallback.toml",
+        "vm-greetd.toml",
         # The dd runner generates its sources, streams each one from the driver
         # CD, and reads the target back; neither target can boot as a system.
         "vm-dd-raw.toml",
@@ -443,8 +444,8 @@ def test_the_installed_checks_read_the_files_the_plan_writes() -> None:
 
     installation = load(Path("tests/fixtures/vm-desktop.toml"))
     asked = next(one.command for one in checks(installation) if one.name == "inputmethod")
-    missing = [str(one) for one in ENVIRONMENT_FILE.values() if str(one) not in asked]
-    assert not missing, (missing, asked)
+    expected = str(ENVIRONMENT_FILE[installation.system.init])
+    assert expected in asked
     # And nothing the plan stopped writing: a path left behind reads as
     # coverage while the check answers with nothing.
     named = {
@@ -452,7 +453,134 @@ def test_the_installed_checks_read_the_files_the_plan_writes() -> None:
         for word in asked.replace(";", " ").split()
         if word.startswith("/etc/") and "fcitx5" not in word
     }
-    assert named == {str(one) for one in ENVIRONMENT_FILE.values()}, named
+    assert named == {expected}, named
+
+
+def test_every_input_framework_has_a_binary_to_ask_for() -> None:
+    """The check asks `command -v <binary>`, and the map from framework to
+    binary is a second table beside the catalog's own `input_framework`. A
+    framework with no entry raises `KeyError` while the checks are derived,
+    which ends the run before the machine is asked anything."""
+    from gentoo_install.data import load_catalog
+    from tests.vm.installed import INPUT_METHOD_BINARIES
+
+    frameworks = {
+        group.input_framework
+        for group in load_catalog().values()
+        if group.input_method and group.input_framework
+    }
+    assert frameworks, "the catalog names no input framework at all"
+    assert frameworks <= set(INPUT_METHOD_BINARIES), frameworks - set(
+        INPUT_METHOD_BINARIES
+    )
+
+
+def test_an_openrc_machine_is_asked_about_greetd_the_way_openrc_answers() -> None:
+    """`systemctl` is not on that machine, so the systemd wording would answer
+    nothing and the check would read as a failed greeter. No fixture installs
+    greetd under OpenRC yet, so the configuration is built here."""
+    from dataclasses import replace
+
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.config import InitSystem
+    from tests.vm.installed import checks
+
+    installation = load(Path("tests/fixtures/vm-greetd.toml"))
+    under_openrc = replace(
+        installation,
+        system=replace(installation.system, init=InitSystem.OPENRC),
+    )
+
+    asked = next(
+        one for one in checks(under_openrc) if one.name == "greetd service"
+    )
+
+    assert "systemctl" not in asked.command, asked.command
+    assert "rc-update" in asked.command, asked.command
+    # A running greeter, not just an enabled one: the pid comes from the
+    # machine and cannot be echoed by the command that asks for it.
+    assert "pgrep" in asked.command, asked.command
+    assert re.search(asked.pattern, "display-manager | default\n1234\n")
+    assert not re.search(asked.pattern, "display-manager | default\n")
+
+
+def test_greetd_service_check_reads_systemd_state() -> None:
+    from gentoo_install.exec.config import load
+    from tests.vm.installed import InstalledCheck, checks
+
+    installation = load(Path("tests/fixtures/vm-greetd.toml"))
+    actual = [one for one in checks(installation) if one.name == "greetd service"]
+    assert actual == [
+        InstalledCheck(
+            "greetd service",
+            "systemctl is-enabled greetd.service; systemctl is-active greetd.service",
+            r"(?m)^enabled$\n^active$",
+        )
+    ]
+    assert re.search(actual[0].pattern, "enabled\nactive\n")
+    assert not re.search(actual[0].pattern, "enabled\ninactive\n")
+
+
+def test_greetd_config_check_requires_tuigreet_session_directories() -> None:
+    from gentoo_install.exec.config import load
+    from tests.vm.installed import InstalledCheck, checks
+
+    installation = load(Path("tests/fixtures/vm-greetd.toml"))
+    actual = [one for one in checks(installation) if one.name == "greetd config"]
+    assert actual == [
+        InstalledCheck(
+            "greetd config",
+            "cat /etc/greetd/config.toml",
+            r"(?ms)\A(?!.*\bagreety\b)"
+            r"(?=.*^command = \"tuigreet .*--sessions /usr/share/wayland-sessions"
+            r" --xsessions /usr/share/xsessions\"$)",
+        )
+    ]
+    configured = (
+        "[default_session]\n"
+        'command = "tuigreet --sessions /usr/share/wayland-sessions'
+        ' --xsessions /usr/share/xsessions"\n'
+    )
+    assert re.search(actual[0].pattern, configured)
+    assert not re.search(actual[0].pattern, f"# agreety\n{configured}")
+    assert not re.search(actual[0].pattern, 'command = "tuigreet"\n')
+
+
+def test_ibus_check_reads_its_binary_and_session_environment() -> None:
+    from gentoo_install.exec.config import load
+    from tests.vm.installed import InstalledCheck, checks
+
+    installation = load(Path("tests/fixtures/vm-greetd.toml"))
+    actual = [one for one in checks(installation) if one.name == "inputmethod"]
+    assert actual == [
+        InstalledCheck(
+            "inputmethod",
+            "command -v ibus-daemon; cat /etc/environment",
+            r"(?ms)(?=.*^/usr/bin/ibus\-daemon$)(?=.*^XMODIFIERS=@im=ibus$)"
+            r"(?=.*^GTK_IM_MODULE=ibus$)(?=.*^QT_IM_MODULE=ibus$)",
+        )
+    ]
+    configured = (
+        "/usr/bin/ibus-daemon\n"
+        "XMODIFIERS=@im=ibus\n"
+        "GTK_IM_MODULE=ibus\n"
+        "QT_IM_MODULE=ibus\n"
+    )
+    assert re.search(actual[0].pattern, configured)
+    assert not re.search(actual[0].pattern, configured.replace("QT_IM_MODULE=ibus\n", ""))
+
+
+def test_greetd_checks_are_not_requested_without_greetd() -> None:
+    from dataclasses import replace
+
+    from gentoo_install.exec.config import load
+    from tests.vm.installed import checks
+
+    selected = load(Path("tests/fixtures/vm-greetd.toml"))
+    installation = replace(
+        selected, packages=replace(selected.packages, display_manager="lightdm")
+    )
+    assert [one for one in checks(installation) if one.name.startswith("greetd")] == []
 
 
 def test_a_guest_waits_until_the_machine_has_room_for_it() -> None:
@@ -2286,26 +2414,21 @@ def test_a_proxy_somewhere_else_is_not_checked_against_this_workstation() -> Non
     )
 
 
-def test_the_input_method_check_names_something_the_file_can_hold() -> None:
-    """`DefaultIM=` was asserted against `/etc/environment` for three weeks. It
-    lives in the user's `fcitx5/profile`, so the check could only ever fail,
-    and `vm-desktop` was the first fixture to reach it."""
+def test_input_method_check_accepts_its_planned_environment() -> None:
+    from gentoo_install.data import load_catalog
     from gentoo_install.exec.config import load
-    from gentoo_install.plan.packages import INPUT_ENVIRONMENT
+    from gentoo_install.plan.packages import input_environment
     from tests.vm.installed import checks
 
     installation = load(Path("tests/fixtures/vm-desktop.toml"))
     named = [one for one in checks(installation) if one.name == "inputmethod"]
     assert named, "a configuration with an input method has no check for it"
 
-    written = {
-        line
-        for (framework, _), lines in INPUT_ENVIRONMENT.items()
-        for line in lines
-    }
+    environment = "\n".join(input_environment(installation, load_catalog()))
     for check in named:
-        wanted = check.pattern.replace("\\", "")
-        assert any(wanted in line for line in written), wanted
+        binary = check.command.removeprefix("command -v ").split(";", maxsplit=1)[0]
+        output = f"/usr/bin/{binary}\n{environment}\n"
+        assert re.search(check.pattern, output), (check, output)
 
 
 def test_no_input_method_asks_for_no_environment() -> None:
