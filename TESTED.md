@@ -123,7 +123,8 @@ Replaces the userland of a running distribution instead of partitioning a disk.
 |---|---|---|
 | `bcc090fab621` | Debian 12 genericcloud, ext4 root on a partition, BIOS | converted and booted as Gentoo |
 | `71e751cf14a1` | Arch Linux cloud image, btrfs root, BIOS | converted and booted as Gentoo; `/swap/swapfile` carried into the new fstab |
-| `639c5cd4069f` | Debian 12 genericcloud, ext4 root on a partition, **UEFI** | converted, booted as Gentoo through its own firmware entry, and kept `/home` |
+| `639c5cd4069f` | Debian 12 genericcloud, ext4 root on a partition, **UEFI** | converted, booted as Gentoo, and kept `/home` |
+| `6fa74c99ab94` | Fedora 41 Cloud, btrfs root with subvolumes, UEFI | converted, booted as Gentoo, and carried `/home` and `/var` into the new fstab as subvolumes of the same filesystem |
 
 The first two were read on the machine afterwards: `uname -r` gave
 `6.18.43-gentoo-dist-bin`, `emerge` was present and the original
@@ -133,16 +134,26 @@ the run's log was in `/var/log/gentoo-install`.
 The third is the first on UEFI and the first to check that the conversion
 kept anything: a marker written under `/home` before the swap is read back
 after the machine boots, since `/home` surviving is the promise this mode
-rests on and one tuple held it. Its firmware chose `Boot0001* Gentoo
-… \EFI\Gentoo\grubx64.efi`, first in `BootOrder`, read from the machine
-rather than assumed.
+rests on and one tuple held it. `efibootmgr -v` in that guest put `Gentoo
+… \EFI\Gentoo\grubx64.efi` first in `BootOrder`; what the next boot then
+read is a separate question, and until `6fa74c99ab94` the answer was a
+variable store that had kept nothing, so that machine booted through the
+removable path rather than through the entry the row names.
+
+The fourth is the first Fedora conversion to boot at all, and the first on a
+btrfs root whose `/home` and `/var` are subvolumes. It needed the firmware
+fix: with the store discarded, the machine started `Boot0001 "Fedora"` and
+Fedora's own GRUB stopped at `file '/vmlinuz-6.11.4-301.fc41.x86_64' not
+found`, because the conversion had removed the kernel that entry names. Its
+own boot order, read the same way, was `BootOrder: 0004,0003,0001,0000,0002`
+with `Boot0004* Gentoo` first.
 
 It is also the first that could pass. The three rounds before it exited zero
 and produced a machine that stops in GRUB, because a conversion unmounts
 nothing and its last writes — the bootloader configuration above all — were
 still in the page cache when the machine went away.
 
-All three records are from QEMU on one machine.
+All four records are from QEMU on one machine.
 
 ### Refusals with a machine behind them
 
@@ -157,9 +168,9 @@ written.
 
 ### Not verified
 
-A btrfs subvolume root end to end, and the `vm-convert` cluster fixture. UEFI
-conversion moved out of this list when `639c5cd4069f` booted through its own
-firmware entry.
+The `vm-convert` cluster fixture. UEFI conversion and a btrfs subvolume root
+both moved out of this list when `6fa74c99ab94` converted Fedora 41 and the
+machine booted.
 
 ## Mode 3: boot into RAM, then install or write an image
 
@@ -185,6 +196,7 @@ layout and bootloader. One disk has been written this way and read back.
 | `7fcc7edcec6b` | `--lowram` on a Debian 12 genericcloud machine, UEFI, answering `install` | installed Gentoo from inside the memory environment, powered the machine off, booted the disk it had written and passed the shared installed-state checks: `the installed system booted, mounted its layout and has no failed unit` |
 | `7fcc7edcec6b` | `--lowram` on a second machine, its armed entry's initramfs removed | the delivered screen never appeared, and the cloud system's own marker and `/etc/os-release` `ID` were read back on the two boots that followed |
 | `6502c213269e` | the same, with the guarded entry | GRUB read the machine's own menu on the failed boot itself and booted Debian from it: `the failed one-shot returned to the cloud system` at 237.3s, `the second reboot still reached the cloud system` at 246.0s |
+| `6fa74c99ab94` | `--bypass`, `--lowram`, on a Debian 12 genericcloud machine, UEFI | re-measured once the firmware kept its variables: `the first boot came up in the memory environment` at 97.0s and `the second boot came up in the memory environment` at 114.7s, so replacing the default entry survives a power cycle |
 | `f5b6d5e142fd` | `--ram` on a Debian 12 genericcloud machine, UEFI, answering `install` | installed Gentoo from inside the Gentoo CJK ISO environment and passed the same installed-state checks: `logged into the installed system (console)` at 532.8s, `the installed system booted, mounted its layout and has no failed unit` |
 
 Both environments install, and they needed different work to get there: the
