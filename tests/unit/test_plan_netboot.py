@@ -1142,15 +1142,33 @@ def test_the_kernel_still_lands_where_the_firmware_reads() -> None:
         assert argv[argv.index("--directory") + 1] == f"{ESP}/{netboot.PLACE}", argv
 
 
-def test_the_lowram_archive_is_deleted_once_its_two_files_are_out() -> None:
-    """`modloop=` names a URL rather than this file, so nothing reads it
-    again, and it is 373 MB on the root filesystem of a machine that is about
-    to reboot into memory."""
-    recorder = _answering(MemoryMode.LOWRAM)
-    netboot.PlaceMemoryKernel(mode=MemoryMode.LOWRAM, target=_target()).apply(recorder)
+def test_the_lowram_archive_is_deleted_after_the_entry_has_read_its_name() -> None:
+    """`modloop=` names a URL rather than this file, so nothing reads it again
+    once the entry is written, and it is 373 MB on the root filesystem of a
+    machine about to reboot into memory. Deleting it any earlier ended a run
+    with `/gentoo-install-ram holds 0 files ending .tar.gz`: the entry composes
+    that URL from this file's name."""
+    operations = netboot.build(
+        launch=_launch(MemoryMode.LOWRAM), target=_target(), configuration="x"
+    )
+    kinds = [type(one).__name__ for one in operations]
 
+    assert "DiscardTheArchive" in kinds, kinds
+    assert kinds.index("WriteMemoryEntry") < kinds.index("DiscardTheArchive"), kinds
+
+    recorder = _answering(MemoryMode.LOWRAM)
+    netboot.DiscardTheArchive().apply(recorder)
     removed = [one for one in _run(recorder, "rm") if any(".tar.gz" in a for a in one)]
     assert len(removed) == 1, recorder.commands
+
+
+def test_the_ram_iso_is_never_discarded() -> None:
+    """`iso-scan/filename` names it, so the machine reads it at boot."""
+    operations = netboot.build(
+        launch=_launch(MemoryMode.RAM), target=_target(), configuration="x"
+    )
+
+    assert "DiscardTheArchive" not in [type(one).__name__ for one in operations]
 
 
 def test_the_ram_image_stays_where_iso_scan_will_look_for_it() -> None:
