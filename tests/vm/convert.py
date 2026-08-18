@@ -18,7 +18,7 @@ import shutil
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final
 
@@ -74,6 +74,9 @@ class CloudImage:
     #: The firmware the image can boot. `genericcloud` and Fedora Cloud Base
     #: carry an ESP; the Alpine BIOS variant does not.
     firmware: Firmware
+    #: A command whose package is not named after it. Every other name goes to
+    #: the package manager as it was printed.
+    packages: dict[str, str] = field(default_factory=dict)
 
     @property
     def image(self) -> Path:
@@ -199,14 +202,17 @@ def install_tools(console: SerialConsole, chosen: CloudImage, config: str) -> No
         f"sh /mnt/driver/install.sh --config {config} --missing-commands || true",
         timeout=300.0,
     ).decode("utf-8", "replace")
+    # One bare command name per line, which is what `--missing-commands`
+    # prints: an earlier reading looked for `run: ` and for the installer's own
+    # name, found neither, installed nothing, and let the conversion reach a
+    # preflight that refused with `these commands are missing: gpg, gpg-agent`.
     wanted = [
-        line.split(":", 1)[1].strip()
-        for line in said.splitlines()
-        if line.startswith("run: ") or "install" in line and chosen.installer in line
+        chosen.packages.get(name, name)
+        for name in (line.strip() for line in said.splitlines())
+        if name and " " not in name and not name.startswith("MARK_")
     ]
-    for line in wanted:
-        if line:
-            console.run(line, timeout=1800.0)
+    if wanted:
+        console.run(f"{chosen.install} {' '.join(sorted(set(wanted)))}", timeout=1800.0)
 
 
 def convert(console: SerialConsole, config: str) -> None:
