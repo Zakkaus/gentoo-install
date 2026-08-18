@@ -1163,3 +1163,18 @@ def test_the_ram_image_stays_where_iso_scan_will_look_for_it() -> None:
     assert ESP not in word, word
     removed = [one for one in entry.split() if one.startswith("rm")]
     assert not removed, "the ISO is read at boot and is not deleted here"
+
+
+def test_the_kernel_is_unpacked_without_the_ownership_it_was_stored_with() -> None:
+    """Alpine stores these as uid 1000, GNU tar restores ownership when it runs
+    as root, and the esp is vfat and cannot express it: the first run to reach
+    this step answered `tar: kernel: Cannot change ownership to uid 1000, gid
+    1000: Operation not permitted` and exited 2."""
+    recorder = _answering(MemoryMode.LOWRAM)
+    netboot.PlaceMemoryKernel(mode=MemoryMode.LOWRAM, target=_target()).apply(recorder)
+
+    unpacked = [one for one in _run(recorder, "tar") if "--extract" in one]
+    assert len(unpacked) == 2, unpacked
+    for argv in unpacked:
+        assert "--no-same-owner" in argv, argv
+        assert "--no-same-permissions" in argv, argv

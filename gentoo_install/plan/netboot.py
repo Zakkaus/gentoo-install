@@ -413,6 +413,13 @@ class PlaceMemoryKernel(Operation):
                 [
                     "tar",
                     "--extract",
+                    # Alpine stores these as uid 1000 and GNU tar restores
+                    # ownership as root, which the esp cannot express: the
+                    # first run to get this far answered `tar: kernel: Cannot
+                    # change ownership to uid 1000, gid 1000: Operation not
+                    # permitted` and exited 2 with the kernel half written.
+                    "--no-same-owner",
+                    "--no-same-permissions",
                     "--file",
                     str(archive),
                     "--directory",
