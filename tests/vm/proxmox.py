@@ -994,7 +994,11 @@ KERNEL_SPEAKS: Final[str] = r"Linux version|Command line:|\[    0\.000000\]"
 #: serial port carries a root shell without the kernel command line being
 #: touched. `--autologin root` because the medium scrambles the root password,
 #: and `&` because this is typed into a shell that has to stay usable.
-SERIAL_GETTY: Final[str] = "setsid agetty --autologin root --noclear ttyS0 115200 vt100 &"
+#: Short because every character is one API request with a pause after it:
+#: 61 characters measured 68s per attempt on `infra-node1`, which is a fifth of
+#: the deadline spent typing. `-a` is `--autologin`, `-L` is the medium's own
+#: commented `s0` line, and `agetty` defaults TERM to `vt100` on a serial line.
+SERIAL_GETTY: Final[str] = "setsid agetty -a root -L 115200 ttyS0&"
 
 #: What that shell prints once it is on the serial port. `root@` and not `#`:
 #: the medium's prompt carries the user and the host, and `#` alone matches
@@ -1040,6 +1044,13 @@ def open_a_serial_shell_blind(
         guest.send_keys(["ret"])
         guest.send_keys(keys_for(SERIAL_GETTY))
         guest.send_keys(["ret"])
+        # The keys go through the API, so nothing crosses the console while
+        # they are typed and the node closes an idle session. Measured on a
+        # guest of its own: 68s of typing, then `ConsoleClosed` at 0.0s of
+        # watching, four attempts out of four, with the guest silent
+        # throughout. The console that is watched is opened after the typing.
+        link.reopen(solicit_prompt=False)
+        console = link.console
         try:
             console.expect(SERIAL_SHELL_SPEAKS, timeout=AUTOLOGIN_INTERVAL)
             print(f"the serial shell answered on attempt {typed}", flush=True)
