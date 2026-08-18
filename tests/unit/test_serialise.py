@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import tomllib
+from typing import Iterator
 from dataclasses import fields, replace
 from pathlib import Path
 
@@ -145,13 +146,40 @@ def test_proxy_with_every_field_round_trips() -> None:
     assert _round_trip(config) == config
 
 
-def test_a_published_configuration_still_parses() -> None:
+@pytest.mark.parametrize("path", sorted(FIXTURES.glob("*.toml")), ids=lambda path: path.name)
+def test_a_published_configuration_still_parses(path: Path) -> None:
     """It is offered so someone can attach it to an issue and be told to try
-    it, so it has to be a file `--config` accepts."""
-    config = parse(tomllib.loads((FIXTURES / "vm-desktop.toml").read_text()))
-    again = parse(tomllib.loads(to_toml(config, publishing=True)))
+    it, so it has to be a file `--config` accepts.
+
+    Every fixture, not one: the published copy was checked against
+    `vm-desktop.toml` alone, and the field that leaks is the field some other
+    layout is the only one to set.
+    """
+    config = parse(tomllib.loads(path.read_text()))
+    published = to_toml(config, publishing=True)
+    again = parse(tomllib.loads(published))
     assert again.system.hostname == config.system.hostname
-    assert again.system.root_password_hash == REDACTED
+
+    held = tomllib.loads(published)
+
+    def leaves(value: object, at: str = "") -> Iterator[tuple[str, object]]:
+        if isinstance(value, dict):
+            for key, held_value in value.items():
+                yield from leaves(held_value, f"{at}.{key}" if at else key)
+        elif isinstance(value, list):
+            for index, held_value in enumerate(value):
+                yield from leaves(held_value, f"{at}[{index}]")
+        else:
+            yield at, value
+
+    # Keyed on the name a hash has, not on `SECRET`: a check that reads the
+    # same table the code reads goes quiet the moment an entry leaves it.
+    for where, value in leaves(held):
+        name = where.split(".")[-1].split("[")[0]
+        if name.endswith("password_hash"):
+            assert value == REDACTED, where
+        if where.startswith("portage.proxy.") and name in {"username", "password"}:
+            raise AssertionError(f"{where} survived publishing")
 
 
 def test_every_secret_field_the_model_has_is_in_the_table() -> None:
