@@ -112,13 +112,26 @@ Replaces the userland of a running distribution instead of partitioning a disk.
 |---|---|---|
 | `bcc090fab621` | Debian 12 genericcloud, ext4 root on a partition, BIOS | converted and booted as Gentoo |
 | `71e751cf14a1` | Arch Linux cloud image, btrfs root, BIOS | converted and booted as Gentoo; `/swap/swapfile` carried into the new fstab |
+| `639c5cd4069f` | Debian 12 genericcloud, ext4 root on a partition, **UEFI** | converted, booted as Gentoo through its own firmware entry, and kept `/home` |
 
-Both were read on the machine afterwards: `uname -r` gave
+The first two were read on the machine afterwards: `uname -r` gave
 `6.18.43-gentoo-dist-bin`, `emerge` was present and the original
 distribution's package manager was gone, the root device was unchanged, and
 the run's log was in `/var/log/gentoo-install`.
 
-Both records are from QEMU on one machine, and both are BIOS.
+The third is the first on UEFI and the first to check that the conversion
+kept anything: a marker written under `/home` before the swap is read back
+after the machine boots, since `/home` surviving is the promise this mode
+rests on and one tuple held it. Its firmware chose `Boot0001* Gentoo
+… \EFI\Gentoo\grubx64.efi`, first in `BootOrder`, read from the machine
+rather than assumed.
+
+It is also the first that could pass. The three rounds before it exited zero
+and produced a machine that stops in GRUB, because a conversion unmounts
+nothing and its last writes — the bootloader configuration above all — were
+still in the page cache when the machine went away.
+
+All three records are from QEMU on one machine.
 
 ### Refusals with a machine behind them
 
