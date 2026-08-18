@@ -570,9 +570,14 @@ class AppendConfiguration(Operation):
 #: Alpine's package for the interpreter the installer runs on.
 ALPINE_PYTHON: Final[str] = "python3"
 
+#: Where the kernel exposes the firmware variables a UEFI boot entry is
+#: written into. Named here so a test can point the script at a directory of
+#: its own rather than at this machine's.
+EFIVARS: Final[str] = "/sys/firmware/efi/efivars"
 
-def _bring_python() -> str:
-    """Put an interpreter in the memory environment that has none.
+
+def _ready_the_environment() -> str:
+    """Make the memory environment able to run the installer at all.
 
     Alpine's netboot root ships busybox and `apk` and no Python, so the first
     `--lowram` install ended at `this installer needs python 3.11 or newer`.
@@ -580,6 +585,12 @@ def _bring_python() -> str:
     leaves no index beside it.
     """
     return (
+        # Alpine's netboot init mounts no efivarfs, so the preflight refused
+        # the first `--lowram` install with `the firmware variables are not
+        # readable` on a machine that boots through them.
+        f"    if [ -d {EFIVARS} ]; then\n"
+        f"        mount -t efivarfs efivarfs {EFIVARS} 2>/dev/null || true\n"
+        "    fi\n"
         "    if ! command -v python3 >/dev/null 2>&1 && command -v apk >/dev/null 2>&1; "
         "then\n"
         "        printf 'installing python3 into the memory environment\\n'\n"
@@ -612,7 +623,7 @@ def _start() -> str:
         "read answer\n"
         'case "$answer" in\n'
         "install)\n"
-        + _bring_python()
+        + _ready_the_environment()
         # `sh`, not `exec sh`: this is sourced, so exec removes the login shell.
         # After consent, `--no-shell` prevents a later prompt from stopping the run.
         + "    sh ./bootstrap.sh --no-shell --install-missing "
