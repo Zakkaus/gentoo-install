@@ -245,6 +245,7 @@ def _boot_target(probe: Probe) -> netboot.BootTarget:
         grub_directory=next(
             (str(one) for one in GRUB_DIRECTORIES if one.is_dir()), None
         ),
+        boot_on_the_root_filesystem=layout.boot_same_filesystem,
     )
 
 
