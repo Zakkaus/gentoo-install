@@ -2896,7 +2896,8 @@ def test_the_driver_cd_is_found_rather_than_numbered(tmp_path: Path) -> None:
         ["sh", "-c", FIND_DRIVER], env=environment, capture_output=True, text=True
     )
     assert refused.returncode != 0, refused
-    assert calls.read_text().split("\n")[:2] == [
+    assert calls.read_text().split("\n")[:3] == [
+        "-o ro /dev/disk/by-label/GENTOO-INSTALL /mnt/driver",
         "-o ro /dev/sr1 /mnt/driver",
         "-o ro /dev/sr0 /mnt/driver",
     ], calls.read_text()
@@ -3297,3 +3298,65 @@ def test_a_check_reads_the_output_and_not_the_question(tmp_path: Path) -> None:
     assert b"RESOLVCONF-OK" not in said, said
     assert b"RESOLVCONF-EMPTY" in said, said
     assert b"RESOLVCONF-OK" in whole, "the echo is what the old reading carried"
+
+
+def test_the_driver_medium_reaches_a_guest_with_no_ata_driver(tmp_path: Path) -> None:
+    """The Debian genericcloud kernel builds no ATA or AHCI driver, so a
+    `media=cdrom` drive gave the guest no `/dev/sr*` at all: measured inside
+    one, `lsblk` listed `vda` and `vdb` and nothing else, and both the
+    conversion and the memory-mode runner died in seven seconds with
+    `/dev/sr0: Can't open blockdev`."""
+    from tests.vm.media import MEDIA
+    from tests.vm.qemu import Vm, VmSpec
+
+    spec = VmSpec(
+        medium=MEDIA["official-minimal"],
+        workdir=tmp_path,
+        driver_iso=tmp_path / "driver.iso",
+        boot_installed=True,
+    )
+    argv = Vm(spec)._argv()
+
+    assert "virtio-blk-pci,drive=driver" in argv, argv
+    assert not any("media=cdrom" in one and "driver" in one for one in argv), argv
+
+
+def test_the_driver_medium_is_found_by_its_label_first() -> None:
+    """A device node names where this run attached it; the label names what it
+    is. The guest above has the medium at `/dev/vda`, and no list of `sr`
+    nodes reaches it."""
+    from tests.vm.driver import FIND_DRIVER, LABEL
+
+    assert f"/dev/disk/by-label/{LABEL}" in FIND_DRIVER, FIND_DRIVER
+    assert FIND_DRIVER.index(LABEL) < FIND_DRIVER.index("/dev/sr"), FIND_DRIVER
+
+
+class _MissingCommands:
+    """A guest whose launcher prints the commands its preflight will refuse
+    for: one bare name per line, which is what `--missing-commands` prints."""
+
+    def __init__(self) -> None:
+        self.ran: list[str] = []
+
+    def run(self, command: str, timeout: float = 0.0) -> None:
+        self.ran.append(command)
+
+    def expect_output(self, command: str, timeout: float = 0.0) -> bytes:
+        return b"gpg\r\ngpg-agent\r\n"
+
+
+def test_the_missing_commands_are_installed_before_the_conversion() -> None:
+    """`--missing-commands` prints bare names. The reading this replaces looked
+    for `run: ` and for the package manager's own name, matched neither,
+    installed nothing, and let the conversion reach `preflight: these commands
+    are missing: gpg, gpg-agent` with exit code 4."""
+    from typing import Any, cast
+
+    from tests.vm.convert import IMAGES, install_tools
+
+    console = _MissingCommands()
+    install_tools(cast(Any, console), IMAGES["debian"], "fixtures/vm-convert.toml")
+
+    installs = [one for one in console.ran if "apt-get" in one]
+    assert len(installs) == 1, console.ran
+    assert installs[0].endswith("gpg gpg-agent"), installs[0]

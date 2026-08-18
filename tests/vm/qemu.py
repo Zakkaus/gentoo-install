@@ -124,7 +124,18 @@ class Vm:
         if self.spec.firmware is Firmware.UEFI:
             argv += self._ovmf_args()
         if self.spec.driver_iso is not None:
-            argv += ["-drive", f"file={self.spec.driver_iso},media=cdrom,readonly=on"]
+            # Bound to the machine's AHCI bus rather than left for QEMU to
+            # place: a bare `-drive media=cdrom` lands on q35's legacy IDE,
+            # which the Debian genericcloud kernel does not build, so the
+            # guest enumerated no CD at all and both runners died in seven
+            # seconds with `/dev/sr0: Can't open blockdev`.
+            argv += [
+                "-drive",
+                f"file={self.spec.driver_iso},format=raw,readonly=on,"
+                "if=none,id=driver",
+                "-device",
+                "virtio-blk-pci,drive=driver",
+            ]
         for index, disk in enumerate(self.spec.disks):
             argv += [
                 "-drive", f"file={disk},format=raw,if=none,id=disk{index}",

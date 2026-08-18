@@ -25,9 +25,13 @@ LABEL = "GENTOO-INSTALL"
 #: medium is booted and the only one when a guest boots from its own disk.
 #: One line, because a caller sends it down a serial console as one command,
 #: and the exit status is `mountpoint`'s answer, not the last failed mount's.
+#: The label first and the device nodes after it: the medium is found by what
+#: it is rather than by where this run happened to attach it. Measured on the
+#: Debian genericcloud image, which builds no ATA or AHCI driver at all and so
+#: has no `/dev/sr*` for a CD to appear at.
 FIND_DRIVER = (
     "mkdir -p /mnt/driver; mountpoint -q /mnt/driver || "
-    "for candidate in /dev/sr1 /dev/sr0; do "
+    f"for candidate in /dev/disk/by-label/{LABEL} /dev/sr1 /dev/sr0; do "
     'mount -o ro "$candidate" /mnt/driver 2>/dev/null && break; done; '
     "mountpoint -q /mnt/driver"
 )
