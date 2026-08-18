@@ -90,12 +90,15 @@ from ..plan import system as plan_system
 from .context import (
     Answers,
     Context,
+    FieldDescriptor,
     Step,
     ValueKind,
     ValueProvenance,
     ValueSource,
     answers,
+    current_menu,
     footer,
+    pick,
     say,
     show_address,
 )
@@ -805,15 +808,6 @@ _TABLE: Final[str] = "table"
 _DROP: Final[str] = "drop"
 
 
-T = TypeVar("T")
-
-
-@dataclass(frozen=True)
-class _FieldDescriptor(Generic[T]):
-    key: str
-    row: Callable[[T, Catalog], Item[str]]
-    edit: Callable[[Screen, Context, T], T | None]
-
 #: How the tree is kept up to date, and what each costs.
 SYNC_METHODS: tuple[tuple[Sync, str], ...] = (
     (Sync.GIT, "carries the history a signed sync checks"),
@@ -1027,7 +1021,7 @@ def _toggle_mirror_measure(screen: Screen, context: Context, config: InstallConf
 
 
 def _edit_mirror_sync(screen: Screen, context: Context, config: InstallConfig) -> InstallConfig | None:
-    return _pick(screen, context, config, "Repository sync", list(SYNC_METHODS), config.portage.sync, lambda chosen, value: replace(chosen, portage=replace(chosen.portage, sync=value)))
+    return pick(screen, context, config, "Repository sync", list(SYNC_METHODS), config.portage.sync, lambda chosen, value: replace(chosen, portage=replace(chosen.portage, sync=value)))
 
 
 def _mirror_distfiles_row(config: InstallConfig, translate: Catalog) -> Item[str]:
@@ -1057,82 +1051,37 @@ def _edit_mirror_overlay(
     return _toggle_overlay(config, name)
 
 
-def _overlay_descriptor(name: str) -> _FieldDescriptor[InstallConfig]:
+def _overlay_descriptor(name: str) -> FieldDescriptor[InstallConfig]:
     def row(config: InstallConfig, translate: Catalog) -> Item[str]:
         return _mirror_overlay_row(config, translate, name)
 
     def edit(screen: Screen, context: Context, config: InstallConfig) -> InstallConfig:
         return _edit_mirror_overlay(screen, context, config, name)
 
-    return _FieldDescriptor(name, row, edit)
+    return FieldDescriptor(name, row, edit)
 
 
-_MIRROR_FIELDS: tuple[_FieldDescriptor[InstallConfig], ...] = (
-    _FieldDescriptor(_REGION, _mirror_region_row, _edit_mirror_region),
-    _FieldDescriptor(_SITE, _mirror_site_row, _edit_mirror_site),
-    _FieldDescriptor(_DISTFILES, _mirror_distfiles_row, lambda s, c, x: _toggle_mirror_distfiles(s, c, x)),
-    _FieldDescriptor(_MEASURE, _mirror_measure_row, lambda s, c, x: _toggle_mirror_measure(s, c, x)),
-    _FieldDescriptor(_SYNC, _mirror_sync_row, _edit_mirror_sync),
+_MIRROR_FIELDS: tuple[FieldDescriptor[InstallConfig], ...] = (
+    FieldDescriptor(_REGION, _mirror_region_row, _edit_mirror_region),
+    FieldDescriptor(_SITE, _mirror_site_row, _edit_mirror_site),
+    FieldDescriptor(_DISTFILES, _mirror_distfiles_row, lambda s, c, x: _toggle_mirror_distfiles(s, c, x)),
+    FieldDescriptor(_MEASURE, _mirror_measure_row, lambda s, c, x: _toggle_mirror_measure(s, c, x)),
+    FieldDescriptor(_SYNC, _mirror_sync_row, _edit_mirror_sync),
 )
-_ZH_MIRROR_FIELDS: tuple[_FieldDescriptor[InstallConfig], ...] = (
-    _FieldDescriptor(_ZH_DISTFILES, _mirror_zh_distfiles_row, lambda s, c, x: replace(x, portage=replace(x.portage, mirrors=replace(x.portage.mirrors, gentoo_zh_distfiles=not x.portage.mirrors.gentoo_zh_distfiles)))),
+_ZH_MIRROR_FIELDS: tuple[FieldDescriptor[InstallConfig], ...] = (
+    FieldDescriptor(_ZH_DISTFILES, _mirror_zh_distfiles_row, lambda s, c, x: replace(x, portage=replace(x.portage, mirrors=replace(x.portage.mirrors, gentoo_zh_distfiles=not x.portage.mirrors.gentoo_zh_distfiles)))),
 )
 _OVERLAY_FIELDS = tuple(
     _overlay_descriptor(name)
     for name, _ in PLAIN_OVERLAYS
 )
 _ALL_MIRROR_FIELDS = _MIRROR_FIELDS + (
-    _FieldDescriptor(_BINHOST, lambda config, translate: Item(label=translate("Gentoo binary packages"), value=_BINHOST, detail=mirrors.gentoo_binhost(config.portage.mirrors.region, config.portage.mirrors.site, config.portage.binhost.subarch) if config.portage.binhost.official else translate("not used")), lambda s, c, x: _edit_binhost(s, c, x)),
-    _FieldDescriptor(_ZH_BINHOST, _mirror_zh_binhost_row, lambda s, c, x: _pick(s, c, x, "gentoo-zh binary packages", list(GENTOOZH_CHANNELS), x.portage.binhost.community, lambda chosen, value: replace(chosen, portage=replace(chosen.portage, binhost=replace(chosen.portage.binhost, community=value))))),
-    _FieldDescriptor(_ZH_SITE, lambda config, translate: Item(label=translate("gentoo-zh"), value=_ZH_SITE, detail=translate(mirrors.gentoozh(config.portage.mirrors.gentoo_zh).name) if "gentoo-zh" in {one.name for one in config.portage.overlays} else translate("not used")), lambda s, c, x: _edit_gentoozh(s, c, x)),
+    FieldDescriptor(_BINHOST, lambda config, translate: Item(label=translate("Gentoo binary packages"), value=_BINHOST, detail=mirrors.gentoo_binhost(config.portage.mirrors.region, config.portage.mirrors.site, config.portage.binhost.subarch) if config.portage.binhost.official else translate("not used")), lambda s, c, x: _edit_binhost(s, c, x)),
+    FieldDescriptor(_ZH_BINHOST, _mirror_zh_binhost_row, lambda s, c, x: pick(s, c, x, "gentoo-zh binary packages", list(GENTOOZH_CHANNELS), x.portage.binhost.community, lambda chosen, value: replace(chosen, portage=replace(chosen.portage, binhost=replace(chosen.portage.binhost, community=value))))),
+    FieldDescriptor(_ZH_SITE, lambda config, translate: Item(label=translate("gentoo-zh"), value=_ZH_SITE, detail=translate(mirrors.gentoozh(config.portage.mirrors.gentoo_zh).name) if "gentoo-zh" in {one.name for one in config.portage.overlays} else translate("not used")), lambda s, c, x: _edit_gentoozh(s, c, x)),
     *_ZH_MIRROR_FIELDS,
     *_OVERLAY_FIELDS,
 )
-
-
-V = TypeVar("V")
-
-
-def _current_menu(
-    screen: Screen,
-    context: Context,
-    title: str,
-    items: Sequence[Item[V]],
-    current: V,
-) -> Answer[V]:
-    """A single-choice menu whose current value cannot be omitted."""
-    return Menu(
-        title=title,
-        items=items,
-        footer=footer(context.translate),
-        current=current,
-    ).run(screen)
-
-
-def _pick(
-    screen: Screen,
-    context: Context,
-    config: InstallConfig,
-    title: str,
-    offered: list[tuple[V, str]],
-    current: V,
-    apply: Callable[[InstallConfig, V], InstallConfig],
-) -> InstallConfig | None:
-    """One value from a short list, each row carrying what it costs."""
-    translate = context.translate
-    answer = _current_menu(
-        screen,
-        context,
-        translate(title),
-        [
-            Item(label=str(getattr(value, "value", value)), value=value, detail=translate(reason))
-            for value, reason in offered
-        ],
-        current,
-    )
-    if not answer.chosen:
-        return None
-    return apply(config, answer.unwrap())
 
 
 def _edit_binhost(
@@ -1193,7 +1142,7 @@ def _edit_gentoozh(
         for one in mirrors.GENTOOZH_SITES
     ]
     used = any(one.name == "gentoo-zh" for one in config.portage.overlays)
-    answer = _current_menu(
+    answer = current_menu(
         screen,
         context,
         translate("gentoo-zh"),
@@ -2021,7 +1970,7 @@ def _one_group(
 ) -> Answer[InstallConfig]:
     """A row that holds one group name, drawn from a table of them."""
     translate = context.translate
-    answer = _current_menu(
+    answer = current_menu(
         screen,
         context,
         translate(title),
@@ -3290,7 +3239,7 @@ def _pick_keymap(
         (family for family, name in offered if name == current),
         "",
     )
-    answer = _current_menu(
+    answer = current_menu(
         screen,
         context,
         title,
@@ -3303,7 +3252,7 @@ def _pick_keymap(
     if not family:
         return Answer(Outcome.CHOSE, "")
     within = [name for one, name in offered if one == family]
-    chosen = _current_menu(
+    chosen = current_menu(
         screen,
         context,
         f"{title}  {family}",
@@ -3719,7 +3668,7 @@ def _edit_disk(screen: Screen, context: Context, position: int) -> None:
         if answer.unwrap() == _DROP:
             context.layout.disks.pop(position)
             return
-        picked = _current_menu(
+        picked = current_menu(
             screen,
             context,
             translate("Partition table"),
@@ -3839,7 +3788,7 @@ def _edit_array_field_legacy(screen: Screen, context: Context, field: str, membe
     translate = context.translate
     array = context.layout.array
     if field == _LEVEL:
-        picked = _current_menu(
+        picked = current_menu(
             screen,
             context,
             translate("RAID level"),
@@ -3859,7 +3808,7 @@ def _edit_array_field_legacy(screen: Screen, context: Context, field: str, membe
             array.level = picked.unwrap()
         return
     if field == _METADATA:
-        chosen = _current_menu(
+        chosen = current_menu(
             screen,
             context,
             translate("Superblock"),
@@ -3879,7 +3828,7 @@ def _edit_array_field_legacy(screen: Screen, context: Context, field: str, membe
             array.metadata = chosen.unwrap()
         return
     if field == _FILESYSTEM:
-        kind = _current_menu(
+        kind = current_menu(
             screen,
             context,
             translate("Filesystem"),
@@ -3917,7 +3866,7 @@ def _edit_array_field_legacy(screen: Screen, context: Context, field: str, membe
 
 def _array_descriptor(
     key: str, label: str, detail: Callable[[manual.Array, Catalog], str]
-) -> _FieldDescriptor[tuple[manual.Array, int]]:
+) -> FieldDescriptor[tuple[manual.Array, int]]:
     def row(value: tuple[manual.Array, int], translate: Catalog) -> Item[str]:
         shown = translate(label)
         if key == _NAME:
@@ -3928,14 +3877,14 @@ def _array_descriptor(
         _edit_array_field_legacy(screen, context, key, value[1])
         return value
 
-    return _FieldDescriptor(
+    return FieldDescriptor(
         key,
         row,
         edit,
     )
 
 
-_ARRAY_FIELDS: tuple[_FieldDescriptor[tuple[manual.Array, int]], ...] = (
+_ARRAY_FIELDS: tuple[FieldDescriptor[tuple[manual.Array, int]], ...] = (
     _array_descriptor(_NAME, "Name", lambda array, _: array.name),
     _array_descriptor(_LEVEL, "RAID level", lambda array, _: array.level.value),
     _array_descriptor(_METADATA, "Superblock", lambda array, _: array.metadata.value),
@@ -3947,7 +3896,7 @@ _ARRAY_FIELDS: tuple[_FieldDescriptor[tuple[manual.Array, int]], ...] = (
         "Encryption",
         lambda array, translate: translate("on") if array.passphrase_file else translate("off"),
     ),
-    _FieldDescriptor(
+    FieldDescriptor(
         _DONE,
         lambda _, translate: Item(label=translate("Done"), value=_DONE),
         lambda _, __, value: value,
@@ -3970,7 +3919,7 @@ def _pool_topology(
         )
         for one in ZfsTopology
     ]
-    answer = _current_menu(
+    answer = current_menu(
         screen,
         context,
         translate("Pool topology"),
@@ -4172,7 +4121,7 @@ def _edit_field_legacy(
                 manual.SliceStatus.DELETE,
             ]
         )
-        chosen_status = _current_menu(
+        chosen_status = current_menu(
             screen,
             context,
             translate("What happens to it"),
@@ -4197,7 +4146,7 @@ def _edit_field_legacy(
         text = typed.unwrap().strip()
         return replace(entry, size=Size.parse(text) if text else None)
     if field == _PURPOSE:
-        picked = _current_menu(
+        picked = current_menu(
             screen,
             context,
             translate("What is this partition for?"),
@@ -4232,7 +4181,7 @@ def _edit_field_legacy(
                 disabled_because=context.zfs_unavailable,
             )
         )
-        answered = _current_menu(
+        answered = current_menu(
             screen,
             context,
             translate("Filesystem"),
@@ -4268,7 +4217,7 @@ def _edit_field_legacy(
     return _edit_slice_encryption(screen, context, entry, purpose)
 
 
-def _slice_descriptor(key: str) -> _FieldDescriptor[tuple[manual.Slice, manual.Purpose]]:
+def _slice_descriptor(key: str) -> FieldDescriptor[tuple[manual.Slice, manual.Purpose]]:
     def row(value: tuple[manual.Slice, manual.Purpose], translate: Catalog) -> Item[str]:
         return next(item for item in _slice_field_items(*value, translate) if item.value == key)
 
@@ -4278,10 +4227,10 @@ def _slice_descriptor(key: str) -> _FieldDescriptor[tuple[manual.Slice, manual.P
         changed = _edit_field_legacy(screen, context, value[0], value[1], key)
         return (changed, value[1]) if changed is not None else None
 
-    return _FieldDescriptor(key, row, edit)
+    return FieldDescriptor(key, row, edit)
 
 
-_SLICE_FIELDS: tuple[_FieldDescriptor[tuple[manual.Slice, manual.Purpose]], ...] = tuple(
+_SLICE_FIELDS: tuple[FieldDescriptor[tuple[manual.Slice, manual.Purpose]], ...] = tuple(
     _slice_descriptor(key)
     for key in (_SIZE, _PURPOSE, _FILESYSTEM, _MOUNTPOINT, _LABEL, _ENCRYPTION, _STATUS, _DELETE)
 )
