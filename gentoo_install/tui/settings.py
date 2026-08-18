@@ -42,6 +42,7 @@ from ..model.device import (
 )
 from ..plan import automatic as automatic_values
 from . import screens
+from .mirror import mirror_screen
 from .context import Context, Step, ValueKind, ValueSource, footer
 from ..i18n import width
 from .widgets import Answer, Item, Menu, Outcome, Screen, Style
@@ -871,7 +872,7 @@ SETTINGS: Final[tuple[Setting, ...]] = (
         rows=LANGUAGE,
     ),
     Setting("timezone", "Timezone", lambda c, x: c.system.timezone, screens.timezone_screen),
-    Setting("mirror", "Mirrors", _mirror, screens.mirror_screen, required=True, detected=True),
+    Setting("mirror", "Mirrors", _mirror, mirror_screen, required=True, detected=True),
     # Above the row that opens the rest of the install: the licence question
     # is otherwise two levels down under Compiler, and the operator meets it
     # as a refusal — `net-im/wemeet` masked, the install over — rather than as

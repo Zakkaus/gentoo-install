@@ -106,16 +106,14 @@ def in_a_table() -> set[str]:
     """
     from gentoo_install.model.mirrors import GENTOO_SITES, GENTOOZH_SITES
     from gentoo_install.plan.system import LOGGERS
+    from gentoo_install.tui.mirror import BINHOSTS, GENTOOZH_CHANNELS, SYNC_METHODS
     from gentoo_install.tui.screens import (
-        BINHOSTS,
         RAM_SHARES,
         DISPLAY_MANAGERS,
-        GENTOOZH_CHANNELS,
         GRAPHICS,
         INSTALL_MODES,
         KERNELS,
         LICENSES,
-        SYNC_METHODS,
     )
 
     tables = (

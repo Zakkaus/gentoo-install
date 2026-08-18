@@ -25,6 +25,7 @@ from gentoo_install.model.config import (
 )
 from gentoo_install.plan import automatic, bootloader as plan_bootloader, kernel as plan_kernel
 from gentoo_install.tui import context as tui_context
+from gentoo_install.tui import mirror
 from gentoo_install.tui import screens
 from gentoo_install.tui.overview import overview_screen
 from gentoo_install.tui.widgets import Answer, Outcome
@@ -887,7 +888,7 @@ def test_opening_the_mirror_screen_and_changing_nothing_answers_it() -> None:
     before = config(ext4_on_gpt())
     assert settings._mirror(before, at) == settings.UNSET
     # Down to Done and enter, touching nothing.
-    after = screens.mirror_screen(
+    after = mirror.mirror_screen(
         FakeScreen(keys=["KEY_DOWN"] * 12 + ["\n"], lines=30, columns=110), before, at
     ).unwrap()
     at.visited.add("mirror")
@@ -903,7 +904,7 @@ def test_the_mirror_screen_shows_the_site_it_would_adopt() -> None:
     from tests.unit.test_tui_app import context
 
     drawn = FakeScreen(keys=["q"], lines=30, columns=110)
-    screens.mirror_screen(drawn, config(ext4_on_gpt()), context())
+    mirror.mirror_screen(drawn, config(ext4_on_gpt()), context())
     line = next(one for one in drawn.last.splitlines() if "Gentoo mirror" in one)
     assert "not set" not in line
     assert "(default)" in line

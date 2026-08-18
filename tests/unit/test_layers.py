@@ -432,7 +432,11 @@ def test_the_tui_context_knows_nothing_about_a_screen() -> None:
     tui = PACKAGE / "tui"
     imported = _imports(ast.parse((tui / "context.py").read_text()))
 
-    forbidden = {name for name in imported if name.split(".")[-1] in {"screens", "settings"}}
+    forbidden = {
+        name
+        for name in imported
+        if name.split(".")[-1] in {"screens", "settings", "mirror", "overview", "app"}
+    }
     assert not forbidden, forbidden
 
     # And the names it owns are not defined a second time next door, which is
@@ -441,13 +445,14 @@ def test_the_tui_context_knows_nothing_about_a_screen() -> None:
         "Context",
         "FieldDescriptor",
         "answers",
+        "DONE",
         "current_menu",
         "footer",
         "pick",
         "say",
         "show_address",
     }
-    for neighbour in ("screens.py", "settings.py", "overview.py", "app.py"):
+    for neighbour in ("screens.py", "settings.py", "overview.py", "app.py", "mirror.py"):
         tree = ast.parse((tui / neighbour).read_text())
         defined = {
             node.name
