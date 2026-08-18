@@ -4116,3 +4116,24 @@ def test_the_bypass_runner_reaches_a_shell_before_it_sends_a_command() -> None:
     assert 'for boot in ("first", "second")' in source, source
     answered = inspect.getsource(ram.leave_the_first_screen)
     assert 'console.send("shell")' in answered, answered
+
+
+def test_the_firmware_and_its_variable_store_are_the_same_build() -> None:
+    """A 4 MB `OVMF_CODE` handed the 2 MB `OVMF_VARS.fd` keeps its variables
+    in memory and writes none of them back. A Fedora conversion wrote
+    `Boot0002 Gentoo` first in `BootOrder`, powered off, and the store on disk
+    was byte-identical to the template it was copied from, so the next boot
+    scanned the ESP and started `\\EFI\\fedora\\shimx64.efi` instead."""
+    from tests.vm.qemu import OVMF_CODE, OVMF_VARS, PFLASH_FORMAT
+
+    def build(path: Path) -> str:
+        # `OVMF_CODE_4M.qcow2` and `OVMF_VARS_4M.qcow2` against `OVMF_CODE.fd`
+        # and `OVMF_VARS.fd`: whatever follows the role is the build.
+        parts = path.stem.split("_")
+        return "_".join(parts[2:])
+
+    assert build(OVMF_CODE) == build(OVMF_VARS), (OVMF_CODE.name, OVMF_VARS.name)
+
+    # And qemu is told the format each one is actually in.
+    assert PFLASH_FORMAT[OVMF_CODE.suffix] == "qcow2"
+    assert PFLASH_FORMAT[OVMF_VARS.suffix] == PFLASH_FORMAT[OVMF_CODE.suffix]

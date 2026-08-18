@@ -16,7 +16,14 @@ from .media import Medium
 from .results import RESULT_SERIAL
 
 OVMF_CODE = Path("/usr/share/edk2-ovmf/OVMF_CODE_4M.qcow2")
-OVMF_VARS = Path("/usr/share/edk2-ovmf/OVMF_VARS.fd")
+#: The variable store of the same build as the code. `OVMF_VARS.fd` is the
+#: 2 MB build's, and a 4 MB firmware handed it keeps its variables in memory:
+#: a Fedora conversion wrote `Boot0002 Gentoo` first in `BootOrder`, powered
+#: off, and came back to a store byte-identical to the template.
+OVMF_VARS = Path("/usr/share/edk2-ovmf/OVMF_VARS_4M.qcow2")
+
+#: How qemu is told to read each of them, from the name rather than beside it.
+PFLASH_FORMAT = {".fd": "raw", ".qcow2": "qcow2"}
 
 
 class Firmware(Enum):
@@ -196,12 +203,14 @@ class Vm:
         # NVRAM must be writable and per-run, so boot entries do not leak between
         # tests. Booting the installed system keeps the file the install wrote,
         # which is where its boot entry lives.
-        variables = self.spec.workdir / "OVMF_VARS.fd"
+        variables = self.spec.workdir / OVMF_VARS.name
         if not (self.spec.boot_installed and variables.is_file()):
             shutil.copy(OVMF_VARS, variables)
         return [
-            "-drive", f"if=pflash,format=qcow2,readonly=on,file={OVMF_CODE}",
-            "-drive", f"if=pflash,format=raw,file={variables}",
+            "-drive",
+            f"if=pflash,format={PFLASH_FORMAT[OVMF_CODE.suffix]},readonly=on,file={OVMF_CODE}",
+            "-drive",
+            f"if=pflash,format={PFLASH_FORMAT[OVMF_VARS.suffix]},file={variables}",
         ]
 
     def wait(self, timeout: float) -> int:
@@ -215,7 +224,9 @@ class Vm:
         `kill()` is SIGKILL, so a pflash write stays in the host page cache and
         is lost: a Fedora conversion wrote a `Gentoo` entry, `efibootmgr -v` in
         that guest answered `BootOrder: 0002,0001,...` with Gentoo first, and
-        the next VM booted a firmware whose `OVMF_VARS.fd` held neither name.
+        the next VM booted a firmware whose variable store held neither name.
+        The store being the wrong build was the other half of that; both had
+        to be right before an entry survived a power cycle.
         """
         if self._process is not None and self._process.poll() is None:
             try:
