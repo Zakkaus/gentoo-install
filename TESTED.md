@@ -38,6 +38,10 @@ The ordinary path: partition, format, unpack a stage3, configure, boot.
 | `4f8bd68b8d09` | `ext4-bios`, `vm-bios-luks` — the first BIOS records since the blind serial login was measured rather than timed |
 | `a2db147436af` | `ext2`, `ext3`, `mbr-edit`, `static-ip`, `vm-lvm`, `vm-xfs`, `vm-f2fs` — the first records of ext2, of ext3, of a machine that configures its own address, and of an edited MBR table on the cluster |
 | `c345afa30b7c` | `ext2`, `vm-binpkg`, `openrc-sdboot`, `vm-mdraid`, `vm-luks`, `vm-btrfs`, `vm-sdboot`, `vm-zram` — eight of the round's ten; `ext3` was refused by its own login, which `3bdd6a0e78a8` addresses, and the source-built kernel was still compiling when the round was ended |
+| `77edc8352186` | `vm-luks`, `vm-zram`, `vm-zfs`, `zfs-zbm`, `vm-desktop` — five of ten; `ext3` and `vm-unlock` failed at the installed system's login, `vm-sdboot` lost a marker to a console session and `vm-gnome` was ended mid-compile |
+| `e2986684da66` | `ext3`, `vm-unlock`, `vm-zfs-mirror`, `vm-raidz` — `ext3` and `vm-unlock` are the two the login work fixed: `login` prints `Maximum number of tries exceeded` instead of a third refusal, and it prints all three in the installed system's own locale |
+| `7fcc7edcec6b` | `openrc-sdboot`, `mbr-edit` — `mbr-edit`'s first record at all: it installed in 46.6 minutes in an earlier round and lost the login every time |
+| `18f150282cb1` | `vm-lvm`, `static-ip` |
 
 Every row from `08015b221d73` onward ran `--region cn --site nju --sync
 webrsync --distfiles http://10.31.0.2/gentoo`, so what they establish about
