@@ -81,16 +81,27 @@ def _launch(
 
 ALPINE_ARCHIVE: Final[str] = "alpine-netboot-3.24.1-x86_64.tar.gz"
 
+#: What a machine reached over a serial port boots with. Taken from the cloud
+#: image `tests/vm/convert.py` drives, which is the machine these two modes are
+#: armed on in the harness.
+RUNNING_CMDLINE: Final[str] = (
+    "BOOT_IMAGE=/boot/vmlinuz root=UUID=1e2c ro console=tty0 "
+    "console=ttyS0,115200n8 quiet\n"
+)
+
 
 def _answering(
     mode: MemoryMode = MemoryMode.RAM,
     *,
     digest: str = DIGEST,
     archive: str = ALPINE_ARCHIVE,
+    cmdline: str = RUNNING_CMDLINE,
 ) -> Recorder:
     """A machine that answers everything this plan asks it."""
 
     def answer(argv: Sequence[str]) -> str | None:
+        if argv[0] == "cat" and argv[-1] == netboot.RUNNING_CMDLINE:
+            return cmdline
         if argv[0] == "curl":
             wanted = argv[-1]
             if wanted == netboot.CJK_RELEASES:
@@ -327,6 +338,54 @@ def test_the_modloop_follows_the_machine_rather_than_this_file() -> None:
     word = _modloop(_lowram_entry("alpine-netboot-3.24.1-aarch64.tar.gz"))
     assert "/releases/aarch64/netboot-3.24.1/" in word, word
     assert "x86_64" not in word, word
+
+
+def _ram_entry(cmdline: str) -> str:
+    recorder = _answering(cmdline=cmdline)
+    netboot.WriteMemoryEntry(
+        mode=MemoryMode.RAM, target=_target(), launch=_launch()
+    ).apply(recorder)
+    return recorder.files[PurePosixPath(f"{ESP}/loader/entries/{netboot.PLACE}.conf")]
+
+
+def test_the_entry_carries_the_console_the_machine_already_answers_on() -> None:
+    """`fixinittab` on the CJK medium auto-detects `hvc0`, `ttyHV0` and
+    `ttyAMA0` only, and comments the medium's own `s0` line out, so an amd64
+    machine driven over `ttyS0` gets no getty and shows the operator nothing.
+    Read from `/etc/init.d/fixinittab:24-42,104-105` in the ISO's squashfs."""
+    entry = _ram_entry(RUNNING_CMDLINE)
+    assert "console=tty0" in entry and "console=ttyS0,115200n8" in entry, entry
+
+
+def test_the_console_order_is_the_machines_own() -> None:
+    """The last `console=` is what the kernel gives `/dev/console`, and
+    `livecd-functions.sh:119-136` takes the last one into `LIVECD_CONSOLE` the
+    same way, so reordering them moves the first screen to another device."""
+    entry = _ram_entry("root=UUID=1e2c console=ttyS0,115200n8 console=tty0\n")
+    options = next(
+        line for line in entry.splitlines() if line.startswith("options")
+    )
+    assert options.index("console=ttyS0") < options.index("console=tty0"), options
+
+
+def test_a_machine_that_names_no_console_is_left_alone() -> None:
+    """An ordinary workstation boots without one, and writing `console=ttyS0`
+    for it would move its first screen to a port that is not there."""
+    entry = _ram_entry("BOOT_IMAGE=/boot/vmlinuz root=UUID=1e2c ro quiet\n")
+    assert "console=" not in entry, entry
+
+
+def test_the_lowram_entry_carries_the_console_too() -> None:
+    """Alpine's `initramfs-init` reads `console=` outside `myopts` and passes
+    it to `switch_root -c`, so the same argument decides where its own first
+    screen lands."""
+    recorder = _answering(MemoryMode.LOWRAM, cmdline=RUNNING_CMDLINE)
+    netboot.WriteMemoryEntry(
+        mode=MemoryMode.LOWRAM, target=_target(), launch=_launch(MemoryMode.LOWRAM)
+    ).apply(recorder)
+
+    entry = recorder.files[PurePosixPath(f"{ESP}/loader/entries/{netboot.PLACE}.conf")]
+    assert "console=ttyS0,115200n8" in entry, entry
 
 
 def test_an_archive_named_otherwise_is_refused_rather_than_guessed() -> None:

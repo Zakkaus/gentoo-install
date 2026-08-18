@@ -127,6 +127,10 @@ CJK_CMDLINE: Final[tuple[str, ...]] = (
     "rd.live.ram=1",
 )
 
+#: What the machine this plan runs on booted with. Read through the runner
+#: rather than opened here: `plan/` touches no machine of its own.
+RUNNING_CMDLINE: Final[str] = "/proc/cmdline"
+
 #: `check_live_ram` in the ISO's initramfs enters an emergency shell when
 #: `MemTotal - image` is under `rd.minmem`, which defaults to 1024 MiB. The
 #: `image.squashfs` measured on 2026-08-17 is 824 MiB, so a machine under this
@@ -585,6 +589,7 @@ class WriteMemoryEntry(Operation):
                 f"root=live:CDLABEL={label}",
                 *CJK_CMDLINE,
                 f"iso-scan/filename={_relative_to_mount(self.target, image)}",
+                *_inherited_consoles(context),
             ]
             if self.launch.root_password:
                 # `dosshd` scrambles the root password, so it is documented as
@@ -596,6 +601,7 @@ class WriteMemoryEntry(Operation):
             f"alpine_repo={ALPINE_REPOSITORY}",
             f"modloop={_alpine_modloop(_only_image(context, place, '.tar.gz'))}",
             "ip=dhcp",
+            *_inherited_consoles(context),
         ]
         if self.launch.ssh_key:
             # Alpine's netboot init installs openssh and enables sshd when
@@ -792,6 +798,23 @@ def _only_image(context: Context, place: PurePosixPath, suffix: str) -> PurePosi
             f"{place} holds {len(names)} files ending {suffix} and this needs one"
         )
     return place / names[0]
+
+
+def _inherited_consoles(context: Context) -> tuple[str, ...]:
+    """The `console=` words this machine is running with, in their own order.
+
+    Written by neither environment and guessed by neither: the machine boots
+    today, so what it boots with is the evidence of which console answers
+    there. `fixinittab` on the CJK medium auto-detects `hvc0`, `ttyHV0` and
+    `ttyAMA0` only, and comments the medium's own `s0` line out, so an amd64
+    machine reached over `ttyS0` gets no getty at all unless `console=` names
+    it; on arm the auto-detect covers it, which is why one architecture would
+    have hidden this from the other.
+    """
+    said = context.run(["cat", RUNNING_CMDLINE], check=False)
+    if isinstance(said, CommandOutput) and said.returncode != 0:
+        return ()
+    return tuple(word for word in said.split() if word.startswith("console="))
 
 
 def _alpine_modloop(archive: PurePosixPath) -> str:
