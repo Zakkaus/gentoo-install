@@ -104,8 +104,14 @@ class BootTarget:
     """What this machine boots with, as `exec/probe.py` answered it.
 
     Carried rather than probed here: `plan/` derives operations and reads no
-    machine. The four esp fields are absent on a BIOS machine, and the
-    bootloader directory is absent on a UEFI one.
+    machine. The esp fields are absent on a BIOS machine, and the bootloader
+    directory is absent on a UEFI one.
+
+    No disk and partition number: both GRUBs are armed by writing a marked
+    entry and `grub-reboot`, so nothing here composes an `efibootmgr
+    --create-only` call. Carrying the two facts an unwritten call would need
+    reads as though it were written, which is the shape of a promise the code
+    does not keep.
     """
 
     method: BootMethod
@@ -115,9 +121,6 @@ class BootTarget:
     #: for, the day it publishes one.
     architecture: str = "x86_64"
     esp_mountpoint: str | None = None
-    esp_device: str | None = None
-    esp_disk: str | None = None
-    esp_partition: int | None = None
     grub_directory: str | None = None
     #: Whether the firmware refuses an unsigned kernel. `None` is unread,
     #: which is a BIOS machine or one whose efivarfs is not mounted.
