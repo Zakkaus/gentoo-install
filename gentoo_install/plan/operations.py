@@ -96,6 +96,9 @@ class Context(Protocol):
         fault, such as deactivating swap that was never active.
         """
 
+    def pipe(self, producer: Sequence[str], consumer: Sequence[str]) -> None:
+        """Stream `producer` into `consumer` and fail when either command fails."""
+
     def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
         """Run a command inside the target's chroot and return its stdout."""
 

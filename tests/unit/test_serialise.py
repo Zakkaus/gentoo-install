@@ -26,6 +26,18 @@ def test_every_fixture_survives_a_round_trip(path: Path) -> None:
     config = parse(tomllib.loads(path.read_text()))
     assert _round_trip(config) == config
 
+def test_a_dd_configuration_survives_a_round_trip() -> None:
+    configuration = parse(
+        tomllib.loads(
+            '[disk]\n'
+            'mode = "dd"\n'
+            'source = "/run/prepared.raw.zst"\n'
+            'source_format = "zst"\n'
+            'destination = "/dev/disk/by-id/virtio-target"\n'
+        )
+    )
+    assert _round_trip(configuration) == configuration
+
 
 def test_runtime_storage_facts_are_not_configuration_fields() -> None:
     assert "mdraid_metadata" not in {field.name for field in fields(Existing)}

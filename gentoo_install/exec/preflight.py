@@ -34,6 +34,7 @@ from ..model.size import DEFAULT_ALIGNMENT, SectorSize, Size
 from ..model.validate import root_size_problems
 from ..plan.disk import MKFS
 from ..plan.operations import Operation
+from ..plan import dd
 from ..plan.portage import InstallStage3, MountChrootFilesystems, SyncRepository
 from .probe import RELEASE_KEY, Machine, Probe
 from .runner import write_file
@@ -203,6 +204,8 @@ class Report:
 
 
 def _configured_commands(config: InstallConfig) -> frozenset[str]:
+    if config.disk.mode is DiskMode.DD:
+        return frozenset((*PREFLIGHT_ONLY, *dd.required_commands(config.disk.source_format)))
     graph = config.disk.graph
     wanted = set(ALWAYS) | set(STAGE3_COMMANDS)
     if config.disk.mode is DiskMode.IMAGE:
@@ -430,6 +433,24 @@ def _memory_problems(config: InstallConfig, machine: Machine) -> list[str]:
     return []
 
 
+def _dd_problems(config: InstallConfig, probe: Probe) -> list[str]:
+    """Safety checks for a write that replaces a whole disk at once."""
+    problems: list[str] = []
+    medium = probe.live_medium()
+    if not medium and not probe.memory_environment():
+        problems.append(
+            "dd mode overwrites a whole disk; boot a live or memory environment first"
+        )
+    if not probe.image_source_exists(config.disk.source):
+        problems.append(f"image source {config.disk.source!r} is not a regular file")
+    destination = config.disk.destination
+    if not probe.whole_disk(destination):
+        problems.append(f"dd destination {destination!r} is not a whole disk")
+    elif probe.mounted(destination):
+        problems.append(f"dd destination {destination!r} is mounted or holds active swap")
+    return problems
+
+
 def check(
     config: InstallConfig,
     probe: Probe,
@@ -459,15 +480,15 @@ def inspect(
 
     if not machine.root:
         fatal.append("the installer has to run as root")
-    if machine.architecture != "x86_64":
+    if config.disk.mode is not DiskMode.DD and machine.architecture != "x86_64":
         fatal.append(f"this build installs amd64 and the machine reports {machine.architecture}")
-    targets_machine_firmware = config.disk.mode is not DiskMode.IMAGE
+    targets_machine_firmware = config.disk.mode in (DiskMode.PARTITION, DiskMode.IN_PLACE)
     wants_uefi = config.bootloader.firmware is Firmware.UEFI
     if targets_machine_firmware and wants_uefi and not machine.uefi:
         fatal.append(f"the configuration boots by UEFI and this machine booted by BIOS")
     if targets_machine_firmware and not wants_uefi and machine.uefi:
         warnings.append("the configuration boots by BIOS on a machine that booted by UEFI")
-    if targets_machine_firmware and wants_uefi and machine.uefi and not machine.efi_variables:
+    if targets_machine_firmware and wants_uefi and not machine.efi_variables:
         # Fatal: `efibootmgr --create` is what the ZFSBootMenu install runs,
         # and GRUB's `--bootloader-id` entry needs the same. The operator can
         # mount it, so the message says which command.
@@ -495,6 +516,9 @@ def inspect(
                 f"{command} is missing; required by {', '.join(users[command])}"
             )
     fatal += [problem.reason for problem in commands.unusable]
+    if config.disk.mode is DiskMode.DD:
+        fatal.extend(_dd_problems(config, probe))
+        return Report(fatal=tuple(fatal), warnings=tuple(warnings))
 
     # Said rather than refused: installing from a running system onto a second
     # disk is a real thing to do, and the guard that matters is below — a disk

@@ -16,13 +16,13 @@ from typing import Final
 
 from ..i18n import width
 from ..model import compat
-from ..model.config import InstallConfig
+from ..model.config import DiskMode, InstallConfig
 from ..errors import GentooInstallError
 from ..plan.build import build
 from .overview import overview_screen
 from .screens import Context
 from .screens import _say as say
-from .settings import SETTINGS, UNSET, Setting, shown_value, style_of, unanswered
+from .settings import SETTINGS, UNSET, Setting, settings_for, shown_value, style_of, unanswered
 from .widgets import Item, Menu, Outcome, Screen, Style, TextField
 
 
@@ -91,6 +91,8 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
     while True:
         # Before the rows are built: a grouped row fits its summary to this.
         context.columns = screen.size()[1]
+        table = settings_for(current) if current.disk.mode is DiskMode.DD else SETTINGS
+        cursor = min(cursor, len(table))
         blocked = _blocked(current, context)
         items: list[Item[int]] = [
             Item(
@@ -104,12 +106,12 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
                 or ("" if setting.edit else context.translate("detected")),
                 style=style_of(setting, current, context),
             )
-            for index, setting in enumerate(SETTINGS)
+            for index, setting in enumerate(table)
         ]
         items.append(
             Item(
                 label=context.translate("Install"),
-                value=len(SETTINGS),
+                value=len(table),
                 disabled_because=blocked,
             )
         )
@@ -128,7 +130,7 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
                 return left
             continue
         chosen = answer.unwrap()
-        if chosen == len(SETTINGS):
+        if chosen == len(table):
             # The operation list itself, then one confirmation: the row before
             # this one is the last chance to see what the disk is about to get.
             seen = overview_screen(screen, current, context)
@@ -139,10 +141,10 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
                 if left is not None:
                     return left
             continue
-        editor = SETTINGS[chosen].edit
-        if editor is None or SETTINGS[chosen].unavailable(current, context):
+        editor = table[chosen].edit
+        if editor is None or table[chosen].unavailable(current, context):
             continue
-        context.visited.add(SETTINGS[chosen].key)
+        context.visited.add(table[chosen].key)
         edited = editor(screen, current, context)
         if edited.outcome is Outcome.CANCELLED:
             left = _leaving(screen, current, context)
@@ -164,7 +166,7 @@ def _legend(config: InstallConfig, context: Context) -> str:
     more thing to read. The words repeat what each row already says, because a
     console with no colour has to convey the same thing.
     """
-    shown = [style_of(one, config, context) for one in SETTINGS]
+    shown = [style_of(one, config, context) for one in settings_for(config)]
     parts = []
     if Style.REQUIRED in shown:
         parts.append(f"* {context.translate('required')}")

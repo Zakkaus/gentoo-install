@@ -58,6 +58,20 @@ def image_config() -> InstallConfig:
         ),
     )
 
+def dd_config() -> InstallConfig:
+    installation = config()
+    return replace(
+        installation,
+        disk=replace(
+            installation.disk,
+            graph=DeviceGraph.build(()),
+            root=i(""),
+            mode=DiskMode.DD,
+            source="/run/image.raw",
+            destination="/dev/disk/by-id/virtio-target",
+        ),
+    )
+
 
 def test_the_profile_probe_reads_current_amd64_paths(tmp_path: Path) -> None:
     desc = tmp_path / "profiles.desc"
@@ -93,6 +107,60 @@ def test_in_place_mode_rejects_a_graph_root() -> None:
 
 def test_an_image_configuration_validates() -> None:
     validate(image_config())
+
+
+def test_a_dd_configuration_validates_without_a_target_layout() -> None:
+    validate(dd_config())
+
+
+def test_dd_mode_requires_an_image_source() -> None:
+    installation = dd_config()
+    with pytest.raises(ValidationFailed, match="disk.source is required"):
+        validate(replace(installation, disk=replace(installation.disk, source="")))
+
+
+def test_dd_mode_requires_a_destination_disk() -> None:
+    installation = dd_config()
+    with pytest.raises(ValidationFailed, match="disk.destination is required"):
+        validate(replace(installation, disk=replace(installation.disk, destination="")))
+
+
+def test_dd_mode_requires_a_device_destination() -> None:
+    installation = dd_config()
+    with pytest.raises(ValidationFailed, match="disk.destination must name a device"):
+        validate(replace(installation, disk=replace(installation.disk, destination="target.raw")))
+
+
+def test_dd_mode_refuses_its_source_as_the_destination() -> None:
+    installation = dd_config()
+    with pytest.raises(ValidationFailed, match="disk.source and disk.destination must differ"):
+        validate(
+            replace(
+                installation,
+                disk=replace(installation.disk, destination=installation.disk.source),
+            )
+        )
+
+
+def test_dd_mode_refuses_target_layout_fields() -> None:
+    installation = dd_config()
+    with pytest.raises(ValidationFailed) as refused:
+        validate(
+            replace(
+                installation,
+                disk=replace(
+                    installation.disk,
+                    graph=DeviceGraph.build(ext4_on_gpt()),
+                    root=i("mnt-root"),
+                    image="/run/target.raw",
+                    size=Size.parse("20GiB"),
+                    wipe=True,
+                ),
+            )
+        )
+    said = str(refused.value)
+    for field in ("disk.devices", "disk.root", "disk.image", "disk.size", "disk.wipe"):
+        assert f"{field} is not allowed in dd mode" in said
 
 
 def test_image_mode_requires_an_image_file() -> None:

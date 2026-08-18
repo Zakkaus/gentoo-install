@@ -63,6 +63,9 @@ class Machine:
         result = self.runner.run(argv, check=check, input_text=input_text)
         return CommandOutput(result.stdout, result.returncode)
 
+    def pipe(self, producer: Sequence[str], consumer: Sequence[str]) -> None:
+        self.runner.pipe(producer, consumer)
+
     def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> str:
         result = self.runner.in_target(self.mountpoint).run(argv, check=check)
         return CommandOutput(result.stdout, result.returncode)

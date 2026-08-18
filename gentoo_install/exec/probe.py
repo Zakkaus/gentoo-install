@@ -409,6 +409,7 @@ MEMINFO: Final[Path] = Path("/proc/meminfo")
 #: Read rather than asked for: `findmnt` cannot say what booted this.
 CMDLINE: Final[Path] = Path("/proc/cmdline")
 PROFILES_DESC: Final[Path] = Path("/var/db/repos/gentoo/profiles/profiles.desc")
+MEMORY_PAYLOAD: Final[Path] = Path("/gentoo-install")
 
 
 def profiles_from_eselect(output: str) -> tuple[ProbedProfile, ...]:
@@ -1084,6 +1085,29 @@ class Probe:
         if kind in self.LIVE_ROOT_TYPES:
             return f"the root filesystem is {kind}"
         return ""
+
+    def memory_environment(self) -> bool:
+        """Whether the installer payload was handed into a memory boot."""
+        return (MEMORY_PAYLOAD / "start.sh").is_file()
+
+    def image_source_exists(self, source: str) -> bool:
+        """Whether the image source is a regular file without reading its contents."""
+        try:
+            return Path(source).is_file()
+        except OSError:
+            return False
+
+    def whole_disk(self, selector: str) -> bool:
+        """Whether a selector names a block device of type `disk`."""
+        try:
+            if not Path(selector).is_block_device():
+                return False
+        except OSError:
+            return False
+        said = self.runner.run(
+            ["lsblk", "--noheadings", "--output", "TYPE", selector], check=False
+        )
+        return said.returncode == 0 and said.stdout.strip() == "disk"
 
     def boot_method(self) -> BootMethod:
         """How a one-shot entry is armed here, or `NONE` when none of the three is.

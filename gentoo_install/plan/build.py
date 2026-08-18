@@ -16,7 +16,7 @@ from ..errors import ConversionUnsupported
 from ..model.config import DiskMode, InstallConfig
 from ..model.device import StorageFacts, StorageLayout
 from ..model.validate import validate
-from . import bootloader, convert, disk, fonts, kernel, packages, portage, system
+from . import bootloader, convert, dd, disk, fonts, kernel, packages, portage, system
 from .operations import Operation, Stage
 
 #: The mirror a stage3 is fetched from when the configuration names none.
@@ -107,6 +107,8 @@ def build(
     if config.disk.mode is DiskMode.IN_PLACE:
         return _in_place(config, catalog, mirror, layout, supports_v3)
     validate(config, storage_facts=facts, supports_v3=supports_v3)
+    if config.disk.mode is DiskMode.DD:
+        return dd.build(config)
     chosen = packages.groups(config, catalog)
     operations: list[Operation] = [
         *disk.build(config, facts),

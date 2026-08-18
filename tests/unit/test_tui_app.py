@@ -11,6 +11,7 @@ from gentoo_install.i18n import Catalog
 from gentoo_install.model.size import Size
 from gentoo_install.model.config import (
     Bootloader,
+    DiskMode,
     InitSystem,
     InstallConfig,
     Keywords,
@@ -3206,6 +3207,46 @@ def test_choosing_the_conversion_drops_the_device_graph() -> None:
     kept = screens.install_mode_screen(staying, built, offering).unwrap()
     assert kept.disk.mode is DiskMode.PARTITION
     assert kept.disk.graph.nodes == built.disk.graph.nodes
+
+def test_dd_mode_is_offered_only_from_a_live_or_memory_environment() -> None:
+    unsafe = app.MainMenuContext(
+        screens.Context(
+            translate=Catalog("en"),
+            disks=DISKS,
+            groups=load_catalog(),
+            hash_password=lambda password: f"$6$test${len(password)}",
+            conversion_refused="the running system was not read",
+        )
+    )
+    hidden = FakeScreen(keys=["q"], lines=24, columns=110)
+    screens.install_mode_screen(hidden, config(), unsafe)
+    assert "write a prepared image" not in "\n".join(hidden.frames[0])
+
+    safe = app.MainMenuContext(
+        screens.Context(
+            translate=Catalog("en"),
+            disks=DISKS,
+            groups=load_catalog(),
+            hash_password=lambda password: f"$6$test${len(password)}",
+            conversion_refused="the running system was not read",
+            image_write_refused="",
+        )
+    )
+    chosen = screens.install_mode_screen(
+        FakeScreen(keys=["KEY_DOWN", "\n"], lines=24, columns=110),
+        config(),
+        safe,
+    ).unwrap()
+    assert chosen.disk.mode is DiskMode.DD
+    assert not chosen.disk.graph.nodes
+    assert not chosen.disk.root
+    assert [setting.key for setting in settings.settings_for(chosen)] == ["mode", "image_write"]
+    assert [setting.key for setting in settings.IMAGE_WRITE] == [
+        "image_source",
+        "image_format",
+        "image_destination",
+    ]
+
 
 
 def test_a_cpu_that_cannot_run_v3_cannot_be_made_to_choose_it() -> None:

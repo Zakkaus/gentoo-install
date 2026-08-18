@@ -699,6 +699,18 @@ def _mode(config: InstallConfig, context: Context) -> str:
     return config.disk.mode.value
 
 
+def _image_source(config: InstallConfig, context: Context) -> str:
+    return config.disk.source or UNSET
+
+
+def _image_format(config: InstallConfig, context: Context) -> str:
+    return config.disk.source_format.value
+
+
+def _image_destination(config: InstallConfig, context: Context) -> str:
+    return config.disk.destination or UNSET
+
+
 def _the_conversion_writes_no_layout(config: InstallConfig, context: Context) -> str:
     """A conversion has no device graph to edit: it is derived from the machine
     it runs on, and `validate()` refuses one written by hand. The rows stay
@@ -728,6 +740,18 @@ DISK: Final[tuple[Setting, ...]] = (
     ),
     Setting("swap", "Swap", _swap, screens.swap_screen),
     Setting("zram", "zram", _zram, screens.zram_screen),
+)
+
+IMAGE_WRITE: Final[tuple[Setting, ...]] = (
+    Setting("image_source", "Image source", _image_source, screens.image_source_screen, required=True),
+    Setting("image_format", "Image format", _image_format, screens.image_format_screen),
+    Setting(
+        "image_destination",
+        "Destination disk",
+        _image_destination,
+        screens.image_destination_screen,
+        required=True,
+    ),
 )
 
 #: How the target builds. Read together, so shown together.
@@ -824,6 +848,11 @@ NETWORK: Final[tuple[Setting, ...]] = (
     Setting("firewall", "Firewall", _firewall, screens.firewall_screen),
 )
 
+INSTALL_MODE: Final[Setting] = Setting(
+    "mode", "Install mode", _mode, screens.install_mode_screen, required=True, detected=True
+)
+
+
 #: The menu, flat and in the order it is drawn. One row per decision.
 SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("firmware", "Firmware", _firmware, None),
@@ -839,9 +868,7 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("timezone", "Timezone", lambda c, x: c.system.timezone, screens.timezone_screen),
     Setting("mirror", "Mirrors", _mirror, screens.mirror_screen, required=True, detected=True),
     # Before the Disk row, because it decides whether that row applies at all.
-    Setting(
-        "mode", "Install mode", _mode, screens.install_mode_screen, required=True, detected=True
-    ),
+    INSTALL_MODE,
     Setting(
         "storage",
         "Disk",
@@ -886,6 +913,23 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     ),
 )
 
+DD_SETTINGS: Final[tuple[Setting, ...]] = (
+    INSTALL_MODE,
+    Setting(
+        "image_write",
+        "Write image",
+        _summary(IMAGE_WRITE),
+        nested("Write image", IMAGE_WRITE),
+        required=True,
+        rows=IMAGE_WRITE,
+    ),
+)
+
+
+def settings_for(config: InstallConfig) -> tuple[Setting, ...]:
+    """The settings relevant to the installation mode being configured."""
+    return DD_SETTINGS if config.disk.mode is DiskMode.DD else SETTINGS
+
 
 def unanswered(config: InstallConfig, context: Context) -> tuple[Setting, ...]:
     """Required rows still showing nothing, which is what blocks the install.
@@ -897,7 +941,7 @@ def unanswered(config: InstallConfig, context: Context) -> tuple[Setting, ...]:
     to be looked at.
     """
     named: list[Setting] = []
-    for group in SETTINGS:
+    for group in settings_for(config):
         behind = [
             row for row in group.rows if row.required and not settled(row, config, context)
         ]

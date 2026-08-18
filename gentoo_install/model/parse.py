@@ -25,8 +25,9 @@ from .config import (
     ConsoleFontSize,
     DiskConfig,
     DiskMode,
-    Firewall,
+    ImageFormat,
     Firmware,
+    Firewall,
     InitSystem,
     InstallConfig,
     KernelConfig,
@@ -319,7 +320,21 @@ def _packages(raw: Mapping[str, Any], at: str) -> PackagesConfig:
     )
 
 def _disk(raw: Mapping[str, Any], at: str) -> DiskConfig:
-    _reject_unknown(raw, at, {"root", "devices", "mode", "image", "size", "wipe"})
+    _reject_unknown(
+        raw,
+        at,
+        {
+            "root",
+            "devices",
+            "mode",
+            "image",
+            "size",
+            "wipe",
+            "source",
+            "source_format",
+            "destination",
+        },
+    )
     mode = _enum(raw, "mode", at, DiskMode, DiskMode.PARTITION)
     devices = _tables(raw, "devices", at)
     nodes = [_node(entry, f"{at}.devices[{n}]") for n, entry in enumerate(devices)]
@@ -332,6 +347,9 @@ def _disk(raw: Mapping[str, Any], at: str) -> DiskConfig:
         image=_str(raw, "image", at),
         size=_size(raw, "size", at),
         wipe=_bool(raw, "wipe", at, False),
+        source=_str(raw, "source", at),
+        source_format=_enum(raw, "source_format", at, ImageFormat, ImageFormat.RAW),
+        destination=_str(raw, "destination", at),
     )
 
 def _node(raw: Mapping[str, Any], at: str) -> Node:

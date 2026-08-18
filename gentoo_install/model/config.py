@@ -36,6 +36,17 @@ class DiskMode(Enum):
     PARTITION = "partition"
     IN_PLACE = "in-place"
     IMAGE = "image"
+    DD = "dd"
+
+
+class ImageFormat(Enum):
+    """How the prepared disk image is encoded before it is streamed."""
+
+    RAW = "raw"
+    GZIP = "gz"
+    XZ = "xz"
+    ZSTD = "zst"
+    TAR = "tar"
 
 
 class BootMethod(Enum):
@@ -478,6 +489,9 @@ class DiskConfig:
     image: str = ""
     size: Size | None = None
     wipe: bool = False
+    source: str = ""
+    source_format: ImageFormat = ImageFormat.RAW
+    destination: str = ""
 
 
 @dataclass(frozen=True)

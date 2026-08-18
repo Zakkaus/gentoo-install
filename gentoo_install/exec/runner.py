@@ -19,7 +19,7 @@ import time
 import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Callable, Sequence
+from typing import Callable, Sequence, TextIO
 
 from ..errors import CommandFailed
 from ..log import Journal
@@ -113,6 +113,106 @@ class Runner:
                 f"{_tail(result.stderr or result.stdout)}"
             )
         return result
+
+    def pipe(self, producer: Sequence[str], consumer: Sequence[str]) -> None:
+        """Run two commands as a byte stream and fail when either command fails."""
+        source = (*self.prefix, *producer)
+        sink = (*self.prefix, *consumer)
+        if self.dry_run:
+            self.log(
+                f"would run: {shlex.join(_display_argv(source))} | "
+                f"{shlex.join(_display_argv(sink))}"
+            )
+            return
+        started = time.monotonic()
+        self.log(
+            f"run: {shlex.join(_display_argv(source))} | {shlex.join(_display_argv(sink))}"
+        )
+        try:
+            source_process = subprocess.Popen(
+                source,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=self._environment(),
+                start_new_session=True,
+            )
+        except FileNotFoundError as error:
+            raise CommandFailed(f"{source[0]} is not installed") from error
+        try:
+            sink_process = subprocess.Popen(
+                sink,
+                stdin=source_process.stdout,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=self._environment(),
+                start_new_session=True,
+            )
+        except FileNotFoundError as error:
+            _kill_group(source_process)
+            source_process.wait()
+            raise CommandFailed(f"{sink[0]} is not installed") from error
+        if source_process.stdout is not None:
+            source_process.stdout.close()
+        source_lines: list[str] = []
+        sink_lines: list[str] = []
+
+        def collect(stream: TextIO | None, lines: list[str]) -> None:
+            if stream is None:
+                return
+            for line in stream:
+                lines.append(line)
+                if self.echo:
+                    self.log(f"| {line.rstrip()}")
+
+        threads = [
+            threading.Thread(target=collect, args=(source_process.stderr, source_lines)),
+            threading.Thread(target=collect, args=(sink_process.stdout, sink_lines)),
+            threading.Thread(target=collect, args=(sink_process.stderr, sink_lines)),
+        ]
+        for thread in threads:
+            thread.start()
+        try:
+            sink_returncode = sink_process.wait()
+            source_returncode = source_process.wait()
+        except BaseException:
+            _kill_group(source_process)
+            _kill_group(sink_process)
+            source_process.wait()
+            sink_process.wait()
+            raise
+        finally:
+            for thread in threads:
+                thread.join()
+        seconds = time.monotonic() - started
+        results = (
+            Result(
+                argv=source,
+                returncode=source_returncode,
+                stdout="".join(source_lines),
+                stderr="",
+                seconds=seconds,
+            ),
+            Result(
+                argv=sink,
+                returncode=sink_returncode,
+                stdout="".join(sink_lines),
+                stderr="",
+                seconds=seconds,
+            ),
+        )
+        self.history.extend(results)
+        if self.journal is not None:
+            for result in results:
+                self.journal.command(_display_argv(result.argv), result.returncode, result.seconds)
+        for result in results:
+            if result.returncode != 0:
+                raise CommandFailed(
+                    f"{result.command} ended with {result.ending}: "
+                    f"{_tail(result.stderr or result.stdout)}"
+                )
 
     def _stream(
         self, argv: tuple[str, ...], input_text: str | None, timeout: float | None

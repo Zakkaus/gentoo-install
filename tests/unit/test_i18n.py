@@ -178,7 +178,7 @@ def operation_templates() -> set[str]:
     """Description templates the overview passes to the catalog indirectly."""
     import ast
 
-    from gentoo_install.plan import portage, system
+    from gentoo_install.plan import dd, portage, system
 
     def templates(expression: ast.expr) -> set[str]:
         if isinstance(expression, ast.IfExp):
@@ -191,7 +191,7 @@ def operation_templates() -> set[str]:
         return set()
 
     found: set[str] = set()
-    for module in (portage, system):
+    for module in (dd, portage, system):
         module_path = module.__file__
         assert module_path is not None
         tree = ast.parse(Path(module_path).read_text(encoding="utf-8"))
@@ -450,6 +450,7 @@ REVIEWED_TEMPLATES: frozenset[str] = frozenset(
         "run a script from {} and {} commands once, the first time the system boots",
         "set the console keymap to {} and its font to {}",
         "start a login on {} at {} baud",
+        "stream the {} image {} onto {}",
         "sync repository {}, {} other sites to fall back on",
         "write /etc/portage/make.conf with {}; {} mirrors fastest first, measured",
         "write /etc/portage/make.conf with {}; {} mirrors fastest first, measured,"

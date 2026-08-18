@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import ClassVar, Iterable
 
@@ -12,8 +12,10 @@ from gentoo_install.exec import preflight
 from gentoo_install.exec.probe import Machine, Probe
 from gentoo_install.exec.runner import Runner
 from gentoo_install.plan.operations import Context, Operation, Stage
+from gentoo_install.model.config import DiskMode, InstallConfig
+from gentoo_install.model.device import DeviceGraph
 
-from .layouts import config
+from .layouts import config, i
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -51,6 +53,100 @@ def _machine(
 
 def _probe(tmp_path: Path) -> Probe:
     return Probe(runner=Runner(log=lambda line: None), work=tmp_path)
+
+
+def dd_config() -> InstallConfig:
+    installation = config()
+    return replace(
+        installation,
+        disk=replace(
+            installation.disk,
+            graph=DeviceGraph.build(()),
+            root=i(""),
+            mode=DiskMode.DD,
+            source="/run/prepared.raw",
+            destination="/dev/disk/by-id/virtio-target",
+        ),
+    )
+
+
+class ImageWriteProbe(Probe):
+    def live_medium(self) -> str:
+        return "the root filesystem is overlay"
+
+    def image_source_exists(self, source: str) -> bool:
+        return True
+
+    def whole_disk(self, selector: str) -> bool:
+        return True
+
+    def mounted(self, disk: str, ignoring: str = "") -> bool:
+        return False
+
+def test_dd_requires_a_live_or_memory_environment(tmp_path: Path) -> None:
+    class Installed(ImageWriteProbe):
+        def live_medium(self) -> str:
+            return ""
+
+        def memory_environment(self) -> bool:
+            return False
+
+    report = preflight.inspect(
+        dd_config(),
+        _machine(frozenset({"cat", "dd", "lsblk", "swapon"})),
+        Installed(runner=Runner(log=lambda line: None), work=tmp_path),
+    )
+    with pytest.raises(PreflightFailed, match="boot a live or memory environment"):
+        report.raise_if_fatal()
+
+
+def test_dd_accepts_a_live_medium_or_memory_environment(tmp_path: Path) -> None:
+    class Live(ImageWriteProbe):
+        def live_medium(self) -> str:
+            return "the root filesystem is overlay"
+
+    class Memory(ImageWriteProbe):
+        def live_medium(self) -> str:
+            return ""
+
+        def memory_environment(self) -> bool:
+            return True
+
+    machine = _machine(frozenset({"cat", "dd", "lsblk", "swapon"}))
+    for probe in (
+        Live(runner=Runner(log=lambda line: None), work=tmp_path),
+        Memory(runner=Runner(log=lambda line: None), work=tmp_path),
+    ):
+        report = preflight.inspect(dd_config(), machine, probe)
+        assert not report.fatal
+
+def test_dd_refuses_an_absent_source_or_in_use_destination(tmp_path: Path) -> None:
+    class AbsentSource(ImageWriteProbe):
+        def image_source_exists(self, source: str) -> bool:
+            return False
+
+    class Partition(ImageWriteProbe):
+        def whole_disk(self, selector: str) -> bool:
+            return False
+
+    class Mounted(ImageWriteProbe):
+        def mounted(self, disk: str, ignoring: str = "") -> bool:
+            return True
+
+    machine = _machine(frozenset({"cat", "dd", "lsblk", "swapon"}))
+    for broken, expected in (
+        (AbsentSource, "is not a regular file"),
+        (Partition, "is not a whole disk"),
+        (Mounted, "is mounted or holds active swap"),
+    ):
+        report = preflight.inspect(
+            dd_config(),
+            machine,
+            broken(runner=Runner(log=lambda line: None), work=tmp_path),
+        )
+        assert any(expected in problem for problem in report.fatal)
+
+
 
 
 def test_a_plan_missing_a_declared_host_command_is_refused(tmp_path: Path) -> None:

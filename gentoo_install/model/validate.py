@@ -195,6 +195,14 @@ def validate(
     ),
     supports_v3: bool | None = None,
 ) -> None:
+    if config.disk.mode is DiskMode.DD:
+        problems = _disk_mode_problems(config)
+        if problems:
+            raise ValidationFailed(
+                "the configuration does not describe an installable system:\n  "
+                + "\n  ".join(problems)
+            )
+        return
     address_facts = _derive_address_facts(config)
     graph_problems: list[str] = []
     if config.disk.mode in (DiskMode.PARTITION, DiskMode.IMAGE):
@@ -291,14 +299,34 @@ def _disk_mode_problems(config: InstallConfig) -> list[str]:
                     "use disk.image rather than a physical disk"
                 )
         return image_problems
-    problems: list[str] = []
+    if disk.mode is DiskMode.DD:
+        problems: list[str] = []
+        if not disk.source:
+            problems.append("disk.source is required in dd mode")
+        if not disk.destination:
+            problems.append("disk.destination is required in dd mode")
+        elif not disk.destination.startswith("/dev/"):
+            problems.append("disk.destination must name a device under /dev")
+        if disk.source and disk.source == disk.destination:
+            problems.append("disk.source and disk.destination must differ")
+        forbidden = (
+            ("disk.devices", bool(disk.graph.nodes)),
+            ("disk.root", bool(disk.root)),
+            ("disk.image", bool(disk.image)),
+            ("disk.size", disk.size is not None),
+            ("disk.wipe", disk.wipe),
+        )
+        problems.extend(f"{name} is not allowed in dd mode" for name, used in forbidden if used)
+        return problems
+    in_place_problems: list[str] = []
     if disk.graph.nodes:
-        problems.append("disk.devices is not allowed in in-place mode")
+        in_place_problems.append("disk.devices is not allowed in in-place mode")
     if disk.root:
-        problems.append("disk.root is not allowed in in-place mode")
+        in_place_problems.append("disk.root is not allowed in in-place mode")
     if config.bootloader.kind is Bootloader.ZFSBOOTMENU:
-        problems.append("disk.mode in-place cannot select ZFSBootMenu without a device graph")
-    return problems
+        in_place_problems.append("disk.mode in-place cannot select ZFSBootMenu without a device graph")
+    return in_place_problems
+
 
 def _proxy_problems(config: InstallConfig) -> list[str]:
     """Check proxy syntax for configurations built without the TOML parser."""
