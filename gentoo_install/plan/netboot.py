@@ -429,10 +429,7 @@ class PlaceMemoryKernel(Operation):
                     member,
                 ]
             )
-        # The archive is transport and nothing reads it again: `modloop=` names
-        # a URL, not this file, and 373 MB on the root filesystem of a machine
-        # about to reboot into memory is 373 MB nobody asked for.
-        context.run(["rm", "--force", str(archive)])
+
 
 
 #: Where the payload lands inside the initramfs, and where the hook puts it
@@ -576,6 +573,27 @@ def _handover() -> str:
         f'printf \'\\n[ -f {PAYLOAD}/start.sh ] && . {PAYLOAD}/start.sh\\n\' '
         f'>> "$NEWROOT{AUTOSTART}"\n'
     )
+
+
+@dataclass(frozen=True, kw_only=True)
+class DiscardTheArchive(Operation):
+    """Delete the netboot archive once everything that reads it has.
+
+    Transport, not payload: the two files are out and `modloop=` names a URL
+    rather than this file. It is 373 MB on the root filesystem of a machine
+    about to reboot into memory. After the entry, not before it: the entry
+    composes that URL from this file's name, and deleting it first ended a run
+    with `/gentoo-install-ram holds 0 files ending .tar.gz`.
+    """
+
+    stage: Stage = Stage.BOOTLOADER
+
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "delete the downloaded archive, now that its two files are out", ()
+
+    def apply(self, context: Context) -> None:
+        archive = _only_image(context, STAGING, ".tar.gz")
+        context.run(["rm", "--force", str(archive)])
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -765,10 +783,10 @@ def build(
                 keys=keys,
             )
         )
-    operations += [
-        WriteMemoryEntry(mode=launch.mode, target=target, launch=launch),
-        arming,
-    ]
+    operations.append(WriteMemoryEntry(mode=launch.mode, target=target, launch=launch))
+    if launch.mode is MemoryMode.LOWRAM:
+        operations.append(DiscardTheArchive())
+    operations.append(arming)
     return operations
 
 
