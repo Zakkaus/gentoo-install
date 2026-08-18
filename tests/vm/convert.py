@@ -219,11 +219,14 @@ def reach_root(console: SerialConsole, chosen: CloudImage) -> None:
     console.run("df -h / && lsblk || true", timeout=120.0)
 
 
-def install_tools(console: SerialConsole, chosen: CloudImage, config: str) -> None:
+def install_tools(
+    console: SerialConsole, chosen: CloudImage, config: str, mode: str = ""
+) -> None:
     """Install what the launcher says is missing, the way an operator would."""
     console.run(FIND_DRIVER, timeout=180.0)
     said = console.expect_output(
-        f"sh /mnt/driver/install.sh --config {config} --missing-commands || true",
+        f"sh /mnt/driver/install.sh --config {config}{f' --{mode}' if mode else ''} "
+        "--missing-commands || true",
         timeout=300.0,
     ).decode("utf-8", "replace")
     # One bare command name per line, which is what `--missing-commands`
