@@ -152,6 +152,10 @@ NOT_IN_THE_CAMPAIGN: Final[frozenset[str]] = frozenset(
         # cannot answer, and the cluster has no way to arrange one. The rule
         # itself is held in `test_exec.py`, through the runner and the journal.
         "vm-binhost-fallback.toml",
+        # The dd runner generates its sources, streams each one from the driver
+        # CD, and reads the target back; neither target can boot as a system.
+        "vm-dd-raw.toml",
+        "vm-dd-gz.toml",
     }
 )
 
@@ -535,13 +539,17 @@ def test_every_fixture_sets_the_password_the_harness_logs_in_with() -> None:
     import subprocess
     from pathlib import Path
 
+    from gentoo_install.model.config import DiskMode
     from gentoo_install.exec.config import load
     from tests.vm.run import INSTALLED_PASSWORD
 
     # `openssl passwd`, not `crypt`: the module left the standard library in
     # 3.13 and openssl is a tool the installer already requires.
     for fixture in sorted(Path("tests/fixtures").glob("*.toml")):
-        hashed = load(fixture).system.root_password_hash
+        installation = load(fixture)
+        if installation.disk.mode is DiskMode.DD:
+            continue
+        hashed = installation.system.root_password_hash
         assert hashed, f"{fixture.name} sets no root password"
         salt = hashed.split("$")[2]
         said = subprocess.run(
@@ -583,11 +591,15 @@ def test_every_fixture_has_a_boot_check_that_can_fail() -> None:
     cannot fail, which is how the empty ones went unnoticed."""
     from pathlib import Path
 
+    from gentoo_install.model.config import DiskMode
     from gentoo_install.exec.config import load
     from tests.vm.cluster import _asked_for
 
     for fixture in sorted(Path("tests/fixtures").glob("*.toml")):
-        checks = _asked_for(load(fixture))
+        installation = load(fixture)
+        if installation.disk.mode is DiskMode.DD:
+            continue
+        checks = _asked_for(installation)
         empty = [one for one, _, value in checks if not value]
         assert not empty, f"{fixture.name}: {empty}"
         assert len(checks) >= 4, f"{fixture.name}: {checks}"
@@ -595,6 +607,7 @@ def test_every_fixture_has_a_boot_check_that_can_fail() -> None:
 
 def test_local_and_cluster_use_the_same_installed_contract() -> None:
     """Both transport adapters must derive checks from one specification."""
+    from gentoo_install.model.config import DiskMode
     from tests.vm.cluster import _asked_for
     from tests.vm.installed import checks
     from tests.vm.run import _from_config
@@ -602,9 +615,110 @@ def test_local_and_cluster_use_the_same_installed_contract() -> None:
 
     for path in sorted(Path("tests/fixtures").glob("*.toml")):
         installation = load(path)
+        if installation.disk.mode is DiskMode.DD:
+            continue
         expected = [(one.name, one.pattern) for one in checks(installation)]
         assert _from_config(path) == expected
         assert [(name, pattern) for name, _, pattern in _asked_for(installation)] == expected
+
+
+def test_dd_runner_selects_raw_and_gzip_sources() -> None:
+    """The end-to-end runner must stream every reader format it says it checks."""
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.config import DiskMode, ImageFormat
+    from tests.vm import dd
+
+    expected = {
+        "vm-dd-raw.toml": (ImageFormat.RAW, f"/mnt/driver/fixtures/{dd.RAW_SOURCE_NAME}"),
+        "vm-dd-gz.toml": (ImageFormat.GZIP, f"/mnt/driver/fixtures/{dd.GZIP_SOURCE_NAME}"),
+    }
+    assert {Path(selected.fixture).name for selected in dd.INPUTS} == set(expected)
+    for selected in dd.INPUTS:
+        name = Path(selected.fixture).name
+        source_format, source = expected[name]
+        installation = load(Path("tests") / selected.fixture)
+        assert installation.disk.mode is DiskMode.DD
+        assert installation.disk.source_format is source_format
+        assert installation.disk.source == source
+        assert installation.disk.destination == "/dev/disk/by-id/virtio-target0"
+
+
+def test_dd_runner_builds_a_unique_raw_source_and_its_gzip_stream(tmp_path: Path) -> None:
+    """A stale blank disk must not be indistinguishable from this run's source."""
+    import gzip
+
+    from tests.vm import dd
+
+    sources = dd.build_sources(tmp_path)
+    raw = sources.raw.read_bytes()
+
+    assert len(raw) == dd.SOURCE_BYTES
+    assert raw.startswith(sources.marker)
+    assert raw != b"\0" * dd.SOURCE_BYTES
+    with gzip.open(sources.gzip, "rb") as compressed:
+        assert compressed.read() == raw
+    staged = dd.stage_sources(tmp_path / "driver", sources)
+    assert (staged / dd.RAW_SOURCE_NAME).read_bytes() == raw
+    with gzip.open(staged / dd.GZIP_SOURCE_NAME, "rb") as compressed:
+        assert compressed.read() == raw
+
+
+def test_dd_runner_reads_the_marker_bounded_installer_status() -> None:
+    """A status check must not match the shell echo of its own command."""
+    from typing import Any, cast
+
+    from tests.vm import dd
+
+    class Output:
+        def __init__(self, status: bytes) -> None:
+            self.status = status
+            self.commands: list[str] = []
+
+        def expect_output(self, command: str, timeout: float) -> bytes:
+            self.commands.append(command)
+            return self.status
+
+    successful = Output(b"0\n")
+    dd.require_install_success(cast(Any, successful), "raw")
+    assert successful.commands == [f"cat {dd.INSTALL_RESULT}"]
+
+    with pytest.raises(RuntimeError, match="gz installer exited"):
+        dd.require_install_success(cast(Any, Output(b"1\n")), "gz")
+
+
+def test_dd_runner_rejects_a_target_byte_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The target comparison fails instead of trusting the dd process status."""
+    import subprocess
+
+    from tests.vm import dd
+
+    calls: list[list[str]] = []
+
+    def identical(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout="Images are identical.\n", stderr="")
+
+    monkeypatch.setattr("tests.vm.dd.subprocess.run", identical)
+    dd.target_matches(Path("source.raw"), Path("target.qcow2"), "raw")
+    assert calls == [
+        [
+            "qemu-img",
+            "compare",
+            "-f",
+            "raw",
+            "-F",
+            "qcow2",
+            "source.raw",
+            "target.qcow2",
+        ]
+    ]
+
+    def different(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 1, stdout="byte 512 differs\n", stderr="")
+
+    monkeypatch.setattr("tests.vm.dd.subprocess.run", different)
+    with pytest.raises(RuntimeError, match="byte 512 differs"):
+        dd.target_matches(Path("source.raw"), Path("target.qcow2"), "raw")
 
 
 def test_a_single_runner_check_cannot_be_added_without_breaking_parity(

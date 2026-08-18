@@ -231,14 +231,15 @@ def test_the_record_file_holds_what_the_readmes_stopped_carrying() -> None:
     # absent section reads as an oversight, an empty one as a fact.
     for heading in ("## Mode 1", "## Mode 2", "## Mode 3"):
         assert heading in record, heading
-    # Mode 3 has one record and two paths without one. Both halves are
-    # asserted: a section carrying only the record reads as a finished mode,
-    # and one carrying only the gap reads as a plan.
-    assert "nothing end to end yet" in record, "what has no record says so"
+    # Every path in mode 3 has a record, and what is still missing is named
+    # where the rows are: a section carrying only records reads as a finished
+    # mode, and one carrying only gaps reads as a plan.
+    assert "install or shell>" in record, "the record says what came up"
+    assert "read it back byte-for-byte" in record, "and what was written"
     assert (
-        "`dd` has no record" in " ".join(record.split())
+        "a machine that goes on to install Gentoo from inside the environment"
+        in " ".join(record.split())
     ), "the boundary of mode 3 is stated where its rows are"
-    assert "install or shell>" in record, "and the record says what came up"
 
     # And every README points at it rather than repeating it.
     for name in READMES:
