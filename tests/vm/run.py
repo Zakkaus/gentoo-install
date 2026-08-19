@@ -1007,7 +1007,8 @@ def check_expected(results: dict[str, bytes], config: Path) -> int:
     # while the live medium is still up. Asking for the rest would fail every
     # image run; asking for none of it left the image check inert, collected
     # and printed and never compared.
-    installed = [] if load(config).disk.mode is DiskMode.IMAGE else list(EXPECTED)
+    writes_an_image = load(config).disk.mode is DiskMode.IMAGE
+    installed = [] if writes_an_image else list(EXPECTED)
     for name, pattern in [*installed, *_from_config(config)]:
         text = results.get(f"{name}.txt", b"").decode("utf-8", "replace")
         if re.search(pattern, text, re.MULTILINE) is None:
@@ -1022,7 +1023,13 @@ def check_expected(results: dict[str, bytes], config: Path) -> int:
         print(f"FAIL {problem}", file=sys.stderr)
     if missing:
         return 1
-    print("the installed system booted, mounted its layout and has no failed unit")
+    # What was read, not what a different mode reads: an image run boots
+    # nothing, and saying it did is a report of a check that never ran.
+    print(
+        "the image holds every filesystem the layout declares"
+        if writes_an_image
+        else "the installed system booted, mounted its layout and has no failed unit"
+    )
     return 0
 
 
