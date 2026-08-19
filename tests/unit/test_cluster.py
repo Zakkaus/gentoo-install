@@ -1589,8 +1589,8 @@ def test_two_rounds_carrying_one_fixture_keep_separate_logs(tmp_path: Path) -> N
     )
 
     assert first.watch.log != second.watch.log
-    assert first.watch.log.name == "vm-greetd-9301.log"
-    assert second.watch.log.name == "vm-greetd-9302.log"
+    assert first.watch.log.name.startswith("vm-greetd-9301-")
+    assert second.watch.log.name.startswith("vm-greetd-9302-")
 
 
 def test_a_guest_qemu_calls_running_adds_nothing_to_the_reason(tmp_path: Path) -> None:
@@ -2812,3 +2812,29 @@ def test_a_round_waits_longer_when_our_own_guests_hold_the_room() -> None:
     # a round for ever.
     assert cluster.CAPACITY_PATIENCE_SHARED > cluster.CAPACITY_PATIENCE
     assert cluster.CAPACITY_PATIENCE_SHARED <= cluster.RUN_CEILING
+
+
+def test_two_rounds_cannot_write_one_guest_log() -> None:
+    """A vmid is handed back and reused, so `ext2-9303.log` was written by
+    whichever round ran that fixture on 9303 last: run109's copy was gone when
+    its revision was asked for, and the revision is the first line of the log.
+    The driver CD is content-addressed, so its name is what says which
+    installer built the guest."""
+    from pathlib import Path as _Path
+
+    from tests.vm.cluster import guest_log
+    from tests.vm.driver import NAME_PREFIX
+
+    workdir = _Path("/lab/vm/cluster")
+    first = guest_log(workdir, "ext2", 9303, f"{NAME_PREFIX}53d1cb7f02a50952333.iso")
+    second = guest_log(workdir, "ext2", 9303, f"{NAME_PREFIX}023374df9cee160062d.iso")
+    assert first != second, first
+    assert first.name.startswith("ext2-9303-"), first.name
+    # The same driver twice is the same log: two guests of one round are told
+    # apart by the vmid, which the pool never hands out twice at once.
+    assert first == guest_log(workdir, "ext2", 9303, f"{NAME_PREFIX}53d1cb7f02a50952333.iso")
+    assert first != guest_log(workdir, "ext2", 9304, f"{NAME_PREFIX}53d1cb7f02a50952333.iso")
+    # A name that is not a driver CD still produces a path rather than an
+    # empty tag, because the log is where a failure is read.
+    assert guest_log(workdir, "ext2", 9303, "local.iso").name == "ext2-9303-driver.log"
+
