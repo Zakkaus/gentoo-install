@@ -2394,3 +2394,47 @@ def test_an_emerge_the_machine_needs_still_ends_the_run() -> None:
 
     with _pytest.raises(CommandFailed):
         operation.apply(recorder)
+
+
+#: What Portage printed on every emerge of the run that measured a dead host,
+#: taken from that guest's own log rather than written from memory.
+INDEX_REFUSED = (
+    "|  40450K .......... .......... 84% 93.1T 0s\n"
+    "!!! [gentoo] Error fetching binhost package info from "
+    "'https://mirror.xtom.com.hk/gentoo/releases/amd64/binpackages/23.0/x86-64'\n"
+    "[ebuild  N     ] net-misc/openssh-10.4_p1-r1\n"
+)
+
+
+def test_a_host_that_answers_no_index_is_recorded_rather_than_passed_over() -> None:
+    """`vm-binhost-fallback` compiled all 69 of its packages in 84.4 minutes
+    and its journal held no `degraded` entry at all: Portage says the index
+    could not be read, compiles everything and exits 0, so nothing that only
+    reads a failure ever saw it. The README promises a visible warning for
+    every binhost failure, and this one produced none."""
+    recorder = Recorder()
+    recorder.answering = lambda argv: (
+        CommandOutput(INDEX_REFUSED, 0) if argv[0] == "emerge" else CommandOutput("", 0)
+    )
+
+    portage.Emerge(packages=("net-misc/openssh",), summary="install ssh").apply(recorder)
+
+    assert recorder.degraded(portage.BINARY_PACKAGES)
+    reason = recorder.degradations[portage.BINARY_PACKAGES]
+    assert "mirror.xtom.com.hk" in reason, reason
+
+    # The emerge itself succeeded, so it is not retried and not re-run from
+    # source: Portage has already built everything it was asked for.
+    emerges = [argv for argv in recorder.in_target if argv[0] == "emerge"]
+    assert len(emerges) == 1, emerges
+
+
+def test_a_healthy_binhost_records_nothing() -> None:
+    """The marker is what Portage prints when the index cannot be read, so a
+    run that never sees it must not be recorded as having given anything up."""
+    recorder = Recorder()
+    recorder.answering = lambda argv: CommandOutput("[binary   ] net-misc/openssh-10.4_p1-r1", 0)
+
+    portage.Emerge(packages=("net-misc/openssh",), summary="install ssh").apply(recorder)
+
+    assert not recorder.degraded(portage.BINARY_PACKAGES)
