@@ -27,6 +27,7 @@ from gentoo_install.model.device import (
     ZfsTopology,
 )
 from gentoo_install.plan.system import _network_service as network_service
+from gentoo_install.plan.system import _sshd_service as sshd_service
 from gentoo_install.plan.packages import ENVIRONMENT_FILE, input_environment
 
 from .console import DISK_PASSPHRASE
@@ -131,6 +132,27 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
                     re.escape(resolver),
                 )
                 for resolver in installation.system.dns
+            )
+    if installation.system.sshd:
+        # Sixteen fixtures ask for sshd and nothing asked the machine for it.
+        # `UnitFileState` rather than `is-enabled`: `systemctl` colours its
+        # output on a console that is a terminal, and the serial console is
+        # one, so `list-unit-files` prints `\x1b[0;4msshd.service`.
+        if installation.system.init is InitSystem.SYSTEMD:
+            result.append(
+                InstalledCheck(
+                    "sshd",
+                    f"systemctl show --property=UnitFileState --value {sshd_service()}.service",
+                    r"(?m)^enabled\b",
+                )
+            )
+        else:
+            result.append(
+                InstalledCheck(
+                    "sshd",
+                    "rc-update show default",
+                    rf"(?m)^\s*{sshd_service()}\s*\|",
+                )
             )
     if installation.system.zram is not None:
         # The device the machine brought up, not the file the installer wrote:

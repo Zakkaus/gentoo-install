@@ -4742,3 +4742,63 @@ def test_zram_is_checked_on_the_device_rather_than_the_file_that_asks_for_one() 
     assert not re.search(pattern, "")
     assert zram(replace(installation, system=replace(installation.system, zram=None))) is None
 
+
+#: `rc-update show default` on `vm-openrc-desktop`, which asks for sshd, and
+#: on `openrc-sdboot`, which does not. Both copied from the guests.
+_RC_UPDATE_WITH_SSHD = (
+    "       NetworkManager | default\n"
+    "               cronie | default\n"
+    "                 dbus | default\n"
+    "      display-manager | default\n"
+    "                local | default\n"
+    "             netmount | default\n"
+    "                 sshd | default\n"
+    "             sysklogd | default\n"
+)
+_RC_UPDATE_WITHOUT_SSHD = (
+    "               cronie | default\n"
+    "               dhcpcd | default\n"
+    "                local | default\n"
+    "             netmount | default\n"
+    "             sysklogd | default\n"
+)
+
+
+def test_a_machine_asked_for_sshd_is_asked_whether_it_has_one() -> None:
+    """Sixteen fixtures set `system.sshd` and no check looked at it, so a
+    machine that came up without a daemon passed. `UnitFileState` rather than
+    `list-unit-files`: on a serial console `systemctl` colours its output and
+    prints `\x1b[0;4msshd.service`, which no pattern anchored at the start of
+    a line matches."""
+    import re
+
+    from gentoo_install.exec.config import load
+    from tests.vm.installed import checks
+
+    def sshd(fixture: str) -> tuple[str, str] | None:
+        for one in checks(load(Path(f"tests/fixtures/{fixture}.toml"))):
+            if one.name == "sshd":
+                return one.command, one.pattern
+        return None
+
+    openrc = sshd("vm-openrc-desktop")
+    assert openrc is not None
+    command, pattern = openrc
+    assert command == "rc-update show default", command
+    assert re.search(pattern, _RC_UPDATE_WITH_SSHD)
+    assert not re.search(pattern, _RC_UPDATE_WITHOUT_SSHD)
+
+    systemd = sshd("vm-greetd")
+    assert systemd is not None
+    command, pattern = systemd
+    assert "UnitFileState" in command, command
+    # `systemctl show --property=UnitFileState --value sshd.service` on this
+    # workstation, which runs one.
+    assert re.search(pattern, "enabled\n")
+    assert not re.search(pattern, "disabled\n")
+    assert not re.search(pattern, "")
+
+    # The rule fires on the configuration: a machine that asked for no daemon
+    # is not failed for having none.
+    assert sshd("openrc-sdboot") is None
+
