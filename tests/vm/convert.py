@@ -70,7 +70,6 @@ BOOT_PATIENCE: Final[float] = 900.0
 #: An in-place conversion compiles nothing by default but does emerge a
 #: dist-kernel, and a cloud image starts from an empty Portage cache.
 CONVERT_CEILING: Final[float] = 7200.0
-CONVERT_IDLE: Final[float] = 1800.0
 
 
 @dataclass(frozen=True)
