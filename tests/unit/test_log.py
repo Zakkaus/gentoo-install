@@ -87,3 +87,19 @@ def test_an_identity_entry_missing_a_field_is_not_an_identity(tmp_path: Path) ->
         }
         path.write_text(json.dumps(entry) + "\n")
         assert Journal(path=path).identity() is None, missing
+
+
+def test_a_pretend_is_not_a_merge(tmp_path: Path) -> None:
+    """`VerifyPackages` runs `emerge --pretend --quiet` before anything is
+    installed and it prints the same lines the merge does. Measured on a
+    guest: 31 lines from the pretend and 32 from the merge, and the journal
+    held all 63 as installed packages."""
+    journal = Journal(path=tmp_path / "install.jsonl")
+    runner = Runner(log=lambda line: None, journal=journal)
+    runner.run(["sh", "-c", "cat", "emerge", "--pretend", "--quiet"], input_text=EMERGE_OUTPUT)
+    assert journal.counts() == {}, journal.counts()
+    # The control: the same output from a command that is not a pretend is
+    # recorded, so this is a rule about the flag rather than about `sh`.
+    runner.run(["sh", "-c", "cat", "emerge", "--verbose"], input_text=EMERGE_OUTPUT)
+    assert journal.counts() == {"binary": 2, "compiled": 1}, journal.counts()
+

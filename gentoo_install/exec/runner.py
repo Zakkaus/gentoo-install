@@ -104,7 +104,7 @@ class Runner:
         self.history.append(result)
         if self.journal is not None:
             self.journal.command(_display_argv(result.argv), result.returncode, result.seconds)
-            if "emerge" in full:
+            if "emerge" in full and not _pretending(full):
                 self.journal.packages(result.stdout)
         if check and result.returncode != 0:
             raise CommandFailed(
@@ -306,6 +306,19 @@ class Runner:
         if not values:
             return None
         return {**os.environ, **values}
+
+
+def _pretending(argv: Sequence[str]) -> bool:
+    """Whether this emerge only says what it would do.
+
+    `VerifyPackages` resolves the whole request with `emerge --pretend
+    --quiet` before anything is merged, and it prints the same
+    `[binary]`/`[ebuild]` lines the real merge does. Recorded as merges they
+    doubled the journal: one guest listed 63 packages for the 40 it installed,
+    and a package the pretend named and the merge never installed was in the
+    record as installed.
+    """
+    return any(one in ("--pretend", "-p") for one in argv)
 
 
 def _display_argv(argv: Sequence[str]) -> tuple[str, ...]:
