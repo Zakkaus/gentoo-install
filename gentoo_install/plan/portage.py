@@ -885,6 +885,12 @@ class Emerge(Operation):
             self._from_source(context)
             return
         if not isinstance(result, CommandOutput) or result.returncode == 0:
+            # A host that answers no index does not fail the emerge: Portage
+            # says so, compiles everything and exits 0. Recorded here or
+            # nowhere, and recorded once, because it says so on every emerge.
+            unreadable = _unreadable_index(str(result))
+            if unreadable is not None and not context.degraded(BINARY_PACKAGES):
+                context.degrade(BINARY_PACKAGES, unreadable)
             return
         if (killed := _binhost_killed_emerge(result)) and not context.degraded(
             BINARY_PACKAGES
@@ -963,6 +969,23 @@ class Emerge(Operation):
 #: Portage's own binary package extension, which is what proves a fetch was a
 #: binary one when the path is the only line naming it.
 GPKG_SUFFIX: Final[str] = ".gpkg.tar"
+
+
+#: What Portage prints when a binary host's index cannot be read. It then
+#: compiles everything and exits 0, so nothing else in this file sees it: a
+#: run against a host whose index answered 404 compiled all 69 of its packages
+#: in 84 minutes and recorded no reason at all.
+_INDEX_UNREADABLE: Final[re.Pattern[str]] = re.compile(
+    r"!!! \[(?P<host>[^\]]+)\] Error fetching binhost package info from '(?P<url>[^']+)'"
+)
+
+
+def _unreadable_index(said: str) -> str | None:
+    """The reason to record when a host's index could not be read."""
+    found = _INDEX_UNREADABLE.search(said)
+    if found is None:
+        return None
+    return f"{found.group('host')} answered no package index at {found.group('url')}"
 
 
 def _binhost_killed_emerge(result: CommandOutput) -> str | None:
