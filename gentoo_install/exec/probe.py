@@ -527,6 +527,19 @@ CPUINFO: Final[Path] = Path("/proc/cpuinfo")
 _NOT_A_REGION: Final[frozenset[str]] = frozenset({"right", "posix", "SystemV", "Etc"})
 
 
+#: What `bootctl status` says about the loader that started this machine, as
+#: opposed to one merely present on the esp. `systemd-boot` anywhere in the
+#: output was the test, and `bootctl-status.c` prints that string three other
+#: ways: in the file list under `Available Boot Loaders on ESP`, and in two
+#: `log_info` lines, one of which reads `systemd-boot not installed in ESP.`
+#: The runner merges stderr into stdout, so a machine with no systemd-boot at
+#: all answered that it had one, and `bootctl set-oneshot` then armed a
+#: machine that boots GRUB.
+BOOTED_BY_SYSTEMD_BOOT: Final[re.Pattern[str]] = re.compile(
+    r"(?ms)^Current Boot Loader:.*?^\s*Product:\s*systemd-boot\b"
+)
+
+
 @dataclass
 class Probe:
     """Resolves ids to paths and answers questions about the machine.
@@ -1145,7 +1158,7 @@ class Probe:
         """
         if _efi_variables():
             said = self.runner.run(["bootctl", "status"], check=False)
-            if said.returncode == 0 and "systemd-boot" in said.stdout:
+            if said.returncode == 0 and BOOTED_BY_SYSTEMD_BOOT.search(said.stdout):
                 return BootMethod.SYSTEMD_BOOT
             if shutil.which("efibootmgr") is not None:
                 return BootMethod.UEFI_GRUB

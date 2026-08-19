@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 from dataclasses import FrozenInstanceError
 from pathlib import Path
-from typing import Sequence
+from typing import Final, Sequence
 
 import json
 import pytest
@@ -311,6 +311,69 @@ def test_a_top_level_btrfs_root_is_not_called_a_subvolume(tmp_path: Path) -> Non
     assert layout.root_subvolume is None
 
 
+#: The shape `bootctl status` prints, from `src/boot/bootctl-status.c` in
+#: systemd v256: `Current Boot Loader:` is the section for the loader that
+#: started this machine, and `Product:` is its first line.
+BOOTED_BY_SYSTEMD_BOOT_OUTPUT: Final[str] = (
+    "System:\n"
+    "      Firmware: UEFI 2.70 (EDK II)\n"
+    "   Secure Boot: disabled\n"
+    "\n"
+    "Current Boot Loader:\n"
+    "      Product: systemd-boot 257\n"
+    "     Features: \u2713 Boot counting\n"
+    "          ESP: /dev/disk/by-partuuid/11111111-2222-3333-4444-555555555555\n"
+)
+
+#: What the same command prints on a machine systemd-boot did not start, read
+#: from this workstation, which boots through ZFSBootMenu: no `Current Boot
+#: Loader` section at all, a `Current Stub` one, and the loaders it can see
+#: listed under headings of their own.
+BOOTED_BY_SOMETHING_ELSE: Final[str] = (
+    "System:\n"
+    "      Firmware: UEFI 2.90 (American Megatrends 5.26)\n"
+    "   Secure Boot: disabled\n"
+    "\n"
+    "Current Stub:\n"
+    "      Product: systemd-stub 256.6\n"
+    "\n"
+    "Available Boot Loaders on ESP:\n"
+    "          ESP: /boot/efi\n"
+    "         File: \u2514\u2500/EFI/systemd/systemd-bootx64.efi (systemd-boot 256.6)\n"
+    "\n"
+    "Boot Loaders Listed in EFI Variables:\n"
+    "        Title: ZFSBootMenu (A)\n"
+)
+
+#: And what it prints when there is no systemd-boot at all. `log_info` writes
+#: it, the runner merges stderr into stdout, and the words are the ones the
+#: old test looked for.
+NO_SYSTEMD_BOOT_AT_ALL: Final[str] = (
+    "System:\n"
+    "      Firmware: UEFI 2.70 (EDK II)\n"
+    "\n"
+    "Available Boot Loaders on ESP:\n"
+    "          ESP: /boot/efi\n"
+    "systemd-boot not installed in ESP.\n"
+    "No default/fallback boot loader installed in ESP.\n"
+)
+
+
+def test_only_the_loader_that_booted_the_machine_answers_for_it() -> None:
+    """`systemd-boot` anywhere in `bootctl status` was the test, and the
+    command prints those words on machines it did not boot: in the esp file
+    list, and in `systemd-boot not installed in ESP.` — which the runner
+    merges into stdout. Arming such a machine with `bootctl set-oneshot`
+    names an entry the loader it actually boots never wrote.
+    """
+    assert probe.BOOTED_BY_SYSTEMD_BOOT.search(BOOTED_BY_SYSTEMD_BOOT_OUTPUT)
+    assert not probe.BOOTED_BY_SYSTEMD_BOOT.search(BOOTED_BY_SOMETHING_ELSE)
+    assert not probe.BOOTED_BY_SYSTEMD_BOOT.search(NO_SYSTEMD_BOOT_AT_ALL)
+    # The words really are in both, which is why the old test passed on them.
+    assert "systemd-boot" in BOOTED_BY_SOMETHING_ELSE
+    assert "systemd-boot" in NO_SYSTEMD_BOOT_AT_ALL
+
+
 def test_systemd_boot_is_asked_about_before_the_efi_variables(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -330,7 +393,7 @@ def test_systemd_boot_is_asked_about_before_the_efi_variables(
             return Result(
                 argv=tuple(argv),
                 returncode=0,
-                stdout="System:\n     Firmware: UEFI 2.70\n Boot Loader: systemd-boot 257\n",
+                stdout=BOOTED_BY_SYSTEMD_BOOT_OUTPUT,
                 stderr="",
                 seconds=0.0,
             )
