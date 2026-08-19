@@ -1468,6 +1468,21 @@ LEASE_MARGIN: Final[float] = 60 * 60.0
 LEASE_SECONDS: Final[float] = RUN_CEILING + LEASE_MARGIN
 
 
+#: What a running schedule's command line contains, so that a live pid can be
+#: told from a recycled one. A lease is honoured for as long as the process
+#: that took it is still that process.
+SCHEDULER_COMMAND: Final[str] = "tests.vm.cluster"
+
+
+def _scheduler_is_running(pid: int) -> bool:
+    """Whether that pid is still a schedule of this harness."""
+    try:
+        said = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:
+        return False
+    return SCHEDULER_COMMAND.encode() in said
+
+
 class AddressPool:
     """Reserve static addresses under one host-wide scheduler lock."""
 
@@ -1477,20 +1492,31 @@ class AddressPool:
         self._lock_path = root / "address.lock"
         self._leases = root / "addresses"
 
+    def _owner(self, lease: Path) -> int:
+        """The pid that reserved this address, or 0 when it names nobody."""
+        try:
+            said = lease.read_text().strip()
+        except OSError:
+            return 0
+        return int(said) if said.isdigit() else 0
+
     def reserve(self, preferred: str) -> str:
         self._root.mkdir(parents=True, exist_ok=True)
         self._leases.mkdir(exist_ok=True)
         with self._lock_path.open("a+") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            # A lease older than any run cannot belong to a live guest, and a
-            # schedule that was killed never released its own: sixteen rounds
-            # left a hundred of them and the pool was empty from the first
-            # dispatch of the next.
+            # A lease belongs to a schedule for as long as that schedule runs,
+            # however long that is: a campaign outlives its own ceiling, and
+            # `vm-unlock` lost 10.31.0.151 to a round that started 92 minutes
+            # after it. The age rule stays for a schedule that was killed:
+            # sixteen rounds once left a hundred leases and the pool was empty
+            # from the next dispatch.
             now = time.time()
             held = {
                 path.name
                 for path in self._leases.iterdir()
-                if now - path.stat().st_mtime < LEASE_SECONDS
+                if _scheduler_is_running(self._owner(path))
+                or now - path.stat().st_mtime < LEASE_SECONDS
             }
             network, last = preferred.rsplit(".", 1)
             ceiling = GUEST_ADDRESS_BASE + (VMID_LAST - VMID_FIRST)
@@ -1498,21 +1524,20 @@ class AddressPool:
                 address = f"{network}.{number}"
                 if address in held or self._probe(address):
                     continue
-                lease = self._leases / address
-                try:
-                    lease.touch(exist_ok=False)
-                except FileExistsError:
-                    # Only reached for a lease older than any run, which the
-                    # loop above already decided is nobody's: taking it over
-                    # is the point, and the timestamp says it is ours now.
-                    lease.touch()
+                # The name of the holder, not an empty file: `release` unlinks
+                # by name, so a schedule that ended freed an address another
+                # schedule had taken over, and the guest still answering on it
+                # met a second guest that had just been given it.
+                (self._leases / address).write_text(f"{os.getpid()}\n")
                 return address
         raise ProxmoxError(f"no static address is available from {preferred}")
 
     def release(self, address: str) -> None:
         with self._lock_path.open("a+") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            (self._leases / address).unlink(missing_ok=True)
+            lease = self._leases / address
+            if self._owner(lease) in (0, os.getpid()):
+                lease.unlink(missing_ok=True)
 
 
 def _execution(

@@ -2866,6 +2866,65 @@ def test_a_lease_of_a_running_guest_is_left_alone(tmp_path: Path) -> None:
     assert pool.reserve("10.31.0.150") == "10.31.0.151"
 
 
+def test_a_lease_outlives_the_age_rule_while_its_schedule_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A campaign runs longer than one guest's ceiling, so the age rule alone
+    frees an address whose schedule is still using it. `vm-unlock` was on
+    10.31.0.151 when a round that started 92 minutes later was given the same
+    address, and its initramfs answered `dracut Warning: Duplicate address
+    detected for 10.31.0.151 for interface eth0`.
+    """
+    import os
+    import time
+
+    from tests.vm import cluster
+    from tests.vm.cluster import LEASE_SECONDS, AddressPool
+
+    # The pytest process is not a schedule, so the pid that stands for one is
+    # named here rather than taken from this process.
+    monkeypatch.setattr(cluster, "_scheduler_is_running", lambda pid: pid == 4242)
+
+    pool = AddressPool(tmp_path, lambda address: False)
+    leases = tmp_path / "addresses"
+    leases.mkdir()
+    mine = leases / "10.31.0.150"
+    mine.write_text("4242\n")
+    old = time.time() - LEASE_SECONDS - 60
+    os.utime(mine, (old, old))
+
+    assert pool.reserve("10.31.0.150") == "10.31.0.151"
+
+    # Negative control: the same lease held by a pid that is not a schedule of
+    # this harness is nobody's, and the age rule frees it.
+    gone = leases / "10.31.0.151"
+    gone.write_text("7\n")
+    os.utime(gone, (old, old))
+    assert pool.reserve("10.31.0.151") == "10.31.0.151"
+
+
+def test_a_schedule_releases_only_the_leases_it_holds(tmp_path: Path) -> None:
+    """`release` unlinked by name, so a schedule that ended freed an address
+    another schedule had taken over, and the guest still answering on it met a
+    second guest that had just been given it.
+    """
+    import os
+
+    from tests.vm.cluster import AddressPool
+
+    pool = AddressPool(tmp_path, lambda address: False)
+    leases = tmp_path / "addresses"
+    leases.mkdir()
+    (leases / "10.31.0.150").write_text(f"{os.getpid()}\n")
+    (leases / "10.31.0.151").write_text("1\n")
+
+    pool.release("10.31.0.150")
+    pool.release("10.31.0.151")
+
+    assert not (leases / "10.31.0.150").exists(), "its own lease goes"
+    assert (leases / "10.31.0.151").exists(), "somebody else's stays"
+
+
 def test_the_guest_is_told_not_to_ask_for_aaaa() -> None:
     """`/etc/hosts` carries IPv4 addresses only, and an `AF_UNSPEC` lookup asks
     DNS for the AAAA regardless. A resolver that does not answer turns that
