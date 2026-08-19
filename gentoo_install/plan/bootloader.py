@@ -255,7 +255,10 @@ class WriteGrubDefaults(Operation):
         lines = [
             f'GRUB_CMDLINE_LINUX="{" ".join(needed)}"',
             f'GRUB_CMDLINE_LINUX_DEFAULT="{" ".join(self.kernel_params)}"',
-            "GRUB_TIMEOUT=5",
+            # The constant, not a second five: the comment on `MENU_SECONDS`
+            # promises the two bootloaders wait the same time, and a literal
+            # here made that promise something nothing could keep.
+            f"GRUB_TIMEOUT={MENU_SECONDS}",
             "GRUB_DISABLE_RECOVERY=true",
         ]
         if self.cryptodisk:

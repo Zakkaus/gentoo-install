@@ -145,6 +145,39 @@ def test_a_grub_machine_writes_no_loader_conf() -> None:
     assert not [one for one in operations if isinstance(one, bootloader.ShowTheBootMenu)]
 
 
+def test_both_bootloaders_wait_the_same_time() -> None:
+    """`MENU_SECONDS` says it is the same five seconds `GRUB_TIMEOUT` uses, so
+    that the two behave alike from the operator's side. GRUB's was a separate
+    literal, which is a promise nothing could keep.
+    """
+    import ast
+    import inspect
+    import re
+
+    installation = load(Path("tests/fixtures/vm-btrfs.toml"))
+    defaults = next(
+        one
+        for one in bootloader.build(installation)
+        if isinstance(one, bootloader.WriteGrubDefaults)
+    )
+    recorder = Recorder()
+    defaults.apply(recorder)
+    written = recorder.files[PurePosixPath("/etc/default/grub")]
+    assert f"GRUB_TIMEOUT={bootloader.MENU_SECONDS}" in written, written
+
+    # The literal and the constant read the same today, so only the source
+    # says whether there is one timeout or two.
+    tree = ast.parse(inspect.getsource(bootloader.WriteGrubDefaults.apply).lstrip())
+    spelled = [
+        one.value
+        for one in ast.walk(tree)
+        if isinstance(one, ast.Constant) and isinstance(one.value, str)
+    ]
+    # The f-string's own `GRUB_TIMEOUT=` prefix is fine; a number after it is
+    # the second spelling of the timeout.
+    assert not [one for one in spelled if re.match(r"GRUB_TIMEOUT=\d", one)], spelled
+
+
 def test_bios_grub_targets_every_mirrored_root_member() -> None:
     installation = replace(
         load(Path("tests/fixtures/vm-mdraid.toml")),
