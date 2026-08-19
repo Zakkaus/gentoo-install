@@ -4652,3 +4652,93 @@ def test_the_image_fixture_writes_where_the_runner_mounts() -> None:
     mounted = inspect.getsource(runner.mount_scratch_for_image)
     assert "PurePosixPath(installation.disk.image).parent" in mounted, mounted
     assert image.disk.image.startswith("/mnt/"), image.disk.image
+
+
+#: `zpool status` on this workstation, whose rpool is a mirror and whose tank
+#: is a single device. The indentation is a tab and two spaces, which is why
+#: the vdev pattern cannot be anchored on a fixed number of columns.
+_ZPOOL_STATUS = (
+    "  pool: rpool\n state: ONLINE\nconfig:\n\n"
+    "\tNAME                                                STATE     READ WRITE CKSUM\n"
+    "\trpool                                               ONLINE       0     0     0\n"
+    "\t  mirror-0                                          ONLINE       0     0     0\n"
+    "\t    nvme-WD_BLACK_SN850X_1000GB_233204801130-part3  ONLINE       0     0     0\n"
+    "\t    nvme-WD_BLACK_SN850X_1000GB_24041D800840-part3  ONLINE       0     0     0\n"
+    "\nerrors: No known data errors\n"
+)
+
+#: The same command on a pool with no redundancy: the devices hang directly
+#: off the pool line and there is no vdev row at all.
+_ZPOOL_STATUS_STRIPE = (
+    "  pool: tank\n state: ONLINE\nconfig:\n\n"
+    "\tNAME                                      STATE     READ WRITE CKSUM\n"
+    "\ttank                                      ONLINE       0     0     0\n"
+    "\t  ata-ST8000NM017B-2TJ103_WWZ472M1-part2  ONLINE       0     0     0\n"
+    "\nerrors: No known data errors\n"
+)
+
+
+def test_a_redundant_pool_is_checked_by_the_vdev_zpool_reports() -> None:
+    """`zpool create` builds a stripe from the same devices when the keyword
+    is dropped, and that pool carries the dataset, mounts, boots and passes
+    every other check here. Only `zpool status` says which one was built."""
+    import re
+
+    from gentoo_install.exec.config import load
+    from tests.vm.installed import checks
+
+    def topology(fixture: str) -> tuple[str, str] | None:
+        for one in checks(load(Path(f"tests/fixtures/{fixture}.toml"))):
+            if one.name == "pool topology":
+                return one.command, one.pattern
+        return None
+
+    mirrored = topology("vm-zfs-mirror")
+    assert mirrored is not None
+    command, pattern = mirrored
+    assert command == "zpool status rpool", command
+    assert re.search(pattern, _ZPOOL_STATUS)
+    # The control, on the same machine's other pool: a stripe has no vdev row,
+    # so a pool built without the keyword fails this check.
+    assert not re.search(pattern, _ZPOOL_STATUS_STRIPE)
+
+    raidz = topology("vm-raidz")
+    assert raidz is not None and raidz[1] != pattern, raidz
+    assert not re.search(raidz[1], _ZPOOL_STATUS), "raidz1 is not what a mirror reports"
+
+    # A pool with no redundancy has nothing to check: the rule fires on the
+    # topology, not on ZFS.
+    assert topology("vm-zfs") is None
+
+
+def test_zram_is_checked_on_the_device_rather_than_the_file_that_asks_for_one() -> None:
+    """`zram-generator.conf` and `/etc/conf.d/zram-init` are what the
+    installer writes, and a machine can hold either with no zram device at
+    all: the package can be missing and the service can be off."""
+    import re
+
+    from dataclasses import replace
+
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.config import InstallConfig
+    from tests.vm.installed import checks
+
+    def zram(installation: InstallConfig) -> tuple[str, str] | None:
+        for one in checks(installation):
+            if one.name == "zram":
+                return one.command, one.pattern
+        return None
+
+    installation = load(Path("tests/fixtures/vm-zram.toml"))
+    found = zram(installation)
+    assert found is not None
+    _, pattern = found
+    # `swapon --show=NAME --noheadings` and `zramctl --noheadings --output
+    # NAME` on this workstation, which runs zram swap.
+    assert re.search(pattern, "/dev/zram0\n/dev/dm-0\n/dev/dm-1\n")
+    assert re.search(pattern, "/dev/zram0\n")
+    # Controls: a machine swapping to a partition, and one with nothing.
+    assert not re.search(pattern, "/dev/dm-0\n/dev/dm-1\n")
+    assert not re.search(pattern, "")
+    assert zram(replace(installation, system=replace(installation.system, zram=None))) is None
+

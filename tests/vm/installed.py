@@ -17,7 +17,15 @@ from gentoo_install.model.config import (
     InstallConfig,
     Networking,
 )
-from gentoo_install.model.device import Filesystem, Luks, Mountpoint, Subvolume, ZfsDataset, ZfsPool
+from gentoo_install.model.device import (
+    Filesystem,
+    Luks,
+    Mountpoint,
+    Subvolume,
+    ZfsDataset,
+    ZfsPool,
+    ZfsTopology,
+)
 from gentoo_install.plan.system import _network_service as network_service
 from gentoo_install.plan.packages import ENVIRONMENT_FILE, input_environment
 
@@ -124,6 +132,17 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
                 )
                 for resolver in installation.system.dns
             )
+    if installation.system.zram is not None:
+        # The device the machine brought up, not the file the installer wrote:
+        # `zram-generator` and `zram-init` each read a configuration that can
+        # be present on a machine with no zram device at all.
+        result.append(
+            InstalledCheck(
+                "zram",
+                "swapon --show=NAME --noheadings; zramctl --noheadings --output NAME",
+                r"(?m)^/dev/zram0\b",
+            )
+        )
     if installation.packages.display_manager == "greetd":
         if installation.system.init is InitSystem.SYSTEMD:
             result.append(
@@ -217,6 +236,18 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
     source = graph[root.source] if isinstance(root, Mountpoint) else root
     if isinstance(source, ZfsDataset):
         result.append(InstalledCheck("root filesystem", "findmnt --noheadings --output FSTYPE /", "zfs"))
+        pool = graph[source.pool]
+        if isinstance(pool, ZfsPool) and pool.topology is not ZfsTopology.STRIPE:
+            # The vdev line `zpool status` draws, which is the pool's own
+            # answer: a raidz that `zpool create` built as a stripe carries
+            # the dataset, mounts, boots and passes every other check here.
+            result.append(
+                InstalledCheck(
+                    "pool topology",
+                    f"zpool status {pool.name}",
+                    rf"(?m)^\s+{pool.topology.value}-\d+\s",
+                )
+            )
     else:
         filesystem = graph[source.filesystem] if isinstance(source, Subvolume) else source
         kind = filesystem.kind.value if isinstance(filesystem, Filesystem) else ""
