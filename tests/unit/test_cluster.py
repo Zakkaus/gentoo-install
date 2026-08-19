@@ -1247,21 +1247,56 @@ def test_a_fixture_that_passes_by_failing_is_not_recorded_as_a_failure() -> None
     assert failing == set(cluster.EXPECTED_TO_FAIL), (failing, cluster.EXPECTED_TO_FAIL)
 
 
-def test_the_console_carries_the_tail_of_the_install_log_and_not_all_of_it() -> None:
+def test_the_console_carries_the_whole_log_until_it_cannot(tmp_path: Path) -> None:
     """`vm-source-kernel` writes 80 MB of build output, which gzips to 4.5 MiB
-    and reaches the reader as one base64 line of about six. It is the only
-    fixture that has ever failed while its results were being read, and it did
-    so twice; everything else in that archive is kilobytes.
+    and reaches the reader as one base64 line of about six: it is the only
+    fixture that has ever failed while its results were being read. Everything
+    else the cluster kept is between 3.9 MB and 25 MB and crossed the console
+    before the tail existed, and the whole log is what a defect is found in.
+
+    The shell is run rather than read: it decides between the two on the
+    guest, where nothing else can.
     """
-    from tests.vm.results import LOG_TAIL, LOG_TAIL_BYTES, console_command
+    import base64
+    import io
+    import subprocess
+    import tarfile
+
+    from tests.vm.results import (
+        CONSOLE_CLOSE,
+        CONSOLE_OPEN,
+        FULL_LOG_BYTES,
+        LOG_TAIL,
+        LOG_TAIL_BYTES,
+        console_command,
+    )
 
     said = console_command("/tmp/gentoo-install-results")
     assert f"tail -c {LOG_TAIL_BYTES}" in said, said
     assert f"/{LOG_TAIL}" in said, said
-    assert "--exclude=./install.txt" in said, said
-    # And the exclusion is of the log alone: the journal, the exit code and
-    # every check's output are what the verdict is made of.
-    assert "--exclude" not in said.split("--exclude=./install.txt", 1)[1], said
+    assert str(FULL_LOG_BYTES) in said, said
+
+    def carried(size: int) -> set[str]:
+        room = tmp_path / f"results-{size}"
+        room.mkdir()
+        (room / "install.txt").write_bytes(b"x" * size)
+        (room / "install.rc").write_text("0\n")
+        (room / "install.jsonl").write_text("{}\n")
+        printed = subprocess.run(
+            ["sh", "-c", console_command(str(room), limit=1024)],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        blob = printed.split(CONSOLE_OPEN)[1].split(CONSOLE_CLOSE)[0]
+        packed = base64.b64decode("".join(blob.split()), validate=True)
+        with tarfile.open(fileobj=io.BytesIO(packed)) as archive:
+            return {Path(one).name for one in archive.getnames() if one != "."}
+
+    assert carried(1024) == {"install.txt", "install.tail", "install.rc", "install.jsonl"}
+    # Over the limit the log stays behind and everything the verdict is made
+    # of still travels.
+    assert carried(1025) == {"install.tail", "install.rc", "install.jsonl"}
 
 
 def test_a_failed_install_verdict_carries_the_installer_s_own_reason() -> None:
