@@ -47,6 +47,18 @@ CONSOLE_OPEN = "GI_RESULTS_BEGIN"
 CONSOLE_CLOSE = "GI_RESULTS_END"
 
 
+#: How much of the install log the console carries back. A source-kernel
+#: install writes 80 MB of it, which gzips to 4.5 MiB and reaches the reader
+#: as one base64 line of about six: `vm-source-kernel` is the only fixture
+#: that has ever failed while its results were being read, and it did so
+#: twice. The last quarter of a megabyte holds the failure and the tail of
+#: whatever emerge was doing, which is what anybody reads.
+LOG_TAIL_BYTES: Final[int] = 256 * 1024
+
+#: What the guest writes the tail to, beside the log it came from.
+LOG_TAIL: Final[str] = "install.tail"
+
+
 def console_command(directory: str) -> str:
     """Print the results as one base64 line between two markers.
 
@@ -63,7 +75,10 @@ def console_command(directory: str) -> str:
     stem, opened = CONSOLE_OPEN.rsplit("_", 1)
     closed = CONSOLE_CLOSE.rsplit("_", 1)[1]
     return (
-        f"printf '{stem}_%s\\n' {opened}; tar cz -C {directory} . | base64 -w0; "
+        f"printf '{stem}_%s\\n' {opened}; "
+        f"tail -c {LOG_TAIL_BYTES} {directory}/install.txt > {directory}/{LOG_TAIL} "
+        "2>/dev/null || true; "
+        f"tar cz --exclude=./install.txt -C {directory} . | base64 -w0; "
         f"echo; printf '{stem}_%s\\n' {closed}"
     )
 

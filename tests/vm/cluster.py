@@ -96,6 +96,7 @@ from .proxmox import (
 )
 from .results import (
     CONSOLE_CLOSE,
+    LOG_TAIL,
     RESULT_BUFFER_BYTES,
     ResultError,
     console_command,
@@ -2283,7 +2284,11 @@ REASON_BYTES: Final[int] = 400
 
 def _why_it_stopped(files: Mapping[str, bytes]) -> str:
     """The installer's own last word, or empty when it did not say one."""
-    said = files.get("install.txt", b"").decode("utf-8", "replace")
+    # The tail the console carries back, and the whole log for an archive an
+    # older revision made: the guest stopped shipping 80 MB of build output
+    # through a channel that had dropped on it twice.
+    carried = files.get(LOG_TAIL) or files.get("install.txt", b"")
+    said = carried.decode("utf-8", "replace")
     for line in reversed(said.splitlines()):
         found = line.find(INSTALL_STOPPED)
         if found >= 0:

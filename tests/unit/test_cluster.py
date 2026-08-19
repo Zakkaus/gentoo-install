@@ -1247,25 +1247,47 @@ def test_a_fixture_that_passes_by_failing_is_not_recorded_as_a_failure() -> None
     assert failing == set(cluster.EXPECTED_TO_FAIL), (failing, cluster.EXPECTED_TO_FAIL)
 
 
+def test_the_console_carries_the_tail_of_the_install_log_and_not_all_of_it() -> None:
+    """`vm-source-kernel` writes 80 MB of build output, which gzips to 4.5 MiB
+    and reaches the reader as one base64 line of about six. It is the only
+    fixture that has ever failed while its results were being read, and it did
+    so twice; everything else in that archive is kilobytes.
+    """
+    from tests.vm.results import LOG_TAIL, LOG_TAIL_BYTES, console_command
+
+    said = console_command("/tmp/gentoo-install-results")
+    assert f"tail -c {LOG_TAIL_BYTES}" in said, said
+    assert f"/{LOG_TAIL}" in said, said
+    assert "--exclude=./install.txt" in said, said
+    # And the exclusion is of the log alone: the journal, the exit code and
+    # every check's output are what the verdict is made of.
+    assert "--exclude" not in said.split("--exclude=./install.txt", 1)[1], said
+
+
 def test_a_failed_install_verdict_carries_the_installer_s_own_reason() -> None:
     """`the installer exited b'4'` was the whole verdict, and `vm-greetd`'s
     reason was 294910 lines into `install.txt`. `cli` writes that reason as
     its last line, and the guest hands the file back with everything else.
     """
+    from tests.vm.results import LOG_TAIL
+
     said = (
         "| >>> Installing app-i18n/ibus-1.5.33\n"
         "|  * ERROR: app-i18n/ibus-1.5.33::gentoo failed (compile phase):\n"
         "the install stopped: CommandFailed: emerge ended with exit 1: "
         "keybindingmanager.c:1422:1: error: type defaults to 'int'\n"
     ).encode()
-    reason = cluster._why_it_stopped({"install.txt": said})
+    reason = cluster._why_it_stopped({LOG_TAIL: said})
     assert reason.startswith(": CommandFailed: emerge ended with exit 1"), reason
     assert "keybindingmanager.c" in reason, reason
 
     # A run whose installer never got that far says nothing rather than
     # guessing from the build output above it.
-    assert cluster._why_it_stopped({"install.txt": b"| >>> Emerging app-i18n/ibus\n"}) == ""
+    assert cluster._why_it_stopped({LOG_TAIL: b"| >>> Emerging app-i18n/ibus\n"}) == ""
     assert cluster._why_it_stopped({}) == ""
+
+    # An archive an older revision made carries the whole log instead.
+    assert "CommandFailed" in cluster._why_it_stopped({"install.txt": said})
 
 
 def test_an_expected_failure_with_no_exit_code_is_not_a_pass() -> None:
