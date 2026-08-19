@@ -168,9 +168,11 @@ def _unique(values: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def build(config: InstallConfig, catalog: packages.Catalog) -> tuple[Operation, ...]:
-    locale = CjkFontconfigLocale.selected(config.system.locale)
-    if locale is None:
-        return ()
+    # The decisions are checked before the locale, not after: what this file
+    # writes is a CJK font preference and an `en_US.UTF-8` machine needs none,
+    # but a group that declines and a group that accepts is a configuration
+    # nobody can satisfy whatever the locale is, and refusing it only for some
+    # locales is a rule that fires by accident.
     chosen = packages.groups(config, catalog)
     decisions = {
         group.font_configuration for group in chosen if group.font_configuration
@@ -182,6 +184,9 @@ def build(config: InstallConfig, catalog: packages.Catalog) -> tuple[Operation, 
         )
     if len(decisions) > 1:
         raise ConfigError("font configuration was both accepted and declined")
+    locale = CjkFontconfigLocale.selected(config.system.locale)
+    if locale is None:
+        return ()
     if packages.FONT_CONFIGURATION_DISABLED in decisions:
         return ()
     if (

@@ -94,6 +94,27 @@ def test_a_locale_outside_cjk_is_not_changed(locale: str) -> None:
     ]
 
 
+@pytest.mark.parametrize("locale", ["zh_TW.UTF-8", "en_US.UTF-8"])
+def test_a_contradictory_font_decision_is_refused_in_any_locale(locale: str) -> None:
+    """The decisions were checked after the locale, so a group that accepts
+    and a group that declines was a refusal on a Chinese machine and silence
+    on an English one. It is a configuration nobody can satisfy either way.
+    """
+    from gentoo_install.errors import ConfigError
+    from gentoo_install.plan import fonts
+
+    installation = config()
+    selected = replace(
+        installation,
+        system=replace(installation.system, locales=(locale,), locale=locale),
+        packages=PackagesConfig(
+            applications=("configure-fonts", "decline-font-configuration")
+        ),
+    )
+    with pytest.raises(ConfigError, match="both accepted and declined"):
+        fonts.build(selected, load_catalog())
+
+
 @pytest.mark.parametrize(("locale", "language", "face"), CJK_RULES)
 def test_the_written_file_is_a_regional_sans_match(
     locale: str, language: str, face: str
