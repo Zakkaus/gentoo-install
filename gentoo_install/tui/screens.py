@@ -18,6 +18,7 @@ from typing import Callable, Final, Sequence
 
 from ..i18n import Catalog
 from ..exec import fetch
+from ..exec.preflight import ZFS_PASSPHRASE_MINIMUM
 from ..model import compat
 from ..model.config import (
     SystemConfig,
@@ -2153,9 +2154,11 @@ def packages_screen(
         say(screen, context, clash)
 
 
-#: `zpool create` refuses anything shorter, and LUKS with a short passphrase is
-#: not worth offering either.
-PASSPHRASE_MINIMUM: Final[int] = 8
+#: What the preflight refuses, read from there rather than written again: the
+#: two carried the same 8 and the same reason, and raising one would have left
+#: the menu accepting a passphrase the install stops on once the disk is
+#: already partitioned.
+PASSPHRASE_MINIMUM: Final[int] = ZFS_PASSPHRASE_MINIMUM
 
 #: Taken from profiles.desc for amd64 23.0. A systemd profile is the same path
 #: plus /systemd, which `_profile_for` relies on.
