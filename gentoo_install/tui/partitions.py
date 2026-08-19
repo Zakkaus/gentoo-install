@@ -792,11 +792,15 @@ def _edit_slice(
 def _slice_fields(
     entry: manual.Slice, purpose: manual.Purpose, translate: Catalog
 ) -> list[Item[str]]:
-    return [
-        descriptor.row((entry, purpose), translate)
-        for descriptor in _SLICE_FIELDS
-        if descriptor.key in {item.value for item in _slice_field_items(entry, purpose, translate)}
-    ]
+    """Every row the editor shows, which is the one table that lists them.
+
+    Filtered through `_SLICE_FIELDS` before, and that table holds the fields
+    an operator edits rather than the rows a menu draws: `Done` has no field
+    to edit, so it was dropped, and the editor's only way out became the
+    cancel that answers with the slice it opened on. Every size, filesystem,
+    mount point and label typed into it was thrown away.
+    """
+    return _slice_field_items(entry, purpose, translate)
 
 
 def _slice_field_items(
