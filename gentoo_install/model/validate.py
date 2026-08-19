@@ -836,11 +836,26 @@ def _partition_size_problems(graph: DeviceGraph, table: PartitionTable) -> list[
 
 
 def _logical_volume_size_problems(graph: DeviceGraph) -> list[str]:
-    return [
+    problems = [
         f"logical volume {volume.id} is {volume.size}"
         for volume in graph.of_type(LogicalVolume)
         if volume.size is not None and volume.size.bytes == 0
     ]
+    # The same rule partitions have, and for the same reason: `lvcreate
+    # --extents 100%FREE` gives the group's whole remainder to whichever
+    # volume asks first, so a second one asking is a group with no room and an
+    # install that stops with the disk partitioned and the group already made.
+    taking_the_rest: dict[str, list[str]] = {}
+    for volume in graph.of_type(LogicalVolume):
+        if volume.size is None:
+            taking_the_rest.setdefault(str(volume.group), []).append(str(volume.id))
+    problems += [
+        f"volume group {group} has {len(volumes)} logical volumes taking the rest of it "
+        f"({', '.join(sorted(volumes))}), and only one can"
+        for group, volumes in sorted(taking_the_rest.items())
+        if len(volumes) > 1
+    ]
+    return problems
 
 
 def _mbr_index_problems(table: PartitionTable, indexes: list[int]) -> list[str]:
