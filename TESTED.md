@@ -220,6 +220,16 @@ earlier ones never reached a login prompt at revisions that did not record the
 console, so what they stopped at is unknown. The open defect is row 238 of
 `docs/tasks.md`.
 
+### The interface
+
+| Revision | What ran | Result |
+|---|---|---|
+| `d348174548035` | `python3 -m tests.vm.tui --lang en` on the official minimal medium, UEFI | opened all nineteen rows of the menu on an 80x24 serial console and read each screen back: 20 screens drawn, no line wider than the terminal, and every row returned to the menu. Nothing was installed; this record covers the interface, not an installation |
+
+The walk is what `FakeScreen` cannot do. It found the Hostname screen had no
+way back, because backspace deletes while the field has content and escape is
+Cancel, which ends the run: `#785`.
+
 ### Not verified
 
 Nothing named. UEFI conversion and a btrfs subvolume root left this list when
