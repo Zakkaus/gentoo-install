@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Callable, Final
+from typing import Callable, Final, Mapping
 from enum import Enum
 from pathlib import PurePosixPath
 
@@ -78,10 +78,23 @@ KERNEL_PACKAGES: Final[dict[KernelSource, str]] = {
     KernelSource.CJK: "sys-kernel/gentoo-cjk-kernel",
 }
 
-#: The kernel choices patched with cjktty, and the packages that carry them.
-#: Derived, not listed again: a second copy of these two names disagrees with
-#: the table above the first time a package is renamed.
-CJK_KERNELS: Final[tuple[KernelSource, ...]] = (KernelSource.CJK_BIN, KernelSource.CJK)
+#: What names a cjktty package, and the only thing that decides whether a
+#: kernel choice is one. `sys-kernel/gentoo-cjk-kernel` and its `-bin` are
+#: what the gentoo-zh overlay carries today.
+CJK_PACKAGE_MARK: Final[str] = "cjk-kernel"
+
+def cjk_kernels(packages: Mapping[KernelSource, str]) -> tuple[KernelSource, ...]:
+    """The choices in that table whose package carries the cjktty patch."""
+    return tuple(
+        source for source, package in packages.items() if CJK_PACKAGE_MARK in package
+    )
+
+
+#: The kernel choices patched with cjktty. Read out of the table above rather
+#: than listed again: the two names were written a second time under a comment
+#: claiming they were derived, so a renamed package would have left this stale
+#: while the comment said it could not.
+CJK_KERNELS: Final[tuple[KernelSource, ...]] = cjk_kernels(KERNEL_PACKAGES)
 _CJK_KERNEL_PACKAGES: Final[frozenset[str]] = frozenset(
     KERNEL_PACKAGES[source] for source in CJK_KERNELS
 )
