@@ -32,6 +32,10 @@ from .workdir import WorkdirError, confined
 
 WORKROOT: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/tui"
 
+#: How long the walk waits after a lone escape. ncurses holds one for
+#: ESCDELAY, a second by default, in case it starts a sequence.
+ESCAPE_SETTLES: Final[float] = 1.5
+
 #: The console the menu is drawn on. Eighty by twenty-four is what the medium
 #: gives over a serial port and the smallest the interface supports, so a row
 #: that only fits a wider terminal is a defect an operator meets first.
@@ -606,13 +610,15 @@ def walk(console: SerialConsole, lang: str) -> Walk:
         for line in opened.lines:
             if cells(line) > COLUMNS:
                 seen.note(f"row {step} opened", f"{cells(line)} cells: {line!r}")
-        # Backspace, one byte, not escape: over a serial line ncurses splits
-        # `\x1b[B` often enough that a lone escape and a split arrow are the
-        # same thing to it, and the walk's escape reached the main menu, whose
-        # escape leaves the installer. Every widget answers `\x7f` with Back.
+        # Escape cancels, and cancelling is the only leave that changes
+        # nothing: backspace deletes inside a text field, and the walk that
+        # used it left the machine's hostname as `gento`.
         if opened.opened_from(drawn):
-            console.send_raw("\x7f")
-            time.sleep(0.5)
+            console.send_raw("\x1b")
+            # Longer than ncurses' ESCDELAY, which is a second by default: a
+            # key sent inside it is read as the rest of an escape sequence and
+            # the escape never reaches the screen it was meant to leave.
+            time.sleep(ESCAPE_SETTLES)
         else:
             seen.note(f"row {step}", "enter opened nothing")
         console.send_raw("\x1b[B")
