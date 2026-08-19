@@ -43,6 +43,7 @@ from ..model.device import (
 from ..plan import automatic as automatic_values
 from . import screens
 from .mirror import mirror_screen
+from .partitions import partitions_screen
 from .context import Context, Step, ValueKind, ValueSource, footer
 from ..i18n import width
 from .widgets import Answer, Item, Menu, Outcome, Screen, Style
@@ -732,7 +733,7 @@ DISK: Final[tuple[Setting, ...]] = (
     ),
     Setting("layout", "Layout", _layout, screens.layout_screen),
     Setting(
-        "partitions", "Partitions", _partitions, screens.partitions_screen,
+        "partitions", "Partitions", _partitions, partitions_screen,
         unavailable=_template_writes_the_table,
     ),
     Setting("encryption", "Encryption", _encryption, screens.encryption_screen),
