@@ -475,6 +475,11 @@ class Watchdog:
 
     log: Path
     counters: Callable[[], tuple[int, float] | None]
+    #: Where the guest is. A verdict that says only `counters were flat` is a
+    #: guess about a cluster whose other tenants this campaign does not
+    #: control: `static-ip` went to cpu 0.00 mid-compile and the node it was
+    #: on had to be read back out of the dispatch line to say anything at all.
+    where: str = ""
     strikes: int = 0
     _seen: int = field(default=0, init=False)
     _moved: int = field(default=0, init=False)
@@ -543,8 +548,9 @@ class Watchdog:
                     f"the hypervisor did not answer for {minutes:.0f}m "
                     "and the console said nothing"
                 )
+            node = f" on {self.where}" if self.where else ""
             return (
-                "counters were flat "
+                f"counters were flat{node} "
                 f"({self._counter_before} -> {self._counter_after} bytes, "
                 f"cpu {self._cpu:.2f})"
             )
@@ -1573,7 +1579,7 @@ def _execution(
     )
     return Running(
         guest,
-        Watchdog(log=log, counters=lambda: guest.transferred()),
+        Watchdog(log=log, counters=lambda: guest.transferred(), where=node),
         job.reservation_bytes,
         address,
     )
