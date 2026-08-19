@@ -3462,7 +3462,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\n{len(passed)}/{len(jobs)} passed")
     for one in outcomes:
         if one.verdict is not Verdict.OK or not trusted_revision(one.revision):
-            print(f"  {one.verdict.value} {one.name}: {one.detail} ({one.log})")
+            # A job refused before a guest existed has no log, and `(None)`
+            # in the summary reads as a path that could be opened.
+            where = f" ({one.log})" if one.log is not None else ""
+            print(f"  {one.verdict.value} {one.name}: {one.detail}{where}")
     # Against what was asked for, not against what came back: a worker that
     # died without answering left its job with no outcome at all, and a run
     # that collected fewer results than it dispatched still exited 0.
