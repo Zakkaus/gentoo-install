@@ -285,7 +285,10 @@ class SerialConsole:
         self.send(marked_command(command, token))
         self.expect(command_begin(token), timeout)
         said = self.expect(command_done(token), timeout)
-        return said.split(command_done(token).encode())[0]
+        # Without the carriage returns, for the reason the cluster's own reader
+        # gives: a serial line ends every one of them `\r\n`, and `convert.py`
+        # applies the same `installed.py` patterns, four of which anchor on `$`.
+        return said.split(command_done(token).encode())[0].replace(b"\r", b"")
 
     def login(self, user: str, password: str | None, prompt: str) -> None:
         self.expect(r"login:", timeout=300.0)
