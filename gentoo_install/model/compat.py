@@ -489,11 +489,52 @@ def _password_can_authenticate(password_hash: str) -> bool:
     return bool(_MODULAR_CRYPT.fullmatch(password_hash) or _DES_CRYPT.fullmatch(password_hash))
 
 
+#: The traits `traits_of` reads out of the device graph. An in-place
+#: conversion has no graph — the layout is the running machine's — so each of
+#: these answers "absent" there rather than "false", and a rule naming one
+#: would refuse every conversion. The rest are read from the configuration and
+#: hold in any mode.
+FROM_THE_DEVICE_GRAPH: Final[frozenset[Trait]] = frozenset(
+    {
+        Trait.ROOT_ON_ZFS,
+        Trait.BOOT_ON_ZFS,
+        Trait.NO_ZFS_ROOT,
+        Trait.LUKS,
+        Trait.NO_MOUNTED_ESP,
+        Trait.ESP_ENCRYPTED,
+        Trait.KERNEL_OFF_ESP,
+        Trait.ESP_ON_MDRAID,
+        Trait.ESP_MDRAID_SUPERBLOCK_AT_START,
+        Trait.GPT_WITHOUT_BIOS_BOOT,
+        Trait.NO_ENCRYPTED_CONTAINER,
+        Trait.GRUB_UNLOCKS_BOOT,
+        Trait.NATIVE_ZFS_SYSTEM_INITRAMFS,
+    }
+)
+
+
 def violations(
     config: InstallConfig, storage_facts: StorageFacts | None = None
 ) -> tuple[Rule, ...]:
     present = traits_of(config, storage_facts)
     return tuple(rule for rule in RULES if rule.when in present and rule.excludes in present)
+
+
+def violations_without_a_graph(config: InstallConfig) -> tuple[Rule, ...]:
+    """The rules a configuration carrying no device graph can still break.
+
+    A locked root with no other login and an ssh unlock with no key are the
+    configuration's own doing, and an in-place conversion produces the same
+    unreachable machine as an install onto a disk.
+    """
+    present = traits_of(config, None)
+    return tuple(
+        rule
+        for rule in RULES
+        if rule.when in present
+        and rule.excludes in present
+        and not {rule.when, rule.excludes} & FROM_THE_DEVICE_GRAPH
+    )
 
 
 def excluded_by(present: frozenset[Trait]) -> tuple[Rule, ...]:

@@ -232,10 +232,16 @@ def validate(
             *_array_problems(config),
             *(rule.describe() for rule in compat.violations(config, storage_facts)),
         ]
+    without_a_graph: list[str] = []
+    if config.disk.mode is DiskMode.IN_PLACE:
+        without_a_graph = [
+            rule.describe() for rule in compat.violations_without_a_graph(config)
+        ]
     problems = [
         *_disk_mode_problems(config),
         *_proxy_problems(config),
         *graph_problems,
+        *without_a_graph,
         *_profile_problems(config),
         *_unserved_profile_problems(config),
         *_repository_profile_problems(config.portage.profile, available_profiles),

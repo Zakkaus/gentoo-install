@@ -1025,3 +1025,56 @@ def test_the_subarch_table_holds_what_the_menu_offers() -> None:
 
     offered = {subarch for (_, subarch), _ in BINHOSTS}
     assert offered <= BINHOST_SUBARCHS, offered - BINHOST_SUBARCHS
+
+
+#: Traits `FROM_THE_DEVICE_GRAPH` names that no fixture produces, so emptying
+#: a graph cannot show them moving. Each needs a layout the fixtures do not
+#: have: an encrypted esp, an esp on mdraid, and a native-encrypted pool under
+#: a loader that is not ZFSBootMenu.
+_UNOBSERVABLE_IN_A_FIXTURE = frozenset(
+    {
+        Trait.ESP_ENCRYPTED,
+        Trait.ESP_ON_MDRAID,
+        Trait.ESP_MDRAID_SUPERBLOCK_AT_START,
+        Trait.NATIVE_ZFS_SYSTEM_INITRAMFS,
+    }
+)
+
+
+def test_the_graph_trait_table_is_what_emptying_a_graph_changes() -> None:
+    """`violations_without_a_graph` trusts this table to say which traits an
+    in-place conversion cannot be judged by. A trait missing from it refuses
+    every conversion; a trait wrongly in it silently drops a rule that holds
+    in every mode."""
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.compat import FROM_THE_DEVICE_GRAPH
+
+    moved: set[Trait] = set()
+    for path in sorted((Path(__file__).resolve().parents[1] / "fixtures").glob("*.toml")):
+        installation = load(path)
+        emptied = replace(
+            installation,
+            disk=replace(installation.disk, graph=DeviceGraph.build(()), root=i("")),
+        )
+        moved |= traits_of(installation, None) ^ traits_of(emptied, None)
+    assert moved <= FROM_THE_DEVICE_GRAPH, sorted(one.name for one in moved - FROM_THE_DEVICE_GRAPH)
+    assert FROM_THE_DEVICE_GRAPH - moved == _UNOBSERVABLE_IN_A_FIXTURE, sorted(
+        one.name for one in (FROM_THE_DEVICE_GRAPH - moved) ^ _UNOBSERVABLE_IN_A_FIXTURE
+    )
+
+
+def test_a_configuration_rule_survives_the_loss_of_the_graph() -> None:
+    """The rules kept for a conversion are exactly the ones neither of whose
+    traits is read from a layout."""
+    from gentoo_install.model.compat import FROM_THE_DEVICE_GRAPH, violations_without_a_graph
+
+    locked = replace(
+        config(),
+        system=replace(config().system, root_password_hash="", users=(), authorized_keys=()),
+    )
+    kept = violations_without_a_graph(locked)
+    assert any(
+        rule.when is Trait.ROOT_LOCKED and rule.excludes is Trait.NO_OTHER_LOGIN for rule in kept
+    ), [rule.describe() for rule in kept]
+    for rule in kept:
+        assert not {rule.when, rule.excludes} & FROM_THE_DEVICE_GRAPH, rule.describe()
