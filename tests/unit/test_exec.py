@@ -1407,7 +1407,7 @@ def test_a_symlink_in_the_target_cannot_reach_the_live_system(tmp_path: Path) ->
     """`target / path` is a lexical join, so an absolute symlink under the
     target -- shipped by a stage3 or left on a reused filesystem -- made the
     installer write to the live system as root."""
-    from gentoo_install.exec.runner import TargetEscape
+    from gentoo_install.errors import TargetEscape
 
     target = tmp_path / "mnt"
     (target / "etc").mkdir(parents=True)
@@ -1427,7 +1427,7 @@ def test_a_symlink_in_the_target_cannot_reach_the_live_system(tmp_path: Path) ->
 def test_a_symlinked_parent_directory_cannot_reach_the_live_system(tmp_path: Path) -> None:
     """The final component is not the only way out: a directory on the way can
     be the symlink."""
-    from gentoo_install.exec.runner import TargetEscape
+    from gentoo_install.errors import TargetEscape
 
     target = tmp_path / "mnt"
     target.mkdir()
@@ -2436,10 +2436,50 @@ def test_a_written_file_is_whole_or_absent(
     assert not leftovers, f"the file it was written through stayed: {leftovers}"
 
 
+def test_a_refused_target_path_is_recorded_and_typed(tmp_path: Path) -> None:
+    """`TargetEscape` was a plain `Exception`, so the one refusal that stops
+    the installer writing to the live system through a symlink escaped
+    `apply`'s handler: the journal recorded nothing for the operation and
+    `cli` had no clause to turn it into an exit code.
+    """
+    from dataclasses import dataclass
+
+    from gentoo_install.errors import GentooInstallError, TargetEscape
+    from gentoo_install.log import Journal
+    from gentoo_install.plan.operations import Context, Operation, Stage
+
+    assert issubclass(TargetEscape, GentooInstallError)
+
+    @dataclass(frozen=True, kw_only=True)
+    class Escaping(Operation):
+        stage: Stage = Stage.SYSTEM
+
+        def describe(self) -> str:
+            return "write a file the target points out of"
+
+        def apply(self, context: Context) -> None:
+            raise TargetEscape("/etc/mtab in the target is a symlink")
+
+    journal = Journal(tmp_path / "install.jsonl")
+    runner = Runner(log=lambda line: None, journal=journal)
+    machine = apply.Machine(
+        config=config(),
+        runner=runner,
+        probe=Probe(runner=runner, work=tmp_path),
+        work=tmp_path,
+    )
+
+    with pytest.raises(TargetEscape):
+        apply.apply((Escaping(),), machine)
+
+    operations = [one for one in journal.replay() if one["event"] == "operation"]
+    assert [one["status"] for one in operations] == ["failed"], operations
+
+
 def test_a_symlink_at_the_destination_is_refused_rather_than_replaced(tmp_path: Path) -> None:
     """`os.replace` takes a symlink's place instead of following it, so the
     refusal the other paths get has to be made here too."""
-    from gentoo_install.exec.runner import TargetEscape
+    from gentoo_install.errors import TargetEscape
 
     target = tmp_path / "target"
     (target / "etc").mkdir(parents=True)

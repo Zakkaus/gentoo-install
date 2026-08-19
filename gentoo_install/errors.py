@@ -91,6 +91,16 @@ class ArchiveDigestMismatch(IntegrityError):
     """
 
 
+class TargetEscape(GentooInstallError):
+    """A path inside the target resolved to something outside it.
+
+    Under `GentooInstallError` because it is raised from inside an operation:
+    `apply` records only the failures it can catch, and `cli` maps only those
+    to an exit code, so a plain `Exception` here left the one refusal that
+    stops the installer writing to the live system unrecorded and untyped.
+    """
+
+
 class ResumeRefused(GentooInstallError):
     """A `--resume` whose journal was written by a different run."""
 

@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Callable, Sequence, TextIO
 
-from ..errors import CommandFailed
+from ..errors import CommandFailed, TargetEscape
 from ..log import Journal
 from ..model.config import ProxyConfig
 from ..plan.operations import ending, worth_reading
@@ -353,10 +353,6 @@ def _kill_group(process: subprocess.Popen[str]) -> None:
         os.killpg(os.getpgid(process.pid), signal.SIGKILL)
     except (ProcessLookupError, PermissionError):
         process.kill()
-
-
-class TargetEscape(Exception):
-    """A path inside the target resolved to something outside it."""
 
 
 def open_in_target(

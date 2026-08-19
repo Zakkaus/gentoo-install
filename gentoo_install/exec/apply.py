@@ -16,7 +16,7 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Callable, Sequence
 
-from ..errors import CommandFailed, GentooInstallError, InvalidLayout
+from ..errors import CommandFailed, GentooInstallError, InvalidLayout, TargetEscape
 from ..model.config import InstallConfig
 from ..model.validate import KernelCeiling
 from ..model.device import (
@@ -36,7 +36,7 @@ from ..plan.operations import CommandOutput, Operation
 from . import fetch, packages
 from .preflight import SecretStore
 from .probe import Probe
-from .runner import Runner, TargetEscape, open_in_target, under
+from .runner import Runner, open_in_target, under
 
 
 @dataclass
