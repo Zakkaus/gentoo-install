@@ -597,6 +597,23 @@ class Guest:
         assert last is not None
         raise last
 
+    def qmp_state(self) -> str:
+        """What qemu says this guest is doing, or empty when it will not say.
+
+        `running` is the ordinary answer. A guest whose storage returned an
+        error is `io-error` and one somebody paused is `paused`: both read as
+        `cpu 0.00` with flat counters, which is what a guest that stopped on
+        its own reads as too.
+        """
+        try:
+            status = self.api.call(
+                "GET", f"/nodes/{self.node}/qemu/{self.vmid}/status/current"
+            )
+        except ProxmoxError:
+            return ""
+        said = status.get("qmpstatus")
+        return said if isinstance(said, str) else ""
+
     def transferred(self) -> tuple[int, float] | None:
         """Bytes this guest has received and written, and its CPU share.
 
