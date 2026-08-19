@@ -2566,3 +2566,44 @@ def test_a_grant_still_buys_time_when_the_ceiling_has_run_out() -> None:
 
     assert len(deadlines) == 2, deadlines
     assert deadlines[1] - started >= cluster.RECONNECT_GRANT - 1.0, deadlines
+
+
+def test_an_address_lease_outlives_the_run_that_holds_it() -> None:
+    """The lease was six hours against an eight-hour ceiling, and `vm-desktop`
+    ran 6.3. A guest that outlives its lease keeps its address while another
+    campaign reserves it, and the second guest's initramfs answers `dracut
+    Warning: Duplicate address detected for 10.31.0.151 for interface eth0` —
+    which is how `zbm-unlock` lost 65 minutes to `no ssh daemon on port
+    2222`."""
+    from tests.vm import cluster
+
+    assert cluster.LEASE_SECONDS > cluster.RUN_CEILING, (
+        cluster.LEASE_SECONDS,
+        cluster.RUN_CEILING,
+    )
+    # And by enough for the boots either side of the install and the checks
+    # between them, rather than by a second.
+    assert cluster.LEASE_SECONDS - cluster.RUN_CEILING >= cluster.LEASE_MARGIN
+
+
+def test_a_lease_older_than_any_run_is_taken_over(tmp_path: Path) -> None:
+    """The other half: a schedule that was killed never released what it took,
+    and sixteen rounds once left a hundred leases behind. A lease nothing can
+    still be holding has to be reusable, or the pool empties."""
+    import os
+    import time as clock
+
+    from tests.vm import cluster
+
+    pool = cluster.AddressPool(tmp_path, lambda address: False)
+    first = pool.reserve("10.31.0.150")
+    assert first == "10.31.0.150"
+
+    # A second reservation steps over the live lease.
+    assert pool.reserve("10.31.0.150") == "10.31.0.151"
+
+    # Aged past any possible run, the first is handed out again.
+    lease = tmp_path / "addresses" / first
+    stale = clock.time() - cluster.LEASE_SECONDS - 1.0
+    os.utime(lease, (stale, stale))
+    assert pool.reserve("10.31.0.150") == first
