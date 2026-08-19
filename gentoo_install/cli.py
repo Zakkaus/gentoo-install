@@ -37,7 +37,7 @@ from .exec.probe import (
 )
 from .exec.runner import Runner
 from .log import Journal
-from .model.device import StorageFacts, StorageLayout, ZfsPool
+from .model.device import DeviceGraph, DeviceId, StorageFacts, StorageLayout, ZfsPool
 from .model.size import Size
 from .tui import app, screens
 from .tui import context as tui_context
@@ -182,6 +182,11 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="replace the default boot entry instead of arming one boot",
     )
+    parsed.add_argument(
+        "--disarm",
+        action="store_true",
+        help="take back an armed boot and delete what it placed",
+    )
     return parsed
 
 
@@ -256,6 +261,34 @@ def _boot_target(probe: Probe) -> netboot.BootTarget:
         secure_boot=secure_boot(),
         architecture=architecture(),
     )
+
+
+def _disarm_memory_environment(arguments: argparse.Namespace) -> int:
+    """Take back an arming from a later invocation.
+
+    The message an unattended arming prints names this, and for a while the
+    parser did not: an operator who followed it was answered `unrecognized
+    arguments: --disarm`. The target is read from the machine, the same way
+    the arming read it, so nothing has to have been kept from that run.
+    """
+    _require_root(arguments)
+    probe = _probe_for(arguments)
+    # A configuration with nothing in it: disarming reads the machine and
+    # writes to the machine, and every field of an install's configuration is
+    # about a target this run does not touch.
+    machine = Machine(
+        config=InstallConfig(disk=DiskConfig(graph=DeviceGraph.build(()), root=DeviceId(""))),
+        runner=probe.runner,
+        probe=probe,
+        work=arguments.work,
+        mountpoint=Path("/"),
+    )
+    apply(
+        netboot.disarm(target=_boot_target(probe)),
+        machine,
+        on_start=lambda one: print(one.describe()),
+    )
+    return EXIT_OK
 
 
 def _arm_memory_environment(
@@ -334,6 +367,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = parser().parse_args(argv)
     state = RunState(disk_was_written=bool(arguments.resume))
     try:
+        if arguments.disarm:
+            # Before everything else: the machine is armed and the operator
+            # wants it not to be, which needs no configuration beyond the one
+            # they already have and no network at all.
+            return _disarm_memory_environment(arguments)
         launch = _memory_launch(arguments)
         _require_root(arguments)
         if arguments.config is None and _needs_network(arguments):
