@@ -74,12 +74,19 @@ CURL_PROXY_CONFIG: Final[PurePosixPath] = PurePosixPath(
     "/etc/gentoo-install/curl-proxy.conf"
 )
 
+#: `--retry-on-host-error` with the tries: without it `-t 3` resolves the
+#: name once and gives up, which wget calls a fatal error and `vm-desktop`
+#: met six times in one burst — `Resolving mirrors.nju.edu.cn... failed:
+#: Temporary failure in name resolution.` and six binary packages lost after
+#: fifty-six minutes of installing. Measured on wget 1.25.0: one `Resolving`
+#: line without the flag, three with it. The curl commands below need
+#: nothing: curl retries a resolution failure under plain `--retry`.
 FETCHCOMMAND: Final[str] = (
-    'wget -t 3 -T 60 --passive-ftp -U "Portage (Gentoo, '
+    'wget -t 3 -T 60 --retry-on-host-error --passive-ftp -U "Portage (Gentoo, '
     'https://www.gentoo.org) distfile-fetch" -O "${DISTDIR}/${FILE}" "${URI}"'
 )
 RESUMECOMMAND: Final[str] = (
-    'wget -c -t 3 -T 60 --passive-ftp -U "Portage (Gentoo, '
+    'wget -c -t 3 -T 60 --retry-on-host-error --passive-ftp -U "Portage (Gentoo, '
     'https://www.gentoo.org) distfile-fetch" -O "${DISTDIR}/${FILE}" "${URI}"'
 )
 #: `-K` rather than the command line: `/proc/<pid>/cmdline` is world readable
