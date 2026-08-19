@@ -1731,12 +1731,12 @@ def install_one(
         if job.name in EXPECTED_TO_FAIL:
             # The install stopping is the whole answer here, so there is no
             # installed system to boot afterwards and the run ends on this line.
-            stopped = code != b"0"
+            why = _did_not_stop(code)
             return Outcome(
                 job.name,
-                Verdict.OK if stopped else Verdict.FAIL,
+                Verdict.FAIL if why else Verdict.OK,
                 time.monotonic() - started,
-                "" if stopped else "the install was supposed to stop and did not",
+                why,
                 log,
                 phase=phase,
                 revision=revision,
@@ -2214,6 +2214,20 @@ def _remaining(deadline: float) -> float:
 #: fixture that could never be green, and it was counted as unverified for
 #: weeks. `campaign.py` knew this and the cluster did not.
 EXPECTED_TO_FAIL: Final[frozenset[str]] = frozenset({"vm-proxy-dead"})
+
+
+def _did_not_stop(code: bytes) -> str:
+    """Why an expected-to-fail fixture is not a pass, or empty when it is.
+
+    An absent code is not a stop. `code != b"0"` was the whole rule, and a
+    guest whose results never came back leaves it empty, so a run that
+    collected nothing read as the failure the fixture exists to produce.
+    """
+    if not code:
+        return "the install was supposed to stop and wrote no exit code"
+    if code == b"0":
+        return "the install was supposed to stop and did not"
+    return ""
 
 #: Fixtures whose mirror site is the thing under test, so `--site` must not
 #: move it. `vm-binhost-fallback` names `xtom-hk`, whose binary package index
