@@ -1505,6 +1505,34 @@ def test_a_lost_marker_is_resent_with_a_fresh_token(
     )
 
 
+def test_two_rounds_carrying_one_fixture_keep_separate_logs(tmp_path: Path) -> None:
+    """Every schedule writes into one directory, so two rounds carrying the
+    same fixture wrote the same file at the same time and each verdict pointed
+    at a log holding both. `vm-greetd` was in two rounds at once.
+    """
+
+    class Free:
+        def __init__(self) -> None:
+            self.given = 9300
+
+        def free_vmid(self, held: frozenset[int] = frozenset()) -> int:
+            self.given += 1
+            return self.given
+
+    job = cluster.fixtures(["vm-greetd"])[0]
+    api = Free()
+    first = cluster._execution(
+        cast(Any, api), "infra-node1", job, "driver.iso", tmp_path, 0, "nonce-one"
+    )
+    second = cluster._execution(
+        cast(Any, api), "infra-node2", job, "driver.iso", tmp_path, 0, "nonce-two"
+    )
+
+    assert first.watch.log != second.watch.log
+    assert first.watch.log.name == "vm-greetd-9301.log"
+    assert second.watch.log.name == "vm-greetd-9302.log"
+
+
 def test_a_marker_that_arrives_after_the_retry_began_still_ends_the_command() -> None:
     """The guest prints the marker just after the reader gave up on it, so the
     retry was waiting for a marker that had already gone past. Six attempts
