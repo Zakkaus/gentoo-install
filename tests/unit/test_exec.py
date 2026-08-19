@@ -2769,3 +2769,46 @@ def test_one_reader_flattens_both_of_the_json_trees_the_probe_reads() -> None:
     assert _entries(blocks, "filesystems") == ()
     assert _entries("not a document", "filesystems") == ()
     assert _entries({"filesystems": "not a list"}, "filesystems") == ()
+
+
+def test_every_fetch_the_machine_makes_carries_the_configured_proxy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The stage3 download passed `config.proxy` and the two fetches beside it
+    did not. On a machine whose only route out is the proxy, ranking measures
+    every mirror as unreachable and a first-boot URL is not fetched at all."""
+    from dataclasses import replace as _replace
+
+    from gentoo_install.exec import fetch
+    from gentoo_install.model.config import ProxyConfig, ProxyKind
+
+    seen: list[object] = []
+
+    def ranked(candidates: tuple[str, ...], proxy: object = None) -> tuple[str, ...]:
+        seen.append(proxy)
+        return candidates
+
+    def text(url: str, proxy: object = None) -> str:
+        seen.append(proxy)
+        return "answered"
+
+    monkeypatch.setattr(fetch, "rank_mirrors", ranked)
+    monkeypatch.setattr(fetch, "text", text)
+
+    through = ProxyConfig(kind=ProxyKind.SOCKS5, host="proxy.example", port=1080)
+    installation = _replace(config(), proxy=through)
+    runner = Runner(log=lambda line: None)
+    machine = apply.Machine(
+        config=installation,
+        runner=runner,
+        probe=Probe(runner=runner, work=tmp_path),
+        work=tmp_path,
+    )
+
+    assert machine.rank_mirrors(("https://a.example", "https://b.example")) == (
+        "https://a.example",
+        "https://b.example",
+    )
+    assert machine.fetch_text("https://first-boot.example/script") == "answered"
+    assert seen == [through, through], seen
+
