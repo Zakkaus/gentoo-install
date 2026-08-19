@@ -2045,6 +2045,10 @@ def run(
     driver_path = retain_driver(workdir, built_path)
     driver = driver_path.name
     revision = revision_identity(driver_path)
+    # Said once here as well as in every guest's log: a schedule's own output
+    # is the file a reader opens first, and identifying which revision run109
+    # measured meant reading a guest log that a later round had overwritten.
+    print(f"installer revision: {revision}", flush=True)
     medium, urls, medium_sha512 = current_minimal()
     prepared: set[str] = set()
     # A node whose console proxy went away takes no more guests: three runs on
