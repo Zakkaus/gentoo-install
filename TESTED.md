@@ -206,7 +206,7 @@ layout and bootloader. One disk has been written this way and read back.
 |---|---|---|
 | `6762496a41dd` | `--lowram` on a Debian 12 genericcloud machine, UEFI | armed one boot, left the default entry alone, rebooted, came up in Alpine from RAM with the delivered configuration and asked `install or shell>` |
 | `2f03f85139d2` | `--ram` on the same machine | the same, through the Gentoo CJK ISO: `root=live:CDLABEL=Gentoo-CJK-amd64-20260813`, the live image copied into RAM, `livecd login: root (automatic login)`, then `install or shell>` |
-| `3bdd6a0e78a8` | `dd` on the official minimal medium, raw and `gz` | wrote a 4 MiB image onto a second disk and read it back byte-for-byte, both formats, in 23s each |
+| `3bdd6a0e78a8` | `dd` on the official minimal medium: `vm-dd-raw` and `vm-dd-gz` | wrote a 4 MiB image onto a second disk and read it back byte-for-byte, both formats, in 23s each |
 | `7fcc7edcec6b` | `--lowram` on a Debian 12 genericcloud machine, UEFI, answering `install` | installed Gentoo from inside the memory environment, powered the machine off, booted the disk it had written and passed the shared installed-state checks: `the installed system booted, mounted its layout and has no failed unit` |
 | `7fcc7edcec6b` | `--lowram` on a second machine, its armed entry's initramfs removed | the delivered screen never appeared, and the cloud system's own marker and `/etc/os-release` `ID` were read back on the two boots that followed |
 | `6502c213269e` | the same, with the guarded entry | GRUB read the machine's own menu on the failed boot itself and booted Debian from it: `the failed one-shot returned to the cloud system` at 237.3s, `the second reboot still reached the cloud system` at 246.0s |
@@ -214,6 +214,9 @@ layout and bootloader. One disk has been written this way and read back.
 | `f5b6d5e142fd` | `--ram` on a Debian 12 genericcloud machine, UEFI, answering `install` | installed Gentoo from inside the Gentoo CJK ISO environment and passed the same installed-state checks: `logged into the installed system (console)` at 532.8s, `the installed system booted, mounted its layout and has no failed unit` |
 | `e430b3fadbfe` | the same, once the firmware kept its variables | installed from the Gentoo CJK ISO environment again and booted the disk it wrote: `logged into the installed system (console)` at 531.8s, `memory install booted its disk and passed the shared installed-state checks` at 534.5s |
 | `3e085f078c9f` | `--lowram` on a Debian 12 genericcloud machine, UEFI, answering `install` | installed from the Alpine netboot environment and booted the disk it wrote: `logged into the installed system (console)` at 457.6s, `memory install booted its disk and passed the shared installed-state checks` at 460.1s. The run before it stopped at `make a vfat filesystem on espfs labelled ESP` with `vdc1` and `vdc2` in `/proc/partitions` and neither in `/dev`, so this path is not reliable yet |
+
+Every row above installed `vm-ram`, the fixture `tests/vm/ram.py` hands the
+environment unless `--config` names another.
 
 Both environments install, and they needed different work to get there: the
 CJK ISO answered `live system: gentoo` with `python3.14`, `mount`, `tar` and
