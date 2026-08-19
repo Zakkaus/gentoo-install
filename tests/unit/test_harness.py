@@ -462,6 +462,54 @@ def test_the_installed_checks_read_the_files_the_plan_writes() -> None:
     assert named == {expected}, named
 
 
+def test_an_installed_check_matches_the_value_and_not_the_text_around_it() -> None:
+    """Four checks accepted text that carried the answer without the machine
+    having produced it: `Gentoo` anywhere in `os-release`, `UUID=` anywhere in
+    `fstab` when every layout writes one for the esp, `/boot/` for any file at
+    all while `uname -r` was read and never compared, and a bare hostname that
+    is a substring of openrc's `hostname="name"`.
+
+    The passing text is copied from guests this campaign ran.
+    """
+    import re
+
+    from gentoo_install.exec.config import load
+    from tests.vm.installed import checks
+
+    def pattern(fixture: str, name: str) -> str:
+        return next(
+            one.pattern for one in checks(load(Path(f"tests/fixtures/{fixture}.toml")))
+            if one.name == name
+        )
+
+    kernel = pattern("vm-binpkg", "kernel")
+    assert re.search(kernel, "\n6.18.43-gentoo-dist-bin\n/boot/kernel-6.18.43-gentoo-dist-bin\n")
+    assert re.search(
+        kernel,
+        "\n6.18.43-gentoo-dist-bin\n/boot/3c3b/6.18.43-gentoo-dist-bin/linux\n"
+        "/boot/loader/loader.conf\n",
+    )
+    # The kernel that is installed is not the kernel that booted.
+    assert not re.search(kernel, "\n6.18.43-gentoo-dist-bin\n/boot/kernel-6.17.1-gentoo\n")
+
+    fstab = pattern("vm-binpkg", "fstab")
+    assert re.search(fstab, "UUID=8979\t/\text4\tdefaults\t0\t1\nUUID=0AB2\t/efi\tvfat\t0\t2\n")
+    # The esp by UUID and the root still named by device.
+    assert not re.search(fstab, "/dev/vda2\t/\text4\tdefaults\t0\t1\nUUID=0AB2\t/efi\tvfat\t0\t2\n")
+
+    release = pattern("vm-binpkg", "os-release")
+    assert re.search(release, "NAME=Gentoo\nID='gentoo'\n")
+    assert not re.search(release, "NAME=\"Ubuntu\"\nID=ubuntu\nID_LIKE=Gentoo\n")
+
+    # openrc keeps the name in a shell assignment, systemd in a bare line.
+    openrc = pattern("openrc-sdboot", "hostname")
+    assert re.search(openrc, 'hostname="openrcsdbox"\n')
+    assert not re.search(openrc, 'hostname="openrcsdboxlonger"\n')
+    systemd = pattern("vm-binpkg", "hostname")
+    assert re.search(systemd, "vmtest\n")
+    assert not re.search(systemd, "vmtestlonger\n")
+
+
 def test_every_input_framework_has_a_binary_to_ask_for() -> None:
     """The check asks `command -v <binary>`, and the map from framework to
     binary is a second table beside the catalog's own `input_framework`. A
@@ -2362,9 +2410,21 @@ def test_a_healthy_init_is_judged_by_the_marker_it_prints() -> None:
     from gentoo_install.exec.config import load
 
     fixture = Path(__file__).resolve().parents[1] / "fixtures" / "vm-btrfs.toml"
+    installation = load(fixture)
+    # The pattern as its own output holds only while every pattern is a
+    # literal. Four of them relate one part of the machine's answer to
+    # another, so those four carry a line copied from a guest instead.
+    written = {
+        "os-release": b"NAME=Gentoo\nID='gentoo'\n",
+        "hostname": installation.system.hostname.encode() + b"\n",
+        "kernel": b"6.18.43-gentoo-dist-bin\n/boot/kernel-6.18.43-gentoo-dist-bin\n",
+        "fstab": b"UUID=ab2e555d\t/\tbtrfs\tdefaults,subvol=@\t0\t1\n",
+    }
     healthy = {
-        f"{one.name}.txt": one.pattern.replace("\\", "").encode() + b"\n"
-        for one in checks(load(fixture))
+        f"{one.name}.txt": written.get(
+            one.name, one.pattern.replace("\\", "").encode() + b"\n"
+        )
+        for one in checks(installation)
     }
     assert check_expected(healthy, fixture) == 0
     broken = dict(healthy)
