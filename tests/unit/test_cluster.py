@@ -260,7 +260,7 @@ def _timed_wait(
     monkeypatch.setattr(time, "monotonic", lambda: clock[0])
     serial = SerialConsole(TimedChannel(clock, output_at), BytesIO())
     link = cluster.Reconnecting(lambda: serial)
-    watch = cluster.Watchdog(tmp_path / "install.log", counters)
+    watch = cluster.Watchdog(tmp_path / "install.log", counters, where="infra-node2")
     return link, watch
 
 
@@ -296,6 +296,10 @@ def test_install_wait_names_silent_console_and_flat_counters(
     assert "console was silent" in message
     assert "counters were flat" in message
     assert "0 -> 0 bytes" in message
+    # And where, because the cluster's other tenants are not this campaign's:
+    # a guest that goes to cpu 0.00 mid-compile is a different finding on a
+    # node at 100% than on an idle one, and the verdict was the only record.
+    assert "on infra-node2" in message, message
 
 
 def test_run_ceiling_ends_silent_guest_that_keeps_moving_bytes(
