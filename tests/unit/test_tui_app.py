@@ -3303,6 +3303,33 @@ def test_dd_mode_is_offered_only_from_a_live_or_memory_environment() -> None:
         "image_format",
         "image_destination",
     ]
+    # What the operator configured before switching, dropped with the layout:
+    # this mode writes the image as it is, `validate` refuses a configuration
+    # describing a machine it will not produce, and the rows that would carry
+    # those values are no longer on the menu.
+    from gentoo_install.model.config import (
+        BootloaderConfig,
+        KernelConfig,
+        PackagesConfig,
+        PortageConfig,
+        SystemConfig,
+    )
+    from gentoo_install.model.validate import validate
+
+    assert config().system != SystemConfig(), "the fixture describes a machine"
+    assert chosen.system == SystemConfig()
+    assert chosen.packages == PackagesConfig()
+    assert chosen.portage == PortageConfig()
+    assert chosen.kernel == KernelConfig()
+    assert chosen.bootloader == BootloaderConfig()
+    validate(
+        replace(
+            chosen,
+            disk=replace(
+                chosen.disk, source="/run/image.raw", destination="/dev/disk/by-id/virtio-target"
+            ),
+        )
+    )
 
 
 

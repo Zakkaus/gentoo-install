@@ -11,11 +11,16 @@ import pytest
 from gentoo_install.errors import ConfigError, ValidationFailed
 from gentoo_install.model import compat
 from gentoo_install.model.config import (
+    BootloaderConfig,
     DiskMode,
     InitSystem,
     InstallConfig,
+    KernelConfig,
     MemoryLaunch,
     MemoryMode,
+    PackagesConfig,
+    PortageConfig,
+    SystemConfig,
 )
 from gentoo_install.model.device import DeviceGraph
 from gentoo_install.model.device import (
@@ -62,6 +67,11 @@ def dd_config() -> InstallConfig:
     installation = config()
     return replace(
         installation,
+        system=SystemConfig(),
+        packages=PackagesConfig(),
+        portage=PortageConfig(),
+        kernel=KernelConfig(),
+        bootloader=BootloaderConfig(),
         disk=replace(
             installation.disk,
             graph=DeviceGraph.build(()),
