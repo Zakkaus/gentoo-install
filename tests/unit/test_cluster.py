@@ -2328,3 +2328,43 @@ def test_a_stale_password_prompt_does_not_take_the_password(
     # was offered twice because the first one was flushed.
     assert console.names == [cluster.NAME], console.names
     assert console.sent == [cluster.NAME, cluster.NAME, "install"], console.sent
+
+
+def test_a_verdict_with_no_log_does_not_print_a_path_that_is_not_one(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`ERROR vm-image: the cluster had no capacity for 121s (None)` — the
+    parenthetical is where every other line puts a file to open, and a job
+    refused before a guest existed has none."""
+    from pathlib import Path as _Path
+
+    from tests.vm import cluster
+
+    refused = cluster.Outcome(
+        name="vm-image",
+        verdict=cluster.Verdict.ERROR,
+        seconds=121.0,
+        detail="the cluster had no capacity for 121s",
+    )
+    kept = cluster.Outcome(
+        name="vm-btrfs",
+        verdict=cluster.Verdict.FAIL,
+        seconds=1.0,
+        detail="the installer exited b'4'",
+        log=_Path("/somewhere/vm-btrfs.log"),
+    )
+
+    for one in (refused, kept):
+        where = f" ({one.log})" if one.log is not None else ""
+        print(f"  {one.verdict.value} {one.name}: {one.detail}{where}")
+    said = capsys.readouterr().out.splitlines()
+
+    assert said[0].endswith("the cluster had no capacity for 121s"), said[0]
+    assert "None" not in said[0], said[0]
+    assert said[1].endswith("(/somewhere/vm-btrfs.log)"), said[1]
+
+    # And `main` prints it that way rather than the two agreeing by accident.
+    import inspect
+
+    printed = inspect.getsource(cluster.main)
+    assert 'f" ({one.log})" if one.log is not None else ""' in printed, printed
