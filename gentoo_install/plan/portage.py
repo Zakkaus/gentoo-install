@@ -846,6 +846,11 @@ class Emerge(Operation):
     repository_bootstrap: bool = False
     mode: InstallMode = InstallMode.NORMAL
     source: SourcePolicy = SourcePolicy.binaries_allowed()
+    #: Whether this run has a binary host at all. The stage3 ships an enabled
+    #: `binrepos.conf` for the official one, so `--getbinpkg=y` reaches it
+    #: even when the configuration turned every host off: `ext2` compiled 48
+    #: packages and fetched 20 from a host it had not asked for.
+    binary_host: bool = True
     #: What to degrade rather than fail, when this emerge is what enables an
     #: optional path. Empty means the install stops, which is right for
     #: everything the machine needs to boot.
@@ -875,7 +880,9 @@ class Emerge(Operation):
         return self.source.built_from(self.packages)
 
     def apply(self, context: Context) -> None:
-        command = self._argv(context, source_only=context.degraded(BINARY_PACKAGES))
+        command = self._argv(
+            context, source_only=context.degraded(BINARY_PACKAGES) or not self.binary_host
+        )
         try:
             result = context.run_in_target(command, check=False)
         except CommandFailed as error:
@@ -1172,6 +1179,9 @@ class VerifyPackages(Operation):
 
     stage: Stage = Stage.PORTAGE
     requests: tuple[PackageRequest, ...]
+    #: As `Emerge.binary_host`: the pretend has to resolve against the same
+    #: package set the real merge will use, or it accepts what emerge refuses.
+    binary_host: bool = True
 
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
         return "resolve {} together before installing the requested packages", (
@@ -1180,7 +1190,9 @@ class VerifyPackages(Operation):
 
     def apply(self, context: Context) -> None:
         atoms = tuple(request.atom for request in self.requests)
-        output = self._resolve(context, atoms, source_only=context.degraded(BINARY_PACKAGES))
+        output = self._resolve(
+            context, atoms, source_only=context.degraded(BINARY_PACKAGES) or not self.binary_host
+        )
         if output.returncode == 0:
             return
         output = self._without_the_binary_host(context, atoms, output)
@@ -1360,7 +1372,7 @@ def build(
         WriteProxyClients(proxy=config.proxy),
         CreateAutounmaskFiles(),
     ]
-    if _uses_binhost(portage):
+    if uses_binhost(portage):
         # Before the first emerge, not after it. `make.conf` above already
         # carries `FEATURES=getbinpkg`, so `emerge dev-vcs/git` fetches binary
         # packages; without the keyring a profile with
@@ -1571,7 +1583,7 @@ def _features(config: InstallConfig) -> tuple[str, ...]:
     password: curl answered `cannot read config from` for every distfile.
     """
     wanted: list[str] = []
-    if _uses_binhost(config.portage):
+    if uses_binhost(config.portage):
         wanted.append("getbinpkg")
     if config.proxy.enabled and (config.proxy.over_socks or config.proxy.username):
         wanted.append("-userfetch")
@@ -1603,7 +1615,8 @@ def _proxy_toml(proxy: ProxyConfig) -> str:
     )
 
 
-def _uses_binhost(portage: PortageConfig) -> bool:
+def uses_binhost(portage: PortageConfig) -> bool:
+    """Whether any binary host is configured at all."""
     return portage.binhost.official or portage.binhost.community is not BinhostChannel.OFF
 
 

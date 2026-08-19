@@ -136,7 +136,21 @@ def build(
             index for index, operation in enumerate(ordered) if operation.stage is Stage.PORTAGE
         ) + 1
         ordered.insert(after_configuration, portage.VerifyPackages(requests=requests))
-    return tuple(ordered)
+    return tuple(_told_about_the_binary_host(one, config) for one in ordered)
+
+
+def _told_about_the_binary_host(operation: Operation, config: InstallConfig) -> Operation:
+    """Every merge learns whether this run has a binary host.
+
+    Set here rather than at each of the twenty-seven places an `Emerge` is
+    built: a construction site that forgot it would fetch from a host the
+    configuration turned off, which is the defect this exists to close.
+    """
+    if portage.uses_binhost(config.portage) or not isinstance(
+        operation, (portage.Emerge, portage.VerifyPackages)
+    ):
+        return operation
+    return replace(operation, binary_host=False)
 
 
 #: The only bootloader operations that cannot be done before the swap: they
