@@ -18,7 +18,7 @@ gentoo-install은 Linux 라이브 환경에서 실행되어 amd64 아키텍처�
 
 <!-- fact: storage-device-graph -->
 
-**저장 장치** 장치 그래프는 GPT와 MBR 파티션 테이블, ext2, ext3, ext4, xfs, f2fs, vfat, subvolume을 포함하는 btrfs, swap, LUKS2 암호화, LVM, mdraid를 다룬다. 기존 파티션 테이블을 유지할 수 있으며 각 파티션에 유지, 포맷, 삭제 작업을 각각 지정할 수 있다.
+**저장 장치** 장치 그래프는 GPT와 MBR 파티션 테이블, ext2, ext3, ext4, xfs, f2fs, vfat, subvolume을 포함하는 btrfs, swap, LUKS2 암호화, LVM, mdraid를 다룬다. ZFS도 같은 그래프에 속한다. 풀은 vdev 위에서 stripe, mirror, raidz1, raidz2, raidz3 중 하나를 취하고, 네이티브 암호화는 풀의 속성이며, 각 dataset은 그 자체로 하나의 노드다. 기존 파티션 테이블을 유지할 수 있으며 각 파티션에 유지, 포맷, 삭제 작업을 각각 지정할 수 있다.
 
 <!-- fact: zram-system -->
 
@@ -30,13 +30,21 @@ gentoo-install은 Linux 라이브 환경에서 실행되어 amd64 아키텍처�
 
 스테이징된 시스템은 실행 중인 시스템을 건드리지 않은 채 `/gentoo-install.new` 아래에 구축되고, 그다음 `rename(2)`으로 디렉터리마다 교환된다. 교환 이후에 실행되는 것은 esp 또는 부트 섹터에 쓰는 작업뿐이다. 루트가 LUKS, LVM, mdraid 아래에 있는 경우, 루트 파일 시스템이 이 설치 도구가 기술할 수 없는 종류인 경우, 루트 파일 시스템의 여유 공간이 10 GiB 미만인 경우, 라이브 미디어에서 실행한 경우는 모두 아무것도 쓰기 전에 이유를 밝히고 거부한다.
 
+<!-- fact: prepared-image -->
+
+**디스크 이미지** `mode = "image"`는 디스크가 아니라 `disk.image`가 지정하고 `disk.size`가 크기를 정하는 희소 파일에 설치한다. 결과물은 다른 곳으로 복사해 두었다가 나중에 쓸 수 있는 파일이다. `mode = "dd"`는 설치를 수행하지 않는다. `disk.source`의 이미지를 `disk.destination` 디스크 전체로 스트리밍해 쓰고, 읽으면서 `raw`, `gz`, `xz`, `zst`, `tar`를 푼다. 그 이미지가 이미 담고 있는 레이아웃과 부트로더는 그대로 둔다. 두 모드는 서로의 키를 받지 않으며 `partition` 모드는 어느 쪽 키도 받지 않는다.
+
 <!-- fact: boot-system -->
 
-**부팅 및 시스템** 설치 도구에서는 GRUB과 systemd-boot 부트로더를 선택할 수 있다. GRUB은 UEFI와 BIOS를 지원하고 systemd-boot는 UEFI를 지원한다. 설치 도구는 systemd 또는 OpenRC, dracut, locale, 키보드 배열, 시간대, 호스트 이름, DNS, 고정 주소, 선택한 네트워크 관리자를 설정할 수도 있다.
+**부팅 및 시스템** 설치 도구에서는 GRUB, systemd-boot, ZFSBootMenu 부트로더를 선택할 수 있다. GRUB은 UEFI와 BIOS를 지원하고 systemd-boot는 UEFI를 지원한다. ZFSBootMenu는 UEFI에서 ZFS 루트를 부팅하며 커널은 풀 안 부트 환경 자체의 `/boot`에서 가져온다. 설치 도구는 systemd 또는 OpenRC, dracut, locale, 키보드 배열, 시간대, 호스트 이름, DNS, 고정 주소, 선택한 네트워크 관리자를 설정할 수도 있다.
+
+<!-- fact: remote-unlock -->
+
+**암호화된 루트를 ssh로 여는 경로** `[kernel.remote_unlock]`은 암호 구절 프롬프트 앞에 아무도 없는 기계를 위해 부팅 경로에 ssh 데몬을 놓는다. `enabled`가 이 경로를 켠다. `port`의 기본값은 22가 아니라 222이며, 실행 중인 시스템에 대한 클라이언트의 `known_hosts` 항목이 initramfs의 항목과 충돌하지 않게 한다. `address`, `gateway`, `interface`는 그 데몬에 고정 주소를 주고, 주소가 비어 있으면 DHCP를 쓴다. LUKS 루트는 시스템 initramfs 안의 `sys-kernel/dracut-crypt-ssh`가 열고, ZFS 루트는 ZFSBootMenu가 자기 이미지에 넣는 dropbear가 연다. 인가 키는 `system.authorized_keys`의 것이다. 이 경로를 켜고도 키를 하나도 적지 않은 설정은 이유를 밝히고 거부된다. 아무도 로그인할 수 없는 데몬을 기술하기 때문이다.
 
 <!-- fact: desktop-language -->
 
-**데스크톱 및 언어 지원** 설치 도구에서는 GNOME, KDE Plasma, Xfce를 선택하고 GDM, SDDM, LightDM 중 하나와 조합할 수 있다. 그래픽 설정은 AMD, Intel, NVIDIA, 가상 머신을 지원한다. 패키지 카탈로그에는 Fcitx 5, Rime, Anthy, Mozc, Hangul, CJK 글꼴이 포함된다. 커널 선택 항목에는 cjktty 패치가 적용된 `sys-kernel/gentoo-cjk-kernel-bin`과 `sys-kernel/gentoo-cjk-kernel`이 포함된다.
+**데스크톱 및 언어 지원** 설치 도구에서는 GNOME, KDE Plasma, Xfce를 선택하고 GDM, SDDM, LightDM, 또는 greetd와 그 tuigreet 콘솔 그리터 중 하나와 조합할 수 있다. 그래픽 설정은 AMD, Intel, NVIDIA, 가상 머신을 지원한다. 패키지 카탈로그에는 Fcitx 5, Rime, Anthy, Mozc, Hangul, CJK 글꼴이 포함된다. 커널 선택 항목에는 cjktty 패치가 적용된 `sys-kernel/gentoo-cjk-kernel-bin`과 `sys-kernel/gentoo-cjk-kernel`이 포함된다.
 
 <!-- fact: portage -->
 
@@ -72,7 +80,9 @@ gentoo-install은 Linux 라이브 환경에서 실행되어 amd64 아키텍처�
 
 `--ram`과 `--lowram`은 각각 QEMU 기록이 있다. Debian 12 기기가 한 번의 부팅을 설정하고, 기본 부팅 항목을 바꾸지 않은 채 재부팅하여 전달된 환경——`--ram`은 Gentoo CJK ISO, `--lowram`은 Alpine netboot 아카이브——으로 올라왔고, 전달받은 설정을 지니고 있었다. 그 화면에서 `install`을 답한 기록이 환경마다 하나씩 있다. 기기는 Gentoo를 설치했고, 기록한 디스크로 부팅했으며, 공용 설치 후 검사를 통과했다. 다른 기기에서는 설정된 항목의 initramfs를 지웠고, 하네스가 기기를 교체하며 수행하는 전원 재투입 뒤 이어진 두 번의 부팅 모두 원래 클라우드 시스템에 도달했다. `dd`는 기록이 하나 있다. live 매체에서 준비된 이미지를 디스크 전체에 쓰고 raw와 gzip 두 형식 모두 바이트 단위로 읽어 냈다.
 
-고정 주소, ext2, ext3에는 각각 클러스터 기록이 있다. 소스에서 빌드하는 커널과 binhost 폴백에는 runner 수준의 시험만 있으며, runner 수준의 시험은 엔드투엔드 기록이 아니다.
+고정 주소, ext2, ext3에는 각각 클러스터 기록이 있다. ZFS 기록은 stripe, mirror, raidz, 암호화된 풀, 그리고 ZFSBootMenu가 부팅한 풀을 포함한다. 원격 잠금 해제의 두 경로에도 각각 클러스터 기록이 있다. 시스템 initramfs가 연 LUKS 루트와 ZFSBootMenu 자체 이미지가 연 ZFS 풀이다. greetd에는 기록이 둘 있다.
+
+파일에 설치하는 경로에는 기록이 하나 있다. 쓴 이미지를 `losetup -Pf`로 붙여 그 레이아웃이 선언한 두 파일 시스템으로 읽어 냈으나, 그 파일로 부팅한 기계는 아직 없다. 소스에서 빌드하는 커널과 binhost 폴백에는 runner 수준의 시험만 있으며, runner 수준의 시험은 엔드투엔드 기록이 아니다.
 
 `tests/fixtures/` 아래의 파일이 다루는 것은 구성 모델이며, 그 존재는 설치된 기계에 대해 아무것도 입증하지 않는다.
 

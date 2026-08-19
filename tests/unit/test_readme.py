@@ -85,7 +85,7 @@ SECTIONS = {
 
 FACT_UNITS = (
     "identity", "capability-scope", "storage-device-graph", "zram-system",
-    "in-place-conversion", "boot-system",
+    "in-place-conversion", "prepared-image", "boot-system", "remote-unlock",
     "desktop-language", "portage", "proxy",
     "memory-environment", "memory-environment-access",
     "plan-records", "verification-scope",
@@ -171,6 +171,20 @@ def test_reviewed_cross_locale_claims_stay_attached_to_their_factual_units() -> 
             "gitweb.gentoo.org",
         ),
         "portage": ("zh-TW", "zh-CN", "ja", "ko", "en", "gentoo-zh"),
+        # Each of these is a name or a number a reader acts on, so a
+        # translation that drops one leaves that locale unable to use the
+        # path the other four document.
+        "storage-device-graph": ("ZFS", "stripe", "mirror", "raidz1", "raidz2", "raidz3"),
+        "prepared-image": (
+            "disk.image", "disk.size", "disk.source", "disk.destination",
+            "`raw`", "`gz`", "`xz`", "`zst`", "`tar`",
+        ),
+        "boot-system": ("GRUB", "systemd-boot", "ZFSBootMenu"),
+        "remote-unlock": (
+            "[kernel.remote_unlock]", "222", "dracut-crypt-ssh",
+            "system.authorized_keys", "ZFSBootMenu",
+        ),
+        "desktop-language": ("greetd", "tuigreet"),
         "exit-codes": ("argparse", "bootstrap.sh", "`1`", "`2`"),
     }
     backups = {
