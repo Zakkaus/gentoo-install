@@ -305,6 +305,20 @@ class Api:
         ]
         return sorted(found, key=lambda one: one.free_bytes, reverse=True)
 
+    def node_load(self, name: str) -> float | None:
+        """The share of this node's cores in use, or None when it will not say.
+
+        Read when a guest is about to be called stuck, not on every sample: a
+        guest at `cpu 0.00` on a node at 99% is the cluster having no time for
+        it, and a guest at `cpu 0.00` on an idle node is a guest that stopped.
+        """
+        try:
+            status = self.call("GET", f"/nodes/{name}/status")
+        except ProxmoxError:
+            return None
+        used = status.get("cpu")
+        return float(used) if isinstance(used, (int, float)) else None
+
     def ours(self) -> list[tuple[str, int]]:
         """Every machine this harness created, as `(node, vmid)`.
 

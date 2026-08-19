@@ -260,7 +260,9 @@ def _timed_wait(
     monkeypatch.setattr(time, "monotonic", lambda: clock[0])
     serial = SerialConsole(TimedChannel(clock, output_at), BytesIO())
     link = cluster.Reconnecting(lambda: serial)
-    watch = cluster.Watchdog(tmp_path / "install.log", counters, where="infra-node2")
+    watch = cluster.Watchdog(
+        tmp_path / "install.log", counters, where="infra-node2", load=lambda: 0.99
+    )
     return link, watch
 
 
@@ -300,6 +302,10 @@ def test_install_wait_names_silent_console_and_flat_counters(
     # a guest that goes to cpu 0.00 mid-compile is a different finding on a
     # node at 100% than on an idle one, and the verdict was the only record.
     assert "on infra-node2" in message, message
+    # And what the node was doing then: a guest at `cpu 0.00` on a node at 99%
+    # is the cluster having no time for it, which is not the same finding as a
+    # guest that stopped. Two were ended this way on one day.
+    assert "the node itself at 99%" in message, message
 
 
 def test_run_ceiling_ends_silent_guest_that_keeps_moving_bytes(
@@ -1535,6 +1541,23 @@ def test_two_rounds_carrying_one_fixture_keep_separate_logs(tmp_path: Path) -> N
     assert first.watch.log != second.watch.log
     assert first.watch.log.name == "vm-greetd-9301.log"
     assert second.watch.log.name == "vm-greetd-9302.log"
+
+
+def test_a_node_that_will_not_answer_leaves_the_reason_readable(tmp_path: Path) -> None:
+    """The node's load is read once, when the guest is about to be called
+    stuck. A cluster that will not answer that request must not take the rest
+    of the reason with it.
+    """
+    def refusing() -> float | None:
+        return None
+
+    watch = cluster.Watchdog(
+        tmp_path / "install.log", lambda: (0, 0.0), where="infra-node4", load=refusing
+    )
+    reason = watch.idle_reason()
+    assert reason is not None
+    assert "on infra-node4" in reason, reason
+    assert "the node itself" not in reason, reason
 
 
 def test_a_marker_that_arrives_after_the_retry_began_still_ends_the_command() -> None:
