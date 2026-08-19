@@ -62,10 +62,16 @@ INPUT_METHOD_BINARIES: Final[dict[str, str]] = {
 }
 
 
+#: The root entry, not any `UUID=` in the file. Every layout writes an esp
+#: line by UUID as well, so `UUID=` alone was satisfied by a machine whose
+#: root was still named by device. The separator is a tab on every guest read.
+ROOT_BY_UUID: Final[str] = r"(?m)^UUID=\S+\s+/\s"
+
+
 def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
     """Derive every installed-state check from the configuration."""
     result = [
-        InstalledCheck("os-release", "cat /etc/os-release", "Gentoo"),
+        InstalledCheck("os-release", "cat /etc/os-release", r"(?m)^ID=['\"]?gentoo['\"]?$"),
         InstalledCheck("mounts", "findmnt --noheadings --list --output TARGET,SOURCE,FSTYPE", "/"),
         InstalledCheck("locale", "locale", f"LANG={installation.system.locale}"),
         InstalledCheck("hostname", _hostname_command(installation), _hostname_pattern(installation)),
@@ -183,7 +189,7 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
         # converted, and the esp and root filesystem are whatever it already
         # had. `fstab` still has to name the root by UUID, which is the part
         # the conversion writes.
-        result.append(InstalledCheck("fstab", "cat /etc/fstab", "UUID="))
+        result.append(InstalledCheck("fstab", "cat /etc/fstab", ROOT_BY_UUID))
         return tuple(result)
     graph = installation.disk.graph
     esp = compat.esp_mount(graph)
@@ -198,7 +204,7 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
         kind = filesystem.kind.value if isinstance(filesystem, Filesystem) else ""
         result.append(InstalledCheck("root filesystem", "findmnt --noheadings --output FSTYPE /", kind))
     if not isinstance(source, ZfsDataset):
-        result.append(InstalledCheck("fstab", "cat /etc/fstab", "UUID="))
+        result.append(InstalledCheck("fstab", "cat /etc/fstab", ROOT_BY_UUID))
     return tuple(result)
 
 
@@ -208,15 +214,31 @@ def _hostname_command(installation: InstallConfig) -> str:
 
 
 def _hostname_pattern(installation: InstallConfig) -> str:
-    """Match the init system's hostname representation."""
-    return installation.system.hostname
+    """Match the init system's hostname representation.
+
+    Both branches answered the bare name, which is a substring of the openrc
+    file's `hostname="name"` and of any longer name installed by mistake.
+    """
+    name = re.escape(installation.system.hostname)
+    if installation.system.init is InitSystem.SYSTEMD:
+        return rf"(?m)^{name}$"
+    return rf'(?m)^hostname="{name}"$'
+
+
+#: The release `uname -r` printed, and a `/boot` file whose own name carries
+#: it. Both branches of the layout rule answered `/boot/`, which any file
+#: under `/boot` satisfies while the release the machine is running is read
+#: and never compared: `grub` and `systemd-boot` alike passed on a stale
+#: kernel. The release is a backreference, so nothing but the machine's own
+#: answer can satisfy it. Measured against fourteen guests: `kernel-<release>`
+#: (dist-bin), `vmlinuz-<release>` (BIOS), and systemd-boot's
+#: `<machine-id>/<release>/linux` all carry it.
+KERNEL_MATCHES_ITS_RELEASE: Final[str] = r"(?ms)\A\s*(?P<release>[0-9]\S*)$.*^/boot/\S*(?P=release)"
 
 
 def _kernel_pattern(installation: InstallConfig) -> str:
-    """Match the selected bootloader's kernel layout."""
-    if installation.bootloader.kind is Bootloader.SYSTEMD_BOOT:
-        return "/boot/"
-    return "/boot/"
+    """Match a `/boot` file against the release the machine is running."""
+    return KERNEL_MATCHES_ITS_RELEASE
 
 
 def stage_passphrase_commands(installation: InstallConfig) -> tuple[str, ...]:
