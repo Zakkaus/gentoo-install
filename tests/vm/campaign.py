@@ -229,6 +229,10 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         # fixture had ever made.
         Run("fixtures/vm-zfs-mirror.toml"),
         Run("fixtures/vm-f2fs.toml"),
+        # xfce behind greetd, and the only fixture with a display manager
+        # whose configuration the installer rewrites rather than writes: the
+        # `command =` line in the file `gui-libs/greetd` installs.
+        Run("fixtures/vm-greetd.toml", weight=2, cpus=10),
     ),
     # One configuration, six media: this stage tests `bootstrap.sh` and
     # preflight, so the shortest fixture is the right one. Booted like every
