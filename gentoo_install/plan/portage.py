@@ -971,12 +971,23 @@ class Emerge(Operation):
 GPKG_SUFFIX: Final[str] = ".gpkg.tar"
 
 
-#: What Portage prints when a binary host's index cannot be read. It then
-#: compiles everything and exits 0, so nothing else in this file sees it: a
-#: run against a host whose index answered 404 compiled all 69 of its packages
-#: in 84 minutes and recorded no reason at all.
+#: What Portage prints when it cannot read a binary host's index, taken from
+#: what stopped `vm-gnome`: `!!! [gentoo] Error fetching binhost package info
+#: from 'https://mirrors.nju.edu.cn/gentoo/releases/amd64/binpackages/23.0/
+#: x86-64'`, followed by `!!! [gentoo] <urlopen error timed out>`.
+BINHOST_INDEX_FAILURE: Final[str] = "Error fetching binhost package info"
+
+
+#: The same line, with the host and the url it names. Built from the marker
+#: rather than spelling it a second time: the two detectors read one Portage
+#: diagnostic, and a reworded one would have left this half of them silent.
+#: Portage compiles everything and exits 0 after printing it, so nothing else
+#: in this file sees it: a run against a host whose index answered 404
+#: compiled all 69 of its packages in 84 minutes and recorded no reason.
 _INDEX_UNREADABLE: Final[re.Pattern[str]] = re.compile(
-    r"!!! \[(?P<host>[^\]]+)\] Error fetching binhost package info from '(?P<url>[^']+)'"
+    r"!!! \[(?P<host>[^\]]+)\] "
+    + re.escape(BINHOST_INDEX_FAILURE)
+    + r" from '(?P<url>[^']+)'"
 )
 
 
@@ -1248,13 +1259,6 @@ class VerifyPackages(Operation):
             return again
         context.degrade(BINARY_PACKAGES, f"binary host index unreadable: {unreadable}")
         return self._resolve(context, atoms, source_only=True)
-
-
-#: What Portage prints when it cannot read a binary host's index, taken from
-#: what stopped `vm-gnome`: `!!! [gentoo] Error fetching binhost package info
-#: from 'https://mirrors.nju.edu.cn/gentoo/releases/amd64/binpackages/23.0/
-#: x86-64'`, followed by `!!! [gentoo] <urlopen error timed out>`.
-BINHOST_INDEX_FAILURE: Final[str] = "Error fetching binhost package info"
 
 
 def _binhost_unreadable(output: str) -> str | None:
