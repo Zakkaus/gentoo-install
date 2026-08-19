@@ -2682,7 +2682,7 @@ def test_a_status_failure_does_not_mark_the_guest_stopped() -> None:
         def call(self, method: str, path: str, **form: Any) -> Any:
             raise ProxmoxError("status failed")
 
-    guest = Guest(Refusing(), "node", 9300, GuestSpec(name="x", iso="x"))
+    guest = Guest(Refusing(), "node", 9300, GuestSpec(name="x", iso="x", nonce="gi-owned"))
     guest._booted = True
     with pytest.raises(ProxmoxError, match="status failed"):
         guest.stop()
@@ -2696,16 +2696,16 @@ def test_a_stop_task_failure_does_not_mark_the_guest_stopped() -> None:
                 return {"status": "running"}
             # The ownership check reads this before anything is stopped.
             if path.endswith("/config"):
-                return {"tags": TAG}
+                return {"tags": f"{TAG};gi-owned"}
             return "UPID:node:stop"
 
         def wait(self, node: str, upid: str, patience: float = 1800.0) -> None:
             raise ProxmoxError("stop task failed")
 
-    guest = Guest(Refusing(), "node", 9300, GuestSpec(name="x", iso="x"))
+    guest = Guest(Refusing(), "node", 9300, GuestSpec(name="x", iso="x", nonce="gi-owned"))
     guest._booted = True
     with pytest.raises(ProxmoxError, match="stop task failed"):
-        guest.stop()
+        guest.stop(patience=0.0)
     assert guest._booted
 
 
@@ -3257,14 +3257,14 @@ def test_a_stop_still_stops_this_runs_machine() -> None:
             if path.endswith("/status/current"):
                 return {"status": "running"}
             if path.endswith("/config"):
-                return {"tags": f"other;{TAG}"}
+                return {"tags": f"other;{TAG};gi-owned"}
             stopped.append(path)
             return "UPID:node:stop"
 
         def wait(self, node: str, upid: str, patience: float = 1800.0) -> None:
             return None
 
-    guest = Guest(Ours(), "node", 9302, GuestSpec(name="x", iso="x"))
+    guest = Guest(Ours(), "node", 9302, GuestSpec(name="x", iso="x", nonce="gi-owned"))
     guest._booted = True
     guest.stop()
 
@@ -4420,4 +4420,40 @@ def test_a_stop_the_gateway_ate_is_sent_again() -> None:
     stubborn._booted = True
     with pytest.raises(ProxmoxError, match="403 Forbidden"):
         stubborn.stop()
+
+
+def test_a_guest_replaced_between_the_two_reads_is_not_deleted() -> None:
+    """`destroy` checks the tag and the nonce, then stops, then deletes. A
+    VMID is handed back and reused inside one campaign, so the guest can be
+    replaced between those reads; the stop notices and `destroy` swallowed it
+    and deleted anyway. Measured by hand on 9311 the same day: a `DELETE` sent
+    at a vmid that had changed owner was refused only because Proxmox will not
+    destroy a running guest."""
+
+    @dataclass
+    class Replaced(Api):
+        reads: int = 0
+        deleted: bool = False
+
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            if path.endswith("/config"):
+                self.reads += 1
+                # Ours on the first read, somebody else's by the second.
+                tags = f"{TAG};gi-owned" if self.reads == 1 else f"{TAG};gi-another-run"
+                return {"tags": tags}
+            if path.endswith("/status/current"):
+                return {"status": "running"}
+            if method == "DELETE":
+                self.deleted = True
+                return "UPID:node:qmdestroy"
+            raise AssertionError((method, path))
+
+        def wait(self, node: str, upid: str, patience: float = 1800.0) -> None:
+            return None
+
+    api = Replaced()
+    guest = Guest(api, "node", 9300, GuestSpec(name="x", iso="x", nonce="gi-owned"))
+    with pytest.raises(ForeignGuest, match="not this run's machine"):
+        guest.destroy(patience=5.0)
+    assert not api.deleted, "the guest that replaced ours was deleted"
 
