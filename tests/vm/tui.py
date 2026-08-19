@@ -647,7 +647,7 @@ def main(argv: list[str] | None = None) -> int:
     # A guest with no disk to install onto never reaches the menu: the two
     # recordings this walk produced returned to the shell before any screen was
     # drawn, and the review of them found nothing because there was nothing.
-    target = create_target(workdir / "target.qcow2")
+    target = create_target(workdir / "target.qcow2", root=root)
     spec = VmSpec(
         medium=medium,
         workdir=workdir,

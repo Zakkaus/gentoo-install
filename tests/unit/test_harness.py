@@ -4885,3 +4885,43 @@ def test_the_zfs_unlock_proof_travels_in_the_unlock_session(
     # The control: a second connection would be the race this closes.
     assert not opened, opened
 
+
+def test_the_menu_walk_makes_its_target_under_its_own_root(tmp_path: Path) -> None:
+    """`create_target` refuses a path outside the directory it confines to, and
+    the menu walk keeps its guests under `lab/vm/tui`. Without a root of its
+    own `python3 -m tests.vm.tui` raised before it booted anything, so the one
+    check of the interface on a real 80-column console could not run."""
+    import ast
+    import inspect
+    import textwrap
+
+    import pytest
+
+    from tests.vm import tui
+    from tests.vm.run import DEFAULT_TARGET_SIZE, create_target
+
+    mine = tmp_path / "walk"
+    mine.mkdir()
+    made = create_target(mine / "target.qcow2", DEFAULT_TARGET_SIZE, root=tmp_path)
+    assert made.exists() and made.stat().st_size > 0
+
+    # The named root is a boundary, not a switch that turns the guard off.
+    outside = tmp_path.parent / "not-the-walk.qcow2"
+    outside.write_bytes(b"stands for a downloaded cloud image")
+    with pytest.raises(ValueError, match="deletes what it is given"):
+        create_target(outside, DEFAULT_TARGET_SIZE, root=mine)
+    assert outside.read_bytes().startswith(b"stands for")
+
+    # And the walk asks for it: the default root would refuse its own workdir.
+    body = ast.parse(textwrap.dedent(inspect.getsource(tui.main))).body[0]
+    assert isinstance(body, ast.FunctionDef)
+    asked = [
+        call
+        for call in ast.walk(body)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Name)
+        and call.func.id == "create_target"
+    ]
+    assert len(asked) == 1, ast.dump(body)
+    assert [one.arg for one in asked[0].keywords] == ["root"], ast.dump(asked[0])
+

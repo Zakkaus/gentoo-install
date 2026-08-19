@@ -160,7 +160,10 @@ SEEDED: dict[str, tuple[str, ...]] = {
 
 
 def create_target(
-    path: Path, size: str = DEFAULT_TARGET_SIZE, seed: tuple[str, ...] = ()
+    path: Path,
+    size: str = DEFAULT_TARGET_SIZE,
+    seed: tuple[str, ...] = (),
+    root: Path | None = None,
 ) -> Path:
     """A disk for the installer to partition, thrown away with the run.
 
@@ -170,10 +173,15 @@ def create_target(
     # The first thing this does is delete the file, and the images an in-place
     # conversion will be given are downloaded once and kept: `lab/vm/cloud/`
     # holds three of them. A run writes only inside its own directory, so a
-    # path outside `WORKROOT` is a mistake rather than a target, and it is
-    # refused before the unlink rather than diagnosed after it.
-    if WORKROOT not in path.resolve().parents:
-        raise ValueError(f"{path} is not inside {WORKROOT}, and this deletes what it is given")
+    # path outside its root is a mistake rather than a target, and it is
+    # refused before the unlink rather than diagnosed after it. `root`,
+    # because the menu walk keeps its guests under `lab/vm/tui` and this
+    # refused every one of them.
+    # Read here rather than bound as a default, so a test that moves WORKROOT
+    # still moves the guard.
+    confine = WORKROOT if root is None else root
+    if confine not in path.resolve().parents:
+        raise ValueError(f"{path} is not inside {confine}, and this deletes what it is given")
     path.unlink(missing_ok=True)
     if not seed:
         subprocess.run(
