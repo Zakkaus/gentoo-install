@@ -236,6 +236,23 @@ BOOT_PATIENCE: Final[float] = 600.0
 #: A cluster with no room must produce a result rather than poll for ever.
 CAPACITY_PATIENCE: Final[float] = 120.0
 
+#: How long to wait instead when the room is held by this harness's own
+#: guests. That room is provably coming back — every one of them ends — and a
+#: single-fixture round dispatched beside a full campaign was failed at 121
+#: seconds with ten of ours still installing. Bounded rather than endless: a
+#: guest nothing ever collects would otherwise hold a round for ever.
+CAPACITY_PATIENCE_SHARED: Final[float] = 60 * 60.0
+
+
+def _capacity_patience(api: Api) -> float:
+    """How long a round waits for room, by who is holding it."""
+    try:
+        return CAPACITY_PATIENCE_SHARED if api.ours() else CAPACITY_PATIENCE
+    except ProxmoxError:
+        # The cluster could not say. The shorter bound is the safe answer: it
+        # produces a verdict rather than waiting on an unknown.
+        return CAPACITY_PATIENCE
+
 #: A conflict refreshes cluster allocation before another create. The bound
 #: prevents a busy VMID range from holding the scheduler indefinitely.
 RESERVATION_TRIES: Final[int] = 4
@@ -1976,14 +1993,15 @@ def run(
                 if capacity_since is None:
                     capacity_since = now
                 waited = now - capacity_since
-                if waited >= CAPACITY_PATIENCE:
+                patience = _capacity_patience(api)
+                if waited >= patience:
                     for job in waiting:
                         scheduled[job.name] = job.capacity_failed(waited, revision).collect(
                             collected
                         )
                         collected += 1
                     continue
-                time.sleep(min(POLL_WHILE_QUEUED, CAPACITY_PATIENCE - waited))
+                time.sleep(min(POLL_WHILE_QUEUED, patience - waited))
                 continue
             capacity_since = None
             while waiting and slots:
