@@ -1886,6 +1886,12 @@ def test_the_walk_does_not_escape_out_of_a_row_that_never_opened(
         def run(self, line: str, timeout: float = 0.0) -> str:
             return ""
 
+        # Echoed first, the way a shell answers: `wait_for_driver` reads the
+        # value the guest computed and a double that skips the echo hides
+        # every check that could match its own question.
+        def expect_command(self, command: str, timeout: float = 0.0) -> bytes:
+            return f"{command}\r\ndriver=0\r\n".encode()
+
         def send_raw(self, keys: str) -> None:
             self.sent.append(keys)
 
@@ -1953,6 +1959,9 @@ def test_the_walk_waits_for_a_drawn_menu_after_the_echoed_launch_command(
         def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
             self.asked += 1
             return b"python3 -m gentoo_install # gentoo-install\r\n"
+
+        def expect_command(self, command: str, timeout: float = 0.0) -> bytes:
+            return f"{command}\r\ndriver=0\r\n".encode()
 
         def snapshot(self, seconds: float) -> bytes:
             self.snapshots += 1
@@ -4924,4 +4933,25 @@ def test_the_menu_walk_makes_its_target_under_its_own_root(tmp_path: Path) -> No
     ]
     assert len(asked) == 1, ast.dump(body)
     assert [one.arg for one in asked[0].keywords] == ["root"], ast.dump(asked[0])
+
+
+def test_only_the_driver_module_names_a_cd_device() -> None:
+    """`FIND_DRIVER` tries the label first and two device nodes after it,
+    because a medium that boots from a squashfs has no `/dev/sr*` at all. Two
+    runners mounted `/dev/sr1` themselves instead, and the menu walk died on
+    `Can't open blockdev` with the tarball never unpacked."""
+    import re
+    from pathlib import Path as _Path
+
+    here = _Path(__file__).resolve().parents[1] / "vm"
+    guilty: list[str] = []
+    for module in sorted(here.glob("*.py")):
+        if module.name == "driver.py":
+            continue
+        for number, line in enumerate(module.read_text().splitlines(), start=1):
+            if line.lstrip().startswith("#"):
+                continue
+            if re.search(r"mount\b[^\n]*/dev/sr", line):
+                guilty.append(f"{module.name}:{number}: {line.strip()}")
+    assert not guilty, guilty
 
