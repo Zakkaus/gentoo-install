@@ -1940,7 +1940,7 @@ def test_the_walk_waits_for_a_drawn_menu_after_the_echoed_launch_command(
         b"\x1b[24;1H[enter] Continue"
     )
     launch = (
-        "cd /tmp/driver && TERM=vt220 LINES=24 COLUMNS=80 "
+        f"cd /tmp/driver && TERM=vt220 ESCDELAY={tui.ESCDELAY} LINES=24 COLUMNS=80 "
         "python3 -m gentoo_install --lang en\n"
     )
 
@@ -4954,4 +4954,19 @@ def test_only_the_driver_module_names_a_cd_device() -> None:
             if re.search(r"mount\b[^\n]*/dev/sr", line):
                 guilty.append(f"{module.name}:{number}: {line.strip()}")
     assert not guilty, guilty
+
+
+def test_the_walk_launches_the_menu_with_a_short_escape_delay() -> None:
+    """ncurses holds a lone escape for ESCDELAY milliseconds in case it starts
+    a sequence, and the default is 1000. The walk sends escape and then an
+    arrow 0.5s later, so with the default the two arrive as one key: the first
+    walk on a real console reported every row after the first as never
+    opening, and the console showed it never left the screen it had opened."""
+    import inspect
+
+    from tests.vm import tui
+
+    launch = inspect.getsource(tui._open_menu)
+    assert "ESCDELAY={ESCDELAY}" in launch, launch
+    assert tui.ESCDELAY < 500, tui.ESCDELAY
 
