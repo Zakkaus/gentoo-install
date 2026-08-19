@@ -399,7 +399,7 @@ def _template_screen(
 ) -> Answer[InstallConfig]:
     """What the installer writes when it lays the disk out itself."""
     translate = context.translate
-    items: list[Item[tuple[Layout | None, FilesystemType]]] = [
+    items: list[Item[tuple[Layout, FilesystemType]]] = [
         Item(label="ext4", value=(Layout.WHOLE_DISK, FilesystemType.EXT4)),
         Item(label="xfs", value=(Layout.WHOLE_DISK, FilesystemType.XFS)),
         Item(
@@ -425,7 +425,7 @@ def _template_screen(
         ),
         0,
     )
-    menu: Menu[tuple[Layout | None, FilesystemType]] = Menu(
+    menu: Menu[tuple[Layout, FilesystemType]] = Menu(
         title=translate("Layout"),
         preamble=(translate("This choice sets the root filesystem and partition graph."),),
         items=items, footer=footer(translate), cursor=here
@@ -436,8 +436,6 @@ def _template_screen(
     layout, filesystem = answer.unwrap()
     was_manual, was_choice = context.manual, context.choice
     context.manual = False
-    if layout is None:
-        return partitions_screen(screen, config, context)
     context.choice = replace(context.choice, layout=layout, filesystem=filesystem)
     changed = _rebuild(config, context)
     if layout is Layout.WHOLE_DISK_ZFS:
