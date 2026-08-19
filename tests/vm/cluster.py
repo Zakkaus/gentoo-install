@@ -1733,7 +1733,12 @@ def install_one(
                 job.name,
                 Verdict.FAIL,
                 time.monotonic() - started,
-                f"the installer exited {code!r}",
+                (
+                    f"the installer exited {code!r}"
+                    if code
+                    else "the installer wrote no exit code, so it died before its "
+                    "last line: read the log"
+                ),
                 log,
                 phase=phase,
                 revision=revision,
@@ -3347,6 +3352,26 @@ def _compiles(config: InstallConfig) -> bool:
 USER_MODE_NETWORK: Final[str] = "10.0.2.0/24"
 
 
+#: Where a fixture's install image would land, against what the medium can
+#: hold. A cluster guest boots the minimal ISO, whose only writable paths are
+#: tmpfs in its own RAM: `vm-image` asked for a 20 GiB sparse file under
+#: `/var/tmp`, and the stage3 going into it filled memory. The guest answered
+#: `EXT4-fs (loop1p2): failed to convert unwritten extents ... error -5` and
+#: `No space left on device`, then had no room left to write its exit code.
+LIVE_MEDIUM_TMPFS: Final[tuple[str, ...]] = ("/var/tmp", "/tmp", "/run")
+
+
+def _image_lands_in_memory(config: InstallConfig) -> str:
+    """The path an image fixture would write to, when the medium holds it in
+    RAM. Empty for a fixture that writes somewhere a cluster guest has."""
+    if config.disk.mode is not DiskMode.IMAGE:
+        return ""
+    image = config.disk.image
+    if any(image == one or image.startswith(f"{one}/") for one in LIVE_MEDIUM_TMPFS):
+        return image
+    return ""
+
+
 def _needs_user_mode_networking(config: InstallConfig) -> str:
     """The address that only the local hypervisor provides, or empty."""
     if not config.proxy.host:
@@ -3366,6 +3391,13 @@ def fixtures(names: list[str]) -> list[Job]:
         if not path.is_file():
             raise SystemExit(f"no fixture named {name} at {path}")
         config: InstallConfig = load(path)
+        in_memory = _image_lands_in_memory(config)
+        if in_memory:
+            raise SystemExit(
+                f"{name} writes its image to {in_memory}, which is tmpfs on the "
+                "medium a cluster guest boots: run it with tests/vm/run.py, where "
+                "the workstation's own disk holds it"
+            )
         local_only = _needs_user_mode_networking(config)
         if local_only:
             raise SystemExit(
