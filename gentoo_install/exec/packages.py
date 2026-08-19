@@ -8,8 +8,8 @@ import re
 
 from pathlib import Path, PurePosixPath
 
-from ..errors import CommandFailed
-from .runner import TargetEscape, open_in_target
+from ..errors import CommandFailed, TargetEscape
+from .runner import open_in_target
 
 
 _ATOM = re.compile(r"^[A-Za-z0-9+_.-]+/[A-Za-z0-9+_.-]+$")

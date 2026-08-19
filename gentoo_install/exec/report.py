@@ -15,7 +15,7 @@ from typing import Final
 from pathlib import Path, PurePosixPath
 
 from .. import errors
-from ..errors import GentooInstallError
+from ..errors import GentooInstallError, TargetEscape
 from ..log import Journal
 from ..model import config as model_config
 from ..model import paste
@@ -23,7 +23,7 @@ from ..model.config import InstallConfig
 from ..model.serialise import to_toml
 from . import fetch, preflight
 from .probe import Probe
-from .runner import TargetEscape, open_in_target, write_file
+from .runner import open_in_target, write_file
 
 
 class RunFile(Enum):
