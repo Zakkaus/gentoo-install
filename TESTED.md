@@ -47,7 +47,7 @@ The ordinary path: partition, format, unpack a stage3, configure, boot.
 | `02141f7a9902` | `vm-xfs`, `vm-luks`, `vm-sdboot`, `vm-greetd`, `vm-zfs-encrypted` — five of the round's six. `vm-greetd` is the first record of greetd and tuigreet, and the first of ibus-pinyin under a display manager; the check before it refused every machine for a word its own configuration file carries in a comment. The sixth, `vm-binhost-fallback`, also passed and is not counted: `--site` had moved it off the host whose index answers 404 |
 | `ce95e7df72cd` | `static-ip`, `vm-btrfs`, `vm-mdraid`, `vm-zram`, `vm-f2fs` |
 | `74ba411eaea9` | `vm-lvm`, `vm-unlock` |
-| `cc84e970ddba` | `vm-cjk-kernel`, `vm-binpkg` |
+| `cc84e970ddba` | `vm-cjk-kernel`, `vm-binpkg`, `zfs-zbm`, `vm-gnome`, `ext3` |
 
 Every row from `08015b221d73` onward ran `--region cn --site nju --sync
 webrsync --distfiles http://10.31.0.2/gentoo`, so what they establish about
