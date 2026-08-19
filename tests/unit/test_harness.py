@@ -147,12 +147,11 @@ NOT_IN_THE_CAMPAIGN: Final[frozenset[str]] = frozenset(
         # medium the campaign boots, because the machine under test has to
         # have a bootloader of its own to arm.
         "vm-ram.toml",
-        # The input to the tests that hold what a binary host failing does,
-        # rather than a machine to install: what it describes is a host that
-        # cannot answer, and the cluster has no way to arrange one. The rule
-        # itself is held in `test_exec.py`, through the runner and the journal.
+        # A binary host that answers 404 and an install that has to compile
+        # instead. Green here would mean nothing: telling that apart from an
+        # ordinary install needs the `degraded` event in `install.jsonl`, and
+        # `cluster.MUST_DEGRADE` is the only runner that reads it.
         "vm-binhost-fallback.toml",
-        "vm-greetd.toml",
         # The dd runner generates its sources, streams each one from the driver
         # CD, and reads the target back; neither target can boot as a system.
         "vm-dd-raw.toml",
@@ -165,6 +164,7 @@ def test_the_campaign_covers_every_vm_fixture() -> None:
     """A fixture nobody runs is a path nobody tests, and the point of the
     matrix is that the list cannot quietly fall behind."""
     from tests.vm.campaign import STAGES
+    from tests.vm.cluster import MUST_DEGRADE
 
     root = Path(__file__).resolve().parents[1]
     named = {Path(run.config).name for runs in STAGES.values() for run in runs}
@@ -172,6 +172,9 @@ def test_the_campaign_covers_every_vm_fixture() -> None:
     assert available - named == NOT_IN_THE_CAMPAIGN, sorted(
         (available - named) ^ NOT_IN_THE_CAMPAIGN
     )
+    # The reason `vm-binhost-fallback` is excused, held where it can fail: the
+    # cluster is the only runner that can tell its pass from an ordinary one.
+    assert "vm-binhost-fallback" in MUST_DEGRADE
 
 
 def test_every_fixture_names_a_disk_the_harness_creates() -> None:
