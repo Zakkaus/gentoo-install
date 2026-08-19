@@ -986,6 +986,24 @@ def test_a_failed_emerge_says_why_and_not_what_came_after() -> None:
             assert "str(result).strip()" not in head, head
 
 
+def test_a_name_that_would_not_resolve_is_tried_again() -> None:
+    """`-t 3` resolves the name once and gives up: wget calls a resolution
+    failure fatal. `vm-desktop` met six of them in one burst at fifty-six
+    minutes — `Resolving mirrors.nju.edu.cn... failed: Temporary failure in
+    name resolution.` — and lost six binary packages to a resolver that was
+    answering a minute earlier and a minute later.
+    """
+    for command in (portage.FETCHCOMMAND, portage.RESUMECOMMAND):
+        assert command.startswith("wget"), command
+        assert "--retry-on-host-error" in command, command
+        assert "-t 3" in command, command
+
+    # The curl commands need nothing: curl retries a resolution failure under
+    # plain `--retry`, which both of them already pass.
+    for command in (portage.CURL_FETCHCOMMAND, portage.CURL_RESUMECOMMAND):
+        assert "--retry 3" in command, command
+
+
 def test_both_binhost_detectors_read_one_marker() -> None:
     """The failing path finds the line and the succeeding path parses the host
     and the url out of it. The two spelled Portage's diagnostic separately, so
