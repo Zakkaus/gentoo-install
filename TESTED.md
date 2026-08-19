@@ -17,8 +17,8 @@ merge does, and the journal counted both until that revision: one guest
 recorded 63 packages for the 40 it installed. Rows from before it are not
 comparable with rows after it.
 
-Three modes are planned and this file has a section for each. Only the first
-two exist today, and the third's table is empty on purpose.
+Three modes are planned and this file has a section for each. All three exist
+today; the third's own section says which of its paths carry a record.
 
 ## Mode 1: install onto a disk
 
