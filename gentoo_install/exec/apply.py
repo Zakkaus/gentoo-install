@@ -183,7 +183,8 @@ class Machine:
         return (self.secrets or SecretStore(self.work)).path(device)
 
     def cleanup_secrets(self) -> None:
-        (self.secrets or SecretStore(self.work)).cleanup()
+        for stayed in (self.secrets or SecretStore(self.work)).cleanup():
+            self.runner.log(f"WARNING: a staged passphrase stayed: {stayed}")
 
     def key_file(self, device: DeviceId) -> PurePosixPath:
         """Where the passphrase is staged, as a path on the installing system.

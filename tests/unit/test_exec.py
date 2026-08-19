@@ -835,6 +835,63 @@ def test_apply_uses_the_preflight_approved_passphrase_after_source_mutation(
     assert not store.path(pool.id).exists()
 
 
+def test_a_passphrase_that_will_not_go_does_not_replace_the_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`raise_if_fatal` cleans the staged passphrases and then raises, and the
+    unlink was unguarded: an errno there reached the operator instead of the
+    reasons this machine was refused. A passphrase left on disk is still named,
+    after them.
+    """
+    from gentoo_install.errors import PreflightFailed
+    from gentoo_install.exec.preflight import Report, SecretStore
+
+    store = SecretStore(tmp_path)
+    store.stage(i("rootpart"), "approved-passphrase")
+
+    def refusing(self: Path, missing_ok: bool = False) -> None:
+        raise OSError(30, "Read-only file system")
+
+    monkeypatch.setattr(Path, "unlink", refusing)
+
+    with pytest.raises(PreflightFailed) as raised:
+        Report(fatal=("the firmware variables are not readable",), warnings=(), secrets=store).raise_if_fatal()
+
+    said = str(raised.value)
+    assert "the firmware variables are not readable" in said
+    assert said.index("firmware") < said.index("staged passphrase"), said
+    assert "Read-only file system" in said
+
+
+def test_a_passphrase_that_will_not_go_is_logged_by_the_install(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same closing path runs in `apply`'s `finally`, where an errno would
+    replace the install's own failure."""
+    from gentoo_install.exec.preflight import SecretStore
+
+    store = SecretStore(tmp_path)
+    store.stage(i("rootpart"), "approved-passphrase")
+
+    def refusing(self: Path, missing_ok: bool = False) -> None:
+        raise OSError(30, "Read-only file system")
+
+    monkeypatch.setattr(Path, "unlink", refusing)
+
+    said: list[str] = []
+    runner = Runner(log=said.append)
+    machine = apply.Machine(
+        config=config(),
+        runner=runner,
+        probe=Probe(runner=runner, work=tmp_path),
+        work=tmp_path,
+        secrets=store,
+    )
+    machine.cleanup_secrets()
+
+    assert [one for one in said if "a staged passphrase stayed" in one], said
+
+
 def test_apply_uses_the_approved_passphrase_after_source_disappearance(tmp_path: Path) -> None:
     from gentoo_install.exec.preflight import SecretStore
     from gentoo_install.model.device import ZfsPool
