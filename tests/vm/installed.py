@@ -194,7 +194,16 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
     graph = installation.disk.graph
     esp = compat.esp_mount(graph)
     if esp is not None:
-        result.append(InstalledCheck("esp", f"findmnt --noheadings --output TARGET,SOURCE,FSTYPE {esp.path}", str(esp.path)))
+        # The type as well as the path: the path is the argument `findmnt` was
+        # given, so the check said only that something was mounted there,
+        # while an esp the firmware cannot read is one that is not vfat.
+        result.append(
+            InstalledCheck(
+                "esp",
+                f"findmnt --noheadings --output TARGET,SOURCE,FSTYPE {esp.path}",
+                rf"(?m)^{re.escape(str(esp.path))}\s+\S+\s+vfat$",
+            )
+        )
     root = graph[installation.disk.root]
     source = graph[root.source] if isinstance(root, Mountpoint) else root
     if isinstance(source, ZfsDataset):

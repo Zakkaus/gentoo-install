@@ -497,6 +497,12 @@ def test_an_installed_check_matches_the_value_and_not_the_text_around_it() -> No
     # The esp by UUID and the root still named by device.
     assert not re.search(fstab, "/dev/vda2\t/\text4\tdefaults\t0\t1\nUUID=0AB2\t/efi\tvfat\t0\t2\n")
 
+    esp = pattern("vm-binpkg", "esp")
+    assert re.search(esp, "/efi /dev/vda1 vfat\n")
+    # Mounted there, but not something the firmware can read.
+    assert not re.search(esp, "/efi /dev/vda1 ext4\n")
+    assert not re.search(esp, "findmnt: /efi: not a mountpoint\n")
+
     release = pattern("vm-binpkg", "os-release")
     assert re.search(release, "NAME=Gentoo\nID='gentoo'\n")
     assert not re.search(release, "NAME=\"Ubuntu\"\nID=ubuntu\nID_LIKE=Gentoo\n")
@@ -2419,6 +2425,7 @@ def test_a_healthy_init_is_judged_by_the_marker_it_prints() -> None:
         "hostname": installation.system.hostname.encode() + b"\n",
         "kernel": b"6.18.43-gentoo-dist-bin\n/boot/kernel-6.18.43-gentoo-dist-bin\n",
         "fstab": b"UUID=ab2e555d\t/\tbtrfs\tdefaults,subvol=@\t0\t1\n",
+        "esp": b"/efi /dev/vda1 vfat\n",
     }
     healthy = {
         f"{one.name}.txt": written.get(
