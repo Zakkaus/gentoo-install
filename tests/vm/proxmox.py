@@ -670,7 +670,7 @@ class Guest:
                 raise ProxmoxError(f"{key!r} was not delivered to vm {self.vmid}: {last}")
             time.sleep(self.KEY_PAUSE)
 
-    def stop(self) -> None:
+    def stop(self, patience: float = STOP_PATIENCE) -> None:
         """Stop the machine this run created, and only that one.
 
         `destroy` has checked the tag since a VMID was found not to be proof of
@@ -690,7 +690,7 @@ class Guest:
             self._booted = False
             return
         if not self._is_ours():
-            raise ProxmoxError(
+            raise ForeignGuest(
                 f"vm {self.vmid} on {self.node} is not this run's machine; not stopping it"
             )
         # Retried, because the cluster proxy answering `502 Bad Gateway` is not
@@ -698,7 +698,7 @@ class Guest:
         # install that had already finished, on the stop that precedes booting
         # the disk it wrote. The status is read again each round, so a stop
         # whose answer was eaten is seen as the guest already being down.
-        deadline = time.monotonic() + STOP_PATIENCE
+        deadline = time.monotonic() + patience
         last = "the guest is still running"
         while True:
             try:
@@ -730,10 +730,14 @@ class Guest:
         self._booted = False
 
     def _is_ours(self) -> bool:
-        """Whether the machine at this VMID still carries this harness's tag.
+        """Whether the machine at this VMID is the one this run built.
 
         A VMID is not proof: the range already held a production template, and
         within one campaign a failed run's VMID is handed straight to the next.
+        The nonce as well as the tag, because the tag says only that some run
+        of this harness built it — `destroy` has required both since a VMID
+        was found to be recycled, and `stop` asking for less let a guest
+        another schedule had just created pass as ours.
         """
         if not VMID_FIRST <= self.vmid <= VMID_LAST:
             return False
@@ -741,7 +745,8 @@ class Guest:
             config = self.api.call("GET", f"/nodes/{self.node}/qemu/{self.vmid}/config")
         except ProxmoxNotFound:
             return False
-        return TAG in str(config.get("tags", "")).split(";")
+        tags = str(config.get("tags", "")).split(";")
+        return TAG in tags and bool(self.spec.nonce) and self.spec.nonce in tags
 
     def destroy(self, patience: float = CLEANUP_PATIENCE) -> None:
         """Remove the machine and its disks.
@@ -786,6 +791,13 @@ class Guest:
                 )
             try:
                 self.stop()
+            except ForeignGuest:
+                # Not swallowed: the ownership check above passed a moment
+                # ago, and a VMID is recycled inside one campaign, so a stop
+                # that answers `not this run's machine` means the guest was
+                # replaced between the two reads. Deleting then deletes
+                # somebody else's run.
+                raise
             except ProxmoxError as error:
                 # A running guest is the one cleanup must still try to delete.
                 last = str(error)
