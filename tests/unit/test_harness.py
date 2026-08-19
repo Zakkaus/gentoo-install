@@ -1940,7 +1940,7 @@ def test_the_walk_waits_for_a_drawn_menu_after_the_echoed_launch_command(
         b"\x1b[24;1H[enter] Continue"
     )
     launch = (
-        f"cd /tmp/driver && TERM=vt220 ESCDELAY={tui.ESCDELAY} LINES=24 COLUMNS=80 "
+        "cd /tmp/driver && TERM=vt220 LINES=24 COLUMNS=80 "
         "python3 -m gentoo_install --lang en\n"
     )
 
@@ -4956,17 +4956,19 @@ def test_only_the_driver_module_names_a_cd_device() -> None:
     assert not guilty, guilty
 
 
-def test_the_walk_launches_the_menu_with_a_short_escape_delay() -> None:
-    """ncurses holds a lone escape for ESCDELAY milliseconds in case it starts
-    a sequence, and the default is 1000. The walk sends escape and then an
-    arrow 0.5s later, so with the default the two arrive as one key: the first
-    walk on a real console reported every row after the first as never
-    opening, and the console showed it never left the screen it had opened."""
+def test_the_walk_leaves_an_opened_row_with_backspace() -> None:
+    """Two walks on a real console reported `enter opened nothing` for every
+    row after the first, and the recorded screen showed why: the escape meant
+    for the opened row reached the main menu, where escape leaves the
+    installer. Over a serial line ncurses cannot tell a lone escape from an
+    arrow whose bytes arrived apart, so the walk sends none. Backspace is one
+    byte and every widget answers it with Back."""
     import inspect
 
     from tests.vm import tui
 
-    launch = inspect.getsource(tui._open_menu)
-    assert "ESCDELAY={ESCDELAY}" in launch, launch
-    assert tui.ESCDELAY < 500, tui.ESCDELAY
+    walking = inspect.getsource(tui.walk)
+    left = [line for line in walking.splitlines() if "send_raw" in line]
+    assert any(r"\x7f" in line for line in left), left
+    assert not any(line.strip().startswith('console.send_raw("\\x1b")') for line in left), left
 
