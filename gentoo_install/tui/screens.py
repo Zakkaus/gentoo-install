@@ -78,6 +78,7 @@ from ..plan.packages import FONT_CONFIGURATION_DISABLED, FONT_CONFIGURATION_ENAB
 from ..plan.packages import INPUT_CONFIGURATION_DISABLED, INPUT_CONFIGURATION_ENABLED
 from ..plan import system as plan_system
 from .packages import (
+    BASE_PROFILE,
     _profile_for,
     _record_operator,
     _set_font_configuration,
@@ -1090,19 +1091,27 @@ def configuration_groups(groups: Groups) -> tuple[str, ...]:
 
 
 
-#: Taken from profiles.desc for amd64 23.0. A systemd profile is the same path
-#: plus /systemd, which `_profile_for` relies on.
-PROFILES: tuple[str, ...] = (
-    "default/linux/amd64/23.0",
-    "default/linux/amd64/23.0/systemd",
-    "default/linux/amd64/23.0/desktop",
-    "default/linux/amd64/23.0/desktop/systemd",
-    "default/linux/amd64/23.0/desktop/plasma",
-    "default/linux/amd64/23.0/desktop/plasma/systemd",
-    "default/linux/amd64/23.0/desktop/gnome",
-    "default/linux/amd64/23.0/desktop/gnome/systemd",
-    "default/linux/amd64/23.0/no-multilib",
-    "default/linux/amd64/23.0/no-multilib/systemd",
+#: What profiles.desc lists for amd64 beside the base, as suffixes of it. A
+#: systemd profile is the same path plus /systemd, which `_profile_for`
+#: relies on.
+PROFILE_VARIANTS: Final[tuple[str, ...]] = (
+    "",
+    "systemd",
+    "desktop",
+    "desktop/systemd",
+    "desktop/plasma",
+    "desktop/plasma/systemd",
+    "desktop/gnome",
+    "desktop/gnome/systemd",
+    "no-multilib",
+    "no-multilib/systemd",
+)
+
+#: Built from `BASE_PROFILE`, not written out: the release was spelled ten
+#: times here and once there, so moving it was eleven edits and the ten that
+#: are missed are silent.
+PROFILES: tuple[str, ...] = tuple(
+    f"{BASE_PROFILE}/{one}" if one else BASE_PROFILE for one in PROFILE_VARIANTS
 )
 
 #: Offered as a list rather than free text: a mistyped locale is only found

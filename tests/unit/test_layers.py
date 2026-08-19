@@ -138,6 +138,24 @@ def test_no_suppression_hides_a_finding() -> None:
 SPDX: Final[str] = "# SPDX-License-Identifier: GPL-2.0-or-later"
 
 
+def test_the_profile_release_is_written_once() -> None:
+    """`PROFILES` spelled `default/linux/amd64/23.0` ten times beside
+    `BASE_PROFILE`'s eleventh, so moving off 23.0 is eleven edits and the ten
+    that are missed are silent: the menu offers a profile the tree no longer
+    carries and the install stops at `emerge --sync`.
+    """
+    from gentoo_install.tui.packages import BASE_PROFILE
+
+    release = BASE_PROFILE.rsplit("/", 1)[1]
+    written = {
+        path.name: path.read_text(encoding="utf-8").count(release)
+        for path in sorted((PACKAGE / "tui").glob("*.py"))
+    }
+    assert {name: count for name, count in written.items() if count} == {
+        "packages.py": 1
+    }, written
+
+
 def test_every_source_file_states_the_licence() -> None:
     """The repository is GPL-2 or later. A file that says nothing leaves the
     question to whoever finds it, and the `or later` clause is what lets code
