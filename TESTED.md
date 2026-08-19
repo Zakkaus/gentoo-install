@@ -53,6 +53,7 @@ The ordinary path: partition, format, unpack a stage3, configure, boot.
 | `52b373dca9a2` | `vm-binpkg`, `openrc-sdboot`, `zbm-unlock`, `ext2`, `zfs-zbm` — five of six. `zbm-unlock` is the first record of a ZFSBootMenu pool opened over ssh; `vm-unlock` lost 10.31.0.151 to a round that started 92 minutes later and its initramfs answered `Duplicate address detected`, which `ffcb8561250d` addresses |
 | `2dd80ae4534f` | `vm-proxy-dead`, `vm-cjk-kernel`, `vm-raidz`, `vm-zfs-encrypted`, `ext4-bios`, `vm-zfs-mirror` — six of six |
 | `2dd80ae4534f` | `ext3`, `vm-lvm`, `vm-xfs` — three of three, and the only round that ran **without** `--distfiles`: the guests fetched from `nju` itself, so this row is the one that says the direct path works |
+| `7962d2205e401` | `static-ip`, `vm-luks` — `vm-luks` is the fixture that stopped mid-write on an idle node in the round before, and installed without incident here in 42.9 minutes |
 | `34cb398890c7d` | `ext2`, `vm-zram`, `vm-btrfs`, `vm-mdraid`, `mbr-edit`, `ext4-bios`, `vm-f2fs`, `vm-sdboot`, `vm-lvm` — nine of ten. The tenth, `vm-luks`, stopped mid-write while unpacking the kernel sources with its node at 0%, which is the first time a verdict could say a stalled guest was not a starved one |
 | `1980922a0c04e` | `vm-cjk-kernel`, `static-ip`, `vm-zfs` — three of three, and the two that matter are re-measurements: `static-ip` and `vm-zfs` were both ended earlier the same day at `cpu 0.00` mid-compile on nodes reading 94% to 100%, and both installed without incident when the cluster had cores to give, in 32.1 and 80.6 minutes |
 | `e16f57a39199d` | `ext3`, `vm-xfs`, `vm-luks`, `openrc-sdboot`, `vm-binhost-fallback`, `vm-binpkg` — six of the round's ten so far. `vm-binhost-fallback` is the first record with a machine behind the binary-host fallback: its journal holds one `degraded` event, `gentoo answered no package index at https://mirror.xtom.com.hk/gentoo/releases/amd64/binpackages/23.0/x86-64`, and the install finished from source in 56.4 minutes |
@@ -186,6 +187,7 @@ written.
 
 | Revision | Fixture | Result |
 |---|---|---|
+| `d97a5eb98c743` | `vm-convert` | the same again in 95.4 minutes, at a revision carrying the verdict that names the installer's own reason. The home-marker check that changed the same day belongs to the local conversion runner and is not in this row |
 | `ce95e7df72cd` | `vm-convert` | installed Gentoo onto a cluster guest, converted that machine in place with the same driver CD, and the converted machine booted as `convertedbox` and answered every installed-state check, in 137.6 minutes |
 
 The cluster runs a conversion by installing a system first and converting what
