@@ -32,10 +32,6 @@ from .workdir import WorkdirError, confined
 
 WORKROOT: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/tui"
 
-#: Milliseconds ncurses waits after a lone escape before delivering it. The
-#: default is 1000, which is longer than the walk's gap between keys.
-ESCDELAY: Final[int] = 25
-
 #: The console the menu is drawn on. Eighty by twenty-four is what the medium
 #: gives over a serial port and the smallest the interface supports, so a row
 #: that only fits a wider terminal is a defect an operator meets first.
@@ -571,12 +567,8 @@ def _open_menu(console: SerialConsole, lang: str) -> None:
     console.run(f"stty rows {LINES} cols {COLUMNS}")
     # `TERM` explicitly: a serial getty leaves it unset and curses then refuses
     # to start, which reads as the installer crashing.
-    # ESCDELAY, because ncurses holds a lone escape for a second waiting to see
-    # whether it starts a sequence: the walk's escape and the arrow key that
-    # follows it 0.5s later arrived as one keypress, so no row after the first
-    # was ever left and every one of them was reported as never opening.
     console.send_raw(
-        f"cd /tmp/driver && TERM=vt220 ESCDELAY={ESCDELAY} LINES={LINES} COLUMNS={COLUMNS} "
+        f"cd /tmp/driver && TERM=vt220 LINES={LINES} COLUMNS={COLUMNS} "
         f"python3 -m gentoo_install --lang {lang}\n"
     )
 
@@ -606,7 +598,7 @@ def walk(console: SerialConsole, lang: str) -> Walk:
             for line in body:
                 if cells(line) > COLUMNS:
                     seen.note(f"row {step}", f"{cells(line)} cells: {line!r}")
-        # Enter opens the row, then escape leaves it, then down moves on.
+        # Enter opens the row, backspace leaves it, then down moves on.
         console.send_raw("\r")
         time.sleep(1.0)
         screen.feed(console.snapshot(REDRAW_SECONDS))
@@ -614,11 +606,12 @@ def walk(console: SerialConsole, lang: str) -> Walk:
         for line in opened.lines:
             if cells(line) > COLUMNS:
                 seen.note(f"row {step} opened", f"{cells(line)} cells: {line!r}")
-        # Only when the row actually opened. Escape on the main menu leaves the
-        # installer, so sending it after a press that opened nothing ends the
-        # walk on its first row.
+        # Backspace, one byte, not escape: over a serial line ncurses splits
+        # `\x1b[B` often enough that a lone escape and a split arrow are the
+        # same thing to it, and the walk's escape reached the main menu, whose
+        # escape leaves the installer. Every widget answers `\x7f` with Back.
         if opened.opened_from(drawn):
-            console.send_raw("\x1b")
+            console.send_raw("\x7f")
             time.sleep(0.5)
         else:
             seen.note(f"row {step}", "enter opened nothing")
