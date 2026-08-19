@@ -271,13 +271,16 @@ class Machine:
         return self.probe.filesystem_type_of(self.device_path(device))
 
     def rank_mirrors(self, candidates: tuple[str, ...]) -> tuple[str, ...]:
-        ranked = fetch.rank_mirrors(candidates)
+        # Through the proxy, like the stage3 below: on a machine whose only
+        # route out is the proxy every candidate times out instead, and the
+        # ranking degrades to the order it was given.
+        ranked = fetch.rank_mirrors(candidates, self.config.proxy)
         self.runner.log(f"mirrors, fastest first: {', '.join(ranked)}")
         return ranked
 
     def fetch_text(self, url: str) -> str:
         self.runner.log(f"fetching {url}")
-        return fetch.text(url)
+        return fetch.text(url, self.config.proxy)
 
     def fetch_stage3(
         self,
