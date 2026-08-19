@@ -16,13 +16,13 @@ from typing import Final
 
 from ..i18n import width
 from ..model import compat
-from ..model.config import DiskMode, InstallConfig
+from ..model.config import InstallConfig
 from ..errors import GentooInstallError
 from ..plan.build import build
 from .overview import overview_screen
 from .context import Context
 from .context import say
-from .settings import SETTINGS, Setting, settings_for, shown_value, style_of, unanswered
+from .settings import Setting, settings_for, shown_value, style_of, unanswered
 from .widgets import Item, Menu, Outcome, Screen, Style, TextField
 
 
@@ -91,7 +91,7 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
     while True:
         # Before the rows are built: a grouped row fits its summary to this.
         context.columns = screen.size()[1]
-        table = settings_for(current) if current.disk.mode is DiskMode.DD else SETTINGS
+        table = settings_for(current)
         cursor = min(cursor, len(table))
         blocked = _blocked(current, context)
         items: list[Item[int]] = [

@@ -1902,7 +1902,7 @@ def test_staying_after_a_cancel_keeps_the_answers_that_came_with_it(
     index = row("Hostname")
     patched = replace(settings.SETTINGS[index], edit=lambda s, c, x: cancelled)
     replaced = (*settings.SETTINGS[:index], patched, *settings.SETTINGS[index + 1 :])
-    monkeypatch.setattr(tui_app, "SETTINGS", replaced)
+    monkeypatch.setattr(settings, "SETTINGS", replaced)
     # The menu steps over the one row it cannot open.
     reachable = [one for one in replaced if one.edit is not None]
     steps = next(n for n, one in enumerate(reachable) if one.label == "Hostname")
@@ -2440,7 +2440,7 @@ def test_the_main_menu_reads_the_same_precondition_the_nested_one_does() -> None
     )
     screen = FakeScreen(keys=["q", "KEY_DOWN", "\n"], lines=40, columns=110)
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(tui_app, "SETTINGS", blocked)
+        patch.setattr(tui_settings, "SETTINGS", blocked)
         tui_app.run(screen, config(), at)
     assert "not on this machine" in "\n".join(screen.frames[0])
 
@@ -3412,3 +3412,20 @@ def test_every_language_default_names_a_zone_the_screen_can_show() -> None:
     )
 
     assert not missing, missing
+
+
+def test_the_layout_menu_offers_no_layout_that_is_not_one() -> None:
+    """`_template_screen` carried `if layout is None: return partitions_screen(...)`
+    while every item on that menu holds a concrete `Layout`. A second route into
+    manual partitioning that nothing can take reads as though the template
+    screen owned that choice, and `layout_screen` owns it."""
+    import inspect
+
+    from gentoo_install.tui import screens
+
+    source = inspect.getsource(screens._template_screen)
+    assert "Layout | None" not in source, source[:400]
+    assert "layout is None" not in source, source[:400]
+    # The route that does exist is the one the manual row takes.
+    assert "partitions_screen(" in inspect.getsource(screens.layout_screen)
+
