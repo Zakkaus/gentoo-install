@@ -295,7 +295,21 @@ def test_ibus_has_declared_chinese_engines() -> None:
         ),
     )
     operations = build(selected, load_catalog())
-    assert any(type(operation).__name__ == "ConfigureGnomeInputSources" for operation in operations)
+    configured = [
+        one for one in operations if type(one).__name__ == "ConfigureGnomeInputSources"
+    ]
+    assert configured
+    # Every file it writes, in what a dry run prints: the profile is what
+    # makes dconf read the database at all, and naming only the database
+    # left a real run writing a file nobody had been told about.
+    from gentoo_install.plan.packages import DCONF_PROFILE, GNOME_INPUT_SOURCES
+
+    recorder = Recorder()
+    configured[0].apply(recorder)
+    described = configured[0].describe()
+    assert set(recorder.files) == {DCONF_PROFILE, GNOME_INPUT_SOURCES}, recorder.files
+    for path in recorder.files:
+        assert str(path) in described, (path, described)
     selected = replace(
         installation,
         packages=replace(
