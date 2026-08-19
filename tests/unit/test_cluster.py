@@ -1225,7 +1225,7 @@ def test_a_fixture_that_passes_by_failing_is_not_recorded_as_a_failure() -> None
 
     code = inspect.getsource(cluster.install_one)
     expected = code.index("EXPECTED_TO_FAIL")
-    ordinary = code.index('f"the installer exited {code!r}"')
+    ordinary = code.index('f"the installer exited {code!r}')
     assert expected < ordinary, "the exception has to be read before the general rule"
 
     # And the two agree on which fixture it is: one fact, two runners.
@@ -1238,6 +1238,27 @@ def test_a_fixture_that_passes_by_failing_is_not_recorded_as_a_failure() -> None
         if one.expect_failure
     }
     assert failing == set(cluster.EXPECTED_TO_FAIL), (failing, cluster.EXPECTED_TO_FAIL)
+
+
+def test_a_failed_install_verdict_carries_the_installer_s_own_reason() -> None:
+    """`the installer exited b'4'` was the whole verdict, and `vm-greetd`'s
+    reason was 294910 lines into `install.txt`. `cli` writes that reason as
+    its last line, and the guest hands the file back with everything else.
+    """
+    said = (
+        "| >>> Installing app-i18n/ibus-1.5.33\n"
+        "|  * ERROR: app-i18n/ibus-1.5.33::gentoo failed (compile phase):\n"
+        "the install stopped: CommandFailed: emerge ended with exit 1: "
+        "keybindingmanager.c:1422:1: error: type defaults to 'int'\n"
+    ).encode()
+    reason = cluster._why_it_stopped({"install.txt": said})
+    assert reason.startswith(": CommandFailed: emerge ended with exit 1"), reason
+    assert "keybindingmanager.c" in reason, reason
+
+    # A run whose installer never got that far says nothing rather than
+    # guessing from the build output above it.
+    assert cluster._why_it_stopped({"install.txt": b"| >>> Emerging app-i18n/ibus\n"}) == ""
+    assert cluster._why_it_stopped({}) == ""
 
 
 def test_an_expected_failure_with_no_exit_code_is_not_a_pass() -> None:

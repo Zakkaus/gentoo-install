@@ -1806,7 +1806,7 @@ def install_one(
                 Verdict.FAIL,
                 time.monotonic() - started,
                 (
-                    f"the installer exited {code!r}"
+                    f"the installer exited {code!r}{_why_it_stopped(files)}"
                     if code
                     else "the installer wrote no exit code, so it died before its "
                     "last line: read the log"
@@ -2262,6 +2262,25 @@ def _remaining(deadline: float) -> float:
 #: fixture that could never be green, and it was counted as unverified for
 #: weeks. `campaign.py` knew this and the cluster did not.
 EXPECTED_TO_FAIL: Final[frozenset[str]] = frozenset({"vm-proxy-dead"})
+
+
+#: What `cli.py` prints as its last line when an install fails. The verdict
+#: carried the exit code alone, and reading `vm-greetd`'s reason out of
+#: `install.txt` meant 294910 lines of build output first.
+INSTALL_STOPPED: Final[str] = "the install stopped: "
+
+#: How much of that line the verdict keeps.
+REASON_BYTES: Final[int] = 400
+
+
+def _why_it_stopped(files: Mapping[str, bytes]) -> str:
+    """The installer's own last word, or empty when it did not say one."""
+    said = files.get("install.txt", b"").decode("utf-8", "replace")
+    for line in reversed(said.splitlines()):
+        found = line.find(INSTALL_STOPPED)
+        if found >= 0:
+            return f": {line[found + len(INSTALL_STOPPED):].strip()[:REASON_BYTES]}"
+    return ""
 
 
 def _did_not_stop(code: bytes) -> str:
