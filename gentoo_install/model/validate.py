@@ -19,13 +19,18 @@ from ..errors import CommandFailed, ValidationFailed
 from . import compat
 from .config import (
     Bootloader,
+    BootloaderConfig,
     DiskMode,
     InitSystem,
     InstallConfig,
+    KernelConfig,
     MemoryLaunch,
     MemoryMode,
     Networking,
+    PackagesConfig,
+    PortageConfig,
     ProxyKind,
+    SystemConfig,
 )
 from .device import (
     DeviceGraph,
@@ -212,7 +217,11 @@ def validate(
         # host with no port is a configuration nobody can satisfy, and
         # refusing it in every mode except this one is a rule that fires by
         # accident.
-        problems = [*_disk_mode_problems(config), *_proxy_problems(config)]
+        problems = [
+            *_disk_mode_problems(config),
+            *_proxy_problems(config),
+            *_ignored_by_dd(config),
+        ]
         if problems:
             raise ValidationFailed(
                 "the configuration does not describe an installable system:\n  "
@@ -296,6 +305,29 @@ def validate_memory_launch(config: InstallConfig, launch: MemoryLaunch) -> None:
         raise ValidationFailed(
             "the memory environment cannot start:\n  " + "\n  ".join(problems)
         )
+
+
+def _ignored_by_dd(config: InstallConfig) -> list[str]:
+    """Sections a dd run cannot act on.
+
+    Its whole plan is one `WriteImage`, so a configuration naming a hostname,
+    a user and a desktop was accepted and produced an image copy: the operator
+    described a machine and got none of it. Compared against the defaults,
+    because a file that omits a section still carries one.
+    """
+    described = (
+        ("system", config.system, SystemConfig()),
+        ("packages", config.packages, PackagesConfig()),
+        ("portage", config.portage, PortageConfig()),
+        ("kernel", config.kernel, KernelConfig()),
+        ("bootloader", config.bootloader, BootloaderConfig()),
+    )
+    return [
+        f"[{name}] is not allowed in dd mode: the image is written as it is and "
+        "nothing in it is configured"
+        for name, given, default in described
+        if given != default
+    ]
 
 
 def _disk_mode_problems(config: InstallConfig) -> list[str]:

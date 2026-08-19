@@ -33,6 +33,7 @@ from ..model.config import (
     GentooZhMirror,
     InitSystem,
     InstallConfig,
+    KernelConfig,
     KernelSource,
     Keywords,
     Logger,
@@ -188,6 +189,10 @@ def install_mode_screen(
         if agreed is not None:
             return agreed
     if mode is DiskMode.DD:
+        # Cleared with the disk keys: this mode writes the image as it is
+        # and configures nothing in it, and `validate` refuses a configuration
+        # that describes a machine it will not produce. Left standing they
+        # would block an install from a menu that no longer shows those rows.
         return Answer(
             Outcome.CHOSE,
             replace(
@@ -201,6 +206,11 @@ def install_mode_screen(
                     size=None,
                     wipe=False,
                 ),
+                system=SystemConfig(),
+                packages=PackagesConfig(),
+                portage=PortageConfig(),
+                kernel=KernelConfig(),
+                bootloader=BootloaderConfig(),
             ),
         )
     return Answer(
