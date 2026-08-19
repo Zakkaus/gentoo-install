@@ -4956,19 +4956,20 @@ def test_only_the_driver_module_names_a_cd_device() -> None:
     assert not guilty, guilty
 
 
-def test_the_walk_leaves_an_opened_row_with_backspace() -> None:
-    """Two walks on a real console reported `enter opened nothing` for every
-    row after the first, and the recorded screen showed why: the escape meant
-    for the opened row reached the main menu, where escape leaves the
-    installer. Over a serial line ncurses cannot tell a lone escape from an
-    arrow whose bytes arrived apart, so the walk sends none. Backspace is one
-    byte and every widget answers it with Back."""
+def test_the_walk_cancels_a_row_rather_than_editing_it() -> None:
+    """The walk that left rows with backspace deleted a character inside the
+    hostname field and the menu came back reading `Hostname  gento`. Escape
+    cancels, which changes nothing, and the wait after it has to outlast
+    ncurses' ESCDELAY or the next key is read as the rest of a sequence and
+    the escape never arrives."""
     import inspect
 
     from tests.vm import tui
 
     walking = inspect.getsource(tui.walk)
-    left = [line for line in walking.splitlines() if "send_raw" in line]
-    assert any(r"\x7f" in line for line in left), left
-    assert not any(line.strip().startswith('console.send_raw("\\x1b")') for line in left), left
+    left = [line.strip() for line in walking.splitlines() if "send_raw" in line]
+    assert 'console.send_raw("\\x1b")' in left, left
+    assert not any(r"\x7f" in line for line in left), left
+    assert "time.sleep(ESCAPE_SETTLES)" in walking, walking
+    assert tui.ESCAPE_SETTLES > 1.0, tui.ESCAPE_SETTLES
 
