@@ -2720,6 +2720,44 @@ LOGIN_PROMPTS: Final[tuple[str, ...]] = (
 )
 
 
+#: What the initramfs says when it could not mount the root it was asked for.
+#: The passphrase reaching dropbear is not the passphrase being right: a
+#: `zbm-unlock` run handed one over ssh, `dracut-pre-mount` answered `Key load
+#: error: Incorrect key provided for 'zpcala'` three times, and the guest sat
+#: in emergency mode while the harness typed a login name at it for 93
+#: minutes and blamed the login.
+INITRAMFS_GAVE_UP: Final[tuple[str, ...]] = (
+    "Entering emergency mode",
+    "Failed to mount /sysroot",
+    "Key load error",
+)
+
+#: How long the console is read for one of those before the boot is believed.
+#: The unlock returns as soon as ssh closes and the mount follows it.
+INITRAMFS_PATIENCE: Final[float] = 90.0
+
+
+def _initramfs_gave_up(link: "Reconnecting") -> str:
+    """Empty unless the console says the root was never mounted.
+
+    Read after a remote unlock reports success: the ssh session only proves
+    the passphrase was delivered, and a wrong one is delivered just as well.
+    """
+    try:
+        said = link.observe(_any_of(tuple(one.encode() for one in INITRAMFS_GAVE_UP)),
+                            timeout=INITRAMFS_PATIENCE)
+    except (ConsoleTimeout, ConsoleClosed):
+        return ""
+    return (
+        "the initramfs did not mount the root after the remote unlock; "
+        f"the console held {said[-INITRAMFS_SCREEN_BYTES:]!r}"
+    )[:VERDICT_BYTES]
+
+
+#: Enough of the screen to carry the refusal and the prompt above it.
+INITRAMFS_SCREEN_BYTES: Final[int] = 600
+
+
 def _any_of(words: tuple[bytes, ...]) -> str:
     """One pattern matching any of these, for a console wait."""
     return "|".join(re.escape(one.decode()) for one in words)
@@ -3007,6 +3045,9 @@ def boot_and_check(
             return f"remote unlock failed: {error}; the console held {held}"[:VERDICT_BYTES]
         remotely_unlocked = True
         print("installed root unlocked by remote SSH session", flush=True)
+        stopped = _initramfs_gave_up(link)
+        if stopped:
+            return stopped
     unlocked = _unlock(guest, link, installation, remotely_unlocked)
     if unlocked.refused:
         return unlocked.refused
