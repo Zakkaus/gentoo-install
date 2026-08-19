@@ -43,6 +43,20 @@ from ..model.device import (
 from ..plan import automatic as automatic_values
 from . import screens
 from .mirror import mirror_screen
+from .packages import (
+    cjk_font_groups,
+    cjk_fonts_screen,
+    desktop_screen,
+    display_manager_screen,
+    extra_packages_screen,
+    graphics_screen,
+    input_method_groups,
+    input_method_screen,
+    packages_screen,
+    preferred_font_groups,
+    use_flags_screen,
+    video_cards_screen,
+)
 from .partitions import partitions_screen
 from .context import Context, Step, ValueKind, ValueSource, footer
 from ..i18n import width
@@ -593,8 +607,8 @@ def _display_manager(config: InstallConfig, context: Context) -> str:
 def _applications(config: InstallConfig, context: Context) -> str:
     language_groups = frozenset(
         (
-            *screens.input_method_groups(context.groups),
-            *screens.cjk_font_groups(context.groups),
+            *input_method_groups(context.groups),
+            *cjk_font_groups(context.groups),
             *screens.configuration_groups(context.groups),
         )
     )
@@ -614,17 +628,17 @@ def _input_method(config: InstallConfig, context: Context) -> str:
     selected = [
         context.groups[name].label or name
         for name in config.packages.applications
-        if name in screens.input_method_groups(context.groups)
+        if name in input_method_groups(context.groups)
     ]
     return ", ".join(context.translate(name) for name in selected) or context.translate("none")
 
 
 def _cjk_fonts(config: InstallConfig, context: Context) -> str:
-    offered = screens.cjk_font_groups(context.groups)
+    offered = cjk_font_groups(context.groups)
     selected = [name for name in config.packages.applications if name in offered]
     if not selected:
         return context.translate("none")
-    preferred = set(screens.preferred_font_groups(config, context.groups))
+    preferred = set(preferred_font_groups(config, context.groups))
     shown = []
     for name in selected:
         label = context.translate(context.groups[name].label or name)
@@ -765,7 +779,7 @@ COMPILER: Final[tuple[Setting, ...]] = (
     Setting("cpu_flags", "CPU flags", _cpu_flags, screens.cpu_flags_screen),
     Setting("license", "Licenses", _license, screens.license_screen),
     Setting("keywords", "Package keywords", _keywords, screens.keywords_screen),
-    Setting("use", "USE flags", _use, screens.use_flags_screen),
+    Setting("use", "USE flags", _use, use_flags_screen),
     Setting("ram", "Build in RAM", _build_in_ram, screens.build_in_ram_screen),
 )
 
@@ -794,7 +808,7 @@ KERNEL: Final[tuple[Setting, ...]] = (
 LANGUAGE: Final[tuple[Setting, ...]] = (
     Setting("locale", "System language", lambda c, x: c.system.locale, screens.locale_screen),
     Setting("locales", "Other locales", _other_locales, screens.additional_locales_screen),
-    Setting("fonts", "Fonts", _cjk_fonts, screens.cjk_fonts_screen),
+    Setting("fonts", "Fonts", _cjk_fonts, cjk_fonts_screen),
 )
 
 
@@ -828,18 +842,18 @@ INIT: Final[tuple[Setting, ...]] = (
 DESKTOP: Final[tuple[Setting, ...]] = (
     Setting(
         "desktop", "Desktop", lambda c, x: c.packages.desktop or x.translate("none"),
-        screens.desktop_screen,
+        desktop_screen,
     ),
     Setting(
         "input_method",
         "Input method",
         _input_method,
-        screens.input_method_screen,
+        input_method_screen,
     ),
-    Setting("graphics", "Graphics", _graphics, screens.graphics_screen),
-    Setting("cards", "VIDEO_CARDS", _video_cards, screens.video_cards_screen),
+    Setting("graphics", "Graphics", _graphics, graphics_screen),
+    Setting("cards", "VIDEO_CARDS", _video_cards, video_cards_screen),
     Setting("input", "INPUT_DEVICES", _input_devices, screens.input_devices_screen),
-    Setting("dm", "Display manager", _display_manager, screens.display_manager_screen),
+    Setting("dm", "Display manager", _display_manager, display_manager_screen),
 )
 
 #: How the machine comes up on the network. The address is only read by some of
@@ -916,8 +930,8 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting("kernel", "Kernel", _summary(KERNEL), nested("Kernel", KERNEL), rows=KERNEL),
     Setting("bootloader", "Bootloader", _summary(BOOT), nested("Bootloader", BOOT), rows=BOOT),
     Setting("environment", "Desktop environment", _summary(DESKTOP), nested("Desktop environment", DESKTOP), rows=DESKTOP),
-    Setting("packages", "Applications", _applications, screens.packages_screen),
-    Setting("extra", "Extra packages", _extra, screens.extra_packages_screen),
+    Setting("packages", "Applications", _applications, packages_screen),
+    Setting("extra", "Extra packages", _extra, extra_packages_screen),
     Setting("networking", "Network", _summary(NETWORK), nested("Network", NETWORK), rows=NETWORK),
     Setting("ssh", "SSH", _summary(SSH), nested("SSH", SSH), rows=SSH),
     Setting(

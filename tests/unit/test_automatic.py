@@ -26,6 +26,7 @@ from gentoo_install.model.config import (
 from gentoo_install.plan import automatic, bootloader as plan_bootloader, kernel as plan_kernel
 from gentoo_install.tui import context as tui_context
 from gentoo_install.tui import mirror
+from gentoo_install.tui import packages as tui_packages
 from gentoo_install.tui import screens
 from gentoo_install.tui.overview import overview_screen
 from gentoo_install.tui.widgets import Answer, Outcome
@@ -230,7 +231,7 @@ def test_confirming_a_driver_pins_what_it_adds_into_the_configuration() -> None:
     after = replace(before, packages=replace(before.packages, graphics=("nvidia",)))
     # The confirmation opens on `Yes`: declining cancels the choice, and these
     # values are what makes it work rather than extras that come with it.
-    answer = screens.settle(FakeScreen(keys=["\n"], lines=30), at, before, after)
+    answer = tui_packages.settle(FakeScreen(keys=["\n"], lines=30), at, before, after)
     pinned = answer.unwrap()
     assert pinned.portage.video_cards == ("nvidia",)
     assert automatic.video_cards(pinned, at.groups) == ()
@@ -250,7 +251,7 @@ def test_declining_the_side_effects_cancels_the_choice() -> None:
     # choice the operator has already made.
     from tests.unit.test_tui_app import down
 
-    answer = screens.settle(FakeScreen(keys=[*down(1), "\n"], lines=30), at, before, after)
+    answer = tui_packages.settle(FakeScreen(keys=[*down(1), "\n"], lines=30), at, before, after)
     assert answer.unwrap() == before
 
 
@@ -263,7 +264,7 @@ def test_a_choice_that_changes_nothing_asks_nothing() -> None:
     at = context()
     before = config(ext4_on_gpt())
     # No keys at all: FakeScreen raises if the widget asks for one.
-    answer = screens.settle(FakeScreen(keys=[], lines=30), at, before, before)
+    answer = tui_packages.settle(FakeScreen(keys=[], lines=30), at, before, before)
     assert answer.unwrap() == before
 
 
@@ -275,7 +276,7 @@ def test_a_driver_row_says_what_it_will_add_before_it_is_chosen() -> None:
     from tests.unit.test_tui_app import context
 
     drawn = FakeScreen(keys=["q"], lines=30, columns=110)
-    screens.graphics_screen(drawn, config(ext4_on_gpt()), context())
+    tui_packages.graphics_screen(drawn, config(ext4_on_gpt()), context())
     assert "nvidia  proprietary" in drawn.last
     assert "(+nvidia)" in drawn.last
     assert "(+amdgpu radeonsi)" in drawn.last
@@ -292,7 +293,7 @@ def test_a_desktop_row_says_it_brings_wayland() -> None:
     from tests.unit.test_tui_app import context
 
     drawn = FakeScreen(keys=["q"], lines=30, columns=120)
-    screens.desktop_screen(drawn, config(ext4_on_gpt()), context())
+    tui_packages.desktop_screen(drawn, config(ext4_on_gpt()), context())
     assert "plasma  the session only (+wayland qt6 networkmanager)" in drawn.last
     assert "gnome  the session only (+wayland gnome networkmanager gtk)" in drawn.last
 
@@ -332,7 +333,7 @@ def test_the_confirmation_can_open_the_row_the_values_landed_on() -> None:
     before = config(ext4_on_gpt())
     after = replace(before, packages=replace(before.packages, desktop="plasma"))
     # Down twice to "Yes, and open", enter; then backspace out of the USE row.
-    answer = screens.settle(
+    answer = tui_packages.settle(
         FakeScreen(keys=[*down(2), "\n", "KEY_BACKSPACE"], lines=30, columns=110),
         at,
         before,
@@ -354,7 +355,7 @@ def test_cancelling_the_row_it_opened_cancels_the_choice() -> None:
 
     before = config(ext4_on_gpt())
     after = replace(before, packages=replace(before.packages, desktop="plasma"))
-    answer = screens.settle(
+    answer = tui_packages.settle(
         FakeScreen(keys=[*down(2), "\n", "q"], lines=30, columns=110),
         context(),
         before,
@@ -377,7 +378,7 @@ def test_a_profile_only_change_offers_no_row_to_open() -> None:
         before, portage=replace(before.portage, profile="default/linux/amd64/23.0/no-multilib")
     )
     screen = FakeScreen(keys=["\n"], lines=30, columns=110)
-    answer = screens.settle(screen, context(), before, after)
+    answer = tui_packages.settle(screen, context(), before, after)
     assert answer.unwrap().portage.profile.endswith("no-multilib")
     drawn = " ".join(line for frame in screen.frames for line in frame)
     assert "VIDEO_CARDS" not in drawn, drawn
@@ -398,14 +399,14 @@ def test_every_screen_that_picks_a_group_carrying_use_confirms_it() -> None:
     assert carries, "the catalog is meant to have groups that set make.conf"
     picks = {
         "desktop_screen": set(catalog),
-        "graphics_screen": {name for name, _ in screens.GRAPHICS if name},
-        "display_manager_screen": {name for name, _ in screens.DISPLAY_MANAGERS if name},
+        "graphics_screen": {name for name, _ in tui_packages.GRAPHICS if name},
+        "display_manager_screen": {name for name, _ in tui_packages.DISPLAY_MANAGERS if name},
         "packages_screen": set(catalog),
     }
     for name, chooses in picks.items():
         if not (chooses & carries):
             continue
-        source = inspect.getsource(getattr(screens, name))
+        source = inspect.getsource(getattr(tui_packages, name))
         assert "settle(" in source, f"{name} picks a group that sets make.conf and never asks"
 
 

@@ -31,6 +31,7 @@ from gentoo_install.model.validate import validate
 from gentoo_install.model import compat
 from gentoo_install.tui import app, widgets, screens, settings
 from gentoo_install.tui import context as tui_context
+from gentoo_install.tui import packages as tui_packages
 from gentoo_install.tui import partitions
 from gentoo_install.tui import mirror
 from gentoo_install.tui.app import run
@@ -297,7 +298,7 @@ def test_firewall_dialog_leaving_does_not_commit(leaving: str) -> None:
 
 
 def test_invalid_extra_package_dialog_cancellation_reaches_caller() -> None:
-    answer = screens.extra_packages_screen(
+    answer = tui_packages.extra_packages_screen(
         FakeScreen(keys=[*"bad!", "\n", "q"]), config(), context()
     )
     assert answer.outcome is Outcome.CANCELLED
@@ -982,22 +983,22 @@ def test_a_chinese_system_locale_selects_no_input_method_or_font_group() -> None
     ).unwrap()
     assert chosen.system.locale == "zh_CN.UTF-8"
     language_packages = {
-        *screens.input_method_groups(context().groups),
-        *screens.cjk_font_groups(context().groups),
+        *tui_packages.input_method_groups(context().groups),
+        *tui_packages.cjk_font_groups(context().groups),
     }
     assert not language_packages.intersection(chosen.packages.applications)
 
 
 def test_an_input_engine_cannot_be_selected_without_its_framework() -> None:
     with pytest.raises(ConfigError, match="framework"):
-        screens.select_input_engines(config(), context().groups, ("pinyin",))
+        tui_packages.select_input_engines(config(), context().groups, ("pinyin",))
 
 
 def test_switching_input_framework_clears_the_previous_engines() -> None:
     groups = context().groups
-    fcitx = screens.select_input_framework(config(), groups, "fcitx5")
-    with_pinyin = screens.select_input_engines(fcitx, groups, ("pinyin",))
-    switched = screens.select_input_framework(with_pinyin, groups, "ibus")
+    fcitx = tui_packages.select_input_framework(config(), groups, "fcitx5")
+    with_pinyin = tui_packages.select_input_engines(fcitx, groups, ("pinyin",))
+    switched = tui_packages.select_input_framework(with_pinyin, groups, "ibus")
     assert "pinyin" not in switched.packages.applications
     assert "fcitx5" not in switched.packages.applications
     assert "ibus" in switched.packages.applications
@@ -1015,10 +1016,10 @@ def test_the_language_section_names_fonts_as_part_of_its_subject() -> None:
 
 
 def test_the_preferred_cjk_font_is_stored_before_the_other_fonts() -> None:
-    chosen = screens.select_cjk_fonts(
+    chosen = tui_packages.select_cjk_fonts(
         config(), context().groups, ("noto-cjk", "sarasa-mono"), ("sarasa-mono",)
     )
-    fonts = screens.cjk_font_groups(context().groups)
+    fonts = tui_packages.cjk_font_groups(context().groups)
     selected = tuple(
         name for name in chosen.packages.applications if name in fonts
     )
@@ -1027,8 +1028,8 @@ def test_the_preferred_cjk_font_is_stored_before_the_other_fonts() -> None:
 
 def test_engines_and_fonts_are_grouped_by_declared_metadata() -> None:
     groups = context().groups
-    engine_sections = dict(screens.input_engine_sections(groups, "fcitx"))
-    font_sections = dict(screens.font_sections(groups))
+    engine_sections = dict(tui_packages.input_engine_sections(groups, "fcitx"))
+    font_sections = dict(tui_packages.font_sections(groups))
 
     assert "pinyin" in engine_sections["Chinese"]
     assert "anthy" in engine_sections["Japanese"]
@@ -1047,7 +1048,7 @@ def test_engines_and_fonts_are_grouped_by_declared_metadata() -> None:
 def test_font_and_engine_rows_use_names_instead_of_slugs_and_packages() -> None:
     at = context()
     engine_screen = FakeScreen(keys=["KEY_DOWN", "\n", "q"], lines=35, columns=100)
-    screens.input_method_screen(engine_screen, config(), at)
+    tui_packages.input_method_screen(engine_screen, config(), at)
     engines = "\n".join("\n".join(frame) for frame in engine_screen.frames)
     assert "Chinese" in engines
     assert "Japanese" in engines
@@ -1055,7 +1056,7 @@ def test_font_and_engine_rows_use_names_instead_of_slugs_and_packages() -> None:
     assert "app-i18n/fcitx-rime" not in engines
 
     font_screen = FakeScreen(keys=["q"], lines=35, columns=100)
-    screens.cjk_fonts_screen(font_screen, config(), at)
+    tui_packages.cjk_fonts_screen(font_screen, config(), at)
     fonts = font_screen.last
     assert "Sans" in fonts
     assert "Kai" in fonts
@@ -1079,7 +1080,7 @@ def test_plasma_with_fcitx_and_ibus_describe_different_configuration() -> None:
             ),
         )
         at = context()
-        summary = screens._input_configuration_summary(
+        summary = tui_packages._input_configuration_summary(
             chosen, at.groups, at.groups[framework].input_framework, at.translate
         )
         return summary
@@ -1108,7 +1109,7 @@ def test_more_than_one_driver_can_be_ticked_and_not_in_the_application_list() ->
     # Rows: intel, amdgpu, radeon, nouveau, nvidia, virtual-machine. Down to
     # amdgpu and tick, down to nvidia and tick, enter, then the confirmation,
     # which opens on `Yes`.
-    answer = screens.graphics_screen(
+    answer = tui_packages.graphics_screen(
         FakeScreen(keys=[*down(1), " ", *down(3), " ", "\n", "\n"], lines=30),
         config(),
         at,
@@ -1117,8 +1118,8 @@ def test_more_than_one_driver_can_be_ticked_and_not_in_the_application_list() ->
     assert chosen.packages.graphics == ("amdgpu", "nvidia")
     assert chosen.portage.video_cards == ("amdgpu", "radeonsi", "nvidia")
     offered = FakeScreen(keys=["q"], lines=30, columns=100)
-    screens.packages_screen(offered, config(), at)
-    for name, _ in screens.GRAPHICS:
+    tui_packages.packages_screen(offered, config(), at)
+    for name, _ in tui_packages.GRAPHICS:
         if name:
             assert f"  {name} " not in offered.last, name
 
@@ -1136,7 +1137,7 @@ def test_a_desktop_no_longer_picks_the_login_screen_for_the_operator() -> None:
     chosen = replace(config(), packages=replace(config().packages, desktop="plasma"))
     # sddm carries USE=sddm, so the choice confirms before it is taken, and
     # the confirmation opens on `Yes`.
-    answer = screens.display_manager_screen(
+    answer = tui_packages.display_manager_screen(
         FakeScreen(keys=["KEY_DOWN", "\n", "\n"]), chosen, at
     )
     assert answer.unwrap().packages.display_manager == "sddm"
@@ -1146,7 +1147,7 @@ def test_a_desktop_no_longer_picks_the_login_screen_for_the_operator() -> None:
 def test_a_login_screen_is_not_offered_without_a_desktop_to_start() -> None:
     at = context()
     screen = FakeScreen(keys=["q"], lines=24, columns=100)
-    screens.display_manager_screen(screen, config(), at)
+    tui_packages.display_manager_screen(screen, config(), at)
     drawn = "\n".join(screen.frames[0])
     assert "sddm  the one Plasma expects (+sddm) - choose a desktop first" in drawn
     # `none` stays selectable: it is the answer that needs no desktop.
@@ -1408,16 +1409,16 @@ def test_effects_are_derived_once_for_preview_and_pinning() -> None:
     before = config()
     after = replace(before, packages=replace(before.packages, graphics=("nvidia",)))
 
-    effects = screens.derive_effects(before, after, at)
+    effects = tui_packages.derive_effects(before, after, at)
 
     assert effects.video_cards == ("nvidia",)
     assert effects.use_flags == ()
     assert effects.user_groups == ()
     assert effects.display_manager_changed is False
-    assert effects.editable_row is screens.video_cards_screen
+    assert effects.editable_row is tui_packages.video_cards_screen
 
     typed = replace(after, portage=replace(after.portage, use=("operator_flag",)))
-    pinned = screens.apply_effects(typed, effects)
+    pinned = tui_packages.apply_effects(typed, effects)
     assert pinned.portage.use == ("operator_flag",)
     assert pinned.portage.video_cards == ("nvidia",)
 
@@ -1436,8 +1437,8 @@ def test_effects_withdraw_only_the_previous_derived_values() -> None:
     )
     after = replace(before, packages=replace(before.packages, graphics=("amdgpu",)))
 
-    effects = screens.derive_effects(before, after, at)
-    pinned = screens.apply_effects(after, effects)
+    effects = tui_packages.derive_effects(before, after, at)
+    pinned = tui_packages.apply_effects(after, effects)
 
     assert pinned.portage.use == ("operator_flag", "wayland")
     assert pinned.portage.video_cards == ("operator_card", "amdgpu", "radeonsi")
@@ -1451,7 +1452,7 @@ def test_what_still_asks_before_it_changes() -> None:
     # Every module that draws a screen, not one of them: the disk screens moved
     # to `tui/partitions.py` and four of these nine titles went with them.
     source = "".join(
-        inspect.getsource(one) for one in (screens, partitions, mirror)
+        inspect.getsource(one) for one in (screens, partitions, mirror, tui_packages)
     ) + inspect.getsource(overview_screen)
     asked = {
         "This erases every partition on the disk.",
@@ -1650,7 +1651,7 @@ def test_a_profile_the_operator_picked_survives_choosing_a_desktop() -> None:
         # on `Yes`.
         return [*down(4), "\n", "\n"]
 
-    fresh = screens.desktop_screen(FakeScreen(keys=plasma(), lines=30), config(), at).unwrap()
+    fresh = tui_packages.desktop_screen(FakeScreen(keys=plasma(), lines=30), config(), at).unwrap()
     assert fresh.packages.desktop == "plasma"
     assert fresh.portage.profile.endswith("desktop/plasma/systemd")
 
@@ -1658,7 +1659,7 @@ def test_a_profile_the_operator_picked_survives_choosing_a_desktop() -> None:
         config(),
         portage=replace(config().portage, profile="default/linux/amd64/23.0/no-multilib/systemd"),
     )
-    kept = screens.desktop_screen(FakeScreen(keys=plasma(), lines=30), chosen, at).unwrap()
+    kept = tui_packages.desktop_screen(FakeScreen(keys=plasma(), lines=30), chosen, at).unwrap()
     assert kept.packages.desktop == "plasma"
     assert kept.portage.profile == "default/linux/amd64/23.0/no-multilib/systemd"
 
@@ -1784,11 +1785,11 @@ def test_the_desktops_offered_are_the_ones_with_a_profile_file() -> None:
 
     from gentoo_install import data
 
-    offered = screens.desktop_profiles(at.groups)
+    offered = tui_packages.desktop_profiles(at.groups)
     shipped = {path.stem for path in (Path(data.__file__).parent / "data/profiles").glob("*.toml")}
     # One row per file, plus the machine with no desktop at all.
     assert set(offered) == {"", *shipped}
-    assert offered[""] == screens.BASE_PROFILE
+    assert offered[""] == tui_packages.BASE_PROFILE
     # Every desktop the menu shows can be built: the profile comes from its file.
     for name, path in offered.items():
         assert path.startswith("default/linux/amd64/23.0"), name
@@ -2255,7 +2256,7 @@ def test_an_overlay_only_application_cannot_be_ticked_without_its_overlay() -> N
     plain = config()
     assert not plain.portage.overlays
     screen = FakeScreen(keys=["q"], lines=40, columns=110)
-    screens.packages_screen(screen, plain, at)
+    tui_packages.packages_screen(screen, plain, at)
     drawn = "\n".join(screen.frames[0])
     assert "wechat" in drawn
     assert "needs the overlay gentoo-zh" in drawn
@@ -2360,7 +2361,7 @@ def test_changing_desktop_withdraws_input_configuration_consent() -> None:
     at = context()
     groups = screens.configuration_groups(at.groups)
     wanted = replace(config(), packages=replace(config().packages, desktop="plasma", applications=(*groups,)))
-    answer = screens.desktop_screen(FakeScreen(keys=["KEY_UP", "\n", "\n"], lines=30), wanted, at)
+    answer = tui_packages.desktop_screen(FakeScreen(keys=["KEY_UP", "\n", "\n"], lines=30), wanted, at)
     applications = answer.unwrap().packages.applications
     assert groups[2] not in applications and groups[3] not in applications
 
@@ -2925,7 +2926,7 @@ def test_the_values_a_choice_brings_are_accepted_by_pressing_enter() -> None:
     # Down to plasma, enter, then enter again on the confirmation without
     # navigating: the answer that takes the choice is the one under the cursor.
     keys = [*down(4), "\n", "\n"]
-    answer = screens.desktop_screen(FakeScreen(keys=keys, lines=30), config(), at)
+    answer = tui_packages.desktop_screen(FakeScreen(keys=keys, lines=30), config(), at)
 
     assert answer.unwrap().packages.desktop == "plasma"
     assert answer.unwrap().portage.profile.endswith("desktop/plasma/systemd")
@@ -2942,7 +2943,7 @@ def test_a_desktop_proposes_its_login_screen_and_a_network_manager() -> None:
 
     at = context()
     keys = [*down(4), "\n", "\n"]  # plasma, then accept what it brings
-    answer = screens.desktop_screen(FakeScreen(keys=keys, lines=30), config(), at)
+    answer = tui_packages.desktop_screen(FakeScreen(keys=keys, lines=30), config(), at)
     chosen = answer.unwrap()
     assert chosen.packages.desktop == "plasma"
     assert chosen.packages.display_manager == "sddm"
@@ -2952,7 +2953,7 @@ def test_a_desktop_proposes_its_login_screen_and_a_network_manager() -> None:
     picked = replace(
         config(), packages=replace(config().packages, display_manager="greetd")
     )
-    kept = screens.desktop_screen(
+    kept = tui_packages.desktop_screen(
         FakeScreen(keys=[*down(4), "\n", "\n"], lines=30), picked, context()
     ).unwrap()
     assert kept.packages.display_manager == "greetd"
@@ -2962,7 +2963,7 @@ def test_a_desktop_withdraws_derived_networking_but_keeps_an_operator_choice() -
     from gentoo_install.model.config import Networking
 
     at = context()
-    plasma = screens.desktop_screen(
+    plasma = tui_packages.desktop_screen(
         FakeScreen(keys=[*down(4), "\n", "\n"], lines=30), config(), at
     ).unwrap()
     assert plasma.system.networking is Networking.NETWORKMANAGER_WPA
@@ -2972,7 +2973,7 @@ def test_a_desktop_withdraws_derived_networking_but_keeps_an_operator_choice() -
         FakeScreen(keys=["KEY_UP", "\n"], lines=30), config(), explicit_at
     ).unwrap()
     assert explicit.system.networking is Networking.BUILTIN
-    kept = screens.desktop_screen(
+    kept = tui_packages.desktop_screen(
         FakeScreen(keys=[*down(4), "\n", "\n"], lines=30), explicit, explicit_at
     ).unwrap()
     assert kept.system.networking is Networking.BUILTIN
@@ -2980,24 +2981,24 @@ def test_a_desktop_withdraws_derived_networking_but_keeps_an_operator_choice() -
 
 def test_a_proposed_display_manager_is_withdrawn_but_an_operator_choice_is_kept() -> None:
     at = context()
-    plasma = screens.desktop_screen(
+    plasma = tui_packages.desktop_screen(
         FakeScreen(keys=[*down(4), "\n", "\n"], lines=30), config(), at
     ).unwrap()
     assert "proposed" in settings._display_manager(plasma, at)
 
-    gnome = screens.desktop_screen(
+    gnome = tui_packages.desktop_screen(
         FakeScreen(keys=["KEY_UP", "KEY_UP", "\n", "\n"], lines=30), plasma, at
     ).unwrap()
     assert gnome.packages.display_manager == "gdm"
     assert "sddm" not in gnome.portage.use
 
     explicit_at = context()
-    proposed = screens.desktop_screen(
+    proposed = tui_packages.desktop_screen(
         FakeScreen(keys=[*down(4), "\n", "\n"], lines=30),
         config(),
         explicit_at,
     ).unwrap()
-    explicit = screens.display_manager_screen(
+    explicit = tui_packages.display_manager_screen(
         FakeScreen(keys=["\n"], lines=30), proposed, explicit_at
     ).unwrap()
     assert "proposed" not in settings._display_manager(explicit, explicit_at)
@@ -3005,7 +3006,7 @@ def test_a_proposed_display_manager_is_withdrawn_but_an_operator_choice_is_kept(
     kept_screen = FakeScreen(
         keys=["KEY_UP", "KEY_UP", "\n", "\n"], lines=30, columns=100
     )
-    kept = screens.desktop_screen(kept_screen, explicit, explicit_at).unwrap()
+    kept = tui_packages.desktop_screen(kept_screen, explicit, explicit_at).unwrap()
     assert kept.packages.display_manager == "sddm"
     assert "Display manager: sddm (kept)" in "\n".join(
         "\n".join(frame) for frame in kept_screen.frames
@@ -3016,7 +3017,7 @@ def test_what_a_desktop_brings_is_listed_in_one_place() -> None:
     """Every place the choice reaches, on the screen that asks about it."""
     at = context()
     screen = FakeScreen(keys=[*down(4), "\n", "q"], lines=30, columns=120)
-    screens.desktop_screen(screen, config(), at)
+    tui_packages.desktop_screen(screen, config(), at)
     listed = "\n".join(screen.frames[-1])
     for named in ("Display manager", "sddm", "Network", "networkmanager", "Profile"):
         assert named in listed, f"{named} is not on the confirmation: {listed}"
@@ -3028,13 +3029,13 @@ def test_switching_desktops_takes_the_last_one_s_use_flags_with_it() -> None:
     `portage.use` and nothing was ever taken out, so Qt and SDDM followed an
     operator onto a GNOME desktop that has no use for either."""
     at = context()
-    plasma = screens.desktop_screen(
+    plasma = tui_packages.desktop_screen(
         FakeScreen(keys=[*down(4), "\n", "\n"], lines=30), config(), at
     ).unwrap()
     assert "qt6" in plasma.portage.use and "sddm" in plasma.portage.use
 
     # The cursor opens on what is set, so gnome is two rows up from plasma.
-    swapped = screens.desktop_screen(
+    swapped = tui_packages.desktop_screen(
         FakeScreen(keys=["KEY_UP", "KEY_UP", "\n", "\n"], lines=30), plasma, at
     ).unwrap()
     assert swapped.packages.desktop == "gnome"
@@ -3044,7 +3045,7 @@ def test_switching_desktops_takes_the_last_one_s_use_flags_with_it() -> None:
 
     # What the operator typed is not derivable and stays.
     typed = replace(plasma, portage=replace(plasma.portage, use=(*plasma.portage.use, "lto")))
-    after = screens.desktop_screen(
+    after = tui_packages.desktop_screen(
         FakeScreen(keys=["KEY_UP", "KEY_UP", "\n", "\n"], lines=30), typed, at
     ).unwrap()
     assert "lto" in after.portage.use
@@ -3052,14 +3053,14 @@ def test_switching_desktops_takes_the_last_one_s_use_flags_with_it() -> None:
 
 def test_an_operator_use_flag_survives_the_desktop_that_derived_the_same_flag() -> None:
     at = context()
-    plasma = screens.desktop_screen(
+    plasma = tui_packages.desktop_screen(
         FakeScreen(keys=[*down(4), "\n", "\n"], lines=30), config(), at
     ).unwrap()
-    explicit = screens.use_flags_screen(
+    explicit = tui_packages.use_flags_screen(
         FakeScreen(keys=["\n", "\n"], lines=30), plasma, at
     ).unwrap()
     assert "qt6" in explicit.portage.use
-    swapped = screens.desktop_screen(
+    swapped = tui_packages.desktop_screen(
         FakeScreen(keys=["KEY_UP", "KEY_UP", "\n", "\n"], lines=30), explicit, at
     ).unwrap()
     assert "qt6" in swapped.portage.use
