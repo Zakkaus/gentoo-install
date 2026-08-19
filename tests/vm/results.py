@@ -58,8 +58,17 @@ LOG_TAIL_BYTES: Final[int] = 256 * 1024
 #: What the guest writes the tail to, beside the log it came from.
 LOG_TAIL: Final[str] = "install.tail"
 
+#: Up to this much of the log travels whole. Measured on the logs the cluster
+#: had kept when this was written: 39 fixtures between 3.9 MB and 25 MB, all
+#: of which crossed the console before the tail existed, and one
+#: `vm-source-kernel` at 80 MB, which never did. The whole log is what a
+#: defect is found in — the binary host a configuration had turned off was
+#: found by reading every `emerge` line of one — so the tail is the fallback
+#: rather than the rule.
+FULL_LOG_BYTES: Final[int] = 32 * 1024 * 1024
 
-def console_command(directory: str) -> str:
+
+def console_command(directory: str, limit: int = FULL_LOG_BYTES) -> str:
     """Print the results as one base64 line between two markers.
 
     A guest on the cluster writes its disks to shared storage the workstation
@@ -74,11 +83,13 @@ def console_command(directory: str) -> str:
     """
     stem, opened = CONSOLE_OPEN.rsplit("_", 1)
     closed = CONSOLE_CLOSE.rsplit("_", 1)[1]
+    log = f"{directory}/install.txt"
     return (
         f"printf '{stem}_%s\\n' {opened}; "
-        f"tail -c {LOG_TAIL_BYTES} {directory}/install.txt > {directory}/{LOG_TAIL} "
-        "2>/dev/null || true; "
-        f"tar cz --exclude=./install.txt -C {directory} . | base64 -w0; "
+        f"tail -c {LOG_TAIL_BYTES} {log} > {directory}/{LOG_TAIL} 2>/dev/null || true; "
+        f"if [ \"$(wc -c < {log} 2>/dev/null || echo 0)\" -le {limit} ]; "
+        "then whole=; else whole=--exclude=./install.txt; fi; "
+        f"tar cz $whole -C {directory} . | base64 -w0; "
         f"echo; printf '{stem}_%s\\n' {closed}"
     )
 

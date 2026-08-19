@@ -1105,10 +1105,11 @@ def test_the_command_a_real_shell_runs_produces_a_readable_archive(tmp_path: Pat
     command = console_command(str(tmp_path))
     printed = subprocess.run(["sh", "-c", command], capture_output=True).stdout
     said = f"root@livecd ~ # {command}\r\n".encode() + printed
-    # The log itself stays on the guest and its tail travels: a source-kernel
-    # install writes 80 MB of it into a channel that has dropped twice.
+    # A log this size travels whole, and its tail with it: the tail is the
+    # fallback for the one fixture whose 80 MB never crossed this channel.
     assert read_console(said) == {
         "install.rc": b"0\n",
+        "install.txt": b"installed 53 operations\n",
         LOG_TAIL: b"installed 53 operations\n",
     }
 
