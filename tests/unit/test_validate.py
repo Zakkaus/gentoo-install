@@ -1078,6 +1078,35 @@ def _with_non_root_logical_volume(size: Size) -> InstallConfig:
     )
 
 
+def test_two_logical_volumes_cannot_both_take_the_rest_of_a_group() -> None:
+    """`lvcreate --extents 100%FREE` gives the remainder to whichever volume
+    asks first, so the second one fails with the disk already partitioned and
+    the group already made. Partitions have had this rule from the start.
+    """
+    nodes = [
+        *ext4_on_gpt(),
+        Existing(id=i("data-pv"), selector="/dev/disk/by-id/data", wipe=True),
+        VolumeGroup(id=i("data-vg"), members=(i("data-pv"),), name="data"),
+        LogicalVolume(id=i("cache-lv"), group=i("data-vg"), name="cache", size=None),
+        LogicalVolume(id=i("spool-lv"), group=i("data-vg"), name="spool", size=None),
+    ]
+    with pytest.raises(ValidationFailed, match="only one can") as refused:
+        validate(config(nodes))
+    assert "cache-lv" in str(refused.value) and "spool-lv" in str(refused.value)
+
+    # One of them may, which is what every shipped layout does.
+    validate(config(nodes[:-1]))
+
+    # And two groups each with one are two separate remainders.
+    beside = [
+        *nodes[:-1],
+        Existing(id=i("spool-pv"), selector="/dev/disk/by-id/spool", wipe=True),
+        VolumeGroup(id=i("spool-vg"), members=(i("spool-pv"),), name="spool"),
+        LogicalVolume(id=i("spool-lv"), group=i("spool-vg"), name="spool", size=None),
+    ]
+    validate(config(beside))
+
+
 def test_a_zero_sized_non_root_logical_volume_is_refused_and_named() -> None:
     with pytest.raises(ValidationFailed, match="logical volume cache-lv is 0B"):
         validate(_with_non_root_logical_volume(Size(0)))
