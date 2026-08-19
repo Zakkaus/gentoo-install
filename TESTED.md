@@ -53,6 +53,7 @@ The ordinary path: partition, format, unpack a stage3, configure, boot.
 | `52b373dca9a2` | `vm-binpkg`, `openrc-sdboot`, `zbm-unlock`, `ext2`, `zfs-zbm` — five of six. `zbm-unlock` is the first record of a ZFSBootMenu pool opened over ssh; `vm-unlock` lost 10.31.0.151 to a round that started 92 minutes later and its initramfs answered `Duplicate address detected`, which `ffcb8561250d` addresses |
 | `2dd80ae4534f` | `vm-proxy-dead`, `vm-cjk-kernel`, `vm-raidz`, `vm-zfs-encrypted`, `ext4-bios`, `vm-zfs-mirror` — six of six |
 | `2dd80ae4534f` | `ext3`, `vm-lvm`, `vm-xfs` — three of three, and the only round that ran **without** `--distfiles`: the guests fetched from `nju` itself, so this row is the one that says the direct path works |
+| `e16f57a39199d` | `ext3`, `vm-xfs`, `vm-luks`, `openrc-sdboot`, `vm-binhost-fallback`, `vm-binpkg` — six of the round's ten so far. `vm-binhost-fallback` is the first record with a machine behind the binary-host fallback: its journal holds one `degraded` event, `gentoo answered no package index at https://mirror.xtom.com.hk/gentoo/releases/amd64/binpackages/23.0/x86-64`, and the install finished from source in 56.4 minutes |
 | `ffcb8561250d` | `vm-btrfs`, `mbr-edit`, `vm-f2fs`, `vm-bios-luks`, `vm-sdboot`, `vm-greetd` — six of six. `vm-bios-luks` is the first BIOS fixture recorded on the cluster rather than under local QEMU, and `vm-greetd` the second greetd record |
 
 Every row from `08015b221d73` onward ran `--region cn --site nju --sync
@@ -283,10 +284,10 @@ machine returns to its own system because the entry is one-shot.
 
 ## Not covered by any record
 
-greetd desktop sessions, ibus outside GNOME, and binary-host failure
-fallback — the last has a test that follows one through the runner to a
-finished run and a journal entry, and no machine has been installed against a
-host that could not answer.
+greetd desktop sessions and ibus outside GNOME. Binary-host failure
+fallback left this list on `e16f57a39199d`: `vm-binhost-fallback` installed
+against a host whose index answers 404, recorded the degradation and finished
+from source.
 
 CJK text-console rendering is not covered either, and the `vm-cjk-kernel` row
 above does not cover it: that run establishes that the patched kernel merges,
