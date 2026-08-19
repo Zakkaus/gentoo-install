@@ -107,8 +107,12 @@ ZFSBootMenu; the other four use ext4.
 | `alpine-standard-3.24.1`, BIOS, OpenRC, ext4 | `bc8ab3a0edcf` | root shell in 59s; 51 operations, 29 from a binary host, 51 compiled; booted with no failed unit |
 | `install-amd64-minimal-20260816T170110Z`, UEFI, systemd, xfs | `86cca05b314f` | installed `vm-xfs` in one run: 56 operations, 61 packages from a binary host, 12 compiled, then the disk it wrote booted, logged in on the console and passed every installed-state check |
 
-The Gig-OS ISO is not tested here: it runs the installer by script, and the
-gentoo-cjk minimal ISO record above covers that path.
+The Gig-OS ISO has no record at a current revision. It runs the installer by
+script, and the medium that covers the same path — the self-built gentoo-cjk
+minimal ISO — was last measured at `b931ef46fc15ed50385f70467f2bfb0a8d1fd154`,
+which this file lists as historical: the installation path changed after it.
+Neither ISO is in `lab/vm/iso/`, so measuring either starts with building or
+fetching one.
 
 ### Network modes
 
