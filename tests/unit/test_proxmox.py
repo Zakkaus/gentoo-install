@@ -3611,9 +3611,58 @@ def test_a_silent_console_is_not_reported_as_a_stubborn_grub(
     with pytest.raises(ProxmoxError, match="GRUB never opened its editor"):
         proxmox._editor_screen(cast(Any, Console(menu)), 0.2)
 
-    # And a screen holding `setparams` is the editor, so neither fires.
-    editor = b"setparams 'Gentoo'\r\n  linux /boot/vmlinuz root=UUID=...\r\n"
-    assert b"setparams" in proxmox._editor_screen(cast(Any, Console(editor)), 0.2)
+    # And the editor is the editor, so neither fires. Positioned the way GRUB
+    # draws it, copied from `vm-sdboot`'s console.
+    assert b"setparams" in proxmox._editor_screen(cast(Any, Console(EDITOR_SCREEN)), 0.2)
+
+
+def test_the_editor_screen_waits_for_the_line_it_is_going_to_edit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GRUB draws the entry line by line. `btrfs-luks` was ended at 0.3
+    minutes with `no GRUB entry to edit on this screen` on a screen holding
+    `setparams` and the entry's `search` line, the `linux` line still to come:
+    the reader returned the moment it saw `setparams`.
+    """
+    from tests.vm import proxmox
+
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+
+    class Piecewise:
+        """A console that delivers the entry the way one arrived."""
+
+        def __init__(self, pieces: list[bytes]) -> None:
+            self.pieces = pieces
+            self.keys: list[str] = []
+
+        def send_raw(self, keys: str) -> None:
+            self.keys.append(keys)
+
+        def snapshot(self, seconds: float) -> bytes:
+            return self.pieces.pop(0) if self.pieces else b""
+
+    console = Piecewise([EDITOR_HEAD, EDITOR_TAIL])
+    screen = proxmox._editor_screen(cast(Any, console), 5.0)
+
+    assert b"setparams" in screen and b"linux /boot/gentoo" in screen, screen
+    # And it did not press ESC between the two, which discards the edit and
+    # returns to the menu.
+    assert console.keys == ["e"], console.keys
+    # The caller can count the rows it needs.
+    assert proxmox._line_of_linux(screen) == 3
+
+
+#: The GRUB editor as `vm-sdboot` drew it: `setparams` on row 5, the entry's
+#: `search` on row 7 and the kernel on row 8, each placed with `ESC[row;colH`.
+EDITOR_HEAD: Final[bytes] = (
+    b"\x1b[05;03Hsetparams 'Boot LiveCD (kernel: gentoo)'"
+    b"\x1b[07;03Hsearch --no-floppy --set=root -l Gentoo-amd64-20260816"
+)
+EDITOR_TAIL: Final[bytes] = (
+    b"\x1b[08;03Hlinux /boot/gentoo dokeymap nodhcp root=live:CDLABEL=Gentoo-amd64-20260816"
+    b"\x1b[09;03Hinitrd /boot/gentoo.igz"
+)
+EDITOR_SCREEN: Final[bytes] = EDITOR_HEAD + EDITOR_TAIL
 
 
 #: What `run60/vm-openrc-desktop.log` held, in the order it arrived. The first

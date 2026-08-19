@@ -1210,6 +1210,24 @@ ESCAPE_SETTLES: Final[float] = 2.0
 SILENT_CONSOLE_BYTES: Final[int] = 16
 
 
+#: What GRUB calls the line that names the kernel, whichever medium drew it.
+_KERNEL_COMMANDS: Final[tuple[bytes, ...]] = (b"linux", b"linuxefi", b"linux16")
+
+
+def _drawn_rows(screen: bytes) -> dict[int, bytes]:
+    """Every row GRUB placed text on, the last write to each winning."""
+    rows: dict[int, bytes] = {}
+    for row, text in _PLACED.findall(screen):
+        said = text.strip()
+        if said:
+            rows[int(row)] = said
+    return rows
+
+
+def _kernel_rows(rows: dict[int, bytes]) -> list[int]:
+    return [at for at, said in rows.items() if said.split(b" ", 1)[0] in _KERNEL_COMMANDS]
+
+
 def _editor_screen(console: Line, timeout: float) -> bytes:
     """Press `e` until GRUB draws the entry, and answer with that screen.
 
@@ -1223,14 +1241,19 @@ def _editor_screen(console: Line, timeout: float) -> bytes:
     # had already gone past, so every press landed after it. Nineteen guests of
     # one round ended at `GRUB never opened its editor` that way.
     deadline = time.monotonic() + timeout
-    seen = b""
     everything = b""
     console.send_raw("e")
     while time.monotonic() < deadline:
-        seen = console.snapshot(3.0)
-        everything += seen
-        if b"setparams" in seen:
-            return seen
+        everything += console.snapshot(3.0)
+        # Both lines, because both are what the caller needs: `btrfs-luks` was
+        # ended at 0.3 minutes on a screen holding `setparams` and the entry's
+        # `search` line, with the `linux` line still to come.
+        if b"setparams" in everything and _kernel_rows(_drawn_rows(everything)):
+            return everything
+        if b"setparams" in everything:
+            # The editor is open and the rest of the entry is still arriving.
+            # ESC here would discard it and go back to the menu.
+            continue
         # ESC first, and only then `e` again: in the editor it discards the
         # edits and returns to the menu, and in the menu it does nothing. A
         # bare second `e` would type the letter into the command line. The gap
@@ -1258,17 +1281,9 @@ def _line_of_linux(screen: bytes) -> int:
     neither is a medium whose bootloader is not GRUB; guessing a number there
     would edit whatever happened to sit on that row.
     """
-    rows: dict[int, bytes] = {}
-    for row, text in _PLACED.findall(screen):
-        said = text.strip()
-        if said:
-            rows[int(row)] = said
+    rows = _drawn_rows(screen)
     top = [at for at, said in rows.items() if said.startswith(b"setparams")]
-    body = [
-        at
-        for at, said in rows.items()
-        if said.split(b" ", 1)[0] in (b"linux", b"linuxefi", b"linux16")
-    ]
+    body = _kernel_rows(rows)
     if not top or not body:
         raise ProxmoxError(f"no GRUB entry to edit on this screen: {screen[-400:]!r}")
     return min(body) - min(top)
