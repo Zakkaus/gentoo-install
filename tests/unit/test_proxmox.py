@@ -4043,3 +4043,94 @@ def test_a_failed_installed_check_answers_with_what_the_machine_said(
 
     assert "does not say" in refused, refused
     assert "agreety" in refused, "the answer, not only the pattern"
+
+
+def test_a_remote_unlock_that_delivered_a_wrong_passphrase_is_not_a_login_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`zbm-unlock` failed at 93.0 minutes with `the installed system asked
+    for a name and kept asking`. Its console says otherwise: the passphrase
+    reached dropbear, `dracut-pre-mount` answered `Key load error: Incorrect
+    key provided for 'zpcala'` three times, `/sysroot` never mounted and the
+    guest sat in emergency mode. The ssh session proves delivery, not that the
+    key was right."""
+    from gentoo_install.exec.config import load
+    from tests.vm import cluster
+    from tests.vm.console import ConsoleTimeout
+
+    class Guest:
+        def stop(self) -> None:
+            return None
+
+        def boot_from_disk(self) -> None:
+            return None
+
+        def start(self) -> None:
+            return None
+
+        def reset(self) -> None:
+            return None
+
+    held = (
+        b"[   60.242509] dracut-pre-mount[622]: Key load error: "
+        b"Incorrect key provided for 'zpcala'.\r\n"
+        b"[FAILED] Failed to mount /sysroot.\r\n"
+        b"Entering emergency mode. Exit the shell to continue.\r\n"
+    )
+
+    class Link:
+        """A console holding that screen and nothing else.
+
+        It answers the rest of the login protocol too, so removing the check
+        under test fails an assertion rather than an attribute lookup.
+        """
+
+        def reopen(self, *, solicit_prompt: bool = True) -> None:
+            return None
+
+        def observe(self, pattern: str, timeout: float = 0.0, **ignored: object) -> bytes:
+            import re as _re
+
+            if _re.search(pattern.encode(), held):
+                return held
+            raise ConsoleTimeout("nothing like that on the screen")
+
+        def respond(self, line: str) -> None:
+            return None
+
+        def run(self, command: str, **ignored: object) -> None:
+            return None
+
+        def expect_output(self, command: str, timeout: float = 0.0) -> bytes:
+            return b""
+
+    monkeypatch.setattr(cluster, "remote_unlock", lambda *unused, **ignored: None)
+    installation = load(Path("tests/fixtures/zbm-unlock.toml"))
+    assert installation.kernel.remote_unlock.enabled, "the fixture under test"
+
+    refused = cluster.boot_and_check(
+        cast(Any, Guest()),
+        cast(Any, Link()),
+        Path("unused"),
+        installation,
+        remote_key=Path("unused.key"),
+    )
+
+    assert "did not mount the root" in refused, refused
+    assert "Key load error" in refused, "the screen, not only the conclusion"
+    assert "asked for a name" not in refused, refused
+
+
+def test_a_remote_unlock_that_worked_carries_on_to_the_login(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The check must not turn every remote unlock into a failure: a console
+    that never says the initramfs gave up carries on as it always did."""
+    from tests.vm import cluster
+    from tests.vm.console import ConsoleTimeout
+
+    class Link:
+        def observe(self, pattern: str, timeout: float = 0.0, **ignored: object) -> bytes:
+            raise ConsoleTimeout("the boot said nothing of the sort")
+
+    assert cluster._initramfs_gave_up(cast(Any, Link())) == ""
