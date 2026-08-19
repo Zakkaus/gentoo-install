@@ -316,7 +316,10 @@ def footer(translate: Catalog, enter: str = "Continue") -> str:
         (
             f"[enter] {translate(enter)}",
             f"[backspace] {translate('Back')}",
-            f"[q] {translate('Cancel')}",
+            # `esc`, not `q`: this footer is drawn over text fields as well
+            # as menus, and a field takes `q` as the letter. An operator who
+            # read `[q] Cancel` on the hostname screen typed one into it.
+            f"[esc] {translate('Cancel')}",
         )
     )
 

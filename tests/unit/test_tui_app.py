@@ -918,6 +918,33 @@ def test_main_menu_enter_action_is_open() -> None:
     assert "[enter] Open" in app._menu_footer(context())
 
 
+def test_the_shared_footer_names_a_key_that_cancels_every_screen() -> None:
+    """That footer is drawn over text fields as well as menus, and it said
+    `[q] Cancel`. A menu takes `q`; a field takes it as the letter, so an
+    operator who read the footer on the hostname screen typed one into it.
+    """
+    from gentoo_install.tui import widgets as widget_module
+    from gentoo_install.tui.context import footer
+    from tests.unit.fake_screen import FakeScreen
+
+    said = footer(context().translate)
+    assert "[esc]" in said, said
+    assert "[q]" not in said, said
+
+    # The key it names really cancels both, which is the reason it is that one.
+    escape = "\x1b"
+    assert escape in widget_module.CANCEL
+    field = widget_module.TextField(title="Hostname", footer=said)
+    assert field.run(FakeScreen(keys=[escape])).outcome is widget_module.Outcome.CANCELLED
+
+    menu: widget_module.Menu[str] = widget_module.Menu(
+        title="Anything",
+        items=[widget_module.Item(label="One", value="one")],
+        footer=said,
+    )
+    assert menu.run(FakeScreen(keys=[escape])).outcome is widget_module.Outcome.CANCELLED
+
+
 def test_the_footer_keys_and_the_legend_are_not_one_run_of_text() -> None:
     """`[enter] open  [q] cancel  * required  ~ never opened` on one line reads
     as neither the keys nor the legend. The legend sits at the end of the line,
