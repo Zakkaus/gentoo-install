@@ -143,6 +143,55 @@ The menu can save its answers as `my-install.toml` and exit. The configuration-f
 
 Before unmounting, an interactive run offers a root shell in the target after either success or failure. `--no-shell` suppresses that question.
 
+## Installing from memory
+
+<!-- fact: install-memory -->
+
+`--ram` and `--lowram` arm one boot into a live environment held in memory, which is what a rented machine with no console and no rescue image needs before its own disk can be installed over. The installer, the chosen configuration and the authorised keys travel inside the initramfs, so the environment comes up running the revision that armed it:
+
+```sh
+./bootstrap.sh --ram --ssh-key github:zakkaus --root-password 'replace this'
+reboot
+ssh root@the-machine
+```
+
+The default boot entry is not changed, so a machine that does not come up in the environment boots what it booted before; `--disarm` takes the arming back. `--bypass` replaces the default entry instead, for firmware that drops a one-shot entry, and it is the one path where an environment that fails to come up leaves a machine that does not boot at all.
+
+The first screen offers the install and a rescue shell and has no timeout, and nothing is erased until it is answered. `--ram` boots the Gentoo CJK ISO, which carries ZFS and needs about 2 GiB of RAM; `--lowram` boots the Alpine netboot bundle, which is smaller and has no `zfs.ko`. `--ssh-port` moves the daemon off 22.
+
+## Converting a running system
+
+<!-- fact: install-in-place -->
+
+`mode = "in-place"` in the `[disk]` table replaces the userland of the running distribution instead of partitioning a disk. The table carries no device list, because the layout is read from the machine:
+
+```toml
+config_version = 1
+
+[system]
+hostname = "converted"
+timezone = "UTC"
+locales = ["en_US.UTF-8"]
+locale = "en_US.UTF-8"
+init = "systemd"
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
+
+[portage]
+profile = "default/linux/amd64/23.0/systemd"
+makeopts = "-j4"
+
+[bootloader]
+kind = "grub"
+firmware = "uefi"
+
+[disk]
+mode = "in-place"
+```
+
+The hash above is an example and must be replaced before execution. An interactive run prints what the conversion replaces and requires the word `convert` before anything is written; a run with no terminal is not asked, because `mode = "in-place"` in the file is the authorisation and a question there would hold a serial console open for ever.
+
+**The session that started the run is the lifeline.** A new SSH login stops working once `/usr` and `/etc` belong to the new system, while the session that started the run keeps the binaries it already mapped.
+
 ## Resuming an interrupted run
 
 <!-- fact: resume-behavior -->

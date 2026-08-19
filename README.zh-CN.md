@@ -145,6 +145,55 @@ cd gentoo-install-master
 
 交互式安装无论成功或失败，都会在卸载前提供在目标系统内打开 root shell 的选项。`--no-shell` 跳过这项确认。
 
+## 从内存安装
+
+<!-- fact: install-memory -->
+
+`--ram` 与 `--lowram` 武装一次进入内存中活环境的引导，那是一台没有控制台、也没有救援镜像的租用机器覆盖自己磁盘之前所需要的。安装程序、选定的配置与授权密钥都随 initramfs 送达，因此环境起来时运行的正是武装它的那一版：
+
+```sh
+./bootstrap.sh --ram --ssh-key github:zakkaus --root-password 'replace this'
+reboot
+ssh root@the-machine
+```
+
+默认引导项不会改动，所以没有进入该环境的机器仍引导回原本的系统；`--disarm` 收回武装。`--bypass` 改为取代默认项，供会丢弃一次性引导项的固件使用，那也是唯一一条「环境起不来就连机器都引导不了」的路径。
+
+第一个界面提供安装与救援 shell，没有超时，未回答之前不会擦除任何数据。`--ram` 引导的是带 ZFS 的 Gentoo CJK ISO，约需 2 GiB 内存；`--lowram` 引导的是较小、没有 `zfs.ko` 的 Alpine netboot 压缩包。`--ssh-port` 把服务移离 22 端口。
+
+## 转换运行中的系统
+
+<!-- fact: install-in-place -->
+
+在 `[disk]` 表设 `mode = "in-place"`，安装程序取代运行中发行版的用户空间，而不是分区磁盘。该表不带设备列表，因为布局由机器读出：
+
+```toml
+config_version = 1
+
+[system]
+hostname = "converted"
+timezone = "UTC"
+locales = ["en_US.UTF-8"]
+locale = "en_US.UTF-8"
+init = "systemd"
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
+
+[portage]
+profile = "default/linux/amd64/23.0/systemd"
+makeopts = "-j4"
+
+[bootloader]
+kind = "grub"
+firmware = "uefi"
+
+[disk]
+mode = "in-place"
+```
+
+上面那个哈希是示例，执行前必须替换。交互式执行会打印这次转换取代哪些目录，并要求输入 `convert` 才会写入任何数据；没有终端的执行不会被询问，因为配置文件里的 `mode = "in-place"` 就是授权，而在那里发问会让串口控制台永远等下去。
+
+**发起这次执行的 session 是生命线。**`/usr` 与 `/etc` 换成新系统之后，新的 SSH 登录不再成立，而发起执行的 session 仍持有它已经映射的可执行文件。
+
 ## 从中断处继续
 
 <!-- fact: resume-behavior -->

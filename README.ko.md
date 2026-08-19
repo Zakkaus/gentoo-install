@@ -145,6 +145,55 @@ cd gentoo-install-master
 
 대화형 설치에서는 성공하거나 실패한 경우 모두 마운트를 해제하기 전에 대상 시스템 안에서 root 셸을 여는 선택지를 제공한다. `--no-shell`을 사용하면 이 확인을 생략할 수 있다.
 
+## 메모리에서 설치
+
+<!-- fact: install-memory -->
+
+`--ram`과 `--lowram`은 메모리에 올린 라이브 환경으로 한 번 부팅하도록 설정한다. 콘솔도 복구 이미지도 없는 임대 장비가 자기 디스크를 덮어쓰려면 이것이 필요하다. 설치 도구와 선택한 설정, 인가된 키는 initramfs 안에 실려 가므로 환경은 그것을 설정한 리비전으로 올라온다.
+
+```sh
+./bootstrap.sh --ram --ssh-key github:zakkaus --root-password 'replace this'
+reboot
+ssh root@the-machine
+```
+
+기본 부팅 항목은 바뀌지 않으므로 환경으로 올라오지 못한 장비는 이전과 같은 것을 부팅한다. `--disarm`은 설정을 되돌린다. `--bypass`는 기본 항목 자체를 대체하며, 일회성 항목을 버리는 펌웨어를 위한 것이다. 환경이 올라오지 못했을 때 장비가 아예 부팅하지 못하는 경로는 이것뿐이다.
+
+첫 화면은 설치와 복구 셸을 제시하며 시간 제한이 없고, 답하기 전에는 아무것도 지우지 않는다. `--ram`은 ZFS를 담은 Gentoo CJK ISO를 부팅하며 약 2 GiB의 메모리가 필요하다. `--lowram`은 더 작고 `zfs.ko`가 없는 Alpine netboot 아카이브를 부팅한다. `--ssh-port`는 데몬을 22번에서 옮긴다.
+
+## 실행 중인 시스템 변환
+
+<!-- fact: install-in-place -->
+
+`[disk]` 테이블의 `mode = "in-place"`는 디스크를 분할하는 대신 실행 중인 배포판의 사용자 공간을 교체한다. 레이아웃은 기계에서 읽어 오므로 이 테이블은 장치 목록을 담지 않는다.
+
+```toml
+config_version = 1
+
+[system]
+hostname = "converted"
+timezone = "UTC"
+locales = ["en_US.UTF-8"]
+locale = "en_US.UTF-8"
+init = "systemd"
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
+
+[portage]
+profile = "default/linux/amd64/23.0/systemd"
+makeopts = "-j4"
+
+[bootloader]
+kind = "grub"
+firmware = "uefi"
+
+[disk]
+mode = "in-place"
+```
+
+위 해시는 예시이며 실행 전에 교체해야 한다. 대화형 실행은 변환이 교체하는 디렉터리를 출력하고 무언가를 쓰기 전에 `convert` 입력을 요구한다. 터미널이 없는 실행은 묻지 않는다. 설정 파일의 `mode = "in-place"`가 승인이며, 거기서 질문하면 시리얼 콘솔을 영원히 기다리게 하기 때문이다.
+
+**이 실행을 시작한 세션이 생명줄이다.** `/usr`와 `/etc`가 새 시스템의 것이 되면 새 SSH 로그인은 성립하지 않으며, 실행을 시작한 세션만 이미 매핑한 바이너리를 유지한다. 
+
 ## 중단된 실행 재개
 
 <!-- fact: resume-behavior -->
