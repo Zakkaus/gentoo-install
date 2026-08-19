@@ -3754,6 +3754,23 @@ def test_a_check_reads_the_output_and_not_the_question(tmp_path: Path) -> None:
     assert b"RESOLVCONF-OK" in whole, "the echo is what the old reading carried"
 
 
+def test_the_local_reader_hands_back_lines_a_dollar_anchor_can_match(
+    tmp_path: Path,
+) -> None:
+    """`convert.py` matches `installed.py` patterns against what this reader
+    answers, and four of them anchor on `$`. A serial line ends `\r\n`, so
+    those four could not match a correct machine.
+    """
+    from tests.vm.console import SerialConsole
+
+    channel = _EchoingChannel()
+    with (tmp_path / "console.log").open("wb") as log:
+        said = SerialConsole(cast(Any, channel), log).expect_output("true", timeout=5.0)
+
+    assert b"\r" not in said, said
+    assert re.search(rb"(?m)^RESOLVCONF-EMPTY$", said), said
+
+
 @pytest.mark.lab
 def test_the_driver_medium_reaches_a_guest_with_no_ata_driver(tmp_path: Path) -> None:
     """The Debian genericcloud kernel builds no ATA or AHCI driver, so a
