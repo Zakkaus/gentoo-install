@@ -234,7 +234,7 @@
 "GCN 1.2 and newer" = "GCN 1.2 이후"
 "AMD up to Sea Islands" = "Sea Islands 및 그 이전 세대의 AMD"
 "the in-kernel NVIDIA driver" = "커널 내장 NVIDIA 드라이버"
-"proprietary, widens ACCEPT_LICENSE, and blacklists nouveau itself" = "독점 드라이버. ACCEPT_LICENSE 를 넓히고 nouveau 를 스스로 차단합니다"
+"proprietary, accepts its own licence for its own packages, and blacklists nouveau itself" = "독점 드라이버. 자신의 패키지에만 라이선스를 허용하고 nouveau 를 스스로 차단합니다"
 "virtio-gpu, QXL and VMware, with fbdev left as the fallback" = "virtio-gpu, QXL, VMware. 대체 수단으로 fbdev 를 남깁니다"
 "a text console login" = "텍스트 콘솔 로그인"
 "the one Plasma expects" = "Plasma 가 기대하는 것"

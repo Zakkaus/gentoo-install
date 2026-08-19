@@ -234,7 +234,7 @@
 "GCN 1.2 and newer" = "GCN 1.2 以降"
 "AMD up to Sea Islands" = "Sea Islands までの AMD"
 "the in-kernel NVIDIA driver" = "カーネル内蔵の NVIDIA ドライバ"
-"proprietary, widens ACCEPT_LICENSE, and blacklists nouveau itself" = "プロプライエタリ。ACCEPT_LICENSE を広げ、nouveau は自身で無効化します"
+"proprietary, accepts its own licence for its own packages, and blacklists nouveau itself" = "プロプライエタリ。自身のパッケージにのみライセンスを受け入れ、nouveau は自身で無効化します"
 "virtio-gpu, QXL and VMware, with fbdev left as the fallback" = "virtio-gpu、QXL、VMware。フォールバックとして fbdev を残します"
 "a text console login" = "テキストコンソールのログイン"
 "the one Plasma expects" = "Plasma が想定するもの"

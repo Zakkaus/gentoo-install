@@ -318,7 +318,7 @@ def test_input_devices_is_never_left_empty_by_default() -> None:
     so a machine installed with the row untouched would have no pointer."""
     from gentoo_install.plan.portage import make_conf
 
-    written = dict(make_conf(config(ext4_on_gpt()), (), (), ()))
+    written = dict(make_conf(config(ext4_on_gpt()), (), ()))
     assert written["INPUT_DEVICES"] == "libinput"
 
 
