@@ -552,6 +552,35 @@ def interrupt_and_resume(console: SerialConsole, config: str) -> None:
     console.run(collect_command(RESULT_DIR))
 
 
+#: Where the loop device the image was attached to is remembered, so the
+#: detach names the same one the attach chose.
+IMAGE_LOOP_FILE: Final[str] = "/run/vm-image.dev"
+
+
+def check_image(console: SerialConsole, installation: InstallConfig) -> None:
+    """Read the layout back out of the image an image install produced.
+
+    The image never leaves the guest: it sits on the scratch filesystem this
+    runner mounts, and nothing here can boot a file on it. `--boot-installed`
+    booted the target disk instead, which in this mode carries that scratch
+    filesystem and no installed system at all, so the check ended at the UEFI
+    shell with the install already finished and correct.
+    """
+    if installation.disk.mode is not DiskMode.IMAGE:
+        return
+    image = installation.disk.image
+    console.run(f"mkdir -p {RESULT_DIR}")
+    console.run(
+        f"{{ losetup -Pf --show {image} > {IMAGE_LOOP_FILE} && sleep 1 && "
+        f"lsblk --noheadings --list --output NAME,FSTYPE $(cat {IMAGE_LOOP_FILE}); }} "
+        f"> {RESULT_DIR}/image.txt 2>&1",
+        timeout=300.0,
+    )
+    console.run(f"losetup -d $(cat {IMAGE_LOOP_FILE}) || true")
+    console.run(collect_command(RESULT_DIR))
+    console.run("sync")
+
+
 def run_installer(console: SerialConsole, config: str, extra: str = "") -> None:
     """Run the installer from the driver CD and keep everything it printed."""
     console.run(FIND_DRIVER)
@@ -668,6 +697,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--keep", action="store_true", help="keep the run directory")
     args = parser.parse_args(argv)
+
+    if args.and_boot and args.install and load(
+        REPOSITORY / "tests" / args.install
+    ).disk.mode is DiskMode.IMAGE:
+        # The product is a file on the guest's own scratch filesystem, so
+        # there is no installed disk to boot: `check_image` is the whole
+        # answer and it runs in the install itself.
+        return main([one for one in (argv or sys.argv[1:]) if one != "--and-boot"])
 
     if args.and_boot:
         # The install first, then the same arguments again with the boot check.
@@ -826,11 +863,31 @@ def _perform(args: argparse.Namespace, medium: Medium, workdir: Path) -> int:
                 mount_scratch_for_image(console, installation)
                 stage_passphrases(console, load(REPOSITORY / "tests" / args.install))
                 run_installer(console, config, "--dry-run" if args.dry_run else "")
+                if not args.dry_run:
+                    check_image(console, installation)
             else:
                 probe(console)
             power_off(console, vm)
 
-    return report(result_disk, keep=args.keep, installed=bool(args.install and not args.dry_run))
+    # With the assertions when the product is a file: an image run has no
+    # second phase, so this is the only place its verdict can be decided.
+    return report(
+        result_disk,
+        keep=args.keep,
+        assertions=(
+            REPOSITORY / "tests" / args.install
+            if _reads_an_image(args.install, args.dry_run)
+            else None
+        ),
+        installed=bool(args.install and not args.dry_run),
+    )
+
+
+def _reads_an_image(install: str | None, dry_run: bool) -> bool:
+    """Whether this run's whole verdict is the image it wrote."""
+    if not install or dry_run:
+        return False
+    return load(REPOSITORY / "tests" / install).disk.mode is DiskMode.IMAGE
 
 
 def power_off(console: SerialConsole, vm: Vm) -> None:
@@ -898,7 +955,20 @@ def report(
 def _from_config(config: Path) -> list[tuple[str, str]]:
     """Return the shared contract in the local result format."""
     installation = load(config)
+    if installation.disk.mode is DiskMode.IMAGE:
+        # Nothing booted, so none of the installed-state checks ran: what
+        # this mode produces is a file, and `check_image` reads its layout.
+        return [("image", _image_pattern(installation))]
     return [(check.name, check.pattern) for check in checks(installation)]
+
+
+def _image_pattern(installation: InstallConfig) -> str:
+    """Every filesystem the layout declares, as `lsblk` names it."""
+    graph = installation.disk.graph
+    wanted = sorted({node.kind.value for node in graph.of_type(Filesystem)})
+    if not wanted:
+        raise SystemExit("an image configuration with no filesystem proves nothing")
+    return "".join(rf"(?=[\s\S]*^\S+\s+{one}$)" for one in wanted)
 
 
 def verdict(
@@ -932,7 +1002,13 @@ def check_expected(results: dict[str, bytes], config: Path) -> int:
     # From the configuration rather than hardcoded: a second fixture installs a
     # different name, and a check that only ever matched the first one would
     # pass on a system that ignored the setting.
-    for name, pattern in [*EXPECTED, *_from_config(config)]:
+    # `EXPECTED` is what a booted machine leaves behind, and an image install
+    # boots nothing: its whole product is the file, which `check_image` reads
+    # while the live medium is still up. Asking for the rest would fail every
+    # image run; asking for none of it left the image check inert, collected
+    # and printed and never compared.
+    installed = [] if load(config).disk.mode is DiskMode.IMAGE else list(EXPECTED)
+    for name, pattern in [*installed, *_from_config(config)]:
         text = results.get(f"{name}.txt", b"").decode("utf-8", "replace")
         if re.search(pattern, text, re.MULTILINE) is None:
             missing.append(f"{name}.txt does not match {pattern}")

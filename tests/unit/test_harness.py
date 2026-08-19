@@ -516,6 +516,76 @@ def test_an_installed_check_matches_the_value_and_not_the_text_around_it() -> No
     assert not re.search(systemd, "vmtestlonger\n")
 
 
+def test_an_image_install_is_judged_by_the_image_it_wrote() -> None:
+    """The product is a file on the scratch filesystem this runner mounts, and
+    nothing here can boot a file on the guest's own disk. `--and-boot` booted
+    the target disk, which in this mode carries that scratch filesystem and no
+    installed system: the check ended at `UEFI Interactive Shell` with
+    `install.rc` holding 0 and the install correct.
+    """
+    import re
+
+    from gentoo_install.exec.config import load
+    from tests.vm import run as runner
+
+    installation = load(Path("tests/fixtures/vm-image.toml"))
+    expectation = runner._from_config(Path("tests/fixtures/vm-image.toml"))
+    assert [name for name, _ in expectation] == ["image"]
+    pattern = expectation[0][1]
+
+    # What `lsblk` prints for the loop device the image was attached to.
+    assert re.search(pattern, "loop0\nloop0p1 vfat\nloop0p2 ext4\n", re.MULTILINE)
+    # A partition table with no root filesystem, and what losetup says when
+    # the image was never written.
+    assert not re.search(pattern, "loop0\nloop0p1 vfat\n", re.MULTILINE)
+    assert not re.search(
+        pattern,
+        "losetup: /mnt/scratch/target.raw: failed to set up loop device\n",
+        re.MULTILINE,
+    )
+
+    class Console:
+        def __init__(self) -> None:
+            self.commands: list[str] = []
+
+        def run(self, command: str, timeout: float = 0.0) -> None:
+            self.commands.append(command)
+
+    console = Console()
+    runner.check_image(cast(Any, console), installation)
+    said = " ".join(console.commands)
+    assert f"losetup -Pf --show {installation.disk.image}" in said
+    assert "losetup -d" in said, "the loop device has to be given back"
+
+    # And an ordinary install asks for nothing: there is no image to read.
+    plain = Console()
+    runner.check_image(cast(Any, plain), load(Path("tests/fixtures/vm-binpkg.toml")))
+    assert plain.commands == []
+
+    # And the verdict really reads it. This is the answer a guest of this
+    # campaign gave, copied from `image.txt`.
+    written = Path("tests/fixtures/vm-image.toml")
+    real = b"loop1   \nloop1p1 vfat\nloop1p2 ext4\n"
+    assert runner.check_expected({"image.txt": real, "install.rc": b"0\n"}, written) == 0
+    # The esp alone: the install stopped before it made the root filesystem.
+    assert runner.check_expected({"image.txt": b"loop1\nloop1p1 vfat\n"}, written) != 0
+    # And nothing collected at all, which is how the check stayed inert.
+    assert runner.check_expected({}, written) != 0
+
+    # And the install phase really asks for that verdict: `report` was called
+    # with no assertions there, so `image.txt` was collected, printed, and
+    # never compared to anything.
+    assert runner._reads_an_image("fixtures/vm-image.toml", False)
+    assert not runner._reads_an_image("fixtures/vm-image.toml", True)
+    assert not runner._reads_an_image("fixtures/vm-binpkg.toml", False)
+    assert not runner._reads_an_image(None, False)
+
+    import inspect
+
+    wiring = inspect.getsource(runner._perform)
+    assert "_reads_an_image(args.install, args.dry_run)" in wiring
+
+
 def test_every_input_framework_has_a_binary_to_ask_for() -> None:
     """The check asks `command -v <binary>`, and the map from framework to
     binary is a second table beside the catalog's own `input_framework`. A
@@ -805,16 +875,29 @@ def test_every_fixture_has_a_boot_check_that_can_fail() -> None:
 
 
 def test_local_and_cluster_use_the_same_installed_contract() -> None:
-    """Both transport adapters must derive checks from one specification."""
+    """Both transport adapters must derive checks from one specification.
+
+    Except where there is no installed system to ask: `dd` writes an image
+    onto a disk and `image` writes one into a file, and the cluster refuses
+    an image fixture at dispatch because it has no scratch filesystem to put
+    it on. Their local contract is the product, not a booted machine.
+    """
     from gentoo_install.model.config import DiskMode
     from tests.vm.cluster import _asked_for
     from tests.vm.installed import checks
     from tests.vm.run import _from_config
     from gentoo_install.exec.config import load
 
+    without_a_machine = {DiskMode.DD, DiskMode.IMAGE}
+    covered = {
+        load(path).disk.mode
+        for path in Path("tests/fixtures").glob("*.toml")
+    }
+    assert without_a_machine <= covered, "every exempted mode needs a fixture"
+
     for path in sorted(Path("tests/fixtures").glob("*.toml")):
         installation = load(path)
-        if installation.disk.mode is DiskMode.DD:
+        if installation.disk.mode in without_a_machine:
             continue
         expected = [(one.name, one.pattern) for one in checks(installation)]
         assert _from_config(path) == expected
