@@ -2737,28 +2737,6 @@ INITRAMFS_GAVE_UP: Final[tuple[str, ...]] = (
     "Key load error",
 )
 
-#: How long the console is read for one of those before the boot is believed.
-#: The unlock returns as soon as ssh closes and the mount follows it.
-INITRAMFS_PATIENCE: Final[float] = 90.0
-
-
-def _initramfs_gave_up(link: "Reconnecting") -> str:
-    """Empty unless the console says the root was never mounted.
-
-    Read after a remote unlock reports success: the ssh session only proves
-    the passphrase was delivered, and a wrong one is delivered just as well.
-    """
-    try:
-        said = link.observe(_any_of(tuple(one.encode() for one in INITRAMFS_GAVE_UP)),
-                            timeout=INITRAMFS_PATIENCE)
-    except (ConsoleTimeout, ConsoleClosed):
-        return ""
-    return (
-        "the initramfs did not mount the root after the remote unlock; "
-        f"the console held {said[-INITRAMFS_SCREEN_BYTES:]!r}"
-    )[:VERDICT_BYTES]
-
-
 #: Enough of the screen to carry the refusal and the prompt above it.
 INITRAMFS_SCREEN_BYTES: Final[int] = 600
 
@@ -2928,16 +2906,29 @@ def _unlock(
     )
     if not encrypted:
         return UnlockResult(InstalledBootState.WAIT_LOGIN)
-    if remotely_unlocked:
-        return UnlockResult(InstalledBootState.LOGIN_READY)
-    if installation.bootloader.firmware is BootFirmware.BIOS:
+    # A remote unlock is not the end of the passphrase for every layout.
+    # ZFSBootMenu carries the ssh daemon in its own image, so `zfs load-key`
+    # over that session unlocks the pool ZBM is reading and nothing else: the
+    # system initramfs it boots asks again on the console. `zbm-unlock` was
+    # marked unlocked, its `dracut-pre-mount` answered `Key load error:
+    # Incorrect key provided for 'zpcala'` three times, and the harness typed
+    # a login name at emergency mode for 93 minutes. The loop below answers
+    # whichever prompt actually appears, so a machine that needs nothing more
+    # reads its login prompt on the first look and returns just as it did.
+    if not remotely_unlocked and installation.bootloader.firmware is BootFirmware.BIOS:
         time.sleep(GRUB_PROMPT_SECONDS)
         guest.send_keys([*keys_for(DISK_PASSPHRASE), "ret"])
     settle = PASSWORD_ECHO_OFF_AFTER
     for _ in range(UNLOCK_TRIES):
         try:
             said = link.observe(
-                rf"{PASSPHRASE_PROMPT}|{'|'.join(LOGIN_PROMPTS)}",
+                "|".join(
+                    (
+                        PASSPHRASE_PROMPT,
+                        *LOGIN_PROMPTS,
+                        *(re.escape(one) for one in INITRAMFS_GAVE_UP),
+                    )
+                ),
                 timeout=BOOT_PATIENCE,
             )
         except (ConsoleTimeout, ConsoleClosed) as error:
@@ -2947,6 +2938,14 @@ def _unlock(
             )
         if any(one.encode() in said for one in LOGIN_PROMPTS):
             return UnlockResult(InstalledBootState.LOGIN_READY)
+        if any(one.encode() in said for one in INITRAMFS_GAVE_UP):
+            return UnlockResult(
+                InstalledBootState.WAIT_LOGIN,
+                (
+                    "the initramfs did not mount the root; the console held "
+                    f"{said[-INITRAMFS_SCREEN_BYTES:]!r}"
+                )[:VERDICT_BYTES],
+            )
         # The same race the installed system's login lost: the prompt turns
         # the echo off with `TCSAFLUSH`, which discards whatever was typed
         # before it. `zbm-unlock` answered twice and ZFSBootMenu said `Key
@@ -3050,9 +3049,6 @@ def boot_and_check(
             return f"remote unlock failed: {error}; the console held {held}"[:VERDICT_BYTES]
         remotely_unlocked = True
         print("installed root unlocked by remote SSH session", flush=True)
-        stopped = _initramfs_gave_up(link)
-        if stopped:
-            return stopped
     unlocked = _unlock(guest, link, installation, remotely_unlocked)
     if unlocked.refused:
         return unlocked.refused

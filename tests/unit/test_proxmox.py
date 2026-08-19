@@ -4125,12 +4125,129 @@ def test_a_remote_unlock_that_worked_carries_on_to_the_login(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The check must not turn every remote unlock into a failure: a console
-    that never says the initramfs gave up carries on as it always did."""
+    that answers with a login prompt carries on as it always did, and the
+    layouts whose initramfs really was unlocked over ssh see exactly that."""
+    from gentoo_install.exec.config import load
     from tests.vm import cluster
-    from tests.vm.console import ConsoleTimeout
+
+    class Guest:
+        def stop(self) -> None:
+            return None
+
+        def boot_from_disk(self) -> None:
+            return None
+
+        def start(self) -> None:
+            return None
+
+        def reset(self) -> None:
+            return None
 
     class Link:
-        def observe(self, pattern: str, timeout: float = 0.0, **ignored: object) -> bytes:
-            raise ConsoleTimeout("the boot said nothing of the sort")
+        def __init__(self) -> None:
+            self.asked: list[str] = []
 
-    assert cluster._initramfs_gave_up(cast(Any, Link())) == ""
+        def reopen(self, *, solicit_prompt: bool = True) -> None:
+            return None
+
+        def observe(self, pattern: str, timeout: float = 0.0, **ignored: object) -> bytes:
+            self.asked.append(pattern)
+            return b"\r\nunlockbox login: "
+
+        def respond(self, line: str) -> None:
+            return None
+
+        def run(self, command: str, **ignored: object) -> None:
+            return None
+
+        def expect_output(self, command: str, timeout: float = 0.0) -> bytes:
+            return b""
+
+    monkeypatch.setattr(cluster, "remote_unlock", lambda *unused, **ignored: None)
+    monkeypatch.setattr(cluster, "_log_in", lambda *unused: "")
+    monkeypatch.setattr(cluster, "_asked_for", lambda installation: ())
+
+    link = Link()
+    refused = cluster.boot_and_check(
+        cast(Any, Guest()),
+        cast(Any, link),
+        Path("unused"),
+        load(Path("tests/fixtures/zbm-unlock.toml")),
+        remote_key=Path("unused.key"),
+    )
+
+    assert refused == "", refused
+    # And the wait it did covers every prompt the machine might show, so a
+    # console that asks again is answered rather than waited out.
+    # `re.escape` puts a backslash before the space, so the pattern is matched
+    # by what it is built from rather than by its literal text.
+    assert any("emergency" in one for one in link.asked), link.asked
+    assert any("passphrase" in one for one in link.asked), link.asked
+
+
+def test_a_zfsbootmenu_machine_is_answered_when_its_own_initramfs_asks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ZFSBootMenu carries the ssh daemon in its own image, so `zfs load-key`
+    over that session unlocks the pool ZBM reads and nothing else: the system
+    initramfs it boots asks again on the console. The harness took the ssh
+    session as the end of the passphrase and never answered."""
+    from gentoo_install.exec.config import load
+    from tests.vm import cluster
+    from tests.vm.console import DISK_PASSPHRASE
+
+    class Guest:
+        def stop(self) -> None:
+            return None
+
+        def boot_from_disk(self) -> None:
+            return None
+
+        def start(self) -> None:
+            return None
+
+        def reset(self) -> None:
+            return None
+
+    class Link:
+        """Asks for a passphrase once, then shows a login prompt."""
+
+        def __init__(self) -> None:
+            self.answered: list[str] = []
+            self.looks = 0
+
+        def reopen(self, *, solicit_prompt: bool = True) -> None:
+            return None
+
+        def observe(self, pattern: str, timeout: float = 0.0, **ignored: object) -> bytes:
+            self.looks += 1
+            if self.looks == 1:
+                return b"Encrypted ZFS password for zpcala/ROOT/gentoo/root "
+            return b"\r\nzbmunlockbox login: "
+
+        def respond(self, line: str) -> None:
+            self.answered.append(line)
+
+        def run(self, command: str, **ignored: object) -> None:
+            return None
+
+        def expect_output(self, command: str, timeout: float = 0.0) -> bytes:
+            return b""
+
+    monkeypatch.setattr(cluster, "remote_unlock", lambda *unused, **ignored: None)
+    monkeypatch.setattr(cluster, "_log_in", lambda *unused: "")
+    monkeypatch.setattr(cluster, "_asked_for", lambda installation: ())
+    monkeypatch.setattr(cluster, "PASSWORD_ECHO_OFF_AFTER", 0.0)
+    monkeypatch.setattr(cluster, "PASSWORD_ECHO_BACKOFF", 0.0)
+
+    link = Link()
+    refused = cluster.boot_and_check(
+        cast(Any, Guest()),
+        cast(Any, link),
+        Path("unused"),
+        load(Path("tests/fixtures/zbm-unlock.toml")),
+        remote_key=Path("unused.key"),
+    )
+
+    assert refused == "", refused
+    assert link.answered == [DISK_PASSPHRASE], link.answered
