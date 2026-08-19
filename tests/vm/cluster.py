@@ -110,10 +110,10 @@ from .results import (
 )
 from .workdir import WorkdirError, confined
 from .convert import (
+    BEFORE_THE_REBOOT,
     ETC_MARKER,
     ETC_MARKER_CHECK,
     ETC_MARKER_PATH,
-    GRUB_MODULES_CHECK,
     HOME_MARKER,
     HOME_MARKER_CHECK,
     HOME_MARKER_PATH,
@@ -3241,12 +3241,13 @@ def convert_and_check(
         return f"the conversion exited {code!r}"
     # Asked before the reboot: a guest that drops to `grub rescue>` for a
     # missing module answers nothing afterwards.
-    said = link.expect_output(GRUB_MODULES_CHECK.command, timeout=120.0)
-    if re.search(GRUB_MODULES_CHECK.pattern.encode(), said) is None:
-        return (
-            f"the conversion left no bootloader modules: {GRUB_MODULES_CHECK.name} "
-            f"answered {said[-ANSWER_BYTES:]!r}"
-        )[:VERDICT_BYTES]
+    for check in BEFORE_THE_REBOOT:
+        said = link.expect_output(check.command, timeout=120.0)
+        if re.search(check.pattern.encode(), said) is None:
+            return (
+                f"the conversion left a bootloader that cannot start: {check.name} "
+                f"answered {said[-ANSWER_BYTES:]!r}"
+            )[:VERDICT_BYTES]
     # The same reader as the first install: a converted machine that reaches a
     # login prompt with the old hostname booted the system it was replacing.
     return boot_and_check(

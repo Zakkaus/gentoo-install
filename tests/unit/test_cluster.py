@@ -3038,21 +3038,54 @@ def test_a_conversion_counts_the_modules_its_bootloader_needs() -> None:
     normal.mod' not found. Entering rescue mode...` while the conversion's own
     log said `Installation finished. No error reported.` twice. A guest in the
     rescue shell answers nothing, so the count is taken before the reboot."""
+    import ast
     import inspect
     import re
+    import textwrap
 
     from tests.vm import cluster
-    from tests.vm.convert import GRUB_MODULES_CHECK
+    from tests.vm.convert import (
+        BEFORE_THE_REBOOT,
+        GRUB_MODULES_CHECK,
+        GRUB_READS_ITS_MODULE,
+    )
 
-    source = inspect.getsource(cluster.convert_and_check)
-    asked = source.index("GRUB_MODULES_CHECK.command")
-    booted = source.index("boot_and_check(")
-    assert asked < booted, source[asked : asked + 200]
+    # In the function's own body, not inside a branch: a loop the reboot can
+    # walk past is a check the failing machine never answers.
+    body = ast.parse(textwrap.dedent(inspect.getsource(cluster.convert_and_check))).body[0]
+    assert isinstance(body, ast.FunctionDef)
+    asked = [
+        n
+        for n, one in enumerate(body.body)
+        if isinstance(one, ast.For)
+        and isinstance(one.iter, ast.Name)
+        and one.iter.id == "BEFORE_THE_REBOOT"
+    ]
+    booted = [
+        n
+        for n, one in enumerate(body.body)
+        if isinstance(one, ast.Return)
+        and isinstance(one.value, ast.Call)
+        and isinstance(one.value.func, ast.Name)
+        and one.value.func.id == "boot_and_check"
+    ]
+    assert asked and booted and asked[0] < booted[0], ast.dump(body)
+    assert GRUB_MODULES_CHECK in BEFORE_THE_REBOOT
+    assert GRUB_READS_ITS_MODULE in BEFORE_THE_REBOOT
 
-    # The count is the guest's answer: `wc -l` cannot come from the echo, and
-    # an empty directory is not a pass.
-    assert "wc -l" in GRUB_MODULES_CHECK.command
-    assert not re.search(GRUB_MODULES_CHECK.pattern, GRUB_MODULES_CHECK.command)
-    assert re.search(GRUB_MODULES_CHECK.pattern, "grubmods=214\n")
-    assert not re.search(GRUB_MODULES_CHECK.pattern, "grubmods=0\n")
-    assert not re.search(GRUB_MODULES_CHECK.pattern, "")
+    # Both answers are counted by the guest, so neither can come from the
+    # echo, and neither counts nothing as a pass.
+    for check, answer in (
+        (GRUB_MODULES_CHECK, "grubmods=214\n"),
+        (GRUB_READS_ITS_MODULE, "grubread=182672\n"),
+    ):
+        assert "wc -" in check.command
+        assert not re.search(check.pattern, check.command)
+        assert re.search(check.pattern, answer)
+        assert not re.search(check.pattern, answer.split("=")[0] + "=0\n")
+        assert not re.search(check.pattern, "")
+
+    # The second reads through GRUB's own driver rather than the kernel's: a
+    # module the kernel lists and GRUB cannot follow is the failure this
+    # exists for.
+    assert "grub-fstest" in GRUB_READS_ITS_MODULE.command
