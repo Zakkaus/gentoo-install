@@ -205,6 +205,7 @@ written.
 
 | Revision | Fixture | Result |
 |---|---|---|
+| `2a37189a898a0` | `vm-convert` | the same again in 116.1 minutes, and the first at a revision that counts GRUB's modules before the reboot: the count passed, so this machine had them and booted |
 | `d32b9d4aa6fb4` | `vm-convert` | the same again in 125.8 minutes, and the first row where the `/etc` sentinel was measured: a file written there before the swap was gone afterwards, so `/etc` was replaced rather than merged |
 | `d97a5eb98c743` | `vm-convert` | the same again in 95.4 minutes, at a revision carrying the verdict that names the installer's own reason. The home-marker check that changed the same day belongs to the local conversion runner and is not in this row |
 | `ce95e7df72cd` | `vm-convert` | installed Gentoo onto a cluster guest, converted that machine in place with the same driver CD, and the converted machine booted as `convertedbox` and answered every installed-state check, in 137.6 minutes |
@@ -212,8 +213,8 @@ written.
 The cluster runs a conversion by installing a system first and converting what
 that produced, so these rows cover both halves and the reboot between them.
 
-The conversion is not reliable. Five cluster conversions have reached the
-reboot: four booted, and one stopped at `grub rescue>` for a missing
+The conversion is not reliable. Six cluster conversions have reached the
+reboot: five booted, and one stopped at `grub rescue>` for a missing
 `/boot/grub/x86_64-efi/normal.mod` while the conversion itself exited `0`. Two
 earlier ones never reached a login prompt at revisions that did not record the
 console, so what they stopped at is unknown. The open defect is row 238 of
