@@ -591,6 +591,13 @@ DCONF_PROFILE: Final[PurePosixPath] = PurePosixPath("/etc/dconf/profile/user")
 GNOME_INPUT_SOURCES: Final[PurePosixPath] = PurePosixPath(
     "/etc/dconf/db/local.d/00-gentoo-install-input-sources"
 )
+#: Relative to a home directory, so `/etc/skel` and each real user get
+#: the same set.
+FCITX_PROFILE: Final[str] = ".config/fcitx5/profile"
+RIME_CUSTOM: Final[str] = ".local/share/fcitx5/rime/default.custom.yaml"
+GTK_SETTINGS: Final[str] = ".config/gtk-{version}/settings.ini"
+GTK_VERSIONS: Final[tuple[str, ...]] = ("3.0", "4.0")
+
 INPUT_CONFIGURATION_ENABLED: Final[str] = "enabled"
 INPUT_CONFIGURATION_DISABLED: Final[str] = "disabled"
 INPUT_CONFIGURATION_STATES: Final[frozenset[str]] = frozenset(
@@ -745,20 +752,24 @@ class WriteInputMethodProfile(Operation):
     def describe(self) -> str:
         who = ", ".join(owner or "skel" for _, owner in self.homes)
         listed = " ".join(self.schemas) or "no rime schema"
-        return f"configure fcitx with {', '.join(self.engines)} and {listed} for {who}"
+        written = [FCITX_PROFILE, *(GTK_SETTINGS.format(version=one) for one in GTK_VERSIONS)]
+        if self.schemas:
+            written.append(RIME_CUSTOM)
+        return (
+            f"configure fcitx with {', '.join(self.engines)} and {listed} for {who}, "
+            f"writing {', '.join(written)} under each"
+        )
 
     def apply(self, context: Context) -> None:
         for home, owner in self.homes:
-            context.write(home / ".config/fcitx5/profile", self._profile())
-            for version in ("3.0", "4.0"):
+            context.write(home / FCITX_PROFILE, self._profile())
+            for version in GTK_VERSIONS:
                 context.write(
-                    home / f".config/gtk-{version}/settings.ini",
+                    home / GTK_SETTINGS.format(version=version),
                     "[Settings]\ngtk-im-module=fcitx\n",
                 )
             if self.schemas:
-                context.write(
-                    home / ".local/share/fcitx5/rime/default.custom.yaml", self._rime()
-                )
+                context.write(home / RIME_CUSTOM, self._rime())
             if owner:
                 context.run_in_target(["chown", "--recursive", f"{owner}:{owner}", str(home)])
 

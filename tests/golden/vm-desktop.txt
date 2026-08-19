@@ -81,7 +81,7 @@
   install the pipewire group: emerge media-video/pipewire media-video/wireplumber
   enable pipewire.socket, pipewire-pulse.socket, wireplumber.service for every user
   set XMODIFIERS, QT_IM_MODULES in /etc/environment for fcitx
-  configure fcitx with rime and luna_pinyin pinyin_simp for skel
+  configure fcitx with rime and luna_pinyin pinyin_simp for skel, writing .config/fcitx5/profile, .config/gtk-3.0/settings.ini, .config/gtk-4.0/settings.ini, .local/share/fcitx5/rime/default.custom.yaml under each
   verify app-i18n/fcitx installed /usr/share/applications/fcitx5-wayland-launcher.desktop
   set /etc/xdg/kwinrc so the Wayland session starts /usr/share/applications/fcitx5-wayland-launcher.desktop
 

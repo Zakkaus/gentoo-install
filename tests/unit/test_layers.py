@@ -422,6 +422,70 @@ def test_every_operation_still_has_to_say_what_it_does() -> None:
     assert len(found) > 60, len(found)
 
 
+def _written_names(expr: ast.expr, known: Mapping[str, ast.expr]) -> set[str]:
+    """What a reader of `describe()` could recognise the written path by: the
+    expression itself, any module constant it names, and the last component of
+    every string those reach."""
+    found = {ast.unparse(expr)}
+    reachable = [expr]
+    if isinstance(expr, ast.Name) and expr.id in known:
+        reachable.append(known[expr.id])
+        found.add(ast.unparse(known[expr.id]))
+    for node in list(reachable):
+        for inner in ast.walk(node):
+            if isinstance(inner, ast.Name) and inner.id in known:
+                found.add(inner.id)
+                reachable.append(known[inner.id])
+    for node in reachable:
+        for inner in ast.walk(node):
+            if isinstance(inner, ast.Constant) and isinstance(inner.value, str):
+                found.add(inner.value.rsplit("/", 1)[-1])
+    return {one for one in found if one}
+
+
+def test_every_operation_names_the_files_it_writes() -> None:
+    """`--dry-run` prints `describe()` for the same operations `apply()` runs,
+    so a file named by neither is a file an operator learns about by finding it
+    on the disk. Two operations had this fixed by hand and three others still
+    had it, so the rule moves out of their comments and into a check.
+
+    Only the paths `apply()` writes itself: an operation that delegates to
+    another one is described by the operation it delegates to.
+    """
+    for module in _modules("plan"):
+        tree = ast.parse(module.read_text(encoding="utf-8"))
+        known: dict[str, ast.expr] = {}
+        for node in tree.body:
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                if node.value is not None:
+                    known[node.target.id] = node.value
+            elif isinstance(node, ast.Assign) and node.value is not None:
+                known.update(
+                    {one.id: node.value for one in node.targets if isinstance(one, ast.Name)}
+                )
+        for cls in (one for one in ast.walk(tree) if isinstance(one, ast.ClassDef)):
+            body = {one.name: one for one in cls.body if isinstance(one, ast.FunctionDef)}
+            if "apply" not in body or "describe" not in body:
+                continue
+            said = ast.unparse(body["describe"])
+            reachable = dict(known)
+            for step in ast.walk(body["apply"]):
+                if isinstance(step, ast.Assign) and step.value is not None:
+                    reachable.update(
+                        {one.id: step.value for one in step.targets if isinstance(one, ast.Name)}
+                    )
+            for call in ast.walk(body["apply"]):
+                if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
+                    continue
+                if call.func.attr != "write" or not call.args:
+                    continue
+                names = _written_names(call.args[0], reachable)
+                assert any(one in said for one in names), (
+                    f"{module.name}:{call.lineno} {cls.name}.describe names none of "
+                    f"{sorted(names)}"
+                )
+
+
 def test_the_proxy_endpoint_is_defined_once() -> None:
     """It was written twice, byte for byte, in `plan/portage.py` and
     `plan/system.py`, while `system.py` already imported from `portage.py`. A

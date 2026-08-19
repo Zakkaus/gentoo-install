@@ -41,7 +41,7 @@
   point repository gentoo-zh at https://mirrors.cernet.edu.cn/gentoo-zh.git
   sync repository gentoo-zh, 4 other sites to fall back on
   accept ~amd64 for packages from gentoo-zh only
-  set sys-kernel/installkernel to dracut, installing into /boot
+  set sys-kernel/installkernel to dracut, writing BOOT_ROOT=/boot to /etc/kernel/install.conf.d/50-gentoo-install.conf
   verify the selected kernel against the target sys-fs/zfs ceiling
   accept the linux-firmware licence
   ask for dhclient and arping, which the legacy network module requires
@@ -82,7 +82,7 @@
   install ZFSBootMenu ssh support: emerge sys-kernel/dracut-crypt-ssh sys-apps/iproute2 net-misc/dhcp net-misc/iputils
   install the storage tools: emerge sys-fs/dosfstools
   install the kernel and the tools that build a module for it: emerge sys-kernel/gentoo-cjk-kernel-bin sys-fs/zfs, from source
-  tell dracut to carry zfs, and 13 cloud bus drivers whatever it detects
+  write /etc/dracut.conf.d/10-gentoo-install.conf so dracut carries zfs, and 13 cloud bus drivers whatever it detects
   copy the installing system's hostid into the target so the pool imports
   rebuild the initramfs from sys-kernel/gentoo-cjk-kernel-bin with the modules written above
   check the installkernel payload names existing kernel files
@@ -91,7 +91,7 @@
   install the bootloader: emerge sys-boot/zfsbootmenu sys-boot/efibootmgr
   install the EFI stub generate-zbm builds around: emerge sys-apps/systemd
   write /etc/zfsbootmenu/dracut.conf.d/dropbear.conf and /etc/cmdline.d/dracut-network.conf, authorise keys at /etc/dropbear/root_key, and generate dedicated host keys under /etc/dropbear
-  build ZFSBootMenu into /efi/EFI/zbm and boot zpcala/ROOT/gentoo/root from it
+  write /etc/zfsbootmenu/config.yaml, build ZFSBootMenu into /efi/EFI/zbm, and boot zpcala/ROOT/gentoo/root from it
 
 [packages]
   enable zfs-import-scan.service at boot

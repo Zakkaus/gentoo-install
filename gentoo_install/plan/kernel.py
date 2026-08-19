@@ -54,6 +54,12 @@ REMOTE_UNLOCK_PACKAGE: Final[str] = "sys-kernel/dracut-crypt-ssh"
 REMOTE_UNLOCK_CONFIG: Final[PurePosixPath] = PurePosixPath(
     "/etc/dracut.conf.d/zz-gentoo-install-crypt-ssh.conf"
 )
+INSTALL_KERNEL_CONFIG: Final[PurePosixPath] = PurePosixPath(
+    "/etc/kernel/install.conf.d/50-gentoo-install.conf"
+)
+DRACUT_MODULES_CONFIG: Final[PurePosixPath] = PurePosixPath(
+    "/etc/dracut.conf.d/10-gentoo-install.conf"
+)
 
 #: Executables required by dracut's network-legacy module. ZFSBootMenu omits
 #: systemd, so its remote-unlock image cannot use systemd-networkd instead.
@@ -129,7 +135,11 @@ class ConfigureInstallKernel(Operation):
 
     def describe(self) -> str:
         flags = " ".join(self._flags())
-        where = f", installing into {self.boot_root}" if self.boot_root else ""
+        where = (
+            f", writing BOOT_ROOT={self.boot_root} to {INSTALL_KERNEL_CONFIG}"
+            if self.boot_root
+            else ""
+        )
         return f"set sys-kernel/installkernel to {flags}{where}"
 
     def _flags(self) -> tuple[str, ...]:
@@ -157,10 +167,7 @@ class ConfigureInstallKernel(Operation):
             # the main file shadowed the one `sys-kernel/installkernel` ships
             # and took `layout=compat` and `initrd_generator=dracut` with it.
             # The next kernel merge then died on `No initrd_generator=`.
-            context.write(
-                PurePosixPath("/etc/kernel/install.conf.d/50-gentoo-install.conf"),
-                f"BOOT_ROOT={self.boot_root}\n",
-            )
+            context.write(INSTALL_KERNEL_CONFIG, f"BOOT_ROOT={self.boot_root}\n")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -309,7 +316,7 @@ class WriteDracutModules(Operation):
     drivers: tuple[str, ...] = CLOUD_DRIVERS
 
     def describe(self) -> str:
-        carried = f"tell dracut to carry {', '.join(self.modules)}"
+        carried = f"write {DRACUT_MODULES_CONFIG} so dracut carries {', '.join(self.modules)}"
         if not self.drivers:
             return carried
         return f"{carried}, and {len(self.drivers)} cloud bus drivers whatever it detects"
@@ -319,7 +326,7 @@ class WriteDracutModules(Operation):
         if self.drivers:
             lines.append(f'add_drivers+=" {" ".join(self.drivers)} "')
         context.write(
-            PurePosixPath("/etc/dracut.conf.d/10-gentoo-install.conf"),
+            DRACUT_MODULES_CONFIG,
             "\n".join(lines) + "\n",
         )
 
