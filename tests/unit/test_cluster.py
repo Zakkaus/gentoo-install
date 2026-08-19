@@ -2486,3 +2486,90 @@ def test_the_silent_console_sentence_is_the_one_the_editor_writes() -> None:
     from tests.vm import cluster, proxmox
 
     assert cluster.SILENT_EDITOR in inspect.getsource(proxmox._editor_screen)
+
+
+def test_a_reconnect_grant_never_shortens_the_ceiling() -> None:
+    """`vm-desktop` was ended at `899s of 898s elapsed` with
+    `dev-qt/qtsensors` still compiling, six hours into a run whose ceiling had
+    hours left: a console drop bought a fifteen-minute grant, and assigning it
+    replaced the remaining eight-hour ceiling with those fifteen minutes. The
+    grant is for a ceiling that ran out, not a discount on one that has not."""
+    import time as clock
+
+    from tests.vm import cluster
+    from tests.vm.console import ConsoleClosed
+
+    class Watch:
+        def moved(self) -> bool:
+            return True
+
+        def idle_reason(self) -> str | None:
+            return None
+
+    deadlines: list[float] = []
+    drops = {"n": 0}
+
+    def operation(deadline: float) -> str:
+        deadlines.append(deadline)
+        drops["n"] += 1
+        if drops["n"] == 1:
+            raise ConsoleClosed("the console dropped")
+        return "finished"
+
+    class Link(cluster.Reconnecting):
+        def __init__(self) -> None:
+            self._tries = 1
+
+        def reopen(self, *, solicit_prompt: bool = True) -> None:
+            return None
+
+    started = clock.monotonic()
+    link = Link()
+    assert link._with_reconnect(cluster.RUN_CEILING, operation, watch=cast(Any, Watch())) == (
+        "finished"
+    )
+
+    assert len(deadlines) == 2, deadlines
+    # The second attempt keeps what the ceiling had left rather than taking
+    # the grant in its place.
+    assert deadlines[1] >= deadlines[0], deadlines
+    assert deadlines[1] - started > cluster.RECONNECT_GRANT * 2, deadlines
+
+
+def test_a_grant_still_buys_time_when_the_ceiling_has_run_out() -> None:
+    """The other direction: a drop after the ceiling is exhausted is what the
+    grant was written for, and it has to keep working."""
+    import time as clock
+
+    from tests.vm import cluster
+    from tests.vm.console import ConsoleClosed
+
+    class Watch:
+        def moved(self) -> bool:
+            return True
+
+        def idle_reason(self) -> str | None:
+            return None
+
+    deadlines: list[float] = []
+    drops = {"n": 0}
+
+    def operation(deadline: float) -> str:
+        deadlines.append(deadline)
+        drops["n"] += 1
+        if drops["n"] == 1:
+            raise ConsoleClosed("the console dropped")
+        return "finished"
+
+    class Link(cluster.Reconnecting):
+        def __init__(self) -> None:
+            self._tries = 1
+
+        def reopen(self, *, solicit_prompt: bool = True) -> None:
+            return None
+
+    started = clock.monotonic()
+    assert Link()._with_reconnect(0.0, operation, watch=cast(Any, Watch())) == "finished"
+
+    assert len(deadlines) == 2, deadlines
+    assert deadlines[1] - started >= cluster.RECONNECT_GRANT - 1.0, deadlines

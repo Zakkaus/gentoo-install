@@ -2476,7 +2476,13 @@ class Reconnecting:
                         raise
                     granted += 1
                     attempt = 0
-                    deadline = time.monotonic() + RECONNECT_GRANT
+                    # Never shorter than what was left: the grant exists to
+                    # buy time past an exhausted ceiling, and assigning it
+                    # replaced eight hours with fifteen minutes. `vm-desktop`
+                    # was ended at `899s of 898s elapsed` with
+                    # `dev-qt/qtsensors` compiling on the console, six hours
+                    # into a run whose ceiling had hours left.
+                    deadline = max(deadline, time.monotonic() + RECONNECT_GRANT)
                     print(
                         f"… the console dropped and the guest is still working, "
                         f"{RECONNECT_GRANT / 60:.0f}m more",
