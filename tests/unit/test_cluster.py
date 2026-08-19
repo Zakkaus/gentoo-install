@@ -2368,3 +2368,44 @@ def test_a_verdict_with_no_log_does_not_print_a_path_that_is_not_one(
 
     printed = inspect.getsource(cluster.main)
     assert 'f" ({one.log})" if one.log is not None else ""' in printed, printed
+
+
+def test_an_image_fixture_that_writes_into_the_medium_is_refused_before_it_runs() -> None:
+    """`vm-image` asked for a 20 GiB sparse file under `/var/tmp`, which on
+    the minimal ISO is tmpfs in the guest's own RAM. The stage3 going into it
+    filled memory: `EXT4-fs (loop1p2): failed to convert unwritten extents to
+    written extents -- potential data loss! (error -5)`, then `No space left
+    on device`, and no room left to write an exit code — so the verdict was
+    `the installer exited b''` after two minutes."""
+    import pytest as _pytest
+
+    from tests.vm import cluster
+
+    with _pytest.raises(SystemExit, match="tmpfs on the medium"):
+        cluster.fixtures(["vm-image"])
+
+    # And a fixture that installs onto a disk is dispatched as it always was.
+    assert [one.name for one in cluster.fixtures(["vm-btrfs"])] == ["vm-btrfs"]
+
+
+def test_the_image_path_is_read_rather_than_the_fixture_named() -> None:
+    """Named, the rule protects one fixture; read, it protects the next one
+    somebody writes."""
+    from dataclasses import replace as _replace
+
+    from gentoo_install.exec.config import load
+    from tests.vm import cluster
+
+    config = load(Path(__file__).resolve().parents[1] / "fixtures" / "vm-image.toml")
+    assert cluster._image_lands_in_memory(config) == "/var/tmp/target.raw"
+
+    onto_a_disk = _replace(config, disk=_replace(config.disk, image="/mnt/scratch/target.raw"))
+    assert cluster._image_lands_in_memory(onto_a_disk) == ""
+
+    # A path that only starts with the same letters is not inside it.
+    beside = _replace(config, disk=_replace(config.disk, image="/var/tmpish/target.raw"))
+    assert cluster._image_lands_in_memory(beside) == ""
+
+    # And a fixture that is not writing an image at all is never refused.
+    ordinary = load(Path(__file__).resolve().parents[1] / "fixtures" / "vm-btrfs.toml")
+    assert cluster._image_lands_in_memory(ordinary) == ""
