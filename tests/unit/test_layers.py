@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import ast
 import re
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Final
 
@@ -206,16 +206,48 @@ def _reference_graph(trees: Mapping[Path, ast.AST]) -> ReferenceGraph:
     graph: ReferenceGraph = {}
     for path, tree in trees.items():
         aliases = _import_aliases(tree)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+        for node in _loaded_nodes(tree):
+            if isinstance(node, ast.Name):
                 name = aliases.get(node.id, node.id)
-            elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
+            elif isinstance(node, ast.Attribute):
                 name = node.attr
             else:
                 continue
             assert node.end_lineno is not None
             graph.setdefault(name, []).append((path, node.lineno, node.end_lineno))
     return graph
+
+
+def _loaded_nodes(tree: ast.AST) -> Iterator[ast.expr]:
+    """Every name a module reads, quoted annotations included.
+
+    A forward reference is a string to the parser, so `link: "Reopenable"`
+    read as nothing at all and the only use of that protocol was invisible.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Name, ast.Attribute)) and isinstance(node.ctx, ast.Load):
+            yield node
+            continue
+        annotation = _annotation_of(node)
+        if not isinstance(annotation, ast.Constant) or not isinstance(annotation.value, str):
+            continue
+        try:
+            quoted = ast.parse(annotation.value, mode="eval")
+        except SyntaxError:
+            continue
+        for inner in ast.walk(quoted):
+            if isinstance(inner, (ast.Name, ast.Attribute)) and isinstance(inner.ctx, ast.Load):
+                # The quoted expression has its own line numbers, so the
+                # annotation's are used: a reference has to be locatable.
+                yield ast.copy_location(inner, annotation)
+
+
+def _annotation_of(node: ast.AST) -> ast.expr | None:
+    if isinstance(node, (ast.AnnAssign, ast.arg)):
+        return node.annotation
+    if isinstance(node, ast.FunctionDef):
+        return node.returns
+    return None
 
 
 def _defined_names(tree: ast.Module) -> list[tuple[ast.stmt, str]]:
@@ -292,7 +324,15 @@ def test_no_definition_in_the_package_is_unreachable() -> None:
     trees = {path: ast.parse(path.read_text()) for path in source_paths}
     graph = _reference_graph(trees)
     orphans: list[str] = []
-    for path in sorted((root / "gentoo_install").rglob("*.py")):
+    # `tests/vm/` as well as the package: a constant nothing reads is as dead
+    # in the harness as in the installer, and `CONVERT_IDLE` had sat beside
+    # the ceiling it was named after since the conversion runner was written.
+    # A definition its own unit test still names is reachable to this rule, so
+    # the wiring of a verdict rule is pinned beside that rule instead.
+    # `tests/unit/` is excluded: pytest calls its tests.
+    for path in sorted(
+        [*(root / "gentoo_install").rglob("*.py"), *(root / "tests" / "vm").rglob("*.py")]
+    ):
         for node, name in _defined_names(trees[path]):
             if name.startswith("__"):
                 continue
