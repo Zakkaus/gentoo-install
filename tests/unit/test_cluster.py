@@ -3089,3 +3089,44 @@ def test_a_conversion_counts_the_modules_its_bootloader_needs() -> None:
     # module the kernel lists and GRUB cannot follow is the failure this
     # exists for.
     assert "grub-fstest" in GRUB_READS_ITS_MODULE.command
+
+
+def test_the_unlock_addresses_go_back_after_the_guests_do() -> None:
+    """The pool is shared with every other campaign on this machine and its
+    lease is what keeps two of them apart. Releasing before `_abandon_jobs`
+    hands a live guest's address to the next campaign to ask."""
+    import ast
+    import inspect
+    import textwrap
+
+    from tests.vm import cluster
+
+    body = ast.parse(textwrap.dedent(inspect.getsource(cluster.run))).body[0]
+    assert isinstance(body, ast.FunctionDef)
+    closing: list[ast.stmt] = []
+    for one in ast.walk(body):
+        if isinstance(one, ast.Try) and one.finalbody:
+            closing = one.finalbody
+    abandoned = [
+        n
+        for n, statement in enumerate(closing)
+        if any(
+            isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Name)
+            and call.func.id == "_abandon_jobs"
+            for call in ast.walk(statement)
+        )
+    ]
+    released = [
+        n
+        for n, statement in enumerate(closing)
+        if any(
+            isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Attribute)
+            and call.func.attr == "release"
+            for call in ast.walk(statement)
+        )
+    ]
+    assert abandoned and released, ast.dump(ast.Module(body=closing, type_ignores=[]))
+    assert abandoned[0] < released[0], [abandoned, released]
+

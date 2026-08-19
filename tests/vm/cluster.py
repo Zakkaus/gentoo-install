@@ -2242,12 +2242,12 @@ def run(
                 flush=True,
             )
     finally:
-        # Every one, here: they are taken before the first guest exists, so a
-        # run that ends early would otherwise hold ten of them until the lease
-        # expires.
+        _abandon_jobs(scheduled)
+        # After the guests are gone, not before: the pool is shared with every
+        # other campaign on this machine, and an address handed out again while
+        # a guest still answers on it puts two machines on one address.
         for one in unlock_addresses.values():
             addresses.release(one)
-        _abandon_jobs(scheduled)
         for node_name in prepared:
             said = api.remove_iso(node_name, driver)
             if said:
