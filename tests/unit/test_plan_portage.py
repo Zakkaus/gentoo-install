@@ -900,6 +900,52 @@ BINHOST_TIMED_OUT: Final[str] = (
 
 
 
+#: What `zbm-unlock` printed when the cjktty patch was on no reachable host,
+#: copied from its own log. The cause is in the middle and the last three
+#: lines are Portage's news notice.
+FETCH_FAILED: Final[str] = """>>> Emerging (10 of 12) sys-kernel/gentoo-cjk-kernel-bin-6.18.44::gentoo-zh
+>>> Downloading 'http://10.31.0.2/gentoo/distfiles/0d/cjktty-font-unifont-15.1.04.patch'
+HTTP request sent, awaiting response... 404 Not Found
+2026-08-19 13:24:00 ERROR 404: Not Found.
+Resolving mirror.nju.edu.cn... failed: Temporary failure in name resolution.
+!!! Couldn't download 'cjktty-font-unifont-15.1.04.patch'. Aborting.
+ * IMPORTANT: 1 news items need reading for repository 'gentoo-zh'.
+ * IMPORTANT: 21 news items need reading for repository 'gentoo'.
+ * Use eselect news read to view new items.
+"""
+
+
+def test_a_failed_emerge_says_why_and_not_what_came_after() -> None:
+    """`zbm-unlock` was recorded as `emerge ended with exit 1: * IMPORTANT: 1
+    news items need reading`, and the run had stopped on a distfile no host
+    would answer for. Portage keeps printing after its own error, so the last
+    lines are never the cause.
+    """
+    from gentoo_install.plan.operations import worth_reading
+
+    said = worth_reading(FETCH_FAILED)
+    assert "Couldn't download 'cjktty-font-unifont-15.1.04.patch'" in said
+    assert "ERROR 404" in said
+    assert "news items" not in said, said
+
+    # Both raisers use it, not `str(result)`: the operator reads the message,
+    # not the log the message came from.
+    import inspect
+
+    from gentoo_install.plan import portage as plan_portage
+
+    for source in (
+        inspect.getsource(plan_portage.Emerge.apply),
+        inspect.getsource(plan_portage.Emerge._from_source),
+    ):
+        raised = [one for one in source.split("CommandFailed(") if "ended with" in one]
+        assert raised, source
+        for block in raised:
+            head = block.split(")")[0]
+            assert "worth_reading" in head, head
+            assert "str(result).strip()" not in head, head
+
+
 def test_both_binhost_detectors_read_one_marker() -> None:
     """The failing path finds the line and the succeeding path parses the host
     and the url out of it. The two spelled Portage's diagnostic separately, so

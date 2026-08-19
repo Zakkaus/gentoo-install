@@ -18,7 +18,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import PurePosixPath
-from typing import ClassVar, Protocol, Sequence
+import re
+from typing import ClassVar, Final, Protocol, Sequence
 
 from ..model.device import DeviceId
 from ..model.validate import KernelCeiling
@@ -59,6 +60,26 @@ def ending(returncode: int) -> str:
         return f"{signal.Signals(-returncode).name} ({-returncode})"
     except ValueError:
         return f"signal {-returncode}"
+
+
+#: What a failing command's own error looks like. Portage keeps printing
+#: after one, so the last lines of the output are news items rather than the
+#: cause: an emerge that stopped at `!!! Couldn't download
+#: 'cjktty-font-unifont-15.1.04.patch'. Aborting.` was reported to the
+#: operator as `1 news items need reading`.
+COMPLAINT: Final[re.Pattern[str]] = re.compile(
+    r"(\bERROR|error:|\bfailed\b|Call stack|\bdied\b|\bcannot\b|No such file"
+    r"|^!!!|Aborting)",
+    re.I | re.M,
+)
+
+
+def worth_reading(text: str, lines: int = 5) -> str:
+    """The lines of a failed command worth reading, rarely the last ones."""
+    kept = [line.strip() for line in text.splitlines() if line.strip()]
+    complaints = [line for line in kept if COMPLAINT.search(line)]
+    chosen = complaints[:lines] if complaints else kept[-lines:]
+    return " | ".join(chosen) if chosen else "no output"
 
 
 class CommandOutput(str):

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import errno
 import os
-import re
 import shlex
 import signal
 import subprocess
@@ -24,7 +23,7 @@ from typing import Callable, Sequence, TextIO
 from ..errors import CommandFailed
 from ..log import Journal
 from ..model.config import ProxyConfig
-from ..plan.operations import ending
+from ..plan.operations import ending, worth_reading
 
 
 @dataclass(frozen=True)
@@ -110,7 +109,7 @@ class Runner:
         if check and result.returncode != 0:
             raise CommandFailed(
                 f"{result.command} ended with {result.ending}: "
-                f"{_tail(result.stderr or result.stdout)}"
+                f"{worth_reading(result.stderr or result.stdout)}"
             )
         return result
 
@@ -211,7 +210,7 @@ class Runner:
             if result.returncode != 0:
                 raise CommandFailed(
                     f"{result.command} ended with {result.ending}: "
-                    f"{_tail(result.stderr or result.stdout)}"
+                    f"{worth_reading(result.stderr or result.stdout)}"
                 )
 
     def _stream(
@@ -329,19 +328,6 @@ def _display_argv(argv: Sequence[str]) -> tuple[str, ...]:
             )
         shown.append(value)
     return tuple(shown)
-
-
-#: What a failing command's own error looks like. Portage keeps printing after
-#: one, so the last lines of the output are news items rather than the cause.
-_COMPLAINT = re.compile(r"\b(ERROR|error:|failed|Call stack|died|cannot|No such file)", re.I)
-
-
-def _tail(text: str, lines: int = 5) -> str:
-    """The lines worth reading, which are rarely the last ones."""
-    kept = [line.strip() for line in text.splitlines() if line.strip()]
-    complaints = [line for line in kept if _COMPLAINT.search(line)]
-    chosen = complaints[:lines] if complaints else kept[-lines:]
-    return " | ".join(chosen) if chosen else "no output"
 
 
 def write_file(path: Path, content: str, mode: int = 0o644) -> None:
