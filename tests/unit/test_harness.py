@@ -4843,3 +4843,45 @@ def test_a_declared_user_is_read_back_from_the_machine() -> None:
     assert named("zbm-unlock", "user zakk groups") is None
     assert named("ext3", "user zakk") is None
 
+
+def test_the_zfs_unlock_proof_travels_in_the_unlock_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ZFSBootMenu's dropbear lives in the image it boots from, so unlocking
+    hands over to the kernel it loads and the daemon goes with it. `zbm-unlock`
+    unlocked and its second connection, carrying `zfs get keystatus`, hung
+    until the timeout and left `TimeoutExpired` as the whole verdict."""
+    from gentoo_install.exec.config import load
+    from tests.vm import run as runner
+
+    seen: dict[str, object] = {}
+    opened: list[str] = []
+
+    class FakeProcess:
+        returncode = 0
+
+        def communicate(
+            self, text: str | None = None, timeout: float | None = None
+        ) -> tuple[str, str]:
+            seen["stdin"] = text
+            return ("Enter passphrase:\navailable\n", "")
+
+    def fake_popen(argv: list[str], **_: object) -> FakeProcess:
+        seen["argv"] = argv
+        return FakeProcess()
+
+    def refuse_a_second_connection(*arguments: object, **_: object) -> None:
+        opened.append(str(arguments))
+        raise AssertionError("the proof must not open a second connection")
+
+    monkeypatch.setattr(runner, "wait_for_unlock_daemon", lambda *a, **k: None)
+    monkeypatch.setattr("subprocess.Popen", fake_popen)
+    monkeypatch.setattr(runner, "ssh", refuse_a_second_connection)
+
+    installation = load(Path("tests/fixtures/zbm-unlock.toml"))
+    assert runner.remote_unlock(Path("key"), 2222, installation) == "available"
+    asked = cast(list[str], seen["argv"])[-1]
+    assert "zfs load-key -a" in asked and "keystatus" in asked, asked
+    # The control: a second connection would be the race this closes.
+    assert not opened, opened
+

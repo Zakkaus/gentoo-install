@@ -308,6 +308,11 @@ def remote_unlock(
     if commands is None:
         raise RuntimeError("remote unlock is disabled")
     command, proof = commands
+    # One session for the unlock and its proof. ZFSBootMenu's dropbear runs
+    # inside the image it boots from, so unlocking hands over to the kernel it
+    # then loads and the daemon goes with it: `zbm-unlock` unlocked, and the
+    # second connection carrying `zfs get keystatus` hung until its timeout.
+    asked = f"{command} && {proof}" if proof is not None else command
     # Before the unlock, not racing it: the daemon comes up inside an initramfs
     # that has to be unpacked first.
     wait_for_unlock_daemon(key, port, host=host)
@@ -316,7 +321,7 @@ def remote_unlock(
             "ssh", "-p", str(port), "-i", str(key),
             "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
             "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", f"root@{host}",
-            command,
+            asked,
         ], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True,
     )
@@ -330,10 +335,12 @@ def remote_unlock(
         raise RuntimeError(f"remote unlock failed: {output.strip()[-300:]}")
     if proof is None:
         return "unlocked"
-    checked = ssh(key, port, proof, host=host)
-    status = checked.stdout.strip()
-    if checked.returncode != 0 or status != "available":
-        raise RuntimeError(f"remote ZFS unlock reported keystatus {status!r}")
+    said = [line.strip() for line in output.splitlines() if line.strip()]
+    status = said[-1] if said else ""
+    if status != "available":
+        raise RuntimeError(
+            f"remote ZFS unlock reported keystatus {status!r}; it said {output.strip()[-300:]!r}"
+        )
     return status
 
 
