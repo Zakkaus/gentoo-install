@@ -48,6 +48,7 @@ The ordinary path: partition, format, unpack a stage3, configure, boot.
 | `ce95e7df72cd` | `static-ip`, `vm-btrfs`, `vm-mdraid`, `vm-zram`, `vm-f2fs` |
 | `74ba411eaea9` | `vm-lvm`, `vm-unlock` |
 | `cc84e970ddba` | `vm-cjk-kernel`, `vm-binpkg`, `zfs-zbm`, `vm-gnome`, `ext3` |
+| `8dbfc12f35e0` | `ext4-bios`, `vm-xfs`, `vm-lvm`, `vm-f2fs`, `vm-btrfs` — `vm-xfs` is the first record since a UEFI guest whose console delivered nothing gets a second boot, which is what ended its previous round at 2.2 minutes |
 
 Every row from `08015b221d73` onward ran `--region cn --site nju --sync
 webrsync --distfiles http://10.31.0.2/gentoo`, so what they establish about
