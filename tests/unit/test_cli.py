@@ -1602,6 +1602,35 @@ def test_bypass_prints_the_replacing_operation_instead(
     assert "arm one boot" not in said.out, said.out
 
 
+def test_the_disarm_the_message_names_is_one_the_parser_takes(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An unattended arming prints ``armed. `reboot` when ready; `--disarm`
+    takes it back.`` and the parser did not take that option, so an operator
+    who followed it was answered `unrecognized arguments: --disarm`.
+    """
+    import inspect
+
+    from gentoo_install import cli as command_line
+
+    said = inspect.getsource(command_line._reboot_or_disarm)
+    named = [one for one in said.split("`") if one.startswith("--")]
+    assert named == ["--disarm"], named
+
+    _memory_machine(monkeypatch)
+    ran: list[str] = []
+    monkeypatch.setattr(
+        command_line, "apply", lambda operations, machine, on_start=None: ran.extend(
+            one.describe() for one in operations
+        )
+    )
+
+    code = main(["--disarm"])
+    printed = capsys.readouterr()
+    assert code == EXIT_OK, printed
+    assert ran == ["take back the armed boot and delete what it placed"], ran
+
+
 def test_bypass_without_a_memory_mode_is_refused() -> None:
     """It changes what a machine boots by default, so it may not be a flag
     that does nothing when the mode it belongs to was not asked for."""
