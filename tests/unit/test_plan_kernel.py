@@ -40,6 +40,42 @@ def test_no_dracut_config_this_installer_writes_is_a_file_a_package_owns() -> No
     assert all(ours.name > one for one in owned), ours
 
 
+def test_the_unlock_operation_describes_the_keyword_it_writes() -> None:
+    """`apply` writes the `dracut-crypt-ssh` keyword in both branches, and the
+    ZFSBootMenu branch's `describe` named only the dracut omission file. A dry
+    run has to say every file a real run puts on the disk.
+    """
+    from gentoo_install.plan.portage import PortageConfigKind
+
+    for fixture in ("vm-unlock", "zbm-unlock"):
+        installation = load(Path("tests/fixtures") / f"{fixture}.toml")
+        operation = next(
+            one
+            for one in kernel.build(installation)
+            if isinstance(one, kernel.ConfigureRemoteUnlock)
+        )
+        recorder = Recorder()
+        operation.apply(recorder)
+        keyworded = [
+            path
+            for path in recorder.files
+            if PortageConfigKind.KEYWORDS.value in str(path)
+        ]
+        assert keyworded, f"{fixture}: nothing wrote the keyword"
+        assert kernel.REMOTE_UNLOCK_PACKAGE in operation.describe(), (
+            fixture,
+            operation.describe(),
+        )
+    # And the two branches really are different, so this covers both.
+    assert (
+        next(
+            one for one in kernel.build(load(Path("tests/fixtures/zbm-unlock.toml")))
+            if isinstance(one, kernel.ConfigureRemoteUnlock)
+        ).system_initramfs
+        is False
+    )
+
+
 def test_grub_remote_unlock_keeps_the_system_dracut_path() -> None:
     installation = load(Path("tests/fixtures/vm-unlock.toml"))
     operation = next(

@@ -356,9 +356,13 @@ class ConfigureRemoteUnlock(Operation):
     system_initramfs: bool = True
 
     def describe(self) -> str:
+        # The keyword in both, because `apply` writes it in both: a dry run
+        # that names only the second file leaves the reader unaware of a
+        # `package.accept_keywords` fragment a real run puts on the disk.
+        keyworded = f"accept {REMOTE_UNLOCK_PACKAGE} as testing"
         if not self.system_initramfs:
-            return f"write {REMOTE_UNLOCK_CONFIG} to omit ssh from the system initramfs"
-        return f"configure remote unlock over ssh on port {self.port}"
+            return f"{keyworded} and write {REMOTE_UNLOCK_CONFIG} to omit ssh from the system initramfs"
+        return f"{keyworded} and configure remote unlock over ssh on port {self.port}"
 
     def apply(self, context: Context) -> None:
         WritePortageConfig(
