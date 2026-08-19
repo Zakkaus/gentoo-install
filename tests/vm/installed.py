@@ -74,6 +74,15 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
         InstalledCheck("os-release", "cat /etc/os-release", r"(?m)^ID=['\"]?gentoo['\"]?$"),
         InstalledCheck("mounts", "findmnt --noheadings --list --output TARGET,SOURCE,FSTYPE", "/"),
         InstalledCheck("locale", "locale", f"LANG={installation.system.locale}"),
+        # Nothing asked for the timezone at all, and the installer writes two
+        # files for it: a machine installed in the wrong zone passed every
+        # check. Either line answers, so the resolution of `UTC` — a file on
+        # Gentoo, a symlink elsewhere — does not decide the verdict.
+        InstalledCheck(
+            "timezone",
+            "readlink -f /etc/localtime; cat /etc/timezone 2>/dev/null",
+            rf"(?m)^(?:/usr/share/zoneinfo/)?{re.escape(installation.system.timezone)}$",
+        ),
         InstalledCheck("hostname", _hostname_command(installation), _hostname_pattern(installation)),
         InstalledCheck("kernel", "uname -r; find /boot -maxdepth 4 -type f "
                        r"\( -name 'vmlinuz*' -o -name 'kernel-*' -o -name linux -o -name '*.conf' \) | sort",
