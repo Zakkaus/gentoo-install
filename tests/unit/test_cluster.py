@@ -2370,45 +2370,38 @@ def test_a_verdict_with_no_log_does_not_print_a_path_that_is_not_one(
     assert 'f" ({one.log})" if one.log is not None else ""' in printed, printed
 
 
-def test_an_image_fixture_that_writes_into_the_medium_is_refused_before_it_runs() -> None:
-    """`vm-image` asked for a 20 GiB sparse file under `/var/tmp`, which on
-    the minimal ISO is tmpfs in the guest's own RAM. The stage3 going into it
-    filled memory: `EXT4-fs (loop1p2): failed to convert unwritten extents to
-    written extents -- potential data loss! (error -5)`, then `No space left
-    on device`, and no room left to write an exit code — so the verdict was
-    `the installer exited b''` after two minutes."""
+def test_an_image_fixture_is_refused_where_nothing_mounts_a_disk_for_it() -> None:
+    """`vm-image` asked for a 20 GiB sparse file on a path that is tmpfs on
+    the minimal ISO. The stage3 going into it filled the guest's memory:
+    `EXT4-fs (loop1p2): failed to convert unwritten extents to written extents
+    -- potential data loss! (error -5)`, then `No space left on device`, and
+    no room left to write an exit code — so the verdict was `the installer
+    exited b\'\'` after two minutes. `tests/vm/run.py` makes a filesystem on
+    the spare target disk and mounts it; this runner does not."""
     import pytest as _pytest
 
     from tests.vm import cluster
 
-    with _pytest.raises(SystemExit, match="tmpfs on the medium"):
+    with _pytest.raises(SystemExit, match="only tests/vm/run.py mounts a disk"):
         cluster.fixtures(["vm-image"])
 
     # And a fixture that installs onto a disk is dispatched as it always was.
     assert [one.name for one in cluster.fixtures(["vm-btrfs"])] == ["vm-btrfs"]
 
 
-def test_the_image_path_is_read_rather_than_the_fixture_named() -> None:
-    """Named, the rule protects one fixture; read, it protects the next one
-    somebody writes."""
-    from dataclasses import replace as _replace
-
+def test_the_refusal_reads_the_mode_rather_than_the_fixture_name() -> None:
+    """Named, the rule protects one fixture; read from the configuration, it
+    protects the next one somebody writes — including one whose image path
+    looks perfectly reasonable, because the path is not what is missing."""
     from gentoo_install.exec.config import load
     from tests.vm import cluster
 
-    config = load(Path(__file__).resolve().parents[1] / "fixtures" / "vm-image.toml")
-    assert cluster._image_lands_in_memory(config) == "/var/tmp/target.raw"
+    image = load(Path(__file__).resolve().parents[1] / "fixtures" / "vm-image.toml")
+    assert cluster._needs_a_scratch_filesystem(image) == image.disk.image
+    assert image.disk.image.startswith("/mnt/"), "the path is fine; the mount is what is absent"
 
-    onto_a_disk = _replace(config, disk=_replace(config.disk, image="/mnt/scratch/target.raw"))
-    assert cluster._image_lands_in_memory(onto_a_disk) == ""
-
-    # A path that only starts with the same letters is not inside it.
-    beside = _replace(config, disk=_replace(config.disk, image="/var/tmpish/target.raw"))
-    assert cluster._image_lands_in_memory(beside) == ""
-
-    # And a fixture that is not writing an image at all is never refused.
     ordinary = load(Path(__file__).resolve().parents[1] / "fixtures" / "vm-btrfs.toml")
-    assert cluster._image_lands_in_memory(ordinary) == ""
+    assert cluster._needs_a_scratch_filesystem(ordinary) == ""
 
 
 def test_a_uefi_guest_whose_console_said_nothing_is_booted_once_more(

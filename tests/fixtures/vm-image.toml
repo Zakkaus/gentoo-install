@@ -1,5 +1,9 @@
-# A UEFI GRUB install into a sparse image. The cluster attaches this file as a
-# second disk and boots it, so the loop path is not the machine's boot target.
+# A UEFI GRUB install into a sparse image on a mounted disk. `/var/tmp` was
+# the path once, and on the live medium that is tmpfs: the image and portage's
+# build directory shared the guest's RAM and both runners ran out of it.
+# `tests/vm/run.py` makes a filesystem on the spare target disk and mounts it
+# at `/mnt/scratch` before the install, which is what an operator with a
+# second disk does by hand.
 config_version = 1
 
 [system]
@@ -28,7 +32,7 @@ kernel_params = ["console=ttyS0,115200"]
 
 [disk]
 mode = "image"
-image = "/var/tmp/target.raw"
+image = "/mnt/scratch/target.raw"
 size = "20GiB"
 wipe = true
 root = "mnt-root"
@@ -36,7 +40,7 @@ root = "mnt-root"
 [[disk.devices]]
 kind = "existing"
 id = "disk"
-selector = "/var/tmp/target.raw"
+selector = "/mnt/scratch/target.raw"
 wipe = true
 
 [[disk.devices]]

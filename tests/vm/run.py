@@ -21,11 +21,17 @@ import sys
 import time
 from collections.abc import Sequence
 from dataclasses import replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Final
 from urllib.parse import urlsplit
 
-from gentoo_install.model.config import Bootloader, Firmware as BootFirmware, InitSystem, InstallConfig
+from gentoo_install.model.config import (
+    Bootloader,
+    DiskMode,
+    Firmware as BootFirmware,
+    InitSystem,
+    InstallConfig,
+)
 from gentoo_install.model.device import (
     Existing,
     Filesystem,
@@ -480,6 +486,29 @@ def stage_passphrases(console: SerialConsole, installation: InstallConfig) -> No
         console.run(command)
 
 
+#: The disk an image-mode install writes onto. `_target_paths` already asks
+#: for one, because a configuration with no `existing` node still gets a
+#: single target; nothing mounted it, so the image landed on the medium's own
+#: tmpfs and both runners ran out of memory: the cluster at 2.0 minutes with
+#: `No space left on device`, this one at `linux-firmware` unpacking.
+SCRATCH_DISK: Final[str] = "/dev/disk/by-id/virtio-target0"
+
+
+def mount_scratch_for_image(console: SerialConsole, installation: InstallConfig) -> None:
+    """Give an image-mode install a filesystem to write its image onto.
+
+    An operator writing an image has a disk to put it on; on a live medium
+    every writable path is RAM, so the harness provides the disk the fixture
+    assumes.
+    """
+    if installation.disk.mode is not DiskMode.IMAGE:
+        return
+    where = PurePosixPath(installation.disk.image).parent
+    console.run(f"mkfs.ext4 -F -L scratch {SCRATCH_DISK}", timeout=300.0)
+    console.run(f"mkdir -p {where}")
+    console.run(f"mount {SCRATCH_DISK} {where}")
+
+
 def interrupt_and_resume(console: SerialConsole, config: str) -> None:
     """Kill a run partway, then finish it with `--resume`.
 
@@ -794,6 +823,7 @@ def _perform(args: argparse.Namespace, medium: Medium, workdir: Path) -> int:
             elif args.install:
                 installation = load(REPOSITORY / "tests" / args.install)
                 config = install_remote_config(console, key, ssh_port, installation, args.install)
+                mount_scratch_for_image(console, installation)
                 stage_passphrases(console, load(REPOSITORY / "tests" / args.install))
                 run_installer(console, config, "--dry-run" if args.dry_run else "")
             else:

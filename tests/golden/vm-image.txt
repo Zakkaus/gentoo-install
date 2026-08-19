@@ -1,5 +1,5 @@
 [partition]
-  create a 20GiB sparse image at /var/tmp/target.raw and attach it as a loop device
+  create a 20GiB sparse image at /mnt/scratch/target.raw and attach it as a loop device
   release anything a previous run of this configuration left mounted or open
   wipe existing signatures from disk
   create a gpt partition table on disk as table
@@ -70,4 +70,4 @@
   point /etc/resolv.conf at systemd-resolved rather than the install medium's
   delete the downloaded stage3 from /var/cache/gentoo-install
   unmount everything under the target
-  detach the loop device for image /var/tmp/target.raw
+  detach the loop device for image /mnt/scratch/target.raw

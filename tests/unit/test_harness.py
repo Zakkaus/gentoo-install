@@ -4345,3 +4345,49 @@ def test_every_fixture_that_must_degrade_keeps_the_site_that_makes_it() -> None:
     from tests.vm import cluster
 
     assert set(cluster.MUST_DEGRADE) <= cluster.KEEPS_ITS_SITE, cluster.MUST_DEGRADE
+
+
+def test_an_image_install_is_given_a_disk_to_write_its_image_onto() -> None:
+    """Nothing mounted anything at the image's path, so it landed on the live
+    medium's tmpfs and both runners ran out of the guest's memory. The spare
+    target disk was already attached — `_target_paths` asks for one even when
+    the configuration has no `existing` node — and nothing used it."""
+    from gentoo_install.exec.config import load
+    from tests.vm import run as runner
+
+    said: list[str] = []
+
+    class Console:
+        def run(self, command: str, timeout: float = 0.0) -> None:
+            said.append(command)
+
+    image = load(Path(__file__).resolve().parents[1] / "fixtures" / "vm-image.toml")
+    runner.mount_scratch_for_image(cast(Any, Console()), image)
+
+    where = str(Path(image.disk.image).parent)
+    assert said == [
+        f"mkfs.ext4 -F -L scratch {runner.SCRATCH_DISK}",
+        f"mkdir -p {where}",
+        f"mount {runner.SCRATCH_DISK} {where}",
+    ], said
+
+    # A configuration that installs onto a disk is left alone: formatting the
+    # target it is about to partition would destroy the install.
+    said.clear()
+    ordinary = load(Path(__file__).resolve().parents[1] / "fixtures" / "vm-btrfs.toml")
+    runner.mount_scratch_for_image(cast(Any, Console()), ordinary)
+    assert said == [], said
+
+
+def test_the_image_fixture_writes_where_the_runner_mounts() -> None:
+    """Two places name the path and they have to agree: the fixture writes the
+    image and the runner mounts the disk under it."""
+    import inspect
+
+    from gentoo_install.exec.config import load
+    from tests.vm import run as runner
+
+    image = load(Path(__file__).resolve().parents[1] / "fixtures" / "vm-image.toml")
+    mounted = inspect.getsource(runner.mount_scratch_for_image)
+    assert "PurePosixPath(installation.disk.image).parent" in mounted, mounted
+    assert image.disk.image.startswith("/mnt/"), image.disk.image
