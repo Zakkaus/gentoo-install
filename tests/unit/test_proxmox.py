@@ -1098,16 +1098,18 @@ def test_the_command_a_real_shell_runs_produces_a_readable_archive(tmp_path: Pat
     carries one: the markers have to survive `printf` and still be found."""
     import subprocess
 
-    from tests.vm.results import console_command, read_console
+    from tests.vm.results import LOG_TAIL, console_command, read_console
 
     (tmp_path / "install.rc").write_bytes(b"0\n")
     (tmp_path / "install.txt").write_bytes(b"installed 53 operations\n")
     command = console_command(str(tmp_path))
     printed = subprocess.run(["sh", "-c", command], capture_output=True).stdout
     said = f"root@livecd ~ # {command}\r\n".encode() + printed
+    # The log itself stays on the guest and its tail travels: a source-kernel
+    # install writes 80 MB of it into a channel that has dropped twice.
     assert read_console(said) == {
         "install.rc": b"0\n",
-        "install.txt": b"installed 53 operations\n",
+        LOG_TAIL: b"installed 53 operations\n",
     }
 
 
