@@ -158,7 +158,7 @@ and produced a machine that stops in GRUB, because a conversion unmounts
 nothing and its last writes — the bootloader configuration above all — were
 still in the page cache when the machine went away.
 
-All four records are from QEMU on one machine.
+All four records above are from QEMU on one machine.
 
 ### Refusals with a machine behind them
 
@@ -171,11 +171,20 @@ written.
 | Alpine 3.21 cloud image, before `apk add util-linux` | `findmnt` and `lsblk` are absent, so the layout reads back empty |
 | Fedora 41 cloud image | a replaced directory that is its own mount used to be refused; it is now replaced by its contents instead |
 
+### On the cluster
+
+| Revision | Fixture | Result |
+|---|---|---|
+| `ce95e7df72cd` | `vm-convert` | installed Gentoo onto a cluster guest, converted that machine in place with the same driver CD, and the converted machine booted as `convertedbox` and answered every installed-state check, in 137.6 minutes |
+
+The cluster runs a conversion by installing a system first and converting what
+that produced, so this row covers both halves and the reboot between them.
+
 ### Not verified
 
-The `vm-convert` cluster fixture. UEFI conversion and a btrfs subvolume root
-both moved out of this list when `6fa74c99ab94` converted Fedora 41 and the
-machine booted.
+Nothing named. UEFI conversion and a btrfs subvolume root left this list when
+`6fa74c99ab94` converted Fedora 41 and the machine booted; the `vm-convert`
+cluster fixture left it with the row above.
 
 ## Mode 3: boot into RAM, then install or write an image
 
