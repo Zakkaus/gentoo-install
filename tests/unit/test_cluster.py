@@ -1325,15 +1325,31 @@ def test_a_failed_install_verdict_carries_the_installer_s_own_reason() -> None:
     assert "CommandFailed" in cluster._why_it_stopped({"install.txt": said})
 
 
-def test_an_expected_failure_with_no_exit_code_is_not_a_pass() -> None:
+def test_an_expected_failure_is_the_failure_the_fixture_measures() -> None:
     """`vm-proxy-dead` passes by stopping, and the rule for that was
     `code != b"0"`. A guest whose results never came back hands the caller an
-    empty code, which satisfies it: the one fixture whose verdict is a failure
-    was green whenever the collection failed.
+    empty code, which satisfied it; so did any other stop — a syntax error, a
+    refused preflight, a failed disk — while the fixture exists to show that
+    nothing bypassed a proxy pointed at a dead port.
+
+    Measured on a passing run: `install.rc` held `4` and `Connection refused`
+    appeared 26 times in the log it handed back.
     """
-    assert cluster._did_not_stop(b"4") == ""
-    assert "wrote no exit code" in cluster._did_not_stop(b"")
-    assert "did not" in cluster._did_not_stop(b"0")
+    from tests.vm.results import LOG_TAIL
+
+    refused = {LOG_TAIL: b"wget: unable to connect: Connection refused\n"}
+    assert cluster._did_not_stop("vm-proxy-dead", b"4", refused) == ""
+    assert "wrote no exit code" in cluster._did_not_stop("vm-proxy-dead", b"", refused)
+    assert "did not" in cluster._did_not_stop("vm-proxy-dead", b"0", refused)
+    # A stop for another reason is not this fixture's result.
+    assert "not the b'4'" in cluster._did_not_stop("vm-proxy-dead", b"1", refused)
+    other = {LOG_TAIL: b"the install stopped: DeviceNotFound: /dev/disk/by-id/x\n"}
+    said = cluster._did_not_stop("vm-proxy-dead", b"4", other)
+    assert "Connection refused" in said and "not what this fixture measures" in said
+    # The whole log counts as well as the tail: a log under the size limit
+    # travels whole and the tail is the fallback.
+    whole = {"install.txt": b"wget: unable to connect: Connection refused\n"}
+    assert cluster._did_not_stop("vm-proxy-dead", b"4", whole) == ""
 
 
 def test_a_refused_login_says_what_the_guest_was_showing(
