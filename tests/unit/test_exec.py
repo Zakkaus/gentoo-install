@@ -835,6 +835,58 @@ def test_apply_uses_the_preflight_approved_passphrase_after_source_mutation(
     assert not store.path(pool.id).exists()
 
 
+def test_closing_the_run_log_does_not_replace_the_install_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The log is opened for the whole install and closed while the install's
+    own exception unwinds. The work directory is a tmpfs an install can fill,
+    so an errno from that last flush would have replaced the reason the
+    install stopped.
+    """
+    from typing import IO, Any
+
+    from gentoo_install.errors import CommandFailed
+    from gentoo_install.exec import report
+
+    class Refusing:
+        """A log whose close fails the way a full tmpfs fails."""
+
+        def __init__(self, real: IO[str]) -> None:
+            self.real = real
+            self.closed_once = False
+
+        def write(self, text: str) -> int:
+            return self.real.write(text)
+
+        def flush(self) -> None:
+            self.real.flush()
+
+        def close(self) -> None:
+            self.real.close()
+            self.closed_once = True
+            raise OSError(28, "No space left on device")
+
+    opened: list[Refusing] = []
+    real_open = Path.open
+
+    def watching(self: Path, *args: Any, **rest: Any) -> Any:
+        handle = real_open(self, *args, **rest)
+        if self.name.endswith(".log"):
+            refusing = Refusing(handle)
+            opened.append(refusing)
+            return refusing
+        return handle
+
+    monkeypatch.setattr(Path, "open", watching)
+
+    with pytest.raises(CommandFailed, match="the install's own reason"):
+        with report.recording(tmp_path / "work", tmp_path / "target") as active:
+            active.record("a line the log keeps")
+            raise CommandFailed("the install's own reason")
+
+    assert opened and opened[0].closed_once, "the log was never closed"
+
+
 def test_a_passphrase_that_will_not_go_does_not_replace_the_refusal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
