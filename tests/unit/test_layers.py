@@ -517,6 +517,33 @@ def test_the_passphrase_minimum_is_one_number() -> None:
     assert written == {"gentoo_install/exec/preflight.py"}, written
 
 
+def test_the_package_screens_reach_nothing_in_the_screen_module() -> None:
+    """`tui/packages.py` is the closure of the seven screens that choose
+    packages. They share one set of helpers — `Effects`, `derive_effects`,
+    `settle` — so no single screen's closure is the module; the union of the
+    seven is, with six names crossing outward and none inward."""
+    tui = PACKAGE / "tui"
+    imported = _imports(ast.parse((tui / "packages.py").read_text()))
+    forbidden = {
+        name
+        for name in imported
+        if name.split(".")[-1] in {"screens", "settings", "partitions"}
+    }
+    assert not forbidden, forbidden
+
+    source = (tui / "screens.py").read_text()
+    crossing = {
+        "_profile_for",
+        "_record_operator",
+        "_set_font_configuration",
+        "_typed_beside_automatic",
+        "font_configuration_group",
+        "input_configuration_group",
+    }
+    for name in crossing:
+        assert re.search(rf"from \.packages import \([^)]*\b{name}\b", source, re.S), name
+
+
 def test_the_disk_screens_reach_nothing_in_the_screen_module() -> None:
     """`tui/partitions.py` is the closure of `partitions_screen`: everything
     it reaches and nothing else. `screens.py` reaches four of those names and
