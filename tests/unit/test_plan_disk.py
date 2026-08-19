@@ -203,6 +203,29 @@ def test_a_filesystem_is_made_with_the_label_option_its_tool_uses() -> None:
     assert "ESP" in vfat
 
 
+def test_every_filesystem_names_its_label_with_an_option_that_tool_takes() -> None:
+    """`MKFS` and `LABEL_OPTION` were two tables keyed the same way and
+    indexed on one line, so a filesystem added to one and not the other raised
+    `KeyError` with the disk already partitioned. One entry carries both, and
+    every entry has to produce a command that names the label.
+    """
+    from gentoo_install.model.device import FilesystemType
+    from gentoo_install.plan.disk import MKFS, MakeFilesystem
+
+    assert set(MKFS) == set(FilesystemType)
+    for kind in FilesystemType:
+        recorder = Recorder()
+        MakeFilesystem(
+            filesystem=i("rootfs"), device=i("rootpart"), kind=kind, label="tag"
+        ).apply(recorder)
+        argv = recorder.only(MKFS[kind].argv[0])
+        assert argv[-1] == "/dev/mapper/rootpart", kind
+        assert argv[-2] == "tag", kind
+        # The option, not an empty string: `["", "tag"]` is what an entry with
+        # no label option would hand the tool.
+        assert argv[-3].startswith("-") and len(argv[-3]) > 1, kind
+
+
 @pytest.mark.parametrize(
     ("name", "command"),
     [("ext2", "mkfs.ext2"), ("ext3", "mkfs.ext3")],

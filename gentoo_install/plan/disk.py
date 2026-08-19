@@ -63,25 +63,29 @@ TYPE_CODES: Final[dict[PartitionRole, str]] = {
 #: because `exec/apply.py` writes it and `DiscardStage3` deletes it.
 STAGE3_CACHE: Final[str] = "var/cache/gentoo-install"
 
-MKFS: Final[dict[FilesystemType, tuple[str, ...]]] = {
-    FilesystemType.EXT2: ("mkfs.ext2", "-F"),
-    FilesystemType.EXT3: ("mkfs.ext3", "-F"),
-    FilesystemType.EXT4: ("mkfs.ext4", "-F"),
-    FilesystemType.BTRFS: ("mkfs.btrfs", "-f"),
-    FilesystemType.XFS: ("mkfs.xfs", "-f"),
-    FilesystemType.F2FS: ("mkfs.f2fs", "-f"),
-    FilesystemType.VFAT: ("mkfs.vfat", "-F", "32"),
-}
+@dataclass(frozen=True)
+class MakeCommand:
+    """How one filesystem is made, and how it is told its label.
 
-#: `-L` everywhere except vfat, which spells its label option `-n`.
-LABEL_OPTION: Final[dict[FilesystemType, str]] = {
-    FilesystemType.EXT2: "-L",
-    FilesystemType.EXT3: "-L",
-    FilesystemType.EXT4: "-L",
-    FilesystemType.BTRFS: "-L",
-    FilesystemType.XFS: "-L",
-    FilesystemType.F2FS: "-l",
-    FilesystemType.VFAT: "-n",
+    One entry rather than two tables keyed the same way: `MakeFilesystem`
+    indexes both on the same line, so a filesystem added to one and not the
+    other raises `KeyError` while the disk is already partitioned.
+    """
+
+    argv: tuple[str, ...]
+    label_option: str
+
+
+#: `-L` everywhere except vfat, which spells its label option `-n`, and f2fs,
+#: which spells it `-l`.
+MKFS: Final[dict[FilesystemType, MakeCommand]] = {
+    FilesystemType.EXT2: MakeCommand(("mkfs.ext2", "-F"), "-L"),
+    FilesystemType.EXT3: MakeCommand(("mkfs.ext3", "-F"), "-L"),
+    FilesystemType.EXT4: MakeCommand(("mkfs.ext4", "-F"), "-L"),
+    FilesystemType.BTRFS: MakeCommand(("mkfs.btrfs", "-f"), "-L"),
+    FilesystemType.XFS: MakeCommand(("mkfs.xfs", "-f"), "-L"),
+    FilesystemType.F2FS: MakeCommand(("mkfs.f2fs", "-f"), "-l"),
+    FilesystemType.VFAT: MakeCommand(("mkfs.vfat", "-F", "32"), "-n"),
 }
 
 #: The first partition starts here, which is also the alignment every later one
@@ -560,16 +564,16 @@ class MakeFilesystem(Operation):
     label: str
 
     def required_host_commands(self) -> frozenset[str]:
-        return frozenset((MKFS[self.kind][0],))
+        return frozenset((MKFS[self.kind].argv[0],))
 
     def describe(self) -> str:
         name = f" labelled {self.label}" if self.label else ""
         return f"make a {self.kind.value} filesystem on {self.device} as {self.filesystem}{name}"
 
     def apply(self, context: Context) -> None:
-        argv = list(MKFS[self.kind])
+        argv = list(MKFS[self.kind].argv)
         if self.label:
-            argv += [LABEL_OPTION[self.kind], self.label]
+            argv += [MKFS[self.kind].label_option, self.label]
         context.run([*argv, context.device_path(self.device)])
 
 
