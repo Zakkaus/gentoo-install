@@ -41,14 +41,17 @@ WORKROOT: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/converts"
 #: What cloud-init is told to set, so the harness can log in over serial. The
 #: images ship no password at all and no key the harness holds.
 ROOT_PASSWORD: Final[str] = "install"
-#: The payload is also part of the path: `expect_command` would otherwise match
-#: the shell's echo of `cat`, so the marker check must use `expect_output`.
+#: The payload is also part of the path, so nothing that quotes the path can
+#: be the answer: `cat` names the file it could not open, and
+#: `cat: /home/.gentoo-install-...: No such file or directory` carried the
+#: marker the check was looking for. The count is a value the guest computes,
+#: and neither the echo nor the diagnostic can produce it.
 HOME_MARKER: Final[str] = "gentoo-install-home-survives-conversion-4f9d6e2a"
 HOME_MARKER_PATH: Final[Path] = Path("/home") / f".{HOME_MARKER}"
 HOME_MARKER_CHECK: Final[InstalledCheck] = InstalledCheck(
     "home marker",
-    f"cat {HOME_MARKER_PATH}",
-    re.escape(HOME_MARKER),
+    f"printf 'home=%s\\n' \"$(grep -Fc {HOME_MARKER} {HOME_MARKER_PATH} 2>/dev/null || echo 0)\"",
+    r"(?m)^home=1$",
 )
 
 #: Bigger than every image here, so cloud-init's `growpart` and `resizefs`
