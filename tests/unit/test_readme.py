@@ -51,24 +51,25 @@ MENU_PICTURES = {
 SECTIONS = {
     "README.md": (
         "Capabilities", "Verification status", "Requirements", "Safety", "Installation",
+        "Installing from memory", "Converting a running system",
         "Resuming an interrupted run", "Configuration files", "Binary packages", "Exit codes",
         "Questions", "Contributing", "License",
     ),
     "README.zh-TW.md": (
         "\u529f\u80fd", "\u9a57\u8b49\u72c0\u614b", "\u9700\u6c42", "\u5b89\u5168\u4e8b\u9805",
-        "\u5b89\u88dd", "\u5f9e\u4e2d\u65b7\u8655\u7e7c\u7e8c", "\u8a2d\u5b9a\u6a94",
+        "\u5b89\u88dd", "\u5f9e\u8a18\u61b6\u9ad4\u5b89\u88dd", "\u8f49\u63db\u57f7\u884c\u4e2d\u7684\u7cfb\u7d71", "\u5f9e\u4e2d\u65b7\u8655\u7e7c\u7e8c", "\u8a2d\u5b9a\u6a94",
         "\u4e8c\u9032\u4f4d\u5957\u4ef6", "\u9000\u51fa\u78bc", "\u5e38\u898b\u554f\u984c", "\u53c3\u8207\u958b\u767c",
         "\u6388\u6b0a",
     ),
     "README.zh-CN.md": (
         "\u529f\u80fd", "\u9a8c\u8bc1\u72b6\u6001", "\u8981\u6c42", "\u5b89\u5168\u4e8b\u9879",
-        "\u5b89\u88c5", "\u4ece\u4e2d\u65ad\u5904\u7ee7\u7eed", "\u914d\u7f6e\u6587\u4ef6",
+        "\u5b89\u88c5", "\u4ece\u5185\u5b58\u5b89\u88c5", "\u8f6c\u6362\u8fd0\u884c\u4e2d\u7684\u7cfb\u7edf", "\u4ece\u4e2d\u65ad\u5904\u7ee7\u7eed", "\u914d\u7f6e\u6587\u4ef6",
         "\u4e8c\u8fdb\u5236\u8f6f\u4ef6\u5305", "\u9000\u51fa\u7801", "\u5e38\u89c1\u95ee\u9898", "\u53c2\u4e0e\u5f00\u53d1",
         "\u8bb8\u53ef",
     ),
     "README.ja.md": (
         "\u6a5f\u80fd", "\u691c\u8a3c\u72b6\u6cc1", "\u8981\u4ef6", "\u5b89\u5168\u4e0a\u306e\u6ce8\u610f",
-        "\u30a4\u30f3\u30b9\u30c8\u30fc\u30eb", "\u4e2d\u65ad\u3057\u305f\u5b9f\u884c\u306e\u518d\u958b",
+        "\u30a4\u30f3\u30b9\u30c8\u30fc\u30eb", "\u30e1\u30e2\u30ea\u304b\u3089\u306e\u30a4\u30f3\u30b9\u30c8\u30fc\u30eb", "\u7a3c\u50cd\u4e2d\u306e\u30b7\u30b9\u30c6\u30e0\u306e\u5909\u63db", "\u4e2d\u65ad\u3057\u305f\u5b9f\u884c\u306e\u518d\u958b",
         "\u8a2d\u5b9a\u30d5\u30a1\u30a4\u30eb", "\u30d0\u30a4\u30ca\u30ea\u30d1\u30c3\u30b1\u30fc\u30b8",
         "\u7d42\u4e86\u30b3\u30fc\u30c9", "\u3088\u304f\u3042\u308b\u8cea\u554f",
         "\u958b\u767a\u3078\u306e\u53c2\u52a0",
@@ -76,7 +77,7 @@ SECTIONS = {
     ),
     "README.ko.md": (
         "\uae30\ub2a5", "\uac80\uc99d \uc0c1\ud0dc", "\uc694\uad6c \uc0ac\ud56d", "\uc548\uc804",
-        "\uc124\uce58", "\uc911\ub2e8\ub41c \uc2e4\ud589 \uc7ac\uac1c", "\uc124\uc815 \ud30c\uc77c",
+        "\uc124\uce58", "\uba54\ubaa8\ub9ac\uc5d0\uc11c \uc124\uce58", "\uc2e4\ud589 \uc911\uc778 \uc2dc\uc2a4\ud15c \ubcc0\ud658", "\uc911\ub2e8\ub41c \uc2e4\ud589 \uc7ac\uac1c", "\uc124\uc815 \ud30c\uc77c",
         "\ubc14\uc774\ub108\ub9ac \ud328\ud0a4\uc9c0", "\uc885\ub8cc \ucf54\ub4dc",
         "\uc790\uc8fc \ubb3b\ub294 \uc9c8\ubb38", "\uae30\uc5ec",
         "\ub77c\uc774\uc120\uc2a4",
@@ -92,7 +93,9 @@ FACT_UNITS = (
     "requirements-runtime",
     "requirements-version-sources", "requirements-network-filter", "requirements-bootstrap",
     "safety-destructive", "safety-review-backup", "install-download", "install-terminal",
-    "install-config-workflow", "install-root-shell", "resume-behavior", "resume-limits",
+    "install-config-workflow", "install-root-shell",
+    "install-memory", "install-in-place",
+    "resume-behavior", "resume-limits",
     "config-model", "config-fixtures", "config-dry-run", "binary-packages", "exit-codes",
     "faq-customisation", "contributing", "license",
 )

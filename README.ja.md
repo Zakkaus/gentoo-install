@@ -145,6 +145,55 @@ cd gentoo-install-master
 
 対話型インストールでは、成功時と失敗時のどちらでも、アンマウント前にターゲットシステム内で root シェルを開く選択肢が提示されます。`--no-shell` を使用すると、この確認を省略できます。
 
+## メモリからのインストール
+
+<!-- fact: install-memory -->
+
+`--ram` と `--lowram` は、メモリ上のライブ環境への起動を一度だけ設定します。コンソールもレスキューイメージも持たないレンタルマシンが自分のディスクを上書きするには、これが必要です。インストーラ、選んだ設定、認証鍵は initramfs の中を運ばれるため、環境はそれを設定したリビジョンで起動します。
+
+```sh
+./bootstrap.sh --ram --ssh-key github:zakkaus --root-password 'replace this'
+reboot
+ssh root@the-machine
+```
+
+既定の起動項目は変更されないので、環境で起動しなかったマシンは以前と同じものを起動します。`--disarm` は設定を取り消します。`--bypass` は既定の項目自体を置き換えるもので、一度きりの項目を捨てるファームウェア向けです。環境が起動しなかったときにマシンがまったく起動しなくなるのは、この経路だけです。
+
+最初の画面はインストールとレスキューシェルを示し、タイムアウトはありません。答えるまで何も消去されません。`--ram` は ZFS を含む Gentoo CJK ISO を起動し、約 2 GiB のメモリを必要とします。`--lowram` はより小さく `zfs.ko` を持たない Alpine netboot 書庫を起動します。`--ssh-port` はデーモンを 22 番から動かします。
+
+## 稼働中のシステムの変換
+
+<!-- fact: install-in-place -->
+
+`[disk]` テーブルの `mode = "in-place"` は、ディスクをパーティション分割する代わりに、稼働中のディストリビューションのユーザ空間を置き換えます。レイアウトはマシンから読み取るため、このテーブルはデバイス一覧を持ちません。
+
+```toml
+config_version = 1
+
+[system]
+hostname = "converted"
+timezone = "UTC"
+locales = ["en_US.UTF-8"]
+locale = "en_US.UTF-8"
+init = "systemd"
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
+
+[portage]
+profile = "default/linux/amd64/23.0/systemd"
+makeopts = "-j4"
+
+[bootloader]
+kind = "grub"
+firmware = "uefi"
+
+[disk]
+mode = "in-place"
+```
+
+上のハッシュは例であり、実行前に置き換える必要があります。対話的な実行は変換が置き換えるディレクトリを表示し、何かを書き込む前に `convert` の入力を求めます。端末のない実行は尋ねられません。設定ファイルの `mode = "in-place"` が承認であり、そこで質問すればシリアルコンソールを永久に待たせることになるからです。
+
+**この実行を始めたセッションが生命線です。**`/usr` と `/etc` が新しいシステムのものになると新しい SSH ログインは成立しなくなり、実行を始めたセッションだけがすでに対応付けたバイナリを保持します。
+
 ## 中断した実行の再開
 
 <!-- fact: resume-behavior -->
