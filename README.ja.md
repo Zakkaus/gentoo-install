@@ -18,7 +18,7 @@ gentoo-install は Linux ライブ環境で動作し、amd64 アーキテクチ�
 
 <!-- fact: storage-device-graph -->
 
-**ストレージ** デバイスグラフは、GPT と MBR のパーティションテーブル、ext2、ext3、ext4、xfs、f2fs、vfat、subvolume を含む btrfs、swap、LUKS2 暗号化、LVM、mdraid を扱います。既存のパーティションテーブルを保持し、各パーティションに対して保持、フォーマット、削除のいずれかを個別に指定できます。
+**ストレージ** デバイスグラフは、GPT と MBR のパーティションテーブル、ext2、ext3、ext4、xfs、f2fs、vfat、subvolume を含む btrfs、swap、LUKS2 暗号化、LVM、mdraid を扱います。ZFS も同じグラフに属します。プールは vdev の上で stripe、mirror、raidz1、raidz2、raidz3 のいずれかを取り、ネイティブ暗号化はプールの属性であり、各 dataset はそれぞれ独立したノードです。既存のパーティションテーブルを保持し、各パーティションに対して保持、フォーマット、削除のいずれかを個別に指定できます。
 
 <!-- fact: zram-system -->
 
@@ -30,13 +30,21 @@ gentoo-install は Linux ライブ環境で動作し、amd64 アーキテクチ�
 
 ステージングされたシステムは稼働中のシステムに触れずに `/gentoo-install.new` 以下で構築され、その後 `rename(2)` でディレクトリごとに交換されます。交換より後に実行されるのは、esp またはブートセクタへの書き込みだけです。ルートが LUKS、LVM、mdraid の下にある場合、ルートファイルシステムがこのインストーラで記述できない種類である場合、ルートファイルシステムの空き容量が 10 GiB 未満の場合、ライブメディア上で実行された場合は、いずれも何も書き込む前に理由を挙げて拒否されます。
 
+<!-- fact: prepared-image -->
+
+**ディスクイメージ** `mode = "image"` は、ディスクではなく `disk.image` が指定し `disk.size` が大きさを決めるスパースファイルにインストールします。成果物は他所へ複製して後から書き込めるファイルです。`mode = "dd"` はインストールを行いません。`disk.source` のイメージを `disk.destination` のディスク全体へストリーム書き込みし、読み取りながら `raw`、`gz`、`xz`、`zst`、`tar` を展開し、そのイメージが持つレイアウトとブートローダーをそのまま残します。両モードは互いのキーを受け付けず、`partition` モードはどちらのキーも受け付けません。
+
 <!-- fact: boot-system -->
 
-**起動とシステム** インストーラでは、ブートローダーとして GRUB または systemd-boot を選択できます。GRUB は UEFI と BIOS に対応し、systemd-boot は UEFI に対応しています。また、systemd または OpenRC、dracut、locale、キーボードレイアウト、タイムゾーン、ホスト名、DNS、静的アドレス、選択したネットワークマネージャを設定できます。
+**起動とシステム** インストーラでは、ブートローダーとして GRUB、systemd-boot、ZFSBootMenu を選択できます。GRUB は UEFI と BIOS に対応し、systemd-boot は UEFI に対応しています。ZFSBootMenu は UEFI で ZFS ルートを起動し、カーネルはプール内のブート環境自身の `/boot` から取得します。また、systemd または OpenRC、dracut、locale、キーボードレイアウト、タイムゾーン、ホスト名、DNS、静的アドレス、選択したネットワークマネージャを設定できます。
+
+<!-- fact: remote-unlock -->
+
+**暗号化されたルートを ssh で解除する** `[kernel.remote_unlock]` は、パスフレーズの入力を求める画面の前に誰もいないマシンのために、起動経路へ ssh デーモンを配置します。`enabled` がこの経路を有効にします。`port` の既定値は 22 ではなく 222 で、稼働中システムに対するクライアントの `known_hosts` 項目と initramfs の項目が衝突しないようにしています。`address`、`gateway`、`interface` はそのデーモンに静的アドレスを与え、アドレスが空の場合は DHCP を使います。LUKS ルートはシステム initramfs 内の `sys-kernel/dracut-crypt-ssh` が開き、ZFS ルートは ZFSBootMenu が自身のイメージへ組み込む dropbear が開きます。認証鍵は `system.authorized_keys` のものです。この経路を有効にしながら鍵を一つも挙げていない設定は理由を挙げて拒否されます。誰もログインできないデーモンを記述しているためです。
 
 <!-- fact: desktop-language -->
 
-**デスクトップと言語対応** GNOME、KDE Plasma、Xfce を選択し、GDM、SDDM、LightDM のいずれかと組み合わせられます。グラフィックス設定は AMD、Intel、NVIDIA、仮想マシンに対応しています。パッケージカタログには Fcitx 5、Rime、Anthy、Mozc、Hangul、CJK フォントが含まれます。カーネルの選択肢には、cjktty パッチを含む `sys-kernel/gentoo-cjk-kernel-bin` と `sys-kernel/gentoo-cjk-kernel` があります。
+**デスクトップと言語対応** GNOME、KDE Plasma、Xfce を選択し、GDM、SDDM、LightDM、または greetd とその tuigreet コンソールグリータのいずれかと組み合わせられます。グラフィックス設定は AMD、Intel、NVIDIA、仮想マシンに対応しています。パッケージカタログには Fcitx 5、Rime、Anthy、Mozc、Hangul、CJK フォントが含まれます。カーネルの選択肢には、cjktty パッチを含む `sys-kernel/gentoo-cjk-kernel-bin` と `sys-kernel/gentoo-cjk-kernel` があります。
 
 <!-- fact: portage -->
 
@@ -72,7 +80,9 @@ gentoo-install は Linux ライブ環境で動作し、amd64 アーキテクチ�
 
 `--ram` と `--lowram` にはそれぞれ QEMU の記録があります。Debian 12 の計算機が一度だけの起動を設定し、既定の起動項目を変えずに再起動し、配信された環境——`--ram` は Gentoo CJK ISO、`--lowram` は Alpine netboot 書庫——で起動し、渡された設定を保持しました。その画面で `install` と答えた記録が環境ごとに一件ずつあります。計算機は Gentoo を導入し、書き込んだディスクから起動し、共有の導入後検査に合格しました。別の計算機では設定済み項目の initramfs を削除し、ハーネスが計算機を入れ替える際の電源再投入のあと、続く二回の起動はいずれも元のクラウド系に到達しました。`dd` には記録が一件あります。live 媒体から準備済みイメージをディスク全体へ書き込み、raw と gzip の両形式で 1 バイトずつ読み戻しました。
 
-静的アドレス、ext2、ext3 にはそれぞれクラスタでの記録があります。ソースからビルドするカーネルと binhost のフォールバックには runner レベルの試験しかなく、runner レベルの試験はエンドツーエンドの記録ではありません。
+静的アドレス、ext2、ext3 にはそれぞれクラスタでの記録があります。ZFS の記録は stripe、mirror、raidz、暗号化プール、そして ZFSBootMenu が起動したプールを含みます。遠隔解除の二経路にはいずれもクラスタでの記録があります。システム initramfs が開いた LUKS ルートと、ZFSBootMenu 自身のイメージが開いた ZFS プールです。greetd には記録が二件あります。
+
+ファイルへの導入には記録が一件あります。書き出したイメージを `losetup -Pf` で接続し、そのレイアウトが宣言する二つのファイルシステムとして読み戻しましたが、そのファイルから起動したマシンはまだありません。ソースからビルドするカーネルと binhost のフォールバックには runner レベルの試験しかなく、runner レベルの試験はエンドツーエンドの記録ではありません。
 
 `tests/fixtures/` 以下のファイルが対象とするのは設定モデルであり、その存在は導入されたマシンについて何も示しません。
 

@@ -18,7 +18,7 @@ The paths below are implemented and have automated unit or plan coverage unless 
 
 <!-- fact: storage-device-graph -->
 
-**Storage.** The device graph covers GPT and MBR; ext2, ext3, ext4, btrfs subvolumes, xfs, f2fs and vfat; swap; and LUKS2, LVM and mdraid. Existing partition tables can be retained, with a separate keep, format or delete decision for each partition.
+**Storage.** The device graph covers GPT and MBR; ext2, ext3, ext4, btrfs subvolumes, xfs, f2fs and vfat; swap; and LUKS2, LVM and mdraid. ZFS belongs to the same graph: a pool is a stripe, a mirror, or raidz1, raidz2 or raidz3 over its vdevs, native encryption is a property of the pool, and each dataset is a node of its own. Existing partition tables can be retained, with a separate keep, format or delete decision for each partition.
 
 <!-- fact: zram-system -->
 
@@ -30,13 +30,21 @@ The system configuration can configure zram independently of the device graph an
 
 The staged system is built under `/gentoo-install.new` while the running one is untouched, each directory is then exchanged with `rename(2)`, and only the writes to the esp or the boot sector follow the exchange. A root below LUKS, LVM or mdraid, a root filesystem this installer cannot describe, a machine with less than 10 GiB free on the root filesystem, and a live medium are each refused by name before anything is written.
 
+<!-- fact: prepared-image -->
+
+**Disk images.** `mode = "image"` installs into the sparse file named by `disk.image` and sized by `disk.size` instead of onto a disk, so the product is a file that can be copied elsewhere and written later. `mode = "dd"` installs nothing: it streams the image at `disk.source` onto the whole disk at `disk.destination`, decoding `raw`, `gz`, `xz`, `zst` or `tar` as it reads, and keeps whatever layout and bootloader that image already carries. Neither mode accepts the keys of the other, and `partition` mode accepts neither set.
+
 <!-- fact: boot-system -->
 
-**Boot and system.** GRUB supports UEFI and BIOS, and systemd-boot supports UEFI. The installer configures systemd or OpenRC, dracut, locale, keyboard layout, timezone, hostname, DNS, static addresses and the selected network manager.
+**Boot and system.** GRUB supports UEFI and BIOS, systemd-boot supports UEFI, and ZFSBootMenu boots a ZFS root on UEFI, taking each kernel from the boot environment's own `/boot` inside the pool. The installer configures systemd or OpenRC, dracut, locale, keyboard layout, timezone, hostname, DNS, static addresses and the selected network manager.
+
+<!-- fact: remote-unlock -->
+
+**Unlocking an encrypted root over SSH.** `[kernel.remote_unlock]` puts an SSH daemon in the boot path, for a machine whose passphrase prompt nobody is sitting in front of. `enabled` turns it on, `port` defaults to 222 rather than 22 so a client's `known_hosts` entry for the running system does not collide with the initramfs one, and `address`, `gateway` and `interface` give that daemon a static address; an empty address asks for DHCP. A LUKS root is opened by `sys-kernel/dracut-crypt-ssh` in the system initramfs, and a ZFS root by the dropbear ZFSBootMenu builds into its own image. The authorised keys are the ones in `system.authorized_keys`: a configuration that enables the unlock and lists no key is refused by name, because the daemon it describes is one nobody can log in to.
 
 <!-- fact: desktop-language -->
 
-**Desktop and language support.** GNOME, KDE Plasma and Xfce are available with gdm, sddm or lightdm. Graphics settings cover AMD, Intel, NVIDIA and virtual machines. The package catalog includes fcitx5, Rime, Anthy, Mozc, Hangul and CJK fonts. The kernel choices include `sys-kernel/gentoo-cjk-kernel-bin` and `sys-kernel/gentoo-cjk-kernel`, both of which carry the cjktty patch.
+**Desktop and language support.** GNOME, KDE Plasma and Xfce are available with gdm, sddm, lightdm, or greetd and its tuigreet console greeter. Graphics settings cover AMD, Intel, NVIDIA and virtual machines. The package catalog includes fcitx5, Rime, Anthy, Mozc, Hangul and CJK fonts. The kernel choices include `sys-kernel/gentoo-cjk-kernel-bin` and `sys-kernel/gentoo-cjk-kernel`, both of which carry the cjktty patch.
 
 <!-- fact: portage -->
 
@@ -72,7 +80,7 @@ Installing onto a disk has cluster and single-machine records across ext4, xfs, 
 
 `--ram` and `--lowram` each have QEMU records. A Debian 12 machine armed one boot, kept its default entry, rebooted and came up in the delivered environment — the Gentoo CJK ISO for `--ram`, the Alpine netboot archive for `--lowram` — carrying the configuration it was given. Answering `install` there has a record for each environment: the machine installed Gentoo, booted the disk it had written and passed the shared installed-state checks. A second machine had its armed entry's initramfs removed and reached its own cloud system on the two boots that followed, after the power cycle the harness performs between guests. `dd` has one record: a prepared image written onto a whole disk from a live medium and read back byte for byte, raw and gzipped.
 
-Static addressing, ext2 and ext3 have cluster records of their own. A source-built kernel and binhost degradation have runner-level tests only, and a runner-level test is not an end-to-end record.
+Static addressing, ext2 and ext3 have cluster records of their own. The ZFS records cover a stripe, a mirror, a raidz and an encrypted pool, and a pool booted by ZFSBootMenu. Both remote-unlock paths have cluster records: a LUKS root opened from the system initramfs, and a ZFS pool opened from ZFSBootMenu's own image. greetd has two records. Installing into a file has one record, in which the written image was attached with `losetup -Pf` and read back as the two filesystems its layout declares; nothing has booted from that file. A source-built kernel and binhost degradation have runner-level tests only, and a runner-level test is not an end-to-end record.
 
 Files under `tests/fixtures/` exercise the configuration model; their presence establishes nothing about an installed machine.
 

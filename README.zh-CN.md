@@ -18,7 +18,7 @@ gentoo-install 在 Linux live 环境中运行，用于安装 amd64 架构的 Gen
 
 <!-- fact: storage-device-graph -->
 
-**存储设备** 设备图涵盖 GPT 和 MBR 分区表、ext2、ext3、ext4、xfs、f2fs、vfat、包含 subvolume 的 btrfs、swap、LUKS2 加密、LVM 和 mdraid。现有分区表可以保留，每个分区可以分别指定保留、格式化或删除操作。
+**存储设备** 设备图涵盖 GPT 和 MBR 分区表、ext2、ext3、ext4、xfs、f2fs、vfat、包含 subvolume 的 btrfs、swap、LUKS2 加密、LVM 和 mdraid。ZFS 属于同一张设备图：pool 在其 vdev 之上采用 stripe、mirror 或 raidz1、raidz2、raidz3，原生加密是 pool 的属性，每个 dataset 各为一个节点。现有分区表可以保留，每个分区可以分别指定保留、格式化或删除操作。
 
 <!-- fact: zram-system -->
 
@@ -30,13 +30,21 @@ gentoo-install 在 Linux live 环境中运行，用于安装 amd64 架构的 Gen
 
 暂存的系统构建在 `/gentoo-install.new`，正在运行的系统在此期间不受影响；随后以 `rename(2)` 逐个目录交换，只有写入 esp 或引导扇区的操作排在交换之后。根位于 LUKS、LVM 或 mdraid 之下、根文件系统为安装程序无法描述的类型、根文件系统可用空间低于 10 GiB，以及在 live 介质上执行，这四种情况都会在写入任何数据之前逐项指名并拒绝。
 
+<!-- fact: prepared-image -->
+
+**磁盘镜像** `mode = "image"` 把系统装进 `disk.image` 指定、`disk.size` 决定大小的稀疏文件，而不是装到磁盘上，产物因此是一份可以复制到别处、之后再写入的文件。`mode = "dd"` 不执行安装：它把 `disk.source` 的镜像流式写入 `disk.destination` 这整块磁盘，读取时解开 `raw`、`gz`、`xz`、`zst` 或 `tar`，并保留该镜像原本带的布局与引导程序。两种模式互不接受对方的键，`partition` 模式两组都不接受。
+
 <!-- fact: boot-system -->
 
-**引导与系统** 引导程序可选择 GRUB 或 systemd-boot，其中 GRUB 支持 UEFI 和 BIOS，systemd-boot 支持 UEFI。还可配置 systemd 或 OpenRC、dracut、locale、键盘布局、时区、主机名、DNS、静态地址和所选的网络管理程序。
+**引导与系统** 引导程序可选择 GRUB、systemd-boot 或 ZFSBootMenu。GRUB 支持 UEFI 和 BIOS，systemd-boot 支持 UEFI。ZFSBootMenu 在 UEFI 上引导 ZFS 根，内核取自 pool 内引导环境自己的 `/boot`。还可配置 systemd 或 OpenRC、dracut、locale、键盘布局、时区、主机名、DNS、静态地址和所选的网络管理程序。
+
+<!-- fact: remote-unlock -->
+
+**以 ssh 解开加密的根** `[kernel.remote_unlock]` 在引导路径放进一个 ssh 服务，供无人在旁边回答密语提示的机器使用。`enabled` 开启这条路径；`port` 默认 222 而不是 22，避免客户端对运行中系统的 `known_hosts` 记录与 initramfs 的那条相撞；`address`、`gateway` 和 `interface` 给该服务一个静态地址，地址留空则改用 DHCP。LUKS 根由系统 initramfs 里的 `sys-kernel/dracut-crypt-ssh` 打开，ZFS 根则由 ZFSBootMenu 构建进自己镜像的 dropbear 打开。授权密钥取自 `system.authorized_keys`：开了这条路径又没有列出任何密钥的配置会被逐项指名并拒绝，因为那描述的是一个没有人登录得进去的服务。
 
 <!-- fact: desktop-language -->
 
-**桌面与语言支持** 桌面可以选择 GNOME、KDE Plasma 和 Xfce，并搭配 GDM、SDDM 或 LightDM。图形设置涵盖 AMD、Intel、NVIDIA 和虚拟机。软件包目录包含 Fcitx 5、Rime、Anthy、Mozc、Hangul 和 CJK 字体。内核选项包括 `sys-kernel/gentoo-cjk-kernel-bin` 和 `sys-kernel/gentoo-cjk-kernel`，两者都包含 cjktty 补丁。
+**桌面与语言支持** 桌面可以选择 GNOME、KDE Plasma 和 Xfce，并搭配 GDM、SDDM、LightDM，或 greetd 和它的 tuigreet 控制台登录界面。图形设置涵盖 AMD、Intel、NVIDIA 和虚拟机。软件包目录包含 Fcitx 5、Rime、Anthy、Mozc、Hangul 和 CJK 字体。内核选项包括 `sys-kernel/gentoo-cjk-kernel-bin` 和 `sys-kernel/gentoo-cjk-kernel`，两者都包含 cjktty 补丁。
 
 <!-- fact: portage -->
 
@@ -72,7 +80,9 @@ gentoo-install 在 Linux live 环境中运行，用于安装 amd64 架构的 Gen
 
 `--ram` 和 `--lowram` 各有 QEMU 记录：一台 Debian 12 机器武装一次启动、默认启动项未变、重新启动后进入送达的环境——`--ram` 是 Gentoo CJK ISO，`--lowram` 是 Alpine netboot 压缩包——并带着交付给它的配置。在两种环境里回答 `install` 各有一条记录：机器装出 Gentoo、启动它写出的磁盘，并通过共用的安装后检查。另一台机器的武装项被移除 initramfs，在协调器换客机的电源循环之后，接下来两次启动都进入原本的云系统。`dd` 有一条记录：从活介质把准备好的镜像写入整块磁盘并逐字节读回，原始和 gzip 两种格式皆是。
 
-静态地址、ext2 和 ext3 各自有集群记录。源代码构建的内核和 binhost 降级只有 runner 层级的测试，而 runner 层级的测试不是端到端记录。
+静态地址、ext2 和 ext3 各自有集群记录。ZFS 的记录覆盖 stripe、mirror、raidz 和加密 pool，以及一个由 ZFSBootMenu 引导的 pool。两条远程解锁路径各有集群记录：由系统 initramfs 打开的 LUKS 根，以及由 ZFSBootMenu 自己镜像打开的 ZFS pool。greetd 有两条记录。
+
+装进文件有一条记录：写出的镜像以 `losetup -Pf` 挂上，读回的是它布局声明的那两个文件系统，而没有任何机器从那份文件引导过。源代码构建的内核和 binhost 降级只有 runner 层级的测试，而 runner 层级的测试不是端到端记录。
 
 `tests/fixtures/` 下的文件验证的是配置模型，它们存在并不代表任何一台装出来的机器。
 

@@ -18,7 +18,7 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 
 <!-- fact: storage-device-graph -->
 
-**儲存裝置** 裝置圖涵蓋 GPT 與 MBR 分割表、ext2、ext3、ext4、xfs、f2fs、vfat、含 subvolume 的 btrfs、swap、LUKS2 加密、LVM 與 mdraid。既有分割表可以保留，每個分割區可分別指定保留、格式化或刪除。
+**儲存裝置** 裝置圖涵蓋 GPT 與 MBR 分割表、ext2、ext3、ext4、xfs、f2fs、vfat、含 subvolume 的 btrfs、swap、LUKS2 加密、LVM 與 mdraid。ZFS 屬於同一張裝置圖：pool 在其 vdev 之上採 stripe、mirror 或 raidz1、raidz2、raidz3，原生加密是 pool 的屬性，每個 dataset 各為一個節點。既有分割表可以保留，每個分割區可分別指定保留、格式化或刪除。
 
 <!-- fact: zram-system -->
 
@@ -30,13 +30,21 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 
 暫存的系統建置在 `/gentoo-install.new`，執行中的系統在此期間不受影響；隨後以 `rename(2)` 逐個目錄交換，只有寫入 esp 或開機磁區的操作排在交換之後。根位於 LUKS、LVM 或 mdraid 之下、根檔案系統為安裝器無法描述的類型、根檔案系統可用空間低於 10 GiB，以及在 live 媒介上執行，這四種情況都會在寫入任何資料之前逐項指名並拒絕。
 
+<!-- fact: prepared-image -->
+
+**磁碟映像** `mode = "image"` 把系統裝進 `disk.image` 指定、`disk.size` 決定大小的稀疏檔案，而不是裝到磁碟上，產物因此是一份可以複製到別處、之後再寫入的檔案。`mode = "dd"` 不執行安裝：它把 `disk.source` 的映像串流寫到 `disk.destination` 這顆整顆磁碟，讀取時解開 `raw`、`gz`、`xz`、`zst` 或 `tar`，並保留該映像原本帶的版面與開機載入器。兩種模式互不接受對方的鍵，`partition` 模式兩組都不接受。
+
 <!-- fact: boot-system -->
 
-**開機與系統** 開機載入器可選 GRUB 或 systemd-boot，其中 GRUB 支援 UEFI 與 BIOS，systemd-boot 支援 UEFI。安裝器另可設定 systemd 或 OpenRC、dracut、locale、鍵盤配置、時區、主機名稱、DNS、靜態位址與所選的網路管理程式。
+**開機與系統** 開機載入器可選 GRUB、systemd-boot 或 ZFSBootMenu。GRUB 支援 UEFI 與 BIOS，systemd-boot 支援 UEFI。ZFSBootMenu 在 UEFI 上開機 ZFS 根，核心取自 pool 內開機環境自己的 `/boot`。安裝器另可設定 systemd 或 OpenRC、dracut、locale、鍵盤配置、時區、主機名稱、DNS、靜態位址與所選的網路管理程式。
+
+<!-- fact: remote-unlock -->
+
+**以 ssh 解開加密的根** `[kernel.remote_unlock]` 在開機路徑放進一個 ssh 服務，供無人在旁邊回答密語提示的機器使用。`enabled` 開啟這條路徑；`port` 預設 222 而不是 22，避免用戶端對執行中系統的 `known_hosts` 記錄與 initramfs 的那筆相撞；`address`、`gateway` 與 `interface` 給該服務一個靜態位址，位址留空則改用 DHCP。LUKS 根由系統 initramfs 裡的 `sys-kernel/dracut-crypt-ssh` 開啟，ZFS 根則由 ZFSBootMenu 建進自己映像的 dropbear 開啟。授權金鑰取自 `system.authorized_keys`：開了這條路徑又沒有列出任何金鑰的設定會被逐項指名並拒絕，因為那描述的是一個沒有人登入得進去的服務。
 
 <!-- fact: desktop-language -->
 
-**桌面與語言支援** 桌面可選 GNOME、KDE Plasma 與 Xfce，並搭配 gdm、sddm 或 lightdm。圖形設定涵蓋 AMD、Intel、NVIDIA 與虛擬機。套件目錄包含 fcitx5、Rime、Anthy、Mozc、Hangul 與 CJK 字型。核心選項包括 `sys-kernel/gentoo-cjk-kernel-bin` 與 `sys-kernel/gentoo-cjk-kernel`，兩者都包含 cjktty 修補程式。
+**桌面與語言支援** 桌面可選 GNOME、KDE Plasma 與 Xfce，並搭配 gdm、sddm、lightdm，或 greetd 與它的 tuigreet 主控台登入畫面。圖形設定涵蓋 AMD、Intel、NVIDIA 與虛擬機。套件目錄包含 fcitx5、Rime、Anthy、Mozc、Hangul 與 CJK 字型。核心選項包括 `sys-kernel/gentoo-cjk-kernel-bin` 與 `sys-kernel/gentoo-cjk-kernel`，兩者都包含 cjktty 修補程式。
 
 <!-- fact: portage -->
 
@@ -72,7 +80,9 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 
 `--ram` 與 `--lowram` 各有 QEMU 記錄：一台 Debian 12 機器武裝一次開機、預設開機項目未變、重新開機後進入送達的環境——`--ram` 是 Gentoo CJK ISO，`--lowram` 是 Alpine netboot 壓縮檔——並帶著交付給它的設定。在兩種環境裡回答 `install` 各有一筆記錄：機器裝出 Gentoo、開起它寫出的磁碟，並通過共用的安裝後檢查。另一台機器的武裝項目被移除 initramfs，在諧和器換客機的電源循環之後，接續兩次開機都進入原本的雲系統。`dd` 有一筆記錄：從活媒體把準備好的鏡像寫入整顆磁碟並逐位元組讀回，原始與 gzip 兩種格式皆是。
 
-靜態位址、ext2 與 ext3 各自有叢集記錄。原始碼建置的核心與 binhost 降級只有 runner 層級的測試，而 runner 層級的測試不是端到端記錄。
+靜態位址、ext2 與 ext3 各自有叢集記錄。ZFS 的記錄涵蓋 stripe、mirror、raidz 與加密 pool，以及一個由 ZFSBootMenu 開機的 pool。兩條遠端解鎖路徑各有叢集記錄：由系統 initramfs 開啟的 LUKS 根，以及由 ZFSBootMenu 自己映像開啟的 ZFS pool。greetd 有兩筆記錄。
+
+裝進檔案有一筆記錄：寫出的映像以 `losetup -Pf` 掛上，讀回的是它版面宣告的那兩個檔案系統，而沒有任何機器從那份檔案開機過。原始碼建置的核心與 binhost 降級只有 runner 層級的測試，而 runner 層級的測試不是端到端記錄。
 
 `tests/fixtures/` 底下的檔案驗證的是設定模型，它們存在並不代表任何一台裝出來的機器。
 
