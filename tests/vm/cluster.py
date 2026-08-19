@@ -1654,7 +1654,7 @@ def install_one(
         # after it, and the firmware is finished before it gets there.
         guest.reset()
         if job.uefi:
-            append_to_cmdline(link, EXTRA_CMDLINE)
+            _edit_uefi_cmdline(guest, link)
         else:
             _edit_bios_cmdline(guest, link)
         reach_prompt(link)
@@ -3237,6 +3237,35 @@ def _abandon_jobs(scheduled: Mapping[str, Job]) -> None:
             job.execution.guest.destroy()
         except ProxmoxError as error:
             print(f"  {name} outlived the schedule: {error}", file=sys.stderr)
+
+
+def _edit_uefi_cmdline(guest: Guest, link: "Reconnecting") -> None:
+    """Add the serial parameters to the medium's entry, once more if the
+    console said nothing at all.
+
+    A silent console is not a stubborn GRUB. `vm-xfs` ended at 2.2 minutes
+    with `the console delivered 0 bytes while the editor was asked for over
+    120s`, having passed the same fixture in the round before: the termproxy
+    attached, the log holds `starting serial terminal on interface serial0`
+    and then nothing. The BIOS path has had a second boot since the beginning
+    and this one had none.
+    """
+    try:
+        append_to_cmdline(link, EXTRA_CMDLINE)
+        return
+    except GrubNotReadable as error:
+        if SILENT_EDITOR not in str(error):
+            raise
+        print(f"the console said nothing to the editor, booting once more: {error}", flush=True)
+    guest.reset()
+    link.reopen(solicit_prompt=False)
+    append_to_cmdline(link, EXTRA_CMDLINE)
+
+
+#: What `_editor_screen` says when the console delivered nothing rather than
+#: the wrong thing. Matched rather than re-derived, so the two sentences
+#: cannot drift apart into a retry that never fires.
+SILENT_EDITOR: Final[str] = "the console delivered"
 
 
 def _edit_bios_cmdline(guest: Guest, link: "Reconnecting") -> None:

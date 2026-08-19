@@ -2409,3 +2409,80 @@ def test_the_image_path_is_read_rather_than_the_fixture_named() -> None:
     # And a fixture that is not writing an image at all is never refused.
     ordinary = load(Path(__file__).resolve().parents[1] / "fixtures" / "vm-btrfs.toml")
     assert cluster._image_lands_in_memory(ordinary) == ""
+
+
+def test_a_uefi_guest_whose_console_said_nothing_is_booted_once_more(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`vm-xfs` ended at 2.2 minutes with `the console delivered 0 bytes while
+    the editor was asked for over 120s`, having passed the same fixture in the
+    round before: the log holds `starting serial terminal on interface
+    serial0` and nothing after it. The BIOS path has had a second boot since
+    the beginning; the UEFI path had none."""
+    from tests.vm import cluster
+    from tests.vm.proxmox import GrubNotReadable
+
+    events: list[str] = []
+    attempts = {"n": 0}
+
+    def editor(link: object, extra: str) -> None:
+        attempts["n"] += 1
+        events.append(f"edit:{attempts['n']}")
+        if attempts["n"] == 1:
+            raise GrubNotReadable(
+                "the console delivered 0 bytes while the editor was asked for over 120s: b''"
+            )
+
+    class Guest:
+        def reset(self) -> None:
+            events.append("reset")
+
+    class Link:
+        def reopen(self, *, solicit_prompt: bool = True) -> None:
+            events.append(f"reopen:{solicit_prompt}")
+
+    monkeypatch.setattr(cluster, "append_to_cmdline", editor)
+    # Caught rather than allowed to escape: a retry that was removed would end
+    # this test on the exception instead of on the list it is about.
+    try:
+        cluster._edit_uefi_cmdline(cast(Any, Guest()), cast(Any, Link()))
+    except GrubNotReadable as escaped:
+        events.append(f"raised:{escaped}")
+    assert events == ["edit:1", "reset", "reopen:False", "edit:2"], events
+
+
+def test_a_uefi_guest_whose_grub_was_readable_is_not_booted_twice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The retry is for silence. A GRUB that drew something and still could
+    not be edited is a different failure and must not cost a second boot."""
+    from tests.vm import cluster
+    from tests.vm.proxmox import GrubNotReadable
+
+    events: list[str] = []
+
+    def editor(link: object, extra: str) -> None:
+        events.append("edit")
+        raise GrubNotReadable("GRUB never opened its editor: b'\\x1b[2JBoot LiveCD'")
+
+    class Guest:
+        def reset(self) -> None:
+            events.append("reset")
+
+    class Link:
+        def reopen(self, *, solicit_prompt: bool = True) -> None:
+            events.append("reopen")
+
+    monkeypatch.setattr(cluster, "append_to_cmdline", editor)
+    with pytest.raises(GrubNotReadable, match="never opened"):
+        cluster._edit_uefi_cmdline(cast(Any, Guest()), cast(Any, Link()))
+    assert events == ["edit"], events
+
+
+def test_the_silent_console_sentence_is_the_one_the_editor_writes() -> None:
+    """Two spellings of the same sentence is a retry that never fires."""
+    import inspect
+
+    from tests.vm import cluster, proxmox
+
+    assert cluster.SILENT_EDITOR in inspect.getsource(proxmox._editor_screen)
