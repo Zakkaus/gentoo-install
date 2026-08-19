@@ -2981,3 +2981,21 @@ def test_a_binhost_fixture_that_compiled_everything_is_not_a_pass() -> None:
     said = inspect.getsource(cluster.install_one)
     assert "_binary_packages_missing(" in said, said[:200]
 
+
+def test_a_schedule_says_which_revision_it_measures() -> None:
+    """Each guest's log opens with `installer revision:`, and the schedule's
+    own output did not. Identifying what run109 measured meant reading a guest
+    log, and a later round running the same fixture on the same vmid had
+    overwritten it."""
+    import inspect
+
+    from tests.vm import cluster
+
+    source = inspect.getsource(cluster.run)
+    computed = source.index("revision_identity(driver_path)")
+    said = source.index('print(f"installer revision: {revision}"')
+    assert computed < said, source[computed : computed + 200]
+    # Before the first guest is created, or a schedule that dies placing one
+    # says nothing about what it was carrying.
+    assert said < source.index("_reserve_job("), source[said : said + 200]
+
