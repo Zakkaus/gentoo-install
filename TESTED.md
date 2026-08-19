@@ -50,10 +50,14 @@ The ordinary path: partition, format, unpack a stage3, configure, boot.
 | `cc84e970ddba` | `vm-cjk-kernel`, `vm-binpkg`, `zfs-zbm`, `vm-gnome`, `ext3` |
 | `8dbfc12f35e0` | `ext4-bios`, `vm-xfs`, `vm-lvm`, `vm-f2fs`, `vm-btrfs` — five of six. `vm-xfs` is the first record since a UEFI guest whose console delivered nothing gets a second boot, which is what ended its previous round at 2.2 minutes; `zbm-unlock` lost its initramfs address to a lease that expired under a live guest, which `52b373dca9a2` addresses |
 | `6739b3abf2db` | `vm-zram`, `static-ip`, `vm-mdraid` |
-| `52b373dca9a2` | `vm-binpkg`, `openrc-sdboot` |
+| `52b373dca9a2` | `vm-binpkg`, `openrc-sdboot`, `zbm-unlock`, `ext2`, `zfs-zbm` — five of six. `zbm-unlock` is the first record of a ZFSBootMenu pool opened over ssh; `vm-unlock` lost 10.31.0.151 to a round that started 92 minutes later and its initramfs answered `Duplicate address detected`, which `ffcb8561250d` addresses |
+| `2dd80ae4534f` | `vm-proxy-dead`, `vm-cjk-kernel`, `vm-raidz`, `vm-zfs-encrypted`, `ext4-bios`, `vm-zfs-mirror` — six of six |
+| `2dd80ae4534f` | `ext3`, `vm-lvm`, `vm-xfs` — three of three, and the only round that ran **without** `--distfiles`: the guests fetched from `nju` itself, so this row is the one that says the direct path works |
+| `ffcb8561250d` | `vm-btrfs`, `mbr-edit`, `vm-f2fs` |
 
 Every row from `08015b221d73` onward ran `--region cn --site nju --sync
-webrsync --distfiles http://10.31.0.2/gentoo`, so what they establish about
+webrsync --distfiles http://10.31.0.2/gentoo`, with one exception named in the
+table above, so what they establish about
 mirror selection is limited to that region, that site and a distfiles cache on
 the guests' own segment. The parameters the earlier rows used are not
 recorded.
