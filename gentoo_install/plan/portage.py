@@ -1325,7 +1325,6 @@ def build(
     mirror: str,
     use: tuple[str, ...] = (),
     video_cards: tuple[str, ...] = (),
-    licenses: tuple[str, ...] = (),
 ) -> list[Operation]:
     portage = config.portage
     gentoo = PurePosixPath("/var/db/repos/gentoo")
@@ -1341,7 +1340,7 @@ def build(
     ]
     operations += [
         WriteMakeConf(
-            settings=make_conf(config, use, video_cards, licenses),
+            settings=make_conf(config, use, video_cards),
             mirrors=_distfiles(portage),
             speed_test=portage.mirrors.speed_test,
             appended=_appended_distfiles(portage),
@@ -1487,7 +1486,6 @@ def make_conf(
     config: InstallConfig,
     use: tuple[str, ...] = (),
     video_cards: tuple[str, ...] = (),
-    licenses: tuple[str, ...] = (),
 ) -> tuple[tuple[str, str], ...]:
     """Everything but `GENTOO_MIRRORS`, which is settled when the operation runs.
 
@@ -1519,7 +1517,7 @@ def make_conf(
     if portage.input_devices:
         settings.append(("INPUT_DEVICES", " ".join(portage.input_devices)))
     settings += [
-        ("ACCEPT_LICENSE", " ".join(licenses or portage.accept_license)),
+        ("ACCEPT_LICENSE", " ".join(portage.accept_license)),
         ("L10N", " ".join(_l10n(config))),
     ]
     # Only when a proxy is configured: `emerge-webrsync` runs `FETCHCOMMAND`

@@ -445,6 +445,28 @@ class WriteGroupKeywords(WritePortageConfig):
         return f"accept {'; '.join(self.lines)} for the {self.group} group"
 
 @dataclass(frozen=True, kw_only=True, init=False)
+class WriteGroupLicense(WritePortageConfig):
+    """Accept a group's licences for that group's own atoms.
+
+    Merged into `ACCEPT_LICENSE` the acceptance held for every later emerge on
+    the installed machine, which is not what choosing one chat program asks
+    for.
+    """
+
+    def __init__(self, *, group: str, lines: tuple[str, ...]) -> None:
+        object.__setattr__(self, "kind", PortageConfigKind.LICENSE)
+        object.__setattr__(self, "name", group)
+        object.__setattr__(self, "lines", lines)
+
+    @property
+    def group(self) -> str:
+        return self.name
+
+    def describe(self) -> str:
+        return f"accept {'; '.join(self.lines)} for the {self.group} group"
+
+
+@dataclass(frozen=True, kw_only=True, init=False)
 class WriteGroupUse(WritePortageConfig):
     """Written in the portage phase: the flags have to be set before the
     packages that need them are merged."""
@@ -899,6 +921,10 @@ def _operations(
             operations.append(
                 WriteGroupKeywords(group=group.name, lines=group.accept_keywords)
             )
+        if group.accept_license:
+            operations.append(
+                WriteGroupLicense(group=group.name, lines=_licence_lines(group))
+            )
         if group.user_services and config.system.init is InitSystem.SYSTEMD:
             operations.append(
                 EnableUserUnits(group=group.name, units=group.user_services)
@@ -1155,18 +1181,10 @@ def _display_manager(name: str, packages: Sequence[str], init: InitSystem) -> li
     ]
 
 
-def required_licenses(config: InstallConfig, catalog: Catalog) -> tuple[str, ...]:
-    return _required_licenses(config, groups(config, catalog))
-
-
-def _required_licenses(config: InstallConfig, chosen: Sequence[Group]) -> tuple[str, ...]:
-    """What the configuration accepts, widened by what a chosen group needs."""
-    wanted = list(config.portage.accept_license)
-    for group in chosen:
-        for licence in group.accept_license:
-            if licence not in wanted:
-                wanted.append(licence)
-    return tuple(wanted)
+def _licence_lines(group: Group) -> tuple[str, ...]:
+    """One `package.license` line per atom the group installs."""
+    accepted = " ".join(group.accept_license)
+    return tuple(f"{atom} {accepted}" for atom in group.packages)
 
 
 def _known(catalog: Catalog) -> str:

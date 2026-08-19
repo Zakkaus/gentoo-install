@@ -262,10 +262,14 @@ def test_a_driver_group_adds_its_video_cards_and_writes_no_file() -> None:
     # ours would have set `modeset=1`, which 595.84 removed from that file
     # because the driver now defaults to it.
     assert written == []
-    assert plan_packages.required_licenses(wanted, catalog) == (
-        "@FREE",
-        "@BINARY-REDISTRIBUTABLE",
-    )
+    accepted = [
+        operation
+        for operation in plan_packages.build(wanted, catalog)
+        if isinstance(operation, plan_packages.WriteGroupLicense)
+    ]
+    assert [one.lines for one in accepted] == [
+        ("x11-drivers/nvidia-drivers @BINARY-REDISTRIBUTABLE",)
+    ]
 
 
 def test_an_input_method_group_configures_fcitx_for_every_user() -> None:

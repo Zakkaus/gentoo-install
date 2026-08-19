@@ -117,7 +117,6 @@ def build(
             stage3_mirror(config, mirror),
             packages._required_use(chosen),
             packages._required_video_cards(config, chosen),
-            packages._required_licenses(config, chosen),
         ),
         *system.build(config),
         *kernel.build(config),
@@ -189,7 +188,6 @@ def _in_place(
             stage3_mirror(derived, mirror),
             packages._required_use(chosen),
             packages._required_video_cards(derived, chosen),
-            packages._required_licenses(derived, chosen),
         ),
         *system.build(derived),
         # After `WriteFstab`, which is in the same stage and earlier in this

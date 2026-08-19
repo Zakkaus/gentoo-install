@@ -234,7 +234,7 @@
 "GCN 1.2 and newer" = "GCN 1.2 及更新版本"
 "AMD up to Sea Islands" = "Sea Islands 及更早的 AMD GPU"
 "the in-kernel NVIDIA driver" = "核心內建的 NVIDIA 驅動"
-"proprietary, widens ACCEPT_LICENSE, and blacklists nouveau itself" = "專有驅動，會放寬 ACCEPT_LICENSE，並自動停用 nouveau"
+"proprietary, accepts its own licence for its own packages, and blacklists nouveau itself" = "專有驅動，只對自己那幾個套件接受授權，並自動停用 nouveau"
 "virtio-gpu, QXL and VMware, with fbdev left as the fallback" = "virtio-gpu、QXL 與 VMware，並保留 fbdev 作為後備方案"
 "a text console login" = "文字主控台登入"
 "the one Plasma expects" = "Plasma 預設搭配"

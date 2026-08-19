@@ -1155,15 +1155,31 @@ def test_a_login_screen_is_not_offered_without_a_desktop_to_start() -> None:
     assert "console login - choose" not in drawn
 
 
-def test_the_proprietary_driver_widens_the_licences_it_needs() -> None:
+def test_the_proprietary_driver_accepts_its_licence_for_its_own_atoms() -> None:
     """NVIDIA-2025 is in @BINARY-REDISTRIBUTABLE, so the default @FREE refuses
-    it and the emerge dies an hour into the install."""
+    it and the emerge dies an hour into the install. Accepting it in
+    `ACCEPT_LICENSE` would accept it for every later emerge as well, which
+    choosing a graphics driver does not ask for.
+    """
     from gentoo_install.plan import packages as plan_packages
+    from gentoo_install.plan.portage import make_conf
 
+    catalog = load_catalog()
     chosen = replace(config(), packages=replace(config().packages, graphics=("nvidia",)))
-    assert "@BINARY-REDISTRIBUTABLE" in plan_packages.required_licenses(chosen, load_catalog())
+    lines = [
+        one.lines
+        for one in plan_packages.build(chosen, catalog)
+        if isinstance(one, plan_packages.WriteGroupLicense)
+    ]
+    assert lines == [("x11-drivers/nvidia-drivers @BINARY-REDISTRIBUTABLE",)]
+    assert dict(make_conf(chosen))["ACCEPT_LICENSE"] == "@FREE"
+
     plain = replace(config(), packages=replace(config().packages, graphics=("nouveau",)))
-    assert plan_packages.required_licenses(plain, load_catalog()) == ("@FREE",)
+    assert not [
+        one
+        for one in plan_packages.build(plain, catalog)
+        if isinstance(one, plan_packages.WriteGroupLicense)
+    ]
 
 
 def test_the_nvidia_group_writes_no_file_of_its_own() -> None:

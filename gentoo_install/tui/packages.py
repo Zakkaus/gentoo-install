@@ -478,7 +478,7 @@ GRAPHICS: tuple[tuple[str, str], ...] = (
     ("amdgpu", "GCN 1.2 and newer"),
     ("radeon", "AMD up to Sea Islands"),
     ("nouveau", "the in-kernel NVIDIA driver"),
-    ("nvidia", "proprietary, widens ACCEPT_LICENSE, and blacklists nouveau itself"),
+    ("nvidia", "proprietary, accepts its own licence for its own packages, and blacklists nouveau itself"),
     ("virtual-machine", "virtio-gpu, QXL and VMware, with fbdev left as the fallback"),
 )
 #: The display managers. A desktop no longer names one, because which login
