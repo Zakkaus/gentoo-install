@@ -315,6 +315,24 @@ def test_every_field_of_a_partition_is_visible_with_its_value() -> None:
     assert "Encryption" in shown and "Size" in shown and "Label" in shown
 
 
+def test_every_editor_that_checks_for_done_shows_a_done_row() -> None:
+    """Each of these loops ends on `== DONE`, and the row has to be in the
+    menu for that to be reachable. The slice editor's was not: its menu came
+    from the table of editable fields, and `Done` is not one.
+    """
+    from gentoo_install.tui.context import DONE
+
+    at = opened()
+    at.layout = manual.suggest("/dev/vda", Firmware.UEFI)
+    entry = at.layout.slices[1]
+
+    slice_rows = partitions._slice_fields(entry, manual.purpose_of(entry), at.translate)
+    assert DONE in {one.value for one in slice_rows}, [one.label for one in slice_rows]
+
+    # The array editor is the one that had it, and is why the shape was clear.
+    assert DONE in {one.key for one in partitions._ARRAY_FIELDS}
+
+
 def test_a_partition_editor_can_be_left_with_the_edit_kept() -> None:
     """`Done` is the only exit that keeps a change: cancelling returns the
     slice the editor opened with. The menu was built from a second table that
