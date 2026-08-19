@@ -647,7 +647,13 @@ class ConfigureGnomeInputSources(Operation):
     engines: tuple[str, ...]
 
     def describe(self) -> str:
-        return f"write the GNOME dconf default with {', '.join(self.engines)}"
+        # Both files, because `apply` writes both: the profile is what makes
+        # dconf read the database at all, and a dry run that named only the
+        # database did not say every file a real run puts on the disk.
+        return (
+            f"write {DCONF_PROFILE} and the GNOME dconf default in "
+            f"{GNOME_INPUT_SOURCES} with {', '.join(self.engines)}"
+        )
 
     def apply(self, context: Context) -> None:
         sources = [("xkb", self.layout), *(("ibus", engine) for engine in self.engines)]

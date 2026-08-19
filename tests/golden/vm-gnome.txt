@@ -81,7 +81,7 @@
   install the pipewire group: emerge media-video/pipewire media-video/wireplumber
   enable pipewire.socket, pipewire-pulse.socket, wireplumber.service for every user
   set XMODIFIERS, GTK_IM_MODULE, QT_IM_MODULE in /etc/environment for ibus
-  write the GNOME dconf default with libpinyin
+  write /etc/dconf/profile/user and the GNOME dconf default in /etc/dconf/db/local.d/00-gentoo-install-input-sources with libpinyin
 
 [finish]
   delete the downloaded stage3 from /var/cache/gentoo-install
