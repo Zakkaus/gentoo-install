@@ -181,6 +181,22 @@ def test_backspace_on_an_empty_field_goes_back() -> None:
     assert TextField(title="Hostname").run(FakeScreen(keys=["\x7f"])).outcome is Outcome.BACK
 
 
+def test_left_leaves_a_prefilled_field_without_editing_it() -> None:
+    """A field that arrives with a value answers backspace by deleting, and
+    escape by offering to end the run, so there was no way back out of the
+    hostname screen at all: a menu walk on a real console left the machine
+    calling itself `gento`."""
+    answer = TextField(title="Hostname", value="gentoo").run(FakeScreen(keys=["KEY_LEFT"]))
+    assert answer.outcome is Outcome.BACK
+    assert answer.value is None
+
+    filled = Form(
+        title="User account",
+        fields=[Field(label="name", value="zakk"), Field(label="shell", value="/bin/bash")],
+    )
+    assert filled.run(FakeScreen(keys=["KEY_LEFT"])).outcome is Outcome.BACK
+
+
 def test_a_password_is_not_drawn() -> None:
     screen = FakeScreen(keys=["s", "e", "c", "r", "e", "t", "\n"])
     assert TextField(title="Password", masked=True).run(screen).unwrap() == "secret"

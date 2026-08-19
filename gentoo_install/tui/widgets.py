@@ -400,13 +400,18 @@ class TextField:
         typed = list(self.value)
         # Backspace leaves the screen only while the field is untouched: a
         # field that had content could not be cleared otherwise, and several
-        # of them mean something by empty.
+        # of them mean something by empty. Left always leaves, because a
+        # prefilled field otherwise has no way back at all: the hostname
+        # screen answered backspace by deleting and escape by offering to end
+        # the run.
         touched = False
         while True:
             self._draw(screen, typed)
             pressed = screen.key()
             if pressed in ("\n", "KEY_ENTER"):
                 return Answer(Outcome.CHOSE, "".join(typed))
+            if pressed == "KEY_LEFT":
+                return Answer(Outcome.BACK)
             if pressed in ("\x7f", "KEY_BACKSPACE"):
                 if typed:
                     typed.pop()
@@ -613,6 +618,8 @@ class Form:
             elif pressed == " " and cursor < len(self.fields) and self.fields[cursor].toggle:
                 typed[cursor] = [] if typed[cursor] else ["x"]
                 touched = True
+            elif pressed == "KEY_LEFT":
+                return Answer(Outcome.BACK)
             elif pressed in ("\x7f", "KEY_BACKSPACE"):
                 if cursor < len(self.fields) and typed[cursor] and not self.fields[cursor].toggle:
                     typed[cursor].pop()
