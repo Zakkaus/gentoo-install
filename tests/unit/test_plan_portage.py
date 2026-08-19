@@ -2587,3 +2587,56 @@ def test_a_healthy_binhost_records_nothing() -> None:
     portage.Emerge(packages=("net-misc/openssh",), summary="install ssh").apply(recorder)
 
     assert not recorder.degraded(portage.BINARY_PACKAGES)
+
+
+def test_a_configuration_with_no_binary_host_reaches_none() -> None:
+    """The stage3 ships an enabled `binrepos.conf` for the official host, so
+    `--getbinpkg=y` fetches from it whatever the configuration says. Measured
+    on the cluster: `ext2` has `official = false` and `community = "off"`, and
+    its journal recorded 20 packages from `/var/cache/binhost/gentoo`."""
+    from gentoo_install.data import load_catalog
+    from gentoo_install.exec.config import load
+    from gentoo_install.plan.build import build
+
+    def emerges(fixture: str) -> list[tuple[str, ...]]:
+        operations = build(load(Path(f"tests/fixtures/{fixture}.toml")), load_catalog())
+        found: list[tuple[str, ...]] = []
+        for one in operations:
+            if not isinstance(one, portage.Emerge):
+                continue
+            recorder = Recorder()
+            one.apply(recorder)
+            found += [argv for argv in recorder.in_target if argv[0] == "emerge"]
+        return found
+
+    off = emerges("ext2")
+    assert off, "the fixture merges something"
+    for argv in off:
+        assert "--getbinpkg=n" in argv and "--usepkg=n" in argv, argv
+        assert "--getbinpkg=y" not in argv, argv
+
+    # The control, and the reason this cannot be done by dropping the flag:
+    # a configuration that asks for the official host still gets it.
+    on = emerges("vm-binpkg")
+    assert on, "the fixture merges something"
+    assert all("--getbinpkg=y" in argv for argv in on), on
+
+
+def test_the_pretend_resolves_against_the_packages_the_merge_will_use() -> None:
+    """`VerifyPackages` runs `emerge --pretend` before the merges. Resolved
+    with binary packages the merge will not use, it accepts a set the merge
+    then refuses, and the run stops with the disks already partitioned."""
+    from gentoo_install.data import load_catalog
+    from gentoo_install.exec.config import load
+    from gentoo_install.plan.build import build
+
+    def pretend(fixture: str) -> tuple[str, ...]:
+        operations = build(load(Path(f"tests/fixtures/{fixture}.toml")), load_catalog())
+        verify = next(one for one in operations if isinstance(one, portage.VerifyPackages))
+        recorder = Recorder()
+        verify.apply(recorder)
+        return next(argv for argv in recorder.in_target if argv[0] == "emerge")
+
+    assert "--getbinpkg=n" in pretend("ext2")
+    assert "--getbinpkg=n" not in pretend("vm-binpkg")
+
