@@ -27,6 +27,7 @@ from tests.vm.proxmox import (
     TAG,
     Api,
     CreateConflict,
+    ForeignGuest,
     Guest,
     GuestSpec,
     ProxmoxError,
@@ -4303,3 +4304,69 @@ def test_a_zfsbootmenu_machine_is_answered_when_its_own_initramfs_asks(
 
     assert refused == "", refused
     assert link.answered == [DISK_PASSPHRASE], link.answered
+
+
+def test_a_destroy_whose_task_failed_is_tried_again() -> None:
+    """Measured on the cluster: `qmdestroy` on 9301 ended with `rbd error:
+    rbd: listing images failed: (2) No such file or directory`, the run said
+    `the guest was not removed`, and the guest sat there for hours until the
+    same DELETE with the same parameters removed it. A task failure is not
+    evidence that the guest cannot be removed."""
+
+    @dataclass
+    class Flaky(Api):
+        attempts: int = 0
+        absent: bool = False
+
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            if path.endswith("/config"):
+                if self.absent:
+                    raise ProxmoxNotFound("the guest does not exist")
+                return {"tags": f"{TAG};gi-owned"}
+            if path.endswith("/status/current"):
+                return {"status": "stopped"}
+            if method == "DELETE":
+                self.attempts += 1
+                return "UPID:node:qmdestroy"
+            raise AssertionError((method, path))
+
+        def wait(self, node: str, upid: str, patience: float = 1800.0) -> None:
+            if self.attempts < 2:
+                raise ProxmoxError(
+                    "UPID:node:qmdestroy ended with 'rbd error: rbd: listing images failed'"
+                )
+            self.absent = True
+
+    api = Flaky()
+    guest = Guest(api, "node", 9300, GuestSpec(name="x", iso="x", nonce="gi-owned"))
+    guest.destroy(patience=30.0)
+    assert api.attempts == 2, api.attempts
+    assert api.absent
+
+    # The control: a guest that never goes away is still refused, and the last
+    # thing the cluster said is what the message carries.
+    @dataclass
+    class Refusing(Flaky):
+        def wait(self, node: str, upid: str, patience: float = 1800.0) -> None:
+            raise ProxmoxError("UPID:node:qmdestroy ended with 'rbd error: no such image'")
+
+    stubborn = Guest(
+        Refusing(), "node", 9300, GuestSpec(name="x", iso="x", nonce="gi-owned")
+    )
+    with pytest.raises(ProxmoxError, match="no such image"):
+        stubborn.destroy(patience=0.5)
+
+    # And a guest this run did not build is refused before any of that: a
+    # retry loop must not become a way to remove somebody else's machine.
+    @dataclass
+    class Foreign(Flaky):
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            if path.endswith("/config"):
+                return {"tags": f"{TAG};gi-another-run"}
+            raise AssertionError((method, path))
+
+    with pytest.raises(ForeignGuest):
+        Guest(Foreign(), "node", 9300, GuestSpec(name="x", iso="x", nonce="gi-owned")).destroy(
+            patience=1.0
+        )
+

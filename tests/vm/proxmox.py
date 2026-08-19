@@ -769,9 +769,14 @@ class Guest:
             except ProxmoxNotFound:
                 return
             except ProxmoxError as error:
+                # Every failure of the removal itself, not only the ones the
+                # API marks retryable: `qmdestroy` on 9301 ended with `rbd
+                # error: rbd: listing images failed`, the guest stayed on the
+                # cluster for hours, and the same DELETE with the same
+                # parameters removed it. The loop re-reads the config each
+                # round and returns the moment the guest is gone, so a retry
+                # cannot remove anything twice.
                 last = str(error)
-                if not _transient(error):
-                    raise
             time.sleep(min(CLEANUP_PAUSE, max(0.0, deadline - time.monotonic())))
         raise ProxmoxError(f"vm {self.vmid} on {self.node} was not removed: {last}")
 
