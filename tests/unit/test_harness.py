@@ -3399,11 +3399,18 @@ def test_a_conversion_marks_home_and_checks_the_marker_after_boot(
         "conversion_checks",
         lambda _: (convert.HOME_MARKER_CHECK,),
     )
-    console.answer = f"{convert.HOME_MARKER}\n".encode()
+    console.answer = b"home=1\n"
     assert convert.check_installed(cast(Any, console), installation) == ""
     assert console.asked == [convert.HOME_MARKER_CHECK.command]
 
-    for answer in (b"", b"not-the-home-marker\n"):
+    # `cat` names the file it could not open, so the diagnostic for a missing
+    # marker carried the marker: the check passed on a conversion that had
+    # thrown /home away. The runner merges stderr into stdout, so that text
+    # really does reach the pattern.
+    missing = (
+        f"cat: {convert.HOME_MARKER_PATH}: No such file or directory\n".encode()
+    )
+    for answer in (b"", b"home=0\n", missing, f"{convert.HOME_MARKER}\n".encode()):
         console.answer = answer
         assert "home marker" in convert.check_installed(cast(Any, console), installation)
 
