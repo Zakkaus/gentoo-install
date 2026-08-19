@@ -2873,3 +2873,43 @@ def test_two_rounds_cannot_write_one_guest_log() -> None:
     # empty tag, because the log is where a failure is read.
     assert guest_log(workdir, "ext2", 9303, "local.iso").name == "ext2-9303-driver.log"
 
+
+def test_a_cluster_conversion_writes_and_reads_the_home_marker() -> None:
+    """`/home` surviving is what an in-place conversion promises, and the
+    cluster row said the converted machine carried what the conversion asked
+    for while nothing had looked at `/home`. The local runner has checked it
+    since `#697`; this path had not."""
+    import inspect
+
+    from tests.vm import cluster
+    from tests.vm.convert import HOME_MARKER_CHECK
+
+    source = inspect.getsource(cluster.convert_and_check)
+    # The constant, not a second copy of the path: the local runner writes the
+    # same file and reads the same marker.
+    written = source.index("HOME_MARKER_PATH")
+    converted = source.index("install.sh")
+    assert written < converted, source
+    assert "extra=(HOME_MARKER_CHECK,)" in source, source
+
+    # The check itself asks the guest to count, so neither the shell's echo of
+    # the command nor `cat`'s own diagnostic can answer it.
+    assert "grep -Fc" in HOME_MARKER_CHECK.command
+    import re
+
+    assert not re.search(HOME_MARKER_CHECK.pattern, HOME_MARKER_CHECK.command)
+    assert re.search(HOME_MARKER_CHECK.pattern, "home=1\n")
+    assert not re.search(HOME_MARKER_CHECK.pattern, "home=0\n")
+
+
+def test_the_extra_checks_reach_the_installed_reader() -> None:
+    """`boot_and_check` grew a parameter, and a parameter nothing forwards is
+    a check that never runs."""
+    import inspect
+
+    from tests.vm import cluster
+
+    source = inspect.getsource(cluster.boot_and_check)
+    asked = source.index("_asked_for(installation)")
+    assert "extra" in source[asked : asked + 200], source[asked : asked + 200]
+

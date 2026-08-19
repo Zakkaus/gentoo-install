@@ -109,7 +109,8 @@ from .results import (
     read_console,
 )
 from .workdir import WorkdirError, confined
-from .installed import checks, stage_passphrase_commands
+from .convert import HOME_MARKER, HOME_MARKER_CHECK, HOME_MARKER_PATH
+from .installed import InstalledCheck, checks, stage_passphrase_commands
 from .run import SEEDED, remote_config, remote_unlock, ssh_keypair
 
 REPOSITORY: Final[Path] = Path(__file__).resolve().parents[2]
@@ -3143,6 +3144,11 @@ def convert_and_check(
     """
     installation = load(fixture)
     wait_for_network(link, guest.vmid, address)
+    # Before the conversion, because the promise is that it survives one:
+    # `/home` is the path an operator has data on, and the cluster row said
+    # the converted machine carried what the conversion asked for without
+    # anything having looked at it.
+    link.run(f"printf '%s\\n' {HOME_MARKER} > {HOME_MARKER_PATH}")
     link.run(FIND_DRIVER)
     link.run(f"mkdir -p {RESULT_DIR}")
     link.wait_for(
@@ -3162,7 +3168,7 @@ def convert_and_check(
         return f"the conversion exited {code!r}"
     # The same reader as the first install: a converted machine that reaches a
     # login prompt with the old hostname booted the system it was replacing.
-    return boot_and_check(guest, link, log, installation)
+    return boot_and_check(guest, link, log, installation, extra=(HOME_MARKER_CHECK,))
 
 
 def boot_and_check(
@@ -3172,6 +3178,7 @@ def boot_and_check(
     installation: InstallConfig,
     remote_key: Path | None = None,
     remote_host: str = "127.0.0.1",
+    extra: Sequence[InstalledCheck] = (),
 ) -> str:
     """Boot the newly written disk and read the system back.
 
@@ -3233,7 +3240,10 @@ def boot_and_check(
     if refused:
         return f"{missed_the_prompt}; {refused}"[:VERDICT_BYTES] if missed_the_prompt else refused
 
-    for name, command, wanted in _asked_for(installation):
+    for name, command, wanted in [
+        *_asked_for(installation),
+        *((one.name, one.command, one.pattern) for one in extra),
+    ]:
         said = link.expect_output(command, timeout=120.0)
         if said != wanted.encode() and re.search(wanted.encode(), said) is None:
             # With the answer, not only the pattern: `greetd config: the
