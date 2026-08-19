@@ -4370,3 +4370,54 @@ def test_a_destroy_whose_task_failed_is_tried_again() -> None:
             patience=1.0
         )
 
+
+def test_a_stop_the_gateway_ate_is_sent_again() -> None:
+    """run118 lost `vm-binpkg` after 48 minutes: the install had finished and
+    `POST .../status/stop` answered `502 Bad Gateway`, which `_http_exception`
+    already classifies as transient. `destroy` retried such answers and this
+    did not, so one gateway hiccup threw away a completed install."""
+
+    @dataclass
+    class Flaky(Api):
+        attempts: int = 0
+        running: bool = True
+
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            if path.endswith("/status/current"):
+                return {"status": "running" if self.running else "stopped"}
+            if path.endswith("/config"):
+                return {"tags": f"{TAG};gi-owned"}
+            if path.endswith("/status/stop"):
+                self.attempts += 1
+                if self.attempts == 1:
+                    raise ProxmoxTransientError(
+                        "POST /nodes/n/qemu/9300/status/stop answered 502 Bad Gateway"
+                    )
+                self.running = False
+                return "UPID:node:qmstop"
+            raise AssertionError((method, path))
+
+        def wait(self, node: str, upid: str, patience: float = 1800.0) -> None:
+            return None
+
+    api = Flaky()
+    guest = Guest(api, "node", 9300, GuestSpec(name="x", iso="x", nonce="gi-owned"))
+    guest._booted = True
+    guest.stop()
+    assert api.attempts == 2, api.attempts
+    assert not guest._booted
+
+    # The control: an answer that is not transient still ends the run, and the
+    # message carries what the cluster said.
+    @dataclass
+    class Refusing(Flaky):
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            if path.endswith("/status/stop"):
+                raise ProxmoxError("POST /nodes/n/qemu/9300/status/stop answered 403 Forbidden")
+            return super().call(method, path, **form)
+
+    stubborn = Guest(Refusing(), "node", 9300, GuestSpec(name="x", iso="x", nonce="gi-owned"))
+    stubborn._booted = True
+    with pytest.raises(ProxmoxError, match="403 Forbidden"):
+        stubborn.stop()
+

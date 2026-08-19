@@ -89,6 +89,10 @@ DRIVER_PREFIX: Final[str] = "gi-driver-"
 STILL_RUNNING: Final[str] = "is running - destroy failed"
 CLEANUP_PAUSE: Final[float] = 2.0
 CLEANUP_PATIENCE: Final[float] = 300.0
+#: How long a stop is retried. Shorter than cleanup: the guest is wanted down
+#: so the disk it wrote can be booted, and a run that cannot stop it has
+#: nothing left to measure.
+STOP_PATIENCE: Final[float] = 120.0
 
 
 class ProxmoxError(Exception):
@@ -689,11 +693,40 @@ class Guest:
             raise ProxmoxError(
                 f"vm {self.vmid} on {self.node} is not this run's machine; not stopping it"
             )
-        self.api.wait(
-            self.node,
-            self.api.call("POST", f"/nodes/{self.node}/qemu/{self.vmid}/status/stop"),
-            patience=180.0,
-        )
+        # Retried, because the cluster proxy answering `502 Bad Gateway` is not
+        # the node refusing: one such answer ended `vm-binpkg` after a 48-minute
+        # install that had already finished, on the stop that precedes booting
+        # the disk it wrote. The status is read again each round, so a stop
+        # whose answer was eaten is seen as the guest already being down.
+        deadline = time.monotonic() + STOP_PATIENCE
+        last = "the guest is still running"
+        while True:
+            try:
+                self.api.wait(
+                    self.node,
+                    self.api.call("POST", f"/nodes/{self.node}/qemu/{self.vmid}/status/stop"),
+                    patience=180.0,
+                )
+                break
+            except ProxmoxNotFound:
+                break
+            except ProxmoxError as error:
+                last = str(error)
+                if not _transient(error) or time.monotonic() >= deadline:
+                    raise ProxmoxError(
+                        f"vm {self.vmid} on {self.node} was not stopped: {last}"
+                    ) from error
+                time.sleep(min(CLEANUP_PAUSE, max(0.0, deadline - time.monotonic())))
+                try:
+                    again = self.api.call(
+                        "GET", f"/nodes/{self.node}/qemu/{self.vmid}/status/current"
+                    )
+                except ProxmoxNotFound:
+                    break
+                except ProxmoxError:
+                    continue
+                if str(again.get("status")) != "running":
+                    break
         self._booted = False
 
     def _is_ours(self) -> bool:
