@@ -580,6 +580,33 @@ def test_the_flag_is_not_added_twice_to_a_file_that_already_has_it() -> None:
     assert recorder.files[PurePosixPath("/etc/chromium/default")].count("wayland-ime") == 1
 
 
+def test_a_commented_flag_does_not_count_as_the_flag() -> None:
+    """`/etc/chromium/default` ships as commented settings, and a substring
+    test took a commented copy of this line for the line itself: the install
+    appeared to configure the input method and chromium read nothing.
+    """
+    wanted = replace(
+        config(),
+        packages=PackagesConfig(desktop="plasma", applications=("fcitx5", "rime", "chromium")),
+    )
+    recorder = Recorder()
+    recorder.files[PurePosixPath("/etc/chromium/default")] = (
+        "# Default settings for chromium.\n"
+        '#CHROMIUM_FLAGS="${CHROMIUM_FLAGS} --enable-wayland-ime"\n'
+    )
+    for operation in plan_packages.build(wanted, load_catalog()):
+        if isinstance(operation, plan_packages.AppendWaylandFlags):
+            operation.apply(recorder)
+
+    written = recorder.files[PurePosixPath("/etc/chromium/default")]
+    live = [
+        line
+        for line in written.splitlines()
+        if line.strip().startswith("CHROMIUM_FLAGS=")
+    ]
+    assert live == ['CHROMIUM_FLAGS="${CHROMIUM_FLAGS} --enable-wayland-ime"'], written
+
+
 def test_chromium_on_an_x11_desktop_gets_no_wayland_flag() -> None:
     wanted = replace(
         config(),
