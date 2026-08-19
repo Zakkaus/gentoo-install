@@ -10,6 +10,13 @@ installation exit code is `0`, the installed system boots, and the post-boot
 configuration checks pass. `tests/fixtures/` files exercise the configuration
 model; their presence establishes nothing about an installed machine.
 
+A package count in a row written before `d75aaa0f94806` is about twice what
+the machine installed. `VerifyPackages` runs `emerge --pretend --quiet` before
+anything is merged and it prints the same `[binary]` and `[ebuild]` lines the
+merge does, and the journal counted both until that revision: one guest
+recorded 63 packages for the 40 it installed. Rows from before it are not
+comparable with rows after it.
+
 Three modes are planned and this file has a section for each. Only the first
 two exist today, and the third's table is empty on purpose.
 
