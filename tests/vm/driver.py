@@ -183,6 +183,11 @@ def digest(path: Path) -> str:
     return reader.hexdigest()
 
 
+#: What every driver CD's name begins with, so a reader can tell one from the
+#: node's other ISOs and a caller can recover the digest from the name.
+NAME_PREFIX: Final[str] = "gi-driver-"
+
+
 def remote_name(path: Path) -> str:
     """Content-addressed name used on node-local ISO storage."""
-    return f"gi-driver-{digest(path)[:20]}.iso"
+    return f"{NAME_PREFIX}{digest(path)[:20]}.iso"

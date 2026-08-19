@@ -35,7 +35,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field, replace
 from enum import Enum
-from pathlib import Path
+from pathlib import Path, PurePath
 from collections import Counter
 from collections.abc import Callable, Mapping
 from types import MappingProxyType
@@ -76,7 +76,13 @@ from .console import (
     command_done,
     marked_command,
 )
-from .driver import FIND_DRIVER, build as build_driver, digest as driver_digest, remote_name
+from .driver import (
+    FIND_DRIVER,
+    NAME_PREFIX as DRIVER_PREFIX,
+    build as build_driver,
+    digest as driver_digest,
+    remote_name,
+)
 from .monitor import keys_for
 from .proxmox import (
     Api,
@@ -1561,6 +1567,27 @@ class AddressPool:
                 lease.unlink(missing_ok=True)
 
 
+def guest_log(workdir: Path, fixture: str, vmid: int, driver: str) -> Path:
+    """Where one guest's console is kept.
+
+    The vmid, because every schedule shares this directory and two rounds
+    carrying one fixture wrote the same file at the same time: `vm-greetd` was
+    in two rounds at once on the day that was found. The driver as well,
+    because a vmid is reused between rounds: a later round running the same
+    fixture on the same vmid overwrote the earlier log, and run109's `ext2`
+    record was gone when its revision was asked for.
+    """
+    return workdir / f"{fixture}-{vmid}-{_driver_tag(driver)}.log"
+
+
+def _driver_tag(driver: str) -> str:
+    """The content-addressed part of a driver CD's name, which is what says
+    the guest was built by one installer rather than another."""
+    stem = PurePath(driver).stem
+    tag = stem.rsplit("-", 1)[-1] if stem.startswith(DRIVER_PREFIX) else ""
+    return tag[:10] or "driver"
+
+
 def _execution(
     api: Api,
     node: str,
@@ -1572,11 +1599,7 @@ def _execution(
     address: str = "",
 ) -> Running:
     chosen = vmid or api.free_vmid()
-    # The vmid in the name: every schedule shares this directory, so two
-    # rounds carrying one fixture wrote the same file at the same time and
-    # the verdict of each pointed at a log holding both. `vm-greetd` was in
-    # two rounds at once on the day this was found.
-    log = workdir / f"{job.name}-{chosen}.log"
+    log = guest_log(workdir, job.name, chosen, driver)
     guest = Guest(
         api=api,
         node=node,
