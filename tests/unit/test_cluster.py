@@ -3032,3 +3032,27 @@ def test_the_summary_names_a_guest_the_run_could_not_remove() -> None:
     # On stderr, where the operator reading a redirected run still sees it.
     assert "file=sys.stderr" in source[said : said + 120], source[said : said + 200]
 
+
+def test_a_conversion_counts_the_modules_its_bootloader_needs() -> None:
+    """`vm-convert` failed on the cluster with `file '/boot/grub/x86_64-efi/
+    normal.mod' not found. Entering rescue mode...` while the conversion's own
+    log said `Installation finished. No error reported.` twice. A guest in the
+    rescue shell answers nothing, so the count is taken before the reboot."""
+    import inspect
+    import re
+
+    from tests.vm import cluster
+    from tests.vm.convert import GRUB_MODULES_CHECK
+
+    source = inspect.getsource(cluster.convert_and_check)
+    asked = source.index("GRUB_MODULES_CHECK.command")
+    booted = source.index("boot_and_check(")
+    assert asked < booted, source[asked : asked + 200]
+
+    # The count is the guest's answer: `wc -l` cannot come from the echo, and
+    # an empty directory is not a pass.
+    assert "wc -l" in GRUB_MODULES_CHECK.command
+    assert not re.search(GRUB_MODULES_CHECK.pattern, GRUB_MODULES_CHECK.command)
+    assert re.search(GRUB_MODULES_CHECK.pattern, "grubmods=214\n")
+    assert not re.search(GRUB_MODULES_CHECK.pattern, "grubmods=0\n")
+    assert not re.search(GRUB_MODULES_CHECK.pattern, "")

@@ -67,6 +67,16 @@ ETC_MARKER_CHECK: Final[InstalledCheck] = InstalledCheck(
     r"(?m)^etc=0$",
 )
 
+#: GRUB's stub loads `normal.mod` from here and drops to `grub rescue>`
+#: without it, which is how `vm-convert` failed while `grub-install` reported
+#: no error. The guest computes the count, so the echo cannot supply it.
+GRUB_MODULE_DIRECTORY: Final[str] = "/boot/grub/x86_64-efi"
+GRUB_MODULES_CHECK: Final[InstalledCheck] = InstalledCheck(
+    "grub modules",
+    f"printf 'grubmods=%s\\n' \"$(ls {GRUB_MODULE_DIRECTORY} 2>/dev/null | wc -l)\"",
+    r"(?m)^grubmods=[1-9][0-9]*$",
+)
+
 #: Bigger than every image here, so cloud-init's `growpart` and `resizefs`
 #: run on first boot. A 5 GiB Fedora root cannot hold a stage3 and a kernel.
 OVERLAY_SIZE: Final[str] = "24G"
