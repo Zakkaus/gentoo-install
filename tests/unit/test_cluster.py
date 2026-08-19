@@ -2607,3 +2607,33 @@ def test_a_lease_older_than_any_run_is_taken_over(tmp_path: Path) -> None:
     stale = clock.time() - cluster.LEASE_SECONDS - 1.0
     os.utime(lease, (stale, stale))
     assert pool.reserve("10.31.0.150") == first
+
+
+def test_a_round_waits_longer_when_our_own_guests_hold_the_room() -> None:
+    """`vm-image` was failed with `the cluster had no capacity for 121s` while
+    ten guests of this harness were still installing. That room is provably
+    coming back; room held by somebody else's machines is not, and a cluster
+    that cannot answer at all is not either."""
+    from tests.vm import cluster
+    from tests.vm.proxmox import ProxmoxError
+
+    class Busy:
+        def ours(self) -> list[tuple[str, int]]:
+            return [("infra-node4", 9300), ("infra-node1", 9303)]
+
+    class Empty:
+        def ours(self) -> list[tuple[str, int]]:
+            return []
+
+    class Silent:
+        def ours(self) -> list[tuple[str, int]]:
+            raise ProxmoxError("GET /cluster/resources did not answer")
+
+    assert cluster._capacity_patience(cast(Any, Busy())) == cluster.CAPACITY_PATIENCE_SHARED
+    assert cluster._capacity_patience(cast(Any, Empty())) == cluster.CAPACITY_PATIENCE
+    assert cluster._capacity_patience(cast(Any, Silent())) == cluster.CAPACITY_PATIENCE
+
+    # And the longer wait is bounded, so a guest nothing collects cannot hold
+    # a round for ever.
+    assert cluster.CAPACITY_PATIENCE_SHARED > cluster.CAPACITY_PATIENCE
+    assert cluster.CAPACITY_PATIENCE_SHARED <= cluster.RUN_CEILING
