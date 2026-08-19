@@ -498,7 +498,7 @@ def test_the_passphrase_minimum_is_one_number() -> None:
     constants carried the same 8 and the same reason, and raising one would
     have left the menu accepting what the install then stops on."""
     from gentoo_install.exec.preflight import ZFS_PASSPHRASE_MINIMUM
-    from gentoo_install.tui.screens import PASSPHRASE_MINIMUM
+    from gentoo_install.tui.context import PASSPHRASE_MINIMUM
 
     assert PASSPHRASE_MINIMUM is ZFS_PASSPHRASE_MINIMUM
 
@@ -515,3 +515,34 @@ def test_the_passphrase_minimum_is_one_number() -> None:
         and isinstance(node.value, ast.Constant)
     }
     assert written == {"gentoo_install/exec/preflight.py"}, written
+
+
+def test_the_disk_screens_reach_nothing_in_the_screen_module() -> None:
+    """`tui/partitions.py` is the closure of `partitions_screen`: everything
+    it reaches and nothing else. `screens.py` reaches four of those names and
+    this module reaches none of its, which is what makes the split one way. An
+    earlier attempt cut the same subject by hand and found edges running both
+    ways, so the boundary was computed instead."""
+    tui = PACKAGE / "tui"
+    imported = _imports(ast.parse((tui / "partitions.py").read_text()))
+    forbidden = {name for name in imported if name.split(".")[-1] in {"screens", "settings"}}
+    assert not forbidden, forbidden
+
+    # And the four names that cross the other way, by name: a fifth would mean
+    # the closure moved and the boundary was not recomputed.
+    source = (tui / "screens.py").read_text()
+    crossing = {
+        name
+        for name in ("partitions_screen", "_from_layout", "_zfs_bootloader", "_edit_passphrase")
+        if re.search(rf"\b{name}\b", source)
+    }
+    assert crossing == {
+        "partitions_screen",
+        "_from_layout",
+        "_zfs_bootloader",
+        "_edit_passphrase",
+    }, crossing
+
+    # Whatever `screens.py` uses from there, it imports from there.
+    for name in crossing:
+        assert re.search(rf"from \.partitions import \([^)]*\b{name}\b", source, re.S), name

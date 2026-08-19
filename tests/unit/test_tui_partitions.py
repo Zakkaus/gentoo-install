@@ -38,6 +38,7 @@ from gentoo_install.model.size import Size
 from gentoo_install.model.validate import validate
 from gentoo_install.model.templates import Layout
 from gentoo_install.tui import context as tui_context
+from gentoo_install.tui import partitions
 from gentoo_install.tui import screens
 from gentoo_install.tui.widgets import Outcome
 
@@ -64,7 +65,7 @@ def to_row(at: tui_context.Context, label: str) -> list[str]:
     Counted rather than written out: the screen grew a line per disk, and every
     test that had counted its own KEY_DOWNs then landed a row short.
     """
-    labels = [item.label for item in screens._partition_rows(at)]
+    labels = [item.label for item in partitions._partition_rows(at)]
     return ["KEY_DOWN"] * labels.index(label) + ["\n"]
 
 
@@ -132,7 +133,7 @@ def test_a_table_with_no_root_says_so_rather_than_installing() -> None:
         manual.Slice(index=1, role=PartitionRole.ESP, size=Size.parse("1GiB"),
                      filesystem=FilesystemType.VFAT, mountpoint="/efi"),
     ])
-    assert "mounted at /" in screens._layout_problem(at, config())
+    assert "mounted at /" in partitions._layout_problem(at, config())
 
 
 def test_a_root_too_small_is_reported_in_the_table() -> None:
@@ -144,7 +145,7 @@ def test_a_root_too_small_is_reported_in_the_table() -> None:
         manual.Slice(index=2, role=PartitionRole.DATA, size=Size.parse("4GiB"),
                      filesystem=FilesystemType.EXT4, mountpoint="/"),
     ])
-    assert "under the" in screens._layout_problem(at, config())
+    assert "under the" in partitions._layout_problem(at, config())
 
 
 def test_a_swap_partition_needs_no_filesystem() -> None:
@@ -161,7 +162,7 @@ def test_the_editor_lists_the_table_and_leaves_on_done() -> None:
     at = opened()
     at.layout = manual.suggest(at.choice.disk, Firmware.UEFI)
     screen = FakeScreen(keys=to_row(at, "Done"), lines=30, columns=90)
-    answer = screens.partitions_screen(screen, config(), at)
+    answer = partitions.partitions_screen(screen, config(), at)
     assert answer.outcome is Outcome.CHOSE
     drawn = "\n".join("\n".join(frame) for frame in screen.frames)
     assert "/efi" in drawn and "rest" in drawn
@@ -181,7 +182,7 @@ def test_choosing_a_purpose_settles_the_mount_point_and_the_filesystem() -> None
     rooted = manual.Slice(index=1, role=PartitionRole.DATA, size=None,
                           filesystem=FilesystemType.EXT4, mountpoint="/")
     swap = next(one for one in manual.PURPOSES if one.key == "swap")
-    changed = screens._apply_purpose(rooted, swap)
+    changed = partitions._apply_purpose(rooted, swap)
     assert changed.role is PartitionRole.SWAP
     assert changed.mountpoint == "" and changed.filesystem is None
 
@@ -306,7 +307,7 @@ def test_every_field_of_a_partition_is_visible_with_its_value() -> None:
     at = opened()
     at.layout = manual.suggest("/dev/vda", Firmware.UEFI)
     entry = at.layout.slices[1]
-    fields = screens._slice_fields(entry, manual.purpose_of(entry), at.translate)
+    fields = partitions._slice_fields(entry, manual.purpose_of(entry), at.translate)
     shown = {item.label: item.detail for item in fields}
     assert shown["Purpose"] == "root"
     assert shown["Filesystem"] == "ext4"
@@ -316,19 +317,19 @@ def test_every_field_of_a_partition_is_visible_with_its_value() -> None:
 
 def test_a_zfs_member_has_no_partition_encryption_field() -> None:
     entry = manual.Slice(index=2, role=PartitionRole.ZFS, size=None, mountpoint="/")
-    fields = screens._slice_fields(entry, manual.purpose_of(entry), opened().translate)
+    fields = partitions._slice_fields(entry, manual.purpose_of(entry), opened().translate)
     assert "Encryption" not in {item.label for item in fields}
 
 
 def test_exactly_one_pool_encryption_row_is_shown_only_when_a_pool_exists() -> None:
     at = opened()
-    assert not [item for item in screens._partition_rows(at) if item.label == "ZFS Encryption"]
+    assert not [item for item in partitions._partition_rows(at) if item.label == "ZFS Encryption"]
 
     at.layout = one_disk(
         slices=[manual.Slice(index=1, role=PartitionRole.ZFS, size=None, mountpoint="/")]
     )
     at.layout.passphrase_file = "/run/keys/pool"
-    rows = [item for item in screens._partition_rows(at) if item.label == "ZFS Encryption"]
+    rows = [item for item in partitions._partition_rows(at) if item.label == "ZFS Encryption"]
 
     assert len(rows) == 1
     assert rows[0].detail == "on"
@@ -344,14 +345,14 @@ def test_changing_an_encrypted_partition_to_zfs_drops_its_luks_path() -> None:
         passphrase_file="/run/keys/partition",
     )
 
-    changed = screens._apply_purpose(entry, manual.purpose_for("zfs"))
+    changed = partitions._apply_purpose(entry, manual.purpose_for("zfs"))
 
     assert changed.passphrase_file == ""
 
 
 def test_a_field_that_does_not_apply_says_why() -> None:
     swap = manual.Slice(index=2, role=PartitionRole.SWAP, size=Size.parse("4GiB"))
-    fields = screens._slice_fields(swap, manual.purpose_of(swap), opened().translate)
+    fields = partitions._slice_fields(swap, manual.purpose_of(swap), opened().translate)
     filesystem = next(item for item in fields if item.label == "Filesystem")
     assert filesystem.disabled_because
 
@@ -363,7 +364,7 @@ def test_zfs_is_offered_where_a_filesystem_is_chosen() -> None:
     entry = manual.Slice(index=2, role=PartitionRole.DATA, size=None,
                          filesystem=FilesystemType.EXT4, mountpoint="/")
     screen = FakeScreen(keys=[*["KEY_DOWN"] * len(FilesystemType), "\n"], lines=30)
-    changed = screens._edit_field(screen, at, entry, manual.purpose_of(entry), screens._FILESYSTEM)
+    changed = partitions._edit_field(screen, at, entry, manual.purpose_of(entry), partitions._FILESYSTEM)
     assert changed is not None
     assert changed.role is PartitionRole.ZFS
     assert changed.filesystem is None
@@ -376,7 +377,7 @@ def test_opening_the_table_after_choosing_zfs_keeps_zfs() -> None:
     operator had just chosen without saying so."""
     at = opened()
     at.choice = replace(at.choice, layout=Layout.WHOLE_DISK_ZFS, disk="/dev/vdb")
-    screens.partitions_screen(FakeScreen(keys=["q"]), config(), at)
+    partitions.partitions_screen(FakeScreen(keys=["q"]), config(), at)
     root = next(one for one in at.layout.slices if one.mountpoint == "/")
     assert root.role is PartitionRole.ZFS and root.filesystem is None
 
@@ -384,7 +385,7 @@ def test_opening_the_table_after_choosing_zfs_keeps_zfs() -> None:
 def test_opening_the_table_after_choosing_xfs_keeps_xfs() -> None:
     at = opened()
     at.choice = replace(at.choice, filesystem=FilesystemType.XFS, disk="/dev/vdb")
-    screens.partitions_screen(FakeScreen(keys=["q"]), config(), at)
+    partitions.partitions_screen(FakeScreen(keys=["q"]), config(), at)
     root = next(one for one in at.layout.slices if one.mountpoint == "/")
     assert root.filesystem is FilesystemType.XFS
 
@@ -647,7 +648,7 @@ def test_the_table_opens_on_what_is_already_on_the_disk() -> None:
     at.manual = True
     at.layout = manual.Layout()
     screen = FakeScreen(keys=["q"], lines=24, columns=100)
-    screens.partitions_screen(screen, config(), at)
+    partitions.partitions_screen(screen, config(), at)
 
     assert [one.selector for one in at.layout.slices] == ["/dev/vda1", "/dev/vda2"]
     assert all(one.status is manual.SliceStatus.KEEP for one in at.layout.slices)
@@ -699,14 +700,14 @@ def test_the_pool_topology_row_appears_once_there_is_something_to_join() -> None
 
     at.layout = one_disk(slices(1), disk=at.choice.disk)
     single = FakeScreen(keys=["q"], lines=24, columns=110)
-    screens.partitions_screen(single, config(), at)
+    partitions.partitions_screen(single, config(), at)
     drawn = "\n".join(single.frames[0])
     assert "Pool topology" in drawn
     assert "zfs pool member purpose" in drawn
 
     at.layout = one_disk(slices(2), disk=at.choice.disk)
     pair = FakeScreen(keys=["q"], lines=24, columns=110)
-    screens.partitions_screen(pair, config(), at)
+    partitions.partitions_screen(pair, config(), at)
     opened = "\n".join(pair.frames[0])
     assert "Pool topology" in opened
     assert "zfs pool member purpose" not in opened
@@ -719,7 +720,7 @@ def test_a_topology_this_many_devices_cannot_make_says_how_many_it_needs() -> No
 
     at = context()
     screen = FakeScreen(keys=["q"], lines=20, columns=100)
-    screens._pool_topology(screen, at, 2)
+    partitions._pool_topology(screen, at, 2)
     drawn = "\n".join(screen.frames[0])
     for one in ZfsTopology:
         assert one.value in drawn, one
@@ -728,7 +729,7 @@ def test_a_topology_this_many_devices_cannot_make_says_how_many_it_needs() -> No
 
     # Enough devices, and no row carries a count.
     roomy = FakeScreen(keys=["q"], lines=20, columns=100)
-    screens._pool_topology(roomy, at, 4)
+    partitions._pool_topology(roomy, at, 4)
     assert "needs at least" not in "\n".join(roomy.frames[0])
 
 
@@ -860,7 +861,7 @@ def test_the_screen_lists_every_disk_with_its_rows_under_it() -> None:
     at.layout = two_disks()
     at.choice = replace(at.choice, disk="/dev/vda")
     screen = FakeScreen(keys=["q"], lines=30, columns=100)
-    screens.partitions_screen(screen, config(), at)
+    partitions.partitions_screen(screen, config(), at)
     drawn = "\n".join(screen.frames[0])
     assert "vda" in drawn and "vdb" in drawn
     assert drawn.index("vda") < drawn.index("/efi") < drawn.index("vdb")
@@ -870,7 +871,7 @@ def test_a_second_disk_can_be_added_from_the_table() -> None:
     at = opened()
     at.layout = manual.suggest(at.choice.disk, Firmware.UEFI)
     keys = [*to_row(at, "Add a disk"), "\n"]
-    screens.partitions_screen(FakeScreen(keys=[*keys, "q"], lines=30, columns=100), config(), at)
+    partitions.partitions_screen(FakeScreen(keys=[*keys, "q"], lines=30, columns=100), config(), at)
     assert [one.selector for one in at.layout.disks] == [one[0] for one in at.disks]
 
 
@@ -879,8 +880,8 @@ def test_a_disk_already_in_the_table_is_not_offered_again() -> None:
     at.layout = manual.Layout(
         disks=[manual.Disk(selector=one[0]) for one in at.disks]
     )
-    assert not screens._unused_disks(at)
-    labels = [item.label for item in screens._partition_rows(at)]
+    assert not partitions._unused_disks(at)
+    labels = [item.label for item in partitions._partition_rows(at)]
     assert "Add a disk" not in labels
 
 
@@ -890,11 +891,11 @@ def test_the_first_disk_cannot_be_taken_off_the_table() -> None:
     at = opened()
     at.layout = two_disks()
     first = FakeScreen(keys=["q"], lines=24, columns=90)
-    screens._edit_disk(first, at, 0)
+    partitions._edit_disk(first, at, 0)
     assert "Take this disk off the table" not in "\n".join(first.frames[0])
 
     second = FakeScreen(keys=["KEY_DOWN", "\n"], lines=24, columns=90)
-    screens._edit_disk(second, at, 1)
+    partitions._edit_disk(second, at, 1)
     assert [one.selector for one in at.layout.disks] == ["/dev/vda"]
 
 
@@ -963,11 +964,11 @@ def test_the_array_row_says_what_to_set_before_it_can_be_opened() -> None:
     at = opened()
     at.choice = replace(at.choice, disk="/dev/vda")
     at.layout = manual.suggest("/dev/vda", Firmware.UEFI)
-    shut = next(one for one in screens._partition_rows(at) if one.label == "RAID array")
+    shut = next(one for one in partitions._partition_rows(at) if one.label == "RAID array")
     assert "raid array member purpose" in shut.disabled_because
 
     at.layout = mirrored()
-    open_now = next(one for one in screens._partition_rows(at) if one.label == "RAID array")
+    open_now = next(one for one in partitions._partition_rows(at) if one.label == "RAID array")
     assert open_now.disabled_because == ""
     assert open_now.detail
 
@@ -978,7 +979,7 @@ def test_a_level_the_members_cannot_make_is_shown_with_what_it_needs() -> None:
     at = opened()
     at.layout = mirrored()
     screen = FakeScreen(keys=["KEY_DOWN", "\n", "q", "q"], lines=24, columns=90)
-    screens._edit_array(screen, at)
+    partitions._edit_array(screen, at)
     drawn = "\n".join("\n".join(frame) for frame in screen.frames)
     assert "raid5 - needs at least 3" in drawn
     assert "raid6 - needs at least 4" in drawn
@@ -1011,7 +1012,7 @@ def test_a_medium_with_no_zfs_offers_no_pool_member_purpose() -> None:
     entry = manual.Slice(index=1, role=PartitionRole.DATA, size=None,
                          filesystem=FilesystemType.EXT4, mountpoint="/")
     screen = FakeScreen(keys=["q"], lines=24, columns=100)
-    screens._edit_field(screen, at, entry, manual.purpose_of(entry), screens._PURPOSE)
+    partitions._edit_field(screen, at, entry, manual.purpose_of(entry), partitions._PURPOSE)
     drawn = "\n".join(screen.frames[0])
     assert "zfs pool member - this live system has no zpool" in drawn
 
@@ -1023,7 +1024,7 @@ def test_a_medium_with_no_zfs_offers_no_zfs_in_the_filesystem_menu() -> None:
     entry = manual.Slice(index=1, role=PartitionRole.DATA, size=None,
                          filesystem=FilesystemType.EXT4, mountpoint="/")
     screen = FakeScreen(keys=["q"], lines=24, columns=100)
-    screens._edit_field(screen, at, entry, manual.purpose_of(entry), screens._FILESYSTEM)
+    partitions._edit_field(screen, at, entry, manual.purpose_of(entry), partitions._FILESYSTEM)
     drawn = "\n".join(screen.frames[0])
     assert "this live system has no zpool" in drawn
 
@@ -1032,15 +1033,15 @@ def test_a_medium_with_zfs_offers_all_three() -> None:
     at = opened()
     for screen, call in (
         (FakeScreen(keys=["q"], lines=24, columns=100), "layout"),
-        (FakeScreen(keys=["q"], lines=24, columns=100), screens._PURPOSE),
-        (FakeScreen(keys=["q"], lines=24, columns=100), screens._FILESYSTEM),
+        (FakeScreen(keys=["q"], lines=24, columns=100), partitions._PURPOSE),
+        (FakeScreen(keys=["q"], lines=24, columns=100), partitions._FILESYSTEM),
     ):
         if call == "layout":
             screens.layout_screen(screen, config(), at)
         else:
             entry = manual.Slice(index=1, role=PartitionRole.DATA, size=None,
                                  filesystem=FilesystemType.EXT4, mountpoint="/")
-            screens._edit_field(screen, at, entry, manual.purpose_of(entry), call)
+            partitions._edit_field(screen, at, entry, manual.purpose_of(entry), call)
         assert "live system" not in "\n".join(screen.frames[0])
 
 
@@ -1066,10 +1067,10 @@ def test_a_hand_built_zfs_root_is_asked_which_bootloader() -> None:
             )
         ]
     )
-    done = [item.label for item in screens._partition_rows(at)].index("Done")
+    done = [item.label for item in partitions._partition_rows(at)].index("Done")
     keys = ["KEY_DOWN"] * done + ["\n", "\n"]
     screen = FakeScreen(keys=keys, lines=30, columns=110)
-    answer = screens.partitions_screen(screen, config(), at)
+    answer = partitions.partitions_screen(screen, config(), at)
     assert answer.chosen
     assert answer.unwrap().bootloader.kind is Bootloader.ZFSBOOTMENU
     assert [one.name for one in answer.unwrap().portage.overlays] == ["gentoo-zh"]
@@ -1103,7 +1104,7 @@ def test_raid_and_the_pool_topology_are_visible_before_they_are_reachable() -> N
     at = context()
     at.manual = True
     drawn = FakeScreen(keys=["q"], lines=30, columns=118)
-    screens.partitions_screen(drawn, config(), at)
+    partitions.partitions_screen(drawn, config(), at)
     assert "RAID array" in drawn.last
     assert "raid array member purpose" in drawn.last
     assert "Pool topology" in drawn.last

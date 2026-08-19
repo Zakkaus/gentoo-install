@@ -14,6 +14,7 @@ from enum import Enum
 from typing import Callable, Final, Generic, Sequence, TypedDict, TypeVar
 
 from ..errors import ConfigError, GentooInstallError
+from ..exec.preflight import ZFS_PASSPHRASE_MINIMUM
 from ..i18n import Catalog, truncate
 from ..model import manual, mirrors, qr
 from ..model.config import (
@@ -436,3 +437,10 @@ def with_gentoo_zh(config: InstallConfig) -> PortageConfig:
         # `compat.py` is what keeps the two from being set apart.
         binhost = replace(binhost, community=BinhostChannel.STABLE)
     return replace(config.portage, overlays=added, binhost=binhost)
+
+
+#: What the preflight refuses, read from there rather than written again: the
+#: two carried the same 8 and the same reason, and raising one would have left
+#: the menu accepting a passphrase the install stops on once the disk is
+#: already partitioned.
+PASSPHRASE_MINIMUM: Final[int] = ZFS_PASSPHRASE_MINIMUM

@@ -31,6 +31,7 @@ from gentoo_install.model.validate import validate
 from gentoo_install.model import compat
 from gentoo_install.tui import app, widgets, screens, settings
 from gentoo_install.tui import context as tui_context
+from gentoo_install.tui import partitions
 from gentoo_install.tui import mirror
 from gentoo_install.tui.app import run
 from gentoo_install.tui.overview import overview_screen
@@ -155,15 +156,15 @@ def test_field_editors_have_one_descriptor_for_each_editable_row() -> None:
     assert mirror_rows <= mirror_expected
     assert {field.key for field in mirror._ALL_MIRROR_FIELDS} == mirror_expected
 
-    array_expected = {screens._NAME, screens._LEVEL, screens._METADATA,
-                      screens._FILESYSTEM, screens._MOUNTPOINT, screens._LABEL,
-                      screens._ENCRYPTION}
+    array_expected = {partitions._NAME, partitions._LEVEL, partitions._METADATA,
+                      partitions._FILESYSTEM, partitions._MOUNTPOINT, partitions._LABEL,
+                      partitions._ENCRYPTION}
     array_rows = {
         field.row((at.layout.array, 0), at.translate).value
-        for field in screens._ARRAY_FIELDS
+        for field in partitions._ARRAY_FIELDS
         if field.key != tui_context.DONE
     }
-    assert {field.key for field in screens._ARRAY_FIELDS} - {tui_context.DONE} == array_expected
+    assert {field.key for field in partitions._ARRAY_FIELDS} - {tui_context.DONE} == array_expected
     assert array_rows == array_expected
 
 
@@ -432,11 +433,11 @@ def test_the_passphrase_field_says_the_length_before_it_is_typed() -> None:
     screen = FakeScreen(keys=keys)
     screens.encryption_screen(screen, config(), at)
     drawn = "\n".join("\n".join(frame) for frame in screen.frames)
-    assert str(screens.PASSPHRASE_MINIMUM) in drawn, drawn
+    assert str(tui_context.PASSPHRASE_MINIMUM) in drawn, drawn
     typed = [frame for frame in screen.frames if any("Passphrase" in one for one in frame)]
     assert typed, "no passphrase field was drawn"
     for frame in typed:
-        assert any(str(screens.PASSPHRASE_MINIMUM) in one for one in frame), frame
+        assert any(str(tui_context.PASSPHRASE_MINIMUM) in one for one in frame), frame
 
 
 def test_every_catalog_translates_the_passphrase_hint() -> None:
@@ -500,8 +501,8 @@ def test_reopening_array_encryption_preserves_its_passphrase_on_child_exit(
     at = context()
     at.layout.array.passphrase_file = "/run/keys/old"
 
-    screens._edit_array_field(
-        FakeScreen(keys=["\n", leave]), at, screens._ENCRYPTION, members=2
+    partitions._edit_array_field(
+        FakeScreen(keys=["\n", leave]), at, partitions._ENCRYPTION, members=2
     )
 
     assert at.layout.array.passphrase_file == "/run/keys/old"
@@ -513,10 +514,10 @@ def test_array_encryption_replaces_its_staged_passphrase_after_success() -> None
     at.layout.array.passphrase_file = "/run/keys/old"
     typed = list("replacement")
 
-    screens._edit_array_field(
+    partitions._edit_array_field(
         FakeScreen(keys=["\n", *typed, "\n", *typed, "\n"]),
         at,
-        screens._ENCRYPTION,
+        partitions._ENCRYPTION,
         members=2,
     )
 
@@ -534,7 +535,7 @@ def test_reopening_pool_encryption_preserves_its_passphrase_on_child_exit(
     at = context()
     at.layout.passphrase_file = "/run/keys/old"
 
-    answer = screens._edit_pool_encryption(FakeScreen(keys=["\n", leave]), at)
+    answer = partitions._edit_pool_encryption(FakeScreen(keys=["\n", leave]), at)
 
     assert answer.outcome is outcome
     assert at.layout.passphrase_file == "/run/keys/old"
@@ -546,7 +547,7 @@ def test_pool_encryption_replaces_its_staged_passphrase_after_success() -> None:
     at.layout.passphrase_file = "/run/keys/old"
     typed = list("replacement")
 
-    answer = screens._edit_pool_encryption(
+    answer = partitions._edit_pool_encryption(
         FakeScreen(keys=["\n", *typed, "\n", *typed, "\n"]), at
     )
 
@@ -572,7 +573,7 @@ def test_reopening_partition_encryption_preserves_its_passphrase_on_child_exit(
     at = context()
     entry = encrypted_partition()
 
-    changed = screens._edit_slice_encryption(
+    changed = partitions._edit_slice_encryption(
         FakeScreen(keys=["\n", leave]), at, entry, manual.purpose_of(entry)
     )
 
@@ -586,7 +587,7 @@ def test_partition_encryption_replaces_its_staged_passphrase_after_success() -> 
     entry = encrypted_partition()
     typed = list("replacement")
 
-    changed = screens._edit_slice_encryption(
+    changed = partitions._edit_slice_encryption(
         FakeScreen(keys=["\n", *typed, "\n", *typed, "\n"]),
         at,
         entry,
@@ -1285,7 +1286,7 @@ def test_the_table_lists_what_is_on_the_disk_and_keeps_it_by_default() -> None:
         ("/dev/vda3", "500 GiB", "ntfs"),
     )
     screen = FakeScreen(keys=["q"], lines=30, columns=110)
-    screens.partitions_screen(screen, config(), at)
+    partitions.partitions_screen(screen, config(), at)
     rows = at.layout.slices
     assert [one.selector for one in rows] == ["/dev/vda1", "/dev/vda2", "/dev/vda3"]
     assert all(one.status is manual.SliceStatus.KEEP for one in rows)
@@ -1302,7 +1303,7 @@ def test_an_empty_disk_opens_on_the_template_proposal() -> None:
     at.layout = manual.Layout()
     at.existing = ()
     screen = FakeScreen(keys=["q"], lines=20, columns=100)
-    screens.partitions_screen(screen, config(), at)
+    partitions.partitions_screen(screen, config(), at)
     assert at.layout.slices
     assert all(one.status is manual.SliceStatus.CREATE for one in at.layout.slices)
 
@@ -1315,17 +1316,17 @@ def test_manual_storage_subselectors_reopen_on_the_values_their_rows_show() -> N
     at.layout.topology = ZfsTopology.RAIDZ2
 
     cases = (
-        (screens._LEVEL, "raid6"),
-        (screens._METADATA, "1.2"),
-        (screens._FILESYSTEM, "xfs"),
+        (partitions._LEVEL, "raid6"),
+        (partitions._METADATA, "1.2"),
+        (partitions._FILESYSTEM, "xfs"),
     )
     for field, shown in cases:
         reopened = FakeScreen(keys=["q"])
-        screens._edit_array_field(reopened, at, field, members=4)
+        partitions._edit_array_field(reopened, at, field, members=4)
         assert shown in reopened.highlighted[0], field
 
     topology = FakeScreen(keys=["q"])
-    screens._pool_topology(topology, at, members=4)
+    partitions._pool_topology(topology, at, members=4)
     assert "raidz2" in topology.highlighted[0]
 
 
@@ -1447,7 +1448,11 @@ def test_what_still_asks_before_it_changes() -> None:
     data, opens a second question, or starts the install asks first."""
     import inspect
 
-    source = inspect.getsource(screens) + inspect.getsource(overview_screen)
+    # Every module that draws a screen, not one of them: the disk screens moved
+    # to `tui/partitions.py` and four of these nine titles went with them.
+    source = "".join(
+        inspect.getsource(one) for one in (screens, partitions, mirror)
+    ) + inspect.getsource(overview_screen)
     asked = {
         "This erases every partition on the disk.",
         "Encrypt the root filesystem?",
@@ -1628,9 +1633,9 @@ def test_opening_the_partitions_row_directly_marks_the_layout_manual() -> None:
     at = context()
     at.manual = False
     at.layout = manual.suggest(at.choice.disk, at.firmware)
-    done = [item.label for item in screens._partition_rows(at)].index("Done")
+    done = [item.label for item in partitions._partition_rows(at)].index("Done")
     screen = FakeScreen(keys=[*down(done), "\n"], lines=30, columns=100)
-    screens.partitions_screen(screen, config(), at)
+    partitions.partitions_screen(screen, config(), at)
     assert at.manual
 
 
@@ -2605,8 +2610,8 @@ def test_cancelled_manual_layout_restores_the_opening_table(
             context.layout.disks[0].slices[0], mountpoint="/changed"
         )
 
-    monkeypatch.setattr(screens, "_act_on", mutate)
-    screens.partitions_screen(FakeScreen(keys=["\n", "q"], lines=30), config(), at)
+    monkeypatch.setattr(partitions, "_act_on", mutate)
+    partitions.partitions_screen(FakeScreen(keys=["\n", "q"], lines=30), config(), at)
     assert at.layout == before
 
 
@@ -2646,7 +2651,7 @@ def test_the_zfs_bootloader_prompt_returns_only_installable_answers() -> None:
     at = context()
     start = config(zfs_root())
     for keys in (["\n"], ["KEY_DOWN", "\n"]):
-        answered = screens._zfs_bootloader(
+        answered = partitions._zfs_bootloader(
             FakeScreen(keys=keys, lines=24, columns=100), start, at
         )
         validate(answered.unwrap())
