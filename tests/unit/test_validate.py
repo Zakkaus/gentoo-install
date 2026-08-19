@@ -73,6 +73,28 @@ def dd_config() -> InstallConfig:
     )
 
 
+def test_a_broken_proxy_is_refused_in_dd_mode_too() -> None:
+    """`dd` reads a local path and uses no proxy, so its validation returned
+    before the proxy was looked at: a host with no port was refused in every
+    other mode and accepted here.
+    """
+    from gentoo_install.model.config import ProxyConfig, ProxyKind
+
+    broken = replace(
+        dd_config(),
+        proxy=ProxyConfig(kind=ProxyKind.HTTP, host="proxy.example", port=0),
+    )
+    with pytest.raises(ValidationFailed, match="proxy port"):
+        validate(broken)
+
+    # And a sound one still validates, in this mode as in the others.
+    working = replace(
+        dd_config(),
+        proxy=ProxyConfig(kind=ProxyKind.HTTP, host="proxy.example", port=3128),
+    )
+    validate(working)
+
+
 def test_the_profile_probe_reads_current_amd64_paths(tmp_path: Path) -> None:
     desc = tmp_path / "profiles.desc"
     desc.write_text(

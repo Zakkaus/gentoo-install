@@ -195,7 +195,11 @@ def validate(
     supports_v3: bool | None = None,
 ) -> None:
     if config.disk.mode is DiskMode.DD:
-        problems = _disk_mode_problems(config)
+        # The proxy with it: `dd` reads a local path and never uses one, but a
+        # host with no port is a configuration nobody can satisfy, and
+        # refusing it in every mode except this one is a rule that fires by
+        # accident.
+        problems = [*_disk_mode_problems(config), *_proxy_problems(config)]
         if problems:
             raise ValidationFailed(
                 "the configuration does not describe an installable system:\n  "
