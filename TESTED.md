@@ -53,7 +53,7 @@ The ordinary path: partition, format, unpack a stage3, configure, boot.
 | `52b373dca9a2` | `vm-binpkg`, `openrc-sdboot`, `zbm-unlock`, `ext2`, `zfs-zbm` — five of six. `zbm-unlock` is the first record of a ZFSBootMenu pool opened over ssh; `vm-unlock` lost 10.31.0.151 to a round that started 92 minutes later and its initramfs answered `Duplicate address detected`, which `ffcb8561250d` addresses |
 | `2dd80ae4534f` | `vm-proxy-dead`, `vm-cjk-kernel`, `vm-raidz`, `vm-zfs-encrypted`, `ext4-bios`, `vm-zfs-mirror` — six of six |
 | `2dd80ae4534f` | `ext3`, `vm-lvm`, `vm-xfs` — three of three, and the only round that ran **without** `--distfiles`: the guests fetched from `nju` itself, so this row is the one that says the direct path works |
-| `ffcb8561250d` | `vm-btrfs`, `mbr-edit`, `vm-f2fs` |
+| `ffcb8561250d` | `vm-btrfs`, `mbr-edit`, `vm-f2fs`, `vm-bios-luks`, `vm-sdboot`, `vm-greetd` — six of six. `vm-bios-luks` is the first BIOS fixture recorded on the cluster rather than under local QEMU, and `vm-greetd` the second greetd record |
 
 Every row from `08015b221d73` onward ran `--region cn --site nju --sync
 webrsync --distfiles http://10.31.0.2/gentoo`, with one exception named in the
