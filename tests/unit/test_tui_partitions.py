@@ -359,6 +359,30 @@ def test_a_partition_editor_can_be_left_with_the_edit_kept() -> None:
     assert kept is not None and kept.label == "carried", kept
 
 
+def test_a_raid_member_has_no_partition_encryption_field() -> None:
+    """`manual.build` drops a member's passphrase — the array carries the
+    LUKS — so offering the row let an operator mark a member `luks` and
+    install an unencrypted array. The pool member has never offered it.
+    """
+    from gentoo_install.model.device import PartitionRole
+
+    at = opened()
+    for role in (PartitionRole.RAID, PartitionRole.ZFS):
+        entry = manual.Slice(index=2, role=role, size=None, mountpoint="")
+        rows = partitions._slice_fields(entry, manual.purpose_of(entry), at.translate)
+        assert "Encryption" not in {one.label for one in rows}, (role, rows)
+
+    # An ordinary partition still offers it: that is where LUKS belongs.
+    plain = manual.Slice(index=2, role=PartitionRole.DATA, size=None, mountpoint="/home")
+    shown = partitions._slice_fields(plain, manual.purpose_of(plain), at.translate)
+    assert "Encryption" in {one.label for one in shown}
+
+    # And the array's own row is where it is asked for instead.
+    from gentoo_install.tui.partitions import _ARRAY_FIELDS, _ENCRYPTION
+
+    assert _ENCRYPTION in {one.key for one in _ARRAY_FIELDS}
+
+
 def test_a_zfs_member_has_no_partition_encryption_field() -> None:
     entry = manual.Slice(index=2, role=PartitionRole.ZFS, size=None, mountpoint="/")
     fields = partitions._slice_fields(entry, manual.purpose_of(entry), opened().translate)
