@@ -187,13 +187,27 @@ class SecretStore:
     def stage(self, device: DeviceId, passphrase: str) -> None:
         write_file(self.path(device), passphrase, 0o600)
 
-    def cleanup(self) -> None:
+    def cleanup(self) -> tuple[str, ...]:
+        """Remove every staged passphrase, and answer the ones that stayed.
+
+        Raising here replaces the failure that brought the run to the closing
+        path — a preflight refusal, or the install's own error — with an
+        `unlink` errno, and that is never the more useful of the two. The
+        caller reports what stayed, because a passphrase left on disk is not
+        something to drop quietly either.
+        """
         keys = self.work / "keys" / "approved"
         if not keys.is_dir():
-            return
+            return ()
+        stayed: list[str] = []
         for path in keys.iterdir():
-            if path.is_file():
+            if not path.is_file():
+                continue
+            try:
                 path.unlink()
+            except OSError as error:
+                stayed.append(f"{path}: {error}")
+        return tuple(stayed)
 
 
 @dataclass(frozen=True)
@@ -204,10 +218,12 @@ class Report:
 
     def raise_if_fatal(self) -> None:
         if self.fatal:
-            if self.secrets is not None:
-                self.secrets.cleanup()
+            # After the reasons, never instead of them: what the operator has
+            # to read first is why this machine was refused.
+            stayed = self.secrets.cleanup() if self.secrets is not None else ()
             raise PreflightFailed(
-                "this machine cannot run the install:\n  " + "\n  ".join(self.fatal)
+                "this machine cannot run the install:\n  "
+                + "\n  ".join([*self.fatal, *(f"a staged passphrase stayed: {one}" for one in stayed)])
             )
 
 
