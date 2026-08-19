@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Final
 
 from .console import SerialConsole
-from .driver import build as build_driver
+from .driver import build as build_driver, wait_for_driver
 from .workdir import WorkdirError, confined
 from .media import MEDIA
 from .qemu import Firmware, Vm, VmSpec
@@ -98,8 +98,7 @@ def _check(console: SerialConsole, families: str, driver: str) -> Result:
     if waited:
         found.egress = waited
         return found
-    console.run("mkdir -p /mnt/driver")
-    console.run("mountpoint -q /mnt/driver || mount -o ro /dev/sr1 /mnt/driver")
+    wait_for_driver(console)
     console.run(f"mkdir -p {driver} && tar xzf /mnt/driver/driver.tar.gz -C {driver}")
 
     wants4, wants6 = EXPECTED[families]

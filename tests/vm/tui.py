@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Final
 
 from .console import ConsoleTimeout, SerialConsole
-from .driver import build as build_driver
+from .driver import build as build_driver, wait_for_driver
 from .run import create_target
 from .media import MEDIA
 from .qemu import Firmware, Vm, VmSpec
@@ -559,8 +559,10 @@ def _wait_for_menu(
 
 
 def _open_menu(console: SerialConsole, lang: str) -> None:
-    console.run("mkdir -p /mnt/driver")
-    console.run("mountpoint -q /mnt/driver || mount -o ro /dev/sr1 /mnt/driver")
+    # Through the shared search, not a device node: the walk hardcoded
+    # `/dev/sr1` and the guest answered `Can't open blockdev`, so the tarball
+    # was never unpacked and the menu never started.
+    wait_for_driver(console)
     console.run("mkdir -p /tmp/driver && tar xzf /mnt/driver/driver.tar.gz -C /tmp/driver")
     console.run(f"stty rows {LINES} cols {COLUMNS}")
     # `TERM` explicitly: a serial getty leaves it unset and curses then refuses
