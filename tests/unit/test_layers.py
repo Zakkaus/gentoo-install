@@ -490,3 +490,28 @@ def test_no_module_imports_a_name_it_never_uses() -> None:
             if not re.search(rf"\b{re.escape(name)}\b", elsewhere)
         ]
     assert not dead, dead
+
+
+def test_the_passphrase_minimum_is_one_number() -> None:
+    """`zpool create` refuses a short passphrase after the disk is already
+    partitioned, so the menu asks for the same length the preflight does. Two
+    constants carried the same 8 and the same reason, and raising one would
+    have left the menu accepting what the install then stops on."""
+    from gentoo_install.exec.preflight import ZFS_PASSPHRASE_MINIMUM
+    from gentoo_install.tui.screens import PASSPHRASE_MINIMUM
+
+    assert PASSPHRASE_MINIMUM is ZFS_PASSPHRASE_MINIMUM
+
+    # And nothing else in the package writes a minimum of its own. The file,
+    # not the line: a number in this assertion would break on any edit above
+    # it and say nothing about the rule.
+    written = {
+        str(path.relative_to(PACKAGE.parent))
+        for path in sorted(PACKAGE.rglob("*.py"))
+        for node in ast.parse(path.read_text()).body
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.target.id.endswith("PASSPHRASE_MINIMUM")
+        and isinstance(node.value, ast.Constant)
+    }
+    assert written == {"gentoo_install/exec/preflight.py"}, written
