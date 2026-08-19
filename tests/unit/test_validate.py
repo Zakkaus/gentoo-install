@@ -73,6 +73,34 @@ def dd_config() -> InstallConfig:
     )
 
 
+def test_every_port_is_judged_against_one_range() -> None:
+    """Three checks spelled the same two numbers and the same sentence, so a
+    correction to one would have left the other two saying something the
+    installer no longer does.
+    """
+    import ast
+    import inspect
+
+    from gentoo_install.model import validate as model_validate
+
+    assert model_validate.PORTS == range(1, 65536)
+    assert model_validate._port_problem("a port", 1) == ""
+    assert model_validate._port_problem("a port", 65535) == ""
+    assert "between 1 and 65535" in model_validate._port_problem("a port", 0)
+    assert "between 1 and 65535" in model_validate._port_problem("a port", 65536)
+
+    # And nothing else in the module writes the boundary out: the numbers read
+    # the same as the constant, so only the source says whether there is one
+    # rule or three.
+    tree = ast.parse(inspect.getsource(model_validate))
+    spelled = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and node.value in (65535, 65536)
+    ]
+    assert len(spelled) == 1, [node.lineno for node in spelled]
+
+
 def test_a_broken_proxy_is_refused_in_dd_mode_too() -> None:
     """`dd` reads a local path and uses no proxy, so its validation returned
     before the proxy was looked at: a host with no port was refused in every

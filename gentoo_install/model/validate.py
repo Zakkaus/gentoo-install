@@ -184,6 +184,19 @@ class _ConfiguredAddressFacts:
     remote_unlock: _RemoteUnlockAddressFacts
 
 
+#: What a TCP port can be. Three checks spelled the same two numbers and the
+#: same sentence, so a correction to one of them would have left the other
+#: two saying something the installer no longer does.
+PORTS: Final[range] = range(1, 65536)
+
+
+def _port_problem(what: str, port: int) -> str:
+    """Empty when that port is one, the sentence to report when it is not."""
+    if port in PORTS:
+        return ""
+    return f"{what} must be between {PORTS.start} and {PORTS.stop - 1}"
+
+
 def validate(
     config: InstallConfig,
     *,
@@ -260,8 +273,8 @@ def validate_memory_launch(config: InstallConfig, launch: MemoryLaunch) -> None:
             "the layout needs ZFS, the Alpine netboot kernel has no zfs.ko, "
             "and --ram is the mode whose Gentoo CJK ISO carries it"
         )
-    if launch.ssh_port is not None and not 1 <= launch.ssh_port <= 65535:
-        problems.append("--ssh-port must be between 1 and 65535")
+    if launch.ssh_port is not None and (refused := _port_problem("--ssh-port", launch.ssh_port)):
+        problems.append(refused)
     later = [
         name
         for name, given in (("--ssh-key", launch.ssh_key), ("--ssh-port", launch.ssh_port))
@@ -340,8 +353,8 @@ def _proxy_problems(config: InstallConfig) -> list[str]:
         if proxy.port or proxy.username or proxy.password:
             return ["proxy host is required when proxy fields are set"]
         return []
-    if proxy.port < 1 or proxy.port > 65535:
-        return ["proxy port must be between 1 and 65535"]
+    if refused := _port_problem("proxy port", proxy.port):
+        return [refused]
     if any(char.isspace() for char in proxy.host):
         return ["proxy host must not contain spaces"]
     if any(ord(char) < 0x20 or ord(char) == 0x7F for char in proxy.password):
@@ -543,8 +556,8 @@ def _unlock_problems(
     if not unlock.enabled:
         return []
     problems: list[str] = []
-    if not 1 <= unlock.port <= 65535:
-        problems.append(f"the remote unlock port {unlock.port} is not between 1 and 65535")
+    if refused := _port_problem(f"the remote unlock port {unlock.port}", unlock.port):
+        problems.append(refused)
     for named, fact in (("address", facts.address), ("gateway", facts.gateway)):
         if fact.literal and fact.parsed is None:
             problems.append(
