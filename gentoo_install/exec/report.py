@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 import stat
 import tomllib
 from collections.abc import Callable, Iterable, Iterator
@@ -54,18 +55,28 @@ class ActiveReport:
 def recording(work: Path, target: Path) -> Iterator[ActiveReport]:
     """Open the files that record a run and close them when it finishes."""
     work.mkdir(parents=True, exist_ok=True)
-    with (work / RunFile.LOG.value).open("a") as log:
+    log = (work / RunFile.LOG.value).open("a")
 
-        def record(line: str) -> None:
-            print(line, file=log, flush=True)
-            print(line, flush=True)
+    def record(line: str) -> None:
+        print(line, file=log, flush=True)
+        print(line, flush=True)
 
+    try:
         yield ActiveReport(
             work=work,
             target=target,
             record=record,
             journal=Journal(path=work / RunFile.JOURNAL.value),
         )
+    finally:
+        # Not a `with`: this close runs while an install's own exception is
+        # unwinding, and the work directory is a tmpfs an install can fill.
+        # An errno from the last flush would replace the reason the install
+        # stopped, which is the one thing the operator needs.
+        try:
+            log.close()
+        except OSError as error:
+            print(f"WARNING: the run log could not be closed: {error}", file=sys.stderr)
 
 
 #: Target-absolute, so `open_in_target` refuses a symlink on the way. A
