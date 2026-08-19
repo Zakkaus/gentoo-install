@@ -444,6 +444,46 @@ def test_the_binhost_key_is_signed_after_getuto_creates_the_keyring() -> None:
     assert getuto < imported < signed
 
 
+def test_a_key_that_will_not_sign_takes_its_host_down_with_it() -> None:
+    """An imported key stays untrusted until `lsign`, and verification then
+    fails exactly as it does with no key at all. Nothing exercised that path:
+    the host would have been written with `verify-signature = true` and the
+    installed system left pulling binaries it cannot verify.
+    """
+    installation = with_portage(binhost=Binhost(official=True, community=BinhostChannel.STABLE))
+    operations = portage.build(installation, MIRROR)
+    imported = next(
+        one for one in operations if isinstance(one, portage.TrustBinhostKey)
+    )
+    community = next(
+        one
+        for one in operations
+        if isinstance(one, portage.ConfigureBinhost) and one.name != "gentoo"
+    )
+
+    recorder = Recorder(failures={"gpg"})
+    imported.apply(recorder)
+    assert recorder.degraded(portage.binhost_trust(imported.binhost))
+    assert imported.fingerprint[-16:] in recorder.degradations[
+        portage.binhost_trust(imported.binhost)
+    ]
+    # And the official host is not taken down with it: its key comes from
+    # getuto, which has nothing to do with this one.
+    assert not recorder.degraded(portage.BINARY_PACKAGES)
+
+    community.apply(recorder)
+    assert not recorder.files, recorder.files
+
+    # Negative control: the same host is written when the key does sign.
+    working = Recorder()
+    imported.apply(working)
+    assert not working.given_up, working.degradations
+    community.apply(working)
+    assert [str(one) for one in working.files] == [
+        f"/etc/portage/binrepos.conf/{community.name}.conf"
+    ], working.files
+
+
 def test_the_binhost_is_only_trusted_once_its_key_is() -> None:
     installation = with_portage(binhost=Binhost(official=True, community=BinhostChannel.STABLE))
     operations = portage.build(installation, MIRROR)
