@@ -77,6 +77,22 @@ GRUB_MODULES_CHECK: Final[InstalledCheck] = InstalledCheck(
     r"(?m)^grubmods=[1-9][0-9]*$",
 )
 
+#: The kernel answering that the module is there does not say GRUB's own
+#: driver can follow it, and `grub-fstest` is that driver on the same device.
+GRUB_READS_ITS_MODULE: Final[InstalledCheck] = InstalledCheck(
+    "grub reads its module",
+    "printf 'grubread=%s\\n' \"$(grub-fstest \"$(grub-probe --target=device /boot)\" "
+    f"cat \"$(grub-mkrelpath {GRUB_MODULE_DIRECTORY}/normal.mod)\" 2>/dev/null | wc -c)\"",
+    r"(?m)^grubread=[1-9][0-9]*$",
+)
+
+#: What a conversion is asked before it reboots, in this order: the machine is
+#: still answering here and a rescue shell answers nothing.
+BEFORE_THE_REBOOT: Final[tuple[InstalledCheck, ...]] = (
+    GRUB_MODULES_CHECK,
+    GRUB_READS_ITS_MODULE,
+)
+
 #: Bigger than every image here, so cloud-init's `growpart` and `resizefs`
 #: run on first boot. A 5 GiB Fedora root cannot hold a stage3 and a kernel.
 OVERLAY_SIZE: Final[str] = "24G"
