@@ -676,7 +676,13 @@ class AppendWaylandFlags(Operation):
         return f"add the Wayland input method flags for {self.group} to {self.file.path}"
 
     def apply(self, context: Context) -> None:
-        if self.file.content.strip() in context.read(self.file.path):
+        # A line of its own, not the text anywhere in the file: the shipped
+        # `/etc/chromium/default` carries commented settings, and a commented
+        # copy of this one satisfied a substring test while chromium read
+        # nothing, so an install that appeared to configure the input method
+        # left it unconfigured.
+        wanted = self.file.content.strip()
+        if any(line.strip() == wanted for line in context.read(self.file.path).splitlines()):
             return
         context.append(self.file.path, f"{self.file.content.rstrip()}\n")
 
