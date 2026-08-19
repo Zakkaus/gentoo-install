@@ -58,6 +58,9 @@ EFI_VARIABLES: Final[Path] = EFI_MARKER / "efivars"
 #: it, so the scan below never ran and the install stopped anyway.
 UDEV_NAMES: Final[tuple[str, ...]] = ("udevd", "systemd-udevd")
 
+#: The one `/proc` in this module. `MEMINFO`, `CMDLINE` and `CPUINFO` each
+#: wrote the path out again, so a probe pointed at another root — a container,
+#: a test — would have moved some of them and not the others.
 PROC: Final[Path] = Path("/proc")
 
 #: What makes one live session different from the next. A resumed install must
@@ -425,10 +428,10 @@ def _efi_bits() -> int:
         return 0
 #: Where both install media keep the release engineering public key.
 RELEASE_KEY: Final[Path] = Path("/usr/share/openpgp-keys/gentoo-release.asc")
-MEMINFO: Final[Path] = Path("/proc/meminfo")
+MEMINFO: Final[Path] = PROC / "meminfo"
 
 #: Read rather than asked for: `findmnt` cannot say what booted this.
-CMDLINE: Final[Path] = Path("/proc/cmdline")
+CMDLINE: Final[Path] = PROC / "cmdline"
 PROFILES_DESC: Final[Path] = Path("/var/db/repos/gentoo/profiles/profiles.desc")
 MEMORY_PAYLOAD: Final[Path] = Path("/gentoo-install")
 
@@ -519,7 +522,7 @@ IMPLIED_CPU_FLAGS: Final[dict[str, str]] = {"sse": "mmxext"}
 
 #: Named rather than written inline, so the fallback can be exercised against
 #: a file holding one CPU's flags instead of whatever this machine has.
-CPUINFO: Final[Path] = Path("/proc/cpuinfo")
+CPUINFO: Final[Path] = PROC / "cpuinfo"
 
 #: Directories under zoneinfo that are not regions: legacy aliases, and the
 #: right and posix trees, which repeat every zone with another leap-second
