@@ -109,7 +109,14 @@ from .results import (
     read_console,
 )
 from .workdir import WorkdirError, confined
-from .convert import HOME_MARKER, HOME_MARKER_CHECK, HOME_MARKER_PATH
+from .convert import (
+    ETC_MARKER,
+    ETC_MARKER_CHECK,
+    ETC_MARKER_PATH,
+    HOME_MARKER,
+    HOME_MARKER_CHECK,
+    HOME_MARKER_PATH,
+)
 from .installed import InstalledCheck, checks, stage_passphrase_commands
 from .run import SEEDED, remote_config, remote_unlock, ssh_keypair
 
@@ -3182,11 +3189,13 @@ def convert_and_check(
     """
     installation = load(fixture)
     wait_for_network(link, guest.vmid, address)
-    # Before the conversion, because the promise is that it survives one:
-    # `/home` is the path an operator has data on, and the cluster row said
-    # the converted machine carried what the conversion asked for without
-    # anything having looked at it.
+    # Before the conversion, one sentinel on each side of the swap: `/home` is
+    # the path an operator has data on and has to survive, and `/etc` is
+    # replaced rather than merged, so a file put there has to be gone. The
+    # cluster row said the converted machine carried what the conversion asked
+    # for without anything having looked at either.
     link.run(f"printf '%s\\n' {HOME_MARKER} > {HOME_MARKER_PATH}")
+    link.run(f"printf '%s\\n' {ETC_MARKER} > {ETC_MARKER_PATH}")
     link.run(FIND_DRIVER)
     link.run(f"mkdir -p {RESULT_DIR}")
     link.wait_for(
@@ -3206,7 +3215,9 @@ def convert_and_check(
         return f"the conversion exited {code!r}"
     # The same reader as the first install: a converted machine that reaches a
     # login prompt with the old hostname booted the system it was replacing.
-    return boot_and_check(guest, link, log, installation, extra=(HOME_MARKER_CHECK,))
+    return boot_and_check(
+        guest, link, log, installation, extra=(HOME_MARKER_CHECK, ETC_MARKER_CHECK)
+    )
 
 
 def boot_and_check(

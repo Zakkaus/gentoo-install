@@ -54,6 +54,19 @@ HOME_MARKER_CHECK: Final[InstalledCheck] = InstalledCheck(
     r"(?m)^home=1$",
 )
 
+#: The same sentinel inside the tree the conversion replaces. `/etc` is
+#: replaced rather than merged, which is what keeps the old distribution's
+#: units, sources and package manager from configuring a Gentoo: a file put
+#: there before the swap has to be gone afterwards. Counted the same way, so
+#: neither the echo nor `cat`'s own diagnostic can answer it.
+ETC_MARKER: Final[str] = "gentoo-install-etc-is-replaced-8b7c1d05"
+ETC_MARKER_PATH: Final[Path] = Path("/etc") / f".{ETC_MARKER}"
+ETC_MARKER_CHECK: Final[InstalledCheck] = InstalledCheck(
+    "etc marker",
+    f"printf 'etc=%s\\n' \"$(grep -Fc {ETC_MARKER} {ETC_MARKER_PATH} 2>/dev/null || echo 0)\"",
+    r"(?m)^etc=0$",
+)
+
 #: Bigger than every image here, so cloud-init's `growpart` and `resizefs`
 #: run on first boot. A 5 GiB Fedora root cannot hold a stage3 and a kernel.
 OVERLAY_SIZE: Final[str] = "24G"
@@ -266,17 +279,21 @@ def install_tools(
             "so the run would refuse for a command nobody installed"
         )
 
-def write_home_marker(console: SerialConsole) -> None:
-    """Write the conversion's unique sentinel outside the replaced tree."""
+def write_markers(console: SerialConsole) -> None:
+    """Write the conversion's sentinels on both sides of the swap."""
     console.run(
         f"printf '%s\\n' {HOME_MARKER} > {HOME_MARKER_PATH}",
+        timeout=60.0,
+    )
+    console.run(
+        f"printf '%s\\n' {ETC_MARKER} > {ETC_MARKER_PATH}",
         timeout=60.0,
     )
 
 
 def conversion_checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
     """Add the in-place preservation check to the installed-state contract."""
-    return (*checks(installation), HOME_MARKER_CHECK)
+    return (*checks(installation), HOME_MARKER_CHECK, ETC_MARKER_CHECK)
 
 
 def check_installed(console: SerialConsole, installation: InstallConfig) -> str:
@@ -292,7 +309,7 @@ def check_installed(console: SerialConsole, installation: InstallConfig) -> str:
 
 def convert(console: SerialConsole, config: str) -> None:
     """Run the installer in place and keep everything it printed."""
-    write_home_marker(console)
+    write_markers(console)
     console.run("mkdir -p /tmp/gentoo-install-results", timeout=60.0)
     console.run(
         f"{{ sh /mnt/driver/install.sh --config {config}; echo $? "
