@@ -171,6 +171,33 @@ def test_an_in_place_configuration_validates_without_a_device_graph() -> None:
     validate(installation)
 
 
+def test_in_place_keeps_the_rules_that_need_no_device_graph() -> None:
+    """The graph rules are skipped in this mode because there is no graph, and
+    that used to take the configuration's own rules with them: a conversion
+    could lock root, name no user and authorise no key, and the machine it
+    produced had no way in with an exit code of 0."""
+    base = replace(
+        config(), disk=replace(config().disk, graph=DeviceGraph.build(()), root=i(""), mode=DiskMode.IN_PLACE)
+    )
+    locked = replace(
+        base, system=replace(base.system, root_password_hash="", users=(), authorized_keys=())
+    )
+    with pytest.raises(ValidationFailed, match="no user password and no authorised ssh key"):
+        validate(locked)
+    unlocking = replace(
+        base,
+        system=replace(base.system, authorized_keys=()),
+        kernel=replace(
+            base.kernel, remote_unlock=replace(base.kernel.remote_unlock, enabled=True)
+        ),
+    )
+    with pytest.raises(ValidationFailed, match="no authorised ssh key"):
+        validate(unlocking)
+    # The other direction: a rule that reads the graph must not fire here, or
+    # every conversion is refused for a layout it was never given.
+    validate(base)
+
+
 def test_in_place_mode_rejects_a_device_graph() -> None:
     installation = replace(config(), disk=replace(config().disk, mode=DiskMode.IN_PLACE))
     with pytest.raises(ValidationFailed, match="disk.devices is not allowed"):
