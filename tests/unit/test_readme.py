@@ -438,8 +438,10 @@ def test_every_fixture_a_record_used_is_named_in_it() -> None:
 
     # Named anywhere in the file, which includes a row that records why a
     # fixture failed: this rule is about a record a reader can trace back to a
-    # configuration, not about a fixture having passed. These two appear
-    # nowhere at all.
-    without_a_record = {"vm-source-kernel"}
+    # configuration, not about a fixture having passed. The set is empty since
+    # `vm-source-kernel` finished at `43b5737b04478` on its fourth attempt,
+    # and it stays a set rather than an assertion of emptiness because a new
+    # fixture arrives before its first run.
+    without_a_record: set[str] = set()
     assert without_a_record <= fixtures, without_a_record
     assert fixtures - recorded == without_a_record, sorted(fixtures - recorded)
