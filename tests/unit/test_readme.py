@@ -403,3 +403,24 @@ def test_the_readme_names_everything_publishing_removes() -> None:
     # `only` was the word that made it wrong; it must not come back beside the
     # two hashes it used to qualify.
     assert "replaces only" not in said, said
+
+
+def test_every_fixture_a_record_used_is_named_in_it() -> None:
+    """A row that says `dd`, raw and gz` does not say which configuration ran,
+    and a reader cannot check the claim against the tree. Six of the forty
+    fixtures were used by a record that never named them.
+
+    Only the fixtures a record exists for: one that has never run is absent
+    from `TESTED.md` on purpose, and this must not turn into a rule that every
+    fixture has a record.
+    """
+    import re
+
+    recorded = set(re.findall(r"`([a-z0-9][a-z0-9-]+)`", (ROOT / "TESTED.md").read_text()))
+    fixtures = {one.stem for one in (ROOT / "tests" / "fixtures").glob("*.toml")}
+
+    # The dd and memory-environment rows name theirs now; these are the ones
+    # with no record at all, and each is a path nothing has measured.
+    without_a_record = {"vm-image", "vm-source-kernel", "zbm-unlock"}
+    assert without_a_record <= fixtures, without_a_record
+    assert fixtures - recorded == without_a_record, sorted(fixtures - recorded)
