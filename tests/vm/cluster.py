@@ -480,6 +480,11 @@ class Watchdog:
     #: control: `static-ip` went to cpu 0.00 mid-compile and the node it was
     #: on had to be read back out of the dispatch line to say anything at all.
     where: str = ""
+    #: What the node itself was doing, read once when the guest is about to be
+    #: called stuck. Two guests were ended mid-compile at `cpu 0.00` on nodes
+    #: this campaign does not own, and the verdict could not tell a guest that
+    #: stopped from a node with no time to give it.
+    load: Callable[[], float | None] | None = None
     strikes: int = 0
     _seen: int = field(default=0, init=False)
     _moved: int = field(default=0, init=False)
@@ -549,10 +554,12 @@ class Watchdog:
                     "and the console said nothing"
                 )
             node = f" on {self.where}" if self.where else ""
+            busy = self.load() if self.load is not None else None
+            said = "" if busy is None else f", the node itself at {busy * 100:.0f}%"
             return (
                 f"counters were flat{node} "
                 f"({self._counter_before} -> {self._counter_after} bytes, "
-                f"cpu {self._cpu:.2f})"
+                f"cpu {self._cpu:.2f}){said}"
             )
 
     @property
@@ -1579,7 +1586,12 @@ def _execution(
     )
     return Running(
         guest,
-        Watchdog(log=log, counters=lambda: guest.transferred(), where=node),
+        Watchdog(
+            log=log,
+            counters=lambda: guest.transferred(),
+            where=node,
+            load=lambda: api.node_load(node),
+        ),
         job.reservation_bytes,
         address,
     )
