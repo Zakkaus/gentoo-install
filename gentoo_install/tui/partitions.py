@@ -854,7 +854,11 @@ def _slice_field_items(
                     ),
                 )
             ]
-            if purpose.role is not PartitionRole.ZFS
+            # Neither member kind: the pool and the array each carry their
+            # own LUKS, and `manual.build` drops a member's passphrase for
+            # that reason. A RAID member still offered the row, so a table
+            # marked `luks` produced an unencrypted array.
+            if purpose.role not in (PartitionRole.ZFS, PartitionRole.RAID)
             else []
         ),
         Item(
