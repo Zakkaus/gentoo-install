@@ -85,7 +85,7 @@
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
   install the storage tools: emerge sys-fs/cryptsetup sys-fs/btrfs-progs sys-fs/dosfstools
   install the kernel: emerge sys-kernel/gentoo-cjk-kernel-bin, from source
-  tell dracut to carry crypt, btrfs, and 13 cloud bus drivers whatever it detects
+  write /etc/dracut.conf.d/10-gentoo-install.conf so dracut carries crypt, btrfs, and 13 cloud bus drivers whatever it detects
   rebuild the initramfs from sys-kernel/gentoo-cjk-kernel-bin with the modules written above
   check the installkernel payload names existing kernel files
 
@@ -102,7 +102,7 @@
   install the noto-cjk group: emerge media-fonts/noto-cjk media-fonts/noto media-libs/fontconfig
   install the flclash group: emerge net-proxy/flclash-bin
   set XMODIFIERS, QT_IM_MODULES in /etc/environment for fcitx
-  configure fcitx with rime and luna_pinyin pinyin_simp for skel, zakk
+  configure fcitx with rime and luna_pinyin pinyin_simp for skel, zakk, writing .config/fcitx5/profile, .config/gtk-3.0/settings.ini, .config/gtk-4.0/settings.ini, .local/share/fcitx5/rime/default.custom.yaml under each
   verify app-i18n/fcitx installed /usr/share/applications/fcitx5-wayland-launcher.desktop
   set /etc/xdg/kwinrc so the Wayland session starts /usr/share/applications/fcitx5-wayland-launcher.desktop
   enable /etc/fonts/conf.d/70-noto-cjk.conf

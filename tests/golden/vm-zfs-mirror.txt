@@ -43,7 +43,7 @@
   point repository gentoo-zh at https://github.com/gentoo-zh/overlay.git
   sync repository gentoo-zh, 4 other sites to fall back on
   accept ~amd64 for packages from gentoo-zh only
-  set sys-kernel/installkernel to dracut, installing into /boot
+  set sys-kernel/installkernel to dracut, writing BOOT_ROOT=/boot to /etc/kernel/install.conf.d/50-gentoo-install.conf
   verify the selected kernel against the target sys-fs/zfs ceiling
   accept the linux-firmware licence
   tell sys-fs/zfs to build against the dist-kernel
@@ -71,7 +71,7 @@
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
   install the storage tools: emerge sys-fs/dosfstools
   install the kernel and the tools that build a module for it: emerge sys-kernel/gentoo-kernel-bin sys-fs/zfs, building sys-fs/zfs here
-  tell dracut to carry zfs, and 13 cloud bus drivers whatever it detects
+  write /etc/dracut.conf.d/10-gentoo-install.conf so dracut carries zfs, and 13 cloud bus drivers whatever it detects
   copy the installing system's hostid into the target so the pool imports
   rebuild the initramfs from sys-kernel/gentoo-kernel-bin with the modules written above
   check the installkernel payload names existing kernel files
@@ -79,7 +79,7 @@
 [bootloader]
   install the bootloader: emerge sys-boot/zfsbootmenu sys-boot/efibootmgr
   install the EFI stub generate-zbm builds around: emerge sys-apps/systemd
-  build ZFSBootMenu into /efi/EFI/zbm and boot rpool/ROOT/gentoo from it
+  write /etc/zfsbootmenu/config.yaml, build ZFSBootMenu into /efi/EFI/zbm, and boot rpool/ROOT/gentoo from it
 
 [packages]
   enable zfs-import-scan.service at boot

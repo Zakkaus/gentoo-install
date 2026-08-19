@@ -181,11 +181,11 @@ def test_bios_installs_no_efibootmgr() -> None:
 
 def test_dracut_carries_a_module_for_every_layer_of_the_stack() -> None:
     described = " ".join(operation.describe() for operation in plan(config()))
-    assert "tell dracut to carry" not in described  # plain ext4 needs no extra module
+    assert "so dracut carries" not in described  # plain ext4 needs no extra module
     with_luks = " ".join(
         operation.describe() for operation in plan(load(FIXTURES / "btrfs-luks.toml"), load_catalog())
     )
-    assert "tell dracut to carry crypt, btrfs" in with_luks
+    assert "so dracut carries crypt, btrfs" in with_luks
 
 
 def test_an_openrc_target_gets_netifrc_which_stage3_does_not_carry() -> None:

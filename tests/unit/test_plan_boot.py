@@ -800,14 +800,17 @@ def test_the_kernel_is_merged_before_anything_that_builds_a_module_for_it() -> N
     """`sys-fs/zfs[dist-kernel]` depends on `virtual/dist-kernel`. Merged while
     the chosen kernel is still masked, Portage satisfies that virtual with a
     second kernel and builds zfs.ko for the one that will not boot."""
-    described = [one.describe() for one in kernel.build(zfs_installation())]
+    operations = kernel.build(zfs_installation())
+    described = [one.describe() for one in operations]
     merged = next(at for at, one in enumerate(described) if one.startswith("install the kernel"))
     told = next(at for at, one in enumerate(described) if "build against the dist-kernel" in one)
     initramfs = next(at for at, one in enumerate(described) if one.startswith("rebuild the initramfs"))
     # The dracut module list is written after the merge, or the kernel's own
     # postinst asks for a zfs module whose userland is not installed yet.
     listed = next(
-        at for at, one in enumerate(described) if one.startswith("tell dracut to carry zfs")
+        at
+        for at, one in enumerate(operations)
+        if isinstance(one, kernel.WriteDracutModules) and "zfs" in one.modules
     )
     assert told < merged < listed < initramfs
 

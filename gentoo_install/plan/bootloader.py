@@ -116,6 +116,7 @@ ZBM_REMOTE_CONFIG: Final[PurePosixPath] = PurePosixPath(
 ZBM_NETWORK_CONFIG: Final[PurePosixPath] = PurePosixPath(
     "/etc/cmdline.d/dracut-network.conf"
 )
+ZBM_CONFIG: Final[PurePosixPath] = PurePosixPath("/etc/zfsbootmenu/config.yaml")
 ZBM_KEY_DIRECTORY: Final[PurePosixPath] = PurePosixPath("/etc/dropbear")
 ZBM_AUTHORIZED_KEYS: Final[PurePosixPath] = ZBM_KEY_DIRECTORY / "root_key"
 #: `ssh-keygen -m PEM` refuses ed25519 — "Saving key failed: invalid format" —
@@ -455,7 +456,10 @@ class InstallZfsBootMenu(Operation):
     serial: tuple[str, int] | None
 
     def describe(self) -> str:
-        return f"build ZFSBootMenu into {self.esp}/{ZBM_DIRECTORY} and boot {self.dataset} from it"
+        return (
+            f"write {ZBM_CONFIG}, build ZFSBootMenu into {self.esp}/{ZBM_DIRECTORY}, "
+            f"and boot {self.dataset} from it"
+        )
 
     def _config(self) -> str:
         kernel = ""
@@ -512,7 +516,7 @@ class InstallZfsBootMenu(Operation):
                 self.dataset,
             ]
         )
-        context.write(PurePosixPath("/etc/zfsbootmenu/config.yaml"), self._config())
+        context.write(ZBM_CONFIG, self._config())
         context.run_in_target(["generate-zbm"])
         image = self._image(context)
         if self.unlocks_remotely:
