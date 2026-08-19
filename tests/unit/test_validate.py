@@ -73,6 +73,34 @@ def dd_config() -> InstallConfig:
     )
 
 
+def test_partition_mode_refuses_the_keys_of_other_modes() -> None:
+    """The ordinary mode refused nothing, so a key belonging to another one
+    was accepted and ignored — and `disk.size` did not even survive a save,
+    because `serialise` writes it only in image mode.
+    """
+    from gentoo_install.model import parse as model_parse
+    from gentoo_install.model.serialise import to_toml
+    import tomllib
+
+    sound = config(ext4_on_gpt())
+    validate(sound)
+
+    for field, wrong in (
+        ("image", replace(sound.disk, image="/run/image.raw")),
+        ("size", replace(sound.disk, size=Size.parse("20GiB"))),
+        ("source", replace(sound.disk, source="/run/source.raw")),
+        ("destination", replace(sound.disk, destination="/dev/disk/by-id/target")),
+    ):
+        with pytest.raises(ValidationFailed, match=f"disk.{field} is not allowed"):
+            validate(replace(sound, disk=wrong))
+
+    # The save that lost it: a partition configuration carrying a size wrote
+    # TOML without one, so reloading changed the configuration.
+    carried = replace(sound, disk=replace(sound.disk, size=Size.parse("20GiB")))
+    again = model_parse.parse(tomllib.loads(to_toml(carried)))
+    assert again.disk.size is None, again.disk.size
+
+
 def test_every_port_is_judged_against_one_range() -> None:
     """Three checks spelled the same two numbers and the same sentence, so a
     correction to one would have left the other two saying something the

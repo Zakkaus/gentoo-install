@@ -295,7 +295,20 @@ def validate_memory_launch(config: InstallConfig, launch: MemoryLaunch) -> None:
 def _disk_mode_problems(config: InstallConfig) -> list[str]:
     disk = config.disk
     if disk.mode is DiskMode.PARTITION:
-        return []
+        # The ordinary mode refused nothing, so a key belonging to another one
+        # was accepted and ignored: `disk.size` in a partition configuration
+        # even survived a save as `None`, because `serialise` writes it only
+        # for image mode. The dd branch below has had this table from the
+        # start.
+        elsewhere = (
+            ("disk.image", bool(disk.image)),
+            ("disk.size", disk.size is not None),
+            ("disk.source", bool(disk.source)),
+            ("disk.destination", bool(disk.destination)),
+        )
+        return [
+            f"{name} is not allowed in partition mode" for name, used in elsewhere if used
+        ]
     if disk.mode is DiskMode.IMAGE:
         image_problems: list[str] = []
         if not disk.image:
