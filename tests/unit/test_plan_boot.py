@@ -722,6 +722,25 @@ def test_the_prebuilt_patched_kernel_is_the_one_a_chinese_interface_takes() -> N
         assert any("from source" in line for line in described), source
 
 
+def test_a_cjk_kernel_choice_is_read_out_of_the_package_table() -> None:
+    """`CJK_KERNELS` was a second list of the same two names under a comment
+    saying it was derived. A renamed or added cjktty package would have left
+    it stale, and the comment said that could not happen.
+    """
+    from gentoo_install.model.compat import CJK_PACKAGE_MARK, cjk_kernels
+
+    # The rule, against a table this repository does not ship: whichever
+    # choice names a cjktty package is the cjk choice, whatever it is called.
+    assert cjk_kernels(
+        {
+            KernelSource.DIST_BIN: "sys-kernel/gentoo-cjk-kernel-rt",
+            KernelSource.DIST_SOURCE: "sys-kernel/gentoo-kernel",
+        }
+    ) == (KernelSource.DIST_BIN,)
+    assert cjk_kernels({KernelSource.DIST_BIN: "sys-kernel/gentoo-kernel-bin"}) == ()
+    assert CJK_PACKAGE_MARK not in "sys-kernel/gentoo-kernel-bin"
+
+
 def test_the_prebuilt_patched_kernel_sits_beside_the_source_one() -> None:
     """`sys-kernel/gentoo-cjk-kernel-bin` is in gentoo-zh: same cjktty patch,
     same `+cjk` flag, same `virtual/dist-kernel`, nothing to compile."""
