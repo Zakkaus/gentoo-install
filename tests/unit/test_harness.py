@@ -4956,20 +4956,19 @@ def test_only_the_driver_module_names_a_cd_device() -> None:
     assert not guilty, guilty
 
 
-def test_the_walk_cancels_a_row_rather_than_editing_it() -> None:
-    """The walk that left rows with backspace deleted a character inside the
-    hostname field and the menu came back reading `Hostname  gento`. Escape
-    cancels, which changes nothing, and the wait after it has to outlast
-    ncurses' ESCDELAY or the next key is read as the rest of a sequence and
-    the escape never arrives."""
+def test_the_walk_leaves_a_row_with_the_key_every_widget_answers() -> None:
+    """Two leave keys were tried on a real console and both were wrong.
+    Escape is Cancel, and `app.run` answers Cancel with the prompt that ends
+    the install: the recording held two screens and nineteen rows reported as
+    never opening. Backspace deletes inside a field the row arrived with
+    filled, and that walk left the machine calling itself `gento`."""
     import inspect
 
     from tests.vm import tui
 
     walking = inspect.getsource(tui.walk)
     left = [line.strip() for line in walking.splitlines() if "send_raw" in line]
-    assert 'console.send_raw("\\x1b")' in left, left
+    assert 'console.send_raw("\\x1b[D")' in left, left
     assert not any(r"\x7f" in line for line in left), left
-    assert "time.sleep(ESCAPE_SETTLES)" in walking, walking
-    assert tui.ESCAPE_SETTLES > 1.0, tui.ESCAPE_SETTLES
+    assert 'console.send_raw("\\x1b")' not in left, left
 
