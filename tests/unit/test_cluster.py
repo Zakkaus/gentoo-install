@@ -2999,3 +2999,20 @@ def test_a_schedule_says_which_revision_it_measures() -> None:
     # says nothing about what it was carrying.
     assert said < source.index("_reserve_job("), source[said : said + 200]
 
+
+def test_the_summary_names_a_guest_the_run_could_not_remove() -> None:
+    """`removed=False` kept `Verdict.OK`, which is right — the install did
+    work — and the summary printed `10/10 passed` and nothing else. run114
+    left `ext2` on `infra-node4` for hours that way, and the only trace was one
+    line thousands of lines earlier."""
+    import inspect
+
+    from tests.vm import cluster
+
+    source = inspect.getsource(cluster.main)
+    counted = source.index("passed")
+    said = source.index("still on the cluster")
+    assert counted < said, source[counted : counted + 300]
+    # On stderr, where the operator reading a redirected run still sees it.
+    assert "file=sys.stderr" in source[said : said + 120], source[said : said + 200]
+

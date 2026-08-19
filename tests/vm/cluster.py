@@ -3768,6 +3768,13 @@ def main(argv: list[str] | None = None) -> int:
         if one.verdict is Verdict.OK and trusted_revision(one.revision)
     ]
     print(f"\n{len(passed)}/{len(jobs)} passed")
+    # A guest that could not be removed does not make its install a failure,
+    # but a summary that says only `10/10 passed` hides a machine still
+    # holding a node's memory: run114 left `ext2` on `infra-node4` for hours
+    # after `qmdestroy` answered `rbd error: listing images failed`.
+    for one in outcomes:
+        if not one.removed:
+            print(f"  still on the cluster: {one.name}", file=sys.stderr)
     for one in outcomes:
         if one.verdict is not Verdict.OK or not trusted_revision(one.revision):
             # A job refused before a guest existed has no log, and `(None)`
