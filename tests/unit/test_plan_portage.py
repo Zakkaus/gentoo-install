@@ -900,6 +900,51 @@ BINHOST_TIMED_OUT: Final[str] = (
 
 
 
+def test_both_binhost_detectors_read_one_marker() -> None:
+    """The failing path finds the line and the succeeding path parses the host
+    and the url out of it. The two spelled Portage's diagnostic separately, so
+    a reworded one would have left half of them silent while the other half
+    went on working.
+    """
+    from gentoo_install.plan import portage as plan_portage
+
+    assert plan_portage._binhost_unreadable(BINHOST_TIMED_OUT)
+    assert plan_portage._unreadable_index(BINHOST_TIMED_OUT)
+
+    # One marker: a diagnostic that does not carry it is seen by neither.
+    reworded = BINHOST_TIMED_OUT.replace(
+        plan_portage.BINHOST_INDEX_FAILURE, "Could not read binhost index"
+    )
+    assert plan_portage._binhost_unreadable(reworded) is None
+    assert plan_portage._unreadable_index(reworded) is None
+
+    # Both spellings answer the sample above, so only the source says whether
+    # there is one marker or two: the pattern has to quote the constant.
+    import ast
+    import inspect
+
+    tree = ast.parse(inspect.getsource(plan_portage))
+    assigned = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.target.id == "_INDEX_UNREADABLE"
+    ]
+    assert len(assigned) == 1, assigned
+    written = [
+        one.value
+        for one in ast.walk(assigned[0])
+        if isinstance(one, ast.Constant) and isinstance(one.value, str)
+    ]
+    assert not [
+        one for one in written if plan_portage.BINHOST_INDEX_FAILURE in one
+    ], written
+    assert "BINHOST_INDEX_FAILURE" in {
+        one.id for one in ast.walk(assigned[0]) if isinstance(one, ast.Name)
+    }
+
+
 def test_the_binhost_fallback_fixture_degrades_the_plan_to_source() -> None:
     from gentoo_install.exec.config import load
     from gentoo_install.plan.build import stage3_mirror
