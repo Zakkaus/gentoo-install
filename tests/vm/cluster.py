@@ -110,13 +110,13 @@ from .results import (
 )
 from .workdir import WorkdirError, confined
 from .convert import (
-    BEFORE_THE_REBOOT,
     ETC_MARKER,
     ETC_MARKER_CHECK,
     ETC_MARKER_PATH,
     HOME_MARKER,
     HOME_MARKER_CHECK,
     HOME_MARKER_PATH,
+    before_the_reboot,
 )
 from .installed import InstalledCheck, checks, stage_passphrase_commands
 from .run import SEEDED, remote_config, remote_unlock, ssh_keypair
@@ -3241,7 +3241,7 @@ def convert_and_check(
         return f"the conversion exited {code!r}"
     # Asked before the reboot: a guest that drops to `grub rescue>` for a
     # missing module answers nothing afterwards.
-    for check in BEFORE_THE_REBOOT:
+    for check in before_the_reboot(installation):
         said = link.expect_output(check.command, timeout=120.0)
         if re.search(check.pattern.encode(), said) is None:
             return (

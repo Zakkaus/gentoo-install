@@ -3045,9 +3045,10 @@ def test_a_conversion_counts_the_modules_its_bootloader_needs() -> None:
 
     from tests.vm import cluster
     from tests.vm.convert import (
-        BEFORE_THE_REBOOT,
         GRUB_MODULES_CHECK,
+        GRUB_PREFIX_CHECK,
         GRUB_READS_ITS_MODULE,
+        before_the_reboot,
     )
 
     # In the function's own body, not inside a branch: a loop the reboot can
@@ -3058,8 +3059,9 @@ def test_a_conversion_counts_the_modules_its_bootloader_needs() -> None:
         n
         for n, one in enumerate(body.body)
         if isinstance(one, ast.For)
-        and isinstance(one.iter, ast.Name)
-        and one.iter.id == "BEFORE_THE_REBOOT"
+        and isinstance(one.iter, ast.Call)
+        and isinstance(one.iter.func, ast.Name)
+        and one.iter.func.id == "before_the_reboot"
     ]
     booted = [
         n
@@ -3070,16 +3072,32 @@ def test_a_conversion_counts_the_modules_its_bootloader_needs() -> None:
         and one.value.func.id == "boot_and_check"
     ]
     assert asked and booted and asked[0] < booted[0], ast.dump(body)
-    assert GRUB_MODULES_CHECK in BEFORE_THE_REBOOT
-    assert GRUB_READS_ITS_MODULE in BEFORE_THE_REBOOT
+
+    # Derived from the configuration, because every one of these reads a UEFI
+    # GRUB installation: a BIOS conversion has no `x86_64-efi` directory and
+    # no stub on an esp, so asking it these three fails a working machine.
+    from dataclasses import replace
+
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.config import Firmware
+
+    conversion = load(FIXTURES / "vm-convert.toml")
+    asked_for = before_the_reboot(conversion)
+    assert asked_for == (GRUB_MODULES_CHECK, GRUB_READS_ITS_MODULE, GRUB_PREFIX_CHECK)
+    on_bios = replace(
+        conversion,
+        bootloader=replace(conversion.bootloader, firmware=Firmware.BIOS),
+    )
+    assert before_the_reboot(on_bios) == ()
 
     # Both answers are counted by the guest, so neither can come from the
     # echo, and neither counts nothing as a pass.
     for check, answer in (
         (GRUB_MODULES_CHECK, "grubmods=214\n"),
         (GRUB_READS_ITS_MODULE, "grubread=182672\n"),
+        (GRUB_PREFIX_CHECK, "grubprefix=1\n"),
     ):
-        assert "wc -" in check.command
+        assert "wc -" in check.command or "grep -ac" in check.command
         assert not re.search(check.pattern, check.command)
         assert re.search(check.pattern, answer)
         assert not re.search(check.pattern, answer.split("=")[0] + "=0\n")

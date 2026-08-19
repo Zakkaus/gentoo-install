@@ -86,12 +86,32 @@ GRUB_READS_ITS_MODULE: Final[InstalledCheck] = InstalledCheck(
     r"(?m)^grubread=[1-9][0-9]*$",
 )
 
-#: What a conversion is asked before it reboots, in this order: the machine is
-#: still answering here and a rescue shell answers nothing.
-BEFORE_THE_REBOOT: Final[tuple[InstalledCheck, ...]] = (
-    GRUB_MODULES_CHECK,
-    GRUB_READS_ITS_MODULE,
+#: Where `--bootloader-id=Gentoo` puts the stub the firmware starts.
+GRUB_STUB: Final[str] = "/efi/EFI/Gentoo/grubx64.efi"
+
+#: `grub-install` embeds `search.fs_uuid <uuid>` in the stub, and that uuid is
+#: what decides which filesystem `$prefix` is read from. The guest computes
+#: both sides, so the echo cannot answer it.
+GRUB_PREFIX_CHECK: Final[InstalledCheck] = InstalledCheck(
+    "grub's prefix",
+    "printf 'grubprefix=%s\\n' "
+    f"\"$(grep -ac \"$(grub-probe --target=fs_uuid /boot)\" {GRUB_STUB} 2>/dev/null)\"",
+    r"(?m)^grubprefix=[1-9][0-9]*$",
 )
+
+
+def before_the_reboot(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
+    """What a conversion is asked while it still answers.
+
+    Every one of these reads a UEFI GRUB installation: the module directory is
+    `x86_64-efi` and the stub is on the esp, so a conversion to any other
+    bootloader is asked none of them rather than asked the wrong questions.
+    """
+    bootloader = installation.bootloader
+    if bootloader.kind.value != "grub" or bootloader.firmware.value != "uefi":
+        return ()
+    return (GRUB_MODULES_CHECK, GRUB_READS_ITS_MODULE, GRUB_PREFIX_CHECK)
+
 
 #: Bigger than every image here, so cloud-init's `growpart` and `resizefs`
 #: run on first boot. A 5 GiB Fedora root cannot hold a stage3 and a kernel.
