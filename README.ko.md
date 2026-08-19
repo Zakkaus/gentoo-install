@@ -80,7 +80,7 @@ gentoo-install은 Linux 라이브 환경에서 실행되어 amd64 아키텍처�
 
 `--ram`과 `--lowram`은 각각 QEMU 기록이 있다. Debian 12 기기가 한 번의 부팅을 설정하고, 기본 부팅 항목을 바꾸지 않은 채 재부팅하여 전달된 환경——`--ram`은 Gentoo CJK ISO, `--lowram`은 Alpine netboot 아카이브——으로 올라왔고, 전달받은 설정을 지니고 있었다. 그 화면에서 `install`을 답한 기록이 환경마다 하나씩 있다. 기기는 Gentoo를 설치했고, 기록한 디스크로 부팅했으며, 공용 설치 후 검사를 통과했다. 다른 기기에서는 설정된 항목의 initramfs를 지웠고, 하네스가 기기를 교체하며 수행하는 전원 재투입 뒤 이어진 두 번의 부팅 모두 원래 클라우드 시스템에 도달했다. `dd`는 기록이 하나 있다. live 매체에서 준비된 이미지를 디스크 전체에 쓰고 raw와 gzip 두 형식 모두 바이트 단위로 읽어 냈다.
 
-고정 주소, ext2, ext3에는 각각 클러스터 기록이 있다. ZFS 기록은 stripe, mirror, raidz, 암호화된 풀, 그리고 ZFSBootMenu가 부팅한 풀을 포함한다. 원격 잠금 해제의 두 경로에도 각각 클러스터 기록이 있다. 시스템 initramfs가 연 LUKS 루트와 ZFSBootMenu 자체 이미지가 연 ZFS 풀이다. greetd에는 기록이 둘 있다.
+고정 주소, ext2, ext3에는 각각 클러스터 기록이 있다. ZFS 기록은 stripe, mirror, raidz, 암호화된 풀, 그리고 ZFSBootMenu가 부팅한 풀을 포함한다. 원격 잠금 해제의 두 경로에도 각각 클러스터 기록이 있다. 시스템 initramfs가 연 LUKS 루트와 ZFSBootMenu 자체 이미지가 연 ZFS 풀이다. greetd에도 클러스터 기록이 있다.
 
 파일에 설치하는 경로에는 기록이 하나 있다. 쓴 이미지를 `losetup -Pf`로 붙여 그 레이아웃이 선언한 두 파일 시스템으로 읽어 냈으나, 그 파일로 부팅한 기계는 아직 없다. 소스에서 빌드하는 커널과 binhost 폴백에는 runner 수준의 시험만 있으며, runner 수준의 시험은 엔드투엔드 기록이 아니다.
 

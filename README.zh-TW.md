@@ -80,7 +80,7 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 
 `--ram` 與 `--lowram` 各有 QEMU 記錄：一台 Debian 12 機器武裝一次開機、預設開機項目未變、重新開機後進入送達的環境——`--ram` 是 Gentoo CJK ISO，`--lowram` 是 Alpine netboot 壓縮檔——並帶著交付給它的設定。在兩種環境裡回答 `install` 各有一筆記錄：機器裝出 Gentoo、開起它寫出的磁碟，並通過共用的安裝後檢查。另一台機器的武裝項目被移除 initramfs，在諧和器換客機的電源循環之後，接續兩次開機都進入原本的雲系統。`dd` 有一筆記錄：從活媒體把準備好的鏡像寫入整顆磁碟並逐位元組讀回，原始與 gzip 兩種格式皆是。
 
-靜態位址、ext2 與 ext3 各自有叢集記錄。ZFS 的記錄涵蓋 stripe、mirror、raidz 與加密 pool，以及一個由 ZFSBootMenu 開機的 pool。兩條遠端解鎖路徑各有叢集記錄：由系統 initramfs 開啟的 LUKS 根，以及由 ZFSBootMenu 自己映像開啟的 ZFS pool。greetd 有兩筆記錄。
+靜態位址、ext2 與 ext3 各自有叢集記錄。ZFS 的記錄涵蓋 stripe、mirror、raidz 與加密 pool，以及一個由 ZFSBootMenu 開機的 pool。兩條遠端解鎖路徑各有叢集記錄：由系統 initramfs 開啟的 LUKS 根，以及由 ZFSBootMenu 自己映像開啟的 ZFS pool。greetd 也有叢集記錄。
 
 裝進檔案有一筆記錄：寫出的映像以 `losetup -Pf` 掛上，讀回的是它版面宣告的那兩個檔案系統，而沒有任何機器從那份檔案開機過。原始碼建置的核心與 binhost 降級只有 runner 層級的測試，而 runner 層級的測試不是端到端記錄。
 
