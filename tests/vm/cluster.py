@@ -1438,10 +1438,17 @@ class Running:
     created: bool = False
 
 
-#: How long an address lease is honoured. Longer than the longest run, so a
-#: guest still installing never loses its address, and short enough that a
-#: killed schedule frees what it took before the next campaign.
-LEASE_SECONDS: Final[float] = 6 * 60 * 60.0
+#: What a guest needs beyond its install: the boots either side of it and the
+#: installed-state checks between them.
+LEASE_MARGIN: Final[float] = 60 * 60.0
+
+#: How long an address lease is honoured. Derived from the ceiling rather than
+#: written beside it: at six hours against an eight-hour ceiling a guest could
+#: outlive its own lease, another campaign then reserved the same address, and
+#: the second guest's initramfs answered `dracut Warning: Duplicate address
+#: detected for 10.31.0.151 for interface eth0` and never brought up dropbear.
+#: `vm-desktop` really did run 6.3 hours the day this was found.
+LEASE_SECONDS: Final[float] = RUN_CEILING + LEASE_MARGIN
 
 
 class AddressPool:
