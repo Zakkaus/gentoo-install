@@ -1819,7 +1819,7 @@ def install_one(
         if job.name in EXPECTED_TO_FAIL:
             # The install stopping is the whole answer here, so there is no
             # installed system to boot afterwards and the run ends on this line.
-            why = _did_not_stop(code)
+            why = _did_not_stop(job.name, code, files)
             return Outcome(
                 job.name,
                 Verdict.FAIL if why else Verdict.OK,
@@ -2309,7 +2309,14 @@ def _remaining(deadline: float) -> float:
 #: result it exists to produce; recording that as a failure made it the only
 #: fixture that could never be green, and it was counted as unverified for
 #: weeks. `campaign.py` knew this and the cluster did not.
-EXPECTED_TO_FAIL: Final[frozenset[str]] = frozenset({"vm-proxy-dead"})
+#: Mapped to the exit code and the words the machine has to produce, because
+#: "stopped" is not the claim: `vm-proxy-dead` exists to show that nothing
+#: bypassed the proxy, and a syntax error, a refused preflight or a failed
+#: disk stops the install just as non-zero. Measured on a passing run:
+#: `install.rc` held `4` and `Connection refused` appeared 26 times.
+EXPECTED_TO_FAIL: Final[Mapping[str, tuple[bytes, str]]] = MappingProxyType(
+    {"vm-proxy-dead": (b"4", "Connection refused")}
+)
 
 
 #: What `cli.py` prints as its last line when an install fails. The verdict
@@ -2335,17 +2342,31 @@ def _why_it_stopped(files: Mapping[str, bytes]) -> str:
     return ""
 
 
-def _did_not_stop(code: bytes) -> str:
+def _did_not_stop(name: str, code: bytes, files: Mapping[str, bytes]) -> str:
     """Why an expected-to-fail fixture is not a pass, or empty when it is.
 
     An absent code is not a stop. `code != b"0"` was the whole rule, and a
     guest whose results never came back leaves it empty, so a run that
-    collected nothing read as the failure the fixture exists to produce.
+    collected nothing read as the failure the fixture exists to produce. The
+    code and the reason, because the local runner has checked both since it
+    was written and the cluster checked neither.
     """
+    wanted, marker = EXPECTED_TO_FAIL[name]
     if not code:
         return "the install was supposed to stop and wrote no exit code"
     if code == b"0":
         return "the install was supposed to stop and did not"
+    if code != wanted:
+        return (
+            f"the install stopped with {code!r}, not the {wanted!r} this fixture "
+            "exists to produce"
+        )
+    said = files.get(LOG_TAIL, b"") + files.get("install.txt", b"")
+    if marker.encode() not in said:
+        return (
+            f"the install stopped without {marker!r}, so what stopped it is not "
+            "what this fixture measures"
+        )
     return ""
 
 #: Fixtures whose mirror site is the thing under test, so `--site` must not
