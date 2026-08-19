@@ -485,6 +485,10 @@ class Watchdog:
     #: this campaign does not own, and the verdict could not tell a guest that
     #: stopped from a node with no time to give it.
     load: Callable[[], float | None] | None = None
+    #: What qemu says the guest is doing, read at the same moment. A guest
+    #: paused by a storage error reads exactly like one that stopped on its
+    #: own: flat counters and `cpu 0.00`.
+    state: Callable[[], str] | None = None
     strikes: int = 0
     _seen: int = field(default=0, init=False)
     _moved: int = field(default=0, init=False)
@@ -556,6 +560,9 @@ class Watchdog:
             node = f" on {self.where}" if self.where else ""
             busy = self.load() if self.load is not None else None
             said = "" if busy is None else f", the node itself at {busy * 100:.0f}%"
+            qemu = self.state() if self.state is not None else ""
+            if qemu and qemu != "running":
+                said += f", and qemu calls the guest {qemu}"
             return (
                 f"counters were flat{node} "
                 f"({self._counter_before} -> {self._counter_after} bytes, "
@@ -1591,6 +1598,7 @@ def _execution(
             counters=lambda: guest.transferred(),
             where=node,
             load=lambda: api.node_load(node),
+            state=lambda: guest.qmp_state(),
         ),
         job.reservation_bytes,
         address,

@@ -261,7 +261,11 @@ def _timed_wait(
     serial = SerialConsole(TimedChannel(clock, output_at), BytesIO())
     link = cluster.Reconnecting(lambda: serial)
     watch = cluster.Watchdog(
-        tmp_path / "install.log", counters, where="infra-node2", load=lambda: 0.99
+        tmp_path / "install.log",
+        counters,
+        where="infra-node2",
+        load=lambda: 0.99,
+        state=lambda: "io-error",
     )
     return link, watch
 
@@ -306,6 +310,9 @@ def test_install_wait_names_silent_console_and_flat_counters(
     # is the cluster having no time for it, which is not the same finding as a
     # guest that stopped. Two were ended this way on one day.
     assert "the node itself at 99%" in message, message
+    # And what qemu calls it, when that is not `running`: a guest paused by a
+    # storage error reads exactly like one that stopped on its own.
+    assert "qemu calls the guest io-error" in message, message
 
 
 def test_run_ceiling_ends_silent_guest_that_keeps_moving_bytes(
@@ -1562,6 +1569,20 @@ def test_two_rounds_carrying_one_fixture_keep_separate_logs(tmp_path: Path) -> N
     assert first.watch.log != second.watch.log
     assert first.watch.log.name == "vm-greetd-9301.log"
     assert second.watch.log.name == "vm-greetd-9302.log"
+
+
+def test_a_guest_qemu_calls_running_adds_nothing_to_the_reason(tmp_path: Path) -> None:
+    """`running` is the ordinary answer and saying it would push the counters
+    out of a verdict that is cut to length."""
+    watch = cluster.Watchdog(
+        tmp_path / "install.log",
+        lambda: (0, 0.0),
+        where="infra-node4",
+        state=lambda: "running",
+    )
+    reason = watch.idle_reason()
+    assert reason is not None
+    assert "qemu calls the guest" not in reason, reason
 
 
 def test_a_node_that_will_not_answer_leaves_the_reason_readable(tmp_path: Path) -> None:
