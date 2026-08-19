@@ -133,6 +133,26 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
                 )
                 for resolver in installation.system.dns
             )
+    for user in installation.system.users:
+        # The account the machine holds, not the operation that asked for it:
+        # `btrfs-luks` names a user with three groups and a shell, and its
+        # console log never mentioned the name.
+        shell = re.escape(user.shell) if user.shell else "[^:]*"
+        result.append(
+            InstalledCheck(
+                f"user {user.name}",
+                f"getent passwd {user.name}",
+                rf"(?m)^{re.escape(user.name)}:[^:]*:\d+:\d+:[^:]*:[^:]*:{shell}$",
+            )
+        )
+        if user.groups:
+            result.append(
+                InstalledCheck(
+                    f"user {user.name} groups",
+                    f"id -nG {user.name}",
+                    "".join(rf"(?=.*\b{re.escape(one)}\b)" for one in user.groups),
+                )
+            )
     if installation.system.sshd:
         # Sixteen fixtures ask for sshd and nothing asked the machine for it.
         # `UnitFileState` rather than `is-enabled`: `systemctl` colours its

@@ -4802,3 +4802,44 @@ def test_a_machine_asked_for_sshd_is_asked_whether_it_has_one() -> None:
     # is not failed for having none.
     assert sshd("openrc-sdboot") is None
 
+
+def test_a_declared_user_is_read_back_from_the_machine() -> None:
+    """`btrfs-luks` names a user with three groups and a shell, and the
+    guest`s console log never mentioned the name: a machine that created no
+    account passed. The uid fields are the machine`s own answer, which the
+    command cannot supply."""
+    import re
+
+    from gentoo_install.exec.config import load
+    from tests.vm.installed import checks
+
+    def named(fixture: str, name: str) -> str | None:
+        for one in checks(load(Path(f"tests/fixtures/{fixture}.toml"))):
+            if one.name == name:
+                return one.pattern
+        return None
+
+    account = named("btrfs-luks", "user zakk")
+    assert account is not None
+    # `getent passwd zakk` on this workstation, with the shell the fixture
+    # asks for in place of the one this machine has.
+    assert re.search(account, "zakk:x:1000:1000:Zakk:/home/zakk:/bin/bash\n")
+    # The controls: no account at all, and an account with another shell.
+    assert not re.search(account, "")
+    assert not re.search(account, "zakk:x:1000:1000:Zakk:/home/zakk:/usr/bin/zsh\n")
+    # A name that only appears as a group, which `getent passwd` would not
+    # print and a looser pattern would have accepted.
+    assert not re.search(account, "wheel:x:10:zakk\n")
+
+    groups = named("btrfs-luks", "user zakk groups")
+    assert groups is not None
+    # `id -nG zakk` on this workstation.
+    assert re.search(groups, "zakk wheel audio video usb input kvm render libvirt\n")
+    assert not re.search(groups, "zakk wheel audio usb input kvm libvirt\n")
+
+    # A fixture whose user has no group list gets no group check, and one
+    # with no user gets neither.
+    assert named("zbm-unlock", "user zakk") is not None
+    assert named("zbm-unlock", "user zakk groups") is None
+    assert named("ext3", "user zakk") is None
+
