@@ -359,6 +359,34 @@ def test_a_partition_editor_can_be_left_with_the_edit_kept() -> None:
     assert kept is not None and kept.label == "carried", kept
 
 
+def test_one_esp_size_for_the_suggestion_and_the_template() -> None:
+    """Both constructors sized the esp and each parsed `1GiB` of its own, so
+    an esp that turns out to be too small would have been two edits with only
+    one of them noticed.
+    """
+    import ast
+    import inspect
+
+    from gentoo_install.model import manual as model_manual
+    from gentoo_install.model import templates
+
+    suggested = model_manual.suggest("/dev/vda", Firmware.UEFI).disks[0].slices[0]
+    assert suggested.role is PartitionRole.ESP
+    assert suggested.size == templates.ESP_SIZE
+
+    # The sizes read the same today, so only the source says whether there is
+    # one of them or two.
+    tree = ast.parse(inspect.getsource(model_manual))
+    sized = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and node.value.endswith(("GiB", "MiB"))
+    ]
+    assert not sized, [node.value for node in sized]
+
+
 def test_a_raid_member_has_no_partition_encryption_field() -> None:
     """`manual.build` drops a member's passphrase — the array carries the
     LUKS — so offering the row let an operator mark a member `luks` and

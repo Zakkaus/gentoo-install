@@ -14,6 +14,7 @@ from pathlib import PurePosixPath
 from typing import Final
 
 from .config import Firmware
+from .templates import ESP_SIZE
 from .device import (
     DeviceGraph,
     DeviceId,
@@ -287,7 +288,11 @@ def suggest(
                     Slice(
                         index=1,
                         role=PartitionRole.ESP,
-                        size=Size.parse("1GiB"),
+                        # The template's own size, not a second 1GiB: the
+                        # reason it is that big is written there, and an esp
+                        # that turns out to be too small is the same mistake
+                        # whichever screen built the table.
+                        size=ESP_SIZE,
                         filesystem=ESP_FILESYSTEM,
                         mountpoint="/efi",
                         label="ESP",
