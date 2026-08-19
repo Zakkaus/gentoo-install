@@ -237,7 +237,7 @@ def _configured_commands(config: InstallConfig) -> frozenset[str]:
             continue
         # Taken from the table the operations themselves use, so a filesystem
         # added there can never be missing here.
-        wanted.add(MKFS[filesystem.kind][0])
+        wanted.add(MKFS[filesystem.kind].argv[0])
         wanted |= set(EXTRA_FILESYSTEM_COMMANDS.get(filesystem.kind, ()))
     return frozenset(wanted)
 
