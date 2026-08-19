@@ -2913,3 +2913,59 @@ def test_the_extra_checks_reach_the_installed_reader() -> None:
     asked = source.index("_asked_for(installation)")
     assert "extra" in source[asked : asked + 200], source[asked : asked + 200]
 
+
+def test_a_binhost_fixture_that_compiled_everything_is_not_a_pass() -> None:
+    """The mirror image of `MUST_DEGRADE`. An install that gave the binary
+    host up and compiled instead finishes, boots and answers every other
+    check, so `vm-binpkg` — the blocking fixture for that path — was green
+    whether or not a single package came from the host it names.
+
+    Measured on the journals the cluster had kept: every `vm-binpkg` recorded
+    binary packages and none of them degraded, so this rule is red only when
+    the path it guards has broken.
+    """
+    import json
+
+    from gentoo_install.plan.portage import BINARY_PACKAGES
+    from tests.vm import cluster
+
+    def journal(*rows: dict[str, object]) -> dict[str, bytes]:
+        return {"install.jsonl": "\n".join(json.dumps(one) for one in rows).encode()}
+
+    served = journal(
+        {"event": "package", "source": "binary", "atom": "sys-apps/portage-3.0.70"},
+        {"event": "package", "source": "compiled", "atom": "dev-vcs/git-2.51.0"},
+    )
+    assert cluster._binary_packages_missing("vm-binpkg", served) == ""
+
+    compiled = journal({"event": "package", "source": "compiled", "atom": "dev-vcs/git-2.51.0"})
+    assert "no package from a binary host" in cluster._binary_packages_missing(
+        "vm-binpkg", compiled
+    )
+
+    # A degradation is the loud form of the same thing, and its reason is
+    # carried: `the host answered 404` and `the key is not trusted` are
+    # different problems.
+    gave_up = journal(
+        {"event": "degraded", "what": BINARY_PACKAGES, "reason": "the host answered 404"},
+        {"event": "package", "source": "binary", "atom": "sys-apps/portage-3.0.70"},
+    )
+    said = cluster._binary_packages_missing("vm-binpkg", gave_up)
+    assert "gave up" in said and "404" in said, said
+
+    # No journal is not a pass either: a guest that handed nothing back says
+    # nothing about where its packages came from.
+    assert "no journal" in cluster._binary_packages_missing("vm-binpkg", {})
+
+    # The control: the rule fires on the table, not on every fixture.
+    assert cluster._binary_packages_missing("vm-xfs", compiled) == ""
+    assert "vm-binhost-fallback" not in cluster.MUST_USE_A_BINARY_HOST
+    assert set(cluster.MUST_USE_A_BINARY_HOST) & set(cluster.MUST_DEGRADE) == set()
+
+    # And it is asked where the verdict is decided: a rule nothing calls is
+    # the same as no rule, and `tests/vm/` has no unreachable-code check.
+    import inspect
+
+    said = inspect.getsource(cluster.install_one)
+    assert "_binary_packages_missing(" in said, said[:200]
+

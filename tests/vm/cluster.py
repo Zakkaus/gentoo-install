@@ -1822,7 +1822,11 @@ def install_one(
                 phase=phase,
                 revision=revision,
             )
-        missing = _degradation_missing(job.name, files) if code == b"0" else ""
+        missing = (
+            _degradation_missing(job.name, files) or _binary_packages_missing(job.name, files)
+            if code == b"0"
+            else ""
+        )
         if missing:
             return Outcome(
                 job.name,
@@ -2347,6 +2351,40 @@ KEEPS_ITS_SITE: Final[frozenset[str]] = frozenset({"vm-binhost-fallback"})
 MUST_DEGRADE: Final[Mapping[str, str]] = MappingProxyType(
     {"vm-binhost-fallback": BINARY_PACKAGES}
 )
+
+
+#: Fixtures whose point is that the binary host served them. The mirror image
+#: of `MUST_DEGRADE`: a binhost install that quietly compiled everything after
+#: a degradation finishes, boots and passes every other check, and `vm-binpkg`
+#: is the blocking fixture for that path. `install.jsonl` carries one entry
+#: per package with where it came from, and `#746` stopped `emerge --pretend`
+#: from being counted as a merge.
+MUST_USE_A_BINARY_HOST: Final[frozenset[str]] = frozenset({"vm-binpkg"})
+
+
+def _binary_packages_missing(name: str, files: Mapping[str, bytes]) -> str:
+    """Empty when this fixture's journal records packages from a binary host."""
+    if name not in MUST_USE_A_BINARY_HOST:
+        return ""
+    journal = files.get("install.jsonl")
+    if journal is None:
+        return f"{name} has to install from a binary host and the guest handed back no journal"
+    binary = 0
+    for line in journal.splitlines():
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if entry.get("event") == "degraded" and entry.get("what") == BINARY_PACKAGES:
+            return (
+                f"{name} gave up on {BINARY_PACKAGES!r} and compiled instead, "
+                f"which is what it exists to measure not happening: {entry.get('reason', '')}"
+            )[:REASON_BYTES]
+        if entry.get("event") == "package" and entry.get("source") == "binary":
+            binary += 1
+    if not binary:
+        return f"{name} finished with no package from a binary host"
+    return ""
 
 
 def _degradation_missing(name: str, files: Mapping[str, bytes]) -> str:
