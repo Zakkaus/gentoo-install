@@ -359,6 +359,29 @@ NO_SYSTEMD_BOOT_AT_ALL: Final[str] = (
 )
 
 
+def test_every_proc_path_is_built_from_one_root() -> None:
+    """`MEMINFO`, `CMDLINE` and `CPUINFO` each wrote `/proc` out again beside
+    the constant that declares it, so a probe pointed at another root would
+    have moved some of them and not the others.
+    """
+    import ast
+    import inspect
+
+    assert probe.MEMINFO.parent == probe.PROC
+    assert probe.CMDLINE.parent == probe.PROC
+    assert probe.CPUINFO.parent == probe.PROC
+
+    tree = ast.parse(inspect.getsource(probe))
+    spelled = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and node.value.startswith("/proc")
+    ]
+    assert len(spelled) == 1, [node.lineno for node in spelled]
+
+
 def test_only_the_loader_that_booted_the_machine_answers_for_it() -> None:
     """`systemd-boot` anywhere in `bootctl status` was the test, and the
     command prints those words on machines it did not boot: in the esp file
