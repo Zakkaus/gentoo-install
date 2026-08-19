@@ -1550,11 +1550,16 @@ def _execution(
     nonce: str,
     address: str = "",
 ) -> Running:
-    log = workdir / f"{job.name}.log"
+    chosen = vmid or api.free_vmid()
+    # The vmid in the name: every schedule shares this directory, so two
+    # rounds carrying one fixture wrote the same file at the same time and
+    # the verdict of each pointed at a log holding both. `vm-greetd` was in
+    # two rounds at once on the day this was found.
+    log = workdir / f"{job.name}-{chosen}.log"
     guest = Guest(
         api=api,
         node=node,
-        vmid=vmid or api.free_vmid(),
+        vmid=chosen,
         spec=GuestSpec(
             name=f"gi-{job.name}"[:63],
             iso=job.iso,
