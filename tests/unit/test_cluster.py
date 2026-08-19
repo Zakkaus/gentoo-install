@@ -1230,6 +1230,17 @@ def test_a_fixture_that_passes_by_failing_is_not_recorded_as_a_failure() -> None
     assert failing == set(cluster.EXPECTED_TO_FAIL), (failing, cluster.EXPECTED_TO_FAIL)
 
 
+def test_an_expected_failure_with_no_exit_code_is_not_a_pass() -> None:
+    """`vm-proxy-dead` passes by stopping, and the rule for that was
+    `code != b"0"`. A guest whose results never came back hands the caller an
+    empty code, which satisfies it: the one fixture whose verdict is a failure
+    was green whenever the collection failed.
+    """
+    assert cluster._did_not_stop(b"4") == ""
+    assert "wrote no exit code" in cluster._did_not_stop(b"")
+    assert "did not" in cluster._did_not_stop(b"0")
+
+
 def test_a_refused_login_says_what_the_guest_was_showing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
