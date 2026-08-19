@@ -315,6 +315,32 @@ def test_every_field_of_a_partition_is_visible_with_its_value() -> None:
     assert "Encryption" in shown and "Size" in shown and "Label" in shown
 
 
+def test_a_partition_editor_can_be_left_with_the_edit_kept() -> None:
+    """`Done` is the only exit that keeps a change: cancelling returns the
+    slice the editor opened with. The menu was built from a second table that
+    had no `Done` row, so every size, filesystem, mount point and label a
+    reader typed was thrown away on the way out.
+    """
+    from tests.unit.fake_screen import FakeScreen
+
+    at = opened()
+    at.layout = manual.suggest("/dev/vda", Firmware.UEFI)
+    entry = at.layout.slices[1]
+
+    rows = partitions._slice_fields(entry, manual.purpose_of(entry), at.translate)
+    from gentoo_install.tui.context import DONE
+
+    assert DONE in {one.value for one in rows}, [one.label for one in rows]
+
+    # And the editor answers with what it was given when that row is chosen,
+    # rather than with the slice it opened on. `Done` is the last row.
+    changed = replace(entry, label="carried")
+    to_done = ["KEY_DOWN"] * (len(rows) - 1)
+    screen = FakeScreen(keys=[*to_done, "\n"])
+    kept = partitions._edit_slice(screen, at, at.layout.disks[0], changed)
+    assert kept is not None and kept.label == "carried", kept
+
+
 def test_a_zfs_member_has_no_partition_encryption_field() -> None:
     entry = manual.Slice(index=2, role=PartitionRole.ZFS, size=None, mountpoint="/")
     fields = partitions._slice_fields(entry, manual.purpose_of(entry), opened().translate)
