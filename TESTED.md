@@ -76,6 +76,7 @@ a way to pass firmware arguments is available to a non-root API token.
 | `7b08c47f383a` | `vm-bios` | BIOS serial console; 53 operations, 55 packages from a binary host, 20 compiled, then the disk it wrote booted, logged in on the console and passed every installed-state check |
 | `90516741321b` | `vm-proxy` (SOCKS5, password), `vm-proxy-http` | the proxy runs on the host, which a bridged cluster guest cannot reach; each installed 57 operations, 69 packages from a binary host and 46 compiled, and each disk then booted and passed every installed-state check |
 | `f466b89d8206` | `vm-bios-luks` | BIOS serial console; 57 operations, 59 packages from a binary host, 20 compiled, then the disk it wrote booted, unlocked its root and passed every installed-state check |
+| `cbd22d88417a6` | `vm-image` | the product is a file on a filesystem this runner mounts on the spare disk, and the cluster has none to offer; 54 operations, 55 packages from a binary host, 12 compiled, then the image was attached with `losetup -Pf` inside the live medium and answered `loop1p1 vfat` and `loop1p2 ext4`, the two filesystems the layout declares. Nothing booted it: reading a file on the guest's own disk is what this record covers |
 
 ### Historical records
 

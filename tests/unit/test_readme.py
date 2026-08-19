@@ -423,6 +423,6 @@ def test_every_fixture_a_record_used_is_named_in_it() -> None:
     # fixture failed: this rule is about a record a reader can trace back to a
     # configuration, not about a fixture having passed. These two appear
     # nowhere at all.
-    without_a_record = {"vm-image", "vm-source-kernel"}
+    without_a_record = {"vm-source-kernel"}
     assert without_a_record <= fixtures, without_a_record
     assert fixtures - recorded == without_a_record, sorted(fixtures - recorded)

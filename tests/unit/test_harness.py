@@ -566,7 +566,15 @@ def test_an_image_install_is_judged_by_the_image_it_wrote() -> None:
     # campaign gave, copied from `image.txt`.
     written = Path("tests/fixtures/vm-image.toml")
     real = b"loop1   \nloop1p1 vfat\nloop1p2 ext4\n"
-    assert runner.check_expected({"image.txt": real, "install.rc": b"0\n"}, written) == 0
+    import contextlib
+    from io import StringIO
+
+    printed = StringIO()
+    with contextlib.redirect_stdout(printed):
+        assert runner.check_expected({"image.txt": real, "install.rc": b"0\n"}, written) == 0
+    # What was read, not what a different mode reads: nothing booted here.
+    assert "the image holds every filesystem" in printed.getvalue(), printed.getvalue()
+    assert "booted" not in printed.getvalue(), printed.getvalue()
     # The esp alone: the install stopped before it made the root filesystem.
     assert runner.check_expected({"image.txt": b"loop1\nloop1p1 vfat\n"}, written) != 0
     # And nothing collected at all, which is how the check stayed inert.
