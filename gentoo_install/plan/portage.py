@@ -30,7 +30,7 @@ from ..model.config import (
     Sync,
 )
 from ..model.validate import parse_profile_list, validate_profile
-from .operations import CommandOutput, Context, Operation, Stage
+from .operations import CommandOutput, Context, Operation, Stage, worth_reading
 
 #: The release engineering key, pinned. A fingerprint that does not match this
 #: is a failed install, not a prompt to trust something new.
@@ -904,7 +904,7 @@ class Emerge(Operation):
         if not _binpkg_failure(str(result)) or context.degraded(BINARY_PACKAGES):
             if self._optional(context, str(result)):
                 return
-            raise CommandFailed(f"emerge ended with {result.ending}: {str(result).strip()}")
+            raise CommandFailed(f"emerge ended with {result.ending}: {worth_reading(str(result))}")
         marker = _binpkg_failure(str(result))
         if (again := self._one_more_binary_try(context, command)) is not None:
             marker = again
@@ -930,7 +930,8 @@ class Emerge(Operation):
         retry_result = context.run_in_target(self._argv(context, source_only=True), check=False)
         if isinstance(retry_result, CommandOutput) and retry_result.returncode != 0:
             raise CommandFailed(
-                f"source retry ended with {retry_result.ending}: {str(retry_result).strip()}"
+                f"source retry ended with {retry_result.ending}: "
+                f"{worth_reading(str(retry_result))}"
             )
 
     def _one_more_binary_try(self, context: Context, command: list[str]) -> str | None:
