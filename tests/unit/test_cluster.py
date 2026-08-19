@@ -2890,7 +2890,8 @@ def test_a_cluster_conversion_writes_and_reads_the_home_marker() -> None:
     written = source.index("HOME_MARKER_PATH")
     converted = source.index("install.sh")
     assert written < converted, source
-    assert "extra=(HOME_MARKER_CHECK,)" in source, source
+    assert source.index("ETC_MARKER_PATH") < converted, source
+    assert "HOME_MARKER_CHECK, ETC_MARKER_CHECK" in source, source
 
     # The check itself asks the guest to count, so neither the shell's echo of
     # the command nor `cat`'s own diagnostic can answer it.
@@ -2900,6 +2901,17 @@ def test_a_cluster_conversion_writes_and_reads_the_home_marker() -> None:
     assert not re.search(HOME_MARKER_CHECK.pattern, HOME_MARKER_CHECK.command)
     assert re.search(HOME_MARKER_CHECK.pattern, "home=1\n")
     assert not re.search(HOME_MARKER_CHECK.pattern, "home=0\n")
+
+    # `/etc` is the other half of the same promise: replaced, not merged, so
+    # the count there has to be zero, and the same counting keeps the echo
+    # and the diagnostic out of the answer.
+    from tests.vm.convert import ETC_MARKER_CHECK
+
+    assert "grep -Fc" in ETC_MARKER_CHECK.command
+    assert not re.search(ETC_MARKER_CHECK.pattern, ETC_MARKER_CHECK.command)
+    assert re.search(ETC_MARKER_CHECK.pattern, "etc=0\n")
+    assert not re.search(ETC_MARKER_CHECK.pattern, "etc=1\n")
+    assert not re.search(ETC_MARKER_CHECK.pattern, "")
 
 
 def test_the_extra_checks_reach_the_installed_reader() -> None:
