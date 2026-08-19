@@ -419,8 +419,10 @@ def test_every_fixture_a_record_used_is_named_in_it() -> None:
     recorded = set(re.findall(r"`([a-z0-9][a-z0-9-]+)`", (ROOT / "TESTED.md").read_text()))
     fixtures = {one.stem for one in (ROOT / "tests" / "fixtures").glob("*.toml")}
 
-    # The dd and memory-environment rows name theirs now; these are the ones
-    # with no record at all, and each is a path nothing has measured.
-    without_a_record = {"vm-image", "vm-source-kernel", "zbm-unlock"}
+    # Named anywhere in the file, which includes a row that records why a
+    # fixture failed: this rule is about a record a reader can trace back to a
+    # configuration, not about a fixture having passed. These two appear
+    # nowhere at all.
+    without_a_record = {"vm-image", "vm-source-kernel"}
     assert without_a_record <= fixtures, without_a_record
     assert fixtures - recorded == without_a_record, sorted(fixtures - recorded)
