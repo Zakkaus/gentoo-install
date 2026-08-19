@@ -2415,11 +2415,20 @@ class Reconnecting:
         after a console session started under it is worse than ending the run.
         """
 
+        tokens: list[int] = []
+
         def run_once(deadline: float) -> None:
-            token = next(self._marks)
-            self.console.send(marked_command(command, token))
+            tokens.append(next(self._marks))
+            self.console.send(marked_command(command, tokens[-1]))
+            # Any marker this call has sent, not only the newest: a session
+            # that starts under the command delivers the marker just after
+            # the reader gave up on it, so every retry waited for a marker
+            # the guest had already printed. `vm-source-kernel` lost 6.5
+            # hours of install to this twice, on the last command of the run.
             with _naming(command):
-                self.console.expect(command_done(token), _remaining(deadline))
+                self.console.expect(
+                    "|".join(command_done(one) for one in tokens), _remaining(deadline)
+                )
 
         self._with_reconnect(
             timeout,

@@ -1497,7 +1497,52 @@ def test_a_lost_marker_is_resent_with_a_fresh_token(
     assert [_marked_token(one.sent[-1]) for one in opened] == ["1", "2"]
     assert opened[0].echoed.startswith(opened[0].sent[0].encode())
     assert opened[1].sent[0] == ""
-    assert opened[1].echoed.endswith(b"MARK_2_DONE\n")
+    # Either marker ends it: the retry waits for every token this call has
+    # sent, because the guest may have printed the first one during the
+    # reconnect. The fake answers with the first it finds in the pattern.
+    assert opened[1].echoed.endswith(b"MARK_1_DONE\n") or opened[1].echoed.endswith(
+        b"MARK_2_DONE\n"
+    )
+
+
+def test_a_marker_that_arrives_after_the_retry_began_still_ends_the_command() -> None:
+    """The guest prints the marker just after the reader gave up on it, so the
+    retry was waiting for a marker that had already gone past. Six attempts
+    each lost the one before, and `vm-source-kernel` threw away 6.5 hours of
+    finished install at the last command of the run, twice.
+    """
+    opened: list[_MarkerConsole] = []
+
+    class LateConsole(_MarkerConsole):
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+            self.patterns.append(pattern)
+            if not self.completes:
+                raise ConsoleTimeout(
+                    f"never matched {pattern!r}; last output was "
+                    f"{bytes(self.echoed) + self.tail!r}"
+                )
+            # The first token's marker, which the guest printed while the
+            # session was being replaced. Nothing answers for the second.
+            if "MARK_1_DONE" not in pattern:
+                raise ConsoleTimeout(f"never matched {pattern!r}")
+            self.echoed.extend(b"MARK_1_DONE\n")
+            return bytes(self.echoed)
+
+    def open_console() -> _MarkerConsole:
+        console = LateConsole(
+            cluster._SERIAL_TERMINAL_STARTED.encode() if not opened else b"",
+            completes=bool(opened),
+        )
+        opened.append(console)
+        return console
+
+    cluster.Reconnecting(open_console, tries=2).run("true", timeout=60.0)
+
+    assert len(opened) == 2, opened
+    assert opened[1].echoed.endswith(b"MARK_1_DONE\n")
+    # And the retry did send again: a command the guest never received has to
+    # be given a second chance as well.
+    assert _marked_token(opened[1].sent[-1]) == "2"
 
 
 def test_a_lost_marker_retry_is_bounded_and_keeps_the_console_tail() -> None:
