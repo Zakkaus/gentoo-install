@@ -756,6 +756,15 @@ def test_no_pool_is_pointed_at_a_key_file_zfsbootmenu_cannot_open() -> None:
     the remote path. `keylocation` stays `prompt` and the second prompt in the
     target initramfs is the accepted cost, which is what
     `calamares-settings-gig` already accepts.
+
+    ZFSBootMenu's own remote-access wiki page recommends the key file, and it
+    is right for the setup it describes: there the image is built by
+    `zbm-builder.sh`, which bind-mounts the builder's own directory into the
+    container and can put the key inside the image as well. This installer
+    takes ZFSBootMenu from `sys-boot/zfsbootmenu`, whose image carries no such
+    file, so the same `keylocation` leaves ZBM reading a path that exists only
+    in the target. Anyone holding that page and reaching for this again should
+    read run65's console first.
     """
     from gentoo_install.model.config import Bootloader
 
