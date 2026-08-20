@@ -24,7 +24,7 @@ from typing import (
     TypeVar,
 )
 
-from ..i18n import CUT, clip, truncate, width
+from ..i18n import CUT, clip, width
 
 #: Re-exported: every widget cuts through `clip`, and the mark it leaves is
 #: what tells a cut value from a whole one.
@@ -149,9 +149,10 @@ def spread(left: str, right: str, columns: int) -> str:
 
     `right` is dropped rather than truncated when the two cannot both fit: half
     a count reads as a different count, and half a legend explains a mark the
-    reader can no longer see named.
+    reader can no longer see named. `left` is cut with a mark, because a title
+    that lost its end and one that never had it read the same.
     """
-    head = truncate(left, columns)
+    head = clip(left, columns)
     room = columns - width(head) - 1
     tail = right if right and width(right) <= room else ""
     return f"{head}{' ' * (columns - width(head) - width(tail))}{tail}"

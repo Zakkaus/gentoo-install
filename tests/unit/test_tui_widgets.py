@@ -1010,3 +1010,32 @@ def test_one_pane_below_the_two_pane_floor_and_two_at_it() -> None:
         TwoPane(title="gentoo-install", rows=pane_rows()).run(narrow)
         assert SEPARATOR not in narrow.last
         assert "Mirrors0" in narrow.drawn(2)
+
+
+def test_a_title_too_wide_for_the_row_is_cut_with_a_mark() -> None:
+    """`spread` cut the left side with no mark, so a mirror name that lost its
+    end read exactly like one that never had it."""
+    from gentoo_install.i18n import CUT, width
+    from gentoo_install.tui.widgets import spread
+
+    row = spread("Mirrors and the site every fetch goes to", "12/20", 20)
+    assert width(row) == 20
+    assert row.endswith(CUT), row
+    # Nothing is cut when it fits, and the right side still lands at the end.
+    assert spread("Mirrors", "12/20", 20) == "Mirrors" + " " * 8 + "12/20"
+
+
+def test_one_mark_says_a_line_was_cut() -> None:
+    """`partitions.py` carried its own mark and its own cut beside `clip`, so
+    one rule lived in two places and only one of them was measured."""
+    from pathlib import Path
+
+    from gentoo_install.i18n import CUT
+
+    carrying = sorted(
+        f"{path}:{number}"
+        for path in Path("gentoo_install/tui").rglob("*.py")
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if CUT in line
+    )
+    assert carrying == [], carrying

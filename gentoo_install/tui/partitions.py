@@ -16,7 +16,7 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Callable, Final, Sequence
 
-from ..i18n import Catalog, truncate, width
+from ..i18n import CUT, Catalog, clip, width
 from ..model import manual
 from ..model.config import (
     Bootloader,
@@ -265,10 +265,6 @@ def partitions_screen(
 _GAP: Final[int] = 2
 
 
-#: What a shortened message ends with, so a cut one never reads as a whole one.
-_CUT: Final[str] = "…"
-
-
 def _status_line(problem: str, keys: str, columns: int) -> str:
     """The keys first, the validator's message in whatever room is left.
 
@@ -279,10 +275,9 @@ def _status_line(problem: str, keys: str, columns: int) -> str:
     if not problem:
         return keys
     room = columns - width(keys) - _GAP
-    if room <= width(_CUT):
+    if room <= width(CUT):
         return keys
-    shown = problem if width(problem) <= room else truncate(problem, room - width(_CUT)) + _CUT
-    return f"{keys}{' ' * _GAP}{shown}"
+    return f"{keys}{' ' * _GAP}{clip(problem, room)}"
 
 
 def _partitions_title(context: Context) -> str:
