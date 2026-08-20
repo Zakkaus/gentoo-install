@@ -12,7 +12,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 import textwrap
-from typing import Callable, ClassVar, Final, Generic, Mapping, Protocol, Sequence, TypeVar
+from typing import (
+    Callable,
+    ClassVar,
+    Final,
+    Generic,
+    Iterable,
+    Mapping,
+    Protocol,
+    Sequence,
+    TypeVar,
+)
 
 from ..i18n import truncate, width
 
@@ -684,3 +694,178 @@ class Form:
             # [q] cancel * required ~ never opened` reads as neither.
             screen.write(lines - 1, 0, spread(self.footer, self.legend, columns))
         screen.show()
+
+
+#: The left pane is the widest label in the catalog plus a marker and a space,
+#: held between these two: narrower cuts an English name, wider leaves the
+#: right pane too narrow for a device path and a filesystem beside it.
+LEFT_PANE_MINIMUM: Final[int] = 20
+LEFT_PANE_MAXIMUM: Final[int] = 34
+
+#: The marker column and the space after it, before every label.
+MARKER_ROOM: Final[int] = 2
+
+#: The separator column and the space after it, between the two panes.
+PANE_GAP: Final[int] = 2
+
+#: ASCII: the medium's own console font carries no box-drawing set.
+SEPARATOR: Final[str] = "|"
+
+#: Left behind by every truncation. Without it a cut mirror URL reads as a
+#: whole one, which is what `i18n.truncate` alone gets wrong here.
+CUT: Final[str] = "…"
+
+
+def clip(text: str, cells: int) -> str:
+    """`text` in at most `cells` columns, marked when something was cut."""
+    if cells <= 0:
+        return ""
+    if width(text) <= cells:
+        return text
+    return truncate(text, cells - width(CUT)) + CUT
+
+
+def left_pane_width(labels: Iterable[str]) -> int:
+    """How wide the left pane stands for this catalog.
+
+    Measured, not a constant: the same rows are 25 cells in English and 30 in
+    Japanese, and a pane sized for one of them truncates the other.
+    """
+    widest = max((width(label) for label in labels), default=0)
+    return min(LEFT_PANE_MAXIMUM, max(LEFT_PANE_MINIMUM, widest + MARKER_ROOM))
+
+
+def right_pane_width(columns: int, left: int) -> int:
+    """What is left for the right pane once the separator and its space are."""
+    return columns - left - PANE_GAP
+
+
+@dataclass(frozen=True)
+class PaneRow(Generic[V]):
+    """One row of the left pane, and what the right pane says about it."""
+
+    label: str
+    value: V
+    #: Drawn at the right of the left pane, and dropped rather than cut when
+    #: the label fills the pane: half a state word names another state.
+    state: str = ""
+    style: Style = Style.PLAIN
+    #: The right pane's lines while the cursor is on this row. The first two
+    #: are what a screen too small for two panes shows under the row.
+    detail: tuple[str, ...] = ()
+
+
+@dataclass
+class TwoPane(Generic[V]):
+    """The settings list beside the current value of the row under the cursor.
+
+    Focus never leaves the left pane. Two panes that both take the cursor need
+    a third key to move between them, and on a serial console another key is
+    another state the operator cannot see.
+    """
+
+    title: str
+    rows: Sequence[PaneRow[V]]
+    #: Right-aligned on the title row, answered against total.
+    counter: str = ""
+    footer: str = ""
+    #: What the marks mean, at the end of the status line so it does not read
+    #: as one more key.
+    legend: str = ""
+    #: Where the cursor was left. Reopening after editing a row comes back to
+    #: that row.
+    cursor: int = 0
+
+    def run(self, screen: Screen) -> Answer[V]:
+        cursor = self.cursor if 0 <= self.cursor < len(self.rows) else 0
+        while True:
+            self.cursor = cursor
+            self._draw(screen, cursor)
+            pressed = screen.key()
+            if pressed == "KEY_UP":
+                cursor = max(0, cursor - 1)
+            elif pressed == "KEY_DOWN":
+                cursor = min(max(0, len(self.rows) - 1), cursor + 1)
+            elif pressed in ("\n", "KEY_ENTER", "KEY_RIGHT"):
+                if self.rows:
+                    return Answer(Outcome.CHOSE, self.rows[cursor].value)
+            elif pressed in ("KEY_LEFT", "\x1b"):
+                # Both answer Back at every depth, and what Back means here is
+                # the caller's: the main menu asks whether to end the run.
+                return Answer(Outcome.BACK)
+            elif pressed == "\x03":
+                return Answer(Outcome.CANCELLED)
+
+    def _draw(self, screen: Screen, cursor: int) -> None:
+        lines, columns = screen.size()
+        screen.clear()
+        screen.write(0, 0, spread(self.title, self.counter, columns))
+        if columns < MINIMUM_COLUMNS or lines < MINIMUM_LINES:
+            self._draw_one_pane(screen, cursor, lines, columns)
+        else:
+            self._draw_two_panes(screen, cursor, lines, columns)
+        if lines > 1 and (self.footer or self.legend):
+            screen.write(lines - 1, 0, spread(self.footer, self.legend, columns))
+        screen.show()
+
+    def _draw_two_panes(self, screen: Screen, cursor: int, lines: int, columns: int) -> None:
+        left = left_pane_width(row.label for row in self.rows)
+        right = right_pane_width(columns, left)
+        room = lines - 3
+        for line in range(2, lines - 1):
+            screen.write(line, left, SEPARATOR)
+        top = _window(cursor, room, len(self.rows))
+        for offset, index in enumerate(range(top, min(len(self.rows), top + room))):
+            self._draw_row(
+                screen, offset + 2, index, index == cursor, MARKER_ROOM, left - MARKER_ROOM
+            )
+        detail = self.rows[cursor].detail if self.rows else ()
+        for offset, line_text in enumerate(detail[:room]):
+            screen.write(offset + 2, left + PANE_GAP, clip(line_text, right))
+
+    def _draw_one_pane(self, screen: Screen, cursor: int, lines: int, columns: int) -> None:
+        """One pane, and the row under the cursor carries two of its lines.
+
+        The floor is a measured boundary rather than best effort: below it the
+        right pane cannot hold a value, so it stops existing.
+        """
+        room = lines - 3
+        if room <= 0:
+            return
+        entries: list[tuple[int | None, str]] = []
+        for index, row in enumerate(self.rows):
+            entries.append((index, ""))
+            if index == cursor:
+                entries.extend((None, line) for line in row.detail[:2])
+        here = next((at for at, (which, _) in enumerate(entries) if which == cursor), 0)
+        top = _window(here, room, len(entries))
+        for offset, (which, text) in enumerate(entries[top : top + room]):
+            if which is None:
+                screen.write(offset + 2, 4, clip(text, columns - 4))
+                continue
+            self._draw_row(
+                screen, offset + 2, which, which == cursor, MARKER_ROOM, columns - MARKER_ROOM
+            )
+
+    def _draw_row(
+        self, screen: Screen, line: int, index: int, focused: bool, column: int, room: int
+    ) -> None:
+        row = self.rows[index]
+        if row.style is not Style.PLAIN:
+            # The marker is the signal and the colour repeats it: a monochrome
+            # serial console has to show the same thing.
+            screen.write(line, 0, MARKS[row.style], style=row.style)
+        screen.write(
+            line,
+            column,
+            spread(clip(row.label, room), row.state, room),
+            highlight=focused,
+            style=row.style,
+        )
+
+
+def _window(cursor: int, room: int, total: int) -> int:
+    """The first row drawn, so the cursor stays on screen without wrapping."""
+    if room <= 0 or total <= room:
+        return 0
+    return max(0, min(cursor - room // 2, total - room))

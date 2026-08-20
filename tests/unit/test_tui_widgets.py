@@ -13,6 +13,8 @@ from gentoo_install.tui.widgets import (
     Menu,
     MultipleChoiceMenu,
     Outcome,
+    PaneRow,
+    Style,
     TextField,
 )
 
@@ -648,3 +650,256 @@ def test_a_combining_mark_joins_the_cell_before_it_instead_of_taking_one() -> No
 
     assert screen.drawn(0) == "e" + ACUTE + "x"
     assert width(screen.drawn(0)) == 2
+
+
+class Recording(FakeScreen):
+    """A `FakeScreen` that keeps every write, so a test can assert where a
+    widget wrote and not only what the row ended up reading."""
+
+    def __init__(self, keys: list[str], lines: int = 24, columns: int = 80) -> None:
+        super().__init__(keys=keys, lines=lines, columns=columns)
+        self.spans: list[tuple[int, int, str]] = []
+
+    def write(
+        self,
+        line: int,
+        column: int,
+        text: str,
+        highlight: bool = False,
+        style: Style = Style.PLAIN,
+    ) -> None:
+        self.spans.append((line, column, text))
+        super().write(line, column, text, highlight, style)
+
+
+def cell(screen: FakeScreen, line: int, column: int) -> str:
+    """What occupies that column. Walked by cells: indexing the row as a
+    string reads one place left for every wide character before it."""
+    from gentoo_install.i18n import width
+
+    at = 0
+    for character in screen.drawn(line):
+        step = width(character)
+        if at <= column < at + step:
+            return character
+        at += step
+    return " "
+
+
+def catalog_labels(tag: str) -> list[str]:
+    """Every setting label the main menu can draw, in one language."""
+    from gentoo_install.i18n import Catalog
+    from gentoo_install.tui.settings import SETTINGS, Setting
+
+    translate = Catalog(tag)
+
+    def walk(rows: tuple[Setting, ...]) -> list[str]:
+        found: list[str] = []
+        for one in rows:
+            found.append(translate(one.label))
+            found.extend(walk(one.rows))
+        return found
+
+    return walk(SETTINGS)
+
+
+def pane_rows(count: int = 4, label: str = "Mirrors") -> list[PaneRow[int]]:
+    return [
+        PaneRow(label=f"{label}{index}", value=index, state="set", detail=(f"line {index}",))
+        for index in range(count)
+    ]
+
+
+@pytest.mark.parametrize(
+    "tag,left,right",
+    [("en", 27, 51), ("zh-TW", 20, 58), ("zh-CN", 20, 58), ("ja", 32, 46), ("ko", 26, 52)],
+)
+def test_the_panes_are_measured_from_the_catalog_they_will_draw(
+    tag: str, left: int, right: int
+) -> None:
+    """One rule, five answers. A pane sized for English cuts every Japanese
+    label, and one sized for Japanese leaves 46 columns for a device path."""
+    from gentoo_install.tui.widgets import left_pane_width, right_pane_width
+
+    assert left_pane_width(catalog_labels(tag)) == left
+    assert right_pane_width(80, left) == right
+    assert left + right + 2 == 80
+
+
+def test_a_label_wider_than_the_clamp_is_cut_and_says_so() -> None:
+    """No catalog reaches it today, so the boundary is held by a test rather
+    than by the input: a cut name that reads as a whole one is the defect."""
+    from gentoo_install.tui.widgets import CUT, SEPARATOR, TwoPane
+
+    screen = Recording(keys=["\x1b"])
+    TwoPane(title="gentoo-install", rows=[PaneRow(label="x" * 40, value=0)]).run(screen)
+
+    assert screen.drawn(2)[2:34] == "x" * 31 + CUT
+    assert cell(screen, 2, 34) == SEPARATOR
+
+
+def test_a_wide_label_is_cut_by_cells_and_not_by_characters() -> None:
+    """Sixteen characters are 32 cells, and a cut counted in characters puts
+    half of the seventeenth into the separator column."""
+    from gentoo_install.i18n import width
+    from gentoo_install.tui.widgets import CUT, SEPARATOR, TwoPane
+
+    screen = Recording(keys=["\x1b"])
+    TwoPane(title="gentoo-install", rows=[PaneRow(label=WIDE[0] * 20, value=0)]).run(screen)
+
+    drawn = screen.drawn(2)
+    assert CUT in drawn
+    assert width(drawn[: drawn.index(CUT) + 1]) <= 34
+    assert cell(screen, 2, 34) == SEPARATOR
+
+
+def test_a_right_pane_line_too_long_for_the_pane_is_cut_and_says_so() -> None:
+    """A truncated mirror URL is indistinguishable from a whole one, which is
+    why every cut leaves a mark."""
+    from gentoo_install.i18n import width
+    from gentoo_install.tui.widgets import CUT, TwoPane
+
+    address = "https://mirror.example.org/gentoo/releases/amd64/autobuilds/latest-stage3"
+    screen = Recording(keys=["\x1b"])
+    TwoPane(
+        title="gentoo-install",
+        rows=[PaneRow(label="Mirrors", value=0, detail=(address,))],
+    ).run(screen)
+
+    drawn = screen.drawn(2)
+    assert address not in drawn
+    assert drawn.endswith(CUT)
+    assert width(drawn) == 80
+
+
+def test_no_write_lands_on_the_separator_column() -> None:
+    """The column between the panes belongs to neither. A label that spills
+    into it is what makes the right pane start one column late."""
+    from gentoo_install.i18n import width
+    from gentoo_install.tui.widgets import SEPARATOR, TwoPane, left_pane_width
+
+    rows = [
+        PaneRow(label="x" * 40, value=0, state="set", detail=("y" * 90,)),
+        PaneRow(label="Mirrors", value=1, state="not set", detail=("z" * 90,)),
+    ]
+    screen = Recording(keys=["KEY_DOWN", "\x1b"])
+    TwoPane(title="gentoo-install", rows=rows, footer="[enter] open").run(screen)
+    left = left_pane_width(row.label for row in rows)
+
+    # The title and the status line are full width by definition, so the
+    # claim is about the rows between them.
+    body = [span for span in screen.spans if 2 <= span[0] <= 22]
+    assert body
+    for line, column, text in body:
+        if text == SEPARATOR and column == left:
+            continue
+        assert column + width(text) <= left or column > left, (line, column, text)
+    for line in range(2, 23):
+        assert cell(screen, line, left) == SEPARATOR
+
+
+def test_below_the_floor_one_pane_carries_two_lines_under_the_cursor() -> None:
+    """79 columns and 23 lines are each below the only size guaranteed to
+    exist, and the right pane has nowhere to stand."""
+    from gentoo_install.tui.widgets import SEPARATOR, TwoPane
+
+    rows = [
+        PaneRow(label="Mirrors", value=0, state="set", detail=("first", "second", "third")),
+        PaneRow(label="Kernel", value=1, state="set", detail=("other",)),
+    ]
+    for lines, columns in ((24, 79), (23, 80)):
+        screen = Recording(keys=["\x1b"], lines=lines, columns=columns)
+        TwoPane(title="gentoo-install", rows=rows).run(screen)
+
+        assert "Mirrors" in screen.drawn(2)
+        assert screen.drawn(3).strip() == "first"
+        assert screen.drawn(4).strip() == "second"
+        assert "Kernel" in screen.drawn(5)
+        assert "third" not in screen.last
+        assert SEPARATOR not in screen.last
+
+
+def test_a_screen_too_small_for_a_row_draws_what_fits_and_raises_nothing() -> None:
+    """A serial console that came up at 80x10, and a resize down to nothing:
+    neither is an error the operator can act on."""
+    from gentoo_install.tui.widgets import TwoPane
+
+    for lines, columns in ((10, 40), (4, 20), (2, 12), (1, 8)):
+        screen = Recording(keys=["\x1b"], lines=lines, columns=columns)
+        assert TwoPane(title="gentoo-install", rows=pane_rows()).run(screen).outcome is Outcome.BACK
+
+
+def test_the_cursor_moves_and_enter_answers_with_the_row_under_it() -> None:
+    from gentoo_install.tui.widgets import TwoPane
+
+    rows = pane_rows()
+    assert TwoPane(title="t", rows=rows).run(FakeScreen(keys=["KEY_DOWN", "\n"])).unwrap() == 1
+    moved = TwoPane(title="t", rows=rows)
+    assert moved.run(FakeScreen(keys=["KEY_DOWN", "KEY_DOWN", "KEY_UP", "KEY_RIGHT"])).unwrap() == 1
+    # Stops rather than wraps: wrapping past either end loses the operator's
+    # place in a list of twenty-two rows.
+    assert TwoPane(title="t", rows=rows).run(FakeScreen(keys=["KEY_UP", "\n"])).unwrap() == 0
+
+
+def test_left_and_escape_both_answer_back_and_the_caller_decides() -> None:
+    """One meaning for `KEY_LEFT` at every depth. What Back means here is the
+    main menu's business: it is where the run is ended."""
+    from gentoo_install.tui.widgets import TwoPane
+
+    rows = pane_rows()
+    assert TwoPane(title="t", rows=rows).run(FakeScreen(keys=["KEY_LEFT"])).outcome is Outcome.BACK
+    assert TwoPane(title="t", rows=rows).run(FakeScreen(keys=["\x1b"])).outcome is Outcome.BACK
+    interrupted = TwoPane(title="t", rows=rows).run(FakeScreen(keys=["\x03"]))
+    assert interrupted.outcome is Outcome.CANCELLED
+
+
+def test_the_title_row_carries_the_counter_at_the_right_edge() -> None:
+    from gentoo_install.i18n import width
+    from gentoo_install.tui.widgets import TwoPane
+
+    screen = Recording(keys=["\x1b"])
+    TwoPane(title="gentoo-install", rows=pane_rows(), counter="6/22 answered").run(screen)
+
+    title = screen.drawn(0)
+    assert width(title) == 80
+    assert title.startswith("gentoo-install")
+    assert title.endswith("6/22 answered")
+
+
+def test_the_status_line_stays_on_the_last_line_of_both_layouts() -> None:
+    from gentoo_install.tui.widgets import TwoPane
+
+    for lines, columns in ((24, 80), (23, 80)):
+        screen = Recording(keys=["\x1b"], lines=lines, columns=columns)
+        TwoPane(
+            title="gentoo-install",
+            rows=pane_rows(),
+            footer="[enter] open",
+            legend="* required",
+        ).run(screen)
+
+        assert screen.drawn(lines - 1).startswith("[enter] open")
+        assert screen.drawn(lines - 1).endswith("* required")
+
+
+def test_the_left_pane_fills_every_row_between_the_title_and_the_status_line() -> None:
+    """Twenty-one rows fit under a title and above a status line on 24 lines,
+    and a pane that stops one row early hides the row it stops on."""
+    from gentoo_install.tui.widgets import TwoPane
+
+    rows = [PaneRow(label=f"row{index:02d}", value=index) for index in range(21)]
+    screen = Recording(keys=["\x1b"])
+    TwoPane(title="gentoo-install", rows=rows, footer="[enter] open").run(screen)
+
+    assert screen.drawn(2).strip().startswith("row00")
+    assert screen.drawn(22).strip().startswith("row20")
+    assert screen.drawn(23).startswith("[enter] open")
+
+
+def test_a_list_longer_than_the_pane_scrolls_to_keep_the_cursor_on_screen() -> None:
+    from gentoo_install.tui.widgets import TwoPane
+
+    rows = [PaneRow(label=f"row{index:02d}", value=index) for index in range(40)]
+    screen = Recording(keys=["KEY_DOWN"] * 30 + ["\n"])
+    assert TwoPane(title="gentoo-install", rows=rows).run(screen).unwrap() == 30
+    assert "row30" in screen.last
