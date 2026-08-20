@@ -29,7 +29,6 @@ from gentoo_install.model.config import (
     Bootloader,
     DiskMode,
     Firmware as BootFirmware,
-    InitSystem,
     InstallConfig,
 )
 from gentoo_install.model.device import (
@@ -37,7 +36,6 @@ from gentoo_install.model.device import (
     Filesystem,
     Luks,
     Mountpoint,
-    Subvolume,
     ZfsDataset,
     ZfsPool,
 )

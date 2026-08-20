@@ -46,16 +46,11 @@ from gentoo_install.model.config import Firmware as BootFirmware
 from gentoo_install.model.config import (
     DiskMode,
     GentooZhMirror,
-    InitSystem,
     InstallConfig,
 )
 from gentoo_install.model.device import (
     Existing,
-    Filesystem,
     Luks,
-    Mountpoint,
-    Subvolume,
-    ZfsDataset,
     ZfsPool,
 )
 from gentoo_install.model.config import MirrorRegion, Sync

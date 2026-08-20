@@ -21,7 +21,6 @@ from ..model.config import (
     Firewall,
     InitSystem,
     InstallConfig,
-    KernelSource,
     Keywords,
     Networking,
 )
@@ -31,13 +30,10 @@ from ..model.device import (
     DeviceGraph,
     DeviceId,
     Existing,
-    Filesystem,
     Luks,
-    MdRaid,
     Mountpoint,
     Partition,
     PartitionTable,
-    VolumeGroup,
     ZfsPool,
 )
 from ..plan import automatic as automatic_values

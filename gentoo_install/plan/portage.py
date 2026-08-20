@@ -24,7 +24,6 @@ from ..model.config import (
     InitSystem,
     InstallConfig,
     Keywords,
-    MirrorRegion,
     PortageConfig,
     ProxyConfig,
     Sync,

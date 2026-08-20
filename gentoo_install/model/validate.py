@@ -29,7 +29,6 @@ from .config import (
     Networking,
     PackagesConfig,
     PortageConfig,
-    ProxyKind,
     SystemConfig,
 )
 from .device import (

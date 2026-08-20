@@ -16,14 +16,10 @@ from ..errors import ConfigError
 from ..i18n import Catalog
 from ..model import atoms
 from ..model.config import (
-    Binhost,
-    BinhostChannel,
     InitSystem,
     InstallConfig,
     Networking,
-    Overlay,
     PackagesConfig,
-    PortageConfig,
 )
 from ..plan import automatic as automatic_values
 from ..plan.fonts import CJK_SANS_PREFERENCE, CjkFontconfigLocale, FontCategory
@@ -34,25 +30,17 @@ from ..plan.packages import INPUT_CONFIGURATION_DISABLED, INPUT_CONFIGURATION_EN
 from ..plan.packages import driver_conflict, framework_conflict
 from .context import (
     Context,
-    DONE,
-    FieldDescriptor,
     ValueKind,
     ValueProvenance,
     ValueSource,
-    answers,
     current_menu,
     footer,
     pick,
     say,
-    with_gentoo_zh,
 )
 from .widgets import (
-    Accepts,
     Answer,
     Confirm,
-    Field,
-    Form,
-    FormRejected,
     Item,
     Menu,
     MultipleChoiceMenu,
