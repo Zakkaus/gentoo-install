@@ -5,7 +5,7 @@ import pytest
 
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
-from typing import Callable, Sequence, cast
+from typing import Sequence, cast
 
 from gentoo_install.exec.config import load
 from gentoo_install.model.config import (
@@ -541,22 +541,13 @@ def test_a_probe_that_did_not_run_names_itself_rather_than_the_boot() -> None:
     grub = bootloader.InstallGrub(
         firmware=Firmware.UEFI, esp=PurePosixPath("/efi"), boot_devices=(DeviceId("first"),)
     )
-    # The stub check reads the same `grep`, and it runs first: a probe that
-    # did not run is named where it happened rather than two steps later.
     broken = Recorder(replies={"grep": CommandOutput("grep is not installed", 127)})
-    with pytest.raises(CommandFailed, match="grubx64.efi could not be read"):
+    with pytest.raises(CommandFailed, match="grub.cfg could not be counted"):
         grub.apply(broken)
 
     # grep exits 1 with nothing matched, which is a count of zero: that is the
-    # file this operation exists to refuse, and it keeps its own message. The
-    # stub check has to pass first, so it answers a match.
-    def counted(argv: Sequence[str]) -> str | None:
-        if argv[0] != "grep":
-            return None
-        return "1\n" if str(argv[-1]).endswith("grubx64.efi") else CommandOutput("0\n", 1)
-
-    empty = Recorder()
-    empty.answering = counted
+    # file this operation exists to refuse, and it keeps its own message.
+    empty = Recorder(replies={"grep": CommandOutput("0\n", 1)})
     with pytest.raises(NothingToBoot, match="no menu entry"):
         grub.apply(empty)
 
@@ -586,9 +577,7 @@ def test_a_probe_answering_without_an_exit_status_is_read_as_a_failure() -> None
     grub = bootloader.InstallGrub(
         firmware=Firmware.UEFI, esp=PurePosixPath("/efi"), boot_devices=(DeviceId("first"),)
     )
-    # The stub check asks first, so the probe that reached the Context is
-    # what names the failure, not the count two steps later.
-    with pytest.raises(CommandFailed, match="could not be identified"):
+    with pytest.raises(CommandFailed, match="grub.cfg could not be counted"):
         grub.apply(Wordy())
 
 
@@ -608,47 +597,3 @@ def test_an_image_found_beside_an_unreadable_entry_is_still_installed() -> None:
         }
     )
     assert built._image(partial) == "/efi/EFI/zbm/vmlinuz-6.12.EFI"
-
-
-def test_a_stub_that_names_no_filesystem_is_retried_then_refused() -> None:
-    """run141 measured `drive=(hostdisk//dev/vda,gpt2)`: `grub-install` could
-    not open the parent disk, wrote `(,gpt2)/boot/grub` with no search, and
-    reported success. That guest stopped at `grub rescue>` for a module on the
-    disk. `--recheck` builds the device map again, and a stub that still names
-    nothing is refused here rather than at the next reboot."""
-    from gentoo_install.errors import NothingToBoot
-    from gentoo_install.model.device import DeviceId
-
-    grub = bootloader.InstallGrub(
-        firmware=Firmware.UEFI, esp=PurePosixPath("/efi"), boot_devices=(DeviceId("first"),)
-    )
-
-    def answering(matches: list[int]) -> Callable[[Sequence[str]], str | None]:
-        def answer(argv: Sequence[str]) -> str | None:
-            if argv[0] == "grub-probe":
-                return "2b6ec861-f52f-4dea-a2a7-d8a288e48dbd\n"
-            if argv[0] == "grep" and str(argv[-1]).endswith("grubx64.efi"):
-                return f"{matches.pop(0)}\n"
-            if argv[0] == "grep":
-                return "1\n"
-            return None
-
-        return answer
-
-    # Named the first time: nothing is installed twice.
-    once = Recorder()
-    once.answering = answering([1])
-    grub.apply(once)
-    assert [one for one in once.in_target if "--recheck" in one] == []
-
-    # Named only after the device map is built again.
-    retried = Recorder()
-    retried.answering = answering([0, 1])
-    grub.apply(retried)
-    assert [one for one in retried.in_target if "--recheck" in one], retried.in_target
-
-    # Still nothing: refused here, with the uuid that is missing from it.
-    never = Recorder()
-    never.answering = answering([0, 0])
-    with pytest.raises(NothingToBoot, match="names no filesystem"):
-        grub.apply(never)

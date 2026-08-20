@@ -14,7 +14,7 @@ import re
 
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import ClassVar, Final
+from typing import Final
 
 from ..errors import CommandFailed, ConfigError, InvalidLayout, NothingToBoot
 from ..model import compat
@@ -170,45 +170,6 @@ class InstallGrub(Operation):
         disks = "disk" if len(self.boot_devices) == 1 else "disks"
         return f"install GRUB for {self.firmware.value} on the {disks} under {under}"
 
-    #: Where `--bootloader-id=Gentoo` writes, and what the firmware starts.
-    STUB: ClassVar[str] = "EFI/Gentoo/grubx64.efi"
-
-    def _refuse_a_stub_naming_no_filesystem(
-        self, context: Context, efi: list[str]
-    ) -> None:
-        """Retry once, then refuse, when the stub names no filesystem.
-
-        `grub-install` reports `Installation finished. No error reported.` and
-        writes `(,gpt2)/boot/grub` — a partition with no drive and no search —
-        when its disk layer cannot open the parent device: measured on a
-        converted guest as `drive=(hostdisk//dev/vda,gpt2)`. That machine stops
-        at `grub rescue>` for a module sitting on the disk. `--recheck` deletes
-        the device map and builds it again, which is what that failure asks
-        for; a stub that still names nothing is refused here rather than at the
-        next reboot.
-        """
-        stub = f"{self.esp}/{self.STUB}"
-        for attempt in ([], ["--recheck"]):
-            if attempt:
-                context.run_in_target([*efi, *attempt, "--bootloader-id=Gentoo"])
-            uuid = answered(
-                context.run_in_target(
-                    ["grub-probe", "--target=fs_uuid", "/boot"], check=False
-                ),
-                "the filesystem holding /boot could not be identified",
-            )
-            named = answered(
-                context.run_in_target(["grep", "-ac", uuid, stub], check=False),
-                f"{stub} could not be read",
-                allowed=(0, 1),
-            )
-            if named.isdigit() and int(named) > 0:
-                return
-        raise NothingToBoot(
-            f"{stub} names no filesystem, so GRUB has nowhere to read its "
-            f"modules from: {uuid} is not in it"
-        )
-
     def apply(self, context: Context) -> None:
         force = ["--force"] if self.force else []
         if self.firmware is Firmware.UEFI and self.esp is not None:
@@ -219,7 +180,6 @@ class InstallGrub(Operation):
             context.run_in_target([*efi, "--removable"])
             if self.write_nvram:
                 _try_the_nvram_entry(context, [*efi, "--bootloader-id=Gentoo"])
-            self._refuse_a_stub_naming_no_filesystem(context, efi)
         else:
             installed: set[str] = set()
             for device in self.boot_devices:
