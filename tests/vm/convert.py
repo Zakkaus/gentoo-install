@@ -114,17 +114,25 @@ _STUB_PREFIX: Final[str] = (
 
 GRUB_PREFIX_CHECK: Final[InstalledCheck] = InstalledCheck(
     "grub's prefix",
-    "printf 'grubstub=%s grubprefix=%s boot=%s esp=%s stub=%s embedded=%s\\n' "
+    "printf 'grubstub=%s grubprefix=%s boot=%s esp=%s stub=%s embedded=%s "
+    "drive=%s fs=%s\\n' "
     f"\"$(wc -c < {GRUB_STUB} 2>/dev/null || echo 0)\" "
     f"\"$(grep -ac \"$(grub-probe --target=fs_uuid /boot)\" {GRUB_STUB} 2>/dev/null)\" "
     "\"$(grub-probe --target=fs_uuid /boot 2>/dev/null)\" "
     "\"$(grub-probe --target=fs_uuid /efi 2>/dev/null)\" "
     f"\"$({_STUB_UUID})\" "
-    f"\"$({_STUB_PREFIX})\"",
+    f"\"$({_STUB_PREFIX})\" "
+    # The two probes grub-install itself uses to compose the prefix. It wrote
+    # `(,gpt2)/boot/grub` — a partition with no drive and no filesystem
+    # driver — and reported success, so which of them answered nothing is the
+    # whole question.
+    "\"$(grub-probe --target=drive /boot 2>&1 | tr ' ' '_' | head -n 1)\" "
+    "\"$(grub-probe --target=fs /boot 2>&1 | tr ' ' '_' | head -n 1)\"",
     # `embedded` decides nothing: `grubprefix` already says whether the stub
     # names the filesystem holding `/boot`, and this field is the evidence the
     # next failure needs, which an empty match must not hide.
-    r"(?m)^grubstub=[1-9][0-9]* grubprefix=[1-9][0-9]* boot=\S+ esp=\S+ stub=\S+ embedded=\S*$",
+    r"(?m)^grubstub=[1-9][0-9]* grubprefix=[1-9][0-9]* boot=\S+ esp=\S+ stub=\S+ "
+    r"embedded=\S* drive=\S* fs=\S*$",
 )
 
 

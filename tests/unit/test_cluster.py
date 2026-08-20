@@ -3150,7 +3150,7 @@ def test_a_conversion_counts_the_modules_its_bootloader_needs() -> None:
             GRUB_PREFIX_CHECK,
             "grubstub=163840 grubprefix=1 boot=c866ae3a-68e7-4096-9703-dfa17070c3ed"
             " esp=1234-ABCD stub=c866ae3a-68e7-4096-9703-dfa17070c3ed"
-            " embedded=(hd0,gpt2)/boot/grub\n",
+            " embedded=(hd0,gpt2)/boot/grub drive=hd0,gpt2 fs=xfs\n",
         ),
     ):
         assert "wc -" in check.command or "grep -ac" in check.command
@@ -3169,7 +3169,7 @@ def test_a_conversion_counts_the_modules_its_bootloader_needs() -> None:
     # cannot tell them apart.
     healthy = (
         "grubstub=163840 grubprefix=1 boot=aaaa esp=1234-ABCD stub=aaaa"
-        " embedded=(hd0,gpt2)/boot/grub\n"
+        " embedded=(hd0,gpt2)/boot/grub drive=hd0,gpt2 fs=xfs\n"
     )
     assert re.search(GRUB_PREFIX_CHECK.pattern, healthy)
     assert re.search(GRUB_PREFIX_CHECK.pattern, healthy.replace("prefix=1", "prefix=0")) is None
@@ -3214,6 +3214,18 @@ def test_a_conversion_counts_the_modules_its_bootloader_needs() -> None:
     # a stub whose prefix is `(hd0,gpt2)/boot/grub`, measured on 2026-08-20.
     assert r"'^\([^)]+\)/[^ ]*|^/[^ ]*grub$'" in GRUB_PREFIX_CHECK.command
     assert "embedded=%s" in GRUB_PREFIX_CHECK.command
+
+    # run138 answered `embedded=(,gpt2)/boot/grub`: a partition with no drive
+    # and no filesystem driver, from a `grub-install` that reported success.
+    # The two probes it composes that prefix from are asked here, so the next
+    # failure names the one that answered nothing instead of leaving it open.
+    assert "grub-probe --target=drive /boot" in GRUB_PREFIX_CHECK.command
+    assert "grub-probe --target=fs /boot" in GRUB_PREFIX_CHECK.command
+    # Their diagnosis, not only their answer: `grub-probe` writes the reason
+    # on stderr, and a field of spaces would break the line into two.
+    assert GRUB_PREFIX_CHECK.command.count("2>&1 | tr ' ' '_'") == 2
+    assert _re.search(GRUB_PREFIX_CHECK.pattern, healthy.replace("drive=hd0,gpt2", "drive="))
+    assert _re.search(GRUB_PREFIX_CHECK.pattern, healthy.replace(" fs=xfs", "")) is None
 
 
 def test_the_unlock_addresses_go_back_after_the_guests_do() -> None:
