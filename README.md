@@ -256,7 +256,8 @@ The system configuration can configure zram independently of the device graph an
 | Converting a running system | four QEMU records: two on BIOS, one on UEFI that retained `/home`, and one on UEFI whose btrfs root carries `/home` and `/var` as subvolumes |
 | Converting a machine this installer produced | six cluster conversions reached the reboot; five booted and one stopped in GRUB's rescue shell for a missing module while the conversion exited `0`, so this path is not yet reliable |
 | `--ram` and `--lowram` | a Debian 12 machine armed one boot, kept its default entry and came up in the delivered environment, carrying the configuration it was given; answering `install` there installed Gentoo and booted the disk it had written |
-| `--bypass` | a machine whose armed initramfs was removed reached its own cloud system on the two boots that followed |
+| `--bypass` | replacing the default entry survived a power cycle: both boots came up in the memory environment |
+| An armed boot that does not come up | a machine whose armed initramfs was removed never showed the delivered screen and reached its own cloud system on the two boots that followed |
 | `dd` | one prepared image written onto a whole disk from a live medium and read back byte for byte, raw and gzipped |
 | Installing into a file | one record: the image was attached with `losetup -Pf` and read back as the two filesystems its layout declares, and nothing has booted from that file |
 | The menu | opened row by row on an 80x24 serial console in English, Traditional and Simplified Chinese, Japanese and Korean, with no row wider than the terminal |
