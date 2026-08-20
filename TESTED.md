@@ -225,6 +225,7 @@ console, so what they stopped at is unknown. The open defect is row 238 of
 | Revision | What ran | Result |
 |---|---|---|
 | `d348174548035` | `python3 -m tests.vm.tui --lang en` on the official minimal medium, UEFI | opened all nineteen rows of the menu on an 80x24 serial console and read each screen back: 20 screens drawn, no line wider than the terminal, and every row returned to the menu. Nothing was installed; this record covers the interface, not an installation |
+| `1df424c0d0840` | the same walk with `--lang ja` and `--lang ko` | 20 screens and no finding each. Both scripts are drawn in double-width cells, and Korean adds spacing between words, so the row that runs out of terminal is theirs rather than the English one |
 | `1df424c0d0840` | the same walk with `--lang zh-TW` | 20 screens and no finding again, on a medium carrying no CJK font: every title was drawn from the catalog rather than the English source. What this measures is width, because a Han character takes two cells and a translated label is the one that overflows 80 columns |
 
 The walk is what `FakeScreen` cannot do. It found the Hostname screen had no
