@@ -93,12 +93,22 @@ GRUB_STUB: Final[str] = "/efi/EFI/Gentoo/grubx64.efi"
 #: and that uuid is what decides which filesystem `$prefix` is read from. Two
 #: values because one cannot say which half failed: a stub that is not there
 #: and a stub that names another filesystem both counted zero.
+#: The uuid the stub actually carries, read out of the binary rather than
+#: through `strings`, which is binutils and need not be installed. Printed
+#: beside the count so a failure says which filesystem GRUB will look for
+#: instead of only that it is the wrong one.
+_STUB_UUID: Final[str] = (
+    r"grep -aoE '[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12}' " + GRUB_STUB + " 2>/dev/null | head -n 1"
+)
+
 GRUB_PREFIX_CHECK: Final[InstalledCheck] = InstalledCheck(
     "grub's prefix",
-    "printf 'grubstub=%s grubprefix=%s\\n' "
+    "printf 'grubstub=%s grubprefix=%s boot=%s stub=%s\\n' "
     f"\"$(wc -c < {GRUB_STUB} 2>/dev/null || echo 0)\" "
-    f"\"$(grep -ac \"$(grub-probe --target=fs_uuid /boot)\" {GRUB_STUB} 2>/dev/null)\"",
-    r"(?m)^grubstub=[1-9][0-9]* grubprefix=[1-9][0-9]*$",
+    f"\"$(grep -ac \"$(grub-probe --target=fs_uuid /boot)\" {GRUB_STUB} 2>/dev/null)\" "
+    "\"$(grub-probe --target=fs_uuid /boot 2>/dev/null)\" "
+    f"\"$({_STUB_UUID})\"",
+    r"(?m)^grubstub=[1-9][0-9]* grubprefix=[1-9][0-9]* boot=\S+ stub=\S+$",
 )
 
 

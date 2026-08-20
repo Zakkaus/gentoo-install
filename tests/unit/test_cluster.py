@@ -3095,7 +3095,11 @@ def test_a_conversion_counts_the_modules_its_bootloader_needs() -> None:
     for check, answer in (
         (GRUB_MODULES_CHECK, "grubmods=214\n"),
         (GRUB_READS_ITS_MODULE, "grubread=182672\n"),
-        (GRUB_PREFIX_CHECK, "grubstub=544768 grubprefix=1\n"),
+        (
+            GRUB_PREFIX_CHECK,
+            "grubstub=163840 grubprefix=1 boot=c866ae3a-68e7-4096-9703-dfa17070c3ed"
+            " stub=c866ae3a-68e7-4096-9703-dfa17070c3ed\n",
+        ),
     ):
         assert "wc -" in check.command or "grep -ac" in check.command
         assert not re.search(check.pattern, check.command)
@@ -3111,8 +3115,18 @@ def test_a_conversion_counts_the_modules_its_bootloader_needs() -> None:
     # The third answers with two counts, because a stub that is not there and
     # a stub naming another filesystem are different defects and one number
     # cannot tell them apart.
-    assert re.search(GRUB_PREFIX_CHECK.pattern, "grubstub=544768 grubprefix=0\n") is None
-    assert re.search(GRUB_PREFIX_CHECK.pattern, "grubstub=0 grubprefix=1\n") is None
+    healthy = "grubstub=163840 grubprefix=1 boot=aaaa stub=aaaa\n"
+    assert re.search(GRUB_PREFIX_CHECK.pattern, healthy)
+    assert re.search(GRUB_PREFIX_CHECK.pattern, healthy.replace("prefix=1", "prefix=0")) is None
+    assert re.search(GRUB_PREFIX_CHECK.pattern, healthy.replace("stub=163840", "stub=0")) is None
+
+    # Measured on this workstation, which runs the same grub-2.14 as a guest:
+    # `grub-install --target=x86_64-efi --bootloader-id=Gentoo` against an xfs
+    # boot filesystem writes a 163840-byte stub carrying that filesystem's
+    # uuid once. `vm-convert` reported the same size and no uuid, so the check
+    # asks for both sides of the comparison and the verdict names them.
+    assert "grub-probe --target=fs_uuid /boot" in GRUB_PREFIX_CHECK.command
+    assert "boot=%s stub=%s" in GRUB_PREFIX_CHECK.command
 
 
 def test_the_unlock_addresses_go_back_after_the_guests_do() -> None:
