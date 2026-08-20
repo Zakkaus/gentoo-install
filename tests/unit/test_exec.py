@@ -707,13 +707,40 @@ def test_a_fingerprint_that_only_appears_in_the_output_is_not_a_signature(tmp_pa
         fetch._verify_signature(tmp_path / "x.DIGESTS", "ABC123", Mentioned(log=lambda line: None))
 
 
-def test_a_mirror_that_never_answers_goes_last_rather_than_disappearing() -> None:
+def test_a_mirror_that_never_answers_goes_last_rather_than_disappearing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """An empty mirror list is worse than a slow mirror: Portage with no mirror
-    at all cannot fetch anything."""
-    candidates = ("https://mirror.invalid.example./", "https://other.invalid.example./")
+    at all cannot fetch anything.
+
+    The times are given rather than measured. Two unreachable candidates both
+    probe to `inf`, so asserting only that the set came back passes a ranker
+    that sorts slowest first — every install would then lead with the host
+    that answers last.
+    """
+    candidates = (
+        "https://slow.invalid.example./",
+        "https://quick.invalid.example./",
+        "https://dead.invalid.example./",
+    )
+    measured = {
+        "https://slow.invalid.example./": 0.9,
+        "https://quick.invalid.example./": 0.1,
+        "https://dead.invalid.example./": float("inf"),
+    }
+    monkeypatch.setattr(
+        fetch, "_probe", lambda mirror, proxy=None: measured[mirror]
+    )
+
     ranked = fetch.rank_mirrors(candidates)
-    assert set(ranked) == set(candidates)
-    assert len(ranked) == len(candidates)
+    assert set(ranked) == set(candidates), ranked
+    assert ranked[0] == "https://quick.invalid.example./", ranked
+    assert ranked[-1] == "https://dead.invalid.example./", ranked
+
+    # A tie keeps the order the configuration gave, so a measurement that
+    # found nothing does not reshuffle the operator's own preference.
+    monkeypatch.setattr(fetch, "_probe", lambda mirror, proxy=None: float("inf"))
+    assert fetch.rank_mirrors(candidates) == candidates
 
 
 def test_the_measured_order_is_used_only_when_the_configuration_asks() -> None:
