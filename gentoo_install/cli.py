@@ -886,9 +886,10 @@ def _require_network() -> None:
     Alpine or Debian as well as on a Gentoo medium, and no install of any kind
     finishes without fetching a stage3.
     """
-    if not fetch.online():
+    if refused := fetch.why_offline():
         raise errors.PreflightFailed(
-            "this machine cannot reach packages.gentoo.org; the installer needs a network"
+            "this machine cannot reach packages.gentoo.org, so the version menu "
+            f"has nothing to read: {refused}"
         )
 
 

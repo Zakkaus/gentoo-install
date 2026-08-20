@@ -272,9 +272,17 @@ def test_an_install_stops_at_preflight_rather_than_touching_a_disk(
     assert "run as root" in printed or "not present" in printed
 
 
-def online(monkeypatch: pytest.MonkeyPatch, answer: bool = True) -> None:
-    """No test opens a connection: the answer is given rather than measured."""
+def online(monkeypatch: pytest.MonkeyPatch, answer: bool = True, said: str = "") -> None:
+    """No test opens a connection: the answer is given rather than measured.
+
+    Both spellings, because `cli` asks for the reason and everything else asks
+    the question: a double that answers one and not the other lets the caller
+    change which it uses without a test noticing.
+    """
     monkeypatch.setattr(fetch, "online", lambda: answer)
+    monkeypatch.setattr(
+        fetch, "why_offline", lambda: "" if answer else (said or "HTTP Error 503")
+    )
 
 
 def test_the_menu_stops_when_the_machine_cannot_reach_the_package_site(
@@ -283,9 +291,13 @@ def test_the_menu_stops_when_the_machine_cannot_reach_the_package_site(
     """Kernel versions and the ZFS ceiling are read live so the installer runs
     on a medium with no Gentoo repository; offline there is nothing to offer."""
     monkeypatch.setattr(os, "geteuid", lambda: 0)
-    online(monkeypatch, False)
+    online(monkeypatch, False, said="HTTP Error 404: Not Found")
     assert main([]) == EXIT_PREFLIGHT
-    assert "needs a network" in capsys.readouterr().err
+    said = capsys.readouterr().err
+    # The site's own answer, not a guess about the machine: the url names one
+    # atom, so a package rename upstream reads as a broken network.
+    assert "cannot reach packages.gentoo.org" in said, said
+    assert "HTTP Error 404: Not Found" in said, said
 
 
 def test_the_two_offline_answers_are_still_given_without_a_network(
