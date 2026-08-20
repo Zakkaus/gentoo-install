@@ -512,7 +512,7 @@ def test_a_band_fills_the_row_so_the_reverse_video_reaches_both_edges() -> None:
 
     screen = FakeScreen(columns=40)
     band(screen, 0, "gentoo-install", "6/22 answered")
-    drawn = screen.frames[-1][0] if screen.frames else screen._current[0]
+    drawn = screen.frames[-1][0] if screen.frames else screen.drawn(0)
 
     assert len(drawn) == 40
     assert drawn.startswith("gentoo-install")
@@ -526,7 +526,7 @@ def test_a_band_drops_the_right_side_rather_than_cutting_it() -> None:
 
     screen = FakeScreen(columns=20)
     band(screen, 0, "gentoo-install", "6/22 answered")
-    drawn = screen._current[0]
+    drawn = screen.drawn(0)
 
     assert len(drawn) == 20
     # Whole or absent. A truncating band leaves `6/22 `, which reads as a
@@ -546,7 +546,7 @@ def test_a_band_counts_cells_not_characters() -> None:
     # because a literal here would be unreadable to half the contributors.
     band(screen, 0, "\u5b89\u88dd", "\u5b8c\u6210")
 
-    assert width(screen._current[0]) == 30
+    assert width(screen.drawn(0)) == 30
 
 
 def test_a_field_refuses_a_character_it_can_never_hold() -> None:

@@ -87,18 +87,34 @@ def test_every_row_offers_an_answer(row: Setting) -> None:
     assert answer.value != before, f"{row.key} drew nothing and changed nothing"
 
 
+@pytest.mark.parametrize("language", ("en", "zh-TW", "zh-CN", "ja", "ko"))
 @pytest.mark.parametrize("row", openable(), ids=lambda row: row.key)
-def test_no_row_draws_past_the_edge_of_an_eighty_column_console(row: Setting) -> None:
+def test_no_row_draws_past_the_edge_of_an_eighty_column_console(
+    row: Setting, language: str
+) -> None:
     """The interface has to be usable on the console a live medium gives, and
-    a line that wraps there is a line that cannot be read."""
-    from gentoo_install.i18n import width
+    a line that wraps there is a line that cannot be read.
+
+    Every language it offers, because `width` and `len` differ only where the
+    catalog holds wide characters: an English-only walk leaves the four
+    translated catalogs — the ones that draw two cells per character —
+    unmeasured. `FakeScreen.write` raises on the offending write itself, so
+    what this adds is the input rather than the assertion.
+    """
+    from gentoo_install.i18n import Catalog, width
 
     at = context()
     at.columns = 80
-    screen, _ = leave(row, config(ext4_on_gpt()), at, columns=80)
+    at.translate = Catalog(language)
+    screen, answer = leave(row, config(ext4_on_gpt()), at, columns=80)
+    # A toggle draws nothing and answers on the spot, which the row above
+    # holds; anything else drawing nothing has not been measured at all.
+    if not screen.frames:
+        assert answer.outcome is Outcome.CHOSE, f"{row.key} drew nothing in {language}"
+        return
     for frame in screen.frames:
         for line in frame:
-            assert width(line) <= 80, f"{row.key}: {line!r}"
+            assert width(line) <= 80, f"{row.key}/{language}: {line!r}"
 
 
 def test_the_install_row_never_asks_for_something_a_row_says_is_answered() -> None:
