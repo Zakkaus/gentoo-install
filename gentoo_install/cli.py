@@ -165,7 +165,11 @@ def parser() -> argparse.ArgumentParser:
     parsed.add_argument(
         "--ssh-key",
         default="",
-        help="a readable public-key file or an ssh- prefixed public key for the memory environment",
+        help=(
+            "the public key the memory environment authorises: a key itself "
+            "(`ssh-ed25519 ...`, `ssh-rsa ...`, `ecdsa-sha2-nistp256/384/521 ...`), "
+            "a file, an https:// or http:// URL, or github:/gitlab: and a username"
+        ),
     )
     parsed.add_argument(
         "--ssh-port",

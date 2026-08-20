@@ -73,8 +73,10 @@ def classify(value: str) -> KeySource:
         return KeySource(KeySourceKind.LITERAL, candidate)
     # Before the path: `ftp://host/key` is a scheme this cannot fetch, and
     # treating it as a filename reports a missing file instead of saying so.
+    # A single letter is a Windows drive rather than a scheme, and the honest
+    # answer for `C:\keys\id.pub` is that no such file is here.
     named = _SCHEME.match(candidate)
-    if named is not None:
+    if named is not None and len(named.group()) > 2:
         raise ConfigError(f"unknown --ssh-key source scheme: {named.group()[:-1]}")
     return KeySource(KeySourceKind.PATH, candidate)
 
