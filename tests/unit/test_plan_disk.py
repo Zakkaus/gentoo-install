@@ -1064,3 +1064,40 @@ def test_a_partition_placed_in_a_gap_does_not_promise_the_rest_of_the_disk() -> 
     bounded.apply(recorder)
     ends = [one[-1] for one in recorder.commands if one[0] == "parted" and "mkpart" in one]
     assert ends == [str(Size(10 * 2**30))], recorder.commands
+
+
+def test_a_zfs_probe_that_did_not_run_is_not_read_as_an_answer() -> None:
+    """`check=False` keeps the failure out of the exception path and the runner
+    merges stderr into stdout, so `zfs is not installed` arrived where `yes` or
+    `no` belongs: the dataset was treated as unmounted, and the second probe
+    failing the same way took the branch that unmounts it."""
+    from gentoo_install.plan.disk import MountZfsDataset
+
+    told = MountZfsDataset(
+        mountpoint=i("mnt-home"), name="rpool/ROOT/gentoo/home", path=PurePosixPath("/home")
+    )
+
+    broken = Recorder()
+    broken.replies["zfs"] = CommandOutput("zfs is not installed", 127)
+    with pytest.raises(CommandFailed, match="whether rpool/ROOT/gentoo/home is mounted"):
+        told.apply(broken)
+    assert ("zfs", "mount", "rpool/ROOT/gentoo/home") not in broken.commands
+
+    # The mount probe answers, and the one that reads what is at the path does
+    # not: unmounting on that would take down a dataset nobody established was
+    # hidden.
+    half = Recorder()
+    half.replies["zfs"] = "yes\n"
+    half.replies["findmnt"] = CommandOutput("findmnt is not installed", 127)
+    with pytest.raises(CommandFailed, match="what is mounted at /home"):
+        told.apply(half)
+    assert ("zfs", "unmount", "rpool/ROOT/gentoo/home") not in half.commands
+
+    # findmnt exits 1 for a path carrying no mount, which is the hidden
+    # dataset this looks for, so that code is an answer rather than a failure.
+    hidden = Recorder()
+    hidden.replies["zfs"] = "yes\n"
+    hidden.replies["findmnt"] = CommandOutput("", 1)
+    told.apply(hidden)
+    assert ("zfs", "unmount", "rpool/ROOT/gentoo/home") in hidden.commands
+    assert ("zfs", "mount", "rpool/ROOT/gentoo/home") in hidden.commands

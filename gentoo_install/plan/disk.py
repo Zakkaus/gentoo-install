@@ -44,7 +44,7 @@ from ..model.device import (
 )
 from ..model.size import DEFAULT_ALIGNMENT, Size
 from .mounts import ResolvedMount, resolve_mounts
-from .operations import CommandOutput, Context, Operation, Stage
+from .operations import CommandOutput, Context, Operation, Stage, answered
 
 #: GPT type codes as `sgdisk --typecode` spells them.
 TYPE_CODES: Final[dict[PartitionRole, str]] = {
@@ -823,24 +823,35 @@ class MountZfsDataset(Operation):
         return f"mount dataset {self.name} at {self.path}"
 
     def apply(self, context: Context) -> None:
-        mounted = context.run(
-            ["zfs", "get", "-H", "-o", "value", "mounted", self.name],
-            check=False,
-        ).strip()
+        mounted = answered(
+            context.run(
+                ["zfs", "get", "-H", "-o", "value", "mounted", self.name],
+                check=False,
+            ),
+            f"whether {self.name} is mounted could not be read",
+        )
         if mounted == "yes":
             # A parent mounted later can hide this dataset while ZFS still
             # reports it mounted, so the effective source decides readiness.
-            visible = context.run(
-                [
-                    "findmnt",
-                    "--noheadings",
-                    "--output",
-                    "SOURCE",
-                    "--target",
-                    str(_under(context.target, self.path)),
-                ],
-                check=False,
-            ).strip()
+            # findmnt exits 1 when the path carries no mount, which is the
+            # hidden dataset this looks for; any other code is a probe that
+            # did not run, and unmounting on it would take down a dataset
+            # nobody established was hidden.
+            visible = answered(
+                context.run(
+                    [
+                        "findmnt",
+                        "--noheadings",
+                        "--output",
+                        "SOURCE",
+                        "--target",
+                        str(_under(context.target, self.path)),
+                    ],
+                    check=False,
+                ),
+                f"what is mounted at {self.path} could not be read",
+                allowed=(0, 1),
+            )
             if visible == self.name:
                 return
             context.run(["zfs", "unmount", self.name])

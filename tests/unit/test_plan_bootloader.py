@@ -520,3 +520,35 @@ def test_a_config_grub_mkconfig_never_put_in_place_stops_the_install() -> None:
 
     replaced = Disks(replies={"grep": "1"})
     operation.apply(replaced)
+
+
+def test_a_probe_that_did_not_run_names_itself_rather_than_the_boot() -> None:
+    """Both counts are read from a `check=False` command whose diagnostic
+    arrives in the same string as the answer, so a missing `grep` read as a
+    `grub.cfg` with no entry and a missing `find` as an esp with no image.
+    Neither message names anything an operator can act on."""
+    from gentoo_install.errors import CommandFailed, NothingToBoot
+    from gentoo_install.model.device import DeviceId
+
+    grub = bootloader.InstallGrub(
+        firmware=Firmware.UEFI, esp=PurePosixPath("/efi"), boot_devices=(DeviceId("first"),)
+    )
+    broken = Recorder(replies={"grep": CommandOutput("grep is not installed", 127)})
+    with pytest.raises(CommandFailed, match="grub.cfg could not be counted"):
+        grub.apply(broken)
+
+    # grep exits 1 with nothing matched, which is a count of zero: that is the
+    # file this operation exists to refuse, and it keeps its own message.
+    empty = Recorder(replies={"grep": CommandOutput("0\n", 1)})
+    with pytest.raises(NothingToBoot, match="no menu entry"):
+        grub.apply(empty)
+
+    installation = load(Path("tests/fixtures/zbm-unlock.toml"))
+    built = next(
+        one
+        for one in bootloader.build(installation)
+        if isinstance(one, bootloader.InstallZfsBootMenu)
+    )
+    unlisted = Recorder(replies={"find": CommandOutput("find: /efi/EFI/zbm: no such file", 1)})
+    with pytest.raises(CommandFailed, match="could not be listed"):
+        built._image(unlisted)
