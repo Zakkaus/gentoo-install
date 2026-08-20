@@ -111,6 +111,20 @@ def width(text: str) -> int:
     return total
 
 
+#: What a cut line ends with. A value cut without a mark reads as a whole one,
+#: and every long value on the mirror screen is a URL.
+CUT: Final[str] = "\u2026"
+
+
+def clip(text: str, cells: int) -> str:
+    """`text` in at most `cells` columns, marked when something was cut."""
+    if cells <= 0:
+        return ""
+    if width(text) <= cells:
+        return text
+    return truncate(text, cells - width(CUT)) + CUT
+
+
 def truncate(text: str, cells: int) -> str:
     """Cut to at most `cells` columns, never mid-character."""
     if width(text) <= cells:

@@ -24,7 +24,11 @@ from typing import (
     TypeVar,
 )
 
-from ..i18n import truncate, width
+from ..i18n import CUT, clip, truncate, width
+
+#: Re-exported: every widget cuts through `clip`, and the mark it leaves is
+#: what tells a cut value from a whole one.
+__all__ = ["CUT", "clip"]
 
 V = TypeVar("V")
 A = TypeVar("A")
@@ -304,12 +308,12 @@ class _Menu(Generic[V, A]):
     def _draw(self, screen: Screen, cursor: int) -> None:
         lines, columns = screen.size()
         screen.clear()
-        screen.write(0, 0, truncate(self.title, columns))
+        screen.write(0, 0, clip(self.title, columns))
         # One line each, under the title. A question whose subject is a list
         # crammed the list into the title, and the title is truncated to the
         # width: the profile a desktop moves to fell off the end of it.
         for offset, one in enumerate(self.preamble):
-            screen.write(offset + 1, 2, truncate(one, columns - 4))
+            screen.write(offset + 1, 2, clip(one, columns - 4))
         above = len(self.preamble)
         room = lines - 4 - above
         displayed = self._display_rows(columns)
@@ -319,7 +323,7 @@ class _Menu(Generic[V, A]):
         top = max(0, min(cursor_row - room // 2, len(displayed) - room))
         for row, (index, text) in enumerate(displayed[top : top + room]):
             if index is None:
-                screen.write(row + 2 + above, 2, truncate(text, columns - 4))
+                screen.write(row + 2 + above, 2, clip(text, columns - 4))
                 continue
             item = self.items[index]
             # The marker is the signal and the colour repeats it: a serial
@@ -331,7 +335,7 @@ class _Menu(Generic[V, A]):
             screen.write(
                 row + 2 + above,
                 2,
-                truncate(text, columns - 4),
+                clip(text, columns - 4),
                 highlight=index == cursor,
                 style=item.style,
             )
@@ -437,7 +441,7 @@ class TextField:
     def _draw(self, screen: Screen, typed: list[str]) -> None:
         lines, columns = screen.size()
         screen.clear()
-        screen.write(0, 0, truncate(self.title, columns))
+        screen.write(0, 0, clip(self.title, columns))
         # Brackets and a caret, drawn highlighted: a bare string at the top of
         # an empty screen does not read as somewhere to type.
         room = columns - 8
@@ -446,12 +450,12 @@ class TextField:
             shown = shown[1:]
         row = 2
         if self.detail:
-            screen.write(row, 0, truncate(self.detail, columns))
+            screen.write(row, 0, clip(self.detail, columns))
             row += 2
         # The caret in both states, so an empty field never reads as a full
         # one. A placeholder is a hint about the shape of the answer and is
         # drawn only when there is no `detail` naming the exact string.
-        inside = f"{shown}_" if typed else f"_{truncate(self.placeholder, room - 1)}"
+        inside = f"{shown}_" if typed else f"_{clip(self.placeholder, room - 1)}"
         screen.write(row, 2, f"[ {inside}{' ' * (room - width(inside))} ]", highlight=True)
         if self.footer or self.legend:
             # Held apart rather than run together: the keys and what the marks
@@ -653,10 +657,10 @@ class Form:
     ) -> None:
         lines, columns = screen.size()
         screen.clear()
-        screen.write(0, 0, truncate(self.title, columns))
+        screen.write(0, 0, clip(self.title, columns))
         offset = 2
         if message:
-            screen.write(1, 2, truncate(message, columns - 2), style=Style.REQUIRED)
+            screen.write(1, 2, clip(message, columns - 2), style=Style.REQUIRED)
             offset = 3
         widest = max((width(field.label) for field in self.fields), default=0)
         room = max(2, columns - widest - 10)
@@ -665,7 +669,7 @@ class Form:
             row = index + offset
             if row >= lines - 1:
                 break
-            screen.write(row, 2, truncate(field.label, widest))
+            screen.write(row, 2, clip(field.label, widest))
             if field.toggle:
                 screen.write(
                     row,
@@ -677,7 +681,7 @@ class Form:
             shown = "*" * len(typed[index]) if field.secret else "".join(typed[index])
             while width(shown) > room - 1:
                 shown = shown[1:]
-            inside = truncate(field.placeholder, room) if not shown else shown
+            inside = clip(field.placeholder, room) if not shown else shown
             if index == cursor:
                 inside = f"{shown}_" if shown else inside
             screen.write(
@@ -711,18 +715,7 @@ PANE_GAP: Final[int] = 2
 #: ASCII: the medium's own console font carries no box-drawing set.
 SEPARATOR: Final[str] = "|"
 
-#: Left behind by every truncation. Without it a cut mirror URL reads as a
-#: whole one, which is what `i18n.truncate` alone gets wrong here.
-CUT: Final[str] = "…"
 
-
-def clip(text: str, cells: int) -> str:
-    """`text` in at most `cells` columns, marked when something was cut."""
-    if cells <= 0:
-        return ""
-    if width(text) <= cells:
-        return text
-    return truncate(text, cells - width(CUT)) + CUT
 
 
 def left_pane_width(labels: Iterable[str]) -> int:
