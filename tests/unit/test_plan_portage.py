@@ -2640,3 +2640,37 @@ def test_the_pretend_resolves_against_the_packages_the_merge_will_use() -> None:
     assert "--getbinpkg=n" in pretend("ext2")
     assert "--getbinpkg=n" not in pretend("vm-binpkg")
 
+
+#: What Portage printed when the guest could not resolve the host's name,
+#: verbatim from `vm-binpkg` on run125.
+BINHOST_UNRESOLVED: Final[str] = (
+    "!!! [gentoo] Error fetching binhost package info from "
+    "'https://mirrors.nju.edu.cn/gentoo/releases/amd64/binpackages/23.0/x86-64'\n"
+    "!!! [gentoo] <urlopen error [Errno -3] Temporary failure in name resolution>\n"
+    "\n[gentoo] Local copy of unavailable remote index will be used due to --pretend\n"
+)
+
+
+def test_the_recorded_reason_carries_portage_own_diagnosis() -> None:
+    """`vm-binpkg` was recorded as `gentoo answered no package index at <url>`
+    while the guest's log said `[Errno -3] Temporary failure in name
+    resolution` on the next line. A reason that names the host's index sends
+    the reader to the mirror; the guest's resolver is where the fault was."""
+    from gentoo_install.plan import portage as plan_portage
+
+    said = plan_portage._unreadable_index(BINHOST_UNRESOLVED)
+    assert said is not None
+    assert "name resolution" in said, said
+    assert "answered no package index" not in said, said
+
+    # The timeout sample carries its own words, and neither reason invents a
+    # cause the log does not hold.
+    timed_out = plan_portage._unreadable_index(BINHOST_TIMED_OUT)
+    assert timed_out is not None and "timed out" in timed_out, timed_out
+
+    # Portage sometimes prints the first line alone; that still answers.
+    alone = plan_portage._unreadable_index(
+        "!!! [gentoo] Error fetching binhost package info from 'https://example.invalid/x'\n"
+    )
+    assert alone is not None and "example.invalid" in alone, alone
+

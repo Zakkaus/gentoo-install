@@ -1006,10 +1006,15 @@ BINHOST_INDEX_FAILURE: Final[str] = "Error fetching binhost package info"
 #: Portage compiles everything and exits 0 after printing it, so nothing else
 #: in this file sees it: a run against a host whose index answered 404
 #: compiled all 69 of its packages in 84 minutes and recorded no reason.
+#: Portage prints its own diagnosis on the line after the one above, as
+#: `!!! [gentoo] <urlopen error [Errno -3] Temporary failure in name
+#: resolution>`. Captured, because without it the recorded reason says the
+#: host has no index when the guest could not resolve its name at all.
 _INDEX_UNREADABLE: Final[re.Pattern[str]] = re.compile(
     r"!!! \[(?P<host>[^\]]+)\] "
     + re.escape(BINHOST_INDEX_FAILURE)
     + r" from '(?P<url>[^']+)'"
+    + r"(?:\s*\n\s*!!! \[(?P=host)\] (?P<detail>[^\n]+))?"
 )
 
 
@@ -1018,7 +1023,9 @@ def _unreadable_index(said: str) -> str | None:
     found = _INDEX_UNREADABLE.search(said)
     if found is None:
         return None
-    return f"{found.group('host')} answered no package index at {found.group('url')}"
+    detail = (found.group("detail") or "").strip()
+    where = f"{found.group('host')} could not read its package index at {found.group('url')}"
+    return f"{where}: {detail}" if detail else where
 
 
 def _binhost_killed_emerge(result: CommandOutput) -> str | None:
