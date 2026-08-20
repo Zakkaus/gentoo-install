@@ -21,6 +21,7 @@ from pathlib import PurePosixPath
 import re
 from typing import ClassVar, Final, Protocol, Sequence
 
+from ..errors import CommandFailed
 from ..model.device import DeviceId
 from ..model.validate import KernelCeiling
 
@@ -95,6 +96,20 @@ class CommandOutput(str):
     @property
     def ending(self) -> str:
         return ending(self.returncode)
+
+
+def answered(output: str, probe: str, *, allowed: tuple[int, ...] = (0,)) -> str:
+    """The text a probe answered, or a named failure.
+
+    `check=False` keeps a probe's failure out of the exception path and the
+    runner merges stderr into stdout, so the diagnostic arrives where the
+    answer belongs: `zfs is not installed` is not `yes`, and the caller that
+    compares the two folds a probe that never ran into the branch for a
+    negative answer.
+    """
+    if isinstance(output, CommandOutput) and output.returncode not in allowed:
+        raise CommandFailed(f"{probe}: {str(output).strip()[:200] or 'no output'}")
+    return str(output).strip()
 
 
 class Context(Protocol):

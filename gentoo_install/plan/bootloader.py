@@ -32,7 +32,7 @@ from ..model.device import (
     ZfsPool,
     Subvolume,
 )
-from .operations import CommandOutput, Context, Operation, Stage
+from .operations import CommandOutput, Context, Operation, Stage, answered
 from .portage import Emerge, InstallMode, PortageConfigKind, WritePortageConfig
 
 
@@ -193,9 +193,16 @@ class InstallGrub(Operation):
         context.run_in_target(["grub-mkconfig", "--output", "/boot/grub/grub.cfg"])
         # grub-mkconfig exits 0 having found no kernel, and the machine then
         # drops back to the firmware menu with nothing to boot.
-        entries = context.run_in_target(
-            ["grep", "--count", "^menuentry", "/boot/grub/grub.cfg"], check=False
-        ).strip()
+        # grep exits 1 when nothing matched, which is a count of zero; any
+        # other code is a probe that did not run, and its message must not be
+        # read as a file holding no entry.
+        entries = answered(
+            context.run_in_target(
+                ["grep", "--count", "^menuentry", "/boot/grub/grub.cfg"], check=False
+            ),
+            "grub.cfg could not be counted",
+            allowed=(0, 1),
+        )
         if not entries.isdigit() or int(entries) == 0:
             raise NothingToBoot("grub.cfg has no menu entry; /boot holds no kernel")
         # grub-mkconfig writes `grub.cfg.new` and copies it over `grub.cfg`
@@ -538,8 +545,11 @@ class InstallZfsBootMenu(Operation):
     def _image(self, context: Context) -> str:
         """Whatever generate-zbm wrote. It names the image after the kernel
         it built from, so `vmlinuz.EFI` is only one of the names it can have."""
-        listing = context.run_in_target(
-            ["find", f"{self.esp}/{ZBM_DIRECTORY}", "-name", "*.EFI"], check=False
+        listing = answered(
+            context.run_in_target(
+                ["find", f"{self.esp}/{ZBM_DIRECTORY}", "-name", "*.EFI"], check=False
+            ),
+            f"{self.esp}/{ZBM_DIRECTORY} could not be listed",
         )
         found = sorted(
             line.strip() for line in listing.splitlines() if line.strip().endswith(".EFI")
