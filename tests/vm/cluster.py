@@ -1133,13 +1133,21 @@ def wait_for_network(
     # cluster guests failed here on one round and the log held nothing but
     # `Could not connect to server`, so nothing said whether the medium never
     # configured an interface or the cluster gave it no route.
-    for question in (
-        "ip -oneline address show",
-        "ip -4 route show default; ip -6 route show default",
-        "cat /etc/resolv.conf",
-    ):
-        link.run(question, timeout=60.0)
-    raise ConsoleTimeout(f"the guest had no network after {NETWORK_PATIENCE:.0f}s")
+    # Read, not only logged: `vm-gnome` gave up with `no network` while it
+    # held 10.31.0.154, a default route and our three resolvers, and every
+    # mirror answered `Could not contact DNS servers`. Which of the three was
+    # missing is what sends a reader to the segment or to the medium.
+    held = {
+        "address": link.expect_output("ip -oneline -4 address show scope global", 60.0),
+        "route": link.expect_output("ip -4 route show default", 60.0),
+        "resolver": link.expect_output("cat /etc/resolv.conf", 60.0),
+    }
+    missing = [name for name, said in held.items() if not said.strip()]
+    had = ", ".join(name for name in held if name not in missing) or "nothing"
+    raise ConsoleTimeout(
+        f"the guest reached no mirror in {NETWORK_PATIENCE:.0f}s; it had {had}"
+        + (f" and no {', '.join(missing)}" if missing else "")
+    )
 
 
 def stage_passphrases(link: Reconnecting, installation: InstallConfig) -> None:
