@@ -312,9 +312,18 @@ class ClearPreviousArming(Operation):
         return "take back anything an earlier run armed", ()
 
     def apply(self, context: Context) -> None:
-        _disarm(context, self.target)
-        for gone in (self.target.place, STAGING):
-            context.run(["rm", "--recursive", "--force", str(gone)], check=False)
+        _take_back(context, self.target)
+
+
+def _take_back(context: Context, target: BootTarget) -> None:
+    """Clear the one-shot and delete what an arming placed.
+
+    Both operations that undo an arming do exactly this: one runs before a new
+    arming writes, the other when the operator changed their mind.
+    """
+    _disarm(context, target)
+    for gone in (target.place, STAGING):
+        context.run(["rm", "--recursive", "--force", str(gone)], check=False)
 
 
 def _disarm(context: Context, target: BootTarget) -> None:
@@ -854,9 +863,7 @@ class DisarmMemoryBoot(Operation):
         return "take back the armed boot and delete what it placed", ()
 
     def apply(self, context: Context) -> None:
-        _disarm(context, self.target)
-        for gone in (self.target.place, STAGING):
-            context.run(["rm", "--recursive", "--force", str(gone)], check=False)
+        _take_back(context, self.target)
 
 
 def build(
