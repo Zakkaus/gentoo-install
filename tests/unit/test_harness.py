@@ -4895,7 +4895,9 @@ def test_the_zfs_unlock_proof_travels_in_the_unlock_session(
     assert not opened, opened
 
 
-def test_the_menu_walk_makes_its_target_under_its_own_root(tmp_path: Path) -> None:
+def test_the_menu_walk_makes_its_target_under_its_own_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """`create_target` refuses a path outside the directory it confines to, and
     the menu walk keeps its guests under `lab/vm/tui`. Without a root of its
     own `python3 -m tests.vm.tui` raised before it booted anything, so the one
@@ -4911,8 +4913,18 @@ def test_the_menu_walk_makes_its_target_under_its_own_root(tmp_path: Path) -> No
 
     mine = tmp_path / "walk"
     mine.mkdir()
+    # `qemu-img` is not on a CI runner, and this test is about the guard, not
+    # about making an image: the call is recorded instead of performed.
+    launched: list[list[str]] = []
+
+    def records(command: list[str], **named: object) -> object:
+        launched.append(command)
+        return object()
+
+    monkeypatch.setattr("tests.vm.run.subprocess.run", records)
     made = create_target(mine / "target.qcow2", DEFAULT_TARGET_SIZE, root=tmp_path)
-    assert made.exists() and made.stat().st_size > 0
+    assert made == mine / "target.qcow2"
+    assert any(command[:2] == ["qemu-img", "create"] for command in launched), launched
 
     # The named root is a boundary, not a switch that turns the guard off.
     outside = tmp_path.parent / "not-the-walk.qcow2"
