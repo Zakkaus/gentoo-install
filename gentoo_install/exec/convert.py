@@ -216,7 +216,14 @@ def convert(
         if not mounted and not present:
             continue
         try:
-            shutil.rmtree(kept)
+            # `/bin`, `/sbin`, `/lib` and `/lib64` are symlinks into `usr` on a
+            # merged-usr system, and `shutil.rmtree` refuses a symlink with
+            # `[Errno None] None`, so four of them stayed on every converted
+            # machine.
+            if kept.is_symlink():
+                kept.unlink()
+            else:
+                shutil.rmtree(kept)
         except OSError as error:
             print(f"{kept} stayed behind: {error}", file=sys.stderr)
 

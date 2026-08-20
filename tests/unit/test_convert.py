@@ -355,3 +355,23 @@ def test_a_mounted_directory_is_filled_by_copy_when_rename_cannot_cross(
     assert not (root / "var" / "old-log").exists(), "replaced, not merged"
     assert not (root / "var" / convert.KEPT_ASIDE).exists(), "the kept set is removed"
     assert (root / "usr" / "new.txt").read_text() == "new", "an ordinary directory renames"
+
+
+def test_a_merged_usr_symlink_is_removed_rather_than_left_beside_the_new_one(
+    tmp_path: Path,
+) -> None:
+    """`/bin`, `/sbin`, `/lib` and `/lib64` are symlinks into `usr`, and
+    `shutil.rmtree` answers `[Errno None] None` on a symlink rather than
+    removing it. run136's converted machine kept all four."""
+    root = tmp_path / "root"
+    staging = root / "new"
+    (root / "usr" / "bin").mkdir(parents=True)
+    (staging / "usr").mkdir(parents=True)
+    (staging / "bin").mkdir()
+    os.symlink("usr/bin", root / "bin")
+
+    convert.convert(staging, ("usr", "bin"), copy=_copy, root=root)
+
+    assert (root / "bin").is_dir() and not (root / "bin").is_symlink()
+    left = [one.name for one in root.iterdir() if one.name.endswith(convert.KEPT_ASIDE)]
+    assert left == [], left
