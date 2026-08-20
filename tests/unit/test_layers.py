@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Final
 
 PACKAGE = Path(__file__).resolve().parents[2] / "gentoo_install"
+HARNESS = Path(__file__).resolve().parents[1] / "vm"
 
 #: What reading a file looks like in an AST. `Path.read_text` and friends are
 #: attribute calls; `open` is a bare name.
@@ -590,21 +591,27 @@ def test_no_module_imports_a_name_it_never_uses() -> None:
     see them and no lint gate is configured, so an import that survives its
     last caller reads as a dependency the module still has."""
     dead: list[str] = []
-    for path in sorted(PACKAGE.rglob("*.py")):
+    # The harness as well as the package: `tests/vm/` carried seven of its own.
+    for path in [*sorted(PACKAGE.rglob("*.py")), *sorted(HARNESS.rglob("*.py"))]:
         source = path.read_text()
         tree = ast.parse(source)
         lines = source.splitlines()
         imported: dict[str, int] = {}
+        # Every line of the statement, not the line it starts on: a name
+        # inside `from x import (\n    Name,\n)` sits on its own line, and
+        # excluding only the first left it there to be found as its own use.
+        spanned: set[int] = set()
         for node in ast.walk(tree):
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 # `from __future__ import annotations` has no user by design.
                 if isinstance(node, ast.ImportFrom) and node.module == "__future__":
                     continue
+                spanned.update(range(node.lineno, (node.end_lineno or node.lineno) + 1))
                 for alias in node.names:
                     imported[alias.asname or alias.name.split(".")[0]] = node.lineno
         # The import statements themselves are not uses of what they bind.
         elsewhere = "\n".join(
-            line for number, line in enumerate(lines, 1) if number not in set(imported.values())
+            line for number, line in enumerate(lines, 1) if number not in spanned
         )
         dead += [
             f"{path.relative_to(PACKAGE.parent)}:{line} {name}"

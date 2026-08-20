@@ -30,7 +30,6 @@ from typing import Any, Callable, Final, cast
 from ..errors import (
     ArchiveDigestMismatch,
     CommandFailed,
-    ConfigError,
     DownloadFailed,
     IntegrityError,
     PreflightFailed,

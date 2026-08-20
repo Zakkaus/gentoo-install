@@ -14,11 +14,9 @@ from ..i18n import Catalog
 from ..model import mirrors
 from ..plan.portage import community_binhost
 from ..model.config import (
-    Binhost,
     BinhostChannel,
     GentooZhMirror,
     InstallConfig,
-    MirrorConfig,
     MirrorRegion,
     Overlay,
     PortageConfig,

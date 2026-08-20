@@ -28,7 +28,6 @@ from ..model.device import (
     Partition,
     PartitionTable,
     VolumeGroup,
-    ZfsPool,
 )
 from ..log import Journal
 from ..plan.disk import STAGE3_CACHE
