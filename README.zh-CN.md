@@ -10,6 +10,132 @@ gentoo-install 在 Linux live 环境中运行，用于安装 amd64 架构的 Gen
 
 ![cjktty 控制台显示简体中文、繁体中文、日文和韩文](cjk-console.png)
 
+## 要求
+
+<!-- fact: requirements-runtime -->
+
+实际安装需要 root 权限、amd64 架构和 Python 3.11 或更高版本。使用配置文件执行 dry run 不需要 root 权限。安装程序没有第三方 Python 运行时依赖项。
+
+<!-- fact: requirements-version-sources -->
+
+菜单从 `packages.gentoo.org` 读取 Gentoo 主仓库的软件包版本，并从 `api.github.com/repos/gentoo-zh/overlay/contents` 读取 gentoo-zh 补丁内核版本。`sys-fs/zfs` 接受的最高内核版本从 `gitweb.gentoo.org` 读取。使用配置文件安装时需要连接的是该配置指定的镜像；`--missing-commands` 和 `--config FILE --dry-run` 都不需要这些版本端点。
+
+<!-- fact: requirements-network-filter -->
+
+live 环境有 IPv6 但没有 IPv4 时，菜单会停用记录中标为仅可通过 IPv4 访问的 Gentoo 镜像。
+
+<!-- fact: requirements-bootstrap -->
+
+`bootstrap.sh` 会读取 `/etc/os-release`、报告缺少的命令，并显示候选的软件包管理器命令。它可识别以下发行版系列：Debian 和 Ubuntu、Arch、openSUSE、Fedora、RHEL 和 CentOS、Gentoo、Alpine。显示的命令必须在执行前核对。
+
+## 安全事项
+
+<!-- fact: safety-destructive -->
+
+实际安装会写入所选磁盘。使用配置文件运行时不会再次要求确认擦除磁盘；`wipe = true`、删除分区和创建文件系统都可能破坏现有数据。
+
+<!-- fact: safety-review-backup -->
+
+实际安装前，必须在 dry-run 输出中核对磁盘选择器和每项破坏性操作。稳定的 `/dev/disk/by-id/` 选择器优于 `/dev/sda` 之类的名称；需要保留的数据必须另有一份独立于所选磁盘的备份。
+
+## 安装
+
+<!-- fact: install-download -->
+
+以下命令下载当前的 `master` 归档文件并打开菜单：
+
+```sh
+curl -fsSL https://github.com/Zakkaus/gentoo-install/archive/refs/heads/master.tar.gz | tar xz
+cd gentoo-install-master
+./bootstrap.sh
+```
+
+<!-- fact: install-terminal -->
+
+菜单需要至少 80 列、24 行的交互式终端。安装程序启动时会询问一次界面语言；`--lang zh-CN` 直接选择简体中文。
+
+<!-- fact: install-config-workflow -->
+
+菜单可将配置保存为 `my-install.toml` 后退出。以下流程会先显示完整的配置计划，再执行实际安装：
+
+```sh
+./bootstrap.sh --config my-install.toml --dry-run
+# 接着择一执行下列其中一行。两者都会写入所选磁盘。
+./bootstrap.sh --config my-install.toml
+./bootstrap.sh --config my-install.toml --no-shell   # 同一次安装，不询问是否打开 root shell
+```
+
+<!-- fact: install-root-shell -->
+
+交互式安装无论成功或失败，都会在卸载前提供在目标系统内打开 root shell 的选项。`--no-shell` 跳过这项确认。
+
+## 从内存安装
+
+<!-- fact: install-memory -->
+
+`--ram` 与 `--lowram` 武装一次进入内存中活环境的引导，那是一台没有控制台、也没有救援镜像的租用机器覆盖自己磁盘之前所需要的。安装程序、选定的配置与授权密钥都随 initramfs 送达，因此环境起来时运行的正是武装它的那一版：
+
+```sh
+./bootstrap.sh --ram --ssh-key github:zakkaus --root-password 'replace this'
+reboot
+ssh root@the-machine
+```
+
+默认引导项不会改动，所以没有进入该环境的机器仍引导回原本的系统；`--disarm` 收回武装。`--bypass` 改为取代默认项，供会丢弃一次性引导项的固件使用，那也是唯一一条「环境起不来就连机器都引导不了」的路径。
+
+第一个界面提供安装与救援 shell，没有超时，未回答之前不会擦除任何数据。`--ram` 引导的是带 ZFS 的 Gentoo CJK ISO，约需 2 GiB 内存；`--lowram` 引导的是较小、没有 `zfs.ko` 的 Alpine netboot 压缩包。`--ssh-port` 把服务移离 22 端口。
+
+## 转换运行中的系统
+
+<!-- fact: install-in-place -->
+
+在 `[disk]` 表设 `mode = "in-place"`，安装程序取代运行中发行版的用户空间，而不是分区磁盘。该表不带设备列表，因为布局由机器读出：
+
+```toml
+config_version = 1
+
+[system]
+hostname = "converted"
+timezone = "UTC"
+locales = ["en_US.UTF-8"]
+locale = "en_US.UTF-8"
+init = "systemd"
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
+
+[portage]
+profile = "default/linux/amd64/23.0/systemd"
+makeopts = "-j4"
+
+[bootloader]
+kind = "grub"
+firmware = "uefi"
+
+[disk]
+mode = "in-place"
+```
+
+上面那个哈希是示例，执行前必须替换。交互式执行会打印这次转换取代哪些目录，并要求输入 `convert` 才会写入任何数据；没有终端的执行不会被询问，因为配置文件里的 `mode = "in-place"` 就是授权，而在那里发问会让串口控制台永远等下去。
+
+**发起这次执行的会话必须保持连接。**`/usr` 与 `/etc` 换成新系统之后，新的 SSH 登录不再成立，而发起执行的会话仍持有它已经映射的可执行文件。
+
+## 从中断处继续
+
+<!-- fact: resume-behavior -->
+
+`--resume` 只会跳过位置和标识均与当前计划匹配，且效果标记为重新启动后仍然存在的已完成操作：
+
+```sh
+./bootstrap.sh --config my-install.toml --resume
+```
+
+<!-- fact: resume-limits -->
+
+继续执行仅限同一个 live 会话、同一个安装程序与同一份配置文件，而且安装程序会拒绝其他情况，不再只是写在文档里。
+
+- 日志开头记录配置的摘要、机器的 boot id 与安装程序源代码的摘要；`--resume` 三者都比对，任何一项不同就停下并说明原因。内核不提供 boot id 的机器只比对其余两项。
+- 默认日志位于 `/run/gentoo-install/install.jsonl`，本来就不会在重新启动后保留。
+- 每条操作记录另外包含根据该操作类源代码和字段值生成的标识，标识变化的操作会重新执行而不是跳过。共用辅助函数或常量的更改不在该标识范围内，改由安装程序摘要覆盖。
+
 ## 功能
 
 <!-- fact: capability-scope -->
@@ -136,132 +262,6 @@ gentoo-install 在 Linux live 环境中运行，用于安装 amd64 架构的 Gen
 | 菜单 | 在 80x24 的串行控制台上逐行打开过，覆盖英文、繁体中文、简体中文、日文与韩文，没有一行宽过终端 |
 
 源代码构建的内核和二进制软件包降级只有 runner 层级的测试，而 runner 层级的测试不是端到端记录。`tests/fixtures/` 下的文件验证的是配置模型，它们存在并不代表任何一台装出来的机器。
-
-## 要求
-
-<!-- fact: requirements-runtime -->
-
-实际安装需要 root 权限、amd64 架构和 Python 3.11 或更高版本。使用配置文件执行 dry run 不需要 root 权限。安装程序没有第三方 Python 运行时依赖项。
-
-<!-- fact: requirements-version-sources -->
-
-菜单从 `packages.gentoo.org` 读取 Gentoo 主仓库的软件包版本，并从 `api.github.com/repos/gentoo-zh/overlay/contents` 读取 gentoo-zh 补丁内核版本。`sys-fs/zfs` 接受的最高内核版本从 `gitweb.gentoo.org` 读取。使用配置文件安装时需要连接的是该配置指定的镜像；`--missing-commands` 和 `--config FILE --dry-run` 都不需要这些版本端点。
-
-<!-- fact: requirements-network-filter -->
-
-live 环境有 IPv6 但没有 IPv4 时，菜单会停用记录中标为仅可通过 IPv4 访问的 Gentoo 镜像。
-
-<!-- fact: requirements-bootstrap -->
-
-`bootstrap.sh` 会读取 `/etc/os-release`、报告缺少的命令，并显示候选的软件包管理器命令。它可识别以下发行版系列：Debian 和 Ubuntu、Arch、openSUSE、Fedora、RHEL 和 CentOS、Gentoo、Alpine。显示的命令必须在执行前核对。
-
-## 安全事项
-
-<!-- fact: safety-destructive -->
-
-实际安装会写入所选磁盘。使用配置文件运行时不会再次要求确认擦除磁盘；`wipe = true`、删除分区和创建文件系统都可能破坏现有数据。
-
-<!-- fact: safety-review-backup -->
-
-实际安装前，必须在 dry-run 输出中核对磁盘选择器和每项破坏性操作。稳定的 `/dev/disk/by-id/` 选择器优于 `/dev/sda` 之类的名称；需要保留的数据必须另有一份独立于所选磁盘的备份。
-
-## 安装
-
-<!-- fact: install-download -->
-
-以下命令下载当前的 `master` 归档文件并打开菜单：
-
-```sh
-curl -fsSL https://github.com/Zakkaus/gentoo-install/archive/refs/heads/master.tar.gz | tar xz
-cd gentoo-install-master
-./bootstrap.sh
-```
-
-<!-- fact: install-terminal -->
-
-菜单需要至少 80 列、24 行的交互式终端。安装程序启动时会询问一次界面语言；`--lang zh-CN` 直接选择简体中文。
-
-<!-- fact: install-config-workflow -->
-
-菜单可将配置保存为 `my-install.toml` 后退出。以下流程会先显示完整的配置计划，再执行实际安装：
-
-```sh
-./bootstrap.sh --config my-install.toml --dry-run
-# 接着择一执行下列其中一行。两者都会写入所选磁盘。
-./bootstrap.sh --config my-install.toml
-./bootstrap.sh --config my-install.toml --no-shell   # 同一次安装，不询问是否打开 root shell
-```
-
-<!-- fact: install-root-shell -->
-
-交互式安装无论成功或失败，都会在卸载前提供在目标系统内打开 root shell 的选项。`--no-shell` 跳过这项确认。
-
-## 从内存安装
-
-<!-- fact: install-memory -->
-
-`--ram` 与 `--lowram` 武装一次进入内存中活环境的引导，那是一台没有控制台、也没有救援镜像的租用机器覆盖自己磁盘之前所需要的。安装程序、选定的配置与授权密钥都随 initramfs 送达，因此环境起来时运行的正是武装它的那一版：
-
-```sh
-./bootstrap.sh --ram --ssh-key github:zakkaus --root-password 'replace this'
-reboot
-ssh root@the-machine
-```
-
-默认引导项不会改动，所以没有进入该环境的机器仍引导回原本的系统；`--disarm` 收回武装。`--bypass` 改为取代默认项，供会丢弃一次性引导项的固件使用，那也是唯一一条「环境起不来就连机器都引导不了」的路径。
-
-第一个界面提供安装与救援 shell，没有超时，未回答之前不会擦除任何数据。`--ram` 引导的是带 ZFS 的 Gentoo CJK ISO，约需 2 GiB 内存；`--lowram` 引导的是较小、没有 `zfs.ko` 的 Alpine netboot 压缩包。`--ssh-port` 把服务移离 22 端口。
-
-## 转换运行中的系统
-
-<!-- fact: install-in-place -->
-
-在 `[disk]` 表设 `mode = "in-place"`，安装程序取代运行中发行版的用户空间，而不是分区磁盘。该表不带设备列表，因为布局由机器读出：
-
-```toml
-config_version = 1
-
-[system]
-hostname = "converted"
-timezone = "UTC"
-locales = ["en_US.UTF-8"]
-locale = "en_US.UTF-8"
-init = "systemd"
-root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
-
-[portage]
-profile = "default/linux/amd64/23.0/systemd"
-makeopts = "-j4"
-
-[bootloader]
-kind = "grub"
-firmware = "uefi"
-
-[disk]
-mode = "in-place"
-```
-
-上面那个哈希是示例，执行前必须替换。交互式执行会打印这次转换取代哪些目录，并要求输入 `convert` 才会写入任何数据；没有终端的执行不会被询问，因为配置文件里的 `mode = "in-place"` 就是授权，而在那里发问会让串口控制台永远等下去。
-
-**发起这次执行的会话必须保持连接。**`/usr` 与 `/etc` 换成新系统之后，新的 SSH 登录不再成立，而发起执行的会话仍持有它已经映射的可执行文件。
-
-## 从中断处继续
-
-<!-- fact: resume-behavior -->
-
-`--resume` 只会跳过位置和标识均与当前计划匹配，且效果标记为重新启动后仍然存在的已完成操作：
-
-```sh
-./bootstrap.sh --config my-install.toml --resume
-```
-
-<!-- fact: resume-limits -->
-
-继续执行仅限同一个 live 会话、同一个安装程序与同一份配置文件，而且安装程序会拒绝其他情况，不再只是写在文档里。
-
-- 日志开头记录配置的摘要、机器的 boot id 与安装程序源代码的摘要；`--resume` 三者都比对，任何一项不同就停下并说明原因。内核不提供 boot id 的机器只比对其余两项。
-- 默认日志位于 `/run/gentoo-install/install.jsonl`，本来就不会在重新启动后保留。
-- 每条操作记录另外包含根据该操作类源代码和字段值生成的标识，标识变化的操作会重新执行而不是跳过。共用辅助函数或常量的更改不在该标识范围内，改由安装程序摘要覆盖。
 
 ## 配置文件
 

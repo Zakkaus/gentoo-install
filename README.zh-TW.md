@@ -10,6 +10,132 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 
 ![cjktty 主控台顯示簡體中文、正體中文、日文與韓文](cjk-console.png)
 
+## 需求
+
+<!-- fact: requirements-runtime -->
+
+實際安裝需要 root 權限、amd64 目標與 Python 3.11 以上版本。使用設定檔執行 dry run 不需要 root 權限。安裝器沒有第三方 Python 執行期相依套件。
+
+<!-- fact: requirements-version-sources -->
+
+選單從 `packages.gentoo.org` 讀取 Gentoo 主儲存庫的套件版本，並從 `api.github.com/repos/gentoo-zh/overlay/contents` 讀取 gentoo-zh 修補核心的版本。`sys-fs/zfs` 接受的最高核心版本從 `gitweb.gentoo.org` 讀取。以設定檔安裝時需要連線的是該設定指定的鏡像；`--missing-commands` 與 `--config FILE --dry-run` 都不需要這些版本端點。
+
+<!-- fact: requirements-network-filter -->
+
+live 環境有 IPv6 但沒有 IPv4 時，選單會停用記錄中標為僅能透過 IPv4 存取的 Gentoo 鏡像。
+
+<!-- fact: requirements-bootstrap -->
+
+`bootstrap.sh` 會讀取 `/etc/os-release`、回報缺少的指令，並印出候選的套件管理器指令。它可辨識下列發行版系列：Debian 與 Ubuntu、Arch、openSUSE、Fedora、RHEL 與 CentOS、Gentoo、Alpine。印出的指令必須在執行前核對。
+
+## 安全事項
+
+<!-- fact: safety-destructive -->
+
+實際安裝會寫入所選磁碟。使用設定檔執行時不會再次要求確認清除磁碟；`wipe = true`、刪除分割區與建立檔案系統都可能毀損既有資料。
+
+<!-- fact: safety-review-backup -->
+
+實際安裝前，必須在 dry-run 輸出中核對磁碟選擇器與每項破壞性操作。穩定的 `/dev/disk/by-id/` 選擇器優於 `/dev/sda` 之類的名稱；需要保留的資料必須另有備份。
+
+## 安裝
+
+<!-- fact: install-download -->
+
+下列指令會下載目前的 `master` 封存檔並開啟選單：
+
+```sh
+curl -fsSL https://github.com/Zakkaus/gentoo-install/archive/refs/heads/master.tar.gz | tar xz
+cd gentoo-install-master
+./bootstrap.sh
+```
+
+<!-- fact: install-terminal -->
+
+選單需要至少 80 欄、24 列的互動式終端機。安裝器啟動時會詢問一次介面語言；`--lang zh-TW` 可直接選用正體中文。
+
+<!-- fact: install-config-workflow -->
+
+選單可將答案儲存為 `my-install.toml` 後離開。下列流程會先印出完整計畫，再執行實際安裝：
+
+```sh
+./bootstrap.sh --config my-install.toml --dry-run
+# 接著擇一執行下列其中一行。兩者都會寫入所選磁碟。
+./bootstrap.sh --config my-install.toml
+./bootstrap.sh --config my-install.toml --no-shell   # 同一次安裝，不詢問是否開啟 root shell
+```
+
+<!-- fact: install-root-shell -->
+
+互動式安裝無論成功或失敗，都會在卸載前提供於目標系統內開啟 root shell 的選項。`--no-shell` 可略過這項確認。
+
+## 從記憶體安裝
+
+<!-- fact: install-memory -->
+
+`--ram` 與 `--lowram` 武裝一次進入記憶體中活環境的開機，那是一台沒有主控台、也沒有救援映像的租用機器覆蓋自己磁碟之前所需要的。安裝器、選定的設定與授權金鑰都隨 initramfs 送達，因此環境起來時執行的正是武裝它的那一版：
+
+```sh
+./bootstrap.sh --ram --ssh-key github:zakkaus --root-password 'replace this'
+reboot
+ssh root@the-machine
+```
+
+預設開機項目不會更動，所以沒有進入該環境的機器仍開回原本的系統；`--disarm` 收回武裝。`--bypass` 改為取代預設項目，供會丟棄一次性項目的韌體使用，那也是唯一一條「環境起不來就連機器都開不起來」的路徑。
+
+第一個畫面提供安裝與救援 shell，沒有逾時，未回答之前不會抹除任何資料。`--ram` 開的是帶 ZFS 的 Gentoo CJK ISO，約需 2 GiB 記憶體；`--lowram` 開的是較小、沒有 `zfs.ko` 的 Alpine netboot 壓縮檔。`--ssh-port` 把服務移離 22 埠。
+
+## 轉換執行中的系統
+
+<!-- fact: install-in-place -->
+
+在 `[disk]` 表設 `mode = "in-place"`，安裝器取代執行中發行版的使用者空間，而不是分割磁碟。該表不帶裝置清單，因為版面由機器讀出：
+
+```toml
+config_version = 1
+
+[system]
+hostname = "converted"
+timezone = "UTC"
+locales = ["en_US.UTF-8"]
+locale = "en_US.UTF-8"
+init = "systemd"
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
+
+[portage]
+profile = "default/linux/amd64/23.0/systemd"
+makeopts = "-j4"
+
+[bootloader]
+kind = "grub"
+firmware = "uefi"
+
+[disk]
+mode = "in-place"
+```
+
+上面那個雜湊是範例，執行前必須替換。互動式執行會印出這次轉換取代哪些目錄，並要求輸入 `convert` 才會寫入任何資料；沒有終端機的執行不會被詢問，因為設定檔裡的 `mode = "in-place"` 就是授權，而在那裡發問會讓序列主控台永遠等下去。
+
+**發起這次執行的工作階段必須保持連線。**`/usr` 與 `/etc` 換成新系統之後，新的 SSH 登入不再成立，而發起執行的工作階段仍持有它已經映射的執行檔。
+
+## 從中斷處繼續
+
+<!-- fact: resume-behavior -->
+
+`--resume` 只會略過位置與識別碼均符合現行計畫，且效果標記為重新開機後仍然存在的已完成操作：
+
+```sh
+./bootstrap.sh --config my-install.toml --resume
+```
+
+<!-- fact: resume-limits -->
+
+繼續執行僅限同一個 live 工作階段、同一個安裝器與同一份設定檔，而且安裝器會拒絕其他情況，不再只是寫在文件裡。
+
+- 日誌開頭記錄設定的摘要、機器的 boot id 與安裝器原始碼的摘要；`--resume` 三者都比對，任何一項不同就停下並說明原因。核心不提供 boot id 的機器只比對其餘兩項。
+- 預設日誌位於 `/run/gentoo-install/install.jsonl`，本來就不會在重新開機後保留。
+- 每筆操作記錄另外包含根據該操作類別原始碼與欄位值產生的識別碼，識別碼改變的操作會重新執行而不是略過。共用輔助函式或常數的變更不在該識別碼範圍內，改由安裝器摘要涵蓋。
+
 ## 功能
 
 <!-- fact: capability-scope -->
@@ -136,132 +262,6 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 | 選單 | 在 80x24 的序列主控台上逐列開過，涵蓋英文、正體中文、簡體中文、日文與韓文，沒有一列寬過終端機 |
 
 原始碼建置的核心與二進位套件降級只有 runner 層級的測試，而 runner 層級的測試不是端到端記錄。`tests/fixtures/` 底下的檔案驗證的是設定模型，它們存在並不代表任何一台裝出來的機器。
-
-## 需求
-
-<!-- fact: requirements-runtime -->
-
-實際安裝需要 root 權限、amd64 目標與 Python 3.11 以上版本。使用設定檔執行 dry run 不需要 root 權限。安裝器沒有第三方 Python 執行期相依套件。
-
-<!-- fact: requirements-version-sources -->
-
-選單從 `packages.gentoo.org` 讀取 Gentoo 主儲存庫的套件版本，並從 `api.github.com/repos/gentoo-zh/overlay/contents` 讀取 gentoo-zh 修補核心的版本。`sys-fs/zfs` 接受的最高核心版本從 `gitweb.gentoo.org` 讀取。以設定檔安裝時需要連線的是該設定指定的鏡像；`--missing-commands` 與 `--config FILE --dry-run` 都不需要這些版本端點。
-
-<!-- fact: requirements-network-filter -->
-
-live 環境有 IPv6 但沒有 IPv4 時，選單會停用記錄中標為僅能透過 IPv4 存取的 Gentoo 鏡像。
-
-<!-- fact: requirements-bootstrap -->
-
-`bootstrap.sh` 會讀取 `/etc/os-release`、回報缺少的指令，並印出候選的套件管理器指令。它可辨識下列發行版系列：Debian 與 Ubuntu、Arch、openSUSE、Fedora、RHEL 與 CentOS、Gentoo、Alpine。印出的指令必須在執行前核對。
-
-## 安全事項
-
-<!-- fact: safety-destructive -->
-
-實際安裝會寫入所選磁碟。使用設定檔執行時不會再次要求確認清除磁碟；`wipe = true`、刪除分割區與建立檔案系統都可能毀損既有資料。
-
-<!-- fact: safety-review-backup -->
-
-實際安裝前，必須在 dry-run 輸出中核對磁碟選擇器與每項破壞性操作。穩定的 `/dev/disk/by-id/` 選擇器優於 `/dev/sda` 之類的名稱；需要保留的資料必須另有備份。
-
-## 安裝
-
-<!-- fact: install-download -->
-
-下列指令會下載目前的 `master` 封存檔並開啟選單：
-
-```sh
-curl -fsSL https://github.com/Zakkaus/gentoo-install/archive/refs/heads/master.tar.gz | tar xz
-cd gentoo-install-master
-./bootstrap.sh
-```
-
-<!-- fact: install-terminal -->
-
-選單需要至少 80 欄、24 列的互動式終端機。安裝器啟動時會詢問一次介面語言；`--lang zh-TW` 可直接選用正體中文。
-
-<!-- fact: install-config-workflow -->
-
-選單可將答案儲存為 `my-install.toml` 後離開。下列流程會先印出完整計畫，再執行實際安裝：
-
-```sh
-./bootstrap.sh --config my-install.toml --dry-run
-# 接著擇一執行下列其中一行。兩者都會寫入所選磁碟。
-./bootstrap.sh --config my-install.toml
-./bootstrap.sh --config my-install.toml --no-shell   # 同一次安裝，不詢問是否開啟 root shell
-```
-
-<!-- fact: install-root-shell -->
-
-互動式安裝無論成功或失敗，都會在卸載前提供於目標系統內開啟 root shell 的選項。`--no-shell` 可略過這項確認。
-
-## 從記憶體安裝
-
-<!-- fact: install-memory -->
-
-`--ram` 與 `--lowram` 武裝一次進入記憶體中活環境的開機，那是一台沒有主控台、也沒有救援映像的租用機器覆蓋自己磁碟之前所需要的。安裝器、選定的設定與授權金鑰都隨 initramfs 送達，因此環境起來時執行的正是武裝它的那一版：
-
-```sh
-./bootstrap.sh --ram --ssh-key github:zakkaus --root-password 'replace this'
-reboot
-ssh root@the-machine
-```
-
-預設開機項目不會更動，所以沒有進入該環境的機器仍開回原本的系統；`--disarm` 收回武裝。`--bypass` 改為取代預設項目，供會丟棄一次性項目的韌體使用，那也是唯一一條「環境起不來就連機器都開不起來」的路徑。
-
-第一個畫面提供安裝與救援 shell，沒有逾時，未回答之前不會抹除任何資料。`--ram` 開的是帶 ZFS 的 Gentoo CJK ISO，約需 2 GiB 記憶體；`--lowram` 開的是較小、沒有 `zfs.ko` 的 Alpine netboot 壓縮檔。`--ssh-port` 把服務移離 22 埠。
-
-## 轉換執行中的系統
-
-<!-- fact: install-in-place -->
-
-在 `[disk]` 表設 `mode = "in-place"`，安裝器取代執行中發行版的使用者空間，而不是分割磁碟。該表不帶裝置清單，因為版面由機器讀出：
-
-```toml
-config_version = 1
-
-[system]
-hostname = "converted"
-timezone = "UTC"
-locales = ["en_US.UTF-8"]
-locale = "en_US.UTF-8"
-init = "systemd"
-root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
-
-[portage]
-profile = "default/linux/amd64/23.0/systemd"
-makeopts = "-j4"
-
-[bootloader]
-kind = "grub"
-firmware = "uefi"
-
-[disk]
-mode = "in-place"
-```
-
-上面那個雜湊是範例，執行前必須替換。互動式執行會印出這次轉換取代哪些目錄，並要求輸入 `convert` 才會寫入任何資料；沒有終端機的執行不會被詢問，因為設定檔裡的 `mode = "in-place"` 就是授權，而在那裡發問會讓序列主控台永遠等下去。
-
-**發起這次執行的工作階段必須保持連線。**`/usr` 與 `/etc` 換成新系統之後，新的 SSH 登入不再成立，而發起執行的工作階段仍持有它已經映射的執行檔。
-
-## 從中斷處繼續
-
-<!-- fact: resume-behavior -->
-
-`--resume` 只會略過位置與識別碼均符合現行計畫，且效果標記為重新開機後仍然存在的已完成操作：
-
-```sh
-./bootstrap.sh --config my-install.toml --resume
-```
-
-<!-- fact: resume-limits -->
-
-繼續執行僅限同一個 live 工作階段、同一個安裝器與同一份設定檔，而且安裝器會拒絕其他情況，不再只是寫在文件裡。
-
-- 日誌開頭記錄設定的摘要、機器的 boot id 與安裝器原始碼的摘要；`--resume` 三者都比對，任何一項不同就停下並說明原因。核心不提供 boot id 的機器只比對其餘兩項。
-- 預設日誌位於 `/run/gentoo-install/install.jsonl`，本來就不會在重新開機後保留。
-- 每筆操作記錄另外包含根據該操作類別原始碼與欄位值產生的識別碼，識別碼改變的操作會重新執行而不是略過。共用輔助函式或常數的變更不在該識別碼範圍內，改由安裝器摘要涵蓋。
 
 ## 設定檔
 

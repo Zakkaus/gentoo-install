@@ -10,6 +10,132 @@ gentoo-install runs in a Linux live environment to install an amd64 Gentoo syste
 
 ![The cjktty console rendering Simplified Chinese, Traditional Chinese, Japanese and Korean](cjk-console.png)
 
+## Requirements
+
+<!-- fact: requirements-runtime -->
+
+A real installation requires root privileges, an amd64 target and Python 3.11 or newer. A configuration-file dry run does not require root privileges. The installer has no third-party Python runtime dependency.
+
+<!-- fact: requirements-version-sources -->
+
+The menu reads Gentoo main-tree package versions from `packages.gentoo.org` and gentoo-zh patched-kernel versions from `api.github.com/repos/gentoo-zh/overlay/contents`. It reads the maximum kernel version accepted by `sys-fs/zfs` from `gitweb.gentoo.org`. An installation from a configuration file requires the mirror that configuration names instead; `--missing-commands` and `--config FILE --dry-run` require none of these version endpoints.
+
+<!-- fact: requirements-network-filter -->
+
+The menu disables recorded IPv4-only Gentoo mirrors when the live environment has IPv6 but no IPv4.
+
+<!-- fact: requirements-bootstrap -->
+
+`bootstrap.sh` reads `/etc/os-release`, reports missing commands and prints a candidate package-manager command. It recognizes these distribution families: Debian and Ubuntu; Arch; openSUSE; Fedora, RHEL and CentOS; Gentoo; and Alpine. The printed command must be reviewed before it is run.
+
+## Safety
+
+<!-- fact: safety-destructive -->
+
+A real run writes to the selected disks. A configuration-file run starts without a second erase confirmation; `wipe = true`, partition deletion and filesystem creation can destroy existing data.
+
+<!-- fact: safety-review-backup -->
+
+Before a real run, the disk selectors and every destructive operation must be checked in the dry-run output. Stable `/dev/disk/by-id/` selectors are preferable to names such as `/dev/sda`, and required data must have a separate backup.
+
+## Installation
+
+<!-- fact: install-download -->
+
+The following commands download the current `master` archive and open the menu:
+
+```sh
+curl -fsSL https://github.com/Zakkaus/gentoo-install/archive/refs/heads/master.tar.gz | tar xz
+cd gentoo-install-master
+./bootstrap.sh
+```
+
+<!-- fact: install-terminal -->
+
+The menu requires an interactive terminal of at least 80x24 cells. It asks for the interface language once; `--lang en` selects English without that question.
+
+<!-- fact: install-config-workflow -->
+
+The menu can save its answers as `my-install.toml` and exit. The configuration-file workflow below prints the complete plan before the real run:
+
+```sh
+./bootstrap.sh --config my-install.toml --dry-run
+# Then one of the two below. Each writes the selected disks.
+./bootstrap.sh --config my-install.toml
+./bootstrap.sh --config my-install.toml --no-shell   # the same run, without the root-shell prompt
+```
+
+<!-- fact: install-root-shell -->
+
+Before unmounting, an interactive run offers a root shell in the target after either success or failure. `--no-shell` suppresses that question.
+
+## Installing from memory
+
+<!-- fact: install-memory -->
+
+`--ram` and `--lowram` arm one boot into a live environment held in memory, which is what a rented machine with no console and no rescue image needs before its own disk can be installed over. The installer, the chosen configuration and the authorised keys travel inside the initramfs, so the environment comes up running the revision that armed it:
+
+```sh
+./bootstrap.sh --ram --ssh-key github:zakkaus --root-password 'replace this'
+reboot
+ssh root@the-machine
+```
+
+The default boot entry is not changed, so a machine that does not come up in the environment boots what it booted before; `--disarm` takes the arming back. `--bypass` replaces the default entry instead, for firmware that drops a one-shot entry, and it is the one path where an environment that fails to come up leaves a machine that does not boot at all.
+
+The first screen offers the install and a rescue shell and has no timeout, and nothing is erased until it is answered. `--ram` boots the Gentoo CJK ISO, which carries ZFS and needs about 2 GiB of RAM; `--lowram` boots the Alpine netboot bundle, which is smaller and has no `zfs.ko`. `--ssh-port` moves the daemon off 22.
+
+## Converting a running system
+
+<!-- fact: install-in-place -->
+
+`mode = "in-place"` in the `[disk]` table replaces the userland of the running distribution instead of partitioning a disk. The table carries no device list, because the layout is read from the machine:
+
+```toml
+config_version = 1
+
+[system]
+hostname = "converted"
+timezone = "UTC"
+locales = ["en_US.UTF-8"]
+locale = "en_US.UTF-8"
+init = "systemd"
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
+
+[portage]
+profile = "default/linux/amd64/23.0/systemd"
+makeopts = "-j4"
+
+[bootloader]
+kind = "grub"
+firmware = "uefi"
+
+[disk]
+mode = "in-place"
+```
+
+The hash above is an example and must be replaced before execution. An interactive run prints what the conversion replaces and requires the word `convert` before anything is written; a run with no terminal is not asked, because `mode = "in-place"` in the file is the authorisation and a question there would hold a serial console open for ever.
+
+**The session that started the run is the lifeline.** A new SSH login stops working once `/usr` and `/etc` belong to the new system, while the session that started the run keeps the binaries it already mapped.
+
+## Resuming an interrupted run
+
+<!-- fact: resume-behavior -->
+
+`--resume` skips an operation recorded as complete only when its journal position and identity match the current plan and its effect is marked as surviving a reboot:
+
+```sh
+./bootstrap.sh --config my-install.toml --resume
+```
+
+<!-- fact: resume-limits -->
+
+Resume is limited to the same live session, the same installer and the same configuration file, and the installer refuses the other cases instead of documenting them.
+
+- The journal opens with a digest of the configuration, the machine's boot id and a digest of the installer's own source; `--resume` compares all three and stops with an explanatory message on any mismatch. Where the kernel publishes no boot id, only the other two are compared.
+- The default journal is `/run/gentoo-install/install.jsonl`, so it does not survive a reboot in any case.
+- Each operation record also carries an identity derived from that operation's class source and field values, so an operation whose identity changed is performed again rather than skipped. A change to a shared helper or constant is outside that per-operation identity and is covered by the installer digest instead.
+
 ## Capabilities
 
 <!-- fact: capability-scope -->
@@ -136,132 +262,6 @@ The system configuration can configure zram independently of the device graph an
 | The menu | opened row by row on an 80x24 serial console in English, Traditional and Simplified Chinese, Japanese and Korean, with no row wider than the terminal |
 
 A source-built kernel and binary-package degradation have runner-level tests only, and a runner-level test is not an end-to-end record. Files under `tests/fixtures/` exercise the configuration model; their presence establishes nothing about an installed machine.
-
-## Requirements
-
-<!-- fact: requirements-runtime -->
-
-A real installation requires root privileges, an amd64 target and Python 3.11 or newer. A configuration-file dry run does not require root privileges. The installer has no third-party Python runtime dependency.
-
-<!-- fact: requirements-version-sources -->
-
-The menu reads Gentoo main-tree package versions from `packages.gentoo.org` and gentoo-zh patched-kernel versions from `api.github.com/repos/gentoo-zh/overlay/contents`. It reads the maximum kernel version accepted by `sys-fs/zfs` from `gitweb.gentoo.org`. An installation from a configuration file requires the mirror that configuration names instead; `--missing-commands` and `--config FILE --dry-run` require none of these version endpoints.
-
-<!-- fact: requirements-network-filter -->
-
-The menu disables recorded IPv4-only Gentoo mirrors when the live environment has IPv6 but no IPv4.
-
-<!-- fact: requirements-bootstrap -->
-
-`bootstrap.sh` reads `/etc/os-release`, reports missing commands and prints a candidate package-manager command. It recognizes these distribution families: Debian and Ubuntu; Arch; openSUSE; Fedora, RHEL and CentOS; Gentoo; and Alpine. The printed command must be reviewed before it is run.
-
-## Safety
-
-<!-- fact: safety-destructive -->
-
-A real run writes to the selected disks. A configuration-file run starts without a second erase confirmation; `wipe = true`, partition deletion and filesystem creation can destroy existing data.
-
-<!-- fact: safety-review-backup -->
-
-Before a real run, the disk selectors and every destructive operation must be checked in the dry-run output. Stable `/dev/disk/by-id/` selectors are preferable to names such as `/dev/sda`, and required data must have a separate backup.
-
-## Installation
-
-<!-- fact: install-download -->
-
-The following commands download the current `master` archive and open the menu:
-
-```sh
-curl -fsSL https://github.com/Zakkaus/gentoo-install/archive/refs/heads/master.tar.gz | tar xz
-cd gentoo-install-master
-./bootstrap.sh
-```
-
-<!-- fact: install-terminal -->
-
-The menu requires an interactive terminal of at least 80x24 cells. It asks for the interface language once; `--lang en` selects English without that question.
-
-<!-- fact: install-config-workflow -->
-
-The menu can save its answers as `my-install.toml` and exit. The configuration-file workflow below prints the complete plan before the real run:
-
-```sh
-./bootstrap.sh --config my-install.toml --dry-run
-# Then one of the two below. Each writes the selected disks.
-./bootstrap.sh --config my-install.toml
-./bootstrap.sh --config my-install.toml --no-shell   # the same run, without the root-shell prompt
-```
-
-<!-- fact: install-root-shell -->
-
-Before unmounting, an interactive run offers a root shell in the target after either success or failure. `--no-shell` suppresses that question.
-
-## Installing from memory
-
-<!-- fact: install-memory -->
-
-`--ram` and `--lowram` arm one boot into a live environment held in memory, which is what a rented machine with no console and no rescue image needs before its own disk can be installed over. The installer, the chosen configuration and the authorised keys travel inside the initramfs, so the environment comes up running the revision that armed it:
-
-```sh
-./bootstrap.sh --ram --ssh-key github:zakkaus --root-password 'replace this'
-reboot
-ssh root@the-machine
-```
-
-The default boot entry is not changed, so a machine that does not come up in the environment boots what it booted before; `--disarm` takes the arming back. `--bypass` replaces the default entry instead, for firmware that drops a one-shot entry, and it is the one path where an environment that fails to come up leaves a machine that does not boot at all.
-
-The first screen offers the install and a rescue shell and has no timeout, and nothing is erased until it is answered. `--ram` boots the Gentoo CJK ISO, which carries ZFS and needs about 2 GiB of RAM; `--lowram` boots the Alpine netboot bundle, which is smaller and has no `zfs.ko`. `--ssh-port` moves the daemon off 22.
-
-## Converting a running system
-
-<!-- fact: install-in-place -->
-
-`mode = "in-place"` in the `[disk]` table replaces the userland of the running distribution instead of partitioning a disk. The table carries no device list, because the layout is read from the machine:
-
-```toml
-config_version = 1
-
-[system]
-hostname = "converted"
-timezone = "UTC"
-locales = ["en_US.UTF-8"]
-locale = "en_US.UTF-8"
-init = "systemd"
-root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
-
-[portage]
-profile = "default/linux/amd64/23.0/systemd"
-makeopts = "-j4"
-
-[bootloader]
-kind = "grub"
-firmware = "uefi"
-
-[disk]
-mode = "in-place"
-```
-
-The hash above is an example and must be replaced before execution. An interactive run prints what the conversion replaces and requires the word `convert` before anything is written; a run with no terminal is not asked, because `mode = "in-place"` in the file is the authorisation and a question there would hold a serial console open for ever.
-
-**The session that started the run is the lifeline.** A new SSH login stops working once `/usr` and `/etc` belong to the new system, while the session that started the run keeps the binaries it already mapped.
-
-## Resuming an interrupted run
-
-<!-- fact: resume-behavior -->
-
-`--resume` skips an operation recorded as complete only when its journal position and identity match the current plan and its effect is marked as surviving a reboot:
-
-```sh
-./bootstrap.sh --config my-install.toml --resume
-```
-
-<!-- fact: resume-limits -->
-
-Resume is limited to the same live session, the same installer and the same configuration file, and the installer refuses the other cases instead of documenting them.
-
-- The journal opens with a digest of the configuration, the machine's boot id and a digest of the installer's own source; `--resume` compares all three and stops with an explanatory message on any mismatch. Where the kernel publishes no boot id, only the other two are compared.
-- The default journal is `/run/gentoo-install/install.jsonl`, so it does not survive a reboot in any case.
-- Each operation record also carries an identity derived from that operation's class source and field values, so an operation whose identity changed is performed again rather than skipped. A change to a shared helper or constant is outside that per-operation identity and is covered by the installer digest instead.
 
 ## Configuration files
 
