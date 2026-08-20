@@ -1163,9 +1163,16 @@ def test_the_network_wait_gives_up_rather_than_hanging(
     monkeypatch.setattr(cluster, "NETWORK_PATIENCE", 0.3)
     monkeypatch.setattr(cluster, "NETWORK_PAUSE", 0.05)
     link = cluster.Reconnecting(Down, tries=1)
-    with pytest.raises(ConsoleTimeout, match="no network"):
+    with pytest.raises(ConsoleTimeout, match="reached no mirror") as refused:
         cluster.wait_for_network(link)
     assert asked, "it asked at least once before giving up"
+
+    # What it held, not `no network`: `vm-gnome` gave up with an address, a
+    # default route and three resolvers, and every mirror answered `Could not
+    # contact DNS servers`. A verdict that says the guest had no network sends
+    # the reader to the segment when the fault is name resolution.
+    said = str(refused.value)
+    assert "address" in said and "route" in said and "resolver" in said, said
 
 
 def test_the_network_wait_returns_as_soon_as_the_guest_answers() -> None:
