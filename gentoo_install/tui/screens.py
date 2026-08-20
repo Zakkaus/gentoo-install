@@ -18,6 +18,7 @@ from ..i18n import Catalog
 from ..exec import fetch
 from ..model import compat
 from ..model.config import (
+    BASE_PROFILE,
     SystemConfig,
     FirstBoot,
     ConsoleFontSize,
@@ -63,7 +64,6 @@ from ..plan.packages import FONT_CONFIGURATION_DISABLED, FONT_CONFIGURATION_ENAB
 from ..plan.packages import INPUT_CONFIGURATION_DISABLED, INPUT_CONFIGURATION_ENABLED
 from ..plan import system as plan_system
 from .packages import (
-    BASE_PROFILE,
     _profile_for,
     _record_operator,
     _set_font_configuration,

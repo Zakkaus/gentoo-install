@@ -1832,7 +1832,9 @@ def test_the_desktops_offered_are_the_ones_with_a_profile_file() -> None:
     shipped = {path.stem for path in (Path(data.__file__).parent / "data/profiles").glob("*.toml")}
     # One row per file, plus the machine with no desktop at all.
     assert set(offered) == {"", *shipped}
-    assert offered[""] == tui_packages.BASE_PROFILE
+    from gentoo_install.model.config import BASE_PROFILE
+
+    assert offered[""] == BASE_PROFILE
     # Every desktop the menu shows can be built: the profile comes from its file.
     for name, path in offered.items():
         assert path.startswith("default/linux/amd64/23.0"), name

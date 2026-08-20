@@ -401,11 +401,19 @@ class Binhost:
     community: BinhostChannel = BinhostChannel.OFF
 
 
+#: The profile release every path in this installer is built against, and the
+#: profile a machine with no desktop is built on. Written once: the release
+#: was in four places across three layers and the test that pinned it read
+#: only `tui/`, so moving off it was four edits of which two were unguarded.
+PROFILE_RELEASE: Final[str] = "23.0"
+BASE_PROFILE: Final[str] = f"default/linux/amd64/{PROFILE_RELEASE}"
+
+
 @dataclass(frozen=True)
 class PortageConfig:
     #: Matches the default init. A systemd profile has `systemd` as a path
     #: component; the two disagreeing leaves packages built for the other.
-    profile: str = "default/linux/amd64/23.0/systemd"
+    profile: str = f"{BASE_PROFILE}/systemd"
     keywords: Keywords = Keywords.STABLE
     #: git by default: it carries the history a `verify-commit` sync checks,
     #: and it is what an ongoing system uses.

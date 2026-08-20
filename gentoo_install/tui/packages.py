@@ -16,6 +16,7 @@ from ..errors import ConfigError
 from ..i18n import Catalog
 from ..model import atoms
 from ..model.config import (
+    BASE_PROFILE,
     InitSystem,
     InstallConfig,
     Networking,
@@ -69,7 +70,7 @@ def _profile_for(profile: str, init: InitSystem) -> str:
 #: its own profile in `data/profiles/<name>.toml`.
 
 
-BASE_PROFILE: Final[str] = "default/linux/amd64/23.0"
+
 
 
 def desktop_profiles(groups: Groups, profile_paths: Sequence[str] = ()) -> dict[str, str]:
