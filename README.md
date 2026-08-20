@@ -18,7 +18,10 @@ The paths below are implemented and have automated unit or plan coverage unless 
 
 <!-- fact: storage-device-graph -->
 
-**Storage.** The device graph covers GPT and MBR; ext2, ext3, ext4, btrfs subvolumes, xfs, f2fs and vfat; swap; and LUKS2, LVM and mdraid. ZFS belongs to the same graph: a pool is a stripe, a mirror, or raidz1, raidz2 or raidz3 over its vdevs, native encryption is a property of the pool, and each dataset is a node of its own. Existing partition tables can be retained, with a separate keep, format or delete decision for each partition.
+**Storage.**
+- The device graph covers GPT and MBR; ext2, ext3, ext4, btrfs subvolumes, xfs, f2fs and vfat; swap; and LUKS2, LVM and mdraid.
+- ZFS belongs to the same graph: a pool is a stripe, a mirror, or raidz1, raidz2 or raidz3 over its vdevs, native encryption is a property of the pool, and each dataset is a node of its own.
+- Existing partition tables can be retained, with a separate keep, format or delete decision for each partition.
 
 <!-- fact: zram-system -->
 
@@ -26,49 +29,91 @@ The system configuration can configure zram independently of the device graph an
 
 <!-- fact: in-place-conversion -->
 
-**In-place conversion.** Setting `mode = "in-place"` in the `[disk]` table replaces the userland of the running distribution with Gentoo instead of partitioning a disk. The layout is read from the machine, so the table carries no device list. `/bin`, `/sbin`, `/etc`, `/lib`, `/lib64`, `/usr` and `/var` are replaced; `/home`, `/root`, `/srv`, `/opt` and every other path are left alone, and `/etc` is replaced rather than merged.
+**In-place conversion.**
+- Setting `mode = "in-place"` in the `[disk]` table replaces the userland of the running distribution with Gentoo instead of partitioning a disk.
+- The layout is read from the machine, so the table carries no device list.
+- `/bin`, `/sbin`, `/etc`, `/lib`, `/lib64`, `/usr` and `/var` are replaced; `/home`, `/root`, `/srv`, `/opt` and every other path are left alone, and `/etc` is replaced rather than merged.
 
-The staged system is built under `/gentoo-install.new` while the running one is untouched, each directory is then exchanged with `rename(2)`, and only the writes to the esp or the boot sector follow the exchange. A root below LUKS, LVM or mdraid, a root filesystem this installer cannot describe, a machine with less than 10 GiB free on the root filesystem, and a live medium are each refused by name before anything is written.
+- The staged system is built under `/gentoo-install.new` while the running one is untouched, each directory is then exchanged with `rename(2)`, and only the writes to the esp or the boot sector follow the exchange.
+- A root below LUKS, LVM or mdraid, a root filesystem this installer cannot describe, a machine with less than 10 GiB free on the root filesystem, and a live medium are each refused by name before anything is written.
 
 <!-- fact: prepared-image -->
 
-**Disk images.** `mode = "image"` installs into the sparse file named by `disk.image` and sized by `disk.size` instead of onto a disk, so the product is a file that can be copied elsewhere and written later. `mode = "dd"` installs nothing: it streams the image at `disk.source` onto the whole disk at `disk.destination`, decoding `raw`, `gz`, `xz`, `zst` or `tar` as it reads, and keeps whatever layout and bootloader that image already carries. Neither mode accepts the keys of the other, and `partition` mode accepts neither set.
+**Disk images.**
+- `mode = "image"` installs into the sparse file named by `disk.image` and sized by `disk.size` instead of onto a disk, so the product is a file that can be copied elsewhere and written later.
+- `mode = "dd"` installs nothing: it streams the image at `disk.source` onto the whole disk at `disk.destination`, decoding `raw`, `gz`, `xz`, `zst` or `tar` as it reads, and keeps whatever layout and bootloader that image already carries.
+- Neither mode accepts the keys of the other, and `partition` mode accepts neither set.
 
 <!-- fact: boot-system -->
 
-**Boot and system.** GRUB supports UEFI and BIOS, systemd-boot supports UEFI, and ZFSBootMenu boots a ZFS root on UEFI, taking each kernel from the boot environment's own `/boot` inside the pool. The installer configures systemd or OpenRC, dracut, locale, keyboard layout, timezone, hostname, DNS, static addresses and the selected network manager.
+**Boot and system.**
+- GRUB supports UEFI and BIOS, systemd-boot supports UEFI, and ZFSBootMenu boots a ZFS root on UEFI, taking each kernel from the boot environment's own `/boot` inside the pool.
+- The installer configures systemd or OpenRC, dracut, locale, keyboard layout, timezone, hostname, DNS, static addresses and the selected network manager.
 
 <!-- fact: remote-unlock -->
 
-**Unlocking an encrypted root over SSH.** `[kernel.remote_unlock]` puts an SSH daemon in the boot path, for a machine whose passphrase prompt nobody is sitting in front of. `enabled` turns it on, `port` defaults to 222 rather than 22 so a client's `known_hosts` entry for the running system does not collide with the initramfs one, and `address`, `gateway` and `interface` give that daemon a static address; an empty address asks for DHCP. A LUKS root is opened by `sys-kernel/dracut-crypt-ssh` in the system initramfs, and a ZFS root by the dropbear ZFSBootMenu builds into its own image. The authorised keys are the ones in `system.authorized_keys`: a configuration that enables the unlock and lists no key is refused by name, because the daemon it describes is one nobody can log in to.
+**Unlocking an encrypted root over SSH.**
+- `[kernel.remote_unlock]` puts an SSH daemon in the boot path, for a machine whose passphrase prompt nobody is sitting in front of.
+- `enabled` turns it on, `port` defaults to 222 rather than 22 so a client's `known_hosts` entry for the running system does not collide with the initramfs one, and `address`, `gateway` and `interface` give that daemon a static address; an empty address asks for DHCP.
+- A LUKS root is opened by `sys-kernel/dracut-crypt-ssh` in the system initramfs, and a ZFS root by the dropbear ZFSBootMenu builds into its own image.
+- The authorised keys are the ones in `system.authorized_keys`: a configuration that enables the unlock and lists no key is refused by name, because the daemon it describes is one nobody can log in to.
 
 <!-- fact: desktop-language -->
 
-**Desktop and language support.** GNOME, KDE Plasma and Xfce are available with gdm, sddm, lightdm, or greetd and its tuigreet console greeter. Graphics settings cover AMD, Intel, NVIDIA and virtual machines. The package catalog includes fcitx5, Rime, Anthy, Mozc, Hangul and CJK fonts. The kernel choices include `sys-kernel/gentoo-cjk-kernel-bin` and `sys-kernel/gentoo-cjk-kernel`, both of which carry the cjktty patch.
+**Desktop and language support.**
+- GNOME, KDE Plasma and Xfce are available with gdm, sddm, lightdm, or greetd and its tuigreet console greeter.
+- Graphics settings cover AMD, Intel, NVIDIA and virtual machines.
+- The package catalog includes fcitx5, Rime, Anthy, Mozc, Hangul and CJK fonts.
+- The kernel choices include `sys-kernel/gentoo-cjk-kernel-bin` and `sys-kernel/gentoo-cjk-kernel`, both of which carry the cjktty patch.
 
 <!-- fact: portage -->
 
-**Portage.** The configuration covers the profile, `MAKEOPTS`, `USE`, `ACCEPT_KEYWORDS`, `L10N`, mirrors and repository synchronization. The gentoo-zh and gig overlays can be selected independently. Selecting `zh-TW`, `zh-CN`, `ja` or `ko` as the interface language also selects the gentoo-zh patched binary kernel and its overlay; selecting `en` does not. Official and gentoo-zh binary package sources have separate settings and keys.
+**Portage.**
+- The configuration covers the profile, `MAKEOPTS`, `USE`, `ACCEPT_KEYWORDS`, `L10N`, mirrors and repository synchronization.
+- The gentoo-zh and gig overlays can be selected independently.
+- Selecting `zh-TW`, `zh-CN`, `ja` or `ko` as the interface language also selects the gentoo-zh patched binary kernel and its overlay; selecting `en` does not.
+- Official and gentoo-zh binary package sources have separate settings and keys.
 
 <!-- fact: proxy -->
 
-**Session proxy.** The `[proxy]` table accepts `kind`, `host`, `port`, optional `username` and `password`, and `bypass`. `kind` is `http`, `https` or `socks5`; an empty host selects direct connection, which is the default. SOCKS5 derives `socks5h://`, so host names resolve at the proxy for intranet access. The interface has one field per value and a menu for the proxy kind. The bypass value is comma-separated in the interface and a list in TOML.
+**Session proxy.**
+- The `[proxy]` table accepts `kind`, `host`, `port`, optional `username` and `password`, and `bypass`.
+- `kind` is `http`, `https` or `socks5`; an empty host selects direct connection, which is the default.
+- SOCKS5 derives `socks5h://`, so host names resolve at the proxy for intranet access.
+- The interface has one field per value and a menu for the proxy kind.
+- The bypass value is comma-separated in the interface and a list in TOML.
 
-After the proxy is selected, the configured proxy is used for stage3 and its signing key, main-tree and overlay version lookups, the `gitweb.gentoo.org` ZFS ebuild lookup, Portage downloads through `make.conf` and `FETCHCOMMAND`/`RESUMECOMMAND`, `wget`, `curl`, `git`, GnuPG, the binhost, overlays and paste upload. The clock, initial connectivity check and pre-menu mirror check run before the configuration is available and therefore are not covered by this setting. The installer keeps the credential out of dry-run descriptions and publishes a credential-free proxy endpoint with the bypass list; the installed system receives that endpoint and list.
+- The configured proxy is used for stage3 and its signing key, main-tree and overlay version lookups, the `gitweb.gentoo.org` ZFS ebuild lookup, Portage downloads through `make.conf` and `FETCHCOMMAND`/`RESUMECOMMAND`, `wget`, `curl`, `git`, GnuPG, the binhost, overlays and paste upload.
+- The clock, the initial connectivity check and the pre-menu mirror check run before the configuration is available and are therefore not covered by this setting.
+- The installer keeps the credential out of dry-run descriptions and publishes a credential-free proxy endpoint with the bypass list; the installed system receives that endpoint and list.
 
 <!-- fact: memory-environment -->
 
-**Memory environment.** `--ram` and `--lowram` arm one boot into a live environment held in memory, then ask whether to reboot; there is no interface on this path, because the machine it addresses usually has one SSH session and no console. `--ram` uses the Gentoo CJK ISO, which carries ZFS and needs about 2 GiB of RAM, because its initramfs stops at an emergency shell when memory less the 824 MiB live image falls under 1 GiB. `--lowram` uses the Alpine netboot bundle, which is smaller and has no `zfs.ko`. Neither pins a version: both publishers list the current image with its checksum, which is fetched and verified before anything is armed.
+**Memory environment.**
+- `--ram` and `--lowram` arm one boot into a live environment held in memory, then ask whether to reboot; there is no interface on this path, because the machine it addresses usually has one SSH session and no console.
+- `--ram` uses the Gentoo CJK ISO, which carries ZFS and needs about 2 GiB of RAM, because its initramfs stops at an emergency shell when memory less the 824 MiB live image falls under 1 GiB.
+- `--lowram` uses the Alpine netboot bundle, which is smaller and has no `zfs.ko`.
+- Neither pins a version: both publishers list the current image with its checksum, which is fetched and verified before anything is armed.
 
-The default boot entry is never changed, so an environment that does not come up leaves a machine that still boots. `--bypass` replaces it instead, for firmware that drops a one-shot entry; it is the one path where an environment that does not come up leaves a machine that does not boot at all, and nothing selects it automatically.
+- The default boot entry is never changed, so an environment that does not come up leaves a machine that still boots.
+- `--bypass` replaces it instead, for firmware that drops a one-shot entry; it is the one path where an environment that does not come up leaves a machine that does not boot at all, and nothing selects it automatically.
 
 <!-- fact: memory-environment-access -->
 
-**Watching a memory install over SSH.** `--ssh-key` accepts a literal public key (`ssh-ed25519`, `ssh-rsa`, `ecdsa-sha2-nistp256`, `-384`, `-521`, and the `sk-` variants), a path, an `http` or `https` URL, or `github:user` and `gitlab:user`; `--ssh-port` and `--root-password` set the rest. The installer, the chosen configuration and the keys travel inside the initramfs, so the environment runs the revision that wrote that configuration and reaches `authorized_keys` before the first login. The operator reconnects over SSH and watches the install rather than holding a console open. Nothing is erased until the first screen is answered: it offers the install and a rescue shell, and has no timeout.
+**Watching a memory install over SSH.**
+- `--ssh-key` accepts a literal public key (`ssh-ed25519`, `ssh-rsa`, `ecdsa-sha2-nistp256`, `-384`, `-521`, and the `sk-` variants), a path, an `http` or `https` URL, or `github:user` and `gitlab:user`; `--ssh-port` and `--root-password` set the rest.
+- The installer, the chosen configuration and the keys travel inside the initramfs, so the environment runs the revision that wrote that configuration and reaches `authorized_keys` before the first login.
+- The operator reconnects over SSH and watches the install rather than holding a console open.
+- Nothing is erased until the first screen is answered: it offers the install and a rescue shell, and has no timeout.
 
 <!-- fact: plan-records -->
 
-**Plan and records.** A dry run prints an operation plan without probing storage hardware. A real installation uses the same planner after adding probed mdraid metadata for reused devices, so hardware-dependent validation can change the result. `install.log` records command output, and `install.jsonl` records operations, package sources and binary-package degradation reasons. Before uploading a configuration to `paste.gentoozh.org`, the menu replaces `password_hash` and `root_password_hash` with `removed-before-publishing` and omits the proxy `username` and `password` keys entirely; the other configuration values remain in the upload. The menu displays the resulting page address as text and as a QR code.
+**Plan and records.**
+- A dry run prints an operation plan without probing storage hardware.
+- A real installation uses the same planner after adding probed mdraid metadata for reused devices, so hardware-dependent validation can change the result.
+- `install.log` records command output, and `install.jsonl` records operations, package sources and binary-package degradation reasons.
+- Before uploading a configuration to `paste.gentoozh.org`, the menu replaces `password_hash` and `root_password_hash` with `removed-before-publishing` and omits the proxy `username` and `password` keys entirely; the other configuration values remain in the upload.
+- The menu displays the resulting page address as text and as a QR code.
 
 ## Verification status
 
@@ -76,15 +121,21 @@ The default boot entry is never changed, so an environment that does not come up
 
 [`TESTED.md`](TESTED.md) is the verification record: one row for each exercised path, naming the installer revision it ran at and where it ran. A run counts only when its recorded revision matches the installer, its installation exit code is `0`, the installed system boots, and the post-boot configuration checks pass.
 
-Installing onto a disk has cluster and single-machine records across ext4, xfs, btrfs, f2fs, ZFS, LVM, mdraid and LUKS2, on both firmwares and both init systems. Converting a running system in place has four QEMU records: two on BIOS, one on UEFI that retained `/home`, and one on UEFI whose root is a btrfs filesystem carrying `/home` and `/var` as subvolumes. Converting a machine this installer produced has cluster records as well, and that path is not yet reliable: of the six cluster conversions that reached the reboot, five booted and one stopped in GRUB's rescue shell for a missing module while the conversion itself exited `0`.
+| Path | Record |
+| --- | --- |
+| Installing onto a disk | ext4, ext2, ext3, xfs, btrfs, f2fs, ZFS, LVM, mdraid and LUKS2, on both firmwares and both init systems |
+| ZFS pools | a stripe, a mirror, a raidz, an encrypted pool, and a pool booted by ZFSBootMenu |
+| Unlocking over SSH | a LUKS root opened from the system initramfs, and a ZFS pool opened from ZFSBootMenu's own image |
+| Static addressing and greetd | cluster records of their own |
+| Converting a running system | four QEMU records: two on BIOS, one on UEFI that retained `/home`, and one on UEFI whose btrfs root carries `/home` and `/var` as subvolumes |
+| Converting a machine this installer produced | six cluster conversions reached the reboot; five booted and one stopped in GRUB's rescue shell for a missing module while the conversion exited `0`, so this path is not yet reliable |
+| `--ram` and `--lowram` | a Debian 12 machine armed one boot, kept its default entry and came up in the delivered environment, carrying the configuration it was given; answering `install` there installed Gentoo and booted the disk it had written |
+| `--bypass` | a machine whose armed initramfs was removed reached its own cloud system on the two boots that followed |
+| `dd` | one prepared image written onto a whole disk from a live medium and read back byte for byte, raw and gzipped |
+| Installing into a file | one record: the image was attached with `losetup -Pf` and read back as the two filesystems its layout declares, and nothing has booted from that file |
+| The menu | opened row by row on an 80x24 serial console in English, Traditional and Simplified Chinese, Japanese and Korean, with no row wider than the terminal |
 
-`--ram` and `--lowram` each have QEMU records. A Debian 12 machine armed one boot, kept its default entry, rebooted and came up in the delivered environment — the Gentoo CJK ISO for `--ram`, the Alpine netboot archive for `--lowram` — carrying the configuration it was given. Answering `install` there has a record for each environment: the machine installed Gentoo, booted the disk it had written and passed the shared installed-state checks. A second machine had its armed entry's initramfs removed and reached its own cloud system on the two boots that followed, after the power cycle the harness performs between guests. `dd` has one record: a prepared image written onto a whole disk from a live medium and read back byte for byte, raw and gzipped.
-
-Static addressing, ext2 and ext3 have cluster records of their own. The ZFS records cover a stripe, a mirror, a raidz and an encrypted pool, and a pool booted by ZFSBootMenu. Both remote-unlock paths have cluster records: a LUKS root opened from the system initramfs, and a ZFS pool opened from ZFSBootMenu's own image. greetd has cluster records of its own. Installing into a file has one record, in which the written image was attached with `losetup -Pf` and read back as the two filesystems its layout declares; nothing has booted from that file. A source-built kernel and binhost degradation have runner-level tests only, and a runner-level test is not an end-to-end record.
-
-The interface itself has records: the menu was opened row by row on an 80x24 serial console in every language it offers — English, Traditional and Simplified Chinese, Japanese and Korean — with no row wider than the terminal and every row returning to the menu.
-
-Files under `tests/fixtures/` exercise the configuration model; their presence establishes nothing about an installed machine.
+A source-built kernel and binary-package degradation have runner-level tests only, and a runner-level test is not an end-to-end record. Files under `tests/fixtures/` exercise the configuration model; their presence establishes nothing about an installed machine.
 
 ## Requirements
 
@@ -206,7 +257,11 @@ The hash above is an example and must be replaced before execution. An interacti
 
 <!-- fact: resume-limits -->
 
-Resume is limited to the same live session, the same installer and the same configuration file, and the installer now refuses the other cases instead of documenting them. The journal opens with a digest of the configuration, the machine's boot id and a digest of the installer's own source; `--resume` compares all three and stops with an explanatory message on any mismatch. Where the kernel publishes no boot id, only the other two are compared. The default journal is `/run/gentoo-install/install.jsonl`, so it does not survive a reboot in any case. Each operation record also contains an identity derived from that operation's class source and field values, so an operation whose identity changed is performed again rather than skipped; a change to a shared helper or constant is outside that per-operation identity and is covered by the installer digest instead.
+Resume is limited to the same live session, the same installer and the same configuration file, and the installer refuses the other cases instead of documenting them.
+
+- The journal opens with a digest of the configuration, the machine's boot id and a digest of the installer's own source; `--resume` compares all three and stops with an explanatory message on any mismatch. Where the kernel publishes no boot id, only the other two are compared.
+- The default journal is `/run/gentoo-install/install.jsonl`, so it does not survive a reboot in any case.
+- Each operation record also carries an identity derived from that operation's class source and field values, so an operation whose identity changed is performed again rather than skipped. A change to a shared helper or constant is outside that per-operation identity and is covered by the installer digest instead.
 
 ## Configuration files
 
@@ -298,7 +353,16 @@ Binary packages are optional. Disabling them keeps source builds available. The 
 
 <!-- fact: exit-codes -->
 
-For `gentoo-install`, `0` means successful completion and `1` means configuration error. `2` means an `argparse` usage error or preflight failure, and `3` means integrity failure. `4` means download, external-command, OS or uncategorized installer failure, and `5` means operator abort. `bootstrap.sh` can also exit `1` before the Python CLI starts when its Python, required-command or root checks fail.
+| Code | `gentoo-install` |
+| --- | --- |
+| `0` | successful completion |
+| `1` | configuration error |
+| `2` | `argparse` usage error or preflight failure |
+| `3` | integrity failure |
+| `4` | download, external-command, OS or uncategorized installer failure |
+| `5` | operator abort |
+
+`bootstrap.sh` can also exit `1` before the Python CLI starts when its Python, required-command or root checks fail.
 
 ## Questions
 

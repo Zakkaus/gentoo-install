@@ -18,7 +18,10 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 
 <!-- fact: storage-device-graph -->
 
-**儲存裝置** 裝置圖涵蓋 GPT 與 MBR 分割表、ext2、ext3、ext4、xfs、f2fs、vfat、含 subvolume 的 btrfs、swap、LUKS2 加密、LVM 與 mdraid。ZFS 屬於同一張裝置圖：pool 在其 vdev 之上採 stripe、mirror 或 raidz1、raidz2、raidz3，原生加密是 pool 的屬性，每個 dataset 各為一個節點。既有分割表可以保留，每個分割區可分別指定保留、格式化或刪除。
+**儲存裝置**
+- 裝置圖涵蓋 GPT 與 MBR 分割表、ext2、ext3、ext4、xfs、f2fs、vfat、含 subvolume 的 btrfs、swap、LUKS2 加密、LVM 與 mdraid。
+- ZFS 屬於同一張裝置圖：pool 在其 vdev 之上採 stripe、mirror 或 raidz1、raidz2、raidz3，原生加密是 pool 的屬性，每個 dataset 各為一個節點。
+- 既有分割表可以保留，每個分割區可分別指定保留、格式化或刪除。
 
 <!-- fact: zram-system -->
 
@@ -26,49 +29,91 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 
 <!-- fact: in-place-conversion -->
 
-**就地轉換。**在 `[disk]` 表設定 `mode = "in-place"` 時，安裝器取代執行中發行版的使用者空間，而不是分割磁碟。版面由機器讀出，因此該表不帶裝置清單。`/bin`、`/sbin`、`/etc`、`/lib`、`/lib64`、`/usr` 與 `/var` 會被取代；`/home`、`/root`、`/srv`、`/opt` 與其餘所有路徑維持原狀，且 `/etc` 是取代而非合併。
+**就地轉換。**
+- 在 `[disk]` 表設定 `mode = "in-place"` 時，安裝器取代執行中發行版的使用者空間，而不是分割磁碟。
+- 版面由機器讀出，因此該表不帶裝置清單。
+- `/bin`、`/sbin`、`/etc`、`/lib`、`/lib64`、`/usr` 與 `/var` 會被取代；`/home`、`/root`、`/srv`、`/opt` 與其餘所有路徑維持原狀，且 `/etc` 是取代而非合併。
 
-暫存的系統建置在 `/gentoo-install.new`，執行中的系統在此期間不受影響；隨後以 `rename(2)` 逐個目錄交換，只有寫入 esp 或開機磁區的操作排在交換之後。根位於 LUKS、LVM 或 mdraid 之下、根檔案系統為安裝器無法描述的類型、根檔案系統可用空間低於 10 GiB，以及在 live 媒介上執行，這四種情況都會在寫入任何資料之前逐項指名並拒絕。
+- 暫存的系統建置在 `/gentoo-install.new`，執行中的系統在此期間不受影響；隨後以 `rename(2)` 逐個目錄交換，只有寫入 esp 或開機磁區的操作排在交換之後。
+- 根位於 LUKS、LVM 或 mdraid 之下、根檔案系統為安裝器無法描述的類型、根檔案系統可用空間低於 10 GiB，以及在 live 媒介上執行，這四種情況都會在寫入任何資料之前逐項指名並拒絕。
 
 <!-- fact: prepared-image -->
 
-**磁碟映像** `mode = "image"` 把系統裝進 `disk.image` 指定、`disk.size` 決定大小的稀疏檔案，而不是裝到磁碟上，產物因此是一份可以複製到別處、之後再寫入的檔案。`mode = "dd"` 不執行安裝：它把 `disk.source` 的映像串流寫到 `disk.destination` 這顆整顆磁碟，讀取時解開 `raw`、`gz`、`xz`、`zst` 或 `tar`，並保留該映像原本帶的版面與開機載入器。兩種模式互不接受對方的鍵，`partition` 模式兩組都不接受。
+**磁碟映像**
+- `mode = "image"` 把系統裝進 `disk.image` 指定、`disk.size` 決定大小的稀疏檔案，而不是裝到磁碟上，產物因此是一份可以複製到別處、之後再寫入的檔案。
+- `mode = "dd"` 不執行安裝：它把 `disk.source` 的映像串流寫到 `disk.destination` 這顆整顆磁碟，讀取時解開 `raw`、`gz`、`xz`、`zst` 或 `tar`，並保留該映像原本帶的版面與開機載入器。
+- 兩種模式互不接受對方的鍵，`partition` 模式兩組都不接受。
 
 <!-- fact: boot-system -->
 
-**開機與系統** 開機載入器可選 GRUB、systemd-boot 或 ZFSBootMenu。GRUB 支援 UEFI 與 BIOS，systemd-boot 支援 UEFI。ZFSBootMenu 在 UEFI 上開機 ZFS 根，核心取自 pool 內開機環境自己的 `/boot`。安裝器另可設定 systemd 或 OpenRC、dracut、locale、鍵盤配置、時區、主機名稱、DNS、靜態位址與所選的網路管理程式。
+**開機與系統**
+- 開機載入器可選 GRUB、systemd-boot 或 ZFSBootMenu。GRUB 支援 UEFI 與 BIOS，systemd-boot 支援 UEFI。
+- ZFSBootMenu 在 UEFI 上開機 ZFS 根，核心取自 pool 內開機環境自己的 `/boot`。安裝器另可設定 systemd 或 OpenRC、dracut、locale、鍵盤配置、時區、主機名稱、DNS、靜態位址與所選的網路管理程式。
 
 <!-- fact: remote-unlock -->
 
-**以 ssh 解開加密的根** `[kernel.remote_unlock]` 在開機路徑放進一個 ssh 服務，供無人在旁邊回答密語提示的機器使用。`enabled` 開啟這條路徑；`port` 預設 222 而不是 22，避免用戶端對執行中系統的 `known_hosts` 記錄與 initramfs 的那筆相撞；`address`、`gateway` 與 `interface` 給該服務一個靜態位址，位址留空則改用 DHCP。LUKS 根由系統 initramfs 裡的 `sys-kernel/dracut-crypt-ssh` 開啟，ZFS 根則由 ZFSBootMenu 建進自己映像的 dropbear 開啟。授權金鑰取自 `system.authorized_keys`：開了這條路徑又沒有列出任何金鑰的設定會被逐項指名並拒絕，因為那描述的是一個沒有人登入得進去的服務。
+**以 ssh 解開加密的根**
+- `[kernel.remote_unlock]` 在開機路徑放進一個 ssh 服務，供無人在旁邊回答密語提示的機器使用。
+- `enabled` 開啟這條路徑；`port` 預設 222 而不是 22，避免用戶端對執行中系統的 `known_hosts` 記錄與 initramfs 的那筆相撞；`address`、`gateway` 與 `interface` 給該服務一個靜態位址，位址留空則改用 DHCP。
+- LUKS 根由系統 initramfs 裡的 `sys-kernel/dracut-crypt-ssh` 開啟，ZFS 根則由 ZFSBootMenu 建進自己映像的 dropbear 開啟。
+- 授權金鑰取自 `system.authorized_keys`：開了這條路徑又沒有列出任何金鑰的設定會被逐項指名並拒絕，因為那描述的是一個沒有人登入得進去的服務。
 
 <!-- fact: desktop-language -->
 
-**桌面與語言支援** 桌面可選 GNOME、KDE Plasma 與 Xfce，並搭配 gdm、sddm、lightdm，或 greetd 與它的 tuigreet 主控台登入畫面。圖形設定涵蓋 AMD、Intel、NVIDIA 與虛擬機。套件目錄包含 fcitx5、Rime、Anthy、Mozc、Hangul 與 CJK 字型。核心選項包括 `sys-kernel/gentoo-cjk-kernel-bin` 與 `sys-kernel/gentoo-cjk-kernel`，兩者都包含 cjktty 修補程式。
+**桌面與語言支援**
+- 桌面可選 GNOME、KDE Plasma 與 Xfce，並搭配 gdm、sddm、lightdm，或 greetd 與它的 tuigreet 主控台登入畫面。
+- 圖形設定涵蓋 AMD、Intel、NVIDIA 與虛擬機。
+- 套件目錄包含 fcitx5、Rime、Anthy、Mozc、Hangul 與 CJK 字型。
+- 核心選項包括 `sys-kernel/gentoo-cjk-kernel-bin` 與 `sys-kernel/gentoo-cjk-kernel`，兩者都包含 cjktty 修補程式。
 
 <!-- fact: portage -->
 
-**Portage** 設定項目包含 profile、`MAKEOPTS`、`USE`、`ACCEPT_KEYWORDS`、`L10N`、鏡像與儲存庫同步方式。gentoo-zh 與 gig overlay 可分別選取。介面語言選為 `zh-TW`、`zh-CN`、`ja` 或 `ko` 時，也會選取 gentoo-zh 的修補版二進位核心及其 overlay；選為 `en` 時不會自動選取。官方與 gentoo-zh 的二進位套件來源各有獨立設定與金鑰。
+**Portage**
+- 設定項目包含 profile、`MAKEOPTS`、`USE`、`ACCEPT_KEYWORDS`、`L10N`、鏡像與儲存庫同步方式。
+- gentoo-zh 與 gig overlay 可分別選取。
+- 介面語言選為 `zh-TW`、`zh-CN`、`ja` 或 `ko` 時，也會選取 gentoo-zh 的修補版二進位核心及其 overlay；選為 `en` 時不會自動選取。
+- 官方與 gentoo-zh 的二進位套件來源各有獨立設定與金鑰。
 
 <!-- fact: proxy -->
 
-**工作階段 Proxy** `[proxy]` 設定表接受 `kind`、`host`、`port`、可選的 `username` 與 `password`，以及 `bypass`。`kind` 可以是 `http`、`https` 或 `socks5`；`host` 留白表示直接連線，這是預設值。SOCKS5 會導出為 `socks5h://`，所以由 Proxy 解析主機名稱以存取內網。介面主選單為每個值提供欄位，並以選單選擇 Proxy 類型。`bypass` 在介面中是逗號分隔的值，在 TOML 中是清單。
+**工作階段 Proxy**
+- `[proxy]` 設定表接受 `kind`、`host`、`port`、可選的 `username` 與 `password`，以及 `bypass`。
+- `kind` 可以是 `http`、`https` 或 `socks5`；`host` 留白表示直接連線，這是預設值。
+- SOCKS5 會導出為 `socks5h://`，所以由 Proxy 解析主機名稱以存取內網。
+- 介面主選單為每個值提供欄位，並以選單選擇 Proxy 類型。
+- `bypass` 在介面中是逗號分隔的值，在 TOML 中是清單。
 
-選取 Proxy 後，設定的 Proxy 用於 stage3 與其簽署金鑰、主儲存庫與 overlay 版本查詢，以及 `gitweb.gentoo.org` 的 ZFS ebuild 查詢。它也用於透過 `make.conf` 與 `FETCHCOMMAND`/`RESUMECOMMAND` 的 Portage 下載、`wget`、`curl`、`git`、GnuPG、binhost、overlay 與 paste 上傳。時鐘、初始連線檢查與選單前的鏡像檢查都在取得設定前執行，因此不在此設定涵蓋範圍內。安裝器會將認證資訊排除在 dry-run 說明與發佈的設定之外；發佈的設定與已安裝系統都只保留不含認證資訊的端點及略過清單。
+- 選取 Proxy 後，設定的 Proxy 用於 stage3 與其簽署金鑰、主儲存庫與 overlay 版本查詢，以及 `gitweb.gentoo.org` 的 ZFS ebuild 查詢。
+- 它也用於透過 `make.conf` 與 `FETCHCOMMAND`/`RESUMECOMMAND` 的 Portage 下載、`wget`、`curl`、`git`、GnuPG、binhost、overlay 與 paste 上傳。
+- 時鐘、初始連線檢查與選單前的鏡像檢查都在取得設定前執行，因此不在此設定涵蓋範圍內。安裝器會將認證資訊排除在 dry-run 說明與發佈的設定之外；發佈的設定與已安裝系統都只保留不含認證資訊的端點及略過清單。
 
 <!-- fact: memory-environment -->
 
-**記憶體環境。** `--ram` 與 `--lowram` 武裝一次開機進入常駐記憶體的活環境，接著詢問是否重新開機；這條路沒有介面，因為它針對的機器通常只有一條 SSH 連線而沒有主控台。`--ram` 用 Gentoo CJK ISO，帶有 ZFS，需要約 2 GiB 記憶體：它的 initramfs 在記憶體扣掉 824 MiB 的活映像後低於 1 GiB 時停在急救殼。`--lowram` 用 Alpine netboot 套組，較小且沒有 `zfs.ko`。兩者都不寫死版本：發佈方各自列出目前的映像與校驗和，武裝之前先抓取並驗證。
+**記憶體環境。**
+- `--ram` 與 `--lowram` 武裝一次開機進入常駐記憶體的活環境，接著詢問是否重新開機；這條路沒有介面，因為它針對的機器通常只有一條 SSH 連線而沒有主控台。
+- `--ram` 用 Gentoo CJK ISO，帶有 ZFS，需要約 2 GiB 記憶體：它的 initramfs 在記憶體扣掉 824 MiB 的活映像後低於 1 GiB 時停在急救殼。
+- `--lowram` 用 Alpine netboot 套組，較小且沒有 `zfs.ko`。
+- 兩者都不寫死版本：發佈方各自列出目前的映像與校驗和，武裝之前先抓取並驗證。
 
-預設開機項目一律不改，所以環境沒有起來時機器仍然開得了機。`--bypass` 改為替換它，用於會丟棄一次性項目的韌體；這是唯一一條環境沒起來就完全開不了機的路徑，沒有任何路徑會自動選它。
+- 預設開機項目一律不改，所以環境沒有起來時機器仍然開得了機。
+- `--bypass` 改為替換它，用於會丟棄一次性項目的韌體；這是唯一一條環境沒起來就完全開不了機的路徑，沒有任何路徑會自動選它。
 
 <!-- fact: memory-environment-access -->
 
-**用 SSH 觀察記憶體安裝。** `--ssh-key` 接受公鑰本文（`ssh-ed25519`、`ssh-rsa`、`ecdsa-sha2-nistp256`、`-384`、`-521` 以及 `sk-` 變體）、路徑、`http` 或 `https` 網址，以及 `github:user` 與 `gitlab:user`；`--ssh-port` 與 `--root-password` 設定其餘部分。安裝器、選定的設定與金鑰都放在 initramfs 內，所以環境執行的是寫出該設定的修訂，而且在第一次登入之前 `authorized_keys` 已經就位。操作者以 SSH 重新連線觀察安裝，不必一直開著主控台。回答第一個畫面之前不會清除任何資料：該畫面提供安裝與急救殼兩項，而且沒有逾時。
+**用 SSH 觀察記憶體安裝。**
+- `--ssh-key` 接受公鑰本文（`ssh-ed25519`、`ssh-rsa`、`ecdsa-sha2-nistp256`、`-384`、`-521` 以及 `sk-` 變體）、路徑、`http` 或 `https` 網址，以及 `github:user` 與 `gitlab:user`；`--ssh-port` 與 `--root-password` 設定其餘部分。
+- 安裝器、選定的設定與金鑰都放在 initramfs 內，所以環境執行的是寫出該設定的修訂，而且在第一次登入之前 `authorized_keys` 已經就位。
+- 操作者以 SSH 重新連線觀察安裝，不必一直開著主控台。
+- 回答第一個畫面之前不會清除任何資料：該畫面提供安裝與急救殼兩項，而且沒有逾時。
 
 <!-- fact: plan-records -->
 
-**計畫與記錄** dry run 會在不探測儲存硬體的情況下顯示操作計畫。實際安裝使用相同的規劃器，但會先加入從重用裝置探測到的 mdraid 中繼資料，因此依賴硬體的驗證結果可能不同。`install.log` 記錄指令輸出，`install.jsonl` 記錄操作、套件來源與二進位套件降級原因。選單將設定上傳至 `paste.gentoozh.org` 前，會把 `password_hash` 與 `root_password_hash` 的值替換為 `removed-before-publishing`，並且完全不寫出代理的 `username` 與 `password` 這兩個鍵；其他設定值仍會上傳。選單會以文字與 QR 碼顯示上傳頁面的網址。
+**計畫與記錄**
+- dry run 會在不探測儲存硬體的情況下顯示操作計畫。
+- 實際安裝使用相同的規劃器，但會先加入從重用裝置探測到的 mdraid 中繼資料，因此依賴硬體的驗證結果可能不同。
+- `install.log` 記錄指令輸出，`install.jsonl` 記錄操作、套件來源與二進位套件降級原因。
+- 選單將設定上傳至 `paste.gentoozh.org` 前，會把 `password_hash` 與 `root_password_hash` 的值替換為 `removed-before-publishing`，並且完全不寫出代理的 `username` 與 `password` 這兩個鍵；其他設定值仍會上傳。
+- 選單會以文字與 QR 碼顯示上傳頁面的網址。
 
 ## 驗證狀態
 
@@ -76,17 +121,21 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 
 [`TESTED.md`](TESTED.md) 是驗證記錄：每一條走過的路徑各一列，寫明它執行時的安裝器修訂版與執行的地點。一次執行要記錄的修訂版與安裝器相符、安裝退出碼為 `0`、裝出的系統能開機、且開機後的設定檢查全部通過，才算數。
 
-裝到磁碟上的路徑在叢集與單機都有記錄，涵蓋 ext4、xfs、btrfs、f2fs、ZFS、LVM、mdraid 與 LUKS2，兩種韌體與兩種 init 系統皆有。就地轉換執行中的系統有四筆 QEMU 記錄：兩筆 BIOS，一筆保留 `/home` 的 UEFI，以及一筆根檔案系統是 btrfs、`/home` 與 `/var` 為 subvolume 的 UEFI。轉換這個安裝器自己裝出來的機器另有叢集記錄，而那條路徑還不可靠：六次走到重新開機的叢集轉換裡，五次開起來，一次因為缺少模組停在 GRUB 的救援殼層，而轉換本身的離開碼是 `0`。
+| 路徑 | 記錄 |
+| --- | --- |
+| 裝到磁碟上 | ext4、ext2、ext3、xfs、btrfs、f2fs、ZFS、LVM、mdraid 與 LUKS2，兩種韌體與兩種 init 系統皆有 |
+| ZFS pool | stripe、mirror、raidz、加密 pool，以及一個由 ZFSBootMenu 開機的 pool |
+| 以 ssh 解鎖 | 由系統 initramfs 開啟的 LUKS 根，以及由 ZFSBootMenu 自己映像開啟的 ZFS pool |
+| 靜態位址與 greetd | 各自有叢集記錄 |
+| 就地轉換執行中的系統 | 四筆 QEMU 記錄：兩筆 BIOS，一筆保留 `/home` 的 UEFI，一筆根檔案系統是 btrfs、`/home` 與 `/var` 為 subvolume 的 UEFI |
+| 轉換這個安裝器裝出來的機器 | 六次走到重新開機的叢集轉換裡，五次開得起來，一次因為缺少模組停在 GRUB 的救援殼層，而轉換本身的退出碼是 `0`，所以這條路徑還不可靠 |
+| `--ram` 與 `--lowram` | 一台 Debian 12 機器武裝一次開機、預設開機項目未變，重新開機後帶著交付給它的設定進入送達的環境；在那裡回答 `install` 會裝出 Gentoo 並開起它寫出的磁碟 |
+| `--bypass` | 一台被移除武裝項目 initramfs 的機器，在接續的兩次開機都進入原本的雲系統 |
+| `dd` | 一筆記錄：從 live 媒介把準備好的映像寫入整顆磁碟並逐位元組讀回，原始與 gzip 兩種格式皆是 |
+| 裝進檔案 | 一筆記錄：映像以 `losetup -Pf` 掛上，讀回的是它版面宣告的那兩個檔案系統，而沒有任何機器從那份檔案開機過 |
+| 選單 | 在 80x24 的序列主控台上逐列開過，涵蓋英文、正體中文、簡體中文、日文與韓文，沒有一列寬過終端機 |
 
-`--ram` 與 `--lowram` 各有 QEMU 記錄：一台 Debian 12 機器武裝一次開機、預設開機項目未變、重新開機後進入送達的環境——`--ram` 是 Gentoo CJK ISO，`--lowram` 是 Alpine netboot 壓縮檔——並帶著交付給它的設定。在兩種環境裡回答 `install` 各有一筆記錄：機器裝出 Gentoo、開起它寫出的磁碟，並通過共用的安裝後檢查。另一台機器的武裝項目被移除 initramfs，在諧和器換客機的電源循環之後，接續兩次開機都進入原本的雲系統。`dd` 有一筆記錄：從活媒體把準備好的鏡像寫入整顆磁碟並逐位元組讀回，原始與 gzip 兩種格式皆是。
-
-靜態位址、ext2 與 ext3 各自有叢集記錄。ZFS 的記錄涵蓋 stripe、mirror、raidz 與加密 pool，以及一個由 ZFSBootMenu 開機的 pool。兩條遠端解鎖路徑各有叢集記錄：由系統 initramfs 開啟的 LUKS 根，以及由 ZFSBootMenu 自己映像開啟的 ZFS pool。greetd 也有叢集記錄。
-
-裝進檔案有一筆記錄：寫出的映像以 `losetup -Pf` 掛上，讀回的是它版面宣告的那兩個檔案系統，而沒有任何機器從那份檔案開機過。原始碼建置的核心與 binhost 降級只有 runner 層級的測試，而 runner 層級的測試不是端到端記錄。
-
-介面本身也有記錄：選單在 80x24 的序列主控台上逐列開過，涵蓋它提供的每一種語言——英文、正體中文、簡體中文、日文與韓文——沒有一列寬過終端機，每一列都回得到主選單。
-
-`tests/fixtures/` 底下的檔案驗證的是設定模型，它們存在並不代表任何一台裝出來的機器。
+原始碼建置的核心與二進位套件降級只有 runner 層級的測試，而 runner 層級的測試不是端到端記錄。`tests/fixtures/` 底下的檔案驗證的是設定模型，它們存在並不代表任何一台裝出來的機器。
 
 ## 需求
 
@@ -208,7 +257,11 @@ mode = "in-place"
 
 <!-- fact: resume-limits -->
 
-繼續執行僅限同一個 live 工作階段、同一個安裝器與同一份設定檔，而且安裝器現在會拒絕其他情況，不再只是寫在文件裡。日誌開頭記錄設定的摘要、機器的 boot id 與安裝器原始碼的摘要；`--resume` 三者都比對，任何一項不同就停下並說明原因。核心不提供 boot id 的機器只比對其餘兩項。預設日誌位於 `/run/gentoo-install/install.jsonl`，本來就不會在重新開機後保留。每筆操作記錄另外包含根據該操作類別原始碼與欄位值產生的識別碼；識別碼改變的操作會重新執行而不是略過，而共用輔助函式或常數的變更不在該識別碼範圍內，改由安裝器摘要涵蓋。
+繼續執行僅限同一個 live 工作階段、同一個安裝器與同一份設定檔，而且安裝器會拒絕其他情況，不再只是寫在文件裡。
+
+- 日誌開頭記錄設定的摘要、機器的 boot id 與安裝器原始碼的摘要；`--resume` 三者都比對，任何一項不同就停下並說明原因。核心不提供 boot id 的機器只比對其餘兩項。
+- 預設日誌位於 `/run/gentoo-install/install.jsonl`，本來就不會在重新開機後保留。
+- 每筆操作記錄另外包含根據該操作類別原始碼與欄位值產生的識別碼，識別碼改變的操作會重新執行而不是略過。共用輔助函式或常數的變更不在該識別碼範圍內，改由安裝器摘要涵蓋。
 
 ## 設定檔
 
@@ -300,7 +353,16 @@ path = "/"
 
 <!-- fact: exit-codes -->
 
-對 `gentoo-install` 而言，`0` 表示成功完成，`1` 表示設定錯誤。`2` 表示 `argparse` 用法錯誤或 preflight 失敗，`3` 表示完整性驗證失敗。`4` 表示下載、外部指令、作業系統或未分類的安裝器失敗，`5` 表示操作者中止。Python CLI 啟動前，如果 Python、必要指令或 root 權限檢查失敗，`bootstrap.sh` 也可能以 `1` 退出。
+| 退出碼 | `gentoo-install` |
+| --- | --- |
+| `0` | 成功完成 |
+| `1` | 設定錯誤 |
+| `2` | `argparse` 用法錯誤或 preflight 失敗 |
+| `3` | 完整性驗證失敗 |
+| `4` | 下載、外部指令、作業系統或未分類的安裝器失敗 |
+| `5` | 操作者中止 |
+
+Python CLI 啟動前，如果 Python、必要指令或 root 權限檢查失敗，`bootstrap.sh` 也可能以 `1` 退出。
 
 ## 常見問題
 
