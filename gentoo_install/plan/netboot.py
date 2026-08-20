@@ -17,6 +17,7 @@ from pathlib import PurePosixPath
 from typing import Final
 
 from ..errors import DownloadFailed, PreflightFailed
+from ..model.compat import ARCHITECTURES, architecture_of
 from ..model.config import BootMethod, MemoryLaunch, MemoryMode, MirrorRegion
 from .operations import CommandOutput, Context, Operation, Stage
 
@@ -92,17 +93,6 @@ ALPINE_ARCHIVE = re.compile(
 )
 
 #: What the kernel calls a machine and what Gentoo calls the same one. Two
-#: ecosystems name the same architecture differently, the way `fma` and `fma3`
-#: do: `uname -m` answers `x86_64` while the ISO is published as
-#: `install-amd64-…`. Gentoo's own names are the lines of
-#: `profiles/arch.list`. A machine outside this table is refused by name
-#: rather than sent to a URL composed from a guess.
-GENTOO_ARCHITECTURES: Final[dict[str, str]] = {
-    "x86_64": "amd64",
-    "aarch64": "arm64",
-    "i686": "x86",
-}
-
 #: One directory for everything this arms, on the filesystem the bootloader
 #: reads. Named rather than scattered, because disarming has to be able to
 #: delete exactly what arming wrote.
@@ -1092,12 +1082,14 @@ def _cjk_release(context: Context, machine: str) -> tuple[str, str, str]:
     architecture the project starts building for works without this file
     changing.
     """
-    named = GENTOO_ARCHITECTURES.get(machine)
-    if named is None:
+    row = architecture_of(machine)
+    if row is None:
+        known = ", ".join(sorted(one.kernel_name for one in ARCHITECTURES))
         raise DownloadFailed(
             f"{machine} is not an architecture Gentoo names, so no ISO can be "
-            f"chosen for it: {', '.join(sorted(GENTOO_ARCHITECTURES))} are"
+            f"chosen for it: {known} are"
         )
+    named = row.gentoo_name
     from_mirror = _cjk_from_mirror(context, named)
     if from_mirror is not None:
         return from_mirror

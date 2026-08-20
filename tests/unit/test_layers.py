@@ -799,3 +799,35 @@ def test_the_disk_screens_reach_nothing_in_the_screen_module() -> None:
     # Whatever `screens.py` uses from there, it imports from there.
     for name in crossing:
         assert re.search(rf"from \.partitions import \([^)]*\b{name}\b", source, re.S), name
+
+
+def test_one_table_decides_what_an_architecture_is_called() -> None:
+    """`x86_64` and `amd64` are the same machine under two ecosystems' names,
+    and the only table that said so lived in `plan/netboot.py`, where `exec`
+    and `model` cannot read it. A second table is how the fourteen sites that
+    spell an architecture drifted apart."""
+    import ast
+
+    from gentoo_install.model.compat import ARCHITECTURES
+
+    pairs = {(one.kernel_name, one.gentoo_name) for one in ARCHITECTURES}
+    assert ("x86_64", "amd64") in pairs
+
+    # Any other place holding both spellings of one architecture together is
+    # the second table this exists to prevent.
+    for path in sorted(PACKAGE.rglob("*.py")):
+        if path.parts[-2:] == ("model", "compat.py") or path.name == "compat.py":
+            continue
+        text = path.read_text()
+        for kernel_name, gentoo_name in pairs:
+            for node in ast.walk(ast.parse(text)):
+                if not isinstance(node, (ast.Dict, ast.Tuple, ast.List, ast.Set)):
+                    continue
+                spelled = {
+                    one.value
+                    for one in ast.walk(node)
+                    if isinstance(one, ast.Constant) and isinstance(one.value, str)
+                }
+                assert not {kernel_name, gentoo_name} <= spelled, (
+                    f"{path}:{node.lineno} holds both names of one architecture"
+                )
