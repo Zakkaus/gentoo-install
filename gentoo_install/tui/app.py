@@ -23,7 +23,18 @@ from .overview import overview_screen
 from .context import Context
 from .context import say
 from .settings import Setting, settings_for, shown_value, style_of, unanswered
-from .widgets import Item, Menu, Outcome, PaneRow, Screen, Style, TextField, TwoPane
+from .widgets import (
+    MARKER_ROOM,
+    Item,
+    Menu,
+    Outcome,
+    PaneRow,
+    Screen,
+    Style,
+    TextField,
+    TwoPane,
+    left_pane_width,
+)
 
 
 #: The default name for a saved configuration, offered as the field's example.
@@ -113,11 +124,18 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
         table = settings_for(current)
         cursor = min(cursor, len(table))
         blocked = _blocked(current, context)
+        labels = [context.translate(setting.label) for setting in table]
+        # The room a value gets is what its own label leaves in the left pane,
+        # not the width of the terminal: eleven English rows were fitted to the
+        # screen and then dropped whole by `spread`.
+        pane_width = left_pane_width(labels)
         rows: list[PaneRow[int]] = [
             PaneRow(
-                label=context.translate(setting.label),
+                label=label,
                 value=index,
-                state=shown_value(setting, current, context),
+                state=shown_value(
+                    setting, current, context, pane_width - MARKER_ROOM - width(label) - 1
+                ),
                 style=style_of(setting, current, context),
                 detail=tuple(_facts(setting, current, context)),
                 # `unavailable` first: `nested()` reads it and this loop did
@@ -126,7 +144,7 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
                 disabled_because=setting.unavailable(current, context)
                 or ("" if setting.edit else context.translate("detected")),
             )
-            for index, setting in enumerate(table)
+            for index, (setting, label) in enumerate(zip(table, labels))
         ]
         # The Install row stands for no setting, so what it shows is why the
         # install cannot start: one reason to a line.
