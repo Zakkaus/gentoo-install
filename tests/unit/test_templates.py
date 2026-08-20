@@ -16,7 +16,16 @@ from gentoo_install.model.config import (
     Overlay,
     PortageConfig,
 )
-from gentoo_install.model.device import FilesystemType, Luks, Swap, ZfsPool
+from gentoo_install.model.device import (
+    FilesystemType,
+    Luks,
+    Partition,
+    PartitionRole,
+    PartitionTable,
+    Swap,
+    TableType,
+    ZfsPool,
+)
 from gentoo_install.model.size import Size
 from gentoo_install.model.templates import Choice, Layout, build
 from gentoo_install.model.validate import validate
@@ -95,7 +104,12 @@ def test_swap_is_a_partition_only_when_it_was_asked_for() -> None:
 def test_bios_gets_a_table_that_needs_no_bios_boot_partition() -> None:
     """GPT would need one for GRUB's stage 1.5; MBR uses the gap after the
     table, so the template avoids a partition nobody asked about."""
-    validate(configured(Choice(disk="/dev/vda", firmware=Firmware.BIOS), Bootloader.GRUB, Firmware.BIOS))
+    choice = Choice(disk="/dev/vda", firmware=Firmware.BIOS)
+    graph, _ = build(choice)
+    assert [table.table for table in graph.of_type(PartitionTable)] == [TableType.MBR]
+    roles = [partition.role for partition in graph.of_type(Partition)]
+    assert roles and PartitionRole.BIOS_BOOT not in roles
+    validate(configured(choice, Bootloader.GRUB, Firmware.BIOS))
 
 
 def test_the_btrfs_template_matches_the_calamares_subvolume_list() -> None:
