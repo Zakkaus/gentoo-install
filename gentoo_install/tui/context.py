@@ -15,7 +15,7 @@ from typing import Callable, Final, Generic, Sequence, TypedDict, TypeVar
 
 from ..errors import ConfigError, GentooInstallError
 from ..exec.preflight import ZFS_PASSPHRASE_MINIMUM
-from ..i18n import Catalog, truncate
+from ..i18n import Catalog, clip
 from ..model import manual, mirrors, qr
 from ..model.config import (
     BinhostChannel,
@@ -355,7 +355,7 @@ def show_address(screen: Screen, context: Context, url: str) -> None:
     if drawn and (len(drawn[0]) > columns or len(drawn) + 4 > lines):
         drawn = []
     screen.clear()
-    screen.write(0, 0, truncate(url, columns))
+    screen.write(0, 0, clip(url, columns))
     for index, line in enumerate(drawn):
         screen.write(index + 2, 0, line)
     screen.write(min(len(drawn) + 3, lines - 1), 0, context.translate("Continue"))

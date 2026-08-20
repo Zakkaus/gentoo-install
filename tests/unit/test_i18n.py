@@ -528,3 +528,44 @@ def test_every_multi_placeholder_template_has_been_read_by_a_reviewer() -> None:
         catalog = shipped(tag)
         for key in sorted(REVIEWED_TEMPLATES):
             assert catalog[key].count("{}") == key.count("{}"), (tag, key)
+
+
+def test_a_cut_value_says_it_was_cut() -> None:
+    """Every long value on the Mirrors screen is a URL, and `truncate` alone
+    made a cut one read as a whole one. `clip` is what the widgets call."""
+    from gentoo_install.i18n import CUT, clip, truncate, width
+
+    url = "https://mirrors.ustc.edu.cn/gentoo/releases/amd64/autobuilds"
+    assert clip(url, 20) != truncate(url, 20)
+    assert clip(url, 20).endswith(CUT)
+    assert width(clip(url, 20)) <= 20
+    # A value that fits is untouched, so the mark means what it says.
+    assert clip("gentoo", 20) == "gentoo"
+    # Cells, not characters, and never half of one.
+    wide = "\u5b89\u88dd\u7a0b\u5f0f\u78bc"
+    assert width(clip(wide, 5)) <= 5
+    assert clip(wide, 5).endswith(CUT)
+    assert clip(wide, 0) == ""
+
+
+def test_every_widget_that_shows_a_value_cuts_through_clip() -> None:
+    """A widget calling `truncate` directly cuts without the mark, which is
+    the defect this pair exists to close. `spread` is the exception: it pads
+    to an exact width and the caller has already clipped what it passes."""
+    import ast
+    from pathlib import Path as _Path
+
+    for module in ("gentoo_install/tui/widgets.py", "gentoo_install/tui/context.py"):
+        tree = ast.parse(_Path(module).read_text())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                continue
+            if node.func.id != "truncate":
+                continue
+            enclosing = [
+                one.name
+                for one in ast.walk(tree)
+                if isinstance(one, ast.FunctionDef)
+                and one.lineno <= node.lineno <= (one.end_lineno or one.lineno)
+            ]
+            assert enclosing and enclosing[-1] in {"spread", "clip"}, (module, node.lineno)
