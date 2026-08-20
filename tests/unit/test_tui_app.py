@@ -466,7 +466,7 @@ def test_declining_encryption_clears_the_passphrase() -> None:
 
 @pytest.mark.parametrize(
     ("leave", "outcome"),
-    [("KEY_BACKSPACE", Outcome.BACK), ("\x1b", Outcome.CANCELLED)],
+    [("KEY_BACKSPACE", Outcome.BACK), ("\x1b", Outcome.BACK)],
 )
 def test_reopening_template_encryption_preserves_its_passphrase_on_child_exit(
     leave: str, outcome: Outcome
@@ -528,7 +528,7 @@ def test_array_encryption_replaces_its_staged_passphrase_after_success() -> None
 
 @pytest.mark.parametrize(
     ("leave", "outcome"),
-    [("KEY_BACKSPACE", Outcome.BACK), ("\x1b", Outcome.CANCELLED)],
+    [("KEY_BACKSPACE", Outcome.BACK), ("\x1b", Outcome.BACK)],
 )
 def test_reopening_pool_encryption_preserves_its_passphrase_on_child_exit(
     leave: str, outcome: Outcome,
@@ -2129,9 +2129,13 @@ def test_cancelling_a_nested_prompt_reaches_the_screen_as_cancelled() -> None:
     assert screens.root_password_screen(
         FakeScreen(keys=["\x1b"]), config(), at
     ).outcome is Outcome.CANCELLED
+    # Escape inside the encryption question reaches the passphrase prompts in
+    # `partitions.py`, which answer Back: the key table gives escape one
+    # meaning at depth, and the quit prompt only at the main menu. The screens
+    # around it follow in the commits that take the rest of the table.
     assert screens.encryption_screen(
         FakeScreen(keys=["KEY_DOWN", "\n", "\x1b"]), config(), at
-    ).outcome is Outcome.CANCELLED
+    ).outcome is Outcome.BACK
     assert screens.keymap_screen(
         FakeScreen(keys=["\x1b"]), config(), at
     ).outcome is Outcome.CANCELLED
@@ -2933,7 +2937,7 @@ def test_a_reopened_selector_starts_on_what_is_already_set() -> None:
 
 @pytest.mark.parametrize(
     ("leaving", "outcome"),
-    [("KEY_BACKSPACE", Outcome.BACK), ("\x1b", Outcome.CANCELLED)],
+    [("KEY_BACKSPACE", Outcome.BACK), ("\x1b", Outcome.BACK)],
 )
 def test_the_zfs_bootloader_outcome_leaves_the_layout_screen(
     leaving: str, outcome: Outcome

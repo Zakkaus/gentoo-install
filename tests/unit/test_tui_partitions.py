@@ -8,10 +8,12 @@ edited, validated and turned into a graph without a terminal or a disk.
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Callable, Final, TypeVar
 
 import pytest
 
 from gentoo_install.errors import ValidationFailed
+from gentoo_install.i18n import width
 from gentoo_install.model import manual
 from gentoo_install.model.config import (
     Bootloader,
@@ -40,11 +42,14 @@ from gentoo_install.model.templates import Layout
 from gentoo_install.tui import context as tui_context
 from gentoo_install.tui import partitions
 from gentoo_install.tui import screens
-from gentoo_install.tui.widgets import Outcome
+from gentoo_install.tui.widgets import Item, Outcome
 
 from .fake_screen import FakeScreen
 from .layouts import config, ext4_on_gpt, i
 from .test_tui_app import context
+
+
+V = TypeVar("V")
 
 
 def one_disk(
@@ -1345,3 +1350,233 @@ def test_the_comment_names_every_purpose_that_asks_for_a_mount_point() -> None:
     for key in sorted(asking):
         assert f"`{key}`" in said, f"the comment does not name {key}"
     assert "Only `other` asks" not in said
+
+
+def reachable(items: list[Item[V]]) -> list[str]:
+    """The labels a cursor can land on, in order: `_step` skips a disabled row,
+    so counting every row overshoots the one the test meant to open."""
+    return [one.label for one in items if not one.disabled_because]
+
+
+def steps(items: list[Item[V]], start: str, end: str) -> list[str]:
+    labels = reachable(items)
+    return ["KEY_DOWN"] * (labels.index(end) - labels.index(start))
+
+
+def suggested() -> tuple[tui_context.Context, manual.Slice]:
+    """The table and its root row. On the disk the context chose, or the screen
+    reseeds and the rows counted here are not the rows it draws."""
+    at = opened()
+    at.layout = manual.suggest(at.choice.disk, Firmware.UEFI)
+    return at, sorted(at.layout.disks[0].slices, key=lambda one: one.index)[1]
+
+
+def test_back_out_of_a_partition_keeps_the_field_that_was_edited() -> None:
+    """Back writes what was typed into the table. The editor answered with the
+    slice it opened on, so a label typed one keystroke before pressing left
+    never reached the graph the installer builds.
+    """
+    at, root = suggested()
+    rows = partitions._partition_rows(at)
+    fields = partitions._slice_fields(root, manual.purpose_of(root), at.translate)
+    row = f"  {root.describe()}"
+    screen = FakeScreen(
+        keys=[
+            *steps(rows, reachable(rows)[0], row),
+            "\n",
+            *steps(fields, reachable(fields)[0], "Label"),
+            "\n",
+            *(["\x7f"] * len(root.label)),
+            *"carried",
+            "\n",
+            "KEY_LEFT",
+            *steps(rows, row, "Done"),
+            "\n",
+        ]
+    )
+    answer = partitions.partitions_screen(screen, config(), at)
+    assert answer.outcome is Outcome.CHOSE
+    labels = {node.label for node in answer.unwrap().disk.graph.of_type(Filesystem)}
+    assert "carried" in labels, labels
+
+
+def test_escape_goes_back_one_screen_at_both_depths_of_the_editor() -> None:
+    """`esc` is Back everywhere but the main menu. It ended the whole run from
+    the partition screen and went back one screen from the slice editor, which
+    is the same key meaning two things one keystroke apart.
+    """
+    at, root = suggested()
+    rows = partitions._partition_rows(at)
+    screen = FakeScreen(
+        keys=[
+            *steps(rows, reachable(rows)[0], f"  {root.describe()}"),
+            "\n",
+            "\x1b",
+            "\x1b",
+        ]
+    )
+    answer = partitions.partitions_screen(screen, config(), at)
+    assert answer.outcome is Outcome.BACK
+    # Both were consumed, so the first one went back into the partition screen
+    # rather than out of the editor with the second left unread.
+    assert screen.keys == []
+
+
+def test_a_long_validator_message_leaves_the_keys_on_the_status_line() -> None:
+    """The message was written before the keys and the row is cut from the
+    right, so a table the validator had a sentence about drew no keys at all
+    and Back was named nowhere on the screen.
+    """
+    at = opened()
+    # The disk the context chose, or the screen reseeds the table from the
+    # template and the validator has nothing to say about it.
+    at.layout = one_disk(
+        disk=at.choice.disk,
+        slices=[
+            manual.Slice(index=1, role=PartitionRole.ESP, size=Size.parse("1GiB"),
+                         filesystem=FilesystemType.VFAT, mountpoint="/efi"),
+            manual.Slice(index=2, role=PartitionRole.DATA, size=Size.parse("4GiB"),
+                         filesystem=FilesystemType.EXT4, mountpoint="/"),
+        ],
+    )
+    problem = partitions._layout_problem(at, config())
+    assert width(problem) > 80 - width(tui_context.footer(at.translate))
+    screen = FakeScreen(keys=["\x1b"], columns=80, lines=24)
+    partitions.partitions_screen(screen, config(), at)
+    line = screen.frames[-1][-1]
+    assert "[enter]" in line and "[backspace]" in line and "[esc]" in line, line
+    assert problem not in line and "\u2026" in line, line
+    assert width(line) <= 80
+
+
+def test_the_status_line_drops_the_message_rather_than_the_keys() -> None:
+    keys = "[enter] Continue  [backspace] Back  [esc] Cancel"
+    assert partitions._status_line("", keys, 80) == keys
+    # No room for a mark and one cell of message: the keys are the whole line.
+    assert partitions._status_line("busy", keys, width(keys) + 3) == keys
+    room = partitions._status_line("busy", keys, 80)
+    assert room.startswith(keys) and room.endswith("busy")
+
+
+GOOD: Final[manual.Slice] = manual.Slice(
+    index=3,
+    role=PartitionRole.DATA,
+    size=Size.parse("20GiB"),
+    filesystem=FilesystemType.EXT4,
+    mountpoint="/srv",
+    label="before",
+)
+
+
+#: One slice per rule in `partitions._SLICE_RULES`, each breaking that rule and
+#: no other, with a second field edited so the refusal cannot be a wholesale
+#: revert wearing a message.
+BREAKS: Final[dict[str, manual.Slice]] = {
+    "size": replace(GOOD, size=Size.parse("0MiB"), label="typed"),
+    "mountpoint": replace(GOOD, mountpoint="srv", label="typed"),
+}
+
+
+def test_every_slice_rule_has_a_case_that_breaks_it_and_only_it() -> None:
+    assert {one.field for one in partitions._SLICE_RULES} == set(BREAKS)
+    for rule in partitions._SLICE_RULES:
+        fired = {
+            one.field for one in partitions._SLICE_RULES if one.refuses(BREAKS[rule.field])
+        }
+        assert fired == {rule.field}, (rule.field, fired)
+    assert not [one.field for one in partitions._SLICE_RULES if one.refuses(GOOD)]
+
+
+@pytest.mark.parametrize("field", sorted(BREAKS))
+def test_back_reverts_only_the_field_that_fails_and_names_it(field: str) -> None:
+    """Everything typed is written back except the one field the table cannot
+    hold, which returns to what it was with the reason on the screen."""
+    at = opened()
+    screen = FakeScreen(keys=["\n"])
+    kept = partitions._kept_on_back(screen, at, BREAKS[field], GOOD)
+    assert kept == replace(GOOD, label="typed"), kept
+    rule = next(one for one in partitions._SLICE_RULES if one.field == field)
+    said = rule.said(at.translate)
+    assert said in screen.last, screen.last
+    # The label of the row the operator opened, so the message names the field
+    # they edited rather than the attribute the model calls it.
+    row = next(
+        one
+        for one in partitions._slice_fields(GOOD, manual.purpose_of(GOOD), at.translate)
+        if one.value == field
+    )
+    assert said.startswith(f"{row.label}: "), (said, row.label)
+    assert screen.keys == []
+
+
+def test_a_relative_mount_point_typed_into_the_editor_never_reaches_the_table() -> None:
+    """The whole path, from the keystrokes: the field is edited, `←` is pressed,
+    and the mount point the validator would refuse is not what comes back.
+    """
+    at = opened()
+    at.layout = one_disk(slices=[GOOD])
+    fields = partitions._slice_fields(GOOD, manual.purpose_of(GOOD), at.translate)
+    screen = FakeScreen(
+        keys=[
+            *steps(fields, reachable(fields)[0], "Mount point"),
+            "\n",
+            *(["\x7f"] * len(GOOD.mountpoint)),
+            *"srv",
+            "\n",
+            "KEY_LEFT",
+            "\n",
+        ]
+    )
+    kept = partitions._edit_slice(screen, at, at.layout.disks[0], GOOD)
+    assert kept is not None and kept.mountpoint == "/srv", kept
+
+
+def test_backing_out_of_a_partition_nobody_filled_in_adds_nothing() -> None:
+    """`Add a partition` then `←`: keeping what was typed must not turn an
+    editor nobody typed into into a row on the disk."""
+    at, _ = suggested()
+    rows = partitions._partition_rows(at)
+    add = "  Add a partition"
+    before = len(at.layout.disks[0].slices)
+    # Out through `Done`, not through Back: backing out of the screen restores
+    # the table it opened with, which hides the row this test is looking for.
+    screen = FakeScreen(
+        keys=[
+            *steps(rows, reachable(rows)[0], add),
+            "\n",
+            "KEY_LEFT",
+            *steps(rows, add, "Done"),
+            "\n",
+        ]
+    )
+    answer = partitions.partitions_screen(screen, config(), at)
+    assert answer.outcome is Outcome.CHOSE
+    assert len(answer.unwrap().disk.graph.of_type(Partition)) == before
+
+
+def test_no_door_of_this_module_answers_with_the_quit_prompt() -> None:
+    """`app.py:149` turns CANCELLED into "do you want to end the install".
+    None of these is the main menu, so `esc` at any of them is one step back.
+    """
+    at, _ = suggested()
+    # The outcome and not the answer: each of these is generic over a different
+    # value, and one dictionary of them has no type the four share.
+    doors: dict[str, Callable[[], Outcome]] = {
+        "partitions_screen": lambda: partitions.partitions_screen(
+            FakeScreen(keys=["\x1b"]), config(), at
+        ).outcome,
+        "_zfs_bootloader": lambda: partitions._zfs_bootloader(
+            FakeScreen(keys=["\x1b"]), config(), at
+        ).outcome,
+        "_edit_passphrase": lambda: partitions._edit_passphrase(
+            FakeScreen(keys=["\x1b"]), at, "", "Encrypt the pool?"
+        ).outcome,
+        "_ask_passphrase": lambda: partitions._ask_passphrase(
+            FakeScreen(keys=["\x1b"]), at
+        ).outcome,
+        "_ask_passphrase, second field": lambda: partitions._ask_passphrase(
+            FakeScreen(keys=[*("x" * tui_context.PASSPHRASE_MINIMUM), "\n", "\x1b"]), at
+        ).outcome,
+    }
+    answered = {name: door() for name, door in doors.items()}
+    assert set(answered.values()) == {Outcome.BACK}, answered

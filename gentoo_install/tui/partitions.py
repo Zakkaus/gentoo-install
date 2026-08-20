@@ -16,7 +16,7 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Callable, Final, Sequence
 
-from ..i18n import Catalog
+from ..i18n import Catalog, truncate, width
 from ..model import manual
 from ..model.config import (
     Bootloader,
@@ -105,7 +105,9 @@ def _zfs_bootloader(
             portage=with_gentoo_zh(config),
         )
 
-    return answer.map(apply)
+    # BACK whichever key was pressed. Nothing under this module is the main
+    # menu, and CANCELLED is what `app.py` answers with the quit prompt.
+    return answer.map(apply) if answer.chosen else Answer(Outcome.BACK)
 
 
 def _edit_passphrase(
@@ -120,7 +122,7 @@ def _edit_passphrase(
         current=bool(staged_path),
     ).run(screen)
     if not enabled.chosen:
-        return Answer(enabled.outcome)
+        return Answer(Outcome.BACK)
     if not enabled.unwrap():
         return Answer(Outcome.CHOSE, "")
     return _ask_passphrase(screen, context)
@@ -143,7 +145,7 @@ def _ask_passphrase(screen: Screen, context: Context) -> Answer[str]:
             footer=footer(translate),
         ).run(screen)
         if not first.chosen:
-            return Answer(first.outcome)
+            return Answer(Outcome.BACK)
         typed = first.unwrap()
         if len(typed) < PASSPHRASE_MINIMUM:
             # Checked here, not at preflight: zfs refuses a short passphrase
@@ -157,7 +159,7 @@ def _ask_passphrase(screen: Screen, context: Context) -> Answer[str]:
             footer=footer(translate),
         ).run(screen)
         if not again.chosen:
-            return Answer(again.outcome)
+            return Answer(Outcome.BACK)
         if again.unwrap() != typed:
             say(screen, context, translate("The two do not match."))
             continue
@@ -216,7 +218,9 @@ def partitions_screen(
             preamble=(translate("This editor controls which partitions are kept, formatted, mounted, or erased."),),
             items=items,
             cursor=cursor,
-            footer=f"{_layout_problem(context, config)}  {footer(translate)}".strip(),
+            footer=_status_line(
+                _layout_problem(context, config), footer(translate), screen.size()[1]
+            ),
         )
         answer = menu.run(screen)
         cursor = menu.cursor
@@ -229,7 +233,10 @@ def partitions_screen(
             context.layout = saved_layout
             context.layout.disks.extend(added)
             context.manual = saved_manual
-            return Answer(answer.outcome)
+            # `esc` is Back everywhere but the main menu, and this is not it.
+            # Answering CANCELLED made the main loop ask whether to end the
+            # install, one screen after the same key had meant one step back.
+            return Answer(Outcome.BACK)
         row = answer.unwrap()
         if row.kind is _RowKind.DONE:
             # Marked here rather than by whoever opened this screen: the row can
@@ -245,15 +252,37 @@ def partitions_screen(
                 # had no way out.
                 picked = _zfs_bootloader(screen, built, context)
                 if not picked.chosen:
-                    if picked.outcome is Outcome.CANCELLED:
-                        return Answer(picked.outcome)
-                    # Back to the editor rather than out of it: the table the
-                    # operator drew is still there, and a ZFS root with GRUB
-                    # is what committing this would have written.
+                    # Back to the editor whichever key was pressed: the table
+                    # the operator drew is still there, and a ZFS root with
+                    # GRUB is what committing this would have written.
                     continue
                 built = picked.unwrap()
             return Answer(Outcome.CHOSE, built)
         _act_on(screen, context, row)
+
+
+#: Cells between the keys and the validator's message on the status line.
+_GAP: Final[int] = 2
+
+
+#: What a shortened message ends with, so a cut one never reads as a whole one.
+_CUT: Final[str] = "…"
+
+
+def _status_line(problem: str, keys: str, columns: int) -> str:
+    """The keys first, the validator's message in whatever room is left.
+
+    `spread` cuts the footer from the right, so a message written ahead of the
+    keys took them off the row exactly when the table was wrong and Back was
+    the key the operator needed.
+    """
+    if not problem:
+        return keys
+    room = columns - width(keys) - _GAP
+    if room <= width(_CUT):
+        return keys
+    shown = problem if width(problem) <= room else truncate(problem, room - width(_CUT)) + _CUT
+    return f"{keys}{' ' * _GAP}{shown}"
 
 
 def _partitions_title(context: Context) -> str:
@@ -744,13 +773,14 @@ def _edit_slice(
 ) -> manual.Slice | None:
     """One partition as a list of fields, or None to delete it."""
     translate = context.translate
-    entry = current or manual.Slice(
+    opened_with = current or manual.Slice(
         index=disk.next_index(),
         role=PartitionRole.DATA,
         size=None,
         filesystem=FilesystemType.EXT4,
         mountpoint="",
     )
+    entry = opened_with
     cursor = 0
     while True:
         purpose = manual.purpose_of(entry)
@@ -763,7 +793,11 @@ def _edit_slice(
         answer = menu.run(screen)
         cursor = menu.cursor
         if not answer.chosen:
-            return current
+            if current is None and entry == opened_with:
+                # Nothing was filled in, so there is nothing to keep and the
+                # row the operator opened by mistake is not added.
+                return None
+            return _kept_on_back(screen, context, entry, opened_with)
         field = answer.unwrap()
         if field == DONE:
             return entry
@@ -772,6 +806,72 @@ def _edit_slice(
         changed = _edit_field(screen, context, entry, purpose, field)
         if changed is not None:
             entry = changed
+
+
+@dataclass(frozen=True)
+class _SliceRule:
+    """One field the table cannot hold a value for, and what to say about it."""
+
+    #: The row of `_slice_field_items` the message names.
+    field: str
+    refuses: Callable[[manual.Slice], bool]
+    revert: Callable[[manual.Slice, manual.Slice], manual.Slice]
+    said: Callable[[Catalog], str]
+
+
+def _mountpoint_refused(entry: manual.Slice) -> bool:
+    # The two conditions `validate` reads off the built graph, where the
+    # message names a node rather than the field the operator typed into.
+    return bool(entry.mountpoint) and (
+        not entry.mountpoint.startswith("/") or ".." in entry.mountpoint.split("/")
+    )
+
+
+def _no_size_said(translate: Catalog) -> str:
+    # A literal inside `translate(...)` rather than a field of the rule: the
+    # catalog check reads these out of the source, and a string it cannot see
+    # ships as English in the middle of a translated screen.
+    return (
+        f"{translate('Size')}: "
+        f"{translate('a partition of no size leaves nothing to format')}"
+    )
+
+
+def _mountpoint_said(translate: Catalog) -> str:
+    return (
+        f"{translate('Mount point')}: "
+        f"{translate('a mount point has to be an absolute path inside the target')}"
+    )
+
+
+_SLICE_RULES: Final[tuple[_SliceRule, ...]] = (
+    _SliceRule(
+        _SIZE,
+        lambda entry: entry.size is not None and entry.size.bytes <= 0,
+        lambda entry, opened: replace(entry, size=opened.size),
+        _no_size_said,
+    ),
+    _SliceRule(
+        _MOUNTPOINT,
+        _mountpoint_refused,
+        lambda entry, opened: replace(entry, mountpoint=opened.mountpoint),
+        _mountpoint_said,
+    ),
+)
+
+
+def _kept_on_back(
+    screen: Screen, context: Context, entry: manual.Slice, opened_with: manual.Slice
+) -> manual.Slice:
+    """Back writes the edited fields back; a field the table cannot hold goes
+    back to what it held, named with the reason it was refused."""
+    kept = entry
+    for rule in _SLICE_RULES:
+        if not rule.refuses(kept):
+            continue
+        kept = rule.revert(kept, opened_with)
+        say(screen, context, rule.said(context.translate))
+    return kept
 
 
 def _slice_fields(
