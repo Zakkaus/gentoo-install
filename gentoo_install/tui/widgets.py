@@ -454,8 +454,7 @@ class TextField:
         # an empty screen does not read as somewhere to type.
         room = columns - 8
         shown = "*" * len(typed) if self.masked else "".join(typed)
-        while width(shown) > room - 1:
-            shown = shown[1:]
+        shown = _tail_that_fits(shown, room - 1)
         row = 2
         if self.detail:
             screen.write(row, 0, clip(self.detail, columns))
@@ -471,6 +470,18 @@ class TextField:
             # [q] cancel * required ~ never opened` reads as neither.
             screen.write(lines - 1, 0, spread(self.footer, self.legend, columns))
         screen.show()
+
+
+def _tail_that_fits(text: str, room: int) -> str:
+    """The end of what was typed, because that is where the caret is.
+
+    `room` is negative on a terminal narrower than the brackets, and dropping
+    a character off an empty string never makes it shorter: the loop ends on
+    the string rather than on the width, or an 8-column terminal never redraws.
+    """
+    while text and width(text) > room:
+        text = text[1:]
+    return text
 
 
 @dataclass
