@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
+import sys
+
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
+from typing import ClassVar
 
 import pytest
 
@@ -9,7 +12,7 @@ from gentoo_install.errors import CommandFailed, ConfigError
 from gentoo_install.model.config import ConsoleFontSize, InstallConfig, Overlay, User
 from gentoo_install.plan import packages as plan_packages
 from gentoo_install.plan.packages import Group, build
-from gentoo_install.plan.portage import Emerge
+from gentoo_install.plan.portage import Emerge, PortageConfigKind
 
 from .recorder import Recorder
 
@@ -540,6 +543,22 @@ def test_selected_package_contracts_are_verified_before_writes() -> None:
     assert directories[0].package == "kde-plasma/plasma-meta"
 
 
+def _fragment_classes() -> list[type[plan_packages.WriteForGroup]]:
+    """Every group fragment class, so a fourth is covered the day it is written.
+
+    Bound in its own module, which a class a test defines and throws away is
+    not: a refused declaration stays in `__subclasses__` until it is collected.
+    """
+    found: list[type[plan_packages.WriteForGroup]] = []
+    pending = list(plan_packages.WriteForGroup.__subclasses__())
+    while pending:
+        one = pending.pop()
+        pending += one.__subclasses__()
+        if getattr(sys.modules[one.__module__], one.__name__, None) is one:
+            found.append(one)
+    return found
+
+
 def test_one_group_fragment_writes_one_describe() -> None:
     """Three classes carried the same `group` and `describe` word for word, and
     an AST scan of the tree found two of them identical. The shared half lives
@@ -550,13 +569,37 @@ def test_one_group_fragment_writes_one_describe() -> None:
         plan_packages.WriteGroupLicense: ("accept", "package.license"),
         plan_packages.WriteGroupUse: ("ask for", "package.use"),
     }
+    found = _fragment_classes()
+    assert set(kinds) <= set(found), found
     for cls, (verb, directory) in kinds.items():
+        assert (cls.verb, cls.directory.value) == (verb, directory), cls
+    for cls in found:
         assert issubclass(cls, base), cls
         # The shared half is inherited: an override here is the duplication
         # coming back, and nothing else would notice.
         assert cls.describe is base.describe, cls
         assert vars(cls).get("group") is None, cls
         written = cls(group="chat", lines=("one", "two"))
-        assert written.describe() == f"{verb} one; two for the chat group"
-        assert str(written.path) == f"/etc/portage/{directory}/chat"
-    assert len({cls.directory for cls in kinds}) == len(kinds)
+        assert written.describe() == f"{cls.verb} one; two for the chat group", cls
+        assert str(written.path) == f"/etc/portage/{cls.directory.value}/chat", cls
+    # Two classes writing one directory collide on the file a group is named
+    # after, so each fragment class owns its own.
+    assert len({cls.directory for cls in found}) == len(found), found
+
+
+def test_a_group_fragment_declaring_half_of_the_pair_is_refused_at_import() -> None:
+    """`WriteForGroup.__init__` reads both ClassVars, so a subclass that
+    declares one used to build a plan and raise `AttributeError` in
+    `Stage.PORTAGE`, an hour after the disks were partitioned."""
+    with pytest.raises(ConfigError, match="WriteGroupUnmask declares no verb"):
+
+        class WriteGroupUnmask(plan_packages.WriteForGroup):
+            directory: ClassVar[PortageConfigKind] = PortageConfigKind.UNMASK
+
+    with pytest.raises(ConfigError, match="WriteGroupSpoken declares no directory"):
+
+        class WriteGroupSpoken(plan_packages.WriteForGroup):
+            verb: ClassVar[str] = "unmask"
+
+    with pytest.raises(ConfigError, match="WriteForGroup declares no directory, verb"):
+        plan_packages.WriteForGroup(group="chat", lines=("one",))

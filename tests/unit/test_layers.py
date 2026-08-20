@@ -814,9 +814,10 @@ def test_one_table_decides_what_an_architecture_is_called() -> None:
     assert ("x86_64", "amd64") in pairs
 
     # Any other place holding both spellings of one architecture together is
-    # the second table this exists to prevent.
+    # the second table this exists to prevent. One file is exempt, by path: a
+    # basename exempted every future `plan/compat.py` from the rule too.
     for path in sorted(PACKAGE.rglob("*.py")):
-        if path.parts[-2:] == ("model", "compat.py") or path.name == "compat.py":
+        if path == PACKAGE / "model" / "compat.py":
             continue
         text = path.read_text()
         for kernel_name, gentoo_name in pairs:
@@ -831,3 +832,47 @@ def test_one_table_decides_what_an_architecture_is_called() -> None:
                 assert not {kernel_name, gentoo_name} <= spelled, (
                     f"{path}:{node.lineno} holds both names of one architecture"
                 )
+
+
+def test_the_default_architecture_is_pinned_by_name_not_by_row_order() -> None:
+    """`DEFAULT_ARCHITECTURE = ARCHITECTURES[0]` made sorting the table or
+    adding an arm64 row above amd64 tell `exec/preflight.py` to accept aarch64
+    and refuse x86_64, while the stage3 and profile paths still fetch amd64."""
+    import ast
+
+    from gentoo_install.model import compat
+
+    assert compat.DEFAULT_ARCHITECTURE.kernel_name == "x86_64"
+    assert compat.DEFAULT_ARCHITECTURE.gentoo_name == "amd64"
+    assert compat.DEFAULT_ARCHITECTURE in compat.ARCHITECTURES
+
+    source = (PACKAGE / "model" / "compat.py").read_text()
+    assigned = [
+        node.value
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, (ast.Assign, ast.AnnAssign))
+        for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
+        if isinstance(target, ast.Name) and target.id == "DEFAULT_ARCHITECTURE"
+        if node.value is not None
+    ]
+    assert len(assigned) == 1, assigned
+    # Every name the assignment reads, so `ARCHITECTURES[0]`, `next(iter(...))`
+    # and any other way of taking the default out of the ordered table fail.
+    read = {one.id for one in ast.walk(assigned[0]) if isinstance(one, ast.Name)}
+    assert "ARCHITECTURES" not in read, "the default is taken out of the ordered table"
+
+
+def test_an_architecture_row_cannot_be_written_with_its_names_swapped() -> None:
+    """Both fields are strings that read the same way round, so a positional
+    row with the two names exchanged passed mypy and every test."""
+    from typing import Any, Callable
+
+    import pytest
+
+    from gentoo_install.model.compat import Architecture
+
+    # Called through a name mypy cannot resolve to the constructor, so the
+    # rejection this pins is the runtime one and not a silenced type error.
+    build: Callable[..., Any] = Architecture
+    with pytest.raises(TypeError):
+        build("amd64", "x86_64")

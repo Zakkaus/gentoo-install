@@ -632,6 +632,27 @@ def test_the_lvm_check_names_the_binaries_the_plan_runs() -> None:
     assert {"pvcreate", "vgcreate", "lvcreate"} <= wanted
 
 
+#: `findmnt --noheadings --list --output TARGET,SOURCE` as util-linux
+#: 2.42.2 prints it, padding and all. The rows are in mount order, which
+#: is what decides the answer: the last one at or above the mountpoint is
+#: the mount a path lookup reaches.
+MOUNT_TABLE_VISIBLE: str = (
+    "/                                                 rpool/ROOT/gentoo\n"
+    "/mnt/gentoo                                       rpool/ROOT/gentoo\n"
+    "/mnt/gentoo/home                                  rpool/ROOT/gentoo/home\n"
+)
+
+#: The same table after `zfs create` mounted the dataset and the root went
+#: over it. Measured under `unshare --mount` on 2026-08-21: the kernel keeps
+#: the covered row, `findmnt --target` still answers with its source, and
+#: `ls` on the path answers `No such file or directory`.
+MOUNT_TABLE_HIDDEN: str = (
+    "/                                                 rpool/ROOT/gentoo\n"
+    "/mnt/gentoo/home                                  zpcala/ROOT/gentoo/home\n"
+    "/mnt/gentoo                                       zpcala/ROOT/gentoo/root\n"
+)
+
+
 def test_a_dataset_already_mounted_is_left_alone() -> None:
     """`zfs create` mounts a dataset the moment it is given a mountpoint, so
     `zfs mount` on it answers `filesystem already mounted` and stops the
@@ -649,9 +670,11 @@ def test_a_dataset_already_mounted_is_left_alone() -> None:
     told.apply(fresh)
     assert ("zfs", "mount", "rpool/ROOT/gentoo/home") in fresh.commands
 
+    # The root was mounted before the dataset, so the dataset's own row is the
+    # last one at or above the mountpoint and a lookup there reaches it.
     already = Recorder()
     already.replies["zfs"] = "yes\n"
-    already.replies["findmnt"] = "rpool/ROOT/gentoo/home\n"
+    already.replies["findmnt"] = MOUNT_TABLE_VISIBLE
     told.apply(already)
     assert not any(one[:2] in {("zfs", "mount"), ("zfs", "unmount")} for one in already.commands)
 
@@ -676,15 +699,16 @@ def test_a_zfs_child_hidden_by_the_root_is_remounted_after_it() -> None:
     )
     assert root < home[0]
 
-    hidden = Recorder(replies={"zfs": "yes\n", "findmnt": "zpcala/ROOT/gentoo/root\n"})
+    # The dataset was mounted at create time and the root went over it in this
+    # stage, so its own row is still in the table and the root's row follows.
+    hidden = Recorder(replies={"zfs": "yes\n", "findmnt": MOUNT_TABLE_HIDDEN})
     home[1].apply(hidden)
     assert (
         "findmnt",
         "--noheadings",
+        "--list",
         "--output",
-        "SOURCE",
-        "--target",
-        "/mnt/gentoo/home",
+        "TARGET,SOURCE",
     ) in hidden.commands
     assert hidden.argv_starting("zfs", "unmount") == (
         ("zfs", "unmount", "zpcala/ROOT/gentoo/home"),
@@ -1093,11 +1117,11 @@ def test_a_zfs_probe_that_did_not_run_is_not_read_as_an_answer() -> None:
         told.apply(half)
     assert ("zfs", "unmount", "rpool/ROOT/gentoo/home") not in half.commands
 
-    # findmnt exits 1 for a path carrying no mount, which is the hidden
-    # dataset this looks for, so that code is an answer rather than a failure.
-    hidden = Recorder()
-    hidden.replies["zfs"] = "yes\n"
-    hidden.replies["findmnt"] = CommandOutput("", 1)
-    told.apply(hidden)
-    assert ("zfs", "unmount", "rpool/ROOT/gentoo/home") in hidden.commands
-    assert ("zfs", "mount", "rpool/ROOT/gentoo/home") in hidden.commands
+    # Listing the whole table exits 0 whenever findmnt ran, so exit 1 is a
+    # probe that did not run rather than a path carrying no mount.
+    empty = Recorder()
+    empty.replies["zfs"] = "yes\n"
+    empty.replies["findmnt"] = CommandOutput("", 1)
+    with pytest.raises(CommandFailed, match="what is mounted at /home"):
+        told.apply(empty)
+    assert ("zfs", "unmount", "rpool/ROOT/gentoo/home") not in empty.commands

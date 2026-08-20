@@ -5,7 +5,7 @@ import pytest
 
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
-from typing import Sequence
+from typing import Sequence, cast
 
 from gentoo_install.exec.config import load
 from gentoo_install.model.config import (
@@ -522,11 +522,19 @@ def test_a_config_grub_mkconfig_never_put_in_place_stops_the_install() -> None:
     operation.apply(replaced)
 
 
+def zfsbootmenu_operation() -> bootloader.InstallZfsBootMenu:
+    installation = load(Path("tests/fixtures/zbm-unlock.toml"))
+    return next(
+        one
+        for one in bootloader.build(installation)
+        if isinstance(one, bootloader.InstallZfsBootMenu)
+    )
+
+
 def test_a_probe_that_did_not_run_names_itself_rather_than_the_boot() -> None:
-    """Both counts are read from a `check=False` command whose diagnostic
-    arrives in the same string as the answer, so a missing `grep` read as a
-    `grub.cfg` with no entry and a missing `find` as an esp with no image.
-    Neither message names anything an operator can act on."""
+    """The count is read from a `check=False` command whose diagnostic arrives
+    in the same string as the answer, so a missing `grep` read as a `grub.cfg`
+    with no entry. That message names nothing an operator can act on."""
     from gentoo_install.errors import CommandFailed, NothingToBoot
     from gentoo_install.model.device import DeviceId
 
@@ -543,12 +551,49 @@ def test_a_probe_that_did_not_run_names_itself_rather_than_the_boot() -> None:
     with pytest.raises(NothingToBoot, match="no menu entry"):
         grub.apply(empty)
 
-    installation = load(Path("tests/fixtures/zbm-unlock.toml"))
-    built = next(
-        one
-        for one in bootloader.build(installation)
-        if isinstance(one, bootloader.InstallZfsBootMenu)
-    )
+    built = zfsbootmenu_operation()
     unlisted = Recorder(replies={"find": CommandOutput("find: /efi/EFI/zbm: no such file", 1)})
-    with pytest.raises(CommandFailed, match="could not be listed"):
+    with pytest.raises(NothingToBoot, match="no EFI image under /efi/EFI/zbm"):
         built._image(unlisted)
+
+
+def test_a_probe_answering_without_an_exit_status_is_read_as_a_failure() -> None:
+    """`Context.run_in_target` is declared `-> str`, and a context that honours
+    that carries no exit code: reading one only when it is there let every
+    diagnostic through as an answer. Measured with a bare `str`, which is what
+    `plan/convert.py` builds its staged machine out of."""
+    from gentoo_install.errors import CommandFailed
+    from gentoo_install.model.device import DeviceId
+
+    class Wordy(Recorder):
+        def run_in_target(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> CommandOutput:
+            self.in_target.append(tuple(argv))
+            # str, not CommandOutput: the declared return type, and the shape
+            # `answered` has to refuse rather than read as a count of entries.
+            return cast(CommandOutput, "grep: command not found")
+
+    grub = bootloader.InstallGrub(
+        firmware=Firmware.UEFI, esp=PurePosixPath("/efi"), boot_devices=(DeviceId("first"),)
+    )
+    with pytest.raises(CommandFailed, match="grub.cfg could not be counted"):
+        grub.apply(Wordy())
+
+
+def test_an_image_found_beside_an_unreadable_entry_is_still_installed() -> None:
+    """Measured with findutils 4.11.0: `find <dir> -name '*.EFI'` over a
+    directory holding one entry with mode 000 prints the matches it reached on
+    stdout and exits 1. The runner merges stderr in, so both arrive together."""
+    built = zfsbootmenu_operation()
+
+    partial = Recorder(
+        replies={
+            "find": CommandOutput(
+                "/efi/EFI/zbm/vmlinuz-6.12.EFI\n"
+                "find: '/efi/EFI/zbm/locked': Permission denied\n",
+                1,
+            )
+        }
+    )
+    assert built._image(partial) == "/efi/EFI/zbm/vmlinuz-6.12.EFI"

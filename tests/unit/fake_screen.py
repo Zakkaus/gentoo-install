@@ -57,15 +57,28 @@ class FakeScreen:
         cells = self._grid.setdefault(line, [])
         while len(cells) < column:
             cells.append(" ")
+        # A wide character the span covers only one cell of loses both of its
+        # cells, and only at the two edges: inside the span every cell is rewritten.
+        end = column + width(text)
+        if 0 < column < len(cells) and cells[column] == "":
+            cells[column - 1] = " "
+            cells[column] = " "
+        if end < len(cells) and cells[end] == "":
+            cells[end] = " "
         at = column
         for character in text:
             step = width(character)
-            while len(cells) <= at + step - 1:
+            if step == 0:
+                # A combining mark owns no cell, so it joins the base character
+                # in the cell that holds it rather than displacing a column.
+                base = at - 1
+                while base > 0 and cells[base] == "":
+                    base -= 1
+                if base >= 0:
+                    cells[base] += character
+                continue
+            while len(cells) < at + step:
                 cells.append(" ")
-            # Overwriting half of a wide character leaves the other half
-            # behind, which is what a terminal shows too.
-            if cells[at] == "":
-                cells[at - 1] = " "
             cells[at] = character
             for tail in range(1, step):
                 cells[at + tail] = ""
