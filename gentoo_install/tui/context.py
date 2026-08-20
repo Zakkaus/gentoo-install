@@ -326,6 +326,10 @@ def footer(translate: Catalog, enter: str = "Continue") -> str:
             # said `Cancel` while doing that, and `[q] Cancel` before it,
             # which a field takes as the letter.
             f"[esc] {translate('Back')}",
+            # The page names the six this line has no room for. A key nothing
+            # writes down is a key nobody finds: `j`, `k`, `tab`, `shift-tab`
+            # and `q` all worked here with no status line naming one of them.
+            f"[?] {translate('Keys')}",
         )
     )
 

@@ -1039,3 +1039,57 @@ def test_one_mark_says_a_line_was_cut() -> None:
         if CUT in line
     )
     assert carrying == [], carrying
+
+
+def test_a_list_answers_the_help_key_and_the_footer_names_it() -> None:
+    """`KEY_LEFT` went back from every screen and no status line named it, so
+    a key the operator cannot find is treated here as a key that is missing.
+    """
+    from gentoo_install.i18n import Catalog
+    from gentoo_install.tui.context import footer
+    from gentoo_install.tui.widgets import HELP_KEY, Menu, TwoPane
+
+    screen = FakeScreen(keys=[HELP_KEY, "\x1b"])
+    Menu(title="Mirrors", items=[Item(label="nju", value=0)]).run(screen)
+    assert screen.helped == 1
+
+    pane = FakeScreen(keys=[HELP_KEY, HELP_KEY, "\x1b"])
+    TwoPane(title="gentoo-install", rows=pane_rows()).run(pane)
+    assert pane.helped == 2
+
+    assert f"[{HELP_KEY}]" in footer(Catalog("en"))
+
+
+def test_the_help_page_names_every_key_a_widget_answers() -> None:
+    """One table, and it is read against the widgets rather than trusted: a
+    page listing a key nothing answers is worse than no page."""
+    import ast
+    import inspect
+
+    from gentoo_install.tui import widgets
+
+    listed = "  ".join(row.keys for row in widgets.KEY_HELP)
+    for named in ("enter", "j", "k", "tab", "space", "backspace", "esc", "q", "ctrl-c", "?"):
+        assert named in listed, named
+
+    # Every string literal a widget compares a key press against, so a key
+    # added to a widget and not to the table fails here.
+    source = ast.parse(inspect.getsource(widgets))
+    answered: set[str] = set()
+    for node in ast.walk(source):
+        if isinstance(node, ast.Compare) and isinstance(node.left, ast.Name):
+            if node.left.id != "pressed":
+                continue
+            for other in node.comparators:
+                for constant in ast.walk(other):
+                    if isinstance(constant, ast.Constant) and isinstance(constant.value, str):
+                        answered.add(constant.value)
+    # The names curses gives them, mapped to what the table writes.
+    written = {
+        "KEY_UP": "\u2191", "KEY_DOWN": "\u2193", "KEY_LEFT": "\u2190",
+        "KEY_RIGHT": "enter", "KEY_ENTER": "enter", "KEY_BACKSPACE": "backspace",
+        "KEY_BTAB": "shift-tab", "\x1b[Z": "shift-tab", "\t": "tab", "\n": "enter",
+        "\x1b": "esc", "\x7f": "backspace", "\x03": "ctrl-c", " ": "space",
+    }
+    for key in answered:
+        assert written.get(key, key) in listed, key

@@ -24,6 +24,8 @@ class FakeScreen:
     #: Every styled row drawn, so a test can assert what the colour says
     #: without a terminal that has colour.
     styled: list[tuple[Style, str]] = field(default_factory=list)
+    #: How many times a widget asked for the key page.
+    helped: int = 0
     #: One entry per cell, so a wide character owns two of them and the
     #: second is empty.
     _grid: dict[int, list[str]] = field(default_factory=dict)
@@ -96,6 +98,11 @@ class FakeScreen:
         self.frames.append(
             ["".join(self._grid.get(row, [])) for row in range(self.lines)]
         )
+
+    def help(self) -> None:
+        """What the real screen draws, recorded: a test asserts the page was
+        asked for without a terminal to draw it on."""
+        self.helped += 1
 
     def key(self) -> str:
         if not self.keys:
