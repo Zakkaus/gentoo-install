@@ -931,3 +931,25 @@ def test_the_footer_names_the_key_that_always_goes_back() -> None:
     assert typed.run(FakeScreen(keys=["KEY_LEFT"])).outcome is Outcome.BACK
     form = Form(title="User", fields=[Field(label="Name", value="zakk")])
     assert form.run(FakeScreen(keys=["KEY_LEFT"])).outcome is Outcome.BACK
+
+
+def test_the_field_keeps_the_end_of_what_was_typed_where_the_caret_is() -> None:
+    from gentoo_install.tui.widgets import _tail_that_fits
+
+    assert _tail_that_fits("gentoo", 6) == "gentoo"
+    assert _tail_that_fits("gentoo", 3) == "too"
+    # A wide character owns two cells, so three cells hold one of them and not
+    # a half of the other.
+    assert _tail_that_fits("\u4e2d\u6587", 3) == "\u6587"
+
+
+def test_a_terminal_narrower_than_the_brackets_still_redraws() -> None:
+    """8 columns leaves the field no room at all, and dropping a character off
+    an empty string never makes it shorter: the trim has to end on the string.
+    """
+    from gentoo_install.tui.widgets import TextField, _tail_that_fits
+
+    assert _tail_that_fits("gentoo", 0) == ""
+    assert _tail_that_fits("gentoo", -1) == ""
+    screen = FakeScreen(keys=["g", "\x1b"], lines=24, columns=8)
+    assert TextField(title="hostname").run(screen).outcome is Outcome.BACK
