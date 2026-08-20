@@ -282,8 +282,12 @@ def test_the_menu_runs_under_a_real_terminal() -> None:
     assert result["chosen"] == 4
 
 
-@pytest.mark.parametrize("key", ["q", "\x1b", "\x03"], ids=["q", "escape", "ctrl-c"])
-def test_cancelling_reaches_the_widgets_as_an_answer(key: str) -> None:
+@pytest.mark.parametrize(
+    ("key", "outcome"),
+    [("q", "cancelled"), ("\x1b", "back"), ("\x03", "cancelled")],
+    ids=["q", "escape", "ctrl-c"],
+)
+def test_a_key_that_leaves_reaches_the_widgets_as_an_answer(key: str, outcome: str) -> None:
     """`raw()` is what makes ctrl-c a byte rather than a signal, so the menu
     answers it the way it answers an escape instead of the run ending.
 
@@ -294,7 +298,9 @@ def test_cancelling_reaches_the_widgets_as_an_answer(key: str) -> None:
     result = drive(f"k{key}", WALK)
     assert result.get("error") is None, result.get("error")
     assert result["chosen"] is None
-    assert result["outcome"] == "cancelled"
+    # Escape answers Back below the main menu and the other two end the run,
+    # which is the key table in `docs/design.md` reaching a real terminal.
+    assert result["outcome"] == outcome
 
 
 #: The whole menu, from the configuration `cli.py` starts it with, driven to the
@@ -470,7 +476,9 @@ curses.wrapper(main)
 def test_a_form_that_no_longer_fits_says_how_to_leave() -> None:
     result, drawing = drive_resizes([(10, 60), "\x1b"], RESIZE_FORM)
     assert result.get("error") is None, result.get("error")
-    assert result["outcome"] == "cancelled"
+    # Back, not cancelled: a terminal that shrank below the floor still lets
+    # escape leave the screen, and leaving is what the message offers.
+    assert result["outcome"] == "back"
     assert b"the interface needs 80x24" in drawing
     assert b"Escape after translation" in drawing
 

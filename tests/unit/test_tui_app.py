@@ -316,15 +316,19 @@ def test_invalid_extra_package_dialog_cancellation_reaches_caller() -> None:
     assert answer.outcome is Outcome.CANCELLED
 
 
-def test_timezone_back_reopens_area_and_cancel_exits_city() -> None:
+def test_timezone_back_reopens_area_and_escape_leaves_both() -> None:
     changed = screens.timezone_screen(
         FakeScreen(keys=["\n", "KEY_LEFT", "KEY_DOWN", "\n", "\n"]),
         config(),
         context(),
     )
     assert changed.unwrap().system.timezone == "Europe/London"
-    cancelled = screens.timezone_screen(FakeScreen(keys=["\n", "\x1b"]), config(), context())
-    assert cancelled.outcome is Outcome.CANCELLED
+    # Escape leaves the city menu the same way the arrow does: one meaning at
+    # every depth below the main menu.
+    left = screens.timezone_screen(
+        FakeScreen(keys=["\n", "\x1b", "\x1b"]), config(), context()
+    )
+    assert left.outcome is Outcome.BACK
 
 
 def test_reopening_the_timezone_and_accepting_keeps_it() -> None:
@@ -930,31 +934,37 @@ def test_main_menu_enter_action_is_open() -> None:
     assert "[enter] Open" in app._menu_footer(context())
 
 
-def test_the_shared_footer_names_a_key_that_cancels_every_screen() -> None:
+def test_the_shared_footer_names_a_key_that_leaves_every_screen() -> None:
     """That footer is drawn over text fields as well as menus, and it said
     `[q] Cancel`. A menu takes `q`; a field takes it as the letter, so an
     operator who read the footer on the hostname screen typed one into it.
+
+    It then said `[esc] Cancel` while escape was ending the run on one screen
+    and going back one on the next. Escape has one meaning below the main
+    menu, and the footer says which.
     """
     from gentoo_install.tui import widgets as widget_module
     from gentoo_install.tui.context import footer
-    from tests.unit.fake_screen import FakeScreen
+
+    from .fake_screen import FakeScreen
 
     said = footer(context().translate)
     assert "[esc]" in said, said
     assert "[q]" not in said, said
+    assert context().translate("Cancel") not in said, said
 
-    # The key it names really cancels both, which is the reason it is that one.
+    # The key it names leaves both, which is the reason it is that one.
     escape = "\x1b"
-    assert escape in widget_module.CANCEL
+    assert escape not in widget_module.CANCEL
     field = widget_module.TextField(title="Hostname", footer=said)
-    assert field.run(FakeScreen(keys=[escape])).outcome is widget_module.Outcome.CANCELLED
+    assert field.run(FakeScreen(keys=[escape])).outcome is widget_module.Outcome.BACK
 
     menu: widget_module.Menu[str] = widget_module.Menu(
         title="Anything",
         items=[widget_module.Item(label="One", value="one")],
         footer=said,
     )
-    assert menu.run(FakeScreen(keys=[escape])).outcome is widget_module.Outcome.CANCELLED
+    assert menu.run(FakeScreen(keys=[escape])).outcome is widget_module.Outcome.BACK
 
 
 def test_the_footer_keys_and_the_legend_are_not_one_run_of_text() -> None:
@@ -2145,24 +2155,22 @@ def test_the_unlock_keyboard_offers_following_the_console() -> None:
     assert "the same as the console" in "\n".join(screen.frames[0])
 
 
-def test_cancelling_a_nested_prompt_reaches_the_screen_as_cancelled() -> None:
+def test_escape_leaves_a_nested_prompt_and_reaches_the_screen_as_back() -> None:
+    """Escape has one meaning below the main menu: it leaves the screen and
+    the caller decides what that means. It ended the whole run here."""
     at = context()
     assert screens.root_password_screen(
         FakeScreen(keys=["\x1b"]), config(), at
-    ).outcome is Outcome.CANCELLED
-    # Escape inside the encryption question reaches the passphrase prompts in
-    # `partitions.py`, which answer Back: the key table gives escape one
-    # meaning at depth, and the quit prompt only at the main menu. The screens
-    # around it follow in the commits that take the rest of the table.
+    ).outcome is Outcome.BACK
     assert screens.encryption_screen(
         FakeScreen(keys=["KEY_DOWN", "\n", "\x1b"]), config(), at
     ).outcome is Outcome.BACK
     assert screens.keymap_screen(
         FakeScreen(keys=["\x1b"]), config(), at
-    ).outcome is Outcome.CANCELLED
+    ).outcome is Outcome.BACK
     assert screens.initramfs_keymap_screen(
         FakeScreen(keys=["\x1b"]), config(), at
-    ).outcome is Outcome.CANCELLED
+    ).outcome is Outcome.BACK
 
 
 def test_selecting_gentoo_zh_turns_its_binary_host_on() -> None:

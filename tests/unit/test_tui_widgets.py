@@ -316,8 +316,10 @@ def test_a_form_with_an_overlong_wide_label_still_accepts_input() -> None:
 
 
 def test_escape_leaves_a_form_without_an_answer() -> None:
+    """Back rather than Cancel: escape has one meaning at every depth below
+    the main menu, and it had two inside one feature."""
     form = Form(title="t", fields=[Field(label="a")])
-    assert form.run(FakeScreen(keys=["\x1b"])).outcome is Outcome.CANCELLED
+    assert form.run(FakeScreen(keys=["\x1b"])).outcome is Outcome.BACK
 
 
 def test_a_field_that_had_content_can_be_cleared() -> None:
@@ -402,7 +404,7 @@ def test_a_validator_can_correct_one_field_without_losing_the_others() -> None:
 
 @pytest.mark.parametrize(
     ("pressed", "outcome"),
-    [("KEY_BACKSPACE", Outcome.BACK), ("\x1b", Outcome.CANCELLED)],
+    [("KEY_BACKSPACE", Outcome.BACK), ("\x1b", Outcome.BACK)],
 )
 def test_a_rejected_form_can_still_go_back_or_cancel(pressed: str, outcome: Outcome) -> None:
     def reject(values: list[str]) -> Answer[str] | FormRejected:
@@ -918,7 +920,10 @@ def test_the_footer_names_the_key_that_always_goes_back() -> None:
         translate = Catalog(tag)
         drawn = footer(translate)
         assert "[←]" in drawn, (tag, drawn)
-        assert drawn.count(translate("Back")) == 2, (tag, drawn)
+        # Three ways back and no Cancel: escape steps back below the main
+        # menu, which is where ending the run is asked about.
+        assert drawn.count(translate("Back")) == 3, (tag, drawn)
+        assert translate("Cancel") not in drawn, (tag, drawn)
 
     # And the key the footer names is the key the widgets answer Back to,
     # with a value already in the field.
