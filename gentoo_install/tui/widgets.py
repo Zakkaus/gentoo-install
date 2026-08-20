@@ -753,6 +753,9 @@ class PaneRow(Generic[V]):
     #: The right pane's lines while the cursor is on this row. The first two
     #: are what a screen too small for two panes shows under the row.
     detail: tuple[str, ...] = ()
+    #: Why this row cannot be opened. A row the operator cannot answer is
+    #: still drawn and still readable, and the reason heads its right pane.
+    disabled_because: str = ""
 
 
 @dataclass
@@ -782,16 +785,22 @@ class TwoPane(Generic[V]):
             self.cursor = cursor
             self._draw(screen, cursor)
             pressed = screen.key()
-            if pressed == "KEY_UP":
+            # `j` and `k` as well as the arrows, because every other menu in
+            # this interface takes them and a serial console often has no
+            # arrow keys at all.
+            if pressed in ("KEY_UP", "k", "KEY_BTAB", "\x1b[Z"):
                 cursor = max(0, cursor - 1)
-            elif pressed == "KEY_DOWN":
+            elif pressed in ("KEY_DOWN", "j", "\t"):
                 cursor = min(max(0, len(self.rows) - 1), cursor + 1)
             elif pressed in ("\n", "KEY_ENTER", "KEY_RIGHT"):
-                if self.rows:
+                # A disabled row answers nothing rather than opening a screen
+                # that would refuse: its reason is already in the right pane.
+                if self.rows and not self.rows[cursor].disabled_because:
                     return Answer(Outcome.CHOSE, self.rows[cursor].value)
-            elif pressed in ("KEY_LEFT", "\x1b"):
-                # Both answer Back at every depth, and what Back means here is
-                # the caller's: the main menu asks whether to end the run.
+            elif pressed in ("KEY_LEFT", "\x1b", "q"):
+                # All three answer Back and what Back means is the caller's:
+                # the main menu asks whether to end the run. `q` is here and
+                # nowhere deeper, because a text field reads it as a letter.
                 return Answer(Outcome.BACK)
             elif pressed == "\x03":
                 return Answer(Outcome.CANCELLED)
@@ -819,7 +828,13 @@ class TwoPane(Generic[V]):
             self._draw_row(
                 screen, offset + 2, index, index == cursor, MARKER_ROOM, left - MARKER_ROOM
             )
-        detail = self.rows[cursor].detail if self.rows else ()
+        # The reason heads the pane: a row that cannot be opened has to say
+        # why where the operator is already looking.
+        here = self.rows[cursor] if self.rows else None
+        detail: tuple[str, ...] = ()
+        if here is not None:
+            reason = (here.disabled_because,) if here.disabled_because else ()
+            detail = (*reason, *here.detail)
         for offset, line_text in enumerate(detail[:room]):
             screen.write(offset + 2, left + PANE_GAP, clip(line_text, right))
 
@@ -836,7 +851,12 @@ class TwoPane(Generic[V]):
         for index, row in enumerate(self.rows):
             entries.append((index, ""))
             if index == cursor:
-                entries.extend((None, line) for line in row.detail[:2])
+                below = (
+                    (row.disabled_because, *row.detail)
+                    if row.disabled_because
+                    else row.detail
+                )
+                entries.extend((None, line) for line in below[:2])
         here = next((at for at, (which, _) in enumerate(entries) if which == cursor), 0)
         top = _window(here, room, len(entries))
         for offset, (which, text) in enumerate(entries[top : top + room]):

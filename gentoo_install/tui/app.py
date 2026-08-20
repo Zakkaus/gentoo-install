@@ -9,7 +9,7 @@ own, because installing is a task people change their minds during.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Final
@@ -23,7 +23,7 @@ from .overview import overview_screen
 from .context import Context
 from .context import say
 from .settings import Setting, settings_for, shown_value, style_of, unanswered
-from .widgets import Item, Menu, Outcome, Screen, Style, TextField
+from .widgets import Item, Menu, Outcome, PaneRow, Screen, Style, TextField, TwoPane
 
 
 #: The default name for a saved configuration, offered as the field's example.
@@ -52,6 +52,25 @@ def _labelled(setting: Setting, current: InstallConfig, context: Context) -> str
     named = _STATE_NAMES.get(style_of(setting, current, context))
     label = context.translate(setting.label)
     return f"{label} [{context.translate(named)}]" if named else label
+
+
+def _reason_lines(reason: str) -> tuple[str, ...]:
+    """One line per part, because the right pane cuts a line that overruns."""
+    if not reason:
+        return ()
+    head, separator, tail = reason.partition(": ")
+    parts = [one.strip() for one in head.split(",") if one.strip()]
+    return (*parts, tail.strip()) if separator else tuple(parts)
+
+
+def _counter(table: Sequence[Setting], current: InstallConfig, context: Context) -> str:
+    """How many rows are answered, out of how many.
+
+    A row counts as answered when it carries neither marker, so the number and
+    the two marks in the legend cannot say different things.
+    """
+    done = sum(1 for one in table if style_of(one, current, context) is Style.PLAIN)
+    return f"{done}/{len(table)}"
 
 
 def _menu_footer(context: Context) -> str:
@@ -94,36 +113,45 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
         table = settings_for(current)
         cursor = min(cursor, len(table))
         blocked = _blocked(current, context)
-        items: list[Item[int]] = [
-            Item(
-                label=_labelled(setting, current, context),
+        rows: list[PaneRow[int]] = [
+            PaneRow(
+                label=context.translate(setting.label),
                 value=index,
-                detail=_drawn(setting, current, context),
+                state=shown_value(setting, current, context),
+                style=style_of(setting, current, context),
+                detail=tuple(_facts(setting, current, context)),
                 # `unavailable` first: `nested()` reads it and this loop did
-                # not, so a top-level row carrying a reason would have opened a
-                # screen the nested path refuses.
+                # not, so a top-level row carrying a reason opened a screen the
+                # nested path refuses.
                 disabled_because=setting.unavailable(current, context)
                 or ("" if setting.edit else context.translate("detected")),
-                style=style_of(setting, current, context),
             )
             for index, setting in enumerate(table)
         ]
-        items.append(
-            Item(
+        # The Install row stands for no setting, so what it shows is why the
+        # install cannot start: one reason to a line.
+        rows.append(
+            PaneRow(
                 label=context.translate("Install"),
                 value=len(table),
-                disabled_because=blocked,
+                state="",
+                # Split rather than truncated: the reason is a sentence and a
+                # cut one names fewer rows than are missing.
+                detail=_reason_lines(blocked),
+                disabled_because="",
             )
         )
-        menu: Menu[int] = Menu(
+
+        pane = TwoPane(
             title="gentoo-install",
-            items=items,
+            counter=_counter(table, current, context),
+            rows=rows,
             cursor=cursor,
             footer=_menu_footer(context),
             legend=_legend(current, context),
         )
-        answer = menu.run(screen)
-        cursor = menu.cursor
+        answer = pane.run(screen)
+        cursor = pane.cursor
         if not answer.chosen:
             left = _leaving(screen, current, context)
             if left is not None:
@@ -203,6 +231,15 @@ def _drawn(setting: Setting, config: InstallConfig, context: Context) -> str:
     """A row's value as the operator reads it, the same way a grouped row
     renders the rows behind it."""
     return shown_value(setting, config, context)
+
+
+def _facts(setting: Setting, config: InstallConfig, context: Context) -> list[str]:
+    """One row's right pane: the value it already shows, a fact to a line.
+
+    A grouped row's value joins the answers behind it with `, `, so splitting
+    on that separator gives those answers back without a second data source.
+    """
+    return [one for one in _drawn(setting, config, context).split(", ") if one]
 
 
 def _leaving(screen: Screen, config: InstallConfig, context: Context) -> Finished | None:

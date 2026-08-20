@@ -88,10 +88,14 @@ def row(label: str) -> int:
 
 
 def steps(label: str, rows: tuple[settings.Setting, ...] | None = None) -> int:
-    """How many KEY_DOWNs reach that row. The menu steps over a row it cannot
-    open, so this counts the ones it can and not the position in the tuple."""
-    reachable = [one for one in (rows or settings.SETTINGS) if one.edit is not None]
-    return next(index for index, one in enumerate(reachable) if one.label == label)
+    """How many KEY_DOWNs reach that row.
+
+    Every row, including one that cannot be opened: the cursor lands on it so
+    that the right pane can say why, where the old menu stepped over it and
+    left the reason unread.
+    """
+    table = rows or settings.SETTINGS
+    return next(index for index, one in enumerate(table) if one.label == label)
 
 
 def down(count: int) -> list[str]:
@@ -109,17 +113,19 @@ def test_every_row_is_reachable_and_shows_its_current_value() -> None:
     assert {setting.key for setting in settings.SETTINGS if setting.required} == set(
         REQUIRED_ROW_VALUES
     )
+    # The left pane carries the label and a state word; the value itself is in
+    # the right pane while the cursor is on that row, one fact to a line.
     for setting in settings.SETTINGS:
         assert setting.label in seen, setting.label
-        if setting.required:
-            expected = REQUIRED_ROW_VALUES[setting.key]
-            assert any(
-                setting.label in line and line.rstrip().endswith(f"  {expected}")
-                for frame in screen.frames
-                for line in frame
-            ), setting.label
-        else:
-            assert setting.value(installation, at) in seen, setting.label
+        # The right pane draws the cursor row's value beside the list rather
+        # than on the row itself, so the walk is what shows every one of them.
+        wanted = (
+            REQUIRED_ROW_VALUES[setting.key]
+            if setting.required
+            else str(setting.value(installation, at))
+        )
+        for fact in wanted.split(", "):
+            assert fact in seen, (setting.label, fact)
 
 
 def test_the_firmware_row_is_shown_and_not_chosen() -> None:
@@ -130,9 +136,15 @@ def test_the_firmware_row_is_shown_and_not_chosen() -> None:
     at = context()
     screen = FakeScreen(keys=["q", "KEY_DOWN", "\n"])
     run(screen, config(), at)
-    # `last` is now the confirmation, so look at the menu frame before it.
-    # The value alone beside the reason: the row said `detected` twice.
-    assert any("uefi - detected" in "\n".join(frame) for frame in screen.frames)
+    # The state word carries the value and the right pane heads with the
+    # reason, so the two are read together without the row saying `detected`
+    # twice as it once did.
+    menu = next(
+        frame for frame in screen.frames if any("Firmware" in line for line in frame)
+    )
+    row = next(line for line in menu if "Firmware" in line)
+    assert "uefi" in row, row
+    assert "\n".join(menu).count(at.translate("detected")) == 1, menu
     assert not any("(detected)" in "\n".join(frame) for frame in screen.frames)
 
 
@@ -1600,7 +1612,11 @@ def test_colour_repeats_what_the_text_already_says() -> None:
     # the menu scrolls once the list is longer than the screen.
     # Wide enough for the reason: at 100 columns the row is truncated to
     # `still needs an ans`, which is the behaviour under test being cut off.
-    screen = FakeScreen(keys=["q", "KEY_DOWN", "\n"], lines=40, columns=130)
+    # The reason is in the right pane of the row that carries it, so the walk
+    # goes to the install row rather than reading the first frame.
+    screen = FakeScreen(
+        keys=[*down(len(settings.SETTINGS)), "q", "KEY_DOWN", "\n"], lines=40, columns=130
+    )
     run(screen, blank, at)
     seen = "\n".join("\n".join(frame) for frame in screen.frames)
     assert "required" in seen
@@ -1905,14 +1921,19 @@ def test_staying_after_a_cancel_keeps_the_answers_that_came_with_it(
     patched = replace(settings.SETTINGS[index], edit=lambda s, c, x: cancelled)
     replaced = (*settings.SETTINGS[:index], patched, *settings.SETTINGS[index + 1 :])
     monkeypatch.setattr(settings, "SETTINGS", replaced)
-    # The menu steps over the one row it cannot open.
-    reachable = [one for one in replaced if one.edit is not None]
-    steps = next(n for n, one in enumerate(reachable) if one.label == "Hostname")
+    # The cursor lands on every row, including one that cannot be opened, so
+    # the count is the position in the table.
+    steps = next(n for n, one in enumerate(replaced) if one.label == "Hostname")
     # Open that row, answer No to leaving, then leave for real.
     keys = [*down(steps), "\n", "\n", "q", "KEY_DOWN", "\n"]
     screen = FakeScreen(keys=keys, lines=30, columns=100)
     run(screen, config(), at)
-    assert "kept" in "\n".join(screen.frames[-3])
+    menu = next(
+        "\n".join(frame)
+        for frame in reversed(screen.frames)
+        if any("gentoo-install" in line for line in frame)
+    )
+    assert "kept" in menu, menu
 
 
 def test_a_bad_port_keeps_the_address_that_was_typed_beside_it() -> None:
@@ -2444,11 +2465,15 @@ def test_the_main_menu_reads_the_same_precondition_the_nested_one_does() -> None
         else one
         for one in tui_settings.SETTINGS
     )
-    screen = FakeScreen(keys=["q", "KEY_DOWN", "\n"], lines=40, columns=110)
+    screen = FakeScreen(
+        keys=[*down(steps("Kernel", blocked)), "q", "KEY_DOWN", "\n"], lines=40, columns=110
+    )
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(tui_settings, "SETTINGS", blocked)
         tui_app.run(screen, config(), at)
-    assert "not on this machine" in "\n".join(screen.frames[0])
+    # The right pane heads with the reason while the cursor is on the row.
+    seen = "\n".join("\n".join(frame) for frame in screen.frames)
+    assert "not on this machine" in seen
 
 def test_the_address_row_says_something_the_manager_row_did_not() -> None:
     """`Network` drew `networkmanager-wpa, networkmanager-wpa`: the address row
