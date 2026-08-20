@@ -13,7 +13,7 @@ from ..plan.build import build as plan_build
 from ..plan.operations import Operation
 from ..plan.render import counts
 from .context import Context, answers, footer, say, show_address
-from .settings import SETTINGS, UNSET
+from .settings import UNSET, settings_for
 from .widgets import Answer, Confirm, Item, Menu, Outcome, Screen
 
 
@@ -50,7 +50,11 @@ def overview_screen(
         say(screen, context, str(error).splitlines()[-1].strip())
         return Answer(Outcome.CANCELLED)
     items: list[Item[int]] = []
-    for group in SETTINGS:
+    # The table the menu asked from, not every table: in `dd` mode the menu
+    # asks two rows and this listed the twenty-three of a disk install, so the
+    # last screen before writing reviewed rows nobody answered and hid the
+    # ones they did.
+    for group in settings_for(config):
         for row in group.rows or (group,):
             value = row.value(config, context)
             items.append(

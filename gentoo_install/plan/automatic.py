@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
-from ..model.config import Bootloader, InstallConfig
+from ..model.config import Bootloader, DiskMode, InstallConfig
 from ..model.device import Mountpoint, Subvolume, ZfsDataset, ZfsPool
 from .bootloader import initramfs_devices, initramfs_keymap, unlock_parameters
 from .packages import Catalog, groups
@@ -71,6 +71,12 @@ def kernel_parameters(config: InstallConfig) -> tuple[Added, ...]:
     and `ro` in `10_linux` and takes only the rest from `/etc/default/grub`,
     and ZFSBootMenu finds the dataset itself.
     """
+    # `dd` writes an image as it is: it configures no bootloader and its graph
+    # holds no root, so asking what the boot entry carries answers with an
+    # exception. The review screen asked, and the interface died on the last
+    # screen before a whole disk is written.
+    if config.disk.mode is DiskMode.DD:
+        return ()
     kind = config.bootloader.kind
     added: list[Added] = []
     if kind is Bootloader.SYSTEMD_BOOT:
