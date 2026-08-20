@@ -9,6 +9,7 @@ of these was true when it was written and each one drifted once.
 from __future__ import annotations
 
 import ast
+import subprocess
 import re
 from collections.abc import Iterator, Mapping
 from pathlib import Path
@@ -400,6 +401,24 @@ CJK_EXCEPTIONS: Final[frozenset[str]] = frozenset({"tests/vm/console.py"})
 WIDE: Final[re.Pattern[str]] = re.compile("[\u4e00-\u9fff]")
 
 
+def _tracked(where: str) -> bool:
+    """Whether git tracks this path, cached for one run of the suite."""
+    if not _TRACKED:
+        listed = subprocess.run(
+            ["git", "ls-files", "-z"],
+            cwd=PACKAGE.parent,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        _TRACKED.update(one for one in listed.stdout.split("\0") if one)
+    return where in _TRACKED
+
+
+#: Filled once by `_tracked`.
+_TRACKED: set[str] = set()
+
+
 def _wide_character_scan() -> tuple[list[str], list[str]]:
     """Return the offending `path:line` list and every path that was read.
 
@@ -413,7 +432,10 @@ def _wide_character_scan() -> tuple[list[str], list[str]]:
     for pattern in ("*.py", "*.toml"):
         for path in sorted(root.rglob(pattern)):
             where = str(path.relative_to(root))
-            if "/.git/" in f"/{where}" or "__pycache__" in where:
+            # A worktree the agent tooling opens inside the repository carries
+            # a copy of every excepted file, and the scan read all of them as
+            # offenders. What the repository holds is what git tracks.
+            if not _tracked(where):
                 continue
             body = path.read_text()
             scanned.append(where)
