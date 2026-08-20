@@ -3109,6 +3109,7 @@ def test_a_conversion_counts_the_modules_its_bootloader_needs() -> None:
     from tests.vm.convert import (
         GRUB_MODULES_CHECK,
         GRUB_PREFIX_CHECK,
+        GRUB_PREFIX_REPORT,
         GRUB_READS_ITS_MODULE,
         before_the_reboot,
     )
@@ -3183,14 +3184,32 @@ def test_a_conversion_counts_the_modules_its_bootloader_needs() -> None:
         " embedded=(hd0,gpt2)/boot/grub drive=hd0,gpt2 fs=xfs\n"
     )
     assert re.search(GRUB_PREFIX_CHECK.pattern, healthy)
-    assert re.search(GRUB_PREFIX_CHECK.pattern, healthy.replace("prefix=1", "prefix=0")) is None
     assert re.search(GRUB_PREFIX_CHECK.pattern, healthy.replace("stub=163840", "stub=0")) is None
 
-    # Measured on this workstation, which runs the same grub-2.14 as a guest:
-    # `grub-install --target=x86_64-efi --bootloader-id=Gentoo` against an xfs
-    # boot filesystem writes a 163840-byte stub carrying that filesystem's
-    # uuid once. `vm-convert` reported the same size and no uuid, so the check
-    # asks for both sides of the comparison and the verdict names them.
+    # run145's `vm-xfs` installed, rebooted and was read back: this is what
+    # its stub answered. `grubprefix=0` and an empty `stub` are what a machine
+    # that boots carries, so a check that refuses them refuses a healthy
+    # install, which is how `#828` came to block every UEFI run.
+    from_a_machine_that_booted = (
+        "grubstub=163840 grubprefix=0 boot=d521c22e-04b8-4387-b297-8bb44bbb7ce7"
+        " esp=AF55-B837 stub= embedded=(,gpt2)/boot/grub"
+        " drive=(hostdisk//dev/vda,gpt2) fs=xfs\n"
+    )
+    assert re.search(GRUB_PREFIX_CHECK.pattern, from_a_machine_that_booted)
+    assert re.search(GRUB_PREFIX_REPORT.pattern, from_a_machine_that_booted)
+    # A stub `grub-install` never wrote is still refused, and so is a
+    # `grub-probe` that named no filesystem for `/boot`.
+    no_stub = from_a_machine_that_booted.replace("grubstub=163840", "grubstub=0")
+    no_boot_uuid = from_a_machine_that_booted.replace(
+        "boot=d521c22e-04b8-4387-b297-8bb44bbb7ce7", "boot="
+    )
+    assert re.search(GRUB_PREFIX_CHECK.pattern, no_stub) is None
+    assert re.search(GRUB_PREFIX_CHECK.pattern, no_boot_uuid) is None
+
+    # The workstation measurement that started this — `grub-install` writing a
+    # stub carrying `/boot`'s uuid — did not transfer: a guest that boots
+    # carries none. Both probes stay in the command as evidence for the next
+    # failure; neither decides one.
     assert "grub-probe --target=fs_uuid /boot" in GRUB_PREFIX_CHECK.command
     assert "boot=%s esp=%s stub=%s" in GRUB_PREFIX_CHECK.command
     # The values, not only the format: printf keeps the field and prints it
@@ -3334,7 +3353,20 @@ def test_a_machine_that_booted_is_asked_what_its_stub_holds() -> None:
         "embedded=(,gpt2)/boot/grub drive=(hostdisk//dev/vda,gpt2) fs=xfs\n"
     )
     assert re.search(GRUB_PREFIX_REPORT.pattern, failed)
-    assert re.search(GRUB_PREFIX_CHECK.pattern, failed) is None
+    # And so does the conversion's own check, because run145 measured a
+    # machine that booted answering the same six values: only the two uuids,
+    # which name that machine's own filesystems, differ.
+    assert re.search(GRUB_PREFIX_CHECK.pattern, failed)
+    fields = dict(pair.split("=", 1) for pair in failed.split())
+    booted_fields = dict(
+        pair.split("=", 1)
+        for pair in (
+            "grubstub=163840 grubprefix=0 boot=d521c22e-04b8-4387-b297-8bb44bbb7ce7"
+            " esp=AF55-B837 stub= embedded=(,gpt2)/boot/grub"
+            " drive=(hostdisk//dev/vda,gpt2) fs=xfs"
+        ).split()
+    )
+    assert {name for name in fields if fields[name] != booted_fields[name]} == {"boot", "esp"}
     # A line that lost a field is still refused: an absent answer is not one.
     assert re.search(GRUB_PREFIX_REPORT.pattern, failed.replace(" fs=xfs", "")) is None
 
