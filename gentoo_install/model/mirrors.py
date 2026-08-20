@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
-from .config import GentooZhMirror, MirrorRegion
+from .config import PROFILE_RELEASE, GentooZhMirror, MirrorRegion
 
 
 @dataclass(frozen=True)
@@ -232,9 +232,9 @@ def gentoo_rsync_uri(region: MirrorRegion, preferred: str = "") -> str:
     return within or _GENTOO["gentoo"].rsync
 
 
-#: Where a mirror keeps the official binary packages for 23.0, relative to the
+#: Where a mirror keeps the official binary packages, relative to the
 #: distfiles base. Every site that carries the releases tree carries these.
-BINPACKAGES: Final[str] = "releases/amd64/binpackages/23.0"
+BINPACKAGES: Final[str] = f"releases/amd64/binpackages/{PROFILE_RELEASE}"
 
 
 def gentoo_binhost(region: MirrorRegion, preferred: str = "", subarch: str = "x86-64") -> str:

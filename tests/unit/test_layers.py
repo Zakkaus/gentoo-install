@@ -144,17 +144,46 @@ def test_the_profile_release_is_written_once() -> None:
     `BASE_PROFILE`'s eleventh, so moving off 23.0 is eleven edits and the ten
     that are missed are silent: the menu offers a profile the tree no longer
     carries and the install stops at `emerge --sync`.
-    """
-    from gentoo_install.tui.packages import BASE_PROFILE
 
-    release = BASE_PROFILE.rsplit("/", 1)[1]
-    written = {
-        path.name: path.read_text(encoding="utf-8").count(release)
-        for path in sorted((PACKAGE / "tui").glob("*.py"))
-    }
-    assert {name: count for name, count in written.items() if count} == {
-        "packages.py": 1
-    }, written
+    The whole package, not `tui/`: reading one directory left the default in
+    `model/config.py` and the binary package path in `model/mirrors.py`
+    outside the rule, so the release was still written in three places.
+    """
+    from gentoo_install.model.config import PROFILE_RELEASE
+
+    # String literals, read with `ast`: a comment quoting a real log line is
+    # evidence and stays, and a release spelled inside a longer path — which
+    # is how `model/mirrors.py` carried its second copy — is still a copy.
+    written: dict[str, int] = {}
+    for path in sorted(PACKAGE.rglob("*.py")):
+        found = sum(
+            1
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and PROFILE_RELEASE in node.value
+        )
+        if found:
+            written[str(path.relative_to(PACKAGE))] = found
+    assert written == {"model/config.py": 1}, written
+
+    # And the paths that carry it are built from it rather than spelled again.
+    from gentoo_install.model.config import BASE_PROFILE
+    from gentoo_install.model.mirrors import BINPACKAGES
+
+    assert BASE_PROFILE.endswith(f"/{PROFILE_RELEASE}"), BASE_PROFILE
+    assert BINPACKAGES.endswith(f"/{PROFILE_RELEASE}"), BINPACKAGES
+
+    # The shipped desktop files spell the whole profile, and the menu rebuilds
+    # theirs with `str.replace(BASE_PROFILE, ...)`, which does nothing at all
+    # when it does not match: a release moved here and not there installs
+    # every desktop against the profile that is going away, silently.
+    import tomllib
+
+    for path in sorted((PACKAGE / "data" / "profiles").rglob("*.toml")):
+        said = tomllib.loads(path.read_text(encoding="utf-8")).get("profile", "")
+        if said:
+            assert said.startswith(BASE_PROFILE), (str(path), said)
 
 
 def test_every_source_file_states_the_licence() -> None:
