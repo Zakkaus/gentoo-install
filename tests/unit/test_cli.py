@@ -18,7 +18,7 @@ from gentoo_install.exec import report
 from gentoo_install.exec.probe import BootMethod, Probe as RealProbe
 from gentoo_install.exec.runner import Runner
 from gentoo_install.cli import EXIT_CONFIG, EXIT_INTEGRITY, EXIT_OK, EXIT_PREFLIGHT, main
-from gentoo_install.errors import ConfigError, IntegrityError
+from gentoo_install.errors import CommandFailed, ConfigError, IntegrityError
 from gentoo_install.model.config import DiskConfig, DiskMode, ImageFormat, MemoryLaunch, MemoryMode
 from gentoo_install.model.device import DeviceGraph, DeviceId, StorageFacts, StorageLayout
 from gentoo_install.plan.build import DEFAULT_MIRROR
@@ -751,23 +751,72 @@ def test_the_address_handed_over_carries_no_extension() -> None:
     assert {one.extension for one in paste.EXPORTS} == {"log", "toml"}
 
 
-def test_the_log_is_kept_before_the_target_is_unmounted() -> None:
+def test_the_log_is_kept_before_the_target_is_unmounted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """`Stage.FINISH` unmounts, so a copy made after it lands on the install
     medium's tmpfs and goes with the reboot.
 
     Found on a machine this installer had installed: `/var/log/gentoo-install`
     was not there at all, and the copy had reported success.
     """
-    import inspect
+    import argparse
+    from dataclasses import replace
 
     from gentoo_install import cli
+    from gentoo_install.exec import report
 
-    source = inspect.getsource(cli.install)
-    kept = source.index("report.keep_log(")
-    closing = source.index("apply(closing, machine, finished)")
-    released = source.index("_release(closing, machine, record)")
-    assert kept < closing, "the log is copied after the closing stage unmounts"
-    assert kept < released, "the log is copied after the failure path unmounts"
+    from gentoo_install.data import load_catalog
+    from gentoo_install.plan.build import build
+    from gentoo_install.plan.operations import Operation
+    from gentoo_install.plan.operations import Stage
+
+    from .layouts import config, ext4_on_gpt
+
+    # The order the run takes, not the order the words sit in the source: a
+    # closure can keep `report.keep_log(` early in the text and call it after
+    # the closing stage, and this test would still pass.
+    def order_of(fail: bool) -> list[str]:
+        seen: list[str] = []
+
+        class Recording:
+            def __init__(self, **fields: object) -> None:
+                self.given_up: set[str] = set()
+                self.runner = fields["runner"]
+
+        def applied(operations: object, machine: object, *rest: object) -> None:
+            stages = {one.stage for one in cast("tuple[Operation, ...]", operations)}
+            seen.append("closing" if stages == {Stage.FINISH} else "body")
+            if fail and stages != {Stage.FINISH}:
+                raise CommandFailed("the body stopped")
+
+        monkeypatch.setattr(cli, "Machine", Recording)
+        monkeypatch.setattr(cli, "apply", applied)
+        monkeypatch.setattr(report, "keep_log", lambda work, target, record: seen.append("keep"))
+        monkeypatch.setattr(cli, "_release", lambda *args: seen.append("release"))
+        monkeypatch.setattr(cli, "_offer_a_shell", lambda *args: None)
+        monkeypatch.setattr(report, "offer_paste", lambda *args, **kwargs: None)
+        arguments = argparse.Namespace(
+            work=tmp_path / f"work-{fail}",
+            target=tmp_path / "target",
+            skip_preflight=True,
+            resume=False,
+            no_shell=True,
+            dry_run=False,
+        )
+        try:
+            cli.install(replace(config(ext4_on_gpt())), operations, arguments, cli.RunState())
+        except CommandFailed:
+            pass
+        return seen
+
+    operations = tuple(build(config(ext4_on_gpt()), load_catalog()))
+    assert {one.stage for one in operations} >= {Stage.FINISH}, "the plan has a closing stage"
+
+    done = order_of(fail=False)
+    assert done.index("keep") < done.index("closing"), done
+    stopped = order_of(fail=True)
+    assert stopped.index("keep") < stopped.index("release"), stopped
 
 
 def test_log_preservation_can_run_without_the_cli(tmp_path: Path) -> None:
