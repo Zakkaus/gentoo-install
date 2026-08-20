@@ -69,6 +69,26 @@ The menu can save its answers as `my-install.toml` and exit. The configuration-f
 
 Before unmounting, an interactive run offers a root shell in the target after either success or failure. `--no-shell` suppresses that question.
 
+| Option | Argument and default | Effect |
+| --- | --- | --- |
+| `--config` | file or URL; unset | Loads that source instead of opening the menu. |
+| `--dry-run` | none; `false` | Renders the derived operations and summary, then exits without applying operations. |
+| `--mirror` | stage3 mirror string; installer default | Selects the stage3 source for a normal installation. Memory arming derives its region from configuration. |
+| `--lang` | language tag; `""` | Overrides `LC_ALL`, `LC_MESSAGES`, and `LANG` while the menu creates configuration. |
+| `--target` | path; `/mnt/gentoo` | Selects the normal installation mount target. Conversion and memory arming use `/`. |
+| `--work` | path; `/run/gentoo-install` | Holds run state, including the report and journal. |
+| `--missing-commands` | none; `false` | Prints missing host commands, one per line, then exits. |
+| `--resume` | none; `false` | Uses the existing journal to skip compatible completed operations. |
+| `--no-shell` | none; `false` | Suppresses the target root-shell offer. It also makes memory arming unattended. |
+| `--skip-preflight` | none; `false` | Skips normal-installation preflight checks. |
+| `--ram` | none; unset memory mode | Arms one boot into the Gentoo CJK ISO held in memory. It conflicts with `--lowram`. |
+| `--lowram` | none; unset memory mode | Arms one boot into the Alpine netboot environment held in memory. It conflicts with `--ram`. |
+| `--ssh-key` | key, file, HTTP(S) URL, or `github:`/`gitlab:` reference; `""` | Sets a memory-environment authorised public key. It requires a memory mode. |
+| `--ssh-port` | integer; unset | Sets the memory environment's `sshd` port. It requires a memory mode. |
+| `--root-password` | string; `""` | Sets the memory environment root password. It requires a memory mode. |
+| `--bypass` | none; `false` | Replaces the default boot entry instead of arming a one-shot entry. It requires a memory mode. |
+| `--disarm` | none; `false` | Removes a previously armed memory boot and files it placed before configuration loading. |
+
 ## Installing from memory
 
 <!-- fact: install-memory -->
@@ -148,6 +168,31 @@ The paths below are implemented and have automated unit or plan coverage unless 
 - The device graph covers GPT and MBR; ext2, ext3, ext4, btrfs subvolumes, xfs, f2fs and vfat; swap; and LUKS2, LVM and mdraid.
 - ZFS belongs to the same graph: a pool is a stripe, a mirror, or raidz1, raidz2 or raidz3 over its vdevs, native encryption is a property of the pool, and each dataset is a node of its own.
 - Existing partition tables can be retained, with a separate keep, format or delete decision for each partition.
+
+| Model node | Fields beyond `id` | Result |
+| --- | --- | --- |
+| `Existing` | `selector`, `wipe` | Selects a pre-existing device. |
+| `PartitionTable` | `disk`, `table`, `create`, `remove` | Creates or edits a partition table. |
+| `Partition` | `table`, `index`, `role`, `size`, `label` | Defines a partition; final `size` may consume remaining space. |
+| `Luks` | `backing`, `name`, `passphrase_file` | Defines a LUKS container. |
+| `MdRaid` | `members`, `level`, `name`, `metadata` | Defines an mdraid array. |
+| `VolumeGroup` | `members`, `name` | Defines an LVM volume group. |
+| `LogicalVolume` | `group`, `name`, `size` | Defines an LVM logical volume. |
+| `ZfsPool` | `vdevs`, `name`, `topology`, `encrypted`, `passphrase_file` | Defines a ZFS pool. |
+| `ZfsDataset` | `pool`, `name` | Defines a ZFS dataset. |
+| `Filesystem` | `device`, `kind`, `label`, `create` | Formats a device, or verifies it when `create = false`. |
+| `Subvolume` | `filesystem`, `name` | Defines a Btrfs subvolume. |
+| `Swap` | `device` | Defines swap on a referenced device. |
+| `Mountpoint` | `source`, `path`, `options` | Mounts a filesystem, Btrfs subvolume, or ZFS dataset. |
+
+| Choice | Values |
+| --- | --- |
+| Partition table | `gpt`, `mbr` |
+| Partition role | `esp`, `bios-boot`, `swap`, `raid`, `lvm`, `zfs`, `data` |
+| mdraid level | `raid0`, `raid1`, `raid5`, `raid6` |
+| mdraid metadata | `0.90`, `1.0`, `1.1`, `1.2` |
+| Filesystem | `ext2`, `ext3`, `ext4`, `btrfs`, `xfs`, `f2fs`, `vfat` |
+| ZFS topology | `stripe`, `mirror`, `raidz1`, `raidz2`, `raidz3` |
 
 <!-- fact: zram-system -->
 
@@ -241,6 +286,34 @@ The system configuration can configure zram independently of the device graph an
 - Before uploading a configuration to `paste.gentoozh.org`, the menu replaces `password_hash` and `root_password_hash` with `removed-before-publishing` and omits the proxy `username` and `password` keys entirely; the other configuration values remain in the upload.
 - The menu displays the resulting page address as text and as a QR code.
 
+### Compatibility rules
+
+Validation rejects these combinations:
+
+| Refused combination |
+| --- |
+| An empty, locked, or malformed root hash with no password-authenticating user and no usable SSH-key login. |
+| A ZFS root with GRUB. |
+| `/boot` on ZFS with GRUB. |
+| A ZFS root with BIOS boot. |
+| A ZFS root with a LUKS root chain. |
+| ZFSBootMenu with a root that is not ZFS. |
+| UEFI boot without a mounted ESP. |
+| UEFI boot with an encrypted ESP. |
+| systemd-boot with BIOS boot. |
+| systemd-boot with a kernel or initramfs inaccessible from the ESP because `/boot` is encrypted or not vfat. |
+| An ESP on mdraid with metadata `1.1` or `1.2`. |
+| BIOS boot on a GPT disk without a `bios-boot` partition. |
+| CJK console rendering with a kernel lacking cjktty. |
+| Remote unlock without an authorised SSH key. |
+| Remote unlock without an encrypted root container or pool. |
+| Remote unlock with GRUB that must unlock `/boot` before initramfs SSH starts. |
+| Remote unlock of native ZFS encryption by a GRUB or systemd-boot system initramfs. |
+| A CJK kernel without the `gentoo-zh` overlay. |
+| CJK console rendering with a console font other than `8x16`. |
+| ZFSBootMenu without the `gentoo-zh` overlay. |
+| A gentoo-zh community binhost without the `gentoo-zh` overlay. |
+
 ## Verification status
 
 <!-- fact: verification-scope -->
@@ -277,6 +350,166 @@ Configuration files use TOML. The top-level `config_version` field selects the s
 <!-- fact: config-dry-run -->
 
 Parsing and planning do not probe storage hardware. A machine without the target disk can therefore check a configuration with `--dry-run`.
+
+The following reference names every persisted key. A table path is TOML table notation, and `[[disk.devices]]` carries the graph nodes.
+
+| Key | Meaning and default or choices |
+| --- | --- |
+| `config_version` | Persisted schema version; `1`. |
+| `proxy.kind` | Proxy scheme: `http`, `https`, or `socks5`; `http`. |
+| `proxy.host` | Proxy host; `""` disables the proxy. |
+| `proxy.port` | Proxy port; `0`. |
+| `proxy.username` | Optional proxy user name; `""`. |
+| `proxy.password` | Optional proxy password; `""`. |
+| `proxy.bypass` | Hosts that bypass the proxy; `[]`. |
+
+| `system` key | Meaning and default or choices |
+| --- | --- |
+| `hostname` | Target hostname; `gentoo`. |
+| `timezone` | Target timezone; `Asia/Shanghai`. |
+| `locales` | Generated locales; `en_US.UTF-8`, `zh_CN.UTF-8`, `zh_TW.UTF-8`. |
+| `locale` | Selected locale; `zh_CN.UTF-8`. |
+| `keymap` | Installed-system keymap; `us`. |
+| `keymap_initramfs` | Initramfs keymap; `""` follows `keymap`. |
+| `interface` | Network-interface pattern; `""` matches `en*` and `eth*`. |
+| `addresses` | Static CIDR addresses; `[]` selects DHCP or router advertisements. |
+| `gateways` | Gateways, at most one per address family; `[]`. |
+| `dns` | Resolver addresses; `[]`. |
+| `authorized_keys` | Keys for root and sudo users; `[]`. |
+| `console_cjk` | Requests CJK console rendering; `false`; it needs cjktty. |
+| `console_font` | Console cell size: `8x8`, `8x16`, or `16x32`; `8x16`. |
+| `init` | Init system: `openrc` or `systemd`; `systemd`. |
+| `zram` | Compressed-RAM swap size; unset disables it. |
+| `hardware_clock_utc` | RTC stores UTC; `true`. |
+| `users` | User records; `[]`. |
+| `root_password_hash` | Root `crypt(3)` hash; `""` locks root. |
+| `logger` | Logger: `none`, `sysklogd`, `syslog-ng`, or `metalog`; `sysklogd`. |
+| `cron` | Installs `sys-process/cronie`; `true`. |
+| `sshd` | Installs and configures SSH daemon support; `false`. |
+| `sshd_password_login` | SSH daemon accepts passwords; `false`. |
+| `sshd_root_login` | Root may log in through SSH; `false`. |
+| `networking` | Link management: `builtin`, `networkmanager-wpa`, `networkmanager-iwd`, or `none`; `builtin`. |
+| `firewall` | Packet-filter package: `none`, `nftables`, or `iptables`; `none`. |
+| `first_boot` | First-boot record; empty record by default. |
+
+| `system.users` item | Meaning and default |
+| --- | --- |
+| `name` | User name; required. |
+| `groups` | Supplementary groups; `[]`. |
+| `shell` | Login shell; `/bin/bash`. |
+| `sudo` | Makes the user a sudo user; `false`. |
+| `password_hash` | User `crypt(3)` hash; `""` locks the account. |
+
+| `system.first_boot` key | Meaning and default |
+| --- | --- |
+| `commands` | Shell lines run in order after the fetched script; `[]`. |
+| `url` | Script URL; `""` omits a fetched script. |
+
+| `portage` key | Meaning and default or choices |
+| --- | --- |
+| `profile` | Portage profile; `default/linux/amd64/23.0/systemd`. |
+| `keywords` | Global keyword channel: `stable` or `testing`; `stable`. |
+| `sync` | Ongoing sync: `git`, `webrsync`, or `rsync`; `git`. First sync uses webrsync. |
+| `testing_packages` | Atoms accepted as testing while the system remains stable; `[]`. |
+| `makeopts` | `MAKEOPTS`; `""`. |
+| `common_flags` | Common compiler flags; `-O2 -pipe`. |
+| `use` | `USE` flags; `[]`. |
+| `video_cards` | `VIDEO_CARDS` values; `[]`. |
+| `l10n` | `L10N`; `[]` derives values from generated locales. |
+| `input_devices` | `INPUT_DEVICES`; `["libinput"]`. |
+| `accept_license` | Accepted licenses; `["@FREE"]`. |
+| `cpu_flags` | CPU flags; `[]` preserves the profile value. |
+| `build_in_ram` | `/var/tmp/portage` tmpfs size; unset builds on disk. |
+| `mirrors` | Mirror record; defaults shown below. |
+| `binhost` | Binary-host record; defaults shown below. |
+| `overlays` | Overlay records; `[]`. |
+
+| `portage.mirrors` key | Meaning and default or choices |
+| --- | --- |
+| `region` | Gentoo mirror region: `cn` or `global`; `global`. |
+| `speed_test` | Speed-tests offered mirrors; `false`. |
+| `distfiles` | Custom distfile bases; a nonempty list replaces the built-in list. |
+| `repo_sync_uri` | Explicit repository sync URI; `""`. |
+| `site` | Site key in `region`; `""` selects the region's first site. |
+| `gentoo_distfiles` | Writes `GENTOO_MIRRORS`; `true`. |
+| `gentoo_zh` | gentoo-zh mirror: `upstream`, `cernet`, `nju`, `nyist`, or `ha`; `upstream`. |
+| `gentoo_zh_distfiles` | Appends gentoo-zh distfiles to `GENTOO_MIRRORS`; `true`. |
+
+| Mirror region | Site keys |
+| --- | --- |
+| `cn` | `ustc`, `nju`, `bfsu`, `tuna`, `zju`, `sdu`, `hust`, `sustech`, `hit`, `lzu`, `aliyun`, `netease`, `cernet`, `cicku-hk`, `planetunix-hk`, `xtom-hk`, `rackspace-hk`, `aditsu-hk`, `nchc-tw`, `cicku-tw`, `freedif-sg`, `cicku-sg`, `planetunix-sg` |
+| `global` | `gentoo`, `osuosl` |
+
+| `portage.binhost` key | Meaning and default or choices |
+| --- | --- |
+| `official` | Enables the official binary host; `true`. |
+| `subarch` | Official binary-host subarchitecture; `x86-64`. |
+| `community` | gentoo-zh channel: `off`, `stable`, or `unstable`; `off`. |
+
+| `portage.overlays` item | Meaning |
+| --- | --- |
+| `name` | Overlay name; required. |
+| `sync_uri` | Overlay synchronization URI; required. |
+
+| `kernel` key | Meaning and default or choices |
+| --- | --- |
+| `source` | Kernel choice: `dist-bin`, `dist-source`, `cjk-bin`, or `cjk`; `dist-bin`. |
+| `package` | Overrides the package implied by `source`; `""`. |
+| `version` | Version pin; `""` lets Portage choose the newest keyword-allowed version. |
+| `dracut_modules` | Adds dracut modules required by the disk layout; `[]`. |
+| `remote_unlock` | Initramfs SSH-unlock record; empty record by default. |
+
+| `kernel.source` | Package and CJK status |
+| --- | --- |
+| `dist-bin` | `sys-kernel/gentoo-kernel-bin`; not a CJK kernel. |
+| `dist-source` | `sys-kernel/gentoo-kernel`; not a CJK kernel. |
+| `cjk-bin` | `sys-kernel/gentoo-cjk-kernel-bin`; CJK kernel. |
+| `cjk` | `sys-kernel/gentoo-cjk-kernel`; CJK kernel. |
+
+| `kernel.remote_unlock` key | Meaning and default |
+| --- | --- |
+| `enabled` | Enables initramfs SSH unlocking; `false`. |
+| `port` | Initramfs SSH port; `222`. |
+| `address` | Static CIDR address; `""` uses DHCP. |
+| `gateway` | Static-address gateway; `""`. |
+| `interface` | Initramfs network interface; `""`. |
+
+| `bootloader` key | Meaning and default or choices |
+| --- | --- |
+| `kind` | Bootloader: `grub`, `systemd-boot`, or `zfsbootmenu`; `grub`. |
+| `firmware` | Firmware: `uefi` or `bios`; `uefi`. |
+| `kernel_params` | Additional kernel command-line parameters; `[]`. |
+
+| `packages` key | Meaning and default |
+| --- | --- |
+| `desktop` | Desktop profile name; `""` selects no desktop. |
+| `applications` | Package-group names; `[]`. |
+| `graphics` | Graphics-driver group names; `[]`; multiple groups fit hybrid hardware. |
+| `display_manager` | Display-manager group; `""` selects console login. |
+| `extra` | Package atoms merged after other selections; `[]`. |
+
+| `disk` key | Meaning and default or choices |
+| --- | --- |
+| `graph` | Device graph represented by `[[disk.devices]]`; required. |
+| `root` | Root graph-node identifier; required outside conversion; `""` uses the running layout in conversion. |
+| `mode` | `partition`, `in-place`, `image`, or `dd`; `partition`. |
+| `image` | Sparse image path in image mode; `""`. |
+| `size` | Sparse image size in image mode; unset. |
+| `wipe` | Disk-level wipe setting; `false`. |
+| `source` | Prepared-image source in `dd` mode; `""`. |
+| `source_format` | Source encoding: `raw`, `gz`, `xz`, `zst`, or `tar`; `raw`. |
+| `destination` | Whole-disk `dd` destination; `""`. |
+
+| Template input | Meaning and default or choices |
+| --- | --- |
+| `disk` | Whole-disk selector; required. |
+| `layout` | `whole-disk`, `whole-disk-btrfs`, `whole-disk-zfs`, or `reuse`; `whole-disk`. |
+| `firmware` | Template firmware; `uefi`. |
+| `table` | Partition-table override; unset derives GPT for UEFI and MBR for BIOS. |
+| `filesystem` | Root filesystem for non-Btrfs and non-ZFS whole-disk layouts; `xfs`. |
+| `swap` | Swap-partition size; unset. |
+| `passphrase_file` | Installing-system passphrase-file path; `""` leaves the layout unencrypted. |
+| `pool` | ZFS pool name; `rpool`. |
 
 The following complete configuration demonstrates a proxy with credentials and two bypass hosts. The credential is an example and must be replaced before execution:
 

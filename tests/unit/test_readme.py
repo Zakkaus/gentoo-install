@@ -474,10 +474,40 @@ def test_the_readme_gives_each_memory_option_the_outcome_its_record_holds() -> N
         assert all(outcome in row for row in mine), mine
         assert not any(forbidden in row for row in mine), mine
 
+        # The verification table only: the option table in `Installation`
+        # carries a row for the same option, and that one describes the flag.
         table = [
             line
-            for line in readme("README.md").splitlines()
+            for line in fact_bodies("README.md")["verification-scope"].splitlines()
             if line.startswith("| ") and line.split("|")[1].strip() == option
         ]
         assert len(table) == 1, table
         assert forbidden not in table[0], table[0]
+
+
+def test_every_table_row_carries_the_same_identifiers_in_every_readme() -> None:
+    """A reference table is names and values, and a translation that renders
+    one of them into its own language documents a key nobody can type. Four
+    cells lost `dd` this way while every structural check stayed green."""
+    import re
+
+    single = re.compile(r"^`[^`]+`$")
+
+    def rows(name: str) -> dict[str, list[frozenset[str]]]:
+        found: dict[str, list[frozenset[str]]] = {}
+        for line in readme(name).splitlines():
+            if not line.startswith("| "):
+                continue
+            cells = line.split("|")
+            key = cells[1].strip()
+            if single.match(key):
+                found.setdefault(key, []).append(
+                    frozenset(re.findall(r"`([^`]+)`", "|".join(cells[2:])))
+                )
+        return found
+
+    english = rows("README.md")
+    assert len(english) >= 100, len(english)
+    for name in READMES:
+        if name != "README.md":
+            assert rows(name) == english, name
