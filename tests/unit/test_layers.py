@@ -521,7 +521,12 @@ def test_every_operation_names_the_files_it_writes() -> None:
 
     Only the paths `apply()` writes itself: an operation that delegates to
     another one is described by the operation it delegates to.
+
+    The count is asserted at the end. Every `context.write` call is found by
+    its attribute name, so renaming that method would make the loop skip all
+    of them and the check would pass having compared nothing.
     """
+    read = 0
     for module in _modules("plan"):
         tree = ast.parse(module.read_text(encoding="utf-8"))
         known: dict[str, ast.expr] = {}
@@ -549,11 +554,16 @@ def test_every_operation_names_the_files_it_writes() -> None:
                     continue
                 if call.func.attr != "write" or not call.args:
                     continue
+                read += 1
                 names = _written_names(call.args[0], reachable)
                 assert any(one in said for one in names), (
                     f"{module.name}:{call.lineno} {cls.name}.describe names none of "
                     f"{sorted(names)}"
                 )
+    # Measured 2026-08-20: nineteen `context.write` calls sit in operations
+    # that define `describe`. A scan that suddenly reads none of them is a
+    # renamed method, not a tree that stopped writing files.
+    assert read >= 15, read
 
 
 def test_the_dry_run_names_every_file_only_its_owner_may_read() -> None:
@@ -567,6 +577,7 @@ def test_the_dry_run_names_every_file_only_its_owner_may_read() -> None:
     `describe`, so every operation whose text is translated sat outside it;
     thirty of them still name no file, and that is `docs/tasks.md` row 241.
     """
+    private = 0
     for module in _modules("plan"):
         tree = ast.parse(module.read_text(encoding="utf-8"))
         known: dict[str, ast.expr] = {}
@@ -603,11 +614,14 @@ def test_the_dry_run_names_every_file_only_its_owner_may_read() -> None:
                     for keyword in call.keywords
                 ):
                     continue
+                private += 1
                 names = _written_names(call.args[0], reachable)
                 assert any(one in said for one in names), (
                     f"{module.name}:{call.lineno} {cls.name} writes a private file "
                     f"its description does not name: {sorted(names)}"
                 )
+    # The same denominator: twelve writes carry `0600` or `0400` today.
+    assert private >= 10, private
 
 
 def test_the_proxy_endpoint_is_defined_once() -> None:
