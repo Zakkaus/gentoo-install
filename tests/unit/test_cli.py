@@ -380,13 +380,22 @@ def test_a_terminal_too_small_for_the_interface_says_so_rather_than_drawing(
         def size(self) -> tuple[int, int]:
             return self.lines, self.columns
 
-    cramped = too_small(Sized(20, 60))
-    assert "60x20" in cramped and f"{MINIMUM_COLUMNS}x{MINIMUM_LINES}" in cramped
+    cramped = too_small(Sized(4, 16))
+    assert "16x4" in cramped and f"{MINIMUM_COLUMNS}x{MINIMUM_LINES}" in cramped
     assert too_small(Sized(MINIMUM_LINES, MINIMUM_COLUMNS)) == ""
+
+    # 60x20 is served rather than refused: it is under the two-pane floor and
+    # over the one this refuses at, so `TwoPane` draws one pane there. The two
+    # numbers are separate because a terminal the layout cannot use in full is
+    # not a terminal the interface cannot use at all.
+    from gentoo_install.tui.widgets import TWO_PANE_COLUMNS, TWO_PANE_LINES
+
+    assert too_small(Sized(20, 60)) == ""
+    assert MINIMUM_COLUMNS < TWO_PANE_COLUMNS and MINIMUM_LINES < TWO_PANE_LINES
 
     # The call and its effect, not the substring: `cramped = too_small(display)`
     # with the `raise` deleted keeps the text in `cli.py` and puts the menu on
-    # a 60x20 console again, which is the defect this test is named after.
+    # a console it cannot draw on, which is the defect this test is named after.
     import ast
     import inspect
 

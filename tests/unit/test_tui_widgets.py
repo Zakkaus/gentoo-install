@@ -953,3 +953,60 @@ def test_a_terminal_narrower_than_the_brackets_still_redraws() -> None:
     assert _tail_that_fits("gentoo", -1) == ""
     screen = FakeScreen(keys=["g", "\x1b"], lines=24, columns=8)
     assert TextField(title="hostname").run(screen).outcome is Outcome.BACK
+
+
+def test_every_widget_draws_at_the_floor_the_interface_refuses_below() -> None:
+    """The floor is measured, not chosen: below it a widget drops content off
+    the screen, and the operator gets a wrecked menu instead of a message."""
+    from gentoo_install.tui.widgets import (
+        MINIMUM_COLUMNS,
+        MINIMUM_LINES,
+        Accepts,
+        Confirm,
+        Field,
+        Form,
+        Menu,
+        MultipleChoiceMenu,
+        TextField,
+        TwoPane,
+    )
+
+    items = [Item(label=f"choice {index}", value=index, detail="what it means") for index in range(6)]
+    field = Field(label="Address", accepts=Accepts.NO_SPACE)
+    drawn = (
+        lambda screen: Menu(title="gentoo-install", items=items, footer="[enter] pick").run(screen),
+        lambda screen: MultipleChoiceMenu(title="t", items=items).run(screen),
+        lambda screen: TextField(title="hostname", value="gentoo", detail="the name").run(screen),
+        lambda screen: Confirm(title="erase", phrase="vda", detail="type it").run(screen),
+        lambda screen: TwoPane(title="gentoo-install", rows=pane_rows(), footer="[enter]").run(screen),
+        lambda screen: Form(title="net", fields=[field]).run(screen),
+    )
+    for widget in drawn:
+        screen = FakeScreen(keys=["\x1b"] * 8, lines=MINIMUM_LINES, columns=MINIMUM_COLUMNS)
+        assert widget(screen).outcome is Outcome.BACK
+
+    # 7x5 is the narrowest any of them can still put its content on, measured
+    # on 2026-08-21. The floor stands above that, so nothing is drawing off
+    # the edge at the size the interface agrees to run in.
+    assert MINIMUM_COLUMNS >= 7 and MINIMUM_LINES >= 5
+
+
+def test_one_pane_below_the_two_pane_floor_and_two_at_it() -> None:
+    """The boundary the interface actually crosses, not a constant compared
+    with itself: 79 columns is one pane and 80 is two."""
+    from gentoo_install.tui.widgets import (
+        SEPARATOR,
+        TWO_PANE_COLUMNS,
+        TWO_PANE_LINES,
+        TwoPane,
+    )
+
+    wide = Recording(keys=["\x1b"], lines=TWO_PANE_LINES, columns=TWO_PANE_COLUMNS)
+    TwoPane(title="gentoo-install", rows=pane_rows()).run(wide)
+    assert SEPARATOR in wide.last
+
+    for lines, columns in ((TWO_PANE_LINES, TWO_PANE_COLUMNS - 1), (TWO_PANE_LINES - 1, TWO_PANE_COLUMNS)):
+        narrow = Recording(keys=["\x1b"], lines=lines, columns=columns)
+        TwoPane(title="gentoo-install", rows=pane_rows()).run(narrow)
+        assert SEPARATOR not in narrow.last
+        assert "Mirrors0" in narrow.drawn(2)
