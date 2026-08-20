@@ -667,3 +667,6 @@
 "Ask whether to leave, in a list; a letter in a field" = "목록에서는 나갈지 묻고 입력란에서는 한 글자입니다"
 "Ask whether to leave, anywhere" = "어느 화면에서든 나갈지 묻습니다"
 "This page, in a list; a letter in a field" = "이 쪽을 엽니다. 입력란에서는 한 글자입니다"
+"Move the cursor one screen" = "커서를 한 화면만큼 움직입니다"
+"Move the cursor to the first or last row" = "커서를 첫 줄이나 마지막 줄로 옮깁니다"
+"First or last row, in a list; a letter in a field" = "목록에서는 첫 줄이나 마지막 줄로 옮기고 입력란에서는 한 글자입니다"

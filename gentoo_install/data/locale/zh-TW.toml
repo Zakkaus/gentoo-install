@@ -668,3 +668,6 @@
 "Ask whether to leave, in a list; a letter in a field" = "在清單裡詢問是否離開；在欄位裡是一個字元"
 "Ask whether to leave, anywhere" = "在任何畫面詢問是否離開"
 "This page, in a list; a letter in a field" = "開啟這一頁；在欄位裡是一個字元"
+"Move the cursor one screen" = "游標移動一個畫面"
+"Move the cursor to the first or last row" = "游標移到第一列或最後一列"
+"First or last row, in a list; a letter in a field" = "在清單裡移到第一列或最後一列；在欄位裡是一個字元"
