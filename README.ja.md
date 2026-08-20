@@ -69,6 +69,26 @@ cd gentoo-install-master
 
 対話型インストールでは、成功時と失敗時のどちらでも、アンマウント前にターゲットシステム内で root シェルを開く選択肢が提示されます。`--no-shell` を使用すると、この確認を省略できます。
 
+| オプション | 引数と既定値 | 効果 |
+| --- | --- | --- |
+| `--config` | file または URL; unset | メニューを開かずに、そのソースを読み込みます。 |
+| `--dry-run` | none; `false` | 派生した操作と概要を表示し、操作を適用せずに終了します。 |
+| `--mirror` | stage3 mirror string; installer default | 通常のインストールで使用する stage3 のソースを選択します。メモリ起動の設定では、地域を設定から導出します。 |
+| `--lang` | language tag; `""` | メニューが設定を作成する間、`LC_ALL`、`LC_MESSAGES`、`LANG` を上書きします。 |
+| `--target` | path; `/mnt/gentoo` | 通常のインストールのマウント先を選択します。変換とメモリ起動の設定では `/` を使用します。 |
+| `--work` | path; `/run/gentoo-install` | レポートとジャーナルを含む実行状態を保持します。 |
+| `--missing-commands` | none; `false` | 不足しているホストコマンドを一行に一つずつ表示して終了します。 |
+| `--resume` | none; `false` | 既存のジャーナルを使用して、互換性のある完了済み操作を省略します。 |
+| `--no-shell` | none; `false` | ターゲットの root シェルを提示しません。メモリ起動の設定も無人で行います。 |
+| `--skip-preflight` | none; `false` | 通常のインストールの事前検査を省略します。 |
+| `--ram` | none; unset memory mode | メモリ上に保持した Gentoo CJK ISO への一回の起動を設定します。`--lowram` とは競合します。 |
+| `--lowram` | none; unset memory mode | メモリ上に保持した Alpine netboot 環境への一回の起動を設定します。`--ram` とは競合します。 |
+| `--ssh-key` | key, file, HTTP(S) URL, or `github:`/`gitlab:` reference; `""` | メモリ環境で認証される公開鍵を設定します。メモリモードが必要です。 |
+| `--ssh-port` | integer; unset | メモリ環境の `sshd` ポートを設定します。メモリモードが必要です。 |
+| `--root-password` | string; `""` | メモリ環境の root パスワードを設定します。メモリモードが必要です。 |
+| `--bypass` | none; `false` | 一回限りの起動項目を設定する代わりに、既定の起動項目を置き換えます。メモリモードが必要です。 |
+| `--disarm` | none; `false` | 以前に設定されたメモリ起動と、設定の読み込み前に配置されたファイルを削除します。 |
+
 ## メモリからのインストール
 
 <!-- fact: install-memory -->
@@ -148,6 +168,31 @@ mode = "in-place"
 - デバイスグラフは、GPT と MBR のパーティションテーブル、ext2、ext3、ext4、xfs、f2fs、vfat、subvolume を含む btrfs、swap、LUKS2 暗号化、LVM、mdraid を扱います。
 - ZFS も同じグラフに属します。プールは vdev の上で stripe、mirror、raidz1、raidz2、raidz3 のいずれかを取り、ネイティブ暗号化はプールの属性であり、各 dataset はそれぞれ独立したノードです。
 - 既存のパーティションテーブルを保持し、各パーティションに対して保持、フォーマット、削除のいずれかを個別に指定できます。
+
+| モデルノード | `id` 以外のフィールド | 結果 |
+| --- | --- | --- |
+| `Existing` | `selector`, `wipe` | 既存のデバイスを選択します。 |
+| `PartitionTable` | `disk`, `table`, `create`, `remove` | パーティションテーブルを作成または編集します。 |
+| `Partition` | `table`, `index`, `role`, `size`, `label` | パーティションを定義します。最後の `size` は残りの領域を消費できます。 |
+| `Luks` | `backing`, `name`, `passphrase_file` | LUKS コンテナを定義します。 |
+| `MdRaid` | `members`, `level`, `name`, `metadata` | mdraid アレイを定義します。 |
+| `VolumeGroup` | `members`, `name` | LVM ボリュームグループを定義します。 |
+| `LogicalVolume` | `group`, `name`, `size` | LVM 論理ボリュームを定義します。 |
+| `ZfsPool` | `vdevs`, `name`, `topology`, `encrypted`, `passphrase_file` | ZFS プールを定義します。 |
+| `ZfsDataset` | `pool`, `name` | ZFS dataset を定義します。 |
+| `Filesystem` | `device`, `kind`, `label`, `create` | デバイスをフォーマットします。`create = false` の場合は検証します。 |
+| `Subvolume` | `filesystem`, `name` | Btrfs subvolume を定義します。 |
+| `Swap` | `device` | 参照されたデバイス上の swap を定義します。 |
+| `Mountpoint` | `source`, `path`, `options` | ファイルシステム、Btrfs subvolume、または ZFS dataset をマウントします。 |
+
+| 選択肢 | 値 |
+| --- | --- |
+| パーティションテーブル | `gpt`, `mbr` |
+| パーティションの役割 | `esp`, `bios-boot`, `swap`, `raid`, `lvm`, `zfs`, `data` |
+| mdraid レベル | `raid0`, `raid1`, `raid5`, `raid6` |
+| mdraid メタデータ | `0.90`, `1.0`, `1.1`, `1.2` |
+| ファイルシステム | `ext2`, `ext3`, `ext4`, `btrfs`, `xfs`, `f2fs`, `vfat` |
+| ZFS トポロジ | `stripe`, `mirror`, `raidz1`, `raidz2`, `raidz3` |
 
 <!-- fact: zram-system -->
 
@@ -241,6 +286,34 @@ mode = "in-place"
 - メニューは設定を `paste.gentoozh.org` にアップロードする前に、`password_hash` と `root_password_hash` の値を `removed-before-publishing` に置き換え、プロキシの `username` と `password` は鍵ごと出力しません。
 - その他の設定値はアップロードに残ります。メニューはアップロード先ページのアドレスをテキストと QR コードで表示します。
 
+### 互換性規則
+
+検証では次の組み合わせを拒否します。
+
+| 拒否される組み合わせ |
+| --- |
+| パスワード認証するユーザーも、利用可能な SSH 鍵によるログインもない状態で、root ハッシュが空、ロック済み、または不正な形式である組み合わせ。 |
+| ZFS root と GRUB の組み合わせ。 |
+| GRUB を使用する ZFS 上の `/boot`。 |
+| BIOS 起動と ZFS root の組み合わせ。 |
+| LUKS root chain と ZFS root の組み合わせ。 |
+| ZFS ではない root と ZFSBootMenu の組み合わせ。 |
+| マウントされた ESP がない UEFI 起動。 |
+| 暗号化された ESP を使用する UEFI 起動。 |
+| BIOS 起動と systemd-boot の組み合わせ。 |
+| `/boot` が暗号化されているか vfat ではないため、ESP から kernel または initramfs にアクセスできない systemd-boot。 |
+| メタデータが `1.1` または `1.2` である mdraid 上の ESP。 |
+| `bios-boot` パーティションがない GPT ディスク上の BIOS 起動。 |
+| cjktty を欠く kernel での CJK コンソール描画。 |
+| 認証済み SSH 鍵がないリモート解除。 |
+| 暗号化された root コンテナまたはプールがないリモート解除。 |
+| initramfs SSH が開始する前に `/boot` を解除しなければならない GRUB を使用するリモート解除。 |
+| GRUB または systemd-boot のシステム initramfs によるネイティブ ZFS 暗号化のリモート解除。 |
+| `gentoo-zh` overlay がない CJK kernel。 |
+| `8x16` 以外のコンソールフォントによる CJK コンソール描画。 |
+| `gentoo-zh` overlay がない ZFSBootMenu。 |
+| `gentoo-zh` overlay がない gentoo-zh community binhost。 |
+
 ## 検証状況
 
 <!-- fact: verification-scope -->
@@ -277,6 +350,166 @@ mode = "in-place"
 <!-- fact: config-dry-run -->
 
 解析と計画ではストレージハードウェアを調査しないため、ターゲットディスクがないマシンでも `--dry-run` で設定を確認できます。
+
+次の参照は、永続化されるすべてのキーを挙げます。テーブルのパスは TOML テーブル記法であり、`[[disk.devices]]` にはグラフノードが格納されます。
+
+| キー | 意味と既定値または選択肢 |
+| --- | --- |
+| `config_version` | 永続化されるスキーマバージョン。`1`。 |
+| `proxy.kind` | プロキシスキーム。`http`、`https`、または `socks5`。既定値は `http` です。 |
+| `proxy.host` | プロキシホスト。`""` でプロキシを無効にします。 |
+| `proxy.port` | プロキシポート。`0`。 |
+| `proxy.username` | 任意のプロキシユーザー名。`""`。 |
+| `proxy.password` | 任意のプロキシパスワード。`""`。 |
+| `proxy.bypass` | プロキシをバイパスするホスト。`[]`。 |
+
+| `system` キー | 意味と既定値または選択肢 |
+| --- | --- |
+| `hostname` | ターゲットのホスト名。`gentoo`。 |
+| `timezone` | ターゲットのタイムゾーン。`Asia/Shanghai`。 |
+| `locales` | 生成する locale。`en_US.UTF-8`、`zh_CN.UTF-8`、`zh_TW.UTF-8`。 |
+| `locale` | 選択する locale。`zh_CN.UTF-8`。 |
+| `keymap` | インストール後のシステムのキーマップ。`us`。 |
+| `keymap_initramfs` | initramfs のキーマップ。`""` は `keymap` に従います。 |
+| `interface` | ネットワークインターフェースパターン。`""` は `en*` と `eth*` に一致します。 |
+| `addresses` | 静的 CIDR アドレス。`[]` は DHCP またはルーター広告を選択します。 |
+| `gateways` | ゲートウェイ。アドレスファミリーごとに最大一つです。`[]`。 |
+| `dns` | リゾルバーアドレス。`[]`。 |
+| `authorized_keys` | root および sudo ユーザー用の鍵。`[]`。 |
+| `console_cjk` | CJK コンソール描画を要求します。`false`。cjktty が必要です。 |
+| `console_font` | コンソールのセルサイズ。`8x8`、`8x16`、または `16x32`。既定値は `8x16` です。 |
+| `init` | init システム。`openrc` または `systemd`。既定値は `systemd` です。 |
+| `zram` | 圧縮 RAM の swap サイズ。unset では無効です。 |
+| `hardware_clock_utc` | RTC に UTC を保存します。`true`。 |
+| `users` | ユーザーレコード。`[]`。 |
+| `root_password_hash` | root の `crypt(3)` hash。`""` は root をロックします。 |
+| `logger` | logger。`none`、`sysklogd`、`syslog-ng`、または `metalog`。既定値は `sysklogd` です。 |
+| `cron` | `sys-process/cronie` をインストールします。`true`。 |
+| `sshd` | SSH デーモンのサポートをインストールして設定します。`false`。 |
+| `sshd_password_login` | SSH デーモンがパスワードを受け入れます。`false`。 |
+| `sshd_root_login` | root が SSH でログインできます。`false`。 |
+| `networking` | リンク管理。`builtin`、`networkmanager-wpa`、`networkmanager-iwd`、または `none`。既定値は `builtin` です。 |
+| `firewall` | パケットフィルターパッケージ。`none`、`nftables`、または `iptables`。既定値は `none` です。 |
+| `first_boot` | 初回起動レコード。既定では空のレコードです。 |
+
+| `system.users` 項目 | 意味と既定値 |
+| --- | --- |
+| `name` | ユーザー名。必須です。 |
+| `groups` | 補助グループ。`[]`。 |
+| `shell` | ログインシェル。`/bin/bash`。 |
+| `sudo` | ユーザーを sudo ユーザーにします。`false`。 |
+| `password_hash` | ユーザーの `crypt(3)` hash。`""` はアカウントをロックします。 |
+
+| `system.first_boot` キー | 意味と既定値 |
+| --- | --- |
+| `commands` | 取得したスクリプトの後に順番に実行するシェル行。`[]`。 |
+| `url` | スクリプト URL。`""` は取得したスクリプトを省略します。 |
+
+| `portage` キー | 意味と既定値または選択肢 |
+| --- | --- |
+| `profile` | Portage プロファイル。`default/linux/amd64/23.0/systemd`。 |
+| `keywords` | グローバルキーワードチャネル。`stable` または `testing`。既定値は `stable` です。 |
+| `sync` | 継続同期。`git`、`webrsync`、または `rsync`。既定値は `git` です。最初の同期では `webrsync` を使用します。 |
+| `testing_packages` | システムが stable のままで受け入れる testing の atom。`[]`。 |
+| `makeopts` | `MAKEOPTS`。`""`。 |
+| `common_flags` | 共通のコンパイラフラグ。`-O2 -pipe`。 |
+| `use` | `USE` フラグ。`[]`。 |
+| `video_cards` | `VIDEO_CARDS` の値。`[]`。 |
+| `l10n` | `L10N`。`[]` は生成する locale から値を導出します。 |
+| `input_devices` | `INPUT_DEVICES`。`["libinput"]`。 |
+| `accept_license` | 受諾するライセンス。`["@FREE"]`。 |
+| `cpu_flags` | CPU フラグ。`[]` はプロファイル値を保持します。 |
+| `build_in_ram` | `/var/tmp/portage` の tmpfs サイズ。unset ではディスク上でビルドします。 |
+| `mirrors` | ミラーレコード。既定値は下記です。 |
+| `binhost` | バイナリホストレコード。既定値は下記です。 |
+| `overlays` | overlay レコード。`[]`。 |
+
+| `portage.mirrors` キー | 意味と既定値または選択肢 |
+| --- | --- |
+| `region` | Gentoo ミラーの地域。`cn` または `global`。既定値は `global` です。 |
+| `speed_test` | 提示されたミラーの速度をテストします。`false`。 |
+| `distfiles` | カスタム distfile ベース。空でない一覧は組み込みの一覧を置き換えます。 |
+| `repo_sync_uri` | 明示的なリポジトリ同期 URI。`""`。 |
+| `site` | `region` 内のサイトキー。`""` は地域の最初のサイトを選択します。 |
+| `gentoo_distfiles` | `GENTOO_MIRRORS` を書き込みます。`true`。 |
+| `gentoo_zh` | gentoo-zh ミラー。`upstream`、`cernet`、`nju`、`nyist`、または `ha`。既定値は `upstream` です。 |
+| `gentoo_zh_distfiles` | gentoo-zh の distfile を `GENTOO_MIRRORS` に追加します。`true`。 |
+
+| ミラー地域 | サイトキー |
+| --- | --- |
+| `cn` | `ustc`, `nju`, `bfsu`, `tuna`, `zju`, `sdu`, `hust`, `sustech`, `hit`, `lzu`, `aliyun`, `netease`, `cernet`, `cicku-hk`, `planetunix-hk`, `xtom-hk`, `rackspace-hk`, `aditsu-hk`, `nchc-tw`, `cicku-tw`, `freedif-sg`, `cicku-sg`, `planetunix-sg` |
+| `global` | `gentoo`, `osuosl` |
+
+| `portage.binhost` キー | 意味と既定値または選択肢 |
+| --- | --- |
+| `official` | 公式バイナリホストを有効にします。`true`。 |
+| `subarch` | 公式バイナリホストのサブアーキテクチャ。`x86-64`。 |
+| `community` | gentoo-zh チャネル。`off`、`stable`、または `unstable`。既定値は `off` です。 |
+
+| `portage.overlays` 項目 | 意味 |
+| --- | --- |
+| `name` | overlay 名。必須です。 |
+| `sync_uri` | overlay の同期 URI。必須です。 |
+
+| `kernel` キー | 意味と既定値または選択肢 |
+| --- | --- |
+| `source` | kernel の選択肢。`dist-bin`、`dist-source`、`cjk-bin`、または `cjk`。既定値は `dist-bin` です。 |
+| `package` | `source` が暗黙に指定するパッケージを上書きします。`""`。 |
+| `version` | バージョン固定。`""` は Portage に最新のキーワード許可済みバージョンを選ばせます。 |
+| `dracut_modules` | ディスクレイアウトが必要とする dracut モジュールを追加します。`[]`。 |
+| `remote_unlock` | initramfs SSH 解除レコード。既定では空のレコードです。 |
+
+| `kernel.source` | パッケージと CJK の状態 |
+| --- | --- |
+| `dist-bin` | `sys-kernel/gentoo-kernel-bin`。CJK kernel ではありません。 |
+| `dist-source` | `sys-kernel/gentoo-kernel`。CJK kernel ではありません。 |
+| `cjk-bin` | `sys-kernel/gentoo-cjk-kernel-bin`。CJK kernel です。 |
+| `cjk` | `sys-kernel/gentoo-cjk-kernel`。CJK kernel です。 |
+
+| `kernel.remote_unlock` キー | 意味と既定値 |
+| --- | --- |
+| `enabled` | initramfs SSH 解除を有効にします。`false`。 |
+| `port` | initramfs の SSH ポート。`222`。 |
+| `address` | 静的 CIDR アドレス。`""` は DHCP を使用します。 |
+| `gateway` | 静的アドレスのゲートウェイ。`""`。 |
+| `interface` | initramfs のネットワークインターフェース。`""`。 |
+
+| `bootloader` キー | 意味と既定値または選択肢 |
+| --- | --- |
+| `kind` | ブートローダー。`grub`、`systemd-boot`、または `zfsbootmenu`。既定値は `grub` です。 |
+| `firmware` | ファームウェア。`uefi` または `bios`。既定値は `uefi` です。 |
+| `kernel_params` | 追加の kernel コマンドラインパラメーター。`[]`。 |
+
+| `packages` キー | 意味と既定値 |
+| --- | --- |
+| `desktop` | デスクトッププロファイル名。`""` はデスクトップを選択しません。 |
+| `applications` | パッケージグループ名。`[]`。 |
+| `graphics` | グラフィックスドライバーグループ名。`[]`。複数のグループがハイブリッドハードウェアに対応します。 |
+| `display_manager` | ディスプレイマネージャーグループ。`""` はコンソールログインを選択します。 |
+| `extra` | 他の選択後にマージするパッケージ atom。`[]`。 |
+
+| `disk` キー | 意味と既定値または選択肢 |
+| --- | --- |
+| `graph` | `[[disk.devices]]` で表すデバイスグラフ。必須です。 |
+| `root` | root グラフノード識別子。変換以外では必須です。`""` は変換時に稼働中のレイアウトを使用します。 |
+| `mode` | `partition`、`in-place`、`image`、または `dd`。既定値は `partition` です。 |
+| `image` | image モードでの疎なイメージパス。`""`。 |
+| `size` | image モードでの疎なイメージサイズ。unset。 |
+| `wipe` | ディスクレベルの消去設定。`false`。 |
+| `source` | `dd` モードでの準備済みイメージのソース。`""`。 |
+| `source_format` | ソースエンコーディング。`raw`、`gz`、`xz`、`zst`、または `tar`。既定値は `raw` です。 |
+| `destination` | ディスク全体への `dd` の宛先。`""`。 |
+
+| テンプレート入力 | 意味と既定値または選択肢 |
+| --- | --- |
+| `disk` | ディスク全体のセレクタ。必須です。 |
+| `layout` | `whole-disk`、`whole-disk-btrfs`、`whole-disk-zfs`、または `reuse`。既定値は `whole-disk` です。 |
+| `firmware` | テンプレートのファームウェア。`uefi`。 |
+| `table` | パーティションテーブルの上書き。unset では UEFI に GPT、BIOS に MBR を導出します。 |
+| `filesystem` | Btrfs および ZFS ではないディスク全体レイアウト用の root ファイルシステム。`xfs`。 |
+| `swap` | swap パーティションサイズ。unset。 |
+| `passphrase_file` | インストール側システムのパスフレーズファイルのパス。`""` はレイアウトを暗号化しません。 |
+| `pool` | ZFS プール名。`rpool`。 |
 
 次の完全な設定は、認証情報と 2 つのバイパスホストを持つプロキシを示します。認証情報は例であり、実行前に置き換える必要があります。
 

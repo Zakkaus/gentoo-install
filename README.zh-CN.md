@@ -69,6 +69,26 @@ cd gentoo-install-master
 
 交互式安装无论成功或失败，都会在卸载前提供在目标系统内打开 root shell 的选项。`--no-shell` 跳过这项确认。
 
+| 选项 | 参数与默认值 | 效果 |
+| --- | --- | --- |
+| `--config` | 文件或 URL；未设置 | 加载该来源，而不是打开菜单。 |
+| `--dry-run` | 无；`false` | 显示推导出的操作和摘要，然后在不应用操作的情况下退出。 |
+| `--mirror` | stage3 镜像字符串；安装程序默认值 | 为普通安装选择 stage3 来源。内存环境武装从配置推导其区域。 |
+| `--lang` | 语言标签；`""` | 菜单创建配置时覆盖 `LC_ALL`、`LC_MESSAGES` 和 `LANG`。 |
+| `--target` | 路径；`/mnt/gentoo` | 选择普通安装的挂载目标。转换和内存环境武装使用 `/`。 |
+| `--work` | 路径；`/run/gentoo-install` | 保存运行状态，包括报告和日志。 |
+| `--missing-commands` | 无；`false` | 每行显示一个缺少的主机命令，然后退出。 |
+| `--resume` | 无；`false` | 使用现有日志跳过兼容的已完成操作。 |
+| `--no-shell` | 无；`false` | 不提供目标 root shell。它还会使内存环境武装无需值守。 |
+| `--skip-preflight` | 无；`false` | 跳过普通安装的预检。 |
+| `--ram` | 无；未设置内存模式 | 武装一次进入保存在内存中的 Gentoo CJK ISO 的启动。它与 `--lowram` 冲突。 |
+| `--lowram` | 无；未设置内存模式 | 武装一次进入保存在内存中的 Alpine netboot 环境的启动。它与 `--ram` 冲突。 |
+| `--ssh-key` | 密钥、文件、HTTP(S) URL 或 `github:`/`gitlab:` 引用；`""` | 设置内存环境的授权公钥。它需要内存模式。 |
+| `--ssh-port` | 整数；未设置 | 设置内存环境的 `sshd` 端口；设置内存模式时可用。 |
+| `--root-password` | 字符串；`""` | 设置内存环境的 root 密码；仅支持内存模式。 |
+| `--bypass` | 无；`false` | 以替换默认引导项的方式取代武装一次性引导项；只适用于内存模式。 |
+| `--disarm` | 无；`false` | 在加载配置前移除先前武装的内存启动及其放置的文件。 |
+
 ## 从内存安装
 
 <!-- fact: install-memory -->
@@ -148,6 +168,31 @@ mode = "in-place"
 - 设备图涵盖 GPT 和 MBR 分区表、ext2、ext3、ext4、xfs、f2fs、vfat、包含 subvolume 的 btrfs、swap、LUKS2 加密、LVM 和 mdraid。
 - ZFS 属于同一张设备图：pool 在其 vdev 之上采用 stripe、mirror 或 raidz1、raidz2、raidz3，原生加密是 pool 的属性，每个 dataset 各为一个节点。
 - 现有分区表可以保留，每个分区可以分别指定保留、格式化或删除操作。
+
+| 模型节点 | `id` 之外的字段 | 结果 |
+| --- | --- | --- |
+| `Existing` | `selector`, `wipe` | 选择预先存在的设备。 |
+| `PartitionTable` | `disk`, `table`, `create`, `remove` | 创建或编辑分区表。 |
+| `Partition` | `table`, `index`, `role`, `size`, `label` | 定义分区；最后一个 `size` 可占用剩余空间。 |
+| `Luks` | `backing`, `name`, `passphrase_file` | 定义 LUKS 容器。 |
+| `MdRaid` | `members`, `level`, `name`, `metadata` | 定义 mdraid 阵列。 |
+| `VolumeGroup` | `members`, `name` | 定义 LVM 卷组。 |
+| `LogicalVolume` | `group`, `name`, `size` | 定义 LVM 逻辑卷。 |
+| `ZfsPool` | `vdevs`, `name`, `topology`, `encrypted`, `passphrase_file` | 定义 ZFS pool。 |
+| `ZfsDataset` | `pool`, `name` | 定义 ZFS dataset。 |
+| `Filesystem` | `device`, `kind`, `label`, `create` | 格式化设备；`create = false` 时验证设备。 |
+| `Subvolume` | `filesystem`, `name` | 定义 Btrfs subvolume。 |
+| `Swap` | `device` | 在引用的设备上定义 swap。 |
+| `Mountpoint` | `source`, `path`, `options` | 挂载文件系统、Btrfs subvolume 或 ZFS dataset。 |
+
+| 选项 | 值 |
+| --- | --- |
+| 分区表 | `gpt`, `mbr` |
+| 分区角色 | `esp`, `bios-boot`, `swap`, `raid`, `lvm`, `zfs`, `data` |
+| mdraid 级别 | `raid0`, `raid1`, `raid5`, `raid6` |
+| mdraid 元数据 | `0.90`, `1.0`, `1.1`, `1.2` |
+| 文件系统 | `ext2`, `ext3`, `ext4`, `btrfs`, `xfs`, `f2fs`, `vfat` |
+| ZFS 拓扑 | `stripe`, `mirror`, `raidz1`, `raidz2`, `raidz3` |
 
 <!-- fact: zram-system -->
 
@@ -241,6 +286,34 @@ mode = "in-place"
 - 菜单将配置上传至 `paste.gentoozh.org` 前，会把 `password_hash` 和 `root_password_hash` 的值替换为 `removed-before-publishing`，并且完全不写出代理的 `username` 和 `password` 这两个键；其他配置值仍会上传。
 - 菜单会以文本和 QR 码显示上传页面的网址。
 
+### 兼容性规则
+
+验证拒绝下列组合：
+
+| 被拒绝的组合 |
+| --- |
+| 没有可使用密码认证的用户或可用 SSH 密钥登录时，空的、锁定的或格式错误的 root hash。 |
+| ZFS 根与 GRUB。 |
+| ZFS 上的 `/boot` 与 GRUB。 |
+| ZFS 根与 BIOS 引导。 |
+| ZFS 根与 LUKS 根链。 |
+| ZFSBootMenu 与非 ZFS 根。 |
+| 未挂载 ESP 的 UEFI 引导。 |
+| 使用加密 ESP 的 UEFI 引导。 |
+| systemd-boot 与 BIOS 引导。 |
+| systemd-boot 与因 `/boot` 已加密或不是 vfat 而无法从 ESP 访问的 kernel 或 initramfs。 |
+| 带有元数据 `1.1` 或 `1.2` 的 mdraid 上的 ESP。 |
+| 没有 `bios-boot` 分区的 GPT 磁盘上的 BIOS 引导。 |
+| 使用缺少 cjktty 的 kernel 进行 CJK 控制台渲染。 |
+| 没有授权 SSH 密钥的远程解锁。 |
+| 没有加密根容器或 pool 的远程解锁。 |
+| 使用必须在 initramfs SSH 启动前解锁 `/boot` 的 GRUB 的远程解锁。 |
+| 由 GRUB 或 systemd-boot 系统 initramfs 解锁的原生 ZFS 加密远程解锁。 |
+| 没有 `gentoo-zh` overlay 的 CJK kernel。 |
+| 使用非 `8x16` 控制台字体的 CJK 控制台渲染。 |
+| 没有 `gentoo-zh` overlay 的 ZFSBootMenu。 |
+| 没有 `gentoo-zh` overlay 的 gentoo-zh 社区 binhost。 |
+
 ## 验证状态
 
 <!-- fact: verification-scope -->
@@ -277,6 +350,166 @@ mode = "in-place"
 <!-- fact: config-dry-run -->
 
 解析与计划阶段不会探测存储硬件，因此没有目标磁盘的机器也能通过 `--dry-run` 检查配置。
+
+以下参考列出每个持久化键。表路径采用 TOML 表记法，`[[disk.devices]]` 包含图节点。
+
+| 键 | 含义和默认值或选项 |
+| --- | --- |
+| `config_version` | 持久化的结构版本；`1`。 |
+| `proxy.kind` | 代理协议：`http`、`https` 或 `socks5`；`http`。 |
+| `proxy.host` | 代理主机；`""` 禁用代理。 |
+| `proxy.port` | 代理端口；`0`。 |
+| `proxy.username` | 可选代理用户名；`""`。 |
+| `proxy.password` | 可选代理密码；`""`。 |
+| `proxy.bypass` | 绕过代理的主机；`[]`。 |
+
+| `system` 键 | 含义和默认值或选项 |
+| --- | --- |
+| `hostname` | 目标主机名；`gentoo`。 |
+| `timezone` | 目标时区；`Asia/Shanghai`。 |
+| `locales` | 生成的 locale；`en_US.UTF-8`、`zh_CN.UTF-8`、`zh_TW.UTF-8`。 |
+| `locale` | 选定的 locale；`zh_CN.UTF-8`。 |
+| `keymap` | 已安装系统的键盘映射；`us`。 |
+| `keymap_initramfs` | initramfs 键盘映射；`""` 表示跟随 `keymap`。 |
+| `interface` | 网络接口模式；`""` 匹配 `en*` 和 `eth*`。 |
+| `addresses` | 静态 CIDR 地址；`[]` 选择 DHCP 或路由器通告。 |
+| `gateways` | 网关，每个地址族最多一个；`[]`。 |
+| `dns` | 解析器地址；`[]`。 |
+| `authorized_keys` | root 和 sudo 用户的密钥；`[]`。 |
+| `console_cjk` | 要求 CJK 控制台渲染；`false`；需要 cjktty。 |
+| `console_font` | 控制台单元格大小：`8x8`、`8x16` 或 `16x32`；`8x16`。 |
+| `init` | init 系统：`openrc` 或 `systemd`；`systemd`。 |
+| `zram` | 压缩 RAM swap 大小；未设置则禁用。 |
+| `hardware_clock_utc` | RTC 存储 UTC；`true`。 |
+| `users` | 用户记录；`[]`。 |
+| `root_password_hash` | root `crypt(3)` 哈希；`""` 锁定 root。 |
+| `logger` | 日志程序：`none`、`sysklogd`、`syslog-ng` 或 `metalog`；`sysklogd`。 |
+| `cron` | 安装 `sys-process/cronie`；`true`。 |
+| `sshd` | 安装并配置 SSH 守护进程支持；`false`。 |
+| `sshd_password_login` | SSH 守护进程接受密码；`false`。 |
+| `sshd_root_login` | root 可通过 SSH 登录；`false`。 |
+| `networking` | 链路管理：`builtin`、`networkmanager-wpa`、`networkmanager-iwd` 或 `none`；`builtin`。 |
+| `firewall` | 数据包过滤软件包：`none`、`nftables` 或 `iptables`；`none`。 |
+| `first_boot` | 首次启动记录；默认为空记录。 |
+
+| `system.users` 项 | 含义和默认值 |
+| --- | --- |
+| `name` | 用户名；必填。 |
+| `groups` | 补充组；`[]`。 |
+| `shell` | 登录 shell；`/bin/bash`。 |
+| `sudo` | 使该用户成为 sudo 用户；`false`。 |
+| `password_hash` | 用户 `crypt(3)` 哈希；`""` 锁定账户。 |
+
+| `system.first_boot` 键 | 含义和默认值 |
+| --- | --- |
+| `commands` | 在获取的脚本之后按顺序执行的 shell 行；`[]`。 |
+| `url` | 脚本 URL；`""` 表示不获取脚本。 |
+
+| `portage` 键 | 含义和默认值或选项 |
+| --- | --- |
+| `profile` | Portage profile；`default/linux/amd64/23.0/systemd`。 |
+| `keywords` | 全局关键词通道：`stable` 或 `testing`；`stable`。 |
+| `sync` | 持续同步：`git`、`webrsync` 或 `rsync`；`git`。首次同步使用 webrsync。 |
+| `testing_packages` | 系统保持稳定时允许使用 testing 的 atom；`[]`。 |
+| `makeopts` | `MAKEOPTS`；`""`。 |
+| `common_flags` | 通用编译器标志；`-O2 -pipe`。 |
+| `use` | `USE` 标志；`[]`。 |
+| `video_cards` | `VIDEO_CARDS` 值；`[]`。 |
+| `l10n` | `L10N`；`[]` 从生成的 locale 推导值。 |
+| `input_devices` | `INPUT_DEVICES`；`["libinput"]`。 |
+| `accept_license` | 接受的许可证；`["@FREE"]`。 |
+| `cpu_flags` | CPU 标志；`[]` 保留 profile 值。 |
+| `build_in_ram` | `/var/tmp/portage` tmpfs 大小；未设置则在磁盘上构建。 |
+| `mirrors` | 镜像记录；默认值见下文。 |
+| `binhost` | 二进制主机记录；默认值见下文。 |
+| `overlays` | Overlay 记录；`[]`。 |
+
+| `portage.mirrors` 键 | 含义和默认值或选项 |
+| --- | --- |
+| `region` | Gentoo 镜像区域：`cn` 或 `global`；`global`。 |
+| `speed_test` | 对提供的镜像执行速度测试；`false`。 |
+| `distfiles` | 自定义 distfile 基地址；非空列表会替换内置列表。 |
+| `repo_sync_uri` | 显式仓库同步 URI；`""`。 |
+| `site` | `region` 中的站点键；`""` 选择该区域的第一个站点。 |
+| `gentoo_distfiles` | 写入 `GENTOO_MIRRORS`；`true`。 |
+| `gentoo_zh` | gentoo-zh 镜像：`upstream`、`cernet`、`nju`、`nyist` 或 `ha`；`upstream`。 |
+| `gentoo_zh_distfiles` | 将 gentoo-zh distfile 追加到 `GENTOO_MIRRORS`；`true`。 |
+
+| 镜像区域 | 站点键 |
+| --- | --- |
+| `cn` | `ustc`, `nju`, `bfsu`, `tuna`, `zju`, `sdu`, `hust`, `sustech`, `hit`, `lzu`, `aliyun`, `netease`, `cernet`, `cicku-hk`, `planetunix-hk`, `xtom-hk`, `rackspace-hk`, `aditsu-hk`, `nchc-tw`, `cicku-tw`, `freedif-sg`, `cicku-sg`, `planetunix-sg` |
+| `global` | `gentoo`, `osuosl` |
+
+| `portage.binhost` 键 | 含义和默认值或选项 |
+| --- | --- |
+| `official` | 启用官方二进制主机；`true`。 |
+| `subarch` | 官方二进制主机子架构；`x86-64`。 |
+| `community` | gentoo-zh 通道：`off`、`stable` 或 `unstable`；`off`。 |
+
+| `portage.overlays` 项 | 含义 |
+| --- | --- |
+| `name` | Overlay 名称；必填。 |
+| `sync_uri` | Overlay 同步 URI；必填。 |
+
+| `kernel` 键 | 含义和默认值或选项 |
+| --- | --- |
+| `source` | kernel 选择：`dist-bin`、`dist-source`、`cjk-bin` 或 `cjk`；`dist-bin`。 |
+| `package` | 覆盖 `source` 隐含的软件包；`""`。 |
+| `version` | 版本固定；`""` 让 Portage 选择允许的最新关键词版本。 |
+| `dracut_modules` | 添加磁盘布局所需的 dracut 模块；`[]`。 |
+| `remote_unlock` | initramfs SSH 解锁记录；默认为空记录。 |
+
+| `kernel.source` | 软件包和 CJK 状态 |
+| --- | --- |
+| `dist-bin` | `sys-kernel/gentoo-kernel-bin`；不是 CJK kernel。 |
+| `dist-source` | `sys-kernel/gentoo-kernel`；不属于 CJK kernel。 |
+| `cjk-bin` | `sys-kernel/gentoo-cjk-kernel-bin`；CJK kernel。 |
+| `cjk` | `sys-kernel/gentoo-cjk-kernel`；CJK kernel。 |
+
+| `kernel.remote_unlock` 键 | 含义和默认值 |
+| --- | --- |
+| `enabled` | 启用 initramfs SSH 解锁；`false`。 |
+| `port` | initramfs SSH 端口；`222`。 |
+| `address` | 静态 CIDR 地址；`""` 使用 DHCP。 |
+| `gateway` | 静态地址网关；`""`。 |
+| `interface` | initramfs 网络接口；`""`。 |
+
+| `bootloader` 键 | 含义和默认值或选项 |
+| --- | --- |
+| `kind` | 引导程序：`grub`、`systemd-boot` 或 `zfsbootmenu`；`grub`。 |
+| `firmware` | 固件：`uefi` 或 `bios`；`uefi`。 |
+| `kernel_params` | 额外 kernel 命令行参数；`[]`。 |
+
+| `packages` 键 | 含义和默认值 |
+| --- | --- |
+| `desktop` | 桌面 profile 名称；`""` 表示不选择桌面。 |
+| `applications` | 软件包组名称；`[]`。 |
+| `graphics` | 图形驱动程序组名称；`[]`；多个组适用于混合硬件。 |
+| `display_manager` | 显示管理器组；`""` 选择控制台登录。 |
+| `extra` | 在其他选择之后合并的软件包 atom；`[]`。 |
+
+| `disk` 键 | 含义和默认值或选项 |
+| --- | --- |
+| `graph` | 由 `[[disk.devices]]` 表示的设备图；必填。 |
+| `root` | 根图节点标识符；转换之外必填；`""` 在转换时使用运行中布局。 |
+| `mode` | `partition`、`in-place`、`image` 或 `dd`；`partition`。 |
+| `image` | image 模式下的稀疏镜像路径；`""`。 |
+| `size` | image 模式下的稀疏镜像大小；未设置。 |
+| `wipe` | 磁盘级擦除设置；`false`。 |
+| `source` | `dd` 模式下的准备镜像来源；`""`。 |
+| `source_format` | 来源编码：`raw`、`gz`、`xz`、`zst` 或 `tar`；`raw`。 |
+| `destination` | 整盘 `dd` 目标；`""`。 |
+
+| 模板输入 | 含义和默认值或选项 |
+| --- | --- |
+| `disk` | 整盘选择器；必填。 |
+| `layout` | `whole-disk`、`whole-disk-btrfs`、`whole-disk-zfs` 或 `reuse`；`whole-disk`。 |
+| `firmware` | 模板固件；`uefi`。 |
+| `table` | 分区表覆盖；未设置时 UEFI 推导为 GPT，BIOS 推导为 MBR。 |
+| `filesystem` | 非 Btrfs、非 ZFS 整盘布局的根文件系统；`xfs`。 |
+| `swap` | swap 分区大小；未设置。 |
+| `passphrase_file` | 安装系统的 passphrase 文件路径；`""` 表示布局不加密。 |
+| `pool` | ZFS pool 名称；`rpool`。 |
 
 以下完整配置演示包含认证信息和两个绕过主机。认证信息只是示例，执行前必须替换：
 

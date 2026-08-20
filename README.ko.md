@@ -69,6 +69,26 @@ cd gentoo-install-master
 
 대화형 설치에서는 성공하거나 실패한 경우 모두 마운트를 해제하기 전에 대상 시스템 안에서 root 셸을 여는 선택지를 제공한다. `--no-shell`을 사용하면 이 확인을 생략할 수 있다.
 
+| 옵션 | 인수 및 기본값 | 효과 |
+| --- | --- | --- |
+| `--config` | 파일 또는 URL; 설정되지 않음 | 메뉴를 열지 않고 해당 소스를 불러온다. |
+| `--dry-run` | 없음; `false` | 파생된 작업과 요약을 렌더링한 뒤 작업을 적용하지 않고 종료한다. |
+| `--mirror` | stage3 미러 문자열; 설치 도구 기본값 | 일반 설치에 사용할 stage3 소스를 선택한다. 메모리 설정은 구성에서 해당 지역을 도출한다. |
+| `--lang` | 언어 태그; `""` | 메뉴가 구성을 만드는 동안 `LC_ALL`, `LC_MESSAGES`, `LANG`을 재정의한다. |
+| `--target` | 경로; `/mnt/gentoo` | 일반 설치의 마운트 대상을 선택한다. 변환과 메모리 설정에는 `/`을 사용한다. |
+| `--work` | 경로; `/run/gentoo-install` | 보고서와 저널을 포함한 실행 상태를 보관한다. |
+| `--missing-commands` | 없음; `false` | 누락된 호스트 명령을 한 줄에 하나씩 출력한 뒤 종료한다. |
+| `--resume` | 없음; `false` | 기존 저널을 사용하여 호환되는 완료 작업을 건너뛴다. |
+| `--no-shell` | 없음; `false` | 대상 root 셸 제안을 표시하지 않는다. 메모리 설정도 무인으로 만든다. |
+| `--skip-preflight` | 없음; `false` | 일반 설치의 사전 점검을 건너뛴다. |
+| `--ram` | 없음; 설정되지 않은 메모리 모드 | 메모리에 올린 Gentoo CJK ISO로 한 번 부팅하도록 설정한다. `--lowram`과 충돌한다. |
+| `--lowram` | 없음; 설정되지 않은 메모리 모드 | 메모리에 올린 Alpine netboot 환경으로 한 번 부팅하도록 설정한다. `--ram`과 충돌한다. |
+| `--ssh-key` | 키, 파일, HTTP(S) URL 또는 `github:`/`gitlab:` 참조; `""` | 메모리 환경의 인증된 공개 키를 설정한다. 메모리 모드가 필요하다. |
+| `--ssh-port` | 정수; 설정되지 않음 | 메모리 환경의 `sshd` 포트를 설정한다. 메모리 모드가 필요하다. |
+| `--root-password` | 문자열; `""` | 메모리 환경의 root 비밀번호를 설정한다. 메모리 모드가 필요하다. |
+| `--bypass` | 없음; `false` | 한 번만 부팅하는 항목을 설정하는 대신 기본 부팅 항목을 교체한다. 메모리 모드가 필요하다. |
+| `--disarm` | 없음; `false` | 구성 불러오기 전에 이전에 설정한 메모리 부팅과 그 부팅이 배치한 파일을 제거한다. |
+
 ## 메모리에서 설치
 
 <!-- fact: install-memory -->
@@ -148,6 +168,31 @@ mode = "in-place"
 - 장치 그래프는 GPT와 MBR 파티션 테이블, ext2, ext3, ext4, xfs, f2fs, vfat, subvolume을 포함하는 btrfs, swap, LUKS2 암호화, LVM, mdraid를 다룬다.
 - ZFS도 같은 그래프에 속한다. 풀은 vdev 위에서 stripe, mirror, raidz1, raidz2, raidz3 중 하나를 취하고, 네이티브 암호화는 풀의 속성이며, 각 dataset은 그 자체로 하나의 노드다.
 - 기존 파티션 테이블을 유지할 수 있으며 각 파티션에 유지, 포맷, 삭제 작업을 각각 지정할 수 있다.
+
+| 모델 노드 | `id` 외 필드 | 결과 |
+| --- | --- | --- |
+| `Existing` | `selector`, `wipe` | 기존 장치를 선택한다. |
+| `PartitionTable` | `disk`, `table`, `create`, `remove` | 파티션 테이블을 만들거나 수정한다. |
+| `Partition` | `table`, `index`, `role`, `size`, `label` | 파티션을 정의한다. 마지막 `size`는 남은 공간을 모두 사용할 수 있다. |
+| `Luks` | `backing`, `name`, `passphrase_file` | LUKS 컨테이너를 정의한다. |
+| `MdRaid` | `members`, `level`, `name`, `metadata` | mdraid 배열을 정의한다. |
+| `VolumeGroup` | `members`, `name` | LVM 볼륨 그룹을 정의한다. |
+| `LogicalVolume` | `group`, `name`, `size` | LVM 논리 볼륨을 정의한다. |
+| `ZfsPool` | `vdevs`, `name`, `topology`, `encrypted`, `passphrase_file` | ZFS 풀을 정의한다. |
+| `ZfsDataset` | `pool`, `name` | ZFS dataset을 정의한다. |
+| `Filesystem` | `device`, `kind`, `label`, `create` | 장치를 포맷하거나 `create = false`이면 확인한다. |
+| `Subvolume` | `filesystem`, `name` | Btrfs subvolume을 정의한다. |
+| `Swap` | `device` | 참조한 장치에 swap을 정의한다. |
+| `Mountpoint` | `source`, `path`, `options` | 파일 시스템, Btrfs subvolume 또는 ZFS dataset을 마운트한다. |
+
+| 선택지 | 값 |
+| --- | --- |
+| 파티션 테이블 | `gpt`, `mbr` |
+| 파티션 역할 | `esp`, `bios-boot`, `swap`, `raid`, `lvm`, `zfs`, `data` |
+| mdraid 수준 | `raid0`, `raid1`, `raid5`, `raid6` |
+| mdraid 메타데이터 | `0.90`, `1.0`, `1.1`, `1.2` |
+| 파일 시스템 | `ext2`, `ext3`, `ext4`, `btrfs`, `xfs`, `f2fs`, `vfat` |
+| ZFS 토폴로지 | `stripe`, `mirror`, `raidz1`, `raidz2`, `raidz3` |
 
 <!-- fact: zram-system -->
 
@@ -241,6 +286,34 @@ mode = "in-place"
 - 메뉴는 설정을 `paste.gentoozh.org`에 업로드하기 전에 `password_hash`와 `root_password_hash` 값을 `removed-before-publishing`으로 바꾸고, 프록시의 `username`과 `password`는 키 자체를 출력하지 않는다.
 - 다른 설정값은 업로드에 남는다. 메뉴는 업로드된 페이지의 주소를 텍스트와 QR 코드로 표시한다.
 
+### 호환성 규칙
+
+검증은 다음 조합을 거부한다.
+
+| 거부되는 조합 |
+| --- |
+| 비어 있거나 잠겨 있거나 형식이 잘못된 root hash와 비밀번호 인증 사용자가 없고 사용할 수 있는 SSH 키 로그인도 없는 조합. |
+| ZFS 루트와 GRUB의 조합. |
+| GRUB를 사용하는 `/boot`의 ZFS 배치. |
+| ZFS 루트와 BIOS 부팅의 조합. |
+| ZFS 루트와 LUKS 루트 체인의 조합. |
+| ZFS가 아닌 루트와 ZFSBootMenu의 조합. |
+| 마운트된 ESP가 없는 UEFI 부팅. |
+| 암호화된 ESP가 있는 UEFI 부팅. |
+| BIOS 부팅과 systemd-boot의 조합. |
+| `/boot`이 암호화되었거나 vfat이어서 ESP에서 접근할 수 없는 커널 또는 initramfs와 systemd-boot의 조합. |
+| 메타데이터가 `1.1` 또는 `1.2`인 mdraid 위의 ESP. |
+| `bios-boot` 파티션이 없는 GPT 디스크의 BIOS 부팅. |
+| cjktty가 없는 커널에서 CJK 콘솔 렌더링을 사용하는 경우. |
+| 인증된 SSH 키가 없는 원격 잠금 해제. |
+| 암호화된 루트 컨테이너 또는 풀이 없는 원격 잠금 해제. |
+| initramfs SSH가 시작하기 전에 `/boot` 잠금을 해제해야 하는 GRUB를 사용하는 원격 잠금 해제. |
+| GRUB 또는 systemd-boot 시스템 initramfs가 수행하는 네이티브 ZFS 암호화의 원격 잠금 해제. |
+| `gentoo-zh` overlay가 없는 CJK 커널. |
+| `8x16` 이외의 콘솔 글꼴을 사용하는 CJK 콘솔 렌더링. |
+| `gentoo-zh` overlay가 없는 ZFSBootMenu. |
+| `gentoo-zh` overlay가 없는 gentoo-zh 커뮤니티 binhost. |
+
 ## 검증 상태
 
 <!-- fact: verification-scope -->
@@ -277,6 +350,166 @@ mode = "in-place"
 <!-- fact: config-dry-run -->
 
 구문 분석과 계획 단계에서는 저장 장치 하드웨어를 조사하지 않으므로 대상 디스크가 없는 머신에서도 `--dry-run`으로 설정을 확인할 수 있다.
+
+다음 참조에는 영속되는 모든 키가 있다. 테이블 경로는 TOML 테이블 표기법이며, `[[disk.devices]]`에는 그래프 노드가 들어간다.
+
+| 키 | 의미 및 기본값 또는 선택지 |
+| --- | --- |
+| `config_version` | 영속되는 스키마 버전이며 기본값은 `1`이다. |
+| `proxy.kind` | 프록시 체계이며 `http`, `https`, `socks5` 중 하나이고 기본값은 `http`다. |
+| `proxy.host` | 프록시 호스트이며 `""`이면 프록시를 비활성화한다. |
+| `proxy.port` | 프록시 포트이며 기본값은 `0`이다. |
+| `proxy.username` | 선택적 프록시 사용자 이름이며 기본값은 `""`이다. |
+| `proxy.password` | 선택적 프록시 비밀번호이며 기본값은 `""`이다. |
+| `proxy.bypass` | 프록시를 우회하는 호스트이며 기본값은 `[]`이다. |
+
+| `system` 키 | 의미 및 기본값 또는 선택지 |
+| --- | --- |
+| `hostname` | 대상 hostname이며 기본값은 `gentoo`다. |
+| `timezone` | 대상 timezone이며 기본값은 `Asia/Shanghai`다. |
+| `locales` | 생성되는 locale이며 기본값은 `en_US.UTF-8`, `zh_CN.UTF-8`, `zh_TW.UTF-8`다. |
+| `locale` | 선택한 locale이며 기본값은 `zh_CN.UTF-8`다. |
+| `keymap` | 설치된 시스템의 keymap이며 기본값은 `us`다. |
+| `keymap_initramfs` | initramfs의 keymap이며 `""`이면 `keymap`을 따른다. |
+| `interface` | 네트워크 인터페이스 패턴이며 `""`이면 `en*`과 `eth*`에 일치한다. |
+| `addresses` | 고정 CIDR 주소이며 `[]`이면 DHCP 또는 라우터 광고를 선택한다. |
+| `gateways` | 게이트웨이이며 주소 계열마다 최대 하나이고 기본값은 `[]`이다. |
+| `dns` | 리졸버 주소이며 기본값은 `[]`이다. |
+| `authorized_keys` | root 및 sudo 사용자의 키이며 기본값은 `[]`이다. |
+| `console_cjk` | CJK 콘솔 렌더링을 요청하며 기본값은 `false`이고 cjktty가 필요하다. |
+| `console_font` | 콘솔 셀 크기이며 `8x8`, `8x16`, `16x32` 중 하나이고 기본값은 `8x16`이다. |
+| `init` | init 시스템이며 `openrc` 또는 `systemd`이고 기본값은 `systemd`다. |
+| `zram` | 압축 RAM swap 크기이며 설정하지 않으면 비활성화한다. |
+| `hardware_clock_utc` | RTC가 UTC를 저장하며 기본값은 `true`다. |
+| `users` | 사용자 기록이며 기본값은 `[]`이다. |
+| `root_password_hash` | root `crypt(3)` hash이며 `""`이면 root를 잠근다. |
+| `logger` | 로거이며 `none`, `sysklogd`, `syslog-ng`, `metalog` 중 하나이고 기본값은 `sysklogd`다. |
+| `cron` | `sys-process/cronie`를 설치하며 기본값은 `true`다. |
+| `sshd` | SSH 데몬 지원을 설치하고 구성하며 기본값은 `false`다. |
+| `sshd_password_login` | SSH 데몬이 비밀번호를 허용하며 기본값은 `false`다. |
+| `sshd_root_login` | root가 SSH로 로그인할 수 있으며 기본값은 `false`다. |
+| `networking` | 링크 관리 방식이며 `builtin`, `networkmanager-wpa`, `networkmanager-iwd`, `none` 중 하나이고 기본값은 `builtin`이다. |
+| `firewall` | 패킷 필터 패키지이며 `none`, `nftables`, `iptables` 중 하나이고 기본값은 `none`이다. |
+| `first_boot` | 첫 부팅 기록이며 기본값은 비어 있는 기록이다. |
+
+| `system.users` 항목 | 의미 및 기본값 |
+| --- | --- |
+| `name` | 사용자 이름이며 필수다. |
+| `groups` | 보조 그룹이며 기본값은 `[]`이다. |
+| `shell` | 로그인 셸이며 기본값은 `/bin/bash`다. |
+| `sudo` | 사용자를 sudo 사용자로 만들며 기본값은 `false`다. |
+| `password_hash` | 사용자 `crypt(3)` hash이며 `""`이면 계정을 잠근다. |
+
+| `system.first_boot` 키 | 의미 및 기본값 |
+| --- | --- |
+| `commands` | 가져온 script 뒤에 순서대로 실행할 셸 줄이며 기본값은 `[]`이다. |
+| `url` | script URL이며 `""`이면 가져온 script를 생략한다. |
+
+| `portage` 키 | 의미 및 기본값 또는 선택지 |
+| --- | --- |
+| `profile` | Portage profile이며 기본값은 `default/linux/amd64/23.0/systemd`다. |
+| `keywords` | 전역 keyword 채널이며 `stable` 또는 `testing`이고 기본값은 `stable`이다. |
+| `sync` | 지속 동기화 방식이며 `git`, `webrsync`, `rsync` 중 하나이고 기본값은 `git`다. 최초 동기화에는 webrsync를 사용한다. |
+| `testing_packages` | 시스템이 안정 상태를 유지하는 동안 testing으로 허용할 atom이며 기본값은 `[]`이다. |
+| `makeopts` | `MAKEOPTS`이며 기본값은 `""`이다. |
+| `common_flags` | 공통 컴파일러 플래그이며 기본값은 `-O2 -pipe`다. |
+| `use` | `USE` 플래그이며 기본값은 `[]`이다. |
+| `video_cards` | `VIDEO_CARDS` 값이며 기본값은 `[]`이다. |
+| `l10n` | `L10N`이며 기본값은 `[]`이고 생성되는 locale에서 값을 도출한다. |
+| `input_devices` | `INPUT_DEVICES`이며 기본값은 `["libinput"]`이다. |
+| `accept_license` | 수락하는 라이선스이며 기본값은 `["@FREE"]`다. |
+| `cpu_flags` | CPU 플래그이며 기본값은 `[]`이고 profile 값을 보존한다. |
+| `build_in_ram` | `/var/tmp/portage` tmpfs 크기이며 설정하지 않으면 디스크에서 빌드한다. |
+| `mirrors` | 미러 기록이며 기본값은 아래에 표시한다. |
+| `binhost` | 바이너리 호스트 기록이며 기본값은 아래에 표시한다. |
+| `overlays` | overlay 기록이며 기본값은 `[]`이다. |
+
+| `portage.mirrors` 키 | 의미 및 기본값 또는 선택지 |
+| --- | --- |
+| `region` | Gentoo 미러 지역이며 `cn` 또는 `global`이고 기본값은 `global`이다. |
+| `speed_test` | 제안된 미러의 속도를 시험하며 기본값은 `false`다. |
+| `distfiles` | 사용자 지정 distfile 기반이며 비어 있지 않은 목록은 내장 목록을 교체한다. |
+| `repo_sync_uri` | 명시적 저장소 동기화 URI이며 기본값은 `""`이다. |
+| `site` | `region`의 사이트 키이며 `""`이면 해당 지역의 첫 사이트를 선택한다. |
+| `gentoo_distfiles` | `GENTOO_MIRRORS`를 기록하며 기본값은 `true`다. |
+| `gentoo_zh` | gentoo-zh 미러이며 `upstream`, `cernet`, `nju`, `nyist`, `ha` 중 하나이고 기본값은 `upstream`이다. |
+| `gentoo_zh_distfiles` | gentoo-zh distfile을 `GENTOO_MIRRORS`에 추가하며 기본값은 `true`다. |
+
+| 미러 지역 | 사이트 키 |
+| --- | --- |
+| `cn` | `ustc`, `nju`, `bfsu`, `tuna`, `zju`, `sdu`, `hust`, `sustech`, `hit`, `lzu`, `aliyun`, `netease`, `cernet`, `cicku-hk`, `planetunix-hk`, `xtom-hk`, `rackspace-hk`, `aditsu-hk`, `nchc-tw`, `cicku-tw`, `freedif-sg`, `cicku-sg`, `planetunix-sg` |
+| `global` | `gentoo`, `osuosl` |
+
+| `portage.binhost` 키 | 의미 및 기본값 또는 선택지 |
+| --- | --- |
+| `official` | 공식 바이너리 호스트를 활성화하며 기본값은 `true`다. |
+| `subarch` | 공식 바이너리 호스트의 subarchitecture이며 기본값은 `x86-64`다. |
+| `community` | gentoo-zh 채널이며 `off`, `stable`, `unstable` 중 하나이고 기본값은 `off`다. |
+
+| `portage.overlays` 항목 | 의미 |
+| --- | --- |
+| `name` | overlay 이름이며 필수다. |
+| `sync_uri` | overlay 동기화 URI이며 필수다. |
+
+| `kernel` 키 | 의미 및 기본값 또는 선택지 |
+| --- | --- |
+| `source` | 커널 선택지이며 `dist-bin`, `dist-source`, `cjk-bin`, `cjk` 중 하나이고 기본값은 `dist-bin`이다. |
+| `package` | `source`가 암시하는 패키지를 재정의하며 기본값은 `""`이다. |
+| `version` | 버전 고정값이며 `""`이면 Portage가 keyword 허용 최신 버전을 선택한다. |
+| `dracut_modules` | 디스크 레이아웃에 필요한 dracut 모듈을 추가하며 기본값은 `[]`이다. |
+| `remote_unlock` | initramfs SSH 잠금 해제 기록이며 기본값은 비어 있는 기록이다. |
+
+| `kernel.source` | 패키지 및 CJK 상태 |
+| --- | --- |
+| `dist-bin` | `sys-kernel/gentoo-kernel-bin`이며 CJK 커널이 아니다. |
+| `dist-source` | `sys-kernel/gentoo-kernel`이며 CJK 커널이 아니다. |
+| `cjk-bin` | `sys-kernel/gentoo-cjk-kernel-bin`이며 CJK 커널이다. |
+| `cjk` | `sys-kernel/gentoo-cjk-kernel`이며 CJK 커널이다. |
+
+| `kernel.remote_unlock` 키 | 의미 및 기본값 |
+| --- | --- |
+| `enabled` | initramfs SSH 잠금 해제를 활성화하며 기본값은 `false`다. |
+| `port` | initramfs SSH 포트이며 기본값은 `222`다. |
+| `address` | 고정 CIDR 주소이며 `""`이면 DHCP를 사용한다. |
+| `gateway` | 고정 주소 게이트웨이이며 기본값은 `""`이다. |
+| `interface` | initramfs 네트워크 인터페이스이며 기본값은 `""`이다. |
+
+| `bootloader` 키 | 의미 및 기본값 또는 선택지 |
+| --- | --- |
+| `kind` | 부트로더이며 `grub`, `systemd-boot`, `zfsbootmenu` 중 하나이고 기본값은 `grub`다. |
+| `firmware` | 펌웨어이며 `uefi` 또는 `bios`이고 기본값은 `uefi`다. |
+| `kernel_params` | 추가 커널 명령줄 매개변수이며 기본값은 `[]`이다. |
+
+| `packages` 키 | 의미 및 기본값 |
+| --- | --- |
+| `desktop` | 데스크톱 profile 이름이며 `""`이면 데스크톱을 선택하지 않는다. |
+| `applications` | 패키지 그룹 이름이며 기본값은 `[]`이다. |
+| `graphics` | 그래픽 드라이버 그룹 이름이며 기본값은 `[]`이다. 여러 그룹은 하이브리드 하드웨어에 적합하다. |
+| `display_manager` | 디스플레이 관리자 그룹이며 `""`이면 콘솔 로그인을 선택한다. |
+| `extra` | 다른 선택 뒤에 병합할 패키지 atom이며 기본값은 `[]`이다. |
+
+| `disk` 키 | 의미 및 기본값 또는 선택지 |
+| --- | --- |
+| `graph` | `[[disk.devices]]`로 표현하는 장치 그래프이며 필수다. |
+| `root` | 루트 그래프 노드 식별자이며 변환 밖에서는 필수다. `""`이면 변환에서 실행 중인 레이아웃을 사용한다. |
+| `mode` | `partition`, `in-place`, `image`, `dd` 중 하나이며 기본값은 `partition`이다. |
+| `image` | image 모드의 희소 이미지 경로이며 기본값은 `""`이다. |
+| `size` | image 모드의 희소 이미지 크기이며 설정되지 않음이다. |
+| `wipe` | 디스크 수준 wipe 설정이며 기본값은 `false`다. |
+| `source` | `dd` 모드의 준비된 이미지 소스이며 기본값은 `""`이다. |
+| `source_format` | 소스 인코딩이며 `raw`, `gz`, `xz`, `zst`, `tar` 중 하나이고 기본값은 `raw`다. |
+| `destination` | 디스크 전체 `dd` 대상이며 기본값은 `""`이다. |
+
+| 템플릿 입력 | 의미 및 기본값 또는 선택지 |
+| --- | --- |
+| `disk` | 디스크 전체 선택자이며 필수다. |
+| `layout` | `whole-disk`, `whole-disk-btrfs`, `whole-disk-zfs`, `reuse` 중 하나이며 기본값은 `whole-disk`다. |
+| `firmware` | 템플릿 펌웨어이며 기본값은 `uefi`다. |
+| `table` | 파티션 테이블 재정의이며 설정하지 않으면 UEFI는 GPT, BIOS는 MBR을 도출한다. |
+| `filesystem` | Btrfs 및 ZFS가 아닌 디스크 전체 레이아웃의 루트 파일 시스템이며 기본값은 `xfs`다. |
+| `swap` | swap 파티션 크기이며 설정되지 않음이다. |
+| `passphrase_file` | 설치 시스템의 passphrase 파일 경로이며 `""`이면 레이아웃을 암호화하지 않는다. |
+| `pool` | ZFS 풀 이름이며 기본값은 `rpool`이다. |
 
 다음 완전한 설정은 인증 정보와 우회 호스트 두 개가 있는 프록시를 보여 준다. 인증 정보는 예시이므로 실행하기 전에 바꿔야 한다.
 
