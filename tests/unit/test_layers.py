@@ -527,6 +527,60 @@ def test_every_operation_names_the_files_it_writes() -> None:
                 )
 
 
+def test_the_dry_run_names_every_file_only_its_owner_may_read() -> None:
+    """A file written `0600` holds a password, a key or an access grant, so
+    where it lands is what an operator most needs from `--dry-run`. Eight of
+    them were named by no description: the four `WriteProxyClients` writes,
+    `dirmngr.conf`, `wired.nmconnection`, `authorized_keys` and the sshd
+    drop-in.
+
+    Both spellings of the description are read. The wider rule above sees only
+    `describe`, so every operation whose text is translated sat outside it;
+    thirty of them still name no file, and that is `docs/tasks.md` row 241.
+    """
+    for module in _modules("plan"):
+        tree = ast.parse(module.read_text(encoding="utf-8"))
+        known: dict[str, ast.expr] = {}
+        for node in tree.body:
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                if node.value is not None:
+                    known[node.target.id] = node.value
+            elif isinstance(node, ast.Assign) and node.value is not None:
+                known.update(
+                    {one.id: node.value for one in node.targets if isinstance(one, ast.Name)}
+                )
+        for cls in (one for one in ast.walk(tree) if isinstance(one, ast.ClassDef)):
+            body = {one.name: one for one in cls.body if isinstance(one, ast.FunctionDef)}
+            describing = body.get("describe") or body.get("describe_parts")
+            if "apply" not in body or describing is None:
+                continue
+            said = ast.unparse(describing)
+            reachable = dict(known)
+            for step in ast.walk(body["apply"]):
+                if isinstance(step, ast.Assign) and step.value is not None:
+                    reachable.update(
+                        {one.id: step.value for one in step.targets if isinstance(one, ast.Name)}
+                    )
+            for call in ast.walk(body["apply"]):
+                if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
+                    continue
+                if call.func.attr != "write" or not call.args:
+                    continue
+                # `ast.unparse` prints `0o600` as 384, so the value is read.
+                if not any(
+                    keyword.arg == "mode"
+                    and isinstance(keyword.value, ast.Constant)
+                    and keyword.value.value in (0o600, 0o400)
+                    for keyword in call.keywords
+                ):
+                    continue
+                names = _written_names(call.args[0], reachable)
+                assert any(one in said for one in names), (
+                    f"{module.name}:{call.lineno} {cls.name} writes a private file "
+                    f"its description does not name: {sorted(names)}"
+                )
+
+
 def test_the_proxy_endpoint_is_defined_once() -> None:
     """It was written twice, byte for byte, in `plan/portage.py` and
     `plan/system.py`, while `system.py` already imported from `portage.py`. A

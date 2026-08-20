@@ -21,7 +21,7 @@
   mount dataset zpcala/ROOT/gentoo/home at /home
 
 [stage3]
-  download the newest systemd stage3 from https://distfiles.gentoo.org directly, verify it against BB572E0E2D182910 and unpack it into the target
+  download the newest systemd stage3 from https://distfiles.gentoo.org directly, verify it against BB572E0E2D182910, unpack it into the target and write /etc/gentoo-install/proxy.toml
 
 [chroot]
   mount transient proc, sys, dev and run filesystems into the target
@@ -31,7 +31,7 @@
   write /etc/portage/make.conf with MAKEOPTS, INPUT_DEVICES, ACCEPT_LICENSE, L10N, FEATURES; 2 mirrors in the configured order, 5 appended
   configure Portage, wget, curl, git and gpg for direct connection
   create the three autounmask files emerge writes its decisions into
-  run getuto so Portage has a keyring to verify binary packages against
+  run getuto so Portage has a keyring to verify binary packages against, and write dirmngr.conf
   add verified binary package host gentoo at https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64
   fetch the first ebuild repository snapshot with emerge-webrsync
   select profile default/linux/amd64/23.0/systemd
@@ -60,12 +60,12 @@
   write /etc/fstab with entries for /efi
   treat the hardware clock as UTC
   create user zakk in users, wheel, audio, video, render, usb, input with a password
-  authorise 1 ssh key(s) for zakk
+  write 1 ssh key(s) into authorized_keys for zakk
   set the root password
   install sudo: emerge app-admin/sudo
   let the wheel group run sudo, with a password
   install sshd: emerge net-misc/openssh
-  ssh password login: off, root: off
+  ssh password login: off, root: off, in 50-gentoo-install.conf
   enable sshd at boot
   generate the ssh host keys
   configure the wired interface for DHCP

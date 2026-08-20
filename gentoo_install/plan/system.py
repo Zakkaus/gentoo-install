@@ -558,11 +558,11 @@ class WriteNetworkConfig(Operation):
             if not self.addresses:
                 return "leave the interfaces to NetworkManager ({})", (self.networking.value,)
             if self.interface:
-                return "write a NetworkManager profile for {} as {}", (
+                return "write wired.nmconnection for {} as {}", (
                     self.interface,
                     ", ".join(self.addresses),
                 )
-            return "write a NetworkManager profile for the wired interface as {}", (
+            return "write wired.nmconnection for the wired interface as {}", (
                 ", ".join(self.addresses),
             )
         if self.addresses:
@@ -732,7 +732,7 @@ class WriteAuthorizedKeys(Operation):
 
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
         who = ", ".join(name for name, _ in self.accounts)
-        return "authorise {} ssh key(s) for {}", (str(len(self.keys)), who)
+        return "write {} ssh key(s) into authorized_keys for {}", (str(len(self.keys)), who)
 
     def apply(self, context: Context) -> None:
         body = "".join(f"{key}\n" for key in self.keys)
@@ -759,11 +759,11 @@ class WriteSshdConfig(Operation):
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
         if self.password_login:
             if self.root_login:
-                return "ssh password login: on, root: on", ()
-            return "ssh password login: on, root: off", ()
+                return "ssh password login: on, root: on, in 50-gentoo-install.conf", ()
+            return "ssh password login: on, root: off, in 50-gentoo-install.conf", ()
         if self.root_login:
-            return "ssh password login: off, root: on", ()
-        return "ssh password login: off, root: off", ()
+            return "ssh password login: off, root: on, in 50-gentoo-install.conf", ()
+        return "ssh password login: off, root: off, in 50-gentoo-install.conf", ()
 
     def apply(self, context: Context) -> None:
         answer = "yes" if self.password_login else "no"
