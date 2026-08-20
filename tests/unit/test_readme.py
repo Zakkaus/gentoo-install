@@ -455,3 +455,29 @@ def test_every_fixture_a_record_used_is_named_in_it() -> None:
     without_a_record: set[str] = set()
     assert without_a_record <= fixtures, without_a_record
     assert fixtures - recorded == without_a_record, sorted(fixtures - recorded)
+
+
+def test_the_readme_gives_each_memory_option_the_outcome_its_record_holds() -> None:
+    """`--bypass` was given the result of a `--lowram` row: the README said a
+    machine reached its own cloud system, and every `--bypass` record in
+    `TESTED.md` says the memory environment came up. Attributing one option's
+    record to another is the failure this holds shut."""
+    import re
+
+    record = (ROOT / "TESTED.md").read_text()
+    rows = [line for line in record.splitlines() if line.startswith("| `") and "|" in line[3:]]
+    for option, outcome, forbidden in (
+        ("`--bypass`", "came up in the memory environment", "cloud system"),
+    ):
+        mine = [row for row in rows if option in row]
+        assert mine, f"{option} has no row in TESTED.md"
+        assert all(outcome in row for row in mine), mine
+        assert not any(forbidden in row for row in mine), mine
+
+        table = [
+            line
+            for line in readme("README.md").splitlines()
+            if line.startswith("| ") and line.split("|")[1].strip() == option
+        ]
+        assert len(table) == 1, table
+        assert forbidden not in table[0], table[0]
