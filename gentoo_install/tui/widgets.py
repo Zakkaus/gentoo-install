@@ -36,7 +36,15 @@ U = TypeVar("U")
 
 #: What asks to leave. ctrl-c is here rather than a signal because raw mode
 #: delivers it as a byte, so it is answered rather than obeyed.
-CANCEL: Final[frozenset[str]] = frozenset({"\x1b", "\x03"})
+#: Ending the run. Escape is not here: it meant "end the install" on one
+#: screen and "go back one" on the next inside a single feature, and the key
+#: table in `docs/design.md` gives it one meaning below the main menu.
+CANCEL: Final[frozenset[str]] = frozenset({"\x03"})
+
+#: Leaving a screen without answering it. Every widget takes all three, and
+#: the status line names the arrow, which is the one that works in a field
+#: already holding a value.
+BACK_KEYS: Final[frozenset[str]] = frozenset({"KEY_LEFT", "\x1b", "\x7f", "KEY_BACKSPACE"})
 
 #: A menu takes `q` as well; a text field cannot, because `q` is a character
 #: someone is entitled to type into a hostname.
@@ -249,7 +257,7 @@ class _Menu(Generic[V, A]):
                 answer = self._accept(cursor)
                 if answer is not None:
                     return answer
-            elif pressed in ("KEY_LEFT", "\x7f", "KEY_BACKSPACE"):
+            elif pressed in BACK_KEYS:
                 return Answer(Outcome.BACK)
             elif pressed in CANCEL_IN_A_MENU:
                 return Answer(Outcome.CANCELLED)
@@ -424,7 +432,7 @@ class TextField:
             pressed = screen.key()
             if pressed in ("\n", "KEY_ENTER"):
                 return Answer(Outcome.CHOSE, "".join(typed))
-            if pressed == "KEY_LEFT":
+            if pressed in ("KEY_LEFT", "\x1b"):
                 return Answer(Outcome.BACK)
             if pressed in ("\x7f", "KEY_BACKSPACE"):
                 if typed:
@@ -632,7 +640,7 @@ class Form:
             elif pressed == " " and cursor < len(self.fields) and self.fields[cursor].toggle:
                 typed[cursor] = [] if typed[cursor] else ["x"]
                 touched = True
-            elif pressed == "KEY_LEFT":
+            elif pressed in ("KEY_LEFT", "\x1b"):
                 return Answer(Outcome.BACK)
             elif pressed in ("\x7f", "KEY_BACKSPACE"):
                 if cursor < len(self.fields) and typed[cursor] and not self.fields[cursor].toggle:

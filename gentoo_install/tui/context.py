@@ -321,10 +321,11 @@ def footer(translate: Catalog, enter: str = "Continue") -> str:
             # back out of the hostname screen.
             f"[\u2190] {translate('Back')}",
             f"[backspace] {translate('Back')}",
-            # `esc`, not `q`: this footer is drawn over text fields as well
-            # as menus, and a field takes `q` as the letter. An operator who
-            # read `[q] Cancel` on the hostname screen typed one into it.
-            f"[esc] {translate('Cancel')}",
+            # Back, not Cancel: escape steps back one screen at every depth
+            # below the main menu, where it asks whether to end the run. It
+            # said `Cancel` while doing that, and `[q] Cancel` before it,
+            # which a field takes as the letter.
+            f"[esc] {translate('Back')}",
         )
     )
 
