@@ -417,14 +417,22 @@ def test_the_panel_shows_no_untranslated_prose_under_a_chinese_catalog() -> None
 
     word = re.compile(r"[A-Za-z]{4,}")
     leaked: list[str] = []
+    read = 0
     for group in tui_settings.SETTINGS:
         for row in group.rows or (group,):
             shown = str(row.value(base, at))
+            if not shown.strip():
+                continue
+            read += 1
             unknown = [
                 one for one in word.findall(shown) if one.lower() not in KEPT_IN_ENGLISH
             ]
             if unknown:
                 leaked.append(f"{row.key}: {shown!r}")
+    # The denominator, because a scan of nothing reports nothing: 54 rows all
+    # rendered on 2026-08-20, and a row that stops rendering leaves the scan
+    # silent rather than red.
+    assert read >= 50, read
     assert not leaked, leaked
 
 
