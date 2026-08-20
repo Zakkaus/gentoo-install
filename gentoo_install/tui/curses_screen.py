@@ -7,7 +7,8 @@ import curses
 from collections.abc import Callable
 from typing import Protocol, Any
 
-from .widgets import MINIMUM_COLUMNS, MINIMUM_LINES, Style
+from ..i18n import clip, width
+from .widgets import KEY_HELP, MINIMUM_COLUMNS, MINIMUM_LINES, Style, spread
 
 #: Colour pair per style. A terminal with no colour keeps every pair at 0,
 #: which curses renders as the default attributes.
@@ -64,6 +65,26 @@ class CursesScreen:
 
     def show(self) -> None:
         self._window.refresh()
+
+    def help(self) -> None:
+        """The key table, and any key returns to where it was drawn.
+
+        Here rather than in a widget: `_Menu` is built in fifty-eight places
+        and a page passed to each of them is a page most of them would lack.
+        """
+        lines, columns = self.size()
+        keys = max(width(row.keys) for row in KEY_HELP)
+        self.clear()
+        self.write(0, 0, self._translate("Keys"))
+        for offset, row in enumerate(KEY_HELP):
+            if offset + 2 >= lines - 1:
+                break
+            self.write(offset + 2, 0, row.keys)
+            self.write(offset + 2, keys + 2, clip(self._translate(row.does), columns - keys - 2))
+        if lines > 1:
+            self.write(lines - 1, 0, spread(self._translate("Any key returns"), "", columns))
+        self.show()
+        self._read_key()
 
     def key(self) -> str:
         while True:

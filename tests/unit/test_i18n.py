@@ -150,6 +150,10 @@ def in_a_table() -> set[str]:
         SYNC_METHODS, GENTOOZH_CHANNELS, BINHOSTS, INSTALL_MODES,
     )
     found = {reason for table in tables for _, reason in table}
+    # Every key the interface answers, from the one table the help page draws.
+    from gentoo_install.tui.widgets import KEY_HELP
+
+    found |= {row.does for row in KEY_HELP}
     # The logger table lives in `plan/` because it also names the package and
     # the service; the menu reads the same rows rather than keeping a copy.
     found |= {choice.reason for choice in LOGGERS.values()}

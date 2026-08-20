@@ -143,6 +143,41 @@ class Screen(Protocol):
     def key(self) -> str:
         """Block until a key press and return its name."""
 
+    def help(self) -> None:
+        """Draw the key page and wait for one key.
+
+        On the screen rather than passed to each widget: the interface builds
+        fifty-eight menus, and a page threaded through every one of them is a
+        page half of them will be missing.
+        """
+
+
+@dataclass(frozen=True)
+class KeyRow:
+    """One line of the key page. `keys` is drawn as typed, not translated."""
+
+    keys: str
+    does: str
+
+
+#: Every key a widget answers, in one table, because a key the operator cannot
+#: find is a key that does not exist: `KEY_LEFT` went back from every screen
+#: for a year and no status line named it.
+KEY_HELP: Final[tuple[KeyRow, ...]] = (
+    KeyRow("enter", "Open the row under the cursor, or accept this screen"),
+    KeyRow("\u2191  \u2193", "Move the cursor"),
+    KeyRow("j  k", "Move the cursor, in a list; a letter in a field"),
+    KeyRow("tab  shift-tab", "Move the cursor, in a list and between fields"),
+    KeyRow("space", "Choose a row, where a screen takes several answers"),
+    KeyRow("\u2190  backspace  esc", "Back, keeping what this screen already holds"),
+    KeyRow("q", "Ask whether to leave, in a list; a letter in a field"),
+    KeyRow("ctrl-c", "Ask whether to leave, anywhere"),
+    KeyRow("?", "This page, in a list; a letter in a field"),
+)
+
+#: What opens the key page. A letter in a field, like `q`.
+HELP_KEY: Final[str] = "?"
+
 
 def spread(left: str, right: str, columns: int) -> str:
     """`left` at the margin and `right` at the end of one row that wide.
@@ -252,6 +287,8 @@ class _Menu(Generic[V, A]):
                 cursor = self._step(cursor, -1)
             elif pressed in FORWARD:
                 cursor = self._step(cursor, 1)
+            elif pressed == HELP_KEY:
+                screen.help()
             elif pressed == " " and self._multiple:
                 self._toggle(cursor)
             elif pressed in ("\n", "KEY_ENTER"):
@@ -813,6 +850,8 @@ class TwoPane(Generic[V]):
                 cursor = max(0, cursor - 1)
             elif pressed in ("KEY_DOWN", "j", "\t"):
                 cursor = min(max(0, len(self.rows) - 1), cursor + 1)
+            elif pressed == HELP_KEY:
+                screen.help()
             elif pressed in ("\n", "KEY_ENTER", "KEY_RIGHT"):
                 # A disabled row answers nothing rather than opening a screen
                 # that would refuse: its reason is already in the right pane.
