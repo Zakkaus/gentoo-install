@@ -365,7 +365,9 @@ def test_an_unexpected_error_is_named_rather_than_traced(
     assert "unexpected RuntimeError" in capsys.readouterr().err
 
 
-def test_a_terminal_too_small_for_the_interface_says_so_rather_than_drawing() -> None:
+def test_a_terminal_too_small_for_the_interface_says_so_rather_than_drawing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """`too_small` was written and never called, so a 60x20 console got a menu
     with rows off the edge and no message saying why."""
     from gentoo_install.tui.curses_screen import too_small
@@ -381,7 +383,38 @@ def test_a_terminal_too_small_for_the_interface_says_so_rather_than_drawing() ->
     cramped = too_small(Sized(20, 60))
     assert "60x20" in cramped and f"{MINIMUM_COLUMNS}x{MINIMUM_LINES}" in cramped
     assert too_small(Sized(MINIMUM_LINES, MINIMUM_COLUMNS)) == ""
-    assert "too_small(display)" in Path("gentoo_install/cli.py").read_text()
+
+    # The call and its effect, not the substring: `cramped = too_small(display)`
+    # with the `raise` deleted keeps the text in `cli.py` and puts the menu on
+    # a 60x20 console again, which is the defect this test is named after.
+    import ast
+    import inspect
+
+    from gentoo_install import cli as cli_module
+
+    tree = ast.parse(inspect.getsource(cli_module))
+    called = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Name)
+        and node.value.func.id == "too_small"
+    ]
+    assert len(called) == 1, ast.dump(tree)[:200]
+    answer = called[0].targets[0]
+    assert isinstance(answer, ast.Name)
+    raised = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Raise)
+        and node.exc is not None
+        and any(
+            isinstance(inner, ast.Name) and inner.id == answer.id
+            for inner in ast.walk(node.exc)
+        )
+    ]
+    assert raised, f"nothing raises {answer.id}"
 
 
 def test_the_menu_names_openssl_before_it_asks_anything(
