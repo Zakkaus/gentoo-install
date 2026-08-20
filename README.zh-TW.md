@@ -64,7 +64,7 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 
 <!-- fact: memory-environment-access -->
 
-**用 SSH 觀察記憶體安裝。** `--ssh-key` 接受公鑰本文、路徑、`http` 或 `https` 網址，以及 `github:user` 與 `gitlab:user`；`--ssh-port` 與 `--root-password` 設定其餘部分。安裝器、選定的設定與金鑰都放在 initramfs 內，所以環境執行的是寫出該設定的修訂，而且在第一次登入之前 `authorized_keys` 已經就位。操作者以 SSH 重新連線觀察安裝，不必一直開著主控台。回答第一個畫面之前不會清除任何資料：該畫面提供安裝與急救殼兩項，而且沒有逾時。
+**用 SSH 觀察記憶體安裝。** `--ssh-key` 接受公鑰本文（`ssh-ed25519`、`ssh-rsa`、`ecdsa-sha2-nistp256`、`-384`、`-521` 以及 `sk-` 變體）、路徑、`http` 或 `https` 網址，以及 `github:user` 與 `gitlab:user`；`--ssh-port` 與 `--root-password` 設定其餘部分。安裝器、選定的設定與金鑰都放在 initramfs 內，所以環境執行的是寫出該設定的修訂，而且在第一次登入之前 `authorized_keys` 已經就位。操作者以 SSH 重新連線觀察安裝，不必一直開著主控台。回答第一個畫面之前不會清除任何資料：該畫面提供安裝與急救殼兩項，而且沒有逾時。
 
 <!-- fact: plan-records -->
 
@@ -83,6 +83,8 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 靜態位址、ext2 與 ext3 各自有叢集記錄。ZFS 的記錄涵蓋 stripe、mirror、raidz 與加密 pool，以及一個由 ZFSBootMenu 開機的 pool。兩條遠端解鎖路徑各有叢集記錄：由系統 initramfs 開啟的 LUKS 根，以及由 ZFSBootMenu 自己映像開啟的 ZFS pool。greetd 也有叢集記錄。
 
 裝進檔案有一筆記錄：寫出的映像以 `losetup -Pf` 掛上，讀回的是它版面宣告的那兩個檔案系統，而沒有任何機器從那份檔案開機過。原始碼建置的核心與 binhost 降級只有 runner 層級的測試，而 runner 層級的測試不是端到端記錄。
+
+介面本身也有記錄：選單在 80x24 的序列主控台上逐列開過，涵蓋它提供的每一種語言——英文、正體中文、簡體中文、日文與韓文——沒有一列寬過終端機，每一列都回得到主選單。
 
 `tests/fixtures/` 底下的檔案驗證的是設定模型，它們存在並不代表任何一台裝出來的機器。
 
