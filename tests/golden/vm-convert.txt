@@ -1,6 +1,6 @@
 [stage3]
   create /gentoo-install.new for the staged system, in /gentoo-install.new
-  download the newest systemd stage3 from https://distfiles.gentoo.org directly, verify it against BB572E0E2D182910 and unpack it into the target, in /gentoo-install.new
+  download the newest systemd stage3 from https://distfiles.gentoo.org directly, verify it against BB572E0E2D182910, unpack it into the target and write /etc/gentoo-install/proxy.toml, in /gentoo-install.new
 
 [chroot]
   mount transient proc, sys, dev and run filesystems into the target, in /gentoo-install.new
@@ -10,7 +10,7 @@
   write /etc/portage/make.conf with MAKEOPTS, INPUT_DEVICES, ACCEPT_LICENSE, L10N, FEATURES; 2 mirrors in the configured order, 5 appended, in /gentoo-install.new
   configure Portage, wget, curl, git and gpg for direct connection, in /gentoo-install.new
   create the three autounmask files emerge writes its decisions into, in /gentoo-install.new
-  run getuto so Portage has a keyring to verify binary packages against, in /gentoo-install.new
+  run getuto so Portage has a keyring to verify binary packages against, and write dirmngr.conf, in /gentoo-install.new
   add verified binary package host gentoo at https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64, in /gentoo-install.new
   fetch the first ebuild repository snapshot with emerge-webrsync, in /gentoo-install.new
   select profile default/linux/amd64/23.0/systemd, in /gentoo-install.new
@@ -32,7 +32,7 @@
   treat the hardware clock as UTC, in /gentoo-install.new
   set the root password, in /gentoo-install.new
   install sshd: emerge net-misc/openssh, in /gentoo-install.new
-  ssh password login: off, root: off, in /gentoo-install.new
+  ssh password login: off, root: off, in 50-gentoo-install.conf, in /gentoo-install.new
   enable sshd at boot, in /gentoo-install.new
   generate the ssh host keys, in /gentoo-install.new
   configure the wired interface for DHCP, in /gentoo-install.new

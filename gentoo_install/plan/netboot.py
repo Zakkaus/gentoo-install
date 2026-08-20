@@ -489,8 +489,9 @@ class AppendConfiguration(Operation):
     keys: tuple[str, ...] = ()
 
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
-        return "put the installer, the configuration and {} key(s) inside the initramfs", (
-            str(len(self.keys)),
+        return (
+            "put the installer, the configuration and {} key(s) in authorized_keys inside the initramfs",
+            (str(len(self.keys)),),
         )
 
     def apply(self, context: Context) -> None:

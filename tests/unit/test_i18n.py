@@ -462,14 +462,13 @@ REVIEWED_TEMPLATES: frozenset[str] = frozenset(
     {
         "add unverified binary package host {} at {}",
         "add verified binary package host {} at {}",
-        "authorise {} ssh key(s) for {}",
         "configure {} as {}",
         "create user {} in {} with a password",
         "create user {} in {} with no password",
-        "download the newest {} stage3 from {} directly,"
-        " verify it against {} and unpack it into the target",
-        "download the newest {} stage3 from {} via {},"
-        " verify it against {} and unpack it into the target",
+        "download the newest {} stage3 from {} directly, verify it against {},"
+        " unpack it into the target and write {}",
+        "download the newest {} stage3 from {} via {}, verify it against {},"
+        " unpack it into the target and write {}",
         "enable {} in the {} runlevel",
         "import {} from {} and locally sign it for {}",
         "point repository {} at {}",
@@ -485,7 +484,8 @@ REVIEWED_TEMPLATES: frozenset[str] = frozenset(
         "write /etc/portage/make.conf with {}; {} mirrors in the configured order",
         "write /etc/portage/make.conf with {}; {} mirrors in the configured order,"
         " {} appended",
-        "write a NetworkManager profile for {} as {}",
+        "write wired.nmconnection for {} as {}",
+        "write {} ssh key(s) into authorized_keys for {}",
         "write {} for {}",
         "{}: emerge {}",
         "{}: emerge {}, building {} here",

@@ -152,14 +152,22 @@ class InstallStage3(Operation):
 
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
         fingerprint = RELENG_FINGERPRINT[-16:]
+        # `PROXY_BOOTSTRAP` is named because `apply()` writes it, and it holds
+        # the proxy password: a file an operator meets by finding it.
         if self.proxy.enabled:
             return (
-                "download the newest {} stage3 from {} via {}, verify it against {} and unpack it into the target",
-                (self.variant, self.mirror, self.proxy.redacted_url, fingerprint),
+                "download the newest {} stage3 from {} via {}, verify it against {}, unpack it into the target and write {}",
+                (
+                    self.variant,
+                    self.mirror,
+                    self.proxy.redacted_url,
+                    fingerprint,
+                    str(PROXY_BOOTSTRAP),
+                ),
             )
         return (
-            "download the newest {} stage3 from {} directly, verify it against {} and unpack it into the target",
-            (self.variant, self.mirror, fingerprint),
+            "download the newest {} stage3 from {} directly, verify it against {}, unpack it into the target and write {}",
+            (self.variant, self.mirror, fingerprint, str(PROXY_BOOTSTRAP)),
         )
 
     def apply(self, context: Context) -> None:
@@ -197,7 +205,7 @@ class WriteProxyClients(Operation):
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
         if self.proxy.enabled:
             return (
-                "configure Portage, wget, curl, git and gpg for {}",
+                "configure Portage, wget, curl, git and gpg for {} in /etc/wgetrc, /etc/gitconfig, curl-proxy.conf and proxy.toml",
                 (self.proxy.redacted_url,),
             )
         return "configure Portage, wget, curl, git and gpg for direct connection", ()
@@ -1071,7 +1079,10 @@ class PrepareBinhostTrust(Operation):
     proxy: ProxyConfig = ProxyConfig()
 
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
-        return "run getuto so Portage has a keyring to verify binary packages against", ()
+        return (
+            "run getuto so Portage has a keyring to verify binary packages against, and write dirmngr.conf",
+            (),
+        )
 
     def apply(self, context: Context) -> None:
         try:
