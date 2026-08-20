@@ -2698,13 +2698,27 @@ def test_a_uefi_guest_whose_grub_was_readable_is_not_booted_twice(
     assert events == ["edit"], events
 
 
-def test_the_silent_console_sentence_is_the_one_the_editor_writes() -> None:
-    """Two spellings of the same sentence is a retry that never fires."""
-    import inspect
-
+def test_the_silent_console_sentence_is_the_one_the_editor_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two spellings of the same sentence is a retry that never fires. Read off
+    the exception the editor raises, not out of its source: the words can sit
+    in a comment while the raise says something else."""
     from tests.vm import cluster, proxmox
+    from tests.vm.proxmox import ProxmoxError
 
-    assert cluster.SILENT_EDITOR in inspect.getsource(proxmox._editor_screen)
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+
+    class Console:
+        def send_raw(self, keys: str) -> None:
+            return None
+
+        def snapshot(self, seconds: float) -> bytes:
+            return b"\r\n"
+
+    with pytest.raises(ProxmoxError) as raised:
+        proxmox._editor_screen(cast(Any, Console()), 0.05)
+    assert cluster.SILENT_EDITOR in str(raised.value)
 
 
 def test_a_reconnect_grant_never_shortens_the_ceiling() -> None:
