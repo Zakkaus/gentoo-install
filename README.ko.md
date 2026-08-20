@@ -64,7 +64,7 @@ gentoo-install은 Linux 라이브 환경에서 실행되어 amd64 아키텍처�
 
 <!-- fact: memory-environment-access -->
 
-**SSH로 메모리 설치 관찰하기.** `--ssh-key`는 공개 키 본문, 경로, `http` 또는 `https` URL, 그리고 `github:user`와 `gitlab:user`를 받는다. `--ssh-port`와 `--root-password`가 나머지를 정한다. 설치기와 선택된 구성과 키는 모두 initramfs 안으로 들어가므로 환경은 그 구성을 작성한 판을 실행하며 첫 로그인 이전에 `authorized_keys`가 놓여 있다. 운영자는 SSH로 다시 접속해 설치 과정을 지켜보면 되고 콘솔을 열어 둘 필요가 없다. 첫 화면에 답하기 전에는 아무것도 지우지 않는다. 그 화면은 설치와 복구 셸 두 가지를 제시하며 시간 제한이 없다.
+**SSH로 메모리 설치 관찰하기.** `--ssh-key`는 공개 키 본문(`ssh-ed25519`, `ssh-rsa`, `ecdsa-sha2-nistp256`, `-384`, `-521` 및 `sk-` 계열), 경로, `http` 또는 `https` URL, 그리고 `github:user`와 `gitlab:user`를 받는다. `--ssh-port`와 `--root-password`가 나머지를 정한다. 설치기와 선택된 구성과 키는 모두 initramfs 안으로 들어가므로 환경은 그 구성을 작성한 판을 실행하며 첫 로그인 이전에 `authorized_keys`가 놓여 있다. 운영자는 SSH로 다시 접속해 설치 과정을 지켜보면 되고 콘솔을 열어 둘 필요가 없다. 첫 화면에 답하기 전에는 아무것도 지우지 않는다. 그 화면은 설치와 복구 셸 두 가지를 제시하며 시간 제한이 없다.
 
 <!-- fact: plan-records -->
 
@@ -83,6 +83,8 @@ gentoo-install은 Linux 라이브 환경에서 실행되어 amd64 아키텍처�
 고정 주소, ext2, ext3에는 각각 클러스터 기록이 있다. ZFS 기록은 stripe, mirror, raidz, 암호화된 풀, 그리고 ZFSBootMenu가 부팅한 풀을 포함한다. 원격 잠금 해제의 두 경로에도 각각 클러스터 기록이 있다. 시스템 initramfs가 연 LUKS 루트와 ZFSBootMenu 자체 이미지가 연 ZFS 풀이다. greetd에도 클러스터 기록이 있다.
 
 파일에 설치하는 경로에는 기록이 하나 있다. 쓴 이미지를 `losetup -Pf`로 붙여 그 레이아웃이 선언한 두 파일 시스템으로 읽어 냈으나, 그 파일로 부팅한 기계는 아직 없다. 소스에서 빌드하는 커널과 binhost 폴백에는 runner 수준의 시험만 있으며, runner 수준의 시험은 엔드투엔드 기록이 아니다.
+
+인터페이스 자체에도 기록이 있다. 메뉴는 80x24 직렬 콘솔에서 한 줄씩 열렸고, 제공하는 모든 언어——영어, 번체 중국어, 간체 중국어, 일본어, 한국어——에서 터미널보다 넓은 줄은 없었으며 모든 줄이 메뉴로 돌아왔다.
 
 `tests/fixtures/` 아래의 파일이 다루는 것은 구성 모델이며, 그 존재는 설치된 기계에 대해 아무것도 입증하지 않는다.
 

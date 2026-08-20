@@ -64,7 +64,7 @@ The default boot entry is never changed, so an environment that does not come up
 
 <!-- fact: memory-environment-access -->
 
-**Watching a memory install over SSH.** `--ssh-key` accepts a literal public key, a path, an `http` or `https` URL, or `github:user` and `gitlab:user`; `--ssh-port` and `--root-password` set the rest. The installer, the chosen configuration and the keys travel inside the initramfs, so the environment runs the revision that wrote that configuration and reaches `authorized_keys` before the first login. The operator reconnects over SSH and watches the install rather than holding a console open. Nothing is erased until the first screen is answered: it offers the install and a rescue shell, and has no timeout.
+**Watching a memory install over SSH.** `--ssh-key` accepts a literal public key (`ssh-ed25519`, `ssh-rsa`, `ecdsa-sha2-nistp256`, `-384`, `-521`, and the `sk-` variants), a path, an `http` or `https` URL, or `github:user` and `gitlab:user`; `--ssh-port` and `--root-password` set the rest. The installer, the chosen configuration and the keys travel inside the initramfs, so the environment runs the revision that wrote that configuration and reaches `authorized_keys` before the first login. The operator reconnects over SSH and watches the install rather than holding a console open. Nothing is erased until the first screen is answered: it offers the install and a rescue shell, and has no timeout.
 
 <!-- fact: plan-records -->
 
@@ -81,6 +81,8 @@ Installing onto a disk has cluster and single-machine records across ext4, xfs, 
 `--ram` and `--lowram` each have QEMU records. A Debian 12 machine armed one boot, kept its default entry, rebooted and came up in the delivered environment — the Gentoo CJK ISO for `--ram`, the Alpine netboot archive for `--lowram` — carrying the configuration it was given. Answering `install` there has a record for each environment: the machine installed Gentoo, booted the disk it had written and passed the shared installed-state checks. A second machine had its armed entry's initramfs removed and reached its own cloud system on the two boots that followed, after the power cycle the harness performs between guests. `dd` has one record: a prepared image written onto a whole disk from a live medium and read back byte for byte, raw and gzipped.
 
 Static addressing, ext2 and ext3 have cluster records of their own. The ZFS records cover a stripe, a mirror, a raidz and an encrypted pool, and a pool booted by ZFSBootMenu. Both remote-unlock paths have cluster records: a LUKS root opened from the system initramfs, and a ZFS pool opened from ZFSBootMenu's own image. greetd has cluster records of its own. Installing into a file has one record, in which the written image was attached with `losetup -Pf` and read back as the two filesystems its layout declares; nothing has booted from that file. A source-built kernel and binhost degradation have runner-level tests only, and a runner-level test is not an end-to-end record.
+
+The interface itself has records: the menu was opened row by row on an 80x24 serial console in every language it offers — English, Traditional and Simplified Chinese, Japanese and Korean — with no row wider than the terminal and every row returning to the menu.
 
 Files under `tests/fixtures/` exercise the configuration model; their presence establishes nothing about an installed machine.
 
