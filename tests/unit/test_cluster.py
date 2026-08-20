@@ -3098,7 +3098,7 @@ def test_a_conversion_counts_the_modules_its_bootloader_needs() -> None:
         (
             GRUB_PREFIX_CHECK,
             "grubstub=163840 grubprefix=1 boot=c866ae3a-68e7-4096-9703-dfa17070c3ed"
-            " stub=c866ae3a-68e7-4096-9703-dfa17070c3ed\n",
+            " esp=1234-ABCD stub=c866ae3a-68e7-4096-9703-dfa17070c3ed\n",
         ),
     ):
         assert "wc -" in check.command or "grep -ac" in check.command
@@ -3115,7 +3115,7 @@ def test_a_conversion_counts_the_modules_its_bootloader_needs() -> None:
     # The third answers with two counts, because a stub that is not there and
     # a stub naming another filesystem are different defects and one number
     # cannot tell them apart.
-    healthy = "grubstub=163840 grubprefix=1 boot=aaaa stub=aaaa\n"
+    healthy = "grubstub=163840 grubprefix=1 boot=aaaa esp=1234-ABCD stub=aaaa\n"
     assert re.search(GRUB_PREFIX_CHECK.pattern, healthy)
     assert re.search(GRUB_PREFIX_CHECK.pattern, healthy.replace("prefix=1", "prefix=0")) is None
     assert re.search(GRUB_PREFIX_CHECK.pattern, healthy.replace("stub=163840", "stub=0")) is None
@@ -3126,7 +3126,22 @@ def test_a_conversion_counts_the_modules_its_bootloader_needs() -> None:
     # uuid once. `vm-convert` reported the same size and no uuid, so the check
     # asks for both sides of the comparison and the verdict names them.
     assert "grub-probe --target=fs_uuid /boot" in GRUB_PREFIX_CHECK.command
-    assert "boot=%s stub=%s" in GRUB_PREFIX_CHECK.command
+    assert "boot=%s esp=%s stub=%s" in GRUB_PREFIX_CHECK.command
+    # The values, not only the format: printf keeps the field and prints it
+    # empty when the argument goes, so the two probes are named here.
+    assert GRUB_PREFIX_CHECK.command.count("grub-probe --target=fs_uuid /boot") == 2
+    assert "grub-probe --target=fs_uuid /efi" in GRUB_PREFIX_CHECK.command
+
+    # `vm-convert` answered `stub=` empty while the stub was 163840 bytes: the
+    # reader looked for a 36-character uuid alone, and a vfat esp is named by
+    # an eight-digit serial. Both forms are read now, so an empty answer means
+    # the stub carries no filesystem at all rather than one this could not see.
+    import re as _re
+
+    reader = _re.compile(r"[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}|[0-9A-F]{4}-[0-9A-F]{4}")
+    assert reader.search("1234-ABCD"), "a vfat serial is a filesystem name too"
+    assert reader.search("c866ae3a-68e7-4096-9703-dfa17070c3ed")
+    assert reader.pattern in GRUB_PREFIX_CHECK.command, GRUB_PREFIX_CHECK.command
 
 
 def test_the_unlock_addresses_go_back_after_the_guests_do() -> None:
