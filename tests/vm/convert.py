@@ -122,16 +122,17 @@ GRUB_PREFIX_CHECK: Final[InstalledCheck] = InstalledCheck(
     "\"$(grub-probe --target=fs_uuid /efi 2>/dev/null)\" "
     f"\"$({_STUB_UUID})\" "
     f"\"$({_STUB_PREFIX})\" "
-    # The two probes grub-install itself uses to compose the prefix. It wrote
-    # `(,gpt2)/boot/grub` — a partition with no drive and no filesystem
-    # driver — and reported success, so which of them answered nothing is the
-    # whole question.
+    # The two probes grub-install uses to compose the prefix. A machine that
+    # boots answers the same `(,gpt2)/boot/grub` and the same `hostdisk/`
+    # fallback drive, so these are recorded rather than read as a diagnosis.
     "\"$(grub-probe --target=drive /boot 2>&1 | tr ' ' '_' | head -n 1)\" "
     "\"$(grub-probe --target=fs /boot 2>&1 | tr ' ' '_' | head -n 1)\"",
-    # `embedded` decides nothing: `grubprefix` already says whether the stub
-    # names the filesystem holding `/boot`, and this field is the evidence the
-    # next failure needs, which an empty match must not hide.
-    r"(?m)^grubstub=[1-9][0-9]* grubprefix=[1-9][0-9]* boot=\S+ esp=\S+ stub=\S+ "
+    # `grubprefix` and `stub` are measured and not judged: run145's `vm-xfs`
+    # booted and answered `grubprefix=0 stub=` — the same two values that
+    # failed `vm-convert` — so a stub carrying no filesystem uuid is what a
+    # working machine looks like. What is still judged is a stub that is not
+    # there and a `grub-probe` that named no filesystem at all.
+    r"(?m)^grubstub=[1-9][0-9]* grubprefix=\S* boot=\S+ esp=\S+ stub=\S* "
     r"embedded=\S* drive=\S* fs=\S*$",
 )
 
