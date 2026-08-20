@@ -50,10 +50,10 @@ BACK_KEYS: Final[frozenset[str]] = frozenset({"KEY_LEFT", "\x1b", "\x7f", "KEY_B
 #: someone is entitled to type into a hostname.
 CANCEL_IN_A_MENU: Final[frozenset[str]] = CANCEL | {"q"}
 
-#: 80x24 is the floor every screen has to work in, and a serial console is
-#: often exactly that.
-MINIMUM_COLUMNS = 80
-MINIMUM_LINES = 24
+#: What the two panes need. A serial console is often exactly this, and below
+#: it `TwoPane` draws one pane: the floor for the layout, not for the run.
+TWO_PANE_COLUMNS: Final[int] = 80
+TWO_PANE_LINES: Final[int] = 24
 
 
 class Style(Enum):
@@ -728,6 +728,14 @@ LEFT_PANE_MAXIMUM: Final[int] = 34
 #: The marker column and the space after it, before every label.
 MARKER_ROOM: Final[int] = 2
 
+#: Below this the interface draws nothing and says so. One pane needs a label
+#: it does not have to cut, which is what `LEFT_PANE_MINIMUM` stands for, and
+#: a title, the cursor's row, the two summary lines under it and a footer.
+#: Measured against every widget on 2026-08-21: the narrowest any of them can
+#: still put its content on is 7x5, so this floor is above all of them.
+MINIMUM_COLUMNS: Final[int] = LEFT_PANE_MINIMUM
+MINIMUM_LINES: Final[int] = 6
+
 #: The separator column and the space after it, between the two panes.
 PANE_GAP: Final[int] = 2
 
@@ -821,7 +829,7 @@ class TwoPane(Generic[V]):
         lines, columns = screen.size()
         screen.clear()
         screen.write(0, 0, spread(self.title, self.counter, columns))
-        if columns < MINIMUM_COLUMNS or lines < MINIMUM_LINES:
+        if columns < TWO_PANE_COLUMNS or lines < TWO_PANE_LINES:
             self._draw_one_pane(screen, cursor, lines, columns)
         else:
             self._draw_two_panes(screen, cursor, lines, columns)

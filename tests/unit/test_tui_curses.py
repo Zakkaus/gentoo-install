@@ -474,12 +474,15 @@ curses.wrapper(main)
 
 
 def test_a_form_that_no_longer_fits_says_how_to_leave() -> None:
-    result, drawing = drive_resizes([(10, 60), "\x1b"], RESIZE_FORM)
+    # Five lines is under the floor the interface refuses at, and sixty
+    # columns keeps the message on one row: a wrapped one matches no
+    # substring. 60x10 is over the floor now and is drawn rather than refused.
+    result, drawing = drive_resizes([(5, 60), "\x1b"], RESIZE_FORM)
     assert result.get("error") is None, result.get("error")
     # Back, not cancelled: a terminal that shrank below the floor still lets
     # escape leave the screen, and leaving is what the message offers.
     assert result["outcome"] == "back"
-    assert b"the interface needs 80x24" in drawing
+    assert b"the interface needs 20x6" in drawing
     assert b"Escape after translation" in drawing
 
 
