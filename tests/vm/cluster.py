@@ -1162,6 +1162,18 @@ def stage_passphrases(link: Reconnecting, installation: InstallConfig) -> None:
         link.run(command)
 
 
+def _fixture_dir(workdir: Path) -> Path:
+    """Where this schedule writes the configurations its guests are given.
+
+    Its own directory, because every schedule shares `workdir` and the verdict
+    re-reads the file after the guest is installed: `static-ip` was installed
+    with `10.31.0.172/24`, a later schedule rewrote the same file with its own
+    reservation, and the check then failed the machine for not holding
+    `10.31.0.186/24` — an address nothing had ever asked it for.
+    """
+    return workdir / f"fixtures-{uuid.uuid4().hex[:12]}"
+
+
 def rewrite_fixtures(
     jobs: list[Job],
     into: Path,
@@ -2029,7 +2041,7 @@ def run(
     public_key = remote_key.with_suffix(".pub").read_text().strip() if remote_key else ""
     # Packed: the ingress refuses the 1.4 MiB loose-file CD with `413`.
     staging = workdir / f".driver-{uuid.uuid4().hex}.iso"
-    fixture_dir = workdir / "fixtures"
+    fixture_dir = _fixture_dir(workdir)
     # Reserved before the CD is written, not at dispatch: a fixture that
     # unlocks over SSH pins the initramfs address, and the harness has to ssh
     # to that address. `vm-unlock` carried `192.0.2.10`, which is a

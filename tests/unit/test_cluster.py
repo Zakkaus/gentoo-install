@@ -3168,3 +3168,32 @@ def test_the_unlock_addresses_go_back_after_the_guests_do() -> None:
     assert abandoned and released, ast.dump(ast.Module(body=closing, type_ignores=[]))
     assert abandoned[0] < released[0], [abandoned, released]
 
+
+def test_each_schedule_rewrites_its_fixtures_into_its_own_directory(tmp_path: Path) -> None:
+    """Every schedule on this machine shares one work directory, and the
+    verdict re-reads the configuration file after the guest is installed.
+    `static-ip` was installed with `10.31.0.172/24` from its own reservation,
+    a later schedule rewrote the same path with `10.31.0.186/24`, and the
+    check then failed the machine for not holding an address nothing had ever
+    asked it for."""
+    from tests.vm import cluster
+
+    first = cluster._fixture_dir(tmp_path)
+    second = cluster._fixture_dir(tmp_path)
+    assert first != second, first
+    assert first.parent == tmp_path and second.parent == tmp_path
+
+    # And the writer keeps them apart: the same fixture name rewritten by two
+    # schedules leaves two files, each holding what its own guest was given.
+    for where, address in ((first, "10.31.0.172/24"), (second, "10.31.0.186/24")):
+        where.mkdir()
+        (where / "static-ip.toml").write_text(f'addresses = ["{address}"]\n')
+    assert (first / "static-ip.toml").read_text() != (second / "static-ip.toml").read_text()
+
+    # The scheduler asks for one rather than naming a fixed path.
+    import inspect
+
+    source = inspect.getsource(cluster.run)
+    assert "_fixture_dir(workdir)" in source, source[:200]
+    assert 'workdir / "fixtures"' not in source, source[:200]
+
