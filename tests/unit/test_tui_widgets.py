@@ -1093,3 +1093,42 @@ def test_the_help_page_names_every_key_a_widget_answers() -> None:
     }
     for key in answered:
         assert written.get(key, key) in listed, key
+
+
+def test_a_long_list_moves_one_screen_and_to_its_ends() -> None:
+    """169 timezones live under `America`, which is eight screens of `j` on a
+    console 24 lines tall."""
+    from gentoo_install.tui.widgets import Menu
+
+    items = [Item(label=f"zone {index}", value=index) for index in range(169)]
+
+    # A page is what this screen draws, not a constant: the title, a blank, the
+    # rows and the status line.
+    for lines, page in ((24, 20), (12, 8)):
+        screen = FakeScreen(keys=["KEY_NPAGE", "\n"], lines=lines, columns=80)
+        assert Menu(title="Timezone", items=items).run(screen).unwrap() == page
+
+    down = FakeScreen(keys=["KEY_NPAGE", "KEY_NPAGE", "KEY_PPAGE", "\n"], lines=24, columns=80)
+    assert Menu(title="Timezone", items=items).run(down).unwrap() == 20
+
+    # The ends, and neither runs off: paging past the last row stops on it.
+    assert Menu(title="Timezone", items=items).run(
+        FakeScreen(keys=["KEY_END", "\n"], lines=24, columns=80)
+    ).unwrap() == 168
+    assert Menu(title="Timezone", items=items).run(
+        FakeScreen(keys=["G", "g", "\n"], lines=24, columns=80)
+    ).unwrap() == 0
+    assert Menu(title="Timezone", items=items).run(
+        FakeScreen(keys=[*(["KEY_NPAGE"] * 20), "\n"], lines=24, columns=80)
+    ).unwrap() == 168
+
+
+def test_the_main_menu_pages_the_same_way() -> None:
+    """One key table, so the two-pane list answers what a menu answers."""
+    from gentoo_install.tui.widgets import TwoPane
+
+    rows = pane_rows(count=60)
+    paged = Recording(keys=["KEY_NPAGE", "\n"], lines=24, columns=80)
+    assert TwoPane(title="gentoo-install", rows=rows).run(paged).unwrap() == 21
+    ended = Recording(keys=["KEY_END", "\n"], lines=24, columns=80)
+    assert TwoPane(title="gentoo-install", rows=rows).run(ended).unwrap() == 59

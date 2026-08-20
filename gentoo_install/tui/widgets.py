@@ -173,10 +173,20 @@ KEY_HELP: Final[tuple[KeyRow, ...]] = (
     KeyRow("q", "Ask whether to leave, in a list; a letter in a field"),
     KeyRow("ctrl-c", "Ask whether to leave, anywhere"),
     KeyRow("?", "This page, in a list; a letter in a field"),
+    KeyRow("page-up  page-down", "Move the cursor one screen"),
+    KeyRow("home  end", "Move the cursor to the first or last row"),
+    KeyRow("g  G", "First or last row, in a list; a letter in a field"),
 )
 
 #: What opens the key page. A letter in a field, like `q`.
 HELP_KEY: Final[str] = "?"
+
+#: One screen at a time, and the ends. `America` holds 169 timezones, which is
+#: eight screens of `j` on a console 24 lines tall.
+PAGE_BACKWARD: Final[tuple[str, ...]] = ("KEY_PPAGE",)
+PAGE_FORWARD: Final[tuple[str, ...]] = ("KEY_NPAGE",)
+FIRST: Final[tuple[str, ...]] = ("KEY_HOME", "g")
+LAST: Final[tuple[str, ...]] = ("KEY_END", "G")
 
 
 def spread(left: str, right: str, columns: int) -> str:
@@ -287,6 +297,14 @@ class _Menu(Generic[V, A]):
                 cursor = self._step(cursor, -1)
             elif pressed in FORWARD:
                 cursor = self._step(cursor, 1)
+            elif pressed in PAGE_BACKWARD:
+                cursor = self._page(cursor, -1, screen)
+            elif pressed in PAGE_FORWARD:
+                cursor = self._page(cursor, 1, screen)
+            elif pressed in FIRST:
+                cursor = self._first_enabled()
+            elif pressed in LAST:
+                cursor = self._last_enabled()
             elif pressed == HELP_KEY:
                 screen.help()
             elif pressed == " " and self._multiple:
@@ -338,6 +356,25 @@ class _Menu(Generic[V, A]):
             if not item.disabled_because:
                 return index
         return 0
+
+    def _last_enabled(self) -> int:
+        for index in range(len(self.items) - 1, -1, -1):
+            if not self.items[index].disabled_because or index in self.selected:
+                return index
+        return len(self.items) - 1
+
+    def _page(self, cursor: int, by: int, screen: Screen) -> int:
+        """One screen, measured from the screen rather than a constant: the
+        rows a page holds is what this terminal draws, and a fixed number is
+        wrong on every terminal but one."""
+        lines, _ = screen.size()
+        room = max(1, lines - 4 - len(self.preamble))
+        for _ in range(room):
+            moved = self._step(cursor, by)
+            if moved == cursor:
+                break
+            cursor = moved
+        return cursor
 
     def _step(self, cursor: int, by: int) -> int:
         """Skip disabled rows, and stop rather than wrap: wrapping past the end
@@ -850,6 +887,14 @@ class TwoPane(Generic[V]):
                 cursor = max(0, cursor - 1)
             elif pressed in ("KEY_DOWN", "j", "\t"):
                 cursor = min(max(0, len(self.rows) - 1), cursor + 1)
+            elif pressed in PAGE_BACKWARD:
+                cursor = max(0, cursor - self._page(screen))
+            elif pressed in PAGE_FORWARD:
+                cursor = min(max(0, len(self.rows) - 1), cursor + self._page(screen))
+            elif pressed in FIRST:
+                cursor = 0
+            elif pressed in LAST:
+                cursor = max(0, len(self.rows) - 1)
             elif pressed == HELP_KEY:
                 screen.help()
             elif pressed in ("\n", "KEY_ENTER", "KEY_RIGHT"):
@@ -864,6 +909,13 @@ class TwoPane(Generic[V]):
                 return Answer(Outcome.BACK)
             elif pressed == "\x03":
                 return Answer(Outcome.CANCELLED)
+
+    @staticmethod
+    def _page(screen: Screen) -> int:
+        """The rows one screen holds, which is what both layouts draw between
+        the title row and the status line."""
+        lines, _ = screen.size()
+        return max(1, lines - 3)
 
     def _draw(self, screen: Screen, cursor: int) -> None:
         lines, columns = screen.size()

@@ -667,3 +667,6 @@
 "Ask whether to leave, in a list; a letter in a field" = "一覧では終了するか尋ね、入力欄では一文字として扱う"
 "Ask whether to leave, anywhere" = "どの画面でも終了するか尋ねる"
 "This page, in a list; a letter in a field" = "このページを開く。入力欄では一文字として扱う"
+"Move the cursor one screen" = "カーソルを一画面分動かす"
+"Move the cursor to the first or last row" = "カーソルを先頭または末尾の行へ移す"
+"First or last row, in a list; a letter in a field" = "一覧では先頭または末尾の行へ移り、入力欄では一文字として扱う"
