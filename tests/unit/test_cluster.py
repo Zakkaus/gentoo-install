@@ -3112,7 +3112,8 @@ def test_a_conversion_counts_the_modules_its_bootloader_needs() -> None:
         (
             GRUB_PREFIX_CHECK,
             "grubstub=163840 grubprefix=1 boot=c866ae3a-68e7-4096-9703-dfa17070c3ed"
-            " esp=1234-ABCD stub=c866ae3a-68e7-4096-9703-dfa17070c3ed\n",
+            " esp=1234-ABCD stub=c866ae3a-68e7-4096-9703-dfa17070c3ed"
+            " embedded=(hd0,gpt2)/boot/grub\n",
         ),
     ):
         assert "wc -" in check.command or "grep -ac" in check.command
@@ -3129,7 +3130,10 @@ def test_a_conversion_counts_the_modules_its_bootloader_needs() -> None:
     # The third answers with two counts, because a stub that is not there and
     # a stub naming another filesystem are different defects and one number
     # cannot tell them apart.
-    healthy = "grubstub=163840 grubprefix=1 boot=aaaa esp=1234-ABCD stub=aaaa\n"
+    healthy = (
+        "grubstub=163840 grubprefix=1 boot=aaaa esp=1234-ABCD stub=aaaa"
+        " embedded=(hd0,gpt2)/boot/grub\n"
+    )
     assert re.search(GRUB_PREFIX_CHECK.pattern, healthy)
     assert re.search(GRUB_PREFIX_CHECK.pattern, healthy.replace("prefix=1", "prefix=0")) is None
     assert re.search(GRUB_PREFIX_CHECK.pattern, healthy.replace("stub=163840", "stub=0")) is None
@@ -3156,6 +3160,23 @@ def test_a_conversion_counts_the_modules_its_bootloader_needs() -> None:
     assert reader.search("1234-ABCD"), "a vfat serial is a filesystem name too"
     assert reader.search("c866ae3a-68e7-4096-9703-dfa17070c3ed")
     assert reader.pattern in GRUB_PREFIX_CHECK.command, GRUB_PREFIX_CHECK.command
+
+    # `vm-convert` then answered `stub=` empty on a 163840-byte stub, which
+    # says the stub names no filesystem and not which directory it will read.
+    # The prefix itself is that answer, and it decides nothing: an empty match
+    # must not turn a healthy conversion into a failure.
+    assert _re.search(GRUB_PREFIX_CHECK.pattern, healthy.replace("(hd0,gpt2)/boot/grub", ""))
+    # `grep -ac ""` counts every line, so a `grub-probe` that fails leaves
+    # `grubprefix` large and healthy-looking; `boot=` is what catches it.
+    assert (
+        _re.search(GRUB_PREFIX_CHECK.pattern, healthy.replace("boot=aaaa", "boot=").replace("grubprefix=1", "grubprefix=772"))
+        is None
+    )
+    # Anchored, because grub-2.14 carries its own build paths: an unanchored
+    # reader answered `/var/tmp/portage/…/grub-2.14/grub-core/bus/pci.c` from
+    # a stub whose prefix is `(hd0,gpt2)/boot/grub`, measured on 2026-08-20.
+    assert r"'^\([^)]+\)/[^ ]*|^/[^ ]*grub$'" in GRUB_PREFIX_CHECK.command
+    assert "embedded=%s" in GRUB_PREFIX_CHECK.command
 
 
 def test_the_unlock_addresses_go_back_after_the_guests_do() -> None:
