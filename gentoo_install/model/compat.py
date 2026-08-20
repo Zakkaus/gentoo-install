@@ -17,6 +17,7 @@ from pathlib import PurePosixPath
 
 from .config import (
     BinhostChannel,
+    DiskMode,
     Bootloader,
     ConsoleFontSize,
     Firmware,
@@ -628,6 +629,18 @@ def _on_esp(graph: DeviceGraph, device: DeviceId) -> bool:
     return any(
         one.kind is FilesystemType.VFAT for one in _nodes_under(graph, device, Filesystem)
     )
+
+
+def destroyed_selectors(config: InstallConfig) -> tuple[str, ...]:
+    """Every device this configuration overwrites, by selector.
+
+    `dd` streams an image over the whole disk named by `disk.destination` and
+    builds no graph, so reading the graph alone answered "nothing is erased"
+    for the one mode that always destroys a disk.
+    """
+    if config.disk.mode is DiskMode.DD:
+        return (config.disk.destination,) if config.disk.destination else ()
+    return tuple(one.selector for one in destroyed(config.disk.graph))
 
 
 def destroyed(graph: DeviceGraph) -> tuple[Existing, ...]:

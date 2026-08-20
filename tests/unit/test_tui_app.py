@@ -3299,7 +3299,13 @@ def test_dd_mode_is_offered_only_from_a_live_or_memory_environment() -> None:
     assert chosen.disk.mode is DiskMode.DD
     assert not chosen.disk.graph.nodes
     assert not chosen.disk.root
-    assert [setting.key for setting in settings.settings_for(chosen)] == ["mode", "image_write"]
+    # `erase` joined the table: `dd` writes a whole disk, and every other
+    # destructive path asks for that confirmation by name.
+    assert [setting.key for setting in settings.settings_for(chosen)] == [
+        "mode",
+        "image_write",
+        "erase",
+    ]
     assert [setting.key for setting in settings.IMAGE_WRITE] == [
         "image_source",
         "image_format",
@@ -3431,3 +3437,76 @@ def test_the_layout_menu_offers_no_layout_that_is_not_one() -> None:
     # The route that does exist is the one the manual row takes.
     assert "partitions_screen(" in inspect.getsource(screens.layout_screen)
 
+
+
+def test_the_review_screen_lists_the_rows_the_chosen_mode_asks() -> None:
+    """In `dd` mode the menu asks two rows and the review screen listed the
+    twenty-three of a disk install, so the last screen before a whole disk is
+    written reviewed rows nobody answered and hid the ones they did.
+
+    The menu draws a window rather than every row, so what this holds is the
+    two halves that fit: the mode's own rows are there, and no row belonging
+    only to the other mode is.
+    """
+    from pathlib import Path as _Path
+
+    from gentoo_install.exec.config import load
+    from gentoo_install.tui.settings import settings_for
+
+    from .layouts import config, ext4_on_gpt
+
+    partitioned = config(ext4_on_gpt())
+    # A real one: validation refuses `[kernel]` in `dd` mode, so a partition
+    # configuration with the mode flipped never reaches the row list at all.
+    written = load(_Path("tests/fixtures/vm-dd-raw.toml"))
+
+    def labels(chosen: InstallConfig) -> set[str]:
+        return {
+            row.label
+            for group in settings_for(chosen)
+            for row in (group.rows or (group,))
+        }
+
+    at = context()
+    at.columns = 100
+    screen = FakeScreen(keys=["q"], columns=100)
+    overview_screen(screen, written, at)
+    drawn = " ".join(line for frame in screen.frames for line in frame)
+    # `dd` asks two rows, and both fit on one screen.
+    for label in labels(written):
+        assert at.translate(label) in drawn, label
+    # And nothing the disk install asks: those are questions nobody answered.
+    unasked = labels(partitioned) - labels(written)
+    assert not [one for one in unasked if at.translate(one) in drawn], sorted(unasked)[:3]
+
+
+def test_writing_an_image_asks_the_same_erase_confirmation_as_every_other_path() -> None:
+    """`dd` streams over a whole disk and its table held no confirmation row,
+    so the one mode that always destroys a disk was the one the menu never
+    asked about. The row reads the destination, because a `dd` configuration
+    builds no graph and `compat.destroyed` answered `nothing is erased`."""
+    from pathlib import Path as _Path
+
+    from gentoo_install.exec.config import load
+    from gentoo_install.model import compat
+    from gentoo_install.tui.settings import settings_for
+
+    written = load(_Path("tests/fixtures/vm-dd-raw.toml"))
+    assert compat.destroyed_selectors(written) == (written.disk.destination,)
+
+    rows = {row.key for group in settings_for(written) for row in (group.rows or (group,))}
+    assert "erase" in rows, sorted(rows)
+
+    at = context()
+    erase = next(
+        row
+        for group in settings_for(written)
+        for row in (group.rows or (group,))
+        if row.key == "erase"
+    )
+    assert erase.required
+    # Unanswered until the destination is confirmed by name, the way a
+    # partition install's disks are.
+    assert erase.value(written, at) == settings.UNSET
+    at.confirmed.add(written.disk.destination)
+    assert erase.value(written, at) == at.translate("confirmed")
