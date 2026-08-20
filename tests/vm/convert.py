@@ -89,14 +89,16 @@ GRUB_READS_ITS_MODULE: Final[InstalledCheck] = InstalledCheck(
 #: Where `--bootloader-id=Gentoo` puts the stub the firmware starts.
 GRUB_STUB: Final[str] = "/efi/EFI/Gentoo/grubx64.efi"
 
-#: `grub-install` embeds `search.fs_uuid <uuid>` in the stub, and that uuid is
-#: what decides which filesystem `$prefix` is read from. The guest computes
-#: both sides, so the echo cannot answer it.
+#: `grub-install` embeds `search.fs_uuid <uuid>` in the stub as plain text,
+#: and that uuid is what decides which filesystem `$prefix` is read from. Two
+#: values because one cannot say which half failed: a stub that is not there
+#: and a stub that names another filesystem both counted zero.
 GRUB_PREFIX_CHECK: Final[InstalledCheck] = InstalledCheck(
     "grub's prefix",
-    "printf 'grubprefix=%s\\n' "
+    "printf 'grubstub=%s grubprefix=%s\\n' "
+    f"\"$(wc -c < {GRUB_STUB} 2>/dev/null || echo 0)\" "
     f"\"$(grep -ac \"$(grub-probe --target=fs_uuid /boot)\" {GRUB_STUB} 2>/dev/null)\"",
-    r"(?m)^grubprefix=[1-9][0-9]*$",
+    r"(?m)^grubstub=[1-9][0-9]* grubprefix=[1-9][0-9]*$",
 )
 
 

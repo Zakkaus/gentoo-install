@@ -3095,18 +3095,24 @@ def test_a_conversion_counts_the_modules_its_bootloader_needs() -> None:
     for check, answer in (
         (GRUB_MODULES_CHECK, "grubmods=214\n"),
         (GRUB_READS_ITS_MODULE, "grubread=182672\n"),
-        (GRUB_PREFIX_CHECK, "grubprefix=1\n"),
+        (GRUB_PREFIX_CHECK, "grubstub=544768 grubprefix=1\n"),
     ):
         assert "wc -" in check.command or "grep -ac" in check.command
         assert not re.search(check.pattern, check.command)
         assert re.search(check.pattern, answer)
-        assert not re.search(check.pattern, answer.split("=")[0] + "=0\n")
+        assert not re.search(check.pattern, re.sub(r"=\d+", "=0", answer))
         assert not re.search(check.pattern, "")
 
     # The second reads through GRUB's own driver rather than the kernel's: a
     # module the kernel lists and GRUB cannot follow is the failure this
     # exists for.
     assert "grub-fstest" in GRUB_READS_ITS_MODULE.command
+
+    # The third answers with two counts, because a stub that is not there and
+    # a stub naming another filesystem are different defects and one number
+    # cannot tell them apart.
+    assert re.search(GRUB_PREFIX_CHECK.pattern, "grubstub=544768 grubprefix=0\n") is None
+    assert re.search(GRUB_PREFIX_CHECK.pattern, "grubstub=0 grubprefix=1\n") is None
 
 
 def test_the_unlock_addresses_go_back_after_the_guests_do() -> None:
