@@ -441,10 +441,20 @@ def reachable(url: str, proxy: ProxyConfig | None = None) -> bool:
     return not (why_unreachable(url) if proxy is None else why_unreachable(url, proxy))
 
 
+def why_offline(proxy: ProxyConfig | None = None) -> str:
+    """Empty when the package site answers, and why it did not otherwise.
+
+    The url names one atom, so a rename upstream answers 404 while the network
+    is perfectly well: the caller refuses to start and the reason it gives has
+    to be the site's, not a guess about the machine.
+    """
+    url = f"{PACKAGES_API}/sys-kernel/gentoo-kernel-bin.json"
+    return why_unreachable(url) if proxy is None else why_unreachable(url, proxy)
+
+
 def online(proxy: ProxyConfig | None = None) -> bool:
     """Whether the package site answers. The menu reads every version from it."""
-    url = f"{PACKAGES_API}/sys-kernel/gentoo-kernel-bin.json"
-    return reachable(url) if proxy is None else reachable(url, proxy)
+    return not why_offline(proxy)
 
 
 def why_mirror_unreachable(
