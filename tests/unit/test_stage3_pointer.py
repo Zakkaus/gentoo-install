@@ -80,8 +80,9 @@ def test_the_variant_picks_the_pointer(monkeypatch: pytest.MonkeyPatch, variant:
         return POINTER.replace("systemd", variant)
 
     monkeypatch.setattr(fetch, "_read", record)
-    fetch._newest("https://distfiles.gentoo.org/releases/amd64/autobuilds", variant)
+    found = fetch._newest("https://distfiles.gentoo.org/releases/amd64/autobuilds", variant)
     assert asked[0].endswith(f"latest-stage3-amd64-{variant}.txt")
+    assert found == f"20260802T163058Z/stage3-amd64-{variant}-20260802T163058Z.tar.xz"
 
 
 def test_the_pause_between_attempts_grows(monkeypatch: pytest.MonkeyPatch) -> None:
