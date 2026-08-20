@@ -77,6 +77,36 @@ def test_every_shipped_catalog_translates_the_same_keys() -> None:
             assert value and catalog(key) == value, key
 
 
+#: One English term, one rendering per catalog. Written by codepoint because
+#: no CJK literal belongs in the test tree. The pairs are (kept, refused):
+#: `zh-TW.toml` translated `bootloader` as the row label in two places and as
+#: another word in the two hints beside it, and `zh-CN.toml` had two words for
+#: `account` in four strings.
+GLOSSARY: dict[str, tuple[tuple[str, str], ...]] = {
+    "zh-TW": ((
+        "\u958b\u6a5f\u8f09\u5165\u5668",
+        "\u958b\u6a5f\u8f09\u5165\u7a0b\u5f0f",
+    ),),
+    "zh-CN": (
+        ("\u5f15\u5bfc\u52a0\u8f7d\u5668", "\u5f15\u5bfc\u7a0b\u5e8f"),
+        ("\u8d26\u6237", "\u8d26\u53f7"),
+    ),
+}
+
+
+def test_one_english_term_reads_as_one_word_in_a_catalog() -> None:
+    """A screen that calls the bootloader one thing in its title and another
+    in the hint under it reads as two features. Both catalogs did that."""
+    for tag, pairs in GLOSSARY.items():
+        catalog = shipped(tag)
+        for kept, refused in pairs:
+            used = [key for key, value in catalog.items() if refused in value]
+            assert not used, (tag, refused, used)
+            # The entry has to be about something this catalog says, or it is
+            # a rule that cannot fail.
+            assert any(kept in value for value in catalog.values()), (tag, kept)
+
+
 #: A wide character and a combining mark, by codepoint: no CJK literal belongs
 #: in the test tree, and these are what the width rule exists for.
 WIDE = "\u78c1\u789f"
