@@ -739,7 +739,19 @@ def main(argv: list[str] | None = None) -> int:
         print("--boot-installed needs the same --install argument as the run it checks", file=sys.stderr)
         return 1
     if args.install:
-        wanted = load(REPOSITORY / "tests" / args.install).bootloader.firmware.value
+        chosen = load(REPOSITORY / "tests" / args.install)
+        if chosen.disk.mode is DiskMode.DD:
+            # Refused before a guest is built: the source image is generated
+            # per run and staged onto the CD by `tests.vm.dd`, so this runner
+            # boots a machine and stops at `image source ... is not a regular
+            # file` several minutes later.
+            print(
+                f"{args.install} streams a prepared image; run it with "
+                "python3 -m tests.vm.dd, which generates the source",
+                file=sys.stderr,
+            )
+            return 1
+        wanted = chosen.bootloader.firmware.value
         if wanted != args.firmware:
             # Refused here rather than after the install: a BIOS layout booted
             # with UEFI firmware reaches the EDK2 shell, and the run spends

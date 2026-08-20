@@ -4972,3 +4972,26 @@ def test_the_walk_leaves_a_row_with_the_key_every_widget_answers() -> None:
     assert not any(r"\x7f" in line for line in left), left
     assert 'console.send_raw("\\x1b")' not in left, left
 
+
+def test_a_dd_fixture_names_the_runner_that_can_run_it(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`tests.vm.dd` generates the source image per run and stages it onto the
+    CD. Handed to the ordinary runner the fixture builds a guest, boots it and
+    stops at `image source ... is not a regular file` minutes later."""
+    from tests.vm import run as runner
+
+    code = runner.main(["--install", "fixtures/vm-dd-raw.toml", "--dry-run"])
+    said = capsys.readouterr()
+    assert code == 1, said
+    assert "tests.vm.dd" in said.err, said
+
+    # The control names a fixture this runner does own, with the firmware
+    # deliberately wrong so it is refused by the check below this one rather
+    # than booting a machine: the dd message belongs to the dd branch alone.
+    code = runner.main(["--install", "fixtures/ext4-bios.toml", "--firmware", "uefi"])
+    also = capsys.readouterr()
+    assert code == 1, also
+    assert "tests.vm.dd" not in also.err, also
+    assert "--firmware says uefi" in also.err, also
+
