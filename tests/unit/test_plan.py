@@ -59,8 +59,42 @@ def first_index(operations: tuple[Operation, ...], text: str) -> int:
 
 
 def test_the_stages_run_in_the_order_the_design_lists() -> None:
-    stages = [operation.stage.order for operation in plan(config())]
-    assert stages == sorted(stages)
+    """The names, not only their ranks: `Stage.order` returning a constant
+    makes every rank equal and `[0, 0, ...] == sorted(...)` still passes, and
+    so does a plan with no operations at all. What has to hold is that the
+    stages appear in the order `docs/design.md` lists and that the ones this
+    configuration needs are all there.
+    """
+    from gentoo_install.plan.operations import Stage
+
+    operations = plan(config())
+    assert operations, "an empty plan orders nothing"
+
+    seen = [operation.stage for operation in operations]
+    assert seen == sorted(seen, key=lambda stage: list(Stage).index(stage)), [
+        stage.value for stage in seen
+    ]
+
+    # A disk install reaches every stage from partitioning to the finish, so a
+    # plan that quietly stopped early is not an ordered plan.
+    needed = [
+        Stage.PARTITION,
+        Stage.FORMAT,
+        Stage.MOUNT,
+        Stage.STAGE3,
+        Stage.PORTAGE,
+        Stage.SYSTEM,
+        Stage.KERNEL,
+        Stage.BOOTLOADER,
+        Stage.FINISH,
+    ]
+    missing = [stage.value for stage in needed if stage not in set(seen)]
+    assert not missing, missing
+
+    # And the ranks are distinct, which is what makes the sort above mean
+    # anything: `order` is the position in the declaration.
+    ranks = {stage: stage.order for stage in Stage}
+    assert len(set(ranks.values())) == len(ranks), ranks
 
 
 def test_partitions_are_created_in_index_order() -> None:
