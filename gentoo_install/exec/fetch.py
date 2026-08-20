@@ -142,16 +142,14 @@ def _stage3_from(
     _import_release_key(runner, work, selected)
     _verify_signature(digests, fingerprint, runner)
     try:
-        _verify_digest(archive, digests)
+        digest = _verify_digest(archive, digests)
     except ArchiveDigestMismatch:
         # Removed before the next mirror is asked: the download below skips a
         # file that is already there, so leaving the bad one would make every
         # fallback verify the same corrupt copy.
         archive.unlink(missing_ok=True)
         raise
-    marker.write_text(
-        f"{MARKER_SCHEMA}\n{name}\n{_sha512(archive)}\n{fingerprint.lower()}\n"
-    )
+    marker.write_text(f"{MARKER_SCHEMA}\n{name}\n{digest}\n{fingerprint.lower()}\n")
     return archive
 
 
@@ -1088,13 +1086,20 @@ def _signing_key(status: str) -> str | None:
     return None
 
 
-def _verify_digest(archive: Path, digests: Path) -> None:
+def _verify_digest(archive: Path, digests: Path) -> str:
+    """The archive's SHA-512, once it matches what `DIGESTS` says it is.
+
+    Answered rather than discarded: the marker beside the archive holds the
+    same digest, and computing it a second time reads a quarter of a gigabyte
+    off the disk again before anything is unpacked.
+    """
     wanted = _expected_sha512(digests, archive.name)
     got = _sha512(archive)
     if got != wanted:
         raise ArchiveDigestMismatch(
             f"{archive.name} has SHA512 {got}, the DIGESTS file says {wanted}"
         )
+    return got
 
 
 def _expected_sha512(digests: Path, name: str) -> str:

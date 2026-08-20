@@ -377,3 +377,44 @@ def test_an_unreplaceable_stage3_tries_the_next_mirror_and_cleans_up(
     archive = tmp_path / "stage3.tar.xz"
     assert not archive.exists()
     assert not archive.with_suffix(archive.suffix + ".part").exists()
+
+
+def test_the_stage3_is_hashed_once_for_one_download(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The archive is about a quarter of a gigabyte and it was read twice:
+    once to compare with `DIGESTS`, once again to write the marker beside it.
+    Both hashes are of the same bytes, so the second read is a disk pass an
+    install pays for before it can unpack anything."""
+    from gentoo_install.exec import fetch
+
+    archive = tmp_path / "stage3-amd64-systemd-1.tar.xz"
+    archive.write_bytes(b"the verified bytes")
+    digests = tmp_path / "stage3-amd64-systemd-1.tar.xz.DIGESTS"
+    digests.write_text(f"# SHA512 HASH\n{fetch._sha512(archive)}  {archive.name}\n")
+
+    reads = 0
+    real = fetch._sha512
+
+    def counted(path: Path) -> str:
+        nonlocal reads
+        reads += 1
+        return real(path)
+
+    monkeypatch.setattr(fetch, "_sha512", counted)
+    digest = fetch._verify_digest(archive, digests)
+    assert reads == 1, reads
+
+    # What the caller writes into the marker has to be the digest it was
+    # given, or the second read comes back with it.
+    key = "13EBBDBEDE7A12775DFDB1BABB572E0E2D182910"
+    marker = tmp_path / f"{archive.name}.verified"
+    marker.write_text(f"{fetch.MARKER_SCHEMA}\n{archive.name}\n{digest}\n{key.lower()}\n")
+    assert fetch._marker_matches(marker, archive, key)
+
+    # And the caller does not ask again: one call for the whole sequence.
+    import inspect
+
+    source = inspect.getsource(fetch._stage3_from)
+    assert "_sha512(archive)" not in source, source
+
