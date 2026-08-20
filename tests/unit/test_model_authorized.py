@@ -40,6 +40,18 @@ CASES: tuple[tuple[str, KeySource], ...] = (
     ),
     ("github:zakkaus", KeySource(KeySourceKind.URL, "https://github.com/zakkaus.keys")),
     ("gitlab:zakkaus", KeySource(KeySourceKind.URL, "https://gitlab.com/zakkaus.keys")),
+    # A drive letter, not a scheme: the operator copying a command line from
+    # Windows is told the file is not here, which is true, rather than that
+    # `C:` is a transport this installer cannot fetch.
+    (
+        r"C:\Users\zakk\.ssh\id_ed25519.pub",
+        KeySource(KeySourceKind.PATH, r"C:\Users\zakk\.ssh\id_ed25519.pub"),
+    ),
+    (_key("ssh-rsa"), KeySource(KeySourceKind.LITERAL, _key("ssh-rsa"))),
+    (
+        _key("ecdsa-sha2-nistp521"),
+        KeySource(KeySourceKind.LITERAL, _key("ecdsa-sha2-nistp521")),
+    ),
 )
 
 
@@ -56,6 +68,29 @@ def test_the_cases_cover_every_kind_and_every_shorthand() -> None:
         assert any(value.startswith(f"{service}:") for value, _ in CASES), service
     for scheme in SCHEMES:
         assert any(value.startswith(scheme) for value, _ in CASES), scheme
+
+    # Every key type the checker accepts is a form somebody may paste, and
+    # `--help` names three of them: those three are classified here.
+    from gentoo_install.model import sshkey
+
+    for kind in ("ssh-ed25519", "ssh-rsa", "ecdsa-sha2-nistp521"):
+        assert kind in sshkey.KEY_TYPES, kind
+        assert any(value.startswith(f"{kind} ") for value, _ in CASES), kind
+
+
+def test_the_help_names_every_source_the_classifier_takes() -> None:
+    """The option took a URL and `github:` from the day it was written and
+    named neither, so an operator reading `--help` had no way to know: the
+    form was asked about as though it did not exist, and it had always
+    worked."""
+    import inspect
+
+    from gentoo_install import cli
+
+    source = inspect.getsource(cli)
+    said = source[source.index('"--ssh-key"') : source.index('"--ssh-port"')]
+    for named in ("ssh-ed25519", "ssh-rsa", "ecdsa-sha2-nistp", "http", "github:", "gitlab:"):
+        assert named in said, (named, said)
 
 
 @pytest.mark.parametrize("value", ("", "   ", "\n"))
