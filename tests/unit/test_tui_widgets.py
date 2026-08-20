@@ -903,3 +903,26 @@ def test_a_list_longer_than_the_pane_scrolls_to_keep_the_cursor_on_screen() -> N
     screen = Recording(keys=["KEY_DOWN"] * 30 + ["\n"])
     assert TwoPane(title="gentoo-install", rows=rows).run(screen).unwrap() == 30
     assert "row30" in screen.last
+
+
+def test_the_footer_names_the_key_that_always_goes_back() -> None:
+    """Left is the only Back every widget takes: backspace deletes a character
+    in a field that has one, and escape ends the run. A footer that named
+    neither left it to the operator to guess, and the walk that found this
+    spent eighteen rows deleting the hostname one letter at a time."""
+    from gentoo_install.i18n import Catalog
+    from gentoo_install.tui.context import footer
+    from gentoo_install.tui.widgets import Field, Form, TextField
+
+    for tag in ("en", "zh-TW", "zh-CN", "ja", "ko"):
+        translate = Catalog(tag)
+        drawn = footer(translate)
+        assert "[←]" in drawn, (tag, drawn)
+        assert drawn.count(translate("Back")) == 2, (tag, drawn)
+
+    # And the key the footer names is the key the widgets answer Back to,
+    # with a value already in the field.
+    typed = TextField(title="Hostname", value="gentoo")
+    assert typed.run(FakeScreen(keys=["KEY_LEFT"])).outcome is Outcome.BACK
+    form = Form(title="User", fields=[Field(label="Name", value="zakk")])
+    assert form.run(FakeScreen(keys=["KEY_LEFT"])).outcome is Outcome.BACK

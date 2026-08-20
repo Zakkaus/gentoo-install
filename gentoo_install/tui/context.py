@@ -315,6 +315,11 @@ def footer(translate: Catalog, enter: str = "Continue") -> str:
     return "  ".join(
         (
             f"[enter] {translate(enter)}",
+            # Left as well as backspace: left is the only Back that works in
+            # every widget, and a field with a value in it takes backspace as
+            # a deletion, so an operator reading this footer alone had no way
+            # back out of the hostname screen.
+            f"[\u2190] {translate('Back')}",
             f"[backspace] {translate('Back')}",
             # `esc`, not `q`: this footer is drawn over text fields as well
             # as menus, and a field takes `q` as the letter. An operator who
