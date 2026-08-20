@@ -511,3 +511,15 @@ def test_every_table_row_carries_the_same_identifiers_in_every_readme() -> None:
     for name in READMES:
         if name != "README.md":
             assert rows(name) == english, name
+
+
+def test_no_chinese_readme_calls_arming_a_boot_by_the_weapon_word() -> None:
+    """The word for arming a weapon reads as slang for what `bootctl
+    set-oneshot` does, so both Chinese files use the word for a reservation:
+    the boot is booked for the next start and happens once."""
+    weapon = ("\u6b66\u88dd", "\u6b66\u88c5")
+    reservation = {"README.zh-TW.md": "\u9810\u7d04", "README.zh-CN.md": "\u9884\u7ea6"}
+    for name, wanted in reservation.items():
+        text = readme(name)
+        assert not any(one in text for one in weapon), name
+        assert text.count(wanted) >= 10, (name, text.count(wanted))
