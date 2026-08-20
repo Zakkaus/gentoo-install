@@ -103,15 +103,28 @@ _STUB_UUID: Final[str] = (
     + " 2>/dev/null | head -n 1"
 )
 
+#: What the stub will look for its modules in, as text. `grub-install` writes
+#: the prefix as one null-terminated string, so the bytes are cut on NUL and
+#: each pattern is anchored: grub-2.14 also carries its own build paths, and
+#: an unanchored `/*/grub` answers `.../grub-2.14/grub-core/bus/pci.c` first.
+_STUB_PREFIX: Final[str] = (
+    f"tr '\\000' '\\n' < {GRUB_STUB} 2>/dev/null | "
+    r"grep -aoE '^\([^)]+\)/[^ ]*|^/[^ ]*grub$' | head -n 1"
+)
+
 GRUB_PREFIX_CHECK: Final[InstalledCheck] = InstalledCheck(
     "grub's prefix",
-    "printf 'grubstub=%s grubprefix=%s boot=%s esp=%s stub=%s\\n' "
+    "printf 'grubstub=%s grubprefix=%s boot=%s esp=%s stub=%s embedded=%s\\n' "
     f"\"$(wc -c < {GRUB_STUB} 2>/dev/null || echo 0)\" "
     f"\"$(grep -ac \"$(grub-probe --target=fs_uuid /boot)\" {GRUB_STUB} 2>/dev/null)\" "
     "\"$(grub-probe --target=fs_uuid /boot 2>/dev/null)\" "
     "\"$(grub-probe --target=fs_uuid /efi 2>/dev/null)\" "
-    f"\"$({_STUB_UUID})\"",
-    r"(?m)^grubstub=[1-9][0-9]* grubprefix=[1-9][0-9]* boot=\S+ esp=\S+ stub=\S+$",
+    f"\"$({_STUB_UUID})\" "
+    f"\"$({_STUB_PREFIX})\"",
+    # `embedded` decides nothing: `grubprefix` already says whether the stub
+    # names the filesystem holding `/boot`, and this field is the evidence the
+    # next failure needs, which an empty match must not hide.
+    r"(?m)^grubstub=[1-9][0-9]* grubprefix=[1-9][0-9]* boot=\S+ esp=\S+ stub=\S+ embedded=\S*$",
 )
 
 
