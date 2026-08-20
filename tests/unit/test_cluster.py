@@ -1001,19 +1001,48 @@ def test_a_node_that_refuses_a_guest_does_not_end_the_campaign() -> None:
     """`POST /nodes/infra-node3/qemu` answered `595 Connection refused` and the
     exception left the dispatch loop, so the closing path removed five guests
     that were installing."""
+    import ast
     import inspect
+    import textwrap
 
-    from tests.vm.proxmox import ProxmoxTransientError
+    from tests.vm import proxmox
 
-    code = inspect.getsource(cluster.run)
-    caught = code.index("except ProxmoxTransientError as refused:")
-    reserved = code.index("_reserve_job(")
-    assert reserved < caught, "the guard has to sit on the call that creates the guest"
-    after = code[caught : caught + 900]
-    assert "unreachable.add(node.name)" in after
-    assert "waiting.insert(index, job)" in after
-    assert "continue" in after
-    assert ProxmoxTransientError.__name__ in code
+    # The class the module catches, not a name that reads like it: a local
+    # `class ProxmoxTransientError(Exception)` in `tests/vm/cluster.py` would
+    # satisfy every text search here and catch nothing the API raises.
+    assert getattr(cluster, "ProxmoxTransientError") is proxmox.ProxmoxTransientError
+
+    # The `try` that wraps the call which creates the guest, found in the tree
+    # rather than by where the words sit: a handler placed around something
+    # else keeps the same words in the same order.
+    tree = ast.parse(textwrap.dedent(inspect.getsource(cluster.run)))
+    guarded = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Try)
+        and any(
+            isinstance(call.func, ast.Name) and call.func.id == "_reserve_job"
+            for call in ast.walk(node)
+            if isinstance(call, ast.Call)
+        )
+        and any(
+            isinstance(handler.type, ast.Name)
+            and handler.type.id == "ProxmoxTransientError"
+            for handler in node.handlers
+        )
+    ]
+    assert len(guarded) == 1, "one guard, on the call that creates the guest"
+    handler = next(
+        one
+        for one in guarded[0].handlers
+        if isinstance(one.type, ast.Name) and one.type.id == "ProxmoxTransientError"
+    )
+    said = ast.dump(ast.Module(body=handler.body, type_ignores=[]))
+    assert "unreachable" in said, "the node is taken out of the round"
+    assert "waiting" in said, "the job goes back to the queue"
+    assert any(isinstance(one, ast.Continue) for one in ast.walk(handler)), (
+        "the loop carries on with the next node"
+    )
 
 
 def test_the_resolvers_are_written_again_once_the_client_is_dead() -> None:
