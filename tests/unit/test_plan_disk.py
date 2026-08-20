@@ -358,10 +358,40 @@ def test_a_reference_to_the_wrong_kind_of_node_is_named_rather_than_asserted() -
 
 
 def test_the_topological_order_is_the_same_every_time() -> None:
-    graph = DeviceGraph.build(ext4_on_gpt())
-    assert [node.id for node in disk.topological(graph)] == [
-        node.id for node in disk.topological(graph)
+    """Two different inputs, not the same call twice: comparing
+    `topological(graph)` with itself passes for any deterministic
+    implementation, including one that has lost its tie-break and creates a
+    later partition in the space an earlier one wanted.
+    """
+    nodes = ext4_on_gpt()
+    forwards = [node.id for node in disk.topological(DeviceGraph.build(nodes))]
+    backwards = [node.id for node in disk.topological(DeviceGraph.build(list(reversed(nodes))))]
+    assert forwards == backwards, (forwards, backwards)
+
+    # And the property the tie-break exists for: `sgdisk --new=N:0:+size`
+    # takes what is free when it runs, so the partitions are created in index
+    # order. Named so that the index and the id disagree — with the plain
+    # fixture both orders agree and sorting by id alone passes.
+    disagreeing: list[Node] = [
+        Existing(id=i("disk"), selector="/dev/disk/by-id/virtio-target", wipe=True),
+        PartitionTable(id=i("table"), disk=i("disk"), table=TableType.GPT),
     ]
+    disagreeing += [
+        Partition(id=i("aaa"), table=i("table"), index=2, role=PartitionRole.DATA, size=None),
+        Partition(
+            id=i("zzz"),
+            table=i("table"),
+            index=1,
+            role=PartitionRole.ESP,
+            size=Size.parse("512MiB"),
+        ),
+    ]
+    indexes = [
+        node.index
+        for node in disk.topological(DeviceGraph.build(disagreeing))
+        if isinstance(node, Partition)
+    ]
+    assert indexes == [1, 2], indexes
 
 
 def test_every_disk_operation_lands_in_a_disk_stage() -> None:
