@@ -55,7 +55,7 @@ from .packages import (
 )
 from .partitions import partitions_screen
 from .context import Context, Step, ValueKind, ValueSource, footer
-from ..i18n import width
+from ..i18n import clip, width
 from .widgets import Answer, Item, Menu, Outcome, Screen, Style
 
 #: Shown for a row the operator has not visited and that has no usable default.
@@ -189,10 +189,6 @@ def nested(
     return open
 
 
-#: Room the label, the indent and the `+N` need, so the summary is measured
-#: against what is left of the line rather than against the whole width.
-_MARGIN: Final[int] = 34
-
 #: Values that say a row holds no answer. A summary of seven rows reads as a
 #: string of words with no subject when five of them are one of these, so the
 #: group names what is set and says so when nothing is.
@@ -202,7 +198,9 @@ QUIET: Final[tuple[str, ...]] = (
 )
 
 
-def shown_value(setting: Setting, config: InstallConfig, context: Context) -> str:
+def shown_value(
+    setting: Setting, config: InstallConfig, context: Context, room: int | None = None
+) -> str:
     """A row's value as the operator reads it.
 
     `UNSET` is the sentinel `style_of` compares against, so it is translated
@@ -211,9 +209,46 @@ def shown_value(setting: Setting, config: InstallConfig, context: Context) -> st
     left alone.
     """
     value = setting.value(config, context)
-    if value != UNSET:
+    if value == UNSET:
+        value = context.translate("required" if setting.required else UNSET)
+    if room is None:
         return value
-    return context.translate("required" if setting.required else UNSET)
+    # `required` is fitted too: the widest label in the catalog leaves its own
+    # row no room at all, and a word wider than the row is dropped whole.
+    return fit(value.split(", "), room)
+
+
+def fit(parts: list[str], room: int) -> str:
+    """As many of the values as the room holds, and how many did not.
+
+    One place, because the room a row's value gets is what the pane leaves
+    after its label and nothing else: fitting against the whole terminal drew
+    a summary eleven rows could not hold, and `spread` dropped every one of
+    them rather than showing a shorter answer.
+    """
+    said = [one for one in parts if one]
+    taken: list[str] = []
+    for value in said:
+        rest = len(said) - len(taken) - 1
+        if width(", ".join([*taken, value])) + (4 if rest else 0) > room:
+            break
+        taken.append(value)
+    # The first value is measured like the rest: taking it unchecked is what
+    # left five rows holding a value wider than their own pane, which `spread`
+    # then dropped whole rather than shortened.
+    if not taken:
+        if not said:
+            return ""
+        # The count still has to be said: one value clipped to look whole reads
+        # as the only answer, and four more were set.
+        rest = len(said) - 1
+        if not rest:
+            return clip(said[0], room)
+        counter = f" +{rest}"
+        return clip(said[0], max(1, room - width(counter))) + counter
+    left = len(said) - len(taken)
+    joined = ", ".join(taken)
+    return f"{joined} +{left}" if left else joined
 
 
 def _summary(rows: tuple[Setting, ...]) -> Callable[[InstallConfig, Context], str]:
@@ -227,16 +262,9 @@ def _summary(rows: tuple[Setting, ...]) -> Callable[[InstallConfig, Context], st
         said = [one for one in values if one not in quiet]
         if not said:
             return context.translate("nothing set")
-        room = max(20, context.columns - _MARGIN)
-        taken: list[str] = []
-        for value in said:
-            rest = len(said) - len(taken) - 1
-            if taken and width(", ".join([*taken, value])) + (4 if rest else 0) > room:
-                break
-            taken.append(value)
-        left = len(said) - len(taken)
-        joined = ", ".join(taken)
-        return f"{joined} +{left}" if left else joined
+        # Whole: `shown_value` fits it to the room its own row has, which the
+        # terminal's width is not.
+        return ", ".join(said)
 
     return shown
 

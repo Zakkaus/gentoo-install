@@ -7,7 +7,7 @@ import pytest
 
 from gentoo_install.data import load_catalog
 from gentoo_install.errors import ConfigError
-from gentoo_install.i18n import Catalog
+from gentoo_install.i18n import Catalog, width
 from gentoo_install.model.size import Size
 from gentoo_install.model.config import (
     Bootloader,
@@ -46,8 +46,10 @@ DISKS = [("/dev/disk/by-id/virtio-target0", "20 GiB"), ("/dev/disk/by-id/virtio-
 REQUIRED_ROW_VALUES: dict[str, str] = {
     "mirror": "required",
     "mode": "partition a disk and install onto it",
-    "storage": "virtio-target, gpt +2",
-    "compiler": "stage3 default, -O2 -pipe (stage3 default) +3",
+    "storage": "virtio-target, gpt, whole-disk (erases the disk), /efi 512MiB, / the rest",
+    "compiler": (
+        "stage3 default, -O2 -pipe (stage3 default), what the profile sets, @FREE, amd64"
+    ),
     "root": "set",
     "erase": "required",
 }
@@ -2194,9 +2196,9 @@ def test_selecting_gentoo_zh_turns_its_binary_host_on() -> None:
     assert tui_context.with_gentoo_zh(picked).binhost.community is BinhostChannel.UNSTABLE
 
 
-def test_a_grouped_row_uses_the_width_the_terminal_actually_has() -> None:
-    """It took two values whatever the terminal was, so a 160-column ssh window
-    still read `openrc, syslog-ng +1` with the rest of the line empty."""
+def test_a_grouped_row_answers_whole_and_the_pane_is_what_fits_it() -> None:
+    """The summary was cut against the terminal and then drawn into a pane a
+    fraction of that wide, so `spread` dropped eleven English rows whole."""
     at = context()
     disk = next(one for one in settings.SETTINGS if one.key == "storage")
 
@@ -2206,17 +2208,21 @@ def test_a_grouped_row_uses_the_width_the_terminal_actually_has() -> None:
     said = [one for one in (row.value(config(), at) for row in disk.rows) if one not in quiet]
     assert len(said) < len(disk.rows)
 
-    at.columns = 200
-    wide = disk.value(config(), at)
-    assert "+" not in wide
-    # Every field, not a comma count: one of them lists the partitions and
-    # carries commas of its own.
-    for one in said:
-        assert one in wide, one
+    # Whole, at any terminal width: the row does not know what room it gets.
+    for columns in (40, 200):
+        at.columns = columns
+        whole = disk.value(config(), at)
+        assert "+" not in whole
+        # Every field, not a comma count: one of them lists the partitions and
+        # carries commas of its own.
+        for one in said:
+            assert one in whole, one
 
-    at.columns = 40
-    narrow = disk.value(config(), at)
-    assert "+" in narrow and len(narrow) < 40
+    # The room decides, and the count is said whatever the room is.
+    assert settings.shown_value(disk, config(), at, 200) == disk.value(config(), at)
+    parts = disk.value(config(), at).split(", ")
+    narrow = settings.shown_value(disk, config(), at, 20)
+    assert width(narrow) <= 20 and narrow.endswith(f"+{len(parts) - 1}"), narrow
 
 
 def test_the_rows_say_not_set_in_the_language_the_menu_is_in() -> None:
@@ -3547,3 +3553,56 @@ def test_writing_an_image_asks_the_same_erase_confirmation_as_every_other_path()
     assert erase.value(written, at) == settings.UNSET
     at.confirmed.add(written.disk.destination)
     assert erase.value(written, at) == at.translate("confirmed")
+
+
+def test_the_first_value_is_measured_like_the_rest_and_the_count_is_said() -> None:
+    """Two defects in one loop: the first value was taken unchecked, so a row
+    held a value wider than its own pane; and when it was cut, the count of
+    what was left out went with it, so one answer read as the only answer."""
+    from gentoo_install.tui.settings import fit
+
+    assert fit(["systemd", "journald", "cronie"], 40) == "systemd, journald, cronie"
+    assert fit(["systemd", "journald", "cronie"], 13) == "systemd +2"
+    # Wider than the room on its own: cut, and the count still said.
+    cut = fit(["partition a disk and install onto it", "and one more"], 12)
+    assert width(cut) <= 12 and cut.endswith("+1"), cut
+    # One value and no room: cut with a mark, and no count invented.
+    only = fit(["default/linux/amd64/23.0/systemd"], 10)
+    assert width(only) <= 10 and "+" not in only and only != "default/linux/amd64/23.0/systemd"
+    assert fit([], 10) == ""
+
+
+def test_every_row_of_the_main_menu_carries_a_value() -> None:
+    """Measured on 2026-08-21: eleven English rows and ten Traditional Chinese
+    ones drew no value at all, because the summary was fitted to the terminal
+    and then dropped whole by the pane it was drawn into.
+
+    Read off the drawn rows rather than recomputed: a test that fits the value
+    itself passes whatever the menu hands the pane, which is the wiring this
+    is here to hold.
+    """
+    from gentoo_install.tui.widgets import SEPARATOR
+
+    for tag in ("en", "zh-TW", "zh-CN", "ja", "ko"):
+        at = context()
+        at.translate = Catalog(tag)
+        at.tag = tag
+        installation = config()
+        table = settings.settings_for(installation)
+        labels = [at.translate(setting.label) for setting in table]
+        screen = FakeScreen(keys=[*down(len(table)), "q", "KEY_DOWN", "\n"])
+        run(screen, installation, at)
+        blank = []
+        for frame in screen.frames:
+            for line in frame:
+                if SEPARATOR not in line:
+                    continue
+                left = line.split(SEPARATOR)[0][2:]
+                for label in labels:
+                    if left.startswith(label) and not left[len(label) :].strip():
+                        blank.append((label, line))
+        # One named exception: the pane is sized so no label is ever cut, so
+        # the widest label in the catalog fills its own row and its value is
+        # left to the right pane. Every other row carries one.
+        widest = max(labels, key=width)
+        assert {one for one, _ in blank} <= {widest}, (tag, sorted({one for one, _ in blank}))
