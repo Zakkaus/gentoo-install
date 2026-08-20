@@ -100,6 +100,46 @@ _CJK_KERNEL_PACKAGES: Final[frozenset[str]] = frozenset(
 )
 
 
+@dataclass(frozen=True)
+class Architecture:
+    """One target architecture, under each of the names something spells it.
+
+    Ecosystems name the same architecture differently, the way `fma` and
+    `fma3` do: `uname -m` answers `x86_64`, Gentoo's `profiles/arch.list` says
+    `amd64`, and the official binary host is published under `x86-64`. Holding
+    the three together is what lets a site compare a row instead of a literal.
+    """
+
+    #: What `uname -m` answers on a machine of this kind.
+    kernel_name: str
+    #: The line of `profiles/arch.list`, which is also the keyword.
+    gentoo_name: str
+    #: The baseline subarchitecture the official binary host publishes.
+    binhost_subarch: str
+
+
+#: Every architecture this installer has a name for. A machine outside it is
+#: refused by name rather than sent to a URL composed from a guess.
+ARCHITECTURES: Final[tuple[Architecture, ...]] = (
+    Architecture("x86_64", "amd64", "x86-64"),
+    Architecture("aarch64", "arm64", "arm64"),
+    Architecture("i686", "x86", "i686"),
+)
+
+#: What an installation targets when its configuration says nothing. Only the
+#: first row is installed today; the others are named so that the sites that
+#: decide can compare a row rather than a literal.
+DEFAULT_ARCHITECTURE: Final[Architecture] = ARCHITECTURES[0]
+
+
+def architecture_of(kernel_name: str) -> Architecture | None:
+    """The row a machine reporting `kernel_name` belongs to, if there is one."""
+    for row in ARCHITECTURES:
+        if row.kernel_name == kernel_name:
+            return row
+    return None
+
+
 #: The official binary hosts this installer knows how to point Portage at.
 #: A subarchitecture outside this set is a refusal rather than a URL composed
 #: from it, because a host that does not exist answers 404 an hour in.

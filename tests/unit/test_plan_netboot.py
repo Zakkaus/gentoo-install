@@ -1058,9 +1058,14 @@ def test_every_architecture_this_maps_is_one_gentoo_names() -> None:
     `install-amd64-…`: two ecosystems naming the same machine, the way `fma`
     and `fma3` do. A name Gentoo does not use finds no asset and the failure
     reads as a missing release."""
-    assert set(netboot.GENTOO_ARCHITECTURES.values()) <= GENTOO_ARCH_NAMES, sorted(
-        set(netboot.GENTOO_ARCHITECTURES.values()) - GENTOO_ARCH_NAMES
-    )
+    from gentoo_install.model.compat import ARCHITECTURES
+
+    named = {one.gentoo_name for one in ARCHITECTURES}
+    assert named <= GENTOO_ARCH_NAMES, sorted(named - GENTOO_ARCH_NAMES)
+    # One table, in the layer both `plan` and `exec` can read: a second copy
+    # in `plan/netboot.py` is how the kernel name and the Gentoo name drifted
+    # apart everywhere else.
+    assert not hasattr(netboot, "GENTOO_ARCHITECTURES")
 
 
 def test_the_alpine_index_is_asked_for_this_machine() -> None:

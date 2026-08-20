@@ -504,8 +504,15 @@ def inspect(
 
     if not machine.root:
         fatal.append("the installer has to run as root")
-    if config.disk.mode is not DiskMode.DD and machine.architecture != "x86_64":
-        fatal.append(f"this build installs amd64 and the machine reports {machine.architecture}")
+    # The row rather than the literal: `uname -m` and Gentoo spell the same
+    # architecture differently, and the message has to name the one the
+    # configuration targets rather than the one this file was written for.
+    installs = compat.DEFAULT_ARCHITECTURE
+    if config.disk.mode is not DiskMode.DD and machine.architecture != installs.kernel_name:
+        fatal.append(
+            f"this build installs {installs.gentoo_name} and the machine reports "
+            f"{machine.architecture}"
+        )
     targets_machine_firmware = config.disk.mode in (DiskMode.PARTITION, DiskMode.IN_PLACE)
     wants_uefi = config.bootloader.firmware is Firmware.UEFI
     if targets_machine_firmware and wants_uefi and not machine.uefi:
