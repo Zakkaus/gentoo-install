@@ -111,6 +111,7 @@ from .convert import (
     HOME_MARKER,
     HOME_MARKER_CHECK,
     HOME_MARKER_PATH,
+    after_the_boot,
     before_the_reboot,
 )
 from .installed import InstalledCheck, checks, stage_passphrase_commands
@@ -3341,6 +3342,10 @@ def boot_and_check(
 
     for name, command, wanted in [
         *_asked_for(installation),
+        # What a stub on a machine that booted holds, asked of every UEFI
+        # GRUB install: the conversion is the only path that ever asked, and
+        # a rule written without the healthy answer refused all of them.
+        *((one.name, one.command, one.pattern) for one in after_the_boot(installation)),
         *((one.name, one.command, one.pattern) for one in extra),
     ]:
         said = link.expect_output(command, timeout=120.0)

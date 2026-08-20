@@ -136,6 +136,31 @@ GRUB_PREFIX_CHECK: Final[InstalledCheck] = InstalledCheck(
 )
 
 
+#: The same fields the conversion is asked, with nothing judged. What a stub
+#: on a machine that boots holds has never been measured: `before_the_reboot`
+#: runs only for a conversion, and `#828` refused every UEFI install by
+#: assuming the answer. The pattern requires the fields and not their values.
+GRUB_PREFIX_REPORT: Final[InstalledCheck] = InstalledCheck(
+    "grub's prefix on a machine that booted",
+    GRUB_PREFIX_CHECK.command,
+    r"(?m)^grubstub=\S* grubprefix=\S* boot=\S* esp=\S* stub=\S* "
+    r"embedded=\S* drive=\S* fs=\S*$",
+)
+
+
+def after_the_boot(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
+    """What a machine that booted is asked, to find out what healthy is.
+
+    Reporting rather than judging: the values a bootable stub carries are the
+    open question, and a rule written before they are known is the one that
+    refused every UEFI install.
+    """
+    bootloader = installation.bootloader
+    if bootloader.kind.value != "grub" or bootloader.firmware.value != "uefi":
+        return ()
+    return (GRUB_PREFIX_REPORT,)
+
+
 def before_the_reboot(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
     """What a conversion is asked while it still answers.
 

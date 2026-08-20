@@ -2984,13 +2984,24 @@ def test_a_cluster_conversion_writes_and_reads_the_home_marker() -> None:
 def test_the_extra_checks_reach_the_installed_reader() -> None:
     """`boot_and_check` grew a parameter, and a parameter nothing forwards is
     a check that never runs."""
+    import ast
     import inspect
+    import textwrap
 
     from tests.vm import cluster
 
-    source = inspect.getsource(cluster.boot_and_check)
-    asked = source.index("_asked_for(installation)")
-    assert "extra" in source[asked : asked + 200], source[asked : asked + 200]
+    # The list `boot_and_check` iterates, read from the tree: a window of
+    # characters after `_asked_for` moved when a comment was added between
+    # the two, and what this holds is that both reach the same reader.
+    asked = ast.parse(textwrap.dedent(inspect.getsource(cluster.boot_and_check)))
+    names = {
+        node.id
+        for loop in ast.walk(asked)
+        if isinstance(loop, ast.For)
+        for node in ast.walk(loop.iter)
+        if isinstance(node, ast.Name)
+    }
+    assert {"_asked_for", "extra"} <= names, sorted(names)
 
 
 def test_a_binhost_fixture_that_compiled_everything_is_not_a_pass() -> None:
@@ -3296,3 +3307,49 @@ def test_each_schedule_rewrites_its_fixtures_into_its_own_directory(tmp_path: Pa
     assert "_fixture_dir(workdir)" in source, source[:200]
     assert 'workdir / "fixtures"' not in source, source[:200]
 
+
+
+def test_a_machine_that_booted_is_asked_what_its_stub_holds() -> None:
+    """`#828` refused every UEFI install by assuming what a bootable stub
+    carries. Nothing had measured it: the prefix checks run only for a
+    conversion. This one reports and judges nothing, so the answer arrives
+    without a rule written ahead of it."""
+    import re
+
+    from gentoo_install.exec.config import load
+    from tests.vm.convert import GRUB_PREFIX_CHECK, GRUB_PREFIX_REPORT, after_the_boot
+
+    uefi = load(Path("tests/fixtures/vm-xfs.toml"))
+    assert after_the_boot(uefi) == (GRUB_PREFIX_REPORT,)
+    # BIOS asks none of it: the stub and the module directory are UEFI's.
+    assert after_the_boot(load(Path("tests/fixtures/ext4-bios.toml"))) == ()
+
+    # The same command as the conversion, so the two answers are comparable.
+    assert GRUB_PREFIX_REPORT.command == GRUB_PREFIX_CHECK.command
+
+    # Every field, no value: the failing conversion's own answer passes here,
+    # which is the point — it is a measurement and not a refusal.
+    failed = (
+        "grubstub=163840 grubprefix=0 boot=642038bc esp=99F1-0F9A stub= "
+        "embedded=(,gpt2)/boot/grub drive=(hostdisk//dev/vda,gpt2) fs=xfs\n"
+    )
+    assert re.search(GRUB_PREFIX_REPORT.pattern, failed)
+    assert re.search(GRUB_PREFIX_CHECK.pattern, failed) is None
+    # A line that lost a field is still refused: an absent answer is not one.
+    assert re.search(GRUB_PREFIX_REPORT.pattern, failed.replace(" fs=xfs", "")) is None
+
+    # And somebody asks it. A check nothing calls is the shape this repository
+    # has shipped before: declared, never read, and read as coverage.
+    import ast
+    import inspect
+    import textwrap
+
+    from tests.vm import cluster as cluster_module
+
+    asked = ast.parse(textwrap.dedent(inspect.getsource(cluster_module.boot_and_check)))
+    assert any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "after_the_boot"
+        for node in ast.walk(asked)
+    ), "boot_and_check never asks what the stub holds"

@@ -1701,6 +1701,7 @@ def test_installed_login_uses_the_login_observed_by_unlock(
     from gentoo_install.exec.config import load
     from tests.vm import cluster
     from tests.vm.console import PASSWORD_PROMPT
+    from tests.vm.convert import after_the_boot
 
     events: list[str] = []
 
@@ -1731,11 +1732,18 @@ def test_installed_login_uses_the_login_observed_by_unlock(
             events.append(f"respond:{line}")
 
         def expect_output(self, command: str, timeout: float = 120.0) -> bytes:
-            for _, expected_command, wanted in cluster._asked_for(
-                load(Path("tests/fixtures/vm-luks.toml"))
-            ):
+            installation = load(Path("tests/fixtures/vm-luks.toml"))
+            for _, expected_command, wanted in cluster._asked_for(installation):
                 if command == expected_command:
                     return wanted.encode()
+            # The prefix report a booted machine is asked. It judges nothing,
+            # so any complete line answers it.
+            for one in after_the_boot(installation):
+                if command == one.command:
+                    return (
+                        b"grubstub=163840 grubprefix=1 boot=aaaa esp=1234-ABCD stub=aaaa "
+                        b"embedded=(hd0,gpt2)/boot/grub drive=hd0,gpt2 fs=ext2\n"
+                    )
             raise AssertionError(command)
 
     monkeypatch.setattr(
