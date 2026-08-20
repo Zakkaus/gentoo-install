@@ -832,42 +832,32 @@ class MountZfsDataset(Operation):
         )
         if mounted == "yes":
             # A parent mounted later can hide this dataset while ZFS still
-            # reports it mounted, so what a lookup reaches decides readiness.
-            if self._reachable_source(context) == self.name:
+            # reports it mounted, so what a lookup answers decides readiness.
+            # `findmnt --target` answers with the covered mount's own source,
+            # measured on util-linux 2.42.2, and that is the answer this wants:
+            # ZFS refuses to unmount a dataset whose mount is covered, so a
+            # dataset mounted where it belongs is left alone either way.
+            # Exit 1 means the path does not resolve, which is a mountpoint
+            # this run has not created yet rather than a probe that failed.
+            visible = answered(
+                context.run(
+                    [
+                        "findmnt",
+                        "--noheadings",
+                        "--output",
+                        "SOURCE",
+                        "--target",
+                        str(_under(context.target, self.path)),
+                    ],
+                    check=False,
+                ),
+                f"what is mounted at {self.path} could not be read",
+                allowed=(0, 1),
+            )
+            if visible == self.name:
                 return
             context.run(["zfs", "unmount", self.name])
         context.run(["zfs", "mount", self.name])
-
-    def _reachable_source(self, context: Context) -> str:
-        """What a path lookup at the mountpoint reaches, or an empty string.
-
-        Read from the whole table rather than with `findmnt --target`, which
-        answers by matching the path against every mount's target: measured on
-        util-linux 2.42.2, a mount a later parent covers still answers with its
-        own source and exit 0 there, so the hidden dataset looked exactly like
-        a mounted one. The rows arrive in mount order, so the last row at the
-        mountpoint or above it is the one that shadows the rest.
-        """
-        where = _under(context.target, self.path)
-        # No filter, so `findmnt` lists every mount and exits 0 whenever it
-        # ran: a non-zero code is a probe that did not run, not an empty table.
-        listed = answered(
-            context.run(
-                ["findmnt", "--noheadings", "--list", "--output", "TARGET,SOURCE"],
-                check=False,
-            ),
-            f"what is mounted at {self.path} could not be read",
-        )
-        reached = ""
-        for line in listed.splitlines():
-            columns = line.split(None, 1)
-            if len(columns) != 2:
-                continue
-            target = PurePosixPath(columns[0])
-            if target == where or target in where.parents:
-                reached = columns[1].strip()
-        return reached
-
 
 @dataclass(frozen=True, kw_only=True)
 class DiscardStage3(Operation):

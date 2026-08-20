@@ -632,27 +632,6 @@ def test_the_lvm_check_names_the_binaries_the_plan_runs() -> None:
     assert {"pvcreate", "vgcreate", "lvcreate"} <= wanted
 
 
-#: `findmnt --noheadings --list --output TARGET,SOURCE` as util-linux
-#: 2.42.2 prints it, padding and all. The rows are in mount order, which
-#: is what decides the answer: the last one at or above the mountpoint is
-#: the mount a path lookup reaches.
-MOUNT_TABLE_VISIBLE: str = (
-    "/                                                 rpool/ROOT/gentoo\n"
-    "/mnt/gentoo                                       rpool/ROOT/gentoo\n"
-    "/mnt/gentoo/home                                  rpool/ROOT/gentoo/home\n"
-)
-
-#: The same table after `zfs create` mounted the dataset and the root went
-#: over it. Measured under `unshare --mount` on 2026-08-21: the kernel keeps
-#: the covered row, `findmnt --target` still answers with its source, and
-#: `ls` on the path answers `No such file or directory`.
-MOUNT_TABLE_HIDDEN: str = (
-    "/                                                 rpool/ROOT/gentoo\n"
-    "/mnt/gentoo/home                                  zpcala/ROOT/gentoo/home\n"
-    "/mnt/gentoo                                       zpcala/ROOT/gentoo/root\n"
-)
-
-
 def test_a_dataset_already_mounted_is_left_alone() -> None:
     """`zfs create` mounts a dataset the moment it is given a mountpoint, so
     `zfs mount` on it answers `filesystem already mounted` and stops the
@@ -674,7 +653,7 @@ def test_a_dataset_already_mounted_is_left_alone() -> None:
     # last one at or above the mountpoint and a lookup there reaches it.
     already = Recorder()
     already.replies["zfs"] = "yes\n"
-    already.replies["findmnt"] = MOUNT_TABLE_VISIBLE
+    already.replies["findmnt"] = CommandOutput("rpool/ROOT/gentoo/home\n", 0)
     told.apply(already)
     assert not any(one[:2] in {("zfs", "mount"), ("zfs", "unmount")} for one in already.commands)
 
@@ -700,22 +679,19 @@ def test_a_zfs_child_hidden_by_the_root_is_remounted_after_it() -> None:
     assert root < home[0]
 
     # The dataset was mounted at create time and the root went over it in this
-    # stage, so its own row is still in the table and the root's row follows.
-    hidden = Recorder(replies={"zfs": "yes\n", "findmnt": MOUNT_TABLE_HIDDEN})
+    # stage. `findmnt --target` answers with the covered mount's own source,
+    # so the dataset is recognised where it belongs and left alone: ZFS
+    # refuses to unmount a covered mount, and two cluster fixtures stopped at
+    # `cannot unmount '/mnt/gentoo/home': no such pool or dataset` when this
+    # acted on the cover instead.
+    hidden = Recorder(
+        replies={"zfs": "yes\n", "findmnt": CommandOutput("zpcala/ROOT/gentoo/home\n", 0)}
+    )
     home[1].apply(hidden)
-    assert (
-        "findmnt",
-        "--noheadings",
-        "--list",
-        "--output",
-        "TARGET,SOURCE",
-    ) in hidden.commands
-    assert hidden.argv_starting("zfs", "unmount") == (
-        ("zfs", "unmount", "zpcala/ROOT/gentoo/home"),
-    )
-    assert hidden.argv_starting("zfs", "mount") == (
-        ("zfs", "mount", "zpcala/ROOT/gentoo/home"),
-    )
+    assert ("findmnt", "--noheadings", "--output", "SOURCE", "--target",
+            "/mnt/gentoo/home") in hidden.commands
+    assert hidden.argv_starting("zfs", "unmount") == ()
+    assert hidden.argv_starting("zfs", "mount") == ()
 
 
 #: What `parted --machine --script <disk> unit B print free` printed for a
@@ -1117,11 +1093,48 @@ def test_a_zfs_probe_that_did_not_run_is_not_read_as_an_answer() -> None:
         told.apply(half)
     assert ("zfs", "unmount", "rpool/ROOT/gentoo/home") not in half.commands
 
-    # Listing the whole table exits 0 whenever findmnt ran, so exit 1 is a
-    # probe that did not run rather than a path carrying no mount.
-    empty = Recorder()
-    empty.replies["zfs"] = "yes\n"
-    empty.replies["findmnt"] = CommandOutput("", 1)
+    # `findmnt --target` exits 1 when the path does not resolve, which is a
+    # mountpoint this run has not created yet: the dataset is mounted there
+    # rather than the probe being called a failure.
+    fresh = Recorder()
+    fresh.replies["zfs"] = "yes\n"
+    fresh.replies["findmnt"] = CommandOutput("", 1)
+    told.apply(fresh)
+    assert ("zfs", "mount", "rpool/ROOT/gentoo/home") in fresh.commands
+
+
+def test_a_dataset_a_later_parent_covers_is_left_where_it_is() -> None:
+    """`zbm-unlock` and `zfs-zbm` both stopped at `cannot unmount
+    '/mnt/gentoo/home': no such pool or dataset`, with `/mnt/gentoo` listed
+    after `/mnt/gentoo/home`: ZFS refuses to unmount a dataset whose mount is
+    covered, so acting on the cover is what breaks the install. `findmnt
+    --target` answers with the covered mount's own source, which is what this
+    reads."""
+    from gentoo_install.plan.disk import MountZfsDataset
+
+    told = MountZfsDataset(
+        mountpoint=i("mnt-home"), name="zpcala/ROOT/gentoo/home", path=PurePosixPath("/home")
+    )
+    settled = Recorder()
+    settled.replies["zfs"] = "yes\n"
+    settled.replies["findmnt"] = CommandOutput("zpcala/ROOT/gentoo/home\n", 0)
+    told.apply(settled)
+    assert [one for one in settled.commands if one[0] == "zfs"] == [
+        ("zfs", "get", "-H", "-o", "value", "mounted", "zpcala/ROOT/gentoo/home")
+    ], settled.commands
+
+    # A mountpoint this run has not created yet: findmnt exits 1 because the
+    # path does not resolve, and the dataset is mounted rather than refused.
+    fresh = Recorder()
+    fresh.replies["zfs"] = "yes\n"
+    fresh.replies["findmnt"] = CommandOutput("", 1)
+    told.apply(fresh)
+    assert ("zfs", "mount", "zpcala/ROOT/gentoo/home") in fresh.commands
+
+    # And a probe that did not run is still refused by name.
+    broken = Recorder()
+    broken.replies["zfs"] = "yes\n"
+    broken.replies["findmnt"] = CommandOutput("findmnt is not installed", 127)
     with pytest.raises(CommandFailed, match="what is mounted at /home"):
-        told.apply(empty)
-    assert ("zfs", "unmount", "rpool/ROOT/gentoo/home") not in empty.commands
+        told.apply(broken)
+    assert ("zfs", "unmount", "zpcala/ROOT/gentoo/home") not in broken.commands
