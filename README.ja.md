@@ -10,6 +10,132 @@ gentoo-install は Linux ライブ環境で動作し、amd64 アーキテクチ�
 
 ![簡体字中国語、繁体字中国語、日本語、韓国語を表示する cjktty コンソール](cjk-console.png)
 
+## 要件
+
+<!-- fact: requirements-runtime -->
+
+実際のインストールには root 権限、amd64 アーキテクチャ、Python 3.11 以降が必要です。設定ファイルを使用する dry run には root 権限が必要ありません。インストーラには Python 標準ライブラリ以外の実行時依存関係がありません。
+
+<!-- fact: requirements-version-sources -->
+
+メニューは、Gentoo メインツリーのパッケージバージョンを `packages.gentoo.org` から、gentoo-zh のパッチ適用済みカーネルのバージョンを `api.github.com/repos/gentoo-zh/overlay/contents` から読み取ります。`sys-fs/zfs` が受け入れる最大カーネルバージョンは `gitweb.gentoo.org` から読み取ります。設定ファイルからのインストールでは、その設定が指定するミラーへの接続が必要です。`--missing-commands` と `--config FILE --dry-run` は、これらのバージョン取得先への接続を必要としません。
+
+<!-- fact: requirements-network-filter -->
+
+ライブ環境に IPv6 があり IPv4 がない場合、メニューは記録上 IPv4 専用の Gentoo ミラーを無効にします。
+
+<!-- fact: requirements-bootstrap -->
+
+`bootstrap.sh` は `/etc/os-release` を読み、不足しているコマンドを報告し、候補となるパッケージマネージャのコマンドを表示します。識別するディストリビューション系統は、Debian と Ubuntu、Arch、openSUSE、Fedora、RHEL と CentOS、Gentoo、Alpine です。表示されたコマンドは実行前に確認する必要があります。
+
+## 安全上の注意
+
+<!-- fact: safety-destructive -->
+
+実際のインストールでは、選択したディスクに書き込みます。設定ファイルを使用して実行する場合、ディスク消去の確認は再度行われません。`wipe = true`、パーティションの削除、ファイルシステムの作成は既存データを破壊する可能性があります。
+
+<!-- fact: safety-review-backup -->
+
+実際のインストール前に、dry-run の出力でディスクセレクタとすべての破壊的操作を確認する必要があります。`/dev/sda` のような名前より、安定した `/dev/disk/by-id/` セレクタが望ましいです。保持する必要があるデータには、選択したディスクとは別のバックアップが必要です。
+
+## インストール
+
+<!-- fact: install-download -->
+
+次のコマンドを使用すると、現在の `master` アーカイブをダウンロードしてメニューを開けます。
+
+```sh
+curl -fsSL https://github.com/Zakkaus/gentoo-install/archive/refs/heads/master.tar.gz | tar xz
+cd gentoo-install-master
+./bootstrap.sh
+```
+
+<!-- fact: install-terminal -->
+
+メニューには、80 列 24 行以上の対話型端末が必要です。インストーラは起動時にインターフェイス言語の選択を一度求めます。`--lang ja` を使用すると、日本語を直接選択できます。
+
+<!-- fact: install-config-workflow -->
+
+メニューでは、設定を `my-install.toml` という設定ファイルに保存して終了できます。次の設定ファイルによる操作手順では、最初に完全な設定計画を表示し、その後に実際のインストールを実行します。
+
+```sh
+./bootstrap.sh --config my-install.toml --dry-run
+# 続いて次のいずれか一方を実行します。どちらも選択したディスクに書き込みます。
+./bootstrap.sh --config my-install.toml
+./bootstrap.sh --config my-install.toml --no-shell   # 同じ実行で、root シェルの確認をしません
+```
+
+<!-- fact: install-root-shell -->
+
+対話型インストールでは、成功時と失敗時のどちらでも、アンマウント前にターゲットシステム内で root シェルを開く選択肢が提示されます。`--no-shell` を使用すると、この確認を省略できます。
+
+## メモリからのインストール
+
+<!-- fact: install-memory -->
+
+`--ram` と `--lowram` は、メモリ上のライブ環境への起動を一度だけ設定します。コンソールもレスキューイメージも持たないレンタルマシンが自分のディスクを上書きするには、これが必要です。インストーラ、選んだ設定、認証鍵は initramfs の中を運ばれるため、環境はそれを設定したリビジョンで起動します。
+
+```sh
+./bootstrap.sh --ram --ssh-key github:zakkaus --root-password 'replace this'
+reboot
+ssh root@the-machine
+```
+
+既定の起動項目は変更されないので、環境で起動しなかったマシンは以前と同じものを起動します。`--disarm` は設定を取り消します。`--bypass` は既定の項目自体を置き換えるもので、一度きりの項目を捨てるファームウェア向けです。環境が起動しなかったときにマシンがまったく起動しなくなるのは、この経路だけです。
+
+最初の画面はインストールとレスキューシェルを示し、タイムアウトはありません。答えるまで何も消去されません。`--ram` は ZFS を含む Gentoo CJK ISO を起動し、約 2 GiB のメモリを必要とします。`--lowram` はより小さく `zfs.ko` を持たない Alpine netboot 書庫を起動します。`--ssh-port` はデーモンを 22 番から動かします。
+
+## 稼働中のシステムの変換
+
+<!-- fact: install-in-place -->
+
+`[disk]` テーブルの `mode = "in-place"` は、ディスクをパーティション分割する代わりに、稼働中のディストリビューションのユーザ空間を置き換えます。レイアウトはマシンから読み取るため、このテーブルはデバイス一覧を持ちません。
+
+```toml
+config_version = 1
+
+[system]
+hostname = "converted"
+timezone = "UTC"
+locales = ["en_US.UTF-8"]
+locale = "en_US.UTF-8"
+init = "systemd"
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
+
+[portage]
+profile = "default/linux/amd64/23.0/systemd"
+makeopts = "-j4"
+
+[bootloader]
+kind = "grub"
+firmware = "uefi"
+
+[disk]
+mode = "in-place"
+```
+
+上のハッシュは例であり、実行前に置き換える必要があります。対話的な実行は変換が置き換えるディレクトリを表示し、何かを書き込む前に `convert` の入力を求めます。端末のない実行は尋ねられません。設定ファイルの `mode = "in-place"` が承認であり、そこで質問すればシリアルコンソールを永久に待たせることになるからです。
+
+**この実行を始めたセッションが生命線です。**`/usr` と `/etc` が新しいシステムのものになると新しい SSH ログインは成立しなくなり、実行を始めたセッションだけがすでに対応付けたバイナリを保持します。
+
+## 中断した実行の再開
+
+<!-- fact: resume-behavior -->
+
+`--resume` は、ジャーナル上の位置と識別子が現在の計画に一致し、再起動後も効果が残ると指定された完了済み操作だけを省略します。
+
+```sh
+./bootstrap.sh --config my-install.toml --resume
+```
+
+<!-- fact: resume-limits -->
+
+再開は同じライブセッション、同じインストーラー、同じ設定ファイルに限られ、それ以外の場合はインストーラーが拒否します。
+
+- ジャーナルの先頭には設定のダイジェスト、マシンの boot id、インストーラー自身のソースのダイジェストが記録されます。`--resume` はこの三つをすべて比較し、いずれかが一致しない場合は理由を示して停止します。カーネルが boot id を公開しないマシンでは、残りの二つだけを比較します。
+- 既定のジャーナルは `/run/gentoo-install/install.jsonl` にあるため、いずれにせよ再起動後には残りません。
+- 各操作記録には、その操作のクラスのソースとフィールド値から生成された識別子も含まれます。識別子が変わった操作は省略されずに再度実行されます。共有のヘルパーや定数の変更はその識別子の範囲外で、インストーラーのダイジェストが対象とします。
+
 ## 機能
 
 <!-- fact: capability-scope -->
@@ -136,132 +262,6 @@ gentoo-install は Linux ライブ環境で動作し、amd64 アーキテクチ�
 | メニュー | 80x24 のシリアルコンソールで一行ずつ開かれ、英語、繁体字中国語、簡体字中国語、日本語、韓国語で端末より広い行はなかった |
 
 ソースからビルドするカーネルとバイナリパッケージのフォールバックには runner レベルの試験しかなく、runner レベルの試験はエンドツーエンドの記録ではありません。`tests/fixtures/` 以下のファイルが対象とするのは設定モデルであり、その存在は導入されたマシンについて何も示しません。
-
-## 要件
-
-<!-- fact: requirements-runtime -->
-
-実際のインストールには root 権限、amd64 アーキテクチャ、Python 3.11 以降が必要です。設定ファイルを使用する dry run には root 権限が必要ありません。インストーラには Python 標準ライブラリ以外の実行時依存関係がありません。
-
-<!-- fact: requirements-version-sources -->
-
-メニューは、Gentoo メインツリーのパッケージバージョンを `packages.gentoo.org` から、gentoo-zh のパッチ適用済みカーネルのバージョンを `api.github.com/repos/gentoo-zh/overlay/contents` から読み取ります。`sys-fs/zfs` が受け入れる最大カーネルバージョンは `gitweb.gentoo.org` から読み取ります。設定ファイルからのインストールでは、その設定が指定するミラーへの接続が必要です。`--missing-commands` と `--config FILE --dry-run` は、これらのバージョン取得先への接続を必要としません。
-
-<!-- fact: requirements-network-filter -->
-
-ライブ環境に IPv6 があり IPv4 がない場合、メニューは記録上 IPv4 専用の Gentoo ミラーを無効にします。
-
-<!-- fact: requirements-bootstrap -->
-
-`bootstrap.sh` は `/etc/os-release` を読み、不足しているコマンドを報告し、候補となるパッケージマネージャのコマンドを表示します。識別するディストリビューション系統は、Debian と Ubuntu、Arch、openSUSE、Fedora、RHEL と CentOS、Gentoo、Alpine です。表示されたコマンドは実行前に確認する必要があります。
-
-## 安全上の注意
-
-<!-- fact: safety-destructive -->
-
-実際のインストールでは、選択したディスクに書き込みます。設定ファイルを使用して実行する場合、ディスク消去の確認は再度行われません。`wipe = true`、パーティションの削除、ファイルシステムの作成は既存データを破壊する可能性があります。
-
-<!-- fact: safety-review-backup -->
-
-実際のインストール前に、dry-run の出力でディスクセレクタとすべての破壊的操作を確認する必要があります。`/dev/sda` のような名前より、安定した `/dev/disk/by-id/` セレクタが望ましいです。保持する必要があるデータには、選択したディスクとは別のバックアップが必要です。
-
-## インストール
-
-<!-- fact: install-download -->
-
-次のコマンドを使用すると、現在の `master` アーカイブをダウンロードしてメニューを開けます。
-
-```sh
-curl -fsSL https://github.com/Zakkaus/gentoo-install/archive/refs/heads/master.tar.gz | tar xz
-cd gentoo-install-master
-./bootstrap.sh
-```
-
-<!-- fact: install-terminal -->
-
-メニューには、80 列 24 行以上の対話型端末が必要です。インストーラは起動時にインターフェイス言語の選択を一度求めます。`--lang ja` を使用すると、日本語を直接選択できます。
-
-<!-- fact: install-config-workflow -->
-
-メニューでは、設定を `my-install.toml` という設定ファイルに保存して終了できます。次の設定ファイルによる操作手順では、最初に完全な設定計画を表示し、その後に実際のインストールを実行します。
-
-```sh
-./bootstrap.sh --config my-install.toml --dry-run
-# 続いて次のいずれか一方を実行します。どちらも選択したディスクに書き込みます。
-./bootstrap.sh --config my-install.toml
-./bootstrap.sh --config my-install.toml --no-shell   # 同じ実行で、root シェルの確認をしません
-```
-
-<!-- fact: install-root-shell -->
-
-対話型インストールでは、成功時と失敗時のどちらでも、アンマウント前にターゲットシステム内で root シェルを開く選択肢が提示されます。`--no-shell` を使用すると、この確認を省略できます。
-
-## メモリからのインストール
-
-<!-- fact: install-memory -->
-
-`--ram` と `--lowram` は、メモリ上のライブ環境への起動を一度だけ設定します。コンソールもレスキューイメージも持たないレンタルマシンが自分のディスクを上書きするには、これが必要です。インストーラ、選んだ設定、認証鍵は initramfs の中を運ばれるため、環境はそれを設定したリビジョンで起動します。
-
-```sh
-./bootstrap.sh --ram --ssh-key github:zakkaus --root-password 'replace this'
-reboot
-ssh root@the-machine
-```
-
-既定の起動項目は変更されないので、環境で起動しなかったマシンは以前と同じものを起動します。`--disarm` は設定を取り消します。`--bypass` は既定の項目自体を置き換えるもので、一度きりの項目を捨てるファームウェア向けです。環境が起動しなかったときにマシンがまったく起動しなくなるのは、この経路だけです。
-
-最初の画面はインストールとレスキューシェルを示し、タイムアウトはありません。答えるまで何も消去されません。`--ram` は ZFS を含む Gentoo CJK ISO を起動し、約 2 GiB のメモリを必要とします。`--lowram` はより小さく `zfs.ko` を持たない Alpine netboot 書庫を起動します。`--ssh-port` はデーモンを 22 番から動かします。
-
-## 稼働中のシステムの変換
-
-<!-- fact: install-in-place -->
-
-`[disk]` テーブルの `mode = "in-place"` は、ディスクをパーティション分割する代わりに、稼働中のディストリビューションのユーザ空間を置き換えます。レイアウトはマシンから読み取るため、このテーブルはデバイス一覧を持ちません。
-
-```toml
-config_version = 1
-
-[system]
-hostname = "converted"
-timezone = "UTC"
-locales = ["en_US.UTF-8"]
-locale = "en_US.UTF-8"
-init = "systemd"
-root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
-
-[portage]
-profile = "default/linux/amd64/23.0/systemd"
-makeopts = "-j4"
-
-[bootloader]
-kind = "grub"
-firmware = "uefi"
-
-[disk]
-mode = "in-place"
-```
-
-上のハッシュは例であり、実行前に置き換える必要があります。対話的な実行は変換が置き換えるディレクトリを表示し、何かを書き込む前に `convert` の入力を求めます。端末のない実行は尋ねられません。設定ファイルの `mode = "in-place"` が承認であり、そこで質問すればシリアルコンソールを永久に待たせることになるからです。
-
-**この実行を始めたセッションが生命線です。**`/usr` と `/etc` が新しいシステムのものになると新しい SSH ログインは成立しなくなり、実行を始めたセッションだけがすでに対応付けたバイナリを保持します。
-
-## 中断した実行の再開
-
-<!-- fact: resume-behavior -->
-
-`--resume` は、ジャーナル上の位置と識別子が現在の計画に一致し、再起動後も効果が残ると指定された完了済み操作だけを省略します。
-
-```sh
-./bootstrap.sh --config my-install.toml --resume
-```
-
-<!-- fact: resume-limits -->
-
-再開は同じライブセッション、同じインストーラー、同じ設定ファイルに限られ、それ以外の場合はインストーラーが拒否します。
-
-- ジャーナルの先頭には設定のダイジェスト、マシンの boot id、インストーラー自身のソースのダイジェストが記録されます。`--resume` はこの三つをすべて比較し、いずれかが一致しない場合は理由を示して停止します。カーネルが boot id を公開しないマシンでは、残りの二つだけを比較します。
-- 既定のジャーナルは `/run/gentoo-install/install.jsonl` にあるため、いずれにせよ再起動後には残りません。
-- 各操作記録には、その操作のクラスのソースとフィールド値から生成された識別子も含まれます。識別子が変わった操作は省略されずに再度実行されます。共有のヘルパーや定数の変更はその識別子の範囲外で、インストーラーのダイジェストが対象とします。
 
 ## 設定ファイル
 
