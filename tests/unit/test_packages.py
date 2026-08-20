@@ -538,3 +538,25 @@ def test_selected_package_contracts_are_verified_before_writes() -> None:
     assert {one.package for one in commands} == {"gui-apps/tuigreet"}
     assert directories
     assert directories[0].package == "kde-plasma/plasma-meta"
+
+
+def test_one_group_fragment_writes_one_describe() -> None:
+    """Three classes carried the same `group` and `describe` word for word, and
+    an AST scan of the tree found two of them identical. The shared half lives
+    in one place, and each subclass names only what differs."""
+    base = plan_packages.WriteForGroup
+    kinds = {
+        plan_packages.WriteGroupKeywords: ("accept", "package.accept_keywords"),
+        plan_packages.WriteGroupLicense: ("accept", "package.license"),
+        plan_packages.WriteGroupUse: ("ask for", "package.use"),
+    }
+    for cls, (verb, directory) in kinds.items():
+        assert issubclass(cls, base), cls
+        # The shared half is inherited: an override here is the duplication
+        # coming back, and nothing else would notice.
+        assert cls.describe is base.describe, cls
+        assert vars(cls).get("group") is None, cls
+        written = cls(group="chat", lines=("one", "two"))
+        assert written.describe() == f"{verb} one; two for the chat group"
+        assert str(written.path) == f"/etc/portage/{directory}/chat"
+    assert len({cls.directory for cls in kinds}) == len(kinds)

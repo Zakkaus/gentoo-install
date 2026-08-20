@@ -19,7 +19,7 @@ import tomllib
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import PurePosixPath
-from typing import Final, Mapping, Protocol, Sequence, runtime_checkable
+from typing import ClassVar, Final, Mapping, Protocol, Sequence, runtime_checkable
 
 from ..errors import CommandFailed, ConfigError, ValidationFailed
 from ..model.config import InitSystem, InstallConfig
@@ -429,32 +429,22 @@ SKELETON: Final[PurePosixPath] = PurePosixPath("/etc/skel")
 
 
 @dataclass(frozen=True, kw_only=True, init=False)
-class WriteGroupKeywords(WritePortageConfig):
-    """Written in the portage phase, for the same reason as the USE flags."""
+class WriteForGroup(WritePortageConfig):
+    """One Portage fragment named after the package group that asked for it.
 
-    def __init__(self, *, group: str, lines: tuple[str, ...]) -> None:
-        object.__setattr__(self, "kind", PortageConfigKind.KEYWORDS)
-        object.__setattr__(self, "name", group)
-        object.__setattr__(self, "lines", lines)
-
-    @property
-    def group(self) -> str:
-        return self.name
-
-    def describe(self) -> str:
-        return f"accept {'; '.join(self.lines)} for the {self.group} group"
-
-@dataclass(frozen=True, kw_only=True, init=False)
-class WriteGroupLicense(WritePortageConfig):
-    """Accept a group's licences for that group's own atoms.
-
-    Merged into `ACCEPT_LICENSE` the acceptance held for every later emerge on
-    the installed machine, which is not what choosing one chat program asks
-    for.
+    The fragment is per group rather than global: an acceptance merged into
+    `ACCEPT_LICENSE` holds for every later emerge on the installed machine,
+    which is not what choosing one chat program asks for.
     """
 
+    #: Which `/etc/portage` directory the fragment goes in.
+    directory: ClassVar[PortageConfigKind]
+    #: How the dry-run line reads, because accepting and asking are not the
+    #: same act to the operator reading the plan.
+    verb: ClassVar[str]
+
     def __init__(self, *, group: str, lines: tuple[str, ...]) -> None:
-        object.__setattr__(self, "kind", PortageConfigKind.LICENSE)
+        object.__setattr__(self, "kind", self.directory)
         object.__setattr__(self, "name", group)
         object.__setattr__(self, "lines", lines)
 
@@ -463,25 +453,32 @@ class WriteGroupLicense(WritePortageConfig):
         return self.name
 
     def describe(self) -> str:
-        return f"accept {'; '.join(self.lines)} for the {self.group} group"
+        return f"{self.verb} {'; '.join(self.lines)} for the {self.group} group"
 
 
 @dataclass(frozen=True, kw_only=True, init=False)
-class WriteGroupUse(WritePortageConfig):
+class WriteGroupKeywords(WriteForGroup):
+    """Written in the portage phase, for the same reason as the USE flags."""
+
+    directory: ClassVar[PortageConfigKind] = PortageConfigKind.KEYWORDS
+    verb: ClassVar[str] = "accept"
+
+
+@dataclass(frozen=True, kw_only=True, init=False)
+class WriteGroupLicense(WriteForGroup):
+    """Accept a group's licences for that group's own atoms."""
+
+    directory: ClassVar[PortageConfigKind] = PortageConfigKind.LICENSE
+    verb: ClassVar[str] = "accept"
+
+
+@dataclass(frozen=True, kw_only=True, init=False)
+class WriteGroupUse(WriteForGroup):
     """Written in the portage phase: the flags have to be set before the
     packages that need them are merged."""
 
-    def __init__(self, *, group: str, lines: tuple[str, ...]) -> None:
-        object.__setattr__(self, "kind", PortageConfigKind.USE)
-        object.__setattr__(self, "name", group)
-        object.__setattr__(self, "lines", lines)
-
-    @property
-    def group(self) -> str:
-        return self.name
-
-    def describe(self) -> str:
-        return f"ask for {'; '.join(self.lines)} for the {self.group} group"
+    directory: ClassVar[PortageConfigKind] = PortageConfigKind.USE
+    verb: ClassVar[str] = "ask for"
 
     def apply(self, context: Context) -> None:
         for line in self.lines:
