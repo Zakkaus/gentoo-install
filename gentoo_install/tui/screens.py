@@ -435,10 +435,10 @@ def erase_screen(screen: Screen, config: InstallConfig, context: Context) -> Ans
     translate = context.translate
     original = set(context.confirmed)
     pending = set(original)
-    for target in compat.destroyed(config.disk.graph):
-        if target.selector in pending:
+    for selector in compat.destroyed_selectors(config):
+        if selector in pending:
             continue
-        answered = _confirm_one(screen, context, target.selector, pending)
+        answered = _confirm_one(screen, context, selector, pending)
         if answered is not None:
             context.confirmed = original
             return answered

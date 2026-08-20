@@ -688,7 +688,7 @@ def _erase(config: InstallConfig, context: Context) -> str:
     operator kept is `mkfs` over their data with no disk-level wipe and no
     rewritten table, and this row read that layout as harmless.
     """
-    targets = {one.selector for one in compat.destroyed(config.disk.graph)}
+    targets = set(compat.destroyed_selectors(config))
     if not targets:
         return context.translate("nothing is erased")
     # Every one of them: a layout can destroy content on more than one device,
@@ -949,6 +949,17 @@ DD_SETTINGS: Final[tuple[Setting, ...]] = (
         nested("Write image", IMAGE_WRITE),
         required=True,
         rows=IMAGE_WRITE,
+    ),
+    # The same row every other destructive path carries. `dd` writes a whole
+    # disk and this table did not hold it, so the one mode that always
+    # destroys was the one mode the menu never asked about.
+    Setting(
+        "erase",
+        "Confirm erasing the drive",
+        _erase,
+        screens.erase_screen,
+        required=True,
+        missing="not confirmed",
     ),
 )
 
