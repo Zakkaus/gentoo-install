@@ -107,7 +107,9 @@ def answered(output: str, probe: str, *, allowed: tuple[int, ...] = (0,)) -> str
     compares the two folds a probe that never ran into the branch for a
     negative answer.
     """
-    if isinstance(output, CommandOutput) and output.returncode not in allowed:
+    # A Context whose `run` honours the declared `-> str` carries no exit
+    # status, so a probe whose ending cannot be read is treated as one failing.
+    if not isinstance(output, CommandOutput) or output.returncode not in allowed:
         raise CommandFailed(f"{probe}: {str(output).strip()[:200] or 'no output'}")
     return str(output).strip()
 

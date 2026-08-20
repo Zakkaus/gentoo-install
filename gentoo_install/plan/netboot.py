@@ -92,7 +92,6 @@ ALPINE_ARCHIVE = re.compile(
     r"^alpine-netboot-(?P<version>.+)-(?P<architecture>[^-]+)\.tar\.gz$"
 )
 
-#: What the kernel calls a machine and what Gentoo calls the same one. Two
 #: One directory for everything this arms, on the filesystem the bootloader
 #: reads. Named rather than scattered, because disarming has to be able to
 #: delete exactly what arming wrote.

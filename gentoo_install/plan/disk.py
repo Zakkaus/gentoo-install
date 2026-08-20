@@ -832,30 +832,41 @@ class MountZfsDataset(Operation):
         )
         if mounted == "yes":
             # A parent mounted later can hide this dataset while ZFS still
-            # reports it mounted, so the effective source decides readiness.
-            # findmnt exits 1 when the path carries no mount, which is the
-            # hidden dataset this looks for; any other code is a probe that
-            # did not run, and unmounting on it would take down a dataset
-            # nobody established was hidden.
-            visible = answered(
-                context.run(
-                    [
-                        "findmnt",
-                        "--noheadings",
-                        "--output",
-                        "SOURCE",
-                        "--target",
-                        str(_under(context.target, self.path)),
-                    ],
-                    check=False,
-                ),
-                f"what is mounted at {self.path} could not be read",
-                allowed=(0, 1),
-            )
-            if visible == self.name:
+            # reports it mounted, so what a lookup reaches decides readiness.
+            if self._reachable_source(context) == self.name:
                 return
             context.run(["zfs", "unmount", self.name])
         context.run(["zfs", "mount", self.name])
+
+    def _reachable_source(self, context: Context) -> str:
+        """What a path lookup at the mountpoint reaches, or an empty string.
+
+        Read from the whole table rather than with `findmnt --target`, which
+        answers by matching the path against every mount's target: measured on
+        util-linux 2.42.2, a mount a later parent covers still answers with its
+        own source and exit 0 there, so the hidden dataset looked exactly like
+        a mounted one. The rows arrive in mount order, so the last row at the
+        mountpoint or above it is the one that shadows the rest.
+        """
+        where = _under(context.target, self.path)
+        # No filter, so `findmnt` lists every mount and exits 0 whenever it
+        # ran: a non-zero code is a probe that did not run, not an empty table.
+        listed = answered(
+            context.run(
+                ["findmnt", "--noheadings", "--list", "--output", "TARGET,SOURCE"],
+                check=False,
+            ),
+            f"what is mounted at {self.path} could not be read",
+        )
+        reached = ""
+        for line in listed.splitlines():
+            columns = line.split(None, 1)
+            if len(columns) != 2:
+                continue
+            target = PurePosixPath(columns[0])
+            if target == where or target in where.parents:
+                reached = columns[1].strip()
+        return reached
 
 
 @dataclass(frozen=True, kw_only=True)

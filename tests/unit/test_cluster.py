@@ -1037,12 +1037,20 @@ def test_a_node_that_refuses_a_guest_does_not_end_the_campaign() -> None:
         for one in guarded[0].handlers
         if isinstance(one.type, ast.Name) and one.type.id == "ProxmoxTransientError"
     )
-    said = ast.dump(ast.Module(body=handler.body, type_ignores=[]))
-    assert "unreachable" in said, "the node is taken out of the round"
-    assert "waiting" in said, "the job goes back to the queue"
-    assert any(isinstance(one, ast.Continue) for one in ast.walk(handler)), (
-        "the loop carries on with the next node"
-    )
+    # The calls, not the words: a log line naming both reads the same, and
+    # `unreachable.discard(node.name)` leaves the refusing node in the round.
+    made = {
+        (statement.value.func.value.id, statement.value.func.attr)
+        + tuple(ast.unparse(one) for one in statement.value.args)
+        for statement in handler.body
+        if isinstance(statement, ast.Expr)
+        and isinstance(statement.value, ast.Call)
+        and isinstance(statement.value.func, ast.Attribute)
+        and isinstance(statement.value.func.value, ast.Name)
+    }
+    assert ("unreachable", "add", "node.name") in made, made
+    assert ("waiting", "insert", "index", "job") in made, made
+    assert isinstance(handler.body[-1], ast.Continue), ast.unparse(handler.body[-1])
 
 
 def test_the_resolvers_are_written_again_once_the_client_is_dead() -> None:

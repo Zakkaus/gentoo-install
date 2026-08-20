@@ -545,17 +545,21 @@ class InstallZfsBootMenu(Operation):
     def _image(self, context: Context) -> str:
         """Whatever generate-zbm wrote. It names the image after the kernel
         it built from, so `vmlinuz.EFI` is only one of the names it can have."""
-        listing = answered(
+        # findutils 4.11.0 exits 1 for an entry it could not read while still
+        # printing the matches it reached, so the listing decides, not the code.
+        listing = str(
             context.run_in_target(
                 ["find", f"{self.esp}/{ZBM_DIRECTORY}", "-name", "*.EFI"], check=False
-            ),
-            f"{self.esp}/{ZBM_DIRECTORY} could not be listed",
-        )
+            )
+        ).strip()
         found = sorted(
             line.strip() for line in listing.splitlines() if line.strip().endswith(".EFI")
         )
         if not found:
-            raise NothingToBoot(f"generate-zbm wrote no EFI image under {self.esp}/{ZBM_DIRECTORY}")
+            said = f": {listing[:200]}" if listing else ""
+            raise NothingToBoot(
+                f"generate-zbm wrote no EFI image under {self.esp}/{ZBM_DIRECTORY}{said}"
+            )
         return found[0]
 
 

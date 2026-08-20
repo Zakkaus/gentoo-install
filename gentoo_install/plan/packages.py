@@ -428,6 +428,19 @@ KWIN_DEFAULTS: Final[PurePosixPath] = PurePosixPath("/etc/xdg/kwinrc")
 SKELETON: Final[PurePosixPath] = PurePosixPath("/etc/skel")
 
 
+#: What a fragment class has to declare before it can name a file or a line.
+_FRAGMENT_DECLARATIONS: Final[tuple[str, ...]] = ("directory", "verb")
+
+
+def _refuse_undeclared(cls: type[WriteForGroup]) -> None:
+    missing = [name for name in _FRAGMENT_DECLARATIONS if getattr(cls, name, None) is None]
+    if missing:
+        raise ConfigError(
+            f"{cls.__name__} declares no {', '.join(missing)}; a group fragment names "
+            "the /etc/portage directory it writes and the verb its plan line reads"
+        )
+
+
 @dataclass(frozen=True, kw_only=True, init=False)
 class WriteForGroup(WritePortageConfig):
     """One Portage fragment named after the package group that asked for it.
@@ -439,11 +452,19 @@ class WriteForGroup(WritePortageConfig):
 
     #: Which `/etc/portage` directory the fragment goes in.
     directory: ClassVar[PortageConfigKind]
-    #: How the dry-run line reads, because accepting and asking are not the
-    #: same act to the operator reading the plan.
+    #: How the `--dry-run` line reads. The overview screen renders the
+    #: inherited `describe_parts`, so this word reaches the dry run alone.
     verb: ClassVar[str]
 
+    def __init_subclass__(cls) -> None:
+        # At class creation, because a subclass declaring one of the two builds
+        # a plan and dies in Stage.PORTAGE with the disks already partitioned.
+        super().__init_subclass__()
+        _refuse_undeclared(cls)
+
     def __init__(self, *, group: str, lines: tuple[str, ...]) -> None:
+        # Only this class can fail it: a subclass is refused when it is created.
+        _refuse_undeclared(type(self))
         object.__setattr__(self, "kind", self.directory)
         object.__setattr__(self, "name", group)
         object.__setattr__(self, "lines", lines)

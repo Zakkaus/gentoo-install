@@ -57,10 +57,14 @@ def leave(
     assert row.edit is not None
     try:
         answer = row.edit(screen, before, at)
-    except AssertionError as exhausted:
+    except AssertionError as refused:
+        # `FakeScreen` refuses an off-screen write with the same exception, and
+        # relabelling that as an unescapable row sends it to the wrong reader.
+        if screen.keys:
+            raise
         raise AssertionError(
-            f"{row.key} did not leave after {len(LEAVE)} cancels: {exhausted}"
-        ) from exhausted
+            f"{row.key} did not leave after {len(LEAVE)} cancels: {refused}"
+        ) from refused
     return screen, answer
 
 
@@ -95,26 +99,28 @@ def test_no_row_draws_past_the_edge_of_an_eighty_column_console(
     """The interface has to be usable on the console a live medium gives, and
     a line that wraps there is a line that cannot be read.
 
-    Every language it offers, because `width` and `len` differ only where the
-    catalog holds wide characters: an English-only walk leaves the four
-    translated catalogs — the ones that draw two cells per character —
-    unmeasured. `FakeScreen.write` raises on the offending write itself, so
-    what this adds is the input rather than the assertion.
+    The check is `FakeScreen.write`'s own refusal of a write reaching past the
+    column count, so what this test supplies is the input. Reading the recorded
+    rows back adds nothing, because each was composed out of writes that
+    already fit: a `Catalog` appending sixty cells to every string produced no
+    over-wide recorded row anywhere in the walk, and one refused write.
+
+    All five languages, because `truncate` clamps in cells and a clamp written
+    in characters passes in English and fails everywhere else: slicing it by
+    `len` left every `en` row green and reddened twenty across `zh-TW`,
+    `zh-CN`, `ja` and `ko`.
     """
-    from gentoo_install.i18n import Catalog, width
+    from gentoo_install.i18n import Catalog
 
     at = context()
     at.columns = 80
     at.translate = Catalog(language)
     screen, answer = leave(row, config(ext4_on_gpt()), at, columns=80)
-    # A toggle draws nothing and answers on the spot, which the row above
-    # holds; anything else drawing nothing has not been measured at all.
-    if not screen.frames:
-        assert answer.outcome is Outcome.CHOSE, f"{row.key} drew nothing in {language}"
-        return
-    for frame in screen.frames:
-        for line in frame:
-            assert width(line) <= 80, f"{row.key}/{language}: {line!r}"
+    # A toggle draws nothing and answers on the spot; anything else drawing
+    # nothing handed no write to the width check and was not measured at all.
+    assert screen.frames or answer.outcome is Outcome.CHOSE, (
+        f"{row.key} neither drew nor answered in {language}"
+    )
 
 
 def test_the_install_row_never_asks_for_something_a_row_says_is_answered() -> None:

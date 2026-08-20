@@ -509,12 +509,15 @@ def test_a_band_fills_the_row_so_the_reverse_video_reaches_both_edges() -> None:
     """A header that stops where its text stops is a highlighted word, not a
     band, and the screen still reads as a printout."""
     from gentoo_install.tui.widgets import band
+    from gentoo_install.i18n import width
 
     screen = FakeScreen(columns=40)
     band(screen, 0, "gentoo-install", "6/22 answered")
     drawn = screen.frames[-1][0] if screen.frames else screen.drawn(0)
 
-    assert len(drawn) == 40
+    # Cells, not characters: a row of 40 characters can occupy 60 columns, and
+    # a band that reaches both edges is a statement about columns.
+    assert width(drawn) == 40
     assert drawn.startswith("gentoo-install")
     assert drawn.endswith("6/22 answered")
     assert drawn in screen.highlighted
@@ -523,12 +526,13 @@ def test_a_band_fills_the_row_so_the_reverse_video_reaches_both_edges() -> None:
 def test_a_band_drops_the_right_side_rather_than_cutting_it() -> None:
     """Half a count reads as a different count."""
     from gentoo_install.tui.widgets import band
+    from gentoo_install.i18n import width
 
     screen = FakeScreen(columns=20)
     band(screen, 0, "gentoo-install", "6/22 answered")
     drawn = screen.drawn(0)
 
-    assert len(drawn) == 20
+    assert width(drawn) == 20
     # Whole or absent. A truncating band leaves `6/22 `, which reads as a
     # different count rather than as a missing one.
     assert "6/22" not in drawn
@@ -586,3 +590,61 @@ def test_a_field_with_no_rule_takes_what_it_is_given() -> None:
     answered = Form(title="Any", fields=[Field(label="free")], footer="").run(screen)
 
     assert answered.unwrap() == ["a b"]
+
+
+#: Two wide characters and a combining acute accent, by codepoint: no CJK
+#: literal belongs in the test tree, and only escapes survive a review here.
+AN = "\u5b89"
+ZHUANG = "\u88dd"
+ACUTE = "\u0301"
+
+
+def test_a_narrow_write_keeps_the_characters_it_placed_beside_a_wide_one() -> None:
+    """`FakeScreen` measures every layout test in this file, so a cell grid
+    that blanks its own writes hides the defects those tests exist to catch."""
+    from gentoo_install.i18n import width
+
+    screen = FakeScreen(columns=10)
+    screen.write(0, 0, AN + ZHUANG)
+    screen.write(0, 0, "ok")
+
+    assert screen.drawn(0) == "ok" + ZHUANG
+    assert width(screen.drawn(0)) == 4
+
+
+def test_a_write_spanning_two_wide_characters_stays_inside_the_screen() -> None:
+    """A repair walking cell by cell blanked a cell the same write had filled,
+    and the row then measured five cells on a four-column screen."""
+    from gentoo_install.i18n import width
+
+    screen = FakeScreen(columns=4)
+    screen.write(0, 1, AN)
+    screen.write(0, 0, AN + AN)
+
+    assert screen.drawn(0) == AN + AN
+    assert width(screen.drawn(0)) == 4
+
+
+def test_overwriting_the_first_half_of_a_wide_character_clears_the_second() -> None:
+    """The orphaned second cell is empty, so the row measured three cells while
+    occupying four and every later column read one place left."""
+    from gentoo_install.i18n import width
+
+    screen = FakeScreen(columns=4)
+    screen.write(0, 0, AN + ZHUANG)
+    screen.write(0, 0, "x")
+
+    assert screen.drawn(0) == "x " + ZHUANG
+    assert width(screen.drawn(0)) == 4
+
+
+def test_a_combining_mark_joins_the_cell_before_it_instead_of_taking_one() -> None:
+    """A mark occupies no cell, so advancing by its width left the grid too
+    short for the next character and the write raised `IndexError`."""
+    from gentoo_install.i18n import width
+
+    screen = FakeScreen(columns=20)
+    screen.write(0, 0, "e" + ACUTE + "x")
+
+    assert screen.drawn(0) == "e" + ACUTE + "x"
+    assert width(screen.drawn(0)) == 2

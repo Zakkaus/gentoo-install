@@ -3517,21 +3517,30 @@ def test_the_cluster_serves_no_screenshot_so_none_is_offered() -> None:
     Nothing called it. It is named here so that a reader who wants the VGA
     console for the BIOS fixtures learns the endpoint does not exist rather
     than adding a caller and reading `None`.
+
+    Three checks, because none of them covers the others: the attribute catches
+    a caller that kept the name, the `screenshot` literal catches a method
+    called anything else that asks for the path, and `screendump` catches the
+    QEMU monitor route `POST /nodes/{node}/qemu/{vmid}/monitor`, which takes
+    the same picture and spells neither of the first two. That route is the one
+    the comment above `AUTOLOGIN_INTERVAL` says a screen was measured with.
     """
     import ast
 
     from tests.vm import cluster, proxmox
 
-    # The endpoint, not one attribute name: a method called anything else that
-    # asks for that path is the defect coming back, and `hasattr` on `Guest`
-    # would not see it. Docstrings are excluded because two of them explain
-    # why the path is absent.
+    assert not hasattr(Guest, "screenshot")
+
+    # Docstrings are excluded because two of them explain why the path is
+    # absent, and `AsyncFunctionDef` keeps that true for a coroutine added later.
     for module in (proxmox, cluster):
         tree = ast.parse(Path(module.__file__ or "").read_text())
         prose = {
             id(node.body[0].value)
             for node in ast.walk(tree)
-            if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef))
+            if isinstance(
+                node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+            )
             and node.body
             and isinstance(node.body[0], ast.Expr)
             and isinstance(node.body[0].value, ast.Constant)
@@ -3542,7 +3551,7 @@ def test_the_cluster_serves_no_screenshot_so_none_is_offered() -> None:
             for node in ast.walk(tree)
             if isinstance(node, ast.Constant)
             and isinstance(node.value, str)
-            and "screenshot" in node.value
+            and ("screenshot" in node.value or "screendump" in node.value)
             and id(node) not in prose
         ]
         assert asked == [], (module.__name__, asked)
