@@ -3518,9 +3518,34 @@ def test_the_cluster_serves_no_screenshot_so_none_is_offered() -> None:
     console for the BIOS fixtures learns the endpoint does not exist rather
     than adding a caller and reading `None`.
     """
-    from tests.vm.proxmox import Guest
+    import ast
 
-    assert not hasattr(Guest, "screenshot")
+    from tests.vm import cluster, proxmox
+
+    # The endpoint, not one attribute name: a method called anything else that
+    # asks for that path is the defect coming back, and `hasattr` on `Guest`
+    # would not see it. Docstrings are excluded because two of them explain
+    # why the path is absent.
+    for module in (proxmox, cluster):
+        tree = ast.parse(Path(module.__file__ or "").read_text())
+        prose = {
+            id(node.body[0].value)
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef))
+            and node.body
+            and isinstance(node.body[0], ast.Expr)
+            and isinstance(node.body[0].value, ast.Constant)
+            and isinstance(node.body[0].value.value, str)
+        }
+        asked = [
+            node.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and "screenshot" in node.value
+            and id(node) not in prose
+        ]
+        assert asked == [], (module.__name__, asked)
 
 
 def test_a_boot_that_never_prompts_says_what_the_console_held(
