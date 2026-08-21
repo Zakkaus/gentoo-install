@@ -1312,3 +1312,27 @@ def test_right_chooses_in_a_list_because_left_goes_back_from_one() -> None:
     )
     answer = several.run(FakeScreen(keys=["KEY_RIGHT", " ", "\n"]))
     assert answer.unwrap() == ("zh_TW",), answer
+
+
+def test_a_field_that_arrives_with_a_value_can_be_emptied() -> None:
+    """Replacing one meant counting its characters and pressing backspace.
+
+    Read off a guest: an agent asked for a 512 MiB partition, typed it into a
+    field already holding `1GiB`, and the field answered `1GiB512MiB`.
+    """
+    from gentoo_install.tui.widgets import CLEAR_KEY
+
+    screen = FakeScreen(keys=[CLEAR_KEY, "5", "1", "2", "M", "\n"])
+    answered = TextField(title="Size", value="1GiB").run(screen)
+    assert answered.unwrap() == "512M", answered
+
+    # Negative control: without it the same keys append, which is the value
+    # the operator saw.
+    appended = TextField(title="Size", value="1GiB").run(
+        FakeScreen(keys=["5", "1", "2", "M", "\n"])
+    )
+    assert appended.unwrap() == "1GiB512M"
+
+    # And the key is not a character: a field that took it as text would lose
+    # the one way out of a prefilled value.
+    assert not CLEAR_KEY.isprintable()

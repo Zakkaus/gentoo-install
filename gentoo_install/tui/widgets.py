@@ -180,10 +180,16 @@ KEY_HELP: Final[tuple[KeyRow, ...]] = (
     KeyRow("home  end", "Move the cursor to the first or last row"),
     KeyRow("g  G", "First or last row, in a list; a letter in a field"),
     KeyRow("/", "Narrow a list to the rows holding what is typed next"),
+    KeyRow("ctrl-u", "Empty the field, which arrives with a value in it"),
 )
 
 #: What opens the key page. A letter in a field, like `q`.
 HELP_KEY: Final[str] = "?"
+
+#: What empties a field. `ctrl-u` is what a shell's line editor uses, and a
+#: printable key cannot do this: every one of them is a character somebody
+#: types into one of these fields.
+CLEAR_KEY: Final[str] = "\x15"
 
 #: One screen at a time, and the ends. `America` holds 169 timezones, which is
 #: eight screens of `j` on a console 24 lines tall.
@@ -630,7 +636,14 @@ class TextField:
                 return Answer(Outcome.CHOSE, "".join(typed))
             if pressed in ("KEY_LEFT", "\x1b"):
                 return Answer(Outcome.BACK)
-            if pressed in ("\x7f", "KEY_BACKSPACE"):
+            if pressed == CLEAR_KEY:
+                # Every field here arrives with a value in it, and replacing
+                # one meant counting its characters and pressing backspace
+                # that many times: an operator asked for a 512 MiB partition
+                # and the field answered `1GiB512MiB`.
+                typed.clear()
+                touched = True
+            elif pressed in ("\x7f", "KEY_BACKSPACE"):
                 if typed:
                     typed.pop()
                     touched = True

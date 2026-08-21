@@ -61,6 +61,7 @@ KEYS: Final[dict[str, str]] = {
     "pagedown": "\x1b[6~",
     "home": "\x1bOH",
     "end": "\x1bOF",
+    "clear": "\x15",
     "help": "?",
     "filter": "/",
 }

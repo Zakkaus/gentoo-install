@@ -15,8 +15,9 @@ python3 -m tests.tui.session key <id> <keys...>   press keys
 ```
 
 Keys are named: `up`, `down`, `left`, `right`, `enter`, `esc`, `tab`, `space`,
-`home`, `end`, `pageup`, `pagedown`, `help`, `backspace`, and `type:<text>` to
-enter text. Several may be given at once: `key lab1 down down enter`.
+`home`, `end`, `pageup`, `pagedown`, `help`, `backspace`, `clear`, and
+`type:<text>` to enter text. A field arrives with a value in it, so `clear`
+before typing a replacement. Several may be given at once: `key lab1 down down enter`.
 
 ## What you may not do
 
