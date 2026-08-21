@@ -18,6 +18,7 @@ VMID.
 
 from __future__ import annotations
 
+import http.client
 import json
 import re
 import ssl
@@ -66,6 +67,18 @@ CREATE_PAUSE: Final[float] = 10.0
 
 DISK_STORAGE: Final[str] = "ceph-pve"
 ISO_STORAGE: Final[str] = "local"
+
+#: Where a node's own API answers, and the bridge its address is read from.
+#: Used only for a medium too large for the proxy in front of the cluster.
+NODE_PORT: Final[int] = 8006
+NODE_BRIDGE: Final[str] = "vmbr0"
+
+#: A gigabyte over the workstation's link, plus the node's own checksum pass.
+MEDIUM_PATIENCE: Final[float] = 3600.0
+
+#: How much of the file each TLS record carries. The default 8 KiB turns a
+#: 989 MB medium into 120000 records and took five times as long as `curl`.
+MEDIUM_BLOCK: Final[int] = 1 << 20
 
 #: Long enough for a stage3 to extract over a slow mirror, short enough that a
 #: node that stopped answering does not hold the whole campaign.
@@ -163,6 +176,27 @@ def _http_exception(method: str, path: str, error: urllib.error.HTTPError) -> Pr
     if error.code in (429, 502, 503, 504, 595) or retryable_500:
         return ProxmoxTransientError(message)
     return ProxmoxError(message)
+
+
+def _multipart_head(boundary: str, name: str, sha512: str) -> bytes:
+    """Everything of the body that comes before the file's own bytes.
+
+    Separated so a test can read it without a node: the field order is what
+    the endpoint checks, and it rejects a checksum sent after the file.
+    """
+    parts = [("content", "iso"), ("checksum-algorithm", "sha512"), ("checksum", sha512)]
+    body = b""
+    for field, value in parts:
+        body += (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="{field}"\r\n\r\n{value}\r\n'
+        ).encode()
+    body += (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="filename"; filename="{name}"\r\n'
+        "Content-Type: application/octet-stream\r\n\r\n"
+    ).encode()
+    return body
 
 
 def _certificates() -> ssl.SSLContext:
@@ -412,6 +446,82 @@ class Api:
         if isinstance(upid, str) and upid.startswith("UPID"):
             self.wait(node, upid, patience=600.0)
         return name
+
+    def node_certificate(self, node: str) -> str:
+        """The cluster CA, read over the connection that is already verified.
+
+        A node's own address serves a certificate that CA signed and the public
+        trust store does not carry, so a direct connection needs this as its
+        root. Asked of the proxy rather than of the node, because trusting a
+        root the unverified peer handed over verifies nothing.
+        """
+        for one in self.call("GET", f"/nodes/{node}/certificates/info"):
+            if str(one.get("filename")) == "pve-root-ca.pem":
+                return str(one.get("pem", ""))
+        raise ProxmoxError(f"{node} did not report its cluster CA")
+
+    def node_address(self, node: str) -> str:
+        """The address the node answers its own API on."""
+        for one in self.call("GET", f"/nodes/{node}/network"):
+            if str(one.get("iface")) == NODE_BRIDGE and one.get("address"):
+                return str(one["address"])
+        raise ProxmoxError(f"{node} has no address on {NODE_BRIDGE}")
+
+    def send_iso(self, node: str, path: Path, name: str, sha512: str) -> None:
+        """Upload a medium to the node itself, streaming it from disk.
+
+        Two reasons this does not go through `upload_iso`. The proxy in front
+        of the cluster answers `413 Request Entity Too Large` to a 989 MB body
+        within seconds, and `upload_iso` reads the whole file into memory,
+        which a medium does not fit in beside a campaign.
+
+        The node's certificate carries its address in `subjectAltName` and the
+        cluster CA signs it, so this verifies exactly as strictly as every
+        other call: the token still only goes to a peer holding a certificate
+        the trusted proxy vouched for.
+        """
+        context = ssl.create_default_context(cadata=self.node_certificate(node))
+        # The chain and the hostname are still checked against that CA; only
+        # RFC 5280's optional-extension rules are not. Python 3.13 turned
+        # VERIFY_X509_STRICT on by default and PVE's own CA carries no
+        # keyUsage, so the strict flag refuses every node in the cluster.
+        context.verify_flags &= ~ssl.VERIFY_X509_STRICT
+        boundary = "----" + uuid.uuid4().hex
+        head = _multipart_head(boundary, name, sha512)
+        tail = f"\r\n--{boundary}--\r\n".encode()
+        size = path.stat().st_size
+        connection = http.client.HTTPSConnection(
+            self.node_address(node),
+            NODE_PORT,
+            context=context,
+            timeout=MEDIUM_PATIENCE,
+            blocksize=MEDIUM_BLOCK,
+        )
+        try:
+            connection.putrequest(
+                "POST", f"/api2/json/nodes/{node}/storage/{ISO_STORAGE}/upload"
+            )
+            connection.putheader("Authorization", f"PVEAPIToken={TOKEN_ID}={_secret()}")
+            connection.putheader(
+                "Content-Type", f"multipart/form-data; boundary={boundary}"
+            )
+            connection.putheader("Content-Length", str(len(head) + size + len(tail)))
+            connection.endheaders()
+            connection.send(head)
+            with path.open("rb") as handle:
+                connection.send(handle)
+            connection.send(tail)
+            answer = connection.getresponse()
+            said = answer.read().decode("utf-8", "replace")
+            if answer.status != 200:
+                raise ProxmoxError(f"{name} was not uploaded: {answer.status} {said[:300]}")
+        except (OSError, ssl.SSLError, http.client.HTTPException) as error:
+            raise ProxmoxError(f"{name} was not uploaded to {node}: {error}") from error
+        finally:
+            connection.close()
+        upid = json.loads(said).get("data")
+        if isinstance(upid, str) and upid.startswith("UPID"):
+            self.wait(node, upid, patience=MEDIUM_PATIENCE)
 
     def remove_iso(self, node: str, name: str) -> str:
         """Drop an uploaded file, and answer why if it stayed.

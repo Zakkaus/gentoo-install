@@ -4506,3 +4506,22 @@ def test_a_guest_replaced_between_the_two_reads_is_not_deleted() -> None:
         guest.destroy(patience=5.0)
     assert not api.deleted, "the guest that replaced ours was deleted"
 
+
+
+def test_the_checksum_fields_precede_the_file_in_the_upload_body() -> None:
+    """The endpoint reads the form in order and ignores a checksum after it.
+
+    Sent the other way round the upload still succeeds, and the medium lands
+    unverified: the failure is a wrong file that every later check trusts.
+    """
+    from tests.vm.proxmox import _multipart_head
+
+    head = _multipart_head("Xbound", "medium.iso", "ab" * 64).decode()
+    checksum = head.index('name="checksum"')
+    filename = head.index('name="filename"')
+    assert checksum < filename, head
+
+    # Negative control: the algorithm has to be there too, or PVE reads the
+    # 128 characters as the default and refuses the upload it already took.
+    assert 'name="checksum-algorithm"' in head and "sha512" in head
+    assert head.count("--Xbound") == 4, head
