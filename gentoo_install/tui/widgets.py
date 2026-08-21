@@ -1146,11 +1146,16 @@ class TwoPane(Generic[V]):
                 # that would refuse: its reason is already in the right pane.
                 if self.rows and not self.rows[cursor].disabled_because:
                     return Answer(Outcome.CHOSE, self.rows[cursor].value)
-            elif pressed in ("KEY_LEFT", "\x1b", "q"):
-                # All three answer Back and what Back means is the caller's:
-                # the main menu asks whether to end the run. `q` is here and
-                # nowhere deeper, because a text field reads it as a letter.
+            elif pressed in ("KEY_LEFT", "\x1b", "\x7f", "KEY_BACKSPACE"):
+                # Back, which at the top of the interface is nowhere to go.
+                # Held apart from `q` because they mean different things: an
+                # agent read the key page's `esc  Back` and pressed it seven
+                # times, and one of those presses offered to end the run.
                 return Answer(Outcome.BACK)
+            elif pressed == "q":
+                # Leaving, which is what the status line names it. Here and
+                # nowhere deeper, because a text field reads it as a letter.
+                return Answer(Outcome.CANCELLED)
             elif pressed == "\x03":
                 return Answer(Outcome.CANCELLED)
 
