@@ -4525,3 +4525,27 @@ def test_the_checksum_fields_precede_the_file_in_the_upload_body() -> None:
     # 128 characters as the default and refuses the upload it already took.
     assert 'name="checksum-algorithm"' in head and "sha512" in head
     assert head.count("--Xbound") == 4, head
+
+
+def test_the_boot_order_names_every_target_disk() -> None:
+    """`gi-s7a` mirrored its pool across `vda1` and `vdb2` and put the esp on
+    `vdb1`. `order=virtio0` pointed the firmware at a disk that is entirely a
+    pool member, so it fell through to the medium still attached and the run
+    read a live shell back as the installed system."""
+    asked: list[dict[str, object]] = []
+
+    class Recording:
+        def call(self, method: str, path: str, **form: object) -> object:
+            asked.append({"method": method, "path": path, **form})
+            return None
+
+    for disks, expected in (((40,), "order=virtio0"), ((40, 40), "order=virtio0;virtio1")):
+        asked.clear()
+        guest = Guest(
+            api=cast(Api, Recording()),
+            node="n",
+            vmid=9300,
+            spec=GuestSpec(name="gi-test", iso="x.iso", target_gib=disks),
+        )
+        guest.boot_from_disk()
+        assert [one["boot"] for one in asked] == [expected], disks

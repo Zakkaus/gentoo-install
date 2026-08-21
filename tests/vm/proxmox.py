@@ -668,11 +668,15 @@ class Guest:
 
         The install is only half the question: the other half is whether the
         machine it produced comes up and carries the settings that were asked
-        for. `order=virtio0` is what makes the firmware try the target rather
-        than the CD it was built with.
+        for. Every target disk is named, in order, because the esp does not
+        always land on the first: `gi-s7a` mirrored its pool across `vda1` and
+        `vdb2` and put the esp on `vdb1`, so `order=virtio0` sent the firmware
+        at a disk that is entirely a pool member and it fell through to the
+        medium still attached.
         """
+        order = ";".join(f"virtio{index}" for index in range(len(self.spec.target_gib)))
         upid = self.api.call(
-            "PUT", f"/nodes/{self.node}/qemu/{self.vmid}/config", boot="order=virtio0"
+            "PUT", f"/nodes/{self.node}/qemu/{self.vmid}/config", boot=f"order={order}"
         )
         # A config change the API applies then and there answers `data: null`;
         # only a deferred one comes back as a task. Waiting on the empty answer
