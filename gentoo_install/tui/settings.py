@@ -900,6 +900,20 @@ INSTALL_MODE: Final[Setting] = Setting(
 
 #: The menu, flat and in the order it is drawn. One row per decision.
 SETTINGS: Final[tuple[Setting, ...]] = (
+    # First, because it decides what the rest of the menu means: a conversion
+    # replaces the running system and a disk install erases one, and the row
+    # that says which was eighth, under six the operator can leave alone.
+    INSTALL_MODE,
+    # Second, and still above everything it exists to protect: the licence
+    # question is otherwise two levels down under Compiler, and the operator
+    # meets it as a refusal — `net-im/wemeet` masked, the install over —
+    # rather than as a menu.
+    Setting(
+        "every_license",
+        "Accept every license",
+        _every_license,
+        screens.accept_every_license_screen,
+    ),
     Setting("firmware", "Firmware", _firmware, None),
     Setting("proxy", "Proxy", _proxy, screens.proxy_screen),
     Setting("keymap", "Keyboard layout", lambda c, x: c.system.keymap, screens.keymap_screen),
@@ -912,18 +926,6 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     ),
     Setting("timezone", "Timezone", lambda c, x: c.system.timezone, screens.timezone_screen),
     Setting("mirror", "Mirrors", _mirror, mirror_screen, required=True, detected=True),
-    # Above the row that opens the rest of the install: the licence question
-    # is otherwise two levels down under Compiler, and the operator meets it
-    # as a refusal — `net-im/wemeet` masked, the install over — rather than as
-    # a menu.
-    Setting(
-        "every_license",
-        "Accept every license",
-        _every_license,
-        screens.accept_every_license_screen,
-    ),
-    # Before the Disk row, because it decides whether that row applies at all.
-    INSTALL_MODE,
     Setting(
         "storage",
         "Disk",
