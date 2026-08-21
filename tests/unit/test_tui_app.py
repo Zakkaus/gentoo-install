@@ -1566,15 +1566,17 @@ def test_what_still_asks_before_it_changes() -> None:
         "Use DHCP?",
         "Unlock the root over SSH from the initramfs?",
         "This replaces the running system and cannot be undone.",
+        "Writing an image discards the rest of the answers.",
         "Install",
     }
     for title in asked:
         assert title in source, title
-    # Six call sites, nine titles: one encryption editor serves three titles,
+    # Seven call sites, ten titles: one encryption editor serves three titles,
     # and the slice screen words its title for a pool or for a partition. The
     # sixth is the in-place swap, which takes a typed word for the same reason
-    # the erase screen does — it cannot be undone.
-    assert source.count("Confirm(") == 6
+    # the erase screen does — it cannot be undone. The seventh is writing an
+    # image, which empties five groups of answers on one keypress.
+    assert source.count("Confirm(") == 7
     # `settle` asks the same kind of question with three answers rather than
     # two, because the third opens the row the values land on.
     assert "This choice also sets" in source
@@ -3382,7 +3384,8 @@ def test_dd_mode_is_offered_only_from_a_live_or_memory_environment() -> None:
         )
     )
     chosen = screens.install_mode_screen(
-        FakeScreen(keys=["KEY_DOWN", "\n"], lines=24, columns=110),
+        # The last two answer Yes to the question about discarding the rest.
+        FakeScreen(keys=["KEY_DOWN", "\n", "KEY_DOWN", "\n"], lines=24, columns=110),
         config(),
         safe,
     ).unwrap()
@@ -3753,3 +3756,36 @@ def test_back_does_nothing_at_the_top_and_only_cancel_offers_to_leave() -> None:
     # the widget is not simply ignoring every key it is given.
     ended = FakeScreen(keys=["q", "KEY_DOWN", "\n", "\x1b", "KEY_LEFT"])
     assert run(ended, config(), at).cancelled
+
+
+def test_writing_an_image_asks_before_discarding_the_other_answers() -> None:
+    """One keypress on the first row emptied twenty rows, silently.
+
+    An agent that pressed it went in and out of that row three times looking
+    for what it had lost, then left the installer without installing.
+    """
+    from dataclasses import replace
+
+    from gentoo_install.model.config import DiskMode
+
+    at = context()
+    # The row is only offered on a medium that can write one, which is what
+    # this test is about.
+    at.image_write_refused = Refusal("")
+    at.conversion_refused = Refusal("")
+    answered = replace(config(), system=replace(config().system, hostname="lab5"))
+
+    # Down twice to `write a prepared image`, enter, then No to the question.
+    kept = screens.install_mode_screen(
+        FakeScreen(keys=["KEY_DOWN", "KEY_DOWN", "\n", "\n"]), answered, at
+    )
+    assert kept.unwrap().system.hostname == "lab5", kept.unwrap().system
+    assert kept.unwrap().disk.mode is not DiskMode.DD
+
+    # Negative control: answering Yes does discard them, so the question is
+    # the only thing between the operator and an empty list.
+    gone = screens.install_mode_screen(
+        FakeScreen(keys=["KEY_DOWN", "KEY_DOWN", "\n", "KEY_DOWN", "\n"]), answered, at
+    )
+    assert gone.unwrap().disk.mode is DiskMode.DD
+    assert gone.unwrap().system.hostname != "lab5"

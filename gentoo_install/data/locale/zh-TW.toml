@@ -721,3 +721,5 @@
 "enable the {} repository" = "啟用 {} 儲存庫"
 "Empty the field, which arrives with a value in it" = "清空欄位，欄位開啟時本來就有值"
 "{disk} can hand out {usable} and these sizes come to {claimed}" = "{disk} 能配出 {usable}，這些大小加起來是 {claimed}"
+"Writing an image discards the rest of the answers." = "寫入映像檔會捨棄其餘的答案。"
+"{count} groups of answers are discarded." = "有 {count} 組答案會被捨棄。"

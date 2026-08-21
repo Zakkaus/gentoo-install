@@ -720,3 +720,5 @@
 "enable the {} repository" = "{} 저장소를 활성화합니다"
 "Empty the field, which arrives with a value in it" = "필드를 비웁니다. 필드에는 처음부터 값이 들어 있습니다"
 "{disk} can hand out {usable} and these sizes come to {claimed}" = "디스크 {disk}: 배정 가능한 용량 {usable}, 지정한 합계 {claimed}"
+"Writing an image discards the rest of the answers." = "이미지를 쓰면 나머지 답변은 버려집니다."
+"{count} groups of answers are discarded." = "버려지는 답변은 {count}개 묶음입니다."
