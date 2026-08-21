@@ -977,7 +977,7 @@ def test_the_shared_footer_names_a_key_that_leaves_every_screen() -> None:
     from .fake_screen import FakeScreen
 
     said = footer(context().translate)
-    assert "[esc]" in said, said
+    assert "esc]" in said, said
     assert "[q]" not in said, said
     assert context().translate("Cancel") not in said, said
 

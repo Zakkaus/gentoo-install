@@ -948,10 +948,13 @@ def test_the_footer_names_the_key_that_always_goes_back() -> None:
     for tag in ("en", "zh-TW", "zh-CN", "ja", "ko"):
         translate = Catalog(tag)
         drawn = footer(translate)
-        assert "[←]" in drawn, (tag, drawn)
-        # Three ways back and no Cancel: escape steps back below the main
-        # menu, which is where ending the run is asked about.
-        assert drawn.count(translate("Back")) == 3, (tag, drawn)
+        # Three keys and no Cancel, in one entry: three entries reading the
+        # same word filled half the line and read as three different things.
+        # Escape steps back below the main menu, which is where ending the run
+        # is asked about.
+        for key in ("\u2190", "backspace", "esc"):
+            assert key in drawn, (tag, key, drawn)
+        assert drawn.count(translate("Back")) == 1, (tag, drawn)
         assert translate("Cancel") not in drawn, (tag, drawn)
 
     # And the key the footer names is the key the widgets answer Back to,
