@@ -90,4 +90,73 @@ SPECS: Final[dict[int, Spec]] = {
             "the machine boots into Gentoo",
         ),
     ),
+    5: Spec(
+        number=5,
+        wanted=(
+            "Install onto the whole disk with xfs for the root filesystem and "
+            "a 4 GiB swap partition. The machine boots with UEFI and should "
+            "use systemd-boot rather than GRUB. Hostname lab5, root password "
+            f"{PASSWORD}."
+        ),
+        proof=(
+            "the root filesystem is xfs",
+            "swap is a partition of about 4 GiB",
+            "the bootloader is systemd-boot",
+            "hostname is lab5",
+        ),
+    ),
+    6: Spec(
+        number=6,
+        wanted=(
+            "Partition this 40 GiB disk by hand: a 512 MiB EFI partition, a "
+            "20 GiB root on ext4, and the rest as /home on ext4. Do not let "
+            f"the installer choose the sizes. Hostname lab6, root password {PASSWORD}."
+        ),
+        proof=(
+            "there are three partitions and their sizes are the ones asked for",
+            "/home is a separate ext4 filesystem",
+            "hostname is lab6",
+        ),
+    ),
+    7: Spec(
+        number=7,
+        wanted=(
+            "This machine has two disks. Put the root filesystem on ZFS across "
+            "both of them as a mirror, so either disk can fail. Hostname lab7, "
+            f"root password {PASSWORD}."
+        ),
+        proof=(
+            "the root filesystem is zfs",
+            "the pool is a mirror of two devices",
+            "hostname is lab7",
+        ),
+    ),
+    8: Spec(
+        number=8,
+        wanted=(
+            "An old machine with an MBR partition table and BIOS boot. Install "
+            "onto the whole disk with ext4 and OpenRC. Keep it in English, "
+            f"timezone UTC. Hostname lab8, root password {PASSWORD}."
+        ),
+        proof=(
+            "the partition table is mbr",
+            "the bootloader is grub and the firmware is bios",
+            "the init system is openrc",
+            "hostname is lab8",
+        ),
+    ),
+    9: Spec(
+        number=9,
+        wanted=(
+            "Install onto the whole disk with btrfs, and give the machine a "
+            "KDE Plasma desktop with a Chinese input method. Hostname lab9, "
+            f"root password {PASSWORD}, user zakk with the same password."
+        ),
+        proof=(
+            "the root filesystem is btrfs",
+            "a desktop environment is selected",
+            "an input method is selected",
+            "hostname is lab9",
+        ),
+    ),
 }

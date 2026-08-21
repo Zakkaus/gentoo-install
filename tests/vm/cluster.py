@@ -1849,11 +1849,20 @@ TUI_COLUMNS: Final[int] = 120
 #: minimal ISO carries no CJK font, so a Chinese session on it reads as a
 #: screen of empty boxes and says nothing about the wording. `gentoo-zh`'s
 #: own live CD carries cjktty and the fonts.
+#: Disks, UEFI, and whether the medium has to carry a CJK font. One entry per
+#: spec, because the machine a spec describes is part of the spec: asking for
+#: an MBR table on a UEFI guest is asking the operator to answer an impossible
+#: question, and the run would measure that rather than the interface.
 TUI_GUESTS: Final[dict[int, tuple[int, bool, bool]]] = {
     1: (1, True, True),
     2: (2, False, True),
     3: (1, True, True),
     4: (1, True, True),
+    5: (1, True, True),
+    6: (1, True, True),
+    7: (2, True, True),
+    8: (1, False, False),
+    9: (1, True, True),
 }
 
 
