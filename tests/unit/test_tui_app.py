@@ -136,13 +136,18 @@ def test_the_firmware_row_is_shown_and_not_chosen() -> None:
     firmware = next(s for s in settings.SETTINGS if s.key == "firmware")
     assert firmware.edit is None
     at = context()
-    screen = FakeScreen(keys=["q", "KEY_DOWN", "\n"])
+    # Down to the Firmware row: the right pane draws the cursor row's reason
+    # and `mode` is the first row now.
+    keys = [*down(next(i for i, s in enumerate(settings.SETTINGS) if s.key == "firmware"))]
+    screen = FakeScreen(keys=[*keys, "q", "KEY_DOWN", "\n"])
     run(screen, config(), at)
     # The state word carries the value and the right pane heads with the
     # reason, so the two are read together without the row saying `detected`
     # twice as it once did.
     menu = next(
-        frame for frame in screen.frames if any("Firmware" in line for line in frame)
+        frame
+        for frame in reversed(screen.frames)
+        if any("Firmware" in line for line in frame)
     )
     row = next(line for line in menu if "Firmware" in line)
     assert "uefi" in row, row
@@ -3446,7 +3451,11 @@ def test_the_licence_button_sits_above_the_row_that_opens_the_install() -> None:
 
     names = [one.key for one in SETTINGS]
     assert "every_license" in names, names
-    assert names.index("every_license") < names.index("mode"), names
+    # Second now rather than first: `mode` decides what every other row means
+    # and moved above it. What this holds is unchanged — the licence question
+    # is met as a menu, above every row whose refusal it would otherwise be.
+    assert names.index("every_license") == 1, names
+    assert names.index("every_license") < names.index("compiler"), names
 
 
 def test_every_language_default_names_a_zone_the_screen_can_show() -> None:
@@ -3606,3 +3615,20 @@ def test_every_row_of_the_main_menu_carries_a_value() -> None:
         # left to the right pane. Every other row carries one.
         widest = max(labels, key=width)
         assert {one for one, _ in blank} <= {widest}, (tag, sorted({one for one, _ in blank}))
+
+
+def test_the_row_that_decides_what_the_others_mean_comes_first() -> None:
+    """Install mode was eighth, under six rows the operator can leave alone,
+    and it decides whether Disk erases a machine or the running system is
+    replaced. Both tables answer with it first."""
+    from gentoo_install.tui.settings import DD_SETTINGS, SETTINGS, settings_for
+
+    assert SETTINGS[0].key == "mode", [one.key for one in SETTINGS[:3]]
+    assert DD_SETTINGS[0].key == "mode", [one.key for one in DD_SETTINGS[:3]]
+    # The table the menu actually walks, not only the constant: `settings_for`
+    # picks one per mode and a reordering there would not show above.
+    installation = config()
+    assert settings_for(installation)[0].key == "mode"
+    # And the row above the one it governs, whichever mode is chosen.
+    keys = [one.key for one in settings_for(installation)]
+    assert keys.index("mode") < keys.index("storage"), keys
