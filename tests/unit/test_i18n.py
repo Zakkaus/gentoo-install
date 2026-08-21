@@ -83,9 +83,11 @@ def test_every_shipped_catalog_translates_the_same_keys() -> None:
 #: another word in the two hints beside it, and `zh-CN.toml` had two words for
 #: `account` in four strings.
 GLOSSARY: dict[str, tuple[tuple[str, str], ...]] = {
+    # `\u5f15\u5c0e\u7a0b\u5f0f` rather than `\u958b\u6a5f\u8f09\u5165\u5668`, chosen by the operator on
+    # 2026-08-21. What the rule holds is unchanged: one term for one thing.
     "zh-TW": ((
+        "\u5f15\u5c0e\u7a0b\u5f0f",
         "\u958b\u6a5f\u8f09\u5165\u5668",
-        "\u958b\u6a5f\u8f09\u5165\u7a0b\u5f0f",
     ),),
     "zh-CN": (
         ("\u5f15\u5bfc\u52a0\u8f7d\u5668", "\u5f15\u5bfc\u7a0b\u5e8f"),
@@ -163,6 +165,13 @@ def in_a_table() -> set[str]:
         for name in dir(refusals)
         if name.isupper() and isinstance(getattr(refusals, name), str)
     }
+    # What each row decides and the heading it sits under, read from the rows
+    # themselves: the right pane translates whatever it was handed.
+    from gentoo_install.tui.settings import DD_SETTINGS, SETTINGS
+
+    for table in (SETTINGS, DD_SETTINGS):
+        for one in table:
+            found |= {one.describes, one.section} - {""}
     # The logger table lives in `plan/` because it also names the package and
     # the service; the menu reads the same rows rather than keeping a copy.
     found |= {choice.reason for choice in LOGGERS.values()}
@@ -581,4 +590,10 @@ def test_every_widget_that_shows_a_value_cuts_through_clip() -> None:
                 if isinstance(one, ast.FunctionDef)
                 and one.lineno <= node.lineno <= (one.end_lineno or one.lineno)
             ]
-            assert enclosing and enclosing[-1] in {"spread", "clip"}, (module, node.lineno)
+            # `wrap_to_cells` is the third: it measures where a line
+            # continues rather than where it ends, so nothing is dropped and
+            # no mark is due. `clip` is what cuts, and it marks.
+            assert enclosing and enclosing[-1] in {"spread", "clip", "wrap_to_cells"}, (
+                module,
+                node.lineno,
+            )
