@@ -14,6 +14,7 @@ from gentoo_install.tui.widgets import (
     MultipleChoiceMenu,
     Outcome,
     PaneRow,
+    SEPARATOR,
     Style,
     TextField,
 )
@@ -522,8 +523,8 @@ def test_a_band_fills_the_row_so_the_reverse_video_reaches_both_edges() -> None:
     # Cells, not characters: a row of 40 characters can occupy 60 columns, and
     # a band that reaches both edges is a statement about columns.
     assert width(drawn) == 40
-    assert drawn.startswith("gentoo-install")
-    assert drawn.endswith("6/22 answered")
+    assert drawn.strip().startswith("gentoo-install")
+    assert drawn.strip().endswith("6/22 answered")
     assert drawn in screen.highlighted
 
 
@@ -712,32 +713,37 @@ def pane_rows(count: int = 4, label: str = "Mirrors") -> list[PaneRow[int]]:
     ]
 
 
-@pytest.mark.parametrize(
-    "tag,left,right",
-    [("en", 27, 51), ("zh-TW", 20, 58), ("zh-CN", 20, 58), ("ja", 32, 46), ("ko", 26, 52)],
-)
-def test_the_panes_are_measured_from_the_catalog_they_will_draw(
-    tag: str, left: int, right: int
-) -> None:
-    """One rule, five answers. A pane sized for English cuts every Japanese
-    label, and one sized for Japanese leaves 46 columns for a device path."""
+@pytest.mark.parametrize("tag", ["en", "zh-TW", "zh-CN", "ja", "ko"])
+def test_the_panes_are_measured_from_the_catalog_they_will_draw(tag: str) -> None:
+    """One rule, five answers, and the terminal is one of its inputs: sizing
+    from the label alone left the value a few cells, which `spread` dropped
+    whole. Half the width is the ceiling, so the right pane always stands."""
     from gentoo_install.tui.widgets import left_pane_width, right_pane_width
 
-    assert left_pane_width(catalog_labels(tag)) == left
-    assert right_pane_width(80, left) == right
-    assert left + right + 2 == 80
+    # A value as long as the ones the menu really draws: `Profile` answers
+    # `default/linux/amd64/23.0/systemd`, which is what makes the ceiling bite.
+    rows = [(label, "default/linux/amd64/23.0/systemd") for label in catalog_labels(tag)]
+    for columns in (80, 120, 200):
+        left = left_pane_width(rows, columns)
+        assert left <= columns // 2, (tag, columns, left)
+        assert right_pane_width(columns, left) + left + 2 == columns
+    # A wider terminal gives the labels more room rather than the same 34.
+    assert left_pane_width(rows, 200) > left_pane_width(rows, 80)
 
 
-def test_a_label_wider_than_the_clamp_is_cut_and_says_so() -> None:
-    """No catalog reaches it today, so the boundary is held by a test rather
-    than by the input: a cut name that reads as a whole one is the defect."""
+def test_a_label_wider_than_half_the_terminal_is_cut_and_says_so() -> None:
+    """The ceiling is the terminal now rather than a constant, and the right
+    pane has to keep standing: a cut name that reads as a whole one is the
+    defect, and a label that took the whole width would leave no pane."""
     from gentoo_install.tui.widgets import CUT, SEPARATOR, TwoPane
 
-    screen = Recording(keys=["\x1b"])
-    TwoPane(title="gentoo-install", rows=[PaneRow(label="x" * 40, value=0)]).run(screen)
+    screen = Recording(keys=["\x1b"], lines=24, columns=80)
+    TwoPane(title="gentoo-install", rows=[PaneRow(label="x" * 90, value=0)]).run(screen)
 
-    assert screen.drawn(2)[2:34] == "x" * 31 + CUT
-    assert cell(screen, 2, 34) == SEPARATOR
+    # The rows start at line 2 and the frame's left edge stands in the column
+    # the single rule used to, which is only drawn between its own corners.
+    assert cell(screen, 3, 40) == SEPARATOR
+    assert screen.drawn(2)[2:40].rstrip().endswith(CUT), screen.drawn(2)
 
 
 def test_a_wide_label_is_cut_by_cells_and_not_by_characters() -> None:
@@ -746,32 +752,37 @@ def test_a_wide_label_is_cut_by_cells_and_not_by_characters() -> None:
     from gentoo_install.i18n import width
     from gentoo_install.tui.widgets import CUT, SEPARATOR, TwoPane
 
-    screen = Recording(keys=["\x1b"])
-    TwoPane(title="gentoo-install", rows=[PaneRow(label=WIDE[0] * 20, value=0)]).run(screen)
+    screen = Recording(keys=["\x1b"], lines=24, columns=80)
+    TwoPane(title="gentoo-install", rows=[PaneRow(label=WIDE[0] * 30, value=0)]).run(screen)
 
     drawn = screen.drawn(2)
     assert CUT in drawn
-    assert width(drawn[: drawn.index(CUT) + 1]) <= 34
-    assert cell(screen, 2, 34) == SEPARATOR
+    assert width(drawn[: drawn.index(CUT) + 1]) <= 40
+    assert cell(screen, 3, 40) == SEPARATOR
 
 
-def test_a_right_pane_line_too_long_for_the_pane_is_cut_and_says_so() -> None:
-    """A truncated mirror URL is indistinguishable from a whole one, which is
-    why every cut leaves a mark."""
+def test_a_right_pane_line_too_long_for_the_pane_continues_on_the_next() -> None:
+    """It was cut with a mark, which loses the end of a mirror address the
+    operator has no other way to read. The pane has the height to carry it, so
+    a line that does not fit continues instead of ending."""
     from gentoo_install.i18n import width
-    from gentoo_install.tui.widgets import CUT, TwoPane
+    from gentoo_install.tui.widgets import TwoPane, right_pane_width
 
     address = "https://mirror.example.org/gentoo/releases/amd64/autobuilds/latest-stage3"
-    screen = Recording(keys=["\x1b"])
+    screen = Recording(keys=["\x1b"], lines=24, columns=80)
     TwoPane(
         title="gentoo-install",
         rows=[PaneRow(label="Mirrors", value=0, detail=(address,))],
     ).run(screen)
 
-    drawn = screen.drawn(2)
-    assert address not in drawn
-    assert drawn.endswith(CUT)
-    assert width(drawn) == 80
+    left = 20
+    room = right_pane_width(80, left)
+    carried = "".join(screen.drawn(line).split(SEPARATOR)[-2].strip() for line in (3, 4, 5))
+    assert address in carried, carried
+    # And no line of it runs into the column beside it.
+    for line in (3, 4, 5):
+        beside = screen.drawn(line).split(SEPARATOR)[-2]
+        assert width(beside.strip()) <= room, beside
 
 
 def test_no_write_lands_on_the_separator_column() -> None:
@@ -786,23 +797,35 @@ def test_no_write_lands_on_the_separator_column() -> None:
     ]
     screen = Recording(keys=["KEY_DOWN", "\x1b"])
     TwoPane(title="gentoo-install", rows=rows, footer="[enter] open").run(screen)
-    left = left_pane_width(row.label for row in rows)
+    left = left_pane_width(((row.label, row.state) for row in rows), 80)
 
-    # The title and the status line are full width by definition, so the
-    # claim is about the rows between them.
-    body = [span for span in screen.spans if 2 <= span[0] <= 22]
+    # The title and the status line are full width by definition, and so are
+    # the frame's own top and bottom edges: the claim is about the rows
+    # between them, where a label spilling into the frame is the defect.
+    lines, _ = screen.size()
+    body = [span for span in screen.spans if 3 <= span[0] <= lines - 3]
     assert body
     for line, column, text in body:
-        if text == SEPARATOR and column == left:
+        if text == SEPARATOR and column in (left, screen.columns - 1):
             continue
         assert column + width(text) <= left or column > left, (line, column, text)
-    for line in range(2, 23):
+    # The frame's corners sit at its top and bottom; the edge between them is
+    # the column the single rule used to hold.
+    lines, _ = screen.size()
+    assert cell(screen, 2, left) == "+"
+    assert cell(screen, lines - 2, left) == "+"
+    for line in range(3, lines - 2):
         assert cell(screen, line, left) == SEPARATOR
 
 
-def test_below_the_floor_one_pane_carries_two_lines_under_the_cursor() -> None:
+def test_below_the_floor_one_pane_carries_the_cursor_lines_in_a_band() -> None:
     """79 columns and 23 lines are each below the only size guaranteed to
-    exist, and the right pane has nowhere to stand."""
+    exist, and the right pane has nowhere to stand.
+
+    The lines sit in a band above the status line rather than between the
+    rows: pushed in there they moved every row under the cursor, so walking
+    the list made the interface jump and hid the row below.
+    """
     from gentoo_install.tui.widgets import SEPARATOR, TwoPane
 
     rows = [
@@ -813,10 +836,14 @@ def test_below_the_floor_one_pane_carries_two_lines_under_the_cursor() -> None:
         screen = Recording(keys=["\x1b"], lines=lines, columns=columns)
         TwoPane(title="gentoo-install", rows=rows).run(screen)
 
+        # The rows keep their places, one after the other.
         assert "Mirrors" in screen.drawn(2)
-        assert screen.drawn(3).strip() == "first"
-        assert screen.drawn(4).strip() == "second"
-        assert "Kernel" in screen.drawn(5)
+        assert "Kernel" in screen.drawn(3)
+        # The cursor's lines are the last two before the status line, under a
+        # rule; the third does not fit and is not drawn.
+        assert screen.drawn(lines - 2).strip() == "second"
+        assert screen.drawn(lines - 3).strip() == "first"
+        assert set(screen.drawn(lines - 4).strip()) == {"-"}
         assert "third" not in screen.last
         assert SEPARATOR not in screen.last
 
@@ -864,8 +891,8 @@ def test_the_title_row_carries_the_counter_at_the_right_edge() -> None:
 
     title = screen.drawn(0)
     assert width(title) == 80
-    assert title.startswith("gentoo-install")
-    assert title.endswith("6/22 answered")
+    assert title.strip().startswith("gentoo-install")
+    assert title.strip().endswith("6/22 answered")
 
 
 def test_the_status_line_stays_on_the_last_line_of_both_layouts() -> None:
@@ -1183,3 +1210,51 @@ def test_a_filter_that_matches_nothing_says_so_rather_than_drawing_nothing() -> 
     items = [Item(label=name, value=name) for name in ("nju", "tuna")]
     screen = Recording(keys=[FILTER_KEY, "z", "z", "\x1b", "\x1b"], lines=24, columns=80)
     assert Menu(title="Mirrors", items=items).run(screen).outcome is Outcome.BACK
+
+
+def test_every_field_says_what_it_takes_before_it_refuses_one() -> None:
+    """`code` is a package name everywhere else and an atom needs a category,
+    and the field said so only by rejecting it. A field the operator has to
+    guess at is the defect; a password field is not, because the shape of a
+    password is the operator's own."""
+    import ast
+    from pathlib import Path
+
+    #: Fields whose content the operator already holds, where a hint would be
+    #: an instruction about their own secret or a name only they know.
+    THEIR_OWN = {
+        "Password",
+        "Type it again",
+        "sudo",
+        "Proxy password",
+        "User name",
+        "Bypass hosts",
+    }
+    bare: list[str] = []
+    for path in sorted(Path("gentoo_install").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if getattr(node.func, "id", "") not in {"TextField", "Field"}:
+                continue
+            named = {word.arg for word in node.keywords}
+            if named & {"detail", "placeholder"} or "secret" in named or "toggle" in named:
+                continue
+            title = next(
+                (
+                    str(word.value.args[0].value)
+                    for word in node.keywords
+                    if word.arg in {"title", "label"}
+                    and isinstance(word.value, ast.Call)
+                    and word.value.args
+                    and isinstance(word.value.args[0], ast.Constant)
+                ),
+                "",
+            )
+            if title in THEIR_OWN:
+                continue
+            bare.append(f"{path}:{node.lineno} {title or ast.unparse(node)[:40]}")
+    # Two answer with a variable title, built by the screen that opens them;
+    # both carry their own line above the field.
+    assert len(bare) <= 3, bare
