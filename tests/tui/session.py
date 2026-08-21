@@ -22,9 +22,19 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Final, Protocol, runtime_checkable
 
 from tests.tui.screen import Screen
+
+
+@runtime_checkable
+class Held(Protocol):
+    """What `serve` needs of the console it holds. A protocol rather than
+    `SerialConsole`, so a test can hand it one that dies."""
+
+    def read_available(self, seconds: float) -> bytes: ...
+
+    def send_raw(self, keys: str) -> None: ...
 
 #: How long the console must stay quiet before the page counts as drawn, and
 #: how long to keep waiting for that. A redraw at 120x40 arrives in a few
@@ -102,6 +112,14 @@ class Session:
         return self.directory / "screens.txt"
 
     @property
+    def ended(self) -> Path:
+        """Why the daemon stopped holding the console.
+
+        Two readers died mid-install and the guests kept going; with nothing
+        written, a stale `screens.txt` reads as a run still in progress."""
+        return self.directory / "ended.txt"
+
+    @property
     def transcript(self) -> Path:
         """Every key sent, one per line, so the counts a report is judged on
         are read off the session rather than taken from the agent."""
@@ -174,7 +192,9 @@ def start(name: str, spec: int, node: str = "", vmid: int = 0) -> str:
     # The child holds the console; the parent's caller gets the name back and
     # every other subcommand reaches this process through the socket.
     os.setsid()
-    serve(session, held.console, held.guest)
+    console = held.console
+    assert isinstance(console, Held), f"{type(console).__name__} cannot be held"
+    serve(session, console, held.guest)
     os._exit(0)
 
 
@@ -210,21 +230,33 @@ def _settled(grid: "Screen", console: object) -> str:
     return _with_cursor(grid)
 
 
-def serve(session: Session, console: object, guest: object) -> None:
+def serve(session: Session, console: Held, guest: object) -> None:
     """Hold the console and answer the other subcommands.
 
     A websocket cannot be handed to a second process, so the process that
     opened it stays and everything else talks to it here.
     """
-    from tests.vm.console import SerialConsole
-
-    assert isinstance(console, SerialConsole)
     grid = Screen(lines=SCREEN_LINES, columns=SCREEN_COLUMNS)
     session.control.unlink(missing_ok=True)
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     listener.bind(str(session.control))
     listener.listen(4)
     listener.settimeout(1.0)
+    try:
+        _answer_until_stopped(session, console, guest, grid, listener)
+    except BaseException as error:
+        session.ended.write_text(f"{type(error).__name__}: {error}\n", encoding="utf-8")
+        raise
+
+
+def _answer_until_stopped(
+    session: Session,
+    console: Held,
+    guest: object,
+    grid: Screen,
+    listener: socket.socket,
+) -> None:
+    """The loop `serve` wraps, so one `except` covers every way it can end."""
     while True:
         # Drain first, always: the guest writes whether or not anyone asked,
         # and a screen read without draining is the previous page.
