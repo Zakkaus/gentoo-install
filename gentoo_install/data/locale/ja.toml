@@ -719,3 +719,4 @@
 "no package this installer merges comes from these" = "インストーラーが導入するパッケージはこれらを使用しません"
 "enable the {} repository" = "{} リポジトリを有効にします"
 "Empty the field, which arrives with a value in it" = "フィールドを空にします。フィールドには最初から値が入っています"
+"{disk} can hand out {usable} and these sizes come to {claimed}" = "{disk} が割り当てられるのは {usable} ですが、指定された合計は {claimed} です"

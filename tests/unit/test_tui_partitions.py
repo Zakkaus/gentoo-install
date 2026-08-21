@@ -1582,3 +1582,48 @@ def test_no_door_of_this_module_answers_with_the_quit_prompt() -> None:
     }
     answered = {name: door() for name, door in doors.items()}
     assert set(answered.values()) == {Outcome.BACK}, answered
+
+
+def test_sizes_larger_than_the_disk_are_refused_where_they_are_typed() -> None:
+    """`/efi 1GiB + / 35GiB + swap 4GiB` on a 40 GiB disk is over.
+
+    The trailing GPT copy and the first alignment boundary are not free, and
+    the check that knew it ran after the confirmation: an operator answered
+    twenty rows and was refused at the last one with no way back.
+    """
+    from gentoo_install.model import manual
+    from gentoo_install.model.size import Size
+    from gentoo_install.tui.partitions import _too_big_for_the_disk
+
+    at = context()
+    selector = at.disks[0][0]
+    at._inspected[selector] = ((), "40G")
+    at.layout = manual.Layout(
+        disks=[
+            manual.Disk(
+                selector=selector,
+                slices=[
+                    manual.Slice(
+                        index=1, role=PartitionRole.ESP, size=Size.parse("1GiB"),
+                        mountpoint="/efi",
+                    ),
+                    manual.Slice(
+                        index=2, role=PartitionRole.DATA, size=Size.parse("35GiB"),
+                        mountpoint="/",
+                    ),
+                    manual.Slice(
+                        index=3, role=PartitionRole.SWAP, size=Size.parse("4GiB"),
+                    ),
+                ],
+            )
+        ]
+    )
+    said = _too_big_for_the_disk(at)
+    assert "40" in said and "GiB" in said, said
+
+    # Negative control: one gibibyte less fits, so the rule is not refusing
+    # every table that fills the disk.
+    at.layout.disks[0].slices[1] = manual.Slice(
+        index=2, role=PartitionRole.DATA, size=Size.parse("34GiB"), mountpoint="/"
+    )
+    assert _too_big_for_the_disk(at) == "", _too_big_for_the_disk(at)

@@ -184,6 +184,18 @@ class Size:
             raise InvalidSize(f"{self} is too small to hold a GPT")
         return Size(self.bytes - reserved.bytes)
 
+    def usable_for_partitions(self, gpt: bool, sector: SectorSize) -> Size:
+        """How much of a device this size a table may hand to partitions.
+
+        One function because two callers must agree: the check that runs
+        before the disk is written and the one the operator reads while
+        typing sizes. Answered separately, an operator was told their sizes
+        fitted and the install refused them an hour later.
+        """
+        usable = self.gpt_last_usable(sector) if gpt else self
+        # The first partition starts at the alignment boundary, not at zero.
+        return Size(max(0, usable.bytes - DEFAULT_ALIGNMENT))
+
     def fits_in_gpt(self, device: Size, sector: SectorSize) -> bool:
         """Whether a partition ending here clears the trailing GPT copy."""
         return self <= device.gpt_last_usable(sector)
