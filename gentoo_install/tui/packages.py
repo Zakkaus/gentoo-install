@@ -1173,6 +1173,40 @@ def packages_screen(
         say(screen, context, clash)
 
 
+def _licence_warning(
+    wanted: tuple[str, ...], config: InstallConfig, context: Context
+) -> str:
+    """What Portage refuses an hour into the merge, said before the merge.
+
+    A package whose licence is not accepted is masked, and the operator meets
+    that as a failed install rather than as a question. Two answers, because
+    the installer knows the licence of what it ships and of nothing else: an
+    atom from a group that declares one is named, and for anything else the
+    rule is stated with the row that changes it.
+    """
+    if not wanted or tuple(config.portage.accept_license) == ("*",):
+        return ""
+    translate = context.translate
+    named = sorted(
+        {
+            atom
+            for atom in wanted
+            for group in context.groups.values()
+            if group.accept_license and atom in group.packages
+        }
+    )
+    if named:
+        return (
+            f"{translate('These need a licence accepted before Portage will merge them')}: "
+            f"{' '.join(named)}. "
+            + translate("Turn on Accept every license, under Build.")
+        )
+    return translate(
+        "A package whose licence is not accepted stops the install. "
+        "Accept every license, under Build, is off."
+    )
+
+
 def extra_packages_screen(
     screen: Screen, config: InstallConfig, context: Context
 ) -> Answer[InstallConfig]:
@@ -1187,6 +1221,11 @@ def extra_packages_screen(
         typed = TextField(
             title=translate("Packages to install, separated by spaces"),
             value=" ".join(config.packages.extra),
+            # The form, before the field refuses it: `code` is a package name
+            # everywhere else and an atom needs its category, and an operator
+            # who types one has no way to know that until it is rejected.
+            detail=translate("A category and a name, such as app-editors/vim."),
+            placeholder="app-editors/vim  media-video/mpv",
             footer=footer(translate),
         ).run(screen)
         if not typed.chosen:
@@ -1197,6 +1236,11 @@ def extra_packages_screen(
             if not informed.chosen:
                 return Answer(informed.outcome)
             continue
+        warning = _licence_warning(good, config, context)
+        if warning:
+            informed = say(screen, context, warning)
+            if not informed.chosen:
+                return Answer(informed.outcome)
         return Answer(
             Outcome.CHOSE, replace(config, packages=replace(config.packages, extra=good))
         )
