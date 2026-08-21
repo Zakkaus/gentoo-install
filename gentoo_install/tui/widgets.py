@@ -217,13 +217,26 @@ class Region:
     column: int
     lines: int
     columns: int
+    #: How the rectangle is cut from the screen, asked again on every write so
+    #: a terminal that changes size takes the rectangle with it. Measured once
+    #: and kept, an editor went on writing into the rectangle the old size gave
+    #: it while the frame around it was redrawn for the new one, and the screen
+    #: held half of each layout.
+    cut: Callable[[int, int], tuple[int, int, int, int]] | None = None
+
+    def _rectangle(self) -> tuple[int, int, int, int]:
+        if self.cut is None:
+            return self.line, self.column, self.lines, self.columns
+        return self.cut(*self.screen.size())
 
     def size(self) -> tuple[int, int]:
-        return self.lines, self.columns
+        _, _, lines, columns = self._rectangle()
+        return lines, columns
 
     def clear(self) -> None:
-        for offset in range(self.lines):
-            self.screen.write(self.line + offset, self.column, " " * self.columns)
+        line, column, lines, columns = self._rectangle()
+        for offset in range(lines):
+            self.screen.write(line + offset, column, " " * columns)
 
     def write(
         self,
@@ -233,12 +246,13 @@ class Region:
         highlight: bool = False,
         style: Style = Style.PLAIN,
     ) -> None:
-        if not 0 <= line < self.lines or column >= self.columns:
+        top, left, lines, columns = self._rectangle()
+        if not 0 <= line < lines or column >= columns:
             return
         self.screen.write(
-            self.line + line,
-            self.column + column,
-            clip(text, self.columns - column),
+            top + line,
+            left + column,
+            clip(text, columns - column),
             highlight=highlight,
             style=style,
         )
@@ -1232,7 +1246,17 @@ class TwoPane(Generic[V]):
             )
         if lines > 1 and (self.footer or self.legend):
             screen.write(lines - 1, 0, spread(self.footer, self.legend, columns))
-        return Region(screen, 3, left + 2, room - 2, max(1, columns - left - 4))
+        # The same arithmetic, handed over rather than its result: the pane is
+        # redrawn at the new size after a resize and the rectangle has to move
+        # with it.
+        return Region(
+            screen, 3, left + 2, room - 2, max(1, columns - left - 4), cut=self._pane
+        )
+
+    def _pane(self, lines: int, columns: int) -> tuple[int, int, int, int]:
+        """Where the right pane sits on a screen this size."""
+        left = left_pane_width(((row.label, row.state) for row in self.rows), columns)
+        return 3, left + 2, max(1, lines - 3 - 2), max(1, columns - left - 4)
 
     def _draw_one_pane(self, screen: Screen, cursor: int, lines: int, columns: int) -> None:
         """One pane, and the row under the cursor carries two of its lines.

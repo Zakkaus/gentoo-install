@@ -653,3 +653,88 @@ def test_every_key_the_session_sends_is_the_one_terminfo_names() -> None:
     # whatever the table happens to hold.
     assert curses.tigetstr("khome") != b"\x1b[H"
     assert curses.tigetstr("kcud1") != b"\x1b[B"
+
+
+RESIZE_PANE = r"""
+import curses
+
+from gentoo_install.tui.curses_screen import CursesScreen
+from gentoo_install.tui.widgets import PaneRow, TwoPane
+
+
+def main(window: object) -> None:
+    screen = CursesScreen(window)
+    rows = [
+        PaneRow(label=f"row {at}", value=at, state=f"value {at}", detail=("what it is",))
+        for at in range(6)
+    ]
+    chosen = TwoPane(title="gentoo-install", rows=rows).run(screen)
+    lines, columns = screen.size()
+    answer["outcome"] = chosen.outcome.value
+    answer["size"] = [lines, columns]
+    answer["drawn"] = window.instr(0, 0, 30).decode().rstrip()
+
+
+curses.wrapper(main)
+"""
+
+
+def test_the_two_pane_list_redraws_at_the_size_the_terminal_became() -> None:
+    """A resize must leave the frame drawn for the new size, not the old one.
+
+    The whole interface is this widget, so a resize that leaves it drawn for
+    the previous dimensions is the interface breaking rather than one screen.
+    """
+    grown = (46, 130)
+    actions: list[ResizeAction] = [(30, 100), grown, "\n"]
+    result, _ = drive_resizes(actions, RESIZE_PANE)
+    assert result.get("error") is None, result.get("error")
+    assert result["size"] == list(grown), result
+    assert result["drawn"].strip().startswith("gentoo-install"), result
+    assert result["outcome"] == "chose", result
+
+
+RESIZE_REGION = r"""
+import curses
+
+from gentoo_install.tui.curses_screen import CursesScreen
+from gentoo_install.tui.widgets import Item, Menu, PaneRow, TwoPane
+
+
+def main(window: object) -> None:
+    screen = CursesScreen(window)
+    rows = [PaneRow(label=f"row {at}", value=at, state="value") for at in range(6)]
+    pane = TwoPane(title="gentoo-install", rows=rows)
+    inside = pane.frame(screen, 0, dimmed=True)
+    chosen = Menu(
+        title="Portage",
+        items=[Item(label=f"choice {at}", value=at) for at in range(4)],
+    ).run(inside if inside is not None else screen)
+    lines, columns = screen.size()
+    answer["outcome"] = chosen.outcome.value
+    answer["size"] = [lines, columns]
+    answer["region"] = list(inside.size()) if inside is not None else None
+
+
+curses.wrapper(main)
+"""
+
+
+def test_a_row_opened_before_a_resize_draws_inside_the_new_frame() -> None:
+    """The rectangle an editor draws into is measured when the row is opened.
+
+    Resize while it is open and the editor keeps writing into the rectangle
+    the old size gave it: the frame around it moved and the screen holds two
+    layouts. The whole interface is one opened row most of the time.
+    """
+    grown = (46, 130)
+    actions: list[ResizeAction] = [(30, 100), grown, "\n"]
+    result, _ = drive_resizes(actions, RESIZE_REGION)
+    assert result.get("error") is None, result.get("error")
+    assert result["size"] == list(grown), result
+    lines, columns = result["region"]
+    assert columns < grown[1], "the region is not narrower than the screen"
+    assert lines <= grown[0], result
+    # The region has to follow the screen it is cut from, or the editor draws
+    # into a rectangle the frame no longer occupies.
+    assert lines >= grown[0] - 5, result
