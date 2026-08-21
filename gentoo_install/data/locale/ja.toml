@@ -718,3 +718,4 @@
 "names separated by commas, as on overlays.gentoo.org" = "overlays.gentoo.org に載っている名前をカンマ区切りで入力します"
 "no package this installer merges comes from these" = "インストーラーが導入するパッケージはこれらを使用しません"
 "enable the {} repository" = "{} リポジトリを有効にします"
+"Empty the field, which arrives with a value in it" = "フィールドを空にします。フィールドには最初から値が入っています"
