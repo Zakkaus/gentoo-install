@@ -183,3 +183,25 @@ def test_the_row_under_the_cursor_is_named_beside_the_grid() -> None:
     plain = Screen(lines=4, columns=12)
     plain.feed(b"\x1b[1;1H\x1b[7m band       \x1b[27m\x1b[2;1Hrow one")
     assert plain.highlighted() == []
+def test_erasing_half_a_wide_character_takes_the_other_half() -> None:
+    """A wide character is two cells: the character and an empty string.
+
+    Erasing one of them leaves a row whose cells no longer add up to its
+    columns, so every column after it moves. Read off a guest: a menu row
+    lost the ten spaces between its label and its value and the two ran
+    together as one word.
+    """
+    from tests.tui.screen import Screen
+
+    # `\u78c1\u789f` is four cells; the erase lands on the second half of the
+    # second character.
+    grid = Screen(lines=2, columns=10)
+    grid.feed("\u78c1\u789fabcd".encode())
+    grid.feed(b"\x1b[1;4H\x1b[1X")
+    assert grid.text().splitlines()[0] == "\u78c1  abcd", grid.text()
+
+    # Negative control: an erase that lands on no wide character takes one
+    # cell, so the count above cannot be the erase width alone.
+    plain = Screen(lines=2, columns=10)
+    plain.feed(b"abcdefghij\x1b[1;4H\x1b[1X")
+    assert width(plain.text().splitlines()[0]) == 10
