@@ -1132,3 +1132,54 @@ def test_the_main_menu_pages_the_same_way() -> None:
     assert TwoPane(title="gentoo-install", rows=rows).run(paged).unwrap() == 21
     ended = Recording(keys=["KEY_END", "\n"], lines=24, columns=80)
     assert TwoPane(title="gentoo-install", rows=rows).run(ended).unwrap() == 59
+
+
+def test_typing_after_the_filter_key_narrows_a_long_list() -> None:
+    """169 timezones under `America`, and the operator knows the name: `/` and
+    three letters beat eight screens of paging."""
+    from gentoo_install.tui.widgets import FILTER_KEY, Menu
+
+    zones = ["Asia/Shanghai", "Asia/Taipei", "Europe/Berlin", "America/Shanghai_Falls"]
+    items = [Item(label=zone, value=zone) for zone in zones]
+
+    # Two rows hold `sha`, and the cursor lands on the first of them.
+    screen = Recording(keys=[FILTER_KEY, "s", "h", "a", "\n"], lines=24, columns=80)
+    assert Menu(title="Timezone", items=items).run(screen).unwrap() == "Asia/Shanghai"
+    assert "Europe/Berlin" not in screen.last
+    assert "Asia/Taipei" not in screen.last
+    # What was typed and how many rows are left, where the keys usually are.
+    assert f"{FILTER_KEY}sha" in screen.last and "2" in screen.drawn(23)
+
+    # Case does not matter: the label is read, not matched.
+    upper = Recording(keys=[FILTER_KEY, "B", "E", "R", "\n"], lines=24, columns=80)
+    assert Menu(title="Timezone", items=items).run(upper).unwrap() == "Europe/Berlin"
+
+    # Backspace widens it again and the rows it had hidden come back, while
+    # the cursor stays on the row the operator had narrowed down to.
+    wider = Recording(keys=[FILTER_KEY, "t", "a", "i", "\x7f", "\x7f", "\x7f", "\n"],
+                      lines=24, columns=80)
+    assert Menu(title="Timezone", items=items).run(wider).unwrap() == "Asia/Taipei"
+    assert "Europe/Berlin" in wider.last
+
+
+def test_escape_closes_the_filter_before_it_goes_back() -> None:
+    """`esc` is Back everywhere else, so the first one has to be spent on the
+    filter or an operator who mistyped cannot get the whole list back."""
+    from gentoo_install.tui.widgets import FILTER_KEY, Menu
+
+    items = [Item(label=name, value=name) for name in ("nju", "tuna", "ustc")]
+    screen = Recording(keys=[FILTER_KEY, "n", "j", "\x1b", "\n"], lines=24, columns=80)
+    assert Menu(title="Mirrors", items=items).run(screen).unwrap() == "nju"
+    assert "ustc" in screen.last, screen.last
+
+    # And the second one leaves.
+    away = Recording(keys=[FILTER_KEY, "n", "\x1b", "\x1b"], lines=24, columns=80)
+    assert Menu(title="Mirrors", items=items).run(away).outcome is Outcome.BACK
+
+
+def test_a_filter_that_matches_nothing_says_so_rather_than_drawing_nothing() -> None:
+    from gentoo_install.tui.widgets import FILTER_KEY, Menu
+
+    items = [Item(label=name, value=name) for name in ("nju", "tuna")]
+    screen = Recording(keys=[FILTER_KEY, "z", "z", "\x1b", "\x1b"], lines=24, columns=80)
+    assert Menu(title="Mirrors", items=items).run(screen).outcome is Outcome.BACK
