@@ -166,6 +166,13 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
         )
         answer = pane.run(screen)
         cursor = pane.cursor
+        if answer.outcome is Outcome.BACK:
+            # Back has nowhere to go from the top of the interface, and the
+            # key page says it keeps what the screen holds. Offering to leave
+            # instead made one stray escape the end of the run: an agent
+            # pressed it seven times reading it as one step back, and the
+            # third press landed on `Leave`.
+            continue
         if not answer.chosen:
             left = _leaving(screen, current, context)
             if left is not None:

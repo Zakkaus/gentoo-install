@@ -3723,3 +3723,33 @@ def test_every_profile_the_target_reports_is_offered() -> None:
     # and the hurd one is not an amd64 linux profile at all.
     assert "desktop/systemd" not in drawn, drawn
     assert "hurd" not in drawn, drawn
+
+
+def test_back_does_nothing_at_the_top_and_only_cancel_offers_to_leave() -> None:
+    """Back has nowhere to go from the main menu.
+
+    Offering to leave instead made one stray escape the end of the run: an
+    agent driving the interface pressed it seven times reading it as one step
+    back, and one of those presses ended the session with twenty rows filled.
+    """
+    at = context()
+    # Nothing but the three ways back. The menu is still asking for a key
+    # afterwards, which is the whole claim: none of them ended the run and
+    # none of them asked anything.
+    quiet = FakeScreen(keys=["\x1b", "KEY_LEFT", "KEY_BACKSPACE"])
+    with pytest.raises(AssertionError, match="asked for a key"):
+        run(quiet, config(), at)
+    drawn = "\n".join("\n".join(frame) for frame in quiet.frames)
+    # Not asked, not only unanswered: the question itself was never drawn.
+    assert "Leave without installing?" not in drawn, drawn[-300:]
+
+    # And the one the status line names does end it.
+    screen = FakeScreen(keys=["q", "KEY_DOWN", "\n"])
+    assert run(screen, config(), at).cancelled
+    seen = "\n".join("\n".join(frame) for frame in screen.frames)
+    assert "Leave without installing?" in seen
+
+    # Negative control: the same three keys with `q` in front do end it, so
+    # the widget is not simply ignoring every key it is given.
+    ended = FakeScreen(keys=["q", "KEY_DOWN", "\n", "\x1b", "KEY_LEFT"])
+    assert run(ended, config(), at).cancelled
