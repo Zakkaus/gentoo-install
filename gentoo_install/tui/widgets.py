@@ -223,11 +223,24 @@ class Region:
     #: it while the frame around it was redrawn for the new one, and the screen
     #: held half of each layout.
     cut: Callable[[int, int], tuple[int, int, int, int]] | None = None
+    #: Draws the frame around this rectangle again. The editor inside redraws
+    #: itself when the terminal changes size; nothing else did, so the list
+    #: beside it and the box around it were gone and the screen held one pane
+    #: of an interface.
+    redraw: Callable[[], None] | None = None
+    _seen: tuple[int, int] = (0, 0)
 
     def _rectangle(self) -> tuple[int, int, int, int]:
         if self.cut is None:
             return self.line, self.column, self.lines, self.columns
-        return self.cut(*self.screen.size())
+        size = self.screen.size()
+        if size != self._seen:
+            # Before the arithmetic, so the rectangle answered is the one the
+            # frame just drew rather than the one it is about to replace.
+            self._seen = size
+            if self.redraw is not None:
+                self.redraw()
+        return self.cut(*size)
 
     def size(self) -> tuple[int, int]:
         _, _, lines, columns = self._rectangle()
@@ -1182,6 +1195,15 @@ class TwoPane(Generic[V]):
                 region.write(offset, 0, line_text)
         screen.show()
 
+    def _frame_only(self, screen: Screen, cursor: int, *, dimmed: bool) -> None:
+        """Draw the frame without answering with a rectangle.
+
+        Named so the redraw a resize needs cannot build a second `Region`: one
+        of those would carry its own callback and the two would take turns
+        drawing each other.
+        """
+        self.frame(screen, cursor, dimmed=dimmed)
+
     def frame(self, screen: Screen, cursor: int, *, dimmed: bool) -> Region | None:
         """Draw the list, the separator and the status line, and answer with
         the rectangle beside them.
@@ -1250,7 +1272,14 @@ class TwoPane(Generic[V]):
         # redrawn at the new size after a resize and the rectangle has to move
         # with it.
         return Region(
-            screen, 3, left + 2, room - 2, max(1, columns - left - 4), cut=self._pane
+            screen,
+            3,
+            left + 2,
+            room - 2,
+            max(1, columns - left - 4),
+            cut=self._pane,
+            redraw=lambda: self._frame_only(screen, cursor, dimmed=dimmed),
+            _seen=(lines, columns),
         )
 
     def _pane(self, lines: int, columns: int) -> tuple[int, int, int, int]:
