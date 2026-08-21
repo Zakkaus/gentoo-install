@@ -3690,3 +3690,36 @@ def test_two_profiles_ending_in_the_same_word_read_differently() -> None:
     # for a word that is the same on every profile.
     assert not row.value(plain, at).startswith("default/linux/")
     assert row.value(plain, at) == "systemd"
+
+
+def test_every_profile_the_target_reports_is_offered() -> None:
+    """Read off a live machine: `eselect profile list` names fourteen systemd
+    profiles and the screen showed thirteen. The parser reads them all, so the
+    screen has to offer them all."""
+    from gentoo_install.exec.probe import profiles_from_eselect
+
+    listed = "\n".join(
+        [
+            "Available profile symlink targets:",
+            "  [2]   default/linux/amd64/23.0/systemd (stable)",
+            "  [20]  default/linux/amd64/23.0/llvm/systemd (exp)",
+            "  [41]  default/linux/amd64/23.0/x32/systemd (exp)",
+            "  [44]  default/linux/amd64/23.0/musl (dev)",
+            "  [45]  default/linux/amd64/23.0/musl/systemd (dev)",
+            "  [47]  default/linux/amd64/23.0/musl/llvm/systemd (exp)",
+            "  [43]  default/hurd/amd64/23.0 (exp)",
+        ]
+    )
+    paths = tuple(one.path for one in profiles_from_eselect(listed))
+    at = context()
+    at.profile_paths = paths
+    screen = FakeScreen(keys=["q", "\n"], lines=40, columns=110)
+    screens._profile_screen(screen, config(), at)
+    drawn = screen.last
+    for offered in ("systemd", "llvm/systemd", "x32/systemd", "musl/systemd", "musl/llvm/systemd"):
+        assert f"\n  {offered}" in drawn, (offered, drawn)
+
+    # Negative control: a profile the machine did not report is not invented,
+    # and the hurd one is not an amd64 linux profile at all.
+    assert "desktop/systemd" not in drawn, drawn
+    assert "hurd" not in drawn, drawn

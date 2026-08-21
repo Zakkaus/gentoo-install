@@ -1336,3 +1336,29 @@ def test_a_field_that_arrives_with_a_value_can_be_emptied() -> None:
     # And the key is not a character: a field that took it as text would lose
     # the one way out of a prefilled value.
     assert not CLEAR_KEY.isprintable()
+
+
+def test_a_list_that_scrolls_says_where_in_it_the_cursor_is() -> None:
+    """A list with a row off the screen read as the whole list.
+
+    Fourteen profiles in thirteen rows of room showed thirteen and nothing
+    said the fourteenth existed, so the screen answered a question about
+    completeness with a wrong answer.
+    """
+    items = [Item(label=f"row {at}", value=at) for at in range(14)]
+
+    tight = FakeScreen(keys=["\n"], lines=17, columns=40)
+    Menu(title="Portage", items=items).run(tight)
+    assert tight.last.splitlines()[0].rstrip().endswith("1/14"), tight.last
+
+    # Negative control: a screen with room for every row says nothing, or the
+    # count becomes noise on every list in the interface.
+    roomy = FakeScreen(keys=["\n"], lines=30, columns=40)
+    Menu(title="Portage", items=items).run(roomy)
+    assert roomy.last.splitlines()[0].strip() == "Portage", roomy.last
+
+    # And it follows the cursor, so it says where in the list the operator is
+    # rather than only that there is more of it.
+    moved = FakeScreen(keys=["KEY_DOWN", "KEY_DOWN", "\n"], lines=17, columns=40)
+    Menu(title="Portage", items=items).run(moved)
+    assert moved.last.splitlines()[0].rstrip().endswith("3/14"), moved.last
