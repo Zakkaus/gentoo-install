@@ -1,0 +1,258 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""A guest an operator can drive one keystroke at a time.
+
+The install fixtures hand the installer a configuration file, so the whole
+interface is skipped: a menu nobody can read still passes every one of them.
+This is the other half. A session boots a guest, leaves the installer at its
+first screen, and answers three questions from the command line: what is on
+the screen, what happens when this key is pressed, and what the run produced.
+
+The console is a websocket to the node, which no second process can inherit,
+so `start` leaves a daemon holding it and the other subcommands speak to that
+daemon over a unix socket beside the session's own directory.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import socket
+import sys
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Final
+
+from tests.tui.screen import Screen
+
+#: Where a session keeps its socket, its log and what it was asked to build.
+SESSIONS: Final[Path] = Path("lab/tui")
+
+#: What the operator types, as the terminal sends it. Named because an agent
+#: writing `\x1b[B` by hand gets it wrong once per session.
+KEYS: Final[dict[str, str]] = {
+    "up": "\x1b[A",
+    "down": "\x1b[B",
+    "left": "\x1b[D",
+    "right": "\x1b[C",
+    "enter": "\n",
+    "esc": "\x1b",
+    "escape": "\x1b",
+    "tab": "\t",
+    "space": " ",
+    "backspace": "\x7f",
+    "pageup": "\x1b[5~",
+    "pagedown": "\x1b[6~",
+    "home": "\x1b[H",
+    "end": "\x1b[F",
+    "help": "?",
+    "filter": "/",
+}
+
+#: The terminal the guest is given. Wide enough for two panes, tall enough
+#: that the whole list fits without the agent having to scroll to see it.
+from tests.vm.cluster import TUI_COLUMNS as SCREEN_COLUMNS
+from tests.vm.cluster import TUI_LINES as SCREEN_LINES
+
+#: How long the screen is allowed to keep changing before it is read. A menu
+#: redraws in one frame; a screen that fetches answers after a keystroke may
+#: take several, and reading too early shows the operator the previous page.
+SETTLE: Final[float] = 0.6
+
+
+class SessionError(Exception):
+    """Anything the operator can act on: a session that is not there, a key
+    with no name, a guest that stopped answering."""
+
+
+@dataclass(frozen=True)
+class Session:
+    """Where one session keeps its things."""
+
+    name: str
+
+    @property
+    def directory(self) -> Path:
+        return SESSIONS / self.name
+
+    @property
+    def control(self) -> Path:
+        return self.directory / "control"
+
+    @property
+    def transcript(self) -> Path:
+        """Every key sent, one per line, so the counts a report is judged on
+        are read off the session rather than taken from the agent."""
+        return self.directory / "keys.txt"
+
+
+def keys_from(words: list[str]) -> str:
+    """`down down enter` or a literal string, never a raw escape.
+
+    An agent that has to spell `\\x1b[B` spells it wrong, and a run lost to
+    that is a run that says nothing about the interface.
+    """
+    typed: list[str] = []
+    for word in words:
+        if word in KEYS:
+            typed.append(KEYS[word])
+        elif word.startswith("type:"):
+            typed.append(word[len("type:") :])
+        else:
+            raise SessionError(
+                f"{word} is not a key; use one of {', '.join(sorted(KEYS))} "
+                "or type:<text>"
+            )
+    return "".join(typed)
+
+
+def ask(
+    session: Session, message: dict[str, object], patience: float = 120.0
+) -> dict[str, str]:
+    """One request to the daemon holding the console."""
+    if not session.control.exists():
+        raise SessionError(f"no session named {session.name}")
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as channel:
+        channel.settimeout(patience)
+        channel.connect(str(session.control))
+        channel.sendall(json.dumps(message).encode() + b"\n")
+        answer = bytearray()
+        while not answer.endswith(b"\n"):
+            chunk = channel.recv(65536)
+            if not chunk:
+                break
+            answer.extend(chunk)
+    if not answer:
+        raise SessionError(f"the session {session.name} stopped answering")
+    answered: dict[str, str] = json.loads(answer.decode())
+    return answered
+
+
+
+
+def start(name: str, spec: int, node: str = "", vmid: int = 0) -> str:
+    """Build a guest and leave the installer at its first screen.
+
+    The same path an install fixture takes as far as the driver CD, and then
+    the other half: `install.sh` with no `--config`, which is the interface
+    this exists to exercise.
+    """
+    from tests.vm import cluster
+    from tests.vm.proxmox import Api
+
+    session = Session(name)
+    session.directory.mkdir(parents=True, exist_ok=True)
+    session.transcript.write_text("", encoding="utf-8")
+    (session.directory / "spec.txt").write_text(str(spec), encoding="utf-8")
+    api = Api()
+    held = cluster.tui_execution(api, node, name, spec, session.directory, vmid)
+    if os.fork() != 0:
+        return name
+    # The child holds the console; the parent's caller gets the name back and
+    # every other subcommand reaches this process through the socket.
+    os.setsid()
+    serve(session, held.console, held.guest)
+    os._exit(0)
+
+
+def serve(session: Session, console: object, guest: object) -> None:
+    """Hold the console and answer the other subcommands.
+
+    A websocket cannot be handed to a second process, so the process that
+    opened it stays and everything else talks to it here.
+    """
+    from tests.vm.console import SerialConsole
+
+    assert isinstance(console, SerialConsole)
+    grid = Screen(lines=SCREEN_LINES, columns=SCREEN_COLUMNS)
+    session.control.unlink(missing_ok=True)
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listener.bind(str(session.control))
+    listener.listen(4)
+    listener.settimeout(1.0)
+    while True:
+        # Drain first, always: the guest writes whether or not anyone asked,
+        # and a screen read without draining is the previous page.
+        grid.feed(console.read_available(0.2))
+        try:
+            channel, _ = listener.accept()
+        except TimeoutError:
+            continue
+        with channel:
+            asked = channel.makefile("rb").readline()
+            if not asked:
+                continue
+            message = json.loads(asked.decode())
+            answer: dict[str, str] = {}
+            if message["do"] == "screen":
+                answer = {"screen": grid.text()}
+            elif message["do"] == "key":
+                console.send_raw(str(message["text"]))
+                answer = {"sent": "yes"}
+            elif message["do"] == "plan":
+                answer = {"plan": session.transcript.read_text(encoding="utf-8")}
+            elif message["do"] == "stop":
+                answer = {"stopped": "yes"}
+            channel.sendall(json.dumps(answer).encode() + b"\n")
+            if message["do"] == "stop":
+                break
+    listener.close()
+    session.control.unlink(missing_ok=True)
+    stop = getattr(guest, "destroy", None)
+    if stop is not None:
+        stop()
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest="command", required=True)
+    for name, helped in (
+        ("screen", "print what the terminal is showing"),
+        ("plan", "print what the run produced"),
+        ("stop", "delete the guest"),
+    ):
+        one = commands.add_parser(name, help=helped)
+        one.add_argument("session")
+    opened = commands.add_parser("start", help="build a guest and open the menu")
+    opened.add_argument("session")
+    opened.add_argument("--spec", type=int, required=True)
+    opened.add_argument("--node", default="")
+    opened.add_argument("--vmid", type=int, default=0)
+    typed = commands.add_parser("key", help="press keys, in order")
+    typed.add_argument("session")
+    typed.add_argument("keys", nargs="+")
+    commands.add_parser("list", help="every session on this machine")
+    arguments = parser.parse_args(argv)
+
+    if arguments.command == "list":
+        for found in sorted(SESSIONS.glob("*/control")):
+            print(found.parent.name)
+        return 0
+
+    session = Session(arguments.session)
+    if arguments.command == "start":
+        print(start(arguments.session, arguments.spec, arguments.node, arguments.vmid))
+        return 0
+    if arguments.command == "key":
+        sent = keys_from(arguments.keys)
+        with session.transcript.open("a", encoding="utf-8") as log:
+            log.write(" ".join(arguments.keys) + "\n")
+        ask(session, {"do": "key", "text": sent})
+        time.sleep(SETTLE)
+        print(ask(session, {"do": "screen"})["screen"])
+        return 0
+    if arguments.command == "screen":
+        print(ask(session, {"do": "screen"})["screen"])
+        return 0
+    if arguments.command == "plan":
+        print(ask(session, {"do": "plan"})["plan"])
+        return 0
+    if arguments.command == "stop":
+        ask(session, {"do": "stop"})
+        return 0
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
