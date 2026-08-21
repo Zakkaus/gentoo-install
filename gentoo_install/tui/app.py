@@ -63,15 +63,6 @@ def _labelled(setting: Setting, current: InstallConfig, context: Context) -> str
     return f"{label} [{context.translate(named)}]" if named else label
 
 
-def _reason_lines(reason: str) -> tuple[str, ...]:
-    """One line per part, because the right pane cuts a line that overruns."""
-    if not reason:
-        return ()
-    head, separator, tail = reason.partition(": ")
-    parts = [one.strip() for one in head.split(",") if one.strip()]
-    return (*parts, tail.strip()) if separator else tuple(parts)
-
-
 def _counter(table: Sequence[Setting], current: InstallConfig, context: Context) -> str:
     """How many rows are answered, out of how many.
 
@@ -149,9 +140,6 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
                 label=context.translate("Install"),
                 value=len(table),
                 state="",
-                # Split rather than truncated: the reason is a sentence and a
-                # cut one names fewer rows than are missing.
-                detail=_reason_lines(blocked),
                 # Refused, not merely described. Left choosable, a ZFS mirror
                 # with one member reached the plan and ended the session on
                 # `no node with id ''` with every other row still answered.

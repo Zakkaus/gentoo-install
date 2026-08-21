@@ -1075,6 +1075,21 @@ def right_pane_width(columns: int, left: int) -> int:
     return columns - left - PANE_GAP
 
 
+def reason_lines(reason: str) -> tuple[str, ...]:
+    """A refusal laid out one part to a line.
+
+    Wrapped instead, `Install mode, Drive, Mirrors: still needs an answer`
+    breaks wherever the pane happens to end and the operator reads `still
+    needs an` on one line. The parts are what the reason is made of, so the
+    line breaks go where they already are.
+    """
+    if not reason:
+        return ()
+    head, separator, tail = reason.partition(": ")
+    parts = [one.strip() for one in head.split(",") if one.strip()]
+    return (*parts, tail.strip()) if separator else tuple(parts)
+
+
 @dataclass(frozen=True)
 class PaneRow(Generic[V]):
     """One row of the left pane, and what the right pane says about it."""
@@ -1194,8 +1209,7 @@ class TwoPane(Generic[V]):
             here = self.rows[cursor] if self.rows else None
             detail: tuple[str, ...] = ()
             if here is not None:
-                reason = (here.disabled_because,) if here.disabled_because else ()
-                detail = (*reason, *here.detail)
+                detail = (*reason_lines(here.disabled_because), *here.detail)
             wrapped: list[str] = []
             for line_text in detail:
                 # Wrapped here and not by the caller: only the pane knows how
@@ -1310,11 +1324,7 @@ class TwoPane(Generic[V]):
         here_row = self.rows[cursor] if self.rows else None
         below: tuple[str, ...] = ()
         if here_row is not None:
-            below = (
-                (here_row.disabled_because, *here_row.detail)
-                if here_row.disabled_because
-                else here_row.detail
-            )
+            below = (*reason_lines(here_row.disabled_because), *here_row.detail)
         # A band of its own above the status line rather than lines pushed in
         # between the rows: inserting them moved every row under the cursor,
         # so walking the list made the interface jump and hid the next row.
