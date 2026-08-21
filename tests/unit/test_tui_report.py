@@ -131,3 +131,26 @@ def test_the_session_offers_no_subcommand_that_answers_with_its_own_input() -> N
     source = Path(session.__file__).read_text(encoding="utf-8")
     assert '"plan"' not in source, "plan is back and has to answer a real plan"
     assert '"screen"' in source and '"key"' in source
+
+
+def test_the_session_writes_the_file_the_report_counts_from(tmp_path: Path) -> None:
+    """The report read `screens.txt` and nothing wrote it.
+
+    Every count came back zero on a session that had been driven for half an
+    hour, and zero reads as a clean run rather than as a missing file.
+    """
+    import tests.tui.session as session
+
+    named = session.Session("probe")
+    assert named.screens.name == "screens.txt"
+    assert named.screens != named.transcript
+
+    source = Path(session.__file__).read_text(encoding="utf-8")
+    assert "session.screens.open" in source, "no screen is ever recorded"
+
+    # Negative control: the report on a directory holding only keys answers
+    # zero, which is what a session that never recorded a screen looks like.
+    (tmp_path / "keys.txt").write_text("enter\nesc\n", encoding="utf-8")
+    assert read(tmp_path) == Report(
+        finished=False, lost=(), helped=0, stuck=(), refused=0
+    )

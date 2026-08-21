@@ -91,6 +91,11 @@ class Session:
         return self.directory / "control"
 
     @property
+    def screens(self) -> Path:
+        """Every screen answered, separated by a form feed, in order."""
+        return self.directory / "screens.txt"
+
+    @property
     def transcript(self) -> Path:
         """Every key sent, one per line, so the counts a report is judged on
         are read off the session rather than taken from the agent."""
@@ -154,6 +159,7 @@ def start(name: str, spec: int, node: str = "", vmid: int = 0) -> str:
     session = Session(name)
     session.directory.mkdir(parents=True, exist_ok=True)
     session.transcript.write_text("", encoding="utf-8")
+    session.screens.write_text("", encoding="utf-8")
     (session.directory / "spec.txt").write_text(str(spec), encoding="utf-8")
     api = Api()
     held = cluster.tui_execution(api, node, name, spec, session.directory, vmid)
@@ -228,7 +234,13 @@ def serve(session: Session, console: object, guest: object) -> None:
             message = json.loads(asked.decode())
             answer: dict[str, str] = {}
             if message["do"] == "screen":
-                answer = {"screen": _settled(grid, console)}
+                shown = _settled(grid, console)
+                # Kept as it is answered, because the counts are computed from
+                # the screens the operator was actually shown: a report that
+                # reads a file nobody writes answers zero for every one of them.
+                with session.screens.open("a", encoding="utf-8") as log:
+                    log.write(shown + "\f")
+                answer = {"screen": shown}
             elif message["do"] == "key":
                 console.send_raw(str(message["text"]))
                 answer = {"sent": "yes"}
