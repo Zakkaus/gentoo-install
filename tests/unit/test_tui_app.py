@@ -380,7 +380,11 @@ def test_only_profiles_matching_the_init_are_offered() -> None:
     screen = FakeScreen(keys=["q", "KEY_DOWN", "\n"])
     screens._profile_screen(screen, config(), context())
     drawn = screen.last
-    assert "23.0/systemd" in drawn
+    # The rows carry what differs; the part every one of them shares is named
+    # once above, because the whole path does not fit the pane.
+    assert "\n  systemd" in drawn, drawn
+    assert "default/linux/amd64/" in drawn, drawn
+    assert "default/linux/amd64/23.0/systemd" not in drawn, drawn
     openrc = replace(config(), system=replace(config().system, init=InitSystem.OPENRC))
     plain = FakeScreen(keys=["q", "KEY_DOWN", "\n"])
     screens._profile_screen(plain, openrc, context())
@@ -3680,8 +3684,9 @@ def test_two_profiles_ending_in_the_same_word_read_differently() -> None:
         portage=replace(plain.portage, profile="default/linux/amd64/23.0/desktop/systemd"),
     )
     assert row.value(plain, at) != row.value(desktop, at), row.value(plain, at)
-    assert row.value(desktop, at) == "amd64/23.0/desktop/systemd"
+    assert row.value(desktop, at) == "desktop/systemd"
 
     # Negative control: the shared prefix is still dropped, or the pane widens
     # for a word that is the same on every profile.
     assert not row.value(plain, at).startswith("default/linux/")
+    assert row.value(plain, at) == "systemd"

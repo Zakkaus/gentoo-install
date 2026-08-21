@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Callable, Final
 
 from ..model.config import (
+    BASE_PROFILE,
     Bootloader,
     DiskMode,
     Firewall,
@@ -1002,10 +1003,12 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting(
         'profile',
         'Profile',
-        # Without the `default/linux/` every profile starts with. The last
-        # component alone is not enough: `desktop/systemd` and `systemd` both
-        # end in the same word and they are different profiles.
-        lambda c, x: c.portage.profile.removeprefix("default/linux/"),
+        # Without the `default/linux/amd64/<release>/` every profile in the
+        # list shares. The last component alone is not enough, because
+        # `desktop/systemd` and `systemd` both end in the same word; the whole
+        # path is too long for the pane, and a value that does not fit is
+        # dropped rather than cut, so `no-multilib/systemd` left the row blank.
+        lambda c, x: c.portage.profile.removeprefix(f"{BASE_PROFILE}/"),
         screens._profile_screen,
         describes="The Portage profile, which sets the default USE flags and package set.",
         section="System",

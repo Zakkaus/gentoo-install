@@ -1630,9 +1630,17 @@ def _profile_screen(screen: Screen, config: InstallConfig, context: Context) -> 
         for profile in choices
         if ("systemd" in profile.split("/")) is (config.system.init is InitSystem.SYSTEMD)
     ]
+    # Without the part every row shares. The whole path is 44 cells and the
+    # pane is narrower than that, so a row wrapped onto a second line and the
+    # list stopped reading as a list; the prefix is named once above instead.
+    shared = f"{BASE_PROFILE}/"
     menu: Menu[str] = Menu(
         title=context.translate("Portage"),
-        items=[Item(label=profile, value=profile) for profile in wanted],
+        preamble=(f"{shared}\u2026",),
+        items=[
+            Item(label=profile.removeprefix(shared), value=profile)
+            for profile in wanted
+        ],
         footer=footer(context.translate),
         current=config.portage.profile,
     )
