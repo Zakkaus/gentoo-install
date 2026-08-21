@@ -30,7 +30,7 @@ from ..model.device import (
     VolumeGroup,
     ZfsPool,
 )
-from ..model.size import DEFAULT_ALIGNMENT, SectorSize, Size
+from ..model.size import SectorSize, Size
 from ..model.validate import root_size_problems
 from ..plan.disk import MKFS
 from ..plan.operations import Operation
@@ -414,11 +414,9 @@ def _capacity_problems(config: InstallConfig, probe: Probe) -> list[str]:
             claimed += sum(
                 size for number, size in present.items() if number not in table.remove
             )
-        usable = Size(capacity)
-        if table.table is TableType.GPT:
-            usable = usable.gpt_last_usable(SectorSize(512))
-        # The first partition starts at the alignment boundary, not at zero.
-        usable = Size(max(0, usable.bytes - DEFAULT_ALIGNMENT))
+        usable = Size(capacity).usable_for_partitions(
+            table.table is TableType.GPT, SectorSize(512)
+        )
         supplied_root_sizes[table.id] = usable
         if claimed > usable.bytes:
             problems.append(

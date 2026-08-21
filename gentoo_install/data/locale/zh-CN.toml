@@ -720,3 +720,4 @@
 "no package this installer merges comes from these" = "安装器合并的软件包都不会取自这些 overlay"
 "enable the {} repository" = "启用 {} 仓库"
 "Empty the field, which arrives with a value in it" = "清空字段，字段打开时本来就有值"
+"{disk} can hand out {usable} and these sizes come to {claimed}" = "{disk} 能分出 {usable}，这些大小加起来是 {claimed}"

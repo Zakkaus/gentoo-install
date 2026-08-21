@@ -34,7 +34,7 @@ from ..model.device import (
     TableType,
     ZfsTopology,
 )
-from ..model.size import Size
+from ..model.size import SectorSize, Size
 from ..model.templates import Choice, Layout, build
 from ..model.validate import validate
 from ..errors import GentooInstallError, ValidationFailed
@@ -729,8 +729,40 @@ def _edit_pool_encryption(screen: Screen, context: Context) -> Answer[str]:
     return edited
 
 
+def _too_big_for_the_disk(context: Context) -> str:
+    """Sizes that come to more than the disk can hand out.
+
+    Checked while they are typed. Left to the check that runs before the disk
+    is written, an operator was told nothing for twenty rows and then refused
+    at the confirmation: `/efi 1GiB + / 35GiB + swap 4GiB` on a 40 GiB disk
+    is over by the trailing GPT copy and the first alignment boundary.
+    """
+    translate = context.translate
+    for disk in context.layout.disks:
+        total = context.contents(disk.selector)[1]
+        fresh = [one for one in disk.slices if one.status is manual.SliceStatus.CREATE]
+        claimed = sum(one.size.bytes for one in fresh if one.size is not None)
+        if not total or not claimed:
+            continue
+        try:
+            capacity = Size.parse(total)
+        except GentooInstallError:
+            continue
+        usable = capacity.usable_for_partitions(
+            disk.table is TableType.GPT, SectorSize(512)
+        )
+        if claimed > usable.bytes:
+            return translate(
+                "{disk} can hand out {usable} and these sizes come to {claimed}"
+            ).format(disk=disk.selector, usable=usable, claimed=Size(claimed))
+    return ""
+
+
 def _layout_problem(context: Context, config: InstallConfig) -> str:
     """What the validator says about the table as it stands."""
+    over = _too_big_for_the_disk(context)
+    if over:
+        return over
     try:
         graph, root = manual.build(context.layout)
     except GentooInstallError as error:
