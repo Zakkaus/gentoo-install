@@ -1240,7 +1240,10 @@ class TwoPane(Generic[V]):
         # A box rather than one rule: a single column of `|` reads as an edge
         # of the list, and the pane beside it as loose text. `archinstall`
         # frames its own preview the same way.
-        named = self.rows[cursor].label if self.rows else ""
+        # Only while the row is closed. Opened, the screen inside the box
+        # writes its own title on the first line, and the box was saying the
+        # same word one cell above it.
+        named = "" if dimmed else (self.rows[cursor].label if self.rows else "")
         # The frame's left edge stands in the column the single rule used to,
         # so the list keeps its width and no column is spent twice.
         self._draw_box(screen, left, columns - left, lines, named)
