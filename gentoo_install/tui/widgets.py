@@ -176,6 +176,7 @@ KEY_HELP: Final[tuple[KeyRow, ...]] = (
     KeyRow("page-up  page-down", "Move the cursor one screen"),
     KeyRow("home  end", "Move the cursor to the first or last row"),
     KeyRow("g  G", "First or last row, in a list; a letter in a field"),
+    KeyRow("/", "Narrow a list to the rows holding what is typed next"),
 )
 
 #: What opens the key page. A letter in a field, like `q`.
@@ -187,6 +188,9 @@ PAGE_BACKWARD: Final[tuple[str, ...]] = ("KEY_PPAGE",)
 PAGE_FORWARD: Final[tuple[str, ...]] = ("KEY_NPAGE",)
 FIRST: Final[tuple[str, ...]] = ("KEY_HOME", "g")
 LAST: Final[tuple[str, ...]] = ("KEY_END", "G")
+
+#: What narrows a list to the rows holding what was typed.
+FILTER_KEY: Final[str] = "/"
 
 
 def spread(left: str, right: str, columns: int) -> str:
@@ -276,6 +280,9 @@ class _Menu(Generic[V, A]):
     #: without this the first row won: encryption enabled became disabled, and
     #: a second disk became the first.
     current: V | None | _Missing = _MISSING
+    #: What `/` is narrowing the list to. `None` when no filter is open, which
+    #: is a different state from an open filter holding nothing typed yet.
+    _query: str | None = None
 
     _multiple: ClassVar[bool] = False
 
@@ -293,6 +300,12 @@ class _Menu(Generic[V, A]):
             self.cursor = cursor
             self._draw(screen, cursor)
             pressed = screen.key()
+            if self._query is not None and self._typed(pressed):
+                cursor = self._after_typing(cursor)
+                continue
+            if pressed == FILTER_KEY and self._query is None:
+                self._query = ""
+                continue
             if pressed in BACKWARD:
                 cursor = self._step(cursor, -1)
             elif pressed in FORWARD:
@@ -317,6 +330,37 @@ class _Menu(Generic[V, A]):
                 return Answer(Outcome.BACK)
             elif pressed in CANCEL_IN_A_MENU:
                 return Answer(Outcome.CANCELLED)
+
+    def _typed(self, pressed: str) -> bool:
+        """Whether this key belongs to the filter rather than to the list.
+
+        Arrows and the page keys keep navigating while a filter is open, so
+        the operator narrows and moves without leaving what they typed; `j`
+        and `k` are letters here, which is why they are not tested first.
+        """
+        if self._query is None:
+            return False
+        if pressed == "\x1b":
+            self._query = None
+            return True
+        if pressed in ("\x7f", "KEY_BACKSPACE"):
+            self._query = self._query[:-1] if self._query else None
+            return True
+        if len(pressed) == 1 and pressed.isprintable():
+            self._query += pressed
+            return True
+        return False
+
+    def _after_typing(self, cursor: int) -> int:
+        """Keep the cursor on a row the filter still shows."""
+        return cursor if self._shown(cursor) else self._first_enabled()
+
+    def _shown(self, index: int) -> bool:
+        """Case-insensitive, on the label alone: a row is found by the name the
+        operator reads, not by the reason printed beside it."""
+        if not self._query:
+            return True
+        return self._query.lower() in self.items[index].label.lower()
 
     def _accept(self, cursor: int) -> Answer[A] | None:
         raise NotImplementedError
@@ -353,12 +397,14 @@ class _Menu(Generic[V, A]):
 
     def _first_enabled(self) -> int:
         for index, item in enumerate(self.items):
-            if not item.disabled_because:
+            if self._shown(index) and not item.disabled_because:
                 return index
-        return 0
+        return next((index for index in range(len(self.items)) if self._shown(index)), 0)
 
     def _last_enabled(self) -> int:
         for index in range(len(self.items) - 1, -1, -1):
+            if not self._shown(index):
+                continue
             if not self.items[index].disabled_because or index in self.selected:
                 return index
         return len(self.items) - 1
@@ -384,6 +430,8 @@ class _Menu(Generic[V, A]):
             candidate += by
             # A selected row is reachable even when disabled, or the operator
             # cannot put the cursor on the choice they have to undo.
+            if not self._shown(candidate):
+                continue
             if not self.items[candidate].disabled_because or candidate in self.selected:
                 return candidate
         return cursor
@@ -400,8 +448,11 @@ class _Menu(Generic[V, A]):
         above = len(self.preamble)
         room = lines - 4 - above
         displayed = self._display_rows(columns)
+        # A filter can hide every row, and then there is no cursor to keep on
+        # screen: an empty list with a count of nothing is the answer, not a
+        # traceback out of `next`.
         cursor_row = next(
-            row for row, (index, _) in enumerate(displayed) if index == cursor
+            (row for row, (index, _) in enumerate(displayed) if index == cursor), 0
         )
         top = max(0, min(cursor_row - room // 2, len(displayed) - room))
         for row, (index, text) in enumerate(displayed[top : top + room]):
@@ -422,7 +473,15 @@ class _Menu(Generic[V, A]):
                 highlight=index == cursor,
                 style=item.style,
             )
-        if self.footer or self.legend:
+        if self._query is not None:
+            # The filter replaces the keys while it is open: what was typed
+            # and how many rows are left are what the operator needs, and a
+            # count they cannot see makes an empty list read as a broken menu.
+            left = sum(1 for index in range(len(self.items)) if self._shown(index))
+            screen.write(
+                lines - 1, 0, spread(f"{FILTER_KEY}{self._query}", str(left), columns)
+            )
+        elif self.footer or self.legend:
             # Held apart rather than run together: the keys and what the marks
             # mean are two things to read, and one line of `[enter] open
             # [q] cancel * required ~ never opened` reads as neither.
@@ -433,6 +492,8 @@ class _Menu(Generic[V, A]):
         rows: list[tuple[int | None, str]] = []
         heading = ""
         for index, item in enumerate(self.items):
+            if not self._shown(index):
+                continue
             if item.heading and item.heading != heading:
                 heading = item.heading
                 rows.append((None, heading))
