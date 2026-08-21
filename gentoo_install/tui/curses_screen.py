@@ -12,7 +12,14 @@ from .widgets import KEY_HELP, MINIMUM_COLUMNS, MINIMUM_LINES, Style, spread
 
 #: Colour pair per style. A terminal with no colour keeps every pair at 0,
 #: which curses renders as the default attributes.
-_PAIRS: dict[Style, int] = {Style.PLAIN: 0, Style.REQUIRED: 1, Style.UNTOUCHED: 2}
+_PAIRS: dict[Style, int] = {
+    Style.PLAIN: 0,
+    Style.REQUIRED: 1,
+    Style.UNTOUCHED: 2,
+    # No pair of its own: `A_DIM` is an attribute, so a monochrome console
+    # shows the same difference a colour one does.
+    Style.DIMMED: 0,
+}
 
 
 class CursesScreen:
@@ -54,7 +61,9 @@ class CursesScreen:
         if not 0 <= line < lines:
             return
         attributes = curses.A_REVERSE if highlight else 0
-        if self._coloured and style is not Style.PLAIN:
+        if style is Style.DIMMED:
+            attributes |= curses.A_DIM
+        if self._coloured and style not in (Style.PLAIN, Style.DIMMED):
             attributes |= curses.color_pair(_PAIRS[style])
         try:
             self._window.addstr(line, column, text, attributes)

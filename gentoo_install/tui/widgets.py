@@ -24,7 +24,7 @@ from typing import (
     TypeVar,
 )
 
-from ..i18n import CUT, clip, width
+from ..i18n import CUT, clip, truncate, width
 
 #: Re-exported: every widget cuts through `clip`, and the mark it leaves is
 #: what tells a cut value from a whole one.
@@ -65,6 +65,9 @@ class Style(Enum):
     REQUIRED = "required"
     #: Optional and never opened, so it is running on a default nobody chose.
     UNTOUCHED = "untouched"
+    #: The list while an editor holds the right pane. The operator sees where
+    #: they are without the list competing with the screen they are answering.
+    DIMMED = "dimmed"
 
 
 #: One character per style, drawn in the left margin. ASCII: a console with no
@@ -191,6 +194,57 @@ LAST: Final[tuple[str, ...]] = ("KEY_END", "G")
 
 #: What narrows a list to the rows holding what was typed.
 FILTER_KEY: Final[str] = "/"
+
+
+@dataclass
+class Region:
+    """A rectangle of another screen, behind the same protocol.
+
+    What keeps the frame from disappearing when a row is opened: an editor
+    screen is called with one of these and draws inside the right pane without
+    a line of its own changing. `clear` erases only the rectangle, so the list
+    beside it stays on screen.
+    """
+
+    screen: Screen
+    line: int
+    column: int
+    lines: int
+    columns: int
+
+    def size(self) -> tuple[int, int]:
+        return self.lines, self.columns
+
+    def clear(self) -> None:
+        for offset in range(self.lines):
+            self.screen.write(self.line + offset, self.column, " " * self.columns)
+
+    def write(
+        self,
+        line: int,
+        column: int,
+        text: str,
+        highlight: bool = False,
+        style: Style = Style.PLAIN,
+    ) -> None:
+        if not 0 <= line < self.lines or column >= self.columns:
+            return
+        self.screen.write(
+            self.line + line,
+            self.column + column,
+            clip(text, self.columns - column),
+            highlight=highlight,
+            style=style,
+        )
+
+    def show(self) -> None:
+        self.screen.show()
+
+    def key(self) -> str:
+        return self.screen.key()
+
+    def help(self) -> None:
+        self.screen.help()
 
 
 def spread(left: str, right: str, columns: int) -> str:
@@ -855,11 +909,10 @@ class Form:
         screen.show()
 
 
-#: The left pane is the widest label in the catalog plus a marker and a space,
-#: held between these two: narrower cuts an English name, wider leaves the
-#: right pane too narrow for a device path and a filesystem beside it.
+#: The left pane is the widest row in the catalog plus a marker and a space,
+#: never narrower than this and never past half the terminal: the ceiling is
+#: the width itself now, so a wide screen stops cutting values.
 LEFT_PANE_MINIMUM: Final[int] = 20
-LEFT_PANE_MAXIMUM: Final[int] = 34
 
 #: The marker column and the space after it, before every label.
 MARKER_ROOM: Final[int] = 2
@@ -881,14 +934,88 @@ SEPARATOR: Final[str] = "|"
 
 
 
-def left_pane_width(labels: Iterable[str]) -> int:
-    """How wide the left pane stands for this catalog.
+def left_pane_width(rows: Iterable[tuple[str, str]], columns: int = TWO_PANE_COLUMNS) -> int:
+    """How wide the left pane stands for this catalog on this terminal.
 
-    Measured, not a constant: the same rows are 25 cells in English and 30 in
-    Japanese, and a pane sized for one of them truncates the other.
+    Measured from the label **and** the value: the same rows are 25 cells in
+    English and 30 in Japanese, and sizing from the label alone left the value
+    a few cells, which `spread` then dropped whole. Half the terminal is the
+    ceiling, so a wide screen stops cutting values and a narrow one still
+    leaves the right pane something to stand in.
     """
-    widest = max((width(label) for label in labels), default=0)
-    return min(LEFT_PANE_MAXIMUM, max(LEFT_PANE_MINIMUM, widest + MARKER_ROOM))
+    # The first value only, plus room for the count of the rest: one grouped
+    # row answering `/dev/sda, gpt, whole-disk (erases the disk), /efi 1GiB,
+    # / the rest` widened the pane for every row, and its tail is what the
+    # right pane and the screen behind it are for.
+    # The value is drawn in a column of its own two cells after the widest
+    # label, so the pane needs the widest label and the widest value, not the
+    # widest row: those are different rows, and adding them per row sized the
+    # pane for a short label beside a long value and cut both.
+    pairs = list(rows)
+    label = max((width(one) for one, _ in pairs), default=0)
+    value = max((width(state.split(", ")[0]) for _, state in pairs), default=0)
+    wanted = MARKER_ROOM + label + 2 + value
+    return min(max(LEFT_PANE_MINIMUM, wanted), max(LEFT_PANE_MINIMUM, columns // 2))
+
+
+def wrap_to_cells(text: str, room: int) -> list[str]:
+    """Broken on cells and after a separator, never through a value.
+
+    `textwrap` counts a wide character as one, so a Chinese line folds at the
+    wrong column; and a break inside `zh_TW.UTF-8` names no locale at all.
+    """
+    if room <= 0:
+        return []
+    if not text:
+        return [""]
+    lines: list[str] = []
+    rest = text
+    while rest:
+        if width(rest) <= room:
+            lines.append(rest)
+            break
+        cut = len(truncate(rest, room))
+        at = max(rest.rfind(", ", 0, cut + 1), rest.rfind(" ", 0, cut + 1))
+        if at > 0:
+            cut = at + 1
+        lines.append(rest[:cut].rstrip())
+        rest = rest[cut:].lstrip()
+    return lines
+
+
+def fit(parts: list[str], room: int) -> str:
+    """As many of the values as the room holds, and no count of the rest.
+
+    The count was noise: `grub, uefi +1` on a pane with room for two values
+    spends four cells saying that a third exists, and the pane beside it and
+    the screen behind the row both carry the whole answer already.
+    """
+    said = [one for one in parts if one]
+    taken: list[str] = []
+    for value in said:
+        if width(", ".join([*taken, value])) > room:
+            break
+        taken.append(value)
+    if taken:
+        return ", ".join(taken)
+    return clip(said[0], room) if said else ""
+
+
+def section_rule(name: str, room: int) -> str:
+    """The heading centred in a band that fills the pane.
+
+    Spaces rather than dashes: the band is drawn in reverse video, and a row
+    of dashes reversed reads as stripes rather than as a divider. A console
+    with no colour still shows the attribute.
+    """
+    if room <= 0:
+        return ""
+    name = clip(name, max(0, room - 2))
+    rest = room - width(name)
+    if rest <= 0:
+        return name
+    before = rest // 2
+    return " " * before + name + " " * (rest - before)
 
 
 def right_pane_width(columns: int, left: int) -> int:
@@ -902,6 +1029,10 @@ class PaneRow(Generic[V]):
 
     label: str
     value: V
+    #: The heading this row sits under. Drawn once above the first row of each
+    #: section, so a list of twenty-four rows reads as an order to work
+    #: through rather than one lump.
+    section: str = ""
     #: Drawn at the right of the left pane, and dropped rather than cut when
     #: the label fills the pane: half a state word names another state.
     state: str = ""
@@ -972,6 +1103,23 @@ class TwoPane(Generic[V]):
                 return Answer(Outcome.CANCELLED)
 
     @staticmethod
+    def _draw_box(screen: Screen, column: int, width_of: int, lines: int, title: str) -> None:
+        """An ASCII frame with the row's name in its top edge.
+
+        ASCII and not `U+250C`: the medium's own console font carries no
+        box-drawing set, and a frame of question marks is worse than none.
+        """
+        if width_of < 4:
+            return
+        named = clip(f" {title} ", max(0, width_of - 4)) if title else ""
+        top = f"+-{named}" + "-" * max(0, width_of - 2 - width(named)) + "+"
+        screen.write(2, column, clip(top, width_of))
+        for line in range(3, lines - 2):
+            screen.write(line, column, "|")
+            screen.write(line, column + width_of - 1, "|")
+        screen.write(lines - 2, column, "+" + "-" * max(0, width_of - 2) + "+")
+
+    @staticmethod
     def _page(screen: Screen) -> int:
         """The rows one screen holds, which is what both layouts draw between
         the title row and the status line."""
@@ -979,37 +1127,90 @@ class TwoPane(Generic[V]):
         return max(1, lines - 3)
 
     def _draw(self, screen: Screen, cursor: int) -> None:
-        lines, columns = screen.size()
-        screen.clear()
-        screen.write(0, 0, spread(self.title, self.counter, columns))
-        if columns < TWO_PANE_COLUMNS or lines < TWO_PANE_LINES:
-            self._draw_one_pane(screen, cursor, lines, columns)
-        else:
-            self._draw_two_panes(screen, cursor, lines, columns)
-        if lines > 1 and (self.footer or self.legend):
-            screen.write(lines - 1, 0, spread(self.footer, self.legend, columns))
+        region = self.frame(screen, cursor, dimmed=False)
+        if region is not None:
+            # The reason heads the pane: a row that cannot be opened has to say
+            # why where the operator is already looking.
+            here = self.rows[cursor] if self.rows else None
+            detail: tuple[str, ...] = ()
+            if here is not None:
+                reason = (here.disabled_because,) if here.disabled_because else ()
+                detail = (*reason, *here.detail)
+            wrapped: list[str] = []
+            for line_text in detail:
+                # Wrapped here and not by the caller: only the pane knows how
+                # wide it ended up, and a width guessed before the draw folded
+                # the text at a column that had nothing to do with the pane.
+                wrapped.extend(wrap_to_cells(line_text, region.columns))
+            for offset, line_text in enumerate(wrapped[: region.lines]):
+                region.write(offset, 0, line_text)
         screen.show()
 
-    def _draw_two_panes(self, screen: Screen, cursor: int, lines: int, columns: int) -> None:
-        left = left_pane_width(row.label for row in self.rows)
+    def frame(self, screen: Screen, cursor: int, *, dimmed: bool) -> Region | None:
+        """Draw the list, the separator and the status line, and answer with
+        the rectangle beside them.
+
+        Split out so an editor can run inside that rectangle: the frame stays
+        on screen with the row it opened still marked, rather than the whole
+        interface being replaced by whatever screen the row leads to.
+        """
+        lines, columns = screen.size()
+        screen.clear()
+        # A bar across the width, like the section bands under it and the
+        # status line at the foot: a title floating at the margin with a
+        # counter at the far edge read as two loose words.
+        screen.write(0, 0, spread(f" {self.title}", f"{self.counter} ", columns), highlight=True)
+        if columns < TWO_PANE_COLUMNS or lines < TWO_PANE_LINES:
+            self._draw_one_pane(screen, cursor, lines, columns)
+            if lines > 1 and (self.footer or self.legend):
+                screen.write(lines - 1, 0, spread(self.footer, self.legend, columns))
+            return None
+        left = left_pane_width(((row.label, row.state) for row in self.rows), columns)
         right = right_pane_width(columns, left)
         room = lines - 3
-        for line in range(2, lines - 1):
-            screen.write(line, left, SEPARATOR)
-        top = _window(cursor, room, len(self.rows))
-        for offset, index in enumerate(range(top, min(len(self.rows), top + room))):
+        # A box rather than one rule: a single column of `|` reads as an edge
+        # of the list, and the pane beside it as loose text. `archinstall`
+        # frames its own preview the same way.
+        named = self.rows[cursor].label if self.rows else ""
+        # The frame's left edge stands in the column the single rule used to,
+        # so the list keeps its width and no column is spent twice.
+        self._draw_box(screen, left, columns - left, lines, named)
+        # One entry per drawn line: a heading takes a line of its own, so the
+        # window has to count them or the last rows fall off the bottom.
+        entries: list[int | None] = []
+        heading = ""
+        for index, row in enumerate(self.rows):
+            if row.section and row.section != heading:
+                heading = row.section
+                entries.append(None)
+            entries.append(index)
+        here = entries.index(cursor) if cursor in entries else 0
+        top = _window(here, room, len(entries))
+        headings = {at: row.section for at, row in enumerate(self.rows)}
+        for offset, entry in enumerate(entries[top : top + room]):
+            if entry is None:
+                # Found by walking forward: the heading belongs to the row
+                # under it, and the entry itself carries no index.
+                after = next(
+                    (one for one in entries[top + offset + 1 :] if one is not None), None
+                )
+                if after is not None:
+                    screen.write(
+                        offset + 2, 0, section_rule(headings[after], left), highlight=not dimmed
+                    )
+                continue
             self._draw_row(
-                screen, offset + 2, index, index == cursor, MARKER_ROOM, left - MARKER_ROOM
+                screen,
+                offset + 2,
+                entry,
+                entry == cursor,
+                MARKER_ROOM,
+                left - MARKER_ROOM,
+                dimmed=dimmed,
             )
-        # The reason heads the pane: a row that cannot be opened has to say
-        # why where the operator is already looking.
-        here = self.rows[cursor] if self.rows else None
-        detail: tuple[str, ...] = ()
-        if here is not None:
-            reason = (here.disabled_because,) if here.disabled_because else ()
-            detail = (*reason, *here.detail)
-        for offset, line_text in enumerate(detail[:room]):
-            screen.write(offset + 2, left + PANE_GAP, clip(line_text, right))
+        if lines > 1 and (self.footer or self.legend):
+            screen.write(lines - 1, 0, spread(self.footer, self.legend, columns))
+        return Region(screen, 3, left + 2, room - 2, max(1, columns - left - 4))
 
     def _draw_one_pane(self, screen: Screen, cursor: int, lines: int, columns: int) -> None:
         """One pane, and the row under the cursor carries two of its lines.
@@ -1017,44 +1218,92 @@ class TwoPane(Generic[V]):
         The floor is a measured boundary rather than best effort: below it the
         right pane cannot hold a value, so it stops existing.
         """
-        room = lines - 3
+        here_row = self.rows[cursor] if self.rows else None
+        below: tuple[str, ...] = ()
+        if here_row is not None:
+            below = (
+                (here_row.disabled_because, *here_row.detail)
+                if here_row.disabled_because
+                else here_row.detail
+            )
+        # A band of its own above the status line rather than lines pushed in
+        # between the rows: inserting them moved every row under the cursor,
+        # so walking the list made the interface jump and hid the next row.
+        said = [one for one in below[:2] if one]
+        room = lines - 3 - (len(said) + 1 if said else 0)
         if room <= 0:
             return
-        entries: list[tuple[int | None, str]] = []
+        # Three fields, because a band and a row are drawn differently and
+        # telling them apart by their first character broke the moment the
+        # band was filled with spaces rather than dashes.
+        entries: list[tuple[int | None, str, bool]] = []
+        heading = ""
         for index, row in enumerate(self.rows):
-            entries.append((index, ""))
-            if index == cursor:
-                below = (
-                    (row.disabled_because, *row.detail)
-                    if row.disabled_because
-                    else row.detail
-                )
-                entries.extend((None, line) for line in below[:2])
-        here = next((at for at, (which, _) in enumerate(entries) if which == cursor), 0)
+            # One pane needs the bands more than two do, not less: the whole
+            # list is one column and nothing else separates one group of rows
+            # from the next.
+            if row.section and row.section != heading:
+                heading = row.section
+                entries.append((None, section_rule(row.section, columns), True))
+            entries.append((index, "", False))
+        # Title, blank, the rows, the rule, the said lines, the status line.
+        for offset, line_text in enumerate(said):
+            screen.write(lines - 1 - len(said) + offset, 2, clip(line_text, columns - 4))
+        if said:
+            screen.write(lines - 2 - len(said), 0, "-" * columns)
+        here = next((at for at, (which, _, _) in enumerate(entries) if which == cursor), 0)
         top = _window(here, room, len(entries))
-        for offset, (which, text) in enumerate(entries[top : top + room]):
+        for offset, (which, text, band) in enumerate(entries[top : top + room]):
             if which is None:
-                screen.write(offset + 2, 4, clip(text, columns - 4))
+                screen.write(offset + 2, 0, clip(text, columns), highlight=band)
                 continue
             self._draw_row(
                 screen, offset + 2, which, which == cursor, MARKER_ROOM, columns - MARKER_ROOM
             )
 
     def _draw_row(
-        self, screen: Screen, line: int, index: int, focused: bool, column: int, room: int
+        self,
+        screen: Screen,
+        line: int,
+        index: int,
+        focused: bool,
+        column: int,
+        room: int,
+        *,
+        dimmed: bool = False,
     ) -> None:
         row = self.rows[index]
+        style = Style.DIMMED if dimmed else row.style
         if row.style is not Style.PLAIN:
             # The marker is the signal and the colour repeats it: a monochrome
             # serial console has to show the same thing.
-            screen.write(line, 0, MARKS[row.style], style=row.style)
+            screen.write(line, 0, MARKS[row.style], style=style)
+        # The value in a column of its own two cells after the widest label,
+        # rather than pushed to the far edge: a pane sized for the longest row
+        # left every short one with a hand's width of blank between the two.
+        at = min(self._value_column(), max(1, room - 1))
+        label = clip(row.label, max(1, at - 1))
+        # Fitted here, against the room this row actually has: the `+N` and
+        # the cut both belong to the draw, or a window opened small keeps
+        # every value cut after it grows.
+        state = fit(row.state.split(", "), max(0, room - at))
+        drawn = f"{label}{' ' * max(1, at - width(label))}{state}"
+        # Padded by cells and not by characters: `str.ljust` counts a wide
+        # character as one, so a Chinese label padded that way runs past the
+        # separator and erases it.
         screen.write(
             line,
             column,
-            spread(clip(row.label, room), row.state, room),
+            drawn + " " * max(0, room - width(drawn)),
+            # The row stays marked while its editor holds the pane, so the
+            # operator can see which one they are answering.
             highlight=focused,
-            style=row.style,
+            style=style,
         )
+
+    def _value_column(self) -> int:
+        """Two cells after the widest label in the list."""
+        return max((width(row.label) for row in self.rows), default=0) + 2
 
 
 def _window(cursor: int, room: int, total: int) -> int:
