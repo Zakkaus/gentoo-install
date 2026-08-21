@@ -532,7 +532,6 @@ class _Menu(Generic[V, A]):
     def _draw(self, screen: Screen, cursor: int) -> None:
         lines, columns = screen.size()
         screen.clear()
-        screen.write(0, 0, clip(self.title, columns))
         # One line each, under the title. A question whose subject is a list
         # crammed the list into the title, and the title is truncated to the
         # width: the profile a desktop moves to fell off the end of it.
@@ -548,6 +547,13 @@ class _Menu(Generic[V, A]):
             (row for row, (index, _) in enumerate(displayed) if index == cursor), 0
         )
         top = max(0, min(cursor_row - room // 2, len(displayed) - room))
+        # On the title row, and only when a row is off the screen: a list that
+        # scrolls with nothing to say so reads as the whole list, and the
+        # profile screen was read as offering thirteen of its fourteen.
+        counted = (
+            f"{cursor_row + 1}/{len(displayed)}" if len(displayed) > room else ""
+        )
+        screen.write(0, 0, spread(clip(self.title, columns), counted, columns))
         for row, (index, text) in enumerate(displayed[top : top + room]):
             if index is None:
                 screen.write(row + 2 + above, 2, clip(text, columns - 4))
