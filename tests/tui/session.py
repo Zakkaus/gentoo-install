@@ -41,11 +41,16 @@ SESSIONS: Final[Path] = Path.home() / "code/gentoo-install/lab/tui"
 
 #: What the operator types, as the terminal sends it. Named because an agent
 #: writing `\x1b[B` by hand gets it wrong once per session.
+#: What each name sends, taken from terminfo rather than written out. ncurses
+#: parses against the terminal's own capabilities and `curses.wrapper` turns
+#: the keypad on, so the `CSI` forms are not what it is waiting for: every
+#: arrow arrived as a bare escape and the widgets read it as Back. The agent
+#: driving the first session worked that out and navigated on tab alone.
 KEYS: Final[dict[str, str]] = {
-    "up": "\x1b[A",
-    "down": "\x1b[B",
-    "left": "\x1b[D",
-    "right": "\x1b[C",
+    "up": "\x1bOA",
+    "down": "\x1bOB",
+    "left": "\x1bOD",
+    "right": "\x1bOC",
     "enter": "\n",
     "esc": "\x1b",
     "escape": "\x1b",
@@ -54,8 +59,8 @@ KEYS: Final[dict[str, str]] = {
     "backspace": "\x7f",
     "pageup": "\x1b[5~",
     "pagedown": "\x1b[6~",
-    "home": "\x1b[H",
-    "end": "\x1b[F",
+    "home": "\x1bOH",
+    "end": "\x1bOF",
     "help": "?",
     "filter": "/",
 }
