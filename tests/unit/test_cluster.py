@@ -3,8 +3,11 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+import hashlib
+import io
 import re
 import time
+import urllib.request
 from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
@@ -3385,3 +3388,88 @@ def test_a_machine_that_booted_is_asked_what_its_stub_holds() -> None:
         and node.func.id == "after_the_boot"
         for node in ast.walk(asked)
     ), "boot_and_check never asks what the stub holds"
+
+
+def test_a_local_copy_is_sent_and_the_node_is_never_asked_to_fetch(
+    tmp_path: Path,
+) -> None:
+    """The node reaches the Chinese Gentoo mirrors and nothing else.
+
+    Asked for a GitHub release it starts a download task that never
+    progresses, and `fetch_iso` waits an hour: one session sat fifteen minutes
+    with no output before its own timeout ended it.
+    """
+    from tests.vm import cluster
+
+    asked: list[str] = []
+    sent: list[Path] = []
+
+    class Placing:
+        def isos(self, node: str) -> list[str]:
+            return []
+
+        def fetch_iso(self, node: str, url: str, name: str, sha512: str) -> None:
+            asked.append(url)
+
+        def send_iso(self, node: str, path: Path, name: str, sha512: str) -> None:
+            sent.append(path)
+
+        def stale_drivers(self, node: str, keep: str, older_than: float) -> list[str]:
+            return []
+
+        def upload_iso(self, node: str, path: Path, name: str) -> str:
+            return name
+
+    copy = tmp_path / "medium.iso"
+    copy.write_bytes(b"medium")
+    driver = tmp_path / "driver.iso"
+    driver.write_bytes(b"driver")
+    api = cast(Any, Placing())
+    cluster.prepare(
+        api, "infra-node6", "medium.iso", ("https://github.example/medium.iso",),
+        "ab" * 64, tmp_path / "trust", driver, driver.name, local=copy,
+    )
+    assert sent == [copy] and asked == []
+
+    # Negative control: with no local copy the URLs are what is used, in order.
+    cluster.prepare(
+        api, "infra-node6", "medium.iso", ("https://one.example/m", "https://two.example/m"),
+        "ab" * 64, tmp_path / "trust", driver, driver.name,
+    )
+    assert asked == ["https://one.example/m"] and sent == [copy]
+
+
+def test_a_cached_medium_with_the_wrong_checksum_is_fetched_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A truncated download left behind reads as a medium until it is booted."""
+    from tests.vm import cluster
+
+    monkeypatch.setattr(cluster, "MEDIA_CACHE", tmp_path / "media")
+    body = b"the whole medium"
+    want = hashlib.sha512(body).hexdigest()
+
+    served: list[str] = []
+
+    class Answer(io.BytesIO):
+        def __enter__(self) -> Answer:
+            return self
+
+        def __exit__(self, *rest: object) -> None:
+            return None
+
+    def open_url(url: str, timeout: float = 0.0) -> Answer:
+        served.append(url)
+        return Answer(body)
+
+    monkeypatch.setattr(urllib.request, "urlopen", open_url)
+    stale = tmp_path / "media" / "medium.iso"
+    stale.parent.mkdir(parents=True)
+    stale.write_bytes(b"half of it")
+    got = cluster.cached_medium("medium.iso", ("https://one.example/m",), want)
+    assert got.read_bytes() == body and served == ["https://one.example/m"]
+
+    # Negative control: the same call against the now-correct file downloads
+    # nothing, or every session would re-fetch a gigabyte it already has.
+    again = cluster.cached_medium("medium.iso", ("https://one.example/m",), want)
+    assert again == got and served == ["https://one.example/m"]

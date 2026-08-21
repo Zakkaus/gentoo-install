@@ -18,11 +18,13 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import ipaddress
 import itertools
 import json
 import os
 import queue
+import shutil
 import signal
 import re
 import socket
@@ -33,6 +35,7 @@ import time
 import uuid
 
 from gentoo_install.plan.netboot import CJK_RELEASES
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field, replace
@@ -128,6 +131,10 @@ ADDRESS_POOL_ROOT: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/addre
 #: uploaded it. A fresh work directory otherwise met its own upload as
 #: `already exists on infra-node5 without its signed SHA-512 record`.
 MEDIUM_TRUST: Final[Path] = WORKROOT / "medium-trust"
+
+#: The workstation's own copy of a medium the cluster cannot download, kept
+#: outside a round for the same reason as the trust record above.
+MEDIA_CACHE: Final[Path] = WORKROOT / "media"
 
 #: Where the guest gathers what the run produced before it is read back.
 RESULT_DIR: Final[str] = "/tmp/gentoo-install-results"
@@ -655,7 +662,7 @@ def _medium_name(name: str, sha512: str) -> str:
 
 
 def current_cjk() -> tuple[str, tuple[str, ...], str]:
-    """The current CJK live CD, its download and its published SHA-256.
+    """The current CJK live CD, its download and its published SHA-512.
 
     Read from the release index rather than pinned: the asset name carries
     the build timestamp, and the one this was first written against was gone
@@ -679,6 +686,46 @@ def current_cjk() -> tuple[str, tuple[str, ...], str]:
         if digest:
             break
     return image, (assets[image],), digest
+
+
+
+def cached_medium(medium: str, urls: tuple[str, ...], sha512: str) -> Path:
+    """The workstation's own copy, downloaded once and kept.
+
+    The cluster reaches the Chinese Gentoo mirrors and nothing else: GitHub,
+    where the CJK live CD is published, answers a node with a closed
+    connection, so `fetch_iso` waits an hour for a task that never starts.
+    The workstation does reach it, and `send_iso` puts the file on the node
+    over the cluster's own certificate.
+    """
+    kept = MEDIA_CACHE / medium
+    if kept.is_file() and _sha512(kept) == sha512:
+        return kept
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    partial = kept.with_suffix(kept.suffix + ".part")
+    last = ""
+    for url in urls:
+        try:
+            with urllib.request.urlopen(url, timeout=60.0) as answer, partial.open("wb") as out:
+                shutil.copyfileobj(answer, out)
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
+            last = str(error)
+            continue
+        if _sha512(partial) != sha512:
+            last = f"{url} served {medium} with the wrong checksum"
+            continue
+        partial.replace(kept)
+        return kept
+    partial.unlink(missing_ok=True)
+    raise ProxmoxError(f"no source served {medium} to the workstation: {last}")
+
+
+def _sha512(path: Path) -> str:
+    digest = hashlib.sha512()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def current_minimal() -> tuple[str, tuple[str, ...], str]:
@@ -717,6 +764,33 @@ def current_minimal() -> tuple[str, tuple[str, ...], str]:
     raise SystemExit("no mirror named an install medium")
 
 
+def _place(
+    api: Api,
+    node: str,
+    medium: str,
+    urls: tuple[str, ...],
+    sha512: str,
+    local: Path | None,
+) -> None:
+    """Get one medium onto a node, by whichever route can reach it.
+
+    A local copy is sent rather than fetched: the node reaches the Chinese
+    Gentoo mirrors and nothing else, so asking it for a GitHub release starts
+    a download task that never progresses and `fetch_iso` waits an hour.
+    """
+    if local is not None:
+        api.send_iso(node, local, medium, sha512)
+        return
+    last = ""
+    for url in urls:
+        try:
+            api.fetch_iso(node, url, medium, sha512)
+            return
+        except ProxmoxError as error:
+            last = str(error)
+    raise ProxmoxError(f"no mirror served {medium} to {node}: {last}")
+
+
 def prepare(
     api: Api,
     node: str,
@@ -726,6 +800,7 @@ def prepare(
     trust: Path,
     driver_path: Path,
     driver: str,
+    local: Path | None = None,
 ) -> None:
     """Put the medium and the driver CD on one node's `local` storage.
 
@@ -743,27 +818,11 @@ def prepare(
             reason = api.remove_iso(node, medium)
             if reason:
                 raise ProxmoxError(f"{medium} could not be replaced on {node}: {reason}")
-            last = ""
-            for url in urls:
-                try:
-                    api.fetch_iso(node, url, medium, sha512)
-                    break
-                except ProxmoxError as error:
-                    last = str(error)
-            else:
-                raise ProxmoxError(f"no mirror served {medium} to {node}: {last}")
+            _place(api, node, medium, urls, sha512, local)
             stamp.parent.mkdir(parents=True, exist_ok=True)
             stamp.write_text(sha512)
     else:
-        last = ""
-        for url in urls:
-            try:
-                api.fetch_iso(node, url, medium, sha512)
-                break
-            except ProxmoxError as error:
-                last = str(error)
-        else:
-            raise ProxmoxError(f"no mirror served {medium} to {node}: {last}")
+        _place(api, node, medium, urls, sha512, local)
         stamp.parent.mkdir(parents=True, exist_ok=True)
         stamp.write_text(sha512)
     for stale in api.stale_drivers(node, driver, DRIVER_KEPT_SECONDS):
@@ -1834,13 +1893,13 @@ def tui_execution(
     # The CJK live CD for a session, because the interface is Chinese and the
     # official minimal ISO has no font for it: every label would read as a row
     # of empty boxes and the run would say nothing about the wording.
-    medium, urls, medium_sha512 = (
-        current_cjk() if TUI_GUESTS[spec][2] else current_minimal()
-    )
-    print(f"{name}: uploading {medium} to {chosen}", flush=True)
+    cjk = TUI_GUESTS[spec][2]
+    medium, urls, medium_sha512 = current_cjk() if cjk else current_minimal()
+    print(f"{name}: placing {medium} on {chosen}", flush=True)
     prepare(
         api, chosen, medium, urls, medium_sha512, MEDIUM_TRUST,
         driver_path, driver_path.name,
+        local=cached_medium(medium, urls, medium_sha512) if cjk else None,
     )
     job = replace(tui_job(name, spec), iso=medium)
     held = _execution(
