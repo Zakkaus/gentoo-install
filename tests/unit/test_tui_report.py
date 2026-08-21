@@ -1,0 +1,118 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""The five counts, each against a session that produces it and one that does not.
+
+Every count here has a negative control in the same test: a session whose
+screens differ only in the thing being counted. A count that answers the same
+number for both is measuring the session's length, not the interface.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from tests.tui.report import STUCK_AFTER, Report, read, title_of
+
+#: A framed pane, as `TwoPane.frame` draws it. The heading names the open row.
+def frame(name: str, rows: tuple[tuple[str, str], ...]) -> str:
+    lines = [f"+- {name} " + "-" * 20 + "+"]
+    lines += [f"{one.ljust(20)}| {other}" for one, other in rows]
+    return "\n".join(lines)
+
+
+def session(directory: Path, screens: list[str], keys: list[str]) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "screens.txt").write_text("\f".join(screens), encoding="utf-8")
+    (directory / "keys.txt").write_text("\n".join(keys) + "\n", encoding="utf-8")
+    return directory
+
+
+DISK = (("* Disk", "/dev/sda"), ("  Hostname", "lab1"))
+CHANGED = (("* Disk", "/dev/sdb"), ("  Hostname", "lab1"))
+
+
+def test_the_frame_names_the_open_row_not_the_title_bar() -> None:
+    """`gentoo-install` is on every screen, so it identifies none of them."""
+    assert title_of(frame("Partitioning", DISK)) == "Partitioning"
+    # Negative control: a screen with no frame falls back to its first line,
+    # and must not answer with the box drawing of a screen that has one.
+    assert title_of("Mirrors\n  gentoo") == "Mirrors"
+
+
+def test_a_row_opened_and_left_unchanged_counts_as_lost(tmp_path: Path) -> None:
+    """The count that says a row's own name failed to say what it was."""
+    inside = frame("Disk", DISK)
+    lost = read(
+        session(
+            tmp_path / "lost",
+            [frame("Partitioning", DISK), inside, frame("Partitioning", DISK)],
+            ["enter", "esc", "down"],
+        )
+    )
+    assert lost.lost == ("Disk",), lost
+
+    # Negative control: the same three screens and the same two keys, with one
+    # value different on the way out. Nothing was lost; something was set.
+    found = read(
+        session(
+            tmp_path / "found",
+            [frame("Partitioning", DISK), inside, frame("Partitioning", CHANGED)],
+            ["enter", "esc", "down"],
+        )
+    )
+    assert found.lost == (), found
+
+
+def test_a_screen_that_outlasts_answering_it_counts_as_stuck(tmp_path: Path) -> None:
+    same = frame("Mirrors", DISK)
+    stuck = read(session(tmp_path / "stuck", [same] * (STUCK_AFTER + 2), ["down"]))
+    assert stuck.stuck == ("Mirrors",), stuck
+
+    # Negative control: the same number of screens, moving through rows. Length
+    # alone must not produce the count.
+    moving = [frame(f"Row {at}", DISK) for at in range(STUCK_AFTER + 2)]
+    assert read(session(tmp_path / "moving", moving, ["down"])).stuck == ()
+
+
+def test_asking_for_help_and_being_refused_are_counted(tmp_path: Path) -> None:
+    refused = frame("Extra packages", (("Not a package name: code", ""),))
+    one = read(
+        session(tmp_path / "asked", [frame("Disk", DISK), refused], ["help", "type:code"])
+    )
+    assert one.helped == 1 and one.refused == 1, one
+
+    # Negative control: the same length of session with neither.
+    quiet = read(
+        session(tmp_path / "quiet", [frame("Disk", DISK)] * 2, ["down", "type:code"])
+    )
+    assert quiet.helped == 0 and quiet.refused == 0, quiet
+
+
+def test_a_session_that_never_reached_the_install_row_is_unfinished(tmp_path: Path) -> None:
+    assert not read(session(tmp_path / "part", [frame("Disk", DISK)], ["down"])).finished
+    done = read(session(tmp_path / "done", [frame("Install", DISK)], ["enter"]))
+    assert done.finished, done
+
+
+def test_reading_a_session_that_left_nothing_behind_answers_zero(tmp_path: Path) -> None:
+    """A guest killed before its first screen must not read as a finished run."""
+    empty = read(tmp_path / "never-ran")
+    assert empty == Report(finished=False, lost=(), helped=0, stuck=(), refused=0)
+
+
+def test_a_translated_screen_is_counted_the_same_as_an_english_one(tmp_path: Path) -> None:
+    """A session runs in its spec's language, so the counts read the catalogs.
+
+    The words come from the catalog rather than from a literal in this file:
+    a translated string pasted here goes stale the next time the wording is
+    corrected, and passes while measuring nothing.
+    """
+    from gentoo_install.i18n import Catalog
+
+    done = Catalog("zh-TW")("Install")
+    assert done != "Install", "the catalog has no translation to test against"
+    reached = read(session(tmp_path / "zh", [frame(done, DISK)], ["enter"]))
+    assert reached.finished, reached
+
+    # Negative control: a screen whose heading is a word no catalog maps
+    # `Install` to must not be read as having reached it.
+    assert not read(session(tmp_path / "no", [frame("Kernel", DISK)], ["enter"])).finished
