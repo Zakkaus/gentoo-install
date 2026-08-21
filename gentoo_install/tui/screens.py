@@ -172,6 +172,9 @@ def install_mode_screen(
         if agreed is not None:
             return agreed
     if mode is DiskMode.DD:
+        kept = _answers_this_mode_discards(config)
+        if kept and not _agrees_to_discard(screen, context, kept):
+            return Answer(Outcome.CHOSE, config)
         # Cleared with the disk keys: this mode writes the image as it is
         # and configures nothing in it, and `validate` refuses a configuration
         # that describes a machine it will not produce. Left standing they
@@ -273,6 +276,38 @@ def image_destination_screen(
         Outcome.CHOSE,
         replace(config, disk=replace(config.disk, destination=destination.unwrap())),
     )
+
+
+def _answers_this_mode_discards(config: InstallConfig) -> int:
+    """How many of the operator's answers writing an image would throw away.
+
+    Counted rather than guessed at: the row is the first in the list and one
+    keypress on it emptied twenty of them, silently. An agent that pressed it
+    went back and forth three times looking for what it had lost.
+    """
+    return sum(
+        1
+        for part, blank in (
+            ("system", SystemConfig()),
+            ("packages", PackagesConfig()),
+            ("portage", PortageConfig()),
+            ("kernel", KernelConfig()),
+            ("bootloader", BootloaderConfig()),
+        )
+        if getattr(config, part) != blank
+    )
+
+
+def _agrees_to_discard(screen: Screen, context: Context, kept: int) -> bool:
+    """Whether the operator wants those answers gone."""
+    translate = context.translate
+    asked = Confirm(
+        **answers(translate),
+        title=translate("Writing an image discards the rest of the answers."),
+        detail=translate("{count} groups of answers are discarded.").format(count=kept),
+        footer=footer(translate),
+    ).run(screen)
+    return bool(asked.chosen and asked.unwrap())
 
 
 def _confirm_the_swap(screen: Screen, context: Context) -> Answer[InstallConfig] | None:

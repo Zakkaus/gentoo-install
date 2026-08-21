@@ -720,3 +720,5 @@
 "enable the {} repository" = "{} リポジトリを有効にします"
 "Empty the field, which arrives with a value in it" = "フィールドを空にします。フィールドには最初から値が入っています"
 "{disk} can hand out {usable} and these sizes come to {claimed}" = "{disk} が割り当てられるのは {usable} ですが、指定された合計は {claimed} です"
+"Writing an image discards the rest of the answers." = "イメージを書き込むと、ほかの回答は破棄されます。"
+"{count} groups of answers are discarded." = "破棄される回答は {count} 組です。"
