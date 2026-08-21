@@ -512,7 +512,7 @@
 "packages" = "패키지"
 "finish" = "마무리"
 "Start the installation" = "설치 시작"
-"everything below is what it will do" = "아래가 수행할 작업입니다"
+"nothing has been written to the disks yet" = "디스크에 아직 아무것도 쓰지 않음"
 "Choose a row" = "항목 선택"
 "Start writing to the disks" = "디스크 쓰기 시작"
 "Firewall" = "방화벽"

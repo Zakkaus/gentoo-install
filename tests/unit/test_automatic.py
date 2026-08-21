@@ -1500,3 +1500,16 @@ def test_the_greetd_check_passes_the_file_the_installer_leaves_behind() -> None:
     # And it still refuses the file before the installer touched it, which is
     # the machine where tuigreet was installed and never reached.
     assert re.search(pattern, EBUILD_GREETD_CONFIG) is None
+
+
+def test_the_overview_says_no_disk_has_been_written_yet() -> None:
+    """An agent driving spec 5 reached this screen, reported `started: yes`
+    and finished; the guest had written zero bytes an hour later. The row it
+    was looking at carries the same label as the row that opened the screen,
+    so the only thing that can tell the two apart is what the row says."""
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    drawn = FakeScreen(keys=["q"], lines=120, columns=130)
+    overview_screen(drawn, config(ext4_on_gpt()), context())
+    assert "nothing has been written to the disks yet" in drawn.last
