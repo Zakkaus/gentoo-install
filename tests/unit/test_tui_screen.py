@@ -124,3 +124,40 @@ def test_a_screen_is_answered_only_once_the_guest_stops_drawing() -> None:
     console = Repainting()
     torn.feed(console.read_available(0.25))
     assert torn.text().splitlines()[0] == "first"
+
+
+def test_a_row_is_moved_to_by_the_sequence_ncurses_actually_uses() -> None:
+    """`CSI n d` sets the row, and one menu draw sends it twenty-three times.
+
+    Ignored, the row stayed where the last `H` left it and every write after
+    it landed a line too high: the pane read as two layouts at once, with
+    three labels drawn twice and no section headings at all.
+    """
+    from tests.tui.screen import Screen
+
+    # The column is left where it was, which is what the sequence means.
+    grid = Screen(lines=6, columns=10)
+    grid.feed(b"\x1b[1;1Hfirst\x1b[4d\x1b[1Gfourth")
+    assert grid.text().splitlines()[3] == "fourth", grid.text()
+    assert grid.text().splitlines()[0] == "first"
+
+    # Negative control: without the row move the same text overwrites line
+    # one, which is the two-layouts-at-once page this exists to prevent.
+    stuck = Screen(lines=6, columns=10)
+    stuck.feed(b"\x1b[1;1Hfirst\x1b[1Gfourth")
+    assert stuck.text().splitlines()[0] == "fourth"
+
+
+def test_inserting_cells_pushes_the_rest_of_the_row_right() -> None:
+    """`CSI n @` is how a corrected value keeps the text after it."""
+    from tests.tui.screen import Screen
+
+    grid = Screen(lines=2, columns=10)
+    grid.feed(b"abcdef\x1b[1;1H\x1b[2@")
+    assert grid.text().splitlines()[0] == "  abcdef", grid.text()
+
+    # Negative control: an insert wider than the row leaves it blank rather
+    # than wrapping the pushed text onto the next line.
+    wide = Screen(lines=2, columns=10)
+    wide.feed(b"abcdef\x1b[1;1H\x1b[20@")
+    assert wide.text().splitlines()[0] == ""
