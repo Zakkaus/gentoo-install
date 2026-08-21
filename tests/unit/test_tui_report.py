@@ -201,3 +201,28 @@ def test_every_spec_names_a_machine_that_can_answer_it() -> None:
     # mismatch this refuses, and the rule has to see it.
     broken = {1: (1, True, True)}
     assert not (broken[1][0] >= 2), "a one-disk guest must not satisfy two disks"
+
+
+def test_the_open_row_is_named_when_the_box_carries_no_name() -> None:
+    """The box drops the row's name while that row is open.
+
+    Read from the frame alone the answer was the title bar, which says
+    `gentoo-install` on every screen: a stuck screen was reported as
+    `gentoo-install ... 1/24` instead of the row the operator could not answer.
+    """
+    bare = "\n".join(
+        [
+            " gentoo-install                                    1/24",
+            "",
+            "  Disk          /dev/vda    +------------------------+",
+            "",
+            "cursor:",
+            "* Disk          /dev/vda    | something in the pane  |",
+        ]
+    )
+    assert title_of(bare) == "Disk", title_of(bare)
+
+    # Negative control: with the name in the frame the frame wins, because a
+    # closed row is what the box is there to label.
+    named = frame("Mirrors", DISK) + "\n\ncursor:\n* Disk  /dev/vda"
+    assert title_of(named) == "Mirrors", title_of(named)

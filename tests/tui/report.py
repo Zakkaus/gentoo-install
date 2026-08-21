@@ -75,6 +75,14 @@ def title_of(screen: str) -> str:
     found = re.search(r"\+-\s+(.+?)\s+-{2,}", screen)
     if found:
         return found.group(1).strip()
+    # The box carries no name while the row it frames is open, so the row is
+    # read from the cursor line the session writes under the grid. Without
+    # this the answer was the title bar, which says `gentoo-install` on every
+    # screen and named a stuck screen `gentoo-install ... 1/24`.
+    marked = screen.split("\ncursor:\n", 1)
+    if len(marked) == 2:
+        line = marked[1].splitlines()[0] if marked[1].splitlines() else ""
+        return line.split("|")[0].strip().lstrip("*~ ").split("  ")[0].strip()
     first = screen.splitlines()[0].strip() if screen.splitlines() else ""
     return first
 
