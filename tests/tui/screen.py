@@ -13,6 +13,7 @@ in the middle of a menu row is worse than a missing colour.
 
 from __future__ import annotations
 
+import codecs
 import re
 from dataclasses import dataclass, field
 from typing import Final
@@ -28,6 +29,19 @@ CSI: Final[re.Pattern[str]] = re.compile(r"\x1b\[([0-9;?]*)([A-Za-z])")
 SHORT: Final[re.Pattern[str]] = re.compile(r"\x1b[()][0-9A-B]|\x1b[=>]|\x1b\][^\x07]*\x07")
 
 
+#: The longest escape this reads, so a tail shorter than it may still grow
+#: into one. `\x1b]...\x07` can be longer, and is matched by its terminator.
+LONGEST: Final[int] = 12
+
+
+def _unfinished(text: str, at: int) -> bool:
+    """Whether the escape at `at` could still be completed by the next chunk."""
+    tail = text[at:]
+    if tail.startswith("\x1b]"):
+        return "\x07" not in tail
+    return len(tail) < LONGEST
+
+
 @dataclass
 class Screen:
     """A grid of cells and a cursor, filled by `feed`."""
@@ -39,10 +53,14 @@ class Screen:
     line: int = 0
     column: int = 0
     _reverse: bool = False
+    _decoder: codecs.IncrementalDecoder | None = None
+    #: An escape sequence the last chunk ended in the middle of.
+    _pending: str = ""
 
     def __post_init__(self) -> None:
         self._rows = [[" "] * self.columns for _ in range(self.lines)]
         self._reversed = [[False] * self.columns for _ in range(self.lines)]
+        self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
 
     def text(self) -> str:
         """Every row, trailing spaces removed, as one string."""
@@ -57,7 +75,17 @@ class Screen:
         ]
 
     def feed(self, data: bytes) -> None:
-        text = data.decode("utf-8", "replace")
+        """Take a chunk of the console, which may end anywhere.
+
+        A read boundary falls wherever the network put it, so decoding each
+        chunk on its own turns one split character into three replacement
+        marks, and one split escape into a letter drawn into a row. Both are
+        carried over instead: the decoder keeps the bytes and `_pending` the
+        text of an escape that has not ended yet.
+        """
+        assert self._decoder is not None
+        text = self._pending + self._decoder.decode(data)
+        self._pending = ""
         at = 0
         while at < len(text):
             character = text[at]
@@ -68,6 +96,9 @@ class Screen:
                         self._control(found.group(1), found.group(2))
                     at = found.end()
                     continue
+                if _unfinished(text, at):
+                    self._pending = text[at:]
+                    return
                 # An escape this does not know: drop the escape alone, or the
                 # letter after it would be drawn into the middle of a row.
                 at += 1
