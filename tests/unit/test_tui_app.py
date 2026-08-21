@@ -47,7 +47,7 @@ DISKS = [("/dev/disk/by-id/virtio-target0", "20 GiB"), ("/dev/disk/by-id/virtio-
 
 REQUIRED_ROW_VALUES: dict[str, str] = {
     "mirror": "required",
-    "mode": "partition a disk and install onto it",
+    "mode": "partition a disk",
     "storage": "virtio-target, gpt, whole-disk (erases the disk), /efi 512MiB, / the rest",
     "compiler": (
         "stage3 default, -O2 -pipe (stage3 default), what the profile sets, @FREE, amd64"
@@ -120,7 +120,7 @@ def test_every_row_is_reachable_and_shows_its_current_value() -> None:
     at = context()
     installation = config()
     # A terminal a value fits on: the right pane wraps at half the width, and
-    # 80 columns splits `Install mode: partition a disk and install onto it`
+    # 80 columns splits `Install mode: partition a disk`
     # across two lines, which is correct drawing and unreadable to a
     # substring. The claim is that every row shows its value, not that 80
     # columns is enough for the longest of them.
@@ -3660,3 +3660,28 @@ def test_the_row_that_decides_what_the_others_mean_comes_first() -> None:
     # And the row above the one it governs, whichever mode is chosen.
     keys = [one.key for one in settings_for(installation)]
     assert keys.index("mode") < keys.index("storage"), keys
+
+
+def test_two_profiles_ending_in_the_same_word_read_differently() -> None:
+    """`desktop/systemd` and `systemd` are different profiles.
+
+    The row showed the last component alone, so both read `systemd` and the
+    operator could not tell which one the machine would be built with.
+    """
+    from dataclasses import replace
+
+    from gentoo_install.tui.settings import SETTINGS, in_section_order
+
+    row = next(one for one in in_section_order(SETTINGS) if one.key == "profile")
+    at = context()
+    plain = config()
+    desktop = replace(
+        plain,
+        portage=replace(plain.portage, profile="default/linux/amd64/23.0/desktop/systemd"),
+    )
+    assert row.value(plain, at) != row.value(desktop, at), row.value(plain, at)
+    assert row.value(desktop, at) == "amd64/23.0/desktop/systemd"
+
+    # Negative control: the shared prefix is still dropped, or the pane widens
+    # for a word that is the same on every profile.
+    assert not row.value(plain, at).startswith("default/linux/")

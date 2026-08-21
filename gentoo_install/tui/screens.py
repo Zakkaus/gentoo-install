@@ -116,9 +116,9 @@ def _rebuild(config: InstallConfig, context: Context) -> InstallConfig:
 
 #: What each mode does, in the operator's terms rather than the enum's.
 INSTALL_MODES: tuple[tuple[DiskMode, str], ...] = (
-    (DiskMode.PARTITION, "partition a disk and install onto it"),
-    (DiskMode.IN_PLACE, "replace the running system with Gentoo, keeping its disks"),
-    (DiskMode.DD, "write a prepared image over a whole disk"),
+    (DiskMode.PARTITION, "partition a disk"),
+    (DiskMode.IN_PLACE, "replace the running system"),
+    (DiskMode.DD, "write a prepared image"),
 )
 
 
