@@ -120,6 +120,12 @@ class Session:
         return self.directory / "ended.txt"
 
     @property
+    def hangups(self) -> Path:
+        """The last request that ended without an answer. A client going away
+        is not a failure of the session, and used to end it."""
+        return self.directory / "hangups.txt"
+
+    @property
     def transcript(self) -> Path:
         """Every key sent, one per line, so the counts a report is judged on
         are read off the session rather than taken from the agent."""
@@ -266,25 +272,38 @@ def _answer_until_stopped(
         except TimeoutError:
             continue
         with channel:
-            asked = channel.makefile("rb").readline()
-            if not asked:
+            # A client that goes away takes its own request with it and
+            # nothing else: two agents lost their guests to one
+            # `BrokenPipeError` raised writing an answer nobody was left to
+            # read, both while the 38-row font screen was settling.
+            try:
+                asked = channel.makefile("rb").readline()
+                if not asked:
+                    continue
+                message = json.loads(asked.decode())
+                answer: dict[str, str] = {}
+                if message["do"] == "screen":
+                    shown = _settled(grid, console)
+                    # Kept as it is answered, because the counts are computed
+                    # from the screens the operator was actually shown: a
+                    # report that reads a file nobody writes answers zero for
+                    # every one of them.
+                    with session.screens.open("a", encoding="utf-8") as log:
+                        log.write(shown + "\f")
+                    answer = {"screen": shown}
+                elif message["do"] == "key":
+                    console.send_raw(str(message["text"]))
+                    answer = {"sent": "yes"}
+                elif message["do"] == "stop":
+                    answer = {"stopped": "yes"}
+                channel.sendall(json.dumps(answer).encode() + b"\n")
+            except (OSError, ValueError) as error:
+                # `OSError` covers the hang-ups; `ValueError` covers a request
+                # that arrived truncated and will not parse.
+                session.hangups.write_text(
+                    f"{type(error).__name__}: {error}\n", encoding="utf-8"
+                )
                 continue
-            message = json.loads(asked.decode())
-            answer: dict[str, str] = {}
-            if message["do"] == "screen":
-                shown = _settled(grid, console)
-                # Kept as it is answered, because the counts are computed from
-                # the screens the operator was actually shown: a report that
-                # reads a file nobody writes answers zero for every one of them.
-                with session.screens.open("a", encoding="utf-8") as log:
-                    log.write(shown + "\f")
-                answer = {"screen": shown}
-            elif message["do"] == "key":
-                console.send_raw(str(message["text"]))
-                answer = {"sent": "yes"}
-            elif message["do"] == "stop":
-                answer = {"stopped": "yes"}
-            channel.sendall(json.dumps(answer).encode() + b"\n")
             if message["do"] == "stop":
                 break
     listener.close()
