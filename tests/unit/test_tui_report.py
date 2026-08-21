@@ -9,6 +9,7 @@ number for both is measuring the session's length, not the interface.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
 from tests.tui.report import STUCK_AFTER, Report, read, title_of
 
@@ -226,3 +227,30 @@ def test_the_open_row_is_named_when_the_box_carries_no_name() -> None:
     # closed row is what the box is there to label.
     named = frame("Mirrors", DISK) + "\n\ncursor:\n* Disk  /dev/vda"
     assert title_of(named) == "Mirrors", title_of(named)
+
+
+def test_a_spec_that_replaces_a_system_is_refused_on_a_fresh_guest() -> None:
+    """The interface says so on its first screen, after ten minutes of boot.
+
+    `conversion is not offered: this medium has no installed system to
+    replace` is what an agent sent at the in-place spec would read, having
+    spent a guest and a round to get there.
+    """
+    import pytest
+
+    from tests.vm import cluster
+
+    class Nothing:
+        def isos(self, node: str) -> list[str]:
+            raise AssertionError("a refused spec must not reach the cluster")
+
+    with pytest.raises(ValueError, match="already boots one"):
+        cluster.tui_execution(
+            cast(Any, Nothing()), "infra-node1", "conv", 3, Path("/nonexistent")
+        )
+
+    # Negative control: every other spec is answerable on a fresh guest, so
+    # the refusal is about this one and not about the check being on at all.
+    assert cluster.TUI_NEEDS_A_SYSTEM == frozenset({3}), cluster.TUI_NEEDS_A_SYSTEM
+    for number in sorted(set(cluster.TUI_GUESTS) - cluster.TUI_NEEDS_A_SYSTEM):
+        assert number not in cluster.TUI_NEEDS_A_SYSTEM

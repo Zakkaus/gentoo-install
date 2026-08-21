@@ -1853,6 +1853,12 @@ TUI_COLUMNS: Final[int] = 120
 #: spec, because the machine a spec describes is part of the spec: asking for
 #: an MBR table on a UEFI guest is asking the operator to answer an impossible
 #: question, and the run would measure that rather than the interface.
+#: Specs that describe a machine already running something. A blank guest
+#: cannot answer them: the interface itself says so on its first screen —
+#: `conversion is not offered: this medium has no installed system to
+#: replace` — and an agent sent at one spends its whole run finding that out.
+TUI_NEEDS_A_SYSTEM: Final[frozenset[int]] = frozenset({3})
+
 TUI_GUESTS: Final[dict[int, tuple[int, bool, bool]]] = {
     1: (1, True, True),
     2: (2, False, True),
@@ -1890,6 +1896,12 @@ def tui_execution(
     # Most free node first, the same order the schedule uses. The node is
     # chosen here rather than by the caller so two sessions started at once
     # cannot both take the last slot on one node.
+    if spec in TUI_NEEDS_A_SYSTEM:
+        raise ValueError(
+            f"spec {spec} replaces a running system, so it needs a guest that "
+            "already boots one; a fresh guest can only be told that conversion "
+            "is not offered"
+        )
     chosen = node or free_slots(api)[0].name
     # The medium and the driver CD are per node, and `local` is not shared:
     # a session that skipped this asked the node for `iso/minimal`, which is
