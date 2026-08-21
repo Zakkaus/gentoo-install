@@ -1362,3 +1362,27 @@ def test_a_list_that_scrolls_says_where_in_it_the_cursor_is() -> None:
     moved = FakeScreen(keys=["KEY_DOWN", "KEY_DOWN", "\n"], lines=17, columns=40)
     Menu(title="Portage", items=items).run(moved)
     assert moved.last.splitlines()[0].rstrip().endswith("3/14"), moved.last
+
+
+def test_the_box_names_the_row_only_while_it_is_closed() -> None:
+    """Opened, the screen inside writes its own title on the first line.
+
+    Read off a guest: the box said `Install mode` and the line one cell below
+    it said `Install mode` again, which is a line of a pane spent on a word
+    the reader had just read.
+    """
+    from gentoo_install.tui.widgets import TwoPane
+
+    rows = [PaneRow(label="Install mode", value=0, state="partition a disk")]
+
+    closed = FakeScreen(keys=["\n"], lines=24, columns=110)
+    TwoPane(title="gentoo-install", rows=rows).frame(closed, 0, dimmed=False)
+    shut = "\n".join(closed.drawn(line) for line in range(24))
+    assert "Install mode" in shut.split("+-", 1)[1].split("\n", 1)[0], shut
+
+    # Negative control: with the row open the box is bare, so the name below
+    # it is the only one and the pane keeps that line.
+    opened = FakeScreen(keys=["\n"], lines=24, columns=110)
+    TwoPane(title="gentoo-install", rows=rows).frame(opened, 0, dimmed=True)
+    ajar = "\n".join(opened.drawn(line) for line in range(24))
+    assert "Install mode" not in ajar.split("+-", 1)[1].split("\n", 1)[0], ajar
