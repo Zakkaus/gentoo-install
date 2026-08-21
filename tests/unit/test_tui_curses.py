@@ -619,3 +619,37 @@ def test_the_key_page_leaves_the_interface_where_it_was() -> None:
     assert answered.get("error") is None, answered
     assert answered["left"] == "MARKER-LEFT", answered
     assert answered["right"] == "MARKER-RIGHT", answered
+
+def test_every_key_the_session_sends_is_the_one_terminfo_names() -> None:
+    """A sequence ncurses cannot parse arrives as a bare escape.
+
+    `CSI H` and `CSI F` are what a terminal sends with the keypad off, and
+    `curses.wrapper` turns it on: sent anyway, End reached the widgets as
+    escape and the interface offered to leave the run instead of moving the
+    cursor. Checked against terminfo rather than a pty, because the pty
+    helper writes one byte at a time and ncurses times out inside a sequence.
+    """
+    from tests.tui.session import KEYS
+
+    curses.setupterm(term="xterm", fd=sys.stdout.fileno())
+    for name, capability in (
+        ("up", "kcuu1"),
+        ("down", "kcud1"),
+        ("left", "kcub1"),
+        ("right", "kcuf1"),
+        ("home", "khome"),
+        ("end", "kend"),
+        ("pageup", "kpp"),
+        ("pagedown", "knp"),
+        ("backspace", "kbs"),
+    ):
+        wanted = curses.tigetstr(capability)
+        assert wanted is not None, capability
+        assert KEYS[name] == wanted.decode(), (name, KEYS[name], wanted)
+
+
+    # Negative control: the form this replaced is not what terminfo names, so
+    # the check above is comparing against the terminal and not against
+    # whatever the table happens to hold.
+    assert curses.tigetstr("khome") != b"\x1b[H"
+    assert curses.tigetstr("kcud1") != b"\x1b[B"
