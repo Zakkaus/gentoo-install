@@ -87,10 +87,30 @@ def test_asking_for_help_and_being_refused_are_counted(tmp_path: Path) -> None:
     assert quiet.helped == 0 and quiet.refused == 0, quiet
 
 
-def test_a_session_that_never_reached_the_install_row_is_unfinished(tmp_path: Path) -> None:
-    assert not read(session(tmp_path / "part", [frame("Disk", DISK)], ["down"])).finished
-    done = read(session(tmp_path / "done", [frame("Install", DISK)], ["enter"]))
-    assert done.finished, done
+def test_finished_means_the_plan_ran_not_that_a_row_was_on_the_screen(
+    tmp_path: Path,
+) -> None:
+    """The main list always carries a `Start the installation` row.
+
+    Matched against the last screen, a session that ended anywhere on that
+    list read as one that had installed: three of four runs were reported
+    finished when one of them had left the installer without starting it.
+    """
+    still = session(tmp_path / "part", [frame("Install", DISK)], ["down"])
+    (still / "probe-9301-abc.log").write_bytes(b"root@livecd ~ # ")
+    assert not read(still).finished
+
+    ran = session(tmp_path / "done", [frame("Disk", DISK)], ["enter"])
+    (ran / "probe-9301-abc.log").write_bytes(
+        b"run: findmnt --mountpoint /mnt/gentoo\ninstalled 74 operations into /mnt/gentoo\n"
+    )
+    assert read(ran).finished
+
+    # Negative control: a console that mentions the installer without having
+    # run it is not enough, or the count is measuring the word and not the run.
+    said = session(tmp_path / "said", [frame("Disk", DISK)], ["enter"])
+    (said / "probe-9301-abc.log").write_bytes(b"install.sh --lang zh-TW\nInstall\n")
+    assert not read(said).finished
 
 
 def test_reading_a_session_that_left_nothing_behind_answers_zero(tmp_path: Path) -> None:
@@ -108,15 +128,14 @@ def test_a_translated_screen_is_counted_the_same_as_an_english_one(tmp_path: Pat
     """
     from gentoo_install.i18n import Catalog
 
-    done = Catalog("zh-TW")("Install")
-    assert done != "Install", "the catalog has no translation to test against"
-    reached = read(session(tmp_path / "zh", [frame(done, DISK)], ["enter"]))
-    assert reached.finished, reached
+    rejected = Catalog("zh-TW")("Not a package name")
+    assert rejected != "Not a package name", "the catalog has no translation to test against"
+    refused = read(session(tmp_path / "zh", [frame("Extra packages", ((rejected, ""),))], ["type:code"]))
+    assert refused.refused == 1, refused
 
-    # Negative control: a screen whose heading is a word no catalog maps
-    # `Install` to must not be read as having reached it.
-    assert not read(session(tmp_path / "no", [frame("Kernel", DISK)], ["enter"])).finished
-
+    # Negative control: a screen whose text no catalog maps that string to is
+    # not counted as a refusal.
+    assert read(session(tmp_path / "no", [frame("Kernel", DISK)], ["enter"])).refused == 0
 
 def test_the_session_offers_no_subcommand_that_answers_with_its_own_input() -> None:
     """`plan` read the key log and called it the installer's plan.
