@@ -3814,3 +3814,26 @@ def test_the_install_row_refuses_while_something_required_is_missing() -> None:
     # And the overview behind that row was never opened: refused, not merely
     # described. Left choosable this is where the run reached the plan.
     assert "Overview" not in drawn, drawn[-300:]
+
+
+def test_the_install_row_says_its_reason_once() -> None:
+    """The pane headed itself with `disabled_because` and app.py passed the
+    same sentence again as the detail lines, so the right pane read `Install
+    mode, Drive, ...: still needs an answer` and then each of those parts
+    again underneath. Counted in the right pane only, because every part is
+    also a row label in the left one."""
+    at = context()
+    blank = replace(config(), system=replace(config().system, root_password_hash=""))
+    screen = FakeScreen(
+        keys=[*down(len(settings.SETTINGS)), "q", "KEY_DOWN", "\n"], lines=40, columns=130
+    )
+    run(screen, blank, at)
+    panes = [
+        "\n".join(line.split("|", 1)[1] for line in frame if "|" in line)
+        for frame in screen.frames
+    ]
+    carrying = [pane for pane in panes if "Install mode" in pane and "Mirrors" in pane]
+    assert carrying, "no right pane carried the install row's reason"
+    for pane in carrying:
+        for part in ("Install mode", "Drive", "Mirrors", "make.conf"):
+            assert pane.count(part) == 1, f"{part} appears {pane.count(part)} times:\n{pane}"
