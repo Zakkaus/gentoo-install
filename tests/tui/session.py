@@ -166,6 +166,20 @@ def start(name: str, spec: int, node: str = "", vmid: int = 0) -> str:
     os._exit(0)
 
 
+def _with_cursor(grid: "Screen") -> str:
+    """The grid, and under it the row the cursor is on.
+
+    The interface marks the cursor by inverting that row and nothing else, so
+    the grid alone does not carry it: every row reads the same and enter is a
+    guess. Named rather than drawn into the grid, because a marker in the
+    cells would be a character the operator's own screen does not show.
+    """
+    rows = grid.highlighted()
+    if not rows:
+        return grid.text()
+    return grid.text() + "\n\ncursor:\n" + "\n".join(rows)
+
+
 def _settled(grid: "Screen", console: object) -> str:
     """The screen once the guest has stopped drawing on it.
 
@@ -181,7 +195,7 @@ def _settled(grid: "Screen", console: object) -> str:
         if not arrived:
             break
         grid.feed(arrived)
-    return grid.text()
+    return _with_cursor(grid)
 
 
 def serve(session: Session, console: object, guest: object) -> None:
