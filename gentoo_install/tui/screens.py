@@ -57,7 +57,7 @@ from ..plan.fonts import CjkFontconfigLocale
 from ..model.compat import KERNEL_PACKAGES
 from ..model.size import Size
 from ..errors import DeviceNotFound, GentooInstallError
-from ..model import atoms, manual, paste, sshkey
+from ..model import atoms, manual, paste, refusals, sshkey
 from ..model.templates import Layout, build
 from ..plan.packages import Catalog as Groups
 from ..plan.packages import FONT_CONFIGURATION_DISABLED, FONT_CONFIGURATION_ENABLED
@@ -122,6 +122,15 @@ INSTALL_MODES: tuple[tuple[DiskMode, str], ...] = (
 )
 
 
+def _because(refused: refusals.Refusal, translate: Catalog) -> str:
+    """The reason in the operator's language, and what on this machine caused
+    it after it. The detail is a device path or a command name, which is the
+    same word in every language and is not in any catalog."""
+    if not refused.detail:
+        return translate(refused.reason)
+    return f"{translate(refused.reason)} ({refused.detail})"
+
+
 def install_mode_screen(
     screen: Screen, config: InstallConfig, context: Context
 ) -> Answer[InstallConfig]:
@@ -129,14 +138,16 @@ def install_mode_screen(
     translate = context.translate
     refused = context.conversion_refused
     image_write_refused = context.image_write_refused
-    preamble = [translate("This is the difference between a new system and this one.")]
+    preamble = [
+        translate("This choice decides whether a new system is built or this one is replaced.")
+    ]
     if context.running_system:
         preamble.append(translate("Running system: ") + context.running_system)
     if refused:
-        preamble.append(translate("Conversion is not offered: ") + translate(refused))
+        preamble.append(translate("Conversion is not offered: ") + _because(refused, translate))
     if image_write_refused:
         preamble.append(
-            translate("Image writing is not offered: ") + translate(image_write_refused)
+            translate("Image writing is not offered: ") + _because(image_write_refused, translate)
         )
     menu: Menu[DiskMode] = Menu(
         title=translate("Install mode"),
@@ -2087,7 +2098,11 @@ def language_screen(screen: Screen, context: Context) -> str:
         Item(
             label=f"{name}  ({tag})",
             value=tag,
-            detail="needs a cjktty kernel or a terminal with CJK fonts" if cjk else "",
+            detail=(
+                context.translate("This language needs a cjktty kernel or a CJK console font.")
+                if cjk
+                else ""
+            ),
         )
         for tag, name, cjk in INTERFACE_LANGUAGES
     ]

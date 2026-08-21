@@ -16,7 +16,7 @@ from typing import Callable, Final, Generic, Sequence, TypedDict, TypeVar
 from ..errors import ConfigError, GentooInstallError
 from ..exec.preflight import ZFS_PASSPHRASE_MINIMUM
 from ..i18n import Catalog, clip
-from ..model import manual, mirrors, qr
+from ..model import manual, mirrors, qr, refusals
 from ..model.config import (
     BinhostChannel,
     Firmware,
@@ -127,8 +127,8 @@ class Context:
         #: because this layer reads no machine. A machine that could not be
         #: read refuses the conversion rather than offering one blind.
         running_system: str = "",
-        conversion_refused: str = "the running system was not read",
-        image_write_refused: str = "the memory environment was not read",
+        conversion_refused: refusals.Refusal = refusals.Refusal(refusals.SYSTEM_NOT_READ),
+        image_write_refused: refusals.Refusal = refusals.Refusal(refusals.MEMORY_NOT_READ),
     ) -> None:
         self.translate = translate
         self.running_system = running_system

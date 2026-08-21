@@ -8,6 +8,7 @@ import pytest
 from gentoo_install.data import load_catalog
 from gentoo_install.errors import ConfigError
 from gentoo_install.i18n import Catalog, width
+from gentoo_install.model.refusals import Refusal
 from gentoo_install.model.size import Size
 from gentoo_install.model.config import (
     Bootloader,
@@ -67,6 +68,11 @@ STAGED: list[str] = []
 def staged(text: str) -> str:
     STAGED.append(text)
     return "/run/keys/tui"
+
+
+#: Named so another test module can build the same menu; mypy refuses an
+#: implicit re-export, and a second copy of this fixture would drift.
+__all__ = ["config", "context"]
 
 
 def context() -> tui_context.Context:
@@ -3229,7 +3235,7 @@ def test_the_conversion_is_not_offered_when_the_machine_refuses_it() -> None:
         disks=DISKS,
         groups=load_catalog(),
         hash_password=lambda password: f"$6$test${len(password)}",
-        conversion_refused="this is a live medium (gentoo.iso), so there is no system to replace",
+        conversion_refused=Refusal("this is a live medium (gentoo.iso), so there is no system to replace"),
         running_system="",
     ))
     screen = FakeScreen(keys=["q"], lines=24, columns=110)
@@ -3245,7 +3251,7 @@ def test_the_conversion_is_not_offered_when_the_machine_refuses_it() -> None:
         disks=DISKS,
         groups=load_catalog(),
         hash_password=lambda password: f"$6$test${len(password)}",
-        conversion_refused="",
+        conversion_refused=Refusal(""),
         running_system="/dev/vda2 on ext4",
     ))
     seen = FakeScreen(keys=["q"], lines=24, columns=110)
@@ -3279,7 +3285,7 @@ def test_choosing_the_conversion_drops_the_device_graph() -> None:
         disks=DISKS,
         groups=load_catalog(),
         hash_password=lambda password: f"$6$test${len(password)}",
-        conversion_refused="",
+        conversion_refused=Refusal(""),
         running_system="/dev/vda2 on ext4",
     ))
     built = config()
@@ -3317,7 +3323,7 @@ def test_dd_mode_is_offered_only_from_a_live_or_memory_environment() -> None:
             disks=DISKS,
             groups=load_catalog(),
             hash_password=lambda password: f"$6$test${len(password)}",
-            conversion_refused="the running system was not read",
+            conversion_refused=Refusal("the running system was not read"),
         )
     )
     hidden = FakeScreen(keys=["q"], lines=24, columns=110)
@@ -3330,8 +3336,8 @@ def test_dd_mode_is_offered_only_from_a_live_or_memory_environment() -> None:
             disks=DISKS,
             groups=load_catalog(),
             hash_password=lambda password: f"$6$test${len(password)}",
-            conversion_refused="the running system was not read",
-            image_write_refused="",
+            conversion_refused=Refusal("the running system was not read"),
+            image_write_refused=Refusal(""),
         )
     )
     chosen = screens.install_mode_screen(

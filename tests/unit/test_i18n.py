@@ -154,6 +154,15 @@ def in_a_table() -> set[str]:
     from gentoo_install.tui.widgets import KEY_HELP
 
     found |= {row.does for row in KEY_HELP}
+    # Why a mode is not offered. The screen translates the reason it was
+    # handed, so the literal is here and not at the call site.
+    from gentoo_install.model import refusals
+
+    found |= {
+        getattr(refusals, name)
+        for name in dir(refusals)
+        if name.isupper() and isinstance(getattr(refusals, name), str)
+    }
     # The logger table lives in `plan/` because it also names the package and
     # the service; the menu reads the same rows rather than keeping a copy.
     found |= {choice.reason for choice in LOGGERS.values()}
