@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from gentoo_install import cli
+from gentoo_install import cli, errors
 from gentoo_install.exec import fetch
 from gentoo_install.exec import report
 from gentoo_install.exec.probe import BootMethod, Probe as RealProbe
@@ -1955,3 +1955,62 @@ def test_the_installer_digest_reads_the_source_it_is_running_from() -> None:
         digest.update(str(path.relative_to(root)).encode("utf-8"))
         digest.update(path.read_bytes())
     assert cli.installer_digest() == digest.hexdigest()
+
+
+def test_a_refused_menu_configuration_returns_to_the_menu(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A refusal reached the operator as a line on a dead terminal.
+
+    One whose partition sizes came to exactly the size of the disk was dropped
+    to a shell with twenty rows filled in and no way back to the one that was
+    wrong.
+    """
+    walked: list[str] = []
+
+    def menu(arguments: object, refused: str = "") -> None:
+        walked.append(refused)
+        if len(walked) == 1:
+            raise errors.PreflightFailed("disk1-table claims 40GiB, which does not fit")
+        return None
+
+    monkeypatch.setattr(cli, "_from_menu", menu)
+    monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
+    monkeypatch.setattr(cli, "_needs_network", lambda arguments: False)
+    assert cli.main(["--lang", "en"]) == cli.EXIT_ABORTED
+    assert walked == ["", "disk1-table claims 40GiB, which does not fit"], walked
+
+    # Negative control: the same refusal from a configuration file has no menu
+    # to go back to, so it stays an exit code and a line on stderr.
+    del walked[:]
+    monkeypatch.setattr(cli, "load_source", _refusing)
+    assert cli.main(["--config", "any.toml"]) == cli.EXIT_PREFLIGHT
+    assert walked == [], walked
+    assert "preflight:" in capsys.readouterr().err
+
+
+def _refusing(source: object) -> None:
+    raise errors.PreflightFailed("a file's configuration is refused the same way")
+
+
+def test_the_same_refusal_twice_stops_rather_than_asking_again(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A walk that did not change what was wrong must not be offered again.
+
+    The retry exists so one wrong row does not cost nineteen right ones; it is
+    not a reason to ask the same question for ever.
+    """
+    walked: list[str] = []
+
+    def menu(arguments: object, refused: str = "") -> None:
+        walked.append(refused)
+        raise errors.PreflightFailed("the same thing is still wrong")
+
+    monkeypatch.setattr(cli, "_from_menu", menu)
+    monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
+    monkeypatch.setattr(cli, "_needs_network", lambda arguments: False)
+    assert cli.main(["--lang", "en"]) == cli.EXIT_PREFLIGHT
+    # Twice: once with nothing to say, once with the reason. Not a third time.
+    assert walked == ["", "the same thing is still wrong"], walked
+    assert "preflight:" in capsys.readouterr().err
