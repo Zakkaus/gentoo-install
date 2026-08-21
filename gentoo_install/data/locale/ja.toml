@@ -381,7 +381,7 @@
 "removed from the table, data and all" = "表から削除。データも消える"
 "not on the disk yet" = "ディスクにまだない"
 "Take this row off the table" = "この行を表から外す"
-"one table: keep, format, delete or add each partition" = "パーティションごとに処置を指定"
+"each partition, and a second disk for a pool or array" = "パーティションごとの処置と、2 台目のディスクの追加"
 
 "Kernel command line" = "カーネルコマンドライン"
 "Parameters to append, separated by spaces" = "追加するパラメータ、空白区切り"

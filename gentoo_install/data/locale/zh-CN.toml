@@ -381,7 +381,7 @@
 "removed from the table, data and all" = "从分区表移除，数据一并消失"
 "not on the disk yet" = "尚未创建"
 "Take this row off the table" = "移除此行"
-"one table: keep, format, delete or add each partition" = "每个分区各自处置"
+"each partition, and a second disk for a pool or array" = "每个分区各自处置，也在这里加第二块磁盘"
 
 # 内核命令行与 USE：面板同时显示手动输入与安装器自动加入的值
 "Kernel command line" = "内核命令行"
