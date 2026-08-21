@@ -167,7 +167,7 @@ class KeyRow:
 #: find is a key that does not exist: `KEY_LEFT` went back from every screen
 #: for a year and no status line named it.
 KEY_HELP: Final[tuple[KeyRow, ...]] = (
-    KeyRow("enter", "Open the row under the cursor, or accept this screen"),
+    KeyRow("enter  \u2192", "Open the row under the cursor, or accept this screen"),
     KeyRow("\u2191  \u2193", "Move the cursor"),
     KeyRow("j  k", "Move the cursor, in a list; a letter in a field"),
     KeyRow("tab  shift-tab", "Move the cursor, in a list and between fields"),
@@ -376,7 +376,13 @@ class _Menu(Generic[V, A]):
                 screen.help()
             elif pressed == " " and self._multiple:
                 self._toggle(cursor)
-            elif pressed in ("\n", "KEY_ENTER"):
+            elif pressed in ("\n", "KEY_ENTER") or (
+                pressed == "KEY_RIGHT" and not self._multiple
+            ):
+                # Right chooses here as it opens a row in the list, because
+                # left goes back from both. It is left out where several rows
+                # are chosen at once: there right would accept the screen on
+                # the way to a row the operator meant to mark.
                 answer = self._accept(cursor)
                 if answer is not None:
                     return answer

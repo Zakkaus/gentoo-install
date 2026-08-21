@@ -1290,3 +1290,22 @@ def test_the_box_closes_at_the_same_column_on_both_edges() -> None:
         top, bottom = edges[0].rstrip(), edges[-1].rstrip()
         assert top.endswith("+"), (title, top)
         assert width(top) == width(bottom), (title, top, bottom)
+
+
+def test_right_chooses_in_a_list_because_left_goes_back_from_one() -> None:
+    """The main list opened a row on right; a menu ignored it.
+
+    Watched on a guest: the first agent to drive the interface pressed right
+    twice inside a menu and nothing happened, because only the two-pane list
+    took it. Left is Back in both, so right is forward in both.
+    """
+    assert menu().run(FakeScreen(keys=["KEY_RIGHT"])).unwrap() == "vda"
+
+    # Negative control: where several rows are chosen at once, right would
+    # accept the screen on the way to a row the operator meant to mark.
+    several = MultipleChoiceMenu(
+        title="Locales",
+        items=[Item(label="zh_TW", value="zh_TW"), Item(label="en_US", value="en_US")],
+    )
+    answer = several.run(FakeScreen(keys=["KEY_RIGHT", " ", "\n"]))
+    assert answer.unwrap() == ("zh_TW",), answer
