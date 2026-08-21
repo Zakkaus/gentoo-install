@@ -9,6 +9,7 @@ from gentoo_install.data import load_catalog
 from gentoo_install.errors import ConfigError
 from gentoo_install.i18n import Catalog, width
 from gentoo_install.model.refusals import Refusal
+from gentoo_install.tui.widgets import SEPARATOR
 from gentoo_install.model.size import Size
 from gentoo_install.model.config import (
     Bootloader,
@@ -102,7 +103,10 @@ def steps(label: str, rows: tuple[settings.Setting, ...] | None = None) -> int:
     that the right pane can say why, where the old menu stepped over it and
     left the reason unread.
     """
-    table = rows or settings.SETTINGS
+    # The table the menu walks, which is ordered by section rather than by
+    # how the constant is written: counting KEY_DOWNs against the constant
+    # lands the cursor on a different row.
+    table = rows or settings.in_section_order(settings.SETTINGS)
     return next(index for index, one in enumerate(table) if one.label == label)
 
 
@@ -115,7 +119,14 @@ def test_every_row_is_reachable_and_shows_its_current_value() -> None:
     walks it rather than reading one frame."""
     at = context()
     installation = config()
-    screen = FakeScreen(keys=[*down(len(settings.SETTINGS)), "q", "KEY_DOWN", "\n"])
+    # A terminal a value fits on: the right pane wraps at half the width, and
+    # 80 columns splits `Install mode: partition a disk and install onto it`
+    # across two lines, which is correct drawing and unreadable to a
+    # substring. The claim is that every row shows its value, not that 80
+    # columns is enough for the longest of them.
+    screen = FakeScreen(
+        keys=[*down(len(settings.SETTINGS)), "q", "KEY_DOWN", "\n"], lines=40, columns=120
+    )
     run(screen, installation, at)
     seen = "\n".join("\n".join(frame) for frame in screen.frames)
     assert {setting.key for setting in settings.SETTINGS if setting.required} == set(
@@ -142,20 +153,23 @@ def test_the_firmware_row_is_shown_and_not_chosen() -> None:
     firmware = next(s for s in settings.SETTINGS if s.key == "firmware")
     assert firmware.edit is None
     at = context()
-    # Down to the Firmware row: the right pane draws the cursor row's reason
-    # and `mode` is the first row now.
-    keys = [*down(next(i for i, s in enumerate(settings.SETTINGS) if s.key == "firmware"))]
-    screen = FakeScreen(keys=[*keys, "q", "KEY_DOWN", "\n"])
+    # Down to the Firmware row: the right pane draws the cursor row's reason,
+    # and the sections put `Install mode` above it.
+    table = settings.settings_for(config())
+    steps = next(index for index, one in enumerate(table) if one.key == "firmware")
+    screen = FakeScreen(keys=[*down(steps), "q", "KEY_DOWN", "\n"], lines=40, columns=120)
     run(screen, config(), at)
     # The state word carries the value and the right pane heads with the
     # reason, so the two are read together without the row saying `detected`
     # twice as it once did.
+    # A row of the list, not the frame's own title: the box names the row the
+    # cursor is on in its top edge, so `Firmware` appears there as well.
     menu = next(
         frame
         for frame in reversed(screen.frames)
-        if any("Firmware" in line for line in frame)
+        if any("Firmware" in line and "+-" not in line for line in frame)
     )
-    row = next(line for line in menu if "Firmware" in line)
+    row = next(line for line in menu if "Firmware" in line and "+-" not in line)
     assert "uefi" in row, row
     assert "\n".join(menu).count(at.translate("detected")) == 1, menu
     assert not any("(detected)" in "\n".join(frame) for frame in screen.frames)
@@ -936,11 +950,12 @@ def test_kernel_command_line_summary_names_automatic_parameters() -> None:
     assert "kernel parameters" in value
 
 
-def test_compiler_group_uses_tool_translation() -> None:
-    # Escapes rather than literals: the source stays readable to a contributor
-    # who does not read Chinese. U+7DE8 U+8B6F U+5668 is the compiler tool.
-    assert Catalog("zh-TW")("Compiler") == "\u7de8\u8b6f\u5668"
-    assert Catalog("zh-CN")("Compiler") == "\u7f16\u8bd1\u5668"
+def test_the_make_conf_row_is_named_after_the_file_it_writes() -> None:
+    """`Compiler` named the tool and the row writes `make.conf`, which holds
+    jobs, flags, keywords and USE as well. A file name is the same word in
+    every language, and each catalog says so rather than falling through."""
+    for tag in ("zh-TW", "zh-CN", "ja", "ko"):
+        assert Catalog(tag)("make.conf") == "make.conf"
 
 
 def test_main_menu_enter_action_is_open() -> None:
@@ -1021,8 +1036,14 @@ def test_language_section_reaches_every_language_setting_from_the_menu() -> None
     screen = FakeScreen(keys=keys, lines=30, columns=100)
     finished = run(screen, config(), at)
     assert finished.cancelled
+    # Inside the frame rather than instead of it: the nested screen draws in
+    # the right pane, so its title is beside the list and no longer the first
+    # line of the terminal.
     language_frames = [
-        frame for frame in screen.frames if frame[0] == "Language and fonts"
+        frame
+        for frame in screen.frames
+        if any(line.split(SEPARATOR)[-2].strip().startswith("Language and fonts")
+               for line in frame if line.count(SEPARATOR) >= 2)
     ]
     assert language_frames
     drawn = "\n".join("\n".join(frame) for frame in language_frames)
@@ -1604,14 +1625,16 @@ def test_an_optional_row_never_opened_is_drawn_yellow() -> None:
     from gentoo_install.tui.widgets import Style
 
     at = context()
-    screen = FakeScreen(keys=["q", "KEY_DOWN", "\n"], lines=30, columns=100)
+    # Tall enough for the whole list: six section headings take six lines,
+    # and `Desktop environment` sits below thirty.
+    screen = FakeScreen(keys=["q", "KEY_DOWN", "\n"], lines=40, columns=100)
     run(screen, config(), at)
     yellow = [text for style, text in screen.styled if style is Style.UNTOUCHED]
     assert any("Desktop" in one for one in yellow), yellow
 
     opened = context()
     opened.visited = {setting.key for setting in settings.SETTINGS}
-    plain = FakeScreen(keys=["q", "KEY_DOWN", "\n"], lines=30, columns=100)
+    plain = FakeScreen(keys=["q", "KEY_DOWN", "\n"], lines=40, columns=100)
     run(plain, config(), opened)
     assert not [text for style, text in plain.styled if style is Style.UNTOUCHED]
 
@@ -1945,8 +1968,11 @@ def test_staying_after_a_cancel_keeps_the_answers_that_came_with_it(
     replaced = (*settings.SETTINGS[:index], patched, *settings.SETTINGS[index + 1 :])
     monkeypatch.setattr(settings, "SETTINGS", replaced)
     # The cursor lands on every row, including one that cannot be opened, so
-    # the count is the position in the table.
-    steps = next(n for n, one in enumerate(replaced) if one.label == "Hostname")
+    # the count is the position in the table the menu walks, which is ordered
+    # by section rather than by how the constant is written.
+    steps = next(
+        n for n, one in enumerate(settings.settings_for(config())) if one.label == "Hostname"
+    )
     # Open that row, answer No to leaving, then leave for real.
     keys = [*down(steps), "\n", "\n", "q", "KEY_DOWN", "\n"]
     screen = FakeScreen(keys=keys, lines=30, columns=100)
@@ -2211,13 +2237,16 @@ def test_a_grouped_row_answers_whole_and_the_pane_is_what_fits_it() -> None:
     """The summary was cut against the terminal and then drawn into a pane a
     fraction of that wide, so `spread` dropped eleven English rows whole."""
     at = context()
-    disk = next(one for one in settings.SETTINGS if one.key == "storage")
+    # A row that is still a group: `storage` answers with its drives alone
+    # now, because the whole layout on one row was the screen behind it read
+    # out loud.
+    disk = next(one for one in settings.SETTINGS if one.key == "system")
 
     # Five of the seven disk rows answer with nothing, and a summary made of
     # those reads as a string of words with no subject.
     quiet = {at.translate(one) for one in settings.QUIET}
     said = [one for one in (row.value(config(), at) for row in disk.rows) if one not in quiet]
-    assert len(said) < len(disk.rows)
+    assert said and len(said) <= len(disk.rows)
 
     # Whole, at any terminal width: the row does not know what room it gets.
     for columns in (40, 200):
@@ -2231,9 +2260,12 @@ def test_a_grouped_row_answers_whole_and_the_pane_is_what_fits_it() -> None:
 
     # The room decides, and the count is said whatever the room is.
     assert settings.shown_value(disk, config(), at, 200) == disk.value(config(), at)
-    parts = disk.value(config(), at).split(", ")
+    # Narrow takes what fits and says nothing about the rest: the count was
+    # four cells spent saying that more exists, which the pane beside the row
+    # and the screen behind it both answer in full.
     narrow = settings.shown_value(disk, config(), at, 20)
-    assert width(narrow) <= 20 and narrow.endswith(f"+{len(parts) - 1}"), narrow
+    assert width(narrow) <= 20 and "+" not in narrow, narrow
+    assert narrow and narrow in disk.value(config(), at), narrow
 
 
 def test_the_rows_say_not_set_in_the_language_the_menu_is_in() -> None:
@@ -2937,7 +2969,7 @@ def test_a_detected_row_still_has_to_be_opened() -> None:
     # `Disk` is a group whose own rows carry the requirement, so the row
     # behind it is what gets named.
     said = app._blocked(whole, at)
-    for label in ("Mirrors", "Drive", "Compiler"):
+    for label in ("Mirrors", "Drive", "make.conf"):
         assert label in said, said
 
 
@@ -3413,55 +3445,35 @@ def test_a_cpu_that_cannot_run_v3_cannot_be_made_to_choose_it() -> None:
     assert "this CPU cannot run it" in screen.last
 
 
-def test_the_licence_button_offers_every_licence_and_the_default() -> None:
-    """A machine that needs `net-im/wemeet` or an NVIDIA driver meets the
-    licence question as a refusal — the group masked, the install over — and
-    the Licenses row is two levels down under Compiler. This row is at the
-    top level and offers two answers, so opening it and accepting keeps what
-    it held, which every other row does as well."""
+def test_one_row_answers_for_every_licence_portage_may_merge() -> None:
+    """Two rows wrote `ACCEPT_LICENSE` and offered different answers: the
+    Licenses row under Compiler had three, and a top-level `Accept every
+    license` had two. One variable, one row, and `*` is its third option."""
     import pathlib
     from typing import Any, cast
 
     from gentoo_install.exec.config import load
 
     here = pathlib.Path(__file__).resolve().parents[1]
-    config = load(here / "fixtures" / "vm-desktop.toml")
-    assert tuple(config.portage.accept_license) != ("*",)
+    installation = load(here / "fixtures" / "vm-desktop.toml")
+    assert tuple(installation.portage.accept_license) != ("*",)
 
-    # The menu opens on the value the configuration holds, which is the
-    # second row here, so `*` is one press up.
-    screen = FakeScreen(keys=["KEY_UP", "\n"])
-    widened = screens.accept_every_license_screen(cast(Any, screen), config, context())
+    # One row in the menu writes it, and it is at the top level rather than
+    # two deep under Compiler, where the operator met it as a refusal.
+    from gentoo_install.tui.settings import COMPILER, SETTINGS, in_section_order
 
-    assert widened.chosen
-    assert widened.unwrap().portage.accept_license == ("*",)
+    writes = [one.key for one in SETTINGS if one.key in {"license", "every_license"}]
+    assert writes == ["license"], writes
+    assert "license" not in {one.key for one in COMPILER}
+    order = [one.key for one in in_section_order(SETTINGS)]
+    assert order.index("license") < order.index("compiler"), order
 
-    # And the second row is the profile's own, so the answer is reversible
-    # from the same place it was given.
-    back = screens.accept_every_license_screen(
-        cast(Any, FakeScreen(keys=["KEY_DOWN", "\n"])), widened.unwrap(), context()
-    )
-    kept = screens.accept_every_license_screen(
-        cast(Any, FakeScreen(keys=["\n"])), widened.unwrap(), context()
-    )
-    assert kept.unwrap().portage.accept_license == ("*",)
+    # And it offers all three, `*` among them.
+    screen = FakeScreen(keys=[*down(2), "\n"])
+    answered = screens.license_screen(cast(Any, screen), installation, context())
+    assert answered.chosen
+    assert answered.unwrap().portage.accept_license == ("*",)
 
-    assert back.unwrap().portage.accept_license == screens.DEFAULT_LICENSES
-
-
-def test_the_licence_button_sits_above_the_row_that_opens_the_install() -> None:
-    """Above the install-mode row, where it is read before anything else is
-    chosen, and not two levels down where the refusal finds the operator
-    first."""
-    from gentoo_install.tui.settings import SETTINGS
-
-    names = [one.key for one in SETTINGS]
-    assert "every_license" in names, names
-    # Second now rather than first: `mode` decides what every other row means
-    # and moved above it. What this holds is unchanged — the licence question
-    # is met as a menu, above every row whose refusal it would otherwise be.
-    assert names.index("every_license") == 1, names
-    assert names.index("every_license") < names.index("compiler"), names
 
 
 def test_every_language_default_names_a_zone_the_screen_can_show() -> None:
@@ -3570,21 +3582,22 @@ def test_writing_an_image_asks_the_same_erase_confirmation_as_every_other_path()
     assert erase.value(written, at) == at.translate("confirmed")
 
 
-def test_the_first_value_is_measured_like_the_rest_and_the_count_is_said() -> None:
-    """Two defects in one loop: the first value was taken unchecked, so a row
-    held a value wider than its own pane; and when it was cut, the count of
-    what was left out went with it, so one answer read as the only answer."""
-    from gentoo_install.tui.settings import fit
+def test_the_first_value_is_measured_like_the_rest_and_no_count_is_added() -> None:
+    """Two defects in one loop, and one rule that followed them: the first
+    value was taken unchecked, so a row held a value wider than its own pane;
+    and the count of what was left out spent four cells saying that more
+    exists, which the pane beside the row already shows in full."""
+    from gentoo_install.tui.widgets import fit
 
     assert fit(["systemd", "journald", "cronie"], 40) == "systemd, journald, cronie"
-    assert fit(["systemd", "journald", "cronie"], 13) == "systemd +2"
-    # Wider than the room on its own: cut, and the count still said.
+    assert fit(["systemd", "journald", "cronie"], 13) == "systemd"
+    assert "+" not in fit(["systemd", "journald", "cronie"], 13)
+    # Wider than the room on its own: cut with a mark rather than drawn past
+    # the edge, because a cut value that reads whole is the defect.
     cut = fit(["partition a disk and install onto it", "and one more"], 12)
-    assert width(cut) <= 12 and cut.endswith("+1"), cut
-    # One value and no room: cut with a mark, and no count invented.
-    only = fit(["default/linux/amd64/23.0/systemd"], 10)
-    assert width(only) <= 10 and "+" not in only and only != "default/linux/amd64/23.0/systemd"
+    assert width(cut) <= 12 and cut != "partition a disk and install onto it"
     assert fit([], 10) == ""
+
 
 
 def test_every_row_of_the_main_menu_carries_a_value() -> None:
@@ -3629,8 +3642,17 @@ def test_the_row_that_decides_what_the_others_mean_comes_first() -> None:
     replaced. Both tables answer with it first."""
     from gentoo_install.tui.settings import DD_SETTINGS, SETTINGS, settings_for
 
-    assert SETTINGS[0].key == "mode", [one.key for one in SETTINGS[:3]]
-    assert DD_SETTINGS[0].key == "mode", [one.key for one in DD_SETTINGS[:3]]
+    # The order the menu walks, not the order the constant is written in:
+    # sections decide it now, and asserting the constant would pass while the
+    # drawn list said something else.
+    from gentoo_install.tui.settings import in_section_order
+
+    assert in_section_order(SETTINGS)[0].key == "mode", [
+        one.key for one in in_section_order(SETTINGS)[:3]
+    ]
+    assert in_section_order(DD_SETTINGS)[0].key == "mode", [
+        one.key for one in in_section_order(DD_SETTINGS)[:3]
+    ]
     # The table the menu actually walks, not only the constant: `settings_for`
     # picks one per mode and a reordering there would not show above.
     installation = config()
