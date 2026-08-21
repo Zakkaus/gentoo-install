@@ -190,7 +190,7 @@ def test_field_editors_have_one_descriptor_for_each_editable_row() -> None:
     mirror_expected = {mirror._REGION, mirror._SITE, mirror._DISTFILES,
                        mirror._MEASURE, mirror._SYNC, mirror._BINHOST,
                        mirror._ZH_SITE, mirror._ZH_DISTFILES,
-                       mirror._ZH_BINHOST, "gig", "guru"}
+                       mirror._ZH_BINHOST, mirror._REPOSITORIES, "gig", "guru"}
     mirror_rows = {item.value for item in mirror._mirror_fields(config(), at.translate)
                    if item.value not in ("", tui_context.DONE)}
     assert mirror_rows <= mirror_expected

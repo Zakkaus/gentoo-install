@@ -441,6 +441,11 @@ class PortageConfig:
     mirrors: MirrorConfig = field(default_factory=MirrorConfig)
     binhost: Binhost = field(default_factory=Binhost)
     overlays: tuple[Overlay, ...] = ()
+    #: Names the operator asked for, enabled with `eselect repository`. Kept
+    #: apart from `overlays`: those carry a `sync_uri` this installer ships
+    #: because a package group names them, and these are the operator's own,
+    #: whose address `eselect` looks up in the current `repositories.xml`.
+    repositories: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

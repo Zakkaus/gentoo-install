@@ -1275,3 +1275,38 @@ def test_a_profile_whose_stage3_is_not_fetched_is_refused() -> None:
         )
         validate(served)
         assert variant_of(served) == f"{expected}-openrc", variant_of(served)
+
+
+def test_a_repository_name_is_checked_before_it_reaches_eselect() -> None:
+    """`eselect repository` prints one line and exits 0 for a name it does not
+    know, so the install carries on and the overlay is not there. The name is
+    refused here instead, before a disk has been written."""
+    from dataclasses import replace
+
+    installation = config()
+    for refused in ("not a name", "-leading-dash", "", "science/extra"):
+        asked = replace(
+            installation,
+            portage=replace(installation.portage, repositories=(refused,)),
+        )
+        with pytest.raises(ValidationFailed):
+            validate(asked)
+
+    # A name this installer already ships is refused too: two `repos.conf`
+    # sections of one name, and the later sync-uri replaces the earlier.
+    shipped = installation.portage.overlays[0].name if installation.portage.overlays else "gentoo"
+    with pytest.raises(ValidationFailed):
+        validate(
+            replace(
+                installation,
+                portage=replace(installation.portage, repositories=(shipped,)),
+            )
+        )
+
+    # Negative control: a name that is neither malformed nor already shipped
+    # passes, so the rule is not refusing everything.
+    validate(
+        replace(
+            installation, portage=replace(installation.portage, repositories=("science",))
+        )
+    )
