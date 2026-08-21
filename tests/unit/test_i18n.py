@@ -597,3 +597,26 @@ def test_every_widget_that_shows_a_value_cuts_through_clip() -> None:
                 module,
                 node.lineno,
             )
+
+
+def test_no_two_rows_on_one_screen_translate_to_the_same_word() -> None:
+    """`Disk` names the group and `Drive` names the device inside it; every
+    catalog gave both the same word, so `Drive: still needs an answer` was read
+    in front of a `Disk` row already showing `/dev/vda`. An agent driving
+    spec 5 stalled there."""
+    from tests.unit.layouts import config
+
+    from gentoo_install.tui.settings import settings_for
+
+    table = settings_for(config())
+    for tag in sorted(path.stem for path in LOCALES.glob("*.toml")):
+        catalog = Catalog(tag)
+        for group in table:
+            said: dict[str, str] = {}
+            for label in [group.label, *(row.label for row in group.rows)]:
+                drawn = catalog(label)
+                assert said.get(drawn, label) == label, (
+                    f"{tag}: {said.get(drawn)!r} and {label!r} are both {drawn!r} "
+                    f"in {group.label!r}"
+                )
+                said[drawn] = label

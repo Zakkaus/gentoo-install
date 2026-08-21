@@ -100,7 +100,7 @@
 "raid array member" = "raid 阵列成员"
 "bios-boot" = "bios-boot"
 "other" = "其他"
-"Drive" = "磁盘"
+"Drive" = "磁盘设备"
 "Encryption" = "加密"
 "Kernel" = "内核"
 "Profile" = "profile"
