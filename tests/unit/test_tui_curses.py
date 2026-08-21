@@ -122,7 +122,9 @@ def drive(keys: str, source: str) -> dict[str, Any]:
     return dict(json.loads(printed)) if printed else {}
 
 
-def drive_resizes(actions: list[ResizeAction], source: str) -> tuple[dict[str, Any], bytes]:
+def drive_resizes(
+    actions: list[ResizeAction], source: str, stale: tuple[str, str] | None = None
+) -> tuple[dict[str, Any], bytes]:
     """Drive keys and kernel window-size changes through a real pty.
 
     Both descriptors are nonblocking, and a child that misses the deadline is
@@ -136,8 +138,13 @@ def drive_resizes(actions: list[ResizeAction], source: str) -> tuple[dict[str, A
         os.set_inheritable(write_end, True)
         environment = dict(os.environ)
         environment["TERM"] = "xterm"
-        environment.pop("LINES", None)
-        environment.pop("COLUMNS", None)
+        # Set rather than cleared for one test, which needs them stale to see
+        # the defect; the rest are handed a clean environment.
+        if stale is None:
+            environment.pop("LINES", None)
+            environment.pop("COLUMNS", None)
+        else:
+            environment["LINES"], environment["COLUMNS"] = stale
         driver = f"""
 import json
 import os
@@ -527,3 +534,54 @@ def test_a_terminal_that_cannot_draw_a_wide_glyph_is_recognised() -> None:
         # Two cells of nothing where the glyph belongs, which is the state the
         # check exists to refuse.
         assert "\u7e7c" not in result["row"], result["row"]
+
+
+#: What `cli.py` does before `initscr`, asked of ncurses itself.
+STALE_SIZE = r"""
+import curses
+import os
+import sys
+
+def walk(window):
+    answer["before"] = window.getmaxyx()
+
+
+answer["environment"] = [os.environ.get("LINES"), os.environ.get("COLUMNS")]
+for named in ("LINES", "COLUMNS"):
+    os.environ.pop(named, None)
+curses.wrapper(walk)
+"""
+
+
+def test_a_stale_size_in_the_environment_does_not_shrink_the_interface() -> None:
+    """ncurses prefers `LINES` and `COLUMNS` over the terminal's own size, so a
+    stale pair drew the whole interface into a corner and left the rest of the
+    screen holding what was there before. Every other test pops them, which is
+    why nothing here could see it.
+    """
+    result, _ = drive_resizes([], STALE_SIZE, stale=("24", "40"))
+    assert result.get("error") is None, result.get("error")
+    # The child really did start with them set, or the case is not exercised.
+    assert result["environment"] == ["24", "40"]
+    assert tuple(result["before"]) == SIZE, (result["before"], SIZE)
+
+
+def test_the_entry_point_clears_the_size_the_environment_claims() -> None:
+    """The call and its effect: reading the terminal correctly in a test that
+    pops them itself proves nothing about `cli.py`."""
+    import ast
+    import inspect
+
+    from gentoo_install import cli
+
+    tree = ast.parse(inspect.getsource(cli))
+    popped = {
+        str(node.args[0].value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and getattr(node.func, "attr", "") == "pop"
+        and node.args
+        and isinstance(node.args[0], ast.Constant)
+    }
+    for named in ("LINES", "COLUMNS"):
+        assert named in popped, sorted(popped)

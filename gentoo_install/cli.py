@@ -1088,6 +1088,12 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
     # on a machine whose environment names a UTF-8 locale; it is here because
     # nothing else guarantees the rest of the categories agree with it.
     locale.setlocale(locale.LC_ALL, "")
+    # ncurses prefers `LINES` and `COLUMNS` over the terminal's own size, so a
+    # stale pair drew the whole interface into a corner and left the rest of
+    # the screen holding whatever was there before. Measured 2026-08-21: a
+    # 40x100 terminal reads as 24x40 with them set.
+    os.environ.pop("LINES", None)
+    os.environ.pop("COLUMNS", None)
     try:
         finished = curses.wrapper(walk)
     except curses.error as error:
