@@ -1112,7 +1112,10 @@ class TwoPane(Generic[V]):
         if width_of < 4:
             return
         named = clip(f" {title} ", max(0, width_of - 4)) if title else ""
-        top = f"+-{named}" + "-" * max(0, width_of - 2 - width(named)) + "+"
+        # Three, not two: the corner at each end and the dash between them.
+        # Counting two put one cell past the pane and the closing corner was
+        # trimmed away, so the box had a top edge that never closed.
+        top = f"+-{named}" + "-" * max(0, width_of - 3 - width(named)) + "+"
         screen.write(2, column, clip(top, width_of))
         for line in range(3, lines - 2):
             screen.write(line, column, "|")
