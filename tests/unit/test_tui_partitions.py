@@ -1444,7 +1444,9 @@ def test_a_long_validator_message_leaves_the_keys_on_the_status_line() -> None:
     screen = FakeScreen(keys=["\x1b"], columns=80, lines=24)
     partitions.partitions_screen(screen, config(), at)
     line = screen.frames[-1][-1]
-    assert "[enter]" in line and "[backspace]" in line and "[esc]" in line, line
+    assert "[enter]" in line, line
+    for key in ("\u2190", "backspace", "esc"):
+        assert key in line, (key, line)
     assert problem not in line and "\u2026" in line, line
     assert width(line) <= 80
 

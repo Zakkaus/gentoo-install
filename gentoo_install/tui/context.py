@@ -315,17 +315,16 @@ def footer(translate: Catalog, enter: str = "Continue") -> str:
     return "  ".join(
         (
             f"[enter] {translate(enter)}",
-            # Left as well as backspace: left is the only Back that works in
-            # every widget, and a field with a value in it takes backspace as
-            # a deletion, so an operator reading this footer alone had no way
-            # back out of the hostname screen.
-            f"[\u2190] {translate('Back')}",
-            f"[backspace] {translate('Back')}",
+            # One entry, three keys. Left as well as backspace because left is
+            # the only Back that works in every widget and a field with a value
+            # in it takes backspace as a deletion; listed separately they read
+            # as three different things and filled half the line.
+            #
             # Back, not Cancel: escape steps back one screen at every depth
             # below the main menu, where it asks whether to end the run. It
             # said `Cancel` while doing that, and `[q] Cancel` before it,
             # which a field takes as the letter.
-            f"[esc] {translate('Back')}",
+            f"[\u2190 backspace esc] {translate('Back')}",
             # The page names the six this line has no room for. A key nothing
             # writes down is a key nobody finds: `j`, `k`, `tab`, `shift-tab`
             # and `q` all worked here with no status line naming one of them.
