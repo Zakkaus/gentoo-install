@@ -585,3 +585,37 @@ def test_the_entry_point_clears_the_size_the_environment_claims() -> None:
     }
     for named in ("LINES", "COLUMNS"):
         assert named in popped, sorted(popped)
+
+
+HELP_SOURCE = '''
+import curses
+from gentoo_install.tui.curses_screen import CursesScreen
+
+
+def main(window):
+    screen = CursesScreen(window)
+    screen.clear()
+    screen.write(0, 0, "MARKER-LEFT")
+    screen.write(3, 60, "MARKER-RIGHT")
+    screen.show()
+    screen.help()
+    answer["left"] = window.instr(0, 0, 11).decode()
+    answer["right"] = window.instr(3, 60, 12).decode()
+
+
+curses.wrapper(main)
+'''
+
+
+def test_the_key_page_leaves_the_interface_where_it_was() -> None:
+    """Drawn over the interface, the page has to be cleared by whoever redraws.
+
+    The widget that opened it redraws only its own pane, so the operator was
+    left looking at the key table with one pane of the interface on top of it.
+    Read off a guest: an agent pressed `?` inside an opened row and the screen
+    held both.
+    """
+    answered = drive("x", HELP_SOURCE)
+    assert answered.get("error") is None, answered
+    assert answered["left"] == "MARKER-LEFT", answered
+    assert answered["right"] == "MARKER-RIGHT", answered

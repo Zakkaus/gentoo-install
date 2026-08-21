@@ -22,6 +22,18 @@ _PAIRS: dict[Style, int] = {
 }
 
 
+def _put(window: Any, line: int, column: int, text: str) -> None:
+    """Write into a window that is not the interface's.
+
+    Writing the last cell of the last line always raises, and there is
+    nothing to recover: the text is already in the window.
+    """
+    try:
+        window.addstr(line, column, text)
+    except curses.error:
+        pass
+
+
 class CursesScreen:
     def __init__(
         self, window: Any, translate: Callable[[str], str] = lambda source: source
@@ -83,17 +95,27 @@ class CursesScreen:
         """
         lines, columns = self.size()
         keys = max(width(row.keys) for row in KEY_HELP)
-        self.clear()
-        self.write(0, 0, self._translate("Keys"))
+        # A window of its own, never the interface's. Drawn over the same
+        # window, the page has to be cleared afterwards by whoever redraws,
+        # and the widget that opened it redraws only its own pane: the
+        # operator was left with the key table under one pane of the
+        # interface. This leaves the interface's window untouched, so
+        # putting it back is one refresh.
+        page = curses.newwin(lines, columns, 0, 0)
+        page.erase()
+        _put(page, 0, 0, self._translate("Keys"))
         for offset, row in enumerate(KEY_HELP):
             if offset + 2 >= lines - 1:
                 break
-            self.write(offset + 2, 0, row.keys)
-            self.write(offset + 2, keys + 2, clip(self._translate(row.does), columns - keys - 2))
+            _put(page, offset + 2, 0, row.keys)
+            _put(page, offset + 2, keys + 2, clip(self._translate(row.does), columns - keys - 2))
         if lines > 1:
-            self.write(lines - 1, 0, spread(self._translate("Any key returns"), "", columns))
-        self.show()
+            _put(page, lines - 1, 0, spread(self._translate("Any key returns"), "", columns))
+        page.refresh()
         self._read_key()
+        del page
+        self._window.touchwin()
+        self._window.refresh()
 
     def key(self) -> str:
         while True:
