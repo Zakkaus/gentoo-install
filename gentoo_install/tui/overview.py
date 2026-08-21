@@ -99,7 +99,7 @@ def overview_screen(
         Item(
             label=translate("Start the installation"),
             value=_INSTALL,
-            detail=translate("everything below is what it will do"),
+            detail=translate("nothing has been written to the disks yet"),
         ),
     )
     while True:

@@ -513,7 +513,7 @@
 "packages" = "套件"
 "finish" = "完成"
 "Start the installation" = "開始安裝"
-"everything below is what it will do" = "以下為預定操作"
+"nothing has been written to the disks yet" = "還沒有寫入任何磁碟"
 "Choose a row" = "選擇一列"
 "Start writing to the disks" = "開始寫入磁碟"
 "Firewall" = "防火牆"

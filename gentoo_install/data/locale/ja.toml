@@ -512,7 +512,7 @@
 "packages" = "パッケージ"
 "finish" = "仕上げ"
 "Start the installation" = "インストールを開始"
-"everything below is what it will do" = "以下がこれから行う内容です"
+"nothing has been written to the disks yet" = "ディスクにはまだ何も書き込まれていない"
 "Choose a row" = "行を選ぶ"
 "Start writing to the disks" = "ディスクへの書き込みを開始"
 "Firewall" = "ファイアウォール"

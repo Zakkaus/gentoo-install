@@ -513,7 +513,7 @@
 "packages" = "软件包"
 "finish" = "收尾"
 "Start the installation" = "开始安装"
-"everything below is what it will do" = "以下是计划执行的操作"
+"nothing has been written to the disks yet" = "还没有写入任何磁盘"
 "Choose a row" = "选择一行"
 "Start writing to the disks" = "开始写入磁盘"
 "Firewall" = "防火墙"
