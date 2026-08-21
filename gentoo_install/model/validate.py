@@ -258,6 +258,7 @@ def validate(
         *_unlock_problems(config, address_facts.remote_unlock),
         *_locale_problems(config),
         *_l10n_problems(config),
+        *_repository_name_problems(config),
         *compat.binhost_subarch_problems(config, supports_v3),
     ]
     if problems:
@@ -439,6 +440,26 @@ def _numeric_version(version: str) -> tuple[int, ...]:
             break
         found.append(int(matched.group()))
     return tuple(found)
+
+
+#: What `eselect repository` accepts as a name, and what `repos.conf` accepts
+#: as a section. Checked here because `eselect` prints one line and exits 0
+#: for a name it does not know: the install continues and the overlay is not
+#: there.
+_REPOSITORY_NAME: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_+.-]*")
+
+
+def _repository_name_problems(config: InstallConfig) -> list[str]:
+    problems = []
+    shipped = {overlay.name for overlay in config.portage.overlays} | {"gentoo"}
+    for name in config.portage.repositories:
+        if _REPOSITORY_NAME.fullmatch(name) is None:
+            problems.append(f"{name!r} is not a repository name")
+        elif name in shipped:
+            # Two `repos.conf` sections of the same name, and the later
+            # sync-uri replaces the earlier one.
+            problems.append(f"{name} is already configured with its own sync-uri")
+    return problems
 
 
 def _l10n_problems(config: InstallConfig) -> list[str]:

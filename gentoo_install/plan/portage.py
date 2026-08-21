@@ -845,6 +845,36 @@ class AcceptOverlayKeywords(Operation):
 
 
 @dataclass(frozen=True, kw_only=True)
+class EnableRepository(Operation):
+    """Turn on an overlay the operator named, by name alone.
+
+    `eselect repository` reads the current `repositories.xml` for the address,
+    so the list is whatever the project publishes today rather than whatever
+    this repository last copied. The exit status is checked because the tool
+    prints one line and exits 0 for a name it does not know, and the install
+    would carry on without the overlay.
+    """
+
+    stage: Stage = Stage.PORTAGE
+    repository: str
+
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "enable the {} repository", (self.repository,)
+
+    def apply(self, context: Context) -> None:
+        said = context.run_in_target(
+            ["eselect", "repository", "enable", self.repository], check=False
+        )
+        failed = isinstance(said, CommandOutput) and said.returncode != 0
+        # The exit status is not enough: an unknown name prints one line and
+        # exits 0, and the install would carry on without the overlay.
+        if failed or "not found" in str(said):
+            raise CommandFailed(
+                f"{self.repository} was not enabled: {str(said).strip()[:200]}"
+            )
+
+
+@dataclass(frozen=True, kw_only=True)
 class Emerge(Operation):
     stage: Stage = Stage.PACKAGES
     packages: tuple[str, ...]
@@ -1492,6 +1522,18 @@ def build(
                 ),
             ),
             AcceptOverlayKeywords(repository=overlay.name),
+        ]
+    if portage.repositories:
+        operations.append(
+            Emerge(
+                stage=Stage.PORTAGE,
+                packages=("app-eselect/eselect-repository",),
+                summary="install eselect-repository, which the named overlays are added with",
+                repository_bootstrap=True,
+            )
+        )
+        operations += [
+            EnableRepository(repository=name) for name in portage.repositories
         ]
     if portage.testing_packages:
         # Before the check below: an atom accepted as testing is one the

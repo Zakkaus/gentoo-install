@@ -203,7 +203,7 @@ def _portage(raw: Mapping[str, Any], at: str) -> PortageConfig:
             "profile", "keywords", "sync", "testing_packages", "makeopts",
             "common_flags", "use", "video_cards", "l10n", "accept_license",
             "cpu_flags", "build_in_ram", "input_devices", "mirrors", "binhost",
-            "overlays",
+            "overlays", "repositories",
         },
     )
     default = PortageConfig()
@@ -212,6 +212,7 @@ def _portage(raw: Mapping[str, Any], at: str) -> PortageConfig:
         keywords=_enum(raw, "keywords", at, Keywords, default.keywords),
         sync=_enum(raw, "sync", at, Sync, default.sync),
         testing_packages=_strings(raw, "testing_packages", at, default.testing_packages),
+        repositories=_strings(raw, "repositories", at, default.repositories),
         makeopts=_str(raw, "makeopts", at, default.makeopts),
         common_flags=_str(raw, "common_flags", at, default.common_flags),
         use=_strings(raw, "use", at, default.use),

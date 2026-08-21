@@ -31,7 +31,7 @@ from .context import (
     pick,
     with_gentoo_zh,
 )
-from .widgets import Answer, Item, Menu, Outcome, Screen
+from .widgets import Answer, Item, Menu, Outcome, Screen, TextField
 
 _REGION: Final[str] = "region"
 _SITE: Final[str] = "site"
@@ -297,6 +297,41 @@ def _overlay_descriptor(name: str) -> FieldDescriptor[InstallConfig]:
     return FieldDescriptor(name, row, edit)
 
 
+_REPOSITORIES: Final[str] = "repositories"
+
+
+def _repositories_row(config: InstallConfig, translate: Catalog) -> Item[str]:
+    named = config.portage.repositories
+    return Item(
+        label=translate("Other overlays"),
+        value=_REPOSITORIES,
+        detail=", ".join(named) if named else translate("none"),
+    )
+
+
+def _edit_repositories(
+    screen: Screen, context: Context, config: InstallConfig
+) -> InstallConfig | None:
+    """Names from `https://overlays.gentoo.org/`, typed rather than listed.
+
+    The list has over four hundred entries and every one of them can change
+    address; `eselect repository` reads the current `repositories.xml` at
+    install time, so a name is all this has to carry.
+    """
+    translate = context.translate
+    typed = TextField(
+        title=translate("Other overlays"),
+        value=", ".join(config.portage.repositories),
+        placeholder=translate("names separated by commas, as on overlays.gentoo.org"),
+        detail=translate("no package this installer merges comes from these"),
+        footer=footer(translate),
+    ).run(screen)
+    if not typed.chosen:
+        return None
+    names = tuple(one.strip() for one in typed.unwrap().split(",") if one.strip())
+    return replace(config, portage=replace(config.portage, repositories=names))
+
+
 _MIRROR_FIELDS: tuple[FieldDescriptor[InstallConfig], ...] = (
     FieldDescriptor(_REGION, _mirror_region_row, _edit_mirror_region),
     FieldDescriptor(_SITE, _mirror_site_row, _edit_mirror_site),
@@ -317,6 +352,7 @@ _ALL_MIRROR_FIELDS = _MIRROR_FIELDS + (
     FieldDescriptor(_ZH_SITE, lambda config, translate: Item(label=translate("gentoo-zh"), value=_ZH_SITE, detail=translate(mirrors.gentoozh(config.portage.mirrors.gentoo_zh).name) if "gentoo-zh" in {one.name for one in config.portage.overlays} else translate("not used")), lambda s, c, x: _edit_gentoozh(s, c, x)),
     *_ZH_MIRROR_FIELDS,
     *_OVERLAY_FIELDS,
+    FieldDescriptor(_REPOSITORIES, _repositories_row, _edit_repositories),
 )
 
 

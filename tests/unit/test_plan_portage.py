@@ -2674,3 +2674,40 @@ def test_the_recorded_reason_carries_portage_own_diagnosis() -> None:
     )
     assert alone is not None and "example.invalid" in alone, alone
 
+
+
+def test_a_named_repository_is_enabled_after_its_tool_is_merged() -> None:
+    """`eselect repository` is not in a stage3.
+
+    Ordered rather than assumed: the enable runs in the Portage stage and the
+    package it needs is merged in the same stage, so a plan that put them the
+    other way round would fail at the first name the operator typed.
+    """
+    from gentoo_install.plan.portage import EnableRepository
+
+    installation = config()
+    asked = replace(
+        installation,
+        portage=replace(installation.portage, repositories=("science", "libressl")),
+    )
+    operations = portage.build(asked, MIRROR)
+    enabled = [one for one in operations if isinstance(one, EnableRepository)]
+    assert [one.repository for one in enabled] == ["science", "libressl"], enabled
+
+    merged = [
+        at
+        for at, one in enumerate(operations)
+        if getattr(one, "packages", ()) == ("app-eselect/eselect-repository",)
+    ]
+    assert merged, "the tool is never merged"
+    assert merged[0] < operations.index(enabled[0]), "enabled before the tool exists"
+
+    # Negative control: with no names asked for, neither the tool nor an
+    # enable is planned, so a machine pays nothing for a feature it did not use.
+    plain = portage.build(installation, MIRROR)
+    assert not [one for one in plain if isinstance(one, EnableRepository)]
+    assert not [
+        one
+        for one in plain
+        if getattr(one, "packages", ()) == ("app-eselect/eselect-repository",)
+    ]

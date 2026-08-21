@@ -714,3 +714,7 @@
 "Which licences Portage may merge: free software only, firmware as well, or every licence including proprietary software." = "Portage が導入してよい授権の範囲。自由ソフトウェアのみ、ファームウェアも含む、あるいは専有ソフトウェアを含む全部。"
 "Sources" = "取得元"
 "make.conf" = "make.conf"
+"Other overlays" = "その他のオーバーレイ"
+"names separated by commas, as on overlays.gentoo.org" = "overlays.gentoo.org に載っている名前をカンマ区切りで入力します"
+"no package this installer merges comes from these" = "インストーラーが導入するパッケージはこれらを使用しません"
+"enable the {} repository" = "{} リポジトリを有効にします"

@@ -714,3 +714,7 @@
 "Which licences Portage may merge: free software only, firmware as well, or every licence including proprietary software." = "Portage 가 병합할 수 있는 라이선스 범위. 자유 소프트웨어만, 펌웨어까지, 또는 독점 소프트웨어를 포함한 전부."
 "Sources" = "패키지 출처"
 "make.conf" = "make.conf"
+"Other overlays" = "기타 오버레이"
+"names separated by commas, as on overlays.gentoo.org" = "overlays.gentoo.org에 있는 이름을 쉼표로 구분하여 입력합니다"
+"no package this installer merges comes from these" = "설치 관리자가 병합하는 패키지는 이 오버레이를 사용하지 않습니다"
+"enable the {} repository" = "{} 저장소를 활성화합니다"
