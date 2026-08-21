@@ -173,9 +173,7 @@ class Screen:
         elif final == "K":
             self._erase_line(first)
         elif final == "X":
-            for offset in range(first or 1):
-                if self.column + offset < self.columns:
-                    self._rows[self.line][self.column + offset] = " "
+            self._blank(self.line, self.column, self.column + (first or 1))
         elif final == "m":
             for one in numbers or [0]:
                 if one == 0:
@@ -220,6 +218,20 @@ class Screen:
             self._blank(self.line, self.column, self.columns)
 
     def _blank(self, line: int, start: int, end: int) -> None:
-        for column in range(start, min(end, self.columns)):
+        """Erase a run, taking both halves of any wide character it touches.
+
+        A wide character is one cell holding it and one holding the empty
+        string. Erasing only one of them leaves a row whose cells no longer
+        add up to its columns, and every column after it moves: a menu row
+        lost the ten spaces between its label and its value, and the two read
+        as one word.
+        """
+        first = max(0, start)
+        last = min(end, self.columns)
+        if 0 < first < self.columns and self._rows[line][first] == "":
+            first -= 1
+        while last < self.columns and self._rows[line][last] == "":
+            last += 1
+        for column in range(first, last):
             self._rows[line][column] = " "
             self._reversed[line][column] = False
