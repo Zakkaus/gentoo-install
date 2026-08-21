@@ -116,3 +116,18 @@ def test_a_translated_screen_is_counted_the_same_as_an_english_one(tmp_path: Pat
     # Negative control: a screen whose heading is a word no catalog maps
     # `Install` to must not be read as having reached it.
     assert not read(session(tmp_path / "no", [frame("Kernel", DISK)], ["enter"])).finished
+
+
+def test_the_session_offers_no_subcommand_that_answers_with_its_own_input() -> None:
+    """`plan` read the key log and called it the installer's plan.
+
+    An agent asked whether the plan matches its spec would have been comparing
+    the spec against its own keystrokes, which is the shape of check that
+    cannot fail. It is gone rather than stubbed: a subcommand that answers
+    something else under the right name is worse than an absent one.
+    """
+    import tests.tui.session as session
+
+    source = Path(session.__file__).read_text(encoding="utf-8")
+    assert '"plan"' not in source, "plan is back and has to answer a real plan"
+    assert '"screen"' in source and '"key"' in source

@@ -232,8 +232,6 @@ def serve(session: Session, console: object, guest: object) -> None:
             elif message["do"] == "key":
                 console.send_raw(str(message["text"]))
                 answer = {"sent": "yes"}
-            elif message["do"] == "plan":
-                answer = {"plan": session.transcript.read_text(encoding="utf-8")}
             elif message["do"] == "stop":
                 answer = {"stopped": "yes"}
             channel.sendall(json.dumps(answer).encode() + b"\n")
@@ -251,7 +249,6 @@ def main(argv: list[str] | None = None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     for name, helped in (
         ("screen", "print what the terminal is showing"),
-        ("plan", "print what the run produced"),
         ("stop", "delete the guest"),
     ):
         one = commands.add_parser(name, help=helped)
@@ -286,9 +283,6 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if arguments.command == "screen":
         print(ask(session, {"do": "screen"})["screen"])
-        return 0
-    if arguments.command == "plan":
-        print(ask(session, {"do": "plan"})["plan"])
         return 0
     if arguments.command == "stop":
         ask(session, {"do": "stop"})
