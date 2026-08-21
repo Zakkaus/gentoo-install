@@ -3789,3 +3789,28 @@ def test_writing_an_image_asks_before_discarding_the_other_answers() -> None:
     )
     assert gone.unwrap().disk.mode is DiskMode.DD
     assert gone.unwrap().system.hostname != "lab5"
+
+
+def test_the_install_row_refuses_while_something_required_is_missing() -> None:
+    """Described but choosable, the row started an install that could not run.
+
+    A ZFS mirror built with one member reached the plan and ended the session
+    on `no node with id ''`, with every other row still answered and no way
+    back to the one that was wrong.
+    """
+    at = context()
+    blocked = app._blocked(config(), at)
+    assert blocked, "a fresh configuration is meant to name what it still needs"
+
+    # End puts the cursor on the Install row and enter answers nothing there:
+    # the run ends only on the `q` that follows, and it ends cancelled.
+    screen = FakeScreen(keys=["KEY_END", "\n", "q", "KEY_DOWN", "\n"])
+    finished = app.run(screen, config(), at)
+    assert finished.cancelled, finished
+
+    # The reason is on the screen, in the pane beside the row it refuses.
+    drawn = "\n".join("\n".join(frame) for frame in screen.frames)
+    assert "still needs an answer" in drawn, drawn[-300:]
+    # And the overview behind that row was never opened: refused, not merely
+    # described. Left choosable this is where the run reached the plan.
+    assert "Overview" not in drawn, drawn[-300:]

@@ -152,7 +152,10 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
                 # Split rather than truncated: the reason is a sentence and a
                 # cut one names fewer rows than are missing.
                 detail=_reason_lines(blocked),
-                disabled_because="",
+                # Refused, not merely described. Left choosable, a ZFS mirror
+                # with one member reached the plan and ended the session on
+                # `no node with id ''` with every other row still answered.
+                disabled_because=blocked,
             )
         )
 
