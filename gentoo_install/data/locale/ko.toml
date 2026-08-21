@@ -381,7 +381,7 @@
 "removed from the table, data and all" = "표에서 제거하며 데이터도 사라짐"
 "not on the disk yet" = "디스크에 아직 없음"
 "Take this row off the table" = "이 행을 표에서 제외"
-"one table: keep, format, delete or add each partition" = "파티션마다 처리 방식 지정"
+"each partition, and a second disk for a pool or array" = "파티션마다 처리 방식 지정, 두 번째 디스크 추가"
 
 "Kernel command line" = "커널 명령줄"
 "Parameters to append, separated by spaces" = "추가할 매개변수, 공백으로 구분"

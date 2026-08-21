@@ -381,7 +381,7 @@
 "removed from the table, data and all" = "從分割表移除，資料一併消失"
 "not on the disk yet" = "尚未建立"
 "Take this row off the table" = "移除此列"
-"one table: keep, format, delete or add each partition" = "每個分割區各自處置"
+"each partition, and a second disk for a pool or array" = "每個分割區各自處置，也在這裡加第二顆磁碟"
 
 # 核心命令列與 USE：面板同時顯示手動輸入與安裝器自動加入的值
 "Kernel command line" = "核心命令列"

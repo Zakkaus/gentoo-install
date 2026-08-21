@@ -398,7 +398,7 @@ def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> An
             Item(
                 label=translate("manual"),
                 value=True,
-                detail=translate("one table: keep, format, delete or add each partition"),
+                detail=translate("each partition, and a second disk for a pool or array"),
             ),
         ],
         footer=footer(translate),

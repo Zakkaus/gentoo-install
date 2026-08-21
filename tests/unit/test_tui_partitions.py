@@ -1627,3 +1627,14 @@ def test_sizes_larger_than_the_disk_are_refused_where_they_are_typed() -> None:
         index=2, role=PartitionRole.DATA, size=Size.parse("34GiB"), mountpoint="/"
     )
     assert _too_big_for_the_disk(at) == "", _too_big_for_the_disk(at)
+
+
+def test_the_manual_row_says_where_a_second_disk_goes() -> None:
+    """A pool across two disks is only reachable from the manual editor, and
+    `r6-7` ended with a single-device `rpool` because nothing on this screen
+    said so: the agent filled the one disk row twice and never found
+    `_RowKind.ADD_DISK`."""
+    screen = FakeScreen(keys=["q"], lines=24, columns=100)
+    screens.layout_screen(screen, config(), opened())
+    drawn = "\n".join(screen.frames[0])
+    assert "second disk" in drawn
