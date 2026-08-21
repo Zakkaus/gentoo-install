@@ -205,3 +205,22 @@ def test_erasing_half_a_wide_character_takes_the_other_half() -> None:
     plain = Screen(lines=2, columns=10)
     plain.feed(b"abcdefghij\x1b[1;4H\x1b[1X")
     assert width(plain.text().splitlines()[0]) == 10
+def test_a_tab_moves_the_cursor_rather_than_drawing_something() -> None:
+    """ncurses moves the cursor with tabs when the distance suits it.
+
+    Drawn as a character instead, every cell after it on that row was one
+    column out, and the row kept whatever the screen before it had left
+    there: the overview read `root password set` followed by three
+    characters of the network row.
+    """
+    from tests.tui.screen import Screen
+
+    grid = Screen(lines=2, columns=20)
+    grid.feed(b"ab\tcd")
+    assert grid.text().splitlines()[0] == "ab      cd", grid.text()
+
+    # Negative control: a tab already on a stop still advances a whole one,
+    # so a rule that only rounded up would leave the cursor where it was.
+    stop = Screen(lines=2, columns=20)
+    stop.feed(b"abcdefgh\tx")
+    assert stop.text().splitlines()[0] == "abcdefgh        x", stop.text()

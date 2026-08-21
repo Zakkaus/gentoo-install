@@ -123,6 +123,13 @@ class Screen:
             elif character == "\n":
                 self.line = min(self.lines - 1, self.line + 1)
                 self.column = 0
+            elif character == "\t":
+                # ncurses moves the cursor with tabs rather than a position
+                # sequence when the distance is right, 34 times in one menu
+                # draw. Drawn as a character instead, every cell after it on
+                # that row was one column out and the row kept the text the
+                # screen before it had left there.
+                self.column = min(self.columns - 1, (self.column // 8 + 1) * 8)
             elif character == "\b":
                 self.column = max(0, self.column - 1)
             elif character >= " ":
