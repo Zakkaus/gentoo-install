@@ -359,6 +359,25 @@ class SerialConsole:
         self._buffer = b""
         return bytes(got)
 
+    def read_available(self, seconds: float) -> bytes:
+        """What arrived, escapes and all.
+
+        `drain` discards and `expect` strips the escapes to match a pattern.
+        Rebuilding the screen needs them: the cursor moves are how `ncurses`
+        says which cell it is overwriting, and text with them removed is every
+        draft of the menu run together.
+        """
+        got = bytearray()
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            try:
+                self._read_once()
+            except ConsoleClosed:
+                break
+            got += self._last_chunk
+        self._buffer = b""
+        return bytes(got)
+
     def drain(self, seconds: float) -> None:
         """Read and discard for a while.
 
