@@ -55,8 +55,8 @@ from .packages import (
 )
 from .partitions import partitions_screen
 from .context import Context, Step, ValueKind, ValueSource, footer
-from ..i18n import clip, width
-from .widgets import Answer, Item, Menu, Outcome, Screen, Style
+from ..i18n import width
+from .widgets import Answer, Item, Menu, Outcome, Screen, Style, fit
 
 #: Shown for a row the operator has not visited and that has no usable default.
 UNSET: Final[str] = "not set"
@@ -71,6 +71,13 @@ class Setting:
     #: What the row shows to the right of its label.
     value: Callable[[InstallConfig, Context], str]
     edit: Step | None
+    #: One sentence saying what this row decides, drawn in the right pane
+    #: above the values. A bare `/dev/sda` does not say what it is for, and
+    #: the operator should not have to open a screen to find out.
+    describes: str = ""
+    #: The heading this row sits under, so twenty-four rows read as an order
+    #: to work through rather than one list.
+    section: str = ""
     #: A run cannot start until every required row has an answer.
     required: bool = False
     #: The rows behind this one when it opens a group. Held here so which rows
@@ -218,39 +225,6 @@ def shown_value(
     return fit(value.split(", "), room)
 
 
-def fit(parts: list[str], room: int) -> str:
-    """As many of the values as the room holds, and how many did not.
-
-    One place, because the room a row's value gets is what the pane leaves
-    after its label and nothing else: fitting against the whole terminal drew
-    a summary eleven rows could not hold, and `spread` dropped every one of
-    them rather than showing a shorter answer.
-    """
-    said = [one for one in parts if one]
-    taken: list[str] = []
-    for value in said:
-        rest = len(said) - len(taken) - 1
-        if width(", ".join([*taken, value])) + (4 if rest else 0) > room:
-            break
-        taken.append(value)
-    # The first value is measured like the rest: taking it unchecked is what
-    # left five rows holding a value wider than their own pane, which `spread`
-    # then dropped whole rather than shortened.
-    if not taken:
-        if not said:
-            return ""
-        # The count still has to be said: one value clipped to look whole reads
-        # as the only answer, and four more were set.
-        rest = len(said) - 1
-        if not rest:
-            return clip(said[0], room)
-        counter = f" +{rest}"
-        return clip(said[0], max(1, room - width(counter))) + counter
-    left = len(said) - len(taken)
-    joined = ", ".join(taken)
-    return f"{joined} +{left}" if left else joined
-
-
 def _summary(rows: tuple[Setting, ...]) -> Callable[[InstallConfig, Context], str]:
     """What a grouped row shows: as many of the values behind it as fit, and
     how many more. Measured against the terminal, because a wide one has room
@@ -303,7 +277,10 @@ def _cpu_flags(config: InstallConfig, context: Context) -> str:
 
 
 def _kernel_version(config: InstallConfig, context: Context) -> str:
-    return config.kernel.version or context.translate("not pinned")
+    # Nothing when no version is pinned: the row already names the package,
+    # and `not pinned` is a word about the absence of an answer rather than an
+    # answer, which `QUIET` then has to filter back out of every summary.
+    return config.kernel.version
 
 
 def _keywords(config: InstallConfig, context: Context) -> str:
@@ -801,7 +778,6 @@ COMPILER: Final[tuple[Setting, ...]] = (
     # Read from /proc/cpuinfo, so it is right without being asked; shown
     # because it decides which binary packages match.
     Setting("cpu_flags", "CPU flags", _cpu_flags, screens.cpu_flags_screen),
-    Setting("license", "Licenses", _license, screens.license_screen),
     Setting("keywords", "Package keywords", _keywords, screens.keywords_screen),
     Setting("use", "USE flags", _use, use_flags_screen),
     Setting("ram", "Build in RAM", _build_in_ram, screens.build_in_ram_screen),
@@ -888,85 +864,251 @@ NETWORK: Final[tuple[Setting, ...]] = (
     Setting("firewall", "Firewall", _firewall, screens.firewall_screen),
 )
 
-def _every_license(config: InstallConfig, context: Context) -> str:
-    every = tuple(config.portage.accept_license) == ("*",)
-    return context.translate("yes" if every else "no")
+
+
+def _only_one_mode(config: InstallConfig, context: Context) -> str:
+    """A screen offering one choice is not a choice.
+
+    Both other modes are refused on most machines — a running system on a
+    filesystem the installer cannot describe, and an image write that would
+    erase the installer — and the menu still opened a list with a single row
+    in it. The reasons belong beside the row, where they are read without
+    pressing enter on nothing.
+    """
+    if not context.conversion_refused or not context.image_write_refused:
+        return ""
+    return context.translate("The other modes are not available on this machine.")
 
 
 INSTALL_MODE: Final[Setting] = Setting(
-    "mode", "Install mode", _mode, screens.install_mode_screen, required=True, detected=True
-)
+        'mode',
+        'Install mode',
+        _mode,
+        screens.install_mode_screen,
+        required=True,
+        detected=True,
+        describes="Whether a new system is built on a disk or the running system is replaced.",
+        section="Partitioning",
+        unavailable=_only_one_mode,
+    )
 
 
 #: The menu, flat and in the order it is drawn. One row per decision.
 SETTINGS: Final[tuple[Setting, ...]] = (
-    # First, because it decides what the rest of the menu means: a conversion
-    # replaces the running system and a disk install erases one, and the row
-    # that says which was eighth, under six the operator can leave alone.
-    INSTALL_MODE,
-    # Second, and still above everything it exists to protect: the licence
-    # question is otherwise two levels down under Compiler, and the operator
-    # meets it as a refusal — `net-im/wemeet` masked, the install over —
-    # rather than as a menu.
     Setting(
-        "every_license",
-        "Accept every license",
-        _every_license,
-        screens.accept_every_license_screen,
+        'firmware',
+        'Firmware',
+        _firmware,
+        None,
+        describes="How this machine booted, which decides the bootloader the install can use.",
+        section="Build",
     ),
-    Setting("firmware", "Firmware", _firmware, None),
-    Setting("proxy", "Proxy", _proxy, screens.proxy_screen),
-    Setting("keymap", "Keyboard layout", lambda c, x: c.system.keymap, screens.keymap_screen),
     Setting(
-        "language",
-        "Language and fonts",
+        'proxy',
+        'Proxy',
+        _proxy,
+        screens.proxy_screen,
+        describes="The proxy every fetch goes through, for a network with no direct connection.",
+        section="Sources",
+    ),
+    Setting(
+        'keymap',
+        'Keyboard layout',
+        lambda c, x: c.system.keymap,
+        screens.keymap_screen,
+        describes="The console keyboard layout of the installed system.",
+        section="System",
+    ),
+    Setting(
+        'language',
+        'Language and fonts',
         _summary(LANGUAGE),
-        nested("Language and fonts", LANGUAGE),
+        nested('Language and fonts', LANGUAGE),
         rows=LANGUAGE,
+        describes="The system locale, the fonts it needs, and the input method for typing CJK.",
+        section="System",
     ),
-    Setting("timezone", "Timezone", lambda c, x: c.system.timezone, screens.timezone_screen),
-    Setting("mirror", "Mirrors", _mirror, mirror_screen, required=True, detected=True),
     Setting(
-        "storage",
-        "Disk",
-        _summary(DISK),
-        nested("Disk", DISK),
+        'timezone',
+        'Timezone',
+        lambda c, x: c.system.timezone,
+        screens.timezone_screen,
+        describes="The zone the installed system keeps local time and schedules in.",
+        section="System",
+    ),
+    Setting(
+        'mirror',
+        'Mirrors',
+        _mirror,
+        mirror_screen,
+        required=True,
+        detected=True,
+        describes="Where the tree, distfiles, overlays and binary packages are fetched from.",
+        section="Sources",
+    ),
+    Setting(
+        "license",
+        "Licenses",
+        _license,
+        screens.license_screen,
+        describes=(
+            "Which licences Portage may merge: free software only, firmware as well,"
+            " or every licence including proprietary software."
+        ),
+        section="Build",
+    ),
+    # Before the Disk row, because it decides whether that row applies at all.
+    INSTALL_MODE,
+    Setting(
+        'storage',
+        'Disk',
+        # The drives alone. A summary of the whole group answered `/dev/sda,
+        # gpt, whole-disk (erases the disk), /efi 1GiB, / the rest`, which is
+        # the screen behind this row read out on the row itself.
+        _drive,
+        nested('Disk', DISK),
         required=True,
         rows=DISK,
         detected=True,
         unavailable=_the_conversion_writes_no_layout,
+        describes="The disk to install onto, how it is partitioned, and what each partition holds.",
+        section="Partitioning",
     ),
-    Setting("hostname", "Hostname", lambda c, x: c.system.hostname, screens.system_screen),
-    Setting("firstboot", "Run once at first boot", _first_boot, screens.first_boot_screen),
-    Setting("system", "Init system", _summary(INIT), nested("Init system", INIT), rows=INIT),
-    Setting("profile", "Profile", lambda c, x: c.portage.profile, screens._profile_screen),
     Setting(
-        "compiler",
-        "Compiler",
+        'hostname',
+        'Hostname',
+        lambda c, x: c.system.hostname,
+        screens.system_screen,
+        describes="The name the installed system answers to on the network.",
+        section="System",
+    ),
+    Setting(
+        'firstboot',
+        'Run once at first boot',
+        _first_boot,
+        screens.first_boot_screen,
+        describes="A command the installed system runs once, the first time it starts.",
+        section="Software",
+    ),
+    Setting(
+        'system',
+        'Init system',
+        _summary(INIT),
+        nested('Init system', INIT),
+        rows=INIT,
+        describes="The service manager, the logger beside it, and the profile that matches them.",
+        section="System",
+    ),
+    Setting(
+        'profile',
+        'Profile',
+        # The last component only: every profile starts `default/linux/amd64/`
+        # and the part that differs is at the end, so the shared prefix widens
+        # the pane for a word nobody reads. The whole path is in the pane
+        # beside it and on the screen behind the row.
+        lambda c, x: c.portage.profile.rsplit("/", 1)[-1],
+        screens._profile_screen,
+        describes="The Portage profile, which sets the default USE flags and package set.",
+        section="System",
+    ),
+    Setting(
+        'compiler',
+        'make.conf',
         _summary(COMPILER),
-        nested("Compiler", COMPILER),
+        nested('Compiler', COMPILER),
         required=True,
         rows=COMPILER,
-        # `MAKEOPTS` starts at this machine's core count, which is a detected
-        # value and not an answer.
         detected=True,
+        describes="How packages are built: parallel jobs, optimisation flags and keyword policy.",
+        section="Build",
     ),
-    Setting("root", "Root password", _root, screens.root_password_screen, required=True),
-    Setting("user", "User account", _user, screens.user_screen),
-    Setting("kernel", "Kernel", _summary(KERNEL), nested("Kernel", KERNEL), rows=KERNEL),
-    Setting("bootloader", "Bootloader", _summary(BOOT), nested("Bootloader", BOOT), rows=BOOT),
-    Setting("environment", "Desktop environment", _summary(DESKTOP), nested("Desktop environment", DESKTOP), rows=DESKTOP),
-    Setting("packages", "Applications", _applications, packages_screen),
-    Setting("extra", "Extra packages", _extra, extra_packages_screen),
-    Setting("networking", "Network", _summary(NETWORK), nested("Network", NETWORK), rows=NETWORK),
-    Setting("ssh", "SSH", _summary(SSH), nested("SSH", SSH), rows=SSH),
     Setting(
-        "erase",
-        "Confirm erasing the drive",
+        'root',
+        'Root password',
+        _root,
+        screens.root_password_screen,
+        required=True,
+        describes="The password for the root account of the installed system.",
+        section="Accounts",
+    ),
+    Setting(
+        'user',
+        'User account',
+        _user,
+        screens.user_screen,
+        describes="An account created beside root, and the groups it belongs to.",
+        section="Accounts",
+    ),
+    Setting(
+        'kernel',
+        'Kernel',
+        _summary(KERNEL),
+        nested('Kernel', KERNEL),
+        rows=KERNEL,
+        describes="Which kernel package is merged, and the console font it is built with.",
+        section="Build",
+    ),
+    Setting(
+        'bootloader',
+        'Bootloader',
+        _summary(BOOT),
+        nested('Bootloader', BOOT),
+        rows=BOOT,
+        describes="What the firmware starts, and the parameters passed to the kernel.",
+        section="Build",
+    ),
+    Setting(
+        'environment',
+        'Desktop environment',
+        _summary(DESKTOP),
+        nested('Desktop environment', DESKTOP),
+        rows=DESKTOP,
+        describes="The desktop, the display manager that starts it, and the graphics drivers.",
+        section="Software",
+    ),
+    Setting(
+        'packages',
+        'Applications',
+        _applications,
+        packages_screen,
+        describes="Applications merged after the system is installed.",
+        section="Software",
+    ),
+    Setting(
+        'extra',
+        'Extra packages',
+        _extra,
+        extra_packages_screen,
+        describes="Any further package atoms to merge, given by name.",
+        section="Software",
+    ),
+    Setting(
+        'networking',
+        'Network',
+        _summary(NETWORK),
+        nested('Network', NETWORK),
+        rows=NETWORK,
+        describes="How the installed system configures its network at startup.",
+        section="System",
+    ),
+    Setting(
+        'ssh',
+        'SSH',
+        _summary(SSH),
+        nested('SSH', SSH),
+        rows=SSH,
+        describes="Whether the installed system starts an SSH server, and what it accepts.",
+        section="Accounts",
+    ),
+    Setting(
+        'erase',
+        'Confirm erasing the drive',
         _erase,
         screens.erase_screen,
         required=True,
-        missing="not confirmed",
+        missing='not confirmed',
+        describes="Agreement that the selected disk is erased, which cannot be undone.",
+        section="Partitioning",
     ),
 )
 
@@ -979,24 +1121,48 @@ DD_SETTINGS: Final[tuple[Setting, ...]] = (
         nested("Write image", IMAGE_WRITE),
         required=True,
         rows=IMAGE_WRITE,
+        section="Partitioning",
     ),
     # The same row every other destructive path carries. `dd` writes a whole
     # disk and this table did not hold it, so the one mode that always
     # destroys was the one mode the menu never asked about.
     Setting(
-        "erase",
-        "Confirm erasing the drive",
+        'erase',
+        'Confirm erasing the drive',
         _erase,
         screens.erase_screen,
         required=True,
-        missing="not confirmed",
+        missing='not confirmed',
+        describes="Agreement that the selected disk is erased, which cannot be undone.",
+        section="Partitioning",
     ),
 )
 
 
+#: The order the sections are worked through, which is the order an install
+#: actually happens in: what it is written to, then what the machine is, then
+#: the system, how it is built, who reaches it, and what it runs.
+SECTION_ORDER: Final[tuple[str, ...]] = (
+    "Partitioning",
+    "System",
+    "Sources",
+    "Build",
+    "Accounts",
+    "Software",
+)
+
+
+def in_section_order(table: tuple[Setting, ...]) -> tuple[Setting, ...]:
+    """Stable within a section, so the order inside one stays as written."""
+    return tuple(
+        sorted(table, key=lambda one: SECTION_ORDER.index(one.section)
+               if one.section in SECTION_ORDER else len(SECTION_ORDER))
+    )
+
+
 def settings_for(config: InstallConfig) -> tuple[Setting, ...]:
     """The settings relevant to the installation mode being configured."""
-    return DD_SETTINGS if config.disk.mode is DiskMode.DD else SETTINGS
+    return in_section_order(DD_SETTINGS if config.disk.mode is DiskMode.DD else SETTINGS)
 
 
 def unanswered(config: InstallConfig, context: Context) -> tuple[Setting, ...]:

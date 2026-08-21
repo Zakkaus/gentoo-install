@@ -498,6 +498,7 @@ def system_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     field = TextField(
         title=translate("Hostname"),
         value=config.system.hostname,
+        placeholder=translate("letters, digits and hyphens"),
         footer=footer(translate),
     )
     answer = field.run(screen)
@@ -547,16 +548,19 @@ def proxy_screen(screen: Screen, config: InstallConfig, context: Context) -> Ans
                 label=translate("Proxy host"),
                 value=current.host,
                 accepts=Accepts.NO_SPACE,
+                placeholder="proxy.example.com",
             ),
             Field(
                 label=translate("Proxy port"),
                 value=str(current.port) if current.port else "",
                 accepts=Accepts.DIGITS,
+                placeholder="3128",
             ),
             Field(
                 label=translate("Proxy username"),
                 value=current.username,
                 accepts=Accepts.NO_SPACE,
+                placeholder=translate("empty when the proxy needs no login"),
             ),
             Field(label=translate("Proxy password"), value=current.password, secret=True),
             Field(
@@ -2128,51 +2132,7 @@ LICENSES: tuple[tuple[str, str], ...] = (
 
 
 #: What the profile accepts when nothing widens it, and what the button below
-#: puts back.
-DEFAULT_LICENSES: Final[tuple[str, ...]] = ("@FREE",)
 
-
-def accept_every_license_screen(
-    screen: Screen, config: InstallConfig, context: Context
-) -> Answer[InstallConfig]:
-    """`ACCEPT_LICENSE="*"` from the main menu, or the profile's own default.
-
-    The Licenses row is two levels down under Compiler, and an operator
-    installing WeChat or an NVIDIA driver meets the question as a refusal
-    instead: `net-im/wemeet` masked, the install over. Two answers rather than
-    a toggle, because every other row keeps its value when it is opened and
-    accepted again.
-    """
-    translate = context.translate
-    every = ("*",)
-    items = [
-        Item(
-            label="*",
-            value=" ".join(every),
-            detail=translate("every license, including proprietary ones"),
-        ),
-        Item(
-            label=" ".join(DEFAULT_LICENSES),
-            value=" ".join(DEFAULT_LICENSES),
-            detail=translate("free software and free documentation only"),
-        ),
-    ]
-    menu: Menu[str] = Menu(
-        title=translate("Accept every license"),
-        items=items,
-        current=" ".join(config.portage.accept_license),
-        footer=footer(translate),
-    )
-    answer = menu.run(screen)
-    if not answer.chosen:
-        return Answer(answer.outcome)
-    return Answer(
-        Outcome.CHOSE,
-        replace(
-            config,
-            portage=replace(config.portage, accept_license=tuple(answer.unwrap().split())),
-        ),
-    )
 
 
 def license_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
@@ -2280,6 +2240,7 @@ def compile_flags_screen(
         typed = TextField(
             title=translate("Compiler flags"),
             value=config.portage.common_flags,
+            placeholder="-O2 -pipe -march=native",
             footer=footer(translate),
         ).run(screen)
         if not typed.chosen:

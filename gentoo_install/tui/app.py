@@ -24,7 +24,6 @@ from .context import Context
 from .context import say
 from .settings import Setting, settings_for, shown_value, style_of, unanswered
 from .widgets import (
-    MARKER_ROOM,
     Item,
     Menu,
     Outcome,
@@ -33,7 +32,6 @@ from .widgets import (
     Style,
     TextField,
     TwoPane,
-    left_pane_width,
 )
 
 
@@ -125,17 +123,15 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
         cursor = min(cursor, len(table))
         blocked = _blocked(current, context)
         labels = [context.translate(setting.label) for setting in table]
-        # The room a value gets is what its own label leaves in the left pane,
-        # not the width of the terminal: eleven English rows were fitted to the
-        # screen and then dropped whole by `spread`.
-        pane_width = left_pane_width(labels)
         rows: list[PaneRow[int]] = [
             PaneRow(
                 label=label,
                 value=index,
-                state=shown_value(
-                    setting, current, context, pane_width - MARKER_ROOM - width(label) - 1
-                ),
+                section=context.translate(setting.section) if setting.section else "",
+                # Whole: the pane fits it to the room that row ends up with,
+                # which is the only place that knows. Fitting it here meant a
+                # window opened small kept every value cut after it grew.
+                state=shown_value(setting, current, context),
                 style=style_of(setting, current, context),
                 detail=tuple(_facts(setting, current, context)),
                 # `unavailable` first: `nested()` reads it and this loop did
@@ -191,7 +187,12 @@ def run(screen: Screen, start: InstallConfig, context: Context) -> Finished:
         if editor is None or table[chosen].unavailable(current, context):
             continue
         context.visited.add(table[chosen].key)
-        edited = editor(screen, current, context)
+        # Inside the frame: the list stays on screen dimmed with this row still
+        # marked, and the editor draws in the pane beside it. Replacing the
+        # whole screen made every second-level screen look like another
+        # interface, which is what the two panes exist to stop.
+        inside = pane.frame(screen, cursor, dimmed=True)
+        edited = editor(inside if inside is not None else screen, current, context)
         if edited.outcome is Outcome.CANCELLED:
             left = _leaving(screen, current, context)
             if left is not None:
@@ -252,12 +253,34 @@ def _drawn(setting: Setting, config: InstallConfig, context: Context) -> str:
 
 
 def _facts(setting: Setting, config: InstallConfig, context: Context) -> list[str]:
-    """One row's right pane: the value it already shows, a fact to a line.
+    """One row's right pane: what the row decides, then what it holds now.
 
-    A grouped row's value joins the answers behind it with `, `, so splitting
-    on that separator gives those answers back without a second data source.
+    A bare value says nothing: `/dev/sda` does not tell the operator what it
+    is for, and a row of them reads as a list of guesses. Every value is drawn
+    with the name of the row it belongs to, the way `archinstall`'s preview
+    does it (`lib/global_menu.py:384`), under one sentence naming the setting.
     """
-    return [one for one in _drawn(setting, config, context).split(", ") if one]
+    lines: list[str] = []
+    if setting.describes:
+        lines.append(context.translate(setting.describes))
+        lines.append("")
+    if setting.rows:
+        # A group answers with its own rows, so each value is named by the row
+        # it came from rather than joined into a sentence with no subject.
+        for row in setting.rows:
+            lines.append(f"{context.translate(row.label)}: {shown_value(row, config, context)}")
+    else:
+        value = _drawn(setting, config, context)
+        lines.extend(
+            f"{context.translate(setting.label)}: {one}" for one in value.split(", ") if one
+        )
+    # Only when it opens. A row that does not already heads this pane with the
+    # reason it does not, and a second sentence saying so is the same fact
+    # twice: `detected` reached one row two ways.
+    if setting.edit is not None and not setting.unavailable(config, context):
+        lines.append("")
+        lines.append(context.translate("Press enter to edit."))
+    return lines
 
 
 def _leaving(screen: Screen, config: InstallConfig, context: Context) -> Finished | None:
