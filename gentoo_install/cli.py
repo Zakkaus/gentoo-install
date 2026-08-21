@@ -43,7 +43,7 @@ from .tui import app, screens
 from .tui import context as tui_context
 from .tui.curses_screen import CursesScreen, too_small
 from .i18n import Catalog, tag_for
-from .model import mirrors, qr, templates
+from .model import mirrors, qr, refusals, templates
 from .model.config import (
     BootloaderConfig,
     Binhost,
@@ -897,7 +897,7 @@ def _require_network() -> None:
         )
 
 
-def _conversion_offer(probe: Probe) -> tuple[str, str]:
+def _conversion_offer(probe: Probe) -> tuple[str, refusals.Refusal]:
     """What the running system is, and why it cannot be converted in place.
 
     The refusal is what the menu shows instead of the option. Everything that
@@ -908,29 +908,35 @@ def _conversion_offer(probe: Probe) -> tuple[str, str]:
     """
     medium = probe.live_medium()
     if medium:
-        return "", f"this is a live medium ({medium}), so there is no system to replace"
+        return "", refusals.Refusal(refusals.LIVE_MEDIUM, medium)
     # Measured on an Alpine cloud image: without these the layout reads back
     # empty and the refusal blamed the root device rather than the package.
     lacking = report.absent(preflight.LAYOUT_COMMANDS, probe)
     if lacking:
-        missing = ", ".join(sorted(lacking))
-        return "", f"the running system cannot be read without {missing}"
+        return "", refusals.Refusal(refusals.CANNOT_READ_THE_SYSTEM, ", ".join(sorted(lacking)))
     try:
         layout = probe.storage_layout()
     except GentooInstallError as error:
-        return "", str(error)
+        # The message is the detail: English beside the translated reason, and
+        # it names the device the reading failed on.
+        return "", refusals.Refusal(refusals.CANNOT_READ_THE_SYSTEM, str(error))
     described = f"{layout.root_device} on {layout.root_filesystem_type}"
     try:
         convert.layout_graph(layout)
-    except GentooInstallError as error:
-        return described, str(error)
-    return described, ""
+    except GentooInstallError:
+        # The exception says which filesystem, in English, for the log. The
+        # menu already draws `Running system:` beside this, so the reason it
+        # shows is a catalog key rather than the message.
+        return described, refusals.Refusal(
+            refusals.CANNOT_DESCRIBE_THE_ROOT, layout.root_filesystem_type or ""
+        )
+    return described, refusals.OFFERED
 
-def _image_write_offer(probe: Probe) -> str:
+def _image_write_offer(probe: Probe) -> refusals.Refusal:
     """Why the whole-disk image writer must stay unavailable on this machine."""
     if probe.live_medium() or probe.memory_environment():
-        return ""
-    return "writing an image over the running root would overwrite the installer"
+        return refusals.OFFERED
+    return refusals.Refusal(refusals.WOULD_OVERWRITE_THE_INSTALLER)
 
 
 

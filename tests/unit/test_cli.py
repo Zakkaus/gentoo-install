@@ -106,14 +106,16 @@ def test_image_write_offer_requires_a_live_or_memory_environment(
     probe = RealProbe(runner=Runner(log=lambda line: None), work=tmp_path)
     monkeypatch.setattr(probe, "live_medium", lambda: "")
     monkeypatch.setattr(probe, "memory_environment", lambda: False)
-    assert "overwrite the installer" in cli._image_write_offer(probe)
+    from gentoo_install.model import refusals
+
+    assert cli._image_write_offer(probe).reason == refusals.WOULD_OVERWRITE_THE_INSTALLER
 
     monkeypatch.setattr(probe, "live_medium", lambda: "the root filesystem is overlay")
-    assert cli._image_write_offer(probe) == ""
+    assert not cli._image_write_offer(probe)
 
     monkeypatch.setattr(probe, "live_medium", lambda: "")
     monkeypatch.setattr(probe, "memory_environment", lambda: True)
-    assert cli._image_write_offer(probe) == ""
+    assert not cli._image_write_offer(probe)
 
 @pytest.mark.parametrize(
     ("flag", "mode"),
@@ -1524,7 +1526,12 @@ def test_the_conversion_offer_names_the_command_the_reading_needs(
 
     running, refused = cli._conversion_offer(cast(RealProbe, Probe()))
     assert running == ""
-    assert "findmnt" in refused and "lsblk" in refused, refused
+    # The reason is a catalog key and the commands are the detail beside it:
+    # a translated screen cannot hold `findmnt` and the operator still needs it.
+    from gentoo_install.model import refusals as reasons
+
+    assert refused.reason == reasons.CANNOT_READ_THE_SYSTEM, refused
+    assert "findmnt" in refused.detail and "lsblk" in refused.detail, refused
 
     # Negative control: with every command present the offer reads the layout,
     # which this double refuses to answer. A guard that fires unconditionally
