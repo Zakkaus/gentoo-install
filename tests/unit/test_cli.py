@@ -2014,3 +2014,36 @@ def test_the_same_refusal_twice_stops_rather_than_asking_again(
     # Twice: once with nothing to say, once with the reason. Not a third time.
     assert walked == ["", "the same thing is still wrong"], walked
     assert "preflight:" in capsys.readouterr().err
+
+
+def test_a_refused_configuration_from_the_menu_returns_to_it(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A ZFS mirror built with one member ended a session on `no node with
+    id ''`, which is not a sentence an operator can act on and not a reason to
+    lose the other nineteen rows."""
+    walked: list[str] = []
+
+    def menu(arguments: object, refused: str = "") -> None:
+        walked.append(refused)
+        if len(walked) == 1:
+            raise errors.UnknownDeviceId("no node with id ''")
+        return None
+
+    monkeypatch.setattr(cli, "_from_menu", menu)
+    monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
+    monkeypatch.setattr(cli, "_needs_network", lambda arguments: False)
+    assert cli.main(["--lang", "en"]) == cli.EXIT_ABORTED
+    assert walked == ["", "no node with id ''"], walked
+
+    # Negative control: the same refusal from a configuration file has no menu
+    # to go back to, so it stays an exit code and a line on stderr.
+    del walked[:]
+    monkeypatch.setattr(cli, "load_source", _refusing_config)
+    assert cli.main(["--config", "any.toml"]) == cli.EXIT_CONFIG
+    assert walked == [], walked
+    assert "configuration:" in capsys.readouterr().err
+
+
+def _refusing_config(source: object) -> None:
+    raise errors.UnknownDeviceId("a file's configuration is refused the same way")
