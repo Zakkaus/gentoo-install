@@ -26,6 +26,13 @@ from typing import Final
 
 from tests.tui.screen import Screen
 
+#: How long the console must stay quiet before the page counts as drawn, and
+#: how long to keep waiting for that. A redraw at 120x40 arrives in a few
+#: chunks a few milliseconds apart; a running install writes continuously and
+#: must not hold the answer for ever.
+SETTLE_QUIET: Final[float] = 0.25
+SETTLE_LIMIT: Final[float] = 5.0
+
 #: Where a session keeps its socket, its log and what it was asked to build.
 #: Beside the cluster's own work directory, in the workspace rather than the
 #: repository: a session leaves a driver CD and a screen transcript, and a
@@ -159,6 +166,24 @@ def start(name: str, spec: int, node: str = "", vmid: int = 0) -> str:
     os._exit(0)
 
 
+def _settled(grid: "Screen", console: object) -> str:
+    """The screen once the guest has stopped drawing on it.
+
+    Read while `ncurses` is repainting, the grid holds a page half of one
+    layout and half of the next: a real read at 120x40 showed three rows
+    twice and no section headings at all, which is a screen the interface
+    never drew and an operator would call broken.
+    """
+    read = getattr(console, "read_available")
+    deadline = time.monotonic() + SETTLE_LIMIT
+    while time.monotonic() < deadline:
+        arrived = read(SETTLE_QUIET)
+        if not arrived:
+            break
+        grid.feed(arrived)
+    return grid.text()
+
+
 def serve(session: Session, console: object, guest: object) -> None:
     """Hold the console and answer the other subcommands.
 
@@ -189,7 +214,7 @@ def serve(session: Session, console: object, guest: object) -> None:
             message = json.loads(asked.decode())
             answer: dict[str, str] = {}
             if message["do"] == "screen":
-                answer = {"screen": grid.text()}
+                answer = {"screen": _settled(grid, console)}
             elif message["do"] == "key":
                 console.send_raw(str(message["text"]))
                 answer = {"sent": "yes"}
