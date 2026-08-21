@@ -497,6 +497,13 @@ def _once(arguments: argparse.Namespace, state: RunState, refused: str) -> int |
         print(f"resume: {error}", file=sys.stderr)
         return EXIT_CONFIG
     except errors.ConfigError as error:
+        # Back to the menu for the same reason a refused preflight goes back:
+        # the answers came from there and none of them has reached a disk. A
+        # ZFS mirror built with one member ended a session on `no node with
+        # id ''`, which is not a sentence an operator can act on and not a
+        # reason to lose the other nineteen rows.
+        if arguments.config is None and not state.disk_was_written:
+            return str(error)
         _print_machine_state(state)
         print(f"configuration: {error}", file=sys.stderr)
         return EXIT_CONFIG
