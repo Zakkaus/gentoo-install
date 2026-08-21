@@ -161,3 +161,25 @@ def test_inserting_cells_pushes_the_rest_of_the_row_right() -> None:
     wide = Screen(lines=2, columns=10)
     wide.feed(b"abcdef\x1b[1;1H\x1b[20@")
     assert wide.text().splitlines()[0] == ""
+
+
+def test_the_row_under_the_cursor_is_named_beside_the_grid() -> None:
+    """The interface inverts that row and marks it no other way.
+
+    Read as text every row looks alike, so enter is a guess: the first agent
+    to drive the interface spent five keys working out where it was. A whole
+    inverted line is a section band and is not the cursor.
+    """
+    from tests.tui.screen import Screen
+
+    grid = Screen(lines=4, columns=12)
+    grid.feed(b"\x1b[1;1H\x1b[7m band       \x1b[27m")
+    grid.feed(b"\x1b[2;1H\x1b[7mrow one\x1b[27m   ")
+    grid.feed(b"\x1b[3;1Hrow two")
+    assert grid.highlighted() == ["row one"], grid.highlighted()
+
+    # Negative control: with nothing inverted but the band, there is no
+    # cursor to name, and the band must not be offered as one.
+    plain = Screen(lines=4, columns=12)
+    plain.feed(b"\x1b[1;1H\x1b[7m band       \x1b[27m\x1b[2;1Hrow one")
+    assert plain.highlighted() == []

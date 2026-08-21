@@ -75,6 +75,20 @@ class Screen:
             if all(marks) and "".join(row).strip()
         ]
 
+    def highlighted(self) -> list[str]:
+        """The rows carrying a run of reverse video that is not a whole band.
+
+        Where the cursor is. The interface marks it by inverting the row and
+        nothing else, so `text` loses it entirely: an operator reading the
+        grid cannot tell which of twenty-four rows enter would open, and the
+        first agent to drive the interface spent five keys finding out.
+        """
+        found = []
+        for row, marks in zip(self._rows, self._reversed):
+            if any(marks) and not all(marks) and "".join(row).strip():
+                found.append("".join(row).rstrip())
+        return found
+
     def feed(self, data: bytes) -> None:
         """Take a chunk of the console, which may end anywhere.
 
