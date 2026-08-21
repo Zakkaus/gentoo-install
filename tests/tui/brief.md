@@ -12,7 +12,6 @@ One command, with these subcommands:
 ```
 python3 -m tests.tui.session screen <id>          what is on the screen now
 python3 -m tests.tui.session key <id> <keys...>   press keys
-python3 -m tests.tui.session plan <id>            what the installer would do
 ```
 
 Keys are named: `up`, `down`, `left`, `right`, `enter`, `esc`, `tab`, `space`,
@@ -42,8 +41,9 @@ something your spec names, press `help` once and read what it says. If that
 does not answer it, record the row's name under `unclear` and move on — do not
 guess, and do not brute-force the screen.
 
-Stop when the plan the installer would run matches your spec, or when you
-cannot make further progress.
+Stop when every part of your spec is answered by a row of the list, which the
+list itself shows: each row carries its current value beside its name. Stop
+early if you cannot make further progress.
 
 ## What to answer
 
@@ -58,8 +58,8 @@ One JSON object, and nothing else:
 }
 ```
 
-`installed` lists the lines of your spec's proof that the plan shows were
-answered. `stuck` names a screen you could not leave or could not set.
+`installed` lists the lines of your spec's proof that the list shows were
+answered, each with the row that answered it. `stuck` names a screen you could not leave or could not set.
 `unclear` names a row whose purpose the screen did not convey, one line each,
 saying what was missing. Your answer is read as a claim about the interface,
 not as the result of the run: the run is counted from the keys you pressed.
