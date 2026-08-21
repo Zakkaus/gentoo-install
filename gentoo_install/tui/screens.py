@@ -1636,7 +1636,7 @@ def _profile_screen(screen: Screen, config: InstallConfig, context: Context) -> 
     shared = f"{BASE_PROFILE}/"
     menu: Menu[str] = Menu(
         title=context.translate("Portage"),
-        preamble=(f"{shared}\u2026",),
+        preamble=(shared,),
         items=[
             Item(label=profile.removeprefix(shared), value=profile)
             for profile in wanted

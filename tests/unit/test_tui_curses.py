@@ -714,6 +714,8 @@ def main(window: object) -> None:
     answer["outcome"] = chosen.outcome.value
     answer["size"] = [lines, columns]
     answer["region"] = list(inside.size()) if inside is not None else None
+    answer["left"] = window.instr(3, 0, 12).decode().rstrip()
+    answer["title"] = window.instr(0, 0, 20).decode().strip()
 
 
 curses.wrapper(main)
@@ -738,3 +740,8 @@ def test_a_row_opened_before_a_resize_draws_inside_the_new_frame() -> None:
     # The region has to follow the screen it is cut from, or the editor draws
     # into a rectangle the frame no longer occupies.
     assert lines >= grown[0] - 5, result
+    # And the frame itself has to be back on the screen: the editor redraws
+    # itself on a resize and nothing else did, so the list beside it and the
+    # box around it were gone.
+    assert result["left"].strip().startswith("row"), result
+    assert result["title"].startswith("gentoo-install"), result
