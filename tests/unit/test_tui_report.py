@@ -154,3 +154,31 @@ def test_the_session_writes_the_file_the_report_counts_from(tmp_path: Path) -> N
     assert read(tmp_path) == Report(
         finished=False, lost=(), helped=0, stuck=(), refused=0
     )
+def test_every_spec_names_a_machine_that_can_answer_it() -> None:
+    """A spec and the guest it runs on are one thing.
+
+    Asked for an MBR table on a UEFI guest, or for a mirror on a machine with
+    one disk, the operator is answering an impossible question and the run
+    measures that rather than the interface.
+    """
+    from tests.tui.specs import SPECS
+    from tests.vm.cluster import TUI_GUESTS
+
+    assert sorted(SPECS) == sorted(TUI_GUESTS), (sorted(SPECS), sorted(TUI_GUESTS))
+    # Read from the proof, not the prose: a spec that says "BIOS, not UEFI"
+    # names both words, and the proof is the half a machine can be checked
+    # against anyway.
+    for number, spec in SPECS.items():
+        disks, uefi, _cjk = TUI_GUESTS[number]
+        proof = " ".join(spec.proof).lower()
+        if "mirror" in proof:
+            assert disks >= 2, (number, disks)
+        if "firmware is bios" in proof:
+            assert not uefi, number
+        if "firmware is uefi" in proof or "systemd-boot" in proof:
+            assert uefi, number
+
+    # Negative control: a spec asking for two disks on a one-disk guest is the
+    # mismatch this refuses, and the rule has to see it.
+    broken = {1: (1, True, True)}
+    assert not (broken[1][0] >= 2), "a one-disk guest must not satisfy two disks"
