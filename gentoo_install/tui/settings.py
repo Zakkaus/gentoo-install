@@ -1002,11 +1002,10 @@ SETTINGS: Final[tuple[Setting, ...]] = (
     Setting(
         'profile',
         'Profile',
-        # The last component only: every profile starts `default/linux/amd64/`
-        # and the part that differs is at the end, so the shared prefix widens
-        # the pane for a word nobody reads. The whole path is in the pane
-        # beside it and on the screen behind the row.
-        lambda c, x: c.portage.profile.rsplit("/", 1)[-1],
+        # Without the `default/linux/` every profile starts with. The last
+        # component alone is not enough: `desktop/systemd` and `systemd` both
+        # end in the same word and they are different profiles.
+        lambda c, x: c.portage.profile.removeprefix("default/linux/"),
         screens._profile_screen,
         describes="The Portage profile, which sets the default USE flags and package set.",
         section="System",
