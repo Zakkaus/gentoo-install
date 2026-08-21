@@ -27,7 +27,10 @@ from typing import Final
 from tests.tui.screen import Screen
 
 #: Where a session keeps its socket, its log and what it was asked to build.
-SESSIONS: Final[Path] = Path("lab/tui")
+#: Beside the cluster's own work directory, in the workspace rather than the
+#: repository: a session leaves a driver CD and a screen transcript, and a
+#: build artifact inside the checkout is one `git status` away from a commit.
+SESSIONS: Final[Path] = Path.home() / "code/gentoo-install/lab/tui"
 
 #: What the operator types, as the terminal sends it. Named because an agent
 #: writing `\x1b[B` by hand gets it wrong once per session.

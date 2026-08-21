@@ -898,3 +898,29 @@ def test_an_architecture_row_cannot_be_written_with_its_names_swapped() -> None:
     build: Callable[..., Any] = Architecture
     with pytest.raises(TypeError):
         build("amd64", "x86_64")
+
+
+def test_no_test_writes_its_artifacts_inside_the_checkout() -> None:
+    """A driver CD or a screen transcript in the tree is one commit away.
+
+    The workspace's `lab/` is where a build artifact belongs; a relative path
+    puts it wherever the harness happened to be run from, which for every
+    invocation of these modules is the repository.
+    """
+    import ast
+
+    root = Path(__file__).resolve().parents[2]
+    written: list[str] = []
+    for one in sorted((root / "tests").rglob("*.py")):
+        tree = ast.parse(one.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                continue
+            if node.func.id != "Path" or not node.args:
+                continue
+            first = node.args[0]
+            if not isinstance(first, ast.Constant) or not isinstance(first.value, str):
+                continue
+            if first.value.startswith("lab/"):
+                written.append(f"{one.relative_to(root)}:{node.lineno}")
+    assert not written, f"an artifact path relative to the checkout: {written}"
