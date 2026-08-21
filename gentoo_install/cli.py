@@ -370,6 +370,27 @@ def _reboot_or_disarm(
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = parser().parse_args(argv)
     state = RunState(disk_was_written=bool(arguments.resume))
+    # Why the previous walk's answers were turned down, carried back into the
+    # menu. A refusal that reaches the operator as a line on a dead terminal
+    # costs them every other answer: one whose partition sizes came to exactly
+    # the size of the disk was dropped to a shell with twenty rows filled in.
+    refused = ""
+    while True:
+        outcome = _once(arguments, state, refused)
+        if isinstance(outcome, int):
+            return outcome
+        if outcome == refused:
+            # The same reason twice means the walk did not change what was
+            # wrong, and offering the menu again would ask the operator the
+            # same question for ever.
+            _print_machine_state(state)
+            print(f"preflight: {outcome}", file=sys.stderr)
+            return EXIT_PREFLIGHT
+        refused = outcome
+
+
+def _once(arguments: argparse.Namespace, state: RunState, refused: str) -> int | str:
+    """One attempt. A string is why the menu should be walked again."""
     try:
         if arguments.disarm:
             # Before everything else: the machine is armed and the operator
@@ -399,7 +420,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
                 )
                 return EXIT_OK
-            chosen = _from_menu(arguments)
+            chosen = _from_menu(arguments, refused)
             if chosen is None:
                 print("cancelled", file=sys.stderr)
                 return EXIT_ABORTED
@@ -480,6 +501,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"configuration: {error}", file=sys.stderr)
         return EXIT_CONFIG
     except errors.PreflightFailed as error:
+        # Back to the menu when that is where the answers came from and none
+        # of them has reached a disk: the operator has one thing to change and
+        # nineteen to keep.
+        if arguments.config is None and not state.disk_was_written:
+            return str(error)
         _print_machine_state(state)
         print(f"preflight: {error}", file=sys.stderr)
         return EXIT_PREFLIGHT
@@ -1004,8 +1030,16 @@ def _refuse_a_different_run(
         if mine and theirs and mine != theirs:
             raise ResumeRefused(refusal)
 
-def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
-    """Walk the screens and return what the operator built, or None."""
+def _from_menu(
+    arguments: argparse.Namespace, refused: str = ""
+) -> InstallConfig | None:
+    """Walk the screens and return what the operator built, or None.
+
+    `refused` is why an earlier walk's answers were turned down. Shown before
+    the first screen rather than printed and left on a dead terminal: an
+    operator whose partition sizes did not fit the disk was dropped back to a
+    shell with every other answer thrown away.
+    """
     runner = Runner(log=lambda line: None)
     probe = Probe(runner=runner, work=arguments.work)
     has_ipv4, has_ipv6 = probe.address_families()
@@ -1084,6 +1118,11 @@ def _from_menu(arguments: argparse.Namespace) -> InstallConfig | None:
             chosen = screens.with_language(start, context.tag)
         else:
             chosen = screens.with_language(start, context.translate.tag)
+        if refused:
+            # After the language, so it is readable, and before the saved
+            # configuration question, so an operator who is about to load a
+            # file has already been told why the last attempt was turned down.
+            tui_context.say(display, context, refused)
         # Before the menu and after the language: the question has to be
         # readable, and loading a file replaces every answer behind it.
         offered = screens.saved_config_screen(display, chosen, context)
