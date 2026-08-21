@@ -20,9 +20,10 @@ from typing import Final
 
 from gentoo_install.i18n import width
 
-#: `CSI ... final-byte`. The parameters are digits and semicolons, and every
-#: sequence `ncurses` emits ends in one letter.
-CSI: Final[re.Pattern[str]] = re.compile(r"\x1b\[([0-9;?]*)([A-Za-z])")
+#: `CSI ... final-byte`. The parameters are digits and semicolons; the final
+#: byte is anything in `@` to `~`, not a letter. Insert-character is `@`, and
+#: matching letters alone left it unrecognised in the middle of a row.
+CSI: Final[re.Pattern[str]] = re.compile(r"\x1b\[([0-9;?]*)([@-~])")
 
 #: Two-character escapes with no parameters, and the ones that take a string
 #: terminator. Neither draws anything.
@@ -146,6 +147,13 @@ class Screen:
                 self.column = max(0, self.column - step)
         elif final == "G":
             self.column = max(0, first - 1)
+        elif final == "d":
+            # ncurses moves down a column with this rather than a full `H`,
+            # 23 times in one menu draw. Ignored, every write after it landed
+            # a row too high and the pane read as two layouts at once.
+            self.line = max(0, min(self.lines - 1, (first or 1) - 1))
+        elif final == "@":
+            self._insert(first or 1)
         elif final == "J":
             self._erase_display(first)
         elif final == "K":
@@ -162,6 +170,18 @@ class Screen:
                     self._reverse = True
                 elif one == 27:
                     self._reverse = False
+
+    def _insert(self, count: int) -> None:
+        """Push the rest of the row right, which is how a value is corrected."""
+        row = self._rows[self.line]
+        marks = self._reversed[self.line]
+        keep = self.columns - self.column - count
+        if keep <= 0:
+            self._blank(self.line, self.column, self.columns)
+            return
+        row[self.column + count :] = row[self.column : self.column + keep]
+        marks[self.column + count :] = marks[self.column : self.column + keep]
+        self._blank(self.line, self.column, self.column + count)
 
     def _erase_display(self, kind: int) -> None:
         if kind == 2:
