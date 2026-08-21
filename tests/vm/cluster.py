@@ -31,6 +31,8 @@ import sys
 import threading
 import time
 import uuid
+
+from gentoo_install.plan.netboot import CJK_RELEASES
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field, replace
@@ -650,6 +652,33 @@ def _expected_sha512(digests: Path, name: str) -> str:
 
 def _medium_name(name: str, sha512: str) -> str:
     return f"{Path(name).stem}-{sha512[:20]}.iso"
+
+
+def current_cjk() -> tuple[str, tuple[str, ...], str]:
+    """The current CJK live CD, its download and its published SHA-256.
+
+    Read from the release index rather than pinned: the asset name carries
+    the build timestamp, and the one this was first written against was gone
+    from the index within the week.
+    """
+    with urllib.request.urlopen(CJK_RELEASES, timeout=30.0) as answer:
+        release = json.loads(answer.read().decode("utf-8", "replace"))
+    assets = {one["name"]: one["browser_download_url"] for one in release["assets"]}
+    image = next((name for name in assets if name.endswith(".iso")), "")
+    if not image:
+        raise RuntimeError(f"no iso among {sorted(assets)} in {release.get('tag_name')}")
+    digest = ""
+    for name, url in assets.items():
+        if name == f"{image}.sha256" or name.endswith("DIGESTS"):
+            with urllib.request.urlopen(url, timeout=30.0) as answer:
+                said = answer.read().decode("utf-8", "replace")
+            for line in said.splitlines():
+                if image in line or len(line.split()) == 2:
+                    digest = line.split()[0]
+                    break
+        if digest:
+            break
+    return image, (assets[image],), digest
 
 
 def current_minimal() -> tuple[str, tuple[str, ...], str]:
@@ -1505,6 +1534,9 @@ class Running:
     reservation_bytes: int
     address: str = ""
     created: bool = False
+    #: Held open by a session so the operator's keys reach the same terminal
+    #: the screen was read from.
+    console: object | None = None
 
 
 #: What a guest needs beyond its install: the boots either side of it and the
@@ -1743,6 +1775,104 @@ def _note_the_probe(link: Reconnecting, when: str) -> None:
         link.run(REACHABILITY_PROBE, timeout=120.0)
     except (ConsoleTimeout, ConsoleClosed) as error:
         print(f"the {when} reachability probe did not answer: {error}", flush=True)
+
+
+#: What each session's guest is built as. The spec is a sentence the agent
+#: is given; the shape here is only what the machine needs to exist, and it
+#: is deliberately the same for all four so a difference in the report is a
+#: difference in the interface rather than in the hardware.
+#: The grid the session reads and the guest draws on. One number, so the two
+#: cannot drift: a serial line carries no size and ncurses guesses 80x24.
+TUI_LINES: Final[int] = 40
+TUI_COLUMNS: Final[int] = 120
+
+#: Disks, firmware, and whether the guest needs the CJK medium. The official
+#: minimal ISO carries no CJK font, so a Chinese session on it reads as a
+#: screen of empty boxes and says nothing about the wording. `gentoo-zh`'s
+#: own live CD carries cjktty and the fonts.
+TUI_GUESTS: Final[dict[int, tuple[int, bool, bool]]] = {
+    1: (1, True, True),
+    2: (2, False, True),
+    3: (1, True, True),
+    4: (1, True, True),
+}
+
+
+def tui_job(name: str, spec: int) -> Job:
+    """A job that carries no fixture, because there is nothing to hand over.
+
+    Every other job names a configuration file. This one names none: what the
+    installer is asked to build is typed into it by the operator.
+    """
+    if spec not in TUI_GUESTS:
+        raise ValueError(f"no spec {spec}; there are {sorted(TUI_GUESTS)}")
+    disks, uefi, _cjk = TUI_GUESTS[spec]
+    return Job(name=name, fixture=Path(), disks=disks, uefi=uefi)
+
+
+def tui_execution(
+    api: Api, node: str, name: str, spec: int, workdir: Path, vmid: int = 0
+) -> Running:
+    """A guest with the installer at its first screen and nothing answered.
+
+    Every fixture hands the installer a configuration file, so the interface
+    is never exercised: a menu nobody can read passes all forty of them. This
+    is the other half, and it takes the same path as far as the driver CD.
+    """
+    # Most free node first, the same order the schedule uses. The node is
+    # chosen here rather than by the caller so two sessions started at once
+    # cannot both take the last slot on one node.
+    chosen = node or free_slots(api)[0].name
+    # The medium and the driver CD are per node, and `local` is not shared:
+    # a session that skipped this asked the node for `iso/minimal`, which is
+    # the name before it is uploaded and not a volume the node has.
+    # `build` names the ISO it writes, so this is a file and not a directory
+    # to write into; `retain_driver` then moves it to its content-derived name.
+    print(f"{name}: building the driver CD", flush=True)
+    written = workdir / "driver.iso"
+    driver_path = retain_driver(workdir, build_driver(written, packed=True))
+    # The CJK live CD for a session, because the interface is Chinese and the
+    # official minimal ISO has no font for it: every label would read as a row
+    # of empty boxes and the run would say nothing about the wording.
+    medium, urls, medium_sha512 = (
+        current_cjk() if TUI_GUESTS[spec][2] else current_minimal()
+    )
+    print(f"{name}: uploading {medium} to {chosen}", flush=True)
+    prepare(
+        api, chosen, medium, urls, medium_sha512, MEDIUM_TRUST,
+        driver_path, driver_path.name,
+    )
+    job = replace(tui_job(name, spec), iso=medium)
+    held = _execution(
+        api, chosen, job, driver_path.name, workdir, vmid=vmid, nonce=uuid.uuid4().hex
+    )
+    guest = cast(Guest, held.guest)
+    print(f"{name}: booting {guest.vmid} on {chosen}", flush=True)
+    guest.create()
+    guest.start()
+    link = Reconnecting.to(guest, held.watch.log)
+    guest.reset()
+    if job.uefi:
+        _edit_uefi_cmdline(guest, link)
+    else:
+        _edit_bios_cmdline(guest, link)
+    print(f"{name}: waiting for the live medium", flush=True)
+    reach_prompt(link)
+    wait_for_network(link, guest.vmid, held.address)
+    link.run(FIND_DRIVER)
+    link.run(f"mkdir -p {RESULT_DIR}")
+    # Both ends have to agree on the size or the interface draws for one grid
+    # and is read on another: a serial line reports nothing, so ncurses fell
+    # back to 80x24 while the screen was rebuilt at 120x40 and every row past
+    # column 80 was read from the wrong cells.
+    link.run(f"stty rows {TUI_LINES} cols {TUI_COLUMNS}")
+    # No `--config`: the menu is the subject.
+    link.console.send(
+        f"TERM=xterm LINES={TUI_LINES} COLUMNS={TUI_COLUMNS} "
+        "sh /mnt/driver/install.sh --lang zh-TW"
+    )
+    held.console = link.console
+    return held
 
 
 def install_one(
