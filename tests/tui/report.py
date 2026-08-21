@@ -51,6 +51,21 @@ class Report:
         }
 
 
+#: What the installer prints when it has run its whole plan. Matched against
+#: the guest's own console rather than a screen: the main list always carries
+#: a `Start the installation` row, so a session that ended anywhere on that
+#: list read as one that had installed, which is a check that cannot fail.
+INSTALLED: Final[re.Pattern[str]] = re.compile(r"installed \d+ operations into")
+
+
+def _installed(session: Path) -> bool:
+    """Whether the plan ran, read off the console the guest wrote."""
+    for log in sorted(session.glob("*.log")):
+        if INSTALLED.search(log.read_bytes().decode("utf-8", "replace")):
+            return True
+    return False
+
+
 def title_of(screen: str) -> str:
     """The framed pane's own heading, which names the row that is open.
 
@@ -69,7 +84,7 @@ def read(session: Path) -> Report:
     keys = _lines(session / "keys.txt")
     screens = _screens(session / "screens.txt")
     return Report(
-        finished=any(_says("Install", one) for one in screens[-1:]),
+        finished=_installed(session),
         lost=tuple(_lost(keys, screens)),
         helped=sum(one.split().count("help") for one in keys),
         stuck=tuple(_stuck(screens)),
