@@ -19,6 +19,8 @@ from gentoo_install.tui.widgets import (
     TextField,
 )
 
+from gentoo_install.i18n import width
+
 from .fake_screen import FakeScreen
 
 #: A wide character by codepoint: no CJK literal belongs in the test tree, and
@@ -1258,3 +1260,33 @@ def test_every_field_says_what_it_takes_before_it_refuses_one() -> None:
     # Two answer with a variable title, built by the screen that opens them;
     # both carry their own line above the field.
     assert len(bare) <= 3, bare
+
+
+def test_the_box_closes_at_the_same_column_on_both_edges() -> None:
+    """The top edge was a cell wider than the pane and lost its corner.
+
+    Read off a real guest at 120x40: the bottom edge ended in `+`, the top in
+    the ellipsis `clip` leaves behind, so the frame the operator saw had no
+    right-hand corner at all. A wide title made it worse by two cells.
+    """
+    from gentoo_install.tui.widgets import TwoPane
+
+    for title in ("Mode", WIDE):
+        screen = FakeScreen(keys=["\n"], lines=24, columns=120)
+        TwoPane(
+            title="gentoo-install",
+            rows=[PaneRow(label=title, value="vda", state="/dev/vda")],
+        ).frame(screen, 0, dimmed=False)
+        # Not the pane's own arithmetic: the two edges are read off the cells.
+        # From the corner rightwards: the top edge shares its line with the
+        # row the cursor is on, so a line that merely starts with the box is
+        # not how either edge is found.
+        edges = [
+            screen.drawn(line)[screen.drawn(line).index("+-") :]
+            for line in range(24)
+            if "+-" in screen.drawn(line)
+        ]
+        assert len(edges) == 2, edges
+        top, bottom = edges[0].rstrip(), edges[-1].rstrip()
+        assert top.endswith("+"), (title, top)
+        assert width(top) == width(bottom), (title, top, bottom)
