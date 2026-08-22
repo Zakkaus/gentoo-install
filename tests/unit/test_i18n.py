@@ -620,3 +620,24 @@ def test_no_two_rows_on_one_screen_translate_to_the_same_word() -> None:
                     f"in {group.label!r}"
                 )
                 said[drawn] = label
+
+
+def test_no_catalog_reverses_what_is_written_into_what() -> None:
+    """`write /etc/fstab with entries for {}` names a file and what goes into
+    it. One catalog had the two the other way round, so the row read as writing
+    `/etc/fstab` into the entries."""
+    import tomllib
+    from pathlib import Path
+
+    # The order is the invariant and it holds in either script: what goes in
+    # is named before the file it goes into.
+    fstab = "/etc/fstab"
+    for catalog in sorted(Path("gentoo_install/data/locale").glob("zh-*.toml")):
+        said = tomllib.loads(catalog.read_text())["strings"]
+        value = said["write /etc/fstab with entries for {}"]
+        assert value.index("{}") < value.index(fstab), f"{catalog.name}: {value}"
+
+    # Negative control: the reversed wording this replaces fails the rule, so
+    # the assertion above is not satisfied by any string holding both.
+    reversed_value = "\u5c06 /etc/fstab \u5199\u5165 {} \u7684\u6761\u76ee"
+    assert reversed_value.index("{}") > reversed_value.index(fstab)
