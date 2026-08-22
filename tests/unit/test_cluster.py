@@ -3473,3 +3473,82 @@ def test_a_cached_medium_with_the_wrong_checksum_is_fetched_again(
     # nothing, or every session would re-fetch a gigabyte it already has.
     again = cluster.cached_medium("medium.iso", ("https://one.example/m",), want)
     assert again == got and served == ["https://one.example/m"]
+
+
+class ScriptedShell:
+    """A `Reconnecting` double that echoes the command it was given.
+
+    A double that answers only the output hides the defect this test exists
+    to catch: `expect_output` reads between two markers precisely because the
+    shell repeats the line, and a check written against a silent fake passes
+    on a machine that answered nothing.
+    """
+
+    def __init__(self, answers: dict[str, str]) -> None:
+        self.answers = answers
+        self.asked: list[str] = []
+
+    def expect_output(self, command: str, timeout: float = 120.0) -> bytes:
+        self.asked.append(command)
+        for pattern, said in self.answers.items():
+            if pattern in command:
+                return f"{command}\n{said}".encode().split(b"\n", 1)[1]
+        return b""
+
+    def run(self, command: str, timeout: float = 120.0, *, repeatable: bool = True) -> None:
+        self.asked.append(command)
+
+
+def test_a_zfs_root_is_told_to_speak_through_the_pool() -> None:
+    """`gi-s7a` and `gi-s7b` both ran ZFSBootMenu, which is never on screen for
+    a menu editor to hold, so the parameters go on the pool it reads."""
+    from tests.vm import cluster
+
+    shell = ScriptedShell({"zpool import": "rpool"})
+    route = cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
+
+    assert route is cluster.SerialRoute.ZFSBOOTMENU
+    assert "zpool import -N -f rpool" in shell.asked
+    assert (
+        "zfs set org.zfsbootmenu:commandline='console=ttyS0,115200' rpool/ROOT" in shell.asked
+    )
+    assert "zpool export rpool" in shell.asked
+    # No esp is looked for once the pool answered: mounting one would be a
+    # second bootloader's route taken on a machine that has the first.
+    assert not [one for one in shell.asked if "blkid" in one]
+
+
+def test_systemd_boot_is_told_to_speak_through_its_loader_entry() -> None:
+    """`gi-s5a` printed systemd-boot's own `Boot in 3s.` and nothing after it;
+    the kernel command line lives in the entry file on the esp."""
+    from tests.vm import cluster
+
+    shell = ScriptedShell(
+        {
+            "zpool import": "",
+            "blkid": "/dev/vda1",
+            "loader/entries": "/mnt/esp/loader/entries/abc-7.1.9.conf",
+        }
+    )
+    route = cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
+
+    assert route is cluster.SerialRoute.LOADER_ENTRIES
+    assert "mkdir -p /mnt/esp && mount /dev/vda1 /mnt/esp" in shell.asked
+    assert [one for one in shell.asked if one.startswith("sed -i '/^options/")] == [
+        "sed -i '/^options/ s|$| console=ttyS0,115200|' /mnt/esp/loader/entries/*.conf"
+    ]
+    assert shell.asked[-1] == "umount /mnt/esp"
+
+
+def test_a_grub_only_machine_is_left_to_its_menu() -> None:
+    """An esp with no loader entries is GRUB's, and its entry is already
+    written: the menu editor is the only way in, so nothing is changed here and
+    the esp is unmounted rather than left over the next mount."""
+    from tests.vm import cluster
+
+    shell = ScriptedShell({"zpool import": "", "blkid": "/dev/vda1", "loader/entries": ""})
+    route = cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
+
+    assert route is cluster.SerialRoute.NOTHING_FOUND
+    assert not [one for one in shell.asked if one.startswith("sed -i")]
+    assert shell.asked[-1] == "umount /mnt/esp"
