@@ -679,7 +679,7 @@ def test_the_lowram_payload_is_an_apkovl_at_the_initramfs_root() -> None:
     payload = staging / "apkovl"
     inside = payload / netboot.PAYLOAD.lstrip("/")
     assert recorder.files[inside / "config.toml"] == '[disk]\nmode = "partition"\n'
-    assert recorder.files[inside / "start.sh"] == netboot._start()
+    assert recorder.files[inside / "start.sh"] == netboot._start(MemoryMode.LOWRAM)
     assert recorder.files[payload / "root/.profile"] == netboot._source_start()
     assert recorder.files[payload / "root/.ssh/authorized_keys"].endswith("zakk@box\n")
     assert recorder.modes[payload / "root/.ssh/authorized_keys"] == 0o600
@@ -771,11 +771,19 @@ def test_the_live_system_asks_before_it_erases_anything() -> None:
         PurePosixPath(f"{ESP}/{netboot.PLACE}/payload{netboot.PAYLOAD}/start.sh")
     ]
     assert "read answer" in start, start
-    assert "install)" in start, start
+    assert "install now? [yes/no]" in start, start
+    # The banner names the command, because answering `no` must not make
+    # rebooting the only way back to the offer.
+    assert netboot.COMMAND in start, start
+
+    command = recorder.files[
+        PurePosixPath(f"{ESP}/{netboot.PLACE}/payload{netboot.PAYLOAD}/command.sh")
+    ]
     # `--no-shell` so no later question stops an unattended run, and
     # `--install-missing` because the consent that covers erasing the disk
-    # covers installing the tools that erase it.
-    assert "bootstrap.sh --no-shell --install-missing --config" in start, start
+    # covers installing the tools that erase it. In the command rather than
+    # the prompt: the prompt is one way to reach it and not the only one.
+    assert "bootstrap.sh --no-shell --install-missing --config" in command, command
     # No timeout anywhere: `read -t` and `sleep` are both ways to answer for
     # the operator, and the answer they would give erases a disk.
     assert "read -t" not in start and "sleep" not in start, start
@@ -1247,7 +1255,12 @@ def _payload_at(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     where = tmp_path / "gentoo-install"
     where.mkdir()
     monkeypatch.setattr(netboot, "PAYLOAD", str(where))
-    (where / "start.sh").write_text(netboot._start(), encoding="utf-8")
+    # Before `_start`, because the banner and the answer both name `COMMAND`
+    # and the file is generated once with whatever it held then.
+    monkeypatch.setattr(netboot, "COMMAND", str(where / "command.sh"))
+    (where / "start.sh").write_text(netboot._start(MemoryMode.RAM), encoding="utf-8")
+    (where / "command.sh").write_text(netboot._command(), encoding="utf-8")
+    (where / "command.sh").chmod(0o755)
     (where / "config.toml").write_text("x = 1\n", encoding="utf-8")
     (where / "bootstrap.sh").write_text(
         "#!/bin/sh\nprintf 'BOOTSTRAP %s\\n' \"$*\"\n", encoding="utf-8"
@@ -1277,8 +1290,8 @@ def test_the_first_screen_asks_and_leaves_the_login_shell_alive(
     installer and leave them with none when it finishes."""
     where = _payload_at(tmp_path, monkeypatch)
 
-    said = _sourced(where, "install")
-    assert "install or shell>" in said, said
+    said = _sourced(where, "yes")
+    assert "install now? [yes/no]" in said, said
     assert "BOOTSTRAP" in said and "--config" in said, said
     assert "LOGIN-SHELL-ALIVE" in said, said
 
@@ -1667,3 +1680,34 @@ def test_the_first_screen_installs_an_interpreter_where_there_is_none(
 
     assert "APK" not in again, again
     assert "BOOTSTRAP" in again, again
+
+
+def test_the_banner_names_the_command_and_how_to_reach_the_network() -> None:
+    """Booting straight into the installer is not dependable: the operator may
+    still be reconnecting, and on the CJK ISO the link may be wifi that
+    nothing brought up. The first page therefore carries what has to be typed
+    next, and the command stays available afterwards."""
+    for mode in (MemoryMode.RAM, MemoryMode.LOWRAM):
+        said = netboot._start(mode)
+        assert netboot.COMMAND in said, mode
+        for line in netboot.WIFI_LINES[mode]:
+            assert line in said, (mode, line)
+
+
+def test_only_the_cjk_medium_is_told_about_wifi_in_chinese() -> None:
+    """The CJK ISO carries `net-misc/networkmanager` with its default `+wifi`
+    and `sys-kernel/linux-firmware`. The Alpine netboot initrd's `drivers/net`
+    holds `ethernet`, `mdio`, `net_failover` and `virtio_net` and no
+    supplicant, and its full module set is in a `modloop` that itself needs
+    the network, so that environment is told plainly that it has none. It also
+    has no CJK font, so Chinese there would be a row of blanks."""
+    ram = netboot._start(MemoryMode.RAM)
+    lowram = netboot._start(MemoryMode.LOWRAM)
+
+    assert "nmcli device wifi connect" in ram
+    assert "nmcli" not in lowram, lowram
+    assert "wifi is not available here" in lowram
+
+    # The traditional banner names the disk; the Alpine one is English only.
+    assert "\u78c1\u789f" in ram
+    assert not [one for one in lowram if "\u4e00" <= one <= "\u9fff"], lowram
