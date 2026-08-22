@@ -825,6 +825,11 @@ def prepare(
         _place(api, node, medium, urls, sha512, local)
         stamp.parent.mkdir(parents=True, exist_ok=True)
         stamp.write_text(sha512)
+    place_driver(api, node, trust, driver_path, driver)
+
+
+def place_driver(api: Api, node: str, trust: Path, driver_path: Path, driver: str) -> None:
+    """Put one driver CD on a node's `local` storage, replacing a stale copy."""
     for stale in api.stale_drivers(node, driver, DRIVER_KEPT_SECONDS):
         reason = api.remove_iso(node, stale)
         if reason:
