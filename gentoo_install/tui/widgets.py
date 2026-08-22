@@ -699,8 +699,16 @@ class TextField:
         shown = _tail_that_fits(shown, room - 1)
         row = 2
         if self.detail:
-            screen.write(row, 0, clip(self.detail, columns))
-            row += 2
+            # Wrapped, not clipped: the exact string to type is the last thing
+            # in this line and the first thing a clip removes. An operator
+            # whose screen cut the line short typed the row's own name instead.
+            # Bounded so the field and the footer keep their rows: a detail
+            # long enough to fill the screen would otherwise push the box off
+            # the bottom and leave nowhere to type.
+            for one in wrap_to_cells(self.detail, columns)[: max(1, lines - 5)]:
+                screen.write(row, 0, one)
+                row += 1
+            row += 1
         # The caret in both states, so an empty field never reads as a full
         # one. A placeholder is a hint about the shape of the answer and is
         # drawn only when there is no `detail` naming the exact string.

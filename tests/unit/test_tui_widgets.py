@@ -1386,3 +1386,22 @@ def test_the_box_names_the_row_only_while_it_is_closed() -> None:
     TwoPane(title="gentoo-install", rows=rows).frame(opened, 0, dimmed=True)
     ajar = "\n".join(opened.drawn(line) for line in range(24))
     assert "Install mode" not in ajar.split("+-", 1)[1].split("\n", 1)[0], ajar
+
+
+def test_a_detail_too_long_for_one_row_keeps_its_end() -> None:
+    """The exact string to type is the last thing in the line and the first
+    thing a clip removes: an operator whose screen cut the line short typed the
+    row's own name into the field instead of the word it was asking for."""
+    screen = FakeScreen(keys=["\n"], lines=24, columns=40)
+    TextField(
+        title="replace the running system",
+        detail="Replaced: /bin, /sbin, /etc, /lib, /usr, /var. Type convert to confirm.",
+    ).run(screen)
+    assert "convert" in screen.last, screen.last
+
+    # Negative control: a detail that fits is drawn on one row, so the rule
+    # cannot be adding a row to every screen.
+    short = FakeScreen(keys=["\n"], lines=24, columns=40)
+    TextField(title="name", detail="convert").run(short)
+    assert short.frames[-1][2].strip() == "convert", short.frames[-1][:5]
+    assert short.frames[-1][3].strip() == "", short.frames[-1][:5]
