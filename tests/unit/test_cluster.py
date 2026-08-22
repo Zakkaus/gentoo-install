@@ -3643,3 +3643,47 @@ def test_the_menu_editor_is_asked_for_only_where_nothing_else_was_written() -> N
             assert bool(held) is expected, route
     finally:
         cluster._edit_uefi_cmdline = original
+
+
+def test_an_openrc_root_gets_a_getty_on_the_serial_line() -> None:
+    """`lab8` printed its whole boot and then nothing: systemd spawns a getty
+    on whatever `console=` names, and OpenRC's `/etc/inittab` only starts one
+    on tty1, so the check that reads the machine back had nowhere to log in."""
+    from tests.vm import cluster
+
+    shell = ScriptedShell(
+        {
+            "zpool import": "",
+            "blkid -t TYPE=vfat": "",
+            "blkid -o export": "/dev/vda1:ext4",
+            "grub/grub.cfg": "/mnt/root/boot/grub/grub.cfg",
+            "grep -c ttyS0": "0",
+        }
+    )
+    route = cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
+
+    assert route is cluster.SerialRoute.GRUB_CONFIG
+    written = [one for one in shell.asked if "inittab" in one and "printf" in one]
+    assert written, shell.asked
+    assert cluster.SERIAL_GETTY in written[0]
+    # Written before the root is unmounted, or it lands on the live medium.
+    assert shell.asked.index(written[0]) < shell.asked.index("umount /mnt/root")
+
+
+def test_a_root_that_already_has_a_serial_getty_is_left_alone() -> None:
+    """A second line would give the machine two agettys on one device, and
+    they take turns losing the terminal."""
+    from tests.vm import cluster
+
+    shell = ScriptedShell(
+        {
+            "zpool import": "",
+            "blkid -t TYPE=vfat": "",
+            "blkid -o export": "/dev/vda1:ext4",
+            "grub/grub.cfg": "/mnt/root/boot/grub/grub.cfg",
+            "grep -c ttyS0": "1",
+        }
+    )
+    cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
+
+    assert not [one for one in shell.asked if "inittab" in one and "printf" in one]

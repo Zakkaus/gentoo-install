@@ -3853,6 +3853,7 @@ def _grub_config_edited(link: "Reconnecting", extra: str) -> bool:
                     "sed -i '/^[[:space:]]*linux/ s|$| " + extra + "|' "
                     "/mnt/root/boot/grub/grub.cfg"
                 )
+                _open_a_serial_login(link)
                 link.run("umount /mnt/root")
                 if opened != device:
                     link.run("cryptsetup close speak")
@@ -3865,6 +3866,29 @@ def _grub_config_edited(link: "Reconnecting", extra: str) -> bool:
 
 #: Every spec uses one password, so the harness knows it without being told.
 TUI_PASSWORD: Final[str] = "testtest"
+
+
+def _open_a_serial_login(link: "Reconnecting") -> None:
+    """Give an OpenRC root a getty on the serial line, if it has none.
+
+    `lab8` printed its whole boot and then nothing: systemd spawns a getty on
+    whatever `console=` names, and OpenRC's `/etc/inittab` only starts one on
+    tty1. Written where the root is already mounted, so the check that reads
+    the machine back has somewhere to log in.
+    """
+    inittab = "/mnt/root/etc/inittab"
+    already = link.expect_output(f"grep -c ttyS0 {inittab} 2>/dev/null || echo 0").strip()
+    if already not in (b"0", b""):
+        return
+    link.run(
+        f"test -f {inittab} && printf '%s\\n' "
+        f"'{SERIAL_GETTY}' >> {inittab} || true"
+    )
+
+
+#: What OpenRC's `/etc/inittab` needs for a login on the serial line. The
+#: runlevels are the ones the medium's own autoconfig uses for tty1.
+SERIAL_GETTY: Final[str] = "s0:12345:respawn:/sbin/agetty 115200 ttyS0 vt100"
 
 
 def _rootish_devices(link: "Reconnecting") -> list[str]:
