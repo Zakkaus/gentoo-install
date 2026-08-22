@@ -3540,15 +3540,71 @@ def test_systemd_boot_is_told_to_speak_through_its_loader_entry() -> None:
     assert shell.asked[-1] == "umount /mnt/esp"
 
 
-def test_a_grub_only_machine_is_left_to_its_menu() -> None:
-    """An esp with no loader entries is GRUB's, and its entry is already
-    written: the menu editor is the only way in, so nothing is changed here and
-    the esp is unmounted rather than left over the next mount."""
+def test_a_machine_with_nothing_to_edit_is_left_to_the_menu() -> None:
+    """An esp with no loader entries and no partition carrying a `grub.cfg`
+    leaves the menu editor as the only way in. The esp is unmounted rather
+    than left over the next mount."""
     from tests.vm import cluster
 
-    shell = ScriptedShell({"zpool import": "", "blkid": "/dev/vda1", "loader/entries": ""})
+    shell = ScriptedShell(
+        {
+            "zpool import": "",
+            "blkid -t TYPE=vfat": "/dev/vda1",
+            "loader/entries": "",
+            "blkid -o export": "",
+        }
+    )
     route = cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
 
     assert route is cluster.SerialRoute.NOTHING_FOUND
     assert not [one for one in shell.asked if one.startswith("sed -i")]
-    assert shell.asked[-1] == "umount /mnt/esp"
+    assert "umount /mnt/esp" in shell.asked
+    # Nothing was mounted looking for a config, because nothing was named.
+    assert not [one for one in shell.asked if "/mnt/root" in one]
+
+
+def test_a_bios_grub_machine_is_told_to_speak_through_its_config() -> None:
+    """A BIOS GRUB draws its menu on the VGA console, so the menu editor has
+    nothing to hold: `gi-s2a` answered zero bytes where `gi-t1b` answered a
+    whole boot. The kernel still writes wherever `console=` sends it."""
+    from tests.vm import cluster
+
+    shell = ScriptedShell(
+        {
+            "zpool import": "",
+            "blkid -t TYPE=vfat": "",
+            "blkid -o export": "/dev/vda1:ext4",
+            "grub/grub.cfg": "/mnt/root/boot/grub/grub.cfg",
+        }
+    )
+    route = cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
+
+    assert route is cluster.SerialRoute.GRUB_CONFIG
+    assert [one for one in shell.asked if one.startswith("sed -i '/^[[:space:]]*linux/")] == [
+        "sed -i '/^[[:space:]]*linux/ s|$| console=ttyS0,115200|' /mnt/root/boot/grub/grub.cfg"
+    ]
+    assert "umount /mnt/root" in shell.asked
+
+
+def test_a_luks_root_is_unlocked_before_its_config_is_read() -> None:
+    """Spec 2's root is a LUKS container, and nothing under it can be mounted
+    until it is opened. Every spec uses one password, so the harness knows it
+    without being told."""
+    from tests.vm import cluster
+
+    shell = ScriptedShell(
+        {
+            "zpool import": "",
+            "blkid -t TYPE=vfat": "",
+            "blkid -o export": "/dev/vda1:crypto_LUKS",
+            "grub/grub.cfg": "/mnt/root/boot/grub/grub.cfg",
+        }
+    )
+    route = cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
+
+    assert route is cluster.SerialRoute.GRUB_CONFIG
+    assert (
+        "printf '%s' testtest | cryptsetup open /dev/vda1 speak" in shell.asked
+    ), shell.asked
+    assert any("mount /dev/mapper/speak /mnt/root" in one for one in shell.asked), shell.asked
+    assert "cryptsetup close speak" in shell.asked
