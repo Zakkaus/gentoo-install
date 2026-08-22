@@ -11,6 +11,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
+
 from tests.tui.report import STUCK_AFTER, Report, read, title_of
 
 #: A framed pane, as `TwoPane.frame` draws it. The heading names the open row.
@@ -337,3 +339,105 @@ def test_two_sessions_started_together_do_not_take_one_vmid() -> None:
             )
     finally:
         cluster._execution = original
+
+
+def test_a_conversion_runs_inside_the_machine_it_replaces(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`refusals.LIVE_MEDIUM` is what the interface answers on a guest that
+    just booted a live image, so spec 3 cannot be measured the way the other
+    eight are. `tui_conversion` makes the installed system speak first, boots
+    it from its own disk, logs in, and runs the installer from the driver CD
+    inside it."""
+    import pytest
+
+    from tests.vm import cluster
+
+    done: list[str] = []
+
+    class Machine:
+        vmid = 9300
+        node = "infra-node3"
+
+        def stop(self) -> None:
+            done.append("stop")
+
+        def boot_from_disk(self) -> None:
+            done.append("boot_from_disk")
+
+        def start(self) -> None:
+            done.append("start")
+
+        def reset(self) -> None:
+            done.append("reset")
+
+        def transferred(self) -> tuple[int, int]:
+            return (0, 0)
+
+        def qmp_state(self) -> str:
+            return "running"
+
+    class Console:
+        def send(self, line: str) -> None:
+            done.append(f"send:{line}")
+
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+            done.append(f"expect:{pattern}")
+            return b""
+
+    class Link:
+        console = Console()
+
+        def reopen(self, *, solicit_prompt: bool = True) -> None:
+            done.append("reopen")
+
+        def run(self, command: str, timeout: float = 120.0, *, repeatable: bool = True) -> None:
+            done.append(f"run:{command[:20]}")
+
+    class Cluster:
+        def call(self, method: str, path: str, **form: object) -> object:
+            return {"name": "gi-x1", "tags": "abc;gentoo-install-test", "virtio0": "disk"}
+
+        def node_load(self, name: str) -> float | None:
+            return 0.0
+
+    machine, link = Machine(), Link()
+
+    def speak(one: object) -> object:
+        done.append("speak")
+        return cluster.SerialRoute.GRUB_CONFIG
+
+    monkeypatch.setattr(cluster, "Guest", lambda **kw: machine)
+    monkeypatch.setattr(
+        cluster, "Reconnecting", type("R", (), {"to": staticmethod(lambda *a: link)})
+    )
+    monkeypatch.setattr(cluster, "make_the_installed_system_speak", speak)
+    monkeypatch.setattr(
+        cluster, "edit_the_menu_if_that_is_the_only_route", lambda *a: done.append("menu")
+    )
+    monkeypatch.setattr(cluster, "reach_prompt", lambda one: done.append("prompt"))
+    running = cluster.tui_conversion(
+        cast(Any, Cluster()), "infra-node3", "conv", 9300, Path("/tmp")
+    )
+
+    # The parameters go in while a live shell is still there, and only then is
+    # the guest pointed at its own disk.
+    assert done.index("speak") < done.index("stop"), done
+    assert done.index("stop") < done.index("boot_from_disk") < done.index("start")
+    assert "expect:login:" in done, done
+    assert f"send:{cluster.TUI_PASSWORD}" in done, done
+    # No `--config`: the menu is the subject here as much as anywhere else.
+    started = [one for one in done if "install.sh" in one]
+    assert started and "--config" not in started[0], done
+    assert running.console is link.console
+
+
+def test_a_disk_spec_is_not_sent_through_the_conversion_path() -> None:
+    """The other eight build a new system and get a guest of their own; only
+    the conversion needs one that already boots."""
+    import pytest
+
+    from tests.vm import cluster
+
+    with pytest.raises(ValueError, match="goes through"):
+        cluster.tui_conversion(cast(Any, None), "n", "x", 9300, Path("/tmp"), spec=1)

@@ -1937,8 +1937,9 @@ def tui_execution(
     if spec in TUI_NEEDS_A_SYSTEM:
         raise ValueError(
             f"spec {spec} replaces a running system, so it needs a guest that "
-            "already boots one; a fresh guest can only be told that conversion "
-            "is not offered"
+            "already boots one; hand `tui_conversion` the vmid of a machine "
+            "this harness installed, or a fresh guest can only be told that "
+            "conversion is not offered"
         )
     chosen = node or free_slots(api)[0].name
     # The medium and the driver CD are per node, and `local` is not shared:
@@ -1990,6 +1991,91 @@ def tui_execution(
     )
     held.console = link.console
     return held
+
+
+def tui_conversion(
+    api: Api, node: str, name: str, vmid: int, workdir: Path, spec: int = 3
+) -> Running:
+    """The installer running inside a machine this harness already installed.
+
+    `refusals.LIVE_MEDIUM` is what the interface answers on a guest that just
+    booted a live image, so the conversion spec cannot be measured the way the
+    other eight are: it needs the installer running *in* an installed system,
+    not on the medium beside it. The steps are settled in `docs/design.md`.
+    """
+    if spec not in TUI_NEEDS_A_SYSTEM:
+        raise ValueError(
+            f"spec {spec} builds a new system, so it goes through "
+            "`tui_execution` on a guest of its own"
+        )
+    config = api.call("GET", f"/nodes/{node}/qemu/{vmid}/config")
+    named = str(config.get("name", ""))
+    if not named.startswith("gi-"):
+        raise ForeignGuest(f"vm {vmid} on {node} is named {named!r}; not converting it")
+    nonce = str(config.get("tags") or "").split(";")[0]
+    disks = tuple(
+        TARGET_GIB for key in config if _VIRTIO_DISK.fullmatch(key)
+    )
+    guest = Guest(
+        api=api,
+        node=node,
+        vmid=vmid,
+        spec=GuestSpec(name=named, iso="", nonce=nonce, target_gib=disks or (TARGET_GIB,)),
+    )
+    log = guest_log(workdir, name, vmid, "conversion")
+    link = Reconnecting.to(guest, log)
+    # On the medium, while a live shell is still there: the installed system
+    # has no `console=` of its own, so without this the machine boots to a
+    # serial line nobody can log in on.
+    route = make_the_installed_system_speak(link)
+    print(f"{name}: {route.value}", flush=True)
+    guest.stop()
+    guest.boot_from_disk()
+    guest.start()
+    link.reopen(solicit_prompt=False)
+    guest.reset()
+    edit_the_menu_if_that_is_the_only_route(guest, link, route)
+    print(f"{name}: waiting for the installed system", flush=True)
+    _log_into_the_installed_system(link)
+    link.run(FIND_DRIVER)
+    link.run(f"mkdir -p {RESULT_DIR}")
+    link.run(f"stty rows {TUI_LINES} cols {TUI_COLUMNS}")
+    link.console.send(
+        f"TERM=xterm LINES={TUI_LINES} COLUMNS={TUI_COLUMNS} "
+        "sh /mnt/driver/install.sh --lang zh-TW"
+    )
+    return Running(
+        guest=guest,
+        watch=Watchdog(
+            log=log,
+            counters=lambda: guest.transferred(),
+            where=node,
+            load=lambda: api.node_load(node),
+            state=lambda: guest.qmp_state(),
+        ),
+        reservation_bytes=0,
+        created=False,
+        console=link.console,
+    )
+
+
+#: What a `virtio<N>` disk key looks like, so the count comes from the guest
+#: rather than from a caller who might name a different number.
+_VIRTIO_DISK: Final[re.Pattern[str]] = re.compile(r"virtio\d+")
+
+
+def _log_into_the_installed_system(link: "Reconnecting") -> None:
+    """Answer the login the installed system offers on its serial line."""
+    link.console.expect(r"login:", INSTALLED_LOGIN_PATIENCE)
+    link.console.send("root")
+    link.console.expect(r"assword", INSTALLED_LOGIN_PATIENCE)
+    link.console.send(TUI_PASSWORD)
+    reach_prompt(link)
+
+
+#: A machine booting its own disk answers sooner than a medium does, and a
+#: passphrase prompt on the way makes it slower again.
+INSTALLED_LOGIN_PATIENCE: Final[float] = 300.0
 
 
 def install_one(
