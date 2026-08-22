@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import socket
 import struct
 import threading
@@ -113,3 +114,52 @@ def test_a_client_that_hangs_up_does_not_end_the_session(
     assert json.loads(answers[0].decode()) == {"sent": "yes"}
     assert console.sent == ["x"], console.sent
     assert not session.ended.exists(), session.ended.read_text(encoding="utf-8")
+
+
+def test_convert_drives_the_installer_inside_an_installed_guest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The interface answers that a live medium has no system to replace, so
+    the conversion spec is reached through a machine this harness already
+    installed rather than through a guest of its own."""
+    from tests.vm import cluster
+
+    asked: list[tuple[str, object]] = []
+    monkeypatch.setattr(tui_session, "SESSIONS", tmp_path)
+    monkeypatch.setattr(
+        cluster,
+        "tui_conversion",
+        lambda api, node, name, vmid, workdir, spec=3: asked.append(("convert", vmid)),
+    )
+    monkeypatch.setattr(
+        cluster,
+        "tui_execution",
+        lambda api, node, name, spec, workdir, vmid=0: asked.append(("execution", vmid)),
+    )
+    monkeypatch.setattr(tui_session, "Api", lambda: None, raising=False)
+    # `os` itself, not the name the module re-exports: mypy refuses the
+    # attribute on a module that does not export it.
+    monkeypatch.setattr(os, "fork", lambda: 1)
+
+    tui_session.start("conv", spec=3, node="infra-node3", convert=9300)
+
+    assert asked == [("convert", 9300)], asked
+
+
+def test_a_conversion_without_a_node_is_refused_before_anything_is_built(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The guest already exists, so the harness cannot choose where it lives
+    the way it does for a guest it is about to create."""
+    from tests.vm import cluster
+
+    monkeypatch.setattr(tui_session, "SESSIONS", tmp_path)
+    monkeypatch.setattr(
+        cluster,
+        "tui_conversion",
+        lambda *a, **k: pytest.fail("a refused conversion must not reach the cluster"),
+    )
+    monkeypatch.setattr(tui_session, "Api", lambda: None, raising=False)
+
+    with pytest.raises(tui_session.SessionError, match="--node names where it is"):
+        tui_session.start("conv", spec=3, convert=9300)
