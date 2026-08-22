@@ -3918,3 +3918,37 @@ def test_every_row_answers_after_the_conversion_is_confirmed() -> None:
 
     assert any("root=" in one.value for one in kernel_parameters(built))
     assert not any("root=" in one.value for one in kernel_parameters(converted))
+
+
+def test_a_conversion_can_reach_its_install_row() -> None:
+    """`Drive` is required and the conversion refuses the screen behind it: the
+    layout comes from the running machine. Counted as missing anyway, the row
+    that starts the install stayed blocked on an answer nothing could give,
+    and spec 3 could not be started from the interface at all."""
+    from dataclasses import replace
+
+    from gentoo_install.model.device import DeviceGraph, DeviceId
+    from gentoo_install.tui.settings import unanswered
+
+    offering = app.MainMenuContext(tui_context.Context(
+        translate=Catalog("en"),
+        disks=DISKS,
+        groups=load_catalog(),
+        hash_password=lambda password: f"$6$test${len(password)}",
+        conversion_refused=Refusal(""),
+        running_system="/dev/vda2 on btrfs",
+    ))
+    built = config()
+    converted = replace(
+        built,
+        disk=replace(
+            built.disk, mode=DiskMode.IN_PLACE, graph=DeviceGraph.build([]), root=DeviceId("")
+        ),
+    )
+    still = [one.key for one in unanswered(converted, offering)]
+    assert "disk" not in still, still
+
+    # Negative control: a partition install with no disk chosen still names it,
+    # so the rule above cannot be dropping every required row.
+    empty = replace(built, disk=replace(built.disk, graph=DeviceGraph.build([])))
+    assert "disk" in [one.key for one in unanswered(empty, offering)]

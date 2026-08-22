@@ -1178,8 +1178,19 @@ def unanswered(config: InstallConfig, context: Context) -> tuple[Setting, ...]:
     """
     named: list[Setting] = []
     for group in settings_for(config):
+        # A row behind a group the configuration refuses has no screen to open
+        # and no value to gain: a conversion left `Drive` required with the
+        # screen behind it refusing to open, and the install could never start
+        # from the interface. The group itself is left alone, because a group
+        # that cannot be opened still shows the value it holds.
+        refused = bool(group.unavailable(config, context))
         behind = [
-            row for row in group.rows if row.required and not settled(row, config, context)
+            row
+            for row in group.rows
+            if row.required
+            and not refused
+            and not row.unavailable(config, context)
+            and not settled(row, config, context)
         ]
         if any(row.required for row in group.rows):
             # The rows carry the requirement, so the group is not named as
