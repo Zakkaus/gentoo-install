@@ -325,6 +325,28 @@ What has no record yet: a machine that goes on to install Gentoo from inside
 the environment it came up in, and a deliberately failed arming proving the
 machine returns to its own system because the entry is one-shot.
 
+## The interface alone, from the menu to a booted system
+
+An operator agent was given only `session screen` and `session key`, the
+sentence describing what to build, and no access to this source. It read the
+menu, answered the rows, started the install, and the machine was then booted
+from the disk it had written and read out on its own console. Revision
+`d7a1f864d8359`.
+
+| Spec | Asked for | On the booted machine |
+|---|---|---|
+| 5 | the whole disk, xfs root, 4 GiB swap | `/dev/vda3 xfs /`, host `lab5`, `LANG=zh_TW.UTF-8`, `systemctl is-system-running` answered `running`, no failed unit, 10.272s to userspace |
+| 6 | partition by hand: 512 MiB EFI, 20 GiB ext4 root | `/dev/vda2 ext4 /`, host `lab6`, `LANG=zh_TW.UTF-8`, `running`, no failed unit, 11.562s |
+
+Specs 2 and 9 installed in the same round and are not counted here: spec 2's
+root is a cryptodisk and its passphrase prompt has no record yet, and spec 9
+was still compiling its desktop.
+
+Three defects in the interface were found by the same round and are fixed:
+a refused public key quoted what it had read, a timezone chosen after going
+back ended the run on an index error, and a conversion left `Drive` required
+with the screen behind it refusing to open, so the install could never start.
+
 ## Not covered by any record
 
 greetd desktop sessions and ibus outside GNOME. Binary-host failure
