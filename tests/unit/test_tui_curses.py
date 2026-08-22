@@ -48,6 +48,12 @@ KEY_INTERVAL = 0.08
 RESIZE_DEADLINE = 8.0
 RESIZE_INTERVAL = 0.3
 RESIZE_START_INTERVAL = 1.0
+#: How long the child must say nothing before its redraw counts as finished.
+#: The first byte is not the last: `curses` answers a `SIGWINCH` with a whole
+#: screen, and a key sent after the first chunk of it landed mid-redraw. This
+#: test failed once in a full suite and passed alone and on the next run,
+#: which is worse than failing.
+RESIZE_QUIET = 0.35
 
 ResizeAction = str | tuple[int, int]
 
@@ -185,8 +191,10 @@ with os.fdopen({write_end}, "w") as handle:
                 if ready.fd == terminal:
                     drawing.extend(chunk)
                     if waiting_for_resize_draw and chunk:
-                        waiting_for_resize_draw = False
-                        next_action = time.monotonic() + RESIZE_INTERVAL
+                        # Quiet, not the first byte: the redraw is finished
+                        # when the child stops writing, and every chunk pushes
+                        # the moment out again.
+                        next_action = time.monotonic() + RESIZE_QUIET
                     elif drawing and next_action == deadline:
                         delay = RESIZE_INTERVAL if started else RESIZE_START_INTERVAL
                         next_action = time.monotonic() + delay
@@ -194,6 +202,7 @@ with os.fdopen({write_end}, "w") as handle:
                     printed.extend(chunk)
             now = time.monotonic()
             if pending and now >= next_action:
+                waiting_for_resize_draw = False
                 action = pending.pop(0)
                 started = True
                 if isinstance(action, str):
