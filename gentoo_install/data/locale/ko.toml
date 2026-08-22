@@ -575,7 +575,7 @@
 "This replaces the running system and cannot be undone." = "실행 중인 시스템을 교체하며 되돌릴 수 없습니다."
 "Replaced: " = "교체 대상: "
 "Kept: /home, /root and every other mount." = "유지 대상: /home, /root 및 그 밖의 모든 마운트."
-"Type the word to confirm." = "이 단어를 입력하여 확인하십시오."
+"Type {word} to confirm." = "확인하려면 다음 단어를 입력하십시오: {word}"
 "keep proxy environment for {} in the installed system" = "설치된 시스템에 {} 프록시 환경 유지"
 "generate and verify locales {}" = "로캘 {} 생성 및 검증"
 "set the system locale to {}" = "시스템 로캘을 {}로 설정"

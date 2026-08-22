@@ -576,7 +576,7 @@
 "This replaces the running system and cannot be undone." = "取代執行中的系統（無法復原）"
 "Replaced: " = "被取代："
 "Kept: /home, /root and every other mount." = "保留：/home、/root，以及其他每一個掛載點。"
-"Type the word to confirm." = "輸入這個字確認。"
+"Type {word} to confirm." = "輸入 {word} 確認。"
 "keep proxy environment for {} in the installed system" = "在已安裝的系統中保留 {} 代理環境"
 "generate and verify locales {}" = "產生並驗證語系 {}"
 "set the system locale to {}" = "將系統語系設為 {}"

@@ -575,7 +575,7 @@
 "This replaces the running system and cannot be undone." = "実行中のシステムを置き換えます。元には戻せません。"
 "Replaced: " = "置き換える対象: "
 "Kept: /home, /root and every other mount." = "残す対象: /home、/root、およびその他のマウント。"
-"Type the word to confirm." = "この語を入力して確認してください。"
+"Type {word} to confirm." = "{word} と入力して確認してください。"
 "keep proxy environment for {} in the installed system" = "インストール済みシステムで {} のプロキシ環境を保持"
 "generate and verify locales {}" = "ロケール {} を生成して検証"
 "set the system locale to {}" = "システムロケールを {} に設定"

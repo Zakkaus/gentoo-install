@@ -3359,6 +3359,29 @@ def test_choosing_the_conversion_drops_the_device_graph() -> None:
     assert kept.disk.mode is DiskMode.PARTITION
     assert kept.disk.graph.nodes == built.disk.graph.nodes
 
+def test_the_swap_screen_names_the_word_it_asks_for() -> None:
+    """The field is empty and the word is the only way past it.
+
+    An operator driving the interface stopped here with `Type the word to
+    confirm.` and an empty `[ _ ]`: the word was in the code and on no screen.
+    """
+    from gentoo_install.plan import convert
+
+    offering = app.MainMenuContext(tui_context.Context(
+        translate=Catalog("en"),
+        disks=DISKS,
+        groups=load_catalog(),
+        hash_password=lambda password: f"$6$test${len(password)}",
+        conversion_refused=Refusal(""),
+        running_system="/dev/vda2 on ext4",
+    ))
+    screen = FakeScreen(keys=["KEY_DOWN", "\n", "\x1b"], lines=24, columns=110)
+    screens.install_mode_screen(screen, config(), offering)
+    asking = [one for one in screen.frames if "cannot be undone" in "\n".join(one)]
+    assert asking, screen.last
+    assert convert.SWAP_CONFIRMATION in "\n".join(asking[-1]), "\n".join(asking[-1])
+
+
 def test_dd_mode_is_offered_only_from_a_live_or_memory_environment() -> None:
     unsafe = app.MainMenuContext(
         tui_context.Context(
