@@ -3860,3 +3860,42 @@ def test_the_install_row_says_its_reason_once() -> None:
     for pane in carrying:
         for part in ("Install mode", "Drive", "Mirrors", "make.conf"):
             assert pane.count(part) == 1, f"{part} appears {pane.count(part)} times:\n{pane}"
+
+
+def test_every_row_answers_after_the_conversion_is_confirmed() -> None:
+    """A conversion reads its layout from the running machine, so the graph
+    holds no root. The bootloader row asked for one anyway and the session
+    ended on `no node with id ''` one keypress after the confirmation, with
+    the machine untouched and the operator looking at a shell."""
+    from dataclasses import replace
+
+    from gentoo_install.model.device import DeviceGraph, DeviceId
+    from gentoo_install.tui.settings import SETTINGS
+
+    offering = tui_context.Context(
+        translate=Catalog("en"),
+        disks=DISKS,
+        groups=load_catalog(),
+        hash_password=lambda password: f"$6$test${len(password)}",
+        conversion_refused=Refusal(""),
+        running_system="/dev/vda2 on btrfs",
+    )
+    built = config()
+    converted = replace(
+        built,
+        disk=replace(
+            built.disk,
+            mode=DiskMode.IN_PLACE,
+            graph=DeviceGraph.build([]),
+            root=DeviceId(""),
+        ),
+    )
+    for setting in SETTINGS:
+        list(app._facts(setting, converted, offering))
+
+    # Negative control: the same rows on a configuration that does carry a
+    # graph still name a root, so the rule above cannot be silence everywhere.
+    from gentoo_install.plan.automatic import kernel_parameters
+
+    assert any("root=" in one.value for one in kernel_parameters(built))
+    assert not any("root=" in one.value for one in kernel_parameters(converted))
