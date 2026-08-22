@@ -3664,7 +3664,7 @@ def test_an_openrc_root_gets_a_getty_on_the_serial_line() -> None:
             "blkid -t TYPE=vfat": "",
             "blkid -o export": "/dev/vda1:ext4",
             "grub/grub.cfg": "/mnt/root/boot/grub/grub.cfg",
-            "grep -c ttyS0": "0",
+            "grep -c 'ttyS0'": "0",
         }
     )
     route = cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
@@ -3688,7 +3688,7 @@ def test_a_root_that_already_has_a_serial_getty_is_left_alone() -> None:
             "blkid -t TYPE=vfat": "",
             "blkid -o export": "/dev/vda1:ext4",
             "grub/grub.cfg": "/mnt/root/boot/grub/grub.cfg",
-            "grep -c ttyS0": "1",
+            "grep -c 'ttyS0'": "1",
         }
     )
     cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
@@ -3709,7 +3709,7 @@ def test_grub_is_moved_onto_the_serial_line_as_well() -> None:
             "blkid -o export": "/dev/vda1:crypto_LUKS",
             "grub/grub.cfg": "/mnt/root/boot/grub/grub.cfg",
             "grep -c '^terminal_output.*serial'": "0",
-            "grep -c ttyS0": "0",
+            "grep -c 'ttyS0'": "0",
         }
     )
     cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
@@ -3735,7 +3735,7 @@ def test_a_grub_config_already_on_serial_is_left_alone() -> None:
             "blkid -o export": "/dev/vda1:ext4",
             "grub/grub.cfg": "/mnt/root/boot/grub/grub.cfg",
             "grep -c '^terminal_output.*serial'": "1",
-            "grep -c ttyS0": "1",
+            "grep -c 'ttyS0'": "1",
         }
     )
     cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
@@ -3775,10 +3775,36 @@ def test_a_gfxterm_only_config_is_still_moved_onto_the_serial_line() -> None:
             "blkid -t TYPE=vfat": "",
             "blkid -o export": "/dev/vda1:ext4",
             "grub/grub.cfg": "/mnt/root/boot/grub/grub.cfg",
-            "grep -c ttyS0": "1",
+            "grep -c 'ttyS0'": "1",
         }
     )
     cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
 
     assert asked, "the terminal was never checked"
     assert [one for one in shell.asked if one.startswith("sed -i '1i")], shell.asked
+
+
+def test_a_grep_that_counts_none_is_read_as_none() -> None:
+    """`grep -c` exits 1 when it counts nothing, so `grep -c … || echo 0` ran
+    both halves and the console answered two lines. Compared against `"0"`
+    that read as a match, and `gi-w2` lost two rounds to an edit that was
+    skipped every time."""
+    from tests.vm import cluster
+
+    class TwoZeroes:
+        """What the shell really answered: the count and the fallback."""
+
+        def __init__(self) -> None:
+            self.asked: list[str] = []
+
+        def expect_output(self, command: str, timeout: float = 120.0) -> bytes:
+            self.asked.append(command)
+            # A pipeline takes grep's exit status out of play, so one line.
+            return b"0\n" if "| head -1" in command else b"0\n0\n"
+
+        def run(self, command: str, timeout: float = 120.0, *, repeatable: bool = True) -> None:
+            self.asked.append(command)
+
+    shell = TwoZeroes()
+    assert cluster._counted(cast(Any, shell), "ttyS0", "/mnt/root/etc/inittab") == 0
+    assert "| head -1" in shell.asked[0], shell.asked
