@@ -79,7 +79,15 @@ def kernel_parameters(config: InstallConfig) -> tuple[Added, ...]:
         return ()
     kind = config.bootloader.kind
     added: list[Added] = []
-    if kind is Bootloader.SYSTEMD_BOOT:
+    # A conversion reads its layout from the running machine, so the graph here
+    # holds no root and nothing derived from one is known until
+    # `plan/convert.layout_graph` has read it. Asked anyway, the menu ended the
+    # session on `no node with id ''` one keypress after the confirmation, with
+    # the machine untouched and the operator looking at a shell.
+    from_the_graph = bool(config.disk.root)
+    if not from_the_graph:
+        pass
+    elif kind is Bootloader.SYSTEMD_BOOT:
         added.append(Added(value=_root_value(config), because=ROOT))
         added.append(Added(value="rw", because=WRITABLE))
         if _rootflags(config):
@@ -98,7 +106,7 @@ def kernel_parameters(config: InstallConfig) -> tuple[Added, ...]:
         added.append(
             Added(value=_root_value(config), because=ROOT_FROM_ZBM, written_here=False)
         )
-    if kind is not Bootloader.ZFSBOOTMENU:
+    if from_the_graph and kind is not Bootloader.ZFSBOOTMENU:
         containers, arrays = initramfs_devices(config)
         added += [Added(value="rd.luks.uuid=…", because=CONTAINER) for _ in containers]
         added += [Added(value="rd.md.uuid=…", because=ARRAY) for _ in arrays]
