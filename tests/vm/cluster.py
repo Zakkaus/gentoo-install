@@ -2923,6 +2923,9 @@ class Reconnecting:
         self._tries = tries
         self._marks = itertools.count(1)
         self._reopens = 0
+        #: Whether a `send` is in flight. The interrupt on reopen exists to
+        #: clear the half line a dropped one leaves, and nothing else.
+        self._writing = False
         self.console: Line = open_console()
 
     @classmethod
@@ -2948,19 +2951,21 @@ class Reconnecting:
             pass
         self.console = self._open()
         if solicit_prompt:
-            # An interrupt before the prompt is asked for: a drop in the middle
-            # of a `send` leaves the shell holding half a line, and an unclosed
-            # quote turns every command after it into continuation text.
-            # `gi-x1` answered `> ` to three `zpool import` retries and nothing
-            # else. Only here, because the other path is used where the console
-            # is at a `login:` or a passphrase prompt and anything sent there is
-            # an answer to it.
-            try:
-                self.console.send_raw(INTERRUPT)
-            except (ConsoleClosed, OSError):
-                # A convenience, not a step: a console that will not take it is
-                # one the caller's own write will fail on and report properly.
-                pass
+            if self._writing:
+                # Only when a write was in flight: an interrupt clears the half
+                # line a dropped `send` left, where an unclosed quote turns
+                # every command after it into continuation text. Sent on every
+                # reopen instead it reached guests whose console had dropped
+                # while a command ran, and killed the command: `vm-luks` was at
+                # operation 56 of 56 with `grub-install` on the screen when
+                # `OK^C` ended it, and four fixtures in one round were finished
+                # installs recorded as errors.
+                try:
+                    self.console.send_raw(INTERRUPT)
+                except (ConsoleClosed, OSError):
+                    # A convenience, not a step: a console that will not take it
+                    # is one the caller's own write will fail on and report.
+                    pass
             # The reopened console shows nothing until the shell is asked for
             # a prompt, and ordinary shell waits below are looking for text.
             self.console.send("")
@@ -3157,7 +3162,11 @@ class Reconnecting:
 
     def send(self, line: str) -> None:
         self._reopen_if_closed()
+        # Cleared on success only: a `send` that raised is the one that left
+        # half a line, and that is the state the interrupt on reopen is for.
+        self._writing = True
         self.console.send(line)
+        self._writing = False
 
     def respond(self, line: str) -> None:
         """Answer an observed boot prompt once.
