@@ -163,3 +163,53 @@ def test_a_conversion_without_a_node_is_refused_before_anything_is_built(
 
     with pytest.raises(tui_session.SessionError, match="--node names where it is"):
         tui_session.start("conv", spec=3, convert=9300)
+
+
+def test_the_session_holds_a_console_that_reconnects() -> None:
+    """The daemon read through the raw console, so one `Broken pipe` ended a
+    round with the interface still running inside the guest. It holds the link
+    instead, which reopens under the read and never solicits: a line sent to
+    ask for a prompt is an answer to whatever prompt is on the screen."""
+    from typing import Any, cast
+
+    from tests.tui.session import Held
+    from tests.vm import cluster
+    from tests.vm.console import ConsoleClosed
+
+    opened: list[object] = []
+
+    class Console:
+        closed = False
+
+        def __init__(self, dies: bool) -> None:
+            self.dies = dies
+            self.sent: list[str] = []
+
+        def read_available(self, seconds: float) -> bytes:
+            if self.dies:
+                raise ConsoleClosed("the connection broke")
+            return b"drawn"
+
+        def send_raw(self, keys: str) -> None:
+            self.sent.append(keys)
+
+        def send(self, line: str) -> None:
+            self.sent.append(line)
+
+        def close(self) -> None:
+            return None
+
+    def open_console() -> object:
+        made = Console(dies=not opened)
+        opened.append(made)
+        return made
+
+    link = cluster.Reconnecting(cast(Any, open_console))
+    assert isinstance(link, Held), "the daemon accepts only what it can read"
+    assert link.read_available(0.1) == b"", "the dropped read answers empty"
+    assert link.read_available(0.1) == b"drawn", opened
+    assert len(opened) == 2, opened
+
+    # Negative control: the reopen must not write, or the empty line it would
+    # send answers a password prompt on the screen it is being read from.
+    assert cast(Any, opened[-1]).sent == [], cast(Any, opened[-1]).sent
