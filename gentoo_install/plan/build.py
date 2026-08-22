@@ -22,6 +22,11 @@ from .operations import Operation, Stage
 #: The mirror a stage3 is fetched from when the configuration names none.
 DEFAULT_MIRROR: Final[str] = "https://distfiles.gentoo.org"
 
+#: What `variant_of` returns for the default profile and init system, and the
+#: only variant a reachability check can name before the operator has answered
+#: anything. Every mirror publishes it.
+DEFAULT_VARIANT: Final[str] = "systemd"
+
 # These operations alter the resolver's inputs, so the complete-set check has
 # to see them before their package merges run in later stages.
 PORTAGE_PREREQUISITES: Final[tuple[type[Operation], ...]] = (

@@ -63,7 +63,13 @@ from .model.serialise import to_toml
 from .model.validate import validate_memory_launch
 from .plan import convert, netboot
 from .plan.convert import SWAP_CONFIRMATION
-from .plan.build import DEFAULT_MIRROR, build, running_config, stage3_mirror
+from .plan.build import (
+    DEFAULT_MIRROR,
+    DEFAULT_VARIANT,
+    build,
+    running_config,
+    stage3_mirror,
+)
 from .plan.operations import Context, Operation, Stage
 from .plan.portage import variant_of
 from .plan.render import render, summarise
@@ -917,17 +923,30 @@ def _check_the_clock() -> None:
 
 
 def _require_network() -> None:
-    """Stop at startup rather than halfway through the install.
+    """Stop at startup rather than halfway through, but only when nothing answers.
 
-    Every version the menu offers is read live, so that the installer runs on
-    Alpine or Debian as well as on a Gentoo medium, and no install of any kind
-    finishes without fetching a stage3.
+    The version rows are read from `packages.gentoo.org` and the install is
+    read from a mirror, so the package site being unreachable costs the pinned
+    versions and nothing else. `mirror_online` already carries the same lesson
+    from the configuration path, where requiring that site stopped five runs on
+    a network the mirror answered on; one cluster guest then resolved it to an
+    IPv6 address alone with no route to reach that, and was refused at the
+    first screen with a working mirror one row away.
     """
-    if refused := fetch.why_offline():
-        raise errors.PreflightFailed(
-            "this machine cannot reach packages.gentoo.org, so the version menu "
-            f"has nothing to read: {refused}"
+    refused = fetch.why_offline()
+    if not refused:
+        return
+    if fetch.mirror_online(DEFAULT_MIRROR, DEFAULT_VARIANT):
+        print(
+            "warning: packages.gentoo.org did not answer, so the version rows "
+            f"offer only what the keywords allow ({refused})",
+            file=sys.stderr,
         )
+        return
+    raise errors.PreflightFailed(
+        "this machine reaches neither packages.gentoo.org nor "
+        f"{DEFAULT_MIRROR}, so no install can fetch a stage3: {refused}"
+    )
 
 
 def _conversion_offer(probe: Probe) -> tuple[str, refusals.Refusal]:
