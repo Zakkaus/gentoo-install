@@ -1078,3 +1078,30 @@ def test_a_configuration_rule_survives_the_loss_of_the_graph() -> None:
     ), [rule.describe() for rule in kept]
     for rule in kept:
         assert not {rule.when, rule.excludes} & FROM_THE_DEVICE_GRAPH, rule.describe()
+
+
+def test_a_conversion_is_not_refused_for_an_esp_it_has_not_read_yet() -> None:
+    """`plan/convert.layout_graph` builds the esp from the running machine, and
+    the graph the menu holds is empty until then. Asked for one anyway, every
+    UEFI machine was refused with `uefi boot` against `no mounted esp` and no
+    row could answer it."""
+    from dataclasses import replace
+
+    from gentoo_install.model import compat
+    from gentoo_install.model.config import DiskMode
+    from gentoo_install.model.device import DeviceGraph, DeviceId
+
+    built = config()
+    converted = replace(
+        built,
+        disk=replace(
+            built.disk, mode=DiskMode.IN_PLACE, graph=DeviceGraph.build([]), root=DeviceId("")
+        ),
+    )
+    assert compat.Trait.NO_MOUNTED_ESP not in compat.traits_of(converted)
+    assert not compat.violations(converted)
+
+    # Negative control: the same empty graph on a partition install is still
+    # refused, so the rule above is not "never ask for an esp".
+    partitioned = replace(built, disk=replace(built.disk, graph=DeviceGraph.build([])))
+    assert compat.Trait.NO_MOUNTED_ESP in compat.traits_of(partitioned)
