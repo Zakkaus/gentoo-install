@@ -986,7 +986,10 @@ def test_wait_for_does_not_resend_after_an_ambiguous_write_failure() -> None:
                 )
 
         def send_raw(self, keys: str) -> None:
-            raise AssertionError("this test sends a line")
+            # The reopen clears whatever half a line the drop left; an
+            # interrupt cancels and cannot start a second install, which is
+            # the thing this test exists to prevent.
+            raw.append(keys)
 
         def snapshot(self, seconds: float) -> bytes:
             return b""
@@ -1001,12 +1004,16 @@ def test_wait_for_does_not_resend_after_an_ambiguous_write_failure() -> None:
         def close(self) -> None:
             pass
 
+    raw: list[str] = []
     consoles = [Console(fail_write=True), Console(fail_write=False)]
     link = Reconnecting(lambda: consoles.pop(0), tries=2)
     link.wait_for("sh install.sh", timeout=5.0)
 
     commands = [one for one in sent if "install.sh" in one]
     assert len(commands) == 1, commands
+    # Nothing raw carries the command either: a second install is what the
+    # ambiguous write might already have started.
+    assert not [one for one in raw if "install.sh" in one], raw
 
 
 def test_a_short_command_is_sent_again_after_a_reconnect() -> None:

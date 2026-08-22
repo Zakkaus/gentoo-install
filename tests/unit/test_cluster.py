@@ -1449,6 +1449,11 @@ def test_the_login_wait_asks_again_after_the_console_is_reopened() -> None:
         def send(self, line: str) -> None:
             self.asked = True
 
+        def send_raw(self, keys: str) -> None:
+            # The protocol has it, so the double does: a reopen clears the
+            # line before it asks for a prompt.
+            self.asked = True
+
         def close(self) -> None:
             return None
 
@@ -1842,6 +1847,10 @@ def test_a_dropped_console_does_not_end_a_guest_that_is_still_working(
             raise ConsoleClosed("the connection broke: [Errno 104] Connection reset by peer")
 
         def send(self, line: str) -> None:
+            return None
+
+        def send_raw(self, keys: str) -> None:
+            # The protocol has it, so the double does.
             return None
 
         def close(self) -> None:
@@ -2344,6 +2353,8 @@ def test_a_reopen_before_a_write_sends_no_empty_line() -> None:
     assert len(opened) == 2, opened
     assert opened[1].sent == ["root"], opened[1].sent
     assert "" not in opened[1].sent, opened[1].sent
+    # Nor an interrupt: at a `login:` prompt that is an answer too.
+    assert cluster.INTERRUPT not in opened[1].sent, opened[1].sent
 
 
 def test_a_reopen_that_is_waiting_for_a_shell_still_asks_for_one() -> None:
@@ -2360,7 +2371,9 @@ def test_a_reopen_that_is_waiting_for_a_shell_still_asks_for_one() -> None:
     link = cluster.Reconnecting(cast("Any", open_console))
     link.reopen()
 
-    assert opened[-1].sent == [""], opened[-1].sent
+    # The interrupt clears whatever half a line the drop left behind, and
+    # the empty one is the request for a prompt.
+    assert opened[-1].sent == [cluster.INTERRUPT, ""], opened[-1].sent
 
 
 def test_the_first_password_is_sent_the_moment_the_prompt_is_read(
@@ -3839,3 +3852,58 @@ def test_a_bios_cryptodisk_root_says_the_prompt_comes_first() -> None:
     # Asked while the root is mounted, or the answer cannot be read at all.
     crypt = next(one for one in shell.asked if "GRUB_ENABLE_CRYPTODISK" in one)
     assert shell.asked.index(crypt) < shell.asked.index("umount /mnt/root")
+
+
+def test_a_reopened_console_clears_whatever_the_shell_was_holding() -> None:
+    """A drop in the middle of a `send` leaves the shell holding half a line,
+    and an unclosed quote turns every command after it into continuation text:
+    `gi-x1` answered `> ` to three `zpool import` retries in a row and nothing
+    else. The interrupt goes first, before the prompt is solicited, or the
+    empty line only lengthens the quote."""
+    from tests.vm import cluster
+
+    sent: list[str] = []
+
+    class Console:
+        def send(self, line: str) -> None:
+            sent.append(f"send:{line}")
+
+        def send_raw(self, keys: str) -> None:
+            sent.append(f"raw:{keys}")
+
+        def close(self) -> None:
+            sent.append("close")
+
+    link = cluster.Reconnecting(lambda: cast(Any, Console()))
+    sent.clear()
+    link.reopen()
+
+    assert sent.index(f"raw:{cluster.INTERRUPT}") < sent.index("send:"), sent
+
+
+def test_no_interrupt_reaches_a_console_that_may_be_at_a_login_prompt() -> None:
+    """`solicit_prompt=False` is used where the console may be at `login:`, a
+    GRUB menu or a passphrase prompt, and anything sent there is an answer to
+    it: `vm-lvm` and `openrc-sdboot` failed three rounds to one empty line at
+    a login prompt. The interrupt clears a shell and belongs only where one is
+    known to be there."""
+    from tests.vm import cluster
+
+    sent: list[str] = []
+
+    class Console:
+        def send(self, line: str) -> None:
+            sent.append(f"send:{line}")
+
+        def send_raw(self, keys: str) -> None:
+            sent.append(f"raw:{keys}")
+
+        def close(self) -> None:
+            sent.append("close")
+
+    link = cluster.Reconnecting(lambda: cast(Any, Console()))
+    sent.clear()
+    link.reopen(solicit_prompt=False)
+
+    assert f"raw:{cluster.INTERRUPT}" not in sent, sent
+    assert not [one for one in sent if one.startswith("send:")], sent
