@@ -3490,9 +3490,16 @@ class ScriptedShell:
 
     def expect_output(self, command: str, timeout: float = 120.0) -> bytes:
         self.asked.append(command)
-        for pattern, said in self.answers.items():
-            if pattern in command:
-                return f"{command}\n{said}".encode().split(b"\n", 1)[1]
+        # The longest match, not the first: every command mentioning
+        # `grub.cfg` matched the key for reading the file itself, so the check
+        # for a terminal line was answered with a path and read as `already
+        # set`. A loose double hides the branch it is meant to exercise.
+        matched = sorted(
+            (one for one in self.answers if one in command), key=len, reverse=True
+        )
+        if matched:
+            said = self.answers[matched[0]]
+            return f"{command}\n{said}".encode().split(b"\n", 1)[1]
         return b""
 
     def run(self, command: str, timeout: float = 120.0, *, repeatable: bool = True) -> None:
@@ -3687,3 +3694,50 @@ def test_a_root_that_already_has_a_serial_getty_is_left_alone() -> None:
     cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
 
     assert not [one for one in shell.asked if "inittab" in one and "printf" in one]
+
+
+def test_grub_is_moved_onto_the_serial_line_as_well() -> None:
+    """`GRUB_ENABLE_CRYPTODISK=y` makes GRUB read the passphrase itself, before
+    the kernel's `console=` can matter, and a BIOS GRUB draws that prompt on
+    the VGA console. `gi-w2` sent 49 bytes and stopped there."""
+    from tests.vm import cluster
+
+    shell = ScriptedShell(
+        {
+            "zpool import": "",
+            "blkid -t TYPE=vfat": "",
+            "blkid -o export": "/dev/vda1:crypto_LUKS",
+            "grub/grub.cfg": "/mnt/root/boot/grub/grub.cfg",
+            "grep -c '^terminal_output'": "0",
+            "grep -c ttyS0": "0",
+        }
+    )
+    cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
+
+    written = [one for one in shell.asked if one.startswith("sed -i '1i")]
+    assert written, shell.asked
+    for line in cluster.GRUB_SERIAL_LINES:
+        assert line in written[0], line
+    # Before the kernel line is what matters: GRUB acts on a command where it
+    # reads it, and the passphrase prompt is the first thing the file leads to.
+    assert written[0].count("1i") == 1
+
+
+def test_a_grub_config_already_on_serial_is_left_alone() -> None:
+    """The installer writes these itself when `kernel_params` names a serial
+    console, and a second `terminal_output` would override the first."""
+    from tests.vm import cluster
+
+    shell = ScriptedShell(
+        {
+            "zpool import": "",
+            "blkid -t TYPE=vfat": "",
+            "blkid -o export": "/dev/vda1:ext4",
+            "grub/grub.cfg": "/mnt/root/boot/grub/grub.cfg",
+            "grep -c '^terminal_output'": "1",
+            "grep -c ttyS0": "1",
+        }
+    )
+    cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
+
+    assert not [one for one in shell.asked if one.startswith("sed -i '1i")]
