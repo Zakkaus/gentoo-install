@@ -224,3 +224,18 @@ def test_a_tab_moves_the_cursor_rather_than_drawing_something() -> None:
     stop = Screen(lines=2, columns=20)
     stop.feed(b"abcdefgh\tx")
     assert stop.text().splitlines()[0] == "abcdefgh        x", stop.text()
+
+
+def test_a_position_outside_the_grid_lands_on_its_edge() -> None:
+    """The guest sizes its own terminal, so it addresses rows this grid has not
+    got. Unclamped, the cursor sat outside `_rows` and the next erase raised
+    `IndexError` out of the middle of a conversion's console."""
+    grid = Screen(lines=4, columns=20)
+    grid.feed(b"\x1b[9;40Hx\x1b[0J")
+    assert grid.text().splitlines()[3].rstrip() == " " * 19 + "x"
+
+    # Negative control: a position the grid does hold is not moved to the edge,
+    # so the rule cannot be reading every position as the last cell.
+    inside = Screen(lines=4, columns=20)
+    inside.feed(b"\x1b[2;3Hx")
+    assert inside.text().splitlines()[1].rstrip() == "  x"
