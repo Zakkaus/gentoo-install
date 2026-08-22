@@ -2024,6 +2024,12 @@ def tui_conversion(
     )
     log = guest_log(workdir, name, vmid, "conversion")
     link = Reconnecting.to(guest, log)
+    # This guest was driven by something else before this call, and whatever
+    # it left behind is still in the shell: `gi-x1` was attached with half a
+    # `printf` in its buffer and answered `> ` to four commands in a row. The
+    # first open is not a reopen, so nothing else clears it.
+    link.console.send_raw(INTERRUPT)
+    link.console.send("")
     # On the medium, while a live shell is still there: the installed system
     # has no `console=` of its own, so without this the machine boots to a
     # serial line nobody can log in on.

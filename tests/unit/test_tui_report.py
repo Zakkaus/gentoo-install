@@ -381,6 +381,9 @@ def test_a_conversion_runs_inside_the_machine_it_replaces(
         def send(self, line: str) -> None:
             done.append(f"send:{line}")
 
+        def send_raw(self, keys: str) -> None:
+            done.append(f"send:{keys}")
+
         def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
             done.append(f"expect:{pattern}")
             return b""
@@ -420,6 +423,10 @@ def test_a_conversion_runs_inside_the_machine_it_replaces(
         cast(Any, Cluster()), "infra-node3", "conv", 9300, Path("/tmp")
     )
 
+    # The shell is cleared before anything is asked of it: this guest was
+    # driven by something else, and half a line left in its buffer turns every
+    # command after it into continuation text.
+    assert done[0] == f"send:{cluster.INTERRUPT}", done
     # The parameters go in while a live shell is still there, and only then is
     # the guest pointed at its own disk.
     assert done.index("speak") < done.index("stop"), done
