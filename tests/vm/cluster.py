@@ -3843,6 +3843,22 @@ def _rootish_devices(link: "Reconnecting") -> list[str]:
     return [one for one in said.decode(errors="replace").split("\n") if one.strip()]
 
 
+def edit_the_menu_if_that_is_the_only_route(
+    guest: Guest, link: "Reconnecting", route: SerialRoute
+) -> bool:
+    """Hold the bootloader's menu only where nothing else could be written.
+
+    Asked unconditionally, the editor waits 120 seconds twice for a menu that
+    will never come: `gi-u7` boots ZFSBootMenu and `gi-u5` draws systemd-boot's
+    own menu, and the 90 KB that guest sent were that menu redrawing. Answers
+    whether the menu was edited.
+    """
+    if route is not SerialRoute.NOTHING_FOUND:
+        return False
+    _edit_uefi_cmdline(guest, link)
+    return True
+
+
 def _edit_uefi_cmdline(guest: Guest, link: "Reconnecting") -> None:
     """Add the serial parameters to the medium's entry, once more if the
     console said nothing at all.
