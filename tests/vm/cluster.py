@@ -4155,7 +4155,11 @@ def _open_a_serial_login(link: "Reconnecting") -> None:
     the machine back has somewhere to log in.
     """
     inittab = "/mnt/root/etc/inittab"
-    if _counted(link, "ttyS0", inittab):
+    # Uncommented lines only: Gentoo's inittab ships the serial entries with a
+    # `#` in front, which `EnableSerialGetty` already records. Counting every
+    # mention, this found one and returned, and `lab8` reached runlevel 3 with
+    # every service `[ ok ]` and no way to log in.
+    if _counted(link, "^[^#]*ttyS0", inittab):
         return
     link.run(
         f"test -f {inittab} && printf '%s\\n' "
