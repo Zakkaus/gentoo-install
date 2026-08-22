@@ -254,3 +254,29 @@ def test_a_spec_that_replaces_a_system_is_refused_on_a_fresh_guest() -> None:
     assert cluster.TUI_NEEDS_A_SYSTEM == frozenset({3}), cluster.TUI_NEEDS_A_SYSTEM
     for number in sorted(set(cluster.TUI_GUESTS) - cluster.TUI_NEEDS_A_SYSTEM):
         assert number not in cluster.TUI_NEEDS_A_SYSTEM
+
+
+def test_a_spec_the_interface_has_no_row_for_is_refused_before_a_guest() -> None:
+    """`--ram` and `--lowram` arm a one-shot boot entry and reboot into a
+    memory-held environment, and they exist only on the command line. An agent
+    sent at spec 4 found `Build in RAM`, which is Portage's build directory,
+    was refused for too little memory, and reported being stuck having spent a
+    guest and an hour."""
+    import pytest
+
+    from tests.vm import cluster
+
+    class Nothing:
+        def isos(self, node: str) -> list[str]:
+            raise AssertionError("a refused spec must not reach the cluster")
+
+    with pytest.raises(ValueError, match="has no row in the interface"):
+        cluster.tui_execution(
+            cast(Any, Nothing()), "infra-node1", "ram", 4, Path("/nonexistent")
+        )
+
+    # The two refusals are about different things, so a spec in one is never
+    # in the other and neither set has quietly grown to cover the whole table.
+    assert cluster.TUI_HAS_NO_ROW == frozenset({4}), cluster.TUI_HAS_NO_ROW
+    assert not cluster.TUI_HAS_NO_ROW & cluster.TUI_NEEDS_A_SYSTEM
+    assert set(cluster.TUI_GUESTS) - cluster.TUI_HAS_NO_ROW - cluster.TUI_NEEDS_A_SYSTEM
