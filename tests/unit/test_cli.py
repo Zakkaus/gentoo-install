@@ -285,6 +285,10 @@ def online(monkeypatch: pytest.MonkeyPatch, answer: bool = True, said: str = "")
     monkeypatch.setattr(
         fetch, "why_offline", lambda: "" if answer else (said or "HTTP Error 503")
     )
+    # The mirror answers with the package site by default: a machine that
+    # reaches neither is the offline case, and a test that wants the mirror up
+    # while the site is down says so itself.
+    monkeypatch.setattr(fetch, "mirror_online", lambda *a, **k: answer)
 
 
 def test_the_menu_stops_when_the_machine_cannot_reach_the_package_site(
@@ -298,8 +302,40 @@ def test_the_menu_stops_when_the_machine_cannot_reach_the_package_site(
     said = capsys.readouterr().err
     # The site's own answer, not a guess about the machine: the url names one
     # atom, so a package rename upstream reads as a broken network.
-    assert "cannot reach packages.gentoo.org" in said, said
+    assert "neither packages.gentoo.org" in said, said
     assert "HTTP Error 404: Not Found" in said, said
+
+
+def test_a_mirror_that_answers_is_enough_to_open_the_menu(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The version rows are read from the package site and the install from a
+    mirror, so the site being unreachable costs the pinned versions and nothing
+    else. One guest resolved that site to an IPv6 address alone with no route
+    to reach it, and was refused at the first screen with a working mirror one
+    row away."""
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    online(monkeypatch, False, said="Errno 101 Network is unreachable")
+    monkeypatch.setattr(fetch, "mirror_online", lambda *a, **k: True)
+
+    def reached(*args: object, **keywords: object) -> object:
+        raise errors.PreflightFailed("the menu was reached")
+
+    monkeypatch.setattr(cli, "_from_menu", reached)
+    assert main([]) == EXIT_PREFLIGHT
+    warned = capsys.readouterr().err
+    assert "the menu was reached" in warned, warned
+    assert "packages.gentoo.org did not answer" in warned, warned
+    assert "Errno 101" in warned, warned
+
+    # Negative control: with the mirror unreachable too, the same machine is
+    # refused before the menu, so the warning above is the degradation and not
+    # a check that stopped running.
+    online(monkeypatch, False, said="Errno 101 Network is unreachable")
+    assert main([]) == EXIT_PREFLIGHT
+    refused = capsys.readouterr().err
+    assert "the menu was reached" not in refused, refused
+    assert "neither packages.gentoo.org" in refused, refused
 
 
 def test_the_two_offline_answers_are_still_given_without_a_network(
