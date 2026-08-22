@@ -3763,6 +3763,11 @@ class SerialRoute(Enum):
     LOADER_ENTRIES = "loader-entries"
     ZFSBOOTMENU = "zfsbootmenu"
     GRUB_CONFIG = "grub-config"
+    #: Everything was written, and the serial line stays quiet until the
+    #: passphrase is answered: GRUB's core image asks for it before it can
+    #: read `grub.cfg` at all. Held apart so a silent console is not read as
+    #: an install that failed.
+    CRYPTODISK_CORE = "cryptodisk-core"
     NOTHING_FOUND = "nothing-found"
 
 
@@ -3811,8 +3816,9 @@ def make_the_installed_system_speak(
             link.run("umount /mnt/esp")
             return SerialRoute.LOADER_ENTRIES
         link.run("umount /mnt/esp")
-    if _grub_config_edited(link, extra):
-        return SerialRoute.GRUB_CONFIG
+    edited = _grub_config_edited(link, extra)
+    if edited is not None:
+        return edited
     return SerialRoute.NOTHING_FOUND
 
 
@@ -3824,7 +3830,7 @@ def _boot_environments(link: "Reconnecting", pool: str) -> list[str]:
     return [one for one in named if one != f"{pool}/ROOT"]
 
 
-def _grub_config_edited(link: "Reconnecting", extra: str) -> bool:
+def _grub_config_edited(link: "Reconnecting", extra: str) -> SerialRoute | None:
     """Put the parameters in `grub.cfg` itself, for a menu nobody can type into.
 
     A BIOS GRUB draws its menu on the VGA console, so `append_to_cmdline` has
@@ -3855,14 +3861,17 @@ def _grub_config_edited(link: "Reconnecting", extra: str) -> bool:
                 )
                 _grub_talks_on_the_serial_line(link)
                 _open_a_serial_login(link)
+                # Read while the root is still mounted, because the answer
+                # decides what a silent console afterwards means.
+                core = _counted(link, "^GRUB_ENABLE_CRYPTODISK=y", "/mnt/root/etc/default/grub")
                 link.run("umount /mnt/root")
                 if opened != device:
                     link.run("cryptsetup close speak")
-                return True
+                return SerialRoute.CRYPTODISK_CORE if core else SerialRoute.GRUB_CONFIG
             link.run("umount /mnt/root 2>/dev/null; true")
         if opened != device:
             link.run("cryptsetup close speak")
-    return False
+    return None
 
 
 #: Every spec uses one password, so the harness knows it without being told.

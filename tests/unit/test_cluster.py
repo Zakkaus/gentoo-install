@@ -3610,6 +3610,7 @@ def test_a_luks_root_is_unlocked_before_its_config_is_read() -> None:
             "blkid -t TYPE=vfat": "",
             "blkid -o export": "/dev/vda1:crypto_LUKS",
             "grub/grub.cfg": "/mnt/root/boot/grub/grub.cfg",
+            "GRUB_ENABLE_CRYPTODISK": "0",
         }
     )
     route = cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
@@ -3808,3 +3809,33 @@ def test_a_grep_that_counts_none_is_read_as_none() -> None:
     shell = TwoZeroes()
     assert cluster._counted(cast(Any, shell), "ttyS0", "/mnt/root/etc/inittab") == 0
     assert "| head -1" in shell.asked[0], shell.asked
+
+
+def test_a_bios_cryptodisk_root_says_the_prompt_comes_first() -> None:
+    """`GRUB_ENABLE_CRYPTODISK=y` with `/boot` inside the encrypted root means
+    the core image asks for the passphrase before it can read `grub.cfg` at
+    all: `gi-w2` has the serial lines on lines 1 to 3 and `cryptomount` on
+    line 92, and it stayed quiet through four rounds. Everything is still
+    written, and the caller is told why the console says nothing."""
+    from tests.vm import cluster
+
+    shell = ScriptedShell(
+        {
+            "zpool import": "",
+            "blkid -t TYPE=vfat": "",
+            "blkid -o export": "/dev/vdb1:crypto_LUKS",
+            "grub/grub.cfg": "/mnt/root/boot/grub/grub.cfg",
+            "grep -c '^terminal_output.*serial'": "0",
+            "grep -c 'ttyS0'": "0",
+            "GRUB_ENABLE_CRYPTODISK": "1",
+        }
+    )
+    route = cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
+
+    assert route is cluster.SerialRoute.CRYPTODISK_CORE
+    # The edits still happen: they work once the passphrase is answered.
+    assert [one for one in shell.asked if one.startswith("sed -i '1i")], shell.asked
+    assert [one for one in shell.asked if "inittab" in one and "printf" in one], shell.asked
+    # Asked while the root is mounted, or the answer cannot be read at all.
+    crypt = next(one for one in shell.asked if "GRUB_ENABLE_CRYPTODISK" in one)
+    assert shell.asked.index(crypt) < shell.asked.index("umount /mnt/root")
