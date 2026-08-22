@@ -439,7 +439,12 @@ def traits_of(
     else:
         found.add(Trait.BIOS_BOOT)
 
-    if esp_mount(graph) is None:
+    # Not asked of a conversion: its layout is read from the running machine by
+    # `plan/convert.layout_graph`, which builds the esp when the machine booted
+    # through UEFI, and the graph here is empty until then. Asked anyway, the
+    # menu refused every UEFI machine with `uefi boot` against `no mounted esp`
+    # and the operator had no row that could answer it.
+    if config.disk.mode is not DiskMode.IN_PLACE and esp_mount(graph) is None:
         found.add(Trait.NO_MOUNTED_ESP)
     # GRUB alone, and for two different reasons. systemd-boot reads the kernel
     # off the esp, which is never in the container. ZFSBootMenu does keep the
