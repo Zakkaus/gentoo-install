@@ -125,6 +125,11 @@ def style_of(setting: Setting, config: InstallConfig, context: Context) -> Style
     """Red for a required row with no answer, yellow for an optional row the
     operator has not opened. Colour repeats what the value already says: a
     console without it loses nothing."""
+    # A row the configuration refuses is not an answer anybody owes: a
+    # conversion takes its layout from the running machine, and `Drive` was
+    # drawn red and read `required` beside a screen that would not open.
+    if setting.unavailable(config, context):
+        return Style.PLAIN
     if setting.required and not settled(setting, config, context):
         return Style.REQUIRED
     if not setting.required and setting.edit is not None and setting.key not in context.visited:
@@ -218,7 +223,10 @@ def shown_value(
     """
     value = setting.value(config, context)
     if value == UNSET:
-        value = context.translate("required" if setting.required else UNSET)
+        refused = bool(setting.unavailable(config, context))
+        value = context.translate(
+            "required" if setting.required and not refused else UNSET
+        )
     if room is None:
         return value
     # `required` is fitted too: the widest label in the catalog leaves its own

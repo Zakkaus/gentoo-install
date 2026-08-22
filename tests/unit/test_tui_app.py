@@ -3952,3 +3952,40 @@ def test_a_conversion_can_reach_its_install_row() -> None:
     # so the rule above cannot be dropping every required row.
     empty = replace(built, disk=replace(built.disk, graph=DeviceGraph.build([])))
     assert "disk" in [one.key for one in unanswered(empty, offering)]
+
+
+def test_a_refused_row_is_not_drawn_as_an_answer_somebody_owes() -> None:
+    """A conversion takes its layout from the running machine, so the screen
+    behind `Drive` will not open. Drawn red and reading `required` beside it,
+    two operators in a row reported the interface as stuck on a row they could
+    not answer."""
+    from dataclasses import replace
+
+    from gentoo_install.model.device import DeviceGraph, DeviceId
+    from gentoo_install.tui.settings import SETTINGS, shown_value, style_of
+    from gentoo_install.tui.widgets import Style
+
+    offering = app.MainMenuContext(tui_context.Context(
+        translate=Catalog("en"),
+        disks=DISKS,
+        groups=load_catalog(),
+        hash_password=lambda password: f"$6$test${len(password)}",
+        conversion_refused=Refusal(""),
+        running_system="/dev/vda2 on btrfs",
+    ))
+    built = config()
+    converted = replace(
+        built,
+        disk=replace(
+            built.disk, mode=DiskMode.IN_PLACE, graph=DeviceGraph.build([]), root=DeviceId("")
+        ),
+    )
+    disk = next(one for one in SETTINGS if one.key == "storage")
+    assert style_of(disk, converted, offering) is Style.PLAIN
+    assert shown_value(disk, converted, offering) != "required"
+
+    # Negative control: the same row on a partition install with no disk chosen
+    # is still red and still says so.
+    empty = replace(built, disk=replace(built.disk, graph=DeviceGraph.build([])))
+    assert style_of(disk, empty, offering) is Style.REQUIRED
+    assert shown_value(disk, empty, offering) == "required"
