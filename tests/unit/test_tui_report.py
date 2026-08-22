@@ -419,18 +419,23 @@ def test_a_conversion_runs_inside_the_machine_it_replaces(
         cluster, "edit_the_menu_if_that_is_the_only_route", lambda *a: done.append("menu")
     )
     monkeypatch.setattr(cluster, "reach_prompt", lambda one: done.append("prompt"))
+    monkeypatch.setattr(cluster, "_edit_uefi_cmdline", lambda *a: done.append("uefi"))
+    monkeypatch.setattr(cluster, "_edit_bios_cmdline", lambda *a: done.append("bios"))
     running = cluster.tui_conversion(
         cast(Any, Cluster()), "infra-node3", "conv", 9300, Path("/tmp")
     )
 
-    # The shell is cleared before anything is asked of it: this guest was
-    # driven by something else, and half a line left in its buffer turns every
-    # command after it into continuation text.
-    assert done[0] == f"send:{cluster.INTERRUPT}", done
+    # The guest is opened from firmware first, so the shell everything below
+    # talks to is one this call made rather than one it inherited.
+    assert done[0] == "stop", done
+    assert done.index("prompt") < done.index("speak"), done
     # The parameters go in while a live shell is still there, and only then is
     # the guest pointed at its own disk.
-    assert done.index("speak") < done.index("stop"), done
-    assert done.index("stop") < done.index("boot_from_disk") < done.index("start")
+    assert done.index("speak") < done.index("boot_from_disk"), done
+    # `start` happens twice — once for the medium and once for the disk — so
+    # the second cycle is asserted as a sequence rather than by first index.
+    at = done.index("boot_from_disk")
+    assert done[at - 1] == "stop" and done[at + 1] == "start", done
     assert "expect:login:" in done, done
     assert f"send:{cluster.TUI_PASSWORD}" in done, done
     # No `--config`: the menu is the subject here as much as anywhere else.

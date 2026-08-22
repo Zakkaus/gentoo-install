@@ -2023,13 +2023,22 @@ def tui_conversion(
         spec=GuestSpec(name=named, iso="", nonce=nonce, target_gib=disks or (TARGET_GIB,)),
     )
     log = guest_log(workdir, name, vmid, "conversion")
+    # From firmware, not from whatever console the guest already had. Three
+    # runs died on different leftovers — half a `printf` inside a quote, an
+    # interrupt landing in a nested ssh — because this path had no grounds for
+    # any belief about what it was attaching to. The shell below is one this
+    # call made.
+    guest.stop()
+    api.call("PUT", f"/nodes/{node}/qemu/{vmid}/config", boot=f"order={MEDIUM_FIRST}")
+    guest.start()
     link = Reconnecting.to(guest, log)
-    # This guest was driven by something else before this call, and whatever
-    # it left behind is still in the shell: `gi-x1` was attached with half a
-    # `printf` in its buffer and answered `> ` to four commands in a row. The
-    # first open is not a reopen, so nothing else clears it.
-    link.console.send_raw(INTERRUPT)
-    link.console.send("")
+    guest.reset()
+    if _is_uefi(config):
+        _edit_uefi_cmdline(guest, link)
+    else:
+        _edit_bios_cmdline(guest, link)
+    print(f"{name}: waiting for the live medium", flush=True)
+    reach_prompt(link)
     # On the medium, while a live shell is still there: the installed system
     # has no `console=` of its own, so without this the machine boots to a
     # serial line nobody can log in on.
@@ -2068,6 +2077,17 @@ def tui_conversion(
 #: What a `virtio<N>` disk key looks like, so the count comes from the guest
 #: rather than from a caller who might name a different number.
 _VIRTIO_DISK: Final[re.Pattern[str]] = re.compile(r"virtio\d+")
+
+
+#: What points the firmware at the medium rather than the installed disk.
+MEDIUM_FIRST: Final[str] = "ide2"
+
+
+def _is_uefi(config: Mapping[str, object]) -> bool:
+    """Whether this guest boots UEFI, read from the guest rather than assumed:
+    the medium's menu is on the serial line for one and on the VGA console for
+    the other, and the wrong editor waits two minutes for a menu never drawn."""
+    return any(str(key).startswith("efidisk") for key in config)
 
 
 def _log_into_the_installed_system(link: "Reconnecting") -> None:
