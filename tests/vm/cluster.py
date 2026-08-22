@@ -3853,6 +3853,7 @@ def _grub_config_edited(link: "Reconnecting", extra: str) -> bool:
                     "sed -i '/^[[:space:]]*linux/ s|$| " + extra + "|' "
                     "/mnt/root/boot/grub/grub.cfg"
                 )
+                _grub_talks_on_the_serial_line(link)
                 _open_a_serial_login(link)
                 link.run("umount /mnt/root")
                 if opened != device:
@@ -3866,6 +3867,35 @@ def _grub_config_edited(link: "Reconnecting", extra: str) -> bool:
 
 #: Every spec uses one password, so the harness knows it without being told.
 TUI_PASSWORD: Final[str] = "testtest"
+
+
+def _grub_talks_on_the_serial_line(link: "Reconnecting") -> None:
+    """Move GRUB's own terminal onto the serial line as well as the screen.
+
+    The kernel's `console=` starts working when the kernel does, and an
+    encrypted root is asked for before that: `GRUB_ENABLE_CRYPTODISK=y` makes
+    GRUB read the passphrase itself, and a BIOS GRUB draws that prompt on the
+    VGA console. `gi-w2` sent 49 bytes and stopped there.
+    """
+    config = "/mnt/root/boot/grub/grub.cfg"
+    already = link.expect_output(
+        f"grep -c '^terminal_output' {config} 2>/dev/null || echo 0"
+    ).strip()
+    if already not in (b"0", b""):
+        return
+    # Prepended, because GRUB acts on these where it reads them and the
+    # passphrase prompt is the first thing the file leads to.
+    lines = "\\n".join(GRUB_SERIAL_LINES)
+    link.run(f"sed -i '1i {lines}' {config}")
+
+
+#: What GRUB needs before it will draw on the serial line. Both terminals, so
+#: a machine with a monitor is not left dark.
+GRUB_SERIAL_LINES: Final[tuple[str, ...]] = (
+    "serial --unit=0 --speed=115200",
+    "terminal_input console serial",
+    "terminal_output console serial",
+)
 
 
 def _open_a_serial_login(link: "Reconnecting") -> None:
