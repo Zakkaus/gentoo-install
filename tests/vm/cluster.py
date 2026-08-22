@@ -3739,6 +3739,7 @@ class SerialRoute(Enum):
     GRUB_MENU = "grub-menu"
     LOADER_ENTRIES = "loader-entries"
     ZFSBOOTMENU = "zfsbootmenu"
+    GRUB_CONFIG = "grub-config"
     NOTHING_FOUND = "nothing-found"
 
 
@@ -3780,7 +3781,66 @@ def make_the_installed_system_speak(
             link.run("umount /mnt/esp")
             return SerialRoute.LOADER_ENTRIES
         link.run("umount /mnt/esp")
+    if _grub_config_edited(link, extra):
+        return SerialRoute.GRUB_CONFIG
     return SerialRoute.NOTHING_FOUND
+
+
+def _grub_config_edited(link: "Reconnecting", extra: str) -> bool:
+    """Put the parameters in `grub.cfg` itself, for a menu nobody can type into.
+
+    A BIOS GRUB draws its menu on the VGA console, so `append_to_cmdline` has
+    nothing to hold: `gi-s2a` answered zero bytes where `gi-t1b` answered a
+    whole boot. The kernel still writes wherever `console=` sends it, and that
+    comes from the `linux` lines the installer already generated.
+    """
+    for named in _rootish_devices(link):
+        device, _, kind = named.rpartition(":")
+        if not device:
+            continue
+        opened = device
+        if kind == "crypto_LUKS":
+            opened = "/dev/mapper/speak"
+            link.run(f"printf '%s' {TUI_PASSWORD} | cryptsetup open {device} speak")
+        for options in ("", "-o subvol=@"):
+            where = f"{options} {opened}".strip()
+            link.run(f"mkdir -p /mnt/root && mount {where} /mnt/root 2>/dev/null; true")
+            found = link.expect_output(
+                "ls /mnt/root/boot/grub/grub.cfg 2>/dev/null | head -1"
+            ).strip()
+            if found:
+                # Every `linux` line, because GRUB writes one per kernel and
+                # the operator boots whichever the menu defaults to.
+                link.run(
+                    "sed -i '/^[[:space:]]*linux/ s|$| " + extra + "|' "
+                    "/mnt/root/boot/grub/grub.cfg"
+                )
+                link.run("umount /mnt/root")
+                if opened != device:
+                    link.run("cryptsetup close speak")
+                return True
+            link.run("umount /mnt/root 2>/dev/null; true")
+        if opened != device:
+            link.run("cryptsetup close speak")
+    return False
+
+
+#: Every spec uses one password, so the harness knows it without being told.
+TUI_PASSWORD: Final[str] = "testtest"
+
+
+def _rootish_devices(link: "Reconnecting") -> list[str]:
+    """Partitions that could hold a root, newest-looking first.
+
+    `blkid` names the type as well, because a LUKS container has to be
+    unlocked before anything can be mounted from it and the two cases cannot
+    be told apart from the device name.
+    """
+    said = link.expect_output(
+        "blkid -o export 2>/dev/null | awk -F= '/^DEVNAME=/{d=$2} /^TYPE=/{print d\":\"$2}' "
+        "| grep -Ev ':(vfat|swap|iso9660|squashfs|zfs_member)$'"
+    )
+    return [one for one in said.decode(errors="replace").split("\n") if one.strip()]
 
 
 def _edit_uefi_cmdline(guest: Guest, link: "Reconnecting") -> None:
