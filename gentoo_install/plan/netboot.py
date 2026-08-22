@@ -524,7 +524,8 @@ class AppendConfiguration(Operation):
                 f"--no-same-permissions --directory {inside}",
             ]
         )
-        context.write(inside / "start.sh", _start(), mode=0o755)
+        context.write(inside / "start.sh", _start(self.launch.mode), mode=0o755)
+        context.write(inside / "command.sh", _command(), mode=0o755)
         if self.launch.mode is MemoryMode.RAM:
             hooks = staging / "usr/lib/dracut/hooks/pre-pivot"
             context.run(["mkdir", "--parents", str(hooks)])
@@ -538,6 +539,9 @@ class AppendConfiguration(Operation):
                 payload_staging / AUTOSTART[self.launch.mode].lstrip("/"),
                 _source_start(),
             )
+            # The apkovl is unpacked over `/`, so this lands on `PATH` the same
+            # way the profile line does.
+            context.write(payload_staging / COMMAND.lstrip("/"), _command(), mode=0o755)
             # `initramfs-init` adds `modloop`, `mdev`, `hwdrivers` and the rest
             # only when there is no apkovl or this file is in it, so ours came
             # up with no `/lib/modules` at all (`initramfs-init.in:950`).
@@ -621,7 +625,59 @@ def _ready_the_environment() -> str:
     )
 
 
-def _start() -> str:
+#: Where the command lands, because it is on `PATH` in both environments and
+#: is not part of either distribution's own package set.
+COMMAND: Final[str] = "/usr/local/sbin/gentoo-install"
+
+#: How to bring up wifi, per environment. The CJK ISO carries
+#: `net-misc/networkmanager` with its default `+wifi` and `sys-kernel/
+#: linux-firmware`; the Alpine netboot initrd's `drivers/net` holds only
+#: `ethernet`, `mdio`, `net_failover` and `virtio_net`, no supplicant, and its
+#: full module set is in a `modloop` that itself has to be fetched over the
+#: network.
+WIFI_LINES: Final[dict[MemoryMode, tuple[str, ...]]] = {
+    MemoryMode.RAM: (
+        "wifi: nmcli device wifi connect <SSID> password <PASSWORD>",
+        "\u7121\u7dda\u7db2\u8def\uff1anmcli device wifi connect <SSID> password <\u5bc6\u78bc>",
+        "\u65e0\u7ebf\u7f51\u7edc\uff1animcli device wifi connect <SSID> password <\u5bc6\u7801>",
+    ),
+    MemoryMode.LOWRAM: (
+        "wifi is not available here: this environment has no wireless driver",
+        "and no supplicant. Connect this machine by cable before installing.",
+    ),
+}
+
+#: The banner, in the languages that environment can draw. The Alpine netboot
+#: bundle has no CJK font, so Chinese there is a row of blanks.
+BANNER: Final[dict[MemoryMode, tuple[str, ...]]] = {
+    MemoryMode.RAM: (
+        "gentoo-install is in memory. The disk has not been touched.",
+        "\u5b89\u88dd\u5668\u5df2\u5728\u8a18\u61b6\u9ad4\u4e2d\uff0c\u78c1\u789f\u9084\u6c92\u6709\u88ab\u52d5\u904e\u3002",
+        "\u5b89\u88c5\u5668\u5df2\u5728\u5185\u5b58\u4e2d\uff0c\u78c1\u76d8\u8fd8\u6ca1\u6709\u88ab\u52a8\u8fc7\u3002",
+    ),
+    MemoryMode.LOWRAM: (
+        "gentoo-install is in memory. The disk has not been touched.",
+    ),
+}
+
+
+def _command() -> str:
+    """The installer as a command, so the first screen is not the only way in.
+
+    An operator who answers `shell`, whose connection drops before they
+    answer, or who has to bring up wifi first would otherwise have to reboot
+    the machine to see the offer again.
+    """
+    return (
+        "#!/bin/sh\n"
+        f"cd {PAYLOAD} || exit 1\n"
+        + _ready_the_environment()
+        + "exec sh ./bootstrap.sh --no-shell --install-missing "
+        + f"--config {PAYLOAD}/config.toml \"$@\"\n"
+    )
+
+
+def _start(mode: MemoryMode) -> str:
     """What the operator's login shell runs. It asks before it erases anything.
 
     Sourced by a login profile rather than executed by a boot service, so it
@@ -631,25 +687,28 @@ def _start() -> str:
 
     Two answers and no timeout: a countdown that ends in a partitioned disk is
     a countdown nobody can lose safely, and this path is reached by rebooting
-    a machine whose operator may still be reconnecting to it.
+    a machine whose operator may still be reconnecting to it. Answering `no`
+    is not the end of the road either — the banner names the command that
+    starts it again.
     """
+    said = "".join(f"printf '%s\\n' '{one}'\n" for one in BANNER[mode])
+    wifi = "".join(f"printf '%s\\n' '{one}'\n" for one in WIFI_LINES[mode])
     return (
         "#!/bin/sh\n"
         f"cd {PAYLOAD} || return 0\n"
         "printf '\\n'\n"
-        "printf 'gentoo-install is in memory. The disk has not been touched.\\n'\n"
-        "printf '  install  reinstall this machine from the delivered configuration\\n'\n"
-        "printf '  shell    leave this and use the live system as a rescue medium\\n'\n"
-        "printf 'install or shell> '\n"
+        + said
+        + "printf '\\n'\n"
+        + wifi
+        + f"printf '%s\\n' 'start it later with: {COMMAND}'\n"
+        "printf '\\n'\n"
+        "printf 'install now? [yes/no] '\n"
         "read answer\n"
         'case "$answer" in\n'
-        "install)\n"
-        + _ready_the_environment()
+        "yes|y|install)\n"
         # `sh`, not `exec sh`: this is sourced, so exec removes the login shell.
-        # After consent, `--no-shell` prevents a later prompt from stopping the run.
-        + "    sh ./bootstrap.sh --no-shell --install-missing "
-        + f"--config {PAYLOAD}/config.toml ;;\n"
-        + "*) printf 'nothing was changed\\n' ;;\n"
+        + f"    sh {COMMAND} ;;\n"
+        + f"*) printf '%s\\n' 'nothing was changed; run {COMMAND} when ready' ;;\n"
         "esac\n"
     )
 
@@ -679,6 +738,11 @@ def _handover(mode: MemoryMode) -> str:
         # Appended, not written: the file exists on the medium and sources
         # `.bashrc`, and replacing it would take the prompt and the aliases
         # with it.
+        # On `PATH` as well as in the payload: answering `no`, or losing the
+        # connection before answering, otherwise leaves rebooting as the only
+        # way back to the offer.
+        f'install -m 755 "$NEWROOT{PAYLOAD}/command.sh" "$NEWROOT{COMMAND}" '
+        "2>/dev/null || true\n"
         f'printf \'\\n{_source_start()}\' >> "$NEWROOT{AUTOSTART[mode]}"\n'
     )
 

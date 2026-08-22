@@ -103,7 +103,9 @@ ssh root@the-machine
 
 The default boot entry is not changed, so a machine that does not come up in the environment boots what it booted before; `--disarm` takes the arming back. `--bypass` replaces the default entry instead, for firmware that drops a one-shot entry, and it is the one path where an environment that fails to come up leaves a machine that does not boot at all.
 
-The first screen offers the install and a rescue shell and has no timeout, and nothing is erased until it is answered. `--ram` boots the Gentoo CJK ISO, which carries ZFS and needs about 2 GiB of RAM; `--lowram` boots the Alpine netboot bundle, which is smaller and has no `zfs.ko`. `--ssh-port` moves the daemon off 22.
+The first screen offers the install and a rescue shell and has no timeout, and nothing is erased until it is answered. `--ram` boots the Gentoo CJK ISO, which carries ZFS and needs about 2 GiB of RAM; `--lowram` boots the Alpine netboot bundle, which is smaller and has no `zfs.ko`. `--ssh-port` moves the daemon off 22. The first page names the command that starts the install later, so answering `no` or losing the connection before answering does not make rebooting the only way back to it.
+
+`--ram` reaches wifi and `--lowram` does not. The Gentoo CJK ISO carries NetworkManager and `linux-firmware`, so `nmcli device wifi connect <SSID> password <PASSWORD>` brings a link up and the install runs after it; the first page says so in Traditional Chinese, Simplified Chinese and English. The Alpine netboot environment has no wireless driver and no supplicant, and its full module set is in a `modloop` that itself has to be fetched, so a machine whose only link is wifi cannot use `--lowram` at all.
 
 ## Converting a running system
 

@@ -103,7 +103,9 @@ ssh root@the-machine
 
 默认引导项不会改动，所以没有进入该环境的机器仍引导回原本的系统；`--disarm` 取消这次预约。`--bypass` 改为取代默认项，供会丢弃一次性引导项的固件使用，那也是唯一一条「环境起不来就连机器都引导不了」的路径。
 
-第一个界面提供安装与救援 shell，没有超时，未回答之前不会擦除任何数据。`--ram` 引导的是带 ZFS 的 Gentoo CJK ISO，约需 2 GiB 内存；`--lowram` 引导的是较小、没有 `zfs.ko` 的 Alpine netboot 压缩包。`--ssh-port` 把服务移离 22 端口。
+第一个界面提供安装与救援 shell，没有超时，未回答之前不会擦除任何数据。`--ram` 引导的是带 ZFS 的 Gentoo CJK ISO，约需 2 GiB 内存；`--lowram` 引导的是较小、没有 `zfs.ko` 的 Alpine netboot 压缩包。`--ssh-port` 把服务移离 22 端口。第一页写出稍后启动安装的命令，所以回答 `no`、或在回答之前断线，都不会让重启成为唯一的退路。
+
+`--ram` 连得上 Wi-Fi，`--lowram` 连不上。Gentoo CJK ISO 带着 NetworkManager 与 `linux-firmware`，`nmcli device wifi connect <SSID> password <密码>` 就能接起连接，接好再执行安装；第一页以正体中文、简体中文与英文写出这件事。Alpine netboot 环境没有无线驱动也没有 supplicant，完整模块在一份本身也要下载的 `modloop` 里，因此只有 Wi-Fi 一条连接的机器完全无法使用 `--lowram`。
 
 ## 转换运行中的系统
 
