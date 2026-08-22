@@ -176,12 +176,19 @@ def ask(
 
 
 
-def start(name: str, spec: int, node: str = "", vmid: int = 0) -> str:
+def start(
+    name: str, spec: int, node: str = "", vmid: int = 0, convert: int = 0
+) -> str:
     """Build a guest and leave the installer at its first screen.
 
     The same path an install fixture takes as far as the driver CD, and then
     the other half: `install.sh` with no `--config`, which is the interface
     this exists to exercise.
+
+    `convert` names a machine this harness already installed, and the
+    installer is started inside it instead: the interface answers that a live
+    medium has no system to replace, so the conversion spec cannot be reached
+    from a guest that just booted one.
     """
     from tests.vm import cluster
     from tests.vm.proxmox import Api
@@ -192,7 +199,12 @@ def start(name: str, spec: int, node: str = "", vmid: int = 0) -> str:
     session.screens.write_text("", encoding="utf-8")
     (session.directory / "spec.txt").write_text(str(spec), encoding="utf-8")
     api = Api()
-    held = cluster.tui_execution(api, node, name, spec, session.directory, vmid)
+    if convert:
+        if not node:
+            raise SessionError("--convert names a machine, so --node names where it is")
+        held = cluster.tui_conversion(api, node, name, convert, session.directory, spec)
+    else:
+        held = cluster.tui_execution(api, node, name, spec, session.directory, vmid)
     if os.fork() != 0:
         return name
     # The child holds the console; the parent's caller gets the name back and
@@ -327,6 +339,12 @@ def main(argv: list[str] | None = None) -> int:
     opened.add_argument("--spec", type=int, required=True)
     opened.add_argument("--node", default="")
     opened.add_argument("--vmid", type=int, default=0)
+    opened.add_argument(
+        "--convert",
+        type=int,
+        default=0,
+        help="drive the installer inside this already-installed guest",
+    )
     typed = commands.add_parser("key", help="press keys, in order")
     typed.add_argument("session")
     typed.add_argument("keys", nargs="+")
@@ -340,7 +358,15 @@ def main(argv: list[str] | None = None) -> int:
 
     session = Session(arguments.session)
     if arguments.command == "start":
-        print(start(arguments.session, arguments.spec, arguments.node, arguments.vmid))
+        print(
+            start(
+                arguments.session,
+                arguments.spec,
+                arguments.node,
+                arguments.vmid,
+                arguments.convert,
+            )
+        )
         return 0
     if arguments.command == "key":
         sent = keys_from(arguments.keys)
