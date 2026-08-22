@@ -2371,9 +2371,11 @@ def test_a_reopen_that_is_waiting_for_a_shell_still_asks_for_one() -> None:
     link = cluster.Reconnecting(cast("Any", open_console))
     link.reopen()
 
-    # The interrupt clears whatever half a line the drop left behind, and
-    # the empty one is the request for a prompt.
-    assert opened[-1].sent == [cluster.INTERRUPT, ""], opened[-1].sent
+    # The empty line is the request for a prompt, and it is the whole of it:
+    # the interrupt clears a half-written line, so a reopen with no write in
+    # flight has nothing to clear. Sent anyway it killed what the guest was
+    # running, and four finished installs in one round were recorded as errors.
+    assert opened[-1].sent == [""], opened[-1].sent
 
 
 def test_the_first_password_is_sent_the_moment_the_prompt_is_read(
@@ -3861,10 +3863,13 @@ def test_a_reopened_console_clears_whatever_the_shell_was_holding() -> None:
     else. The interrupt goes first, before the prompt is solicited, or the
     empty line only lengthens the quote."""
     from tests.vm import cluster
+    from tests.vm.console import ConsoleClosed
 
     sent: list[str] = []
 
     class Console:
+        closed = False
+
         def send(self, line: str) -> None:
             sent.append(f"send:{line}")
 
@@ -3874,8 +3879,29 @@ def test_a_reopened_console_clears_whatever_the_shell_was_holding() -> None:
         def close(self) -> None:
             sent.append("close")
 
-    link = cluster.Reconnecting(lambda: cast(Any, Console()))
+    class Dropping(Console):
+        closed = False
+
+        def send(self, line: str) -> None:
+            sent.append(f"send:{line}")
+            raise ConsoleClosed("dropped mid-send")
+
+    made: list[object] = []
+
+    def open_console() -> object:
+        one = Dropping() if not made else Console()
+        made.append(one)
+        return one
+
+    link = cluster.Reconnecting(cast(Any, open_console))
     sent.clear()
+    # A write that drops is what leaves the half line, and what the interrupt
+    # is for. Reopened after one, the interrupt goes first or the empty line
+    # only lengthens the quote.
+    try:
+        link.send("zpool import")
+    except ConsoleClosed:
+        pass
     link.reopen()
 
     assert sent.index(f"raw:{cluster.INTERRUPT}") < sent.index("send:"), sent
