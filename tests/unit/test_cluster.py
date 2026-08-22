@@ -3608,3 +3608,33 @@ def test_a_luks_root_is_unlocked_before_its_config_is_read() -> None:
     ), shell.asked
     assert any("mount /dev/mapper/speak /mnt/root" in one for one in shell.asked), shell.asked
     assert "cryptsetup close speak" in shell.asked
+
+
+def test_the_menu_editor_is_asked_for_only_where_nothing_else_was_written() -> None:
+    """Asked unconditionally it waits 120 seconds twice for a menu that never
+    comes: `gi-u7` boots ZFSBootMenu and `gi-u5` draws systemd-boot's own menu,
+    and the 90 KB that guest sent were that menu redrawing."""
+    from tests.vm import cluster
+
+    held: list[str] = []
+
+    def editor(guest: object, link: object) -> None:
+        held.append("asked")
+
+    original = cluster._edit_uefi_cmdline
+    cluster._edit_uefi_cmdline = cast(Any, editor)
+    try:
+        for route, expected in (
+            (cluster.SerialRoute.ZFSBOOTMENU, False),
+            (cluster.SerialRoute.LOADER_ENTRIES, False),
+            (cluster.SerialRoute.GRUB_CONFIG, False),
+            (cluster.SerialRoute.NOTHING_FOUND, True),
+        ):
+            held.clear()
+            answered = cluster.edit_the_menu_if_that_is_the_only_route(
+                cast(Any, None), cast(Any, None), route
+            )
+            assert answered is expected, route
+            assert bool(held) is expected, route
+    finally:
+        cluster._edit_uefi_cmdline = original
