@@ -3878,8 +3878,12 @@ def _grub_talks_on_the_serial_line(link: "Reconnecting") -> None:
     VGA console. `gi-w2` sent 49 bytes and stopped there.
     """
     config = "/mnt/root/boot/grub/grub.cfg"
+    # Naming `serial`, because `00_header` writes `terminal_output gfxterm`
+    # on every machine that has the graphics modules: a check for the command
+    # alone answered 1 on `gi-w2`, skipped the edit, and left the guest at an
+    # invisible passphrase prompt for a second round.
     already = link.expect_output(
-        f"grep -c '^terminal_output' {config} 2>/dev/null || echo 0"
+        f"grep -c '^terminal_output.*serial' {config} 2>/dev/null || echo 0"
     ).strip()
     if already not in (b"0", b""):
         return
