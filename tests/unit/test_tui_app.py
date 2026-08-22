@@ -326,6 +326,25 @@ def test_the_timezone_list_is_every_zone_the_machine_knows() -> None:
     assert answer.unwrap().system.timezone == "Asia/Taipei"
 
 
+def test_a_zone_that_is_its_own_area_is_still_choosable_after_going_back() -> None:
+    """`UTC` is the only row under `UTC`, so there is no city to pick. The
+    check for that ran once before the loop and not on the way back through it:
+    an operator who opened `Asia`, went back and chose `UTC` ended the run on
+    `list index out of range` and was left at a shell."""
+    # Areas in the order the machine gives them: `UTC` first, `Asia` second,
+    # and the menu opens on `Asia` because that is what the configuration holds.
+    screen = FakeScreen(keys=["\n", "KEY_LEFT", "KEY_UP", "\n"])
+    answer = screens.timezone_screen(screen, config(), context())
+    assert answer.outcome is Outcome.CHOSE, answer.outcome
+    assert answer.unwrap().system.timezone == "UTC", answer.unwrap().system.timezone
+
+    # Negative control: an area that does have cities still opens its list, so
+    # the rule above cannot be answering every area with the area itself.
+    asia = FakeScreen(keys=["\n", "KEY_DOWN", "\n"])
+    picked = screens.timezone_screen(asia, config(), context())
+    assert picked.unwrap().system.timezone == "Asia/Taipei", picked.unwrap().system.timezone
+
+
 @pytest.mark.parametrize("leaving", ["KEY_LEFT", "q"])
 def test_firewall_dialog_leaving_does_not_commit(leaving: str) -> None:
     start = config()

@@ -1241,6 +1241,20 @@ def additional_locales_screen(
     )
 
 
+def _zones_under(area: str, zones: Sequence[str]) -> list[str]:
+    """The zones of one area, each named once, in the order the machine gave."""
+    seen: dict[str, None] = {}
+    for zone in zones:
+        if zone.split("/", 1)[0] == area:
+            seen[zone] = None
+    return list(seen)
+
+
+def _under(zone: str) -> str:
+    """What to label a zone inside its area's list."""
+    return zone.split("/", 1)[1] if "/" in zone else zone
+
+
 def timezone_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
     """Every zone the machine knows, area first.
 
@@ -1290,15 +1304,19 @@ def timezone_screen(screen: Screen, config: InstallConfig, context: Context) -> 
             Outcome.CHOSE,
             replace(config, system=replace(config.system, timezone=context.timezone_here)),
         )
-    within = [zone for zone in zones if zone.split("/", 1)[0] == area]
-    if within == [area]:
-        return Answer(
-            Outcome.CHOSE, replace(config, system=replace(config.system, timezone=area))
-        )
     while True:
+        within = _zones_under(area, zones)
+        # An area that is one whole zone has no city to pick: `UTC` is the
+        # only row under `UTC`. Checked on every pass, not once before the
+        # loop: an operator who opened `Asia`, went back and chose `UTC` ended
+        # the run on `list index out of range` and was left at a shell.
+        if within == [area]:
+            return Answer(
+                Outcome.CHOSE, replace(config, system=replace(config.system, timezone=area))
+            )
         city: Menu[str] = Menu(
             title=area,
-            items=[Item(label=zone.split("/", 1)[1], value=zone) for zone in within],
+            items=[Item(label=_under(zone), value=zone) for zone in within],
             footer=footer(translate),
             current=config.system.timezone,
         )
@@ -1312,7 +1330,11 @@ def timezone_screen(screen: Screen, config: InstallConfig, context: Context) -> 
             if not picked.chosen:
                 return Answer(picked.outcome)
             area = picked.unwrap()
-            within = [zone for zone in zones if zone.split("/", 1)[0] == area]
+            if not area:
+                return Answer(
+                    Outcome.CHOSE,
+                    replace(config, system=replace(config.system, timezone=context.timezone_here)),
+                )
             continue
         return Answer(answer.outcome)
 
