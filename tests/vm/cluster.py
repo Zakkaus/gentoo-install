@@ -2833,6 +2833,10 @@ def _naming(command: str) -> Iterator[None]:
         raise ConsoleTimeout(f"{error} while running {_shortened(command)!r}") from error
 
 
+#: What clears a half-typed line, including one inside an unclosed quote.
+INTERRUPT: Final[str] = "\x03"
+
+
 class Reconnecting:
     """A console that opens another one when the cluster drops it.
 
@@ -2876,6 +2880,19 @@ class Reconnecting:
             pass
         self.console = self._open()
         if solicit_prompt:
+            # An interrupt before the prompt is asked for: a drop in the middle
+            # of a `send` leaves the shell holding half a line, and an unclosed
+            # quote turns every command after it into continuation text.
+            # `gi-x1` answered `> ` to three `zpool import` retries and nothing
+            # else. Only here, because the other path is used where the console
+            # is at a `login:` or a passphrase prompt and anything sent there is
+            # an answer to it.
+            try:
+                self.console.send_raw(INTERRUPT)
+            except (ConsoleClosed, OSError):
+                # A convenience, not a step: a console that will not take it is
+                # one the caller's own write will fail on and report properly.
+                pass
             # The reopened console shows nothing until the shell is asked for
             # a prompt, and ordinary shell waits below are looking for text.
             self.console.send("")
