@@ -3680,7 +3680,7 @@ def test_an_openrc_root_gets_a_getty_on_the_serial_line() -> None:
             "blkid -t TYPE=vfat": "",
             "blkid -o export": "/dev/vda1:ext4",
             "grub/grub.cfg": "/mnt/root/boot/grub/grub.cfg",
-            "grep -c 'ttyS0'": "0",
+            "grep -c '^[^#]*ttyS0'": "0",
         }
     )
     route = cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
@@ -3704,7 +3704,7 @@ def test_a_root_that_already_has_a_serial_getty_is_left_alone() -> None:
             "blkid -t TYPE=vfat": "",
             "blkid -o export": "/dev/vda1:ext4",
             "grub/grub.cfg": "/mnt/root/boot/grub/grub.cfg",
-            "grep -c 'ttyS0'": "1",
+            "grep -c '^[^#]*ttyS0'": "1",
         }
     )
     cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
@@ -3725,7 +3725,7 @@ def test_grub_is_moved_onto_the_serial_line_as_well() -> None:
             "blkid -o export": "/dev/vda1:crypto_LUKS",
             "grub/grub.cfg": "/mnt/root/boot/grub/grub.cfg",
             "grep -c '^terminal_output.*serial'": "0",
-            "grep -c 'ttyS0'": "0",
+            "grep -c '^[^#]*ttyS0'": "0",
         }
     )
     cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
@@ -3751,7 +3751,7 @@ def test_a_grub_config_already_on_serial_is_left_alone() -> None:
             "blkid -o export": "/dev/vda1:ext4",
             "grub/grub.cfg": "/mnt/root/boot/grub/grub.cfg",
             "grep -c '^terminal_output.*serial'": "1",
-            "grep -c 'ttyS0'": "1",
+            "grep -c '^[^#]*ttyS0'": "1",
         }
     )
     cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
@@ -3791,7 +3791,7 @@ def test_a_gfxterm_only_config_is_still_moved_onto_the_serial_line() -> None:
             "blkid -t TYPE=vfat": "",
             "blkid -o export": "/dev/vda1:ext4",
             "grub/grub.cfg": "/mnt/root/boot/grub/grub.cfg",
-            "grep -c 'ttyS0'": "1",
+            "grep -c '^[^#]*ttyS0'": "1",
         }
     )
     cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
@@ -3841,7 +3841,7 @@ def test_a_bios_cryptodisk_root_says_the_prompt_comes_first() -> None:
             "blkid -o export": "/dev/vdb1:crypto_LUKS",
             "grub/grub.cfg": "/mnt/root/boot/grub/grub.cfg",
             "grep -c '^terminal_output.*serial'": "0",
-            "grep -c 'ttyS0'": "0",
+            "grep -c '^[^#]*ttyS0'": "0",
             "GRUB_ENABLE_CRYPTODISK": "1",
         }
     )
@@ -3933,3 +3933,33 @@ def test_no_interrupt_reaches_a_console_that_may_be_at_a_login_prompt() -> None:
 
     assert f"raw:{cluster.INTERRUPT}" not in sent, sent
     assert not [one for one in sent if one.startswith("send:")], sent
+
+
+def test_a_commented_getty_does_not_count_as_a_login() -> None:
+    """Gentoo's `/etc/inittab` ships the serial entries with a `#` in front,
+    which `EnableSerialGetty` already records. Counting every mention of the
+    port, the harness found one and added none: `lab8` reached runlevel 3 with
+    every service `[ ok ]` and no way to log in."""
+    from tests.vm import cluster
+
+    shell = ScriptedShell(
+        {
+            "blkid": "/dev/vda1:ext4",
+            "ls /mnt/root/boot/grub/grub.cfg": "/mnt/root/boot/grub/grub.cfg",
+            # What the count answers on a stock inittab: the line is there and
+            # it is commented out.
+            "^[^#]*ttyS0": "0",
+            "^GRUB_ENABLE_CRYPTODISK=y": "0",
+            "^terminal_output.*serial": "0",
+            "^serial --unit": "0",
+            "^terminal_input.*serial": "0",
+        }
+    )
+    cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
+
+    written = [one for one in shell.asked if "inittab" in one and "printf" in one]
+    assert written, shell.asked
+
+    # The control for this rule is
+    # `test_a_root_that_already_has_a_serial_getty_is_left_alone`, which feeds
+    # the same check an uncommented entry and asserts nothing is appended.
