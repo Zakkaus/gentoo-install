@@ -2094,7 +2094,11 @@ def _log_into_the_installed_system(link: "Reconnecting") -> None:
     """Answer the login the installed system offers on its serial line."""
     link.console.expect(r"login:", INSTALLED_LOGIN_PATIENCE)
     link.console.send("root")
-    link.console.expect(r"assword", INSTALLED_LOGIN_PATIENCE)
+    # The system this drives was built to come up in Chinese, so its own
+    # prompt is `\u5bc6\u78bc\uff1a`: an `assword` of its own matched nothing and
+    # `gi-x1` answered `\u767b\u5165\u903e\u6642\uff0c\u5df2\u904e 60 \u79d2\u3002` while the password sat unsent.
+    # `PASSWORD_PROMPT` already carries all three spellings.
+    link.console.expect(PASSWORD_PROMPT, INSTALLED_LOGIN_PATIENCE)
     link.console.send(TUI_PASSWORD)
     reach_prompt(link)
 

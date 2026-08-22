@@ -437,6 +437,12 @@ def test_a_conversion_runs_inside_the_machine_it_replaces(
     at = done.index("boot_from_disk")
     assert done[at - 1] == "stop" and done[at + 1] == "start", done
     assert "expect:login:" in done, done
+    # The prompt that covers all three spellings: the installed system comes
+    # up in Chinese and asks in Chinese, and an `assword` of its own matched
+    # nothing while the password sat unsent.
+    from tests.vm.console import PASSWORD_PROMPT
+
+    assert f"expect:{PASSWORD_PROMPT}" in done, done
     assert f"send:{cluster.TUI_PASSWORD}" in done, done
     # No `--config`: the menu is the subject here as much as anywhere else.
     started = [one for one in done if "install.sh" in one]
