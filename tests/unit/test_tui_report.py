@@ -514,6 +514,10 @@ def test_a_conversion_refuses_a_config_edit_that_did_not_take(
 
     from tests.vm.proxmox import ProxmoxError
 
+    # No pause between attempts: the retry exists for a node still holding a
+    # lock, and a test that waits for it measures the sleep and nothing else.
+    monkeypatch.setattr(cluster, "EDIT_PATIENCE", 0.0)
+
     with pytest.raises(ProxmoxError, match="still boots"):
         cluster.tui_conversion(cast(Any, Deaf()), "infra-node3", "conv", 9300, Path("/tmp"))
 
@@ -531,6 +535,58 @@ def test_a_conversion_refuses_a_config_edit_that_did_not_take(
 
     with pytest.raises(AssertionError, match="stale config"):
         cluster.tui_conversion(cast(Any, Heard()), "infra-node3", "conv", 9300, Path("/tmp"))
+
+
+def test_a_config_edit_is_asked_again_while_the_node_settles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`stop` returns on its task and the node holds a lock for a moment after.
+    An edit made in that moment is recorded as pending, so the guest starts
+    from the order it already had: one round was refused on
+    `still boots 'order=virtio0;ide3'` with the edit correct and late."""
+    import pytest
+
+    from tests.vm import cluster
+
+    puts: list[int] = []
+
+    class Late:
+        """Records the edit only from the second attempt, the way a lock lifts."""
+
+        def call(self, method: str, path: str, **form: object) -> object:
+            if method == "PUT":
+                puts.append(len(puts))
+            answer = {"name": "gi-x1", "tags": "abc;gentoo-install-test", "virtio0": "disk"}
+            if len(puts) >= 2:
+                answer["boot"] = f"order={cluster.MEDIUM_FIRST};ide3"
+                answer["ide3"] = "local:iso/gi-driver-new.iso,media=cdrom"
+            else:
+                answer["boot"] = "order=virtio0;ide3"
+                answer["ide3"] = "local:iso/gi-driver-old.iso,media=cdrom"
+            return answer
+
+    class Machine:
+        vmid = 9300
+        node = "infra-node3"
+
+        def stop(self) -> None:
+            return None
+
+        def start(self) -> None:
+            raise AssertionError("reached the start")
+
+    monkeypatch.setattr(cluster, "Guest", lambda **kw: Machine())
+    monkeypatch.setattr(cluster, "build_driver", lambda where, packed=False: where)
+    monkeypatch.setattr(cluster, "retain_driver", lambda workdir, built: Path("gi-driver-new.iso"))
+    monkeypatch.setattr(cluster, "place_driver", lambda *a: None)
+    monkeypatch.setattr(cluster, "EDIT_PAUSE", 0.0)
+
+    with pytest.raises(AssertionError, match="reached the start"):
+        cluster.tui_conversion(cast(Any, Late()), "infra-node3", "conv", 9300, Path("/tmp"))
+
+    # Negative control: one attempt is not enough, so the run above cannot be
+    # the first PUT having taken.
+    assert len(puts) >= 2, puts
 
 
 def test_a_disk_spec_is_not_sent_through_the_conversion_path() -> None:

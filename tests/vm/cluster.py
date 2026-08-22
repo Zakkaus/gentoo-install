@@ -2052,7 +2052,7 @@ def tui_conversion(
     # line still said it was waiting for the medium.
     # The first entry, not the whole string: `order=ide2` is stored as
     # `order=ide2;ide3`, because the node appends every other bootable device.
-    settled = api.call("GET", f"/nodes/{node}/qemu/{vmid}/config")
+    settled = _edit_that_took(api, node, vmid, driver_path.name)
     order = str(settled.get("boot", "")).removeprefix("order=").split(";")
     if not order or order[0] != MEDIUM_FIRST:
         raise ProxmoxError(
@@ -2121,6 +2121,33 @@ MEDIUM_FIRST: Final[str] = "ide2"
 #: Where `_created_on_a_free_vmid` puts the driver CD, so a conversion replaces
 #: that one rather than adding a second the guest would have to choose between.
 DRIVER_SLOT: Final[str] = "ide3"
+
+
+#: How long a config edit is given to leave the pending list, and how often it
+#: is asked. `stop` returns on the task, and the node still holds a lock for a
+#: moment after: the edit made in that moment is recorded as pending and the
+#: guest starts from the order it already had.
+EDIT_PATIENCE: Final[float] = 60.0
+EDIT_PAUSE: Final[float] = 3.0
+
+
+def _edit_that_took(api: Api, node: str, vmid: int, driver: str) -> Mapping[str, object]:
+    """The config once it carries the edit, retried while the node is settling."""
+    deadline = time.monotonic() + EDIT_PATIENCE
+    settled: Mapping[str, object] = api.call("GET", f"/nodes/{node}/qemu/{vmid}/config")
+    while time.monotonic() < deadline:
+        order = str(settled.get("boot", "")).removeprefix("order=").split(";")
+        if order and order[0] == MEDIUM_FIRST and driver in str(settled.get(DRIVER_SLOT, "")):
+            return settled
+        time.sleep(EDIT_PAUSE)
+        api.call(
+            "PUT",
+            f"/nodes/{node}/qemu/{vmid}/config",
+            boot=f"order={MEDIUM_FIRST}",
+            **{DRIVER_SLOT: f"local:iso/{driver},media=cdrom"},
+        )
+        settled = api.call("GET", f"/nodes/{node}/qemu/{vmid}/config")
+    return settled
 
 
 def _is_uefi(config: Mapping[str, object]) -> bool:
