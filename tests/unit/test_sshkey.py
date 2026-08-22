@@ -49,7 +49,7 @@ def test_a_body_declaring_another_type_is_refused(tmp_path: Path) -> None:
     """`ssh-rsa` in front of an ed25519 body is what a hand-edited file looks
     like, and sshd ignores the line rather than saying so."""
     _, blob, comment = generated(tmp_path, "ed25519").split()
-    with pytest.raises(ConfigError, match="does not declare"):
+    with pytest.raises(ConfigError, match="declares a different type"):
         sshkey.check(f"ssh-rsa {blob} {comment}")
 
 
@@ -89,5 +89,26 @@ def test_a_key_that_decodes_but_holds_one_field_is_refused() -> None:
     body = base64.b64encode(
         len(b"ssh-ed25519").to_bytes(4, "big") + b"ssh-ed25519"
     ).decode()
-    with pytest.raises(ConfigError, match="does not declare"):
+    with pytest.raises(ConfigError, match="declares a different type"):
         sshkey.check(f"ssh-ed25519 {body}")
+
+
+def test_a_refused_key_is_not_quoted_back() -> None:
+    """This is the field a password or a private key is pasted into by mistake,
+    and every error here reaches the log, `install.jsonl` and the paste an
+    operator sends to somebody else."""
+    import pytest
+
+    from gentoo_install.errors import ConfigError
+    from gentoo_install.model import sshkey
+
+    secret = "correct-horse-battery-staple"
+    for line in (secret, f"{secret} body", f"ssh-ed25519 {secret}"):
+        with pytest.raises(ConfigError) as raised:
+            sshkey.check(line)
+        assert secret not in str(raised.value), str(raised.value)
+
+    # Negative control: a refusal still says which types are accepted, so the
+    # rule above cannot be met by a message that carries nothing at all.
+    with pytest.raises(ConfigError, match="ssh-ed25519"):
+        sshkey.check("ssh-rsa2 AAAA")
