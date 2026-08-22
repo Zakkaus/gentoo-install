@@ -3504,14 +3504,19 @@ def test_a_zfs_root_is_told_to_speak_through_the_pool() -> None:
     a menu editor to hold, so the parameters go on the pool it reads."""
     from tests.vm import cluster
 
-    shell = ScriptedShell({"zpool import": "rpool"})
+    shell = ScriptedShell(
+        {"zpool import": "rpool", "zfs list": "rpool/ROOT\nrpool/ROOT/gentoo"}
+    )
     route = cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
 
     assert route is cluster.SerialRoute.ZFSBOOTMENU
     assert "zpool import -N -f rpool" in shell.asked
-    assert (
-        "zfs set org.zfsbootmenu:commandline='console=ttyS0,115200' rpool/ROOT" in shell.asked
-    )
+    # On the boot environment, not on `rpool/ROOT`: the installer writes an
+    # empty value on the environment itself, and `zfs get -o source` reads
+    # that back as `local`, so nothing is inherited from the parent.
+    assert [one for one in shell.asked if one.startswith("zfs set")] == [
+        "zfs set org.zfsbootmenu:commandline='console=ttyS0,115200' rpool/ROOT/gentoo"
+    ], shell.asked
     assert "zpool export rpool" in shell.asked
     # No esp is looked for once the pool answered: mounting one would be a
     # second bootloader's route taken on a machine that has the first.

@@ -3760,7 +3760,14 @@ def make_the_installed_system_speak(
         # `-N` leaves the datasets unmounted: the property is on the pool, and
         # mounting a root over the live one is what the export then fights.
         link.run(f"zpool import -N -f {name}")
-        link.run(f"zfs set org.zfsbootmenu:commandline='{extra}' {name}/ROOT")
+        # On each boot environment, not on the dataset above them: the
+        # installer writes an empty `org.zfsbootmenu:commandline` on
+        # `<pool>/ROOT/<name>` itself, and `zfs get -o source` reads that back
+        # as `local`, so a value set on the parent is never inherited. Read on
+        # `gi-u7`, where the parent carried the parameters and the guest was
+        # silent through three boots.
+        for environment in _boot_environments(link, name):
+            link.run(f"zfs set org.zfsbootmenu:commandline='{extra}' {environment}")
         link.run(f"zpool export {name}")
         return SerialRoute.ZFSBOOTMENU
     esp = link.expect_output(
@@ -3784,6 +3791,14 @@ def make_the_installed_system_speak(
     if _grub_config_edited(link, extra):
         return SerialRoute.GRUB_CONFIG
     return SerialRoute.NOTHING_FOUND
+
+
+def _boot_environments(link: "Reconnecting", pool: str) -> list[str]:
+    """Every dataset directly under `<pool>/ROOT`, which is what ZFSBootMenu
+    offers and reads its properties from."""
+    said = link.expect_output(f"zfs list -H -o name -d 1 -r {pool}/ROOT 2>/dev/null")
+    named = [one.strip() for one in said.decode(errors="replace").split("\n") if one.strip()]
+    return [one for one in named if one != f"{pool}/ROOT"]
 
 
 def _grub_config_edited(link: "Reconnecting", extra: str) -> bool:
