@@ -154,8 +154,13 @@ class Screen:
         numbers = [int(one) for one in parameters.split(";") if one.isdigit()]
         first = numbers[0] if numbers else 0
         if final == "H":
-            self.line = max(0, (numbers[0] if numbers else 1) - 1)
-            self.column = max(0, (numbers[1] if len(numbers) > 1 else 1) - 1)
+            # Clamped like every other branch: the guest sizes its own terminal
+            # and a taller one addresses a row this grid does not have, which
+            # raised `IndexError` out of the next erase rather than drawing.
+            self.line = self._within(self.lines, numbers[0] if numbers else 1)
+            self.column = self._within(
+                self.columns, numbers[1] if len(numbers) > 1 else 1
+            )
         elif final in "ABCD":
             step = first or 1
             if final == "A":
@@ -167,7 +172,7 @@ class Screen:
             else:
                 self.column = max(0, self.column - step)
         elif final == "G":
-            self.column = max(0, first - 1)
+            self.column = self._within(self.columns, first)
         elif final == "d":
             # ncurses moves down a column with this rather than a full `H`,
             # 23 times in one menu draw. Ignored, every write after it landed
@@ -189,6 +194,11 @@ class Screen:
                     self._reverse = True
                 elif one == 27:
                     self._reverse = False
+
+    @staticmethod
+    def _within(size: int, position: int) -> int:
+        """A one-based position as an index this grid holds."""
+        return max(0, min(size - 1, position - 1))
 
     def _insert(self, count: int) -> None:
         """Push the rest of the row right, which is how a value is corrected."""
