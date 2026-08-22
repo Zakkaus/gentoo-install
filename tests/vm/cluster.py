@@ -2034,7 +2034,18 @@ def tui_conversion(
     # any belief about what it was attaching to. The shell below is one this
     # call made.
     guest.stop()
-    api.call("PUT", f"/nodes/{node}/qemu/{vmid}/config", boot=f"order={MEDIUM_FIRST}")
+    # Built and attached here, not reused: the guest carries whatever driver CD
+    # it was created with, so three rounds measured an installer older than the
+    # tree and a fix made between them was invisible on the screen.
+    print(f"{name}: building the driver CD", flush=True)
+    driver_path = retain_driver(workdir, build_driver(workdir / "driver.iso", packed=True))
+    place_driver(api, node, MEDIUM_TRUST, driver_path, driver_path.name)
+    api.call(
+        "PUT",
+        f"/nodes/{node}/qemu/{vmid}/config",
+        boot=f"order={MEDIUM_FIRST}",
+        **{DRIVER_SLOT: f"local:iso/{driver_path.name},media=cdrom"},
+    )
     guest.start()
     link = Reconnecting.to(guest, log)
     guest.reset()
@@ -2086,6 +2097,10 @@ _VIRTIO_DISK: Final[re.Pattern[str]] = re.compile(r"virtio\d+")
 
 #: What points the firmware at the medium rather than the installed disk.
 MEDIUM_FIRST: Final[str] = "ide2"
+
+#: Where `_created_on_a_free_vmid` puts the driver CD, so a conversion replaces
+#: that one rather than adding a second the guest would have to choose between.
+DRIVER_SLOT: Final[str] = "ide3"
 
 
 def _is_uefi(config: Mapping[str, object]) -> bool:
