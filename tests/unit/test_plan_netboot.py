@@ -1711,3 +1711,18 @@ def test_only_the_cjk_medium_is_told_about_wifi_in_chinese() -> None:
     # The traditional banner names the disk; the Alpine one is English only.
     assert "\u78c1\u789f" in ram
     assert not [one for one in lowram if "\u4e00" <= one <= "\u9fff"], lowram
+
+
+def test_the_banner_states_the_disk_is_unwritten_rather_than_untouched() -> None:
+    """`\\u78c1\\u789f\\u9084\\u6c92\\u6709\\u88ab\\u52d5\\u904e` reads as a turn of phrase; the operator needs the
+    operation. Both Chinese lines say that nothing has been written to the
+    disk yet, which is the state the whole screen exists to establish."""
+    said = netboot.BANNER[MemoryMode.RAM]
+
+    # Nothing written to the disk yet, in both scripts.
+    unwritten = ("\u5c1a\u672a\u5beb\u5165\u78c1\u789f", "\u5c1a\u672a\u5199\u5165\u78c1\u76d8")
+    for wanted in unwritten:
+        assert any(wanted in one for one in said), (wanted, said)
+    # The turn of phrase it must not go back to: "has not been moved".
+    refused = ("\u88ab\u52d5\u904e", "\u88ab\u52a8\u8fc7")
+    assert not [one for one in said if any(bad in one for bad in refused)], said

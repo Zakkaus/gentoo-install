@@ -652,8 +652,8 @@ WIFI_LINES: Final[dict[MemoryMode, tuple[str, ...]]] = {
 BANNER: Final[dict[MemoryMode, tuple[str, ...]]] = {
     MemoryMode.RAM: (
         "gentoo-install is in memory. The disk has not been touched.",
-        "\u5b89\u88dd\u5668\u5df2\u5728\u8a18\u61b6\u9ad4\u4e2d\uff0c\u78c1\u789f\u9084\u6c92\u6709\u88ab\u52d5\u904e\u3002",
-        "\u5b89\u88c5\u5668\u5df2\u5728\u5185\u5b58\u4e2d\uff0c\u78c1\u76d8\u8fd8\u6ca1\u6709\u88ab\u52a8\u8fc7\u3002",
+        "\u5b89\u88dd\u5668\u5df2\u5728\u8a18\u61b6\u9ad4\u4e2d\uff0c\u5c1a\u672a\u5beb\u5165\u78c1\u789f\u3002",
+        "\u5b89\u88c5\u5668\u5df2\u5728\u5185\u5b58\u4e2d\uff0c\u5c1a\u672a\u5199\u5165\u78c1\u76d8\u3002",
     ),
     MemoryMode.LOWRAM: (
         "gentoo-install is in memory. The disk has not been touched.",
