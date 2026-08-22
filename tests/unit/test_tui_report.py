@@ -399,6 +399,9 @@ def test_a_conversion_runs_inside_the_machine_it_replaces(
 
     class Cluster:
         def call(self, method: str, path: str, **form: object) -> object:
+            if method == "PUT":
+                done.append(f"put:{sorted(form)}")
+                done.append(f"cd:{form.get('ide3', '')}")
             return {"name": "gi-x1", "tags": "abc;gentoo-install-test", "virtio0": "disk"}
 
         def node_load(self, name: str) -> float | None:
@@ -419,6 +422,9 @@ def test_a_conversion_runs_inside_the_machine_it_replaces(
         cluster, "edit_the_menu_if_that_is_the_only_route", lambda *a: done.append("menu")
     )
     monkeypatch.setattr(cluster, "reach_prompt", lambda one: done.append("prompt"))
+    monkeypatch.setattr(cluster, "build_driver", lambda where, packed=False: where)
+    monkeypatch.setattr(cluster, "retain_driver", lambda workdir, built: Path("gi-driver-new.iso"))
+    monkeypatch.setattr(cluster, "place_driver", lambda *a: done.append("place_driver"))
     monkeypatch.setattr(cluster, "_edit_uefi_cmdline", lambda *a: done.append("uefi"))
     monkeypatch.setattr(cluster, "_edit_bios_cmdline", lambda *a: done.append("bios"))
     running = cluster.tui_conversion(
@@ -448,6 +454,18 @@ def test_a_conversion_runs_inside_the_machine_it_replaces(
     started = [one for one in done if "install.sh" in one]
     assert started and "--config" not in started[0], done
     assert running.console is link.console
+
+    # The driver CD is built and attached by this call. The guest keeps the one
+    # it was created with otherwise, so three rounds measured an installer older
+    # than the tree and read a fix made between them as absent from the screen.
+    assert "place_driver" in done, done
+    assert "cd:local:iso/gi-driver-new.iso,media=cdrom" in done, done
+    assert done.index("place_driver") < done.index("start"), done
+
+    # Negative control: the slot is named in the same request as the boot order,
+    # so a config edit that carried only one of them would leave the guest
+    # booting the medium off a CD it had already replaced, or the reverse.
+    assert "put:['boot', 'ide3']" in done, done
 
 
 def test_a_disk_spec_is_not_sent_through_the_conversion_path() -> None:
