@@ -456,7 +456,10 @@ def test_a_conversion_runs_inside_the_machine_it_replaces(
     # No `--config`: the menu is the subject here as much as anywhere else.
     started = [one for one in done if "install.sh" in one]
     assert started and "--config" not in started[0], done
-    assert running.console is link.console
+    # The link, not the console inside it: the daemon that holds this outlives
+    # a drop only if what it reads through reconnects, and one `Broken pipe`
+    # ended a round with the interface still running inside the guest.
+    assert running.console is link
 
     # The driver CD is built and attached by this call. The guest keeps the one
     # it was created with otherwise, so three rounds measured an installer older

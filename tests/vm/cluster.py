@@ -1994,7 +1994,7 @@ def tui_execution(
         f"TERM=xterm LINES={TUI_LINES} COLUMNS={TUI_COLUMNS} "
         "sh /mnt/driver/install.sh --lang zh-TW"
     )
-    held.console = link.console
+    held.console = link
     return held
 
 
@@ -2104,7 +2104,9 @@ def tui_conversion(
         ),
         reservation_bytes=0,
         created=False,
-        console=link.console,
+        # The link, not the console it holds: the daemon outlives drops only
+        # if what it reads through reconnects.
+        console=link,
     )
 
 
@@ -3198,6 +3200,20 @@ class Reconnecting:
     def send_raw(self, keys: str) -> None:
         self._reopen_if_closed()
         self.console.send_raw(keys)
+
+    def read_available(self, seconds: float) -> bytes:
+        """Whatever has arrived, reopening a dropped console under the read.
+
+        Never solicits, because the caller is drawing a screen and a line sent
+        to ask for a prompt is an answer to whatever prompt is on it. The
+        session daemon held the raw console instead and one `Broken pipe` ended
+        a round with the interface still running inside the guest.
+        """
+        try:
+            return cast(SerialConsole, self.console).read_available(seconds)
+        except (ConsoleClosed, OSError):
+            self.reopen(solicit_prompt=False)
+            return b""
 
     def _reopen_if_closed(self) -> None:
         """A write to a dropped connection is silently discarded.
