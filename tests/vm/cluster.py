@@ -3869,6 +3869,20 @@ def _grub_config_edited(link: "Reconnecting", extra: str) -> bool:
 TUI_PASSWORD: Final[str] = "testtest"
 
 
+def _counted(link: "Reconnecting", pattern: str, path: str) -> int:
+    """How many lines of `path` match `pattern`, and zero when there are none.
+
+    `grep -c` exits 1 when it counts nothing, so `grep -c … || echo 0` runs
+    both halves and answers `0\\n0`: every caller comparing that to `"0"` read
+    it as a match and skipped its own edit. `gi-w2` lost two rounds to it.
+    """
+    said = link.expect_output(f"grep -c '{pattern}' {path} 2>/dev/null | head -1").strip()
+    try:
+        return int(said or b"0")
+    except ValueError:
+        return 0
+
+
 def _grub_talks_on_the_serial_line(link: "Reconnecting") -> None:
     """Move GRUB's own terminal onto the serial line as well as the screen.
 
@@ -3882,10 +3896,8 @@ def _grub_talks_on_the_serial_line(link: "Reconnecting") -> None:
     # on every machine that has the graphics modules: a check for the command
     # alone answered 1 on `gi-w2`, skipped the edit, and left the guest at an
     # invisible passphrase prompt for a second round.
-    already = link.expect_output(
-        f"grep -c '^terminal_output.*serial' {config} 2>/dev/null || echo 0"
-    ).strip()
-    if already not in (b"0", b""):
+    already = _counted(link, "^terminal_output.*serial", config)
+    if already:
         return
     # Prepended, because GRUB acts on these where it reads them and the
     # passphrase prompt is the first thing the file leads to.
@@ -3911,8 +3923,7 @@ def _open_a_serial_login(link: "Reconnecting") -> None:
     the machine back has somewhere to log in.
     """
     inittab = "/mnt/root/etc/inittab"
-    already = link.expect_output(f"grep -c ttyS0 {inittab} 2>/dev/null || echo 0").strip()
-    if already not in (b"0", b""):
+    if _counted(link, "ttyS0", inittab):
         return
     link.run(
         f"test -f {inittab} && printf '%s\\n' "
