@@ -3708,7 +3708,7 @@ def test_grub_is_moved_onto_the_serial_line_as_well() -> None:
             "blkid -t TYPE=vfat": "",
             "blkid -o export": "/dev/vda1:crypto_LUKS",
             "grub/grub.cfg": "/mnt/root/boot/grub/grub.cfg",
-            "grep -c '^terminal_output'": "0",
+            "grep -c '^terminal_output.*serial'": "0",
             "grep -c ttyS0": "0",
         }
     )
@@ -3734,10 +3734,51 @@ def test_a_grub_config_already_on_serial_is_left_alone() -> None:
             "blkid -t TYPE=vfat": "",
             "blkid -o export": "/dev/vda1:ext4",
             "grub/grub.cfg": "/mnt/root/boot/grub/grub.cfg",
-            "grep -c '^terminal_output'": "1",
+            "grep -c '^terminal_output.*serial'": "1",
             "grep -c ttyS0": "1",
         }
     )
     cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
 
     assert not [one for one in shell.asked if one.startswith("sed -i '1i")]
+
+
+def test_a_gfxterm_only_config_is_still_moved_onto_the_serial_line() -> None:
+    """`00_header` writes `terminal_output gfxterm` on every machine that has
+    the graphics modules, so a check for the command alone answered 1 on
+    `gi-w2`, skipped the edit, and left the guest at an invisible passphrase
+    prompt for a second round. The check has to name `serial`."""
+    from tests.vm import cluster
+
+    def grub_cfg(command: str) -> str:
+        # What the machine computes, not what the test wants: the count comes
+        # from a real `grep` over a file that has gfxterm and nothing else.
+        lines = ["terminal_output gfxterm", "menuentry 'Gentoo' {", "  linux /boot/vmlinuz"]
+        pattern = command.split("'")[1]
+        assert pattern == "^terminal_output.*serial", pattern
+        import re as _re
+
+        return str(sum(1 for one in lines if _re.search(pattern, one)))
+
+    asked: list[str] = []
+
+    class Shell(ScriptedShell):
+        def expect_output(self, command: str, timeout: float = 120.0) -> bytes:
+            if "terminal_output" in command:
+                asked.append(command)
+                return grub_cfg(command).encode()
+            return super().expect_output(command, timeout)
+
+    shell = Shell(
+        {
+            "zpool import": "",
+            "blkid -t TYPE=vfat": "",
+            "blkid -o export": "/dev/vda1:ext4",
+            "grub/grub.cfg": "/mnt/root/boot/grub/grub.cfg",
+            "grep -c ttyS0": "1",
+        }
+    )
+    cluster.make_the_installed_system_speak(cast(Any, shell), "console=ttyS0,115200")
+
+    assert asked, "the terminal was never checked"
+    assert [one for one in shell.asked if one.startswith("sed -i '1i")], shell.asked
