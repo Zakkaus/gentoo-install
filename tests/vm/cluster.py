@@ -1859,6 +1859,14 @@ TUI_COLUMNS: Final[int] = 120
 #: replace` — and an agent sent at one spends its whole run finding that out.
 TUI_NEEDS_A_SYSTEM: Final[frozenset[int]] = frozenset({3})
 
+#: Specs the interface has no row for. `--ram` and `--lowram` arm a one-shot
+#: boot entry and reboot into a memory-held environment, and they exist only
+#: as command-line options: an agent sent at spec 4 found `Build in RAM`,
+#: which is Portage's build directory and a different thing, was refused for
+#: too little memory, and reported being stuck. Held apart from
+#: `TUI_NEEDS_A_SYSTEM` because the guest is not what is missing.
+TUI_HAS_NO_ROW: Final[frozenset[int]] = frozenset({4})
+
 TUI_GUESTS: Final[dict[int, tuple[int, bool, bool]]] = {
     1: (1, True, True),
     2: (2, False, True),
@@ -1896,6 +1904,12 @@ def tui_execution(
     # Most free node first, the same order the schedule uses. The node is
     # chosen here rather than by the caller so two sessions started at once
     # cannot both take the last slot on one node.
+    if spec in TUI_HAS_NO_ROW:
+        raise ValueError(
+            f"spec {spec} names a memory-held launch, which is --ram and "
+            "--lowram on the command line and has no row in the interface; "
+            "an agent sent at it can only report being stuck"
+        )
     if spec in TUI_NEEDS_A_SYSTEM:
         raise ValueError(
             f"spec {spec} replaces a running system, so it needs a guest that "
