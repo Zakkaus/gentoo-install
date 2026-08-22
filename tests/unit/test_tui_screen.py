@@ -239,3 +239,29 @@ def test_a_position_outside_the_grid_lands_on_its_edge() -> None:
     inside = Screen(lines=4, columns=20)
     inside.feed(b"\x1b[2;3Hx")
     assert inside.text().splitlines()[1].rstrip() == "  x"
+
+
+def test_an_operating_system_command_ends_at_either_terminator() -> None:
+    """`systemd` resets the palette with `OSC 104 ST` early in every boot.
+
+    Read as if only BEL ended one, the parser waited for a byte that never
+    came: a conversion's console stopped 2.7 seconds into the boot and the
+    250 KB that held the interface was never read.
+    """
+    whole = Screen(lines=2, columns=20)
+    whole.feed(b"\x1b]104\x1b\\menu")
+    assert whole.text().splitlines()[0].rstrip() == "menu"
+
+    # A read boundary falls wherever the network put it, and the sequence held
+    # over is the one `_unfinished` decides about. Split, it is the only form
+    # that asks whether an unterminated OSC could still grow.
+    split = Screen(lines=2, columns=20)
+    split.feed(b"\x1b]104")
+    split.feed(b"\x1b\\menu")
+    assert split.text().splitlines()[0].rstrip() == "menu"
+
+    # Negative control: the sequence's own text is not drawn either way, so
+    # neither row above can be the parser reading an OSC as characters.
+    bell = Screen(lines=2, columns=20)
+    bell.feed(b"\x1b]0;title\x07menu")
+    assert bell.text().splitlines()[0].rstrip() == "menu"

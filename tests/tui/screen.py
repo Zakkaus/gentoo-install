@@ -26,8 +26,13 @@ from gentoo_install.i18n import width
 CSI: Final[re.Pattern[str]] = re.compile(r"\x1b\[([0-9;?]*)([@-~])")
 
 #: Two-character escapes with no parameters, and the ones that take a string
-#: terminator. Neither draws anything.
-SHORT: Final[re.Pattern[str]] = re.compile(r"\x1b[()][0-9A-B]|\x1b[=>]|\x1b\][^\x07]*\x07")
+#: terminator. Neither draws anything. An OSC ends at BEL or at ST, and
+#: `systemd` resets the palette with the latter: matching BEL alone parked the
+#: parser 2.7 seconds into one conversion's boot, and the 250 KB after it that
+#: held the interface was never read.
+SHORT: Final[re.Pattern[str]] = re.compile(
+    r"\x1b[()][0-9A-B]|\x1b[=>]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"
+)
 
 
 #: The longest escape this reads, so a tail shorter than it may still grow
