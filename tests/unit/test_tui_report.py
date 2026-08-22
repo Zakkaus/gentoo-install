@@ -280,3 +280,60 @@ def test_a_spec_the_interface_has_no_row_for_is_refused_before_a_guest() -> None
     assert cluster.TUI_HAS_NO_ROW == frozenset({4}), cluster.TUI_HAS_NO_ROW
     assert not cluster.TUI_HAS_NO_ROW & cluster.TUI_NEEDS_A_SYSTEM
     assert set(cluster.TUI_GUESTS) - cluster.TUI_HAS_NO_ROW - cluster.TUI_NEEDS_A_SYSTEM
+
+
+def test_two_sessions_started_together_do_not_take_one_vmid() -> None:
+    """`v2` and `v8` were started four seconds apart, both read 9300 as free,
+    and the second answered `VM 9300 already exists on node 'infra-node5'`.
+    Nothing between two `session start` calls allocates, so the collision is
+    found only by the create."""
+    import pytest
+
+    from tests.vm import cluster
+    from tests.vm.proxmox import CreateConflict
+
+    taken = {9300}
+    built: list[int] = []
+
+    class Machine:
+        def __init__(self, vmid: int) -> None:
+            self.vmid = vmid
+
+        def create(self) -> None:
+            built.append(self.vmid)
+            if self.vmid in taken:
+                raise CreateConflict(f"VM {self.vmid} already exists")
+            taken.add(self.vmid)
+
+    class Cluster:
+        def free_vmid(self, held: frozenset[int] = frozenset()) -> int:
+            return next(one for one in range(9300, 9400) if one not in held)
+
+    def execution(
+        api: object, node: str, job: object, driver: str, workdir: object, vmid: int, nonce: str
+    ) -> object:
+        return type("Held", (), {"guest": Machine(vmid)})()
+
+    original = cluster._execution
+    cluster._execution = cast(Any, execution)
+    try:
+        _, guest = cluster._created_on_a_free_vmid(
+            cast(Any, Cluster()), "n", cast(Any, None), "d", Path("/x"), 0, "v2"
+        )
+    finally:
+        cluster._execution = original
+
+    assert built == [9300, 9301], built
+    assert guest.vmid == 9301
+
+    # A VMID the caller named is not swapped for another: the operator asked
+    # for that machine, and quietly building a different one hides the clash.
+    taken.add(9302)
+    cluster._execution = cast(Any, execution)
+    try:
+        with pytest.raises(CreateConflict):
+            cluster._created_on_a_free_vmid(
+                cast(Any, Cluster()), "n", cast(Any, None), "d", Path("/x"), 9302, "v2"
+            )
+    finally:
+        cluster._execution = original

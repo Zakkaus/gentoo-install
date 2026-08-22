@@ -1892,6 +1892,30 @@ def tui_job(name: str, spec: int) -> Job:
     return Job(name=name, fixture=Path(), disks=disks, uefi=uefi)
 
 
+def _created_on_a_free_vmid(
+    api: Api, node: str, job: Job, driver: str, workdir: Path, vmid: int, name: str
+) -> tuple[Running, Guest]:
+    """Build the guest, taking the next free VMID when the chosen one is gone."""
+    excluded: set[int] = set()
+    conflict: CreateConflict | None = None
+    for _ in range(RESERVATION_TRIES):
+        chosen = vmid or api.free_vmid(frozenset(excluded))
+        held = _execution(api, node, job, driver, workdir, vmid=chosen, nonce=uuid.uuid4().hex)
+        guest = cast(Guest, held.guest)
+        print(f"{name}: booting {guest.vmid} on {node}", flush=True)
+        try:
+            guest.create()
+        except CreateConflict as error:
+            if vmid:
+                raise
+            excluded.add(chosen)
+            conflict = error
+            continue
+        return held, guest
+    assert conflict is not None
+    raise conflict
+
+
 def tui_execution(
     api: Api, node: str, name: str, spec: int, workdir: Path, vmid: int = 0
 ) -> Running:
@@ -1937,12 +1961,11 @@ def tui_execution(
         local=cached_medium(medium, urls, medium_sha512) if cjk else None,
     )
     job = replace(tui_job(name, spec), iso=medium)
-    held = _execution(
-        api, chosen, job, driver_path.name, workdir, vmid=vmid, nonce=uuid.uuid4().hex
-    )
-    guest = cast(Guest, held.guest)
-    print(f"{name}: booting {guest.vmid} on {chosen}", flush=True)
-    guest.create()
+    # Retried on a taken VMID, the same way `_reserve` does it: two sessions
+    # started four seconds apart both read 9300 as free and the second answered
+    # `VM 9300 already exists on node 'infra-node5'`. Nothing between them
+    # allocates, so the collision is found only by the create.
+    held, guest = _created_on_a_free_vmid(api, chosen, job, driver_path.name, workdir, vmid, name)
     guest.start()
     link = Reconnecting.to(guest, held.watch.log)
     guest.reset()
