@@ -3730,6 +3730,59 @@ def _abandon_jobs(scheduled: Mapping[str, Job]) -> None:
             print(f"  {name} outlived the schedule: {error}", file=sys.stderr)
 
 
+#: What each bootloader needs before it will say anything on the serial line.
+#: `append_to_cmdline` holds GRUB's menu and types into it; the other two are
+#: never on screen at all, so the parameters go into what they read.
+class SerialRoute(Enum):
+    """Where the serial parameters were written, for the report to name."""
+
+    GRUB_MENU = "grub-menu"
+    LOADER_ENTRIES = "loader-entries"
+    ZFSBOOTMENU = "zfsbootmenu"
+    NOTHING_FOUND = "nothing-found"
+
+
+def make_the_installed_system_speak(
+    link: "Reconnecting", extra: str = EXTRA_CMDLINE
+) -> SerialRoute:
+    """Put the serial parameters where the installed bootloader will read them.
+
+    Run on the medium, before `boot_from_disk`. Four installs were checked with
+    GRUB's menu editor and all four answered `GRUB never opened its editor`:
+    two were running ZFSBootMenu, one systemd-boot, and the BIOS one writes its
+    menu to the VGA console. GRUB stays with the editor because holding the
+    menu is the only way to reach an entry that is already written.
+    """
+    pool = link.expect_output("zpool import 2>&1 | sed -n 's/^ *pool: //p' | head -1").strip()
+    if pool:
+        name = pool.decode(errors="replace")
+        # `-N` leaves the datasets unmounted: the property is on the pool, and
+        # mounting a root over the live one is what the export then fights.
+        link.run(f"zpool import -N -f {name}")
+        link.run(f"zfs set org.zfsbootmenu:commandline='{extra}' {name}/ROOT")
+        link.run(f"zpool export {name}")
+        return SerialRoute.ZFSBOOTMENU
+    esp = link.expect_output(
+        "blkid -t TYPE=vfat -o device 2>/dev/null | head -1"
+    ).strip()
+    if esp:
+        where = esp.decode(errors="replace")
+        link.run(f"mkdir -p /mnt/esp && mount {where} /mnt/esp")
+        entries = link.expect_output(
+            "ls /mnt/esp/loader/entries/*.conf 2>/dev/null | head -1"
+        ).strip()
+        if entries:
+            # Appended to the line rather than added as a second `options`:
+            # systemd-boot reads only the first one and the rest are ignored.
+            link.run(
+                "sed -i '/^options/ s|$| " + extra + "|' /mnt/esp/loader/entries/*.conf"
+            )
+            link.run("umount /mnt/esp")
+            return SerialRoute.LOADER_ENTRIES
+        link.run("umount /mnt/esp")
+    return SerialRoute.NOTHING_FOUND
+
+
 def _edit_uefi_cmdline(guest: Guest, link: "Reconnecting") -> None:
     """Add the serial parameters to the medium's entry, once more if the
     console said nothing at all.
