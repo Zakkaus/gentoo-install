@@ -23,6 +23,10 @@ KEY_TYPES: Final[frozenset[str]] = frozenset(
     }
 )
 
+#: Named in the refusal, so an operator learns what is accepted without the
+#: message having to quote what they typed.
+ACCEPTED: Final[str] = ", ".join(sorted(KEY_TYPES))
+
 
 def check(line: str) -> str:
     """The key with its whitespace normalised, or a named error.
@@ -30,19 +34,22 @@ def check(line: str) -> str:
     A key that reached the target truncated is discovered at the first login
     attempt, which is the moment the console is no longer available.
     """
+    # No message quotes what was read. This is the field a password or a
+    # private key is pasted into by mistake, and every error here reaches the
+    # log, `install.jsonl` and the paste an operator sends to somebody else.
     fields = line.split()
     if len(fields) < 2:
-        raise ConfigError(f"not a public key: {line[:40]!r}")
+        raise ConfigError("not a public key: a key is a type and a body")
     kind, blob = fields[0], fields[1]
     if kind not in KEY_TYPES:
-        raise ConfigError(f"unknown key type: {kind}")
+        raise ConfigError(f"unknown key type; the accepted ones are {ACCEPTED}")
     try:
         raw = base64.b64decode(blob, validate=True)
     except (binascii.Error, ValueError) as error:
-        raise ConfigError(f"the key body is not base64: {error}") from error
+        raise ConfigError("the key body is not base64") from error
     parts = _wire(raw)
     if len(parts) < 2 or parts[0] != kind.encode():
-        raise ConfigError(f"the key body does not declare {kind}")
+        raise ConfigError("the key body declares a different type from its first field")
     return " ".join(fields)
 
 
