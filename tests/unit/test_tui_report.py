@@ -402,7 +402,10 @@ def test_a_conversion_runs_inside_the_machine_it_replaces(
             if method == "PUT":
                 done.append(f"put:{sorted(form)}")
                 done.append(f"cd:{form.get('ide3', '')}")
-            return {"name": "gi-x1", "tags": "abc;gentoo-install-test", "virtio0": "disk"}
+                self.settled = dict(form)
+            answer = {"name": "gi-x1", "tags": "abc;gentoo-install-test", "virtio0": "disk"}
+            answer.update(getattr(self, "settled", {}))
+            return answer
 
         def node_load(self, name: str) -> float | None:
             return 0.0
@@ -466,6 +469,65 @@ def test_a_conversion_runs_inside_the_machine_it_replaces(
     # so a config edit that carried only one of them would leave the guest
     # booting the medium off a CD it had already replaced, or the reverse.
     assert "put:['boot', 'ide3']" in done, done
+
+
+def test_a_conversion_refuses_a_config_edit_that_did_not_take(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A change to a guest that is not fully down is recorded as pending and
+    applied at some later stop. The guest then starts from the order it already
+    had: one round booted its own disk while every printed line still said it
+    was waiting for the medium."""
+    import pytest
+
+    from tests.vm import cluster
+
+    class Machine:
+        vmid = 9300
+        node = "infra-node3"
+
+        def stop(self) -> None:
+            return None
+
+        def start(self) -> None:
+            raise AssertionError("the guest must not be started on a stale config")
+
+    class Deaf:
+        """A cluster that records nothing, the way a pending edit answers."""
+
+        def call(self, method: str, path: str, **form: object) -> object:
+            return {
+                "name": "gi-x1",
+                "tags": "abc;gentoo-install-test",
+                "virtio0": "disk",
+                "boot": "order=virtio0;ide3",
+                "ide3": "local:iso/gi-driver-old.iso,media=cdrom",
+            }
+
+    monkeypatch.setattr(cluster, "Guest", lambda **kw: Machine())
+    monkeypatch.setattr(cluster, "build_driver", lambda where, packed=False: where)
+    monkeypatch.setattr(cluster, "retain_driver", lambda workdir, built: Path("gi-driver-new.iso"))
+    monkeypatch.setattr(cluster, "place_driver", lambda *a: None)
+
+    from tests.vm.proxmox import ProxmoxError
+
+    with pytest.raises(ProxmoxError, match="still boots"):
+        cluster.tui_conversion(cast(Any, Deaf()), "infra-node3", "conv", 9300, Path("/tmp"))
+
+    # Negative control: the same guest with the edit recorded gets past this and
+    # fails later, so the refusal above is the config check and not the fake.
+    class Heard(Deaf):
+        def call(self, method: str, path: str, **form: object) -> object:
+            answer = dict(cast(Any, super().call(method, path, **form)))
+            # As the node stores it: `order=ide2` comes back with every other
+            # bootable device appended, and an equality check refused a guest
+            # whose edit had taken.
+            answer["boot"] = f"order={cluster.MEDIUM_FIRST};ide3"
+            answer["ide3"] = "local:iso/gi-driver-new.iso,media=cdrom"
+            return answer
+
+    with pytest.raises(AssertionError, match="stale config"):
+        cluster.tui_conversion(cast(Any, Heard()), "infra-node3", "conv", 9300, Path("/tmp"))
 
 
 def test_a_disk_spec_is_not_sent_through_the_conversion_path() -> None:

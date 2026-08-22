@@ -2046,6 +2046,24 @@ def tui_conversion(
         boot=f"order={MEDIUM_FIRST}",
         **{DRIVER_SLOT: f"local:iso/{driver_path.name},media=cdrom"},
     )
+    # Read back, because a change to a guest that is not fully down is recorded
+    # as pending and applied at some later stop: the guest then starts from the
+    # order it already had, and one round booted the disk while every printed
+    # line still said it was waiting for the medium.
+    # The first entry, not the whole string: `order=ide2` is stored as
+    # `order=ide2;ide3`, because the node appends every other bootable device.
+    settled = api.call("GET", f"/nodes/{node}/qemu/{vmid}/config")
+    order = str(settled.get("boot", "")).removeprefix("order=").split(";")
+    if not order or order[0] != MEDIUM_FIRST:
+        raise ProxmoxError(
+            f"vm {vmid} on {node} still boots {settled.get('boot')!r}: the config edit "
+            "did not take, so the guest would start from its own disk"
+        )
+    if driver_path.name not in str(settled.get(DRIVER_SLOT, "")):
+        raise ProxmoxError(
+            f"vm {vmid} on {node} still carries {settled.get(DRIVER_SLOT)!r}: the driver "
+            "CD this call built is not the one it would mount"
+        )
     guest.start()
     link = Reconnecting.to(guest, log)
     guest.reset()
