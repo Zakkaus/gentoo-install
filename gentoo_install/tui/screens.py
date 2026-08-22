@@ -325,10 +325,13 @@ def _confirm_the_swap(screen: Screen, context: Context) -> Answer[InstallConfig]
         **answers(translate),
         title=translate("This replaces the running system and cannot be undone."),
         phrase=SWAP_CONFIRMATION,
+        # The word itself, the way the erase screen shows the disk name: an
+        # operator reading `Type the word to confirm.` was left with an empty
+        # field and no word anywhere on the screen.
         detail=(
             f"{translate('Replaced: ')}{replaced}. "
             f"{translate('Kept: /home, /root and every other mount.')} "
-            f"{translate('Type the word to confirm.')}"
+            f"{translate('Type {word} to confirm.').format(word=SWAP_CONFIRMATION)}"
         ),
         footer=footer(translate),
     )
