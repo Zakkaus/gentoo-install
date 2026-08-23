@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
+from collections.abc import Callable
 from typing import Any, Sequence, cast
 
 import pytest
@@ -53,19 +54,17 @@ def test_partition_mode_keeps_the_ordinary_list() -> None:
     assert not any(isinstance(operation, plan_disk.CreatePartition) for operation in conversion)
 
 
-def test_conversion_operation_describes_and_applies(monkeypatch: pytest.MonkeyPatch) -> None:
-    called: list[tuple[Path, tuple[str, ...]]] = []
+def test_conversion_operation_describes_and_applies() -> None:
+    """Through the `Context` seam, not `gentoo_install.exec.convert`: the plan
+    layer does not import `exec`, and this test used to reach it by patching
+    `importlib.import_module`, which is how the crossing stayed invisible."""
+    from .recorder import Recorder
 
-    def convert(staging: Any, names: tuple[str, ...], *, copy: Any) -> None:
-        called.append((staging, names))
-
-    from gentoo_install.exec import convert as executor
-
-    monkeypatch.setattr(executor, "convert", convert)
+    recorder = Recorder()
     operation = SwapDirectories()
     assert operation.describe()
-    operation.apply(SimpleNamespace(target=PurePosixPath("/target")))
-    assert called == [(Path("/gentoo-install.new"), operation.names)]
+    operation.apply(recorder)
+    assert recorder.swapped == [(PurePosixPath("/gentoo-install.new"), operation.names)]
 
 
 def _layout(
@@ -870,35 +869,23 @@ def test_the_swap_copies_with_cp_archive_rather_than_a_python_copy() -> None:
 
     from .recorder import Recorder
 
-    recorder = Recorder()
     copied: list[tuple[str, str]] = []
 
-    class Module:
-        @staticmethod
-        def convert(
-            staging: Path,
-            names: object,
-            *,
-            copy: object,
-            root: Path = Path("/"),
+    class Crossing(Recorder):
+        """A seam that calls the copier, the way the real one does for a
+        directory a rename cannot cross."""
+
+        def swap_directories(
+            self,
+            staging: PurePosixPath,
+            names: Sequence[str],
+            copy: Callable[[Path, Path], None],
         ) -> None:
-            assert callable(copy)
             copy(Path("/gentoo-install.new/var/cache"), Path("/var/cache"))
-            copied.append((str(staging), str(root)))
+            copied.append((str(staging), str(tuple(names))))
 
-    import importlib
-
-    original = importlib.import_module
-
-    def importing(name: str, package: str | None = None) -> Any:
-        return Module if name == "gentoo_install.exec.convert" else original(name, package)
-
-    saved = importlib.import_module
-    importlib.import_module = importing
-    try:
-        SwapDirectories(names=("var",)).apply(recorder)
-    finally:
-        importlib.import_module = saved
+    recorder = Crossing()
+    SwapDirectories(names=("var",)).apply(recorder)
 
     assert copied, "the converter was never called"
     written = [argv for argv in recorder.commands if argv and argv[0] == "cp"]

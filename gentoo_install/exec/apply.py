@@ -223,6 +223,21 @@ class Machine:
     def is_mounted(self, path: str) -> bool:
         return self.runner.run(["findmnt", "--mountpoint", path], check=False).returncode == 0
 
+    def swap_directories(
+        self,
+        staging: PurePosixPath,
+        names: Sequence[str],
+        copy: Callable[[Path, Path], None],
+    ) -> None:
+        from . import convert as converting
+
+        converting.convert(Path(str(staging)), names, copy=copy)
+
+    def populate_boot(self, staging: PurePosixPath) -> None:
+        from . import convert as converting
+
+        converting.populate_boot(Path(str(staging)))
+
     def containing_disk(self, device: DeviceId) -> str:
         """The whole disk a device sits on, which is what a bootloader wants.
 

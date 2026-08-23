@@ -43,6 +43,18 @@ def _imports(tree: ast.AST) -> set[str]:
                 imported.add(prefix + node.module)
             else:
                 imported.update(prefix + alias.name for alias in node.names)
+        # `importlib.import_module("gentoo_install.exec.convert")` is an
+        # import that `ast.Import` never sees, and `plan/convert.py` reached
+        # `exec/` through one for as long as this guard has existed.
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "import_module"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+        ):
+            imported.add(node.args[0].value)
     return imported
 
 

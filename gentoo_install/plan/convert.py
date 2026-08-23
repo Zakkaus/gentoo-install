@@ -3,10 +3,9 @@
 
 from __future__ import annotations
 
-import importlib
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable, Final, Protocol, Sequence, cast
+from typing import Any, Final, Sequence, cast
 
 from ..errors import ConversionFailed, ConversionUnsupported
 from ..model.config import DiskConfig, DiskMode
@@ -37,17 +36,6 @@ REPLACED_DIRECTORIES: tuple[str, ...] = (
     "usr",
     "var",
 )
-
-
-class _Converter(Protocol):
-    def convert(
-        self,
-        staging: Path,
-        names: Sequence[str],
-        *,
-        copy: Callable[[Path, Path], None],
-        root: Path = Path("/"),
-    ) -> None: ...
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -132,9 +120,6 @@ class SwapDirectories(Operation):
         return f"atomically swap {', '.join('/' + name for name in self.names)} from {self.staging}"
 
     def apply(self, context: Context) -> None:
-        module = importlib.import_module("gentoo_install.exec.convert")
-        converter = cast(_Converter, module)
-
         def copy(source: Path, destination: Path) -> None:
             # `cp --archive`, not `shutil.copytree`: a stage3 carries file
             # capabilities and xattrs that Python's copy does not restore.
@@ -142,7 +127,7 @@ class SwapDirectories(Operation):
                 ["cp", "--archive", "--one-file-system", str(source), str(destination)]
             )
 
-        converter.convert(Path(str(self.staging)), self.names, copy=copy)
+        context.swap_directories(self.staging, self.names, copy)
 
 
 FSTAB: Final[PurePosixPath] = PurePosixPath("/etc/fstab")
@@ -321,10 +306,6 @@ class LeaveStaging(Operation):
         context.run(["rm", "--recursive", "--force", str(self.staging)])
 
 
-class _BootPopulator(Protocol):
-    def populate_boot(self, staging: Path, *, root: Path = Path("/")) -> None: ...
-
-
 @dataclass(frozen=True, kw_only=True)
 class PopulateBoot(Operation):
     """Put the staged kernel into the machine's own `/boot`, after the swap.
@@ -342,8 +323,7 @@ class PopulateBoot(Operation):
         return f"put the kernel from {self.staging}/boot into /boot and drop the old images"
 
     def apply(self, context: Context) -> None:
-        module = importlib.import_module("gentoo_install.exec.convert")
-        cast(_BootPopulator, module).populate_boot(Path(str(self.staging)))
+        context.populate_boot(self.staging)
 
 
 #: The synthetic ids. Fixed rather than derived from the device name so that a
