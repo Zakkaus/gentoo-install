@@ -1088,6 +1088,18 @@ def test_language_section_reaches_every_language_setting_from_the_menu() -> None
     for label in ("System language", "Other locales", "Fonts"):
         assert label in drawn, label
 
+def test_console_cjk_has_an_independent_switch_beside_its_font() -> None:
+    cjk, font = settings.KERNEL[1:3]
+    assert (cjk.key, font.key) == ("console_cjk", "console_font")
+
+    at = context()
+    assert cjk.unavailable(config(), at)
+    chinese = screens.with_language(config(), "zh-TW")
+    assert cjk.unavailable(chinese, at) == ""
+
+    disabled = screens.console_cjk_screen(FakeScreen(keys=[]), chinese, at).unwrap()
+    assert not disabled.system.console_cjk
+
 
 def test_a_chinese_system_locale_selects_no_input_method_or_font_group() -> None:
     start = replace(
@@ -2635,10 +2647,10 @@ def test_reopening_a_setting_and_accepting_keeps_what_it_held() -> None:
             base.portage, keywords=Keywords.TESTING, profile="default/linux/amd64/23.0"
         ),
     )
-    # Three rows answer a different question and are not selectors:
-    # `Cron` flips where it stands, `Drive` reads `context.choice` rather than
-    # the configuration, and `Bootloader` cannot keep a kind the layout forbids.
-    flipped = {"Cron", "Drive", "Bootloader"}
+    # Four rows answer a different question and are not selectors:
+    # `Console CJK` and `Cron` flip where they stand, `Drive` reads
+    # `context.choice`, and `Bootloader` cannot keep a kind the layout forbids.
+    flipped = {"Console CJK", "Cron", "Drive", "Bootloader"}
     # Four screens enter is not an answer to, named rather than caught: an
     # `except Exception: continue` around the call meant every screen could
     # raise on enter and this test still passed with an empty list.

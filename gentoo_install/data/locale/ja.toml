@@ -76,6 +76,7 @@
 "Layout" = "ディスク構成"
 "Keyboard layout" = "キーボード配列"
 "Console font" = "コンソールフォント"
+"Console CJK" = "コンソール CJK"
 "Partition table" = "パーティションテーブル"
 "Firmware" = "ファームウェア"
 "Network configuration" = "ネットワーク設定"

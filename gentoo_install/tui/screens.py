@@ -1842,6 +1842,16 @@ def _pick_keymap(
     )
 
 
+def console_cjk_screen(
+    screen: Screen, config: InstallConfig, context: Context
+) -> Answer[InstallConfig]:
+    """Flipped where it stands: the row reads `in use` or `not used` already."""
+    return Answer(
+        Outcome.CHOSE,
+        replace(config, system=replace(config.system, console_cjk=not config.system.console_cjk)),
+    )
+
+
 def console_font_screen(
     screen: Screen, config: InstallConfig, context: Context
 ) -> Answer[InstallConfig]:

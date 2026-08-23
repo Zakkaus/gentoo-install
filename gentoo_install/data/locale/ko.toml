@@ -76,6 +76,7 @@
 "Layout" = "디스크 구성"
 "Keyboard layout" = "키보드 배열"
 "Console font" = "콘솔 글꼴"
+"Console CJK" = "콘솔 CJK"
 "Partition table" = "파티션 테이블"
 "Firmware" = "펌웨어"
 "Network configuration" = "네트워크 설정"

@@ -275,7 +275,7 @@ def test_reopening_encryption_keeps_the_container_and_its_passphrase() -> None:
 
 #: Rows that answer by flipping rather than by offering a list. Reopening one
 #: and pressing enter flips it again, which is what it is for.
-FLIPPED: frozenset[str] = frozenset({"cron"})
+FLIPPED: frozenset[str] = frozenset({"console_cjk", "cron"})
 
 
 def test_no_row_loses_its_value_when_it_is_opened_again() -> None:
