@@ -1045,3 +1045,34 @@ def test_offering_a_conversion_and_reading_its_layout_are_one_answer() -> None:
         )
         offered += takes_it
     assert offered == 1, f"{offered} returns offer the conversion"
+
+
+def test_no_screen_plans_without_the_machine_it_is_planning_for() -> None:
+    """A conversion's graph comes from `context.running_layout`, so every
+    `plan.build` under `tui/` has to pass it. `#917` fixed `app._blocked` and
+    left `overview.py` planning without it, so pressing Install answered `the
+    running layout was not read` and cancelled: no conversion could be started
+    from the menu at all, while every `--config` run converted fine."""
+    import ast
+
+    from pathlib import Path as _Path
+
+    root = _Path(__file__).resolve().parents[2] / "gentoo_install" / "tui"
+    unplanned = []
+    for source in sorted(root.glob("*.py")):
+        tree = ast.parse(source.read_text())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            name = node.func.id if isinstance(node.func, ast.Name) else ""
+            if name not in {"build", "plan_build"}:
+                continue
+            # `DeviceGraph.build` and the template builders are other calls of
+            # the same name; only the planner takes a catalog as its second
+            # argument, so the layout keyword is what identifies this one.
+            if len(node.args) < 2:
+                continue
+            if any(word.arg == "layout" for word in node.keywords):
+                continue
+            unplanned.append(f"{source.name}:{node.lineno}")
+    assert not unplanned, f"plans without the running layout: {unplanned}"

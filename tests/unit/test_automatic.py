@@ -805,9 +805,9 @@ def test_the_overview_renders_an_unconverted_operation(monkeypatch: pytest.Monke
             raise AssertionError(operation_context)
 
     def only_unconverted(
-        installation: InstallConfig, groups: object
+        installation: InstallConfig, groups: object, *, layout: object = None
     ) -> list[Operation]:
-        del installation, groups
+        del installation, groups, layout
         return [UnconvertedOperation()]
 
     monkeypatch.setattr(overview, "plan_build", only_unconverted)
