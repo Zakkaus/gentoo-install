@@ -2154,8 +2154,8 @@ INTERFACE_LANGUAGES: tuple[tuple[str, str, bool], ...] = (
 class LanguageDefaults:
     """What picking an interface language pre-fills.
 
-    Locale, timezone, and mirror region follow the language. Every one of
-    these stays a row the operator can change.
+    Locale, timezone, mirror region, fonts, and input methods follow the
+    language. Every one of these stays a row the operator can change.
     """
 
     locale: str
@@ -2165,13 +2165,29 @@ class LanguageDefaults:
     #: gentoo-zh, so it is not a default for a language that would not use the
     #: rest of that overlay.
     cjk_console: bool = False
+    font_groups: tuple[str, ...] = ()
+    input_method_groups: tuple[str, ...] = ()
 
 
 #: One row per interface language. Keyed by the same tags as the catalogs.
 LANGUAGE_DEFAULTS: Final[dict[str, LanguageDefaults]] = {
     "en": LanguageDefaults("en_US.UTF-8", "UTC", MirrorRegion.GLOBAL),
-    "zh-CN": LanguageDefaults("zh_CN.UTF-8", "Asia/Shanghai", MirrorRegion.CN, True),
-    "zh-TW": LanguageDefaults("zh_TW.UTF-8", "Asia/Taipei", MirrorRegion.GLOBAL, True),
+    "zh-CN": LanguageDefaults(
+        "zh_CN.UTF-8",
+        "Asia/Shanghai",
+        MirrorRegion.CN,
+        cjk_console=True,
+        font_groups=("noto-cjk",),
+        input_method_groups=("fcitx5", "rime"),
+    ),
+    "zh-TW": LanguageDefaults(
+        "zh_TW.UTF-8",
+        "Asia/Taipei",
+        MirrorRegion.GLOBAL,
+        cjk_console=True,
+        font_groups=("noto-cjk",),
+        input_method_groups=("fcitx5", "rime"),
+    ),
     # cjktty is what puts Chinese, Japanese and Korean on the console, so all
     # four of those catalogs take the patched kernel and not only the two
     # Chinese ones.
@@ -2188,6 +2204,11 @@ def with_language(config: InstallConfig, tag: str) -> InstallConfig:
     locales = config.system.locales
     if chosen.locale not in locales:
         locales = (*locales, chosen.locale)
+    language_groups = (*chosen.font_groups, *chosen.input_method_groups)
+    applications = (
+        *config.packages.applications,
+        *(group for group in language_groups if group not in config.packages.applications),
+    )
     seeded = replace(
         config,
         system=replace(
@@ -2197,6 +2218,7 @@ def with_language(config: InstallConfig, tag: str) -> InstallConfig:
             locales=locales,
             console_cjk=chosen.cjk_console,
         ),
+        packages=replace(config.packages, applications=applications),
         portage=replace(
             config.portage,
             mirrors=replace(config.portage.mirrors, region=chosen.mirror_region),
