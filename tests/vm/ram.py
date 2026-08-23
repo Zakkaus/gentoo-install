@@ -21,6 +21,7 @@ from typing import Final
 
 from gentoo_install.exec.config import load
 from gentoo_install.model.config import InstallConfig
+from gentoo_install.plan import netboot
 from gentoo_install.plan.netboot import ENTRY_LABEL
 
 from .console import ConsoleClosed, ConsoleTimeout, SerialConsole
@@ -52,8 +53,11 @@ CJK_SPEAKS: Final[str] = r"livecd login:|Gentoo Linux Minimal Installation CD"
 ALPINE_SPEAKS: Final[str] = r"Welcome to Alpine Linux|localhost login:"
 
 #: What the delivered payload's own first screen prints. It is the proof the
-#: configuration arrived, not merely that a live medium booted.
-PAYLOAD_SPEAKS: Final[str] = r"install or shell>"
+#: configuration arrived, not merely that a live medium booted. Taken from the
+#: module that writes the profile, never copied: the two drifted apart for a
+#: day and every run in between timed out on text the installer had stopped
+#: printing.
+PAYLOAD_SPEAKS: Final[str] = re.escape(netboot.ASKS_TO_INSTALL)
 
 #: How long the login prompt is given after the medium's banner.
 LOGIN_PATIENCE: Final[float] = 300.0
@@ -289,12 +293,12 @@ def came_up(console: SerialConsole, mode: str) -> str:
 def leave_the_first_screen(console: SerialConsole) -> None:
     """Answer the delivered screen so the console is at a shell again.
 
-    `run()` sends a marked command, and typed at `install or shell>` the whole
-    line is read as the answer: the screen printed `nothing was changed` and
-    the marker never came back, so the second reboot of a `--bypass` run
+    `run()` sends a marked command, and typed at the delivered question the
+    whole line is read as the answer: the screen printed `nothing was changed`
+    and the marker never came back, so the second reboot of a `--bypass` run
     failed at `never matched 'MARK_14_DONE'`.
     """
-    console.send("shell")
+    console.send(netboot.DECLINES)
     console.expect(r"# ", timeout=POST_INSTALL_PATIENCE)
 
 

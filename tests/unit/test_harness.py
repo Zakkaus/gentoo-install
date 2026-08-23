@@ -4385,7 +4385,9 @@ def test_the_bypass_runner_reaches_a_shell_before_it_sends_a_command() -> None:
     assert source.index('console.run("reboot"') < left, source
     assert 'for boot in ("first", "second")' in source, source
     answered = inspect.getsource(ram.leave_the_first_screen)
-    assert 'console.send("shell")' in answered, answered
+    # What it sends, not the word it used to send: the profile stopped
+    # accepting `shell` and no test noticed, because this one held the literal.
+    assert "console.send(netboot.DECLINES)" in answered, answered
 
 
 def test_a_conversion_reads_its_exit_code_and_not_the_echo() -> None:

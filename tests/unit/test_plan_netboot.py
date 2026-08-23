@@ -1726,3 +1726,22 @@ def test_the_banner_states_the_disk_is_unwritten_rather_than_untouched() -> None
     # The turn of phrase it must not go back to: "has not been moved".
     refused = ("\u88ab\u52d5\u904e", "\u88ab\u52a8\u8fc7")
     assert not [one for one in said if any(bad in one for bad in refused)], said
+
+
+def test_the_question_the_profile_asks_is_the_one_the_harness_waits_for() -> None:
+    """`tests/vm/ram.py` decides the payload arrived by matching the profile's
+    last line. `9e88ecda73ea9` reworded that line and left the harness matching
+    the old text, so every `--ram` and `--lowram` run timed out for a day on a
+    machine that had in fact booted correctly."""
+    import re
+
+    from tests.vm import ram
+
+    for mode in MemoryMode:
+        written = netboot._start(mode)
+        assert netboot.ASKS_TO_INSTALL in written, (mode, written[-300:])
+        assert re.search(ram.PAYLOAD_SPEAKS, written), (mode, ram.PAYLOAD_SPEAKS)
+
+    # The decline the harness types has to miss `yes|y|install`, or answering
+    # it would erase the disk the run is still measuring.
+    assert not re.fullmatch(r"yes|y|install", netboot.DECLINES)

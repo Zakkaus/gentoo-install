@@ -625,6 +625,16 @@ def _ready_the_environment() -> str:
     )
 
 
+#: The question the delivered profile ends on. `tests/vm/ram.py` waits for
+#: this exact text to decide the configuration arrived, so it is defined here
+#: and imported there: changing the wording in one place alone made every
+#: `--ram` and `--lowram` run time out for a day without anyone noticing.
+ASKS_TO_INSTALL: Final[str] = "install now? [yes/no]"
+
+#: An answer outside `yes|y|install`, which the profile reads as a decline.
+DECLINES: Final[str] = "no"
+
+
 #: Where the command lands, because it is on `PATH` in both environments and
 #: is not part of either distribution's own package set.
 COMMAND: Final[str] = "/usr/local/sbin/gentoo-install"
@@ -702,7 +712,7 @@ def _start(mode: MemoryMode) -> str:
         + wifi
         + f"printf '%s\\n' 'start it later with: {COMMAND}'\n"
         "printf '\\n'\n"
-        "printf 'install now? [yes/no] '\n"
+        f"printf '%s' '{ASKS_TO_INSTALL} '\n"
         "read answer\n"
         'case "$answer" in\n'
         "yes|y|install)\n"
