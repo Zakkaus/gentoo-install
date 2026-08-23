@@ -81,9 +81,8 @@ REMOTE_UNLOCK_MODULES: Final[tuple[str, ...]] = ("crypt-ssh", "network-legacy")
 #: Both take the `cjk` flag and both are keyworded `~amd64` in gentoo-zh.
 
 INSTALLKERNEL_STATE: Final[str] = "/var/lib/misc/installkernel"
-#: The cjk USE flag of the patched kernels, which merges the
-#: patch's own `cjk.config`. It is on by default, so only turning it off has
-#: to be written.
+#: The `cjk` USE flag merges the patch's own `cjk.config`. gentoo-cjk defaults
+#: it on while XanMod defaults it off.
 CJK_USE: Final[str] = "cjk"
 
 
@@ -498,18 +497,17 @@ class AcceptKernelVersion(Operation):
 
 @dataclass(frozen=True, kw_only=True)
 class RequestCjkKernel(Operation):
-    """Keyword and USE for the patched dist-kernel.
-
-    It is `~amd64` in gentoo-zh, and its `cjk` flag is what merges the patch's
-    own `cjk.config`; the flag is on by default, so only refusing it is written.
-    """
+    """Keyword and explicit cjk USE for a patched dist-kernel."""
 
     stage: Stage = Stage.KERNEL
     package: str
     cjk: bool
 
     def describe(self) -> str:
-        return f"accept {self.package} as testing, with cjk {'on' if self.cjk else 'off'}"
+        return (
+            f"accept {self.package} as testing, with cjk {'on' if self.cjk else 'off'}, "
+            "writing /etc/portage/package.use/cjk-kernel"
+        )
 
     def apply(self, context: Context) -> None:
         WritePortageConfig(
@@ -517,13 +515,13 @@ class RequestCjkKernel(Operation):
             name="cjk-kernel",
             lines=(f"{self.package} ~amd64",),
         ).apply(context)
-        if not self.cjk:
-            VerifyPackageUse(atom=self.package, flags=("-cjk",)).apply(context)
-            WritePortageConfig(
-                kind=PortageConfigKind.USE,
-                name="cjk-kernel",
-                lines=(f"{self.package} -{CJK_USE}",),
-            ).apply(context)
+        flag = CJK_USE if self.cjk else f"-{CJK_USE}"
+        VerifyPackageUse(atom=self.package, flags=(flag,)).apply(context)
+        WritePortageConfig(
+            kind=PortageConfigKind.USE,
+            name="cjk-kernel",
+            lines=(f"{self.package} {flag}",),
+        ).apply(context)
 
 
 @dataclass(frozen=True, kw_only=True)
