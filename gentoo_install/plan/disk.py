@@ -118,8 +118,8 @@ class ReleaseTarget(Operation):
 
     An install that stopped halfway leaves the target mounted, containers open
     and arrays assembled, and every one of those makes the disk busy so the
-    rerun fails at `wipefs`. Each step is `check=False`: none of them existing
-    is the normal case on a first run.
+    rerun fails at `wipefs`. A missing container is expected on a first run;
+    an open one after its close command fails is not.
     """
 
     stage: Stage = Stage.PARTITION
@@ -130,22 +130,78 @@ class ReleaseTarget(Operation):
     steps: tuple[tuple[str, ...], ...]
 
     def required_host_commands(self) -> frozenset[str]:
-        return frozenset(("umount", *(step[0] for step in self.steps)))
+        commands = {"umount", "findmnt", "sleep", *(step[0] for step in self.steps)}
+        for argv in self.steps:
+            if argv[:2] in {("vgchange", "--activate"), ("cryptsetup", "close")}:
+                commands.add("dmsetup")
+        return frozenset(commands)
 
     def describe(self) -> str:
         return "release anything a previous run of this configuration left mounted or open"
 
     def apply(self, context: Context) -> None:
-        context.run(["umount", "--recursive", "--lazy", str(context.target)], check=False)
-        # The btrfs top level is mounted beside the target, not under it, so a
-        # recursive unmount of the target never reaches it.
-        context.run(
-            ["umount", "--lazy", str(context.target.parent / SCRATCH_MOUNT)], check=False
-        )
+        self._unmount(context, context.target)
+        self._unmount(context, context.target.parent / SCRATCH_MOUNT)
         for argv in self.steps:
-            # check=False throughout: none of these existing is the normal case
-            # on a first run.
-            context.run(list(argv), check=False)
+            self._close(context, argv)
+
+    def _unmount(self, context: Context, path: PurePosixPath) -> None:
+        context.run(["umount", "--recursive", str(path)], check=False)
+        if not self._still_mounted(context, path):
+            return
+        context.run(["umount", "--recursive", "--lazy", str(path)])
+        if self._still_mounted(context, path):
+            raise CommandFailed(f"{path} remains mounted after lazy unmount")
+
+    def _still_mounted(self, context: Context, path: PurePosixPath) -> bool:
+        found = context.run(["findmnt", "--mountpoint", str(path)], check=False)
+        if not isinstance(found, CommandOutput):
+            raise CommandFailed(f"cannot determine whether {path} is mounted")
+        return found.returncode == 0
+
+    def _close(self, context: Context, argv: tuple[str, ...]) -> None:
+        last: CommandOutput | None = None
+        for attempt in range(RELEASE_TRIES):
+            result = context.run(list(argv), check=False)
+            if not isinstance(result, CommandOutput):
+                raise CommandFailed(f"cannot determine whether {' '.join(argv)} completed")
+            if result.returncode == 0 or self._is_released(context, argv):
+                return
+            last = result
+            if attempt + 1 < RELEASE_TRIES:
+                context.run(["sleep", f"{RELEASE_PAUSE:g}"])
+        assert last is not None
+        raise CommandFailed(
+            f"{' '.join(argv)} left its device open after {RELEASE_TRIES} attempts: "
+            f"{last.strip() or 'no output'}"
+        )
+
+    def _is_released(self, context: Context, argv: tuple[str, ...]) -> bool:
+        if argv[:2] == ("zpool", "export"):
+            listed = self._state(context, ["zpool", "list", "-H", "-o", "name"])
+            return argv[2] not in listed.split()
+        if argv[:2] == ("vgchange", "--activate"):
+            listed = self._state(context, ["dmsetup", "ls"])
+            # device-mapper doubles hyphens, so the final hyphen keeps group
+            # names that share a prefix distinct.
+            prefix = f"{argv[3].replace('-', '--')}-"
+            return not any(
+                line.split() and line.split()[0].startswith(prefix)
+                for line in listed.splitlines()
+            )
+        if argv[:2] == ("cryptsetup", "close"):
+            listed = self._state(context, ["dmsetup", "ls", "--target", "crypt"])
+            return not any(line.split() and line.split()[0] == argv[2] for line in listed.splitlines())
+        if argv[:2] == ("mdadm", "--stop"):
+            listed = self._state(context, ["mdadm", "--detail", "--scan"])
+            return argv[2] not in listed
+        raise ConfigError(f"no release state check for {' '.join(argv)}")
+
+    def _state(self, context: Context, argv: list[str]) -> CommandOutput:
+        result = context.run(argv, check=False)
+        if not isinstance(result, CommandOutput) or result.returncode != 0:
+            raise CommandFailed(f"cannot determine release state with {' '.join(argv)}")
+        return result
 
 
 class _ImageContext(Protocol):
@@ -920,8 +976,8 @@ class DiscardStage3(Operation):
         context.run_in_target(["rm", "--recursive", "--force", f"/{STAGE3_CACHE}"])
 
 
-EXPORT_TRIES: Final[int] = 6
-EXPORT_PAUSE: Final[float] = 5.0
+RELEASE_TRIES: Final[int] = 6
+RELEASE_PAUSE: Final[float] = 5.0
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -1012,14 +1068,14 @@ class UnmountTarget(Operation):
         next boot, so the failure has to say which case it is.
         """
         last: CommandFailed | None = None
-        for attempt in range(EXPORT_TRIES):
+        for attempt in range(RELEASE_TRIES):
             try:
                 context.run(["zpool", "export", pool])
                 return
             except CommandFailed as failed:
                 last = failed
-                if attempt + 1 < EXPORT_TRIES:
-                    context.run(["sleep", f"{EXPORT_PAUSE:g}"])
+                if attempt + 1 < RELEASE_TRIES:
+                    context.run(["sleep", f"{RELEASE_PAUSE:g}"])
         assert last is not None
         if self._mounted_datasets(context, pool):
             context.run(["zpool", "export", "-f", pool])
