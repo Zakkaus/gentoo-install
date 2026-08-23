@@ -294,6 +294,8 @@ prints none: `tests/vm/run.py` prints `installer revision` at the top of a run
 and `tests/vm/cluster.py` prints nothing, so a cluster result cannot be tied to
 a tree afterwards. What the tree held was read before the campaign started.
 
+| `01278fe0860cf` | `vm-binpkg` on the cluster, `ok vm-binpkg 18.3m` | the binhost path installs and boots with the official entry the stage3 ships removed before any trust operation and written back only when the official source is trusted, and with the official key's local signature read back rather than inferred from `getuto`'s exit status. **What this does not establish:** that a machine which *fails* that verification degrades to source — the fixture's official source is trusted, so the degradation branch did not run. |
+
 | `5a9b9f220e651` | `vm-luks` on a local UEFI guest, the first run with the bounded mount check | installed and booted, and `mounted its layout` here means what it says: the check derives each configured mountpoint and its filesystem type from the configuration rather than matching any line containing a slash. This row also carries the rerun-cleanup change in `ReleaseTarget` and the btrfs scratch mount, whose **re-entry** path is still unverified — an ordinary install exercises the release at its head, not a second attempt over a first one's leftovers. |
 
 **Rows recorded before `5a9b9f220e651` and saying `mounted its layout` overstate
