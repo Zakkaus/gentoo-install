@@ -1,12 +1,13 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 from __future__ import annotations
 
+import errno
 import os
 from pathlib import Path
 
 import pytest
 
-from gentoo_install.errors import ConversionFailed
+from gentoo_install.errors import CommandFailed, ConversionFailed
 from gentoo_install.exec import convert
 
 
@@ -314,8 +315,6 @@ def test_a_mounted_directory_is_filled_by_copy_when_rename_cannot_cross(
     the staging root's and `rename(2)` cannot reach it. Everything before this
     had succeeded: the whole userland was built and the swap was the last step.
     """
-    import errno
-
     root = tmp_path / "root"
     staging = root / "new"
     for name in ("usr", "var"):
@@ -355,6 +354,52 @@ def test_a_mounted_directory_is_filled_by_copy_when_rename_cannot_cross(
     assert not (root / "var" / "old-log").exists(), "replaced, not merged"
     assert not (root / "var" / convert.KEPT_ASIDE).exists(), "the kept set is removed"
     assert (root / "usr" / "new.txt").read_text() == "new", "an ordinary directory renames"
+
+
+def test_a_failed_cross_device_copy_restores_all_replaced_directories(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "root"
+    staging = root / "new"
+    (root / "usr").mkdir(parents=True)
+    (staging / "usr").mkdir(parents=True)
+    (root / "usr" / "content").write_text("old usr")
+    (staging / "usr" / "content").write_text("new usr")
+    (root / "var").mkdir()
+    (staging / "var").mkdir()
+    (root / "var" / "old-log").write_text("old var")
+    (staging / "var" / "cache").mkdir()
+
+    real_mount = os.path.ismount
+    monkeypatch.setattr(
+        "os.path.ismount", lambda path: str(path).endswith("/var") or real_mount(path)
+    )
+    real_rename = os.rename
+
+    def cross_device_rename(source: Path | str, destination: Path | str) -> None:
+        if Path(source) == staging / "var" / "cache":
+            raise OSError(errno.EXDEV, "Invalid cross-device link")
+        real_rename(source, destination)
+
+    copy_failure = CommandFailed("cp --archive ended with exit status 1")
+
+    def failing_copy(source: Path, destination: Path) -> None:
+        raise copy_failure
+
+    monkeypatch.setattr("os.rename", cross_device_rename)
+
+    with pytest.raises(ConversionFailed, match="cp --archive") as failure:
+        convert.convert(staging, ("usr", "var"), copy=failing_copy, root=root)
+
+    assert (root / "usr" / "content").read_text() == "old usr"
+    assert (staging / "usr" / "content").read_text() == "new usr"
+    assert (root / "var" / "old-log").read_text() == "old var"
+    assert (staging / "var" / "cache").is_dir()
+    assert not (root / "var" / "cache").exists()
+    assert not (root / "var" / convert.KEPT_ASIDE).exists()
+    inner_failure = failure.value.__cause__
+    assert isinstance(inner_failure, ConversionFailed)
+    assert inner_failure.__cause__ is copy_failure
 
 
 def test_a_merged_usr_symlink_is_removed_rather_than_left_beside_the_new_one(
