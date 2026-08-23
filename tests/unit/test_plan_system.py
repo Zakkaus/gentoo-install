@@ -1516,6 +1516,48 @@ def test_networkmanager_is_matched_by_mac_too() -> None:
     assert "interface-name" not in written, written
 
 
+def test_every_derived_destination_is_named_by_the_description() -> None:
+    """The source-reading rule in `tests/unit/test_layers.py` cannot see these.
+
+    `describe_parts` returns a template, and the path reaches the text only
+    when `_named(self.destinations())` is formatted into it, so a check that
+    reads the source finds `{}` where the file should be. Rendered here
+    instead: `describe()` has to hold every path `apply()` writes.
+    """
+    from pathlib import Path
+
+    from gentoo_install.data import load_catalog
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.config import DiskMode
+    from gentoo_install.plan.build import build
+
+    catalog = load_catalog()
+    checked = 0
+    for fixture in sorted(Path("tests/fixtures").glob("*.toml")):
+        loaded = load(fixture)
+        if loaded.disk.layout_is_read_from_the_machine:
+            continue
+        variants = [loaded]
+        if loaded.disk.mode is DiskMode.PARTITION and loaded.system.init is InitSystem.SYSTEMD:
+            variants.append(
+                replace(
+                    loaded,
+                    system=replace(loaded.system, init=InitSystem.OPENRC),
+                    portage=replace(loaded.portage, profile="default/linux/amd64/23.0"),
+                )
+            )
+        for installation in variants:
+            for operation in build(installation, catalog):
+                named = getattr(operation, "destinations", None)
+                if named is None:
+                    continue
+                said = operation.describe()
+                for path in named():
+                    assert str(path) in said, (fixture.name, type(operation).__name__, str(path), said)
+                    checked += 1
+    assert checked > 40, checked
+
+
 def test_every_operation_that_names_a_file_writes_exactly_the_files_it_named() -> None:
     """`describe()` and `apply()` read one derivation, so they cannot drift.
 

@@ -548,7 +548,7 @@ REVIEWED_TEMPLATES: frozenset[str] = frozenset(
         "write /etc/portage/make.conf with {}; {} mirrors in the configured order,"
         " {} appended",
         "write /etc/kernel/cmdline with root {}; luks {}; arrays {}; keymap {}; parameters {}",
-        "write {} into authorized_keys for {}",
+        "write {} into {}",
         "write {} with {}",
         "{}: emerge {}",
         "{}: emerge {}, building {} here",

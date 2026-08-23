@@ -650,6 +650,7 @@ def test_the_dry_run_names_every_file_only_its_owner_may_read() -> None:
     thirty of them still name no file, and that is `docs/tasks.md` row 241.
     """
     private = 0
+    derived_here: set[str] = set()
     for module in _modules("plan"):
         tree = ast.parse(module.read_text(encoding="utf-8"))
         known: dict[str, ast.expr] = {}
@@ -665,6 +666,14 @@ def test_the_dry_run_names_every_file_only_its_owner_may_read() -> None:
             body = {one.name: one for one in cls.body if isinstance(one, ast.FunctionDef)}
             describing = body.get("describe") or body.get("describe_parts")
             if "apply" not in body or describing is None:
+                continue
+            if "destinations" in body:
+                # Its description names the file through
+                # `_named(self.destinations())`, so the source holds `{}`
+                # where the path goes. `test_plan_system.py` renders the plan
+                # and checks the paths are there; counted so a class that
+                # leaves this rule is visible.
+                derived_here.add(cls.name)
                 continue
             said = ast.unparse(describing)
             reachable = _bindings_in(body, known)
@@ -689,6 +698,18 @@ def test_the_dry_run_names_every_file_only_its_owner_may_read() -> None:
                 )
     # The same denominator: twelve writes carry `0600` or `0400` today.
     assert private >= 10, private
+    # Named rather than counted: a class leaving this rule has to be a
+    # decision, and the name is what makes it one.
+    assert derived_here == {
+        "ConfigureConsole",
+        "ConfigureZram",
+        "SelectLocale",
+        "SetHardwareClock",
+        "SetHostname",
+        "WriteAuthorizedKeys",
+        "WriteMachineId",
+        "WriteNetworkConfig",
+    }, sorted(derived_here)
 
 
 def test_the_proxy_endpoint_is_defined_once() -> None:
