@@ -290,7 +290,7 @@
 "in use" = "사용"
 "no driver package: i915, amdgpu, radeon and nouveau are in the kernel" = "드라이버 패키지 없음. i915, amdgpu, radeon, nouveau 는 커널에 있습니다"
 "stable ::gentoo, ~amd64 for the overlay" = "::gentoo 안정, 오버레이는 ~amd64"
-"~amd64 throughout, so fewer packages match a binary host" = "전체를 ~amd64로 두므로 바이너리 패키지 적중률이 낮아짐"
+"~amd64 throughout, so fewer packages match a binary host" = "전체를 ~amd64로 두므로 binhost 에서 받을 수 있는 패키지가 줄어듭니다"
 "Disk" = "디스크"
 "SSH" = "SSH"
 "detected" = "감지된 값"
@@ -359,7 +359,7 @@
 "this machine" = "이 기기"
 "stage3 default" = "stage3 기본값"
 "baseline" = "기준선"
-"what the profile sets, and what a binary host builds" = "profile이 정하며 바이너리 패키지도 동일"
+"what the profile sets, and what a binary host builds" = "profile이 정하는 설정이며 binhost 도 같은 설정으로 빌드합니다"
 "Encryption is a field of each partition, under Partitions." = '암호화는 "파티션" 화면의 각 파티션에 있는 항목입니다.'
 "Gateway" = "게이트웨이"
 "192.0.2.10/24, or empty for DHCP" = "192.0.2.10/24, 비우면 DHCP"
