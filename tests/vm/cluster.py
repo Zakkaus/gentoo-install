@@ -1080,7 +1080,17 @@ def use_our_resolvers() -> str:
     resolvers = f"options no-aaaa {RESOLVER_OPTIONS}\\n" + "".join(
         f"nameserver {one}\\n" for one in GUEST_RESOLVERS
     )
-    return f"printf '{resolvers}' > /etc/resolv.conf"
+    # The daemon first, and the symlink after it: on an installed systemd
+    # system `/etc/resolv.conf` points into `/run/systemd/resolve/`, so this
+    # printf wrote through the link and `systemd-resolved` put its own file
+    # back. The converted guest reached `10.31.0.254` and `223.5.5.5` and
+    # still answered `fail fail fail fail fail` to every lookup.
+    return (
+        "systemctl stop systemd-resolved 2>/dev/null; "
+        "rc-service systemd-resolved stop 2>/dev/null; "
+        "rm -f /etc/resolv.conf; "
+        f"printf '{resolvers}' > /etc/resolv.conf"
+    )
 
 
 #: Where the keeper records each time it had to put the address back. The
