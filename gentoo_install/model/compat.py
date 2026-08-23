@@ -104,6 +104,11 @@ KERNEL_PACKAGES: Final[dict[KernelSource, KernelPackage]] = {
         applies_cjktty=True,
         cjk_use_defaults_on=True,
     ),
+    KernelSource.XANMOD: KernelPackage(
+        atom="sys-kernel/xanmod-kernel",
+        applies_cjktty=True,
+        cjk_use_defaults_on=False,
+    ),
 }
 
 
@@ -365,7 +370,7 @@ RULES: tuple[Rule, ...] = (
         Trait.CONSOLE_CJK,
         Trait.KERNEL_WITHOUT_CJKTTY,
         "cjktty patches the kernel VT layer, which no official kernel carries; "
-        "sys-kernel/gentoo-cjk-kernel is the one that does",
+        "the gentoo-zh kernels with that patch provide it",
     ),
     Rule(
         Trait.REMOTE_UNLOCK,
@@ -394,7 +399,7 @@ RULES: tuple[Rule, ...] = (
     Rule(
         Trait.CJK_KERNEL,
         Trait.NO_GENTOOZH_OVERLAY,
-        "sys-kernel/gentoo-cjk-kernel is in that overlay and in no other "
+        "the selected cjktty kernel is in that overlay and in no other "
         "repository, so the emerge fails once the disks have been partitioned",
     ),
     Rule(

@@ -77,8 +77,8 @@ LEGACY_NETWORK_PACKAGES: Final[tuple[str, ...]] = (
 #: `crypt-ssh`'s own hooks are the legacy kind.
 REMOTE_UNLOCK_MODULES: Final[tuple[str, ...]] = ("crypt-ssh", "network-legacy")
 
-#: The two packages that carry the cjktty patch, prebuilt and from source.
-#: Both take the `cjk` flag and both are keyworded `~amd64` in gentoo-zh.
+#: The three packages that carry cjktty: prebuilt gentoo-cjk, source
+#: gentoo-cjk, and source XanMod. All are `~amd64` in gentoo-zh.
 
 INSTALLKERNEL_STATE: Final[str] = "/var/lib/misc/installkernel"
 #: The `cjk` USE flag merges the patch's own `cjk.config`. gentoo-cjk defaults
@@ -441,7 +441,7 @@ class ConfigureRemoteUnlock(Operation):
         )
 
 
-#: What `gentoo-cjk-kernel` and its `-bin` twin PDEPEND on:
+#: What `gentoo-cjk-kernel`, its `-bin` twin, and `xanmod-kernel` PDEPEND on:
 #: `=virtual/dist-kernel-${PV}-r100`. The `-r100` revision exists only in
 #: gentoo-zh, and gentoo-zh masked its own `virtual/dist-kernel` on 2026-08-09
 #: because it is incompatible with `::gentoo`'s. So the cjk kernels now need

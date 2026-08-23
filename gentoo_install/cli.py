@@ -878,6 +878,7 @@ def _probe_for(arguments: argparse.Namespace) -> Probe:
 _OVERLAY_PACKAGES: Final[tuple[str, ...]] = (
     "sys-kernel/gentoo-cjk-kernel-bin",
     "sys-kernel/gentoo-cjk-kernel",
+    "sys-kernel/xanmod-kernel",
 )
 
 

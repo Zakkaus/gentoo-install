@@ -338,6 +338,7 @@ KERNEL_CASES: list[tuple[KernelSource, Trait, Trait]] = [
     (KernelSource.DIST_SOURCE, Trait.CONSOLE_CJK, Trait.KERNEL_WITHOUT_CJKTTY),
     (KernelSource.CJK_BIN, Trait.CJK_KERNEL, Trait.NO_GENTOOZH_OVERLAY),
     (KernelSource.CJK, Trait.CJK_KERNEL, Trait.NO_GENTOOZH_OVERLAY),
+    (KernelSource.XANMOD, Trait.CJK_KERNEL, Trait.NO_GENTOOZH_OVERLAY),
 ]
 
 
@@ -911,6 +912,10 @@ def test_the_kernel_package_table_is_the_only_one() -> None:
     from gentoo_install.model.config import KernelSource
 
     assert set(compat.KERNEL_PACKAGES) == set(KernelSource), "every choice has a package"
+    xanmod = compat.KERNEL_PACKAGES[KernelSource.XANMOD]
+    assert xanmod.atom == "sys-kernel/xanmod-kernel"
+    assert xanmod.applies_cjktty
+    assert not xanmod.cjk_use_defaults_on
 
     # Derived rather than listed: the cjk set has to move when the table does.
     assert compat._CJK_KERNEL_PACKAGES == {

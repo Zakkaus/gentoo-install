@@ -847,6 +847,10 @@ KERNELS: tuple[tuple[KernelSource, str], ...] = (
     (KernelSource.DIST_SOURCE, "built here"),
     (KernelSource.CJK_BIN, "prebuilt, cjktty for CJK on the console, from gentoo-zh"),
     (KernelSource.CJK, "built here, cjktty for CJK on the console, from gentoo-zh"),
+    (
+        KernelSource.XANMOD,
+        "built here with XanMod patches, cjktty for CJK on the console, from gentoo-zh",
+    ),
 )
 
 

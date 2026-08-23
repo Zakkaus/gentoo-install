@@ -866,6 +866,7 @@ def test_the_kernel_row_names_the_package() -> None:
     screens.kernel_screen(screen, config(), at)
     assert "sys-kernel/gentoo-cjk-kernel" in screen.last
     assert "sys-kernel/gentoo-kernel-bin" in screen.last
+    assert "sys-kernel/xanmod-kernel" in screen.last
     assert settings.SETTINGS[row("Kernel")].value(config(), at).startswith("sys-kernel/")
 
 
