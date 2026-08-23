@@ -420,3 +420,42 @@ def test_a_merged_usr_symlink_is_removed_rather_than_left_beside_the_new_one(
     assert (root / "bin").is_dir() and not (root / "bin").is_symlink()
     left = [one.name for one in root.iterdir() if one.name.endswith(convert.KEPT_ASIDE)]
     assert left == [], left
+
+
+def test_a_copy_that_writes_part_of_a_tree_then_fails_leaves_none_of_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`cp --archive` can create destination content and then return non-zero.
+    The entry is recorded before the copy runs, or the rollback never hears
+    about it and restores the original beside the half-written copy."""
+    root = tmp_path / "root"
+    staging = root / "new"
+    (root / "var").mkdir(parents=True)
+    (staging / "var").mkdir(parents=True)
+    (root / "var" / "old-log").write_text("old var")
+    (staging / "var" / "cache").mkdir()
+
+    real_mount = os.path.ismount
+    monkeypatch.setattr(
+        "os.path.ismount", lambda path: str(path).endswith("/var") or real_mount(path)
+    )
+    real_rename = os.rename
+
+    def cross_device_rename(source: Path | str, destination: Path | str) -> None:
+        if Path(source) == staging / "var" / "cache":
+            raise OSError(errno.EXDEV, "Invalid cross-device link")
+        real_rename(source, destination)
+
+    def half_written(source: Path, destination: Path) -> None:
+        destination.mkdir(parents=True)
+        (destination / "arrived-first").write_text("half of it")
+        raise CommandFailed("cp --archive ended with exit status 1")
+
+    monkeypatch.setattr(os, "rename", cross_device_rename)
+    with pytest.raises(ConversionFailed):
+        convert.convert(staging, ("var",), copy=half_written, root=root)
+
+    assert (root / "var" / "old-log").read_text() == "old var", "the original is back"
+    assert not (root / "var" / "cache").exists(), sorted(
+        one.name for one in (root / "var").iterdir()
+    )
