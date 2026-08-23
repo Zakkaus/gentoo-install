@@ -787,11 +787,16 @@ def test_a_failed_conversion_still_unmounts_the_staging_root() -> None:
 
 def test_a_replaced_directory_that_is_its_own_mount_no_longer_refuses() -> None:
     """A Fedora 41 cloud image mounts `/var` and `/home` as their own btrfs
-    subvolumes. Refusing that kept the whole RPM family out; `exec/convert.py`
-    replaces a mount point's contents instead, every move a rename on the one
-    filesystem, so the graph has nothing to object to.
+    subvolumes, with the root on `/root`. Refusing that kept the whole RPM
+    family out; `exec/convert.py` replaces a mount point's contents instead,
+    every move a rename on the one filesystem, so the graph has nothing to
+    object to.
+
+    The layout named those mounts in a field of its own until the refusal that
+    read it was removed. Nothing read the field after that, so the case is
+    written from the subvolume, which the fstab and `rootflags=` still need.
     """
-    fedora = replace(_layout(), separate_mounts=("/boot", "/home", "/proc", "/var"))
+    fedora = replace(_layout(), root_subvolume="root")
     assert convert.layout_graph(fedora).mode is DiskMode.IN_PLACE
 
     # Negative control: the layers the graph genuinely cannot describe are
