@@ -3967,3 +3967,21 @@ def test_a_commented_getty_does_not_count_as_a_login() -> None:
     # The control for this rule is
     # `test_a_root_that_already_has_a_serial_getty_is_left_alone`, which feeds
     # the same check an uncommented entry and asserts nothing is appended.
+
+
+def test_the_probe_records_what_the_lookups_were_asked_with() -> None:
+    """A converted guest answered `fail` to five lookups while it held a route
+    to the gateway and to `223.5.5.5`, and neither the resolver list nor the
+    order glibc consults was anywhere in the log. `nsswitch.conf` matters as
+    much as `resolv.conf`: a `hosts:` line that returns before `dns` makes a
+    correct resolver file irrelevant, and three rounds were spent guessing
+    which of the two it was."""
+    probe = cluster.REACHABILITY_PROBE
+    assert "/etc/resolv.conf" in probe, probe
+    assert "/etc/nsswitch.conf" in probe, probe
+    # Read, not only named: a probe that mentions the file without printing it
+    # leaves the reader exactly where they were.
+    assert "RESOLVCONF " in probe and "NSSWITCH " in probe, probe
+    # Absent is an answer too. A guest with no resolver file at all is the
+    # case the lookups cannot distinguish from a resolver that says nothing.
+    assert probe.count("printf 'absent'") >= 2, probe
