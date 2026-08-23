@@ -12,6 +12,7 @@ from collections import Counter
 from dataclasses import dataclass, fields
 from pathlib import PurePosixPath
 from typing import Collection, Final, Mapping
+from urllib.parse import urlparse
 
 from ..errors import CommandFailed, ValidationFailed
 from . import compat
@@ -66,6 +67,31 @@ _L10N_TAG: Final[re.Pattern[str]] = re.compile(
     r"^[a-z]{2,3}(?:-[A-Z][a-z]{3})?(?:-(?:[A-Z]{2}|[0-9]{3}))?"
     r"(?:-(?:[0-9][a-z0-9]{3}|[a-z][a-z0-9]{4,7}))*$"
 )
+
+#: The target's locale is not checked here. `docs/plan.md` settles that the
+#: installed system's language is a separate choice from the interface's, and
+#: the set `locale-gen` can produce belongs to the target rather than to this
+#: installer; `plan/system.GenerateLocales` reads `locale --all-locales` after
+#: generating and raises `LocaleMissing` for anything absent, which is the
+#: check that can actually see the answer.
+
+#: Closed system values checked by this module. Keymaps are not here: the
+#: target's kbd version owns that namespace, not the installer.
+CLOSED_SYSTEM_FIELDS: Final[frozenset[str]] = frozenset(
+    {"timezone", "hostname", "first_boot.url"}
+)
+
+#: `extra` is intentionally absent: it is a sequence of Portage atoms, not
+#: package-group names from this installer's catalog.
+PACKAGE_GROUP_FIELDS: Final[tuple[str, ...]] = (
+    "desktop", "applications", "graphics", "display_manager"
+)
+
+HTTP_SCHEMES: Final[frozenset[str]] = frozenset({"http", "https"})
+_HOSTNAME_LABEL: Final[re.Pattern[str]] = re.compile(
+    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+)
+_HOSTNAME_MAXIMUM: Final[int] = 253
 
 #: `[disk]` keys valid after `mode` selects the operation. `mode` itself
 #: selects this table, so it is deliberately not a member of any row.
@@ -133,6 +159,13 @@ class _ProfilesNotRead:
 _PROFILES_NOT_READ: Final[_ProfilesNotRead] = _ProfilesNotRead()
 
 
+class _ShippedValuesNotRead:
+    pass
+
+
+_SHIPPED_VALUES_NOT_READ: Final[_ShippedValuesNotRead] = _ShippedValuesNotRead()
+
+
 class KernelCeiling(str):
     """A read kernel ceiling, with unknown kept distinct from no ceiling."""
 
@@ -189,6 +222,9 @@ def validate(
     *,
     storage_facts: StorageFacts | None = None,
     available_profiles: Collection[str] | None | _ProfilesNotRead = _PROFILES_NOT_READ,
+    available_timezones: Collection[str] | _ShippedValuesNotRead = _SHIPPED_VALUES_NOT_READ,
+    available_package_groups: Collection[str]
+    | _ShippedValuesNotRead = _SHIPPED_VALUES_NOT_READ,
     zfs_kernel_max: str | None | _ZfsKernelCeilingNotChecked = (
         _ZFS_KERNEL_CEILING_NOT_CHECKED
     ),
@@ -247,6 +283,8 @@ def validate(
             )
         ),
         *_locale_problems(config),
+        *_system_value_problems(config, available_timezones),
+        *_package_group_problems(config, available_package_groups),
         *_l10n_problems(config),
         *_repository_name_problems(config),
         *compat.binhost_subarch_problems(config, supports_v3),
@@ -424,10 +462,70 @@ def _l10n_problems(config: InstallConfig) -> list[str]:
 
 
 def _locale_problems(config: InstallConfig) -> list[str]:
-    selected = config.system.locale
-    if selected and selected not in config.system.locales:
-        return [f"system.locale is {selected!r}, which system.locales must include"]
-    return []
+    system = config.system
+    problems: list[str] = []
+    if system.locale not in system.locales:
+        problems.append(f"system.locale is {system.locale!r}, which system.locales must include")
+    return problems
+
+
+def _system_value_problems(
+    config: InstallConfig,
+    available_timezones: Collection[str] | _ShippedValuesNotRead,
+) -> list[str]:
+    system = config.system
+    problems: list[str] = []
+    hostname = system.hostname
+    if len(hostname) > _HOSTNAME_MAXIMUM or any(
+        _HOSTNAME_LABEL.fullmatch(label) is None for label in hostname.split(".")
+    ):
+        problems.append(
+            f"system.hostname is {hostname!r}, which is not an RFC 1123 hostname"
+        )
+    url = system.first_boot.url
+    if url:
+        try:
+            parsed = urlparse(url)
+        except ValueError:
+            parsed = None
+        if (
+            parsed is None
+            or parsed.scheme not in HTTP_SCHEMES
+            or not parsed.netloc
+            or any(character.isspace() for character in url)
+        ):
+            problems.append(
+                f"system.first_boot.url is {url!r}; expected an HTTP(S) URL with a host"
+            )
+    if isinstance(available_timezones, _ShippedValuesNotRead):
+        return problems
+    if system.timezone not in available_timezones:
+        problems.append(
+            f"system.timezone is {system.timezone!r}, which is not in data/timezones.txt"
+        )
+    return problems
+
+
+def _package_group_problems(
+    config: InstallConfig,
+    available_package_groups: Collection[str] | _ShippedValuesNotRead,
+) -> list[str]:
+    if isinstance(available_package_groups, _ShippedValuesNotRead):
+        return []
+    packages = config.packages
+    selections = (
+        (packages.desktop,),
+        packages.applications,
+        packages.graphics,
+        (packages.display_manager,),
+    )
+    return [
+        f"packages.{field} is {name!r}, which is not a group in data/profiles or "
+        "data/packages"
+        for field, names in zip(PACKAGE_GROUP_FIELDS, selections)
+        for name in names
+        if name and name not in available_package_groups
+    ]
 
 
 def _pool_problems(config: InstallConfig) -> list[str]:

@@ -9,12 +9,14 @@ from pathlib import Path, PurePosixPath
 import pytest
 
 from gentoo_install.errors import ConfigError, ValidationFailed
+from gentoo_install.data import load_catalog, load_timezones
 from gentoo_install.model import compat
 from gentoo_install.model.config import (
     Bootloader,
     BootloaderConfig,
     DiskConfig,
     DiskMode,
+    FirstBoot,
     ImageFormat,
     InitSystem,
     InstallConfig,
@@ -41,7 +43,14 @@ from gentoo_install.model.size import Size
 from gentoo_install.exec.config import load
 from gentoo_install.exec.probe import amd64_profiles, profiles_from_eselect
 from gentoo_install.model.templates import Choice
-from gentoo_install.model.validate import validate, validate_memory_launch, zfs_kernel_ceiling
+from gentoo_install.model.validate import (
+    CLOSED_SYSTEM_FIELDS,
+    HTTP_SCHEMES,
+    PACKAGE_GROUP_FIELDS,
+    validate,
+    validate_memory_launch,
+    zfs_kernel_ceiling,
+)
 from gentoo_install.model.parse import parse
 
 from .layouts import encrypted_root, config, ext4_on_gpt, i, unlockable_root, zfs_root
@@ -115,6 +124,17 @@ def _with_disk_field(disk: DiskConfig, field: str) -> DiskConfig:
     raise AssertionError(f"no value for disk.{field}")
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+
+_SHIPPED_CATALOG = load_catalog()
+_SHIPPED_TIMEZONES = load_timezones()
+
+
+def _validate_with_shipped_values(installation: InstallConfig) -> None:
+    validate(
+        installation,
+        available_timezones=_SHIPPED_TIMEZONES,
+        available_package_groups=_SHIPPED_CATALOG,
+    )
 
 
 def image_config() -> InstallConfig:
@@ -418,8 +438,139 @@ def test_a_payload_password_rejects_record_separators(password: str) -> None:
         validate_memory_launch(config(), MemoryLaunch(MemoryMode.RAM, root_password=password))
 
 
-def test_the_shipped_fixture_validates() -> None:
-    validate(load(FIXTURES / "btrfs-luks.toml"))
+@pytest.mark.parametrize(
+    "path",
+    sorted(FIXTURES.rglob("*.toml")),
+    ids=lambda path: str(path.relative_to(FIXTURES)),
+)
+def test_every_shipped_fixture_validates_closed_values(path: Path) -> None:
+    _validate_with_shipped_values(load(path))
+
+
+_CLOSED_SYSTEM_FIELD_CASES: tuple[str, ...] = (
+    "timezone",
+    "hostname",
+    "first_boot.url",
+)
+
+
+def test_closed_system_value_cases_cover_the_rule_table() -> None:
+    assert set(_CLOSED_SYSTEM_FIELD_CASES) == CLOSED_SYSTEM_FIELDS
+
+
+@pytest.mark.parametrize("field", _CLOSED_SYSTEM_FIELD_CASES)
+def test_a_closed_system_value_outside_its_namespace_is_refused(field: str) -> None:
+    installation = config()
+    system = installation.system
+    if field == "timezone":
+        system = replace(system, timezone="Mars/Olympus")
+    elif field == "hostname":
+        system = replace(system, hostname="bad_host")
+    elif field == "first_boot.url":
+        system = replace(system, first_boot=FirstBoot(url="file:///run/once.sh"))
+    else:
+        raise AssertionError(f"no invalid value for system.{field}")
+    with pytest.raises(ValidationFailed, match=rf"system\.{field}"):
+        _validate_with_shipped_values(replace(installation, system=system))
+
+
+@pytest.mark.parametrize(
+    "locale", ("en_US.UTF-8", "zh_TW.UTF-8", "de_DE.UTF-8", "fr_FR.UTF-8", "pt_BR.UTF-8")
+)
+def test_a_system_locale_outside_the_interface_languages_validates(locale: str) -> None:
+    """The installed system's language is a separate choice from the
+    interface's, and the set `locale-gen` can produce belongs to the target:
+    `GenerateLocales` reads `locale --all-locales` and raises there."""
+    installation = config()
+    _validate_with_shipped_values(
+        replace(
+            installation,
+            system=replace(installation.system, locale=locale, locales=(locale,)),
+        )
+    )
+
+
+@pytest.mark.parametrize("scheme", sorted(HTTP_SCHEMES))
+def test_each_supported_first_boot_url_scheme_validates(scheme: str) -> None:
+    installation = config()
+    _validate_with_shipped_values(
+        replace(
+            installation,
+            system=replace(
+                installation.system,
+                first_boot=FirstBoot(url=f"{scheme}://example.test/once.sh"),
+            ),
+        )
+    )
+
+
+def test_hostname_uses_rfc_1123_label_and_length_boundaries() -> None:
+    hostname = ".".join(("a" * 63, "b" * 63, "c" * 63, "d" * 61))
+    assert len(hostname) == 253
+    installation = config()
+    _validate_with_shipped_values(
+        replace(
+            installation,
+            system=replace(installation.system, hostname=hostname),
+        )
+    )
+    with pytest.raises(ValidationFailed, match="system.hostname"):
+        _validate_with_shipped_values(
+            replace(
+                installation,
+                system=replace(installation.system, hostname=f"{hostname}a"),
+            )
+        )
+
+
+_PACKAGE_GROUP_CASES: tuple[str, ...] = (
+    "desktop",
+    "applications",
+    "graphics",
+    "display_manager",
+)
+
+
+def test_package_group_cases_cover_the_rule_table() -> None:
+    assert _PACKAGE_GROUP_CASES == PACKAGE_GROUP_FIELDS
+
+
+@pytest.mark.parametrize("field", _PACKAGE_GROUP_CASES)
+def test_an_unknown_package_group_is_refused_and_named(field: str) -> None:
+    unknown = "not-a-shipped-group"
+    packages = PackagesConfig()
+    if field == "desktop":
+        packages = replace(packages, desktop=unknown)
+    elif field == "applications":
+        packages = replace(packages, applications=(unknown,))
+    elif field == "graphics":
+        packages = replace(packages, graphics=(unknown,))
+    elif field == "display_manager":
+        packages = replace(packages, display_manager=unknown)
+    else:
+        raise AssertionError(f"no package selector for {field}")
+    with pytest.raises(ValidationFailed, match=rf"packages\.{field} is '{unknown}'"):
+        _validate_with_shipped_values(replace(config(), packages=packages))
+
+
+def test_extra_package_atoms_remain_open() -> None:
+    _validate_with_shipped_values(
+        replace(config(), packages=PackagesConfig(extra=("app-editors/neovim",)))
+    )
+
+
+def test_keymap_names_remain_open() -> None:
+    installation = config()
+    _validate_with_shipped_values(
+        replace(
+            installation,
+            system=replace(
+                installation.system,
+                keymap="target-console-keymap",
+                keymap_initramfs="target-unlock-keymap",
+            ),
+        )
+    )
 
 
 def test_a_selected_locale_absent_from_system_locales_is_refused_and_named() -> None:
