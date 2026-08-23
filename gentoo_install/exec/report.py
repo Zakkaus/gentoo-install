@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import fcntl
 import shutil
 import sys
 import stat
@@ -16,7 +17,7 @@ from typing import Final
 from pathlib import Path, PurePosixPath
 
 from .. import errors
-from ..errors import GentooInstallError, TargetEscape
+from ..errors import GentooInstallError, TargetEscape, WorkDirectoryBusy
 from ..log import Journal
 from ..model import config as model_config
 from ..model import paste
@@ -52,10 +53,25 @@ class ActiveReport:
     journal: Journal
 
 
+#: Held for the whole of a run. Two invocations sharing a `--work` both pass
+#: preflight, then partition the same disks and append to one journal, and a
+#: later `--resume` reads only the attempt whose `started` it happened to see
+#: last.
+LOCK_FILE: Final[str] = "install.lock"
+
+
 @contextmanager
 def recording(work: Path, target: Path) -> Iterator[ActiveReport]:
     """Open the files that record a run and close them when it finishes."""
     work.mkdir(parents=True, exist_ok=True)
+    lock = (work / LOCK_FILE).open("a")
+    try:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as error:
+        lock.close()
+        raise WorkDirectoryBusy(
+            f"another install is using {work}; wait for it or pass a different --work"
+        ) from error
     log = (work / RunFile.LOG.value).open("a")
 
     def record(line: str) -> None:
@@ -78,6 +94,9 @@ def recording(work: Path, target: Path) -> Iterator[ActiveReport]:
             log.close()
         except OSError as error:
             print(f"WARNING: the run log could not be closed: {error}", file=sys.stderr)
+        # Closing the descriptor releases the lock; the file stays so a reader
+        # of the work directory can see what it is for.
+        lock.close()
 
 
 #: Target-absolute, so `open_in_target` refuses a symlink on the way. A

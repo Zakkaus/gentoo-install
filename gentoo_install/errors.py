@@ -105,6 +105,10 @@ class ResumeRefused(GentooInstallError):
     """A `--resume` whose journal was written by a different run."""
 
 
+class WorkDirectoryBusy(GentooInstallError):
+    """Another invocation holds this work directory."""
+
+
 class ConversionUnsupported(GentooInstallError):
     """The running layout is one the conversion cannot rebuild.
 
