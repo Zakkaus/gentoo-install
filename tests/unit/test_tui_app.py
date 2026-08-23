@@ -838,6 +838,17 @@ def test_choosing_the_traditional_catalog_moves_the_defaults_with_it() -> None:
     assert china.portage.mirrors.region is taiwan.portage.mirrors.region
 
 
+def test_language_selector_translates_its_footer() -> None:
+    """The selected catalog is available before the language menu opens."""
+    at = context()
+    at.translate = Catalog("zh-TW")
+    screen = FakeScreen(keys=["\x1b"], lines=24)
+
+    screens.language_screen(screen, at)
+
+    assert at.translate("[enter] select") in "\n".join(screen.frames[0])
+
+
 def test_every_interface_language_has_defaults_of_its_own() -> None:
     """A language offered on the first screen and missing from the table leaves
     the operator on someone else's timezone."""

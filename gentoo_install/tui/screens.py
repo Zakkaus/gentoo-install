@@ -2217,10 +2217,11 @@ def language_screen(screen: Screen, context: Context) -> str:
         (index for index, (tag, _, _) in enumerate(INTERFACE_LANGUAGES) if tag == context.tag), 0
     )
     menu: Menu[str] = Menu(
+        # This screen precedes the language choice, so each script identifies it.
         title="Language / \u8a9e\u8a00 / \uc5b8\uc5b4",
         items=items,
         cursor=start,
-        footer="[enter] select",
+        footer=context.translate("[enter] select"),
     )
     answer = menu.run(screen)
     return answer.unwrap() if answer.chosen else context.tag

@@ -255,6 +255,27 @@ with os.fdopen({write_end}, "w") as handle:
     return result, bytes(drawing)
 
 
+def test_a_too_small_screen_uses_the_catalog() -> None:
+    """The constrained terminal message follows the interface language."""
+    from gentoo_install.i18n import Catalog
+    from gentoo_install.tui.curses_screen import too_small
+    from gentoo_install.tui.widgets import MINIMUM_COLUMNS, MINIMUM_LINES
+
+    class Sized:
+        def size(self) -> tuple[int, int]:
+            return 4, 16
+
+    translate = Catalog("zh-TW")
+    assert too_small(Sized(), translate) == translate(
+        "The terminal is {columns}x{lines} and the interface needs "
+        "{minimum_columns}x{minimum_lines}"
+    ).format(
+        columns=16,
+        lines=4,
+        minimum_columns=MINIMUM_COLUMNS,
+        minimum_lines=MINIMUM_LINES,
+    )
+
 #: Walk to the bottom of the menu and leave. The exact rows do not matter: what
 #: is under test is that a real terminal draws them and hands keys back.
 WALK = r"""
@@ -498,8 +519,7 @@ def test_a_form_that_no_longer_fits_says_how_to_leave() -> None:
     # Back, not cancelled: a terminal that shrank below the floor still lets
     # escape leave the screen, and leaving is what the message offers.
     assert result["outcome"] == "back"
-    assert b"the interface needs 20x6" in drawing
-    assert b"Escape after translation" in drawing
+    assert drawing.count(b"Escape after translation") >= 2
 
 
 #: What a terminal does with a wide glyph, asked of ncurses rather than of the
