@@ -223,6 +223,45 @@ printf '1000\n'
     assert any("--missing-commands" in call for call in calls)
     assert "id -u" in calls
 
+def test_an_unusable_python_version_stops_before_preflight(tmp_path: Path) -> None:
+    """A selected interpreter can become unusable before its version is read."""
+    helpers = tmp_path / "helpers"
+    helpers.mkdir()
+    trace = tmp_path / "trace"
+    (helpers / "python3").write_text(
+        """#!/bin/sh
+printf 'python %s\n' "$*" >> "$TRACE"
+case "$1" in
+-c)
+    case "$2" in
+    *version_info\\[1\\]*) printf '11\n' ;;
+    *version_info\\[0\\]*) printf '3\n' ;;
+    esac
+    ;;
+--version)
+    printf 'unusable interpreter\n' >&2
+    exit 71
+    ;;
+esac
+""",
+        encoding="utf-8",
+    )
+    (helpers / "python3").chmod(0o755)
+    release = tmp_path / "os-release"
+    release.write_text("ID=gentoo\n")
+
+    finished = subprocess.run(
+        [SHELL, str(LAUNCHER)],
+        cwd=REPOSITORY,
+        env={"OS_RELEASE": str(release), "PATH": str(helpers), "TRACE": str(trace)},
+        capture_output=True,
+        text=True,
+    )
+
+    assert finished.returncode == 1
+    assert "could not read Python version: unusable interpreter" in output(finished)
+    assert not any("--missing-commands" in call for call in trace.read_text().splitlines())
+
 def test_a_dry_run_needs_none_of_the_tools(tmp_path: Path) -> None:
     """It performs nothing, and refusing it on a machine without them takes
     away the one way to check a file before reaching the target. Found by

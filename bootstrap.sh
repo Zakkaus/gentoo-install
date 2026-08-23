@@ -182,7 +182,10 @@ if ! python=$(python_binary); then
 	fi
 	exit 1
 fi
-say "python: $python ($("$python" --version 2>&1))"
+if ! version=$("$python" --version 2>&1); then
+	die "could not read Python version: $version"
+fi
+say "python: $python ($version)"
 
 for argument in "$@"; do
 	case "$argument" in
