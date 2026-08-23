@@ -5294,3 +5294,18 @@ def test_one_module_announces_the_revision_and_the_runners_do_not() -> None:
     assert announcing == {"driver.py", "cluster.py"}, sorted(announcing)
     runners = {"run.py", "ram.py", "dd.py", "convert.py"}
     assert not announcing & runners, sorted(announcing & runners)
+
+
+def test_the_usage_examples_name_a_path_the_runner_can_load() -> None:
+    """`--install` is resolved under `tests/`, and the module's own example
+    said `tests/fixtures/...`, which resolves to `tests/tests/fixtures/...`."""
+    import re
+
+    from tests.vm import run as runner
+
+    room = Path(__file__).resolve().parents[2] / "tests"
+    said = runner.__doc__ or ""
+    examples = re.findall(r"--install (\S+)", said)
+    assert examples, said
+    for one in examples:
+        assert (room / one).is_file(), (one, str(room / one))
