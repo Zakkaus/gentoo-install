@@ -290,9 +290,11 @@ intermittent, and one green round would have recorded a fix that is not one:
 second round failed with both of them in the tree.
 
 The row names two commits rather than a revision because the cluster runner
-prints none: `tests/vm/run.py` prints `installer revision` at the top of a run
-and `tests/vm/cluster.py` prints nothing, so a cluster result cannot be tied to
-a tree afterwards. What the tree held was read before the campaign started.
+printed none when it was recorded: what the tree held was read before the
+campaign started. Both runners print the revision now — `tests/vm/run.py` at
+the top of a run and `tests/vm/cluster.py` as `installer revision: <sha>
+dirty=<n> driver-sha256=<sum>` before the first guest — so a row recorded
+after that can name one.
 
 | `01278fe0860cf` | `vm-binpkg` on the cluster, `ok vm-binpkg 18.3m` | the binhost path installs and boots with the official entry the stage3 ships removed before any trust operation and written back only when the official source is trusted, and with the official key's local signature read back rather than inferred from `getuto`'s exit status. **What this does not establish:** that a machine which *fails* that verification degrades to source — the fixture's official source is trusted, so the degradation branch did not run. |
 
