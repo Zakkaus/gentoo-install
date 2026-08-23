@@ -2157,9 +2157,30 @@ def _is_uefi(config: Mapping[str, object]) -> bool:
     return any(str(key).startswith("efidisk") for key in config)
 
 
+def reach_the_login_past_any_passphrase(console: Line) -> None:
+    """Wait for `login:`, answering dracut on the way.
+
+    An encrypted root asks for its passphrase before anything offers a login,
+    so waiting for `login:` alone spent the whole patience at dracut's prompt
+    and reported `s2` as a machine that never booted.
+    """
+    for _ in range(PASSPHRASE_ATTEMPTS):
+        seen = console.expect(f"{PASSPHRASE_PROMPT}|login:", INSTALLED_LOGIN_PATIENCE)
+        # What arrived shows a passphrase prompt, rather than what it does not
+        # end in: a console that answers the pattern without echoing the text
+        # would otherwise be read as an endless passphrase.
+        if re.search(PASSPHRASE_PROMPT.encode(), seen) is None:
+            return
+        console.send(DISK_PASSPHRASE)
+    raise ProxmoxError(
+        f"the installed system asked for a passphrase {PASSPHRASE_ATTEMPTS} "
+        "times and never offered a login"
+    )
+
+
 def _log_into_the_installed_system(link: "Reconnecting") -> None:
     """Answer the login the installed system offers on its serial line."""
-    link.console.expect(r"login:", INSTALLED_LOGIN_PATIENCE)
+    reach_the_login_past_any_passphrase(link.console)
     link.console.send("root")
     # The system this drives was built to come up in Chinese, so its own
     # prompt is `\u5bc6\u78bc\uff1a`: an `assword` of its own matched nothing and
@@ -2168,6 +2189,13 @@ def _log_into_the_installed_system(link: "Reconnecting") -> None:
     link.console.expect(PASSWORD_PROMPT, INSTALLED_LOGIN_PATIENCE)
     link.console.send(TUI_PASSWORD)
     reach_prompt(link)
+
+
+#: How many passphrase prompts are answered before the boot is called stuck.
+#: A layout can hold more than one encrypted device, and dracut asks once per
+#: device; a prompt that keeps returning means the passphrase is wrong, and
+#: answering it for ever would hide that behind the patience ceiling.
+PASSPHRASE_ATTEMPTS: Final[int] = 4
 
 
 #: A machine booting its own disk answers sooner than a medium does, and a

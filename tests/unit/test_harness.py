@@ -5009,3 +5009,67 @@ def test_a_dd_fixture_names_the_runner_that_can_run_it(
     assert "tests.vm.dd" not in also.err, also
     assert "--firmware says uefi" in also.err, also
 
+
+
+def test_the_installed_login_answers_the_disk_before_it_answers_the_login() -> None:
+    """An encrypted root asks dracut's passphrase prompt before anything
+    offers a login. Waiting for `login:` alone spent the whole patience at
+    that prompt and reported `s2` as a machine that never booted."""
+    import re
+
+    from tests.vm import cluster
+    from tests.vm.console import DISK_PASSPHRASE, ConsoleTimeout
+    from tests.vm.proxmox import ProxmoxError
+
+    class Booting:
+        """A console that asks for the passphrase, then offers a login.
+
+        It matches the caller's pattern against what the machine is printing,
+        the way the real one does. A double that answers whatever is asked
+        cannot fail: the first version of this test stayed green with the
+        passphrase alternative taken back out.
+        """
+
+        def __init__(self, prompts: int) -> None:
+            self.left = prompts
+            self.sent: list[str] = []
+
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+            printing = (
+                b"Please enter passphrase for disk vda2:"
+                if self.left
+                else b"localhost login:"
+            )
+            if re.search(pattern.encode(), printing) is None:
+                raise ConsoleTimeout(f"never matched {pattern!r}: {printing!r}")
+            if self.left:
+                self.left -= 1
+            return printing
+
+        def send(self, text: str) -> None:
+            self.sent.append(text)
+
+        def send_raw(self, keys: str) -> None:
+            raise AssertionError("this path types no raw keys")
+
+        def snapshot(self, seconds: float) -> bytes:
+            raise AssertionError("this path reads through expect only")
+
+        def close(self) -> None:
+            return None
+
+        @property
+        def closed(self) -> bool:
+            return False
+
+    for prompts in (0, 1, 3):
+        console = Booting(prompts)
+        cluster.reach_the_login_past_any_passphrase(console)
+        assert console.sent == [DISK_PASSPHRASE] * prompts, console.sent
+
+    # A prompt that never stops is the passphrase being wrong, not a layout
+    # with many devices: it is raised, not answered until the ceiling.
+    forever = Booting(cluster.PASSPHRASE_ATTEMPTS + 1)
+    with pytest.raises(ProxmoxError, match="never offered a login"):
+        cluster.reach_the_login_past_any_passphrase(forever)
+    assert len(forever.sent) == cluster.PASSPHRASE_ATTEMPTS, forever.sent
