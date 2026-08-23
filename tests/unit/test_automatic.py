@@ -911,6 +911,41 @@ def test_the_mirror_screen_shows_the_site_it_would_adopt() -> None:
     assert "(default)" in line
 
 
+def test_a_typed_distfiles_address_replaces_the_chosen_mirror() -> None:
+    """A machine whose resolver is down reaches a cache on its own segment by
+    address and nothing else. `--config` could say so through
+    `portage.mirrors.distfiles`; the menu had no row for it at all, and the
+    eighth interface conversion stopped with every listed mirror unreachable."""
+    from dataclasses import replace as _replace
+
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    started = config(ext4_on_gpt())
+    drawn = FakeScreen(keys=["q"], lines=30, columns=110)
+    mirror.mirror_screen(drawn, started, context())
+    row = next(one for one in drawn.last.splitlines() if "Distfiles address" in one)
+    assert "the chosen mirror" in row, row
+
+    # And with one typed, the site row says so rather than naming a mirror
+    # nothing fetches from.
+    typed = _replace(
+        started,
+        portage=_replace(
+            started.portage,
+            mirrors=_replace(
+                started.portage.mirrors, distfiles=("http://10.31.0.2/gentoo",)
+            ),
+        ),
+    )
+    again = FakeScreen(keys=["q"], lines=30, columns=110)
+    mirror.mirror_screen(again, typed, context())
+    shown = next(one for one in again.last.splitlines() if "Distfiles address" in one)
+    assert "10.31.0.2" in shown, shown
+    site = next(one for one in again.last.splitlines() if "Gentoo mirror" in one)
+    assert "replaced by a typed address" in site, site
+
+
 def test_password_login_does_not_let_root_in_by_itself() -> None:
     """The row said `root included` and the installer wrote
     `PermitRootLogin no`: root is a second row, and it starts off."""

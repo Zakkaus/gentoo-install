@@ -37,6 +37,7 @@ _REGION: Final[str] = "region"
 _SITE: Final[str] = "site"
 _MEASURE: Final[str] = "measure"
 _DISTFILES: Final[str] = "distfiles"
+_CUSTOM_DISTFILES: Final[str] = "custom-distfiles"
 _SYNC: Final[str] = "sync"
 _BINHOST: Final[str] = "binhost"
 _ZH_BINHOST: Final[str] = "zh-binhost"
@@ -217,7 +218,51 @@ def _mirror_site_row(config: InstallConfig, translate: Catalog) -> Item[str]:
     detail = _site_name(chosen.region, site, translate) if chosen.site else (
         f"{_default_site(chosen.region, translate)} ({translate('default')})"
     )
+    # The override, where the site would otherwise be read as what packages
+    # come from: a screen naming a site that nothing fetches from contradicts
+    # itself.
+    if chosen.distfiles:
+        detail = translate("replaced by a typed address")
     return Item(label=translate("Gentoo mirror"), value=_SITE, detail=detail)
+
+
+def _custom_distfiles_row(config: InstallConfig, translate: Catalog) -> Item[str]:
+    typed = config.portage.mirrors.distfiles
+    return Item(
+        label=translate("Distfiles address"),
+        value=_CUSTOM_DISTFILES,
+        detail=", ".join(typed) if typed else translate("the chosen mirror"),
+    )
+
+
+def _edit_custom_distfiles(
+    screen: Screen, context: Context, config: InstallConfig
+) -> InstallConfig | None:
+    """Where packages are fetched from, typed rather than chosen.
+
+    A machine whose resolver is down reaches a cache on its own segment by
+    address and nothing else: the eighth interface conversion stopped here
+    with every listed mirror unreachable and no way to say so.
+    """
+    translate = context.translate
+    typed = TextField(
+        title=translate("Distfiles address"),
+        value=", ".join(config.portage.mirrors.distfiles),
+        # An address, not a name: this row exists for the machine that cannot
+        # resolve one.
+        placeholder=translate("http://10.0.0.1/gentoo, separated by commas"),
+        detail=translate("empty leaves the chosen mirror in place"),
+        footer=footer(translate),
+    ).run(screen)
+    if not typed.chosen:
+        return None
+    given = tuple(one.strip() for one in typed.unwrap().split(",") if one.strip())
+    return replace(
+        config,
+        portage=replace(
+            config.portage, mirrors=replace(config.portage.mirrors, distfiles=given)
+        ),
+    )
 
 
 def _mirror_measure_row(config: InstallConfig, translate: Catalog) -> Item[str]:
@@ -335,6 +380,7 @@ def _edit_repositories(
 _MIRROR_FIELDS: tuple[FieldDescriptor[InstallConfig], ...] = (
     FieldDescriptor(_REGION, _mirror_region_row, _edit_mirror_region),
     FieldDescriptor(_SITE, _mirror_site_row, _edit_mirror_site),
+    FieldDescriptor(_CUSTOM_DISTFILES, _custom_distfiles_row, _edit_custom_distfiles),
     FieldDescriptor(_DISTFILES, _mirror_distfiles_row, lambda s, c, x: _toggle_mirror_distfiles(s, c, x)),
     FieldDescriptor(_MEASURE, _mirror_measure_row, lambda s, c, x: _toggle_mirror_measure(s, c, x)),
     FieldDescriptor(_SYNC, _mirror_sync_row, _edit_mirror_sync),
