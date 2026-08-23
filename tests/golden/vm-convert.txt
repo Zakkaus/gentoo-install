@@ -12,6 +12,7 @@
   create the three autounmask files emerge writes its decisions into, in /gentoo-install.new
   disable inherited binary package host gentoo, in /gentoo-install.new
   run getuto so Portage has a keyring to verify binary packages against, and write dirmngr.conf, in /gentoo-install.new
+  import BB572E0E2D182910 from /usr/share/openpgp-keys/gentoo-release.asc, locally sign it for gentoo, and verify the local signature, in /gentoo-install.new
   add verified binary package host gentoo at https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64, in /gentoo-install.new
   fetch the first ebuild repository snapshot with emerge-webrsync, in /gentoo-install.new
   select profile default/linux/amd64/23.0/systemd, in /gentoo-install.new

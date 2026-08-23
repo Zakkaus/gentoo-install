@@ -671,7 +671,7 @@
 "{}: emerge {}" = "{}：emerge {}"
 "run getuto so Portage has a keyring to verify binary packages against, and write dirmngr.conf" = "运行 getuto，让 Portage 拥有验证二进制软件包的密钥环，并写入 dirmngr.conf"
 "disable inherited binary package host {}" = "禁用从 stage3 继承的二进制软件包主机 {}"
-"import {} from {} and locally sign it for {}" = "导入 {}，来源 {}，并为 {} 本地签名"
+"import {} from {}, locally sign it for {}, and verify the local signature" = "导入 {}，来源 {}，为 {} 本地签名，并验证本地签名"
 "add verified binary package host {} at {}" = "添加已验证的二进制软件包主机 {}，地址为 {}"
 "add unverified binary package host {} at {}" = "添加未验证的二进制软件包主机 {}，地址为 {}"
 "resolve {} together before installing the requested packages" = "安装请求的软件包前一并解析 {}"

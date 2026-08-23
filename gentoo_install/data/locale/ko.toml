@@ -670,7 +670,7 @@
 "{}: emerge {}" = "{}: {}를 emerge"
 "run getuto so Portage has a keyring to verify binary packages against, and write dirmngr.conf" = "Portage가 바이너리 패키지를 검증할 키링을 갖도록 getuto 실행 및 dirmngr.conf 작성"
 "disable inherited binary package host {}" = "stage3에서 상속한 바이너리 패키지 호스트 {} 비활성화"
-"import {} from {} and locally sign it for {}" = "{}를 {}에서 가져와 {}용으로 로컬 서명"
+"import {} from {}, locally sign it for {}, and verify the local signature" = "{}를 {}에서 가져와 {}용으로 로컬 서명하고 로컬 서명을 확인"
 "add verified binary package host {} at {}" = "검증된 바이너리 패키지 호스트 {}를 {}에 추가"
 "add unverified binary package host {} at {}" = "검증되지 않은 바이너리 패키지 호스트 {}를 {}에 추가"
 "resolve {} together before installing the requested packages" = "요청한 패키지를 설치하기 전에 {}를 함께 해결"

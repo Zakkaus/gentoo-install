@@ -34,6 +34,7 @@
   create the three autounmask files emerge writes its decisions into
   disable inherited binary package host gentoo
   run getuto so Portage has a keyring to verify binary packages against, and write dirmngr.conf
+  import BB572E0E2D182910 from /usr/share/openpgp-keys/gentoo-release.asc, locally sign it for gentoo, and verify the local signature
   add verified binary package host gentoo at https://mirrors.ustc.edu.cn/gentoo/releases/amd64/binpackages/23.0/x86-64
   fetch the first ebuild repository snapshot with emerge-webrsync
   select profile default/linux/amd64/23.0/desktop/systemd
@@ -44,7 +45,7 @@
   sync repository gentoo-zh, 4 other sites to fall back on
   accept ~amd64 for packages from gentoo-zh only
   install the key the community binary packages are signed with: emerge sec-keys/openpgp-keys-gentoozh, from source
-  import 38A0234EC16AD42E from /usr/share/openpgp-keys/gentoozh.asc and locally sign it for gentoo-zh
+  import 38A0234EC16AD42E from /usr/share/openpgp-keys/gentoozh.asc, locally sign it for gentoo-zh, and verify the local signature
   add verified binary package host gentoo-zh at https://distfiles.gentoozh.org/binpkgs/x86-64
   set sys-kernel/installkernel to dracut
   ask for sys-apps/systemd[cryptsetup], which provides the unlock generator

@@ -12,11 +12,13 @@ from gentoo_install.plan.operations import CommandOutput
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Sequence
+from typing import Final, Sequence
 
 from gentoo_install.model.device import DeviceId
 from gentoo_install.model.validate import KernelCeiling
 
+
+FAKE_PORTAGE_TRUST_KEY: Final[str] = "0D83BD4123FE15FE2F7D30E457D1F2DF9E5D8B84"
 
 def _answered(text: str, returncode: int) -> CommandOutput:
     """A reply already carrying an exit code keeps it; a bare string takes the
@@ -41,6 +43,7 @@ class Recorder:
     replies: dict[str, str] = field(default_factory=dict)
     #: Commands whose first word is here raise instead of returning.
     failures: set[str] = field(default_factory=set)
+    locally_signed: set[str] = field(default_factory=set)
     given_up: set[str] = field(default_factory=set)
     #: What the conversion seam was asked to do, rather than doing it.
     swapped: list[tuple[PurePosixPath, tuple[str, ...]]] = field(default_factory=list)
@@ -102,6 +105,16 @@ class Recorder:
             if check:
                 raise CommandFailed(f"{argv[0]} exited 1")
             return _answered(self.replies.get(argv[0], ""), 1)
+        if argv[0] == "gpg" and "--lsign-key" in argv:
+            self.locally_signed.add(argv[-1].upper())
+        if argv[0] == "gpg" and "--with-colons" in argv and "--list-sigs" in argv:
+            target = argv[-1].upper()
+            if target in self.locally_signed:
+                return CommandOutput(
+                    f"sig:::1:0000000000000000:0::::Portage:10l::{FAKE_PORTAGE_TRUST_KEY}:\n",
+                    0,
+                )
+            return CommandOutput("", 0)
         if argv[:3] == ["portageq", "best_visible", "/"]:
             return CommandOutput(f"{argv[-1]}-1\n", 0)
         if argv[:4] == ["portageq", "metadata", "/", "ebuild"]:
@@ -124,6 +137,8 @@ class Recorder:
             return self.files[path]
         if path == PurePosixPath("/var/lib/misc/installkernel"):
             return "date\tsystemd\t6.18.41-gentoo-dist-bin\t/usr/lib/kernel\tcompat\tdracut\tnone\t/boot\tkernel-6.18.41-gentoo-dist-bin\tinitramfs-6.18.41-gentoo-dist-bin.img\tnotset\n"
+        if path == PurePosixPath("/etc/portage/gnupg/mykeyid"):
+            return f"{FAKE_PORTAGE_TRUST_KEY}\n"
         return self.files.get(path, "")
 
     def append(self, path: PurePosixPath, content: str) -> None:
