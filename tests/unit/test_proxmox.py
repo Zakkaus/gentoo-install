@@ -4112,6 +4112,16 @@ def test_a_failed_installed_check_answers_with_what_the_machine_said(
     from gentoo_install.exec.config import load
     from tests.vm import cluster
 
+    installation = load(Path("tests/fixtures/vm-greetd.toml"))
+    installed = cluster._asked_for(installation)
+    greetd_name, greetd_command, _ = next(
+        check for check in installed if check[0] == "greetd config"
+    )
+    answers = {command: wanted.encode() for _, command, wanted in installed}
+    held = b"[default_session]\r\ncommand = \"agreety --cmd /bin/sh\"\r\nuser = \"greetd\"\r\n"
+    answers[greetd_command] = held
+    asked: list[str] = []
+
     class Guest:
         def stop(self) -> None:
             return None
@@ -4125,8 +4135,6 @@ def test_a_failed_installed_check_answers_with_what_the_machine_said(
         def reset(self) -> None:
             return None
 
-    held = b"[default_session]\r\ncommand = \"agreety --cmd /bin/sh\"\r\nuser = \"greetd\"\r\n"
-
     class Link:
         def reopen(self, *, solicit_prompt: bool = True) -> None:
             return None
@@ -4135,7 +4143,8 @@ def test_a_failed_installed_check_answers_with_what_the_machine_said(
             return b""
 
         def expect_output(self, command: str, timeout: float = 0.0) -> bytes:
-            return held
+            asked.append(command)
+            return answers[command]
 
     def unlocked(*unused: object) -> cluster.UnlockResult:
         return cluster.UnlockResult(cluster.InstalledBootState.LOGIN_READY, "")
@@ -4147,10 +4156,11 @@ def test_a_failed_installed_check_answers_with_what_the_machine_said(
         cast(Any, Guest()),
         cast(Any, Link()),
         Path("unused"),
-        load(Path("tests/fixtures/vm-greetd.toml")),
+        installation,
     )
 
-    assert "does not say" in refused, refused
+    assert asked[-1] == greetd_command, asked
+    assert refused.startswith(f"{greetd_name}: the installed system does not say"), refused
     assert "agreety" in refused, "the answer, not only the pattern"
 
 
