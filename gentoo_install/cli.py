@@ -461,7 +461,7 @@ def _once(arguments: argparse.Namespace, state: RunState, refused: str) -> int |
         storage_facts = StorageFacts()
         loader_v3: bool | None = None
         layout: StorageLayout | None = None
-        if config.disk.mode is DiskMode.IN_PLACE:
+        if config.disk.layout_is_read_from_the_machine:
             # Even for a dry run: a conversion's whole plan is derived from the
             # running machine, so without this there is nothing to print.
             layout = Probe(

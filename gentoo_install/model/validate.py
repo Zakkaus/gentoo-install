@@ -241,7 +241,7 @@ def validate(
             *(rule.describe() for rule in compat.violations(config, storage_facts)),
         ]
     without_a_graph: list[str] = []
-    if config.disk.mode is DiskMode.IN_PLACE:
+    if config.disk.layout_is_read_from_the_machine:
         without_a_graph = [
             rule.describe() for rule in compat.violations_without_a_graph(config)
         ]

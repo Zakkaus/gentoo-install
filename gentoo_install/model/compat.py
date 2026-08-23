@@ -444,7 +444,7 @@ def traits_of(
     # through UEFI, and the graph here is empty until then. Asked anyway, the
     # menu refused every UEFI machine with `uefi boot` against `no mounted esp`
     # and the operator had no row that could answer it.
-    if config.disk.mode is not DiskMode.IN_PLACE and esp_mount(graph) is None:
+    if not config.disk.layout_is_read_from_the_machine and esp_mount(graph) is None:
         found.add(Trait.NO_MOUNTED_ESP)
     # GRUB alone, and for two different reasons. systemd-boot reads the kernel
     # off the esp, which is never in the container. ZFSBootMenu does keep the

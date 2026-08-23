@@ -750,7 +750,7 @@ def _the_conversion_writes_no_layout(config: InstallConfig, context: Context) ->
     it runs on, and `validate()` refuses one written by hand. The rows stay
     visible and say why rather than disappearing, or an operator who switched
     mode by accident sees a menu that lost a row and no reason."""
-    if config.disk.mode is DiskMode.IN_PLACE:
+    if config.disk.layout_is_read_from_the_machine:
         return context.translate("the conversion takes the layout from the running system")
     return ""
 
