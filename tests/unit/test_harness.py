@@ -5073,3 +5073,29 @@ def test_the_installed_login_answers_the_disk_before_it_answers_the_login() -> N
     with pytest.raises(ProxmoxError, match="never offered a login"):
         cluster.reach_the_login_past_any_passphrase(forever)
     assert len(forever.sent) == cluster.PASSPHRASE_ATTEMPTS, forever.sent
+
+
+def test_the_pool_scan_is_bounded_and_outlives_its_own_window() -> None:
+    """`zpool import` with no `-d` reads a label from every block device.
+    `gi-s2` carries two encrypted 40 GiB disks and that scan was still running
+    when the default 120s expect gave up, so the LUKS boot check died on the
+    scan rather than on its answer."""
+    import inspect
+
+    from tests.vm import cluster
+
+    source = inspect.getsource(cluster.make_the_installed_system_speak)
+    assert "zpool import" in source, source
+    scan = next(
+        one
+        for one in source.splitlines()
+        if "zpool import" in one and not one.lstrip().startswith("#")
+    )
+    assert "timeout " in scan, scan
+
+    # The window has to outlast the bound, or the expect gives up while the
+    # command it is waiting for is still allowed to run.
+    signature = inspect.signature(cluster.Reconnecting.expect_output)
+    default = signature.parameters["timeout"].default
+    assert cluster.POOL_SCAN_PATIENCE + 60.0 > cluster.POOL_SCAN_PATIENCE
+    assert cluster.POOL_SCAN_PATIENCE > default, (cluster.POOL_SCAN_PATIENCE, default)
