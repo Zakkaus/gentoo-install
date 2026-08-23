@@ -299,20 +299,14 @@ def validate(
         )
 
 
-#: What the LiveCD kernel command line accepts, read from
-#: `catalyst/livecd/files/README.txt` lines 96-98: `dosshd` starts sshd and
-#: `passwd=foo` sets the root password, which `dosshd` requires because it
-#: scrambles the password first. None of its 35 options names a key or a port.
-LIVECD_TAKES_A_KEY: Final[bool] = False
 
 
 def validate_memory_launch(config: InstallConfig, launch: MemoryLaunch) -> None:
     """Refuse a memory environment that cannot do what was asked of it.
 
-    A password is the environment's own mechanism rather than a fallback, so it
-    is what the other two options depend on: a key and a port take effect only
-    once the installer has written them, and sshd is already listening on 22
-    with the command line's password by then.
+    A payload key or password authenticates to sshd during the memory boot.
+    `--ssh-port` applies to the installed system, so it needs one of those
+    credentials for the initial daemon on port 22.
     """
     problems: list[str] = []
     if launch.mode is MemoryMode.LOWRAM and config.disk.graph.of_type(ZfsPool):
@@ -322,16 +316,12 @@ def validate_memory_launch(config: InstallConfig, launch: MemoryLaunch) -> None:
         )
     if launch.ssh_port is not None and (refused := _port_problem("--ssh-port", launch.ssh_port)):
         problems.append(refused)
-    later = [
-        name
-        for name, given in (("--ssh-key", launch.ssh_key), ("--ssh-port", launch.ssh_port))
-        if given
-    ]
-    if later and not launch.root_password and not LIVECD_TAKES_A_KEY:
+    if "\n" in launch.root_password or "\r" in launch.root_password:
+        problems.append("--root-password cannot contain a newline")
+    if launch.ssh_port is not None and not (launch.ssh_key or launch.root_password):
         problems.append(
-            f"{' and '.join(later)} take effect only after the installer writes them, "
-            "and until then sshd listens on 22 with the password the kernel command "
-            "line gave it, so --root-password is needed as well"
+            "--ssh-port takes effect only after the installer writes it, so "
+            "--ssh-key or --root-password is needed for the initial sshd"
         )
     if problems:
         raise ValidationFailed(
