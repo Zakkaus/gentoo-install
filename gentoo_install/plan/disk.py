@@ -850,7 +850,7 @@ class ImportZpool(Operation):
     name: str
 
     def describe(self) -> str:
-        return f"import zpool {self.name} under {self.pool}"
+        return f"import zpool {self.name} with the installation target as its alternate root"
 
     @property
     def survives_a_reboot(self) -> bool:

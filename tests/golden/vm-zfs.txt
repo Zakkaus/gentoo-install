@@ -11,7 +11,7 @@
 
 [zfs]
   create zpool rpool as pool from poolpart as a stripe
-  import zpool rpool under pool
+  import zpool rpool with the installation target as its alternate root
   create dataset rpool/ROOT/gentoo as ds-root, mountpoint /
 
 [mount]
