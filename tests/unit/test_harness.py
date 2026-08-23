@@ -2545,6 +2545,11 @@ def test_a_healthy_init_is_judged_by_the_marker_it_prints() -> None:
         "kernel": b"6.18.43-gentoo-dist-bin\n/boot/kernel-6.18.43-gentoo-dist-bin\n",
         "fstab": b"UUID=ab2e555d\t/\tbtrfs\tdefaults,subvol=@\t0\t1\n",
         "esp": b"/efi /dev/vda1 vfat\n",
+        "mounts": (
+            b"/       /dev/vda2[/@]      btrfs\n"
+            b"/efi    /dev/vda1          vfat\n"
+            b"/home   /dev/vda2[/@home]  btrfs\n"
+        ),
         "timezone": (
             f"/usr/share/zoneinfo/{installation.system.timezone}\n"
             f"{installation.system.timezone}\n"
@@ -2560,6 +2565,46 @@ def test_a_healthy_init_is_judged_by_the_marker_it_prints() -> None:
     broken = dict(healthy)
     broken["failed.txt"] = b"cronie.service loaded failed failed\n"
     assert check_expected(broken, fixture) != 0
+
+
+def test_installed_mount_check_requires_every_configured_target() -> None:
+    """A partial btrfs layout must not pass as fully mounted."""
+    from gentoo_install.exec.config import load
+    from tests.vm.installed import checks
+
+    fixture = Path("tests/fixtures/vm-btrfs.toml")
+    mount_check = next(
+        check for check in checks(load(fixture)) if check.name == "mounts"
+    )
+    missing_home = (
+        "/       /dev/vda2[/@]      btrfs\n"
+        "/efi    /dev/vda1          vfat\n"
+    )
+    complete = missing_home + "/home   /dev/vda2[/@home]  btrfs\n"
+
+    assert re.search(mount_check.pattern, missing_home) is None
+    assert re.search(mount_check.pattern.encode(), missing_home.encode()) is None
+    assert re.search(mount_check.pattern, complete) is not None
+    assert re.search(mount_check.pattern.encode(), complete.encode()) is not None
+
+
+def test_installed_mount_check_handles_swap_and_unprobed_conversion() -> None:
+    """Swap has no target; an unprobed conversion still requires its root."""
+    from gentoo_install.exec.config import load
+    from tests.vm.installed import checks
+
+    bios_installation = load(Path("tests/fixtures/vm-bios.toml"))
+    bios_check = next(
+        check for check in checks(bios_installation) if check.name == "mounts"
+    )
+    conversion_check = next(
+        check for check in checks(load(Path("tests/fixtures/vm-convert.toml")))
+        if check.name == "mounts"
+    )
+
+    assert re.search(bios_check.pattern, "/ /dev/vda2 ext4\n") is not None
+    assert re.search(conversion_check.pattern, "/ /dev/vda1 xfs\n") is not None
+    assert re.search(conversion_check.pattern, "/proc proc proc\n") is None
 
 
 def test_a_proxy_on_the_workstation_must_be_listening_before_the_run() -> None:
