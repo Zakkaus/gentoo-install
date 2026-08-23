@@ -5021,7 +5021,11 @@ def test_the_installed_login_answers_the_disk_before_it_answers_the_login() -> N
     import re
 
     from tests.vm import cluster
-    from tests.vm.console import DISK_PASSPHRASE, ConsoleTimeout
+    from tests.vm.console import (
+        DISK_PASSPHRASE,
+        PASSPHRASE_ATTEMPTS,
+        ConsoleTimeout,
+    )
     from tests.vm.proxmox import ProxmoxError
 
     class Booting:
@@ -5072,10 +5076,10 @@ def test_the_installed_login_answers_the_disk_before_it_answers_the_login() -> N
 
     # A prompt that never stops is the passphrase being wrong, not a layout
     # with many devices: it is raised, not answered until the ceiling.
-    forever = Booting(cluster.PASSPHRASE_ATTEMPTS + 1)
+    forever = Booting(PASSPHRASE_ATTEMPTS + 1)
     with pytest.raises(ProxmoxError, match="never offered a login"):
         cluster.reach_the_login_past_any_passphrase(forever)
-    assert len(forever.sent) == cluster.PASSPHRASE_ATTEMPTS, forever.sent
+    assert len(forever.sent) == PASSPHRASE_ATTEMPTS, forever.sent
 
 
 def test_the_pool_scan_is_bounded_and_outlives_its_own_window() -> None:
@@ -5096,11 +5100,18 @@ def test_the_pool_scan_is_bounded_and_outlives_its_own_window() -> None:
     )
     assert "timeout " in scan, scan
 
-    # The window has to outlast the bound, or the expect gives up while the
-    # command it is waiting for is still allowed to run.
+    # The window the caller passes has to outlast the bound the shell gets,
+    # or the expect gives up while the command is still allowed to run. Read
+    # off the call, not restated: `POOL_SCAN_PATIENCE + 60 > POOL_SCAN_PATIENCE`
+    # is true of every number and holds nothing.
+    called = next(
+        one for one in source.splitlines() if "timeout=POOL_SCAN_PATIENCE" in one
+    )
+    added = re.search(r"timeout=POOL_SCAN_PATIENCE \+ ([0-9.]+)", called)
+    assert added is not None, called
+    assert float(added.group(1)) > 0, called
     signature = inspect.signature(cluster.Reconnecting.expect_output)
     default = signature.parameters["timeout"].default
-    assert cluster.POOL_SCAN_PATIENCE + 60.0 > cluster.POOL_SCAN_PATIENCE
     assert cluster.POOL_SCAN_PATIENCE > default, (cluster.POOL_SCAN_PATIENCE, default)
 
 
@@ -5187,3 +5198,57 @@ def test_the_lookup_budget_outlasts_every_resolver_in_the_list() -> None:
         * int(settings["timeout"])
     )
     assert cluster.LOOKUP_PATIENCE > worst, (cluster.LOOKUP_PATIENCE, worst)
+
+
+def test_both_runners_answer_the_same_number_of_passphrase_prompts() -> None:
+    """The cluster bounded it at four and the local runner at five, so a fifth
+    valid dracut prompt passed one and failed the other. The bound is one
+    constant in `tests/vm/console.py`, which both already import."""
+    import inspect
+
+    from tests.vm import cluster, console, run
+
+    assert inspect.getsource(cluster).count("PASSPHRASE_ATTEMPTS: Final") == 0
+    assert inspect.getsource(run).count("PASSPHRASE_ATTEMPTS: Final") == 0
+    assert console.PASSPHRASE_ATTEMPTS >= 2
+    # And neither loop counts to a literal of its own.
+    for module in (cluster, run):
+        source = inspect.getsource(module)
+        assert "for _ in range(5):" not in source, module.__name__
+        assert "for _ in range(4):" not in source, module.__name__
+
+
+def test_the_unlock_key_count_refuses_a_digit_from_the_command_itself() -> None:
+    """`zbm unlock key` counts authorised keys in the EFI image. `[1-9]` was
+    an unanchored search, so the `2` of the command's own `2>/dev/null` would
+    satisfy it and an image that authenticates nobody would be accepted. The
+    test that came with the anchoring never exercised the pattern: an anchored
+    pattern is not a substring of its command, so it fell outside that scan."""
+    import re
+
+    from dataclasses import replace
+
+    from gentoo_install.model.config import Bootloader, DiskMode
+    from tests.vm import installed
+
+    from .layouts import config, ext4_on_gpt
+
+    unlocking = config(ext4_on_gpt())
+    unlocking = replace(
+        unlocking,
+        bootloader=replace(unlocking.bootloader, kind=Bootloader.ZFSBOOTMENU),
+        kernel=replace(
+            unlocking.kernel,
+            remote_unlock=replace(unlocking.kernel.remote_unlock, enabled=True),
+        ),
+    )
+    check = next(
+        one for one in installed.checks(unlocking) if one.name == "zbm unlock key"
+    )
+    matcher = re.compile(check.pattern)
+    # What the machine answers when the image carries no key at all.
+    assert not matcher.search("0"), check.pattern
+    # And what a digit borrowed from the command's own redirection looks like.
+    assert not matcher.search(check.command), check.pattern
+    # A real count still passes.
+    assert matcher.search("2"), check.pattern
