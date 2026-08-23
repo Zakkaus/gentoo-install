@@ -374,7 +374,12 @@ def _reboot_or_disarm(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    arguments = parser().parse_args(argv)
+    try:
+        arguments = parser().parse_args(argv)
+    except SystemExit as error:
+        if error.code == 2:
+            return EXIT_CONFIG
+        raise
     state = RunState(disk_was_written=bool(arguments.resume))
     # Why the previous walk's answers were turned down, carried back into the
     # menu. A refusal that reaches the operator as a line on a dead terminal
@@ -602,7 +607,7 @@ def install(
                 record(f"warning: {warning}")
             preflight_report.raise_if_fatal()
         if config.disk.mode is DiskMode.IN_PLACE and not _confirmed_swap(arguments, record):
-            return EXIT_CONFIG
+            return EXIT_ABORTED
         machine = Machine(
             config=running if running is not None else config,
             runner=runner,
@@ -731,7 +736,10 @@ def _confirmed_swap(
     print("Everything else, including /home and /root, is left alone.")
     print(SESSION_IS_THE_LIFELINE)
     print(f"Type {SWAP_CONFIRMATION} to continue, anything else to stop.")
-    answer = input("> ").strip()
+    try:
+        answer = input("> ").strip()
+    except EOFError:
+        answer = ""
     if answer == SWAP_CONFIRMATION:
         return True
     record("in-place conversion was not confirmed")

@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import argparse
+import io
 import os
 import shutil
+import sys
 import time
 from typing import Sequence, cast
 import re
@@ -237,6 +239,13 @@ def test_a_dry_run_names_devices_by_id_rather_than_by_path(
     gone looking for a node under `/dev` to print."""
     main(["--config", str(FIXTURES / "ext4-bios.toml"), "--dry-run"])
     assert "/dev/" not in capsys.readouterr().out
+
+
+def test_an_unknown_option_is_a_configuration_error(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(["--not-an-option"]) == EXIT_CONFIG
+    assert "unrecognized arguments" in capsys.readouterr().err
 
 
 def test_a_missing_file_is_a_configuration_error(capsys: pytest.CaptureFixture[str]) -> None:
@@ -1395,6 +1404,43 @@ def test_the_swap_is_confirmed_before_it_runs(
     assert any("not confirmed" in one for one in said)
 
 
+def test_an_eof_at_the_conversion_prompt_declines_the_swap(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def closed_stdin(*_: object) -> str:
+        raise EOFError
+
+    said: list[str] = []
+    monkeypatch.setattr(cli, "_unattended", lambda arguments: False)
+    monkeypatch.setattr("builtins.input", closed_stdin)
+
+    assert not cli._confirmed_swap(_conversion_arguments(False), said.append)
+    assert any("not confirmed" in line for line in said)
+    assert "nothing was changed" in capsys.readouterr().err
+
+
+def test_a_declined_conversion_exits_as_a_user_abort(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from .layouts import config
+
+    converted = replace(
+        config(),
+        disk=DiskConfig(graph=DeviceGraph.build([]), root=DeviceId(""), mode=DiskMode.IN_PLACE),
+    )
+    monkeypatch.setattr(cli, "_confirmed_swap", lambda arguments, record: False)
+    arguments = argparse.Namespace(
+        work=tmp_path / "work",
+        target=Path("/mnt/gentoo"),
+        skip_preflight=True,
+        resume=False,
+        no_shell=True,
+        dry_run=False,
+    )
+
+    assert cli.install(converted, (), arguments, cli.RunState()) == cli.EXIT_ABORTED
+
+
 def test_an_unattended_conversion_is_not_asked_but_is_recorded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1405,10 +1451,21 @@ def test_an_unattended_conversion_is_not_asked_but_is_recorded(
         raise AssertionError("an unattended run must not be asked")
 
     monkeypatch.setattr("builtins.input", refuse)
-    monkeypatch.setattr(cli, "_unattended", lambda arguments: True)
     said: list[str] = []
     assert cli._confirmed_swap(_conversion_arguments(True), said.append)
     assert any("/usr" in one for one in said)
+
+
+def test_a_conversion_with_nonterminal_stdin_is_not_asked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def refuse(*_: object) -> str:
+        raise AssertionError("a nonterminal run must not be asked")
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO())
+    monkeypatch.setattr("builtins.input", refuse)
+
+    assert cli._confirmed_swap(_conversion_arguments(False), lambda line: None)
 
 
 def test_a_layout_that_cannot_be_converted_exits_as_a_preflight_failure(
