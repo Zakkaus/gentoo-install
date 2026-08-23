@@ -83,7 +83,7 @@ def _replace_contents(destination: Path, staged: Path, copy: Copier) -> None:
                 arrived.append((name, Arrival.COPIED))
                 continue
             arrived.append((name, Arrival.RENAMED))
-    except OSError as error:
+    except Exception as error:
         for name, how in reversed(arrived):
             try:
                 if how is Arrival.RENAMED:
@@ -97,6 +97,10 @@ def _replace_contents(destination: Path, staged: Path, copy: Copier) -> None:
                 os.rename(aside / name, destination / name)
             except OSError as rollback_error:
                 error.add_note(f"could not restore {destination / name}: {rollback_error}")
+        try:
+            os.rmdir(aside)
+        except OSError as rollback_error:
+            error.add_note(f"could not remove {aside}: {rollback_error}")
         raise ConversionFailed(
             f"{destination} could not be replaced by content: {error}"
         ) from error
@@ -169,7 +173,7 @@ def convert(
                     os.rename(destination, old)
                     moved_old = True
                 os.rename(staged, destination)
-        except OSError as error:
+        except Exception as error:
             if moved_old:
                 try:
                     os.rename(old, destination)
