@@ -278,6 +278,14 @@ def displayed() -> set[str]:
             if called == "footer" and len(node.args) > 1:
                 if isinstance(node.args[1], ast.Constant):
                     found.add(str(node.args[1].value))
+            # `_consent_screen(screen, config, context, "Font configuration",
+            # summary)`: its fourth argument is the title and it calls
+            # `translate(title)` itself. Without this the collector could not
+            # see that title at all, so `Font configuration` drew in English
+            # on four translated screens and this test stayed green.
+            if called == "_consent_screen" and len(node.args) > 3:
+                if isinstance(node.args[3], ast.Constant):
+                    found.add(str(node.args[3].value))
     return found
 
 
