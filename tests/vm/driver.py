@@ -111,6 +111,31 @@ exec sh ./bootstrap.sh --no-shell "$@"
 """
 
 
+def revision() -> str:
+    """What the driver CD is about to be built from.
+
+    A campaign that ran while its own tree was being committed to measured
+    twelve different snapshots and could name none of them, so every run says
+    this before it boots anything. `dirty` means the result proves nothing
+    about any commit.
+    """
+
+    def ask(command: list[str]) -> str:
+        try:
+            done = subprocess.run(
+                command, cwd=REPOSITORY, capture_output=True, text=True
+            )
+        except OSError:
+            return ""
+        return done.stdout if done.returncode == 0 else ""
+
+    described = ask(["git", "describe", "--always", "--dirty"]).strip()
+    if not described:
+        return "unknown, not a git checkout"
+    uncommitted = len(ask(["git", "status", "--short"]).splitlines())
+    return f"{described} ({uncommitted} uncommitted files)" if uncommitted else described
+
+
 def build(output: Path, packed: bool = False, fixtures: Path | None = None) -> Path:
     """Write an ISO holding the installer package and return its path.
 
@@ -121,6 +146,10 @@ def build(output: Path, packed: bool = False, fixtures: Path | None = None) -> P
     `fixtures` replaces the configurations the CD carries, which is how the
     cluster runs the same set against a different mirror region.
     """
+    # Here rather than in each runner: `run.py` announced the tree and `ram.py`,
+    # `dd.py` and `convert.py` did not, so three of the four measured a snapshot
+    # their own logs could not name. Every runner builds this CD.
+    print(f"installer revision: {revision()}", flush=True)
     if shutil.which("xorriso") is None:
         raise MediaError("xorriso is not installed, so the driver CD cannot be built")
     output.parent.mkdir(parents=True, exist_ok=True)

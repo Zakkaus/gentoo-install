@@ -3282,7 +3282,6 @@ def test_local_runner_options_preserve_defaults_and_accept_none(
 
     monkeypatch.setattr(runner, "MEDIA", {"test": medium})
     monkeypatch.setattr(runner, "WORKROOT", tmp_path)
-    monkeypatch.setattr(runner, "_revision", lambda: "test-revision")
     monkeypatch.setattr(runner, "_perform", capture)
 
     assert runner.main(["--medium", "test"]) == 0
@@ -5252,3 +5251,35 @@ def test_the_unlock_key_count_refuses_a_digit_from_the_command_itself() -> None:
     assert not matcher.search(check.command), check.pattern
     # A real count still passes.
     assert matcher.search("2"), check.pattern
+
+
+def test_building_the_driver_names_the_tree_it_was_built_from(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from tests.vm import driver
+
+    with pytest.raises(Exception):
+        driver.build(tmp_path / "nowhere" / "driver.iso", fixtures=tmp_path / "absent")
+    said = capsys.readouterr().out
+    assert "installer revision:" in said, said
+    assert driver.revision() in said, said
+
+
+def test_one_module_announces_the_revision_and_the_runners_do_not() -> None:
+    """A runner that prints its own copy is one the next edit can leave stale.
+
+    `run.py` announced the tree and the other three runners did not, so
+    `ram.py`, `dd.py` and `convert.py` each measured a snapshot their own logs
+    could not name.
+    """
+    room = Path(__file__).resolve().parents[2] / "tests" / "vm"
+    announcing = {
+        one.name for one in sorted(room.glob("*.py"))
+        if "installer revision:" in one.read_text()
+    }
+    # `cluster.py` writes it into each guest's own log rather than the
+    # campaign stream, and takes its value from `revision_identity`, which
+    # carries the driver digest a local run has no use for.
+    assert announcing == {"driver.py", "cluster.py"}, sorted(announcing)
+    runners = {"run.py", "ram.py", "dd.py", "convert.py"}
+    assert not announcing & runners, sorted(announcing & runners)

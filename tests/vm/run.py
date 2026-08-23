@@ -769,7 +769,6 @@ def main(argv: list[str] | None = None) -> int:
     variant = Path(args.install).stem if args.install else "probe"
     workdir = WORKROOT / f"{medium.name}-{args.firmware}-{variant}"
     workdir.mkdir(parents=True, exist_ok=True)
-    print(f"installer revision: {_revision()}", flush=True)
     # The medium too: a rolling release keeps its filename, so a result
     # that names only the medium does not say which build it booted.
     print(f"medium: {medium.name} {medium.source_stamp()[:16]}", flush=True)
@@ -938,28 +937,6 @@ def power_off(console: SerialConsole, vm: Vm) -> None:
         except subprocess.TimeoutExpired:
             continue
     print("guest did not power off, killing it", file=sys.stderr)
-
-
-def _revision() -> str:
-    """What the driver CD is about to be built from.
-
-    A campaign that ran while its own tree was being committed to measured
-    twelve different snapshots and could name none of them, so every run says
-    this before it boots anything. `dirty` means the result proves nothing
-    about any commit.
-    """
-    def ask(command: list[str]) -> str:
-        try:
-            done = subprocess.run(command, cwd=REPOSITORY, capture_output=True, text=True)
-        except OSError:
-            return ""
-        return done.stdout if done.returncode == 0 else ""
-
-    described = ask(["git", "describe", "--always", "--dirty"]).strip()
-    if not described:
-        return "unknown, not a git checkout"
-    uncommitted = len(ask(["git", "status", "--short"]).splitlines())
-    return f"{described} ({uncommitted} uncommitted files)" if uncommitted else described
 
 
 def _discard(targets: Sequence[Path], *, keep: bool) -> None:
