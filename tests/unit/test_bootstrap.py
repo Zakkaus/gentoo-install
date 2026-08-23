@@ -539,3 +539,44 @@ def test_a_failed_package_command_can_leave_partial_installation(tmp_path: Path)
     assert installed.exists()
     assert "that command failed; some packages may have been installed" in said
     assert "nothing was installed" not in said
+
+
+def test_the_exported_pythonpath_is_absolute(tmp_path: Path) -> None:
+    """Portage's `python-single-r1` refuses a relative one: an install died at
+    `dev-util/pahole` on `Relative paths in PYTHONPATH are forbidden: '.'`, and
+    `bootstrap.sh` reached it as `.` whenever it was run as `./bootstrap.sh`."""
+    helpers = tmp_path / "helpers"
+    helpers.mkdir()
+    # Every name `python_binary()` searches, so the real interpreter earlier on
+    # PATH cannot answer first. It must satisfy the version probe as well.
+    body = (
+        "#!/bin/sh\n"
+        "case \"$*\" in\n"
+        "*version_info\\[1\\]*) echo 14; exit 0 ;;\n"
+        "*version_info\\[0\\]*) echo 3; exit 0 ;;\n"
+        "esac\n"
+        "printf 'PYTHONPATH=[%s]\\n' \"$PYTHONPATH\"\n"
+        "exit 0\n"
+    )
+    for name in ("python3.14", "python3.13", "python3.12", "python3.11", "python3"):
+        fake = helpers / name
+        fake.write_text(body)
+        fake.chmod(0o755)
+    where = tmp_path / "os-release"
+    where.write_text('ID=gentoo\nNAME="Gentoo"\n')
+    # `./bootstrap.sh`, not the absolute path: `${0%/*}` of an absolute
+    # argument is already absolute, so an absolute invocation cannot show this.
+    # The driver CD runs `cd /mnt/driver && sh ./bootstrap.sh`.
+    finished = subprocess.run(
+        [SHELL, "./bootstrap.sh", "--help"],
+        cwd=REPOSITORY,
+        env={"OS_RELEASE": str(where), "PATH": f"{helpers}:/usr/bin:/bin"},
+        capture_output=True,
+        text=True,
+    )
+    said = output(finished)
+    shown = [one for one in said.splitlines() if one.startswith("PYTHONPATH=[")]
+    assert shown, said
+    for one in shown:
+        value = one[len("PYTHONPATH=["):-1]
+        assert value.startswith("/"), one
