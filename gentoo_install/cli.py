@@ -284,6 +284,17 @@ def _disarm_memory_environment(arguments: argparse.Namespace) -> int:
     """
     _require_root(arguments)
     probe = _probe_for(arguments)
+    operations = netboot.disarm(target=_boot_target(probe))
+    if arguments.missing_commands:
+        wanted = set(preflight.ALWAYS)
+        for operation in operations:
+            wanted |= operation.required_host_commands()
+        print("\n".join(sorted(report.absent(frozenset(wanted), probe))))
+        return EXIT_OK
+    if arguments.dry_run:
+        print(render(operations), end="")
+        print(summarise(operations))
+        return EXIT_OK
     # A configuration with nothing in it: disarming reads the machine and
     # writes to the machine, and every field of an install's configuration is
     # about a target this run does not touch.
@@ -294,11 +305,7 @@ def _disarm_memory_environment(arguments: argparse.Namespace) -> int:
         work=arguments.work,
         mountpoint=Path("/"),
     )
-    apply(
-        netboot.disarm(target=_boot_target(probe)),
-        machine,
-        on_start=lambda one: print(one.describe()),
-    )
+    apply(operations, machine, on_start=lambda one: print(one.describe()))
     return EXIT_OK
 
 

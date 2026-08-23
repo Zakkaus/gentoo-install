@@ -1850,6 +1850,42 @@ def test_bypass_prints_the_replacing_operation_instead(
     assert "arm one boot" not in said.out, said.out
 
 
+def test_a_disarm_dry_run_renders_without_applying(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A preview must not clear the boot entry or delete the armed payload."""
+    _memory_machine(monkeypatch)
+    monkeypatch.setattr(
+        cli,
+        "apply",
+        lambda *args, **keywords: pytest.fail("dry-run disarm called apply"),
+    )
+
+    code = main(["--disarm", "--dry-run"])
+
+    said = capsys.readouterr()
+    assert code == EXIT_OK, said
+    assert "take back the armed boot and delete what it placed" in said.out
+
+
+def test_disarm_missing_commands_does_not_apply(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A command report must not change the armed boot environment."""
+    _memory_machine(monkeypatch)
+    monkeypatch.setattr(report, "absent", lambda commands, probe: frozenset({"rm"}))
+    monkeypatch.setattr(
+        cli,
+        "apply",
+        lambda *args, **keywords: pytest.fail("disarm command report called apply"),
+    )
+
+    code = main(["--disarm", "--missing-commands"])
+
+    said = capsys.readouterr()
+    assert code == EXIT_OK, said
+    assert said.out == "rm\n"
+
 def test_the_disarm_the_message_names_is_one_the_parser_takes(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
