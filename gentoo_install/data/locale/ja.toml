@@ -124,6 +124,7 @@
 "Done" = "完了"
 "Size" = "サイズ"
 "512MiB, 20GiB, or empty for the remaining space" = "512MiB、20GiB、空欄なら残り全部"
+"{value} is not a valid size" = "{value} は有効なサイズではありません"
 "the remaining space" = "残り全部"
 "Purpose" = "用途"
 "What is this partition for?" = "このパーティションの用途"

@@ -1533,6 +1533,26 @@ def test_a_relative_mount_point_typed_into_the_editor_never_reaches_the_table() 
     assert kept is not None and kept.mountpoint == "/srv", kept
 
 
+@pytest.mark.parametrize("invalid", ("abc", "-1GiB", "20ZiB"))
+def test_an_invalid_size_stays_in_the_partition_field(invalid: str) -> None:
+    at = opened()
+    entry = replace(GOOD, size=None)
+    screen = FakeScreen(
+        keys=[*invalid, "\n", *(["\x7f"] * len(invalid)), *"20GiB", "\n"]
+    )
+
+    changed = partitions._edit_field(
+        screen, at, entry, manual.purpose_of(entry), partitions._SIZE
+    )
+    retry = next(
+        frame
+        for frame in screen.frames
+        if f"{invalid} is not a valid size" in "\n".join(frame)
+    )
+    assert f"{invalid}_" in "\n".join(retry)
+    assert changed is not None and changed.size == Size.parse("20GiB")
+    assert screen.keys == []
+
 def test_backing_out_of_a_partition_nobody_filled_in_adds_nothing() -> None:
     """`Add a partition` then `←`: keeping what was typed must not turn an
     editor nobody typed into into a row on the disk."""

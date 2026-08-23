@@ -124,6 +124,7 @@
 "Done" = "完成"
 "Size" = "大小"
 "512MiB, 20GiB, or empty for the remaining space" = "512MiB、20GiB，留空表示剩餘空間"
+"{value} is not a valid size" = "{value} 不是有效的大小"
 "the remaining space" = "剩餘空間"
 "Purpose" = "用途"
 "What is this partition for?" = "分割區用途"
