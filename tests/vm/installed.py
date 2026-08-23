@@ -251,7 +251,10 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
                 "zbm unlock key",
                 "lsinitrd /efi/EFI/zbm/*.EFI 2>/dev/null "
                 "| grep -cE 'authorized_keys|dropbear-start'",
-                r"[1-9]",
+                # The whole line, not a digit anywhere in it: `[1-9]` matches
+                # the `2` of `2>/dev/null`, so a reader that kept the echo
+                # would accept an image that authenticates nobody.
+                r"(?m)^[1-9][0-9]*$",
             )
         )
     if installation.disk.mode is DiskMode.IN_PLACE:
