@@ -345,6 +345,37 @@ A source-built kernel and binary-package degradation have runner-level tests onl
 
 Configuration files use TOML. The top-level `config_version` field selects the schema version. Storage is a device graph: every device has an `id`, devices refer to other devices by `id`, and selectors are resolved only during a real run.
 
+<!-- fact: config-simple -->
+
+A single-disk layout is written as `[disk.simple]` instead of a device graph. The parser expands it with the same template the menu uses, so both forms produce the same graph. The graph form remains for LUKS, ZFS, RAID and hand-made partition tables.
+
+```toml
+config_version = 1
+
+[system]
+hostname = "workstation"
+timezone = "UTC"
+locales = ["en_US.UTF-8"]
+locale = "en_US.UTF-8"
+init = "systemd"
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
+
+[portage]
+profile = "default/linux/amd64/23.0/systemd"
+makeopts = "-j4"
+
+[bootloader]
+kind = "grub"
+firmware = "uefi"
+
+[disk.simple]
+disk = "/dev/disk/by-id/virtio-target0"
+filesystem = "ext4"
+swap = "2GiB"
+```
+
+The hash above is an example and must be replaced before execution. Only `disk` is required. An omitted key takes the installer default: `whole-disk`, `uefi`, a partition table chosen by the firmware, `xfs`, no swap, no encryption. A file must not carry both `[disk.simple]` and `[[disk.devices]]`.
+
 <!-- fact: config-fixtures -->
 
 [`tests/fixtures/vm-binpkg.toml`](tests/fixtures/vm-binpkg.toml) is a complete UEFI and ext4 schema reference. Other files under [`tests/fixtures/`](tests/fixtures/) cover BIOS, LUKS2, LVM, mdraid, ZFS, btrfs subvolumes and desktops. They contain virtual-machine disk selectors and test credentials, so they must not be installed unchanged on a real machine.

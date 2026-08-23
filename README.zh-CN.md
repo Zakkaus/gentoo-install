@@ -345,6 +345,37 @@ mode = "in-place"
 
 配置文件使用 TOML。顶层 `config_version` 字段指定结构版本。存储设备以设备图表示：每个设备都有 `id`，设备通过其他设备的 `id` 建立引用，选择器仅在实际安装时解析。
 
+<!-- fact: config-simple -->
+
+单一磁盘的布局写成 `[disk.simple]`，不必写设备图。解析时以菜单所用的同一份模板展开，因此两种写法产生相同的图。设备图的写法保留给 LUKS、ZFS、RAID 与手动分区表。
+
+```toml
+config_version = 1
+
+[system]
+hostname = "workstation"
+timezone = "UTC"
+locales = ["en_US.UTF-8"]
+locale = "en_US.UTF-8"
+init = "systemd"
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
+
+[portage]
+profile = "default/linux/amd64/23.0/systemd"
+makeopts = "-j4"
+
+[bootloader]
+kind = "grub"
+firmware = "uefi"
+
+[disk.simple]
+disk = "/dev/disk/by-id/virtio-target0"
+filesystem = "ext4"
+swap = "2GiB"
+```
+
+上面的哈希值是示例，执行前必须替换。只有 `disk` 必填。省略的键取安装器默认值：`whole-disk`、`uefi`、由固件决定的分区表、`xfs`、无交换空间、不加密。同一份文件不得同时写 `[disk.simple]` 与 `[[disk.devices]]`。
+
 <!-- fact: config-fixtures -->
 
 [`tests/fixtures/vm-binpkg.toml`](tests/fixtures/vm-binpkg.toml) 是完整的 UEFI 和 ext4 结构参考。其他 [`tests/fixtures/`](tests/fixtures/) 文件覆盖 BIOS、LUKS2、LVM、mdraid、ZFS、btrfs subvolume 和桌面。这些文件使用虚拟机磁盘选择器和测试密码，不得原样用于实际机器的安装。
