@@ -975,3 +975,27 @@ def test_an_ordinary_install_does_not_carry_that_operation() -> None:
     operations = build(config(), CATALOG)
 
     assert not [one for one in operations if isinstance(one, convert.FlushToDisk)]
+
+
+def test_a_conversion_checks_its_subvolume_rather_than_making_it() -> None:
+    """The running machine's own `@` is already there. Planned as a creation,
+    `btrfs subvolume create` answers `target path already exists` and the
+    conversion stops before it has staged anything."""
+    from gentoo_install.model.device import StorageFacts
+    from gentoo_install.plan import disk
+
+    graph = convert.layout_graph(replace(_layout(), root_subvolume="@")).graph
+    made = [
+        one
+        for node in graph.nodes.values()
+        for one in disk._operations_for(graph, node, StorageFacts())
+        if isinstance(one, (disk.CreateSubvolume, disk.VerifySubvolume))
+    ]
+    assert [type(one).__name__ for one in made] == ["VerifySubvolume"], made
+
+    # Negative control: a layout that asks for a new subvolume still gets one,
+    # so the rule above is not "never create a subvolume".
+    from gentoo_install.model.device import Subvolume
+
+    fresh = Subvolume(id=DeviceId("sub"), filesystem=DeviceId("rootfs"), name="@")
+    assert fresh.create
