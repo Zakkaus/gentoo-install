@@ -277,3 +277,45 @@ def test_a_simple_disk_is_written_back_as_the_template() -> None:
     # its graph, so the rule above is not "never write devices".
     plain = replace(config, disk=DiskConfig(graph=graph, root=root))
     assert "[[disk.devices]]" in to_toml(plain)
+
+
+def test_every_node_field_the_writer_emits_is_a_key_its_parser_accepts() -> None:
+    """`Subvolume.create = false` was written and then refused on reload, so a
+    conversion's own layout could not be saved and read back. The writer emits
+    every non-default field, so the parser has to name every one of them."""
+    import ast
+    import inspect
+    from dataclasses import fields
+
+    from gentoo_install.model import parse as parse_module
+    from gentoo_install.model.serialise import KINDS, RENAMED
+
+    source = ast.parse(inspect.getsource(parse_module))
+    accepted: dict[str, set[str]] = {}
+    for node in ast.walk(source):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        for call in ast.walk(node):
+            if (
+                isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Name)
+                and call.func.id == "_reject_unknown"
+                and len(call.args) == 3
+                and isinstance(call.args[2], ast.Set)
+            ):
+                accepted[node.name] = {
+                    one.value
+                    for one in call.args[2].elts
+                    if isinstance(one, ast.Constant) and isinstance(one.value, str)
+                }
+    assert accepted, "no parser named its accepted keys"
+
+    builders = {kind: builder.__name__ for kind, builder in parse_module._NODES.items()}
+    assert set(builders) == set(KINDS.values()), (
+        sorted(set(builders) ^ set(KINDS.values()))
+    )
+    for held, kind in KINDS.items():
+        keys = accepted.get(builders[kind])
+        assert keys is not None, (kind, builders[kind])
+        written = {RENAMED.get((held, one.name), one.name) for one in fields(held)}
+        assert written <= keys, (kind, sorted(written - keys))
