@@ -17,6 +17,7 @@ from ..errors import ConfigError, GentooInstallError
 from ..exec.preflight import ZFS_PASSPHRASE_MINIMUM
 from ..i18n import Catalog, clip
 from ..model import manual, mirrors, qr, refusals
+from ..model.device import StorageLayout
 from ..model.config import (
     BinhostChannel,
     Firmware,
@@ -127,11 +128,16 @@ class Context:
         #: because this layer reads no machine. A machine that could not be
         #: read refuses the conversion rather than offering one blind.
         running_system: str = "",
+        #: What `exec/probe.py` read of the running machine, for the rows that
+        #: have to derive the plan before the operator presses Install. A
+        #: conversion's graph is built from this and from nothing else.
+        running_layout: StorageLayout | None = None,
         conversion_refused: refusals.Refusal = refusals.Refusal(refusals.SYSTEM_NOT_READ),
         image_write_refused: refusals.Refusal = refusals.Refusal(refusals.MEMORY_NOT_READ),
     ) -> None:
         self.translate = translate
         self.running_system = running_system
+        self.running_layout = running_layout
         self.conversion_refused = conversion_refused
         self.image_write_refused = image_write_refused
         self.ipv4 = ipv4

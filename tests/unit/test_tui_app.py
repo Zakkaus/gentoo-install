@@ -3989,3 +3989,67 @@ def test_a_refused_row_is_not_drawn_as_an_answer_somebody_owes() -> None:
     empty = replace(built, disk=replace(built.disk, graph=DeviceGraph.build([])))
     assert style_of(disk, empty, offering) is Style.REQUIRED
     assert shown_value(disk, empty, offering) == "required"
+
+
+def test_the_install_row_derives_a_conversion_from_the_machine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A conversion's plan is built from the running layout and from nothing
+    else. The row that blocks the install derived it without one and reported
+    `the running layout was not read` as the reason, which no answer in the
+    interface could clear."""
+    from dataclasses import replace
+
+    from gentoo_install.model.device import DeviceGraph, DeviceId
+
+    from .test_plan_convert import _layout
+
+    reading = _layout()
+    offering = app.MainMenuContext(tui_context.Context(
+        translate=Catalog("en"),
+        disks=DISKS,
+        groups=load_catalog(),
+        hash_password=lambda password: f"$6$test${len(password)}",
+        conversion_refused=Refusal(""),
+        running_system="/dev/vda2 on xfs",
+        running_layout=reading,
+    ))
+    built = config()
+    converted = replace(
+        built,
+        disk=replace(
+            built.disk, mode=DiskMode.IN_PLACE, graph=DeviceGraph.build([]), root=DeviceId("")
+        ),
+    )
+
+    # Every row answered and opened, or `_blocked` names one of those instead
+    # and never reaches the plan.
+    converted = replace(
+        converted,
+        system=replace(converted.system, root_password_hash="$6$test$x"),
+        # A mirror chosen rather than detected, the way `Mirrors` is answered.
+        portage=replace(
+            converted.portage, mirrors=replace(converted.portage.mirrors, site="tuna")
+        ),
+    )
+    offering.visited.update(one.key for one in settings.SETTINGS)
+    for group in settings.SETTINGS:
+        offering.visited.update(one.key for one in group.rows)
+
+    handed: list[object] = []
+
+    def watching(one: object, groups: object, *, layout: object = None) -> tuple[object, ...]:
+        handed.append(layout)
+        return ()
+
+    monkeypatch.setattr(app, "build", watching)
+    app._blocked(converted, offering)
+    assert handed == [reading], handed
+
+    # Negative control: without the layout the plan cannot be derived at all,
+    # which is the refusal the row used to show.
+    from gentoo_install.errors import ConversionUnsupported
+    from gentoo_install.plan.build import build as real_build
+
+    with pytest.raises(ConversionUnsupported, match="layout was not read"):
+        real_build(converted, load_catalog())
