@@ -5470,3 +5470,26 @@ def test_the_usage_examples_name_a_path_the_runner_can_load() -> None:
     assert examples, said
     for one in examples:
         assert (room / one).is_file(), (one, str(room / one))
+
+
+def test_a_reader_removes_the_colour_systemctl_writes_to_a_terminal() -> None:
+    """A serial console is a terminal, so `systemctl` colours its answer and
+    `enabled` arrives wrapped in SGR. The bounded patterns anchor on `$`, so a
+    cluster run failed its `network` check while the console showed the line."""
+    import re
+
+    from tests.vm.console import plain
+    from tests.vm.installed import checks
+
+    from .layouts import config, ext4_on_gpt
+
+    said = (
+        b"\r\nsystemd-networkd.service                "
+        b"\x1b[0;1;32menabled\x1b[0m\x1b[0;1;32m \x1b[0m\x1b[0;1;32menabled \x1b[0m\r\n"
+    )
+    assert b"\x1b" not in plain(said), plain(said)
+    network = [one for one in checks(config(ext4_on_gpt())) if one.name == "network"]
+    if network:
+        pattern = network[0].pattern.encode()
+        assert re.search(pattern, said) is None, "the raw bytes must not match"
+        assert re.search(pattern, plain(said)) is not None, plain(said)
