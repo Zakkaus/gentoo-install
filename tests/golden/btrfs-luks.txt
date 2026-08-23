@@ -38,7 +38,7 @@
   select profile default/linux/amd64/23.0/desktop/systemd
   install git, which every later repository sync needs: emerge dev-vcs/git
   point repository gentoo at https://mirrors.ustc.edu.cn/gentoo.git, commit signatures verified
-  sync repository gentoo
+  sync repository gentoo, 4 other sites to fall back on
   point repository gentoo-zh at https://mirrors.cernet.edu.cn/gentoo-zh.git
   sync repository gentoo-zh, 4 other sites to fall back on
   accept ~amd64 for packages from gentoo-zh only

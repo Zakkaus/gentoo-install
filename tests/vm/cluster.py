@@ -4478,7 +4478,7 @@ def main(argv: list[str] | None = None) -> int:
         "--sync",
         choices=[one.value for one in Sync],
         default=Sync.RSYNC.value,
-        help="how every fixture syncs the tree; git needs github, which this network lacks",
+        help="how every fixture syncs the tree; git falls back through the region's mirrors",
     )
     args = parser.parse_args(argv)
 

@@ -1763,7 +1763,7 @@ def test_an_rsync_install_does_not_fetch_the_tree_twice() -> None:
     synced = [
         one
         for one in operations
-        if isinstance(one, plan_portage.SyncRepository) and one.name == "gentoo"
+        if isinstance(one, portage.SyncRepository) and one.name == "gentoo"
     ]
     assert not synced, [one.describe() for one in operations]
     pointed = [one for one in operations if isinstance(one, plan_portage.ConfigureRepository)]
@@ -2711,3 +2711,49 @@ def test_a_named_repository_is_enabled_after_its_tool_is_merged() -> None:
         for one in plain
         if getattr(one, "packages", ()) == ("app-eselect/eselect-repository",)
     ]
+
+
+def test_the_gentoo_tree_is_offered_the_rest_of_its_region() -> None:
+    """An overlay already gets every mirror the region carries; the tree itself
+    got none. `s1` stopped an hour in on `none of the 1 sites for gentoo could
+    be synced from` with four more mirrors serving the same history."""
+    from gentoo_install.model import mirrors
+
+    built = replace(
+        config(),
+        portage=replace(
+            config().portage,
+            sync=Sync.GIT,
+            mirrors=replace(config().portage.mirrors, region=MirrorRegion.CN, site="ustc"),
+        ),
+    )
+    syncing = [
+        one
+        for one in portage.build(built, MIRROR)
+        if isinstance(one, portage.SyncRepository) and one.name == "gentoo"
+    ]
+    assert len(syncing) == 1, syncing
+    tried = [one.sync_uri for one in syncing[0].alternates]
+    assert tried, "the tree was left with one site"
+    assert "https://mirrors.ustc.edu.cn/gentoo.git" not in tried, tried
+    assert set(tried) < set(mirrors.gentoo_sync_uris(MirrorRegion.CN))
+
+    # Every alternate still verifies: they mirror the same signed history, and
+    # a fallback that quietly stopped checking would be worse than stopping.
+    assert all(one.verify_commits for one in syncing[0].alternates)
+
+    # Negative control: a region with one git tree has no alternate to offer,
+    # so the rule above is not "always at least one".
+    worldwide = replace(
+        built,
+        portage=replace(
+            built.portage,
+            mirrors=replace(built.portage.mirrors, region=MirrorRegion.GLOBAL, site="gentoo"),
+        ),
+    )
+    alone = [
+        one
+        for one in portage.build(worldwide, MIRROR)
+        if isinstance(one, portage.SyncRepository) and one.name == "gentoo"
+    ]
+    assert alone[0].alternates == ()
