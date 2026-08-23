@@ -221,6 +221,15 @@ def gentoo_sync_uri(region: MirrorRegion, preferred: str = "") -> str:
     return next(site.git for site in gentoo_sites(region) if site.git)
 
 
+def gentoo_sync_uris(region: MirrorRegion) -> tuple[str, ...]:
+    """Every git tree the region carries, in the order the menu lists them.
+
+    The chosen site is one of these; a sync that cannot reach it has the rest
+    to try, and each one is a mirror of the same signed history.
+    """
+    return tuple(site.git for site in gentoo_sites(region) if site.git)
+
+
 def gentoo_rsync_uri(region: MirrorRegion, preferred: str = "") -> str:
     """The chosen site's rsync module, then any in the region, then the official
     pool. Never empty: most mirrors carry the files and not an rsync module, and

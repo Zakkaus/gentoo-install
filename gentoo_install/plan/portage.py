@@ -1457,7 +1457,24 @@ def build(
                 sync_uri=_repo_sync_uri(portage),
                 verify_commits=True,
             ),
-            SyncRepository(name="gentoo", location=gentoo),
+            SyncRepository(
+                name="gentoo",
+                location=gentoo,
+                # The rest of the region, the way an overlay already gets it.
+                # Without them one unreachable host ended the install on
+                # `none of the 1 sites for gentoo could be synced from`, an
+                # hour in, with four more mirrors carrying the same tree.
+                alternates=tuple(
+                    ConfigureRepository(
+                        name="gentoo",
+                        location=gentoo,
+                        sync_uri=uri,
+                        verify_commits=True,
+                    )
+                    for uri in mirrors.gentoo_sync_uris(portage.mirrors.region)
+                    if uri != _repo_sync_uri(portage)
+                ),
+            ),
         ]
     elif portage.sync is Sync.RSYNC:
         # No `dev-vcs/git`: rsync needs none, and the stage3 already has the
