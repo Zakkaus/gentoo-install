@@ -209,6 +209,11 @@
 # Mirrors and compiler
 "Mirrors" = "미러"
 "Region" = "지역"
+"Distfiles address" = "distfiles 주소"
+"http://10.0.0.1/gentoo, separated by commas" = "http://10.0.0.1/gentoo, 쉼표로 구분"
+"empty leaves the chosen mirror in place" = "비워 두면 선택한 미러를 그대로 사용합니다"
+"the chosen mirror" = "선택한 미러"
+"replaced by a typed address" = "입력한 주소로 대체합니다"
 "Gentoo mirror" = "Gentoo 미러"
 "Measure them" = "속도로 정렬"
 "yes" = "예"

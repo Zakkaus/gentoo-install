@@ -188,6 +188,7 @@ def test_a_group_is_a_list_and_never_a_wizard() -> None:
 def test_field_editors_have_one_descriptor_for_each_editable_row() -> None:
     at = context()
     mirror_expected = {mirror._REGION, mirror._SITE, mirror._DISTFILES,
+                       mirror._CUSTOM_DISTFILES,
                        mirror._MEASURE, mirror._SYNC, mirror._BINHOST,
                        mirror._ZH_SITE, mirror._ZH_DISTFILES,
                        mirror._ZH_BINHOST, mirror._REPOSITORIES, "gig", "guru"}

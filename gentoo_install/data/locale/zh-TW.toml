@@ -209,6 +209,11 @@
 # 鏡像與編譯
 "Mirrors" = "鏡像"
 "Region" = "地區"
+"Distfiles address" = "distfiles 位址"
+"http://10.0.0.1/gentoo, separated by commas" = "http://10.0.0.1/gentoo，以逗號分隔"
+"empty leaves the chosen mirror in place" = "留空則沿用選定的鏡像"
+"the chosen mirror" = "選定的鏡像"
+"replaced by a typed address" = "已由輸入的位址取代"
 "Gentoo mirror" = "Gentoo 鏡像"
 "Measure them" = "測速排序"
 "yes" = "是"

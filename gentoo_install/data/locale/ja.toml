@@ -209,6 +209,11 @@
 # Mirrors and compiler
 "Mirrors" = "ミラー"
 "Region" = "地域"
+"Distfiles address" = "distfiles のアドレス"
+"http://10.0.0.1/gentoo, separated by commas" = "http://10.0.0.1/gentoo、カンマ区切り"
+"empty leaves the chosen mirror in place" = "空欄なら選択したミラーをそのまま使います"
+"the chosen mirror" = "選択したミラー"
+"replaced by a typed address" = "入力したアドレスで置き換えます"
 "Gentoo mirror" = "Gentoo のミラー"
 "Measure them" = "速度で並べ替え"
 "yes" = "はい"
