@@ -998,6 +998,16 @@ REACHABILITY_PROBE: Final[str] = (
     f"timeout {KEYSERVER_PATIENCE} bash -c '</dev/tcp/{KEY_SERVER_HOST}/443' 2>/dev/null "
     "&& printf 'open' || printf 'refused'; "
     "printf '\\nLIBC '; getconf GNU_LIBC_VERSION; "
+    # What the lookups were asked with, not only whether they worked: a
+    # converted guest answered `fail` five times with a route to the gateway
+    # and to `223.5.5.5`, and neither the resolver list nor the order glibc
+    # consults was anywhere in the log. `nsswitch.conf` matters as much as
+    # `resolv.conf`: a `hosts:` line that returns before `dns` makes a correct
+    # resolver file irrelevant.
+    "printf '\\nRESOLVCONF '; tr '\\n' ';' < /etc/resolv.conf 2>/dev/null "
+    "|| printf 'absent'; "
+    "printf '\\nNSSWITCH '; sed -n 's/^hosts: *//p' /etc/nsswitch.conf 2>/dev/null "
+    "|| printf 'absent'; "
     # The state itself, not only whether it worked: sixty-one lookups answered
     # `ENETUNREACH` from a guest that had passed this probe a minute earlier,
     # and only the addresses and routes at each moment say what went.
