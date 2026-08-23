@@ -771,7 +771,7 @@ def test_the_live_system_asks_before_it_erases_anything() -> None:
         PurePosixPath(f"{ESP}/{netboot.PLACE}/payload{netboot.PAYLOAD}/start.sh")
     ]
     assert "read answer" in start, start
-    assert "install now? [yes/no]" in start, start
+    assert netboot.ASKS_TO_INSTALL in start, start
     # The banner names the command, because answering `no` must not make
     # rebooting the only way back to the offer.
     assert netboot.COMMAND in start, start
@@ -1291,7 +1291,7 @@ def test_the_first_screen_asks_and_leaves_the_login_shell_alive(
     where = _payload_at(tmp_path, monkeypatch)
 
     said = _sourced(where, "yes")
-    assert "install now? [yes/no]" in said, said
+    assert netboot.ASKS_TO_INSTALL in said, said
     assert "BOOTSTRAP" in said and "--config" in said, said
     assert "LOGIN-SHELL-ALIVE" in said, said
 
