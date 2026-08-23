@@ -1138,3 +1138,23 @@ def test_a_dataset_a_later_parent_covers_is_left_where_it_is() -> None:
     with pytest.raises(CommandFailed, match="what is mounted at /home"):
         told.apply(broken)
     assert ("zfs", "unmount", "zpcala/ROOT/gentoo/home") not in broken.commands
+
+
+def test_rereading_a_table_updates_it_as_well_as_asking() -> None:
+    """`partprobe` asks the kernel to reread; on a medium whose device manager
+    is mdev nothing listens for the event, and `partx --update` is what makes
+    the partitions appear. `--lowram` reached `mkfs` with `vdc1` and `vdc2` in
+    the kernel's own log and neither of them in `/dev`."""
+    from gentoo_install.plan.disk import RereadPartitionTable
+    from tests.unit.recorder import Recorder
+
+    recorder = Recorder()
+    RereadPartitionTable(disk=DeviceId("disk")).apply(recorder)
+    ran = [argv[0] for argv in recorder.commands]
+    assert "partprobe" in ran, recorder.commands
+    assert "partx" in ran, recorder.commands
+    # After the reread, or it updates a table the kernel has not been asked for.
+    assert ran.index("partx") > ran.index("partprobe"), ran
+    # Undeclared on purpose, like `partprobe`: it runs with `check=False`
+    # and `Probe.wait_for` scans for the node when it is absent.
+    assert "partx" not in RereadPartitionTable.host_commands

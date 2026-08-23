@@ -853,7 +853,10 @@ def test_a_node_is_scanned_for_where_mdev_is_the_device_manager(
     with pytest.raises(DeviceNotFound):
         reader.wait_for(str(tmp_path / "vdc2"), seconds=0.6)
 
-    assert ("mdev", "-s") in asking.asked, asking.asked
+    # `-sf`: mdev leaves the stale `/dev/disk/*` links a previous table
+    # left behind, and a link to a partition that is gone is what the
+    # next `mkfs` opens.
+    assert ("mdev", "-sf") in asking.asked, asking.asked
     assert ("udevadm", "settle") in asking.asked, asking.asked
 
 

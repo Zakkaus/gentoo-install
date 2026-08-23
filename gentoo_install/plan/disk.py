@@ -360,6 +360,11 @@ class RereadPartitionTable(Operation):
         except CommandFailed as error:
             context.degrade("partprobe", f"blockdev rereads the table instead: {error}")
             context.run(["blockdev", "--rereadpt", path])
+        # `partprobe` asks the kernel to reread; `partx --update` is what
+        # updates the partitions where mdev is the device manager and nothing
+        # listens for the event. Undeclared like `partprobe` above and for the
+        # same reason: `Probe.wait_for`'s own scan is the fallback without it.
+        context.run(["partx", "--update", path], check=False)
         context.run(["udevadm", "settle"])
 
 
