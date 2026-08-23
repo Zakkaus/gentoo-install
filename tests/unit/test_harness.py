@@ -5144,3 +5144,24 @@ def _a_conversion() -> "InstallConfig":
     from tests.unit.layouts import config
 
     return config()
+
+
+def test_the_resolver_file_replaces_the_symlink_and_the_daemon_that_owns_it() -> None:
+    """On an installed systemd system `/etc/resolv.conf` points into
+    `/run/systemd/resolve/`, so writing through it lasts until the daemon
+    rewrites its own file. The eighth conversion's guest reached the gateway
+    and `223.5.5.5` and still answered `fail fail fail fail fail` to every
+    lookup of `mirrors.ustc.edu.cn`."""
+    from tests.vm import cluster
+
+    written = cluster.use_our_resolvers()
+    at = written.index("> /etc/resolv.conf")
+    before = written[:at]
+    assert "rm -f /etc/resolv.conf" in before, written
+    assert "systemd-resolved" in before, written
+    # The removal comes after the daemon is stopped, or the daemon puts a new
+    # symlink back between the two commands.
+    assert before.index("systemd-resolved") < before.index("rm -f"), written
+    # And every failure is tolerated: the medium runs neither init system's
+    # service manager and must not stop on that.
+    assert before.count("2>/dev/null") >= 2, written
