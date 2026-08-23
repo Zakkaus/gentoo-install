@@ -45,7 +45,11 @@ def overview_screen(
     """Show the operation sequence and ask for final confirmation."""
     translate = context.translate
     try:
-        operations = plan_build(config, context.groups)
+        # With the machine's own layout, the way `app._blocked` plans: a
+        # conversion's graph is derived from it, and asked without one this
+        # screen answered `the running layout was not read` and cancelled,
+        # so no conversion could ever be started from the menu.
+        operations = plan_build(config, context.groups, layout=context.running_layout)
     except GentooInstallError as error:
         say(screen, context, str(error).splitlines()[-1].strip())
         return Answer(Outcome.CANCELLED)
