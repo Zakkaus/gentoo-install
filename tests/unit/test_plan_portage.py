@@ -443,6 +443,24 @@ def test_the_binhost_key_is_signed_after_getuto_creates_the_keyring() -> None:
     signed = next(n for n, argv in enumerate(recorder.in_target) if "--lsign-key" in argv)
     assert getuto < imported < signed
 
+def test_a_deselected_official_binhost_is_removed_before_community_setup() -> None:
+    """The stage3 enables the official host, so enabling only gentoo-zh must
+    first remove its configuration rather than leave an unselected fallback."""
+    installation = with_portage(binhost=Binhost(official=False, community=BinhostChannel.STABLE))
+    recorder = apply_all(installation)
+    official = PurePosixPath("/etc/portage/binrepos.conf/gentoobinhost.conf")
+    community = PurePosixPath("/etc/portage/binrepos.conf/gentoo-zh.conf")
+
+    disabled = ("rm", "--force", "--", str(official))
+    assert disabled in recorder.in_target
+    assert recorder.in_target.index(disabled) < next(
+        index
+        for index, argv in enumerate(recorder.in_target)
+        if argv[-2:] == ("--import", str(portage.GENTOOZH_KEY))
+    )
+    assert official not in recorder.files
+    assert community in recorder.files
+
 
 def test_a_key_that_will_not_sign_takes_its_host_down_with_it() -> None:
     """An imported key stays untrusted until `lsign`, and verification then

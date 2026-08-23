@@ -25,6 +25,7 @@
   write /etc/portage/make.conf with MAKEOPTS, INPUT_DEVICES, ACCEPT_LICENSE, L10N, FEATURES; 23 mirrors in the configured order, 5 appended
   configure Portage, wget, curl, git and gpg for direct connection
   create the three autounmask files emerge writes its decisions into
+  disable inherited binary package host gentoo
   run getuto so Portage has a keyring to verify binary packages against, and write dirmngr.conf
   add verified binary package host gentoo at https://mirror.xtom.com.hk/gentoo/releases/amd64/binpackages/23.0/x86-64
   fetch the first ebuild repository snapshot with emerge-webrsync
