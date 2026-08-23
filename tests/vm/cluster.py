@@ -76,6 +76,7 @@ from .console import (
     command_begin,
     command_done,
     marked_command,
+    plain,
 )
 from .driver import (
     FIND_DRIVER,
@@ -3201,7 +3202,7 @@ class Reconnecting:
             # them `\r\n`, so a pattern anchored with `$` matches nothing at
             # all. `btrfs-luks` was failed at 130.3 minutes for an
             # `inputmethod` check whose three lines were on the console.
-            return said.split(command_done(token).encode())[0].replace(b"\r", b"")
+            return plain(said.split(command_done(token).encode())[0])
 
         return self._with_reconnect(
             timeout, collect_once, retry_timeout=_marker_lost

@@ -24,6 +24,24 @@ _BEGIN_TEXT = "MARK_{token}_BEGIN"
 _DONE_TEXT = "MARK_{token}_DONE"
 
 
+#: SGR colour, which `systemctl` writes because a serial console is a terminal:
+#: `enabled` arrives as `\x1b[0;1;32menabled\x1b[0m`, and an anchored pattern
+#: cannot reach the end of that line. Removed where the carriage returns are,
+#: because the reason is the same one.
+ANSI: Final[re.Pattern[bytes]] = re.compile(rb"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+def plain(said: bytes) -> bytes:
+    """`said` as the program wrote it, without what the terminal added.
+
+    Carriage returns, SGR colour, and the trailing spaces column alignment
+    leaves: `systemctl` answers `enabled enabled ` with a space before the
+    newline, and a pattern anchored on `$` cannot reach past it either.
+    """
+    without = ANSI.sub(b"", said.replace(b"\r", b""))
+    return b"\n".join(line.rstrip() for line in without.split(b"\n"))
+
+
 def marked_command(command: str, token: int) -> str:
     """Wrap a command with markers that cannot match its echoed input."""
     return (
@@ -297,7 +315,7 @@ class SerialConsole:
         # Without the carriage returns, for the reason the cluster's own reader
         # gives: a serial line ends every one of them `\r\n`, and `convert.py`
         # applies the same `installed.py` patterns, four of which anchor on `$`.
-        return said.split(command_done(token).encode())[0].replace(b"\r", b"")
+        return plain(said.split(command_done(token).encode())[0])
 
     def login(self, user: str, password: str | None, prompt: str) -> None:
         self.expect(r"login:", timeout=300.0)
