@@ -345,6 +345,37 @@ mode = "in-place"
 
 設定ファイルは TOML 形式です。トップレベルの `config_version` フィールドがスキーマバージョンを指定します。ストレージはデバイスグラフで表します。各デバイスは `id` を持ち、ほかのデバイスを `id` で参照します。セレクタは実際のインストール時にのみ解決されます。
 
+<!-- fact: config-simple -->
+
+単一ディスクのレイアウトはデバイスグラフではなく `[disk.simple]` として記述します。パーサーはメニューが用いるものと同じテンプレートで展開するため、両方の記法は同一のグラフを生成します。グラフ記法は LUKS、ZFS、RAID、手書きのパーティションテーブルのために残されています。
+
+```toml
+config_version = 1
+
+[system]
+hostname = "workstation"
+timezone = "UTC"
+locales = ["en_US.UTF-8"]
+locale = "en_US.UTF-8"
+init = "systemd"
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
+
+[portage]
+profile = "default/linux/amd64/23.0/systemd"
+makeopts = "-j4"
+
+[bootloader]
+kind = "grub"
+firmware = "uefi"
+
+[disk.simple]
+disk = "/dev/disk/by-id/virtio-target0"
+filesystem = "ext4"
+swap = "2GiB"
+```
+
+上のハッシュは例であり、実行前に置き換える必要があります。必須は `disk` のみです。省略された鍵はインストーラーの既定値を取ります。`whole-disk`、`uefi`、ファームウェアが決めるパーティションテーブル、`xfs`、スワップなし、暗号化なしです。同一のファイルに `[disk.simple]` と `[[disk.devices]]` を同時に書くことはできません。
+
 <!-- fact: config-fixtures -->
 
 [`tests/fixtures/vm-binpkg.toml`](tests/fixtures/vm-binpkg.toml) は、UEFI と Ext4 を使用する完全なスキーマ参照です。ほかの [`tests/fixtures/`](tests/fixtures/) ファイルは BIOS、LUKS2、LVM、mdraid、ZFS、Btrfs subvolume、デスクトップを扱います。これらのファイルには仮想マシン用のディスクセレクタとテスト用パスワードが含まれているため、内容を変更せずに実機のインストールに使用してはなりません。

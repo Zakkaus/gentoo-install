@@ -106,7 +106,8 @@ FACT_UNITS = (
     "desktop-language", "portage", "proxy",
     "memory-environment", "memory-environment-access",
     "plan-records", "verification-scope",
-    "config-model", "config-fixtures", "config-dry-run", "binary-packages", "exit-codes",
+    "config-model", "config-simple", "config-fixtures", "config-dry-run",
+    "binary-packages", "exit-codes",
     "faq-customisation", "contributing", "license",
 )
 

@@ -345,6 +345,37 @@ mode = "in-place"
 
 설정 파일은 TOML 형식이다. 최상위 `config_version` 필드가 스키마 버전을 지정한다. 저장 장치는 장치 그래프로 표현된다. 각 장치에는 `id`가 있으며, 장치는 다른 장치를 `id`로 참조한다. 선택자는 실제 설치 중에만 해석된다.
 
+<!-- fact: config-simple -->
+
+디스크가 하나인 배치는 장치 그래프 대신 `[disk.simple]` 로 작성합니다. 파서는 메뉴가 사용하는 것과 같은 템플릿으로 전개하므로 두 표기는 동일한 그래프를 만듭니다. 그래프 표기는 LUKS, ZFS, RAID, 손으로 만든 파티션 테이블을 위해 남아 있습니다.
+
+```toml
+config_version = 1
+
+[system]
+hostname = "workstation"
+timezone = "UTC"
+locales = ["en_US.UTF-8"]
+locale = "en_US.UTF-8"
+init = "systemd"
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
+
+[portage]
+profile = "default/linux/amd64/23.0/systemd"
+makeopts = "-j4"
+
+[bootloader]
+kind = "grub"
+firmware = "uefi"
+
+[disk.simple]
+disk = "/dev/disk/by-id/virtio-target0"
+filesystem = "ext4"
+swap = "2GiB"
+```
+
+위 해시는 예시이며 실행 전에 교체해야 합니다. 필수 항목은 `disk` 하나입니다. 생략한 키는 설치기 기본값을 따릅니다: `whole-disk`, `uefi`, 펌웨어가 정하는 파티션 테이블, `xfs`, 스왑 없음, 암호화 없음. 한 파일에 `[disk.simple]` 과 `[[disk.devices]]` 를 함께 쓸 수 없습니다.
+
 <!-- fact: config-fixtures -->
 
 [`tests/fixtures/vm-binpkg.toml`](tests/fixtures/vm-binpkg.toml)은 UEFI와 Ext4 구성을 모두 포함한 완전한 스키마 참조 파일이다. [`tests/fixtures/`](tests/fixtures/)의 다른 파일은 BIOS, LUKS2, LVM, mdraid, ZFS, Btrfs subvolume, 데스크톱을 다룬다. 이 설정 파일들에는 가상 머신 디스크 선택자와 테스트용 암호가 포함되어 있으므로, 내용을 수정하지 않은 채 실제 머신 설치에 사용해서는 안 된다.
