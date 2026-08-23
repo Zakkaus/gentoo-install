@@ -1,0 +1,12 @@
+[preflight]
+  check that this machine can be told to boot once, systemd-boot
+  check this machine has the 1900 MiB --ram needs
+  take back anything an earlier run armed
+
+[stage3]
+  fetch the ram image and verify its checksum
+
+[bootloader]
+  unpack the ram kernel and initramfs into /boot/efi/gentoo-install-ram
+  write a systemd-boot entry for the ram environment
+  replace the default boot entry with the memory environment (systemd-boot)

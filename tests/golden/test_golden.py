@@ -9,13 +9,23 @@ Regenerate with `python3 -m tests.golden.regenerate` after reading the diff.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Final
 
 import pytest
 
 from gentoo_install.data import load_catalog
 from gentoo_install.exec.config import load
-from gentoo_install.model.config import DiskMode, InstallConfig
+from gentoo_install.model.config import (
+    BootMethod,
+    DiskMode,
+    InstallConfig,
+    MemoryLaunch,
+    MemoryMode,
+    MirrorRegion,
+)
+from gentoo_install.plan import netboot
 from gentoo_install.plan.build import build
 from gentoo_install.plan.render import render
 
@@ -23,6 +33,74 @@ from ..unit.layouts import running_layout
 
 HERE = Path(__file__).resolve().parent
 FIXTURES = HERE.parent / "fixtures"
+
+
+@dataclass(frozen=True)
+class MemoryBuildFixture:
+    """Named arguments for one memory boot arming plan."""
+
+    name: str
+    launch: MemoryLaunch
+    target: netboot.BootTarget
+    bypass: bool
+    configuration: str
+    source: str
+    keys: tuple[str, ...]
+    region: MirrorRegion
+
+
+@dataclass(frozen=True)
+class MemoryDisarmFixture:
+    """Named arguments for one memory boot disarming plan."""
+
+    name: str
+    target: netboot.BootTarget
+
+
+MemoryFixture = MemoryBuildFixture | MemoryDisarmFixture
+
+SYSTEMD_BOOT_TARGET: Final = netboot.BootTarget(
+    method=BootMethod.SYSTEMD_BOOT,
+    architecture="x86_64",
+    esp_mountpoint="/boot/efi",
+)
+
+MEMORY_FIXTURES: Final[tuple[MemoryFixture, ...]] = (
+    MemoryBuildFixture(
+        name="memory-ram",
+        launch=MemoryLaunch(mode=MemoryMode.RAM),
+        target=SYSTEMD_BOOT_TARGET,
+        bypass=False,
+        configuration="",
+        source="",
+        keys=(),
+        region=MirrorRegion.GLOBAL,
+    ),
+    MemoryBuildFixture(
+        name="memory-lowram",
+        launch=MemoryLaunch(mode=MemoryMode.LOWRAM),
+        target=SYSTEMD_BOOT_TARGET,
+        bypass=False,
+        configuration="",
+        source="",
+        keys=(),
+        region=MirrorRegion.GLOBAL,
+    ),
+    MemoryBuildFixture(
+        name="memory-bypass",
+        launch=MemoryLaunch(mode=MemoryMode.RAM),
+        target=SYSTEMD_BOOT_TARGET,
+        bypass=True,
+        configuration="",
+        source="",
+        keys=(),
+        region=MirrorRegion.GLOBAL,
+    ),
+    MemoryDisarmFixture(
+        name="memory-disarm",
+        target=SYSTEMD_BOOT_TARGET,
+    ),
+)
 
 
 def plan_of(installation: InstallConfig) -> str:
@@ -42,15 +120,57 @@ def fixtures() -> list[str]:
     return sorted(path.stem for path in FIXTURES.glob("*.toml"))
 
 
-@pytest.mark.parametrize("name", fixtures())
+def memory_fixture(name: str) -> MemoryFixture | None:
+    """The explicitly named memory-plan fixture, if one has that name."""
+    return next((fixture for fixture in MEMORY_FIXTURES if fixture.name == name), None)
+
+
+def memory_plan_text(fixture: MemoryFixture) -> str:
+    """Render one memory plan from the exact arguments its CLI path receives."""
+    if isinstance(fixture, MemoryDisarmFixture):
+        return render(netboot.disarm(target=fixture.target))
+    return render(
+        netboot.build(
+            launch=fixture.launch,
+            target=fixture.target,
+            bypass=fixture.bypass,
+            configuration=fixture.configuration,
+            source=fixture.source,
+            keys=fixture.keys,
+            region=fixture.region,
+        )
+    )
+
+
+def golden_names() -> list[str]:
+    """Every ordinary-install and memory-plan golden fixture name."""
+    return sorted([*fixtures(), *(fixture.name for fixture in MEMORY_FIXTURES)])
+
+
+def golden_text(name: str) -> str:
+    """Render either the TOML-backed plan or an explicitly named memory plan."""
+    fixture = memory_fixture(name)
+    return memory_plan_text(fixture) if fixture is not None else plan_text(name)
+
+
+@pytest.mark.parametrize("name", golden_names())
 def test_the_plan_matches_its_golden_file(name: str) -> None:
     expected = HERE / f"{name}.txt"
     assert expected.exists(), f"no golden file for {name}; run tests.golden.regenerate"
-    assert plan_text(name) == expected.read_text()
+    assert golden_text(name) == expected.read_text()
 
 
 def test_every_fixture_has_a_golden_file() -> None:
-    assert {path.stem for path in HERE.glob("*.txt")} == set(fixtures())
+    assert {path.stem for path in HERE.glob("*.txt")} == set(golden_names())
+
+
+def test_memory_golden_fixtures_cover_each_mode() -> None:
+    assert {fixture.name for fixture in MEMORY_FIXTURES} == {
+        "memory-ram",
+        "memory-lowram",
+        "memory-bypass",
+        "memory-disarm",
+    }
 
 
 @pytest.mark.parametrize("name", fixtures())

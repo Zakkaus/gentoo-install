@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from gentoo_install.errors import GentooInstallError
 
-from .test_golden import HERE, fixtures, plan_text
+from .test_golden import HERE, golden_names, golden_text
 
 
 def main() -> None:
@@ -16,9 +16,9 @@ def main() -> None:
     and the suite stayed red on files this command claimed to have written.
     """
     refused: list[str] = []
-    for name in fixtures():
+    for name in golden_names():
         try:
-            text = plan_text(name)
+            text = golden_text(name)
         except GentooInstallError as error:
             refused.append(f"{name}: {error}")
             continue
