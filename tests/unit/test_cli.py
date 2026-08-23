@@ -178,6 +178,23 @@ def test_memory_key_must_be_a_file_or_ssh_public_key(tmp_path: Path) -> None:
             cli.parser().parse_args(["--ram", "--ssh-key", "ftp://host/key.pub"])
         )
 
+def test_memory_key_is_resolved_before_the_boot_entry_is_written(tmp_path: Path) -> None:
+    """A key source becomes validated key text before the payload is built."""
+    public_key = (
+        "ssh-ed25519 "
+        "AAAAC3NzaC1lZDI1NTE5AAAAIB+85deBslaLOMFw71dx23wo7fFT76GVcEyQS9IdVvvT "
+        "netboot@example"
+    )
+    key = tmp_path / "operator key.pub"
+    key.write_text(f"{public_key}\n", encoding="utf-8")
+
+    keys = cli._memory_ssh_keys(
+        MemoryLaunch(MemoryMode.RAM, ssh_key=str(key)),
+        Runner(log=lambda line: None),
+    )
+
+    assert keys == (public_key,)
+
 
 @pytest.mark.parametrize("mode", ("--ram", "--lowram"))
 def test_memory_modes_require_a_one_shot_boot_entry(

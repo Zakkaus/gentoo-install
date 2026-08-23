@@ -448,6 +448,12 @@ class PlaceMemoryKernel(Operation):
 #: Where the payload lands inside both live systems.
 PAYLOAD: Final[str] = "/gentoo-install"
 
+#: The credential record is read by `chpasswd` after the live system starts.
+ROOT_PASSWORD: Final[str] = "root-password"
+
+#: The one-shot local hook that applies the credential record.
+ROOT_PASSWORD_START: Final[str] = "gentoo-install.start"
+
 #: The archive `initramfs-init` unpacks after it has built Alpine's sysroot.
 APKOVL: Final[str] = "gentoo-install.apkovl.tar.gz"
 
@@ -485,11 +491,33 @@ class AppendConfiguration(Operation):
     #: download would bring.
     source: str
     keys: tuple[str, ...] = ()
+    #: Whether the payload carries credentials that need an ssh daemon.
+    access: bool = False
 
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
         return (
             "put the installer, the configuration and {} key(s) in authorized_keys inside the initramfs",
             (str(len(self.keys)),),
+        )
+
+    def required_host_commands(self) -> frozenset[str]:
+        commands = {"cpio", "dd", "find", "mkdir", "python3", "rm", "tar"}
+        if self.launch.mode is MemoryMode.LOWRAM and self.needs_ssh:
+            commands.add("ln")
+        return frozenset(commands)
+
+    @property
+    def needs_ssh(self) -> bool:
+        """Whether the payload carries anything that wants a running sshd.
+
+        `build()` derives `access` from the same three inputs, so this repeats
+        it only for an operation built by hand rather than through the plan.
+        """
+        return (
+            self.access
+            or bool(self.keys)
+            or bool(self.launch.ssh_key)
+            or bool(self.launch.root_password)
         )
 
     def apply(self, context: Context) -> None:
@@ -511,18 +539,53 @@ class AppendConfiguration(Operation):
                     key_text,
                     mode=0o600,
                 )
+        if self.launch.root_password:
+            password_start = _root_password_start()
+            context.write(
+                inside / ROOT_PASSWORD,
+                _root_password_record(self.launch.root_password),
+                mode=0o600,
+            )
+            context.write(inside / ROOT_PASSWORD_START, password_start, mode=0o755)
+            if self.launch.mode is MemoryMode.LOWRAM:
+                context.write(
+                    payload_staging / "etc/local.d" / ROOT_PASSWORD_START,
+                    password_start,
+                    mode=0o755,
+                )
+        if self.launch.mode is MemoryMode.LOWRAM and self.needs_ssh:
+            runlevel = payload_staging / "etc/runlevels/default"
+            context.run(["mkdir", "--parents", str(runlevel)])
+            context.run(
+                [
+                    "ln",
+                    "--symbolic",
+                    "--force",
+                    "/etc/init.d/sshd",
+                    str(runlevel / "sshd"),
+                ]
+            )
         # `bootstrap.sh` runs the tree beside it, so both go in together.
-        context.run(
+        context.pipe(
             [
-                "sh",
-                "-c",
-                f"cd {self.source} && tar --create --exclude=__pycache__ "
-                f"gentoo_install bootstrap.sh | tar --extract --no-same-owner "
-                # The esp is vfat and has no owners: without this the copy ends
-                # `Cannot change ownership to uid 1000` for every file the tree
-                # carries and the arming stops with the payload half written.
-                f"--no-same-permissions --directory {inside}",
-            ]
+                "tar",
+                "--create",
+                "--exclude=__pycache__",
+                "--directory",
+                self.source,
+                "gentoo_install",
+                "bootstrap.sh",
+            ],
+            [
+                "tar",
+                "--extract",
+                # The ESP is vfat and has no owners, so restoring them aborts
+                # after copying only part of the installer tree.
+                "--no-same-owner",
+                "--no-same-permissions",
+                "--directory",
+                str(inside),
+            ],
         )
         context.write(inside / "start.sh", _start(self.launch.mode), mode=0o755)
         context.write(inside / "command.sh", _command(), mode=0o755)
@@ -539,48 +602,92 @@ class AppendConfiguration(Operation):
                 payload_staging / AUTOSTART[self.launch.mode].lstrip("/"),
                 _source_start(),
             )
-            # The apkovl is unpacked over `/`, so this lands on `PATH` the same
-            # way the profile line does.
+            # The apkovl is unpacked over `/`, so this lands on `PATH`.
             context.write(payload_staging / COMMAND.lstrip("/"), _command(), mode=0o755)
-            # `initramfs-init` adds `modloop`, `mdev`, `hwdrivers` and the rest
-            # only when there is no apkovl or this file is in it, so ours came
-            # up with no `/lib/modules` at all (`initramfs-init.in:950`).
+            # `initramfs-init` adds services only when this marker is present.
+            # Without it Alpine reaches the preflight with no `/lib/modules`.
             context.write(payload_staging / DEFAULT_SERVICES.lstrip("/"), "")
             apkovl = staging / APKOVL
             context.run(
                 [
-                    "sh",
-                    "-c",
-                    f"cd {payload_staging} && tar --create --gzip --file {apkovl} .",
+                    "tar",
+                    "--create",
+                    "--gzip",
+                    "--file",
+                    str(apkovl),
+                    "--directory",
+                    str(payload_staging),
+                    ".",
                 ]
             )
             context.run(["rm", "--recursive", "--force", str(payload_staging)])
-        # `find | cpio` from inside the staging directory, or every path in the
-        # archive carries the staging prefix and lands nowhere the initramfs reads.
+        # `%P` drops the staging prefix, so cpio members land in the initramfs
+        # root rather than in a directory the live environment never reads.
         image = self.target.place / "initramfs"
-        # Padded to a four-byte boundary first, because the kernel reads
-        # concatenated initramfs segments only from one. Measured on this
-        # workstation on 2026-08-18: Alpine's `initramfs-lts` is 27951899
-        # bytes, 3 mod 4, and a guest booted with the segment appended to it
-        # reached `localhost login:` with no `Loading user settings from` line
-        # at all; one zero byte in front of the same segment answered
-        # `Loading user settings from /gentoo-install.apkovl.tar.gz: ok.`
-        context.run(
+        # The kernel reads a concatenated initramfs segment only from a
+        # four-byte boundary; Alpine's `initramfs-lts` measured 3 mod 4.
+        context.run(["python3", "-c", _PAD_INITRAMFS, str(image)])
+        archive = self.target.place / "payload.cpio"
+        context.pipe(
             [
-                "sh",
-                "-c",
-                f'pad=$(( (4 - $(stat --format=%s {image}) % 4) % 4 )); '
-                f'[ "$pad" -eq 0 ] || dd if=/dev/zero bs=1 count="$pad" >> {image}',
-            ]
+                "find",
+                str(staging),
+                "-mindepth",
+                "1",
+                "-printf",
+                "%P\\0",
+            ],
+            [
+                "cpio",
+                "--create",
+                "--format=newc",
+                "--null",
+                "--directory",
+                str(staging),
+                "--file",
+                str(archive),
+            ],
         )
         context.run(
             [
-                "sh",
-                "-c",
-                f"cd {staging} && find . | cpio --create --format=newc >> {image}",
+                "dd",
+                f"if={archive}",
+                f"of={image}",
+                "bs=1M",
+                "oflag=append",
+                "conv=notrunc",
+                "status=none",
             ]
         )
+        context.run(["rm", "--force", str(archive)])
         context.run(["rm", "--recursive", "--force", str(staging)])
+
+
+_PAD_INITRAMFS: Final[str] = (
+    "import os, sys; "
+    "descriptor = os.open(sys.argv[1], os.O_WRONLY | os.O_APPEND); "
+    "padding = -os.fstat(descriptor).st_size % 4; "
+    "os.write(descriptor, b'\\0' * padding); "
+    "os.close(descriptor)"
+)
+
+
+def _root_password_record(password: str) -> str:
+    """The `chpasswd` record that carries a live-environment password."""
+    if "\n" in password or "\r" in password:
+        raise PreflightFailed("--root-password cannot contain a newline")
+    return f"root:{password}\n"
+
+
+def _root_password_start() -> str:
+    """Set the live root password after its boot service has started."""
+    return (
+        "#!/bin/sh\n"
+        f"chpasswd < {PAYLOAD}/{ROOT_PASSWORD} || exit 1\n"
+        f"rm --force {PAYLOAD}/{ROOT_PASSWORD}\n"
+        "rc-service sshd restart\n"
+        'rm --force "$0"\n'
+    )
 
 
 #: Alpine's package for the interpreter the installer runs on.
@@ -745,6 +852,11 @@ def _handover(mode: MemoryMode) -> str:
         f'    chmod 700 "$NEWROOT/root/.ssh"\n'
         f'    chmod 600 "$NEWROOT/root/.ssh/authorized_keys"\n'
         "fi\n"
+        f'if [ -f "$NEWROOT{PAYLOAD}/{ROOT_PASSWORD}" ]; then\n'
+        f'    mkdir -p "$NEWROOT/etc/local.d"\n'
+        f'    mv "$NEWROOT{PAYLOAD}/{ROOT_PASSWORD_START}" '
+        f'"$NEWROOT/etc/local.d/{ROOT_PASSWORD_START}"\n'
+        "fi\n"
         # Appended, not written: the file exists on the medium and sources
         # `.bashrc`, and replacing it would take the prompt and the aliases
         # with it.
@@ -789,6 +901,17 @@ class WriteMemoryEntry(Operation):
     region: MirrorRegion = MirrorRegion.GLOBAL
     #: `--bypass`, which the entry itself has to carry on a GRUB machine.
     bypass: bool = False
+    #: Whether the payload carries credentials that need an ssh daemon.
+    access: bool = False
+
+    @property
+    def needs_ssh(self) -> bool:
+        """Whether this entry has to ask Alpine to install OpenSSH.
+
+        The keys live on `AppendConfiguration`, so this reads `access`, which
+        `build()` derives from them and from both launch credentials.
+        """
+        return self.access or bool(self.launch.ssh_key) or bool(self.launch.root_password)
 
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
         return "write a {} entry for the {} environment", (
@@ -831,17 +954,9 @@ class WriteMemoryEntry(Operation):
                 f"iso-scan/filename={image}",
                 *_inherited_consoles(context),
             ]
-            if self.launch.ssh_key or self.launch.root_password:
-                # `/etc/init.d/autoconfig:146,242` schedules sshd for `dosshd`
-                # and for nothing else, and the medium's default runlevel has
-                # no sshd in it. A key copied to `/root/.ssh` by the initramfs
-                # hook reaches a machine with no daemon listening without this.
+            if self.needs_ssh:
+                # `autoconfig` starts sshd only for `dosshd`; secrets arrive in the payload.
                 words.append("dosshd")
-            if self.launch.root_password:
-                # The medium scrambles root's password when it starts sshd
-                # without one (`autoconfig:551-555`), so a password login needs
-                # this and a key login does not.
-                words.append(f"passwd={self.launch.root_password}")
             return tuple(words)
         base = ALPINE_MIRRORS[self.region]
         archive = _only_image(context, STAGING, ".tar.gz")
@@ -852,11 +967,10 @@ class WriteMemoryEntry(Operation):
             "ip=dhcp",
             *_inherited_consoles(context),
         ]
-        if self.launch.ssh_key:
-            # Alpine's netboot init installs openssh and enables sshd when
-            # this is set; where the key text lands is the booted system's
-            # `firstboot`, which is why the installer writes it as well.
-            words.append(f"ssh_key={self.launch.ssh_key}")
+        if self.needs_ssh:
+            # `pkgs=` is a fixed value. The payload supplies credentials and
+            # the service link that starts OpenSSH after Alpine installs it.
+            words.append("pkgs=openssh")
         return tuple(words)
 
 
@@ -949,6 +1063,7 @@ def build(
     arming: Operation = (
         ReplaceDefaultBoot(target=target) if bypass else ArmOneShot(target=target)
     )
+    access = bool(keys) or bool(launch.ssh_key) or bool(launch.root_password)
     operations: list[Operation] = [
         RefuseWithoutABootMethod(target=target),
         RefuseTooLittleMemory(mode=launch.mode),
@@ -968,6 +1083,7 @@ def build(
                 configuration=configuration,
                 source=source,
                 keys=keys,
+                access=access,
             )
         )
     operations.append(
@@ -977,6 +1093,7 @@ def build(
             launch=launch,
             region=region,
             bypass=bypass,
+            access=access,
         )
     )
     if launch.mode is MemoryMode.LOWRAM:

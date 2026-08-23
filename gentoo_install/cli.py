@@ -244,6 +244,19 @@ def _memory_launch(arguments: argparse.Namespace) -> MemoryLaunch | None:
     )
 
 
+def _memory_ssh_keys(launch: MemoryLaunch, runner: Runner) -> tuple[str, ...]:
+    """Read the key source before a boot entry can make the machine reboot."""
+    if not launch.ssh_key:
+        return ()
+    source = authorized.classify(launch.ssh_key)
+    if source.kind is authorized.KeySourceKind.LITERAL:
+        text = source.value
+    elif source.kind is authorized.KeySourceKind.PATH:
+        text = runner.run(["cat", "--", source.value]).stdout
+    else:
+        text = runner.run(["curl", "--fail", "--location", source.value]).stdout
+    return authorized.keys_in(text)
+
 def _validate_memory_launch(
     config: InstallConfig, launch: MemoryLaunch, probe: Probe
 ) -> None:
@@ -320,6 +333,9 @@ def _arm_memory_environment(
     """
     probe = Probe(runner=Runner(log=lambda line: None), work=arguments.work)
     target = _boot_target(probe)
+    keys = tuple(config.system.authorized_keys)
+    if not arguments.missing_commands:
+        keys += _memory_ssh_keys(launch, probe.runner)
     operations = netboot.build(
         launch=launch,
         target=target,
@@ -330,7 +346,7 @@ def _arm_memory_environment(
         # Where this installer is, so the payload carries the revision that
         # wrote that configuration.
         source=str(Path(__file__).resolve().parent.parent),
-        keys=tuple(config.system.authorized_keys),
+        keys=keys,
         region=config.portage.mirrors.region,
     )
     if arguments.missing_commands:

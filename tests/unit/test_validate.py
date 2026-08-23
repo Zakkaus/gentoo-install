@@ -389,31 +389,30 @@ def test_memory_launch_refuses_ssh_ports_outside_the_tcp_range(port: int) -> Non
         )
 
 
-def test_a_key_or_a_port_needs_a_password_as_well() -> None:
-    """`catalyst/livecd/files/README.txt` lines 96-98: the LiveCD command line
-    takes `dosshd` and `passwd=foo`, and `dosshd` requires the password because
-    it scrambles the existing one. None of its 35 options names a key or a
-    port, so both of those take effect only once the installer has written
-    them, and sshd is already listening on 22 with the command line's password
-    by then. Asking for a key with no password leaves that window shut.
-    """
-    for launch in (
-        MemoryLaunch(MemoryMode.RAM, ssh_key="ssh-ed25519 AAAA"),
-        MemoryLaunch(MemoryMode.RAM, ssh_port=2222),
-    ):
-        with pytest.raises(ValidationFailed, match="--root-password is needed as well"):
-            validate_memory_launch(config(), launch)
-
-
-def test_a_password_on_its_own_is_the_environment_s_own_mechanism() -> None:
-    """The negative direction, and the case a rule written from expectation
-    rather than from the ISO refused: `--root-password` alone is exactly what
-    `dosshd` documents, so refusing it would refuse the documented way in."""
-    validate_memory_launch(config(), MemoryLaunch(MemoryMode.RAM, root_password="secret"))
+def test_a_key_authenticates_to_the_memory_environment_without_a_password() -> None:
     validate_memory_launch(
         config(),
-        MemoryLaunch(MemoryMode.RAM, ssh_key="ssh-ed25519 AAAA", root_password="secret"),
+        MemoryLaunch(MemoryMode.RAM, ssh_key="ssh-ed25519 AAAA"),
     )
+
+
+def test_an_ssh_port_needs_a_payload_credential() -> None:
+    with pytest.raises(ValidationFailed, match="--ssh-key or --root-password"):
+        validate_memory_launch(config(), MemoryLaunch(MemoryMode.RAM, ssh_port=2222))
+    validate_memory_launch(
+        config(),
+        MemoryLaunch(MemoryMode.RAM, ssh_key="ssh-ed25519 AAAA", ssh_port=2222),
+    )
+
+
+def test_a_payload_password_can_contain_whitespace() -> None:
+    validate_memory_launch(config(), MemoryLaunch(MemoryMode.RAM, root_password="summer meadow"))
+
+
+@pytest.mark.parametrize("password", ("first\nsecond", "first\rsecond"))
+def test_a_payload_password_rejects_record_separators(password: str) -> None:
+    with pytest.raises(ValidationFailed, match="cannot contain a newline"):
+        validate_memory_launch(config(), MemoryLaunch(MemoryMode.RAM, root_password=password))
 
 
 def test_the_shipped_fixture_validates() -> None:
