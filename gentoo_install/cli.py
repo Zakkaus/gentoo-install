@@ -529,6 +529,11 @@ def _once(arguments: argparse.Namespace, state: RunState, refused: str) -> int |
         _print_machine_state(state)
         print(f"device: {error}", file=sys.stderr)
         return EXIT_PREFLIGHT
+    except errors.WorkDirectoryBusy as error:
+        # Preflight, not a command failure: nothing has run, and the operator
+        # can act on it by waiting or choosing another `--work`.
+        print(f"work directory: {error}", file=sys.stderr)
+        return EXIT_PREFLIGHT
     except errors.ResumeRefused as error:
         # Before the machine state is printed: nothing of this run has touched
         # the disks, and the state to report is the earlier run's.

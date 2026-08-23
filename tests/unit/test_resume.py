@@ -523,3 +523,21 @@ def test_every_kind_of_storage_that_needs_activation_has_a_fixture_here() -> Non
         and isinstance(getattr(plan_disk, name), type)
     }
     assert defined - named == set(), defined - named
+
+
+def test_a_second_install_cannot_open_a_work_directory_that_is_in_use(
+    tmp_path: Path,
+) -> None:
+    """Two invocations sharing a `--work` both passed preflight, then wrote
+    independent attempts into one journal and partitioned the same disks."""
+    from gentoo_install.errors import WorkDirectoryBusy
+    from gentoo_install.exec.report import recording
+
+    with recording(tmp_path / "work", tmp_path / "target") as first:
+        assert first.work.is_dir()
+        with pytest.raises(WorkDirectoryBusy, match="another install is using"):
+            with recording(tmp_path / "work", tmp_path / "target"):
+                pass
+    # Released when the first run finishes, so a later run is not locked out.
+    with recording(tmp_path / "work", tmp_path / "target") as second:
+        assert second.work.is_dir()
