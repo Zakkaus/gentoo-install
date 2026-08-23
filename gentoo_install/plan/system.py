@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import PurePosixPath
 from types import MappingProxyType
+from collections.abc import Sequence
 from typing import Final, Mapping
 
 from ..errors import ConversionUnsupported, InvalidLayout, LocaleMissing
@@ -52,6 +53,16 @@ CONSOLE_FONTS: Final[dict[ConsoleFontSize, str]] = {
 USER_GROUPS: Final[tuple[str, ...]] = ("users", "wheel", "audio", "video", "render", "usb", "input")
 
 ROOT = PurePosixPath("/")
+
+
+def _named(destinations: Sequence[PurePosixPath]) -> str:
+    """The files an operation writes, as its `describe()` names them.
+
+    `destinations()` is the single derivation of those paths and `apply()`
+    writes exactly them, so a dry-run cannot name a file the run does not
+    touch.
+    """
+    return " and ".join(str(one) for one in destinations)
 
 
 class NetworkConfig(Enum):
@@ -227,14 +238,20 @@ class SelectLocale(Operation):
     locale: str
     init: InitSystem
 
+    def destinations(self) -> tuple[PurePosixPath, ...]:
+        if self.init is InitSystem.SYSTEMD:
+            return (PurePosixPath("/etc/locale.conf"),)
+        return (PurePosixPath("/etc/env.d/02locale"),)
+
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
-        return "set the system locale to {}", (self.locale,)
+        return "set the system locale to {} in {}", (self.locale, _named(self.destinations()))
 
     def apply(self, context: Context) -> None:
+        (path,) = self.destinations()
         if self.init is InitSystem.SYSTEMD:
-            context.write(PurePosixPath("/etc/locale.conf"), f"LANG={self.locale}\n")
+            context.write(path, f"LANG={self.locale}\n")
             return
-        context.write(PurePosixPath("/etc/env.d/02locale"), f'LANG="{self.locale}"\n')
+        context.write(path, f'LANG="{self.locale}"\n')
         context.run_in_target(["env-update"])
 
 
@@ -263,17 +280,26 @@ class ConfigureConsole(Operation):
     font: str
     init: InitSystem
 
+    def destinations(self) -> tuple[PurePosixPath, ...]:
+        if self.init is InitSystem.SYSTEMD:
+            return (PurePosixPath("/etc/vconsole.conf"),)
+        return (PurePosixPath("/etc/conf.d/keymaps"), PurePosixPath("/etc/conf.d/consolefont"))
+
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
-        return "set the console keymap to {} and its font to {}", (self.keymap, self.font)
+        return "set the console keymap to {} and its font to {} in {}", (
+            self.keymap,
+            self.font,
+            _named(self.destinations()),
+        )
 
     def apply(self, context: Context) -> None:
         if self.init is InitSystem.SYSTEMD:
-            context.write(
-                PurePosixPath("/etc/vconsole.conf"), f"KEYMAP={self.keymap}\nFONT={self.font}\n"
-            )
+            (path,) = self.destinations()
+            context.write(path, f"KEYMAP={self.keymap}\nFONT={self.font}\n")
             return
-        context.write(PurePosixPath("/etc/conf.d/keymaps"), f'keymap="{self.keymap}"\n')
-        context.write(PurePosixPath("/etc/conf.d/consolefont"), f'consolefont="{self.font}"\n')
+        keymaps, consolefont = self.destinations()
+        context.write(keymaps, f'keymap="{self.keymap}"\n')
+        context.write(consolefont, f'consolefont="{self.font}"\n')
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -282,16 +308,25 @@ class SetHostname(Operation):
     hostname: str
     init: InitSystem
 
+    def destinations(self) -> tuple[PurePosixPath, ...]:
+        named = (
+            PurePosixPath("/etc/hostname")
+            if self.init is InitSystem.SYSTEMD
+            else PurePosixPath("/etc/conf.d/hostname")
+        )
+        return (named, PurePosixPath("/etc/hosts"))
+
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
-        return "set the hostname to {}", (self.hostname,)
+        return "set the hostname to {} in {}", (self.hostname, _named(self.destinations()))
 
     def apply(self, context: Context) -> None:
+        named, hosts = self.destinations()
         if self.init is InitSystem.SYSTEMD:
-            context.write(PurePosixPath("/etc/hostname"), f"{self.hostname}\n")
+            context.write(named, f"{self.hostname}\n")
         else:
-            context.write(PurePosixPath("/etc/conf.d/hostname"), f'hostname="{self.hostname}"\n')
+            context.write(named, f'hostname="{self.hostname}"\n')
         context.write(
-            PurePosixPath("/etc/hosts"),
+            hosts,
             "127.0.0.1\tlocalhost\n"
             "::1\t\tlocalhost\n"
             f"127.0.1.1\t{self.hostname}.localdomain\t{self.hostname}\n",
@@ -303,8 +338,19 @@ class WriteMachineId(Operation):
     stage: Stage = Stage.SYSTEM
     init: InitSystem
 
+    def destinations(self) -> tuple[PurePosixPath, ...]:
+        if self.init is InitSystem.SYSTEMD:
+            return ()
+        return (PurePosixPath("/etc/machine-id"),)
+
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
-        return "give the target its own machine id", ()
+        written = self.destinations()
+        source = (
+            "systemd-machine-id-setup"
+            if not written
+            else f"/proc/sys/kernel/random/uuid into {_named(written)}"
+        )
+        return "give the target its own machine id with {}", (source,)
 
     def apply(self, context: Context) -> None:
         if self.init is InitSystem.SYSTEMD:
@@ -313,7 +359,8 @@ class WriteMachineId(Operation):
         # `dbus-uuidgen` would need sys-apps/dbus, which a stage3 has not got.
         # The kernel hands out a fresh uuid to anyone who reads this file.
         value = context.run_in_target(["cat", "/proc/sys/kernel/random/uuid"]).strip()
-        context.write(PurePosixPath("/etc/machine-id"), value.replace("-", "") + "\n")
+        (path,) = self.destinations()
+        context.write(path, value.replace("-", "") + "\n")
 
 
 #: Where portage builds. `PORTAGE_TMPDIR` is the parent, and portage makes
@@ -345,10 +392,13 @@ class WriteFstab(Operation):
     entries: tuple[FstabEntry, ...]
 
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
-        mounts = ", ".join(
-            "swap" if entry.kind == "swap" else str(entry.path) for entry in self.entries
+        entries = ", ".join(
+            f"{entry.source if entry.device is None else f'UUID from {entry.device}'} "
+            f"{_fstab_path(entry.path)} {entry.kind} {','.join(entry.options) or 'defaults'} "
+            f"{entry.dump} {entry.check}"
+            for entry in self.entries
         )
-        return "write /etc/fstab with entries for {}", (mounts,)
+        return "write /etc/fstab with {}", (entries,)
 
     def apply(self, context: Context) -> None:
         lines = ["# device\tmountpoint\ttype\toptions\tdump\tpass"]
@@ -393,7 +443,12 @@ class WriteCrypttab(Operation):
         written = self._written()
         if not written:
             return "write {} empty: the initramfs opens every encrypted device", (where,)
-        return "write {} for {}", (where, ", ".join(entry.name for entry in written))
+        entries = ", ".join(
+            f"{entry.name} UUID from {entry.backing} "
+            f"{'luks,x-initrd.attach' if entry.initrd_attach else 'luks'}"
+            for entry in written
+        )
+        return "write {} with {}", (where, entries)
 
     def _written(self) -> tuple[CrypttabEntry, ...]:
         """openrc's dmcrypt does not open what the initramfs already did, so a
@@ -550,56 +605,93 @@ class WriteNetworkConfig(Operation):
     gateways: tuple[str, ...] = ()
     dns: tuple[str, ...] = ()
 
-    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+    def destinations(self) -> tuple[PurePosixPath, ...]:
         config = NETWORK_BACKENDS[self.networking].for_init(self.init).config
         if config is NetworkConfig.NONE:
-            return "leave the network unconfigured", ()
+            return ()
         if config is NetworkConfig.NETWORKMANAGER:
-            if not self.addresses:
-                return "leave the interfaces to NetworkManager ({})", (self.networking.value,)
+            # NetworkManager does DHCP on every unconfigured interface, so a
+            # file saying so is a file that changes nothing.
+            return (NM_PROFILE,) if self.addresses else ()
+        if config is NetworkConfig.NETWORKD:
+            return (PurePosixPath("/etc/systemd/network/20-wired.network"),)
+        if self.addresses and not self.interface:
+            return ()
+        return (PurePosixPath("/etc/conf.d/net"),)
+
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        config = NETWORK_BACKENDS[self.networking].for_init(self.init).config
+        written = self.destinations()
+        addresses = ", ".join(self.addresses)
+        gateways = ", ".join(self.gateways) or "-"
+        dns = ", ".join(self.dns) or "-"
+        if config is NetworkConfig.NETWORKMANAGER and not written:
+            return "leave the interfaces to NetworkManager ({})", (self.networking.value,)
+        if not written:
+            return "leave the network unconfigured", ()
+        path = _named(written)
+        if config is NetworkConfig.NETWORKMANAGER:
             if self.interface:
-                return "write wired.nmconnection for {} as {}", (
+                return "write {} for {} with addresses {}; gateways {}; DNS {}", (
+                    path,
                     self.interface,
-                    ", ".join(self.addresses),
+                    addresses,
+                    gateways,
+                    dns,
                 )
-            return "write wired.nmconnection for the wired interface as {}", (
-                ", ".join(self.addresses),
+            return "write {} for the wired interface with addresses {}; gateways {}; DNS {}", (
+                path,
+                addresses,
+                gateways,
+                dns,
             )
-        if self.addresses:
+        if config is NetworkConfig.NETWORKD:
+            if self.addresses:
+                if self.interface:
+                    return "write {} for {} with addresses {}; gateways {}; DNS {}", (
+                        path,
+                        self.interface,
+                        addresses,
+                        gateways,
+                        dns,
+                    )
+                return "write {} for the wired interface with addresses {}; gateways {}; DNS {}", (
+                    path,
+                    addresses,
+                    gateways,
+                    dns,
+                )
             if self.interface:
-                return "configure {} as {}", (self.interface, ", ".join(self.addresses))
-            return "configure the wired interface as {}", (", ".join(self.addresses),)
-        if self.interface:
-            return "configure {} for DHCP", (self.interface,)
-        return "configure the wired interface for DHCP", ()
+                return "write {} for {} with DHCP and DNS {}", (path, self.interface, dns)
+            return "write {} for the wired interfaces with DHCP and DNS {}", (path, dns)
+        if self.addresses:
+            return "write {} for {} with addresses {}; gateways {}; DNS {}", (
+                path,
+                self.interface,
+                addresses,
+                gateways,
+                dns,
+            )
+        return "write {} for {} with DHCP", (path, self.interface or "eth0")
 
     def apply(self, context: Context) -> None:
         config = NETWORK_BACKENDS[self.networking].for_init(self.init).config
-        if config is NetworkConfig.NONE:
+        written = self.destinations()
+        if not written:
             # The operator brings the link up by hand.
             return
+        (path,) = written
         if config is NetworkConfig.NETWORKMANAGER:
-            if not self.addresses:
-                # NetworkManager does DHCP on every unconfigured interface, so
-                # a file saying so is a file that changes nothing.
-                return
             # 0600 or NetworkManager refuses to read it, and says so only in
             # its own log while the machine sits with no address.
             context.write(
-                NM_PROFILE,
-                self._networkmanager(self._permanent_address(context)),
-                mode=0o600,
+                path, self._networkmanager(self._permanent_address(context)), mode=0o600
             )
             return
         if config is NetworkConfig.NETWORKD:
-            context.write(
-                PurePosixPath("/etc/systemd/network/20-wired.network"),
-                self._networkd(self._permanent_address(context)),
-            )
+            context.write(path, self._networkd(self._permanent_address(context)))
             return
-        if self.addresses and not self.interface:
-            return
-        context.write(PurePosixPath("/etc/conf.d/net"), self._netifrc())
+        context.write(path, self._netifrc())
 
     def _networkmanager(self, address: str = "") -> str:
         """A keyfile connection. The gateway rides on the first address of its
@@ -825,19 +917,28 @@ class ConfigureZram(Operation):
     size: Size
     init: InitSystem
 
+    def destinations(self) -> tuple[PurePosixPath, ...]:
+        if self.init is InitSystem.SYSTEMD:
+            return (PurePosixPath("/etc/systemd/zram-generator.conf"),)
+        return (PurePosixPath("/etc/conf.d/zram-init"),)
+
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
-        return "configure {} of compressed swap in memory", (str(self.size),)
+        return "configure {} of compressed swap in {}", (
+            str(self.size),
+            _named(self.destinations()),
+        )
 
     def apply(self, context: Context) -> None:
+        (path,) = self.destinations()
         if self.init is InitSystem.SYSTEMD:
             context.write(
-                PurePosixPath("/etc/systemd/zram-generator.conf"),
+                path,
                 f"[zram0]\nzram-size = {self.size.bytes // 1024 ** 2}\n"
                 "compression-algorithm = zstd\n",
             )
             return
         context.write(
-            PurePosixPath("/etc/conf.d/zram-init"),
+            path,
             "load_on_start=yes\nunload_on_stop=yes\nnum_devices=1\n"
             "type0=swap\n"
             f"size0={self.size.bytes // 1024 ** 2}\n"
@@ -858,8 +959,11 @@ class WriteMdadmConf(Operation):
     arrays: tuple[MdRaid, ...]
 
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
-        paths = ", ".join(f"/dev/md/{array.name}" for array in self.arrays)
-        return "write /etc/mdadm.conf for {}", (paths,)
+        arrays = ", ".join(
+            f"ARRAY /dev/md/{array.name} metadata={array.metadata.value} UUID from {array.id}"
+            for array in self.arrays
+        )
+        return "write /etc/mdadm.conf with {}", (arrays,)
 
     def apply(self, context: Context) -> None:
         definitions = "".join(
@@ -881,23 +985,25 @@ class SetHardwareClock(Operation):
     utc: bool
     init: InitSystem
 
+    def destinations(self) -> tuple[PurePosixPath, ...]:
+        if self.init is InitSystem.OPENRC:
+            return (PurePosixPath("/etc/conf.d/hwclock"),)
+        return (PurePosixPath("/etc/adjtime"),)
+
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
-        return (
-            ("treat the hardware clock as UTC", ())
-            if self.utc
-            else ("treat the hardware clock as local time", ())
-        )
+        named = _named(self.destinations())
+        if self.utc:
+            return "treat the hardware clock as UTC in {}", (named,)
+        return "treat the hardware clock as local time in {}", (named,)
 
     def apply(self, context: Context) -> None:
+        (path,) = self.destinations()
         if self.init is InitSystem.OPENRC:
-            context.write(
-                PurePosixPath("/etc/conf.d/hwclock"),
-                f'clock="{"UTC" if self.utc else "local"}"\n',
-            )
+            context.write(path, f'clock="{"UTC" if self.utc else "local"}"\n')
             return
         # systemd reads the third line of /etc/adjtime and nothing else.
         context.write(
-            PurePosixPath("/etc/adjtime"),
+            path,
             f"0.0 0 0.0\n0\n{'UTC' if self.utc else 'LOCAL'}\n",
         )
 

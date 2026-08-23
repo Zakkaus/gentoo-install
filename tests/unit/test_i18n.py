@@ -243,7 +243,7 @@ def operation_templates() -> set[str]:
     """Description templates the overview passes to the catalog indirectly."""
     import ast
 
-    from gentoo_install.plan import dd, portage, system
+    from gentoo_install.plan import dd, kernel, portage, system
 
     def templates(expression: ast.expr) -> set[str]:
         if isinstance(expression, ast.IfExp):
@@ -256,7 +256,7 @@ def operation_templates() -> set[str]:
         return set()
 
     found: set[str] = set()
-    for module in (dd, portage, system):
+    for module in (dd, kernel, portage, system):
         module_path = module.__file__
         assert module_path is not None
         tree = ast.parse(Path(module_path).read_text(encoding="utf-8"))
@@ -516,7 +516,12 @@ REVIEWED_TEMPLATES: frozenset[str] = frozenset(
     {
         "add unverified binary package host {} at {}",
         "add verified binary package host {} at {}",
-        "configure {} as {}",
+        "write {} for {} with addresses {}; gateways {}; DNS {}",
+        "write {} for the wired interface with addresses {}; gateways {}; DNS {}",
+        "write {} for {} with DHCP and DNS {}",
+        "write {} for the wired interfaces with DHCP and DNS {}",
+        "write {} for {} with DHCP",
+        "configure {} of compressed swap in {}",
         "create user {} in {} with a password",
         "create user {} in {} with no password",
         "download the newest {} stage3 from {} directly, verify it against {},"
@@ -530,7 +535,9 @@ REVIEWED_TEMPLATES: frozenset[str] = frozenset(
         "run a script from {} and {} commands once, the first time the system boots",
         "the remote unlock address {} is IPv{} and its gateway {} is IPv{}, so the initramfs has"
         " no route",
-        "set the console keymap to {} and its font to {}",
+        "set the console keymap to {} and its font to {} in {}",
+        "set the hostname to {} in {}",
+        "set the system locale to {} in {}",
         "start a login on {} at {} baud",
         "stream the {} image {} onto {}",
         "sync repository {}, {} other sites to fall back on",
@@ -540,9 +547,9 @@ REVIEWED_TEMPLATES: frozenset[str] = frozenset(
         "write /etc/portage/make.conf with {}; {} mirrors in the configured order",
         "write /etc/portage/make.conf with {}; {} mirrors in the configured order,"
         " {} appended",
-        "write wired.nmconnection for {} as {}",
+        "write /etc/kernel/cmdline with root {}; luks {}; arrays {}; keymap {}; parameters {}",
         "write {} ssh key(s) into authorized_keys for {}",
-        "write {} for {}",
+        "write {} with {}",
         "{}: emerge {}",
         "{}: emerge {}, building {} here",
         "{}: emerge {}, building {} here, with no binhost",
@@ -651,24 +658,19 @@ def test_no_two_rows_on_one_screen_translate_to_the_same_word() -> None:
 
 
 def test_no_catalog_reverses_what_is_written_into_what() -> None:
-    """`write /etc/fstab with entries for {}` names a file and what goes into
-    it. One catalog had the two the other way round, so the row read as writing
-    `/etc/fstab` into the entries."""
+    """The source describes `/etc/fstab` followed by its full content."""
     import tomllib
     from pathlib import Path
 
-    # The order is the invariant and it holds in either script: what goes in
-    # is named before the file it goes into.
     fstab = "/etc/fstab"
     for catalog in sorted(Path("gentoo_install/data/locale").glob("zh-*.toml")):
         said = tomllib.loads(catalog.read_text())["strings"]
-        value = said["write /etc/fstab with entries for {}"]
-        assert value.index("{}") < value.index(fstab), f"{catalog.name}: {value}"
+        value = said["write /etc/fstab with {}"]
+        assert value.index(fstab) < value.index("{}"), f"{catalog.name}: {value}"
 
-    # Negative control: the reversed wording this replaces fails the rule, so
-    # the assertion above is not satisfied by any string holding both.
-    reversed_value = "\u5c06 /etc/fstab \u5199\u5165 {} \u7684\u6761\u76ee"
-    assert reversed_value.index("{}") > reversed_value.index(fstab)
+    # The reversed wording this replaces fails the rule.
+    reversed_value = "{} \u5199\u5165 /etc/fstab"
+    assert reversed_value.index(fstab) > reversed_value.index("{}")
 
 
 def test_no_catalog_calls_a_password_a_cipher() -> None:

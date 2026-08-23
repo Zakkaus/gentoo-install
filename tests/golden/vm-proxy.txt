@@ -44,15 +44,15 @@
 [system]
   keep proxy environment for socks5h://10.0.2.2:1080 in the installed system
   generate and verify locales en_US.UTF-8, zh_TW.UTF-8
-  set the system locale to zh_TW.UTF-8
+  set the system locale to zh_TW.UTF-8 in /etc/locale.conf
   set the timezone to Asia/Taipei
-  set the console keymap to us and its font to default8x16
-  set the hostname to proxybox
-  give the target its own machine id
-  write /etc/fstab with entries for /, /efi, /home
-  treat the hardware clock as UTC
+  set the console keymap to us and its font to default8x16 in /etc/vconsole.conf
+  set the hostname to proxybox in /etc/hostname and /etc/hosts
+  give the target its own machine id with systemd-machine-id-setup
+  write /etc/fstab with UUID from cryptroot / btrfs defaults,compress=zstd:1,subvol=@ 0 1, UUID from esp /efi vfat defaults,umask=0077 0 2, UUID from cryptroot /home btrfs defaults,compress=zstd:1,subvol=@home 0 2
+  treat the hardware clock as UTC in /etc/adjtime
   set the root password
-  configure the wired interface for DHCP
+  write /etc/systemd/network/20-wired.network for the wired interfaces with DHCP and DNS -
   enable systemd-networkd at boot
   enable systemd-resolved at boot
   install cron: emerge sys-process/cronie

@@ -1514,3 +1514,54 @@ def test_networkmanager_is_matched_by_mac_too() -> None:
     written = recorder.files[system.NM_PROFILE]
     assert "mac-address=a0:ad:9f:bd:f0:5e" in written, written
     assert "interface-name" not in written, written
+
+
+def test_every_operation_that_names_a_file_writes_exactly_the_files_it_named() -> None:
+    """`describe()` and `apply()` read one derivation, so they cannot drift.
+
+    A destination written in both halves is the defect this asserts against:
+    moving the file `apply()` writes then leaves the dry-run naming the old
+    one, and no golden file can see it, because every golden file is generated
+    from `describe()`.
+    """
+    from pathlib import Path
+
+    from gentoo_install.data import load_catalog
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.config import DiskMode
+    from gentoo_install.plan.build import build
+
+    from .recorder import Recorder
+
+    catalog = load_catalog()
+    checked = 0
+    for fixture in sorted(Path("tests/fixtures").glob("*.toml")):
+        loaded = load(fixture)
+        if loaded.disk.layout_is_read_from_the_machine:
+            # A conversion derives its plan from the running machine, which a
+            # unit test has not got.
+            continue
+        variants = [loaded]
+        if loaded.disk.mode is DiskMode.PARTITION and loaded.system.init is InitSystem.SYSTEMD:
+            variants.append(
+                replace(
+                    loaded,
+                    system=replace(loaded.system, init=InitSystem.OPENRC),
+                    portage=replace(loaded.portage, profile="default/linux/amd64/23.0"),
+                )
+            )
+        for installation in variants:
+            for operation in build(installation, catalog):
+                named = getattr(operation, "destinations", None)
+                if named is None:
+                    continue
+                recorder = Recorder()
+                operation.apply(recorder)
+                assert set(recorder.files) == set(named()), (
+                    fixture.name,
+                    type(operation).__name__,
+                    sorted(str(one) for one in recorder.files),
+                    sorted(str(one) for one in named()),
+                )
+                checked += 1
+    assert checked > 40, checked

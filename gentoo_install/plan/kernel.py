@@ -188,9 +188,19 @@ class WriteKernelCmdline(Operation):
     arrays: tuple[DeviceId, ...] = ()
     keymap: str = ""
 
-    def describe(self) -> str:
-        named = self.dataset or str(self.root)
-        return f"write /etc/kernel/cmdline so the boot entries mount {named}"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        root = self.dataset or str(self.root)
+        luks = ", ".join(str(device) for device in self.luks) or "-"
+        arrays = ", ".join(str(device) for device in self.arrays) or "-"
+        keymap = self.keymap or "-"
+        parameters = " ".join(self.kernel_params) or "-"
+        return "write /etc/kernel/cmdline with root {}; luks {}; arrays {}; keymap {}; parameters {}", (
+            root,
+            luks,
+            arrays,
+            keymap,
+            parameters,
+        )
 
     def apply(self, context: Context) -> None:
         if self.root is None:
@@ -555,8 +565,8 @@ class VerifyZfsKernelCompatibility(Operation):
     stage: Stage = Stage.KERNEL
     version: str
 
-    def describe(self) -> str:
-        return "verify the selected kernel against the target sys-fs/zfs ceiling"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "verify kernel version {} against the target sys-fs/zfs ceiling", (self.version or "-",)
 
     def apply(self, context: Context) -> None:
         ceiling = context.zfs_kernel_max()
