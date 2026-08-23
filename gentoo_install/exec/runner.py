@@ -307,9 +307,15 @@ class Runner:
                     "NO_PROXY": ",".join(self.proxy.bypass),
                 }
             )
-        if not values:
-            return None
-        return {**os.environ, **values}
+        # `PYTHONPATH` never reaches a command this installer runs. `bootstrap.sh`
+        # sets it so `-m gentoo_install` resolves, and Portage's
+        # `python-single-r1` sanity check dies on a relative one: an install
+        # stopped at `dev-util/pahole` with `Relative paths in PYTHONPATH are
+        # forbidden: '.'`. Nothing the installer runs imports the installer.
+        inherited = {
+            name: value for name, value in os.environ.items() if name != "PYTHONPATH"
+        }
+        return {**inherited, **values}
 
 
 def _pretending(argv: Sequence[str]) -> bool:

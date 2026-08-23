@@ -19,6 +19,11 @@ esac
 say() { printf '%s\n' "$*" >&2; }
 die() { say "error: $*"; exit 1; }
 
+# Absolute, because `PYTHONPATH` is exported and Portage's `python-single-r1`
+# refuses a relative one: an install died at `dev-util/pahole` on
+# `Relative paths in PYTHONPATH are forbidden`.
+HERE=$(CDPATH= cd -- "$HERE" && pwd) || die "could not resolve the installer directory"
+
 distribution() {
 	# ID_LIKE first: derivatives name their parent there, so Mint reports
 	# ubuntu, Manjaro reports arch, and the package manager below matches.

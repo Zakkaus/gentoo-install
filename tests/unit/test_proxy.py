@@ -200,3 +200,20 @@ def test_the_threaded_mirror_probe_does_not_force_an_address_family() -> None:
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     }
     assert not called & reached, sorted(called & reached)
+
+
+def test_no_command_the_installer_runs_inherits_pythonpath(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`bootstrap.sh` exports `PYTHONPATH` so `-m gentoo_install` resolves, and
+    every command inherited it. Portage's `python-single-r1` sanity check dies
+    on a relative one: an install stopped at `dev-util/pahole` with
+    `Relative paths in PYTHONPATH are forbidden: '.'`."""
+    monkeypatch.setenv("PYTHONPATH", ".")
+    monkeypatch.setenv("GENTOO_INSTALL_MARKER", "kept")
+    passed = Runner(
+        log=lambda line: None, environment={"PORTAGE_NICENESS": "0"}
+    )._environment()
+    assert passed is not None
+    assert "PYTHONPATH" not in passed, sorted(passed)
+    assert passed["GENTOO_INSTALL_MARKER"] == "kept", "the rest of the environment stays"
