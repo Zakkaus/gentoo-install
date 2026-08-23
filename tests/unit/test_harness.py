@@ -5165,3 +5165,25 @@ def test_the_resolver_file_replaces_the_symlink_and_the_daemon_that_owns_it() ->
     # And every failure is tolerated: the medium runs neither init system's
     # service manager and must not stop on that.
     assert before.count("2>/dev/null") >= 2, written
+
+
+def test_the_lookup_budget_outlasts_every_resolver_in_the_list() -> None:
+    """`RESOLVER_OPTIONS` gives each resolver `attempts` tries of `timeout`
+    seconds, so a list whose first entries are down costs that much before the
+    working one is reached. At 3 seconds the probe could not outlast one dead
+    resolver: the eighth conversion's guest answered `fail fail fail fail fail`
+    while it held a route to `10.31.0.254` and `223.5.5.5`, and reading that as
+    a broken resolver sent the diagnosis after the wrong thing."""
+    from tests.vm import cluster
+
+    settings = dict(
+        one.split(":", 1)
+        for one in cluster.RESOLVER_OPTIONS.split()
+        if ":" in one
+    )
+    worst = (
+        len(cluster.GUEST_RESOLVERS)
+        * int(settings["attempts"])
+        * int(settings["timeout"])
+    )
+    assert cluster.LOOKUP_PATIENCE > worst, (cluster.LOOKUP_PATIENCE, worst)

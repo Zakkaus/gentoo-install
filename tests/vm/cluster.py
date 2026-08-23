@@ -943,11 +943,30 @@ KEY_SERVER_HOST: Final[str] = urllib.parse.urlparse(KEY_SERVER).hostname or KEY_
 #: and their installs never started.
 RESOLVER_OPTIONS: Final[str] = "timeout:1 attempts:2"
 
+
+def _resolver_worst_case() -> int:
+    """How long every resolver in the list can take before one of them answers.
+
+    Read out of `RESOLVER_OPTIONS` rather than restated, so raising `attempts`
+    cannot quietly make the probe's budget too small again.
+    """
+    settings = dict(
+        one.split(":", 1) for one in RESOLVER_OPTIONS.split() if ":" in one
+    )
+    return len(GUEST_RESOLVERS) * int(settings["attempts"]) * int(settings["timeout"])
+
 #: What each lookup in the probe is given. A resolver that has stopped
 #: answering makes `getent` wait for its own timeout, and ten of them cost more
 #: than the probe's whole budget: five guests of run61 were ended at three
 #: minutes with `LOOKUPS_ANY ok fail` as the last line and no install started.
-LOOKUP_PATIENCE: Final[int] = 3
+#:
+#: Derived rather than chosen: `RESOLVER_OPTIONS` gives each resolver
+#: `attempts` tries of `timeout` seconds, so a list whose first entries are
+#: down costs that much before the working one is reached. At 3 seconds the
+#: probe could not outlast one dead resolver, and the eighth conversion's
+#: guest answered `fail fail fail fail fail` while it held a route to
+#: `10.31.0.254` and `223.5.5.5`.
+LOOKUP_PATIENCE: Final[int] = _resolver_worst_case() + 2
 
 #: Asked once the network is up, because every round so far has failed at the
 #: stage3 while `/etc/resolv.conf` named a resolver nobody had proved the guest
@@ -1836,6 +1855,15 @@ def _reserve_job(
     raise conflict
 
 
+#: What the whole probe is given, derived from what it can wait for rather
+#: than chosen: twelve bounded lookups, three pings and one keyserver connect.
+#: A fixed 120 held while `LOOKUP_PATIENCE` was too small to outlast a dead
+#: resolver, and raising that made the two numbers disagree.
+PROBE_PATIENCE: Final[float] = float(
+    12 * LOOKUP_PATIENCE + 3 * 2 + KEYSERVER_PATIENCE + 30
+)
+
+
 def _note_the_probe(link: Reconnecting, when: str) -> None:
     """Measure the network, and never make the measurement the verdict.
 
@@ -1846,7 +1874,7 @@ def _note_the_probe(link: Reconnecting, when: str) -> None:
     on a resolver that had stopped answering.
     """
     try:
-        link.run(REACHABILITY_PROBE, timeout=120.0)
+        link.run(REACHABILITY_PROBE, timeout=PROBE_PATIENCE)
     except (ConsoleTimeout, ConsoleClosed) as error:
         print(f"the {when} reachability probe did not answer: {error}", flush=True)
 
