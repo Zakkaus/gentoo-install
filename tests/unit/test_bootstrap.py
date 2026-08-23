@@ -501,3 +501,41 @@ def test_install_missing_runs_the_command_it_prints_and_checks_again(
     assert installed.exists()
     # The flag is consumed here: the installer's own parser has no such option.
     assert "--install-missing" not in said.replace("run: ", ""), said
+
+
+def test_a_failed_package_command_can_leave_partial_installation(tmp_path: Path) -> None:
+    """A package manager can install one package before a later one fails."""
+    helpers = tmp_path / "helpers"
+    helpers.mkdir()
+    (helpers / "python3").symlink_to(PYTHON)
+    installed = tmp_path / "installed"
+    (helpers / "apk").write_text(
+        f"#!/bin/sh\n: > {installed}\nexit 23\n", encoding="utf-8"
+    )
+    (helpers / "apk").chmod(0o755)
+    module = tmp_path / "fake"
+    (module / "gentoo_install").mkdir(parents=True)
+    (module / "gentoo_install" / "__init__.py").write_text("", encoding="utf-8")
+    (module / "gentoo_install" / "__main__.py").write_text(
+        "print('sgdisk blkid')\n", encoding="utf-8"
+    )
+    where = tmp_path / "os-release"
+    where.write_text("ID=alpine\n")
+
+    failed = subprocess.run(
+        [SHELL, str(LAUNCHER), "--install-missing", "--config", "x.toml"],
+        cwd=str(module),
+        env={
+            "OS_RELEASE": str(where),
+            "PATH": str(helpers),
+            "PYTHONPATH": str(module),
+        },
+        capture_output=True,
+        text=True,
+    )
+
+    said = output(failed)
+    assert failed.returncode == 1
+    assert installed.exists()
+    assert "that command failed; some packages may have been installed" in said
+    assert "nothing was installed" not in said
