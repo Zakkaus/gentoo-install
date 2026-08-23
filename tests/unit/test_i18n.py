@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 from __future__ import annotations
 
+from typing import Final
+
 import tomllib
 from pathlib import Path
 
@@ -698,3 +700,53 @@ def test_a_binary_host_is_not_a_binary_package() -> None:
     for catalog in sorted(Path("gentoo_install/data/locale").glob("*.toml")):
         said = tomllib.loads(catalog.read_text())["strings"]
         assert "binhost" not in said["Extra packages"], catalog.name
+
+
+#: Placeholders that are values rather than prose. A package atom, a compiler
+#: flag, an address and a port number read the same in every language, and
+#: translating one would make the example wrong.
+UNTRANSLATED_PLACEHOLDERS: Final[frozenset[str]] = frozenset(
+    {
+        "app-editors/vim  media-video/mpv",
+        "-O2 -pipe -march=native",
+        "192.0.2.10/24",
+        "192.0.2.1",
+        "2001:db8::2/64",
+        "fe80::1",
+        "proxy.example.com",
+        "3128",
+        "222",
+    }
+)
+
+
+def test_a_placeholder_is_prose_through_the_catalog_or_a_value_named_here() -> None:
+    """`displayed()` grew a fourth wrapper tonight because `Font configuration`
+    drew in English on four translated screens and no test saw it.
+    `TextField.placeholder` is the fifth: `widgets.py` writes that value
+    straight into the field, and a literal there reaches the screen without
+    passing the catalog. Twenty-four already go through `translate`; the nine
+    that do not are values, and they are listed rather than merely absent."""
+    import ast
+
+    from gentoo_install import tui
+
+    bare: list[str] = []
+    for source in sorted(Path(tui.__file__).parent.glob("*.py")):
+        for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call):
+                continue
+            for keyword in node.keywords:
+                if keyword.arg != "placeholder":
+                    continue
+                if isinstance(keyword.value, ast.Constant):
+                    bare.append(f"{source.name}:{node.lineno} {keyword.value.value!r}")
+
+    unexpected = [
+        one for one in bare
+        if one.split(" ", 1)[1].strip("'\"") not in UNTRANSLATED_PLACEHOLDERS
+    ]
+    assert not unexpected, unexpected
+    # And the list holds nothing that has since been translated or removed.
+    present = {one.split(" ", 1)[1].strip("'\"") for one in bare}
+    assert present == UNTRANSLATED_PLACEHOLDERS, sorted(UNTRANSLATED_PLACEHOLDERS - present)
