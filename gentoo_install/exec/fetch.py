@@ -35,6 +35,7 @@ from ..errors import (
     PreflightFailed,
     UploadFailed,
 )
+from ..redact import scrub
 from ..model import paste
 from ..model.validate import KernelCeiling
 from ..model.config import ProxyConfig
@@ -909,9 +910,11 @@ def read_text(url: str, *, ceiling: int) -> str:
         with _urlopen(_asked(url), _CURRENT_PROXY.get(), TIMEOUT) as response:
             body = response.read(ceiling + 1)
     except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as error:
-        raise DownloadFailed(f"{url} could not be read: {error}{_resolver_state(url)}") from error
+        raise DownloadFailed(
+            scrub(f"{url} could not be read: {error}{_resolver_state(url)}")
+        ) from error
     if len(body) > ceiling:
-        raise DownloadFailed(f"{url} is larger than {ceiling} bytes")
+        raise DownloadFailed(scrub(f"{url} is larger than {ceiling} bytes"))
     return str(body.decode("utf-8", "replace"))
 
 
@@ -920,7 +923,9 @@ def _read_once(url: str, proxy: ProxyConfig | None = None) -> str:
         with _urlopen(_asked(url), proxy, TIMEOUT) as response:
             return str(response.read().decode("utf-8", "replace"))
     except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as error:
-        raise DownloadFailed(f"{url} could not be read: {error}{_resolver_state(url)}") from error
+        raise DownloadFailed(
+            scrub(f"{url} could not be read: {error}{_resolver_state(url)}")
+        ) from error
 
 
 #: A stage3 is a quarter of a gigabyte over whatever link the operator has, so
@@ -1060,7 +1065,7 @@ def _download_once(
     # the install instead of reaching the next mirror.
     except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as error:
         partial.unlink(missing_ok=True)
-        raise DownloadFailed(f"{url} could not be fetched: {error}") from error
+        raise DownloadFailed(scrub(f"{url} could not be fetched: {error}")) from error
 
 
 def _verify_signature(digests: Path, fingerprint: str, runner: Runner) -> None:

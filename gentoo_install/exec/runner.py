@@ -15,7 +15,6 @@ import signal
 import subprocess
 import threading
 import time
-import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Callable, Sequence, TextIO
@@ -332,25 +331,9 @@ def _display_argv(argv: Sequence[str]) -> tuple[str, ...]:
     `usermod --password` takes the hash as an argument, and this run's log is
     what `offer_paste` uploads to a public pastebin.
     """
-    shown: list[str] = []
-    for value in argv:
-        try:
-            parts = urllib.parse.urlsplit(value)
-        except ValueError:
-            shown.append(value)
-            continue
-        if parts.scheme and parts.hostname and parts.username is not None:
-            host = parts.hostname
-            if ":" in host and not host.startswith("["):
-                host = f"[{host}]"
-            if parts.port is not None:
-                host = f"{host}:{parts.port}"
-            value = urllib.parse.urlunsplit(
-                (parts.scheme, host, parts.path, parts.query, parts.fragment)
-            )
-        value = scrub(value)
-        shown.append(value)
-    return tuple(shown)
+    # `scrub` owns every rule: a second copy of the URL handling lived here
+    # and did not know about the secret query parameters.
+    return tuple(scrub(value) for value in argv)
 
 
 def write_file(path: Path, content: str, mode: int = 0o644) -> None:
