@@ -425,6 +425,9 @@ def test_a_conversion_runs_inside_the_machine_it_replaces(
         cluster, "edit_the_menu_if_that_is_the_only_route", lambda *a: done.append("menu")
     )
     monkeypatch.setattr(cluster, "reach_prompt", lambda one: done.append("prompt"))
+    monkeypatch.setattr(
+        cluster, "wait_for_network", lambda link, vmid=0, address="": done.append("network")
+    )
     monkeypatch.setattr(cluster, "build_driver", lambda where, packed=False: where)
     monkeypatch.setattr(cluster, "retain_driver", lambda workdir, built: Path("gi-driver-new.iso"))
     monkeypatch.setattr(cluster, "place_driver", lambda *a: done.append("place_driver"))
@@ -451,6 +454,19 @@ def test_a_conversion_runs_inside_the_machine_it_replaces(
     assert any(
         one.startswith("expect:") and one.endswith("login:") for one in done
     ), done
+    # And it configures the installed system's network before starting the
+    # installer there. The medium was given an address; the installed system
+    # is a different machine, and the eighth conversion opened on `this
+    # machine reaches neither packages.gentoo.org nor
+    # https://distfiles.gentoo.org`.
+    logged_in = next(
+        n
+        for n, one in enumerate(done)
+        if one.startswith("expect:") and one.endswith("login:")
+    )
+    installer = next(n for n, one in enumerate(done) if "install.sh" in one)
+    between = done[logged_in:installer]
+    assert "network" in between, between
     # The prompt that covers all three spellings: the installed system comes
     # up in Chinese and asks in Chinese, and an `assword` of its own matched
     # nothing while the password sat unsent.

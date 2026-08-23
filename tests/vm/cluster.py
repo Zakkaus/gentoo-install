@@ -2086,6 +2086,11 @@ def tui_conversion(
     edit_the_menu_if_that_is_the_only_route(guest, link, route)
     print(f"{name}: waiting for the installed system", flush=True)
     _log_into_the_installed_system(link)
+    # The medium was given an address and the installed system is a different
+    # machine: it came up on its own DHCP, reached no mirror, and the
+    # installer's first screen was `this machine reaches neither
+    # packages.gentoo.org nor https://distfiles.gentoo.org`.
+    wait_for_network(link, vmid)
     link.run(FIND_DRIVER)
     link.run(f"mkdir -p {RESULT_DIR}")
     link.run(f"stty rows {TUI_LINES} cols {TUI_COLUMNS}")
