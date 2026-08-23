@@ -609,6 +609,46 @@ SCRATCH_MOUNT: Final[str] = "btrfs-top"
 
 
 @dataclass(frozen=True, kw_only=True)
+class VerifySubvolume(Operation):
+    """A subvolume the configuration reuses rather than makes.
+
+    A conversion mounts the running machine's own layout, so `@` is already
+    there and `btrfs subvolume create` answers `target path already exists`.
+    Checked rather than skipped: a name that is not there is a layout this
+    plan cannot mount, and finding that out at the mount is too late.
+    """
+
+    stage: Stage = Stage.FORMAT
+    host_commands = ("mkdir", "mount", "btrfs", "umount")
+    subvolume: DeviceId
+    device: DeviceId
+    name: str
+
+    def describe(self) -> str:
+        return f"check {self.device} already holds the btrfs subvolume {self.name}"
+
+    def apply(self, context: Context) -> None:
+        scratch = context.target.parent / SCRATCH_MOUNT
+        path = context.device_path(self.device)
+        context.run(["mkdir", "--parents", str(scratch)])
+        context.run(["mount", "--types", "btrfs", path, str(scratch)])
+        # `btrfs subvolume list`, not a directory test: a plain directory of
+        # the same name is not a subvolume and mounting `subvol=` on it fails
+        # at the mount rather than here.
+        listed = context.run(["btrfs", "subvolume", "list", str(scratch)], check=False)
+        wanted = self.name.lstrip("/")
+        missing = not any(
+            line.rsplit(" path ", 1)[-1].strip() == wanted for line in listed.splitlines()
+        )
+        context.run(["umount", str(scratch)])
+        if missing:
+            raise InvalidLayout(
+                f"{self.device} has no btrfs subvolume {self.name}, and the "
+                "configuration reuses it"
+            )
+
+
+@dataclass(frozen=True, kw_only=True)
 class CreateSubvolume(Operation):
     """btrfs subvolumes live inside the filesystem, so the top level has to be
     mounted to create one and unmounted again before the layout is mounted."""
@@ -1176,6 +1216,10 @@ def _operations_for(
         ]
     if isinstance(node, Subvolume):
         filesystem = _expect(graph, node.filesystem, Filesystem)
+        if not node.create:
+            return [
+                VerifySubvolume(subvolume=node.id, device=filesystem.device, name=node.name)
+            ]
         return [CreateSubvolume(subvolume=node.id, device=filesystem.device, name=node.name)]
     if isinstance(node, Swap):
         return [MakeSwap(swap=node.id, device=node.device)]

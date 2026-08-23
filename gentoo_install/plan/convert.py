@@ -401,7 +401,10 @@ def layout_graph(layout: StorageLayout) -> DiskConfig:
     if layout.root_subvolume:
         nodes.append(
             Subvolume(
-                id=ROOT_SUBVOLUME, filesystem=ROOT_FILESYSTEM, name=layout.root_subvolume
+                id=ROOT_SUBVOLUME,
+                filesystem=ROOT_FILESYSTEM,
+                name=layout.root_subvolume,
+                create=False,
             )
         )
     nodes.append(

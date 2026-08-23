@@ -342,6 +342,10 @@ class Filesystem(Node):
 class Subvolume(Node):
     filesystem: DeviceId
     name: str
+    #: False when the subvolume is already there, the way `Filesystem.create`
+    #: reads: a conversion mounts the running machine's own `@` and creating
+    #: it again ends the run on `target path already exists`.
+    create: bool = True
 
     @property
     def inputs(self) -> tuple[DeviceId, ...]:
