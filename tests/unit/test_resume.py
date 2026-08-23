@@ -16,7 +16,7 @@ from pathlib import Path, PurePosixPath
 from gentoo_install.exec.apply import completed
 from gentoo_install.log import Journal
 from gentoo_install.model.device import DeviceId
-from gentoo_install.plan.operations import Operation, Stage
+from gentoo_install.plan.operations import CHECKPOINT_BEFORE_APPLY_STAGES, Operation, Stage
 
 from .recorder import Recorder
 
@@ -31,6 +31,42 @@ class Noted(Operation):
 
     def apply(self, context: object) -> None:  # pragma: no cover - never run here
         raise AssertionError("this test never applies an operation")
+
+
+@dataclass(frozen=True, kw_only=True)
+class InterruptedStorageOperation(Operation):
+    """A storage operation whose process disappears before it returns."""
+
+    stage: Stage
+
+    def describe(self) -> str:
+        return "change storage"
+
+    def apply(self, context: object) -> None:
+        raise KeyboardInterrupt
+
+
+@dataclass(frozen=True, kw_only=True)
+class FailedStorageOperation(Operation):
+    """A storage operation whose command returns a named failure."""
+
+    stage: Stage
+
+    def describe(self) -> str:
+        return "change storage"
+
+    def apply(self, context: object) -> None:
+        from gentoo_install.errors import CommandFailed
+
+        raise CommandFailed("storage command failed")
+
+
+#: One configured storage path for every stage in the production checkpoint table.
+CHECKPOINT_CASES: tuple[tuple[str, frozenset[Stage]], ...] = (
+    ("ext4-bios", frozenset((Stage.PARTITION, Stage.FORMAT))),
+    ("vm-luks", frozenset((Stage.ARRAY,))),
+    ("vm-zfs", frozenset((Stage.ZFS,))),
+)
 
 
 def journal_with(tmp_path: Path, entries: list[tuple[int, str, str]]) -> Journal:
@@ -57,6 +93,82 @@ def test_only_the_operations_that_finished_are_skipped(tmp_path: Path) -> None:
         [(0, "partition", "done"), (1, "mkfs", "done"), (2, "emerge plasma", "failed")],
     )
     assert completed(journal) == {(0, "partition"), (1, "mkfs")}
+
+
+@pytest.mark.parametrize(("fixture", "stages"), CHECKPOINT_CASES)
+def test_every_storage_stage_records_an_intent_before_dispatch(
+    fixture: str,
+    stages: frozenset[Stage],
+) -> None:
+    from gentoo_install.data import load_catalog
+    from gentoo_install.exec.config import load
+    from gentoo_install.plan.build import build
+
+    operations = build(load(Path("tests/fixtures") / f"{fixture}.toml"), load_catalog())
+    checkpointed = {
+        operation.stage for operation in operations if operation.needs_pre_dispatch_checkpoint
+    }
+    assert stages <= checkpointed
+
+
+def test_checkpoint_cases_cover_the_storage_stage_table() -> None:
+    covered = frozenset(stage for _, stages in CHECKPOINT_CASES for stage in stages)
+    assert covered == CHECKPOINT_BEFORE_APPLY_STAGES
+
+
+def test_a_resume_refuses_a_storage_operation_interrupted_after_its_intent(
+    tmp_path: Path,
+) -> None:
+    """A process loss between dispatch and `done` leaves no safe replay answer."""
+    from gentoo_install.errors import ResumeRefused
+    from gentoo_install.exec.apply import Machine, apply as apply_operations
+    from gentoo_install.exec.probe import Probe
+    from gentoo_install.exec.runner import Runner
+
+    from .layouts import config
+
+    journal = Journal(tmp_path / "install.jsonl")
+    runner = Runner(log=lambda line: None, journal=journal)
+    machine = Machine(
+        config=config(),
+        runner=runner,
+        probe=Probe(runner=runner, work=tmp_path),
+        work=tmp_path,
+    )
+    operation = InterruptedStorageOperation(stage=Stage.ARRAY)
+
+    with pytest.raises(KeyboardInterrupt):
+        apply_operations((operation,), machine)
+
+    records = [entry for entry in journal.replay() if entry["event"] == "operation"]
+    assert [entry["status"] for entry in records] == ["started"]
+    with pytest.raises(ResumeRefused, match=r"array operation 1 was interrupted: change storage"):
+        completed(Journal(tmp_path / "install.jsonl"))
+
+
+def test_a_storage_failure_is_not_mistaken_for_an_interruption(tmp_path: Path) -> None:
+    from gentoo_install.errors import CommandFailed
+    from gentoo_install.exec.apply import Machine, apply as apply_operations
+    from gentoo_install.exec.probe import Probe
+    from gentoo_install.exec.runner import Runner
+
+    from .layouts import config
+
+    journal = Journal(tmp_path / "install.jsonl")
+    runner = Runner(log=lambda line: None, journal=journal)
+    machine = Machine(
+        config=config(),
+        runner=runner,
+        probe=Probe(runner=runner, work=tmp_path),
+        work=tmp_path,
+    )
+
+    with pytest.raises(CommandFailed, match="storage command failed"):
+        apply_operations((FailedStorageOperation(stage=Stage.FORMAT),), machine)
+
+    records = [entry for entry in journal.replay() if entry["event"] == "operation"]
+    assert [entry["status"] for entry in records] == ["started", "failed"]
+    assert completed(Journal(tmp_path / "install.jsonl")) == frozenset()
 
 
 def test_position_counts_as_well_as_the_text(tmp_path: Path) -> None:

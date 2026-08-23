@@ -16,7 +16,7 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Callable, Sequence
 
-from ..errors import CommandFailed, GentooInstallError, InvalidLayout, TargetEscape
+from ..errors import CommandFailed, GentooInstallError, InvalidLayout, ResumeRefused, TargetEscape
 from ..model.config import InstallConfig
 from ..model.validate import KernelCeiling
 from ..model.device import (
@@ -379,20 +379,39 @@ def completed(journal: Journal | None) -> frozenset[tuple[int, str]]:
     appends to the same file, so after one resume every position was wrong and
     the next resume re-ran operations that had already partitioned the disk.
     Position as well as text, because a plan can hold two operations whose
-    descriptions match.
+    descriptions match. A `started` record without a result is an operation
+    that may have changed a disk before the process disappeared, so resume
+    refuses rather than dispatching it again.
     """
     if journal is None:
         return frozenset()
-    done: set[tuple[int, str]] = set()
-    for entry in journal.resume_entries():
-        if entry.get("event") != "operation" or entry.get("status") != "done":
+    entries = tuple(journal.resume_entries())
+    latest: dict[tuple[int, str], dict[str, object]] = {}
+    for entry in entries:
+        if entry.get("event") != "operation":
             continue
         position = entry.get("position")
-        # An entry from before positions were recorded says nothing reliable
-        # about where it sat, and redoing work is safer than skipping it.
-        if isinstance(position, int):
-            done.add((position, str(entry.get("identity", ""))))
-    return frozenset(done)
+        identified = entry.get("identity")
+        status = entry.get("status")
+        if isinstance(position, int) and isinstance(identified, str) and status in {
+            "started",
+            "failed",
+            "done",
+        }:
+            latest[(position, identified)] = entry
+    for (position, _), entry in latest.items():
+        if entry["status"] != "started":
+            continue
+        stage = str(entry.get("stage", "unknown"))
+        described = str(entry.get("describe", "unknown operation"))
+        raise ResumeRefused(
+            f"cannot resume: {stage} operation {position + 1} was interrupted: {described}"
+        )
+    return frozenset(
+        (position, identified)
+        for (position, identified), entry in latest.items()
+        if entry["status"] == "done"
+    )
 
 
 def apply(
@@ -423,6 +442,8 @@ def apply(
                 on_start(operation)
             machine.runner.log(f"{counted} [{operation.stage.value}] {operation.describe()}")
             started = time.monotonic()
+            if operation.needs_pre_dispatch_checkpoint:
+                _record(machine, operation, started, "started", position)
             try:
                 operation.apply(machine)
             except GentooInstallError:
