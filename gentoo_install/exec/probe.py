@@ -683,14 +683,23 @@ class Probe:
         neither of them in `/dev`.
         """
         deadline = time.monotonic() + seconds
+        tried: list[str] = []
         while time.monotonic() < deadline:
             if Path(path).exists():
                 return path
             self.runner.run(["udevadm", "settle"], check=False)
-            if not _udev_is_running():
-                self.runner.run(["mdev", "-s"], check=False)
+            if _udev_is_running():
+                tried.append("udev")
+            else:
+                # The status, not `check=False` alone: an absent `mdev` and a
+                # `mdev` that ran and made nothing look the same from here, and
+                # the `--lowram` environment failed on one of the two.
+                scan = self.runner.run(["mdev", "-s"], check=False)
+                tried.append(f"mdev={scan.returncode}")
             time.sleep(0.5)
-        raise DeviceNotFound(f"{path} did not appear within {seconds:.0f}s")
+        raise DeviceNotFound(
+            f"{path} did not appear within {seconds:.0f}s; tried {', '.join(tried) or 'nothing'}"
+        )
 
     #: `lsblk` calls these TYPE=disk and none of them is an install target:
     #: compressed swap, a loopback of the live image, a ramdisk.

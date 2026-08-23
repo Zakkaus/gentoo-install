@@ -2839,3 +2839,42 @@ def test_every_fetch_the_machine_makes_carries_the_configured_proxy(
     assert machine.fetch_text("https://first-boot.example/script") == "answered"
     assert seen == [through, through], seen
 
+
+
+def test_a_device_that_never_appears_says_what_was_tried() -> None:
+    """`--lowram` stopped at `mkfs.vfat` with `vdc1` and `vdc2` in the kernel's
+    own log and neither in `/dev`. `wait_for` runs `mdev -s` where no udev
+    daemon is running, but `check=False` swallowed its status, so an absent
+    `mdev` and an `mdev` that ran and created nothing read the same from the
+    exception it finally raised."""
+    from gentoo_install.errors import DeviceNotFound
+    from gentoo_install.exec.probe import Probe
+    from gentoo_install.exec.runner import Result, Runner
+
+    class Answering(Runner):
+        def __init__(self) -> None:
+            self.asked: list[tuple[str, ...]] = []
+
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            self.asked.append(tuple(argv))
+            # `mdev` is not installed here, which is one of the two states the
+            # old message could not tell apart.
+            code = 127 if argv[0] == "mdev" else 0
+            return Result(argv=tuple(argv), returncode=code, stdout="", stderr="", seconds=0.0)
+
+    runner = Answering()
+    probe = Probe(runner=runner, work=Path("/tmp"))
+    with pytest.raises(DeviceNotFound) as raised:
+        probe.wait_for("/dev/nowhere9", seconds=0.6)
+    said = str(raised.value)
+    assert "/dev/nowhere9" in said, said
+    # Either branch is named, and the mdev branch carries the status.
+    assert "tried" in said, said
+    assert "udev" in said or "mdev=" in said, said
