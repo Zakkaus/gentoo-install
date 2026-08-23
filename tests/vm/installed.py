@@ -41,7 +41,8 @@ class InstalledCheck:
     name: str
     command: str
     pattern: str
-
+    # Compound checks must name the relation that prevents a single-line match.
+    line_boundary_exception: str | None = None
 
 #: Read on the installed machine, against the tree that machine has: every
 #: `CPU_FLAGS_X86` value portage accepts is one line of
@@ -75,49 +76,111 @@ INPUT_METHOD_BINARIES: Final[dict[str, str]] = {
 #: The root entry, not any `UUID=` in the file. Every layout writes an esp
 #: line by UUID as well, so `UUID=` alone was satisfied by a machine whose
 #: root was still named by device. The separator is a tab on every guest read.
-ROOT_BY_UUID: Final[str] = r"(?m)^UUID=\S+\s+/\s"
+ROOT_BY_UUID: Final[str] = r"(?m)^UUID=\S+[ \t]+/[ \t]+\S+[ \t]+[^\n]*$"
 
 
 def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
     """Derive every installed-state check from the configuration."""
     result = [
         InstalledCheck("os-release", "cat /etc/os-release", r"(?m)^ID=['\"]?gentoo['\"]?$"),
+        # A layout is a set of mount lines; one matching line cannot prove all
+        # configured targets are present.
         InstalledCheck(
             "mounts",
             "findmnt --noheadings --list --output TARGET,SOURCE,FSTYPE",
             _mount_pattern(installation),
+            "requires every configured mount line",
         ),
-        InstalledCheck("locale", "locale", f"LANG={installation.system.locale}"),
-        # Nothing asked for the timezone at all, and the installer writes two
-        # files for it: a machine installed in the wrong zone passed every
-        # check. Either line answers, so the resolution of `UTC` — a file on
-        # Gentoo, a symlink elsewhere — does not decide the verdict.
+        InstalledCheck(
+            "locale",
+            "locale",
+            rf"(?m)^LANG={re.escape(installation.system.locale)}$",
+        ),
+        # Nothing checked timezone until wrong-zone machines passed. libc reads
+        # `localtime`, so it and `/etc/timezone` must agree.
         InstalledCheck(
             "timezone",
             "readlink -f /etc/localtime; cat /etc/timezone 2>/dev/null",
-            rf"(?m)^(?:/usr/share/zoneinfo/)?{re.escape(installation.system.timezone)}$",
+            rf"(?m)^(?:/usr/share/zoneinfo/)?{re.escape(installation.system.timezone)}$"
+            rf"\n^{re.escape(installation.system.timezone)}$",
         ),
         InstalledCheck("hostname", _hostname_command(installation), _hostname_pattern(installation)),
-        InstalledCheck("kernel", "uname -r; find /boot -maxdepth 4 -type f "
-                       r"\( -name 'vmlinuz*' -o -name 'kernel-*' -o -name linux -o -name '*.conf' \) | sort",
-                       _kernel_pattern(installation)),
-        InstalledCheck("resolver", "readlink -f /etc/resolv.conf; test -s /etc/resolv.conf && echo RESOLVCONF-OK || echo RESOLVCONF-EMPTY", "RESOLVCONF-OK"),
-        InstalledCheck("portage", "emerge --info >/dev/null 2>&1 && echo EMERGE-OK || echo EMERGE-FAIL", "EMERGE-OK"),
-        InstalledCheck("cpu-flags", CPU_FLAGS_COMMAND, "CPUFLAGS-ALL-KNOWN"),
-        InstalledCheck("init", "test -d /run/openrc && echo openrc || { test -d /run/systemd/system && echo systemd || echo unknown; }", "systemd" if installation.system.init is InitSystem.SYSTEMD else "openrc"),
+        # The release has to equal a boot filename, so this relation spans two lines.
+        InstalledCheck(
+            "kernel",
+            "uname -r; find /boot -maxdepth 4 -type f "
+            r"\( -name 'vmlinuz*' -o -name 'kernel-*' -o -name linux -o -name '*.conf' \) | sort",
+            _kernel_pattern(installation),
+            "joins a running release to a boot path",
+        ),
+        InstalledCheck(
+            "resolver",
+            "readlink -f /etc/resolv.conf; test -s /etc/resolv.conf "
+            "&& echo RESOLVCONF-OK || echo RESOLVCONF-EMPTY",
+            r"(?m)^RESOLVCONF-OK$",
+        ),
+        InstalledCheck(
+            "portage",
+            "emerge --info >/dev/null 2>&1 && echo EMERGE-OK || echo EMERGE-FAIL",
+            r"(?m)^EMERGE-OK$",
+        ),
+        InstalledCheck("cpu-flags", CPU_FLAGS_COMMAND, r"(?m)^CPUFLAGS-ALL-KNOWN$"),
+        InstalledCheck(
+            "init",
+            "test -d /run/openrc && echo openrc || { test -d /run/systemd/system "
+            "&& echo systemd || echo unknown; }",
+            rf"(?m)^{'systemd' if installation.system.init is InitSystem.SYSTEMD else 'openrc'}$",
+        ),
     ]
     if installation.system.init is InitSystem.SYSTEMD:
-        result.extend([InstalledCheck("units", "systemctl list-unit-files --state=enabled --no-legend --no-pager", "enabled"), InstalledCheck("failed", "test -z \"$(systemctl --failed --no-legend --no-pager)\" && echo NO-FAILED-UNITS", "NO-FAILED-UNITS")])
+        result.extend(
+            [
+                InstalledCheck(
+                    "units",
+                    "systemctl list-unit-files --state=enabled --no-legend --no-pager",
+                    r"(?m)^\S+[ \t]+enabled(?:[ \t]+\S+)?$",
+                ),
+                InstalledCheck(
+                    "failed",
+                    "test -z \"$(systemctl --failed --no-legend --no-pager)\" "
+                    "&& echo NO-FAILED-UNITS",
+                    r"(?m)^NO-FAILED-UNITS$",
+                ),
+            ]
+        )
     else:
-        result.extend([InstalledCheck("units", "rc-update show default", "default"), InstalledCheck("failed", "test -z \"$(rc-status --crashed)\" && echo NO-FAILED-UNITS", "NO-FAILED-UNITS")])
+        result.extend(
+            [
+                InstalledCheck(
+                    "units",
+                    "rc-update show default",
+                    r"(?m)^[ \t]*\S+[ \t]*\|[ \t]*default$",
+                ),
+                InstalledCheck(
+                    "failed",
+                    "test -z \"$(rc-status --crashed)\" && echo NO-FAILED-UNITS",
+                    r"(?m)^NO-FAILED-UNITS$",
+                ),
+            ]
+        )
     if installation.system.networking is not Networking.NONE:
-        result.append(InstalledCheck("network", "systemctl list-unit-files --state=enabled --no-legend --no-pager; rc-update show default", re.escape(network_service(installation.system))))
+        service = re.escape(network_service(installation.system))
+        result.append(
+            InstalledCheck(
+                "network",
+                "systemctl list-unit-files --state=enabled --no-legend --no-pager; "
+                "rc-update show default",
+                rf"(?m)^(?:{service}\.service[ \t]+enabled(?:[ \t]+\S+)?|"
+                rf"[ \t]*{service}[ \t]*\|[ \t]*default)$",
+            )
+        )
     if installation.system.addresses:
         result.extend(
             InstalledCheck(
                 f"address {address}",
                 "ip -o address show",
-                re.escape(address),
+                rf"(?m)^\d+:[ \t]+\S+[ \t]+inet6?[ \t]+{re.escape(address)}"
+                rf"(?=[ \t/])[^\n]*$",
             )
             for address in installation.system.addresses
         )
@@ -125,7 +188,7 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
             InstalledCheck(
                 f"default route {gateway}",
                 "ip -4 route show default; ip -6 route show default",
-                rf"default via {re.escape(gateway)}",
+                rf"(?m)^default[ \t]+via[ \t]+{re.escape(gateway)}[ \t]+[^\n]*$",
             )
             for gateway in installation.system.gateways
         )
@@ -134,7 +197,7 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
                 InstalledCheck(
                     f"resolver {resolver}",
                     "resolvectl dns",
-                    re.escape(resolver),
+                    rf"(?m)^(?=[^\n]*(?<!\S){re.escape(resolver)}(?!\S))[^\n]+$",
                 )
                 for resolver in installation.system.dns
             )
@@ -151,11 +214,16 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
             )
         )
         if user.groups:
+            # `id -nG` returns one space-delimited line, so every configured
+            # group must be a complete token on that same line.
+            group_patterns = "".join(
+                rf"(?=[^\n]*(?<!\S){re.escape(one)}(?!\S))" for one in user.groups
+            )
             result.append(
                 InstalledCheck(
                     f"user {user.name} groups",
                     f"id -nG {user.name}",
-                    "".join(rf"(?=.*\b{re.escape(one)}\b)" for one in user.groups),
+                    rf"(?m)^{group_patterns}[^\n]+$",
                 )
             )
     if installation.system.sshd:
@@ -168,7 +236,7 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
                 InstalledCheck(
                     "sshd",
                     f"systemctl show --property=UnitFileState --value {sshd_service()}.service",
-                    r"(?m)^enabled\b",
+                    r"(?m)^enabled$",
                 )
             )
         else:
@@ -176,7 +244,7 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
                 InstalledCheck(
                     "sshd",
                     "rc-update show default",
-                    rf"(?m)^\s*{sshd_service()}\s*\|",
+                    rf"(?m)^[ \t]*{sshd_service()}[ \t]*\|[ \t]*default$",
                 )
             )
     if installation.system.zram is not None:
@@ -187,7 +255,7 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
             InstalledCheck(
                 "zram",
                 "swapon --show=NAME --noheadings; zramctl --noheadings --output NAME",
-                r"(?m)^/dev/zram0\b",
+                r"(?m)^/dev/zram0$",
             )
         )
     if installation.packages.display_manager == "greetd":
@@ -197,6 +265,7 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
                     "greetd service",
                     "systemctl is-enabled greetd.service; systemctl is-active greetd.service",
                     r"(?m)^enabled$\n^active$",
+                    "requires enabled and active state lines",
                 )
             )
         else:
@@ -205,6 +274,7 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
                     "greetd service",
                     "rc-update show default; pgrep -x greetd",
                     r"(?ms)(?=.*^display-manager\s+\|\s+default$)(?=.*^[1-9][0-9]*$)",
+                    "requires default service and process lines",
                 )
             )
         result.append(
@@ -219,6 +289,7 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
                 r"(?ms)\A(?!.*^\s*command\s*=\s*\"agreety)"
                 r"(?=.*^command = \"tuigreet .*--sessions /usr/share/wayland-sessions"
                 r" --xsessions /usr/share/xsessions\"$)",
+                "requires constraints across greetd config lines",
             )
         )
     groups = load_catalog()
@@ -239,6 +310,7 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
                 "inputmethod",
                 f"command -v {binary}; cat {environment}",
                 pattern,
+                "requires the binary and every environment line",
             )
         )
     if (
@@ -285,7 +357,13 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
     root = graph[installation.disk.root]
     source = graph[root.source] if isinstance(root, Mountpoint) else root
     if isinstance(source, ZfsDataset):
-        result.append(InstalledCheck("root filesystem", "findmnt --noheadings --output FSTYPE /", "zfs"))
+        result.append(
+            InstalledCheck(
+                "root filesystem",
+                "findmnt --noheadings --output FSTYPE /",
+                r"(?m)^zfs$",
+            )
+        )
         pool = graph[source.pool]
         if isinstance(pool, ZfsPool) and pool.topology is not ZfsTopology.STRIPE:
             # The vdev line `zpool status` draws, which is the pool's own
@@ -295,13 +373,13 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
                 InstalledCheck(
                     "pool topology",
                     f"zpool status {pool.name}",
-                    rf"(?m)^\s+{pool.topology.value}-\d+\s",
+                    rf"(?m)^[ \t]+{pool.topology.value}-\d+[ \t]+[^\n]*$",
                 )
             )
     else:
         filesystem = graph[source.filesystem] if isinstance(source, Subvolume) else source
         kind = filesystem.kind.value if isinstance(filesystem, Filesystem) else ""
-        result.append(InstalledCheck("root filesystem", "findmnt --noheadings --output FSTYPE /", kind))
+        result.append(InstalledCheck("root filesystem", "findmnt --noheadings --output FSTYPE /", rf"(?m)^{kind}$"))
     if not isinstance(source, ZfsDataset):
         result.append(InstalledCheck("fstab", "cat /etc/fstab", ROOT_BY_UUID))
     return tuple(result)

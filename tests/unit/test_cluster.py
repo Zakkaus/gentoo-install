@@ -342,6 +342,7 @@ def test_the_init_check_asks_the_running_init_not_a_file_listing() -> None:
     answered `-rwxr-xr-x 1 root root 49064 Nov 22 2025 /sbin/init` and the
     check looked for `openrc` in it. Two fixtures failed every round on that.
     """
+    import re
     from pathlib import Path
 
     from gentoo_install.exec.config import load
@@ -354,9 +355,10 @@ def test_the_init_check_asks_the_running_init_not_a_file_listing() -> None:
         assert "ls -l /sbin/init" not in init[1], init
         assert "/run/openrc" in init[1], init
         expected = "systemd" if installation.system.init is InitSystem.SYSTEMD else "openrc"
-        assert init[2] == expected, init
+        assert re.search(init[2], f"{expected}\n"), init
+        assert not re.search(init[2], f"{expected}-runtime\n"), init
         if wanted:
-            assert init[2] == wanted, init
+            assert expected == wanted, init
 
 
 def test_a_pinned_site_moves_every_address_that_follows_a_mirror(tmp_path: Path) -> None:

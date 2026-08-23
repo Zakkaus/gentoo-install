@@ -535,6 +535,118 @@ def test_an_installed_check_matches_the_value_and_not_the_text_around_it() -> No
     assert not re.search(systemd, "vmtestlonger\n")
 
 
+def test_every_installed_check_is_line_bounded_or_names_why_it_is_not() -> None:
+    """A bare pattern accepts its token from any longer line, so each check
+    either matches one complete line or records the multi-line relation it needs.
+    """
+    from dataclasses import replace
+
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.config import DiskMode, InitSystem
+    from tests.vm.installed import checks
+
+    configurations = [
+        load(path)
+        for path in sorted(Path("tests/fixtures").glob("*.toml"))
+        if load(path).disk.mode is not DiskMode.DD
+    ]
+    greetd = load(Path("tests/fixtures/vm-greetd.toml"))
+    configurations.append(replace(greetd, system=replace(greetd.system, init=InitSystem.OPENRC)))
+    exceptions = {
+        (check.name, check.line_boundary_exception)
+        for installation in configurations
+        for check in checks(installation)
+        if check.line_boundary_exception is not None
+    }
+    assert exceptions == {
+        ("mounts", "requires every configured mount line"),
+        ("kernel", "joins a running release to a boot path"),
+        ("greetd service", "requires enabled and active state lines"),
+        ("greetd service", "requires default service and process lines"),
+        ("greetd config", "requires constraints across greetd config lines"),
+        ("inputmethod", "requires the binary and every environment line"),
+    }
+    for installation in configurations:
+        for check in checks(installation):
+            if check.line_boundary_exception is not None:
+                continue
+            assert check.pattern.startswith("(?m)^"), check
+            assert check.pattern.endswith("$"), check
+
+
+def test_installed_checks_reject_embedded_or_stale_values() -> None:
+    """Each control matches its former pattern, rejects the wrong machine now,
+    and preserves a complete matching output.
+    """
+    from dataclasses import replace
+
+    from gentoo_install.exec.config import load
+    from tests.vm.installed import checks
+
+    def pattern(installation: InstallConfig, name: str) -> str:
+        return next(check.pattern for check in checks(installation) if check.name == name)
+
+    systemd = load(Path("tests/fixtures/vm-binpkg.toml"))
+    chinese_locale = replace(systemd, system=replace(systemd.system, locale="zh_CN.UTF-8"))
+    static_ip = load(Path("tests/fixtures/static-ip.toml"))
+    configured_ip = replace(
+        static_ip,
+        system=replace(
+            static_ip.system,
+            addresses=("192.0.2.1",),
+            gateways=("192.0.2.1",),
+        ),
+    )
+    cases = (
+        (
+            "resolver",
+            r"RESOLVCONF-OK",
+            pattern(systemd, "resolver"),
+            "/run/RESOLVCONF-OK-missing\nRESOLVCONF-EMPTY\n",
+            "/run/systemd/resolve/stub-resolv.conf\nRESOLVCONF-OK\n",
+        ),
+        (
+            "locale",
+            r"LANG=zh_CN.UTF-8",
+            pattern(chinese_locale, "locale"),
+            "LANG=zh_CN.UTF-8-broken\n",
+            "LANG=zh_CN.UTF-8\nLANGUAGE=zh_CN\n",
+        ),
+        (
+            "timezone",
+            r"(?m)^(?:/usr/share/zoneinfo/)?UTC$",
+            pattern(systemd, "timezone"),
+            "/usr/share/zoneinfo/Asia/Tokyo\nUTC\n",
+            "/usr/share/zoneinfo/UTC\nUTC\n",
+        ),
+        (
+            "address",
+            r"192\.0\.2\.1",
+            pattern(configured_ip, "address 192.0.2.1"),
+            "2: ens18    inet 192.0.2.10/24 brd 192.0.2.255 scope global ens18\n",
+            "2: ens18    inet 192.0.2.1/24 brd 192.0.2.255 scope global ens18\n",
+        ),
+        (
+            "default route",
+            r"default via 192\.0\.2\.1",
+            pattern(configured_ip, "default route 192.0.2.1"),
+            "default via 192.0.2.10 dev ens18 proto static\n",
+            "default via 192.0.2.1 dev ens18 proto static\n",
+        ),
+        (
+            "sshd",
+            r"(?m)^enabled\b",
+            pattern(systemd, "sshd"),
+            "enabled-runtime\n",
+            "enabled\n",
+        ),
+    )
+    for name, legacy, current, wrong, correct in cases:
+        assert re.search(legacy, wrong), f"{name}: legacy pattern missed its control"
+        assert not re.search(current, wrong), f"{name}: accepted the wrong machine"
+        assert re.search(current, correct), f"{name}: rejected complete output"
+
+
 def test_an_image_install_is_judged_by_the_image_it_wrote() -> None:
     """The product is a file on the scratch filesystem this runner mounts, and
     nothing here can boot a file on the guest's own disk. `--and-boot` booted
@@ -672,6 +784,7 @@ def test_greetd_service_check_reads_systemd_state() -> None:
             "greetd service",
             "systemctl is-enabled greetd.service; systemctl is-active greetd.service",
             r"(?m)^enabled$\n^active$",
+            "requires enabled and active state lines",
         )
     ]
     assert re.search(actual[0].pattern, "enabled\nactive\n")
@@ -691,6 +804,7 @@ def test_greetd_config_check_requires_tuigreet_session_directories() -> None:
             r"(?ms)\A(?!.*^\s*command\s*=\s*\"agreety)"
             r"(?=.*^command = \"tuigreet .*--sessions /usr/share/wayland-sessions"
             r" --xsessions /usr/share/xsessions\"$)",
+            "requires constraints across greetd config lines",
         )
     ]
     configured = (
@@ -718,6 +832,7 @@ def test_ibus_check_reads_its_binary_and_session_environment() -> None:
             "command -v ibus-daemon; cat /etc/environment",
             r"(?ms)(?=.*^/usr/bin/ibus\-daemon$)(?=.*^XMODIFIERS=@im=ibus$)"
             r"(?=.*^GTK_IM_MODULE=ibus$)(?=.*^QT_IM_MODULE=ibus$)",
+            "requires the binary and every environment line",
         )
     ]
     configured = (
@@ -2536,31 +2651,37 @@ def test_a_healthy_init_is_judged_by_the_marker_it_prints() -> None:
 
     fixture = Path(__file__).resolve().parents[1] / "fixtures" / "vm-btrfs.toml"
     installation = load(fixture)
-    # The pattern as its own output holds only while every pattern is a
-    # literal. Four of them relate one part of the machine's answer to
-    # another, so those four carry a line copied from a guest instead.
+    # These output forms are copied from the command contracts. Regex syntax is
+    # not output, so every bounded check gets an explicit line.
     written = {
         "os-release": b"NAME=Gentoo\nID='gentoo'\n",
-        "hostname": installation.system.hostname.encode() + b"\n",
-        "kernel": b"6.18.43-gentoo-dist-bin\n/boot/kernel-6.18.43-gentoo-dist-bin\n",
-        "fstab": b"UUID=ab2e555d\t/\tbtrfs\tdefaults,subvol=@\t0\t1\n",
-        "esp": b"/efi /dev/vda1 vfat\n",
         "mounts": (
             b"/       /dev/vda2[/@]      btrfs\n"
             b"/efi    /dev/vda1          vfat\n"
             b"/home   /dev/vda2[/@home]  btrfs\n"
         ),
+        "locale": b"LANG=zh_TW.UTF-8\n",
         "timezone": (
             f"/usr/share/zoneinfo/{installation.system.timezone}\n"
             f"{installation.system.timezone}\n"
         ).encode(),
+        "hostname": installation.system.hostname.encode() + b"\n",
+        "kernel": b"6.18.43-gentoo-dist-bin\n/boot/kernel-6.18.43-gentoo-dist-bin\n",
+        "resolver": b"/run/systemd/resolve/stub-resolv.conf\nRESOLVCONF-OK\n",
+        "portage": b"EMERGE-OK\n",
+        "cpu-flags": b"CPUFLAGS-ALL-KNOWN\n",
+        "init": b"systemd\n",
+        "units": b"systemd-networkd.service enabled enabled\n",
+        "failed": b"NO-FAILED-UNITS\n",
+        "network": b"systemd-networkd.service enabled enabled\n",
+        "esp": b"/efi /dev/vda1 vfat\n",
+        "root filesystem": b"btrfs\n",
+        "fstab": b"UUID=ab2e555d\t/\tbtrfs\tdefaults,subvol=@\t0\t1\n",
     }
-    healthy = {
-        f"{one.name}.txt": written.get(
-            one.name, one.pattern.replace("\\", "").encode() + b"\n"
-        )
-        for one in checks(installation)
-    }
+    checks_for_fixture = checks(installation)
+    missing = {one.name for one in checks_for_fixture} - written.keys()
+    assert not missing, missing
+    healthy = {f"{one.name}.txt": written[one.name] for one in checks_for_fixture}
     assert check_expected(healthy, fixture) == 0
     broken = dict(healthy)
     broken["failed.txt"] = b"cronie.service loaded failed failed\n"
@@ -3770,7 +3891,7 @@ def test_the_check_cannot_pass_by_the_tool_being_absent(tmp_path: Path) -> None:
     assert "CPUFLAGS-ALL-KNOWN" not in said, said
 
     wanted = next(one for one in checks(config()) if one.name == "cpu-flags")
-    assert wanted.pattern == "CPUFLAGS-ALL-KNOWN", wanted
+    assert wanted.pattern == r"(?m)^CPUFLAGS-ALL-KNOWN$", wanted
     assert "cpuid2cpuflags" in CPU_FLAGS_COMMAND
 
 
@@ -4515,26 +4636,21 @@ def test_a_conversion_reads_its_exit_code_and_not_the_echo() -> None:
 
 
 def test_no_installed_check_is_ever_read_with_its_own_echo() -> None:
-    """Twelve of the sixty-nine checks are satisfied by the text of the
-    command that asks them — `echo NO-FAILED-UNITS`, `findmnt … /efi` against
-    `/efi`, `rc-update show default` against `default`. That is harmless only
-    while every reader takes what lies between the two markers: one call site
-    moved to `expect_command` would pass all twelve on any machine, and the
-    conversion's exit code was read that way until today."""
+    """Console transports read only framed output, and a bounded pattern must
+    not match the shell line that framed it.
+    """
     import ast
     import re
 
     from gentoo_install.exec.config import load
     from tests.vm.installed import checks
 
-    # First the premise, measured rather than assumed: at least one check does
-    # match its own question, so the rule below is guarding something.
     echoed = [
         check.name
         for check in checks(load(Path("tests/fixtures/zfs-zbm.toml")))
         if re.search(check.pattern, f"root@livecd ~ # {check.command}\r\n")
     ]
-    assert echoed, "no check names its own answer, so this rule is dead"
+    assert not echoed, f"an installed check matched its shell echo: {echoed}"
 
     # `cluster.py` and `convert.py` ask over a console; `run.py` redirects each
     # answer into a file, where no echo reaches.
@@ -5171,23 +5287,23 @@ def test_the_pool_scan_is_bounded_and_outlives_its_own_window() -> None:
 
 
 def test_an_installed_check_is_read_between_the_markers() -> None:
-    """`installed.py` writes checks whose expected value is spelled out in the
-    command that produces it — `NO-FAILED-UNITS`, `EMERGE-OK`, `RESOLVCONF-OK`.
-    A shell echoes the line it was given, so a reader that keeps the echo finds
-    every one of those in the question and the check passes on any machine.
-    `expect_output` keeps only what arrived between its markers; the readers
-    use it today, and this is what stops the next one from not."""
+    """Commands that emit success markers keep their readers on framed output."""
     import ast
+    import re
     from pathlib import Path as _Path
 
     from tests.vm import installed
 
+    markers = ("RESOLVCONF-OK", "EMERGE-OK", "NO-FAILED-UNITS", "CPUFLAGS-ALL-KNOWN")
     spelled = [
-        one.pattern
+        one.name
         for one in installed.checks(_a_conversion())
-        if one.pattern in one.command
+        if any(
+            marker in one.command and re.search(one.pattern, f"{marker}\n")
+            for marker in markers
+        )
     ]
-    assert spelled, "no check spells its own answer, so this rule guards nothing"
+    assert {"resolver", "portage", "failed", "cpu-flags"} <= set(spelled), spelled
 
     root = _Path(__file__).resolve().parents[1] / "vm"
     echoed = []
