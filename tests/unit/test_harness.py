@@ -11,7 +11,10 @@ import re
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Final, cast
+from typing import TYPE_CHECKING, Any, Final, cast
+
+if TYPE_CHECKING:
+    from gentoo_install.model.config import InstallConfig
 
 import pytest
 
@@ -5099,3 +5102,45 @@ def test_the_pool_scan_is_bounded_and_outlives_its_own_window() -> None:
     default = signature.parameters["timeout"].default
     assert cluster.POOL_SCAN_PATIENCE + 60.0 > cluster.POOL_SCAN_PATIENCE
     assert cluster.POOL_SCAN_PATIENCE > default, (cluster.POOL_SCAN_PATIENCE, default)
+
+
+def test_an_installed_check_is_read_between_the_markers() -> None:
+    """`installed.py` writes checks whose expected value is spelled out in the
+    command that produces it — `NO-FAILED-UNITS`, `EMERGE-OK`, `RESOLVCONF-OK`.
+    A shell echoes the line it was given, so a reader that keeps the echo finds
+    every one of those in the question and the check passes on any machine.
+    `expect_output` keeps only what arrived between its markers; the readers
+    use it today, and this is what stops the next one from not."""
+    import ast
+    from pathlib import Path as _Path
+
+    from tests.vm import installed
+
+    spelled = [
+        one.pattern
+        for one in installed.checks(_a_conversion())
+        if one.pattern in one.command
+    ]
+    assert spelled, "no check spells its own answer, so this rule guards nothing"
+
+    root = _Path(__file__).resolve().parents[1] / "vm"
+    echoed = []
+    for source in (root / "convert.py", root / "cluster.py", root / "run.py"):
+        tree = ast.parse(source.read_text())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            name = node.func.attr if isinstance(node.func, ast.Attribute) else ""
+            if name != "expect_command":
+                continue
+            reads = ast.dump(node)
+            if "check" in reads and "command" in reads:
+                echoed.append(f"{source.name}:{node.lineno}")
+    assert not echoed, f"an installed check read with its own echo: {echoed}"
+
+
+def _a_conversion() -> "InstallConfig":
+    """A configuration whose checks include the ones that spell their answer."""
+    from tests.unit.layouts import config
+
+    return config()
