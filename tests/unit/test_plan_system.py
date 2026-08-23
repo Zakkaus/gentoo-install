@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -630,18 +631,31 @@ def test_static_ip_fixture_validates_and_writes_the_configured_network_for_both_
     assert installation.system.gateways == ("10.31.0.254",)
     assert installation.system.dns == ("10.31.0.199", "10.31.0.254")
 
-    expected_checks = {
-        ("address 10.31.0.150/24", "ip -o address show", r"10\.31\.0\.150/24"),
-        (
-            "default route 10.31.0.254",
-            "ip -4 route show default; ip -6 route show default",
-            r"default via 10\.31\.0\.254",
-        ),
-        ("resolver 10.31.0.199", "resolvectl dns", r"10\.31\.0\.199"),
-        ("resolver 10.31.0.254", "resolvectl dns", r"10\.31\.0\.254"),
+    expected_commands = {
+        "address 10.31.0.150/24": "ip -o address show",
+        "default route 10.31.0.254": "ip -4 route show default; ip -6 route show default",
+        "resolver 10.31.0.199": "resolvectl dns",
+        "resolver 10.31.0.254": "resolvectl dns",
     }
-    actual_checks = {(check.name, check.command, check.pattern) for check in checks(installation)}
-    assert expected_checks <= actual_checks
+    actual_checks = {check.name: check for check in checks(installation)}
+    assert {
+        (name, command) for name, command in expected_commands.items()
+    } <= {
+        (name, check.command) for name, check in actual_checks.items()
+    }
+    assert re.search(
+        actual_checks["address 10.31.0.150/24"].pattern,
+        "2: ens18    inet 10.31.0.150/24 brd 10.31.0.255 scope global ens18\n",
+    )
+    assert re.search(
+        actual_checks["default route 10.31.0.254"].pattern,
+        "default via 10.31.0.254 dev ens18 proto static\n",
+    )
+    for resolver in installation.system.dns:
+        assert re.search(
+            actual_checks[f"resolver {resolver}"].pattern,
+            "Global: 10.31.0.199 10.31.0.254\n",
+        )
 
     networkd = networked(installation).files[NETWORKD]
     assert "Address=10.31.0.150/24" in networkd
