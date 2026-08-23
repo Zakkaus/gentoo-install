@@ -21,6 +21,7 @@ from typing import ClassVar, Final, Iterable, Mapping
 
 from ..errors import CommandFailed, DeviceNotFound
 from ..model.config import DiskMode, InstallConfig
+from ..model.hardware import CpuVendor, HardwareFacts
 # Declared in `model/` because `plan/netboot.py` derives operations from it
 # and `plan/` may not import `exec/`; re-exported here so every caller that
 # asks the probe for the method reads the enum from the same place.
@@ -929,6 +930,38 @@ class Probe:
         # exists, both tables are missing and there is nothing under it, so
         # every branch above answered nothing and the menu offered `UTC` alone.
         return ("UTC", *found) if found else _carried_timezones()
+
+    def hardware(self) -> HardwareFacts:
+        """Facts that choose CPU microcode without becoming configuration."""
+        return HardwareFacts(
+            cpu_vendor=self.cpu_vendor(),
+            virtual_machine=self.virtual_machine(),
+        )
+
+    def cpu_vendor(self) -> CpuVendor:
+        """The CPU vendor reported by the kernel, or an unknown value."""
+        try:
+            text = CPUINFO.read_text()
+        except OSError:
+            return CpuVendor.UNKNOWN
+        for line in text.splitlines():
+            name, _, value = line.partition(":")
+            if name.strip() != "vendor_id":
+                continue
+            try:
+                return CpuVendor(value.strip())
+            except ValueError:
+                return CpuVendor.UNKNOWN
+        return CpuVendor.UNKNOWN
+
+    def virtual_machine(self) -> bool | None:
+        """Whether systemd identifies the installer as a virtual machine."""
+        result = self.runner.run(["systemd-detect-virt", "--quiet"], check=False)
+        if result.returncode == 0:
+            return True
+        if result.returncode == 1:
+            return False
+        return None
 
     def cpu_flags(self) -> tuple[str, ...]:
         """`CPU_FLAGS_X86` for this machine.

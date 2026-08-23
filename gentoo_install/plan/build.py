@@ -14,6 +14,7 @@ from typing import Final, Sequence
 from ..model import mirrors
 from ..errors import ConversionUnsupported
 from ..model.config import DiskMode, InstallConfig
+from ..model.hardware import HardwareFacts
 from ..model.device import StorageFacts, StorageLayout
 from ..model.validate import validate
 from . import bootloader, convert, dd, disk, fonts, kernel, packages, portage, system
@@ -32,6 +33,7 @@ DEFAULT_VARIANT: Final[str] = "systemd"
 PORTAGE_PREREQUISITES: Final[tuple[type[Operation], ...]] = (
     kernel.ConfigureInstallKernel,
     kernel.AcceptFirmwareLicence,
+    kernel.ConfigureIntelMicrocode,
     kernel.ConfigureRemoteUnlock,
     kernel.UnmaskCjkDistKernel,
     kernel.AcceptKernelVersion,
@@ -106,11 +108,12 @@ def build(
     storage_facts: StorageFacts | None = None,
     layout: StorageLayout | None = None,
     supports_v3: bool | None = None,
+    hardware: HardwareFacts = HardwareFacts(),
 ) -> tuple[Operation, ...]:
     """Validate, then derive the whole install. Nothing here touches a machine."""
     facts = storage_facts if storage_facts is not None else StorageFacts()
     if config.disk.layout_is_read_from_the_machine:
-        return _in_place(config, catalog, mirror, layout, supports_v3)
+        return _in_place(config, catalog, mirror, layout, supports_v3, hardware)
     validate(config, storage_facts=facts, supports_v3=supports_v3)
     if config.disk.mode is DiskMode.DD:
         return dd.build(config)
@@ -124,7 +127,7 @@ def build(
             packages._required_video_cards(config, chosen),
         ),
         *system.build(config),
-        *kernel.build(config),
+        *kernel.build(config, hardware),
         *bootloader.build(config),
         *packages._build(config, catalog, chosen),
         *fonts.build(config, catalog),
@@ -176,6 +179,7 @@ def _in_place(
     mirror: str,
     layout: StorageLayout | None,
     supports_v3: bool | None = None,
+    hardware: HardwareFacts = HardwareFacts(),
 ) -> tuple[Operation, ...]:
     """Derive the conversion of a running system, in the order it must run.
 
@@ -212,7 +216,7 @@ def _in_place(
         # After `WriteFstab`, which is in the same stage and earlier in this
         # list: the file has to exist before its other mounts are appended.
         convert.CarryFstabEntries(lines=layout.carried_fstab),
-        *kernel.build(derived),
+        *kernel.build(derived, hardware),
         *(one for one in boot if not isinstance(one, AFTER_THE_SWAP)),
         *packages._build(derived, catalog, chosen),
         *fonts.build(derived, catalog),

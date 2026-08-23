@@ -38,6 +38,7 @@ from .exec.probe import (
 from .exec.runner import Runner
 from .log import Journal
 from .model.device import DeviceGraph, DeviceId, StorageFacts, StorageLayout, ZfsPool
+from .model.hardware import HardwareFacts
 from .model.size import Size
 from .tui import app, screens
 from .tui import context as tui_context
@@ -466,6 +467,10 @@ def _once(arguments: argparse.Namespace, state: RunState, refused: str) -> int |
         storage_facts = StorageFacts()
         loader_v3: bool | None = None
         layout: StorageLayout | None = None
+        hardware = HardwareFacts()
+        if config.disk.mode is not DiskMode.DD:
+            reading = Probe(runner=Runner(log=lambda line: None), work=arguments.work)
+            hardware = reading.hardware()
         if config.disk.layout_is_read_from_the_machine:
             # Even for a dry run: a conversion's whole plan is derived from the
             # running machine, so without this there is nothing to print.
@@ -473,13 +478,9 @@ def _once(arguments: argparse.Namespace, state: RunState, refused: str) -> int |
                 runner=Runner(log=lambda line: None), work=arguments.work
             ).storage_layout()
         if not arguments.dry_run and config.disk.mode is not DiskMode.DD:
-            # Before the plan is derived, because `build` validates: a reused
-            # esp needs runtime metadata. A dry run remains independent of the
-            # selected hardware.
-            reading = Probe(runner=Runner(log=lambda line: None), work=arguments.work)
+            # Storage metadata is only required before a real install.
             storage_facts = probe_storage_facts(config, reading)
-            # `ld.so --help`, the loader's own answer about this machine: a dry
-            # run stays independent of the hardware, so it is not read there.
+            # `ld.so --help`, the loader's own answer about this machine.
             loader_v3 = reading.supports_v3()
         operations = build(
             config,
@@ -488,6 +489,7 @@ def _once(arguments: argparse.Namespace, state: RunState, refused: str) -> int |
             storage_facts=storage_facts,
             layout=layout,
             supports_v3=loader_v3,
+            hardware=hardware,
         )
         if arguments.dry_run:
             print(render(operations), end="")

@@ -22,6 +22,7 @@ from gentoo_install.exec.runner import Runner
 from gentoo_install.cli import EXIT_CONFIG, EXIT_INTEGRITY, EXIT_OK, EXIT_PREFLIGHT, main
 from gentoo_install.errors import CommandFailed, ConfigError, IntegrityError
 from gentoo_install.model.config import DiskConfig, DiskMode, ImageFormat, MemoryLaunch, MemoryMode
+from gentoo_install.model.hardware import CpuVendor, HardwareFacts
 from gentoo_install.model.device import DeviceGraph, DeviceId, StorageFacts, StorageLayout
 from gentoo_install.plan.build import DEFAULT_MIRROR
 from gentoo_install.exec.config import load
@@ -225,11 +226,46 @@ def test_a_dry_run_touches_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         cli,
         "build",
-        lambda chosen, catalog, *, mirror, storage_facts, layout, supports_v3: (operation,),
+        lambda chosen, catalog, *, mirror, storage_facts, layout, supports_v3, hardware: (operation,),
     )
     code = main(["--config", str(FIXTURES / "ext4-bios.toml"), "--dry-run"])
     assert code == EXIT_OK
     assert executed == []
+
+
+def test_a_dry_run_passes_probed_hardware_to_the_plan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gentoo_install.plan.operations import Operation
+
+    expected = HardwareFacts(cpu_vendor=CpuVendor.INTEL, virtual_machine=False)
+    planned: list[HardwareFacts] = []
+
+    class HardwareProbe:
+        def __init__(self, **_: object) -> None:
+            pass
+
+        def hardware(self) -> HardwareFacts:
+            return expected
+
+    def build_with_hardware(
+        chosen: object,
+        catalog: object,
+        *,
+        mirror: str,
+        storage_facts: StorageFacts,
+        layout: StorageLayout | None,
+        supports_v3: bool | None,
+        hardware: HardwareFacts,
+    ) -> tuple[Operation, ...]:
+        planned.append(hardware)
+        return ()
+
+    monkeypatch.setattr(cli, "Probe", HardwareProbe)
+    monkeypatch.setattr(cli, "build", build_with_hardware)
+
+    assert main(["--config", str(FIXTURES / "ext4-bios.toml"), "--dry-run"]) == EXIT_OK
+    assert planned == [expected]
 
 
 def test_a_dry_run_names_devices_by_id_rather_than_by_path(
@@ -1028,7 +1064,7 @@ def test_a_finish_failure_releases_the_machine_and_keeps_its_exit_code(
     monkeypatch.setattr(
         cli,
         "build",
-        lambda chosen, catalog, *, mirror, storage_facts, layout, supports_v3: (
+        lambda chosen, catalog, *, mirror, storage_facts, layout, supports_v3, hardware: (
             Partition(),
             FailFinish(),
             FailRelease(),
@@ -1080,7 +1116,7 @@ def test_a_failure_after_partitioning_says_the_disk_may_not_boot(
     monkeypatch.setattr(
         cli,
         "build",
-        lambda chosen, catalog, *, mirror, storage_facts, layout, supports_v3: (FailPartition(),),
+        lambda chosen, catalog, *, mirror, storage_facts, layout, supports_v3, hardware: (FailPartition(),),
     )
     monkeypatch.setattr(report, "keep_log", lambda work, target, record: None)
 
@@ -1158,7 +1194,7 @@ def test_a_body_failure_before_partitioning_says_nothing_was_written(
     monkeypatch.setattr(
         cli,
         "build",
-        lambda chosen, catalog, *, mirror, storage_facts, layout, supports_v3: (
+        lambda chosen, catalog, *, mirror, storage_facts, layout, supports_v3, hardware: (
             FailBeforePartition(),
             Partition(),
         ),
@@ -1341,6 +1377,9 @@ def test_a_conversion_reads_the_running_layout_even_for_a_dry_run(
         def __init__(self, **_: object) -> None:
             pass
 
+        def hardware(self) -> HardwareFacts:
+            return HardwareFacts()
+
         def storage_layout(self) -> StorageLayout:
             read.append("layout")
             return StorageLayout(
@@ -1480,6 +1519,9 @@ def test_a_layout_that_cannot_be_converted_exits_as_a_preflight_failure(
     class OnZfs:
         def __init__(self, **_: object) -> None:
             pass
+
+        def hardware(self) -> HardwareFacts:
+            return HardwareFacts()
 
         def storage_layout(self) -> StorageLayout:
             return StorageLayout(
