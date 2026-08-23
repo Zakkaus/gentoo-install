@@ -653,6 +653,8 @@
 "accept ~amd64 for packages from {} only" = "仅接受仓库 {} 中软件包的 ~amd64"
 "{}: emerge {}, from source" = "{}：从源代码 emerge {}"
 "{}: emerge {}, building {} here" = "{}：emerge {}，在本机构建 {}"
+"{}: emerge {}, with no binhost" = "{}：emerge {}，不使用 binhost"
+"{}: emerge {}, building {} here, with no binhost" = "{}：emerge {}，在本机构建 {}，不使用 binhost"
 "{}: emerge {}" = "{}：emerge {}"
 "run getuto so Portage has a keyring to verify binary packages against, and write dirmngr.conf" = "运行 getuto，让 Portage 拥有验证二进制软件包的密钥环，并写入 dirmngr.conf"
 "import {} from {} and locally sign it for {}" = "导入 {}，来源 {}，并为 {} 本地签名"

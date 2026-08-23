@@ -652,6 +652,8 @@
 "accept ~amd64 for packages from {} only" = "{} のパッケージだけに ~amd64 を許可"
 "{}: emerge {}, from source" = "{}：{} をソースから emerge"
 "{}: emerge {}, building {} here" = "{}：{} を emerge し、{} をここでビルド"
+"{}: emerge {}, with no binhost" = "{}：binhost を使わずに {} を emerge"
+"{}: emerge {}, building {} here, with no binhost" = "{}：binhost を使わずに {} を emerge し、{} をここでビルド"
 "{}: emerge {}" = "{}：{} を emerge"
 "run getuto so Portage has a keyring to verify binary packages against, and write dirmngr.conf" = "Portage がバイナリーパッケージを検証する鍵束を持つよう getuto を実行し、dirmngr.conf を書き込む"
 "import {} from {} and locally sign it for {}" = "{} を {} からインポートし、{} 用にローカル署名"
