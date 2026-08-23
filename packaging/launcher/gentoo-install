@@ -1,6 +1,14 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0-or-later
-# The installer as a command on the Live ISO. No `--config`: the operator on a
-# live desktop wants the menu, and the memory environment's own launcher is the
-# one that carries a prepared file.
-exec python3 -m gentoo_install "$@"
+# The installed command reaches bootstrap, which owns the environment checks.
+case "$0" in
+*/*) here=${0%/*} ;;
+*)
+	here=$(command -v "$0") || exit 127
+	case "$here" in
+	*/*) here=${here%/*} ;;
+	*) here=. ;;
+	esac
+	;;
+esac
+exec "$here/../libexec/gentoo-install/bootstrap.sh" "$@"

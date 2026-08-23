@@ -23,6 +23,9 @@ src_install() {
 	python_moduleinto gentoo_install
 	python_domodule gentoo_install/.
 
+	exeinto /usr/local/libexec/gentoo-install
+	doexe bootstrap.sh
+
 	# The one path `plan/netboot.py` names in its banner, so the command an
 	# operator is told about is the command the medium has.
 	exeinto /usr/local/sbin

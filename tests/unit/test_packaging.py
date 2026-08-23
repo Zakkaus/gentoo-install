@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import configparser
+import shutil
 import stat
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -39,7 +41,7 @@ def test_the_live_launcher_opens_the_menu() -> None:
     running = [
         line for line in LAUNCHER.read_text().splitlines() if line.startswith("exec ")
     ]
-    assert running == ['exec python3 -m gentoo_install "$@"'], running
+    assert running == ['exec "$here/../libexec/gentoo-install/bootstrap.sh" "$@"'], running
     assert LAUNCHER.stat().st_mode & stat.S_IXUSR
 
     # Negative control: the memory launcher does carry one, so the rule above
@@ -47,6 +49,55 @@ def test_the_live_launcher_opens_the_menu() -> None:
     from gentoo_install.plan.netboot import _command
 
     assert "--config" in _command()
+
+
+def test_installed_launcher_stays_on_bootstrap_path(tmp_path: Path) -> None:
+    """The installed launcher must keep both bootstrap checks and the caller's
+    working directory."""
+    prefix = tmp_path / "prefix"
+    sbin = prefix / "sbin"
+    libexec = prefix / "libexec" / "gentoo-install"
+    sbin.mkdir(parents=True)
+    libexec.mkdir(parents=True)
+    installed_launcher = sbin / "gentoo-install"
+    installed_bootstrap = libexec / "bootstrap.sh"
+    shutil.copy2(LAUNCHER, installed_launcher)
+    shutil.copy2(ROOT / "bootstrap.sh", installed_bootstrap)
+    helpers = tmp_path / "helpers"
+    helpers.mkdir()
+    python = shutil.which("python3") or "/usr/bin/python3"
+    (helpers / "python3").symlink_to(python)
+    release = tmp_path / "os-release"
+    release.write_text("ID=alpine\n")
+    operator = tmp_path / "operator"
+    module = operator / "gentoo_install"
+    module.mkdir(parents=True)
+    (module / "__init__.py").write_text("", encoding="utf-8")
+    (module / "__main__.py").write_text(
+        "from pathlib import Path\nprint(Path.cwd())\n", encoding="utf-8"
+    )
+
+    def launch(command: str | Path) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [str(command), "--dry-run"],
+            cwd=operator,
+            env={"OS_RELEASE": str(release), "PATH": f"{sbin}:{helpers}"},
+            capture_output=True,
+            text=True,
+        )
+
+    direct = launch(installed_bootstrap)
+    assert direct.returncode == 0, direct.stderr
+    assert direct.stdout == f"{operator}\n"
+
+    launched = launch("gentoo-install")
+    assert launched.returncode == 0, launched.stderr
+    assert launched.stdout == f"{operator}\n"
+    assert "live system: alpine" in launched.stderr
+
+    recipe = EBUILD.read_text()
+    assert "exeinto /usr/local/libexec/gentoo-install" in recipe
+    assert "doexe bootstrap.sh" in recipe
 
 
 def test_the_desktop_entry_says_it_is_the_text_installer() -> None:
