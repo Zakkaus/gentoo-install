@@ -1747,11 +1747,16 @@ def table_screen(screen: Screen, config: InstallConfig, context: Context) -> Ans
     refuses BIOS booting a GPT disk with no bios-boot partition."""
     translate = context.translate
     items = [Item(label=table.value, value=table) for table in TableType]
+    current = (
+        context.layout.disks[0].table
+        if context.manual and context.layout.disks
+        else context.choice.table
+    )
     menu: Menu[TableType] = Menu(
         title=translate("Partition table"),
         preamble=(translate("The table format controls how firmware and the kernel identify partitions."),),
         items=items,
-        current=context.choice.table,
+        current=current,
         footer=footer(translate),
     )
     answer = menu.run(screen)

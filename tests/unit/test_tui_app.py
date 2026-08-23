@@ -2823,6 +2823,20 @@ def test_loaded_configuration_remains_the_disk_target_after_an_edit() -> None:
     assert edited.disk.graph.of_type(Existing)[0].selector == "/dev/loaded"
 
 
+def test_manual_table_screen_reopens_on_the_selected_disk_table() -> None:
+    """Enter keeps the table the manual disk already carries."""
+    from gentoo_install.model.device import TableType
+
+    at = context()
+    at.manual = True
+    at.layout = manual.suggest(at.choice.disk, at.firmware)
+    at.layout.disks[0].table = TableType.MBR
+
+    screens.table_screen(FakeScreen(keys=["\n"], lines=24), config(), at)
+
+    assert at.layout.disks[0].table is TableType.MBR
+
+
 def test_the_zfs_bootloader_prompt_returns_only_installable_answers() -> None:
     """It changed the bootloader and left the esp at `/efi`, so choosing
     systemd-boot returned a configuration `validate` refuses -- from the very
