@@ -43,9 +43,14 @@ DEADLINE = 45.0
 #: short enough that a hundred of them still finish inside the deadline.
 KEY_INTERVAL = 0.08
 
-#: A resize regression gets a shorter bound because its failure mode is an
-#: input loop that would otherwise consume the full suite deadline.
-RESIZE_DEADLINE = 8.0
+#: How long the child may say nothing at all before it counts as stuck. The
+#: bound is on silence, not on elapsed time: a machine running guests and a
+#: second pytest makes the child slower, not quieter, and a wall-clock budget
+#: turns that load into a red gate nobody can reproduce alone.
+RESIZE_STALL = 15.0
+#: The backstop for a child that keeps drawing for ever, which silence cannot
+#: catch.
+RESIZE_CAP = 60.0
 RESIZE_INTERVAL = 0.3
 RESIZE_START_INTERVAL = 1.0
 #: How long the child must say nothing before its redraw counts as finished.
@@ -175,8 +180,9 @@ with os.fdopen({write_end}, "w") as handle:
     pending = list(actions)
     drawing = bytearray()
     printed = bytearray()
-    deadline = time.monotonic() + RESIZE_DEADLINE
-    next_action = deadline
+    cap = time.monotonic() + RESIZE_CAP
+    last_progress = time.monotonic()
+    next_action = cap
     waiting_for_resize_draw = False
     started = False
     timed_out = False
@@ -188,6 +194,8 @@ with os.fdopen({write_end}, "w") as handle:
                     chunk = os.read(ready.fd, 65536)
                 except (BlockingIOError, OSError):
                     chunk = b""
+                if chunk:
+                    last_progress = time.monotonic()
                 if ready.fd == terminal:
                     drawing.extend(chunk)
                     if waiting_for_resize_draw and chunk:
@@ -195,7 +203,7 @@ with os.fdopen({write_end}, "w") as handle:
                         # when the child stops writing, and every chunk pushes
                         # the moment out again.
                         next_action = time.monotonic() + RESIZE_QUIET
-                    elif drawing and next_action == deadline:
+                    elif drawing and next_action == cap:
                         delay = RESIZE_INTERVAL if started else RESIZE_START_INTERVAL
                         next_action = time.monotonic() + delay
                 else:
@@ -217,12 +225,13 @@ with os.fdopen({write_end}, "w") as handle:
                     # this ioctl implementation signals the pty process group.
                     os.kill(child, signal.SIGWINCH)
                     waiting_for_resize_draw = True
-                next_action = deadline if waiting_for_resize_draw else now + RESIZE_INTERVAL
+                last_progress = now
+                next_action = cap if waiting_for_resize_draw else now + RESIZE_INTERVAL
             waited, _ = os.waitpid(child, os.WNOHANG)
             if waited:
                 reaped = True
                 break
-            if now >= deadline:
+            if now - last_progress >= RESIZE_STALL or now >= cap:
                 timed_out = True
                 os.kill(child, signal.SIGKILL)
                 break
@@ -244,7 +253,7 @@ with os.fdopen({write_end}, "w") as handle:
         return (
             {
                 "error": (
-                    f"the screen was still waiting after {RESIZE_DEADLINE}s; "
+                    f"the screen drew nothing for {RESIZE_STALL}s; "
                     f"{len(pending)} actions remain after {len(drawing)} output bytes; "
                     f"small screen drawn: {b'interface needs' in drawing}"
                 )
