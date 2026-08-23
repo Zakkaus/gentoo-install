@@ -43,7 +43,13 @@ from gentoo_install.exec.config import load
 from gentoo_install.model.serialise import to_toml
 from gentoo_install.model.manual import dataset_for
 
-from .console import DISK_PASSPHRASE, PASSPHRASE_PROMPT, PASSWORD_PROMPT, SerialConsole
+from .console import (
+    DISK_PASSPHRASE,
+    PASSPHRASE_ATTEMPTS,
+    PASSPHRASE_PROMPT,
+    PASSWORD_PROMPT,
+    SerialConsole,
+)
 from .monitor import type_text
 from .driver import FIND_DRIVER, REPOSITORY, build as build_driver
 from .media import MEDIA, Medium
@@ -468,7 +474,7 @@ def unlock_and_login(
         # prompt, which is on the serial port and is waited for below.
         time.sleep(GRUB_PROMPT_SECONDS)
         type_text(monitor, DISK_PASSPHRASE)
-    for _ in range(5):
+    for _ in range(PASSPHRASE_ATTEMPTS):
         seen = console.expect(rf"{PASSPHRASE_PROMPT}|login:", timeout=300.0)
         if b"login:" in seen:
             console.send("root")

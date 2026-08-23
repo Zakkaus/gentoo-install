@@ -9,7 +9,7 @@ import socket
 import time
 from pathlib import Path
 from types import TracebackType
-from typing import IO, Iterator, Protocol, Self
+from typing import IO, Final, Iterator, Protocol, Self
 
 _ANSI = re.compile(
     rb"\x1b\[[0-9;?]*[a-zA-Z]"
@@ -83,6 +83,15 @@ PASSPHRASE_PROMPT = r"[Ee]nter passphrase|Please enter passphrase|password for"
 #: the other. Here rather than in each runner, so the local runs and the
 #: cluster runs cannot install one and answer with another.
 DISK_PASSPHRASE = "install-disk"
+
+
+#: How many passphrase prompts are answered before the boot is called stuck.
+#: A layout can hold more than one encrypted device and dracut asks once per
+#: device; a prompt that keeps returning means the passphrase is wrong, and
+#: answering it for ever would hide that behind the patience ceiling. Here
+#: rather than in either runner: the cluster bounded it at four and the local
+#: runner at five, so a fifth valid prompt passed one and failed the other.
+PASSPHRASE_ATTEMPTS: Final[int] = 5
 
 
 class Channel(Protocol):
