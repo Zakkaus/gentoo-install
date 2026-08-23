@@ -181,6 +181,7 @@ class KernelSource(Enum):
     DIST_SOURCE = "dist-source"
     CJK_BIN = "cjk-bin"
     CJK = "cjk"
+    XANMOD = "xanmod"
 
 
 class Bootloader(Enum):

@@ -346,6 +346,17 @@ def interactive_stdin(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "stdin", TerminalInput())
 
 
+def test_xanmod_versions_come_from_the_gentoo_zh_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        fetch,
+        "overlay_versions",
+        lambda atom: (("7.1.9", False),) if atom == "sys-kernel/xanmod-kernel" else (),
+    )
+    monkeypatch.setattr(fetch, "package_versions", lambda atom: pytest.fail(atom))
+    assert cli._kernel_versions("sys-kernel/xanmod-kernel") == (("7.1.9", False),)
+
 def test_the_menu_stops_when_the_machine_cannot_reach_the_package_site(
     capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:

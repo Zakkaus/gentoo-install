@@ -716,10 +716,14 @@ def test_the_prebuilt_patched_kernel_is_the_one_a_chinese_interface_takes() -> N
     assert prebuilt.atom == "sys-kernel/gentoo-cjk-kernel-bin"
     assert prebuilt.applies_cjktty
     assert prebuilt.cjk_use_defaults_on
-    assert set(CJK_KERNELS) == {KernelSource.CJK_BIN, KernelSource.CJK}
+    assert set(CJK_KERNELS) == {
+        KernelSource.CJK_BIN,
+        KernelSource.CJK,
+        KernelSource.XANMOD,
+    }
     assert set(KERNEL_PACKAGES) == set(KernelSource)
 
-    # Both take the keyword and the flag; neither comes from a binary host.
+    # All take the keyword and the flag; none comes from a binary host.
     for source in CJK_KERNELS:
         chosen = replace(config(), kernel=KernelConfig(source=source))
         described = [one.describe() for one in kernel.build(chosen)]
@@ -746,6 +750,20 @@ def test_a_cjk_kernel_choice_is_read_out_of_the_package_table() -> None:
         }
     ) == (KernelSource.DIST_BIN,)
 
+def test_xanmod_is_a_cjktty_dist_kernel_that_builds_from_source() -> None:
+    chosen = replace(
+        config(),
+        kernel=KernelConfig(source=KernelSource.XANMOD),
+        system=SystemConfig(console_cjk=True),
+    )
+
+    recorder = apply_kernel(chosen)
+    assert recorder.files[PurePosixPath("/etc/portage/package.use/cjk-kernel")] == (
+        "sys-kernel/xanmod-kernel cjk\n"
+    )
+    described = [one.describe() for one in kernel.build(chosen)]
+    assert "install the kernel: emerge sys-kernel/xanmod-kernel, from source" in described
+
 
 def test_the_prebuilt_patched_kernel_sits_beside_the_source_one() -> None:
     """`sys-kernel/gentoo-cjk-kernel-bin` is in gentoo-zh: same cjktty patch,
@@ -753,7 +771,11 @@ def test_the_prebuilt_patched_kernel_sits_beside_the_source_one() -> None:
     from gentoo_install.model.compat import CJK_KERNELS, KERNEL_PACKAGES
 
     assert KERNEL_PACKAGES[KernelSource.CJK_BIN].atom == "sys-kernel/gentoo-cjk-kernel-bin"
-    assert set(CJK_KERNELS) == {KernelSource.CJK_BIN, KernelSource.CJK}
+    assert set(CJK_KERNELS) == {
+        KernelSource.CJK_BIN,
+        KernelSource.CJK,
+        KernelSource.XANMOD,
+    }
     # Every choice has a package: a member with none installs nothing at all.
     assert set(KERNEL_PACKAGES) == set(KernelSource)
 
@@ -854,17 +876,18 @@ def test_the_initramfs_parameters_reach_every_grub_entry() -> None:
 
 
 def test_the_cjk_kernel_lifts_the_mask_its_dependency_carries() -> None:
-    """`gentoo-cjk-kernel` PDEPENDs on `=virtual/dist-kernel-${PV}-r100`. That
-    revision exists only in gentoo-zh, and gentoo-zh masked its own
-    `virtual/dist-kernel` because it is incompatible with `::gentoo`'s, whose
-    copy carries no `-r100`. Without the unmask the emerge stops on a masked
-    package with the disks already partitioned."""
+    """`gentoo-cjk-kernel`, its `-bin` twin, and `xanmod-kernel` PDEPEND on
+    `=virtual/dist-kernel-${PV}-r100`. That revision exists only in gentoo-zh,
+    and gentoo-zh masked its own `virtual/dist-kernel` because it is
+    incompatible with `::gentoo`'s, whose copy carries no `-r100`. Without the
+    unmask the emerge stops on a masked package with the disks already partitioned."""
     from gentoo_install.model.config import KernelSource
     from gentoo_install.plan.kernel import UnmaskCjkDistKernel
 
     for source, wanted in (
         (KernelSource.CJK_BIN, True),
         (KernelSource.CJK, True),
+        (KernelSource.XANMOD, True),
         (KernelSource.DIST_BIN, False),
     ):
         installation = replace(

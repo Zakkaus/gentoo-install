@@ -18,6 +18,7 @@ import pytest
 from gentoo_install.data import load_catalog
 from gentoo_install.errors import GentooInstallError
 from gentoo_install.model import manual, templates
+from gentoo_install.model.compat import CJK_KERNELS
 from gentoo_install.model.config import (
     Bootloader,
     BootloaderConfig,
@@ -120,7 +121,7 @@ def a_configuration() -> InstallConfig:
     init = random.choice(list(InitSystem))
     kernel = random.choice(list(KernelSource))
     on_zfs = any(isinstance(one, ZfsDataset) for one in disk.graph.nodes.values())
-    cjk = kernel in (KernelSource.CJK, KernelSource.CJK_BIN)
+    cjk = kernel in CJK_KERNELS
     boot = (
         Bootloader.ZFSBOOTMENU
         if on_zfs
