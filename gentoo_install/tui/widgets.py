@@ -654,7 +654,16 @@ class TextField:
     detail: str = ""
 
     def run(self, screen: Screen) -> Answer[str]:
+        return self.run_validated(screen, lambda value: Answer(Outcome.CHOSE, value))
+
+    def run_validated(
+        self,
+        screen: Screen,
+        validator: Callable[[str], Answer[V] | TextFieldRejected],
+    ) -> Answer[V]:
+        """Retry rejected entries while restoring the submitted text."""
         typed = list(self.value)
+        message = ""
         # Backspace leaves the screen only while the field is untouched: a
         # field that had content could not be cleared otherwise, and several
         # of them mean something by empty. Left always leaves, because a
@@ -663,13 +672,18 @@ class TextField:
         # the run.
         touched = False
         while True:
-            self._draw(screen, typed)
+            self._draw(screen, typed, message)
             pressed = screen.key()
             if pressed in ("\n", "KEY_ENTER"):
-                return Answer(Outcome.CHOSE, "".join(typed))
-            if pressed in ("KEY_LEFT", "\x1b"):
+                checked = validator("".join(typed))
+                if not isinstance(checked, TextFieldRejected):
+                    return checked
+                typed = list(checked.correction)
+                message = checked.message
+                touched = False
+            elif pressed in ("KEY_LEFT", "\x1b"):
                 return Answer(Outcome.BACK)
-            if pressed == CLEAR_KEY:
+            elif pressed == CLEAR_KEY:
                 # Every field here arrives with a value in it, and replacing
                 # one meant counting its characters and pressing backspace
                 # that many times: an operator asked for a 512 MiB partition
@@ -688,16 +702,19 @@ class TextField:
                 typed.append(pressed)
                 touched = True
 
-    def _draw(self, screen: Screen, typed: list[str]) -> None:
+    def _draw(self, screen: Screen, typed: list[str], message: str = "") -> None:
         lines, columns = screen.size()
         screen.clear()
         screen.write(0, 0, clip(self.title, columns))
+        row = 2
+        if message:
+            screen.write(1, 2, clip(message, columns - 2), style=Style.REQUIRED)
+            row = 3
         # Brackets and a caret, drawn highlighted: a bare string at the top of
         # an empty screen does not read as somewhere to type.
         room = columns - 8
         shown = "*" * len(typed) if self.masked else "".join(typed)
         shown = _tail_that_fits(shown, room - 1)
-        row = 2
         if self.detail:
             # Wrapped, not clipped: the exact string to type is the last thing
             # in this line and the first thing a clip removes. An operator
@@ -705,10 +722,11 @@ class TextField:
             # Bounded so the field and the footer keep their rows: a detail
             # long enough to fill the screen would otherwise push the box off
             # the bottom and leave nowhere to type.
-            for one in wrap_to_cells(self.detail, columns)[: max(1, lines - 5)]:
+            for one in wrap_to_cells(self.detail, columns)[: max(0, lines - row - 2)]:
                 screen.write(row, 0, one)
                 row += 1
-            row += 1
+            if row < lines - 2:
+                row += 1
         # The caret in both states, so an empty field never reads as a full
         # one. A placeholder is a hint about the shape of the answer and is
         # drawn only when there is no `detail` naming the exact string.
@@ -732,6 +750,14 @@ def _tail_that_fits(text: str, room: int) -> str:
     while text and width(text) > room:
         text = text[1:]
     return text
+
+
+@dataclass(frozen=True)
+class TextFieldRejected:
+    """A submitted text field that must be redrawn with an explanation."""
+
+    message: str
+    correction: str
 
 
 @dataclass

@@ -17,6 +17,7 @@ from gentoo_install.tui.widgets import (
     SEPARATOR,
     Style,
     TextField,
+    TextFieldRejected,
 )
 
 from gentoo_install.i18n import width
@@ -382,6 +383,23 @@ def test_a_validated_form_retains_values_and_draws_the_error_inline() -> None:
     retry = next(frame for frame in screen.frames if "That value is not valid." in "\n".join(frame))
     assert "kept" in "\n".join(retry)
 
+
+def test_a_validated_text_field_retains_the_rejected_value_and_error() -> None:
+    submitted: list[str] = []
+
+    def validate(value: str) -> Answer[str] | TextFieldRejected:
+        submitted.append(value)
+        if value == "wrong":
+            return TextFieldRejected("That value is not valid.", value)
+        return Answer(Outcome.CHOSE, value)
+
+    screen = FakeScreen(keys=[*"wrong", "\n", *(["\x7f"] * 5), *"right", "\n"])
+    answer = TextField(title="Size").run_validated(screen, validate)
+
+    assert answer.unwrap() == "right"
+    assert submitted == ["wrong", "right"]
+    retry = next(frame for frame in screen.frames if "That value is not valid." in "\n".join(frame))
+    assert "wrong_" in "\n".join(retry)
 
 def test_a_validator_can_correct_one_field_without_losing_the_others() -> None:
     submitted: list[list[str]] = []

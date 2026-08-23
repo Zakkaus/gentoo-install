@@ -37,7 +37,7 @@ from ..model.device import (
 from ..model.size import SectorSize, Size
 from ..model.templates import Choice, Layout, build
 from ..model.validate import validate
-from ..errors import GentooInstallError, ValidationFailed
+from ..errors import GentooInstallError, InvalidSize, ValidationFailed
 from .context import (
     Context,
     answers,
@@ -59,6 +59,7 @@ from .widgets import (
     Outcome,
     Screen,
     TextField,
+    TextFieldRejected,
 )
 
 def _known(kind: str) -> FilesystemType | None:
@@ -1040,16 +1041,26 @@ def _edit_field_legacy(
             return None
         return replace(entry, status=chosen_status.unwrap())
     if field == _SIZE:
+        def parse_size(text: str) -> Answer[Size | None] | TextFieldRejected:
+            literal = text.strip()
+            if not literal:
+                return Answer(Outcome.CHOSE, None)
+            try:
+                return Answer(Outcome.CHOSE, Size.parse(literal))
+            except InvalidSize:
+                return TextFieldRejected(
+                    translate("{value} is not a valid size").format(value=text), text
+                )
+
         typed = TextField(
             title=translate("Size"),
             value="" if entry.size is None else str(entry.size),
             placeholder=translate("512MiB, 20GiB, or empty for the remaining space"),
             footer=footer(translate),
-        ).run(screen)
+        ).run_validated(screen, parse_size)
         if not typed.chosen:
             return None
-        text = typed.unwrap().strip()
-        return replace(entry, size=Size.parse(text) if text else None)
+        return replace(entry, size=typed.unwrap())
     if field == _PURPOSE:
         picked = current_menu(
             screen,

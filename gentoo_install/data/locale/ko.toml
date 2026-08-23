@@ -124,6 +124,7 @@
 "Done" = "완료"
 "Size" = "크기"
 "512MiB, 20GiB, or empty for the remaining space" = "512MiB, 20GiB, 비우면 남은 공간 전부"
+"{value} is not a valid size" = "{value} 값은 유효한 크기가 아닙니다"
 "the remaining space" = "남은 공간 전부"
 "Purpose" = "용도"
 "What is this partition for?" = "이 파티션의 용도"
