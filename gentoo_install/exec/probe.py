@@ -694,7 +694,11 @@ class Probe:
                 # The status, not `check=False` alone: an absent `mdev` and a
                 # `mdev` that ran and made nothing look the same from here, and
                 # the `--lowram` environment failed on one of the two.
-                scan = self.runner.run(["mdev", "-s"], check=False)
+                # `-f`, not a bare scan: without it mdev leaves the stale
+                # `/dev/disk/*` links a previous table left behind, and a link
+                # pointing at a partition that no longer exists is what the
+                # next `mkfs` opens.
+                scan = self.runner.run(["mdev", "-sf"], check=False)
                 tried.append(f"mdev={scan.returncode}")
             time.sleep(0.5)
         raise DeviceNotFound(
