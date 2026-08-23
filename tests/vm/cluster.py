@@ -66,6 +66,7 @@ from gentoo_install.plan.portage import BINARY_PACKAGES, KEY_SERVER
 
 from .console import (
     DISK_PASSPHRASE,
+    PASSPHRASE_ATTEMPTS,
     PASSPHRASE_PROMPT,
     PASSWORD_PROMPT,
     ConsoleClosed,
@@ -2242,13 +2243,6 @@ def _log_into_the_installed_system(link: "Reconnecting") -> None:
     link.console.expect(PASSWORD_PROMPT, INSTALLED_LOGIN_PATIENCE)
     link.console.send(TUI_PASSWORD)
     reach_prompt(link)
-
-
-#: How many passphrase prompts are answered before the boot is called stuck.
-#: A layout can hold more than one encrypted device, and dracut asks once per
-#: device; a prompt that keeps returning means the passphrase is wrong, and
-#: answering it for ever would hide that behind the patience ceiling.
-PASSPHRASE_ATTEMPTS: Final[int] = 4
 
 
 #: A machine booting its own disk answers sooner than a medium does, and a
