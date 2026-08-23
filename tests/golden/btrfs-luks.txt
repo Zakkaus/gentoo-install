@@ -48,7 +48,7 @@
   set sys-kernel/installkernel to dracut
   ask for sys-apps/systemd[cryptsetup], which provides the unlock generator
   accept the linux-firmware licence
-  accept sys-kernel/gentoo-cjk-kernel-bin as testing, with cjk off
+  accept sys-kernel/gentoo-cjk-kernel-bin as testing, with cjk off, writing /etc/portage/package.use/cjk-kernel
   unmask virtual/dist-kernel, which the cjk kernel depends on by revision
   ask for app-i18n/fcitx-configtool kcm; sys-libs/minizip-ng compat; kde-plasma/kwin lock; kde-plasma/kwin-x11 lock for the plasma group
   ask for app-i18n/rime-data extra for the rime-simplified group

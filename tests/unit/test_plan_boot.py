@@ -153,9 +153,9 @@ def test_the_patched_kernel_is_a_dist_kernel_and_builds_itself() -> None:
     assert any("rebuild the initramfs" in o.describe() for o in kernel.build(patched))
 
 
-def test_the_patched_kernel_is_keyworded_and_its_cjk_flag_is_left_alone() -> None:
-    """It is ~amd64 in gentoo-zh, and its cjk flag is on by default: writing
-    the flag when it is wanted would be a line that changes nothing."""
+def test_the_patched_kernel_is_keyworded_and_its_cjk_flag_is_explicit() -> None:
+    """XanMod defaults `cjk` off, so every patched kernel writes the console
+    state even when gentoo-cjk has the same default."""
     wanted = replace(
         config(),
         kernel=KernelConfig(source=KernelSource.CJK),
@@ -166,7 +166,9 @@ def test_the_patched_kernel_is_keyworded_and_its_cjk_flag_is_left_alone() -> Non
         PurePosixPath("/etc/portage/package.accept_keywords/cjk-kernel")
     ]
     assert keywords == "sys-kernel/gentoo-cjk-kernel ~amd64\n"
-    assert PurePosixPath("/etc/portage/package.use/cjk-kernel") not in recorder.files
+    assert recorder.files[PurePosixPath("/etc/portage/package.use/cjk-kernel")] == (
+        "sys-kernel/gentoo-cjk-kernel cjk\n"
+    )
     off = apply_kernel(replace(config(), kernel=KernelConfig(source=KernelSource.CJK)))
     assert (
         off.files[PurePosixPath("/etc/portage/package.use/cjk-kernel")]
