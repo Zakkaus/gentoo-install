@@ -26,9 +26,10 @@ from gentoo_install.model.device import (
     ZfsPool,
     ZfsTopology,
 )
+from gentoo_install.plan.mounts import ResolvedMount, resolve_mounts
+from gentoo_install.plan.packages import ENVIRONMENT_FILE, input_environment
 from gentoo_install.plan.system import _network_service as network_service
 from gentoo_install.plan.system import _sshd_service as sshd_service
-from gentoo_install.plan.packages import ENVIRONMENT_FILE, input_environment
 
 from .console import DISK_PASSPHRASE
 
@@ -81,7 +82,11 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
     """Derive every installed-state check from the configuration."""
     result = [
         InstalledCheck("os-release", "cat /etc/os-release", r"(?m)^ID=['\"]?gentoo['\"]?$"),
-        InstalledCheck("mounts", "findmnt --noheadings --list --output TARGET,SOURCE,FSTYPE", "/"),
+        InstalledCheck(
+            "mounts",
+            "findmnt --noheadings --list --output TARGET,SOURCE,FSTYPE",
+            _mount_pattern(installation),
+        ),
         InstalledCheck("locale", "locale", f"LANG={installation.system.locale}"),
         # Nothing asked for the timezone at all, and the installer writes two
         # files for it: a machine installed in the wrong zone passed every
@@ -300,6 +305,36 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
     if not isinstance(source, ZfsDataset):
         result.append(InstalledCheck("fstab", "cat /etc/fstab", ROOT_BY_UUID))
     return tuple(result)
+
+
+def _mount_pattern(installation: InstallConfig) -> str:
+    """Require every configured mount, or the root of an unprobed conversion."""
+    if installation.disk.layout_is_read_from_the_machine:
+        # The initial in-place configuration has no graph, but conversion still needs
+        # its root mounted.
+        return r"(?m)^/\s+\S+\s+\S+$"
+    mounts = resolve_mounts(installation.disk.graph)
+    if not mounts:
+        # Only unprobed in-place configurations lack mountpoints; no planned mount
+        # must pass.
+        return r"(?!)"
+    return "(?ms)" + "".join(_mount_line_pattern(mount) for mount in mounts)
+
+
+def _mount_line_pattern(mount: ResolvedMount) -> str:
+    """Require one `findmnt` line with the mount's configured filesystem type."""
+    if mount.dataset is not None:
+        filesystem_type = "zfs"
+    elif mount.filesystem_kind is not None:
+        filesystem_type = mount.filesystem_kind.value
+    else:
+        raise ValueError(
+            f"resolved mount {mount.path} has neither a filesystem type nor a ZFS dataset"
+        )
+    return (
+        rf"(?=.*^{re.escape(str(mount.path))}\s+\S+\s+"
+        rf"{re.escape(filesystem_type)}$)"
+    )
 
 
 def _hostname_command(installation: InstallConfig) -> str:
