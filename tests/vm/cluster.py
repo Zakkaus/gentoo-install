@@ -4027,6 +4027,14 @@ class SerialRoute(Enum):
     NOTHING_FOUND = "nothing-found"
 
 
+#: How long `zpool import` is given to read a label from every block device.
+#: It has no `-d` here because the pool's members are what is being looked
+#: for, so the scan is the whole disk set; two encrypted 40 GiB disks took
+#: longer than the default expect window and the check died on the scan
+#: rather than on its answer.
+POOL_SCAN_PATIENCE: Final[float] = 150.0
+
+
 def make_the_installed_system_speak(
     link: "Reconnecting", extra: str = EXTRA_CMDLINE
 ) -> SerialRoute:
@@ -4038,7 +4046,15 @@ def make_the_installed_system_speak(
     menu to the VGA console. GRUB stays with the editor because holding the
     menu is the only way to reach an entry that is already written.
     """
-    pool = link.expect_output("zpool import 2>&1 | sed -n 's/^ *pool: //p' | head -1").strip()
+    # Bounded, and given more than the default window: `zpool import` with no
+    # `-d` reads a label from every block device, and on `gi-s2`'s two
+    # encrypted disks that scan was still running when the 118s expect gave up.
+    # A machine with no pool answers nothing, which is the right answer for it.
+    pool = link.expect_output(
+        "timeout %d zpool import 2>&1 | sed -n 's/^ *pool: //p' | head -1"
+        % int(POOL_SCAN_PATIENCE),
+        timeout=POOL_SCAN_PATIENCE + 60.0,
+    ).strip()
     if pool:
         name = pool.decode(errors="replace")
         # `-N` leaves the datasets unmounted: the property is on the pool, and
