@@ -184,3 +184,19 @@ def test_a_log_that_still_holds_a_hash_is_not_published(
     )
     assert sent == [], sent
     assert any("password hash" in line for line in said), said
+def test_the_threaded_mirror_probe_does_not_force_an_address_family() -> None:
+    """`_over` replaces the process-global resolver and restores the value it
+    captured, so two overlapping calls leave the second override installed."""
+    import ast
+    import inspect
+
+    from gentoo_install.exec import fetch as fetch_module
+
+    reached = {"_read", "_read_patiently", "_download", "_over"}
+    tree = ast.parse(inspect.getsource(fetch_module._probe))
+    called = {
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert not called & reached, sorted(called & reached)

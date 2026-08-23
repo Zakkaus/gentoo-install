@@ -720,6 +720,9 @@ def _over(family: int) -> Iterator[None]:
     Both directions, not only a fall back to IPv4. An IPv6-only machine has no
     IPv4 route at all, and retrying the family that just failed is no retry.
     """
+    # One thread at a time: this replaces the process-global resolver and
+    # restores what it captured, so two overlapping calls leave the second
+    # one's override installed for the rest of the run.
     real = socket.getaddrinfo
 
     def only_this(
