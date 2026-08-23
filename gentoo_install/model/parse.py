@@ -530,8 +530,13 @@ def _filesystem(raw: Mapping[str, Any], at: str) -> Node:
 
 
 def _subvolume(raw: Mapping[str, Any], at: str) -> Node:
-    _reject_unknown(raw, at, {"kind", "id", "filesystem", "name"})
-    return Subvolume(id=_id(raw, at), filesystem=_ref(raw, "filesystem", at), name=_str(raw, "name", at, required=True))
+    _reject_unknown(raw, at, {"kind", "id", "filesystem", "name", "create"})
+    return Subvolume(
+        id=_id(raw, at),
+        filesystem=_ref(raw, "filesystem", at),
+        name=_str(raw, "name", at, required=True),
+        create=_bool(raw, "create", at, True),
+    )
 
 
 def _swap(raw: Mapping[str, Any], at: str) -> Node:
