@@ -13,6 +13,7 @@ import tomllib
 from pathlib import Path
 
 from ..errors import ConfigError, GentooInstallError
+from ..redact import scrub
 from ..model.config import InstallConfig
 from ..model.parse import parse
 
@@ -58,9 +59,9 @@ def load_source(source: str) -> InstallConfig:
     try:
         body = fetch.read_text(source, ceiling=URL_CEILING)
     except GentooInstallError as error:
-        raise ConfigError(f"{source}: {error}") from error
+        raise ConfigError(scrub(f"{source}: {error}")) from error
     try:
         raw = tomllib.loads(body)
     except tomllib.TOMLDecodeError as error:
-        raise ConfigError(f"{source}: {error}") from error
+        raise ConfigError(scrub(f"{source}: {error}")) from error
     return parse(raw)
