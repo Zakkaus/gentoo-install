@@ -275,6 +275,15 @@ environment unless `--config` names another.
 
 | `468ac83d267f2` | `--lowram` with the memory credentials in the payload rather than on the kernel command line, Debian 12 genericcloud, UEFI, three rounds | all three installed Gentoo from the memory environment and booted the disk they wrote. Three rounds rather than one because the device-node fault in the row above fails about one round in three, so a single pass would not distinguish this change from that fault. |
 
+| the tree that became `#980` | `--lowram` on a Debian 12 genericcloud machine, UEFI, five rounds | all five installed Gentoo from the memory environment and booted the disk they wrote. The same five fixtures on the tree before the change went 2 pass, 3 fail. The device-node fault recorded above is the one this closes: mdev is the `/proc/sys/kernel/hotplug` helper, so the kernel spawns one per event and a remove event's handler unlinked the node `mkfs` was opening. |
+
+Five rounds after the change and five before it, because a single pass could
+not separate the fix from a fault that only appeared in three rounds out of
+five. The five that passed were measured **after** the diagnostic commands were
+removed: they ran two extra commands before every `mkfs`, and this fault is
+entirely about timing, so the run that carried them could not stand as the
+record.
+
 The row above is three runs rather than one because the failure is
 intermittent, and one green round would have recorded a fix that is not one:
 `partx --update` and `mdev -sf` were added for exactly this symptom and the
