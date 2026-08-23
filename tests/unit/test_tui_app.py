@@ -1421,6 +1421,68 @@ def test_the_static_address_is_one_page_with_every_field_on_it() -> None:
     assert system.dns == ("1.1.1.1", "9.9.9.9")
 
 
+def test_static_address_form_keeps_entries_until_a_dns_server_is_added() -> None:
+    at = context()
+    keys = [
+        "KEY_UP",
+        "\n",
+        "KEY_DOWN",
+        *"192.0.2.10/24",
+        "KEY_DOWN",
+        *"192.0.2.1",
+        *("KEY_DOWN" for _ in range(4)),
+        "\n",
+        *("KEY_DOWN" for _ in range(5)),
+        *"1.1.1.1",
+        "KEY_DOWN",
+        "\n",
+    ]
+    screen = FakeScreen(keys=keys, lines=30, columns=110)
+    answer = screens.address_screen(screen, config(), at)
+    system = answer.unwrap().system
+    assert system.addresses == ("192.0.2.10/24",)
+    assert system.gateways == ("192.0.2.1",)
+    assert system.dns == ("1.1.1.1",)
+    rejected = next(
+        frame
+        for frame in screen.frames
+        if "the addresses are static and no resolver is named" in "\n".join(frame)
+    )
+    assert "192.0.2.10/24" in "\n".join(rejected)
+
+
+def test_static_address_form_requires_a_gateway_of_each_address_family() -> None:
+    at = context()
+    initial = replace(
+        config(),
+        system=replace(
+            config().system,
+            addresses=("192.0.2.10/24",),
+            gateways=("2001:db8::1",),
+            dns=("2001:db8::53",),
+        ),
+    )
+    keys = [
+        "\n",
+        *("KEY_DOWN" for _ in range(6)),
+        "\n",
+        "KEY_DOWN",
+        "KEY_DOWN",
+        *"192.0.2.1",
+        *("KEY_DOWN" for _ in range(4)),
+        "\n",
+    ]
+    screen = FakeScreen(keys=keys, lines=30, columns=110)
+    answer = screens.address_screen(screen, initial, at)
+    assert answer.unwrap().system.gateways == ("192.0.2.1", "2001:db8::1")
+    rejected = next(
+        frame
+        for frame in screen.frames
+        if "192.0.2.10/24 has no gateway of its own family" in "\n".join(frame)
+    )
+    assert "2001:db8::1" in "\n".join(rejected)
+
+
 def test_choosing_dhcp_clears_every_static_field() -> None:
     at = context()
     filled = replace(
@@ -2084,6 +2146,64 @@ def test_a_bad_port_keeps_the_address_that_was_typed_beside_it() -> None:
     assert "192.0.2.5/24" in "\n".join(rejected)
 
 
+def test_remote_unlock_form_rejects_a_port_outside_the_tcp_range() -> None:
+    at = context()
+    with_key = replace(
+        config(unlockable_root()), system=replace(config().system, authorized_keys=(GOOD_KEY,))
+    )
+    keys = [
+        "KEY_DOWN",
+        "\n",
+        "KEY_BACKSPACE",
+        "KEY_BACKSPACE",
+        "KEY_BACKSPACE",
+        *"0",
+        *("KEY_DOWN" for _ in range(4)),
+        "\n",
+        "KEY_BACKSPACE",
+        *"222",
+        *("KEY_DOWN" for _ in range(4)),
+        "\n",
+    ]
+    screen = FakeScreen(keys=keys, lines=30, columns=110)
+    answer = screens.remote_unlock_screen(screen, with_key, at)
+    assert answer.unwrap().kernel.remote_unlock.port == 222
+    assert any(
+        "the remote unlock port 0 must be between 1 and 65535" in "\n".join(frame)
+        for frame in screen.frames
+    )
+
+
+def test_remote_unlock_form_rejects_a_malformed_address() -> None:
+    at = context()
+    with_key = replace(
+        config(unlockable_root()), system=replace(config().system, authorized_keys=(GOOD_KEY,))
+    )
+    invalid = "not-an-address"
+    keys = [
+        "KEY_DOWN",
+        "\n",
+        "KEY_DOWN",
+        *invalid,
+        *("KEY_DOWN" for _ in range(3)),
+        "\n",
+        "KEY_DOWN",
+        *("KEY_BACKSPACE" for _ in invalid),
+        *"192.0.2.10/24",
+        *("KEY_DOWN" for _ in range(3)),
+        "\n",
+    ]
+    screen = FakeScreen(keys=keys, lines=30, columns=110)
+    answer = screens.remote_unlock_screen(screen, with_key, at)
+    assert answer.unwrap().kernel.remote_unlock.address == "192.0.2.10/24"
+    rejected = next(
+        frame
+        for frame in screen.frames
+        if "the remote unlock address 'not-an-address' is not an address" in "\n".join(frame)
+    )
+    assert "not-an-address" in "\n".join(rejected)
+
+
 def test_a_bad_first_boot_address_keeps_the_commands_and_shows_why() -> None:
     at = context()
     keys = [
@@ -2508,6 +2628,14 @@ def test_one_unrelated_problem_does_not_grey_out_the_whole_bootloader_screen() -
     # to none of them; the ZFS rule belongs to GRUB alone and still shows.
     assert "authorized_keys" not in drawn
     assert "zfsbootmenu" in drawn
+
+
+def test_in_place_bootloader_screen_disables_zfsbootmenu() -> None:
+    base = config()
+    converted = replace(base, disk=replace(base.disk, mode=DiskMode.IN_PLACE))
+    screen = FakeScreen(keys=["KEY_DOWN", "KEY_DOWN", "\n"], lines=50, columns=110)
+    answer = screens.bootloader_screen(screen, converted, context())
+    assert answer.unwrap().bootloader.kind is Bootloader.SYSTEMD_BOOT
 
 
 def test_remote_unlock_is_refused_without_a_key_and_without_encryption() -> None:
@@ -3814,10 +3942,8 @@ def test_two_profiles_ending_in_the_same_word_read_differently() -> None:
     assert row.value(plain, at) == "systemd"
 
 
-def test_every_profile_the_target_reports_is_offered() -> None:
-    """Read off a live machine: `eselect profile list` names fourteen systemd
-    profiles and the screen showed thirteen. The parser reads them all, so the
-    screen has to offer them all."""
+def test_every_profile_with_a_fetched_stage3_is_offered() -> None:
+    """The menu keeps profiles whose stage3 this installer can fetch."""
     from gentoo_install.exec.probe import profiles_from_eselect
 
     listed = "\n".join(
@@ -3838,11 +3964,12 @@ def test_every_profile_the_target_reports_is_offered() -> None:
     screen = FakeScreen(keys=["q", "\n"], lines=40, columns=110)
     screens._profile_screen(screen, config(), at)
     drawn = screen.last
-    for offered in ("systemd", "llvm/systemd", "x32/systemd", "musl/systemd", "musl/llvm/systemd"):
+    for offered in ("systemd", "x32/systemd"):
         assert f"\n  {offered}" in drawn, (offered, drawn)
+    for refused in ("llvm/systemd", "musl/systemd", "musl/llvm/systemd"):
+        assert f"\n  {refused}" not in drawn, (refused, drawn)
 
-    # Negative control: a profile the machine did not report is not invented,
-    # and the hurd one is not an amd64 linux profile at all.
+    # Negative control: the screen only lists profiles the target reports.
     assert "desktop/systemd" not in drawn, drawn
     assert "hurd" not in drawn, drawn
 

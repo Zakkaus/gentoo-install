@@ -11,6 +11,7 @@ import pytest
 from gentoo_install.errors import ConfigError, ValidationFailed
 from gentoo_install.model import compat
 from gentoo_install.model.config import (
+    Bootloader,
     BootloaderConfig,
     DiskConfig,
     DiskMode,
@@ -179,25 +180,17 @@ def test_disk_mode_field_cases_cover_the_table() -> None:
 
 
 def test_every_port_is_judged_against_one_range() -> None:
-    """Three checks spelled the same two numbers and the same sentence, so a
-    correction to one would have left the other two saying something the
-    installer no longer does.
-    """
+    """The memory environment, proxy, and remote unlock share one TCP range."""
     import ast
     import inspect
 
-    from gentoo_install.model import validate as model_validate
+    assert compat.PORTS == range(1, 65536)
+    assert compat.port_problem("a port", 1) == ""
+    assert compat.port_problem("a port", 65535) == ""
+    assert "between 1 and 65535" in compat.port_problem("a port", 0)
+    assert "between 1 and 65535" in compat.port_problem("a port", 65536)
 
-    assert model_validate.PORTS == range(1, 65536)
-    assert model_validate._port_problem("a port", 1) == ""
-    assert model_validate._port_problem("a port", 65535) == ""
-    assert "between 1 and 65535" in model_validate._port_problem("a port", 0)
-    assert "between 1 and 65535" in model_validate._port_problem("a port", 65536)
-
-    # And nothing else in the module writes the boundary out: the numbers read
-    # the same as the constant, so only the source says whether there is one
-    # rule or three.
-    tree = ast.parse(inspect.getsource(model_validate))
+    tree = ast.parse(inspect.getsource(compat))
     spelled = [
         node
         for node in ast.walk(tree)
@@ -273,6 +266,16 @@ def test_in_place_keeps_the_rules_that_need_no_device_graph() -> None:
     # The other direction: a rule that reads the graph must not fire here, or
     # every conversion is refused for a layout it was never given.
     validate(base)
+
+
+def test_an_in_place_configuration_rejects_zfsbootmenu() -> None:
+    base = _mode_config(DiskMode.IN_PLACE)
+    installation = replace(
+        base,
+        bootloader=replace(base.bootloader, kind=Bootloader.ZFSBOOTMENU),
+    )
+    with pytest.raises(ValidationFailed, match="in-place conversion has no device graph"):
+        validate(installation)
 
 
 def test_in_place_mode_rejects_a_device_graph() -> None:
@@ -774,42 +777,35 @@ def test_the_profile_parser_keeps_the_observed_eselect_markers() -> None:
 
 
 def test_a_static_address_with_no_resolver_is_refused() -> None:
-    """The machine boots with an address and cannot resolve a name, which is
-    indistinguishable from a broken network to whoever gets it."""
-    from gentoo_install.model.validate import _network_problems
-
+    """The machine boots with an address and cannot resolve a name."""
     wanted = replace(
         config(), system=replace(config().system, addresses=("192.0.2.10/24",), gateways=("192.0.2.1",))
     )
-    assert any("resolve a name" in one for one in _network_problems(wanted))
+    assert compat.system_network_problems(wanted.system)[0].field is compat.NetworkField.SYSTEM_DNS
     answered = replace(wanted, system=replace(wanted.system, dns=("192.0.2.1",)))
-    assert _network_problems(answered) == []
+    assert compat.system_network_problems(answered.system) == ()
 
 
 def test_a_static_address_needs_a_gateway_of_its_own_family() -> None:
-    """A v6 address with only a v4 gateway reaches nothing off its subnet, and
-    the reverse is the more common mistake."""
-    from gentoo_install.model.validate import _network_problems
-
+    """A v6 address with only a v4 gateway reaches nothing off its subnet."""
     system = replace(
         config().system,
         addresses=("192.0.2.10/24", "2001:db8::2/64"),
         gateways=("192.0.2.1",),
         dns=("192.0.2.1",),
     )
-    problems = _network_problems(replace(config(), system=system))
+    problems = compat.system_network_problems(system)
     assert len(problems) == 1
-    assert "2001:db8::2/64" in problems[0]
+    assert problems[0].field is compat.NetworkField.SYSTEM_IPV6_GATEWAY
+    assert "2001:db8::2/64" in problems[0].describe()
 
     both = replace(system, gateways=("192.0.2.1", "fe80::1"))
-    assert _network_problems(replace(config(), system=both)) == []
+    assert compat.system_network_problems(both) == ()
 
 
 def test_dhcp_needs_neither_a_gateway_nor_a_resolver() -> None:
     """They come from the lease, so demanding them would refuse the default."""
-    from gentoo_install.model.validate import _network_problems
-
-    assert _network_problems(config()) == []
+    assert compat.system_network_problems(config().system) == ()
 
 
 def test_openrc_builtin_static_networking_requires_an_interface() -> None:
@@ -1286,42 +1282,49 @@ def test_an_unpinned_kernel_is_left_to_portage() -> None:
     assert zfs_kernel_version_problem("7.1.0", KernelCeiling(maximum="7.0")) is not None
 
 
-def test_a_profile_whose_stage3_is_not_fetched_is_refused() -> None:
-    """`variant_of` maps a profile to a published stage3 and its table holds
-    `/no-multilib` and `/desktop`. A musl profile misses it and gets the plain
-    tarball, which is glibc: two C libraries in one system, and `eselect
-    profile set` repairs none of it. The profile list comes from the machine's
-    own repository, so these are choices an operator can make.
-    """
-    from dataclasses import replace
+_UNSERVED_PROFILE_CASES: tuple[str, ...] = (
+    "musl",
+    "hardened",
+    "llvm",
+    "systemd-hardened",
+)
 
-    from gentoo_install.model import compat
+
+@pytest.mark.parametrize("segment", _UNSERVED_PROFILE_CASES)
+def test_a_profile_whose_stage3_is_not_fetched_is_refused(segment: str) -> None:
+    """A profile's stage3 has to match its C library and toolchain."""
     from gentoo_install.plan.portage import variant_of
 
     base = config()
-    for segment in compat.UNSERVED_PROFILES:
-        broken = replace(
-            base,
-            portage=replace(base.portage, profile=f"default/linux/amd64/23.0/{segment}"),
-            system=replace(base.system, init=InitSystem.OPENRC),
-        )
-        with pytest.raises(ValidationFailed, match="needs its own stage3"):
-            validate(broken)
+    broken = replace(
+        base,
+        portage=replace(base.portage, profile=f"default/linux/amd64/23.0/{segment}"),
+        system=replace(base.system, init=InitSystem.OPENRC),
+    )
+    with pytest.raises(ValidationFailed, match="needs its own stage3"):
+        validate(broken)
+    assert segment not in variant_of(broken), (segment, variant_of(broken))
 
-        # The reason it has to be refused rather than mapped: the variant this
-        # installer would fetch does not name the profile at all.
-        assert segment not in variant_of(broken), (segment, variant_of(broken))
 
-    # Negative control: the profiles the table does serve are not refused, and
-    # each one changes the tarball that is fetched.
-    for segment, expected in (("no-multilib", "nomultilib"), ("desktop", "desktop")):
-        served = replace(
-            base,
-            portage=replace(base.portage, profile=f"default/linux/amd64/23.0/{segment}"),
-            system=replace(base.system, init=InitSystem.OPENRC),
-        )
-        validate(served)
-        assert variant_of(served) == f"{expected}-openrc", variant_of(served)
+def test_unserved_profile_cases_cover_the_compatibility_table() -> None:
+    assert set(_UNSERVED_PROFILE_CASES) == set(compat.UNSERVED_PROFILES)
+
+
+@pytest.mark.parametrize(
+    ("segment", "expected"),
+    (("no-multilib", "nomultilib"), ("desktop", "desktop")),
+)
+def test_a_profile_with_a_served_stage3_is_accepted(segment: str, expected: str) -> None:
+    from gentoo_install.plan.portage import variant_of
+
+    base = config()
+    served = replace(
+        base,
+        portage=replace(base.portage, profile=f"default/linux/amd64/23.0/{segment}"),
+        system=replace(base.system, init=InitSystem.OPENRC),
+    )
+    validate(served)
+    assert variant_of(served) == f"{expected}-openrc", variant_of(served)
 
 
 def test_a_repository_name_is_checked_before_it_reaches_eselect() -> None:

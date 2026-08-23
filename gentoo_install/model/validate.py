@@ -7,8 +7,6 @@ one more failed run to learn about the next one.
 
 from __future__ import annotations
 
-import ipaddress
-
 import re
 from collections import Counter
 from dataclasses import dataclass, fields
@@ -18,7 +16,6 @@ from typing import Collection, Final, Mapping
 from ..errors import CommandFailed, ValidationFailed
 from . import compat
 from .config import (
-    Bootloader,
     BootloaderConfig,
     DiskConfig,
     DiskMode,
@@ -27,7 +24,6 @@ from .config import (
     KernelConfig,
     MemoryLaunch,
     MemoryMode,
-    Networking,
     PackagesConfig,
     PortageConfig,
     SystemConfig,
@@ -188,51 +184,6 @@ _ZFS_KERNEL_CEILING_NOT_CHECKED: Final[_ZfsKernelCeilingNotChecked] = (
     _ZfsKernelCeilingNotChecked()
 )
 
-
-@dataclass(frozen=True)
-class _IPAddressFact:
-    literal: str
-    parsed: ipaddress.IPv4Address | ipaddress.IPv6Address | None
-
-
-@dataclass(frozen=True)
-class _IPInterfaceFact:
-    literal: str
-    parsed: ipaddress.IPv4Interface | ipaddress.IPv6Interface | None
-
-
-@dataclass(frozen=True)
-class _SystemAddressFacts:
-    addresses: tuple[_IPInterfaceFact, ...]
-    gateways: tuple[_IPAddressFact, ...]
-    resolvers: tuple[_IPAddressFact, ...]
-
-
-@dataclass(frozen=True)
-class _RemoteUnlockAddressFacts:
-    address: _IPInterfaceFact
-    gateway: _IPAddressFact
-
-
-@dataclass(frozen=True)
-class _ConfiguredAddressFacts:
-    system: _SystemAddressFacts
-    remote_unlock: _RemoteUnlockAddressFacts
-
-
-#: What a TCP port can be. Three checks spelled the same two numbers and the
-#: same sentence, so a correction to one of them would have left the other
-#: two saying something the installer no longer does.
-PORTS: Final[range] = range(1, 65536)
-
-
-def _port_problem(what: str, port: int) -> str:
-    """Empty when that port is one, the sentence to report when it is not."""
-    if port in PORTS:
-        return ""
-    return f"{what} must be between {PORTS.start} and {PORTS.stop - 1}"
-
-
 def validate(
     config: InstallConfig,
     *,
@@ -259,7 +210,6 @@ def validate(
                 + "\n  ".join(problems)
             )
         return
-    address_facts = _derive_address_facts(config)
     graph_problems: list[str] = []
     if config.disk.mode in (DiskMode.PARTITION, DiskMode.IMAGE):
         graph_problems = [
@@ -283,11 +233,19 @@ def validate(
         *graph_problems,
         *without_a_graph,
         *_profile_problems(config),
-        *_unserved_profile_problems(config),
+        *compat.unserved_profile_problems(config.portage.profile),
         *_repository_profile_problems(config.portage.profile, available_profiles),
         *_kernel_package_problems(config),
-        *_network_problems(config, address_facts.system),
-        *_unlock_problems(config, address_facts.remote_unlock),
+        *(problem.describe() for problem in compat.system_network_problems(config.system)),
+        *(
+            problem.describe()
+            for problem in compat.remote_unlock_problems(
+                enabled=config.kernel.remote_unlock.enabled,
+                port=config.kernel.remote_unlock.port,
+                address=config.kernel.remote_unlock.address,
+                gateway=config.kernel.remote_unlock.gateway,
+            )
+        ),
         *_locale_problems(config),
         *_l10n_problems(config),
         *_repository_name_problems(config),
@@ -297,9 +255,6 @@ def validate(
         raise ValidationFailed(
             "the configuration does not describe an installable system:\n  " + "\n  ".join(problems)
         )
-
-
-
 
 def validate_memory_launch(config: InstallConfig, launch: MemoryLaunch) -> None:
     """Refuse a memory environment that cannot do what was asked of it.
@@ -314,7 +269,9 @@ def validate_memory_launch(config: InstallConfig, launch: MemoryLaunch) -> None:
             "the layout needs ZFS, the Alpine netboot kernel has no zfs.ko, "
             "and --ram is the mode whose Gentoo CJK ISO carries it"
         )
-    if launch.ssh_port is not None and (refused := _port_problem("--ssh-port", launch.ssh_port)):
+    if launch.ssh_port is not None and (
+        refused := compat.port_problem("--ssh-port", launch.ssh_port)
+    ):
         problems.append(refused)
     if "\n" in launch.root_password or "\r" in launch.root_password:
         problems.append("--root-password cannot contain a newline")
@@ -388,8 +345,6 @@ def _disk_mode_problems(config: InstallConfig) -> list[str]:
         if disk.source and disk.source == disk.destination:
             problems.append("disk.source and disk.destination must differ")
         return problems
-    if config.bootloader.kind is Bootloader.ZFSBOOTMENU:
-        problems.append("disk.mode in-place cannot select ZFSBootMenu without a device graph")
     return problems
 
 
@@ -402,7 +357,7 @@ def _proxy_problems(config: InstallConfig) -> list[str]:
         if proxy.port or proxy.username or proxy.password:
             return ["proxy host is required when proxy fields are set"]
         return []
-    if refused := _port_problem("proxy port", proxy.port):
+    if refused := compat.port_problem("proxy port", proxy.port):
         return [refused]
     if any(char.isspace() for char in proxy.host):
         return ["proxy host must not contain spaces"]
@@ -512,137 +467,6 @@ def _array_problems(config: InstallConfig) -> list[str]:
     ]
 
 
-def _parse_ip_address(literal: str) -> _IPAddressFact:
-    try:
-        parsed = ipaddress.ip_address(literal)
-    except ValueError:
-        parsed = None
-    return _IPAddressFact(literal, parsed)
-
-
-def _parse_ip_interface(literal: str) -> _IPInterfaceFact:
-    try:
-        parsed = ipaddress.ip_interface(literal)
-    except ValueError:
-        parsed = None
-    return _IPInterfaceFact(literal, parsed)
-
-
-def _derive_system_address_facts(config: InstallConfig) -> _SystemAddressFacts:
-    system = config.system
-    return _SystemAddressFacts(
-        addresses=tuple(_parse_ip_interface(one) for one in system.addresses),
-        gateways=tuple(_parse_ip_address(one) for one in system.gateways),
-        resolvers=tuple(_parse_ip_address(one) for one in system.dns),
-    )
-
-
-def _derive_remote_unlock_address_facts(
-    config: InstallConfig,
-) -> _RemoteUnlockAddressFacts:
-    unlock = config.kernel.remote_unlock
-    return _RemoteUnlockAddressFacts(
-        address=(
-            _parse_ip_interface(unlock.address)
-            if unlock.address
-            else _IPInterfaceFact("", None)
-        ),
-        gateway=(
-            _parse_ip_address(unlock.gateway)
-            if unlock.gateway
-            else _IPAddressFact("", None)
-        ),
-    )
-
-
-def _derive_address_facts(config: InstallConfig) -> _ConfiguredAddressFacts:
-    return _ConfiguredAddressFacts(
-        system=_derive_system_address_facts(config),
-        remote_unlock=_derive_remote_unlock_address_facts(config),
-    )
-
-
-def _network_problems(
-    config: InstallConfig,
-    facts: _SystemAddressFacts | None = None,
-) -> list[str]:
-    """A static address that reaches nothing is not a configured network.
-
-    Both checks fire only when an address was given: DHCP and router
-    advertisements supply the gateway and the resolvers themselves.
-    """
-    system = config.system
-    if facts is None:
-        facts = _derive_system_address_facts(config)
-    problems: list[str] = []
-    for address in facts.addresses:
-        if address.parsed is None:
-            problems.append(f"{address.literal!r} is not an address with a prefix length")
-    for named, where in (("gateway", facts.gateways), ("resolver", facts.resolvers)):
-        for one in where:
-            if one.parsed is None:
-                problems.append(f"{one.literal!r} is not an address, so it is not a {named}")
-    if (
-        system.addresses
-        and system.init is InitSystem.OPENRC
-        and system.networking is Networking.BUILTIN
-        and not system.interface
-    ):
-        problems.append(
-            "system.interface must name the OpenRC interface when builtin networking uses "
-            "static addresses because netifrc has no wildcard match"
-        )
-    if problems or not system.addresses:
-        return problems
-    if not system.dns:
-        problems.append(
-            "the addresses are static and no resolver is named, so the installed system "
-            "has an address and no way to resolve a name"
-        )
-    for address in facts.addresses:
-        if address.parsed is not None and not any(
-            gateway.parsed is not None
-            and gateway.parsed.version == address.parsed.version
-            for gateway in facts.gateways
-        ):
-            problems.append(
-                f"{address.literal} has no gateway of its own family, so it reaches nothing off "
-                "its own subnet"
-            )
-    return problems
-
-
-def _unlock_problems(
-    config: InstallConfig,
-    facts: _RemoteUnlockAddressFacts | None = None,
-) -> list[str]:
-    """The initramfs ssh daemon's port, checked here so the menu and a
-    configuration file share the rule. `dropbear_port` took any integer, and
-    the initramfs then failed to start with the disks already encrypted."""
-    unlock = config.kernel.remote_unlock
-    if facts is None:
-        facts = _derive_remote_unlock_address_facts(config)
-    if not unlock.enabled:
-        return []
-    problems: list[str] = []
-    if refused := _port_problem(f"the remote unlock port {unlock.port}", unlock.port):
-        problems.append(refused)
-    for named, fact in (("address", facts.address), ("gateway", facts.gateway)):
-        if fact.literal and fact.parsed is None:
-            problems.append(
-                f"the remote unlock {named} {fact.literal!r} is not an address"
-            )
-    here = facts.address.parsed
-    there = facts.gateway.parsed
-    if here is not None and there is not None and here.version != there.version:
-        # Both go into one dracut `ip=` stanza, so an IPv4 client with an IPv6
-        # gateway is a static interface that routes nowhere and the machine
-        # waiting for its passphrase can only be reached from the console.
-        problems.append(
-            f"the remote unlock address {unlock.address} is IPv{here.version} and its gateway "
-            f"{unlock.gateway} is IPv{there.version}, so the initramfs has no route"
-        )
-    return problems
 
 
 def _reuse_problems(config: InstallConfig) -> list[str]:
@@ -767,17 +591,6 @@ def _profile_problems(config: InstallConfig) -> list[str]:
     return [f"init is {config.system.init.value} and the profile is {profile}; use {wanted}"]
 
 
-def _unserved_profile_problems(config: InstallConfig) -> list[str]:
-    """A profile whose stage3 Gentoo publishes separately and this installer
-    does not fetch. The profile list comes from the machine's own repository,
-    so these are reachable choices, and taking one silently fetched the plain
-    tarball instead."""
-    segments = set(config.portage.profile.split("/"))
-    return [
-        f"profile {config.portage.profile} needs its own stage3: {reason}"
-        for segment, reason in sorted(compat.UNSERVED_PROFILES.items())
-        if segment in segments
-    ]
 
 
 def _repository_profile_problems(
