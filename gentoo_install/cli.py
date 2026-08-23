@@ -949,7 +949,9 @@ def _require_network() -> None:
     )
 
 
-def _conversion_offer(probe: Probe) -> tuple[str, refusals.Refusal]:
+def _conversion_offer(
+    probe: Probe,
+) -> tuple[str, refusals.Refusal, StorageLayout | None]:
     """What the running system is, and why it cannot be converted in place.
 
     The refusal is what the menu shows instead of the option. Everything that
@@ -960,18 +962,22 @@ def _conversion_offer(probe: Probe) -> tuple[str, refusals.Refusal]:
     """
     medium = probe.live_medium()
     if medium:
-        return "", refusals.Refusal(refusals.LIVE_MEDIUM, medium)
+        return "", refusals.Refusal(refusals.LIVE_MEDIUM, medium), None
     # Measured on an Alpine cloud image: without these the layout reads back
     # empty and the refusal blamed the root device rather than the package.
     lacking = report.absent(preflight.LAYOUT_COMMANDS, probe)
     if lacking:
-        return "", refusals.Refusal(refusals.CANNOT_READ_THE_SYSTEM, ", ".join(sorted(lacking)))
+        return (
+            "",
+            refusals.Refusal(refusals.CANNOT_READ_THE_SYSTEM, ", ".join(sorted(lacking))),
+            None,
+        )
     try:
         layout = probe.storage_layout()
     except GentooInstallError as error:
         # The message is the detail: English beside the translated reason, and
         # it names the device the reading failed on.
-        return "", refusals.Refusal(refusals.CANNOT_READ_THE_SYSTEM, str(error))
+        return "", refusals.Refusal(refusals.CANNOT_READ_THE_SYSTEM, str(error)), None
     described = f"{layout.root_device} on {layout.root_filesystem_type}"
     try:
         convert.layout_graph(layout)
@@ -979,10 +985,12 @@ def _conversion_offer(probe: Probe) -> tuple[str, refusals.Refusal]:
         # The exception says which filesystem, in English, for the log. The
         # menu already draws `Running system:` beside this, so the reason it
         # shows is a catalog key rather than the message.
-        return described, refusals.Refusal(
-            refusals.CANNOT_DESCRIBE_THE_ROOT, layout.root_filesystem_type or ""
+        return (
+            described,
+            refusals.Refusal(refusals.CANNOT_DESCRIBE_THE_ROOT, layout.root_filesystem_type or ""),
+            None,
         )
-    return described, refusals.OFFERED
+    return described, refusals.OFFERED, layout
 
 def _image_write_offer(probe: Probe) -> refusals.Refusal:
     """Why the whole-disk image writer must stay unavailable on this machine."""
@@ -1074,7 +1082,7 @@ def _from_menu(
     lacking = report.absent(preflight.MENU_ONLY)
     if lacking:
         raise errors.PreflightFailed(f"the menu needs {', '.join(sorted(lacking))}")
-    running_system, conversion_refused = _conversion_offer(probe)
+    running_system, conversion_refused, running_layout = _conversion_offer(probe)
     image_write_refused = _image_write_offer(probe)
     context = tui_context.Context(
         translate=Catalog(tag_for(override=arguments.lang)),
@@ -1103,6 +1111,7 @@ def _from_menu(
         zfs_unavailable=probe.zfs_support(),
         configs_here=report.configs_here(app.SAVE_AS),
         running_system=running_system,
+        running_layout=running_layout,
         conversion_refused=conversion_refused,
         image_write_refused=image_write_refused,
         load_config=load_source,

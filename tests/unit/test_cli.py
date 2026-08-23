@@ -1560,7 +1560,10 @@ def test_the_conversion_offer_names_the_command_the_reading_needs(
     absent: set[str] = {"findmnt", "lsblk"}
     monkeypatch.setattr(report, "absent", lambda wanted, probe=None: set(absent))
 
-    running, refused = cli._conversion_offer(cast(RealProbe, Probe()))
+    # The layout comes back too: the Install row derives a conversion's plan
+    # from it before the operator presses it.
+    running, refused, layout = cli._conversion_offer(cast(RealProbe, Probe()))
+    assert layout is None, layout
     assert running == ""
     # The reason is a catalog key and the commands are the detail beside it:
     # a translated screen cannot hold `findmnt` and the operator still needs it.

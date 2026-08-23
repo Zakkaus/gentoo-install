@@ -385,7 +385,10 @@ def _blocked(config: InstallConfig, context: Context) -> str:
         # an overlay nobody selected raises from `plan.build`, and the row that
         # blocks the install is the only place that can say so before the
         # operator presses it and loses every answer to a traceback.
-        build(config, context.groups)
+        # With the machine's own layout: a conversion's graph is derived from
+        # it, and asked without one this raised `the running layout was not
+        # read` into the Install row, where no answer could clear it.
+        build(config, context.groups, layout=context.running_layout)
     except GentooInstallError as error:
         return str(error).splitlines()[-1].strip()
     return ""

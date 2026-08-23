@@ -93,8 +93,13 @@ def test_every_refusal_the_entry_point_can_answer_is_a_catalog_key() -> None:
             if not isinstance(node, ast.Return) or node.value is None:
                 continue
             parts = node.value.elts if isinstance(node.value, ast.Tuple) else [node.value]
-            # The reason is the last element; the first is what was measured.
-            answer = parts[-1]
+            # The `Refusal` itself, wherever it sits: the tuple also carries
+            # what was measured and, since the Install row began deriving a
+            # conversion's plan, the layout it was read from.
+            refusal = [
+                one for one in parts if ast.unparse(one).startswith("refusals.")
+            ]
+            answer = refusal[0] if refusal else parts[-1]
             # `Refusal(REASON, detail)`: the reason is what a catalog holds and
             # the detail is a device or a command, which none does.
             if isinstance(answer, ast.Call) and answer.args:
