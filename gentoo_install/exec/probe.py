@@ -648,10 +648,6 @@ class Probe:
             raise DeviceNotFound(f"{device} has no UUID; was it formatted?")
         return uuid
 
-    def disk_of(self, device: DeviceId) -> str:
-        """The whole disk a partition sits on, which is what a bootloader wants."""
-        return self.disk_of_path(self.path_of(device))
-
     def disk_of_path(self, path: str) -> str:
         """The same answer for a path already in hand.
 

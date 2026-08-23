@@ -1475,7 +1475,7 @@ def test_the_bootloader_disk_of_a_reused_partition_is_the_disk(tmp_path: Path) -
         base(), disk=DiskConfig(graph=DeviceGraph.build(nodes), root=DeviceId("root"))
     )
     # A real Probe over a runner that answers `lsblk`, not a monkeypatched
-    # `disk_of`: patching the method under test hid that the production path
+    # lookup: patching the method under test hid that the production path
     # asked for a cached path `resolve()` never writes.
     asked: list[list[str]] = []
 
