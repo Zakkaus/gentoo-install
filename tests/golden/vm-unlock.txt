@@ -61,7 +61,7 @@
   write /etc/fstab with UUID from root-luks / btrfs defaults,compress=zstd:1,subvol=@ 0 1, UUID from boot /boot ext4 defaults 0 2, UUID from esp /efi vfat defaults,umask=0077 0 2, UUID from root-luks /home btrfs defaults,compress=zstd:1,subvol=@home 0 2
   treat the hardware clock as UTC in /etc/adjtime
   write /etc/crypttab with root UUID from cryptroot luks,x-initrd.attach
-  write 1 ssh key(s) into authorized_keys for root
+  write SHA256:wBQUIpTF0DPsPEUeafUC1YRHr0N0LIdt+LtbxepvlkQ into authorized_keys for root
   set the root password
   install sshd: emerge net-misc/openssh
   ssh password login: off, root: off, in 50-gentoo-install.conf

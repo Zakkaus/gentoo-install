@@ -625,7 +625,7 @@
 "write {} for the wired interfaces with DHCP and DNS {}" = "寫入 {}；有線網路介面使用 DHCP，DNS {}"
 "write {} for {} with DHCP" = "寫入 {}；介面 {} 使用 DHCP"
 "enable net.{} so netifrc applies the static address" = "啟用 net.{}，讓 netifrc 套用靜態位址"
-"write {} ssh key(s) into authorized_keys for {}" = "將 {} 個 SSH 金鑰寫入 {} 的 authorized_keys"
+"write {} into authorized_keys for {}" = "將 {} 寫入 {} 的 authorized_keys"
 "ssh password login: on, root: on, in 50-gentoo-install.conf" = "SSH 密碼登入：開啟；root：開啟，寫入 50-gentoo-install.conf"
 "ssh password login: on, root: off, in 50-gentoo-install.conf" = "SSH 密碼登入：開啟；root：關閉，寫入 50-gentoo-install.conf"
 "ssh password login: off, root: on, in 50-gentoo-install.conf" = "SSH 密碼登入：關閉；root：開啟，寫入 50-gentoo-install.conf"

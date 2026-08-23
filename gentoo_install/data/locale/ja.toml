@@ -624,7 +624,7 @@
 "write {} for the wired interfaces with DHCP and DNS {}" = "{} に書き込む：有線インターフェースは DHCP、DNS {}"
 "write {} for {} with DHCP" = "{} に書き込む：インターフェース {} は DHCP"
 "enable net.{} so netifrc applies the static address" = "net.{} を有効にして netifrc に静的アドレスを適用させる"
-"write {} ssh key(s) into authorized_keys for {}" = "{} 個の ssh 鍵を {} の authorized_keys に書き込む"
+"write {} into authorized_keys for {}" = "{} を {} の authorized_keys に書き込む"
 "ssh password login: on, root: on, in 50-gentoo-install.conf" = "SSH パスワードログイン：有効、root：有効（50-gentoo-install.conf）"
 "ssh password login: on, root: off, in 50-gentoo-install.conf" = "SSH パスワードログイン：有効、root：無効（50-gentoo-install.conf）"
 "ssh password login: off, root: on, in 50-gentoo-install.conf" = "SSH パスワードログイン：無効、root：有効（50-gentoo-install.conf）"

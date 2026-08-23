@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Final
@@ -109,6 +110,19 @@ def check(line: str) -> str:
         raise ConfigError("the key body declares a different type from its first field")
     _validate_shape(parts, key_format)
     return " ".join(fields)
+
+
+def fingerprint(line: str) -> str:
+    """The key as `ssh-keygen -l` names it: `SHA256:` and the digest of the
+    wire blob, base64 without padding.
+
+    A hash and not the key: a dry-run reaches `install.jsonl` and any paste an
+    operator sends on, and the comment field of a key carries a username and a
+    hostname.
+    """
+    blob = line.split()[1]
+    digest = hashlib.sha256(base64.b64decode(blob, validate=True)).digest()
+    return "SHA256:" + base64.b64encode(digest).decode().rstrip("=")
 
 
 def _wire(raw: bytes) -> list[bytes]:
