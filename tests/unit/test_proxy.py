@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import socket
 import urllib.request
+from pathlib import Path
 from typing import Any
 from typing import cast
 
@@ -142,3 +143,44 @@ def test_fetch_paths_accept_the_same_proxy_setting(monkeypatch: pytest.MonkeyPat
     assert fetch.zfs_kernel_max(PROXY).maximum == "7.0"
     assert seen and all(proxy is PROXY for proxy in seen)
     assert opened == [PROXY]
+
+
+def test_a_password_hash_never_reaches_the_log_or_the_journal() -> None:
+    """`usermod --password` takes the hash as an argument, and this run's log
+    is what `offer_paste` offers to upload to a public pastebin."""
+    secret = "$6$rQ8n2YeKp$T7xLmQvBc3ZdWnRfHjKgPsAeUyIoNbXcVmZlQwErTyUi"
+    lines: list[str] = []
+    runner = Runner(log=lines.append, dry_run=True)
+    result = runner.run(["usermod", "--password", secret, "root"])
+    assert all(secret not in line for line in lines), lines
+    assert secret not in result.command, result.command
+    assert any("$6$" in line for line in lines), "the scheme still names itself"
+
+
+def test_a_log_that_still_holds_a_hash_is_not_published(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The argv scrub cannot reach what a command printed, so the last thing
+    before the upload reads the body it is about to hand out."""
+    from gentoo_install.exec import fetch as fetch_module
+    from gentoo_install.exec import report
+    from gentoo_install.exec.report import RunFile
+
+    body = (
+        "run: usermod --password '$6$[redacted]' root\n"
+        "root:$6$AbCdEf$0123456789abcdefghij:20000:\n"
+    )
+    (tmp_path / RunFile.LOG.value).write_text(body)
+    said: list[str] = []
+    sent: list[str] = []
+
+    def upload(text: str, export: object) -> str:
+        sent.append(text)
+        return "https://paste.example/1"
+
+    monkeypatch.setattr(fetch_module, "upload", upload)
+    report.offer_paste(
+        tmp_path, said.append, False, False, lambda question: True, lambda address: None
+    )
+    assert sent == [], sent
+    assert any("password hash" in line for line in said), said

@@ -21,6 +21,7 @@ from pathlib import Path, PurePosixPath
 from typing import Callable, Sequence, TextIO
 
 from ..errors import CommandFailed, TargetEscape
+from ..redact import scrub
 from ..log import Journal
 from ..model.config import ProxyConfig
 from ..plan.operations import ending, worth_reading
@@ -326,7 +327,11 @@ def _pretending(argv: Sequence[str]) -> bool:
 
 
 def _display_argv(argv: Sequence[str]) -> tuple[str, ...]:
-    """Redact URL user information before a command reaches logs or journals."""
+    """Redact secrets before a command reaches logs or journals.
+
+    `usermod --password` takes the hash as an argument, and this run's log is
+    what `offer_paste` uploads to a public pastebin.
+    """
     shown: list[str] = []
     for value in argv:
         try:
@@ -343,6 +348,7 @@ def _display_argv(argv: Sequence[str]) -> tuple[str, ...]:
             value = urllib.parse.urlunsplit(
                 (parts.scheme, host, parts.path, parts.query, parts.fragment)
             )
+        value = scrub(value)
         shown.append(value)
     return tuple(shown)
 
