@@ -7,7 +7,7 @@ import os
 import shutil
 import sys
 import time
-from typing import Sequence, cast
+from typing import Final, Sequence, cast
 import re
 from dataclasses import replace
 from pathlib import Path
@@ -2333,3 +2333,66 @@ def test_a_refused_configuration_from_the_menu_returns_to_it(
 
 def _refusing_config(source: object) -> None:
     raise errors.UnknownDeviceId("a file's configuration is refused the same way")
+
+
+#: Every named error and the exit code an operator reads from it. `cli.py`
+#: ends its chain with a clause for `GentooInstallError` itself, so an error
+#: added without a decision would take 4 in silence; this table is where the
+#: decision is recorded, and the test below drives the real chain to check it.
+EXIT_FOR_ERROR: Final[dict[str, int]] = {
+    # 1: the answers are wrong, and nothing has reached a disk.
+    "ConfigError": cli.EXIT_CONFIG,
+    "DeviceCycle": cli.EXIT_CONFIG,
+    "DuplicateDeviceId": cli.EXIT_CONFIG,
+    "InvalidLayout": cli.EXIT_CONFIG,
+    "InvalidSize": cli.EXIT_CONFIG,
+    "UnalignedSize": cli.EXIT_CONFIG,
+    "UnknownDeviceId": cli.EXIT_CONFIG,
+    "ValidationFailed": cli.EXIT_CONFIG,
+    # `--resume` names a journal this tree and session cannot continue, which
+    # is the invocation being wrong rather than a command failing.
+    "ResumeRefused": cli.EXIT_CONFIG,
+    # 2: the machine is not fit to start, and the operator can change that.
+    "PreflightFailed": cli.EXIT_PREFLIGHT,
+    "ConversionUnsupported": cli.EXIT_PREFLIGHT,
+    "DeviceNotFound": cli.EXIT_PREFLIGHT,
+    "WorkDirectoryBusy": cli.EXIT_PREFLIGHT,
+    # 3: something arrived and cannot be trusted.
+    "IntegrityError": cli.EXIT_INTEGRITY,
+    "ArchiveDigestMismatch": cli.EXIT_INTEGRITY,
+    # 4: something was attempted and did not finish.
+    "CommandFailed": cli.EXIT_COMMAND,
+    "DownloadFailed": cli.EXIT_COMMAND,
+    "ConversionFailed": cli.EXIT_COMMAND,
+    "LocaleMissing": cli.EXIT_COMMAND,
+    "NothingToBoot": cli.EXIT_COMMAND,
+    "TargetEscape": cli.EXIT_COMMAND,
+    "UploadFailed": cli.EXIT_COMMAND,
+    "GentooInstallError": cli.EXIT_COMMAND,
+}
+
+
+def test_every_named_error_has_an_exit_code_somebody_chose(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Raised through `main` rather than read off the source: the chain's order
+    decides which clause catches a subclass, and reading the clauses cannot
+    show that."""
+    from gentoo_install import cli as command_line
+    from gentoo_install import errors
+
+    named = {
+        name: value
+        for name, value in vars(errors).items()
+        if isinstance(value, type) and issubclass(value, errors.GentooInstallError)
+    }
+    assert set(named) == set(EXIT_FOR_ERROR), set(named) ^ set(EXIT_FOR_ERROR)
+
+    for name, error in sorted(named.items()):
+        def raising(*_: object, **__: object) -> None:
+            raise error(f"{name} for the exit code test")
+
+        monkeypatch.setattr(command_line, "build", raising)
+        code = main(["--config", str(FIXTURES / "btrfs-luks.toml"), "--dry-run"])
+        capsys.readouterr()
+        assert code == EXIT_FOR_ERROR[name], (name, code, EXIT_FOR_ERROR[name])
