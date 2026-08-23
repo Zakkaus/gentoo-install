@@ -68,6 +68,9 @@ class Recorder:
             raise CommandFailed(f"{argv[0]} exited 1")
         if argv[:2] == ["test", "-e"]:
             return CommandOutput("", 0 if argv[2] in self.existing_paths else 1)
+        if argv[:2] == ["findmnt", "--mountpoint"]:
+            mounted = argv[2] in self.mounts
+            return CommandOutput(f"{argv[2]}\n" if mounted else "", 0 if mounted else 1)
         if self.answering is not None:
             # Both methods, or a hook covering one of them leaves the other
             # answering an empty string that every caller reads as success.

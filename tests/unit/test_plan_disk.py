@@ -438,12 +438,106 @@ def test_a_failed_run_can_be_started_again() -> None:
         if isinstance(operation, disk.ReleaseTarget)
     ]
     assert len(released) == 1
-    recorder = Recorder()
+    recorder = Recorder(
+        answering=lambda argv: CommandOutput("", 1) if argv[0] == "findmnt" else None
+    )
     released[0].apply(recorder)
     ran = [argv[0] for argv in recorder.commands]
     assert ran[0] == "umount"
     assert ("cryptsetup", "close", "root") in recorder.commands
 
+
+def test_release_retries_a_busy_container_until_it_closes() -> None:
+    class BusyOnce(Recorder):
+        closes: int = 0
+
+        def run(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> CommandOutput:
+            if argv[0] == "findmnt":
+                self.commands.append(tuple(argv))
+                return CommandOutput("", 1)
+            if argv[:2] == ["cryptsetup", "close"]:
+                self.commands.append(tuple(argv))
+                self.closes += 1
+                return CommandOutput("Device is busy", 1 if self.closes == 1 else 0)
+            if argv[:2] == ["dmsetup", "ls"]:
+                self.commands.append(tuple(argv))
+                return CommandOutput("root\t(253:0)", 0)
+            return super().run(argv, check=check, input_text=input_text)
+
+    recorder = BusyOnce()
+    disk.ReleaseTarget(steps=(("cryptsetup", "close", "root"),)).apply(recorder)
+
+    assert recorder.closes == 2
+    assert ("sleep", "5") in recorder.commands
+
+
+def test_release_accepts_a_missing_container_after_close_fails() -> None:
+    class MissingLuks(Recorder):
+        def run(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> CommandOutput:
+            if argv[0] == "findmnt":
+                self.commands.append(tuple(argv))
+                return CommandOutput("", 1)
+            if argv[:2] == ["cryptsetup", "close"]:
+                self.commands.append(tuple(argv))
+                return CommandOutput("Device root is not active", 1)
+            if argv[:2] == ["dmsetup", "ls"]:
+                self.commands.append(tuple(argv))
+                return CommandOutput("No devices found", 0)
+            return super().run(argv, check=check, input_text=input_text)
+
+    recorder = MissingLuks()
+    disk.ReleaseTarget(steps=(("cryptsetup", "close", "root"),)).apply(recorder)
+
+    assert recorder.only("dmsetup", "ls") == ("dmsetup", "ls", "--target", "crypt")
+
+def test_release_accepts_a_volume_group_without_active_mappings() -> None:
+    class MissingVolumeGroup(Recorder):
+        def run(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> CommandOutput:
+            if argv[0] == "findmnt":
+                self.commands.append(tuple(argv))
+                return CommandOutput("", 1)
+            if argv[:2] == ["vgchange", "--activate"]:
+                self.commands.append(tuple(argv))
+                return CommandOutput("Volume group data-vg not found", 1)
+            if argv[:2] == ["dmsetup", "ls"]:
+                self.commands.append(tuple(argv))
+                return CommandOutput("No devices found", 0)
+            return super().run(argv, check=check, input_text=input_text)
+
+    recorder = MissingVolumeGroup()
+    disk.ReleaseTarget(steps=(("vgchange", "--activate", "n", "data-vg"),)).apply(recorder)
+
+    assert recorder.only("dmsetup", "ls") == ("dmsetup", "ls")
+
+
+def test_release_refuses_a_container_that_remains_open() -> None:
+    class StillOpen(Recorder):
+        def run(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> CommandOutput:
+            if argv[0] == "findmnt":
+                self.commands.append(tuple(argv))
+                return CommandOutput("", 1)
+            if argv[:2] == ["cryptsetup", "close"]:
+                self.commands.append(tuple(argv))
+                return CommandOutput("Device is busy", 1)
+            if argv[:2] == ["dmsetup", "ls"]:
+                self.commands.append(tuple(argv))
+                return CommandOutput("root\t(253:0)", 0)
+            return super().run(argv, check=check, input_text=input_text)
+
+    recorder = StillOpen()
+    operation = disk.ReleaseTarget(steps=(("cryptsetup", "close", "root"),))
+
+    with pytest.raises(CommandFailed, match="cryptsetup close root left its device open"):
+        operation.apply(recorder)
+    assert len(recorder.argv_starting("cryptsetup", "close")) == disk.RELEASE_TRIES
 
 def test_the_teardown_closes_each_device_before_the_one_it_sits_on() -> None:
     """A fixed sequence of kinds gets one nesting wrong, and both occur: a
@@ -855,7 +949,7 @@ def test_a_pool_still_busy_after_the_lazy_unmount_is_exported_on_a_later_try(
                     raise CommandFailed("zpool export rpool exited 1: pool is busy")
             return super().run(argv, check=check, input_text=input_text)
 
-    monkeypatch.setattr(disk, "EXPORT_PAUSE", 0.0)
+    monkeypatch.setattr(disk, "RELEASE_PAUSE", 0.0)
     operation = disk.UnmountTarget(pools=("rpool",))
 
     # Plain before lazy: a lazy unmount leaves the datasets mounted as far as
@@ -909,7 +1003,7 @@ def test_a_pool_still_busy_after_the_lazy_unmount_is_exported_on_a_later_try(
 
     # A non-dataset holder is not released by the installer, so export stops.
     zed = Clean()
-    zed.refusals = disk.EXPORT_TRIES
+    zed.refusals = disk.RELEASE_TRIES
     with pytest.raises(CommandFailed, match="holder is unknown"):
         operation.apply(zed)
 
@@ -922,13 +1016,13 @@ def test_a_pool_still_busy_after_the_lazy_unmount_is_exported_on_a_later_try(
             return super().run(argv, check=check, input_text=input_text)
 
     mounted = MountedDataset()
-    mounted.refusals = disk.EXPORT_TRIES
+    mounted.refusals = disk.RELEASE_TRIES
     operation.apply(mounted)
     assert mounted.commands[-1] == ("zpool", "export", "-f", "rpool")
 
     # A pool that refuses every plain attempt stops the install.
     stubborn = Clean()
-    stubborn.refusals = disk.EXPORT_TRIES
+    stubborn.refusals = disk.RELEASE_TRIES
     with pytest.raises(CommandFailed):
         operation.apply(stubborn)
 
@@ -955,7 +1049,7 @@ def test_a_pool_busy_with_nothing_mounted_is_named_rather_than_forced(
                 return CommandOutput(f"rpool\t{self.mounted_state}\n", 0)
             return super().run(argv, check=check, input_text=input_text)
 
-    monkeypatch.setattr(disk, "EXPORT_PAUSE", 0.0)
+    monkeypatch.setattr(disk, "RELEASE_PAUSE", 0.0)
     operation = disk.UnmountTarget(pools=("rpool",))
 
     held = Stuck()

@@ -86,7 +86,7 @@ BY_FEATURE: Final[dict[str, tuple[str, ...]]] = {
     # The binaries the operations invoke, not the multicall name: a medium
     # carrying lvm without its symlinks passes on `lvm` and dies at `pvcreate`
     # with the disks already partitioned.
-    "lvm": ("pvcreate", "vgcreate", "lvcreate", "vgchange"),
+    "lvm": ("pvcreate", "vgcreate", "lvcreate", "vgchange", "dmsetup"),
     "swap": ("mkswap", "swapoff"),
     # `hostid`, not `zgenhostid`: the host reads its own id and the target
     # writes it, so the tool that writes runs inside the chroot.
