@@ -29,6 +29,15 @@ python3 -m pytest
 
 mypy runs in strict mode. Do not hide a finding with `# type: ignore` or `# noqa`, and do not weaken an assertion to make a test pass.
 
+One check skips itself rather than failing when it cannot run.
+`test_every_package_a_group_names_exists_where_it_says` reads
+`/var/db/repos/gentoo` and `/var/db/repos/gentoo-zh` to confirm that every atom
+a package group names exists in the repository it claims. Those trees are not
+on the CI runner, so a package group naming a misspelled atom passes CI and
+fails an hour into an installation. Run the suite on a machine that has both
+trees synced before adding or editing anything under
+`gentoo_install/data/packages/`, and say in the pull request that you did.
+
 Changes to partitioning, filesystems, chroot handling, bootloaders or binhost trust also require an installation in a virtual machine. For example:
 
 VM runs require `qemu-system-x86_64`, KVM, OVMF and `xorriso`.
