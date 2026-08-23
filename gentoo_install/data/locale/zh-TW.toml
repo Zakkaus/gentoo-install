@@ -546,6 +546,7 @@
 "Write /etc/xdg/kwinrc and the Fcitx profile for: {engines}." = "寫入 /etc/xdg/kwinrc 與 Fcitx 設定檔，指定：{engines}。"
 "Write the Fcitx profile and input environment for: {engines}." = "寫入 Fcitx 設定檔與輸入環境，指定：{engines}。"
 "Write the IBus input environment." = "寫入 IBus 的輸入環境。"
+"Font configuration" = "字型設定"
 "Write {path}; {face} will lead sans-serif." = "寫入 {path}；sans-serif 由 {face} 領頭。"
 "installed" = "已安裝"
 "installed and preferred" = "已安裝並設為首選"

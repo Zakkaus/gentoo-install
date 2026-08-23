@@ -545,6 +545,7 @@
 "Write /etc/xdg/kwinrc and the Fcitx profile for: {engines}." = "/etc/xdg/kwinrc 와 Fcitx 설정을 작성하고 {engines} 를 지정합니다."
 "Write the Fcitx profile and input environment for: {engines}." = "Fcitx 설정과 입력 환경을 작성하고 {engines} 를 지정합니다."
 "Write the IBus input environment." = "IBus 입력 환경을 작성합니다."
+"Font configuration" = "글꼴 설정"
 "Write {path}; {face} will lead sans-serif." = "{path} 를 작성하며 sans-serif 는 {face} 가 이끕니다."
 "installed" = "설치"
 "installed and preferred" = "설치하고 기본으로 지정"
