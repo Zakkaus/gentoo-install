@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Callable, Final, Protocol, cast
 
-from ..errors import CommandFailed, ConfigError, InvalidLayout
+from ..errors import CommandFailed, ConfigError, GentooInstallError, InvalidLayout
 from ..model.config import DiskMode, InstallConfig
 from ..model.device import (
     DeviceGraph,
@@ -669,6 +669,22 @@ class VerifyFilesystem(Operation):
 #: the target rather than under it: the layout is mounted on the target itself.
 SCRATCH_MOUNT: Final[str] = "btrfs-top"
 
+def _unmount_scratch(
+    context: Context, scratch: PurePosixPath, failure: GentooInstallError | None
+) -> None:
+    # A stale top-level mount makes the next run fail at `wipefs` with a busy
+    # device rather than naming the holder that needs cleanup.
+    result: str | None = None
+    try:
+        result = context.run(["umount", str(scratch)], check=False)
+    except CommandFailed:
+        if failure is None:
+            raise
+    if failure is None and isinstance(result, CommandOutput) and result.returncode != 0:
+        raise CommandFailed(
+            f"umount {scratch} exited {result.returncode}: {result.strip() or 'no output'}"
+        )
+
 
 @dataclass(frozen=True, kw_only=True)
 class VerifySubvolume(Operation):
@@ -693,21 +709,26 @@ class VerifySubvolume(Operation):
         scratch = context.target.parent / SCRATCH_MOUNT
         path = context.device_path(self.device)
         context.run(["mkdir", "--parents", str(scratch)])
-        context.run(["mount", "--types", "btrfs", path, str(scratch)])
-        # `btrfs subvolume list`, not a directory test: a plain directory of
-        # the same name is not a subvolume and mounting `subvol=` on it fails
-        # at the mount rather than here.
-        listed = context.run(["btrfs", "subvolume", "list", str(scratch)], check=False)
-        wanted = self.name.lstrip("/")
-        missing = not any(
-            line.rsplit(" path ", 1)[-1].strip() == wanted for line in listed.splitlines()
-        )
-        context.run(["umount", str(scratch)])
-        if missing:
-            raise InvalidLayout(
-                f"{self.device} has no btrfs subvolume {self.name}, and the "
-                "configuration reuses it"
-            )
+        failure: GentooInstallError | None = None
+        try:
+            context.run(["mount", "--types", "btrfs", path, str(scratch)])
+            # `btrfs subvolume list`, not a directory test: a plain directory of
+            # the same name is not a subvolume and mounting `subvol=` on it fails
+            # at the mount rather than here.
+            listed = context.run(["btrfs", "subvolume", "list", str(scratch)], check=False)
+            wanted = self.name.lstrip("/")
+            if not any(
+                line.rsplit(" path ", 1)[-1].strip() == wanted for line in listed.splitlines()
+            ):
+                raise InvalidLayout(
+                    f"{self.device} has no btrfs subvolume {self.name}, and the "
+                    "configuration reuses it"
+                )
+        except GentooInstallError as error:
+            failure = error
+            raise
+        finally:
+            _unmount_scratch(context, scratch, failure)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -728,27 +749,15 @@ class CreateSubvolume(Operation):
         scratch = context.target.parent / SCRATCH_MOUNT
         path = context.device_path(self.device)
         context.run(["mkdir", "--parents", str(scratch)])
-        context.run(["mount", "--types", "btrfs", path, str(scratch)])
-        failed: CommandFailed | None = None
+        failure: GentooInstallError | None = None
         try:
+            context.run(["mount", "--types", "btrfs", path, str(scratch)])
             context.run(["btrfs", "subvolume", "create", str(scratch / self.name)])
-        except CommandFailed as error:
-            failed = error
+        except GentooInstallError as error:
+            failure = error
             raise
         finally:
-            # In `finally`: a name left by an earlier attempt fails here, and
-            # leaving the device mounted makes the next run die at `wipefs`
-            # with `Device or resource busy` and nothing naming the holder.
-            result: str | None = None
-            try:
-                result = context.run(["umount", str(scratch)], check=False)
-            except CommandFailed:
-                if failed is None:
-                    raise
-            if failed is None and isinstance(result, CommandOutput) and result.returncode != 0:
-                raise CommandFailed(
-                    f"umount {scratch} exited {result.returncode}: {result.strip() or 'no output'}"
-                )
+            _unmount_scratch(context, scratch, failure)
 
 
 @dataclass(frozen=True, kw_only=True)
