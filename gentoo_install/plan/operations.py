@@ -50,6 +50,13 @@ class Stage(Enum):
         return list(Stage).index(self)
 
 
+#: A process loss while these stages run cannot show whether a device changed,
+#: so resume records their intent and refuses a second dispatch without a result.
+CHECKPOINT_BEFORE_APPLY_STAGES: Final[frozenset[Stage]] = frozenset(
+    (Stage.PARTITION, Stage.ARRAY, Stage.FORMAT, Stage.ZFS)
+)
+
+
 def ending(returncode: int) -> str:
     """How a command ended, in words a reader can act on.
 
@@ -307,3 +314,8 @@ class Operation(ABC):
         mounted.
         """
         return True
+
+    @property
+    def needs_pre_dispatch_checkpoint(self) -> bool:
+        """Whether a missing result makes this operation unsafe to dispatch again."""
+        return self.stage in CHECKPOINT_BEFORE_APPLY_STAGES
