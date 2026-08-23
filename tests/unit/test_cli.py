@@ -2001,6 +2001,30 @@ def test_a_resume_refuses_a_journal_from_another_run(tmp_path: Path) -> None:
     assert said and "records no identity" in said[-1], said
 
 
+def test_a_resume_checks_the_newest_journal_attempt(tmp_path: Path) -> None:
+    from gentoo_install.errors import ResumeRefused
+    from gentoo_install.log import Journal
+
+    path = tmp_path / "install.jsonl"
+    earlier = {
+        "configuration": "first",
+        "session": "boot",
+        "installer": "tree",
+    }
+    resumed = {
+        "configuration": "second",
+        "session": "boot",
+        "installer": "tree",
+    }
+    journal = Journal(path=path)
+    journal.started(**earlier)
+    Journal(path=path).started(**resumed)
+
+    cli._refuse_a_different_run(Journal(path=path), resumed, lambda line: None)
+    with pytest.raises(ResumeRefused, match="different configuration"):
+        cli._refuse_a_different_run(Journal(path=path), earlier, lambda line: None)
+
+
 def test_every_refusal_names_a_field_the_identity_carries() -> None:
     """A refusal for a field the journal does not record is one no run can
     trigger, and a field with no refusal is one no run is refused for."""

@@ -617,8 +617,12 @@ def install(
         )
         identity = _run_identity(config)
         if arguments.resume:
+            resuming = journal.resume()
             _refuse_a_different_run(journal, identity, record)
-        journal.started(**identity)
+            if not resuming:
+                journal.started(**identity)
+        else:
+            journal.started(**identity)
         finished = completed(journal) if arguments.resume else frozenset()
         if arguments.resume:
             # Replayed before anything runs. The operation that recorded an

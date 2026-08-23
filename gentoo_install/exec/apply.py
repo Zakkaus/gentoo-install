@@ -366,7 +366,7 @@ def already_degraded(journal: Journal | None) -> set[str]:
         return set()
     return {
         str(entry["what"])
-        for entry in journal.replay()
+        for entry in journal.resume_entries()
         if entry.get("event") == "degraded" and entry.get("what")
     }
 
@@ -384,7 +384,7 @@ def completed(journal: Journal | None) -> frozenset[tuple[int, str]]:
     if journal is None:
         return frozenset()
     done: set[tuple[int, str]] = set()
-    for entry in journal.replay():
+    for entry in journal.resume_entries():
         if entry.get("event") != "operation" or entry.get("status") != "done":
             continue
         position = entry.get("position")
