@@ -478,7 +478,7 @@ path = "/"
 
 ## Binary packages
 
-Binary packages are optional. Disabling them keeps source builds available. The official binhost and the gentoo-zh binhost are separate options with separate trust configuration. No current end-to-end evidence covers an unreachable binhost, a missing signature or an untrusted key; these degradation paths remain unverified.
+Binary packages are optional. Disabling them keeps source builds available. The official binhost and the gentoo-zh binhost are separate options with separate trust configuration. One degradation path has end-to-end evidence: `TESTED.md` records `vm-binhost-fallback` on `e16f57a39199d` installing from source after its host served no package index, with the reason in the journal. That fixture no longer reproduces it — the same host answered on 2026-08-24 — so the path is recorded rather than currently exercised. A missing signature and an untrusted key have no end-to-end evidence and remain unverified.
 
 A verified binhost runs `getuto`, imports its signing key, locally signs that key with `lsign`, and enables signature verification. A failed host, missing signature, or untrusted key degrades that binhost to source compilation and records the reason.
 
