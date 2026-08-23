@@ -666,3 +666,27 @@ def test_no_catalog_calls_a_password_a_cipher() -> None:
     # the one above, and is correct wherever it appears.
     encryption = "\u6697\u53f7\u5316"  # encryption
     assert any(encryption in value for value in said.values())
+
+
+def test_a_binary_host_is_not_a_binary_package() -> None:
+    """`binhost` names the machine that builds and serves packages. Two values
+    in each of the Japanese and Korean catalogs dropped the host and spoke only
+    of packages, so the row that explains where a package comes from no longer
+    said where."""
+    import tomllib
+    from pathlib import Path
+
+    about_the_host = (
+        "~amd64 throughout, so fewer packages match a binary host",
+        "what the profile sets, and what a binary host builds",
+    )
+    for catalog in sorted(Path("gentoo_install/data/locale").glob("*.toml")):
+        said = tomllib.loads(catalog.read_text())["strings"]
+        for source in about_the_host:
+            assert "binhost" in said[source], f"{catalog.name}: {said[source]}"
+
+    # Negative control: the key that is about packages alone does not name a
+    # host, so the rule above is not "every value mentions binhost".
+    for catalog in sorted(Path("gentoo_install/data/locale").glob("*.toml")):
+        said = tomllib.loads(catalog.read_text())["strings"]
+        assert "binhost" not in said["Extra packages"], catalog.name

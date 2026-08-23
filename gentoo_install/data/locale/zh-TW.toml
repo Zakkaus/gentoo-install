@@ -359,7 +359,7 @@
 "this machine" = "本機"
 "stage3 default" = "stage3 預設值"
 "baseline" = "基線"
-"what the profile sets, and what a binary host builds" = "profile 決定，二進位套件同此建置"
+"what the profile sets, and what a binary host builds" = "profile 決定，binhost 也照同一組設定建置"
 "Encryption is a field of each partition, under Partitions." = "加密是各分割區的欄位；設定位置為分割區頁面。"
 "Gateway" = "閘道"
 "192.0.2.10/24, or empty for DHCP" = "192.0.2.10/24，留空表示 DHCP"
