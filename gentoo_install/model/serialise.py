@@ -17,6 +17,7 @@ from typing import Any, Final
 
 from . import config as model_config
 from .config import DiskMode, InstallConfig, ProxyConfig
+from .templates import Choice
 from .device import (
     Existing,
     Filesystem,
@@ -143,6 +144,21 @@ class _Nothing:
 _NOTHING: Final[_Nothing] = _Nothing()
 
 
+def _simple(choice: Choice) -> list[str]:
+    """A whole-disk template, with every field the default already covers left
+    out: an omitted key reads as `whatever this installer does by default`."""
+    against = Choice(disk=choice.disk)
+    lines = [f"disk = {_value(choice.disk)}"]
+    for field in fields(choice):
+        if field.name == "disk":
+            continue
+        held = getattr(choice, field.name)
+        if held == getattr(against, field.name):
+            continue
+        lines.append(f"{field.name} = {_value(held)}")
+    return lines
+
+
 def _disk(config: InstallConfig) -> list[str]:
     disk = config.disk
     lines = ["", "[disk]"]
@@ -166,6 +182,11 @@ def _disk(config: InstallConfig) -> list[str]:
         if disk.wipe:
             lines.append("wipe = true")
         lines = [line for line in lines if line]
+    if disk.simple is not None:
+        # The template it was expanded from, not the graph: a reader hand-edits
+        # eight lines instead of sixty, and `parse` expands it again with the
+        # one function the interface itself uses.
+        return [*lines, "", "[disk.simple]", *_simple(disk.simple)]
     lines.append(f'root = "{disk.root}"')
     for node in disk.graph.nodes.values():
         kind = KINDS.get(type(node))

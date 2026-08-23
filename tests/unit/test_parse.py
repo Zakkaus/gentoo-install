@@ -454,3 +454,71 @@ def test_an_ordinary_mountpoint_is_still_taken() -> None:
     config = parse(raw)
 
     assert any(str(one.path) == "/home/zakk" for one in config.disk.graph.of_type(Mountpoint))
+
+
+def _simple_disk() -> dict[str, Any]:
+    """The fixture with its device graph replaced by the hand-written form."""
+    raw = fixture()
+    raw["disk"] = {"simple": {"disk": "/dev/disk/by-id/virtio-target0"}}
+    return raw
+
+
+def test_a_simple_disk_expands_to_the_graph_the_template_builds() -> None:
+    """The surface is `templates.Choice` written down, and `templates.build` is
+    the one expansion: a hand-written file and the interface produce the same
+    graph or the two forms mean different things."""
+    from gentoo_install.model import templates
+
+    parsed = parse(_simple_disk())
+    graph, root = templates.build(templates.Choice(disk="/dev/disk/by-id/virtio-target0"))
+
+    assert parsed.disk.graph == graph
+    assert parsed.disk.root == root
+    assert parsed.disk.simple == templates.Choice(disk="/dev/disk/by-id/virtio-target0")
+
+    # Negative control: a different template is a different graph, so the
+    # comparison above is not satisfied by any two whole-disk layouts.
+    other, _ = templates.build(
+        templates.Choice(disk="/dev/disk/by-id/virtio-target0", filesystem=FilesystemType.EXT4)
+    )
+    assert parsed.disk.graph != other
+
+
+def test_a_layout_is_written_one_way_or_the_other() -> None:
+    """With both forms present one of them decides and nothing on the page says
+    which, so neither is taken."""
+    raw = fixture()
+    raw["disk"]["simple"] = {"disk": "/dev/disk/by-id/virtio-target0"}
+
+    with pytest.raises(ConfigError, match="both"):
+        parse(raw)
+
+
+def test_a_simple_disk_does_not_carry_a_root_of_its_own() -> None:
+    """`templates.build` answers with the mount point it made, so a `root`
+    beside it is either the same value written twice or a contradiction."""
+    raw = _simple_disk()
+    raw["disk"]["root"] = "mnt-root"
+
+    with pytest.raises(ConfigError, match="derived"):
+        parse(raw)
+
+
+def test_the_reuse_layout_is_not_a_template() -> None:
+    """It names partitions that already exist and a template has none of them;
+    `templates.build` refuses it for the same reason."""
+    raw = _simple_disk()
+    raw["disk"]["simple"]["layout"] = "reuse"
+
+    with pytest.raises(ConfigError, match="reuse"):
+        parse(raw)
+
+
+def test_a_simple_disk_refuses_a_key_it_does_not_know() -> None:
+    """A misspelled key that is quietly ignored is a layout the operator did
+    not ask for, written to a disk that is then erased."""
+    raw = _simple_disk()
+    raw["disk"]["simple"]["filesystems"] = "ext4"
+
+    with pytest.raises(ConfigError, match="filesystems"):
+        parse(raw)

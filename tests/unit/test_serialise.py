@@ -236,3 +236,44 @@ def test_a_control_character_survives_the_round_trip(said: str) -> None:
 
     held = replace(config(), system=replace(config().system, hostname=said))
     assert _round_trip(held).system.hostname == said
+
+
+def test_a_simple_disk_is_written_back_as_the_template() -> None:
+    """Sixty lines of graph become the eight the operator typed, and reading
+    them again expands to the same graph through the same function."""
+    import tomllib
+
+    from gentoo_install.model import templates
+    from gentoo_install.model.config import DiskConfig
+    from gentoo_install.model.device import FilesystemType
+    from gentoo_install.model.parse import parse
+    from gentoo_install.model.size import Size
+
+    chosen = templates.Choice(
+        disk="/dev/disk/by-id/virtio-target0",
+        filesystem=FilesystemType.EXT4,
+        swap=Size.parse("2GiB"),
+    )
+    graph, root = templates.build(chosen)
+    fixtures = Path(__file__).resolve().parents[1] / "fixtures"
+    config = replace(
+        parse(tomllib.loads((fixtures / "btrfs-luks.toml").read_text())),
+        disk=DiskConfig(graph=graph, root=root, simple=chosen),
+    )
+
+    written = to_toml(config)
+    assert "[disk.simple]" in written
+    assert "[[disk.devices]]" not in written
+    # Only what differs from the default: an omitted key reads as whatever this
+    # installer does on its own.
+    assert "pool" not in written
+    assert 'firmware = "uefi"' not in written
+
+    again = parse(tomllib.loads(written))
+    assert again.disk.simple == chosen
+    assert again.disk.graph == graph
+
+    # Negative control: a configuration that carries no template still writes
+    # its graph, so the rule above is not "never write devices".
+    plain = replace(config, disk=DiskConfig(graph=graph, root=root))
+    assert "[[disk.devices]]" in to_toml(plain)

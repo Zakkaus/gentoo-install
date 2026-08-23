@@ -15,6 +15,7 @@ from typing import Any, Mapping, Sequence, TypeVar
 from ..errors import ConfigError
 from . import config as model_config
 from . import sshkey
+from . import templates
 from .config import (
     CONFIG_VERSION,
     Binhost,
@@ -326,6 +327,7 @@ def _disk(raw: Mapping[str, Any], at: str) -> DiskConfig:
         {
             "root",
             "devices",
+            "simple",
             "mode",
             "image",
             "size",
@@ -336,6 +338,31 @@ def _disk(raw: Mapping[str, Any], at: str) -> DiskConfig:
         },
     )
     mode = _enum(raw, "mode", at, DiskMode, DiskMode.PARTITION)
+    simple = raw.get("simple")
+    if simple is not None:
+        # Refused rather than merged: with both written, one of them decides
+        # and nothing on the page says which.
+        if raw.get("devices"):
+            raise ConfigError(
+                f"{at} carries both `simple` and `devices`; a layout is written one way "
+                "or the other"
+            )
+        if raw.get("root"):
+            raise ConfigError(f"{at}.root is derived from `simple` and is not written beside it")
+        chosen = _choice(simple, f"{at}.simple")
+        graph, root = templates.build(chosen)
+        return DiskConfig(
+            graph=graph,
+            root=root,
+            mode=mode,
+            simple=chosen,
+            image=_str(raw, "image", at),
+            size=_size(raw, "size", at),
+            wipe=_bool(raw, "wipe", at, False),
+            source=_str(raw, "source", at),
+            source_format=_enum(raw, "source_format", at, ImageFormat, ImageFormat.RAW),
+            destination=_str(raw, "destination", at),
+        )
     devices = _tables(raw, "devices", at)
     nodes = [_node(entry, f"{at}.devices[{n}]") for n, entry in enumerate(devices)]
     if mode in (DiskMode.PARTITION, DiskMode.IMAGE) and not nodes:
@@ -351,6 +378,37 @@ def _disk(raw: Mapping[str, Any], at: str) -> DiskConfig:
         source_format=_enum(raw, "source_format", at, ImageFormat, ImageFormat.RAW),
         destination=_str(raw, "destination", at),
     )
+
+def _choice(raw: Any, at: str) -> templates.Choice:
+    """The hand-written form of a whole-disk layout.
+
+    Every field is `templates.Choice`'s own, so nothing here decides what a
+    value means: `templates.build` is the one expansion and this only reads.
+    """
+    if not isinstance(raw, Mapping):
+        raise ConfigError(f"{at} is not a table")
+    _reject_unknown(
+        raw,
+        at,
+        {"disk", "layout", "firmware", "table", "filesystem", "swap", "passphrase_file", "pool"},
+    )
+    layout = _enum(raw, "layout", at, templates.Layout, templates.Layout.WHOLE_DISK)
+    if layout is templates.Layout.REUSE:
+        raise ConfigError(
+            f"{at}.layout is 'reuse', which names partitions that already exist; "
+            "write those as `devices`"
+        )
+    return templates.Choice(
+        disk=_str(raw, "disk", at, required=True),
+        layout=layout,
+        firmware=_enum(raw, "firmware", at, Firmware, Firmware.UEFI),
+        table=_enum(raw, "table", at, TableType, None) if raw.get("table") else None,
+        filesystem=_enum(raw, "filesystem", at, FilesystemType, FilesystemType.XFS),
+        swap=_size(raw, "swap", at),
+        passphrase_file=_str(raw, "passphrase_file", at),
+        pool=_str(raw, "pool", at) or "rpool",
+    )
+
 
 def _node(raw: Mapping[str, Any], at: str) -> Node:
     kind = _str(raw, "kind", at, required=True)

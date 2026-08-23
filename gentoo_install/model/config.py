@@ -9,9 +9,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Final
+from typing import Final, TYPE_CHECKING
 
 from .size import Size
+
+if TYPE_CHECKING:
+    # `model/templates.py` imports this module, so the reverse import exists
+    # only for the annotation.
+    from .templates import Choice
 from .device import DeviceGraph, DeviceId
 
 #: `parse.py` refuses a newer file and migrates an older one.
@@ -498,6 +503,11 @@ class DiskConfig:
     #: Empty means the running layout supplies the root.
     root: DeviceId
     mode: DiskMode = DiskMode.PARTITION
+    #: The template this graph was expanded from, when a `[disk.simple]`
+    #: section wrote it. Kept rather than derived: an explicit `table = "gpt"`
+    #: and an omitted one produce the same graph, so the writer cannot tell
+    #: the two apart by looking at it.
+    simple: "Choice | None" = None
     #: The sparse file attached as the graph's disk in image mode.
     image: str = ""
     size: Size | None = None
