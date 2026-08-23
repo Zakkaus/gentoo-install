@@ -166,7 +166,7 @@ class CursesScreen:
         """Draw the required size and the two ways out of the wait."""
         self.clear()
         self.write(0, 0, self._translate("Esc leaves; resize the terminal"))
-        self.write(2, 0, too_small(self))
+        self.write(2, 0, too_small(self, self._translate))
         self.show()
 
 
@@ -177,11 +177,18 @@ class Sized(Protocol):
     def size(self) -> tuple[int, int]: ...
 
 
-def too_small(screen: Sized) -> str:
+def too_small(
+    screen: Sized, translate: Callable[[str], str] = lambda source: source
+) -> str:
     lines, columns = screen.size()
     if lines >= MINIMUM_LINES and columns >= MINIMUM_COLUMNS:
         return ""
-    return (
-        f"the terminal is {columns}x{lines} and the interface needs "
-        f"{MINIMUM_COLUMNS}x{MINIMUM_LINES}"
+    return translate(
+        "The terminal is {columns}x{lines} and the interface needs "
+        "{minimum_columns}x{minimum_lines}"
+    ).format(
+        columns=columns,
+        lines=lines,
+        minimum_columns=MINIMUM_COLUMNS,
+        minimum_lines=MINIMUM_LINES,
     )

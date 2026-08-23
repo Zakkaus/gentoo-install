@@ -61,6 +61,8 @@
 "Back to the menu" = "回到菜单"
 "Leave" = "离开"
 "Esc leaves; resize the terminal" = "按 Esc 离开，或调整终端大小"
+"The terminal is {columns}x{lines} and the interface needs {minimum_columns}x{minimum_lines}" = "终端为 {columns}x{lines}，界面需要 {minimum_columns}x{minimum_lines}"
+"[enter] select" = "[enter] 选择"
 "Save the configuration and leave" = "保存配置后离开"
 "Send the configuration to the pastebin and leave" = "上传配置到 pastebin 后离开"
 "public, without the password hashes" = "公开（去除密码哈希）"

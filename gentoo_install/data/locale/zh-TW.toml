@@ -61,6 +61,8 @@
 "Back to the menu" = "回到選單"
 "Leave" = "離開"
 "Esc leaves; resize the terminal" = "按 Esc 離開，或調整終端機大小"
+"The terminal is {columns}x{lines} and the interface needs {minimum_columns}x{minimum_lines}" = "終端機為 {columns}x{lines}，介面需要 {minimum_columns}x{minimum_lines}"
+"[enter] select" = "[enter] 選取"
 "Save the configuration and leave" = "儲存設定後離開"
 "Send the configuration to the pastebin and leave" = "上傳設定到 pastebin 後離開"
 "public, without the password hashes" = "公開（去除密碼雜湊）"
