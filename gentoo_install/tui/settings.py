@@ -212,7 +212,12 @@ QUIET: Final[tuple[str, ...]] = (
 
 
 def shown_value(
-    setting: Setting, config: InstallConfig, context: Context, room: int | None = None
+    setting: Setting,
+    config: InstallConfig,
+    context: Context,
+    room: int | None = None,
+    *,
+    within_refused: bool = False,
 ) -> str:
     """A row's value as the operator reads it.
 
@@ -223,7 +228,10 @@ def shown_value(
     """
     value = setting.value(config, context)
     if value == UNSET:
-        refused = bool(setting.unavailable(config, context))
+        # The group's refusal counts as this row's: a row behind a screen that
+        # will not open cannot be answered either, and the right pane went on
+        # reading `required` beside a row the operator could not reach.
+        refused = within_refused or bool(setting.unavailable(config, context))
         value = context.translate(
             "required" if setting.required and not refused else UNSET
         )
