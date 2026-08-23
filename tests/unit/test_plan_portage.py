@@ -2736,7 +2736,11 @@ def test_the_gentoo_tree_is_offered_the_rest_of_its_region() -> None:
     tried = [one.sync_uri for one in syncing[0].alternates]
     assert tried, "the tree was left with one site"
     assert "https://mirrors.ustc.edu.cn/gentoo.git" not in tried, tried
-    assert set(tried) < set(mirrors.gentoo_sync_uris(MirrorRegion.CN))
+    # Every other site of the region, not merely some of them: a proper
+    # subset accepted an implementation that kept one alternate while the
+    # change claims to offer the rest of the region.
+    everything = set(mirrors.gentoo_sync_uris(MirrorRegion.CN))
+    assert set(tried) == everything - {"https://mirrors.ustc.edu.cn/gentoo.git"}
 
     # Every alternate still verifies: they mirror the same signed history, and
     # a fallback that quietly stopped checking would be worse than stopping.
