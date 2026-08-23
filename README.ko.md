@@ -4,45 +4,52 @@
 
 <!-- fact: identity -->
 
-gentoo-install은 Linux 라이브 환경에서 실행되어 amd64 아키텍처의 Gentoo 시스템을 설치하는 시스템 설치 도구다. 설치 내용은 대화형 메뉴 또는 TOML 설정 파일로 지정할 수 있다. 프로그램 인터페이스는 영어, 번체 중국어, 간체 중국어, 일본어, 한국어를 제공한다.
+gentoo-install은 Linux 라이브 환경에서 실행되어 amd64 아키텍처의 Gentoo 시스템을 설치하는 시스템 설치 도구다. 설치 내용은 대화형 메뉴 또는 TOML 설정 파일로 지정한다. 프로그램 인터페이스는 영어, 번체 중국어, 간체 중국어, 일본어, 한국어를 제공한다.
 
 ![설치 과정의 선택 항목을 보여 주는 메뉴](screenshot-ko.png)
 
-![간체 중국어, 번체 중국어, 일본어, 한국어를 표시하는 cjktty 콘솔](cjk-console.png)
+## 기능 개요
+
+<!-- fact: capability-summary -->
+
+구현 범위에는 일반 디스크 설치, 스토리지와 부팅 구성, 데스크톱과 언어 profile, 특수 모드가 포함된다.
+
+- **스토리지.** 장치 그래프는 파티션 테이블, 파일 시스템, LUKS2, LVM, mdraid, ZFS를 다룬다.
+- **부팅과 시스템.** GRUB, systemd-boot, ZFSBootMenu는 구성에 따라 UEFI 또는 BIOS 부팅을 구성한다.
+- **데스크톱과 언어.** GNOME, KDE Plasma, Xfce, CJK 글꼴, 입력기는 구성 선택지다.
+- **특수 모드.** 메모리 환경, 인플레이스 변환, 스파스 이미지, `dd`에는 각각의 제약이 있다.
+
+[참조 문서](REFERENCE.md#capabilities)는 모델, 제한, 특수 모드 절차를 정의한다.
+
+## 검증 상태
+
+<!-- fact: verification-scope -->
+
+[`TESTED.md`](TESTED.md)는 실행한 각 경로, 설치 도구 리비전, 실행 환경을 기록한다. 기록한 리비전이 설치 도구와 일치하고, 설치가 `0`으로 끝나며, 설치된 시스템이 부팅되고, 부팅 후 구성 검사가 통과한 실행만 기록에 포함된다.
+
+단위, 계획, fixture coverage는 구현 동작을 설명하지만 설치된 시스템의 부팅을 증명하지 않는다.[`tests/fixtures/`](tests/fixtures/)는 구성 모델을 검증하며 설치된 시스템이 아니다. 기록은 미검증 조합을 표시한다.
 
 ## 요구 사항
 
 <!-- fact: requirements-runtime -->
 
-실제 설치에는 root 권한, amd64 아키텍처, Python 3.11 이상이 필요하다. 설정 파일로 dry run을 수행할 때는 root 권한이 필요하지 않다. 설치 도구에는 타사 Python 런타임 의존성이 없다.
-
-<!-- fact: requirements-version-sources -->
-
-메뉴는 Gentoo 메인 트리 패키지 버전을 `packages.gentoo.org`에서 읽고 gentoo-zh 패치 커널 버전을 `api.github.com/repos/gentoo-zh/overlay/contents`에서 읽는다. `sys-fs/zfs`가 허용하는 최대 커널 버전은 `gitweb.gentoo.org`에서 읽는다. 설정 파일로 설치할 때는 해당 설정이 지정한 미러에 연결해야 한다. `--missing-commands`와 `--config FILE --dry-run`은 이 버전 제공 지점에 연결하지 않는다.
-
-<!-- fact: requirements-network-filter -->
-
-라이브 환경에 IPv6가 있고 IPv4가 없으면 메뉴는 기록상 IPv4 전용인 Gentoo 미러를 비활성화한다.
-
-<!-- fact: requirements-bootstrap -->
-
-`bootstrap.sh`는 `/etc/os-release`를 읽고, 누락된 명령을 보고하며, 후보 패키지 관리자 명령을 표시한다. 인식하는 배포판 계열은 Debian과 Ubuntu, Arch, openSUSE, Fedora, RHEL과 CentOS, Gentoo, Alpine이다. 표시된 명령은 실행하기 전에 확인해야 한다.
+실제 설치에는 root 권한, amd64 대상, Python 3.11 이상이 필요하다. 설정 파일로 dry run을 실행할 때는 root 권한이 필요하지 않다. 설치 도구에는 타사 Python 런타임 의존성이 없다.
 
 ## 안전
 
 <!-- fact: safety-destructive -->
 
-실제 설치는 선택한 디스크에 데이터를 기록한다. 설정 파일로 실행할 때는 디스크 삭제 여부를 다시 확인하지 않는다. `wipe = true`, 파티션 삭제, 파일 시스템 생성은 기존 데이터를 파괴할 수 있다.
+실제 실행은 선택한 디스크에 기록한다. 설정 파일 실행에는 두 번째 삭제 확인이 없다. `wipe = true`, 파티션 삭제, 파일 시스템 생성은 기존 데이터를 파괴할 수 있다.
 
 <!-- fact: safety-review-backup -->
 
-실제 설치 전에 dry-run 출력에서 디스크 선택자와 모든 파괴적 작업을 확인해야 한다. `/dev/sda` 같은 이름보다 안정적인 `/dev/disk/by-id/` 선택자가 더 적합하다. 보존해야 하는 데이터는 선택한 디스크와 분리된 위치에 별도 백업이 있어야 한다.
+실제 실행 전에 dry-run 출력에서 디스크 선택자와 모든 파괴적 작업을 확인해야 한다. `/dev/sda` 같은 이름보다 안정적인 `/dev/disk/by-id/` 선택자가 더 적합하다. 보존할 데이터에는 선택한 디스크와 분리된 위치의 별도 백업이 필요하다.
 
 ## 설치
 
 <!-- fact: install-download -->
 
-다음 명령을 사용하여 현재 `master` 아카이브를 다운로드하고 메뉴를 열 수 있다.
+다음 명령은 현재 `master` 아카이브를 다운로드하고 메뉴를 연다.
 
 ```sh
 curl -fsSL https://github.com/Zakkaus/gentoo-install/archive/refs/heads/master.tar.gz | tar xz
@@ -52,601 +59,59 @@ cd gentoo-install-master
 
 <!-- fact: install-terminal -->
 
-메뉴에는 80열 24행 이상의 대화형 터미널이 필요하다. 설치 도구는 시작할 때 인터페이스 언어를 한 번 묻는다. `--lang ko`를 사용하면 한국어를 바로 선택할 수 있다.
+메뉴에는 80열 24행 이상의 대화형 터미널이 필요하다.
 
 <!-- fact: install-config-workflow -->
 
-메뉴는 설정을 `my-install.toml`이라는 설정 파일로 저장한 뒤 종료할 수 있다. 다음 설정 파일 작업 절차에서는 전체 설정 계획을 먼저 표시한 다음 실제 설치를 수행한다.
+메뉴는 응답을 `my-install.toml`로 저장한다. 설정 파일 작업 순서는 저장, dry run, 검사, 설치다.
 
 ```sh
 ./bootstrap.sh --config my-install.toml --dry-run
-# 이어서 아래 두 줄 가운데 하나만 실행한다. 둘 다 선택한 디스크에 쓴다.
+# 실제 명령을 선택하기 전에 렌더링된 계획을 검사한다.
 ./bootstrap.sh --config my-install.toml
-./bootstrap.sh --config my-install.toml --no-shell   # 같은 실행이며 root 셸을 묻지 않는다
+./bootstrap.sh --config my-install.toml --no-shell   # 같은 실행이며 root 셸 프롬프트를 생략한다
 ```
 
 <!-- fact: install-root-shell -->
 
-대화형 설치에서는 성공하거나 실패한 경우 모두 마운트를 해제하기 전에 대상 시스템 안에서 root 셸을 여는 선택지를 제공한다. `--no-shell`을 사용하면 이 확인을 생략할 수 있다.
-
-| 옵션 | 인수 및 기본값 | 효과 |
-| --- | --- | --- |
-| `--config` | 파일 또는 URL; 설정되지 않음 | 메뉴를 열지 않고 해당 소스를 불러온다. |
-| `--dry-run` | 없음; `false` | 파생된 작업과 요약을 렌더링한 뒤 작업을 적용하지 않고 종료한다. |
-| `--mirror` | stage3 미러 문자열; 설치 도구 기본값 | 일반 설치에 사용할 stage3 소스를 선택한다. 메모리 설정은 구성에서 해당 지역을 도출한다. |
-| `--lang` | 언어 태그; `""` | 메뉴가 구성을 만드는 동안 `LC_ALL`, `LC_MESSAGES`, `LANG`을 재정의한다. |
-| `--target` | 경로; `/mnt/gentoo` | 일반 설치의 마운트 대상을 선택한다. 변환과 메모리 설정에는 `/`을 사용한다. |
-| `--work` | 경로; `/run/gentoo-install` | 보고서와 저널을 포함한 실행 상태를 보관한다. |
-| `--missing-commands` | 없음; `false` | 누락된 호스트 명령을 한 줄에 하나씩 출력한 뒤 종료한다. |
-| `--resume` | 없음; `false` | 기존 저널을 사용하여 호환되는 완료 작업을 건너뛴다. |
-| `--no-shell` | 없음; `false` | 대상 root 셸 제안을 표시하지 않는다. 메모리 설정도 무인으로 만든다. |
-| `--skip-preflight` | 없음; `false` | 일반 설치의 사전 점검을 건너뛴다. |
-| `--ram` | 없음; 설정되지 않은 메모리 모드 | 메모리에 올린 Gentoo CJK ISO로 한 번 부팅하도록 설정한다. `--lowram`과 충돌한다. |
-| `--lowram` | 없음; 설정되지 않은 메모리 모드 | 메모리에 올린 Alpine netboot 환경으로 한 번 부팅하도록 설정한다. `--ram`과 충돌한다. |
-| `--ssh-key` | 키, 파일, HTTP(S) URL 또는 `github:`/`gitlab:` 참조; `""` | 메모리 환경의 인증된 공개 키를 설정한다. 메모리 모드가 필요하다. |
-| `--ssh-port` | 정수; 설정되지 않음 | 메모리 환경의 `sshd` 포트를 설정한다. 메모리 모드가 필요하다. |
-| `--root-password` | 문자열; `""` | 메모리 환경의 root 비밀번호를 설정한다. 메모리 모드가 필요하다. |
-| `--bypass` | 없음; `false` | 한 번만 부팅하는 항목을 설정하는 대신 기본 부팅 항목을 교체한다. 메모리 모드가 필요하다. |
-| `--disarm` | 없음; `false` | 구성 불러오기 전에 이전에 설정한 메모리 부팅과 그 부팅이 배치한 파일을 제거한다. |
-
-## 메모리에서 설치
-
-<!-- fact: install-memory -->
-
-`--ram`과 `--lowram`은 메모리에 올린 라이브 환경으로 한 번 부팅하도록 설정한다. 콘솔도 복구 이미지도 없는 임대 장비가 자기 디스크를 덮어쓰려면 이것이 필요하다. 설치 도구와 선택한 설정, 인가된 키는 initramfs 안에 실려 가므로 환경은 그것을 설정한 리비전으로 올라온다.
-
-```sh
-./bootstrap.sh --ram --ssh-key github:zakkaus --root-password 'replace this'
-reboot
-ssh root@the-machine
-```
-
-기본 부팅 항목은 바뀌지 않으므로 환경으로 올라오지 못한 장비는 이전과 같은 것을 부팅한다. `--disarm`은 설정을 되돌린다. `--bypass`는 기본 항목 자체를 대체하며, 일회성 항목을 버리는 펌웨어를 위한 것이다. 환경이 올라오지 못했을 때 장비가 아예 부팅하지 못하는 경로는 이것뿐이다.
-
-첫 화면은 `install now? [yes/no]`를 묻고 시간 제한이 없으며, 답하기 전에는 아무것도 지우지 않는다. `--ram`은 ZFS를 담은 Gentoo CJK ISO를 부팅하며 약 2 GiB의 메모리가 필요하다. `--lowram`은 더 작고 `zfs.ko`가 없는 Alpine netboot 아카이브를 부팅한다. `--ssh-port`는 데몬을 22번에서 옮긴다. 첫 화면은 설치를 나중에 시작하는 명령을 제시하므로, `no`라고 답하거나 답하기 전에 연결이 끊겨도 재부팅만이 돌아가는 길이 되지는 않는다.
-
-`--ram`은 wifi에 도달하고 `--lowram`은 도달하지 못한다. Gentoo CJK ISO는 NetworkManager와 `linux-firmware`를 담고 있어 `nmcli device wifi connect <SSID> password <암호>`로 연결을 세운 뒤 설치를 실행할 수 있으며, 첫 화면이 이를 번체 중국어, 간체 중국어, 영어로 알린다. Alpine netboot 환경에는 무선 드라이버도 서플리컨트도 없고 전체 모듈 집합은 그 자체를 내려받아야 하는 `modloop`에 있으므로, wifi만으로 연결된 기계는 `--lowram`을 쓸 수 없다.
-
-## 실행 중인 시스템 변환
-
-<!-- fact: install-in-place -->
-
-`[disk]` 테이블의 `mode = "in-place"`는 디스크를 분할하는 대신 실행 중인 배포판의 사용자 공간을 교체한다. 레이아웃은 기계에서 읽어 오므로 이 테이블은 장치 목록을 담지 않는다.
-
-```toml
-config_version = 1
-
-[system]
-hostname = "converted"
-timezone = "UTC"
-locales = ["en_US.UTF-8"]
-locale = "en_US.UTF-8"
-init = "systemd"
-root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
-
-[portage]
-profile = "default/linux/amd64/23.0/systemd"
-makeopts = "-j4"
-
-[bootloader]
-kind = "grub"
-firmware = "uefi"
-
-[disk]
-mode = "in-place"
-```
-
-위 해시는 예시이며 실행 전에 교체해야 한다. 대화형 실행은 변환이 교체하는 디렉터리를 출력하고 무언가를 쓰기 전에 `convert` 입력을 요구한다. 터미널이 없는 실행은 묻지 않는다. 설정 파일의 `mode = "in-place"`가 승인이며, 거기서 질문하면 시리얼 콘솔을 영원히 기다리게 하기 때문이다.
-
-**이 실행을 시작한 세션이 생명줄이다.** `/usr`와 `/etc`가 새 시스템의 것이 되면 새 SSH 로그인은 성립하지 않으며, 실행을 시작한 세션만 이미 매핑한 바이너리를 유지한다. 
-
-## 중단된 실행 재개
-
-<!-- fact: resume-behavior -->
-
-`--resume`은 저널의 위치와 식별자가 현재 계획과 일치하고 재부팅 후에도 효과가 유지된다고 표시된 완료 작업만 건너뛴다.
-
-```sh
-./bootstrap.sh --config my-install.toml --resume
-```
-
-<!-- fact: resume-limits -->
-
-재개는 동일한 라이브 세션, 동일한 설치 프로그램, 동일한 설정 파일로 제한되며, 그 밖의 경우는 설치 프로그램이 거부한다.
-
-- 저널의 첫 항목에는 설정의 다이제스트, 기계의 boot id, 설치 프로그램 소스의 다이제스트가 기록된다. `--resume`은 이 세 가지를 모두 비교하고, 하나라도 다르면 이유를 밝히고 중단한다. 커널이 boot id를 제공하지 않는 기계에서는 나머지 두 가지만 비교한다.
-- 기본 저널은 `/run/gentoo-install/install.jsonl`에 있으므로 어느 경우에도 재부팅 후에는 남아 있지 않는다.
-- 각 작업 기록에는 해당 작업 클래스의 소스와 필드 값에서 만든 식별자도 포함된다. 식별자가 바뀐 작업은 건너뛰지 않고 다시 수행된다. 공용 헬퍼나 상수의 변경은 그 식별자의 범위 밖이며, 설치 프로그램 다이제스트가 이를 포괄한다.
-
-## 기능
-
-<!-- fact: capability-scope -->
-
-검증 상태에서 더 좁은 범위를 밝힌 경우를 제외하면 아래 경로는 구현되어 있으며 자동화된 단위 테스트 또는 plan 테스트로 검사된다.
-
-<!-- fact: storage-device-graph -->
-
-**저장 장치**
-- 장치 그래프는 GPT와 MBR 파티션 테이블, ext2, ext3, ext4, xfs, f2fs, vfat, subvolume을 포함하는 btrfs, swap, LUKS2 암호화, LVM, mdraid를 다룬다.
-- ZFS도 같은 그래프에 속한다. 풀은 vdev 위에서 stripe, mirror, raidz1, raidz2, raidz3 중 하나를 취하고, 네이티브 암호화는 풀의 속성이며, 각 dataset은 그 자체로 하나의 노드다.
-- 기존 파티션 테이블을 유지할 수 있으며 각 파티션에 유지, 포맷, 삭제 작업을 각각 지정할 수 있다.
-
-| 모델 노드 | `id` 외 필드 | 결과 |
-| --- | --- | --- |
-| `Existing` | `selector`, `wipe` | 기존 장치를 선택한다. |
-| `PartitionTable` | `disk`, `table`, `create`, `remove` | 파티션 테이블을 만들거나 수정한다. |
-| `Partition` | `table`, `index`, `role`, `size`, `label` | 파티션을 정의한다. 마지막 `size`는 남은 공간을 모두 사용할 수 있다. |
-| `Luks` | `backing`, `name`, `passphrase_file` | LUKS 컨테이너를 정의한다. |
-| `MdRaid` | `members`, `level`, `name`, `metadata` | mdraid 배열을 정의한다. |
-| `VolumeGroup` | `members`, `name` | LVM 볼륨 그룹을 정의한다. |
-| `LogicalVolume` | `group`, `name`, `size` | LVM 논리 볼륨을 정의한다. |
-| `ZfsPool` | `vdevs`, `name`, `topology`, `encrypted`, `passphrase_file` | ZFS 풀을 정의한다. |
-| `ZfsDataset` | `pool`, `name` | ZFS dataset을 정의한다. |
-| `Filesystem` | `device`, `kind`, `label`, `create` | 장치를 포맷하거나 `create = false`이면 확인한다. |
-| `Subvolume` | `filesystem`, `name` | Btrfs subvolume을 정의한다. |
-| `Swap` | `device` | 참조한 장치에 swap을 정의한다. |
-| `Mountpoint` | `source`, `path`, `options` | 파일 시스템, Btrfs subvolume 또는 ZFS dataset을 마운트한다. |
-
-| 선택지 | 값 |
-| --- | --- |
-| 파티션 테이블 | `gpt`, `mbr` |
-| 파티션 역할 | `esp`, `bios-boot`, `swap`, `raid`, `lvm`, `zfs`, `data` |
-| mdraid 수준 | `raid0`, `raid1`, `raid5`, `raid6` |
-| mdraid 메타데이터 | `0.90`, `1.0`, `1.1`, `1.2` |
-| 파일 시스템 | `ext2`, `ext3`, `ext4`, `btrfs`, `xfs`, `f2fs`, `vfat` |
-| ZFS 토폴로지 | `stripe`, `mirror`, `raidz1`, `raidz2`, `raidz3` |
-
-<!-- fact: zram-system -->
-
-시스템 설정은 장치 그래프와 swap 파티션과 별도로 zram을 구성할 수 있다.
-
-<!-- fact: in-place-conversion -->
-
-**인플레이스 변환.**
-- `[disk]` 테이블에 `mode = "in-place"`를 설정하면 설치 도구는 디스크를 분할하는 대신 실행 중인 배포판의 사용자 공간을 Gentoo로 교체한다.
-- 레이아웃은 기계에서 읽어 오므로 이 테이블은 장치 목록을 담지 않는다.
-- `/bin`, `/sbin`, `/etc`, `/lib`, `/lib64`, `/usr`, `/var`가 교체되고 `/home`, `/root`, `/srv`, `/opt`를 비롯한 나머지 모든 경로는 그대로 남으며, `/etc`는 병합이 아니라 교체다.
-
-- 스테이징된 시스템은 실행 중인 시스템을 건드리지 않은 채 `/gentoo-install.new` 아래에 구축되고, 그다음 `rename(2)`으로 디렉터리마다 교환된다. 교환 이후에 실행되는 것은 esp 또는 부트 섹터에 쓰는 작업뿐이다.
-- 루트가 LUKS, LVM, mdraid 아래에 있는 경우, 루트 파일 시스템이 이 설치 도구가 기술할 수 없는 종류인 경우, 루트 파일 시스템의 여유 공간이 10 GiB 미만인 경우, 라이브 미디어에서 실행한 경우는 모두 아무것도 쓰기 전에 이유를 밝히고 거부한다.
-
-<!-- fact: prepared-image -->
-
-**디스크 이미지**
-- `mode = "image"`는 디스크가 아니라 `disk.image`가 지정하고 `disk.size`가 크기를 정하는 희소 파일에 설치한다. 결과물은 다른 곳으로 복사해 두었다가 나중에 쓸 수 있는 파일이다. `mode = "dd"`는 설치를 수행하지 않는다.
-- `disk.source`의 이미지를 `disk.destination` 디스크 전체로 스트리밍해 쓰고, 읽으면서 `raw`, `gz`, `xz`, `zst`, `tar`를 푼다.
-- 그 이미지가 이미 담고 있는 레이아웃과 부트로더는 그대로 둔다. 두 모드는 서로의 키를 받지 않으며 `partition` 모드는 어느 쪽 키도 받지 않는다.
-
-<!-- fact: boot-system -->
-
-**부팅 및 시스템**
-- 설치 도구에서는 GRUB, systemd-boot, ZFSBootMenu 부트로더를 선택할 수 있다. GRUB은 UEFI와 BIOS를 지원하고 systemd-boot는 UEFI를 지원한다.
-- ZFSBootMenu는 UEFI에서 ZFS 루트를 부팅하며 커널은 풀 안 부트 환경 자체의 `/boot`에서 가져온다. 설치 도구는 systemd 또는 OpenRC, dracut, locale, 키보드 배열, 시간대, 호스트 이름, DNS, 고정 주소, 선택한 네트워크 관리자를 설정할 수도 있다.
-
-<!-- fact: remote-unlock -->
-
-**암호화된 루트를 ssh로 여는 경로**
-- `[kernel.remote_unlock]`은 암호 구절 프롬프트 앞에 아무도 없는 기계를 위해 부팅 경로에 ssh 데몬을 놓는다. `enabled`가 이 경로를 켠다.
-- `port`의 기본값은 22가 아니라 222이며, 실행 중인 시스템에 대한 클라이언트의 `known_hosts` 항목이 initramfs의 항목과 충돌하지 않게 한다. `address`, `gateway`, `interface`는 그 데몬에 고정 주소를 주고, 주소가 비어 있으면 DHCP를 쓴다.
-- LUKS 루트는 시스템 initramfs 안의 `sys-kernel/dracut-crypt-ssh`가 열고, ZFS 루트는 ZFSBootMenu가 자기 이미지에 넣는 dropbear가 연다.
-- 인가 키는 `system.authorized_keys`의 것이다. 이 경로를 켜고도 키를 하나도 적지 않은 설정은 이유를 밝히고 거부된다. 아무도 로그인할 수 없는 데몬을 기술하기 때문이다.
-
-<!-- fact: desktop-language -->
-
-**데스크톱 및 언어 지원**
-- 설치 도구에서는 GNOME, KDE Plasma, Xfce를 선택하고 GDM, SDDM, LightDM, 또는 greetd와 그 tuigreet 콘솔 그리터 중 하나와 조합할 수 있다.
-- 그래픽 설정은 AMD, Intel, NVIDIA, 가상 머신을 지원한다.
-- 패키지 카탈로그에는 Fcitx 5, Rime, Anthy, Mozc, Hangul, CJK 글꼴이 포함된다.
-- 커널 선택 항목에는 cjktty 패치가 적용된 `sys-kernel/gentoo-cjk-kernel-bin`과 `sys-kernel/gentoo-cjk-kernel`이 포함된다.
-
-<!-- fact: portage -->
-
-**Portage**
-- 설정 항목에는 profile, `MAKEOPTS`, `USE`, `ACCEPT_KEYWORDS`, `L10N`, 미러, 저장소 동기화 방식이 포함된다.
-- gentoo-zh와 gig overlay는 각각 선택할 수 있다.
-- 인터페이스 언어로 `zh-TW`, `zh-CN`, `ja`, `ko` 중 하나를 선택하면 gentoo-zh의 패치된 바이너리 커널과 해당 overlay도 선택된다.
-- `en`을 선택하면 자동으로 선택되지 않는다. 공식 바이너리 패키지 소스와 gentoo-zh 바이너리 패키지 소스는 각각 독립된 설정과 키를 사용한다.
-
-<!-- fact: proxy -->
-
-**세션 프록시**
-- `[proxy]` 테이블은 `kind`, `host`, `port`, 선택 사항인 `username`과 `password`, `bypass`를 받는다.
-- `kind`는 `http`, `https`, `socks5` 중 하나이며 `host`가 비어 있으면 직접 연결한다.
-- SOCKS5는 `socks5h://`로 파생되므로 내부 호스트 이름을 프록시에서 확인한다.
-- 주 메뉴에는 값마다 필드가 있고 프록시 종류는 메뉴에서 선택한다.
-- `bypass`는 인터페이스에서 쉼표로 구분한 값이고 TOML에서는 목록이다.
-
-- 프록시를 선택한 뒤 설정한 프록시는 stage3와 서명 키, 메인 트리 및 overlay 버전 조회, `gitweb.gentoo.org`의 ZFS ebuild 조회, `make.conf`와 `FETCHCOMMAND`/`RESUMECOMMAND`를 통한 Portage 다운로드, `wget`, `curl`, `git`, GnuPG, binhost, overlay, paste 업로드에 사용된다.
-- 시계, 초기 연결 검사, 메뉴 전에 실행되는 미러 검사는 설정을 읽기 전에 실행되므로 이 설정의 대상이 아니다.
-- 설치 도구는 dry-run 설명과 공개 설정에서 인증 정보를 제외한다. 공개 설정과 설치된 시스템에는 인증 정보가 없는 엔드포인트와 우회 목록만 남는다.
-
-<!-- fact: memory-environment -->
-
-**메모리 환경.**
-- `--ram`과 `--lowram`은 메모리에 상주하는 라이브 환경으로 한 번만 부팅하도록 설정한 뒤 재부팅 여부를 묻는다.
-- 이 경로에는 화면이 없다. 대상이 되는 컴퓨터는 SSH 연결 하나만 있고 콘솔이 없는 경우가 많기 때문이다. `--ram`은 Gentoo CJK ISO를 사용하며 ZFS를 포함하고 약 2 GiB의 메모리를 요구한다.
-- 그 initramfs는 메모리에서 824 MiB의 라이브 이미지를 뺀 값이 1 GiB 아래로 내려가면 긴급 셸에서 멈춘다.
-- `--lowram`은 Alpine netboot 묶음을 사용하며 더 작고 `zfs.ko`가 없다. 둘 다 판을 고정하지 않는다. 배포자가 현재 이미지와 검사합을 공개하므로 설정하기 전에 내려받아 검증한다.
-
-- 기본 부팅 항목은 바꾸지 않으므로 환경이 올라오지 않아도 컴퓨터는 부팅한다. `--bypass`는 그것을 대체하며 한 번짜리 항목을 버리는 펌웨어를 위한 것이다.
-- 환경이 올라오지 않으면 컴퓨터가 전혀 부팅하지 못하는 유일한 경로이므로 무엇도 이를 자동으로 선택하지 않는다.
-
-<!-- fact: memory-environment-access -->
-
-**SSH로 메모리 설치 관찰하기.**
-- `--ssh-key`는 공개 키 본문(`ssh-ed25519`, `ssh-rsa`, `ecdsa-sha2-nistp256`, `-384`, `-521` 및 `sk-` 계열), 경로, `http` 또는 `https` URL, 그리고 `github:user`와 `gitlab:user`를 받는다.
-- `--ssh-port`와 `--root-password`가 나머지를 정한다.
-- 설치기와 선택된 구성과 키는 모두 initramfs 안으로 들어가므로 환경은 그 구성을 작성한 판을 실행하며 첫 로그인 이전에 `authorized_keys`가 놓여 있다.
-- 운영자는 SSH로 다시 접속해 설치 과정을 지켜보면 되고 콘솔을 열어 둘 필요가 없다. 첫 화면에 답하기 전에는 아무것도 지우지 않는다. 그 화면은 `install now? [yes/no]`를 물으며 시간 제한이 없다.
-
-<!-- fact: plan-records -->
-
-**계획 및 기록**
-- dry run은 저장 장치 하드웨어를 조사하지 않고 작업 계획을 표시한다.
-- 실제 설치는 재사용 장치에서 조사한 mdraid 메타데이터를 추가한 뒤 같은 planner를 사용하므로 하드웨어에 의존하는 검증 결과가 달라질 수 있다.
-- `install.log`는 명령 출력을 기록하고, `install.jsonl`은 작업, 패키지 소스, 바이너리 패키지에서 소스 빌드로 전환한 사유를 기록한다.
-- 메뉴는 설정을 `paste.gentoozh.org`에 업로드하기 전에 `password_hash`와 `root_password_hash` 값을 `removed-before-publishing`으로 바꾸고, 프록시의 `username`과 `password`는 키 자체를 출력하지 않는다.
-- 다른 설정값은 업로드에 남는다. 메뉴는 업로드된 페이지의 주소를 텍스트와 QR 코드로 표시한다.
-
-### 호환성 규칙
-
-검증은 다음 조합을 거부한다.
-
-| 거부되는 조합 |
-| --- |
-| 비어 있거나 잠겨 있거나 형식이 잘못된 root hash와 비밀번호 인증 사용자가 없고 사용할 수 있는 SSH 키 로그인도 없는 조합. |
-| ZFS 루트와 GRUB의 조합. |
-| GRUB를 사용하는 `/boot`의 ZFS 배치. |
-| ZFS 루트와 BIOS 부팅의 조합. |
-| ZFS 루트와 LUKS 루트 체인의 조합. |
-| ZFS가 아닌 루트와 ZFSBootMenu의 조합. |
-| 마운트된 ESP가 없는 UEFI 부팅. |
-| 암호화된 ESP가 있는 UEFI 부팅. |
-| BIOS 부팅과 systemd-boot의 조합. |
-| `/boot`이 암호화되었거나 vfat이어서 ESP에서 접근할 수 없는 커널 또는 initramfs와 systemd-boot의 조합. |
-| 메타데이터가 `1.1` 또는 `1.2`인 mdraid 위의 ESP. |
-| `bios-boot` 파티션이 없는 GPT 디스크의 BIOS 부팅. |
-| cjktty가 없는 커널에서 CJK 콘솔 렌더링을 사용하는 경우. |
-| 인증된 SSH 키가 없는 원격 잠금 해제. |
-| 암호화된 루트 컨테이너 또는 풀이 없는 원격 잠금 해제. |
-| initramfs SSH가 시작하기 전에 `/boot` 잠금을 해제해야 하는 GRUB를 사용하는 원격 잠금 해제. |
-| GRUB 또는 systemd-boot 시스템 initramfs가 수행하는 네이티브 ZFS 암호화의 원격 잠금 해제. |
-| `gentoo-zh` overlay가 없는 CJK 커널. |
-| `8x16` 이외의 콘솔 글꼴을 사용하는 CJK 콘솔 렌더링. |
-| `gentoo-zh` overlay가 없는 ZFSBootMenu. |
-| `gentoo-zh` overlay가 없는 gentoo-zh 커뮤니티 binhost. |
-
-## 검증 상태
-
-<!-- fact: verification-scope -->
-
-[`TESTED.md`](TESTED.md)이 검증 기록이다. 실제로 수행한 경로마다 한 행이 있으며, 그것이 동작한 설치기 리비전과 동작한 장소를 적는다. 어떤 실행이 기록으로 인정되려면 기록된 리비전이 설치기와 일치하고, 설치 종료 코드가 `0`이며, 설치된 시스템이 부팅하고, 부팅 후 구성 점검이 모두 통과해야 한다.
-
-| 경로 | 기록 |
-| --- | --- |
-| 디스크에 설치 | ext4, ext2, ext3, xfs, btrfs, f2fs, ZFS, LVM, mdraid, LUKS2를 두 펌웨어와 두 init 시스템에서 |
-| ZFS 풀 | stripe, mirror, raidz, 암호화된 풀, 그리고 ZFSBootMenu가 부팅한 풀 |
-| ssh를 통한 잠금 해제 | 시스템 initramfs가 연 LUKS 루트와 ZFSBootMenu 자체 이미지가 연 ZFS 풀 |
-| 고정 주소와 greetd | 각각 클러스터 기록 |
-| 실행 중인 시스템의 인플레이스 변환 | QEMU 기록 네 건. 두 건은 BIOS, 한 건은 `/home`을 보존한 UEFI, 한 건은 루트가 btrfs이고 `/home`과 `/var`을 subvolume으로 유지한 UEFI |
-| 이 설치기가 만든 기계의 변환 | 재부팅까지 도달한 클러스터 변환 여섯 건 가운데 다섯 건은 부팅했고 한 건은 모듈이 없어 GRUB 구조 셸에서 멈췄으나 변환 자체의 종료 코드는 `0`이어서, 이 경로는 아직 신뢰할 수 없다 |
-| `--ram`과 `--lowram` | Debian 12 기기가 한 번의 부팅을 설정하고 기본 부팅 항목을 바꾸지 않은 채 재부팅하여, 전달받은 설정을 지닌 채 전달된 환경으로 올라왔다. 그 화면에서 `install`을 답하면 Gentoo를 설치하고 기록한 디스크로 부팅했다 |
-| `--bypass` | 기본 부팅 항목을 바꾼 상태가 전원 재투입을 넘겨 유지되었고, 두 번의 부팅 모두 전달된 환경으로 올라왔다 |
-| 설정한 부팅이 올라오지 않는 경우 | 설정된 항목의 initramfs를 지운 기기는 전달된 화면을 보여 주지 않았고, 이어진 두 번의 부팅 모두 원래 클라우드 시스템에 도달했다 |
-| `dd` | 기록 하나. live 매체에서 준비된 이미지를 디스크 전체에 쓰고 raw와 gzip 두 형식 모두 바이트 단위로 읽어 냈다 |
-| 파일에 설치 | 기록 하나. 이미지를 `losetup -Pf`로 붙여 그 레이아웃이 선언한 두 파일 시스템으로 읽어 냈으나, 그 파일로 부팅한 기계는 아직 없다 |
-| 메뉴 | 80x24 직렬 콘솔에서 한 줄씩 열렸고, 영어, 번체 중국어, 간체 중국어, 일본어, 한국어에서 터미널보다 넓은 줄은 없었다 |
-
-소스에서 빌드하는 커널과 바이너리 패키지 폴백에는 runner 수준의 시험만 있으며, runner 수준의 시험은 엔드투엔드 기록이 아니다. `tests/fixtures/` 아래의 파일이 다루는 것은 구성 모델이며, 그 존재는 설치된 기계에 대해 아무것도 입증하지 않는다.
+대화형 실행은 마운트를 해제하기 전에 대상 root 셸을 제시한다. `--no-shell`은 해당 프롬프트를 생략한다.
 
 ## 설정 파일
 
-<!-- fact: config-model -->
+<!-- fact: configuration-reference -->
 
-설정 파일은 TOML 형식이다. 최상위 `config_version` 필드가 스키마 버전을 지정한다. 저장 장치는 장치 그래프로 표현된다. 각 장치에는 `id`가 있으며, 장치는 다른 장치를 `id`로 참조한다. 선택자는 실제 설치 중에만 해석된다.
+설정 파일은 TOML을 사용하며 `config_version`이 스키마 버전을 선택한다.[설정 참조 문서](REFERENCE.md#configuration-files)는 모든 영속 키와 검증된 예시를 나열한다.[`tests/fixtures/vm-binpkg.toml`](tests/fixtures/vm-binpkg.toml)은 스키마 참조다. 이 가상 머신 디스크 선택자와 테스트 자격 증명을 실제 시스템에 그대로 사용해서는 안 된다.
 
-<!-- fact: config-simple -->
+## 중단된 실행 재개
 
-디스크가 하나인 배치는 장치 그래프 대신 `[disk.simple]` 로 작성합니다. 파서는 메뉴가 사용하는 것과 같은 템플릿으로 전개하므로 두 표기는 동일한 그래프를 만듭니다. 그래프 표기는 LUKS, ZFS, RAID, 손으로 만든 파티션 테이블을 위해 남아 있습니다.
+<!-- fact: resume-limits -->
 
-```toml
-config_version = 1
+`--resume`은 동일한 라이브 세션, 동일한 설치 도구 리비전, 동일한 설정 파일에 한정된다. 설치 도구는 일치하지 않는 실행을 거부한다. 기본 저널은 `/run/gentoo-install/install.jsonl`에 있으므로 재부팅 후에는 남지 않는다.
 
-[system]
-hostname = "workstation"
-timezone = "UTC"
-locales = ["en_US.UTF-8"]
-locale = "en_US.UTF-8"
-init = "systemd"
-root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
-
-[portage]
-profile = "default/linux/amd64/23.0/systemd"
-makeopts = "-j4"
-
-[bootloader]
-kind = "grub"
-firmware = "uefi"
-
-[disk.simple]
-disk = "/dev/disk/by-id/virtio-target0"
-filesystem = "ext4"
-swap = "2GiB"
-```
-
-위 해시는 예시이며 실행 전에 교체해야 합니다. 필수 항목은 `disk` 하나입니다. 생략한 키는 설치기 기본값을 따릅니다: `whole-disk`, `uefi`, 펌웨어가 정하는 파티션 테이블, `xfs`, 스왑 없음, 암호화 없음. 한 파일에 `[disk.simple]` 과 `[[disk.devices]]` 를 함께 쓸 수 없습니다.
-
-<!-- fact: config-fixtures -->
-
-[`tests/fixtures/vm-binpkg.toml`](tests/fixtures/vm-binpkg.toml)은 UEFI와 Ext4 구성을 모두 포함한 완전한 스키마 참조 파일이다. [`tests/fixtures/`](tests/fixtures/)의 다른 파일은 BIOS, LUKS2, LVM, mdraid, ZFS, Btrfs subvolume, 데스크톱을 다룬다. 이 설정 파일들에는 가상 머신 디스크 선택자와 테스트용 암호가 포함되어 있으므로, 내용을 수정하지 않은 채 실제 머신 설치에 사용해서는 안 된다.
-
-<!-- fact: config-dry-run -->
-
-구문 분석과 계획 단계에서는 저장 장치 하드웨어를 조사하지 않으므로 대상 디스크가 없는 머신에서도 `--dry-run`으로 설정을 확인할 수 있다.
-
-다음 참조에는 영속되는 모든 키가 있다. 테이블 경로는 TOML 테이블 표기법이며, `[[disk.devices]]`에는 그래프 노드가 들어간다.
-
-| 키 | 의미 및 기본값 또는 선택지 |
-| --- | --- |
-| `config_version` | 영속되는 스키마 버전이며 기본값은 `1`이다. |
-| `proxy.kind` | 프록시 체계이며 `http`, `https`, `socks5` 중 하나이고 기본값은 `http`다. |
-| `proxy.host` | 프록시 호스트이며 `""`이면 프록시를 비활성화한다. |
-| `proxy.port` | 프록시 포트이며 기본값은 `0`이다. |
-| `proxy.username` | 선택적 프록시 사용자 이름이며 기본값은 `""`이다. |
-| `proxy.password` | 선택적 프록시 비밀번호이며 기본값은 `""`이다. |
-| `proxy.bypass` | 프록시를 우회하는 호스트이며 기본값은 `[]`이다. |
-
-| `system` 키 | 의미 및 기본값 또는 선택지 |
-| --- | --- |
-| `hostname` | 대상 hostname이며 기본값은 `gentoo`다. |
-| `timezone` | 대상 timezone이며 기본값은 `Asia/Shanghai`다. |
-| `locales` | 생성되는 locale이며 기본값은 `en_US.UTF-8`, `zh_CN.UTF-8`, `zh_TW.UTF-8`다. |
-| `locale` | 선택한 locale이며 기본값은 `zh_CN.UTF-8`다. |
-| `keymap` | 설치된 시스템의 keymap이며 기본값은 `us`다. |
-| `keymap_initramfs` | initramfs의 keymap이며 `""`이면 `keymap`을 따른다. |
-| `interface` | 네트워크 인터페이스 패턴이며 `""`이면 `en*`과 `eth*`에 일치한다. |
-| `addresses` | 고정 CIDR 주소이며 `[]`이면 DHCP 또는 라우터 광고를 선택한다. |
-| `gateways` | 게이트웨이이며 주소 계열마다 최대 하나이고 기본값은 `[]`이다. |
-| `dns` | 리졸버 주소이며 기본값은 `[]`이다. |
-| `authorized_keys` | root 및 sudo 사용자의 키이며 기본값은 `[]`이다. |
-| `console_cjk` | CJK 콘솔 렌더링을 요청하며 기본값은 `false`이고 cjktty가 필요하다. |
-| `console_font` | 콘솔 셀 크기이며 `8x8`, `8x16`, `16x32` 중 하나이고 기본값은 `8x16`이다. |
-| `init` | init 시스템이며 `openrc` 또는 `systemd`이고 기본값은 `systemd`다. |
-| `zram` | 압축 RAM swap 크기이며 설정하지 않으면 비활성화한다. |
-| `hardware_clock_utc` | RTC가 UTC를 저장하며 기본값은 `true`다. |
-| `users` | 사용자 기록이며 기본값은 `[]`이다. |
-| `root_password_hash` | root `crypt(3)` hash이며 `""`이면 root를 잠근다. |
-| `logger` | 로거이며 `none`, `sysklogd`, `syslog-ng`, `metalog` 중 하나이고 기본값은 `sysklogd`다. |
-| `cron` | `sys-process/cronie`를 설치하며 기본값은 `true`다. |
-| `sshd` | SSH 데몬 지원을 설치하고 구성하며 기본값은 `false`다. |
-| `sshd_password_login` | SSH 데몬이 비밀번호를 허용하며 기본값은 `false`다. |
-| `sshd_root_login` | root가 SSH로 로그인할 수 있으며 기본값은 `false`다. |
-| `networking` | 링크 관리 방식이며 `builtin`, `networkmanager-wpa`, `networkmanager-iwd`, `none` 중 하나이고 기본값은 `builtin`이다. |
-| `firewall` | 패킷 필터 패키지이며 `none`, `nftables`, `iptables` 중 하나이고 기본값은 `none`이다. |
-| `first_boot` | 첫 부팅 기록이며 기본값은 비어 있는 기록이다. |
-
-| `system.users` 항목 | 의미 및 기본값 |
-| --- | --- |
-| `name` | 사용자 이름이며 필수다. |
-| `groups` | 보조 그룹이며 기본값은 `[]`이다. |
-| `shell` | 로그인 셸이며 기본값은 `/bin/bash`다. |
-| `sudo` | 사용자를 sudo 사용자로 만들며 기본값은 `false`다. |
-| `password_hash` | 사용자 `crypt(3)` hash이며 `""`이면 계정을 잠근다. |
-
-| `system.first_boot` 키 | 의미 및 기본값 |
-| --- | --- |
-| `commands` | 가져온 script 뒤에 순서대로 실행할 셸 줄이며 기본값은 `[]`이다. |
-| `url` | script URL이며 `""`이면 가져온 script를 생략한다. |
-
-| `portage` 키 | 의미 및 기본값 또는 선택지 |
-| --- | --- |
-| `profile` | Portage profile이며 기본값은 `default/linux/amd64/23.0/systemd`다. |
-| `keywords` | 전역 keyword 채널이며 `stable` 또는 `testing`이고 기본값은 `stable`이다. |
-| `sync` | 지속 동기화 방식이며 `git`, `webrsync`, `rsync` 중 하나이고 기본값은 `git`다. 최초 동기화에는 webrsync를 사용한다. |
-| `testing_packages` | 시스템이 안정 상태를 유지하는 동안 testing으로 허용할 atom이며 기본값은 `[]`이다. |
-| `makeopts` | `MAKEOPTS`이며 기본값은 `""`이다. |
-| `common_flags` | 공통 컴파일러 플래그이며 기본값은 `-O2 -pipe`다. |
-| `use` | `USE` 플래그이며 기본값은 `[]`이다. |
-| `video_cards` | `VIDEO_CARDS` 값이며 기본값은 `[]`이다. |
-| `l10n` | `L10N`이며 기본값은 `[]`이고 생성되는 locale에서 값을 도출한다. |
-| `input_devices` | `INPUT_DEVICES`이며 기본값은 `["libinput"]`이다. |
-| `accept_license` | 수락하는 라이선스이며 기본값은 `["@FREE"]`다. |
-| `cpu_flags` | CPU 플래그이며 기본값은 `[]`이고 profile 값을 보존한다. |
-| `build_in_ram` | `/var/tmp/portage` tmpfs 크기이며 설정하지 않으면 디스크에서 빌드한다. |
-| `mirrors` | 미러 기록이며 기본값은 아래에 표시한다. |
-| `binhost` | 바이너리 호스트 기록이며 기본값은 아래에 표시한다. |
-| `overlays` | overlay 기록이며 기본값은 `[]`이다. |
-
-| `portage.mirrors` 키 | 의미 및 기본값 또는 선택지 |
-| --- | --- |
-| `region` | Gentoo 미러 지역이며 `cn` 또는 `global`이고 기본값은 `global`이다. |
-| `speed_test` | 제안된 미러의 속도를 시험하며 기본값은 `false`다. |
-| `distfiles` | 사용자 지정 distfile 기반이며 비어 있지 않은 목록은 내장 목록을 교체한다. |
-| `repo_sync_uri` | 명시적 저장소 동기화 URI이며 기본값은 `""`이다. |
-| `site` | `region`의 사이트 키이며 `""`이면 해당 지역의 첫 사이트를 선택한다. |
-| `gentoo_distfiles` | `GENTOO_MIRRORS`를 기록하며 기본값은 `true`다. |
-| `gentoo_zh` | gentoo-zh 미러이며 `upstream`, `cernet`, `nju`, `nyist`, `ha` 중 하나이고 기본값은 `upstream`이다. |
-| `gentoo_zh_distfiles` | gentoo-zh distfile을 `GENTOO_MIRRORS`에 추가하며 기본값은 `true`다. |
-
-| 미러 지역 | 사이트 키 |
-| --- | --- |
-| `cn` | `ustc`, `nju`, `bfsu`, `tuna`, `zju`, `sdu`, `hust`, `sustech`, `hit`, `lzu`, `aliyun`, `netease`, `cernet`, `cicku-hk`, `planetunix-hk`, `xtom-hk`, `rackspace-hk`, `aditsu-hk`, `nchc-tw`, `cicku-tw`, `freedif-sg`, `cicku-sg`, `planetunix-sg` |
-| `global` | `gentoo`, `osuosl` |
-
-| `portage.binhost` 키 | 의미 및 기본값 또는 선택지 |
-| --- | --- |
-| `official` | 공식 바이너리 호스트를 활성화하며 기본값은 `true`다. |
-| `subarch` | 공식 바이너리 호스트의 subarchitecture이며 기본값은 `x86-64`다. |
-| `community` | gentoo-zh 채널이며 `off`, `stable`, `unstable` 중 하나이고 기본값은 `off`다. |
-
-| `portage.overlays` 항목 | 의미 |
-| --- | --- |
-| `name` | overlay 이름이며 필수다. |
-| `sync_uri` | overlay 동기화 URI이며 필수다. |
-
-| `kernel` 키 | 의미 및 기본값 또는 선택지 |
-| --- | --- |
-| `source` | 커널 선택지이며 `dist-bin`, `dist-source`, `cjk-bin`, `cjk` 중 하나이고 기본값은 `dist-bin`이다. |
-| `package` | `source`가 암시하는 패키지를 재정의하며 기본값은 `""`이다. |
-| `version` | 버전 고정값이며 `""`이면 Portage가 keyword 허용 최신 버전을 선택한다. |
-| `dracut_modules` | 디스크 레이아웃에 필요한 dracut 모듈을 추가하며 기본값은 `[]`이다. |
-| `remote_unlock` | initramfs SSH 잠금 해제 기록이며 기본값은 비어 있는 기록이다. |
-
-| `kernel.source` | 패키지 및 CJK 상태 |
-| --- | --- |
-| `dist-bin` | `sys-kernel/gentoo-kernel-bin`이며 CJK 커널이 아니다. |
-| `dist-source` | `sys-kernel/gentoo-kernel`이며 CJK 커널이 아니다. |
-| `cjk-bin` | `sys-kernel/gentoo-cjk-kernel-bin`이며 CJK 커널이다. |
-| `cjk` | `sys-kernel/gentoo-cjk-kernel`이며 CJK 커널이다. |
-
-| `kernel.remote_unlock` 키 | 의미 및 기본값 |
-| --- | --- |
-| `enabled` | initramfs SSH 잠금 해제를 활성화하며 기본값은 `false`다. |
-| `port` | initramfs SSH 포트이며 기본값은 `222`다. |
-| `address` | 고정 CIDR 주소이며 `""`이면 DHCP를 사용한다. |
-| `gateway` | 고정 주소 게이트웨이이며 기본값은 `""`이다. |
-| `interface` | initramfs 네트워크 인터페이스이며 기본값은 `""`이다. |
-
-| `bootloader` 키 | 의미 및 기본값 또는 선택지 |
-| --- | --- |
-| `kind` | 부트로더이며 `grub`, `systemd-boot`, `zfsbootmenu` 중 하나이고 기본값은 `grub`다. |
-| `firmware` | 펌웨어이며 `uefi` 또는 `bios`이고 기본값은 `uefi`다. |
-| `kernel_params` | 추가 커널 명령줄 매개변수이며 기본값은 `[]`이다. |
-
-| `packages` 키 | 의미 및 기본값 |
-| --- | --- |
-| `desktop` | 데스크톱 profile 이름이며 `""`이면 데스크톱을 선택하지 않는다. |
-| `applications` | 패키지 그룹 이름이며 기본값은 `[]`이다. |
-| `graphics` | 그래픽 드라이버 그룹 이름이며 기본값은 `[]`이다. 여러 그룹은 하이브리드 하드웨어에 적합하다. |
-| `display_manager` | 디스플레이 관리자 그룹이며 `""`이면 콘솔 로그인을 선택한다. |
-| `extra` | 다른 선택 뒤에 병합할 패키지 atom이며 기본값은 `[]`이다. |
-
-| `disk` 키 | 의미 및 기본값 또는 선택지 |
-| --- | --- |
-| `graph` | `[[disk.devices]]`로 표현하는 장치 그래프이며 필수다. |
-| `root` | 루트 그래프 노드 식별자이며 변환 밖에서는 필수다. `""`이면 변환에서 실행 중인 레이아웃을 사용한다. |
-| `mode` | `partition`, `in-place`, `image`, `dd` 중 하나이며 기본값은 `partition`이다. |
-| `image` | image 모드의 희소 이미지 경로이며 기본값은 `""`이다. |
-| `size` | image 모드의 희소 이미지 크기이며 설정되지 않음이다. |
-| `wipe` | 디스크 수준 wipe 설정이며 기본값은 `false`다. |
-| `source` | `dd` 모드의 준비된 이미지 소스이며 기본값은 `""`이다. |
-| `source_format` | 소스 인코딩이며 `raw`, `gz`, `xz`, `zst`, `tar` 중 하나이고 기본값은 `raw`다. |
-| `destination` | 디스크 전체 `dd` 대상이며 기본값은 `""`이다. |
-
-| 템플릿 입력 | 의미 및 기본값 또는 선택지 |
-| --- | --- |
-| `disk` | 디스크 전체 선택자이며 필수다. |
-| `layout` | `whole-disk`, `whole-disk-btrfs`, `whole-disk-zfs`, `reuse` 중 하나이며 기본값은 `whole-disk`다. |
-| `firmware` | 템플릿 펌웨어이며 기본값은 `uefi`다. |
-| `table` | 파티션 테이블 재정의이며 설정하지 않으면 UEFI는 GPT, BIOS는 MBR을 도출한다. |
-| `filesystem` | Btrfs 및 ZFS가 아닌 디스크 전체 레이아웃의 루트 파일 시스템이며 기본값은 `xfs`다. |
-| `swap` | swap 파티션 크기이며 설정되지 않음이다. |
-| `passphrase_file` | 설치 시스템의 passphrase 파일 경로이며 `""`이면 레이아웃을 암호화하지 않는다. |
-| `pool` | ZFS 풀 이름이며 기본값은 `rpool`이다. |
-
-다음 완전한 설정은 인증 정보와 우회 호스트 두 개가 있는 프록시를 보여 준다. 인증 정보는 예시이므로 실행하기 전에 바꿔야 한다.
-
-```toml
-config_version = 1
-
-[proxy]
-kind = "socks5"
-host = "proxy.example"
-port = 1080
-username = "operator"
-password = "secret"
-bypass = ["localhost", "intranet.example"]
-
-[system]
-hostname = "proxy-target"
-timezone = "UTC"
-locales = ["en_US.UTF-8"]
-locale = "en_US.UTF-8"
-init = "openrc"
-root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
-
-[portage]
-profile = "default/linux/amd64/23.0"
-makeopts = "-j4"
-
-[portage.binhost]
-official = false
-
-[bootloader]
-firmware = "bios"
-
-[disk]
-root = "mnt-root"
-
-[[disk.devices]]
-kind = "existing"
-id = "disk"
-selector = "/dev/disk/by-id/virtio-target0"
-wipe = true
-
-[[disk.devices]]
-kind = "table"
-id = "table"
-disk = "disk"
-table = "mbr"
-
-[[disk.devices]]
-kind = "partition"
-id = "rootpart"
-table = "table"
-index = 1
-role = "data"
-
-[[disk.devices]]
-kind = "filesystem"
-id = "rootfs"
-device = "rootpart"
-type = "ext4"
-
-[[disk.devices]]
-kind = "mountpoint"
-id = "mnt-root"
-source = "rootfs"
-path = "/"
+```sh
+./bootstrap.sh --config my-install.toml --resume
 ```
 
 ## 바이너리 패키지
 
 <!-- fact: binary-packages -->
 
-바이너리 패키지는 선택 사항이다. 비활성화해도 소스에서 빌드할 수 있다. 공식 binhost와 gentoo-zh binhost는 별도의 선택 사항이며 각각 독립된 신뢰 설정을 사용한다. binhost에 연결할 수 없거나 서명이 없거나 키를 신뢰할 수 없는 경우를 다루는 현재 엔드투엔드 증거는 없으며, 이 전환 경로는 검증되지 않았다.
+바이너리 패키지는 선택 사항이다. 비활성화해도 소스에서 빌드할 수 있다. 공식 binhost와 gentoo-zh binhost에는 별도의 신뢰 구성이 있다. 도달할 수 없는 binhost, 누락된 서명, 신뢰하지 않는 키는 현재 엔드투엔드 증거가 없다. 이 강등 경로는 미검증 상태다.
 
-## 종료 코드
+## 참조 문서
 
-<!-- fact: exit-codes -->
+<!-- fact: reference -->
 
-| 종료 코드 | `gentoo-install` |
-| --- | --- |
-| `0` | 정상 완료 |
-| `1` | 설정 오류 |
-| `2` | `argparse` 사용법 오류 또는 preflight 실패 |
-| `3` | 무결성 검증 실패 |
-| `4` | 다운로드, 외부 명령, OS 또는 분류되지 않은 설치 도구 실패 |
-| `5` | 운영자 중단 |
-
-Python CLI가 시작되기 전에 Python, 필수 명령 또는 root 권한 검사가 실패하면 `bootstrap.sh`도 `1`로 종료될 수 있다.
-
-## 자주 묻는 질문
-
-<!-- fact: faq-customisation -->
-
-**이런 설치 프로그램이 Gentoo의 자유로운 구성을 해치는가?**
-
-해치지 않는다. 기본 설치만 수행하고 끝난다. 파티션, stage3, Portage 설정, 커널, 부트로더, 그리고 선택적인 데스크톱이다. 그 이후의 모든 결정은 운영자의 것이며, 완성된 기계는 이 프로젝트의 구성 요소가 하나도 남지 않은 평범한 Gentoo이다. 없어지는 것은 첫 한 시간의 비용이고, 그것이 Gentoo를 시작하기 어렵게 하고 많은 기계나 VPS에 배포하기 어렵게 만든다.
+[REFERENCE.md](REFERENCE.md)에는 런타임 요구 사항, 명령줄 옵션, 메모리 환경, 인플레이스 변환, 기능과 검증의 세부 사항, 설정 파일, 바이너리 패키지 신뢰, 종료 코드가 있다.
 
 ## 기여
 
 <!-- fact: contributing -->
 
-개발 환경, 아키텍처, 필수 검사는 [CONTRIBUTING.md](CONTRIBUTING.md)에 설명되어 있다.
+[CONTRIBUTING.md](CONTRIBUTING.md)는 개발 환경, 아키텍처, 필요한 검사를 설명한다.
 
 ## 라이선스
 
 <!-- fact: license -->
 
-이 프로젝트는 GNU General Public License 버전 2 또는 수령자가 선택하는 이후 버전에 따라 배포된다. 버전 2 전문은 [LICENSE](LICENSE)에 있으며, 각 소스 파일은 `SPDX-License-Identifier: GPL-2.0-or-later`를 가진다.
+gentoo-install은 GNU General Public License 버전 2 또는 수령자가 선택하는 이후 버전에 따라 배포된다. 버전 2 전문은 [LICENSE](LICENSE)에 있으며, 각 소스 파일은 `SPDX-License-Identifier: GPL-2.0-or-later`를 가진다.
