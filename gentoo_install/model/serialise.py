@@ -16,7 +16,7 @@ from pathlib import PurePosixPath
 from typing import Any, Final
 
 from . import config as model_config
-from .config import DiskMode, InstallConfig, ProxyConfig
+from .config import InstallConfig, ProxyConfig
 from .templates import Choice
 from .device import (
     Existing,
@@ -162,32 +162,19 @@ def _simple(choice: Choice) -> list[str]:
 def _disk(config: InstallConfig) -> list[str]:
     disk = config.disk
     lines = ["", "[disk]"]
-    if disk.layout_is_read_from_the_machine:
-        lines.append(f'mode = "{disk.mode.value}"')
-        return lines
-    if disk.mode is DiskMode.DD:
-        return [
-            *lines,
-            f'mode = "{disk.mode.value}"',
-            f"source = {_value(disk.source)}",
-            f"source_format = {_value(disk.source_format)}",
-            f"destination = {_value(disk.destination)}",
-        ]
-    if disk.mode is DiskMode.IMAGE:
-        lines += [
-            f'mode = "{disk.mode.value}"',
-            f'image = {_value(disk.image)}',
-            f"size = {_value(disk.size)}" if disk.size is not None else "",
-        ]
-        if disk.wipe:
-            lines.append("wipe = true")
-        lines = [line for line in lines if line]
+    for field in fields(disk):
+        if field.name in {"graph", "root", "simple"}:
+            continue
+        held = getattr(disk, field.name)
+        if held == field.default or held == _empty(field.default_factory):
+            continue
+        lines.append(f"{field.name} = {_value(held)}")
     if disk.simple is not None:
-        # The template it was expanded from, not the graph: a reader hand-edits
-        # eight lines instead of sixty, and `parse` expands it again with the
-        # one function the interface itself uses.
+        # `simple` reconstructs graph and root; writing both is a rejected duplicate.
+        # Its eight fields replace the graph's sixty for a hand-edited file.
         return [*lines, "", "[disk.simple]", *_simple(disk.simple)]
-    lines.append(f'root = "{disk.root}"')
+    if disk.root:
+        lines.append(f"root = {_value(disk.root)}")
     for node in disk.graph.nodes.values():
         kind = KINDS.get(type(node))
         if kind is None:

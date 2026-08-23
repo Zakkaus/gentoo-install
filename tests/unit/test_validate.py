@@ -12,7 +12,9 @@ from gentoo_install.errors import ConfigError, ValidationFailed
 from gentoo_install.model import compat
 from gentoo_install.model.config import (
     BootloaderConfig,
+    DiskConfig,
     DiskMode,
+    ImageFormat,
     InitSystem,
     InstallConfig,
     KernelConfig,
@@ -37,10 +39,79 @@ from gentoo_install.model.device import (
 from gentoo_install.model.size import Size
 from gentoo_install.exec.config import load
 from gentoo_install.exec.probe import amd64_profiles, profiles_from_eselect
+from gentoo_install.model.templates import Choice
 from gentoo_install.model.validate import validate, validate_memory_launch, zfs_kernel_ceiling
 from gentoo_install.model.parse import parse
 
 from .layouts import encrypted_root, config, ext4_on_gpt, i, unlockable_root, zfs_root
+
+_DISK_MODE_FIELD_CASES: tuple[tuple[DiskMode, str], ...] = (
+    (DiskMode.PARTITION, "image"),
+    (DiskMode.PARTITION, "size"),
+    (DiskMode.PARTITION, "wipe"),
+    (DiskMode.PARTITION, "source"),
+    (DiskMode.PARTITION, "source_format"),
+    (DiskMode.PARTITION, "destination"),
+    (DiskMode.IN_PLACE, "devices"),
+    (DiskMode.IN_PLACE, "root"),
+    (DiskMode.IN_PLACE, "simple"),
+    (DiskMode.IN_PLACE, "image"),
+    (DiskMode.IN_PLACE, "size"),
+    (DiskMode.IN_PLACE, "wipe"),
+    (DiskMode.IN_PLACE, "source"),
+    (DiskMode.IN_PLACE, "source_format"),
+    (DiskMode.IN_PLACE, "destination"),
+    (DiskMode.IMAGE, "source"),
+    (DiskMode.IMAGE, "source_format"),
+    (DiskMode.IMAGE, "destination"),
+    (DiskMode.DD, "devices"),
+    (DiskMode.DD, "root"),
+    (DiskMode.DD, "simple"),
+    (DiskMode.DD, "image"),
+    (DiskMode.DD, "size"),
+    (DiskMode.DD, "wipe"),
+)
+
+
+def _mode_config(mode: DiskMode) -> InstallConfig:
+    if mode is DiskMode.PARTITION:
+        return config(ext4_on_gpt())
+    if mode is DiskMode.IMAGE:
+        return image_config()
+    if mode is DiskMode.DD:
+        return dd_config()
+    installation = config()
+    return replace(
+        installation,
+        disk=replace(
+            installation.disk,
+            graph=DeviceGraph.build(()),
+            root=i(""),
+            mode=DiskMode.IN_PLACE,
+        ),
+    )
+
+
+def _with_disk_field(disk: DiskConfig, field: str) -> DiskConfig:
+    if field == "devices":
+        return replace(disk, graph=DeviceGraph.build(ext4_on_gpt()))
+    if field == "root":
+        return replace(disk, root=i("mnt-root"))
+    if field == "simple":
+        return replace(disk, simple=Choice(disk="/dev/disk/by-id/virtio-target"))
+    if field == "image":
+        return replace(disk, image="/run/target.raw")
+    if field == "size":
+        return replace(disk, size=Size.parse("20GiB"))
+    if field == "wipe":
+        return replace(disk, wipe=True)
+    if field == "source":
+        return replace(disk, source="/run/source.raw")
+    if field == "source_format":
+        return replace(disk, source_format=ImageFormat.ZSTD)
+    if field == "destination":
+        return replace(disk, destination="/dev/disk/by-id/target")
+    raise AssertionError(f"no value for disk.{field}")
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
@@ -83,32 +154,28 @@ def dd_config() -> InstallConfig:
     )
 
 
-def test_partition_mode_refuses_the_keys_of_other_modes() -> None:
-    """The ordinary mode refused nothing, so a key belonging to another one
-    was accepted and ignored — and `disk.size` did not even survive a save,
-    because `serialise` writes it only in image mode.
-    """
-    from gentoo_install.model import parse as model_parse
-    from gentoo_install.model.serialise import to_toml
-    import tomllib
+@pytest.mark.parametrize(("mode", "field"), _DISK_MODE_FIELD_CASES)
+def test_every_disk_mode_refuses_other_fields(mode: DiskMode, field: str) -> None:
+    installation = _mode_config(mode)
 
-    sound = config(ext4_on_gpt())
-    validate(sound)
-
-    for field, wrong in (
-        ("image", replace(sound.disk, image="/run/image.raw")),
-        ("size", replace(sound.disk, size=Size.parse("20GiB"))),
-        ("source", replace(sound.disk, source="/run/source.raw")),
-        ("destination", replace(sound.disk, destination="/dev/disk/by-id/target")),
+    with pytest.raises(
+        ValidationFailed,
+        match=rf"disk\.{field} is not allowed in {mode.value} mode",
     ):
-        with pytest.raises(ValidationFailed, match=f"disk.{field} is not allowed"):
-            validate(replace(sound, disk=wrong))
+        validate(replace(installation, disk=_with_disk_field(installation.disk, field)))
 
-    # The save that lost it: a partition configuration carrying a size wrote
-    # TOML without one, so reloading changed the configuration.
-    carried = replace(sound, disk=replace(sound.disk, size=Size.parse("20GiB")))
-    again = model_parse.parse(tomllib.loads(to_toml(carried)))
-    assert again.disk.size is None, again.disk.size
+
+def test_disk_mode_field_cases_cover_the_table() -> None:
+    from gentoo_install.model.validate import DISK_MODE_FIELDS
+
+    assert set(DISK_MODE_FIELDS) == set(DiskMode)
+    all_fields = set().union(*DISK_MODE_FIELDS.values())
+    expected = {
+        (mode, field)
+        for mode, allowed in DISK_MODE_FIELDS.items()
+        for field in all_fields - allowed
+    }
+    assert set(_DISK_MODE_FIELD_CASES) == expected
 
 
 def test_every_port_is_judged_against_one_range() -> None:
@@ -257,25 +324,6 @@ def test_dd_mode_refuses_its_source_as_the_destination() -> None:
         )
 
 
-def test_dd_mode_refuses_target_layout_fields() -> None:
-    installation = dd_config()
-    with pytest.raises(ValidationFailed) as refused:
-        validate(
-            replace(
-                installation,
-                disk=replace(
-                    installation.disk,
-                    graph=DeviceGraph.build(ext4_on_gpt()),
-                    root=i("mnt-root"),
-                    image="/run/target.raw",
-                    size=Size.parse("20GiB"),
-                    wipe=True,
-                ),
-            )
-        )
-    said = str(refused.value)
-    for field in ("disk.devices", "disk.root", "disk.image", "disk.size", "disk.wipe"):
-        assert f"{field} is not allowed in dd mode" in said
 
 
 def test_image_mode_requires_an_image_file() -> None:

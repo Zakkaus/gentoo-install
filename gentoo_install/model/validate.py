@@ -11,7 +11,7 @@ import ipaddress
 
 import re
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import PurePosixPath
 from typing import Collection, Final, Mapping
 
@@ -20,6 +20,7 @@ from . import compat
 from .config import (
     Bootloader,
     BootloaderConfig,
+    DiskConfig,
     DiskMode,
     InitSystem,
     InstallConfig,
@@ -69,6 +70,37 @@ _L10N_TAG: Final[re.Pattern[str]] = re.compile(
     r"^[a-z]{2,3}(?:-[A-Z][a-z]{3})?(?:-(?:[A-Z]{2}|[0-9]{3}))?"
     r"(?:-(?:[0-9][a-z0-9]{3}|[a-z][a-z0-9]{4,7}))*$"
 )
+
+#: `[disk]` keys valid after `mode` selects the operation. `mode` itself
+#: selects this table, so it is deliberately not a member of any row.
+DISK_MODE_FIELDS: Final[Mapping[DiskMode, frozenset[str]]] = {
+    DiskMode.PARTITION: frozenset({"devices", "root", "simple"}),
+    DiskMode.IN_PLACE: frozenset(),
+    DiskMode.IMAGE: frozenset({"devices", "root", "simple", "image", "size", "wipe"}),
+    DiskMode.DD: frozenset({"source", "source_format", "destination"}),
+}
+
+
+def _configured_disk_fields(disk: DiskConfig) -> frozenset[str]:
+    """The TOML keys represented by the disk configuration."""
+    if disk.simple is not None:
+        structural = frozenset({"simple"})
+    else:
+        structural = frozenset(
+            name
+            for name, present in (
+                ("devices", bool(disk.graph.nodes)),
+                ("root", bool(disk.root)),
+            )
+            if present
+        )
+    values = {
+        field.name
+        for field in fields(disk)
+        if field.name not in {"graph", "root", "simple", "mode"}
+        and getattr(disk, field.name) != field.default
+    }
+    return structural | frozenset(values)
 
 
 def parse_profile_list(
@@ -332,42 +364,31 @@ def _ignored_by_dd(config: InstallConfig) -> list[str]:
 
 def _disk_mode_problems(config: InstallConfig) -> list[str]:
     disk = config.disk
+    problems = [
+        f"disk.{field} is not allowed in {disk.mode.value} mode"
+        for field in sorted(_configured_disk_fields(disk) - DISK_MODE_FIELDS[disk.mode])
+    ]
     if disk.mode is DiskMode.PARTITION:
-        # The ordinary mode refused nothing, so a key belonging to another one
-        # was accepted and ignored: `disk.size` in a partition configuration
-        # even survived a save as `None`, because `serialise` writes it only
-        # for image mode. The dd branch below has had this table from the
-        # start.
-        elsewhere = (
-            ("disk.image", bool(disk.image)),
-            ("disk.size", disk.size is not None),
-            ("disk.source", bool(disk.source)),
-            ("disk.destination", bool(disk.destination)),
-        )
-        return [
-            f"{name} is not allowed in partition mode" for name, used in elsewhere if used
-        ]
+        return problems
     if disk.mode is DiskMode.IMAGE:
-        image_problems: list[str] = []
         if not disk.image:
-            image_problems.append("disk.image is required in image mode")
+            problems.append("disk.image is required in image mode")
         elif disk.image.startswith("/dev/"):
-            image_problems.append("disk.image must name a file rather than a physical disk")
+            problems.append("disk.image must name a file rather than a physical disk")
         if disk.size is None:
-            image_problems.append("disk.size is required in image mode")
+            problems.append("disk.size is required in image mode")
         for device in disk.graph.of_type(Existing):
             if device.selector.startswith("/dev/"):
-                image_problems.append(
+                problems.append(
                     f"disk.devices {device.id} selects a physical disk in image mode"
                 )
             elif device.selector != disk.image:
-                image_problems.append(
+                problems.append(
                     f"disk.devices {device.id} selects {device.selector!r} in image mode; "
                     "use disk.image rather than a physical disk"
                 )
-        return image_problems
+        return problems
     if disk.mode is DiskMode.DD:
-        problems: list[str] = []
         if not disk.source:
             problems.append("disk.source is required in dd mode")
         if not disk.destination:
@@ -376,23 +397,10 @@ def _disk_mode_problems(config: InstallConfig) -> list[str]:
             problems.append("disk.destination must name a device under /dev")
         if disk.source and disk.source == disk.destination:
             problems.append("disk.source and disk.destination must differ")
-        forbidden = (
-            ("disk.devices", bool(disk.graph.nodes)),
-            ("disk.root", bool(disk.root)),
-            ("disk.image", bool(disk.image)),
-            ("disk.size", disk.size is not None),
-            ("disk.wipe", disk.wipe),
-        )
-        problems.extend(f"{name} is not allowed in dd mode" for name, used in forbidden if used)
         return problems
-    in_place_problems: list[str] = []
-    if disk.graph.nodes:
-        in_place_problems.append("disk.devices is not allowed in in-place mode")
-    if disk.root:
-        in_place_problems.append("disk.root is not allowed in in-place mode")
     if config.bootloader.kind is Bootloader.ZFSBOOTMENU:
-        in_place_problems.append("disk.mode in-place cannot select ZFSBootMenu without a device graph")
-    return in_place_problems
+        problems.append("disk.mode in-place cannot select ZFSBootMenu without a device graph")
+    return problems
 
 
 def _proxy_problems(config: InstallConfig) -> list[str]:
