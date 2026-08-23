@@ -300,6 +300,8 @@ a tree afterwards. What the tree held was read before the campaign started.
 
 | `a8dce6c253876` | eight local guests on `official-minimal a058ca1e178c63d1`, one per fixture: `ext4-bios`, `btrfs-luks`, `vm-btrfs`, `vm-xfs`, `ext2`, `vm-luks`, `openrc-sdboot`, `vm-zram` | every one installed, booted, mounted the layout its configuration describes and reached a running system with no failed unit. The set is the first full round after `PYTHONPATH` stopped reaching the commands the installer runs, and it spans the branches an install forks on: three openrc, two LUKS, two BIOS boots and six UEFI, one zram. **What this does not establish:** anything about the Gig-OS Live ISO or the cluster, since all eight ran on the official minimal image under local qemu. |
 
+| `2c9728a81d97e` | `openrc-sdboot`, `vm-zram` and `vm-luks` on local UEFI guests, all on `official-minimal a058ca1e178c63d1` | the three fixtures that between them exercise every destination `destinations()` now derives: openrc's `/etc/env.d/02locale`, `/etc/conf.d/keymaps`, `/etc/conf.d/hostname` and `/etc/conf.d/hwclock`, the systemd zram generator, and the crypttab entries. All three installed, booted, mounted the layout their configuration describes and reached a running system with no failed unit, so the indirection did not move where a real machine's files land. **What this does not establish:** the static address path, which `static-ip` covers only on the cluster — a local guest presents `enp0s2` where the fixture pins `ens18`. |
+
 **Rows recorded before `5a9b9f220e651` and saying `mounted its layout` overstate
 one of their checks.**
 `tests/vm/installed.py`'s `mounts` check expects the pattern `/` and is matched
