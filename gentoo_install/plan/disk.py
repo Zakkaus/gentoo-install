@@ -228,7 +228,15 @@ class CreateImage(Operation):
         return False
 
     def describe(self) -> str:
-        return f"create a {self.size} sparse image at {self.image} and attach it as a loop device"
+        if self.wipe:
+            return (
+                f"create a {self.size} sparse image at {self.image}, overwriting an existing image, "
+                "and attach it as a loop device"
+            )
+        return (
+            f"create a {self.size} sparse image at {self.image}, refusing to overwrite an existing "
+            "image, and attach it as a loop device"
+        )
 
     def apply(self, context: Context) -> None:
         attached = context.run(
@@ -378,8 +386,11 @@ class CreatePartition(Operation):
         else:
             extent = "the rest of the disk"
         name = f" labelled {self.label}" if self.label else ""
+        placement = f" in the {self.table_kind.value} table"
+        if self.table_kind is TableType.MBR:
+            placement += f" from {self.start}"
         return (
-            f"create partition {self.index} on {self.disk} as {self.partition}: "
+            f"create partition {self.index} on {self.disk} as {self.partition}{placement}: "
             f"{self.role.value}, {extent}{name}"
         )
 
@@ -480,7 +491,7 @@ class CreateLuks(Operation):
     name: str
 
     def describe(self) -> str:
-        return f"format {self.backing} as LUKS2"
+        return f"format {self.backing} as LUKS2 using the key file for {self.container}"
 
     def apply(self, context: Context) -> None:
         path = context.device_path(self.backing)
@@ -518,7 +529,7 @@ class OpenLuks(Operation):
     name: str
 
     def describe(self) -> str:
-        return f"open {self.backing} as /dev/mapper/{self.name}"
+        return f"open {self.backing} as /dev/mapper/{self.name} using the key file for {self.container}"
 
     @property
     def survives_a_reboot(self) -> bool:

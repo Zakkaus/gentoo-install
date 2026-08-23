@@ -4,9 +4,9 @@
   wipe existing signatures from disk1
   create a gpt partition table on disk0 as table0
   create a gpt partition table on disk1 as table1
-  create partition 1 on disk0 as esp: esp, 512MiB
-  create partition 1 on disk1 as member1: raid, the rest of the disk
-  create partition 2 on disk0 as member0: raid, the rest of the disk
+  create partition 1 on disk0 as esp in the gpt table: esp, 512MiB
+  create partition 1 on disk1 as member1 in the gpt table: raid, the rest of the disk
+  create partition 2 on disk0 as member0 in the gpt table: raid, the rest of the disk
   reread the partition table of disk0 and wait for its nodes
   reread the partition table of disk1 and wait for its nodes
 
