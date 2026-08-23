@@ -150,11 +150,6 @@ NOT_IN_THE_CAMPAIGN: Final[frozenset[str]] = frozenset(
         # medium the campaign boots, because the machine under test has to
         # have a bootloader of its own to arm.
         "vm-ram.toml",
-        # A binary host that answers 404 and an install that has to compile
-        # instead. Green here would mean nothing: telling that apart from an
-        # ordinary install needs the `degraded` event in `install.jsonl`, and
-        # `cluster.MUST_DEGRADE` is the only runner that reads it.
-        "vm-binhost-fallback.toml",
         # The dd runner generates its sources, streams each one from the driver
         # CD, and reads the target back; neither target can boot as a system.
         "vm-dd-raw.toml",
@@ -168,6 +163,7 @@ def test_the_campaign_covers_every_vm_fixture() -> None:
     matrix is that the list cannot quietly fall behind."""
     from tests.vm.campaign import STAGES
     from tests.vm.cluster import MUST_DEGRADE
+    from tests.vm.expectations import EXPECTATIONS
 
     root = Path(__file__).resolve().parents[1]
     named = {Path(run.config).name for runs in STAGES.values() for run in runs}
@@ -175,9 +171,10 @@ def test_the_campaign_covers_every_vm_fixture() -> None:
     assert available - named == NOT_IN_THE_CAMPAIGN, sorted(
         (available - named) ^ NOT_IN_THE_CAMPAIGN
     )
-    # The reason `vm-binhost-fallback` is excused, held where it can fail: the
-    # cluster is the only runner that can tell its pass from an ordinary one.
+    # Both runners can now tell its pass from an ordinary install: the cluster
+    # reads the `degraded` event, the campaign reads the line it writes.
     assert "vm-binhost-fallback" in MUST_DEGRADE
+    assert EXPECTATIONS["vm-binhost-fallback"].marker
 
 
 def test_every_fixture_names_a_disk_the_harness_creates() -> None:
@@ -2817,10 +2814,9 @@ def test_no_input_method_asks_for_no_environment() -> None:
 def test_a_fixture_meant_to_fail_proves_its_failure_path(tmp_path: Path) -> None:
     """`vm-proxy-dead` succeeds only after its dead proxy refuses the stage3
     download; another non-zero result proves no such thing."""
-    from tests.vm.campaign import ExpectedFailure, Outcome, Run, mark_for
+    from tests.vm.campaign import Outcome, Run, mark_for
 
-    expected = ExpectedFailure(returncode=1, signal="Connection refused")
-    dead = Run("fixtures/vm-proxy-dead.toml", expect_failure=expected)
+    dead = Run("fixtures/vm-proxy-dead.toml")
     log = tmp_path / "proxy-dead.log"
     log.write_text("the stage3 could not be fetched: [Errno 111] Connection refused\n")
 
@@ -2838,21 +2834,71 @@ def test_a_fixture_meant_to_fail_proves_its_failure_path(tmp_path: Path) -> None
     assert not Outcome(ordinary, 4, 1.0, log).passed
 
 
+def test_neither_runner_keeps_its_own_copy_of_an_expectation() -> None:
+    """One table, two readers. `Connection refused` was written in three
+    places, and the two runners disagreed on the exit code beside it: the
+    campaign wanted `1` and the cluster `b"4"`, and nothing compared them."""
+    import ast
+
+    from tests.vm.expectations import EXPECTATIONS
+
+    wanted = [one.says for one in EXPECTATIONS.values() if one.says]
+    assert wanted, "an empty set of markers would make this assert nothing"
+
+    here = Path(__file__).resolve().parents[1] / "vm"
+    for runner in ("campaign.py", "cluster.py", "run.py"):
+        tree = ast.parse((here / runner).read_text())
+        docstrings = {
+            id(node.body[0].value)
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef))
+            and node.body
+            and isinstance(node.body[0], ast.Expr)
+            and isinstance(node.body[0].value, ast.Constant)
+            and isinstance(node.body[0].value.value, str)
+        }
+        literals = [
+            node.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and id(node) not in docstrings
+        ]
+        for says in wanted:
+            held = [one for one in literals if says in one]
+            assert not held, (runner, says, held)
+
+
+def test_a_fixture_that_has_to_degrade_is_not_green_when_it_did_not(tmp_path: Path) -> None:
+    """`vm-binhost-fallback` finishes and boots whether or not its binary host
+    ever failed, so the exit code cannot tell the two apart. The day the host
+    answers again this run has to go red rather than quietly stop covering the
+    degradation it exists to measure."""
+    from gentoo_install.exec.apply import degradation_warning
+    from gentoo_install.plan.portage import BINARY_PACKAGES
+    from tests.vm.campaign import Outcome, Run
+
+    fallback = Run("fixtures/vm-binhost-fallback.toml")
+    log = tmp_path / "fallback.log"
+
+    log.write_text("the install finished\n")
+    assert not Outcome(fallback, 0, 1.0, log).passed
+
+    log.write_text(degradation_warning(BINARY_PACKAGES, "the index answered 404") + "\n")
+    assert Outcome(fallback, 0, 1.0, log).passed
+    assert not Outcome(fallback, 4, 1.0, log).passed
+
+
 def test_the_campaign_expects_exactly_the_fixtures_that_cannot_finish() -> None:
-    """A second fixture marked this way would be a fixture nobody notices
-    failing, so the set is named here as well as there."""
-    from tests.vm.campaign import ExpectedFailure, STAGES
+    """An expectation naming a fixture the campaign never runs is a rule that
+    cannot fire, and it reads as coverage."""
+    from tests.vm.campaign import STAGES
+    from tests.vm.expectations import EXPECTATIONS
 
-    expected = {
-        Path(run.config).stem: run.expect_failure
-        for runs in STAGES.values()
-        for run in runs
-        if run.expect_failure is not None
-    }
+    scheduled = {Path(run.config).stem for runs in STAGES.values() for run in runs}
 
-    assert expected == {
-        "vm-proxy-dead": ExpectedFailure(returncode=1, signal="Connection refused")
-    }
+    assert set(EXPECTATIONS) <= scheduled, set(EXPECTATIONS) - scheduled
+    assert {name for name, one in EXPECTATIONS.items() if one.must_stop} == {"vm-proxy-dead"}
 
 
 def test_campaign_collects_an_outcome_from_every_worker(

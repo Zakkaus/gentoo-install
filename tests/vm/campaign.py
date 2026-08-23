@@ -25,6 +25,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Final, Sequence
 
+from .expectations import EXPECTATIONS, Expectation
+
 WORKROOT: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/runs"
 LOGS: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/campaign"
 
@@ -90,14 +92,6 @@ TIMEOUT: Final[float] = 5400.0
 
 
 @dataclass(frozen=True)
-class ExpectedFailure:
-    """Exit result that proves a negative fixture reached its failure path."""
-
-    returncode: int
-    signal: str
-
-
-@dataclass(frozen=True)
 class Run:
     """One invocation of `tests.vm.run`."""
 
@@ -113,8 +107,6 @@ class Run:
     #: at zero for a run that installs binary packages: more cores do nothing
     #: for a download, and they would be taken from a run that is compiling.
     cpus: int = 0
-    #: The result that proves a negative fixture exercised the path it names.
-    expect_failure: ExpectedFailure | None = None
     #: What this costs the machine, against `CAPACITY`. Two for a run that
     #: compiles a kernel or a desktop: those saturate their vCPUs for half an
     #: hour, and packing them beside each other makes every one of them slower
@@ -126,6 +118,10 @@ class Run:
     def name(self) -> str:
         how = "-interrupted" if self.interrupt else ""
         return f"{self.medium}-{self.firmware}-{Path(self.config).stem}{how}"
+
+    @property
+    def expectation(self) -> Expectation | None:
+        return EXPECTATIONS.get(Path(self.config).stem)
 
     def argv(self) -> list[str]:
         argv = [
@@ -209,10 +205,12 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         # The proxy pointed at a port nothing listens on: a run that reaches
         # the mirror proves something bypassed it, so this one is expected to
         # fail at the stage3 download and its failure is the result.
-        Run(
-            "fixtures/vm-proxy-dead.toml",
-            expect_failure=ExpectedFailure(1, "Connection refused"),
-        ),  # see cluster.EXPECTED_TO_FAIL
+        Run("fixtures/vm-proxy-dead.toml"),  # see expectations.EXPECTATIONS
+        # The binary host it names answers 404, so the run has to give binary
+        # packages up and finish from source. `EXPECTATIONS` is what makes the
+        # console say so; without it the run is green whether or not the host
+        # ever failed.
+        Run("fixtures/vm-binhost-fallback.toml"),
         # The direction that matters to an operator on an intranet, and the one
         # nothing covered: the proxy answers and the install completes through
         # it. It needs a SOCKS5 listener on the workstation, so `run.py` refuses
@@ -255,7 +253,7 @@ class Outcome:
 
     @property
     def passed(self) -> bool:
-        expected = self.run.expect_failure
+        expected = self.run.expectation
         if self.error is not None:
             return False
         if expected is None:
@@ -264,7 +262,11 @@ class Outcome:
             said = self.log.read_text(errors="replace")
         except OSError:
             return False
-        return self.returncode == expected.returncode and expected.signal in said
+        if expected.marker not in said:
+            return False
+        if not expected.must_stop:
+            return self.returncode == 0
+        return self.returncode == expected.runner_returncode
 
 
 def _log_for(run: Run) -> Path:
@@ -313,7 +315,7 @@ def mark_for(outcome: Outcome) -> str:
         return "ok  "
     if outcome.error is not None:
         return "FAIL"
-    if outcome.run.expect_failure is not None:
+    if (expected := outcome.run.expectation) is not None and expected.must_stop:
         # A clean exit proves the proxy was bypassed; another failure proved
         # neither the expected path nor a completed installation.
         return "BYPASS" if outcome.returncode == 0 else "FAIL"

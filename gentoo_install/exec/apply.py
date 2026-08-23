@@ -38,6 +38,15 @@ from .probe import Probe
 from .runner import Runner, open_in_target, under
 
 
+def degradation_warning(what: str, reason: str) -> str:
+    """The line a degradation writes to the log.
+
+    A test harness watching a run for a degradation reads this rather than a
+    copy of the wording, so the two cannot drift apart.
+    """
+    return f"WARNING: {what} is unavailable, so {reason}"
+
+
 @dataclass
 class Machine:
     """The live implementation of `plan.operations.Context`."""
@@ -216,7 +225,7 @@ class Machine:
 
     def degrade(self, what: str, reason: str) -> None:
         self.given_up.add(what)
-        self.runner.log(f"WARNING: {what} is unavailable, so {reason}")
+        self.runner.log(degradation_warning(what, reason))
         if self.runner.journal is not None:
             self.runner.journal.degraded(what, reason)
 

@@ -1284,7 +1284,7 @@ def test_a_fixture_that_passes_by_failing_is_not_recorded_as_a_failure() -> None
         Path(one.config).stem
         for stage in campaign.STAGES.values()
         for one in stage
-        if one.expect_failure
+        if one.expectation is not None and one.expectation.must_stop
     }
     assert failing == set(cluster.EXPECTED_TO_FAIL), (failing, cluster.EXPECTED_TO_FAIL)
 

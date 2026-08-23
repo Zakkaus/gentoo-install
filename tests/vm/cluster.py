@@ -47,6 +47,8 @@ from types import MappingProxyType
 from contextlib import contextmanager
 from typing import Final, Iterator, Protocol, TypeVar, cast, Sequence
 
+from .expectations import EXPECTATIONS, Expectation
+
 from gentoo_install.model.config import Firmware as BootFirmware
 from gentoo_install.model.config import (
     DiskMode,
@@ -2837,8 +2839,10 @@ def _remaining(deadline: float) -> float:
 #: bypassed the proxy, and a syntax error, a refused preflight or a failed
 #: disk stops the install just as non-zero. Measured on a passing run:
 #: `install.rc` held `4` and `Connection refused` appeared 26 times.
-EXPECTED_TO_FAIL: Final[Mapping[str, tuple[bytes, str]]] = MappingProxyType(
-    {"vm-proxy-dead": (b"4", "Connection refused")}
+#: The fixtures whose install has to stop, read from the one table both
+#: runners share rather than named a second time here.
+EXPECTED_TO_FAIL: Final[Mapping[str, Expectation]] = MappingProxyType(
+    {name: one for name, one in EXPECTATIONS.items() if one.must_stop}
 )
 
 
@@ -2874,7 +2878,8 @@ def _did_not_stop(name: str, code: bytes, files: Mapping[str, bytes]) -> str:
     code and the reason, because the local runner has checked both since it
     was written and the cluster checked neither.
     """
-    wanted, marker = EXPECTED_TO_FAIL[name]
+    expected = EXPECTED_TO_FAIL[name]
+    wanted, marker = expected.installer_returncode, expected.marker
     if not code:
         return "the install was supposed to stop and wrote no exit code"
     if code == b"0":
@@ -2904,7 +2909,7 @@ KEEPS_ITS_SITE: Final[frozenset[str]] = frozenset({"vm-binhost-fallback"})
 #: this the fixture is green when the install merely finished, which it does
 #: whether or not the host it names ever failed.
 MUST_DEGRADE: Final[Mapping[str, str]] = MappingProxyType(
-    {"vm-binhost-fallback": BINARY_PACKAGES}
+    {name: one.degrades for name, one in EXPECTATIONS.items() if one.degrades}
 )
 
 
