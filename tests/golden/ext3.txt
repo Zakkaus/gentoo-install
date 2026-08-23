@@ -26,7 +26,7 @@
   create the three autounmask files emerge writes its decisions into
   fetch the first ebuild repository snapshot with emerge-webrsync
   select profile default/linux/amd64/23.0
-  install git, which every later repository sync needs: emerge dev-vcs/git
+  install git, which every later repository sync needs: emerge dev-vcs/git, with no binhost
   point repository gentoo at https://github.com/gentoo-mirror/gentoo.git, commit signatures verified
   sync repository gentoo
   set sys-kernel/installkernel to dracut
@@ -44,24 +44,24 @@
   treat the hardware clock as UTC
   start a login on ttyS0 at 115200 baud
   set the root password
-  install the network tools: emerge net-misc/netifrc net-misc/dhcpcd
+  install the network tools: emerge net-misc/netifrc net-misc/dhcpcd, with no binhost
   configure the wired interface for DHCP
   enable dhcpcd in the default runlevel
-  install the system logger: emerge app-admin/sysklogd
+  install the system logger: emerge app-admin/sysklogd, with no binhost
   enable sysklogd in the default runlevel
-  install cron: emerge sys-process/cronie
+  install cron: emerge sys-process/cronie, with no binhost
   enable cronie in the default runlevel
 
 [kernel]
-  install the hook that puts a kernel in /boot: emerge sys-kernel/installkernel
-  install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
-  install the storage tools: emerge sys-fs/e2fsprogs
-  install the kernel: emerge sys-kernel/gentoo-kernel-bin
+  install the hook that puts a kernel in /boot: emerge sys-kernel/installkernel, with no binhost
+  install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware, with no binhost
+  install the storage tools: emerge sys-fs/e2fsprogs, with no binhost
+  install the kernel: emerge sys-kernel/gentoo-kernel-bin, with no binhost
   rebuild the initramfs from sys-kernel/gentoo-kernel-bin with the modules written above
   check the installkernel payload names existing kernel files
 
 [bootloader]
-  install the bootloader: emerge sys-boot/grub
+  install the bootloader: emerge sys-boot/grub, with no binhost
   write /etc/default/grub with cmdline console=ttyS0,115200, its menu on ttyS0
   install GRUB for bios on the disk under disk
 

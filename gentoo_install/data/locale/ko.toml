@@ -652,6 +652,8 @@
 "accept ~amd64 for packages from {} only" = "{}의 패키지에만 ~amd64 허용"
 "{}: emerge {}, from source" = "{}: {}를 소스에서 emerge"
 "{}: emerge {}, building {} here" = "{}: {}를 emerge하고 {}를 여기서 빌드"
+"{}: emerge {}, with no binhost" = "{}: binhost 없이 {}를 emerge"
+"{}: emerge {}, building {} here, with no binhost" = "{}: binhost 없이 {}를 emerge하고 {}를 여기서 빌드"
 "{}: emerge {}" = "{}: {}를 emerge"
 "run getuto so Portage has a keyring to verify binary packages against, and write dirmngr.conf" = "Portage가 바이너리 패키지를 검증할 키링을 갖도록 getuto 실행 및 dirmngr.conf 작성"
 "import {} from {} and locally sign it for {}" = "{}를 {}에서 가져와 {}용으로 로컬 서명"

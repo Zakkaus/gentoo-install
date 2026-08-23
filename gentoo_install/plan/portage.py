@@ -905,12 +905,23 @@ class Emerge(Operation):
         built = self._built_here()
         if built == self.packages:
             return "{}: emerge {}, from source", (self.summary, packages)
+        # `binary_host` as well as `built`: they are different facts, and only
+        # the second one was drawn, so a plan that stopped carrying a disabled
+        # binhost read exactly like one that still had it.
         if built:
+            if not self.binary_host:
+                return "{}: emerge {}, building {} here, with no binhost", (
+                    self.summary,
+                    packages,
+                    " ".join(built),
+                )
             return "{}: emerge {}, building {} here", (
                 self.summary,
                 packages,
                 " ".join(built),
             )
+        if not self.binary_host:
+            return "{}: emerge {}, with no binhost", (self.summary, packages)
         return "{}: emerge {}", (self.summary, packages)
 
     def _built_here(self) -> tuple[str, ...]:

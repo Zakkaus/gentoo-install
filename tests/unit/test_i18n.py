@@ -529,7 +529,9 @@ REVIEWED_TEMPLATES: frozenset[str] = frozenset(
         "write {} for {}",
         "{}: emerge {}",
         "{}: emerge {}, building {} here",
+        "{}: emerge {}, building {} here, with no binhost",
         "{}: emerge {}, from source",
+        "{}: emerge {}, with no binhost",
     }
 )
 

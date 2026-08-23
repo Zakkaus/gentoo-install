@@ -2761,3 +2761,15 @@ def test_the_gentoo_tree_is_offered_the_rest_of_its_region() -> None:
         if isinstance(one, portage.SyncRepository) and one.name == "gentoo"
     ]
     assert alone[0].alternates == ()
+
+
+def test_a_merge_that_may_not_use_a_binhost_says_so() -> None:
+    """`apply` passes `--getbinpkg=n` when `binary_host` is false, and nothing
+    drew it: a plan that stopped carrying a disabled binhost rendered exactly
+    like one that still had it, so no golden file could catch that."""
+    from gentoo_install.plan.portage import Emerge
+
+    merge = Emerge(summary="install git", packages=("dev-vcs/git",))
+    assert "binhost" not in merge.describe(), merge.describe()
+    without = replace(merge, binary_host=False)
+    assert "with no binhost" in without.describe(), without.describe()
