@@ -366,6 +366,7 @@ class RereadPartitionTable(Operation):
         # same reason: `Probe.wait_for`'s own scan is the fallback without it.
         context.run(["partx", "--update", path], check=False)
         context.run(["udevadm", "settle"])
+        context.settle_device_events()
 
 
 @dataclass(frozen=True, kw_only=True)

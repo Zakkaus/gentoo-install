@@ -160,6 +160,9 @@ class Context(Protocol):
     def device_path(self, device: DeviceId) -> str:
         """Resolve a device id to the path it currently has, such as `/dev/sda1`."""
 
+    def settle_device_events(self) -> None:
+        """Wait until partition-table event handling stops changing `/dev`."""
+
     def key_file(self, device: DeviceId) -> PurePosixPath:
         """Where the passphrase of an encrypted device is staged for this run.
 

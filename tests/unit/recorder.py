@@ -56,6 +56,7 @@ class Recorder:
     zfs_ceiling: KernelCeiling = field(default_factory=lambda: KernelCeiling(None))
     image_devices: dict[DeviceId, str] = field(default_factory=dict)
     existing_paths: set[str] = field(default_factory=set)
+    device_event_settles: int = 0
 
     def run(
         self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
@@ -128,6 +129,9 @@ class Recorder:
     def device_path(self, device: DeviceId) -> str:
         return self.image_devices.get(device, f"/dev/mapper/{device}")
 
+
+    def settle_device_events(self) -> None:
+        self.device_event_settles += 1
     def remember_image_device(self, device: DeviceId, path: str) -> None:
         self.image_devices[device] = path
 
