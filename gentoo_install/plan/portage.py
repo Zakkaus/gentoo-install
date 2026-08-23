@@ -44,6 +44,20 @@ GENTOOZH_KEY: Final[PurePosixPath] = PurePosixPath("/usr/share/openpgp-keys/gent
 #: A stage3 ships the release engineering key at this path.
 RELEASE_KEY: Final[PurePosixPath] = PurePosixPath("/usr/share/openpgp-keys/gentoo-release.asc")
 
+
+def _binrepos_path(name: str) -> PurePosixPath:
+    filename = "gentoo.conf" if name == "gentoo" else f"{name}.conf"
+    return PurePosixPath("/etc/portage/binrepos.conf") / filename
+
+
+def _inherited_binrepos_paths(name: str) -> tuple[PurePosixPath, ...]:
+    if name != "gentoo":
+        return (_binrepos_path(name),)
+    return (
+        _binrepos_path(name),
+        PurePosixPath("/etc/portage/binrepos.conf/gentoobinhost.conf"),
+    )
+
 #: Portage writes automatic keyword, USE and licence decisions into these. They
 #: have to exist before the first emerge, or the writes land outside Portage.
 AUTOUNMASK_FILES: Final[tuple[str, ...]] = (
@@ -1197,6 +1211,22 @@ class TrustBinhostKey(Operation):
         context.run_in_target(["gpg", "--homedir", "/etc/portage/gnupg", "--check-trustdb"])
 
 
+
+@dataclass(frozen=True, kw_only=True)
+class DisableBinhost(Operation):
+    """Remove a binhost inherited from the stage3."""
+
+    stage: Stage = Stage.PORTAGE
+    name: str
+
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return "disable inherited binary package host {}", (self.name,)
+
+    def apply(self, context: Context) -> None:
+        for path in _inherited_binrepos_paths(self.name):
+            context.run_in_target(["rm", "--force", "--", str(path)])
+
+
 @dataclass(frozen=True, kw_only=True)
 class ConfigureBinhost(Operation):
     stage: Stage = Stage.PORTAGE
@@ -1221,8 +1251,7 @@ class ConfigureBinhost(Operation):
             f"verify-signature = {'true' if self.verify else 'false'}\n"
             f"location = /var/cache/binhost/{self.name}\n"
         )
-        filename = "gentoobinhost.conf" if self.name == "gentoo" else f"{self.name}.conf"
-        context.write(PurePosixPath(f"/etc/portage/binrepos.conf/{filename}"), stanza)
+        context.write(_binrepos_path(self.name), stanza)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -1430,6 +1459,7 @@ def build(
         WriteProxyClients(proxy=config.proxy),
         CreateAutounmaskFiles(),
     ]
+    operations.append(DisableBinhost(name="gentoo"))
     if uses_binhost(portage):
         # Before the first emerge, not after it. `make.conf` above already
         # carries `FEATURES=getbinpkg`, so `emerge dev-vcs/git` fetches binary
@@ -1439,8 +1469,8 @@ def build(
         # setup that exists to prevent exactly that.
         operations.append(PrepareBinhostTrust(proxy=config.proxy))
     if portage.binhost.official:
-        # Written rather than left to the stage3's default, because that names
-        # the profile's baseline and the subarchitecture is a choice here.
+        # Written rather than left to the stage3's default: entry removal keeps
+        # untrusted hosts source-only; profile baseline and subarch are choices here.
         operations.append(
             ConfigureBinhost(
                 name="gentoo",

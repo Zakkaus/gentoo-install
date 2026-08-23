@@ -24,6 +24,7 @@
   write /etc/portage/make.conf with MAKEOPTS, INPUT_DEVICES, ACCEPT_LICENSE, L10N; 2 mirrors in the configured order, 5 appended
   configure Portage, wget, curl, git and gpg for direct connection
   create the three autounmask files emerge writes its decisions into
+  disable inherited binary package host gentoo
   fetch the first ebuild repository snapshot with emerge-webrsync
   select profile default/linux/amd64/23.0
   install git, which every later repository sync needs: emerge dev-vcs/git, with no binhost

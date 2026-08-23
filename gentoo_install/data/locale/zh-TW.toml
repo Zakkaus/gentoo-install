@@ -670,6 +670,7 @@
 "{}: emerge {}, building {} here, with no binhost" = "{}：emerge {}，在本機建置 {}，不使用 binhost"
 "{}: emerge {}" = "{}：emerge {}"
 "run getuto so Portage has a keyring to verify binary packages against, and write dirmngr.conf" = "執行 getuto，讓 Portage 擁有驗證二進位套件的金鑰圈，並寫入 dirmngr.conf"
+"disable inherited binary package host {}" = "停用從 stage3 繼承的二進位套件主機 {}"
 "import {} from {} and locally sign it for {}" = "匯入 {}，來源 {}，並為 {} 本地簽署"
 "add verified binary package host {} at {}" = "新增已驗證的二進位套件主機 {}，位址為 {}"
 "add unverified binary package host {} at {}" = "新增未驗證的二進位套件主機 {}，位址為 {}"
