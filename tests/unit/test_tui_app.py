@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 
 import pytest
@@ -2771,6 +2772,29 @@ def test_cancelled_manual_layout_restores_the_opening_table(
     monkeypatch.setattr(partitions, "_act_on", mutate)
     partitions.partitions_screen(FakeScreen(keys=["\n", "q"], lines=30), config(), at)
     assert at.layout == before
+
+
+def test_proxy_bypass_rejection_corrects_the_named_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The correction follows the bypass field when the form order changes."""
+    def capture(
+        form: widgets.Form,
+        _screen: widgets.Screen,
+        validator: Callable[
+            [list[str]], widgets.Answer[InstallConfig] | widgets.FormRejected
+        ],
+    ) -> widgets.Answer[InstallConfig]:
+        values = ["proxy.example", "3128", "", "", "outside host"]
+        rejected = validator(values)
+        assert isinstance(rejected, widgets.FormRejected)
+        index, corrected = next(iter(rejected.corrections.items()))
+        assert form.fields[index].label == "Bypass hosts"
+        assert corrected == values[index]
+        return widgets.Answer(Outcome.BACK)
+
+    monkeypatch.setattr(widgets.Form, "run_validated", capture)
+    screens.proxy_screen(FakeScreen(keys=["\n"], lines=24), config(), context())
 
 
 def test_loaded_configuration_remains_the_disk_target_after_an_edit() -> None:
