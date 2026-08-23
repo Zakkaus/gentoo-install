@@ -271,6 +271,18 @@ layout and bootloader. One disk has been written this way and read back.
 Every row above installed `vm-ram`, the fixture `tests/vm/ram.py` hands the
 environment unless `--config` names another.
 
+| a tree verified to hold `49844ad5883ad` and `8d17a0c4a9924` | `--lowram` on a Debian 12 genericcloud machine, UEFI, three rounds | two installed Gentoo from the memory environment and booted the disk they wrote (`memory install booted its disk and passed the shared installed-state checks`); the third stopped at `mkfs.vfat -F 32 -n ESP /dev/vdc1` with `No such file or directory`, `Probe.wait_for` having returned that node a moment earlier. **The path installs; it fails about one round in three on the device nodes.** |
+
+The row above is three runs rather than one because the failure is
+intermittent, and one green round would have recorded a fix that is not one:
+`partx --update` and `mdev -sf` were added for exactly this symptom and the
+second round failed with both of them in the tree.
+
+The row names two commits rather than a revision because the cluster runner
+prints none: `tests/vm/run.py` prints `installer revision` at the top of a run
+and `tests/vm/cluster.py` prints nothing, so a cluster result cannot be tied to
+a tree afterwards. What the tree held was read before the campaign started.
+
 **No row here is newer than `3e085f078c9f`, and that is a property of the
 harness rather than of these paths.** `9e88ecda73ea9` reworded the delivered
 profile's question from `install or shell> ` to `install now? [yes/no] ` and
