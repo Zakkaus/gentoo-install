@@ -2,14 +2,14 @@
   release anything a previous run of this configuration left mounted or open
   wipe existing signatures from disk
   create a gpt partition table on disk as table
-  create partition 1 on disk as esp: esp, 512MiB
-  create partition 2 on disk as boot: data, 1GiB
-  create partition 3 on disk as cryptroot: data, the rest of the disk
+  create partition 1 on disk as esp in the gpt table: esp, 512MiB
+  create partition 2 on disk as boot in the gpt table: data, 1GiB
+  create partition 3 on disk as cryptroot in the gpt table: data, the rest of the disk
   reread the partition table of disk and wait for its nodes
 
 [array]
-  format cryptroot as LUKS2
-  open cryptroot as /dev/mapper/root
+  format cryptroot as LUKS2 using the key file for root-luks
+  open cryptroot as /dev/mapper/root using the key file for root-luks
 
 [format]
   make a ext4 filesystem on boot as bootfs labelled BOOT

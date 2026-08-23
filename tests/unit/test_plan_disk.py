@@ -40,6 +40,7 @@ from gentoo_install.exec.config import load
 from gentoo_install.model.size import Size
 from gentoo_install.plan import disk, system
 from gentoo_install.plan.operations import Stage
+from gentoo_install.plan.render import render
 
 from .layouts import config, ext4_on_gpt, i, zfs_root
 from .recorder import Recorder
@@ -120,6 +121,11 @@ def test_an_image_refuses_an_existing_file_unless_wipe_is_enabled() -> None:
     ]
     assert recorder.device_path(i("disk")) == "/dev/loop7"
     assert "loop device" in create.describe()
+    dry_run = render([create])
+    wiping_dry_run = render([wiping])
+    assert "refusing to overwrite an existing image" in dry_run, dry_run
+    assert "overwriting an existing image" in wiping_dry_run, wiping_dry_run
+    assert dry_run != wiping_dry_run
 
     detach = disk.DetachImage(device=i("disk"), image=image)
     assert detach.releases_the_machine
@@ -195,6 +201,31 @@ def test_an_mbr_partition_is_placed_by_offset_because_parted_needs_one() -> None
     assert made[-1][-3:] == ("primary", "513MiB", "100%")
 
 
+def test_partition_table_kind_and_mbr_start_change_the_dry_run() -> None:
+    """`parted` receives an MBR start while `sgdisk` chooses its own position."""
+    partition = disk.CreatePartition(
+        partition=DeviceId("part"),
+        disk=DeviceId("disk"),
+        table_kind=TableType.GPT,
+        index=1,
+        role=PartitionRole.DATA,
+        size=Size.parse("1GiB"),
+        label="",
+        start=Size.parse("1MiB"),
+    )
+    mbr = replace(partition, table_kind=TableType.MBR)
+    later = replace(mbr, start=Size.parse("2MiB"))
+
+    gpt_dry_run = render([partition])
+    mbr_dry_run = render([mbr])
+    later_dry_run = render([later])
+    assert "in the gpt table" in gpt_dry_run, gpt_dry_run
+    assert "in the mbr table from 1MiB" in mbr_dry_run, mbr_dry_run
+    assert "in the mbr table from 2MiB" in later_dry_run, later_dry_run
+    assert gpt_dry_run != mbr_dry_run
+    assert mbr_dry_run != later_dry_run
+
+
 def test_the_kernel_is_asked_to_reread_the_table_before_anything_uses_it() -> None:
     operations = disk.build(config(ext4_on_gpt()))
     reread = [n for n, operation in enumerate(operations) if isinstance(operation, disk.RereadPartitionTable)]
@@ -214,6 +245,7 @@ def test_partition_table_waits_for_device_events_before_formatting() -> None:
 
     assert recorder.device_event_settles == 1
 
+
 def test_luks_is_formatted_with_argon2id_and_opened_from_the_same_key_file() -> None:
     nodes: list[Node] = [node for node in ext4_on_gpt() if node.id != i("rootfs")]
     nodes += [
@@ -226,6 +258,25 @@ def test_luks_is_formatted_with_argon2id_and_opened_from_the_same_key_file() -> 
     assert "--pbkdf" in formatted and formatted[formatted.index("--pbkdf") + 1] == "argon2id"
     assert "--type" in formatted and "luks2" in formatted
     assert formatted[formatted.index("--key-file") + 1] == opened[opened.index("--key-file") + 1]
+
+
+def test_luks_container_changes_the_dry_run() -> None:
+    """`cryptsetup` reads the key file selected by the container id."""
+    formatting = disk.CreateLuks(
+        container=DeviceId("cryptroot"), backing=DeviceId("rootpart"), name="cryptroot"
+    )
+    opening = disk.OpenLuks(
+        container=DeviceId("cryptroot"), backing=DeviceId("rootpart"), name="cryptroot"
+    )
+    alternate_formatting = replace(formatting, container=DeviceId("cryptdata"))
+    alternate_opening = replace(opening, container=DeviceId("cryptdata"))
+
+    formatting_dry_run = render([formatting])
+    opening_dry_run = render([opening])
+    assert "key file for cryptroot" in formatting_dry_run, formatting_dry_run
+    assert "key file for cryptroot" in opening_dry_run, opening_dry_run
+    assert formatting_dry_run != render([alternate_formatting])
+    assert opening_dry_run != render([alternate_opening])
 
 
 def test_an_array_is_created_with_the_metadata_the_layout_asked_for() -> None:

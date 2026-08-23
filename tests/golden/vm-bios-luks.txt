@@ -2,13 +2,13 @@
   release anything a previous run of this configuration left mounted or open
   wipe existing signatures from disk
   create a mbr partition table on disk as table
-  create partition 1 on disk as swappart: swap, 2GiB
-  create partition 2 on disk as rootpart: data, the rest of the disk
+  create partition 1 on disk as swappart in the mbr table from 1MiB: swap, 2GiB
+  create partition 2 on disk as rootpart in the mbr table from 2049MiB: data, the rest of the disk
   reread the partition table of disk and wait for its nodes
 
 [array]
-  format rootpart as LUKS2
-  open rootpart as /dev/mapper/root
+  format rootpart as LUKS2 using the key file for root-luks
+  open rootpart as /dev/mapper/root using the key file for root-luks
 
 [format]
   make swap on swappart as swap
