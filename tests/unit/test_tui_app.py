@@ -1121,6 +1121,19 @@ def test_a_chinese_system_locale_selects_no_input_method_or_font_group() -> None
     }
     assert not language_packages.intersection(chosen.packages.applications)
 
+def test_a_chinese_interface_selects_removable_font_and_input_groups() -> None:
+    at = context()
+    chinese = screens.with_language(config(), "zh-CN")
+    assert chinese.packages.desktop == ""
+    assert chinese.packages.applications == ("noto-cjk", "fcitx5", "rime")
+
+    without_fonts = tui_packages.select_cjk_fonts(chinese, at.groups, (), ())
+    assert "noto-cjk" not in without_fonts.packages.applications
+    without_input = tui_packages.select_input_framework(without_fonts, at.groups, "")
+    assert not set(tui_packages.input_method_groups(at.groups)).intersection(
+        without_input.packages.applications
+    )
+
 
 def test_an_input_engine_cannot_be_selected_without_its_framework() -> None:
     with pytest.raises(ConfigError, match="framework"):
