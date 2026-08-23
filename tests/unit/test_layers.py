@@ -924,3 +924,13 @@ def test_no_test_writes_its_artifacts_inside_the_checkout() -> None:
             if first.value.startswith("lab/"):
                 written.append(f"{one.relative_to(root)}:{node.lineno}")
     assert not written, f"an artifact path relative to the checkout: {written}"
+
+
+def test_the_probe_offers_no_lookup_nothing_calls() -> None:
+    """`Probe.disk_of` wrapped `disk_of_path` and had no caller: the
+    bootloader route calls `disk_of_path` directly. A second spelling of one
+    lookup is a second place for a device-graph question to be asked."""
+    from gentoo_install.exec.probe import Probe
+
+    assert not hasattr(Probe, "disk_of"), "nothing called it when it was deleted"
+    assert hasattr(Probe, "disk_of_path"), "the one the production path uses"
