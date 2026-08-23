@@ -336,11 +336,22 @@ def online(monkeypatch: pytest.MonkeyPatch, answer: bool = True, said: str = "")
     monkeypatch.setattr(fetch, "mirror_online", lambda *a, **k: answer)
 
 
+class TerminalInput(io.StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
+def interactive_stdin(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give a menu test an interactive standard input."""
+    monkeypatch.setattr(sys, "stdin", TerminalInput())
+
+
 def test_the_menu_stops_when_the_machine_cannot_reach_the_package_site(
     capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Kernel versions and the ZFS ceiling are read live so the installer runs
     on a medium with no Gentoo repository; offline there is nothing to offer."""
+    interactive_stdin(monkeypatch)
     monkeypatch.setattr(os, "geteuid", lambda: 0)
     online(monkeypatch, False, said="HTTP Error 404: Not Found")
     assert main([]) == EXIT_PREFLIGHT
@@ -359,6 +370,7 @@ def test_a_mirror_that_answers_is_enough_to_open_the_menu(
     else. One guest resolved that site to an IPv6 address alone with no route
     to reach it, and was refused at the first screen with a working mirror one
     row away."""
+    interactive_stdin(monkeypatch)
     monkeypatch.setattr(os, "geteuid", lambda: 0)
     online(monkeypatch, False, said="Errno 101 Network is unreachable")
     monkeypatch.setattr(fetch, "mirror_online", lambda *a, **k: True)
@@ -395,17 +407,35 @@ def test_the_two_offline_answers_are_still_given_without_a_network(
     assert "needs a network" not in capsys.readouterr().err
 
 
-def test_no_configuration_without_a_terminal_says_so(
-    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("arguments", "stdin_isatty"),
+    (([], False), (["--no-shell"], True)),
+)
+def test_an_unattended_menu_needs_a_configuration(
+    arguments: list[str],
+    stdin_isatty: bool,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """With no --config the menu opens, and pytest is not a terminal: that has
-    to be an exit code with a sentence, not a curses traceback."""
+    """Neither a pipe nor --no-shell may enter the interactive menu."""
+
     monkeypatch.setattr(os, "geteuid", lambda: 0)
-    online(monkeypatch)
-    code = main([])
+    if stdin_isatty:
+        interactive_stdin(monkeypatch)
+    else:
+        monkeypatch.setattr(sys, "stdin", io.StringIO())
+    monkeypatch.setattr(cli, "_needs_network", lambda arguments: False)
+    monkeypatch.setattr(
+        cli,
+        "_from_menu",
+        lambda *args: pytest.fail("unattended invocation opened the menu"),
+    )
+
+    code = main(arguments)
+
     said = capsys.readouterr().err
     assert code == EXIT_PREFLIGHT
-    assert "pass --config FILE" in said
+    assert "an unattended run needs --config FILE" in said
 
 
 def test_the_menu_does_not_open_for_an_ordinary_user(
@@ -516,6 +546,7 @@ def test_the_menu_names_openssl_before_it_asks_anything(
     absent at the root-password screen throws away every answer before it."""
     from gentoo_install.exec import preflight
 
+    interactive_stdin(monkeypatch)
     monkeypatch.setattr(os, "geteuid", lambda: 0)
     online(monkeypatch)
     monkeypatch.setattr(shutil, "which", lambda name: None if name == "openssl" else "/bin/x")
@@ -549,6 +580,7 @@ def test_a_clock_a_year_out_is_corrected_before_the_network_is_blamed(
     network."""
     import time
 
+    interactive_stdin(monkeypatch)
     monkeypatch.setattr(os, "geteuid", lambda: 0)
     online(monkeypatch)
     monkeypatch.setattr(fetch, "network_time", lambda: time.time() + 400 * 86400)
@@ -562,6 +594,7 @@ def test_a_clock_a_year_out_is_corrected_before_the_network_is_blamed(
 def test_a_clock_that_agrees_is_left_alone(monkeypatch: pytest.MonkeyPatch) -> None:
     import time
 
+    interactive_stdin(monkeypatch)
     monkeypatch.setattr(os, "geteuid", lambda: 0)
     online(monkeypatch)
     monkeypatch.setattr(fetch, "network_time", lambda: time.time() + 5)
@@ -1886,6 +1919,7 @@ def test_disarm_missing_commands_does_not_apply(
     assert code == EXIT_OK, said
     assert said.out == "rm\n"
 
+
 def test_the_disarm_the_message_names_is_one_the_parser_takes(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -2172,6 +2206,7 @@ def test_a_refused_menu_configuration_returns_to_the_menu(
             raise errors.PreflightFailed("disk1-table claims 40GiB, which does not fit")
         return None
 
+    interactive_stdin(monkeypatch)
     monkeypatch.setattr(cli, "_from_menu", menu)
     monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
     monkeypatch.setattr(cli, "_needs_network", lambda arguments: False)
@@ -2205,6 +2240,7 @@ def test_the_same_refusal_twice_stops_rather_than_asking_again(
         walked.append(refused)
         raise errors.PreflightFailed("the same thing is still wrong")
 
+    interactive_stdin(monkeypatch)
     monkeypatch.setattr(cli, "_from_menu", menu)
     monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
     monkeypatch.setattr(cli, "_needs_network", lambda arguments: False)
@@ -2228,6 +2264,7 @@ def test_a_refused_configuration_from_the_menu_returns_to_it(
             raise errors.UnknownDeviceId("no node with id ''")
         return None
 
+    interactive_stdin(monkeypatch)
     monkeypatch.setattr(cli, "_from_menu", menu)
     monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
     monkeypatch.setattr(cli, "_needs_network", lambda arguments: False)

@@ -418,12 +418,6 @@ def _once(arguments: argparse.Namespace, state: RunState, refused: str) -> int |
             return _disarm_memory_environment(arguments)
         launch = _memory_launch(arguments)
         _require_root(arguments)
-        if arguments.config is None and _needs_network(arguments):
-            # Before any reachability check: an unset clock makes every HTTPS
-            # request fail, and the message would name the network instead.
-            _check_the_clock()
-            # The menu reads every version from the package site.
-            _require_network()
         if arguments.config is None:
             if arguments.missing_commands:
                 # Nothing to derive a layout from, so answer for the commands
@@ -439,6 +433,14 @@ def _once(arguments: argparse.Namespace, state: RunState, refused: str) -> int |
                     )
                 )
                 return EXIT_OK
+            if _unattended(arguments):
+                raise errors.PreflightFailed("an unattended run needs --config FILE")
+            if _needs_network(arguments):
+                # Before any reachability check: an unset clock makes every HTTPS
+                # request fail, and the message would name the network instead.
+                _check_the_clock()
+                # The menu reads every version from the package site.
+                _require_network()
             chosen = _from_menu(arguments, refused)
             if chosen is None:
                 print("cancelled", file=sys.stderr)
