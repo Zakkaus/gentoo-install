@@ -186,11 +186,25 @@ def in_a_table() -> set[str]:
     # half of it is translated: the trait names were not keys, so a Chinese
     # interface drew `root on ZFS excludes BIOS boot` in English in front of a
     # translated reason.
+    import ast
+
+    from gentoo_install.model import compat
     from gentoo_install.model.compat import RULES, Trait
 
     found |= {one.value for one in Trait}
     found |= {one.reason for one in RULES}
     found.add("{when} excludes {excludes}")
+    compat_path = compat.__file__
+    assert compat_path is not None
+    for call in ast.walk(ast.parse(Path(compat_path).read_text(encoding="utf-8"))):
+        if (
+            isinstance(call, ast.Call)
+            and getattr(call.func, "id", "") == "InputProblem"
+            and len(call.args) > 1
+            and isinstance(call.args[1], ast.Constant)
+            and isinstance(call.args[1].value, str)
+        ):
+            found.add(call.args[1].value)
     # The overview counts the operations per stage, and each stage name is
     # drawn: the whole line was English at the top of a translated screen.
     from gentoo_install.plan.operations import Stage
@@ -514,6 +528,8 @@ REVIEWED_TEMPLATES: frozenset[str] = frozenset(
         "point repository {} at {}",
         "point repository {} at {}, commit signatures verified",
         "run a script from {} and {} commands once, the first time the system boots",
+        "the remote unlock address {} is IPv{} and its gateway {} is IPv{}, so the initramfs has"
+        " no route",
         "set the console keymap to {} and its font to {}",
         "start a login on {} at {} baud",
         "stream the {} image {} onto {}",

@@ -789,16 +789,20 @@ def _user_problem(
 USER_NAME: Final[re.Pattern[str]] = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 
 
-#: One row of the mirror screen. The Gentoo rows come first and the overlay
-#: rows after, because a row of one repository between two rows of the other
-#: reads as though it belonged to it.
+def _compatibility_violations(config: InstallConfig) -> tuple[compat.Rule, ...]:
+    """The rules whose traits are knowable before an in-place layout is read."""
+    if config.disk.layout_is_read_from_the_machine:
+        return compat.violations_without_a_graph(config)
+    return compat.violations(config)
+
+
 def _common_violations(candidates: Sequence[InstallConfig]) -> set[compat.Rule]:
     """Rules every candidate breaks, which no choice on this screen can fix.
 
     Reporting them on each row disables the whole screen and points the
     operator at a setting that is not on it.
     """
-    broken = [set(compat.violations(one)) for one in candidates]
+    broken = [set(_compatibility_violations(one)) for one in candidates]
     return set.intersection(*broken) if broken else set()
 
 
@@ -816,7 +820,7 @@ def bootloader_screen(
     items: list[Item[Bootloader]] = []
     for kind in Bootloader:
         candidate = replace(config, bootloader=replace(config.bootloader, kind=kind))
-        broken = [one for one in compat.violations(candidate) if one not in shared]
+        broken = [one for one in _compatibility_violations(candidate) if one not in shared]
         items.append(
             Item(
                 label=kind.value,
@@ -1717,13 +1721,13 @@ def saved_config_screen(
 
 
 def _profile_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
-    """Only the profiles that match the chosen init, because the validator
-    refuses the other half and the operator should not be offered them."""
+    """Only the profiles that match the chosen init and stage3 this installer fetches."""
     choices = context.profile_paths or PROFILES
     wanted = [
         profile
         for profile in choices
         if ("systemd" in profile.split("/")) is (config.system.init is InitSystem.SYSTEMD)
+        and not compat.unserved_profile_problems(profile)
     ]
     # Without the part every row shares. The whole path is 44 cells and the
     # pane is narrower than that, so a row wrapped onto a second line and the
@@ -2446,62 +2450,87 @@ def address_screen(screen: Screen, config: InstallConfig, context: Context) -> A
                 system=replace(system, addresses=(), gateways=(), dns=()),
             ),
         )
-    form = Form(
-        title=translate("Static address"),
-        fields=[
+    address_fields: list[tuple[compat.NetworkField, Field]] = [
+        (
+            compat.NetworkField.SYSTEM_INTERFACE,
             Field(
                 label=translate("Interface"),
                 value=system.interface,
                 placeholder=translate("enp1s0, or empty for the first wired one"),
             ),
+        ),
+        (
+            compat.NetworkField.SYSTEM_IPV4,
             Field(
                 label=translate("IPv4"),
                 value=next((one for one in system.addresses if ":" not in one), ""),
                 placeholder="192.0.2.10/24",
             ),
+        ),
+        (
+            compat.NetworkField.SYSTEM_IPV4_GATEWAY,
             Field(
                 label=translate("IPv4 gateway"),
                 value=next((one for one in system.gateways if ":" not in one), ""),
                 placeholder="192.0.2.1",
             ),
+        ),
+        (
+            compat.NetworkField.SYSTEM_IPV6,
             Field(
                 label=translate("IPv6"),
                 value=next((one for one in system.addresses if ":" in one), ""),
                 placeholder="2001:db8::2/64",
             ),
+        ),
+        (
+            compat.NetworkField.SYSTEM_IPV6_GATEWAY,
             Field(
                 label=translate("IPv6 gateway"),
                 value=next((one for one in system.gateways if ":" in one), ""),
                 placeholder="fe80::1",
             ),
+        ),
+        (
+            compat.NetworkField.SYSTEM_DNS,
             Field(
                 label=translate("DNS"),
                 value=" ".join(system.dns),
                 placeholder=translate("separated by spaces"),
             ),
-        ],
+        ),
+    ]
+    positions = {name: index for index, (name, _) in enumerate(address_fields)}
+
+    def validated(values: list[str]) -> Answer[InstallConfig] | FormRejected:
+        interface = values[positions[compat.NetworkField.SYSTEM_INTERFACE]].strip()
+        four = values[positions[compat.NetworkField.SYSTEM_IPV4]].strip()
+        four_gateway = values[positions[compat.NetworkField.SYSTEM_IPV4_GATEWAY]].strip()
+        six = values[positions[compat.NetworkField.SYSTEM_IPV6]].strip()
+        six_gateway = values[positions[compat.NetworkField.SYSTEM_IPV6_GATEWAY]].strip()
+        resolvers = values[positions[compat.NetworkField.SYSTEM_DNS]].strip()
+        selected_system = replace(
+            system,
+            interface=interface,
+            addresses=tuple(one for one in (four, six) if one),
+            gateways=tuple(one for one in (four_gateway, six_gateway) if one),
+            dns=tuple(resolvers.split()),
+        )
+        problems = compat.system_network_problems(selected_system)
+        if problems:
+            problem = problems[0]
+            return FormRejected(
+                problem.describe(translate),
+                {positions[problem.field]: values[positions[problem.field]]},
+            )
+        return Answer(Outcome.CHOSE, replace(config, system=selected_system))
+
+    return Form(
+        title=translate("Static address"),
+        fields=[field for _, field in address_fields],
         footer=footer(translate),
         done=translate("Done"),
-    )
-    answer = form.run(screen)
-    if not answer.chosen:
-        return Answer(answer.outcome)
-    interface, four, four_gateway, six, six_gateway, resolvers = (
-        one.strip() for one in answer.unwrap()
-    )
-    return Answer(
-        Outcome.CHOSE,
-        replace(
-            config,
-            system=replace(
-                system,
-                interface=interface,
-                addresses=tuple(one for one in (four, six) if one),
-                gateways=tuple(one for one in (four_gateway, six_gateway) if one),
-                dns=tuple(resolvers.split()),
-            ),
-        ),
-    )
+    ).run_validated(screen, validated)
 
 
 def authorized_keys_screen(
@@ -2678,12 +2707,54 @@ def remote_unlock_screen(
             Outcome.CHOSE,
             replace(config, kernel=replace(config.kernel, remote_unlock=replace(unlock, enabled=False))),
         )
+    remote_unlock_fields: list[tuple[compat.NetworkField, Field]] = [
+        (
+            compat.NetworkField.REMOTE_UNLOCK_PORT,
+            Field(label=translate("Port"), value=str(unlock.port), placeholder="222"),
+        ),
+        (
+            compat.NetworkField.REMOTE_UNLOCK_ADDRESS,
+            Field(
+                label=translate("Address"),
+                value=unlock.address,
+                placeholder=translate("192.0.2.10/24, or empty for DHCP"),
+            ),
+        ),
+        (
+            compat.NetworkField.REMOTE_UNLOCK_GATEWAY,
+            Field(
+                label=translate("Gateway"),
+                value=unlock.gateway,
+                placeholder=translate("192.0.2.1, needed to answer off this subnet"),
+            ),
+        ),
+        (
+            compat.NetworkField.SYSTEM_INTERFACE,
+            Field(
+                label=translate("Interface"),
+                value=unlock.interface,
+                placeholder=translate("eth0, or empty for whichever comes up"),
+            ),
+        ),
+    ]
+    positions = {name: index for index, (name, _) in enumerate(remote_unlock_fields)}
+
     def validated(values: list[str]) -> Answer[InstallConfig] | FormRejected:
-        port, address, gateway, interface = (one.strip() for one in values)
-        if not port.isdigit():
+        port = values[positions[compat.NetworkField.REMOTE_UNLOCK_PORT]].strip()
+        address = values[positions[compat.NetworkField.REMOTE_UNLOCK_ADDRESS]].strip()
+        gateway = values[positions[compat.NetworkField.REMOTE_UNLOCK_GATEWAY]].strip()
+        interface = values[positions[compat.NetworkField.SYSTEM_INTERFACE]].strip()
+        problems = compat.remote_unlock_problems(
+            enabled=True,
+            port=port,
+            address=address,
+            gateway=gateway,
+        )
+        if problems:
+            problem = problems[0]
             return FormRejected(
-                translate("The port has to be a number."),
-                {0: port, 1: address, 2: gateway, 3: interface},
+                problem.describe(translate),
+                {positions[problem.field]: values[positions[problem.field]]},
             )
         return Answer(
             Outcome.CHOSE,
@@ -2705,24 +2776,7 @@ def remote_unlock_screen(
 
     return Form(
         title=translate("Remote unlock"),
-        fields=[
-            Field(label=translate("Port"), value=str(unlock.port), placeholder="222"),
-            Field(
-                label=translate("Address"),
-                value=unlock.address,
-                placeholder=translate("192.0.2.10/24, or empty for DHCP"),
-            ),
-            Field(
-                label=translate("Gateway"),
-                value=unlock.gateway,
-                placeholder=translate("192.0.2.1, needed to answer off this subnet"),
-            ),
-            Field(
-                label=translate("Interface"),
-                value=unlock.interface,
-                placeholder=translate("eth0, or empty for whichever comes up"),
-            ),
-        ],
+        fields=[field for _, field in remote_unlock_fields],
         footer=footer(translate),
         done=translate("Done"),
     ).run_validated(screen, validated)

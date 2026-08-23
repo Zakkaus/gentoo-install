@@ -12,6 +12,7 @@ from gentoo_install.model.compat import RULES, Trait, esp_mount, excluded_by, tr
 from gentoo_install.model.config import (
     Binhost,
     BinhostChannel,
+    DiskMode,
     Bootloader,
     BootloaderConfig,
     ConsoleFontSize,
@@ -117,6 +118,15 @@ def an_encrypted_esp() -> InstallConfig:
         Mountpoint(id=i("mnt-esp"), source=i("espfs"), path=PurePosixPath("/efi")),
     ]
     return config(nodes)
+
+
+def in_place_zfsbootmenu() -> InstallConfig:
+    installation = config()
+    return replace(
+        installation,
+        disk=replace(installation.disk, mode=DiskMode.IN_PLACE),
+        bootloader=replace(installation.bootloader, kind=Bootloader.ZFSBOOTMENU),
+    )
 
 
 def systemd_boot_on_bios() -> InstallConfig:
@@ -321,6 +331,7 @@ CASES: list[tuple[Callable[[], InstallConfig], Trait, Trait]] = [
     (community_binhost_without_its_overlay, Trait.COMMUNITY_BINHOST, Trait.NO_GENTOOZH_OVERLAY),
     (zfsbootmenu_without_its_overlay, Trait.ZFSBOOTMENU, Trait.NO_GENTOOZH_OVERLAY),
     (zfsbootmenu_without_a_pool, Trait.ZFSBOOTMENU, Trait.NO_ZFS_ROOT),
+    (in_place_zfsbootmenu, Trait.IN_PLACE_CONVERSION, Trait.ZFSBOOTMENU),
     (cjk_console_with_an_8x8_font, Trait.CONSOLE_CJK, Trait.FONT_WITHOUT_CJK_GLYPHS),
     (the_patched_kernel_without_its_overlay, Trait.CJK_KERNEL, Trait.NO_GENTOOZH_OVERLAY),
     (remote_unlock_without_a_key, Trait.REMOTE_UNLOCK, Trait.NO_AUTHORIZED_KEY),

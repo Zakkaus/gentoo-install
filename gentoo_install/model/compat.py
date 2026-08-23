@@ -9,11 +9,12 @@ once and read twice.
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from dataclasses import dataclass
-from typing import Callable, Final, Mapping
 from enum import Enum
 from pathlib import PurePosixPath
+from typing import Callable, Final, Mapping
 
 from .config import (
     BinhostChannel,
@@ -21,8 +22,11 @@ from .config import (
     Bootloader,
     ConsoleFontSize,
     Firmware,
+    InitSystem,
     InstallConfig,
     KernelSource,
+    Networking,
+    SystemConfig,
 )
 from .device import (
     DeviceGraph,
@@ -67,6 +71,233 @@ UNSERVED_PROFILES: Final[dict[str, str]] = {
     "llvm": "the llvm profile needs a stage3 built with that toolchain",
     "systemd-hardened": "hardened needs its own stage3 and toolchain, not a profile switch",
 }
+
+
+def unserved_profile_problems(profile: str) -> tuple[str, ...]:
+    """The stage3 requirements of profile path segments this installer cannot fetch."""
+    segments = set(profile.split("/"))
+    return tuple(
+        f"profile {profile} needs its own stage3: {reason}"
+        for segment, reason in sorted(UNSERVED_PROFILES.items())
+        if segment in segments
+    )
+
+
+class NetworkField(Enum):
+    """A form field whose entered network value cannot be used."""
+
+    SYSTEM_INTERFACE = "system interface"
+    SYSTEM_IPV4 = "system IPv4 address"
+    SYSTEM_IPV4_GATEWAY = "system IPv4 gateway"
+    SYSTEM_IPV6 = "system IPv6 address"
+    SYSTEM_IPV6_GATEWAY = "system IPv6 gateway"
+    SYSTEM_DNS = "system DNS"
+    REMOTE_UNLOCK_PORT = "remote unlock port"
+    REMOTE_UNLOCK_ADDRESS = "remote unlock address"
+    REMOTE_UNLOCK_GATEWAY = "remote unlock gateway"
+
+
+@dataclass(frozen=True)
+class InputProblem:
+    """One network value that a form and final validation must refuse."""
+
+    field: NetworkField
+    template: str
+    arguments: tuple[object, ...]
+
+    def describe(self, translate: Callable[[str], str] = str) -> str:
+        """The display sentence with source values placed into its template."""
+        return translate(self.template).format(*self.arguments)
+
+
+@dataclass(frozen=True)
+class _IPAddressFact:
+    literal: str
+    parsed: ipaddress.IPv4Address | ipaddress.IPv6Address | None
+
+
+@dataclass(frozen=True)
+class _IPInterfaceFact:
+    literal: str
+    parsed: ipaddress.IPv4Interface | ipaddress.IPv6Interface | None
+
+
+#: The values TCP accepts. The memory environment, proxy, and remote-unlock
+#: checks all use this one range so their lower and upper limits cannot drift.
+PORTS: Final[range] = range(1, 65536)
+
+
+def port_problem(what: str, port: int) -> str:
+    """The sentence to report when `port` is outside TCP's usable range."""
+    if port in PORTS:
+        return ""
+    return f"{what} must be between {PORTS.start} and {PORTS.stop - 1}"
+
+
+def system_network_problems(system: SystemConfig) -> tuple[InputProblem, ...]:
+    """Network values that leave a static system without usable name resolution or routing."""
+    addresses = tuple(_parse_ip_interface(one) for one in system.addresses)
+    gateways = tuple(_parse_ip_address(one) for one in system.gateways)
+    resolvers = tuple(_parse_ip_address(one) for one in system.dns)
+    problems: list[InputProblem] = []
+    for address in addresses:
+        if address.parsed is None:
+            problems.append(
+                InputProblem(
+                    _system_address_field(address.literal),
+                    "{!r} is not an address with a prefix length",
+                    (address.literal,),
+                )
+            )
+    for gateway in gateways:
+        if gateway.parsed is None:
+            problems.append(
+                InputProblem(
+                    _system_gateway_field(gateway.literal),
+                    "{!r} is not an address, so it is not a gateway",
+                    (gateway.literal,),
+                )
+            )
+    for resolver in resolvers:
+        if resolver.parsed is None:
+            problems.append(
+                InputProblem(
+                    NetworkField.SYSTEM_DNS,
+                    "{!r} is not an address, so it is not a resolver",
+                    (resolver.literal,),
+                )
+            )
+    if (
+        system.addresses
+        and system.init is InitSystem.OPENRC
+        and system.networking is Networking.BUILTIN
+        and not system.interface
+    ):
+        problems.append(
+            InputProblem(
+                NetworkField.SYSTEM_INTERFACE,
+                "system.interface must name the OpenRC interface when builtin networking uses "
+                "static addresses because netifrc has no wildcard match",
+                (),
+            )
+        )
+    if problems or not system.addresses:
+        return tuple(problems)
+    if not system.dns:
+        problems.append(
+            InputProblem(
+                NetworkField.SYSTEM_DNS,
+                "the addresses are static and no resolver is named, so the installed system "
+                "has an address and no way to resolve a name",
+                (),
+            )
+        )
+    for address in addresses:
+        if address.parsed is not None and not any(
+            gateway.parsed is not None and gateway.parsed.version == address.parsed.version
+            for gateway in gateways
+        ):
+            problems.append(
+                InputProblem(
+                    _system_gateway_field_for_version(address.parsed.version),
+                    "{} has no gateway of its own family, so it reaches nothing off "
+                    "its own subnet",
+                    (address.literal,),
+                )
+            )
+    return tuple(problems)
+
+
+def remote_unlock_problems(
+    *, enabled: bool, port: int | str, address: str, gateway: str
+) -> tuple[InputProblem, ...]:
+    """Network values that keep the initramfs ssh daemon from being reachable."""
+    address_fact = _parse_ip_interface(address) if address else _IPInterfaceFact("", None)
+    gateway_fact = _parse_ip_address(gateway) if gateway else _IPAddressFact("", None)
+    if not enabled:
+        return ()
+    if isinstance(port, str):
+        if not port.isdecimal():
+            return (
+                InputProblem(
+                    NetworkField.REMOTE_UNLOCK_PORT,
+                    "The port has to be a number.",
+                    (),
+                ),
+            )
+        number = int(port)
+    else:
+        number = port
+    problems: list[InputProblem] = []
+    if number not in PORTS:
+        problems.append(
+            InputProblem(
+                NetworkField.REMOTE_UNLOCK_PORT,
+                "the remote unlock port {} must be between 1 and 65535",
+                (number,),
+            )
+        )
+    if address_fact.literal and address_fact.parsed is None:
+        problems.append(
+            InputProblem(
+                NetworkField.REMOTE_UNLOCK_ADDRESS,
+                "the remote unlock address {!r} is not an address",
+                (address_fact.literal,),
+            )
+        )
+    if gateway_fact.literal and gateway_fact.parsed is None:
+        problems.append(
+            InputProblem(
+                NetworkField.REMOTE_UNLOCK_GATEWAY,
+                "the remote unlock gateway {!r} is not an address",
+                (gateway_fact.literal,),
+            )
+        )
+    if (
+        address_fact.parsed is not None
+        and gateway_fact.parsed is not None
+        and address_fact.parsed.version != gateway_fact.parsed.version
+    ):
+        problems.append(
+            InputProblem(
+                NetworkField.REMOTE_UNLOCK_GATEWAY,
+                "the remote unlock address {} is IPv{} and its gateway {} is IPv{}, so the "
+                "initramfs has no route",
+                (
+                    address,
+                    address_fact.parsed.version,
+                    gateway,
+                    gateway_fact.parsed.version,
+                ),
+            )
+        )
+    return tuple(problems)
+
+
+def _parse_ip_address(literal: str) -> _IPAddressFact:
+    try:
+        return _IPAddressFact(literal, ipaddress.ip_address(literal))
+    except ValueError:
+        return _IPAddressFact(literal, None)
+
+
+def _parse_ip_interface(literal: str) -> _IPInterfaceFact:
+    try:
+        return _IPInterfaceFact(literal, ipaddress.ip_interface(literal))
+    except ValueError:
+        return _IPInterfaceFact(literal, None)
+
+
+def _system_address_field(literal: str) -> NetworkField:
+    return NetworkField.SYSTEM_IPV6 if ":" in literal else NetworkField.SYSTEM_IPV4
+
+
+def _system_gateway_field(literal: str) -> NetworkField:
+    return NetworkField.SYSTEM_IPV6_GATEWAY if ":" in literal else NetworkField.SYSTEM_IPV4_GATEWAY
+
+
+def _system_gateway_field_for_version(version: int) -> NetworkField:
+    return NetworkField.SYSTEM_IPV6_GATEWAY if version == 6 else NetworkField.SYSTEM_IPV4_GATEWAY
 
 
 #: The package and traits of one kernel choice. `cjktty` is an ebuild
@@ -292,6 +523,7 @@ class Trait(Enum):
     FONT_WITHOUT_CJK_GLYPHS = "a console font other than 8x16"
     ROOT_LOCKED = "a root password hash that cannot authenticate"
     NO_OTHER_LOGIN = "no user password and no authorised ssh key usable by sshd"
+    IN_PLACE_CONVERSION = "in-place conversion"
 
 
 @dataclass(frozen=True)
@@ -340,6 +572,11 @@ RULES: tuple[Rule, ...] = (
         Trait.ZFSBOOTMENU,
         Trait.NO_ZFS_ROOT,
         "it imports a pool and boots a dataset from it, so it needs ZFS",
+    ),
+    Rule(
+        Trait.IN_PLACE_CONVERSION,
+        Trait.ZFSBOOTMENU,
+        "in-place conversion has no device graph that can describe a ZFS pool",
     ),
     Rule(
         Trait.UEFI_BOOT,
@@ -429,6 +666,8 @@ def traits_of(
     facts = storage_facts if storage_facts is not None else StorageFacts()
     found: set[Trait] = set()
 
+    if config.disk.mode is DiskMode.IN_PLACE:
+        found.add(Trait.IN_PLACE_CONVERSION)
     if not _password_can_authenticate(config.system.root_password_hash):
         found.add(Trait.ROOT_LOCKED)
         named = any(_password_can_authenticate(one.password_hash) for one in config.system.users)
