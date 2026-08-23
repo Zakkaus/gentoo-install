@@ -298,6 +298,8 @@ a tree afterwards. What the tree held was read before the campaign started.
 
 | `5a9b9f220e651` | `vm-luks` on a local UEFI guest, the first run with the bounded mount check | installed and booted, and `mounted its layout` here means what it says: the check derives each configured mountpoint and its filesystem type from the configuration rather than matching any line containing a slash. This row also carries the rerun-cleanup change in `ReleaseTarget` and the btrfs scratch mount, whose **re-entry** path is still unverified — an ordinary install exercises the release at its head, not a second attempt over a first one's leftovers. |
 
+| `a8dce6c253876` | eight local guests on `official-minimal a058ca1e178c63d1`, one per fixture: `ext4-bios`, `btrfs-luks`, `vm-btrfs`, `vm-xfs`, `ext2`, `vm-luks`, `openrc-sdboot`, `vm-zram` | every one installed, booted, mounted the layout its configuration describes and reached a running system with no failed unit. The set is the first full round after `PYTHONPATH` stopped reaching the commands the installer runs, and it spans the branches an install forks on: three openrc, two LUKS, two BIOS boots and six UEFI, one zram. **What this does not establish:** anything about the Gig-OS Live ISO or the cluster, since all eight ran on the official minimal image under local qemu. |
+
 **Rows recorded before `5a9b9f220e651` and saying `mounted its layout` overstate
 one of their checks.**
 `tests/vm/installed.py`'s `mounts` check expects the pattern `/` and is matched
