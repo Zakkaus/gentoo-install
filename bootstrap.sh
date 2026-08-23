@@ -243,7 +243,7 @@ if [ -n "$missing" ]; then
 	fi
 	# shellcheck disable=SC2086
 	if ! $manager$packages; then
-		say "that command failed, so nothing was installed"
+		say "that command failed; some packages may have been installed"
 		exit 1
 	fi
 	if ! missing=$(PYTHONPATH=$HERE "$python" -m gentoo_install --missing-commands "$@" 2>&1); then
