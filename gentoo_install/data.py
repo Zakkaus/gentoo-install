@@ -44,6 +44,17 @@ def load_catalog(root: Path | None = None) -> Catalog:
     return catalog
 
 
+def load_timezones(root: Path | None = None) -> frozenset[str]:
+    """Read the zone names the installed system is expected to recognise."""
+    base = root if root is not None else DATA
+    path = base / "timezones.txt"
+    try:
+        listed = path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise ConfigError(f"{path}: {error}") from error
+    return frozenset(("UTC", *(line for line in listed.split() if "/" in line)))
+
+
 def _load(path: Path) -> Group:
     raw = _compose(path)
     return Group(

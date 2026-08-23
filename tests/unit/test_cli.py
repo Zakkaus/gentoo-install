@@ -38,6 +38,29 @@ def test_a_dry_run_prints_every_stage_and_exits_clean(capsys: pytest.CaptureFixt
     assert "operations:" in printed.splitlines()[-1]
 
 
+def test_a_dry_run_refuses_an_unknown_shipped_value_before_network_access(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    configuration = tmp_path / "invalid-locale.toml"
+    configuration.write_text(
+        (FIXTURES / "btrfs-luks.toml")
+        .read_text(encoding="utf-8")
+        .replace('locale = "zh_TW.UTF-8"', 'locale = "zh_CH.UTF-8"'),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
+    monkeypatch.setattr(
+        cli,
+        "_check_the_clock",
+        lambda: pytest.fail("an invalid configuration checked the network clock"),
+    )
+
+    assert main(["--config", str(configuration), "--dry-run"]) == EXIT_CONFIG
+    assert "system.locale is 'zh_CH.UTF-8'" in capsys.readouterr().err
+
+
 def test_dd_dry_run_renders_its_only_operation_without_a_network(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

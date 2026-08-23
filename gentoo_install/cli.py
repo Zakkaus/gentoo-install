@@ -23,7 +23,7 @@ from typing import Callable, Final, Mapping, Sequence
 
 from . import errors
 from .errors import GentooInstallError, ResumeRefused
-from .data import load_catalog
+from .data import load_catalog, load_timezones
 from .exec import fetch, preflight, report
 from .exec.apply import Machine, already_degraded, apply, completed
 from .exec import probe as probe_module
@@ -61,7 +61,7 @@ from .model.config import (
 from .exec.config import load_source
 from .model import authorized
 from .model.serialise import to_toml
-from .model.validate import validate_memory_launch
+from .model.validate import validate, validate_memory_launch
 from .plan import convert, netboot
 from .plan.convert import SWAP_CONFIRMATION
 from .plan.build import (
@@ -464,6 +464,13 @@ def _once(arguments: argparse.Namespace, state: RunState, refused: str) -> int |
             config = chosen
         else:
             config = load_source(arguments.config)
+        if not arguments.missing_commands:
+            catalog = load_catalog()
+            validate(
+                config,
+                available_timezones=load_timezones(),
+                available_package_groups=catalog,
+            )
         if launch is not None:
             if arguments.config is not None and _needs_network(arguments):
                 _check_the_clock()
@@ -509,7 +516,7 @@ def _once(arguments: argparse.Namespace, state: RunState, refused: str) -> int |
             loader_v3 = reading.supports_v3()
         operations = build(
             config,
-            load_catalog(),
+            catalog,
             mirror=arguments.mirror,
             storage_facts=storage_facts,
             layout=layout,
