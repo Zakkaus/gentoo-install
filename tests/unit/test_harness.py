@@ -3913,9 +3913,12 @@ class _CdAppearsLate:
     def __init__(self, ready_after: int) -> None:
         self.ready_after = ready_after
         self.tries = 0
+        #: A double that discards what it was told to do cannot fail when the
+        #: caller stops doing it, so every command reaches this list.
+        self.ran: list[str] = []
 
     def run(self, command: str, timeout: float = 0.0) -> None:
-        return None
+        self.ran.append(command)
 
     def expect_command(self, command: str, timeout: float = 0.0) -> bytes:
         self.tries += 1
@@ -3938,6 +3941,14 @@ def test_the_driver_cd_is_waited_for_rather_than_asked_once(
     wait_for_driver(cast(Any, console))
 
     assert console.tries == 4, console.tries
+    # The mount itself, not only the probe: the fake used to discard what it
+    # was given, so deleting the mount left this test green on a guest that
+    # would never have had a driver CD.
+    from tests.vm.driver import FIND_DRIVER
+
+    assert console.ran, "the driver CD was never mounted"
+    assert all(one == FIND_DRIVER for one in console.ran), console.ran
+    assert len(console.ran) == console.tries, (console.ran, console.tries)
 
 
 def test_a_guest_that_never_sees_the_cd_says_so(
