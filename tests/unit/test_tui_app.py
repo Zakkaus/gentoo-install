@@ -826,16 +826,17 @@ def test_a_paste_needs_only_its_identifier() -> None:
 
 
 def test_choosing_the_traditional_catalog_moves_the_defaults_with_it() -> None:
-    """Locale and timezone follow the language. The mirror region does not: a
-    Taiwanese machine reading Chinese is not behind the Great Firewall and one
-    in China reading English is, so that answer comes from the egress."""
+    """The selected language supplies its locale, timezone, and mirror region."""
+    from gentoo_install.model.config import MirrorRegion
+
     taiwan = screens.with_language(config(), "zh-TW")
     assert taiwan.system.timezone == "Asia/Taipei"
     assert taiwan.system.locale == "zh_TW.UTF-8"
+    assert taiwan.portage.mirrors.region is MirrorRegion.GLOBAL
     china = screens.with_language(config(), "zh-CN")
     assert china.system.timezone == "Asia/Shanghai"
     assert china.system.locale == "zh_CN.UTF-8"
-    assert china.portage.mirrors.region is taiwan.portage.mirrors.region
+    assert china.portage.mirrors.region is MirrorRegion.CN
 
 
 def test_language_selector_translates_its_footer() -> None:
