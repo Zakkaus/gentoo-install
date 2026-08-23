@@ -410,8 +410,12 @@ with the screen behind it refusing to open, so the install could never start.
 
 greetd desktop sessions and ibus outside GNOME. Binary-host failure
 fallback left this list on `e16f57a39199d`: `vm-binhost-fallback` installed
-against a host whose index answers 404, recorded the degradation and finished
-from source.
+against a host whose index answered 404, recorded the degradation and finished
+from source. **It is back on this list as of `7f55e45a53102`**: the same host
+served packages that day, the run finished with nothing degraded, and the
+check added in `#996` reported it rather than recording an ordinary binary
+package install as coverage. A fixture whose failure is borrowed from the
+outside world stops measuring on a day nobody chooses.
 
 CJK text-console rendering is not covered either, and the `vm-cjk-kernel` row
 above does not cover it: that run establishes that the patched kernel merges,
