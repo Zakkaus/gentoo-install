@@ -1626,6 +1626,10 @@ def test_zero_cluster_capacity_returns_an_error_after_a_deadline(
         def nodes(self) -> list[Any]:
             return []
 
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            # The startup orphan report asks; an empty cluster has none.
+            return []
+
         def remove_iso(self, node: str, name: str) -> str:
             return ""
 
@@ -1701,6 +1705,9 @@ def test_reconcile_removes_only_an_expired_locally_leased_guest(
             return [("node", 9300), ("node", 9301), ("node", 9302)]
 
         def call(self, method: str, path: str, **form: Any) -> Any:
+            if path.startswith("/cluster/resources"):
+                # The startup orphan report asks; this world has no leftovers.
+                return []
             vmid = int(path.split("/qemu/", 1)[1].split("/", 1)[0])
             if path.endswith("/config"):
                 if self.absent:

@@ -20,7 +20,7 @@ from tests.vm import cluster
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 from tests.vm.console import ConsoleTimeout, SerialConsole, command_done
-from tests.vm.proxmox import Api, Node, ProxmoxNotFound, VMID_FIRST, VMID_LAST
+from tests.vm.proxmox import Api, Node, ProxmoxError, ProxmoxNotFound, VMID_FIRST, VMID_LAST
 
 
 class WorkerFailure(Exception):
@@ -73,6 +73,9 @@ class FakeApi:
             vmid = int(form["vmid"])
             self.created[vmid] = str(form["tags"])
             return "UPID:create"
+        if path.startswith("/cluster/resources"):
+            # The startup orphan report asks; this world has no leftovers.
+            return []
         vmid = int(path.split("/qemu/", 1)[1].split("/", 1)[0])
         if vmid not in self.created:
             raise ProxmoxNotFound(f"VM {vmid} does not exist")
@@ -3987,3 +3990,45 @@ def test_the_probe_records_what_the_lookups_were_asked_with() -> None:
     # Absent is an answer too. A guest with no resolver file at all is the
     # case the lookups cannot distinguish from a resolver that says nothing.
     assert probe.count("printf 'absent'") >= 2, probe
+
+
+def test_a_campaign_names_the_guests_an_earlier_one_left_behind() -> None:
+    """Eight stopped guests held 202 GiB of a 234 GiB pool on 2026-08-24,
+    left by campaigns whose process was killed before their cleanup ran. The
+    next campaign has to say so: nothing else in the run's output distinguishes
+    a pool that is nearly full from one that is filling up."""
+
+    class Listing:
+        def __init__(self, answer: object) -> None:
+            self.answer = answer
+
+        def call(self, method: str, path: str, **form: object) -> object:
+            assert method == "GET" and path.startswith("/cluster/resources")
+            if isinstance(self.answer, Exception):
+                raise self.answer
+            return self.answer
+
+    left = [
+        {"vmid": 9301, "node": "infra-node3", "name": "gi-s1", "status": "stopped",
+         "maxdisk": 40 * 2**30},
+        {"vmid": 9306, "node": "infra-node6", "name": "gi-s8", "status": "stopped",
+         "maxdisk": 40 * 2**30},
+    ]
+    running = {"vmid": 9303, "node": "infra-node1", "name": "gi-static-ip",
+               "status": "running", "maxdisk": 40 * 2**30}
+    # Deliberate infrastructure, and stopped: a leftover sweep that names it
+    # sends somebody to delete the thing the resolvers fall back to.
+    resolver = {"vmid": 9390, "node": "infra-node4", "name": "gi-resolver",
+                "status": "stopped", "maxdisk": 2 * 2**30}
+    others = {"vmid": 120, "node": "infra-node2", "name": "somebody-elses",
+              "status": "stopped", "maxdisk": 100 * 2**30}
+
+    said = cluster.orphan_report(cast(Any, Listing([*left, running, resolver, others])))
+    assert len(said) == 1, said
+    assert "2 stopped guest" in said[0] and "80 GiB" in said[0], said[0]
+    assert "9301 on infra-node3" in said[0] and "9306 on infra-node6" in said[0], said[0]
+    for absent in ("gi-static-ip", "9303", "9390", "120"):
+        assert absent not in said[0], (absent, said[0])
+
+    assert cluster.orphan_report(cast(Any, Listing([running, resolver]))) == []
+    assert cluster.orphan_report(cast(Any, Listing(ProxmoxError("no answer")))) == []
