@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import os
+import signal
+import subprocess
 
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
@@ -190,6 +192,51 @@ def test_a_pipeline_keeps_binary_bytes_out_of_python(tmp_path: Path) -> None:
 def test_a_pipeline_source_failure_is_not_hidden_by_dd_success(tmp_path: Path) -> None:
     with pytest.raises(CommandFailed, match="exit 7"):
         runner(tmp_path).pipe(["sh", "-c", "exit 7"], ["cat"])
+
+
+def test_a_pipeline_cleans_the_source_when_the_sink_cannot_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from io import StringIO
+
+    from gentoo_install.exec import runner as exec_runner
+
+    class Source:
+        def __init__(self) -> None:
+            self.pid = 0
+            self.stdout = StringIO()
+            self.waited = False
+
+        def poll(self) -> int | None:
+            return None
+
+        def wait(self) -> int:
+            self.waited = True
+            return -signal.SIGKILL
+
+    source = Source()
+    killed: list[object] = []
+    launches = 0
+
+    def launch(*args: object, **kwargs: object) -> Source:
+        nonlocal launches
+        launches += 1
+        if launches == 1:
+            return source
+        raise PermissionError("sink is not executable")
+
+    def remember_kill(process: object) -> None:
+        killed.append(process)
+
+    monkeypatch.setattr(subprocess, "Popen", launch)
+    monkeypatch.setattr(exec_runner, "_kill_group", remember_kill)
+
+    with pytest.raises(PermissionError, match="not executable"):
+        runner(tmp_path).pipe(["source"], ["sink"])
+
+    assert killed == [source]
+    assert source.stdout.closed
+    assert source.waited
 
 
 def test_a_failure_can_be_asked_for_rather_than_raised(tmp_path: Path) -> None:

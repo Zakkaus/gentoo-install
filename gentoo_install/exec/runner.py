@@ -104,7 +104,7 @@ class Runner:
         self.history.append(result)
         if self.journal is not None:
             self.journal.command(_display_argv(result.argv), result.returncode, result.seconds)
-            if "emerge" in full and not _pretending(full):
+            if result.returncode == 0 and "emerge" in full and not _pretending(full):
                 self.journal.packages(result.stdout)
         if check and result.returncode != 0:
             raise CommandFailed(
@@ -149,10 +149,14 @@ class Runner:
                 env=self._environment(),
                 start_new_session=True,
             )
-        except FileNotFoundError as error:
+        except OSError as error:
+            if source_process.stdout is not None:
+                source_process.stdout.close()
             _kill_group(source_process)
             source_process.wait()
-            raise CommandFailed(f"{sink[0]} is not installed") from error
+            if isinstance(error, FileNotFoundError):
+                raise CommandFailed(f"{sink[0]} is not installed") from error
+            raise
         if source_process.stdout is not None:
             source_process.stdout.close()
         source_lines: list[str] = []

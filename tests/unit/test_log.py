@@ -4,6 +4,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
+from gentoo_install.errors import CommandFailed
 from gentoo_install.exec.runner import Runner
 from gentoo_install.log import Journal, Source, merged
 
@@ -102,4 +105,14 @@ def test_a_pretend_is_not_a_merge(tmp_path: Path) -> None:
     # recorded, so this is a rule about the flag rather than about `sh`.
     runner.run(["sh", "-c", "cat", "emerge", "--verbose"], input_text=EMERGE_OUTPUT)
     assert journal.counts() == {"binary": 2, "compiled": 1}, journal.counts()
+
+
+def test_a_failed_emerge_does_not_record_packages(tmp_path: Path) -> None:
+    journal = Journal(path=tmp_path / "install.jsonl")
+    runner = Runner(log=lambda line: None, journal=journal)
+
+    with pytest.raises(CommandFailed):
+        runner.run(["sh", "-c", "cat; exit 1", "emerge"], input_text=EMERGE_OUTPUT)
+
+    assert journal.counts() == {}, journal.counts()
 
