@@ -337,10 +337,14 @@ from the disk it had written and read out on its own console. Revision
 |---|---|---|
 | 5 | the whole disk, xfs root, 4 GiB swap | `/dev/vda3 xfs /`, host `lab5`, `LANG=zh_TW.UTF-8`, `systemctl is-system-running` answered `running`, no failed unit, 10.272s to userspace |
 | 6 | partition by hand: 512 MiB EFI, 20 GiB ext4 root | `/dev/vda2 ext4 /`, host `lab6`, `LANG=zh_TW.UTF-8`, `running`, no failed unit, 11.562s |
+| 7 | two disks, root on ZFS across both, ZFSBootMenu | `rpool/ROOT/gentoo zfs /`, the pool `ONLINE` with both members, host `lab7`, `running`; 74 operations, 28 packages from a binary host and 24 compiled |
+| 9 | the whole disk on btrfs, KDE Plasma | `/dev/vda2[/@] btrfs /`, host `lab9`, `LANG=zh_TW.UTF-8`, `running`, no failed unit, 14.528s; 350 packages from a binary host and 43 compiled |
 
-Specs 2 and 9 installed in the same round and are not counted here: spec 2's
-root is a cryptodisk and its passphrase prompt has no record yet, and spec 9
-was still compiling its desktop.
+Spec 2 installed in the same round and is not counted here: its root is a
+cryptodisk and the passphrase prompt at boot has no record yet. Spec 8 built a
+BIOS and OpenRC machine that reached runlevel 3 with every service `[ ok ]`,
+which the check could not read back until `_open_a_serial_login` stopped
+counting Gentoo's commented inittab entries as a login.
 
 Three defects in the interface were found by the same round and are fixed:
 a refused public key quoted what it had read, a timezone chosen after going
