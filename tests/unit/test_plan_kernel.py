@@ -3,12 +3,16 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
+from typing import Sequence
 
 import pytest
 
+from gentoo_install.data import load_catalog
 from gentoo_install.exec.config import load
 from gentoo_install.model.config import InstallConfig, KernelSource
+from gentoo_install.model.hardware import CpuVendor, HardwareFacts
 from gentoo_install.plan import bootloader, kernel
+from gentoo_install.plan.build import build as build_plan
 from gentoo_install.plan.portage import (
     BINPKG_EXCLUDED,
     BINPKG_OPTIONS,
@@ -21,6 +25,71 @@ from gentoo_install.errors import ValidationFailed
 from gentoo_install.model.validate import KernelCeiling
 
 from .recorder import Recorder
+from .layouts import config
+from gentoo_install.plan.operations import Stage
+
+
+def test_physical_intel_gets_microcode_before_its_kernel_merges() -> None:
+    """The package needs testing, licence, and USE configuration before it
+    enters the kernel transaction."""
+    operations = build_plan(
+        config(),
+        load_catalog(),
+        hardware=HardwareFacts(cpu_vendor=CpuVendor.INTEL, virtual_machine=False),
+    )
+    configured = next(
+        operation for operation in operations if isinstance(operation, kernel.ConfigureIntelMicrocode)
+    )
+    merged = next(
+        operation
+        for operation in operations
+        if isinstance(operation, Emerge) and kernel.INTEL_MICROCODE in operation.packages
+    )
+
+    def iuse(argv: Sequence[str]) -> str | None:
+        if tuple(argv[:4]) == ("portageq", "metadata", "/", "ebuild") and argv[-1] == "IUSE":
+            return "+dist-kernel +initramfs"
+        return None
+
+    recorder = Recorder(answering=iuse)
+    configured.apply(recorder)
+
+    assert configured.stage is Stage.PORTAGE
+    assert operations.index(configured) < operations.index(merged)
+    assert merged.packages[-1] == kernel.INTEL_MICROCODE
+    assert merged.summary == "install the kernel and Intel microcode"
+    assert recorder.files[PurePosixPath("/etc/portage/package.use/intel-microcode")] == (
+        f"{kernel.INTEL_MICROCODE} dist-kernel initramfs\n"
+    )
+    assert recorder.files[PurePosixPath("/etc/portage/package.accept_keywords/intel-microcode")] == (
+        f"{kernel.INTEL_MICROCODE} ~amd64\n"
+    )
+    assert recorder.files[PurePosixPath("/etc/portage/package.license/intel-microcode")] == (
+        f"{kernel.INTEL_MICROCODE} intel-ucode\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "hardware",
+    (
+        HardwareFacts(cpu_vendor=CpuVendor.AMD, virtual_machine=False),
+        HardwareFacts(cpu_vendor=CpuVendor.INTEL, virtual_machine=True),
+        HardwareFacts(cpu_vendor=CpuVendor.INTEL, virtual_machine=None),
+        HardwareFacts(),
+    ),
+)
+def test_only_a_confirmed_physical_intel_needs_the_intel_microcode_package(
+    hardware: HardwareFacts,
+) -> None:
+    operations = kernel.build(config(), hardware)
+
+    assert not any(
+        isinstance(operation, kernel.ConfigureIntelMicrocode) for operation in operations
+    )
+    assert not any(
+        isinstance(operation, Emerge) and kernel.INTEL_MICROCODE in operation.packages
+        for operation in operations
+    )
 
 
 def test_no_dracut_config_this_installer_writes_is_a_file_a_package_owns() -> None:

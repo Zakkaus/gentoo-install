@@ -16,6 +16,7 @@ from ..model.config import Bootloader, InitSystem, InstallConfig, KernelSource
 from ..errors import ConfigError, ConversionUnsupported, NothingToBoot, ValidationFailed
 from ..model import compat
 from ..model.compat import CJK_KERNELS, KERNEL_PACKAGES
+from ..model.hardware import HardwareFacts
 from ..model.validate import zfs_kernel_version_problem
 from ..model.device import (
     DeviceId,
@@ -348,6 +349,39 @@ class AcceptFirmwareLicence(Operation):
             lines=("sys-kernel/linux-firmware linux-fw-redistributable no-source-code",),
         ).apply(context)
 
+INTEL_MICROCODE: Final[str] = "sys-firmware/intel-microcode"
+
+
+@dataclass(frozen=True, kw_only=True)
+class ConfigureIntelMicrocode(Operation):
+    """Enable Intel microcode and its dist-kernel initramfs integration."""
+
+    stage: Stage = Stage.KERNEL
+
+    def describe(self) -> str:
+        return (
+            f"accept {INTEL_MICROCODE} as testing, enable its dist-kernel initramfs hooks, "
+            "and accept its licence"
+        )
+
+    def apply(self, context: Context) -> None:
+        VerifyPackageUse(atom=INTEL_MICROCODE, flags=("dist-kernel", "initramfs")).apply(context)
+        WritePortageConfig(
+            kind=PortageConfigKind.USE,
+            name="intel-microcode",
+            lines=(f"{INTEL_MICROCODE} dist-kernel initramfs",),
+        ).apply(context)
+        WritePortageConfig(
+            kind=PortageConfigKind.KEYWORDS,
+            name="intel-microcode",
+            lines=(f"{INTEL_MICROCODE} ~amd64",),
+        ).apply(context)
+        WritePortageConfig(
+            kind=PortageConfigKind.LICENSE,
+            name="intel-microcode",
+            lines=(f"{INTEL_MICROCODE} intel-ucode",),
+        ).apply(context)
+
 
 @dataclass(frozen=True, kw_only=True)
 class ConfigureRemoteUnlock(Operation):
@@ -581,7 +615,7 @@ class RequestDistKernelModules(Operation):
         ).apply(context)
 
 
-def build(config: InstallConfig) -> list[Operation]:
+def build(config: InstallConfig, hardware: HardwareFacts = HardwareFacts()) -> list[Operation]:
     # The graph is empty until `plan/convert.layout_graph()` reads the machine,
     # and every filesystem module and package here is derived from it: planning
     # from the placeholder produces a system with no tools for its own root.
@@ -643,6 +677,8 @@ def build(config: InstallConfig) -> list[Operation]:
             summary="install the initramfs builder and firmware",
         ),
     ]
+    if hardware.needs_intel_microcode:
+        operations.append(ConfigureIntelMicrocode())
     flagged = storage_use(modules)
     if flagged:
         operations.insert(0, RequestStorageUse(entries=flagged))
@@ -651,6 +687,7 @@ def build(config: InstallConfig) -> list[Operation]:
     # `=atom-version` rather than a range: the operator chose one version off a
     # list this machine read, so anything else is not what they picked.
     atom = f"={package}-{version}" if version else package
+    microcode = (INTEL_MICROCODE,) if hardware.needs_intel_microcode else ()
     if version:
         operations.append(AcceptKernelVersion(package=package, version=version))
     if config.kernel.remote_unlock.enabled:
@@ -723,8 +760,12 @@ def build(config: InstallConfig) -> list[Operation]:
         operations.append(
             Emerge(
                 stage=Stage.KERNEL,
-                packages=(atom, *sorted(building)),
-                summary="install the kernel and the tools that build a module for it",
+                packages=(atom, *sorted(building), *microcode),
+                summary=(
+                    "install the kernel, Intel microcode, and the tools that build a module for it"
+                    if microcode
+                    else "install the kernel and the tools that build a module for it"
+                ),
                 source=(
                     SourcePolicy.build_subset(tuple(sorted(building)))
                     if prebuilt
@@ -736,8 +777,8 @@ def build(config: InstallConfig) -> list[Operation]:
         operations.append(
             Emerge(
                 stage=Stage.KERNEL,
-                packages=(atom,),
-                summary="install the kernel",
+                packages=(atom, *microcode),
+                summary="install the kernel and Intel microcode" if microcode else "install the kernel",
                 source=(
                     SourcePolicy.binaries_allowed()
                     if prebuilt

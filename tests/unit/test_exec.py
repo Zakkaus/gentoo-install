@@ -22,12 +22,14 @@ from gentoo_install.errors import (
     PreflightFailed,
 )
 from gentoo_install.exec import apply, fetch, preflight, report as exec_report
+from gentoo_install.exec import probe as probe_module
 from gentoo_install.exec.config import load
 from gentoo_install.log import Journal
 from gentoo_install.exec.probe import Machine as ProbedMachine
 from gentoo_install.exec.probe import Probe, probe_storage_facts
 from gentoo_install.exec.runner import Result, Runner, under
 from gentoo_install.model.config import Bootloader, BootloaderConfig, DiskMode, Firmware, InstallConfig
+from gentoo_install.model.hardware import CpuVendor
 from gentoo_install.model.device import DeviceId, Existing, Luks, Node
 from gentoo_install.model.size import Size
 from gentoo_install.plan.operations import CommandOutput
@@ -1335,6 +1337,40 @@ def test_a_cpu_flag_is_renamed_and_never_swapped_for_another(tmp_path: Path) -> 
     # One kernel name per portage name: two keys sharing a value is a swap.
     values = [portage for portage in CPU_FLAGS.values()]
     assert len(values) == len(set(values))
+
+
+@pytest.mark.parametrize(
+    ("returncode", "virtual_machine"),
+    ((0, True), (1, False), (127, None)),
+)
+def test_hardware_facts_read_cpu_vendor_and_virtualization(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    returncode: int,
+    virtual_machine: bool | None,
+) -> None:
+    cpuinfo = tmp_path / "cpuinfo"
+    cpuinfo.write_text("vendor_id : GenuineIntel\n", encoding="utf-8")
+    monkeypatch.setattr(probe_module, "CPUINFO", cpuinfo)
+    probed = Probe(runner=runner(tmp_path), work=tmp_path)
+
+    def detect(
+        argv: Sequence[str],
+        *,
+        check: bool = True,
+        input_text: str | None = None,
+        timeout: float | None = None,
+    ) -> Result:
+        assert argv == ["systemd-detect-virt", "--quiet"]
+        assert check is False
+        assert input_text is None and timeout is None
+        return Result(tuple(argv), returncode, "", "", 0.0)
+
+    monkeypatch.setattr(probed.runner, "run", detect)
+    facts = probed.hardware()
+
+    assert facts.cpu_vendor is CpuVendor.INTEL
+    assert facts.virtual_machine is virtual_machine
 
 
 def test_every_request_names_the_installer(monkeypatch: pytest.MonkeyPatch) -> None:
