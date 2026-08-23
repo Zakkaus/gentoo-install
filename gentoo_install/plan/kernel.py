@@ -682,7 +682,7 @@ def build(config: InstallConfig, hardware: HardwareFacts = HardwareFacts()) -> l
     flagged = storage_use(modules)
     if flagged:
         operations.insert(0, RequestStorageUse(entries=flagged))
-    package = config.kernel.package or KERNEL_PACKAGES[config.kernel.source]
+    package = config.kernel.package or KERNEL_PACKAGES[config.kernel.source].atom
     version = config.kernel.version
     # `=atom-version` rather than a range: the operator chose one version off a
     # list this machine read, so anything else is not what they picked.

@@ -901,7 +901,7 @@ def kernel_version_screen(
     instead; either way a testing version is accepted for that atom alone.
     """
     translate = context.translate
-    package = config.kernel.package or KERNEL_PACKAGES[config.kernel.source]
+    package = config.kernel.package or KERNEL_PACKAGES[config.kernel.source].atom
     ceiling = context.zfs_kernel_max if config.disk.graph.of_type(ZfsPool) else ""
     offered = _within(_while_reading(screen, context, package), ceiling)
     if not offered:
@@ -1030,7 +1030,7 @@ def kernel_screen(screen: Screen, config: InstallConfig, context: Context) -> An
         items=[
             # The package name, not the enum value: `dist-bin` says nothing
             # about which kernel is about to be installed.
-            Item(label=KERNEL_PACKAGES[source], value=source, detail=translate(reason))
+            Item(label=KERNEL_PACKAGES[source].atom, value=source, detail=translate(reason))
             for source, reason in KERNELS
         ],
         footer=footer(translate),

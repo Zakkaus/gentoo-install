@@ -286,7 +286,7 @@ def _cron(config: InstallConfig, context: Context) -> str:
 
 
 def _kernel(config: InstallConfig, context: Context) -> str:
-    return config.kernel.package or KERNEL_PACKAGES[config.kernel.source]
+    return config.kernel.package or KERNEL_PACKAGES[config.kernel.source].atom
 
 
 def _cpu_flags(config: InstallConfig, context: Context) -> str:

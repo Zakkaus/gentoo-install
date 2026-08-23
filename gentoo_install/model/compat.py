@@ -69,26 +69,47 @@ UNSERVED_PROFILES: Final[dict[str, str]] = {
 }
 
 
+#: The package and traits of one kernel choice. `cjktty` is an ebuild
+#: property, not one an atom name can safely encode.
+@dataclass(frozen=True, kw_only=True)
+class KernelPackage:
+    """A kernel atom and the traits its ebuild carries."""
+
+    atom: str
+    applies_cjktty: bool
+    cjk_use_defaults_on: bool
+
+
 #: The package that provides each kernel choice. Here rather than in `plan/`
 #: because `traits_of` reads it and `model` is not allowed to call upward;
 #: `plan.kernel` imports this one.
-KERNEL_PACKAGES: Final[dict[KernelSource, str]] = {
-    KernelSource.DIST_BIN: "sys-kernel/gentoo-kernel-bin",
-    KernelSource.DIST_SOURCE: "sys-kernel/gentoo-kernel",
-    KernelSource.CJK_BIN: "sys-kernel/gentoo-cjk-kernel-bin",
-    KernelSource.CJK: "sys-kernel/gentoo-cjk-kernel",
+KERNEL_PACKAGES: Final[dict[KernelSource, KernelPackage]] = {
+    KernelSource.DIST_BIN: KernelPackage(
+        atom="sys-kernel/gentoo-kernel-bin",
+        applies_cjktty=False,
+        cjk_use_defaults_on=False,
+    ),
+    KernelSource.DIST_SOURCE: KernelPackage(
+        atom="sys-kernel/gentoo-kernel",
+        applies_cjktty=False,
+        cjk_use_defaults_on=False,
+    ),
+    KernelSource.CJK_BIN: KernelPackage(
+        atom="sys-kernel/gentoo-cjk-kernel-bin",
+        applies_cjktty=True,
+        cjk_use_defaults_on=True,
+    ),
+    KernelSource.CJK: KernelPackage(
+        atom="sys-kernel/gentoo-cjk-kernel",
+        applies_cjktty=True,
+        cjk_use_defaults_on=True,
+    ),
 }
 
-#: What names a cjktty package, and the only thing that decides whether a
-#: kernel choice is one. `sys-kernel/gentoo-cjk-kernel` and its `-bin` are
-#: what the gentoo-zh overlay carries today.
-CJK_PACKAGE_MARK: Final[str] = "cjk-kernel"
 
-def cjk_kernels(packages: Mapping[KernelSource, str]) -> tuple[KernelSource, ...]:
-    """The choices in that table whose package carries the cjktty patch."""
-    return tuple(
-        source for source, package in packages.items() if CJK_PACKAGE_MARK in package
-    )
+def cjk_kernels(packages: Mapping[KernelSource, KernelPackage]) -> tuple[KernelSource, ...]:
+    """The choices in that table whose ebuild applies the cjktty patch."""
+    return tuple(source for source, package in packages.items() if package.applies_cjktty)
 
 
 #: The kernel choices patched with cjktty. Read out of the table above rather
@@ -97,7 +118,7 @@ def cjk_kernels(packages: Mapping[KernelSource, str]) -> tuple[KernelSource, ...
 #: while the comment said it could not.
 CJK_KERNELS: Final[tuple[KernelSource, ...]] = cjk_kernels(KERNEL_PACKAGES)
 _CJK_KERNEL_PACKAGES: Final[frozenset[str]] = frozenset(
-    KERNEL_PACKAGES[source] for source in CJK_KERNELS
+    KERNEL_PACKAGES[source].atom for source in CJK_KERNELS
 )
 
 
@@ -514,7 +535,7 @@ def traits_of(
             and _encrypted_pool(graph, config.disk.root)
         ):
             found.add(Trait.NATIVE_ZFS_SYSTEM_INITRAMFS)
-    package = config.kernel.package or KERNEL_PACKAGES[config.kernel.source]
+    package = config.kernel.package or KERNEL_PACKAGES[config.kernel.source].atom
     package_name = package.lstrip("=<>~!").split(":", 1)[0]
     package_name = re.sub(r"-r\d+$", "", package_name)
     package_name = re.sub(r"-\d[\w.]*$", "", package_name)

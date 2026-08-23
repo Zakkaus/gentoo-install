@@ -333,6 +333,31 @@ CASES: list[tuple[Callable[[], InstallConfig], Trait, Trait]] = [
     ),
 ]
 
+KERNEL_CASES: list[tuple[KernelSource, Trait, Trait]] = [
+    (KernelSource.DIST_BIN, Trait.CONSOLE_CJK, Trait.KERNEL_WITHOUT_CJKTTY),
+    (KernelSource.DIST_SOURCE, Trait.CONSOLE_CJK, Trait.KERNEL_WITHOUT_CJKTTY),
+    (KernelSource.CJK_BIN, Trait.CJK_KERNEL, Trait.NO_GENTOOZH_OVERLAY),
+    (KernelSource.CJK, Trait.CJK_KERNEL, Trait.NO_GENTOOZH_OVERLAY),
+]
+
+
+@pytest.mark.parametrize(("source", "when", "excludes"), KERNEL_CASES)
+def test_each_kernel_package_breaks_its_declared_compatibility_rule(
+    source: KernelSource, when: Trait, excludes: Trait
+) -> None:
+    installation = replace(
+        config(),
+        kernel=KernelConfig(source=source),
+        system=SystemConfig(console_cjk=when is Trait.CONSOLE_CJK),
+    )
+    assert (when, excludes) in {
+        (rule.when, rule.excludes) for rule in violations(installation)
+    }
+
+
+def test_kernel_cases_cover_the_package_table() -> None:
+    assert {source for source, _, _ in KERNEL_CASES} == set(compat.KERNEL_PACKAGES)
+
 
 @pytest.mark.parametrize(("build", "when", "excludes"), CASES)
 def test_each_rule_fires_on_a_configuration_that_breaks_it(
@@ -889,7 +914,7 @@ def test_the_kernel_package_table_is_the_only_one() -> None:
 
     # Derived rather than listed: the cjk set has to move when the table does.
     assert compat._CJK_KERNEL_PACKAGES == {
-        compat.KERNEL_PACKAGES[source] for source in compat.CJK_KERNELS
+        compat.KERNEL_PACKAGES[source].atom for source in compat.CJK_KERNELS
     }
 
     # No second table anywhere: a dict whose keys are every KernelSource member

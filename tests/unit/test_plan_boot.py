@@ -710,7 +710,10 @@ def test_the_prebuilt_patched_kernel_is_the_one_a_chinese_interface_takes() -> N
     from gentoo_install.model.config import KernelSource
     from gentoo_install.model.compat import CJK_KERNELS, KERNEL_PACKAGES
 
-    assert KERNEL_PACKAGES[KernelSource.CJK_BIN] == "sys-kernel/gentoo-cjk-kernel-bin"
+    prebuilt = KERNEL_PACKAGES[KernelSource.CJK_BIN]
+    assert prebuilt.atom == "sys-kernel/gentoo-cjk-kernel-bin"
+    assert prebuilt.applies_cjktty
+    assert prebuilt.cjk_use_defaults_on
     assert set(CJK_KERNELS) == {KernelSource.CJK_BIN, KernelSource.CJK}
     assert set(KERNEL_PACKAGES) == set(KernelSource)
 
@@ -723,22 +726,23 @@ def test_the_prebuilt_patched_kernel_is_the_one_a_chinese_interface_takes() -> N
 
 
 def test_a_cjk_kernel_choice_is_read_out_of_the_package_table() -> None:
-    """`CJK_KERNELS` was a second list of the same two names under a comment
-    saying it was derived. A renamed or added cjktty package would have left
-    it stale, and the comment said that could not happen.
-    """
-    from gentoo_install.model.compat import CJK_PACKAGE_MARK, cjk_kernels
+    """`CJK_KERNELS` is derived from the ebuild trait, not the atom name."""
+    from gentoo_install.model.compat import KernelPackage, cjk_kernels
 
-    # The rule, against a table this repository does not ship: whichever
-    # choice names a cjktty package is the cjk choice, whatever it is called.
     assert cjk_kernels(
         {
-            KernelSource.DIST_BIN: "sys-kernel/gentoo-cjk-kernel-rt",
-            KernelSource.DIST_SOURCE: "sys-kernel/gentoo-kernel",
+            KernelSource.DIST_BIN: KernelPackage(
+                atom="sys-kernel/latency-kernel",
+                applies_cjktty=True,
+                cjk_use_defaults_on=False,
+            ),
+            KernelSource.DIST_SOURCE: KernelPackage(
+                atom="sys-kernel/gentoo-kernel",
+                applies_cjktty=False,
+                cjk_use_defaults_on=False,
+            ),
         }
     ) == (KernelSource.DIST_BIN,)
-    assert cjk_kernels({KernelSource.DIST_BIN: "sys-kernel/gentoo-kernel-bin"}) == ()
-    assert CJK_PACKAGE_MARK not in "sys-kernel/gentoo-kernel-bin"
 
 
 def test_the_prebuilt_patched_kernel_sits_beside_the_source_one() -> None:
@@ -746,7 +750,7 @@ def test_the_prebuilt_patched_kernel_sits_beside_the_source_one() -> None:
     same `+cjk` flag, same `virtual/dist-kernel`, nothing to compile."""
     from gentoo_install.model.compat import CJK_KERNELS, KERNEL_PACKAGES
 
-    assert KERNEL_PACKAGES[KernelSource.CJK_BIN] == "sys-kernel/gentoo-cjk-kernel-bin"
+    assert KERNEL_PACKAGES[KernelSource.CJK_BIN].atom == "sys-kernel/gentoo-cjk-kernel-bin"
     assert set(CJK_KERNELS) == {KernelSource.CJK_BIN, KernelSource.CJK}
     # Every choice has a package: a member with none installs nothing at all.
     assert set(KERNEL_PACKAGES) == set(KernelSource)
