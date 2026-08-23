@@ -150,12 +150,38 @@ NOT_IN_THE_CAMPAIGN: Final[frozenset[str]] = frozenset(
         # medium the campaign boots, because the machine under test has to
         # have a bootloader of its own to arm.
         "vm-ram.toml",
+        # The only fixture that configures a static address, and the interface
+        # it has to pin is the cluster's: a local guest presents `enp0s2` where
+        # the cluster presents `ens18`, so `[Match] Name=ens18` matches nothing
+        # and networkd applies no address. Measured 2026-08-24 on
+        # `2c9728a81d97e`: the address, route and resolver checks all failed
+        # while `network` passed, and every recorded pass of this fixture is a
+        # cluster run.
+        "static-ip.toml",
         # The dd runner generates its sources, streams each one from the driver
         # CD, and reads the target back; neither target can boot as a system.
         "vm-dd-raw.toml",
         "vm-dd-gz.toml",
     }
 )
+
+
+def test_no_local_run_configures_an_address_the_guest_cannot_match() -> None:
+    """A static address needs the interface named, and the name is decided by
+    the hypervisor's slot layout: `ens18` on the cluster, `enp0s2` under local
+    qemu. A fixture pinning one of them is green on that runner and red on the
+    other for a reason no check reports as an environment mismatch."""
+    from gentoo_install.exec.config import load
+    from tests.vm.campaign import STAGES
+
+    scheduled = {Path(run.config).stem for runs in STAGES.values() for run in runs}
+    configuring = {
+        one.stem
+        for one in sorted(Path("tests/fixtures").glob("*.toml"))
+        if load(one).system.addresses
+    }
+    assert configuring, "a fixture with a static address is what this measures"
+    assert not configuring & scheduled, sorted(configuring & scheduled)
 
 
 def test_the_campaign_covers_every_vm_fixture() -> None:
