@@ -103,7 +103,7 @@ ssh root@the-machine
 
 預設開機項目不會更動，所以沒有進入該環境的機器仍開回原本的系統；`--disarm` 取消這次預約。`--bypass` 改為取代預設項目，供會丟棄一次性項目的韌體使用，那也是唯一一條「環境起不來就連機器都開不起來」的路徑。
 
-第一個畫面提供安裝與救援 shell，沒有逾時，未回答之前不會抹除任何資料。`--ram` 開的是帶 ZFS 的 Gentoo CJK ISO，約需 2 GiB 記憶體；`--lowram` 開的是較小、沒有 `zfs.ko` 的 Alpine netboot 壓縮檔。`--ssh-port` 把服務移離 22 埠。第一頁寫出稍後啟動安裝的命令，因此回答 `no` 或在回答之前斷線，都不必重新開機才能再次看到該提示。
+第一個畫面問 `install now? [yes/no]`，沒有逾時，未回答之前不會抹除任何資料。`--ram` 開的是帶 ZFS 的 Gentoo CJK ISO，約需 2 GiB 記憶體；`--lowram` 開的是較小、沒有 `zfs.ko` 的 Alpine netboot 壓縮檔。`--ssh-port` 把服務移離 22 埠。第一頁寫出稍後啟動安裝的命令，因此回答 `no` 或在回答之前斷線，都不必重新開機才能再次看到該提示。
 
 `--ram` 可使用 Wi-Fi，`--lowram` 不可。Gentoo CJK ISO 帶著 NetworkManager 與 `linux-firmware`，以 `nmcli device wifi connect <SSID> password <密碼>` 建立連線之後即可執行安裝；第一頁以正體中文、简体中文與英文寫出這件事。Alpine netboot 環境沒有無線驅動也沒有 supplicant，完整模組在一份本身也要下載的 `modloop` 裡，因此只有 Wi-Fi 一條連線的機器完全無法使用 `--lowram`。
 
@@ -277,7 +277,7 @@ mode = "in-place"
 - `--ssh-key` 接受公鑰本文（`ssh-ed25519`、`ssh-rsa`、`ecdsa-sha2-nistp256`、`-384`、`-521` 以及 `sk-` 變體）、路徑、`http` 或 `https` 網址，以及 `github:user` 與 `gitlab:user`；`--ssh-port` 與 `--root-password` 設定其餘部分。
 - 安裝器、選定的設定與金鑰都放在 initramfs 內，所以環境執行的是寫出該設定的修訂，而且在第一次登入之前 `authorized_keys` 已經就位。
 - 操作者以 SSH 重新連線觀察安裝，不必一直開著主控台。
-- 回答第一個畫面之前不會清除任何資料：該畫面提供安裝與急救殼兩項，而且沒有逾時。
+- 回答第一個畫面之前不會清除任何資料：該畫面問 `install now? [yes/no]`，而且沒有逾時。
 
 <!-- fact: plan-records -->
 

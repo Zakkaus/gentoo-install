@@ -103,7 +103,7 @@ ssh root@the-machine
 
 기본 부팅 항목은 바뀌지 않으므로 환경으로 올라오지 못한 장비는 이전과 같은 것을 부팅한다. `--disarm`은 설정을 되돌린다. `--bypass`는 기본 항목 자체를 대체하며, 일회성 항목을 버리는 펌웨어를 위한 것이다. 환경이 올라오지 못했을 때 장비가 아예 부팅하지 못하는 경로는 이것뿐이다.
 
-첫 화면은 설치와 복구 셸을 제시하며 시간 제한이 없고, 답하기 전에는 아무것도 지우지 않는다. `--ram`은 ZFS를 담은 Gentoo CJK ISO를 부팅하며 약 2 GiB의 메모리가 필요하다. `--lowram`은 더 작고 `zfs.ko`가 없는 Alpine netboot 아카이브를 부팅한다. `--ssh-port`는 데몬을 22번에서 옮긴다. 첫 화면은 설치를 나중에 시작하는 명령을 제시하므로, `no`라고 답하거나 답하기 전에 연결이 끊겨도 재부팅만이 돌아가는 길이 되지는 않는다.
+첫 화면은 `install now? [yes/no]`를 묻고 시간 제한이 없으며, 답하기 전에는 아무것도 지우지 않는다. `--ram`은 ZFS를 담은 Gentoo CJK ISO를 부팅하며 약 2 GiB의 메모리가 필요하다. `--lowram`은 더 작고 `zfs.ko`가 없는 Alpine netboot 아카이브를 부팅한다. `--ssh-port`는 데몬을 22번에서 옮긴다. 첫 화면은 설치를 나중에 시작하는 명령을 제시하므로, `no`라고 답하거나 답하기 전에 연결이 끊겨도 재부팅만이 돌아가는 길이 되지는 않는다.
 
 `--ram`은 wifi에 도달하고 `--lowram`은 도달하지 못한다. Gentoo CJK ISO는 NetworkManager와 `linux-firmware`를 담고 있어 `nmcli device wifi connect <SSID> password <암호>`로 연결을 세운 뒤 설치를 실행할 수 있으며, 첫 화면이 이를 번체 중국어, 간체 중국어, 영어로 알린다. Alpine netboot 환경에는 무선 드라이버도 서플리컨트도 없고 전체 모듈 집합은 그 자체를 내려받아야 하는 `modloop`에 있으므로, wifi만으로 연결된 기계는 `--lowram`을 쓸 수 없다.
 
@@ -277,7 +277,7 @@ mode = "in-place"
 - `--ssh-key`는 공개 키 본문(`ssh-ed25519`, `ssh-rsa`, `ecdsa-sha2-nistp256`, `-384`, `-521` 및 `sk-` 계열), 경로, `http` 또는 `https` URL, 그리고 `github:user`와 `gitlab:user`를 받는다.
 - `--ssh-port`와 `--root-password`가 나머지를 정한다.
 - 설치기와 선택된 구성과 키는 모두 initramfs 안으로 들어가므로 환경은 그 구성을 작성한 판을 실행하며 첫 로그인 이전에 `authorized_keys`가 놓여 있다.
-- 운영자는 SSH로 다시 접속해 설치 과정을 지켜보면 되고 콘솔을 열어 둘 필요가 없다. 첫 화면에 답하기 전에는 아무것도 지우지 않는다. 그 화면은 설치와 복구 셸 두 가지를 제시하며 시간 제한이 없다.
+- 운영자는 SSH로 다시 접속해 설치 과정을 지켜보면 되고 콘솔을 열어 둘 필요가 없다. 첫 화면에 답하기 전에는 아무것도 지우지 않는다. 그 화면은 `install now? [yes/no]`를 물으며 시간 제한이 없다.
 
 <!-- fact: plan-records -->
 
