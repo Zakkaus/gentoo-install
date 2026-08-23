@@ -214,7 +214,7 @@ def test_a_boot_directory_the_machine_lacks_is_created(tmp_path: Path) -> None:
 def test_a_staging_root_without_a_kernel_is_refused(tmp_path: Path) -> None:
     root = tmp_path / "root"
     (root / "new").mkdir(parents=True)
-    with pytest.raises(ConversionFailed, match="no "):
+    with pytest.raises(ConversionFailed, match=r"the staging directory has no .*/new/boot"):
         convert.populate_boot(root / "new", root=root)
 
 
