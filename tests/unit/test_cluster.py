@@ -2040,9 +2040,13 @@ def test_the_probe_costs_less_than_its_own_budget() -> None:
         + 3 * 2
         + cluster.KEYSERVER_PATIENCE
     )
-    # Against the 120s the three call sites give it, with room for the `ip`
-    # and `dmesg` reads that follow.
-    assert worst < 90, worst
+    # Against what the call site actually gives it, with room for the `ip` and
+    # `dmesg` reads that follow. Both numbers are derived from the same
+    # `LOOKUP_PATIENCE`, so an absolute ceiling is what keeps the probe from
+    # growing: it is read three times per install and once ended every run it
+    # was measuring.
+    assert worst + 20 < cluster.PROBE_PATIENCE, (worst, cluster.PROBE_PATIENCE)
+    assert cluster.PROBE_PATIENCE <= 180.0, cluster.PROBE_PATIENCE
     assert subprocess.run(["bash", "-n", "-c", probe], capture_output=True).returncode == 0
 
 
