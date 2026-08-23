@@ -148,8 +148,9 @@ python_binary() {
 }
 
 install_missing=no
-# Consumed here rather than passed on: the installer's own parser rejects it,
-# and the memory environment's first screen is where the operator consented.
+dry_run=no
+# Consume launcher-only arguments while recording flags by exact value. A
+# config pathname can contain option-shaped text without becoming an option.
 count=$#
 while [ "$count" -gt 0 ]; do
 	argument=$1
@@ -157,6 +158,10 @@ while [ "$count" -gt 0 ]; do
 	count=$((count - 1))
 	case "$argument" in
 	--install-missing) install_missing=yes ;;
+	--dry-run)
+		dry_run=yes
+		set -- "$@" "$argument"
+		;;
 	*) set -- "$@" "$argument" ;;
 	esac
 done
@@ -192,8 +197,8 @@ done
 # every missing command at once, so the operator fixes them in one pass. Not
 # for a dry run: it performs nothing, and refusing it on a machine without the
 # tools takes away the one way to check a file before reaching the target.
-case " $* " in
-*" --dry-run "*) missing="" ;;
+case "$dry_run" in
+yes) missing="" ;;
 *)
 	# PYTHONPATH rather than a cd: `--config` names a path the operator typed,
 	# which has to resolve against their directory and not against this script's.
@@ -250,8 +255,8 @@ fi
 
 # Last, so the diagnostics above still run for an ordinary user: what needs
 # root is the install itself, which stages keys under /run and writes disks.
-case " $* " in
-*" --dry-run "*) ;;
+case "$dry_run" in
+yes) ;;
 *) [ "$(id -u)" = 0 ] || die "run as root: sudo $0 $*" ;;
 esac
 
