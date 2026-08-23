@@ -273,6 +273,8 @@ environment unless `--config` names another.
 
 | a tree verified to hold `49844ad5883ad` and `8d17a0c4a9924` | `--lowram` on a Debian 12 genericcloud machine, UEFI, three rounds | two installed Gentoo from the memory environment and booted the disk they wrote (`memory install booted its disk and passed the shared installed-state checks`); the third stopped at `mkfs.vfat -F 32 -n ESP /dev/vdc1` with `No such file or directory`, `Probe.wait_for` having returned that node a moment earlier. **The path installs; it fails about one round in three on the device nodes.** |
 
+| `468ac83d267f2` | `--lowram` with the memory credentials in the payload rather than on the kernel command line, Debian 12 genericcloud, UEFI, three rounds | all three installed Gentoo from the memory environment and booted the disk they wrote. Three rounds rather than one because the device-node fault in the row above fails about one round in three, so a single pass would not distinguish this change from that fault. |
+
 The row above is three runs rather than one because the failure is
 intermittent, and one green round would have recorded a fix that is not one:
 `partx --update` and `mdev -sf` were added for exactly this symptom and the
