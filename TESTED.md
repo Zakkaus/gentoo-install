@@ -271,6 +271,15 @@ layout and bootloader. One disk has been written this way and read back.
 Every row above installed `vm-ram`, the fixture `tests/vm/ram.py` hands the
 environment unless `--config` names another.
 
+**No row here is newer than `3e085f078c9f`, and that is a property of the
+harness rather than of these paths.** `9e88ecda73ea9` reworded the delivered
+profile's question from `install or shell> ` to `install now? [yes/no] ` and
+left `tests/vm/ram.py` waiting for the old text, so every `--ram` and
+`--lowram` run after it timed out on a machine that had in fact come up
+correctly. Nobody ran one, so nobody knew. The question now has one
+definition both sides read, and neither environment has been measured again
+since that fix: what these rows establish stops at the revisions they name.
+
 Both environments install, and they needed different work to get there: the
 CJK ISO answered `live system: gentoo` with `python3.14`, `mount`, `tar` and
 `swapon` already on it and installed nothing of its own, while the Alpine
