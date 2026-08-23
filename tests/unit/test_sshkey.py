@@ -181,3 +181,54 @@ def test_a_refused_key_is_not_quoted_back() -> None:
     # rule above cannot be met by a message that carries nothing at all.
     with pytest.raises(ConfigError, match="ssh-ed25519"):
         sshkey.check("ssh-rsa2 AAAA")
+
+
+def test_the_fingerprint_is_the_one_ssh_keygen_prints() -> None:
+    """Both samples and both answers were read from `ssh-keygen -lf` on
+    2026-08-24. Hashing the base64 text rather than the wire blob, or leaving
+    the base64 padding on, produces a plausible string that no other tool
+    agrees with."""
+    from gentoo_install.model.sshkey import fingerprint
+
+    ed25519 = (
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA9Q0PGF+/PUkbS6MTwK5Q5dqJE0"
+        "+t0drU7HR0nzv7qb sample@example"
+    )
+    rsa = (
+        "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDdlHUHRweaoLfv6h0VgfHTmQSXzxJMZZS7Ia4a3dP8"
+        "I6ixYDosr01D5sRQQIZnmmXrrL9KXcHzCmmBnUwpLgZxW9ZyPLIcnImkXFt9nVbzlC/QPXp7bk1wT9ZN"
+        "25I4PQAD1FyNmLBREHNUv10c+szitxacK/37S+WGachteiZ5PfWuR/ktDIIaaSeFfwE4XORC3Jh0vJYJ"
+        "aBT1D7r78UaeAjX/jcHnuK31QeE8ntrtxQdtMVcLl5MVbKmYmaH2JwcXM2zDi2K/CFyayfDv3s+RDuHp"
+        "kCZM1SU1sMduklNplaI5BpW6w1T4LMSKY/4EgWAYdFmvAG58P42qB8M3r9oV sample@example"
+    )
+
+    assert fingerprint(ed25519) == "SHA256:LblrAMoRSX1FbTHC09p0i3CyohVjuqZlCFA7p+iMV5A"
+    assert fingerprint(rsa) == "SHA256:wlGCUednI5pRuDPDzpbdstjVq3awqyOcFoTpDAdIxbE"
+    # The comment carries a username and a hostname; the fingerprint is the
+    # same key with a different one.
+    assert fingerprint(ed25519.replace("sample@example", "someone@elsewhere")) == fingerprint(
+        ed25519
+    )
+
+
+def test_swapping_an_authorized_key_changes_the_dry_run() -> None:
+    """The description was the number of keys, so replacing the key that
+    decides who can log in moved not one character of it."""
+    from gentoo_install.model.sshkey import fingerprint
+    from gentoo_install.plan.system import WriteAuthorizedKeys
+
+    first = (
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA9Q0PGF+/PUkbS6MTwK5Q5dqJE0"
+        "+t0drU7HR0nzv7qb sample@example"
+    )
+    second = (
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH8w6sgdmfNXN4gVQnnQ"
+        "/5WQiY0oUPrQYr0SPTfnw2ah other@example"
+    )
+    assert fingerprint(first) != fingerprint(second)
+
+    accounts = (("root", "/root"),)
+    said = [
+        WriteAuthorizedKeys(keys=(one,), accounts=accounts).describe() for one in (first, second)
+    ]
+    assert said[0] != said[1], said

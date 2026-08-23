@@ -64,7 +64,7 @@
   write /etc/fstab with UUID from esp /efi vfat defaults,umask=0077 0 2
   treat the hardware clock as UTC in /etc/adjtime
   create user zakk in users, wheel, audio, video, render, usb, input with a password
-  write 1 ssh key(s) into authorized_keys for root, zakk
+  write SHA256:wBQUIpTF0DPsPEUeafUC1YRHr0N0LIdt+LtbxepvlkQ into authorized_keys for root, zakk
   set the root password
   install sudo: emerge app-admin/sudo
   let the wheel group run sudo, with a password

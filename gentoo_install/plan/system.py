@@ -27,6 +27,7 @@ from ..model.config import (
     User,
 )
 from ..model.size import Size
+from ..model.sshkey import fingerprint
 from ..model.device import (
     MdRaid,
     Node,
@@ -822,14 +823,21 @@ class WriteAuthorizedKeys(Operation):
     #: happen.
     accounts: tuple[tuple[str, str], ...]
 
+    def destinations(self) -> tuple[PurePosixPath, ...]:
+        return tuple(PurePosixPath(f"{home}/.ssh/authorized_keys") for _, home in self.accounts)
+
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        # The count alone let one key be swapped for another without a
+        # character of the dry-run changing, on the setting that decides who
+        # can log in.
         who = ", ".join(name for name, _ in self.accounts)
-        return "write {} ssh key(s) into authorized_keys for {}", (str(len(self.keys)), who)
+        keys = ", ".join(fingerprint(key) for key in self.keys) or "-"
+        return "write {} into authorized_keys for {}", (keys, who)
 
     def apply(self, context: Context) -> None:
         body = "".join(f"{key}\n" for key in self.keys)
-        for name, home in self.accounts:
-            context.write(PurePosixPath(f"{home}/.ssh/authorized_keys"), body, mode=0o600)
+        for path, (name, home) in zip(self.destinations(), self.accounts):
+            context.write(path, body, mode=0o600)
             context.run_in_target(["chmod", "700", f"{home}/.ssh"])
             if name != "root":
                 context.run_in_target(["chown", "-R", f"{name}:{name}", f"{home}/.ssh"])

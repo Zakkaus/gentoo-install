@@ -529,6 +529,46 @@ def test_every_operation_still_has_to_say_what_it_does() -> None:
     assert len(found) > 60, len(found)
 
 
+def _bindings_in(
+    body: Mapping[str, ast.FunctionDef], known: Mapping[str, ast.expr]
+) -> dict[str, ast.expr]:
+    """Every name `apply()` binds to something a path can be read out of.
+
+    `destinations()` is where an operation derives the paths both halves read,
+    so a write through one of its results resolves to that method rather than
+    to the loop variable that carried it.
+    """
+    reachable = dict(known)
+    derived = body.get("destinations")
+    for step in ast.walk(body["apply"]):
+        if isinstance(step, ast.Assign) and step.value is not None:
+            reachable.update(
+                {one.id: step.value for one in step.targets if isinstance(one, ast.Name)}
+            )
+        elif derived is not None and isinstance(step, (ast.For, ast.Assign)):
+            source = step.iter if isinstance(step, ast.For) else step.value
+            if source is not None and "destinations()" in ast.unparse(source):
+                target = step.target if isinstance(step, ast.For) else step.targets[0]
+                reachable.update(
+                    {
+                        one.id: ast.Constant(_destination_text(derived))
+                        for one in ast.walk(target)
+                        if isinstance(one, ast.Name)
+                    }
+                )
+    return reachable
+
+
+def _destination_text(derived: ast.FunctionDef) -> str:
+    """The path literals `destinations()` returns, as one string a description
+    can be searched against."""
+    return " ".join(
+        node.value
+        for node in ast.walk(derived)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    )
+
+
 def _written_names(expr: ast.expr, known: Mapping[str, ast.expr]) -> set[str]:
     """What a reader of `describe()` could recognise the written path by: the
     expression itself, any module constant it names, and the last component of
@@ -580,12 +620,7 @@ def test_every_operation_names_the_files_it_writes() -> None:
             if "apply" not in body or "describe" not in body:
                 continue
             said = ast.unparse(body["describe"])
-            reachable = dict(known)
-            for step in ast.walk(body["apply"]):
-                if isinstance(step, ast.Assign) and step.value is not None:
-                    reachable.update(
-                        {one.id: step.value for one in step.targets if isinstance(one, ast.Name)}
-                    )
+            reachable = _bindings_in(body, known)
             for call in ast.walk(body["apply"]):
                 if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
                     continue
@@ -632,12 +667,7 @@ def test_the_dry_run_names_every_file_only_its_owner_may_read() -> None:
             if "apply" not in body or describing is None:
                 continue
             said = ast.unparse(describing)
-            reachable = dict(known)
-            for step in ast.walk(body["apply"]):
-                if isinstance(step, ast.Assign) and step.value is not None:
-                    reachable.update(
-                        {one.id: step.value for one in step.targets if isinstance(one, ast.Name)}
-                    )
+            reachable = _bindings_in(body, known)
             for call in ast.walk(body["apply"]):
                 if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
                     continue
