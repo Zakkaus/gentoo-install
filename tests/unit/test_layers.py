@@ -215,14 +215,15 @@ def test_every_source_file_states_the_licence() -> None:
     read: list[Path] = []
     for pattern, line in (("*.py", 0), ("*.sh", 1)):
         for one in sorted(root.rglob(pattern)):
-            if not one.is_file() or ".git" in one.parts or "lab" in one.parts:
+            relative = one.relative_to(root)
+            if not one.is_file() or ".git" in relative.parts or "lab" in relative.parts:
                 continue
-            read.append(one.relative_to(root))
+            read.append(relative)
             # A shell script's first line is its interpreter, so the identifier
             # is on the second; Python has no such line and uses the first.
             head = one.read_text(encoding="utf-8").splitlines()[: line + 1]
             if head[line : line + 1] != [SPDX]:
-                silent.append(one.relative_to(root))
+                silent.append(relative)
 
     assert not silent, f"no licence on the first line of: {silent}"
     # Not vacuous: the shell scripts have to be among the files examined, or
