@@ -445,7 +445,12 @@ def test_a_conversion_runs_inside_the_machine_it_replaces(
     # the second cycle is asserted as a sequence rather than by first index.
     at = done.index("boot_from_disk")
     assert done[at - 1] == "stop" and done[at + 1] == "start", done
-    assert "expect:login:" in done, done
+    # It waits for a login on the installed system, whatever else the same
+    # pattern also covers: an encrypted root asks for its passphrase first,
+    # so the alternation grew and pinning the whole string went stale.
+    assert any(
+        one.startswith("expect:") and one.endswith("login:") for one in done
+    ), done
     # The prompt that covers all three spellings: the installed system comes
     # up in Chinese and asks in Chinese, and an `assword` of its own matched
     # nothing while the password sat unsent.
