@@ -641,3 +641,28 @@ def test_no_catalog_reverses_what_is_written_into_what() -> None:
     # the assertion above is not satisfied by any string holding both.
     reversed_value = "\u5c06 /etc/fstab \u5199\u5165 {} \u7684\u6761\u76ee"
     assert reversed_value.index("{}") > reversed_value.index(fstab)
+
+
+def test_no_catalog_calls_a_password_a_cipher() -> None:
+    """Three Japanese values named the wrong thing: a cipher where a password
+    was meant, a video where a disk image was meant, and a grant of authority
+    where a software licence was meant. None reads as the word the interface
+    is about."""
+    import tomllib
+    from pathlib import Path
+
+    # Codepoints, not literals: no file under tests/ holds a wide character.
+    cipher_alone = "\u6697\u53f7\u3002"  # cipher, at the end of a sentence
+    video = "\u6620\u50cf"  # moving pictures
+    granting = "\u6388\u6a29"  # granting authority
+    said = tomllib.loads(
+        Path("gentoo_install/data/locale/ja.toml").read_text()
+    )["strings"]
+    for source, value in said.items():
+        for wrong in (cipher_alone, video, granting):
+            assert wrong not in value, f"{source}: {value}"
+
+    # Negative control: the word for encryption shares its first character with
+    # the one above, and is correct wherever it appears.
+    encryption = "\u6697\u53f7\u5316"  # encryption
+    assert any(encryption in value for value in said.values())
