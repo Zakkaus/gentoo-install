@@ -1,0 +1,18 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Install System (text)
+Name[zh_CN]=安装系统（文字界面）
+Name[zh_TW]=安裝系統（文字介面）
+Name[ja]=システムをインストール（テキスト）
+Name[ko]=시스템 설치 (텍스트)
+GenericName=System Installer
+Comment=Install this system to disk from a terminal
+Comment[zh_CN]=在终端中把本系统安装到硬盘
+Comment[zh_TW]=在終端機中把本系統安裝到硬碟
+Comment[ja]=端末からこのシステムをディスクにインストールします
+Comment[ko]=터미널에서 이 시스템을 디스크에 설치합니다
+Exec=/usr/local/sbin/gentoo-install
+Icon=utilities-terminal
+Terminal=true
+Categories=System;
