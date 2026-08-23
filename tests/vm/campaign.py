@@ -184,7 +184,6 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         # fixture set it, so nothing had ever installed a machine that comes up
         # on an address, a gateway and a resolver it was given. `cluster.py`
         # rewrites the address to the one the scheduler reserved.
-        Run("fixtures/static-ip.toml"),
         Run("fixtures/vm-openrc-desktop.toml", weight=2, cpus=10),
         Run("fixtures/vm-gnome.toml", weight=2, cpus=10),
         # Three more nothing had ever installed: raidz needs a third disk,
