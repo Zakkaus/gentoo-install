@@ -231,6 +231,20 @@ class CreateImage(Operation):
         return f"create a {self.size} sparse image at {self.image} and attach it as a loop device"
 
     def apply(self, context: Context) -> None:
+        attached = context.run(
+            ["losetup", "--associated", "--noheadings", "--output", "NAME", self.image],
+            check=False,
+        )
+        if not isinstance(attached, CommandOutput) or attached.returncode != 0:
+            raise CommandFailed(f"cannot determine whether {self.image} is already attached")
+        loops = tuple(line.strip() for line in attached.splitlines() if line.strip())
+        if len(loops) == 1:
+            cast(_ImageContext, context).remember_image_device(self.device, loops[0])
+            return
+        if len(loops) > 1:
+            raise ConfigError(
+                f"{self.image} is attached to multiple loop devices: {', '.join(loops)}"
+            )
         if not self.wipe:
             exists = context.run(["test", "-e", self.image], check=False)
             if not isinstance(exists, CommandOutput):

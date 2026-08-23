@@ -93,14 +93,28 @@ def test_an_image_refuses_an_existing_file_unless_wipe_is_enabled() -> None:
     create = disk.CreateImage(
         device=i("disk"), image=image, size=Size.parse("20GiB"), wipe=False
     )
-    recorder = Recorder(existing_paths={image}, replies={"losetup": "/dev/loop7\n"})
+
+    def no_existing_loop(argv: Sequence[str]) -> str | None:
+        if argv[:2] == ["losetup", "--associated"]:
+            return CommandOutput("", 0)
+        return None
+
+    recorder = Recorder(
+        existing_paths={image},
+        replies={"losetup": "/dev/loop7\n"},
+        answering=no_existing_loop,
+    )
     with pytest.raises(ConfigError, match="disk.wipe"):
         create.apply(recorder)
-    assert recorder.commands == [("test", "-e", image)]
+    assert recorder.commands == [
+        ("losetup", "--associated", "--noheadings", "--output", "NAME", image),
+        ("test", "-e", image),
+    ]
 
     wiping = replace(create, wipe=True)
     wiping.apply(recorder)
-    assert recorder.commands[-2:] == [
+    assert recorder.commands[-3:] == [
+        ("losetup", "--associated", "--noheadings", "--output", "NAME", image),
         ("truncate", "--size", str(Size.parse("20GiB").bytes), image),
         ("losetup", "--find", "--show", "--partscan", image),
     ]
@@ -112,6 +126,38 @@ def test_an_image_refuses_an_existing_file_unless_wipe_is_enabled() -> None:
     detach.apply(recorder)
     assert recorder.commands[-1] == ("losetup", "--detach", "/dev/loop7")
     assert recorder.image_device_path(i("disk")) is None
+
+
+def test_an_image_resume_reuses_its_existing_loop_device() -> None:
+    image = "/var/tmp/target.raw"
+    create = disk.CreateImage(
+        device=i("disk"), image=image, size=Size.parse("20GiB"), wipe=True
+    )
+    recorder = Recorder(replies={"losetup": "/dev/loop7\n"})
+
+    create.apply(recorder)
+
+    assert recorder.commands == [
+        ("losetup", "--associated", "--noheadings", "--output", "NAME", image)
+    ]
+    assert recorder.device_path(i("disk")) == "/dev/loop7"
+
+    disk.DetachImage(device=i("disk"), image=image).apply(recorder)
+    assert recorder.commands[-1] == ("losetup", "--detach", "/dev/loop7")
+
+
+def test_an_image_resume_refuses_multiple_existing_loop_devices() -> None:
+    image = "/var/tmp/target.raw"
+    create = disk.CreateImage(
+        device=i("disk"), image=image, size=Size.parse("20GiB"), wipe=True
+    )
+    recorder = Recorder(replies={"losetup": "/dev/loop7\n/dev/loop8\n"})
+
+    with pytest.raises(ConfigError, match="multiple loop devices: /dev/loop7, /dev/loop8"):
+        create.apply(recorder)
+    assert recorder.commands == [
+        ("losetup", "--associated", "--noheadings", "--output", "NAME", image)
+    ]
 
 
 def test_a_gpt_partition_is_created_with_its_index_type_and_size() -> None:
