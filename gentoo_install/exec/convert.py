@@ -79,8 +79,13 @@ def _replace_contents(destination: Path, staged: Path, copy: Copier) -> None:
             except OSError as error:
                 if error.errno != errno.EXDEV:
                     raise
-                copy(staged / name, destination / name)
+                # Recorded before the copy, not after: `cp --archive` can
+                # write part of a tree and then fail, and an entry the
+                # rollback never hears about leaves that part in place beside
+                # the restored original. `_remove` tolerates a path that was
+                # never created.
                 arrived.append((name, Arrival.COPIED))
+                copy(staged / name, destination / name)
                 continue
             arrived.append((name, Arrival.RENAMED))
     except Exception as error:
