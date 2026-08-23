@@ -1008,3 +1008,40 @@ def test_the_planner_is_the_only_route_a_conversion_takes() -> None:
     )
     with pytest.raises(ConversionUnsupported, match="running layout"):
         build(unread, load_catalog())
+
+
+def test_offering_a_conversion_and_reading_its_layout_are_one_answer() -> None:
+    """`_conversion_offer` returns the refusal and the layout together, and
+    `tui/app._blocked` plans with that layout. Offered without one, the plan
+    raises `the running layout was not read` into the Install row, where the
+    text is an internal invariant no operator can act on and no answer clears.
+    The two travel together so that state cannot be built."""
+    import ast
+    import inspect
+
+    from gentoo_install import cli
+
+    source = inspect.getsource(cli._conversion_offer)
+    returns = [
+        (node.lineno, node.value)
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Return) and isinstance(node.value, ast.Tuple)
+    ]
+    assert returns, source
+    offered = 0
+    for line, tuple_node in returns:
+        refusal, layout = tuple_node.elts[1], tuple_node.elts[2]
+        # `refusals.OFFERED` is the sentinel for "nothing stops it", so it is
+        # the one return that has to carry a layout; every other one refuses
+        # and carries none.
+        takes_it = (
+            isinstance(refusal, ast.Attribute) and refusal.attr == "OFFERED"
+        )
+        unread = isinstance(layout, ast.Constant) and layout.value is None
+        assert takes_it != unread, (
+            f"line {line} returns a refusal and a layout that disagree: "
+            "an offered conversion without a layout reaches the planner as "
+            "`the running layout was not read`"
+        )
+        offered += takes_it
+    assert offered == 1, f"{offered} returns offer the conversion"
