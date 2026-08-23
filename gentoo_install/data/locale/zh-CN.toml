@@ -76,6 +76,7 @@
 "Layout" = "磁盘布局"
 "Keyboard layout" = "键盘布局"
 "Console font" = "控制台字体"
+"Console CJK" = "控制台 CJK"
 "Partition table" = "分区表"
 "Firmware" = "固件"
 "Network configuration" = "网络配置"
