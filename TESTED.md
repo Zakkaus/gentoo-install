@@ -294,7 +294,10 @@ prints none: `tests/vm/run.py` prints `installer revision` at the top of a run
 and `tests/vm/cluster.py` prints nothing, so a cluster result cannot be tied to
 a tree afterwards. What the tree held was read before the campaign started.
 
-**Every row that says `mounted its layout` overstates one of its checks.**
+| `5a9b9f220e651` | `vm-luks` on a local UEFI guest, the first run with the bounded mount check | installed and booted, and `mounted its layout` here means what it says: the check derives each configured mountpoint and its filesystem type from the configuration rather than matching any line containing a slash. This row also carries the rerun-cleanup change in `ReleaseTarget` and the btrfs scratch mount, whose **re-entry** path is still unverified — an ordinary install exercises the release at its head, not a second attempt over a first one's leftovers. |
+
+**Rows recorded before `5a9b9f220e651` and saying `mounted its layout` overstate
+one of their checks.**
 `tests/vm/installed.py`'s `mounts` check expects the pattern `/` and is matched
 with `re.search`, so any `findmnt` output containing a slash satisfies it — a
 machine with only a root filesystem and none of the configured layout passes.
