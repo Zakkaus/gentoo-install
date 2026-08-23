@@ -29,7 +29,7 @@ from ..model.config import (
     Sync,
 )
 from ..model.validate import parse_profile_list, validate_profile
-from .operations import CommandOutput, Context, Operation, Stage, worth_reading
+from .operations import CommandOutput, Context, Operation, Stage, answered, worth_reading
 
 #: The release engineering key, pinned. A fingerprint that does not match this
 #: is a failed install, not a prompt to trust something new.
@@ -43,6 +43,9 @@ GENTOOZH_KEY: Final[PurePosixPath] = PurePosixPath("/usr/share/openpgp-keys/gent
 
 #: A stage3 ships the release engineering key at this path.
 RELEASE_KEY: Final[PurePosixPath] = PurePosixPath("/usr/share/openpgp-keys/gentoo-release.asc")
+
+#: `getuto` records its local signing key here after creating the keyring.
+PORTAGE_TRUST_KEY_ID: Final[PurePosixPath] = PurePosixPath("/etc/portage/gnupg/mykeyid")
 
 
 def _binrepos_path(name: str) -> PurePosixPath:
@@ -129,6 +132,19 @@ EMERGE_OPTIONS: Final[tuple[str, ...]] = (
 #: be verified without one.
 BINARY_PACKAGES: Final[str] = "binary packages"
 
+
+
+def _has_local_signature(signatures: str, signers: frozenset[str]) -> bool:
+    """Whether `gpg --with-colons --list-sigs` names a local signing key."""
+    for line in signatures.splitlines():
+        fields = line.split(":")
+        if len(fields) <= 12 or fields[0] != "sig":
+            continue
+        # The signature class ends in `l` for a local signature; field 13 is
+        # the signing primary key's fingerprint.
+        if fields[10].endswith("l") and fields[12].upper() in signers:
+            return True
+    return False
 
 def binhost_trust(name: str) -> str:
     """What one host's own key degrades. The official host's key comes from
@@ -1168,8 +1184,8 @@ class PrepareBinhostTrust(Operation):
 
 @dataclass(frozen=True, kw_only=True)
 class TrustBinhostKey(Operation):
-    """A key imported into Portage's keyring stays untrusted until `lsign`, and
-    verification then fails the same way it fails with no key at all."""
+    """An imported key stays untrusted until `lsign`, and its local signature
+    is the postcondition that permits the host to serve binary packages."""
 
     stage: Stage = Stage.PORTAGE
     binhost: str
@@ -1177,7 +1193,7 @@ class TrustBinhostKey(Operation):
     key_path: PurePosixPath
 
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
-        return "import {} from {} and locally sign it for {}", (
+        return "import {} from {}, locally sign it for {}, and verify the local signature", (
             self.fingerprint[-16:],
             str(self.key_path),
             self.binhost,
@@ -1201,15 +1217,45 @@ class TrustBinhostKey(Operation):
         )
         context.run_in_target(
             [
-                "gpg", "--homedir", "/etc/portage/gnupg",
-                "--batch", "--yes",
-                "--pinentry-mode", "loopback",
-                "--passphrase-file", "/etc/portage/gnupg/pass",
-                "--lsign-key", self.fingerprint,
+                "gpg",
+                "--homedir",
+                "/etc/portage/gnupg",
+                "--batch",
+                "--yes",
+                "--pinentry-mode",
+                "loopback",
+                "--passphrase-file",
+                "/etc/portage/gnupg/pass",
+                "--lsign-key",
+                self.fingerprint,
             ]
         )
         context.run_in_target(["gpg", "--homedir", "/etc/portage/gnupg", "--check-trustdb"])
-
+        signers = frozenset(
+            fingerprint.strip().upper()
+            for fingerprint in context.read(PORTAGE_TRUST_KEY_ID).splitlines()
+            if fingerprint.strip()
+        )
+        if not signers:
+            raise CommandFailed("Portage's local signing key is absent")
+        signatures = answered(
+            context.run_in_target(
+                [
+                    "gpg",
+                    "--homedir",
+                    "/etc/portage/gnupg",
+                    "--with-colons",
+                    "--list-sigs",
+                    self.fingerprint,
+                ],
+                check=False,
+            ),
+            f"could not read the local signature for {self.fingerprint[-16:]}",
+        )
+        if not _has_local_signature(signatures, signers):
+            raise CommandFailed(
+                f"{self.fingerprint[-16:]} has no local signature from Portage's trust key"
+            )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -1471,15 +1517,20 @@ def build(
     if portage.binhost.official:
         # Written rather than left to the stage3's default: entry removal keeps
         # untrusted hosts source-only; profile baseline and subarch are choices here.
-        operations.append(
+        operations += [
+            TrustBinhostKey(
+                binhost="gentoo",
+                fingerprint=RELENG_FINGERPRINT,
+                key_path=RELEASE_KEY,
+            ),
             ConfigureBinhost(
                 name="gentoo",
                 sync_uri=mirrors.gentoo_binhost(
                     portage.mirrors.region, portage.mirrors.site, portage.binhost.subarch
                 ),
                 verify=True,
-            )
-        )
+            ),
+        ]
     operations += [
         WebrsyncRepository(),
         SelectProfile(profile=portage.profile),

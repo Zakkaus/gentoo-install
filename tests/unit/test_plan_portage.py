@@ -448,17 +448,21 @@ def test_a_deselected_official_binhost_is_removed_before_community_setup() -> No
     first remove its configuration rather than leave an unselected fallback."""
     installation = with_portage(binhost=Binhost(official=False, community=BinhostChannel.STABLE))
     recorder = apply_all(installation)
-    official = PurePosixPath("/etc/portage/binrepos.conf/gentoobinhost.conf")
+    official = (
+        PurePosixPath("/etc/portage/binrepos.conf/gentoo.conf"),
+        PurePosixPath("/etc/portage/binrepos.conf/gentoobinhost.conf"),
+    )
     community = PurePosixPath("/etc/portage/binrepos.conf/gentoo-zh.conf")
 
-    disabled = ("rm", "--force", "--", str(official))
-    assert disabled in recorder.in_target
-    assert recorder.in_target.index(disabled) < next(
-        index
-        for index, argv in enumerate(recorder.in_target)
-        if argv[-2:] == ("--import", str(portage.GENTOOZH_KEY))
-    )
-    assert official not in recorder.files
+    for path in official:
+        disabled = ("rm", "--force", "--", str(path))
+        assert disabled in recorder.in_target
+        assert recorder.in_target.index(disabled) < next(
+            index
+            for index, argv in enumerate(recorder.in_target)
+            if argv[-2:] == ("--import", str(portage.GENTOOZH_KEY))
+        )
+        assert path not in recorder.files
     assert community in recorder.files
 
 
@@ -471,7 +475,9 @@ def test_a_key_that_will_not_sign_takes_its_host_down_with_it() -> None:
     installation = with_portage(binhost=Binhost(official=True, community=BinhostChannel.STABLE))
     operations = portage.build(installation, MIRROR)
     imported = next(
-        one for one in operations if isinstance(one, portage.TrustBinhostKey)
+        one
+        for one in operations
+        if isinstance(one, portage.TrustBinhostKey) and one.binhost == "gentoo-zh"
     )
     community = next(
         one
@@ -502,15 +508,67 @@ def test_a_key_that_will_not_sign_takes_its_host_down_with_it() -> None:
     ], working.files
 
 
+def test_an_official_key_without_its_local_signature_falls_back_to_source() -> None:
+    """A successful `getuto` is not sufficient when its local signature is absent."""
+    key = portage.TrustBinhostKey(
+        binhost="gentoo",
+        fingerprint=portage.RELENG_FINGERPRINT,
+        key_path=portage.RELEASE_KEY,
+    )
+    recorder = Recorder()
+    recorder.answering = lambda argv: (
+        CommandOutput("sig:::1:572E0E2D182910:0::::Gentoo:13x::13EBBDBEDE7A12775DFDB1BABB572E0E2D182910:\n", 0)
+        if tuple(argv[-2:]) == ("--list-sigs", portage.RELENG_FINGERPRINT)
+        else None
+    )
+
+    key.apply(recorder)
+
+    assert recorder.degraded(portage.binhost_trust("gentoo"))
+    working = Recorder()
+    key.apply(working)
+    assert not working.degraded(portage.binhost_trust("gentoo"))
+    assert (
+        "gpg",
+        "--homedir",
+        "/etc/portage/gnupg",
+        "--with-colons",
+        "--list-sigs",
+        portage.RELENG_FINGERPRINT,
+    ) in working.in_target
+
+
+def test_the_official_binhost_is_configured_after_its_key_is_trusted() -> None:
+    installation = with_portage(binhost=Binhost(official=True, community=BinhostChannel.OFF))
+    operations = portage.build(installation, MIRROR)
+    trusted = next(
+        operation
+        for operation in operations
+        if isinstance(operation, portage.TrustBinhostKey) and operation.binhost == "gentoo"
+    )
+    configured = next(
+        operation
+        for operation in operations
+        if isinstance(operation, portage.ConfigureBinhost) and operation.name == "gentoo"
+    )
+
+    assert operations.index(trusted) < operations.index(configured)
+    assert PurePosixPath("/etc/portage/binrepos.conf/gentoo.conf") in apply_all(
+        installation
+    ).files
+
+
 def test_the_binhost_is_only_trusted_once_its_key_is() -> None:
     installation = with_portage(binhost=Binhost(official=True, community=BinhostChannel.STABLE))
     operations = portage.build(installation, MIRROR)
-    signed = next(n for n, operation in enumerate(operations) if "locally sign" in operation.describe())
-    # The gentoo-zh host specifically: the official one is trusted by getuto,
-    # which runs before either of them.
+    signed = next(
+        index
+        for index, operation in enumerate(operations)
+        if isinstance(operation, portage.TrustBinhostKey) and operation.binhost == "gentoo-zh"
+    )
     added = next(
-        n
-        for n, operation in enumerate(operations)
+        index
+        for index, operation in enumerate(operations)
         if "binary package host gentoo-zh" in operation.describe()
     )
     assert signed < added
@@ -735,7 +793,7 @@ def test_a_failed_community_key_leaves_the_official_host_alone() -> None:
     )
     written = set(recorder.files)
     assert PurePosixPath("/etc/portage/binrepos.conf/gentoo-zh.conf") not in written
-    assert PurePosixPath("/etc/portage/binrepos.conf/gentoobinhost.conf") in written
+    assert PurePosixPath("/etc/portage/binrepos.conf/gentoo.conf") in written
 
     portage.Emerge(packages=("sys-boot/grub",), summary="install the bootloader").apply(recorder)
     assert "--getbinpkg=y" in next(argv for argv in recorder.in_target if argv[0] == "emerge")

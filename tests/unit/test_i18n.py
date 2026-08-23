@@ -524,7 +524,7 @@ REVIEWED_TEMPLATES: frozenset[str] = frozenset(
         "download the newest {} stage3 from {} via {}, verify it against {},"
         " unpack it into the target and write {}",
         "enable {} in the {} runlevel",
-        "import {} from {} and locally sign it for {}",
+        "import {} from {}, locally sign it for {}, and verify the local signature",
         "point repository {} at {}",
         "point repository {} at {}, commit signatures verified",
         "run a script from {} and {} commands once, the first time the system boots",
