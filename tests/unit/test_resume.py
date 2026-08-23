@@ -96,6 +96,54 @@ def test_a_second_resume_does_not_redo_what_the_first_one_finished(tmp_path: Pat
     assert completed(Journal(path=path)) == {(n, f"op{n}") for n in range(7)}
 
 
+def test_a_new_run_does_not_inherit_an_earlier_runs_checkpoints(tmp_path: Path) -> None:
+    path = tmp_path / "install.jsonl"
+    earlier = Journal(path=path)
+    earlier.started(configuration="first", session="boot", installer="tree")
+    earlier.write(
+        "operation",
+        stage="partition",
+        describe="partition",
+        identity="partition",
+        seconds=0.1,
+        status="done",
+        position=0,
+    )
+
+    Journal(path=path).started(configuration="second", session="boot", installer="tree")
+
+    assert completed(Journal(path=path)) == frozenset()
+
+
+def test_a_resume_keeps_its_earlier_checkpoints(tmp_path: Path) -> None:
+    path = tmp_path / "install.jsonl"
+    initial = Journal(path=path)
+    initial.started(configuration="config", session="boot", installer="tree")
+    initial.write(
+        "operation",
+        stage="partition",
+        describe="partition",
+        identity="partition",
+        seconds=0.1,
+        status="done",
+        position=0,
+    )
+
+    resumed = Journal(path=path)
+    assert resumed.resume()
+    resumed.write(
+        "operation",
+        stage="partition",
+        describe="format",
+        identity="format",
+        seconds=0.1,
+        status="done",
+        position=1,
+    )
+
+    assert completed(Journal(path=path)) == {(0, "partition"), (1, "format")}
+
+
 def test_an_entry_from_before_positions_were_recorded_is_ignored(tmp_path: Path) -> None:
     """It says nothing reliable about where it sat, and redoing work is safer
     than skipping the wrong operation."""
@@ -268,6 +316,19 @@ def test_a_resume_gives_up_on_what_the_first_run_gave_up_on(tmp_path: Path) -> N
 
     assert already_degraded(journal) == {"binary packages"}
     assert already_degraded(None) == set()
+
+
+def test_a_new_run_does_not_inherit_an_earlier_runs_degradation(tmp_path: Path) -> None:
+    from gentoo_install.exec.apply import already_degraded
+
+    path = tmp_path / "install.jsonl"
+    earlier = Journal(path=path)
+    earlier.started(configuration="first", session="boot", installer="tree")
+    earlier.degraded("binary packages", "the host answered no signature")
+
+    Journal(path=path).started(configuration="second", session="boot", installer="tree")
+
+    assert already_degraded(Journal(path=path)) == set()
 
 
 def test_an_emerge_after_a_resume_still_builds_from_source(tmp_path: Path) -> None:

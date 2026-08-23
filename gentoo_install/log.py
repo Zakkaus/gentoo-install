@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -33,9 +34,13 @@ class Journal:
     path: Path
     #: Kept in memory as well, so a caller can assert on a run without parsing.
     entries: list[dict[str, Any]] = field(default_factory=list)
+    attempt_id: str | None = field(default=None, init=False, repr=False)
+    _resume_selected: bool = field(default=False, init=False, repr=False)
 
     def write(self, kind: str, **fields: Any) -> None:
         entry: dict[str, Any] = {"event": kind, **fields}
+        if self.attempt_id is not None:
+            entry.setdefault("attempt", self.attempt_id)
         self.entries.append(entry)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a") as handle:
@@ -64,18 +69,47 @@ class Journal:
         the first run left, or against an installer that numbers them
         differently.
         """
+        self.attempt_id = uuid.uuid4().hex
+        self._resume_selected = True
         self.write(
-            "started", configuration=configuration, session=session, installer=installer
+            "started",
+            configuration=configuration,
+            session=session,
+            installer=installer,
+            attempt=self.attempt_id,
         )
 
+    def resume(self) -> bool:
+        """Select the newest attempt and report whether the journal has entries."""
+        self.attempt_id = None
+        found = False
+        for entry in self.replay():
+            found = True
+            attempt = entry.get("attempt")
+            if entry.get("event") == "started" and isinstance(attempt, str):
+                self.attempt_id = attempt
+        self._resume_selected = True
+        return found
+
+    def resume_entries(self) -> Iterator[dict[str, Any]]:
+        """Entries belonging to the attempt selected for `--resume`."""
+        if not self._resume_selected:
+            self.resume()
+        for entry in self.replay():
+            if self.attempt_id is None:
+                if "attempt" not in entry:
+                    yield entry
+            elif entry.get("attempt") == self.attempt_id:
+                yield entry
+
     def identity(self) -> dict[str, str] | None:
-        """What the first run recorded, or None for a journal without one.
+        """What the selected run recorded, or None for a journal without one.
 
         Every field or none: a partial entry is what a run killed mid-write
         leaves, and half an identity that happens to match is worse than no
         identity at all.
         """
-        for entry in self.replay():
+        for entry in self.resume_entries():
             if entry.get("event") != "started":
                 continue
             held = {name: entry.get(name) for name in self.IDENTITY}
