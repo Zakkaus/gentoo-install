@@ -158,6 +158,7 @@ Replaces the userland of a running distribution instead of partitioning a disk.
 |---|---|---|
 | `bcc090fab621` | Debian 12 genericcloud, ext4 root on a partition, BIOS | converted and booted as Gentoo |
 | `71e751cf14a1` | Arch Linux cloud image, btrfs root, BIOS | converted and booted as Gentoo; `/swap/swapfile` carried into the new fstab |
+| `83b5a2fb4fa17` | `vm-convert` on the cluster: this installer built `xfsbox`, then converted it | rebooted as `convertedbox` and answered the shared installed-state checks to the end; `ok vm-convert 70.3m`, the first cluster record of the whole path |
 | `639c5cd4069f` | Debian 12 genericcloud, ext4 root on a partition, **UEFI** | converted, booted as Gentoo, and kept `/home` |
 | `6fa74c99ab94` | Fedora 41 Cloud, btrfs root with subvolumes, UEFI | converted, booted as Gentoo, and carried `/home` and `/var` into the new fstab as subvolumes of the same filesystem |
 
