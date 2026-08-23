@@ -20,9 +20,17 @@ from gentoo_install.model.authorized import (
 
 
 def _key(kind: str = "ssh-ed25519", comment: str = "zakk@box") -> str:
-    """A structurally valid key: the body's first length-prefixed field has to
-    repeat the type name, so a made-up base64 blob is rejected."""
-    body = len(kind).to_bytes(4, "big") + kind.encode() + (32).to_bytes(4, "big") + b"k" * 32
+    """A wire-shaped key for source-classification tests."""
+    fields: tuple[bytes, ...]
+    if kind == "ssh-ed25519":
+        fields = (kind.encode(), b"k" * 32)
+    elif kind == "ssh-rsa":
+        fields = (kind.encode(), b"\x01\x00\x01", b"\x00\x80" + b"k" * 127)
+    elif kind == "ecdsa-sha2-nistp521":
+        fields = (kind.encode(), b"nistp521", b"\x04" + b"k" * 132)
+    else:
+        raise ValueError(f"unsupported test key type: {kind}")
+    body = b"".join(len(field).to_bytes(4, "big") + field for field in fields)
     return f"{kind} {base64.b64encode(body).decode()} {comment}"
 
 
