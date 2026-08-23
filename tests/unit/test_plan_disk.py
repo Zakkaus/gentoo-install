@@ -305,6 +305,49 @@ def test_a_btrfs_scratch_unmount_does_not_replace_creation_failure() -> None:
     with pytest.raises(CommandFailed, match="already exists"):
         operation.apply(BothFail())
 
+@pytest.mark.parametrize(
+    "operation",
+    (
+        disk.VerifySubvolume(subvolume=i("sub-root"), device=i("rootfs"), name="@"),
+        disk.CreateSubvolume(subvolume=i("sub-root"), device=i("rootfs"), name="@"),
+    ),
+)
+def test_a_btrfs_scratch_mount_failure_is_cleaned_for_a_rerun(
+    operation: disk.VerifySubvolume | disk.CreateSubvolume,
+) -> None:
+    class MountFails(Recorder):
+        def run(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> CommandOutput:
+            self.commands.append(tuple(argv))
+            if argv[0] == "mount":
+                raise CommandFailed("mount exited 1: btrfs-top is already mounted")
+            return CommandOutput("", 0)
+
+    recorder = MountFails()
+    with pytest.raises(CommandFailed, match="btrfs-top is already mounted"):
+        operation.apply(recorder)
+    assert recorder.commands[-1] == ("umount", "/mnt/btrfs-top")
+
+
+def test_a_btrfs_scratch_unmount_does_not_replace_verification_failure() -> None:
+    class BothFail(Recorder):
+        def run(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> CommandOutput:
+            if argv[0] == "umount":
+                self.commands.append(tuple(argv))
+                if check:
+                    raise CommandFailed("umount exited 1: target is busy")
+                return CommandOutput("target is busy", 1)
+            return super().run(argv, check=check, input_text=input_text)
+
+    operation = disk.VerifySubvolume(
+        subvolume=i("sub-root"), device=i("rootfs"), name="@"
+    )
+    with pytest.raises(InvalidLayout, match="has no btrfs subvolume"):
+        operation.apply(BothFail())
+
 
 def test_a_subvolume_mount_carries_both_its_options_and_its_subvolume() -> None:
     nodes: list[Node] = [node for node in ext4_on_gpt() if node.id not in {i("rootfs"), i("mnt-root")}]
