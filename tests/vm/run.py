@@ -3,7 +3,7 @@
 to a human.
 
     python3 -m tests.vm.run --medium official-minimal
-    python3 -m tests.vm.run --medium official-minimal --install tests/fixtures/ext4-bios.toml
+    python3 -m tests.vm.run --medium official-minimal --install fixtures/ext4-bios.toml
     python3 -m tests.vm.run --medium gigos --interactive
 """
 
