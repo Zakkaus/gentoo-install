@@ -163,10 +163,6 @@ class StorageLayout:
     #: level. `findmnt` writes it into the source as `/dev/sda2[/@]` and into
     #: the options as `subvol=/@`, and a root read without it names no device.
     root_subvolume: str | None = None
-    #: Top-level directories that are their own mount, `/var` and `/home` on a
-    #: Fedora cloud image. A conversion renames the directories it replaces,
-    #: and rename cannot replace a mount point.
-    separate_mounts: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, init=False)
