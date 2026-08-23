@@ -30,6 +30,7 @@ from ..model.config import (
     ImageFormat,
     Firewall,
     InitSystem,
+    MirrorRegion,
     InstallConfig,
     KernelConfig,
     KernelSource,
@@ -2143,13 +2144,13 @@ INTERFACE_LANGUAGES: tuple[tuple[str, str, bool], ...] = (
 class LanguageDefaults:
     """What picking an interface language pre-fills.
 
-    Locale and timezone follow the language; the mirror region does not, and is
-    read from where the machine reaches the internet. Every one of these stays
-    a row the operator can change.
+    Locale, timezone, and mirror region follow the language. Every one of
+    these stays a row the operator can change.
     """
 
     locale: str
     timezone: str
+    mirror_region: MirrorRegion
     #: True for the languages the cjktty patch is the point of. It pulls in
     #: gentoo-zh, so it is not a default for a language that would not use the
     #: rest of that overlay.
@@ -2158,14 +2159,14 @@ class LanguageDefaults:
 
 #: One row per interface language. Keyed by the same tags as the catalogs.
 LANGUAGE_DEFAULTS: Final[dict[str, LanguageDefaults]] = {
-    "en": LanguageDefaults("en_US.UTF-8", "UTC"),
-    "zh-CN": LanguageDefaults("zh_CN.UTF-8", "Asia/Shanghai", True),
-    "zh-TW": LanguageDefaults("zh_TW.UTF-8", "Asia/Taipei", True),
+    "en": LanguageDefaults("en_US.UTF-8", "UTC", MirrorRegion.GLOBAL),
+    "zh-CN": LanguageDefaults("zh_CN.UTF-8", "Asia/Shanghai", MirrorRegion.CN, True),
+    "zh-TW": LanguageDefaults("zh_TW.UTF-8", "Asia/Taipei", MirrorRegion.GLOBAL, True),
     # cjktty is what puts Chinese, Japanese and Korean on the console, so all
     # four of those catalogs take the patched kernel and not only the two
     # Chinese ones.
-    "ja": LanguageDefaults("ja_JP.UTF-8", "Asia/Tokyo", True),
-    "ko": LanguageDefaults("ko_KR.UTF-8", "Asia/Seoul", True),
+    "ja": LanguageDefaults("ja_JP.UTF-8", "Asia/Tokyo", MirrorRegion.GLOBAL, True),
+    "ko": LanguageDefaults("ko_KR.UTF-8", "Asia/Seoul", MirrorRegion.GLOBAL, True),
 }
 
 
@@ -2185,6 +2186,10 @@ def with_language(config: InstallConfig, tag: str) -> InstallConfig:
             timezone=chosen.timezone,
             locales=locales,
             console_cjk=chosen.cjk_console,
+        ),
+        portage=replace(
+            config.portage,
+            mirrors=replace(config.portage.mirrors, region=chosen.mirror_region),
         ),
     )
     if not chosen.cjk_console:
