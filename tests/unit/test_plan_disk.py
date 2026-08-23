@@ -420,6 +420,13 @@ def test_a_pool_is_created_under_the_target_with_encryption_only_when_asked() ->
     ]
     assert "encryption=on" not in apply_all(plain).only("zpool", "create")
 
+def test_a_zpool_import_description_names_its_alternate_root() -> None:
+    operation = disk.ImportZpool(pool=i("graph-node"), name="rpool")
+
+    assert operation.describe() == (
+        "import zpool rpool with the installation target as its alternate root"
+    )
+
 
 def test_an_encrypted_pool_gets_its_passphrase_on_stdin() -> None:
     """`keylocation=prompt` reads it here and asks again at boot, which is what
