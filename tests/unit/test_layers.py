@@ -541,21 +541,26 @@ def _bindings_in(
     reachable = dict(known)
     derived = body.get("destinations")
     for step in ast.walk(body["apply"]):
-        if isinstance(step, ast.Assign) and step.value is not None:
+        if not isinstance(step, (ast.For, ast.Assign)):
+            continue
+        source = step.iter if isinstance(step, ast.For) else step.value
+        # The `destinations()` case first. Read second, an assignment such as
+        # `(path,) = self.destinations()` matched the general rule below and
+        # bound `path` to the call rather than to the paths it returns, which
+        # left the six operations that derive their destinations unchecked.
+        if derived is not None and source is not None and "destinations()" in ast.unparse(source):
+            target = step.target if isinstance(step, ast.For) else step.targets[0]
+            reachable.update(
+                {
+                    one.id: ast.Constant(_destination_text(derived))
+                    for one in ast.walk(target)
+                    if isinstance(one, ast.Name)
+                }
+            )
+        elif isinstance(step, ast.Assign) and step.value is not None:
             reachable.update(
                 {one.id: step.value for one in step.targets if isinstance(one, ast.Name)}
             )
-        elif derived is not None and isinstance(step, (ast.For, ast.Assign)):
-            source = step.iter if isinstance(step, ast.For) else step.value
-            if source is not None and "destinations()" in ast.unparse(source):
-                target = step.target if isinstance(step, ast.For) else step.targets[0]
-                reachable.update(
-                    {
-                        one.id: ast.Constant(_destination_text(derived))
-                        for one in ast.walk(target)
-                        if isinstance(one, ast.Name)
-                    }
-                )
     return reachable
 
 
@@ -1119,3 +1124,34 @@ def test_no_screen_plans_without_the_machine_it_is_planning_for() -> None:
                 continue
             unplanned.append(f"{source.name}:{node.lineno}")
     assert not unplanned, f"plans without the running layout: {unplanned}"
+
+
+def test_a_destination_unpacked_into_one_name_is_still_resolved() -> None:
+    """`(path,) = self.destinations()` is an assignment, and the general rule
+    for assignments bound `path` to the call rather than to the paths it
+    returns. Read in that order, every operation that derives its destinations
+    went unchecked while the rule appeared to cover them."""
+    source = '''
+class Example:
+    def destinations(self):
+        return (PurePosixPath("/etc/locale.conf"),)
+
+    def apply(self, context):
+        (path,) = self.destinations()
+        context.write(path, "LANG=C\\n")
+'''
+    tree = ast.parse(source)
+    cls = next(one for one in ast.walk(tree) if isinstance(one, ast.ClassDef))
+    body = {one.name: one for one in cls.body if isinstance(one, ast.FunctionDef)}
+    call = next(
+        one
+        for one in ast.walk(body["apply"])
+        if isinstance(one, ast.Call)
+        and isinstance(one.func, ast.Attribute)
+        and one.func.attr == "write"
+    )
+
+    # `locale.conf` is what a description is matched against: `_written_names`
+    # answers with the last component as well as the unparsed expression.
+    names = _written_names(call.args[0], _bindings_in(body, {}))
+    assert "locale.conf" in names, sorted(names)
