@@ -22,6 +22,7 @@ from ..model import config as model_config
 from ..model import paste
 from ..model.config import InstallConfig
 from ..model.serialise import to_toml
+from ..redact import holds_a_secret
 from . import fetch, preflight
 from .probe import Probe
 from .runner import open_in_target, write_file
@@ -133,6 +134,12 @@ def offer_paste(
         body = source.read_text()
     except OSError as error:
         record(f"warning: {source} could not be read: {error}")
+        return
+    if holds_a_secret(body):
+        # A second guard, because the first one only reaches command lines: a
+        # log carries what commands printed as well as how they were called.
+        record(f"the log holds a password hash and was not sent to {paste.HOST}")
+        record(f"the log to publish by hand is {source}")
         return
     try:
         url = fetch.upload(body, paste.export_for(PasteKind.LOG.value))
