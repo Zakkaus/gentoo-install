@@ -829,10 +829,10 @@ class WriteAuthorizedKeys(Operation):
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
         # The count alone let one key be swapped for another without a
         # character of the dry-run changing, on the setting that decides who
-        # can log in.
-        who = ", ".join(name for name, _ in self.accounts)
+        # can log in. The paths and not the account names: the paths carry the
+        # names, and an operation that says both says one of them twice.
         keys = ", ".join(fingerprint(key) for key in self.keys) or "-"
-        return "write {} into authorized_keys for {}", (keys, who)
+        return "write {} into {}", (keys, _named(self.destinations()))
 
     def apply(self, context: Context) -> None:
         body = "".join(f"{key}\n" for key in self.keys)

@@ -624,7 +624,7 @@
 "write {} for the wired interfaces with DHCP and DNS {}" = "{} 작성: 유선 인터페이스, DHCP, DNS {}"
 "write {} for {} with DHCP" = "{} 작성: 인터페이스 {}, DHCP"
 "enable net.{} so netifrc applies the static address" = "net.{}를 활성화하여 netifrc가 고정 주소를 적용하게 함"
-"write {} into authorized_keys for {}" = "{}를 {}의 authorized_keys에 작성"
+"write {} into {}" = "{}를 {}에 작성"
 "ssh password login: on, root: on, in 50-gentoo-install.conf" = "SSH 비밀번호 로그인: 켬, root: 켬 (50-gentoo-install.conf)"
 "ssh password login: on, root: off, in 50-gentoo-install.conf" = "SSH 비밀번호 로그인: 켬, root: 끔 (50-gentoo-install.conf)"
 "ssh password login: off, root: on, in 50-gentoo-install.conf" = "SSH 비밀번호 로그인: 끔, root: 켬 (50-gentoo-install.conf)"
