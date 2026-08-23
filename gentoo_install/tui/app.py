@@ -265,8 +265,12 @@ def _facts(setting: Setting, config: InstallConfig, context: Context) -> list[st
     if setting.rows:
         # A group answers with its own rows, so each value is named by the row
         # it came from rather than joined into a sentence with no subject.
+        refused = bool(setting.unavailable(config, context))
         for row in setting.rows:
-            lines.append(f"{context.translate(row.label)}: {shown_value(row, config, context)}")
+            lines.append(
+                f"{context.translate(row.label)}: "
+                f"{shown_value(row, config, context, within_refused=refused)}"
+            )
     else:
         value = _drawn(setting, config, context)
         lines.extend(

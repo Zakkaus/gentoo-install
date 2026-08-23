@@ -3984,6 +3984,11 @@ def test_a_refused_row_is_not_drawn_as_an_answer_somebody_owes() -> None:
     assert style_of(disk, converted, offering) is Style.PLAIN
     assert shown_value(disk, converted, offering) != "required"
 
+    # And the rows behind it, which the right pane draws: they cannot be
+    # answered either, and one of them went on reading `required` beside a
+    # screen the operator could not open.
+    assert "required" not in "\n".join(app._facts(disk, converted, offering))
+
     # Negative control: the same row on a partition install with no disk chosen
     # is still red and still says so.
     empty = replace(built, disk=replace(built.disk, graph=DeviceGraph.build([])))
