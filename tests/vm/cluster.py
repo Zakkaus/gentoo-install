@@ -1553,6 +1553,44 @@ def trusted_revision(identity: str) -> bool:
     return bool(identity) and (dirty is None or dirty.group(1) == "0")
 
 
+#: A guest this runner made. `gi-resolver` is deliberate infrastructure and
+#: not a leftover, so it is excluded by name rather than by being running.
+_ORPHAN_NAME: Final[re.Pattern[str]] = re.compile(r"gi-(?!resolver$).+")
+
+
+def orphan_report(api: Api) -> list[str]:
+    """Stopped guests this runner made and did not delete, named so a reader
+    can reclaim them.
+
+    Eight of them held 202 GiB of a 234 GiB pool on 2026-08-24, left by
+    campaigns whose process was killed before their cleanup ran. Reported and
+    not deleted: another campaign's guests carry the same names, and there is
+    nothing here that can tell one runner's leftovers from another's live set.
+    """
+    try:
+        resources = api.call("GET", "/cluster/resources?type=vm")
+    except ProxmoxError:
+        # A listing that fails is not a reason to refuse a campaign; the
+        # schedule's own calls report their failures on their own.
+        return []
+    orphans = [
+        one
+        for one in resources
+        if _ORPHAN_NAME.fullmatch(str(one.get("name", "")))
+        and str(one.get("status", "")) != "running"
+    ]
+    if not orphans:
+        return []
+    held = sum(int(one.get("maxdisk", 0)) for one in orphans) / 2**30
+    named = ", ".join(f"{one['vmid']} on {one['node']}" for one in sorted(
+        orphans, key=lambda one: int(one["vmid"])
+    ))
+    return [
+        f"{len(orphans)} stopped guest(s) from an earlier campaign hold "
+        f"{held:.0f} GiB: {named}"
+    ]
+
+
 def free_slots(
     api: Api,
     placed: Mapping[str, int] | None = None,
@@ -2574,6 +2612,8 @@ def run(
     # is the file a reader opens first, and identifying which revision run109
     # measured meant reading a guest log that a later round had overwritten.
     print(f"installer revision: {revision}", flush=True)
+    for line in orphan_report(api):
+        print(line, flush=True)
     medium, urls, medium_sha512 = current_minimal()
     prepared: set[str] = set()
     # A node whose console proxy went away takes no more guests: three runs on
