@@ -91,7 +91,7 @@ def running_config(config: InstallConfig, layout: StorageLayout | None) -> Insta
     own configuration — `write /etc/fstab` stopped twenty-four operations in
     with `no node with id 'running-root-device'`.
     """
-    if config.disk.mode is not DiskMode.IN_PLACE:
+    if not config.disk.layout_is_read_from_the_machine:
         return config
     if layout is None:
         raise ConversionUnsupported("the running layout was not read")
@@ -109,7 +109,7 @@ def build(
 ) -> tuple[Operation, ...]:
     """Validate, then derive the whole install. Nothing here touches a machine."""
     facts = storage_facts if storage_facts is not None else StorageFacts()
-    if config.disk.mode is DiskMode.IN_PLACE:
+    if config.disk.layout_is_read_from_the_machine:
         return _in_place(config, catalog, mirror, layout, supports_v3)
     validate(config, storage_facts=facts, supports_v3=supports_v3)
     if config.disk.mode is DiskMode.DD:

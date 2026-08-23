@@ -516,6 +516,18 @@ class DiskConfig:
     source_format: ImageFormat = ImageFormat.RAW
     destination: str = ""
 
+    @property
+    def layout_is_read_from_the_machine(self) -> bool:
+        """Whether `graph` is a placeholder a conversion fills in later.
+
+        Not the mode alone: `plan/build._in_place()` derives a populated
+        configuration through `plan/convert.layout_graph()` and leaves the
+        mode as it found it, so a graph that has been read still answers
+        `IN_PLACE`. What every caller means is that `root` names nothing yet,
+        and seven of them each spelled that out before it had a name.
+        """
+        return self.mode is DiskMode.IN_PLACE and not self.root
+
 
 @dataclass(frozen=True)
 class PackagesConfig:

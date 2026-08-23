@@ -162,7 +162,7 @@ def _simple(choice: Choice) -> list[str]:
 def _disk(config: InstallConfig) -> list[str]:
     disk = config.disk
     lines = ["", "[disk]"]
-    if disk.mode is DiskMode.IN_PLACE:
+    if disk.layout_is_read_from_the_machine:
         lines.append(f'mode = "{disk.mode.value}"')
         return lines
     if disk.mode is DiskMode.DD:

@@ -12,7 +12,7 @@ from pathlib import PurePosixPath
 from types import MappingProxyType
 from typing import Final, Mapping
 
-from ..errors import InvalidLayout, LocaleMissing
+from ..errors import ConversionUnsupported, InvalidLayout, LocaleMissing
 from ..model import compat
 from ..model.config import (
     ConsoleFontSize,
@@ -1047,6 +1047,12 @@ class EnableService(Operation):
 
 
 def build(config: InstallConfig) -> list[Operation]:
+    # The graph is empty until `plan/convert.layout_graph()` reads the machine,
+    # and every filesystem module and package here is derived from it: planning
+    # from the placeholder produces a system with no tools for its own root.
+    if config.disk.layout_is_read_from_the_machine:
+        raise ConversionUnsupported("the running layout was not read")
+
     system = config.system
     operations: list[Operation] = [
         *([WriteProxyEnvironment(proxy=config.proxy)] if config.proxy.enabled else []),

@@ -15,6 +15,8 @@ from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Final
 
+import pytest
+
 PACKAGE = Path(__file__).resolve().parents[2] / "gentoo_install"
 HARNESS = Path(__file__).resolve().parents[1] / "vm"
 
@@ -934,3 +936,75 @@ def test_the_probe_offers_no_lookup_nothing_calls() -> None:
 
     assert not hasattr(Probe, "disk_of"), "nothing called it when it was deleted"
     assert hasattr(Probe, "disk_of_path"), "the one the production path uses"
+
+
+def test_every_builder_refuses_a_conversion_whose_layout_is_unread() -> None:
+    """A conversion's graph is empty until `plan/convert.layout_graph()` reads
+    the machine, and `plan/build._in_place()` is the only caller allowed to
+    derive a populated configuration from it. Seven callers each asked the
+    placeholder a question instead; the invariant that stops the eighth is
+    that a builder handed the unread configuration refuses rather than
+    inventing an answer for an empty graph."""
+    from dataclasses import replace
+
+    from gentoo_install.errors import GentooInstallError
+    from gentoo_install.model.config import DiskMode
+    from gentoo_install.model.device import DeviceGraph, DeviceId
+    from gentoo_install.plan import bootloader, kernel, system
+
+    from .layouts import config as a_config
+
+    unread = replace(
+        a_config(),
+        disk=replace(
+            a_config().disk,
+            mode=DiskMode.IN_PLACE,
+            graph=DeviceGraph.build([]),
+            root=DeviceId(""),
+        ),
+    )
+    assert unread.disk.layout_is_read_from_the_machine
+
+    # One entry per builder `plan/build._in_place()` hands the derived
+    # configuration to. A builder added there is added here, and the first
+    # thing this test asks of it is whether it can tell the two apart.
+    builders = (
+        ("bootloader.build", bootloader.build),
+        ("bootloader.boot_facts", bootloader.boot_facts),
+        ("kernel.build", kernel.build),
+        ("system.build", system.build),
+    )
+    answered = []
+    for name, builder in builders:
+        try:
+            builder(unread)
+        except (GentooInstallError, KeyError, LookupError):
+            continue
+        answered.append(name)
+    assert not answered, f"answered a question about an empty graph: {answered}"
+
+
+def test_the_planner_is_the_only_route_a_conversion_takes() -> None:
+    """`plan.build()` refuses without the layout rather than planning from the
+    placeholder, so the refusal above is never what a caller sees."""
+    from dataclasses import replace
+
+    from gentoo_install.data import load_catalog
+    from gentoo_install.errors import ConversionUnsupported
+    from gentoo_install.model.config import DiskMode
+    from gentoo_install.model.device import DeviceGraph, DeviceId
+    from gentoo_install.plan.build import build
+
+    from .layouts import config as a_config
+
+    unread = replace(
+        a_config(),
+        disk=replace(
+            a_config().disk,
+            mode=DiskMode.IN_PLACE,
+            graph=DeviceGraph.build([]),
+            root=DeviceId(""),
+        ),
+    )
+    with pytest.raises(ConversionUnsupported, match="running layout"):
+        build(unread, load_catalog())

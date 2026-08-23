@@ -13,7 +13,7 @@ from pathlib import PurePosixPath
 from typing import Final
 
 from ..model.config import Bootloader, InitSystem, InstallConfig, KernelSource
-from ..errors import ConfigError, NothingToBoot, ValidationFailed
+from ..errors import ConfigError, ConversionUnsupported, NothingToBoot, ValidationFailed
 from ..model import compat
 from ..model.compat import CJK_KERNELS, KERNEL_PACKAGES
 from ..model.validate import zfs_kernel_version_problem
@@ -582,6 +582,12 @@ class RequestDistKernelModules(Operation):
 
 
 def build(config: InstallConfig) -> list[Operation]:
+    # The graph is empty until `plan/convert.layout_graph()` reads the machine,
+    # and every filesystem module and package here is derived from it: planning
+    # from the placeholder produces a system with no tools for its own root.
+    if config.disk.layout_is_read_from_the_machine:
+        raise ConversionUnsupported("the running layout was not read")
+
     graph = config.disk.graph
     modules = dracut_modules(config)
     entries = config.bootloader.kind is Bootloader.SYSTEMD_BOOT
