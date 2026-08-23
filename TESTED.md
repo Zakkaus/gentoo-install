@@ -285,6 +285,17 @@ prints none: `tests/vm/run.py` prints `installer revision` at the top of a run
 and `tests/vm/cluster.py` prints nothing, so a cluster result cannot be tied to
 a tree afterwards. What the tree held was read before the campaign started.
 
+**Every row that says `mounted its layout` overstates one of its checks.**
+`tests/vm/installed.py`'s `mounts` check expects the pattern `/` and is matched
+with `re.search`, so any `findmnt` output containing a slash satisfies it — a
+machine with only a root filesystem and none of the configured layout passes.
+The other checks in the same set do real work: `os-release`, `fstab`, `locale`,
+the failed-unit list and the per-filesystem device readings each name a value
+the machine computed. What is not established by these rows is that every
+configured mountpoint was mounted with the filesystem the configuration asked
+for. The rows are otherwise unchanged; the qualification belongs here rather
+than in a silent correction of each one.
+
 **No row here is newer than `3e085f078c9f`, and that is a property of the
 harness rather than of these paths.** `9e88ecda73ea9` reworded the delivered
 profile's question from `install or shell> ` to `install now? [yes/no] ` and
