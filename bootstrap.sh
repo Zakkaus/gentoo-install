@@ -190,8 +190,7 @@ say "python: $python ($version)"
 for argument in "$@"; do
 	case "$argument" in
 	-h | --help)
-		cd "$HERE"
-		exec "$python" -m gentoo_install "$@"
+		PYTHONPATH=$HERE exec "$python" -m gentoo_install "$@"
 		;;
 	esac
 done
@@ -263,5 +262,4 @@ yes) ;;
 *) [ "$(id -u)" = 0 ] || die "run as root: sudo $0 $*" ;;
 esac
 
-cd "$HERE"
-exec "$python" -m gentoo_install "$@"
+PYTHONPATH=$HERE exec "$python" -m gentoo_install "$@"
