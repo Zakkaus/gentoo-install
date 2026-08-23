@@ -588,6 +588,8 @@ def test_every_installed_check_is_line_bounded_or_names_why_it_is_not() -> None:
         ("greetd service", "requires default service and process lines"),
         ("greetd config", "requires constraints across greetd config lines"),
         ("inputmethod", "requires the binary and every environment line"),
+        ("authorized keys root", "requires every fingerprint and both modes"),
+        ("authorized keys zakk", "requires every fingerprint and both modes"),
     }
     for installation in configurations:
         for check in checks(installation):
@@ -5565,3 +5567,35 @@ def test_a_reader_removes_the_colour_systemctl_writes_to_a_terminal() -> None:
         pattern = network[0].pattern.encode()
         assert re.search(pattern, said) is None, "the raw bytes must not match"
         assert re.search(pattern, plain(said)) is not None, plain(said)
+
+
+def test_the_installed_key_check_rejects_a_file_sshd_would_ignore() -> None:
+    """The file that decides who can log in was never read back: the plan said
+    it was written and no check opened it. sshd ignores an `authorized_keys`
+    that is group or world writable and says so only in its own log, so the
+    modes are as much of the answer as the key is."""
+    import re
+
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.sshkey import fingerprint
+    from tests.vm.installed import checks
+
+    installation = load(Path("tests/fixtures/vm-unlock.toml"))
+    found = [one for one in checks(installation) if one.name.startswith("authorized keys")]
+    assert found, [one.name for one in checks(installation)]
+
+    printed = fingerprint(installation.system.authorized_keys[0])
+    good = (
+        f"2048 {printed} root@example (RSA)\n"
+        "ACL 600 /root/.ssh/authorized_keys\n"
+        "ACL 700 /root/.ssh\n"
+    )
+    for check in found:
+        assert re.search(check.pattern, good), check.name
+        for broken, why in (
+            (good.replace("ACL 600", "ACL 644"), "a world-readable file"),
+            (good.replace("ACL 700", "ACL 755"), "a world-readable directory"),
+            (good.replace(printed[7:20], "Z" * 13), "a different key"),
+            ("ssh-keygen: /root/.ssh/authorized_keys: No such file\n", "no file at all"),
+        ):
+            assert not re.search(check.pattern, broken), (check.name, why)

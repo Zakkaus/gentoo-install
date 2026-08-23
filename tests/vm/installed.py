@@ -28,7 +28,9 @@ from gentoo_install.model.device import (
 )
 from gentoo_install.plan.mounts import ResolvedMount, resolve_mounts
 from gentoo_install.plan.packages import ENVIRONMENT_FILE, input_environment
+from gentoo_install.model.sshkey import fingerprint
 from gentoo_install.plan.system import _network_service as network_service
+from gentoo_install.plan.system import key_accounts
 from gentoo_install.plan.system import _sshd_service as sshd_service
 
 from .console import DISK_PASSPHRASE
@@ -245,6 +247,31 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
                     "sshd",
                     "rc-update show default",
                     rf"(?m)^[ \t]*{sshd_service()}[ \t]*\|[ \t]*default$",
+                )
+            )
+    if installation.system.authorized_keys and installation.system.sshd:
+        # The file that decides who can log in, read back from the machine
+        # rather than assumed from the plan. `ssh-keygen -l` computes the
+        # fingerprint on the guest, so the answer cannot come from the echo of
+        # the question, and `stat` answers with the modes sshd requires:
+        # sshd ignores an `authorized_keys` group or world writable, and says
+        # so only in its own log.
+        for name, home in key_accounts(
+            installation.system, installation.kernel.remote_unlock.enabled
+        ):
+            path = f"{home}/.ssh/authorized_keys"
+            required = [
+                re.escape(fingerprint(key))
+                for key in installation.system.authorized_keys
+            ]
+            required.append(rf"ACL 600 {re.escape(path)}")
+            required.append(rf"ACL 700 {re.escape(home)}/\.ssh")
+            result.append(
+                InstalledCheck(
+                    f"authorized keys {name}",
+                    f"ssh-keygen -lf {path}; stat -c 'ACL %a %n' {path} {home}/.ssh",
+                    "(?s)" + "".join(f"(?=.*{one})" for one in required),
+                    line_boundary_exception="requires every fingerprint and both modes",
                 )
             )
     if installation.system.zram is not None:
