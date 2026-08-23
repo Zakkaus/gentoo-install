@@ -162,6 +162,12 @@ def test_every_disk_is_reread_once_rather_than_once_per_partition() -> None:
     assert len([o for o in operations if isinstance(o, disk.RereadPartitionTable)]) == 1
 
 
+def test_partition_table_waits_for_device_events_before_formatting() -> None:
+    recorder = Recorder()
+    disk.RereadPartitionTable(disk=i("disk")).apply(recorder)
+
+    assert recorder.device_event_settles == 1
+
 def test_luks_is_formatted_with_argon2id_and_opened_from_the_same_key_file() -> None:
     nodes: list[Node] = [node for node in ext4_on_gpt() if node.id != i("rootfs")]
     nodes += [
@@ -201,8 +207,6 @@ def test_a_filesystem_is_made_with_the_label_option_its_tool_uses() -> None:
     vfat = recorder.only("mkfs.vfat")
     assert vfat[1:4] == ("-F", "32", "-n")
     assert "ESP" in vfat
-
-
 def test_every_filesystem_names_its_label_with_an_option_that_tool_takes() -> None:
     """`MKFS` and `LABEL_OPTION` were two tables keyed the same way and
     indexed on one line, so a filesystem added to one and not the other raised

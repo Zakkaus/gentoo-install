@@ -150,6 +150,9 @@ class Machine:
                 return f"/dev/{group.name}/{node.name}"
         return self.probe.path_of(device)
 
+    def settle_device_events(self) -> None:
+        self.probe.settle_mdev_events()
+
     def remember_image_device(self, device: DeviceId, path: str) -> None:
         self.image_devices[device] = path
 

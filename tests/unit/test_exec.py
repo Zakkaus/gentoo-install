@@ -457,6 +457,17 @@ def test_a_selector_that_is_absent_names_the_device_rather_than_guessing(tmp_pat
         probe_of(tmp_path).resolve(DeviceId("disk"), "/dev/definitely-absent")
 
 
+def test_a_removed_selector_falls_back_to_its_resolved_device(tmp_path: Path) -> None:
+    selector = tmp_path / "virtio-target0"
+    device = tmp_path / "vdc"
+    device.touch()
+    selector.symlink_to(device)
+    probe = probe_of(tmp_path)
+
+    assert probe.resolve(DeviceId("disk"), str(selector)) == str(device)
+    selector.unlink()
+    assert probe.resolve(DeviceId("disk"), str(selector)) == str(device)
+
 def test_a_resolved_device_survives_a_restart_of_the_installer(tmp_path: Path) -> None:
     first = probe_of(tmp_path)
     first.remember(DeviceId("disk"), "/dev/vda")

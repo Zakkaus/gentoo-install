@@ -59,6 +59,11 @@ EFI_VARIABLES: Final[Path] = EFI_MARKER / "efivars"
 #: it, so the scan below never ran and the install stopped anyway.
 UDEV_NAMES: Final[tuple[str, ...]] = ("udevd", "systemd-udevd")
 
+#: The hotplug helper the Alpine netboot environment starts for every event.
+MDEV_NAMES: Final[tuple[str, ...]] = ("mdev",)
+MDEV_QUIET_SECONDS: Final[float] = 1.0
+MDEV_POLL_SECONDS: Final[float] = 0.1
+
 #: The one `/proc` in this module. `MEMINFO`, `CMDLINE` and `CPUINFO` each
 #: wrote the path out again, so a probe pointed at another root — a container,
 #: a test — would have moved some of them and not the others.
@@ -78,12 +83,13 @@ def session_id() -> str:
         return ""
 
 
-def _udev_is_running() -> bool:
-    """Whether a udev daemon is on this machine, read from `/proc`."""
+def _processes_named(names: tuple[str, ...]) -> int | None:
+    """How many running processes use one of the supplied names."""
     try:
         entries = list(PROC.iterdir())
     except OSError:
-        return True
+        return None
+    found = 0
     for entry in entries:
         if not entry.name.isdigit():
             continue
@@ -91,9 +97,15 @@ def _udev_is_running() -> bool:
             name = (entry / "comm").read_text().strip()
         except OSError:
             continue
-        if name in UDEV_NAMES:
-            return True
-    return False
+        if name in names:
+            found += 1
+    return found
+
+
+def _udev_is_running() -> bool:
+    """Whether a udev daemon is on this machine, read from `/proc`."""
+    found = _processes_named(UDEV_NAMES)
+    return found is None or found > 0
 
 
 #: Where a BIOS GRUB keeps its configuration. Both spellings, because Fedora
@@ -595,19 +607,19 @@ class Probe:
         )
 
     def resolve(self, device: DeviceId, selector: str) -> str:
-        """Turn a selector from the configuration into a path that exists now.
-
-        The selector is resolved every time rather than cached: a
-        `/dev/disk/by-id/...` name survives the kernel renumbering its disks and
-        the `/dev/sda` it points at today does not.
-        """
+        """Turn a selector into a path that exists now."""
         candidate = Path(selector)
-        if not candidate.exists():
-            raise DeviceNotFound(f"{device}: {selector} is not present on this machine")
-        return str(candidate.resolve())
+        if candidate.exists():
+            path = str(candidate.resolve())
+            self.remember(device, path)
+            return path
+        remembered = self.resolved.get(device)
+        if remembered is not None and Path(remembered).exists():
+            return remembered
+        raise DeviceNotFound(f"{device}: {selector} is not present on this machine")
 
     def remember(self, device: DeviceId, path: str) -> None:
-        """Record a device the installer created, such as a LUKS mapping."""
+        """Record a created or resolved device path."""
         self.resolved[device] = path
         self.save()
 
@@ -705,6 +717,32 @@ class Probe:
         raise DeviceNotFound(
             f"{path} did not appear within {seconds:.0f}s; tried {', '.join(tried) or 'nothing'}"
         )
+
+    def settle_mdev_events(self, seconds: float = 15.0) -> None:
+        """Wait for mdev workers from a partition-table update to finish."""
+        if _udev_is_running():
+            return
+        deadline = time.monotonic() + seconds
+        quiet_after = time.monotonic() + MDEV_QUIET_SECONDS
+        last_active = -1
+        saw_event = False
+        while time.monotonic() < deadline:
+            active = _processes_named(MDEV_NAMES)
+            if active is None:
+                return
+            now = time.monotonic()
+            if active:
+                saw_event = True
+                quiet_after = now + MDEV_QUIET_SECONDS
+                if active != last_active:
+                    self.runner.log(f"mdev event processes: {active}")
+            elif now >= quiet_after:
+                if saw_event:
+                    self.runner.log("mdev event queue settled")
+                return
+            last_active = active
+            time.sleep(MDEV_POLL_SECONDS)
+        raise CommandFailed(f"mdev event queue did not settle within {seconds:.0f}s")
 
     #: `lsblk` calls these TYPE=disk and none of them is an install target:
     #: compressed swap, a loopback of the live image, a ramdisk.
