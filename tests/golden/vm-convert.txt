@@ -25,19 +25,19 @@
 
 [system]
   generate and verify locales en_US.UTF-8, in /gentoo-install.new
-  set the system locale to en_US.UTF-8, in /gentoo-install.new
+  set the system locale to en_US.UTF-8 in /etc/locale.conf, in /gentoo-install.new
   set the timezone to UTC, in /gentoo-install.new
-  set the console keymap to us and its font to default8x16, in /gentoo-install.new
-  set the hostname to convertedbox, in /gentoo-install.new
-  give the target its own machine id, in /gentoo-install.new
-  write /etc/fstab with entries for /, /efi, in /gentoo-install.new
-  treat the hardware clock as UTC, in /gentoo-install.new
+  set the console keymap to us and its font to default8x16 in /etc/vconsole.conf, in /gentoo-install.new
+  set the hostname to convertedbox in /etc/hostname and /etc/hosts, in /gentoo-install.new
+  give the target its own machine id with systemd-machine-id-setup, in /gentoo-install.new
+  write /etc/fstab with UUID from running-root-device / ext4 defaults 0 1, UUID from running-esp-device /efi vfat defaults,umask=0077 0 2, in /gentoo-install.new
+  treat the hardware clock as UTC in /etc/adjtime, in /gentoo-install.new
   set the root password, in /gentoo-install.new
   install sshd: emerge net-misc/openssh, in /gentoo-install.new
   ssh password login: off, root: off, in 50-gentoo-install.conf, in /gentoo-install.new
   enable sshd at boot, in /gentoo-install.new
   generate the ssh host keys, in /gentoo-install.new
-  configure the wired interface for DHCP, in /gentoo-install.new
+  write /etc/systemd/network/20-wired.network for the wired interfaces with DHCP and DNS -, in /gentoo-install.new
   enable systemd-networkd at boot, in /gentoo-install.new
   enable systemd-resolved at boot, in /gentoo-install.new
   install cron: emerge sys-process/cronie, in /gentoo-install.new
