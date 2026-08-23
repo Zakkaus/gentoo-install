@@ -11,7 +11,7 @@ from gentoo_install.errors import CommandFailed, DownloadFailed
 from gentoo_install.plan.operations import CommandOutput
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Sequence
 
 from gentoo_install.model.device import DeviceId
@@ -42,6 +42,9 @@ class Recorder:
     #: Commands whose first word is here raise instead of returning.
     failures: set[str] = field(default_factory=set)
     given_up: set[str] = field(default_factory=set)
+    #: What the conversion seam was asked to do, rather than doing it.
+    swapped: list[tuple[PurePosixPath, tuple[str, ...]]] = field(default_factory=list)
+    populated: list[PurePosixPath] = field(default_factory=list)
     #: Why each one was given up. The reason is what `install.jsonl` records
     #: and what an operator reads, so a double that drops it cannot hold it.
     degradations: dict[str, str] = field(default_factory=dict)
@@ -145,6 +148,19 @@ class Recorder:
 
     def key_file(self, device: DeviceId) -> PurePosixPath:
         return PurePosixPath(f"/run/gentoo-install/keys/{device}")
+
+    def swap_directories(
+        self,
+        staging: PurePosixPath,
+        names: Sequence[str],
+        copy: Callable[[Path, Path], None],
+    ) -> None:
+        # Recorded rather than performed: the real one renames the running
+        # system's directories, and a unit test must not.
+        self.swapped.append((staging, tuple(names)))
+
+    def populate_boot(self, staging: PurePosixPath) -> None:
+        self.populated.append(staging)
 
     def containing_disk(self, device: DeviceId) -> str:
         return "/dev/vda"

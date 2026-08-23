@@ -17,8 +17,9 @@ import signal
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 import re
+from collections.abc import Callable
 from typing import ClassVar, Final, Protocol, Sequence
 
 from ..errors import CommandFailed
@@ -158,6 +159,23 @@ class Context(Protocol):
         A path on the installing system, not inside the target: it is passed to
         `cryptsetup`, which runs outside the chroot.
         """
+
+    def swap_directories(
+        self,
+        staging: PurePosixPath,
+        names: Sequence[str],
+        copy: Callable[[Path, Path], None],
+    ) -> None:
+        """Replace each named directory of the running system from `staging`.
+
+        Here rather than imported: `plan/convert.py` reached
+        `gentoo_install.exec.convert` through `importlib` for as long as this
+        seam has existed, and the guard that forbids that edge walks `import`
+        statements, which never see one.
+        """
+
+    def populate_boot(self, staging: PurePosixPath) -> None:
+        """Fill the staged `/boot` from the running system's own."""
 
     def containing_disk(self, device: DeviceId) -> str:
         """The whole disk a device sits on, such as `/dev/sda`."""
