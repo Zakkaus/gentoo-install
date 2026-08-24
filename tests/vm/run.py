@@ -49,6 +49,7 @@ from .console import (
     PASSPHRASE_PROMPT,
     PASSWORD_PROMPT,
     SerialConsole,
+    discarded_by_the_prompt,
 )
 from .monitor import type_text
 from .driver import FIND_DRIVER, REPOSITORY, build as build_driver
@@ -511,6 +512,13 @@ def unlock_and_login(
             console.expect(r"# ", timeout=60.0)
             return "console"
         console.send(DISK_PASSPHRASE)
+        # Answered again here rather than at the top of the loop: an answer
+        # the prompt discarded leaves that same prompt on the screen and
+        # nothing reprints it, so waiting for a second one spends the ceiling.
+        for _ in range(PASSPHRASE_ATTEMPTS):
+            if not discarded_by_the_prompt(console, DISK_PASSPHRASE):
+                break
+            console.send(DISK_PASSPHRASE)
     raise SystemExit("the disk kept asking for a passphrase; it is not the one installed")
 
 
