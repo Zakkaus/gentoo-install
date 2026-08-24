@@ -88,8 +88,17 @@ class WriteProxyEnvironment(Operation):
     stage: Stage = Stage.SYSTEM
     proxy: ProxyConfig
 
+    def destinations(self) -> tuple[PurePosixPath, ...]:
+        return (
+            PurePosixPath("/etc/environment"),
+            PurePosixPath("/etc/profile.d/gentoo-install-proxy.sh"),
+        )
+
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
-        return "keep proxy environment for {} in the installed system", (self.proxy.redacted_url,)
+        return "keep proxy environment for {} in {}", (
+            self.proxy.redacted_url,
+            _named(self.destinations()),
+        )
 
     def apply(self, context: Context) -> None:
         # `/etc/environment` is replaced, not appended to, so a run with no
@@ -110,11 +119,12 @@ class WriteProxyEnvironment(Operation):
             f"{key}={json.dumps(value)}\n{key.upper()}={json.dumps(value)}\n"
             for key, value in values.items()
         )
-        context.write(PurePosixPath("/etc/environment"), environment)
+        environment_file, profile_file = self.destinations()
+        context.write(environment_file, environment)
         profile = "".join(
             f"export {key}={shlex.quote(value)}\n" for key, value in values.items()
         )
-        context.write(PurePosixPath("/etc/profile.d/gentoo-install-proxy.sh"), profile)
+        context.write(profile_file, profile)
 
 
 @dataclass(frozen=True)
@@ -203,12 +213,19 @@ class GenerateLocales(Operation):
     stage: Stage = Stage.SYSTEM
     locales: tuple[str, ...]
 
+    def destinations(self) -> tuple[PurePosixPath, ...]:
+        return (PurePosixPath("/etc/locale.gen"),)
+
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
-        return "generate and verify locales {}", (", ".join(self.locales),)
+        return "write {} with locales {} and verify them", (
+            _named(self.destinations()),
+            ", ".join(self.locales),
+        )
 
     def apply(self, context: Context) -> None:
         content = "".join(f"{locale} {_charmap(locale)}\n" for locale in self.locales)
-        context.write(PurePosixPath("/etc/locale.gen"), content)
+        (path,) = self.destinations()
+        context.write(path, content)
         context.run_in_target(["locale-gen"])
         available = context.run_in_target(["locale", "--all-locales"]).lower().split()
         missing = [
@@ -526,13 +543,17 @@ class SetRootPassword(Operation):
 class GrantSudo(Operation):
     stage: Stage = Stage.SYSTEM
 
+    def destinations(self) -> tuple[PurePosixPath, ...]:
+        return (PurePosixPath("/etc/sudoers.d/10-wheel"),)
+
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
-        return "let the wheel group run sudo, with a password", ()
+        return "let the wheel group run sudo, with a password, in {}", (
+            _named(self.destinations()),
+        )
 
     def apply(self, context: Context) -> None:
-        context.write(
-            PurePosixPath("/etc/sudoers.d/10-wheel"), "%wheel ALL=(ALL:ALL) ALL\n", mode=0o440
-        )
+        (path,) = self.destinations()
+        context.write(path, "%wheel ALL=(ALL:ALL) ALL\n", mode=0o440)
 
 
 @dataclass(frozen=True, kw_only=True)

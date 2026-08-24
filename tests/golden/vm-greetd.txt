@@ -41,7 +41,7 @@
   resolve net-misc/openssh net-misc/networkmanager net-wireless/wpa_supplicant sys-process/cronie sys-kernel/installkernel sys-kernel/dracut sys-kernel/linux-firmware sys-fs/dosfstools sys-fs/e2fsprogs sys-kernel/gentoo-kernel-bin sys-boot/grub sys-boot/efibootmgr xfce-base/xfce4-meta x11-base/xorg-server gui-libs/greetd gui-apps/tuigreet app-i18n/ibus-libpinyin media-video/pipewire media-video/wireplumber app-i18n/ibus together before installing the requested packages
 
 [system]
-  generate and verify locales en_US.UTF-8
+  write /etc/locale.gen with locales en_US.UTF-8 and verify them
   set the system locale to en_US.UTF-8 in /etc/locale.conf
   set the timezone to UTC
   set the console keymap to us and its font to default8x16 in /etc/vconsole.conf

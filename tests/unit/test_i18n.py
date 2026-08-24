@@ -537,6 +537,8 @@ REVIEWED_TEMPLATES: frozenset[str] = frozenset(
         " no route",
         "set the console keymap to {} and its font to {} in {}",
         "set the hostname to {} in {}",
+        "keep proxy environment for {} in {}",
+        "write {} with locales {} and verify them",
         "set the system locale to {} in {}",
         "start a login on {} at {} baud",
         "stream the {} image {} onto {}",

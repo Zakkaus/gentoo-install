@@ -1597,7 +1597,16 @@ def test_every_operation_that_names_a_file_writes_exactly_the_files_it_named() -
                 named = getattr(operation, "destinations", None)
                 if named is None:
                     continue
-                recorder = Recorder()
+                # `GenerateLocales` reads `locale -a` back and refuses what
+                # it cannot find, so the double answers with what was asked
+                # for; every other operation here ignores it.
+                # `locale -a` prints `zh_CN.utf8` for `zh_CN.UTF-8`, which is
+                # what `_normalised` exists for; the double has to answer in
+                # the machine's spelling or the check reads as a failure.
+                wanted = "\n".join(
+                    one.lower().replace("-", "") for one in installation.system.locales
+                )
+                recorder = Recorder(replies={"locale": wanted})
                 operation.apply(recorder)
                 assert set(recorder.files) == set(named()), (
                     fixture.name,
