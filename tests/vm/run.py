@@ -389,7 +389,15 @@ def remote_unlock_commands(installation: InstallConfig) -> tuple[str, str | None
         if not isinstance(pool, ZfsPool):
             raise RuntimeError("ZFSBootMenu root dataset has no configured pool")
         full_name = f"{pool.name}/{dataset.name}"
-        return "zfs load-key -a", f"zfs get -H -o value keystatus {full_name}"
+        # The pools first, and read-only: `zfs load-key -a` loads keys for
+        # what is imported and succeeds with nothing to do when the pool is
+        # not, so the proof was the first thing to notice and it reported
+        # `dataset does not exist`, which names neither the pool nor whether
+        # anything was imported at all.
+        return (
+            f"echo pools=$(zpool list -H -o name | tr '\\n' ',') && zfs load-key -a",
+            f"zfs get -H -o value keystatus {full_name}",
+        )
     return "unlock", None
 
 
