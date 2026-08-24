@@ -310,6 +310,10 @@ after that can name one.
 
 | `8d4d7d730ad6c` and the four revisions before it | eleven local guests driven through `tests/vm/campaign.py` rather than `run.py`: `vm-proxy-dead`, `mbr-edit`, `vm-greetd`, `vm-bios-luks`, `vm-openrc-desktop`, `vm-gnome`, `vm-lvm`, `vm-mdraid`, `vm-bios`, `vm-f2fs`, `ext3` | all eleven passed. `vm-proxy-dead` passes by failing and is the first run of the expectation table added in `#996` against a real guest rather than a constructed `Outcome`. `ext3` ran alone and took 11.0m, which is what separates its two cluster stalls from the fixture. **What the three desktop rows do not establish:** that a session draws. The checks read the packages, the service state and the configuration; the harness has no display, so nothing in these runs saw a screen. |
 
+| `0528b451a10c4` | `vm-zfs`, `vm-btrfs`, `vm-xfs`, `vm-cjk-kernel` and `vm-convert` on the cluster, five of six | each installed, booted and passed its post-boot checks. `vm-convert` at 71.4m is the record for the in-place conversion, the heaviest path this installer has. The sixth, `ext3`, ended as `ERROR`: the console was silent for 1200s with the guest at 0% CPU and the node idle, mid-compile of `sys-boot/grub`. |
+
+| `8d4d7d730ad6c` | `vm-zfs-encrypted`, `vm-zfs-mirror`, `vm-raidz`, `vm-desktop` and `vm-source-kernel` on the cluster, five of six | all five installed and booted. `vm-source-kernel` took 322.6m, which is the record for a kernel built from source. `ext3` ended the same way as the round before, on a different node — two nodes, one stopping point, and the same fixture installs and boots in 11.0m on a local guest. **What this does not establish:** why. The pair of cluster failures is recorded in `docs/tasks.md` row 402 with the counters. |
+
 **Rows recorded before `5a9b9f220e651` and saying `mounted its layout` overstate
 one of their checks.**
 `tests/vm/installed.py`'s `mounts` check expects the pattern `/` and is matched
