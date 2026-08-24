@@ -597,3 +597,25 @@ def test_an_image_found_beside_an_unreadable_entry_is_still_installed() -> None:
         }
     )
     assert built._image(partial) == "/efi/EFI/zbm/vmlinuz-6.12.EFI"
+
+
+def test_the_zfsbootmenu_describe_changes_with_the_command_line_it_will_set() -> None:
+    """`apply()` sets `org.zfsbootmenu:commandline` and `describe()` said only
+    the config path and the dataset, so a dry run could not show whether the
+    installed system would answer on a serial port. GRUB's own describe has
+    named its cmdline all along; the two disagreed about the same value.
+
+    The parameters are also not the operator's alone: a remote unlock adds
+    its own, so what a dry run hides here is larger than what was configured.
+    """
+    from dataclasses import replace
+
+    operation = zfsbootmenu_operation()
+    assert " ".join(operation.kernel_params) in operation.describe(), operation.describe()
+
+    other = replace(operation, kernel_params=("console=ttyS1,9600", "nomodeset"))
+    assert other.describe() != operation.describe()
+    assert "console=ttyS1,9600 nomodeset" in other.describe(), other.describe()
+
+    empty = replace(operation, kernel_params=())
+    assert "empty" in empty.describe(), empty.describe()

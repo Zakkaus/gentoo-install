@@ -89,7 +89,7 @@
 [bootloader]
   install the bootloader: emerge sys-boot/zfsbootmenu sys-boot/efibootmgr
   install the EFI stub generate-zbm builds around: emerge sys-apps/systemd
-  write /etc/zfsbootmenu/config.yaml, build ZFSBootMenu into /efi/EFI/zbm, and boot zpcala/ROOT/gentoo/root from it
+  write /etc/zfsbootmenu/config.yaml, build ZFSBootMenu into /efi/EFI/zbm, and boot zpcala/ROOT/gentoo/root from it with cmdline console=ttyS0,115200 quiet
 
 [packages]
   enable zfs-import-scan.service at boot

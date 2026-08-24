@@ -465,7 +465,8 @@ class InstallZfsBootMenu(Operation):
     def describe(self) -> str:
         return (
             f"write {ZBM_CONFIG}, build ZFSBootMenu into {self.esp}/{ZBM_DIRECTORY}, "
-            f"and boot {self.dataset} from it"
+            f"and boot {self.dataset} from it with cmdline "
+            f"{' '.join(self.kernel_params) or 'empty'}"
         )
 
     def _config(self) -> str:
