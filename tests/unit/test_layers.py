@@ -595,6 +595,14 @@ def _written_names(expr: ast.expr, known: Mapping[str, ast.expr]) -> set[str]:
     return {one for one in found if one}
 
 
+#: Operations whose writes go into the directory that becomes the cpio
+#: appended to the initramfs, not onto the installed system. Named rather than
+#: detected: the paths derive from `self.target.place`, and a rule that
+#: recognised that by its shape would also excuse a real target path built the
+#: same way.
+STAGED: Final[frozenset[str]] = frozenset({"AppendConfiguration"})
+
+
 def test_every_operation_names_the_files_it_writes() -> None:
     """`--dry-run` prints `describe()` for the same operations `apply()` runs,
     so a file named by neither is a file an operator learns about by finding it
@@ -609,6 +617,7 @@ def test_every_operation_names_the_files_it_writes() -> None:
     of them and the check would pass having compared nothing.
     """
     read = 0
+    staged = 0
     for module in _modules("plan"):
         tree = ast.parse(module.read_text(encoding="utf-8"))
         known: dict[str, ast.expr] = {}
@@ -622,14 +631,27 @@ def test_every_operation_names_the_files_it_writes() -> None:
                 )
         for cls in (one for one in ast.walk(tree) if isinstance(one, ast.ClassDef)):
             body = {one.name: one for one in cls.body if isinstance(one, ast.FunctionDef)}
-            if "apply" not in body or "describe" not in body:
+            describing = body.get("describe") or body.get("describe_parts")
+            if "apply" not in body or describing is None:
                 continue
-            said = ast.unparse(body["describe"])
+            if "destinations" in body:
+                # Its path reaches the text through `_named(self.destinations())`,
+                # so the source holds `{}` where the filename goes.
+                # `test_plan_system.py` renders the plan and checks it there.
+                continue
+            said = ast.unparse(describing)
             reachable = _bindings_in(body, known)
             for call in ast.walk(body["apply"]):
                 if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
                     continue
                 if call.func.attr != "write" or not call.args:
+                    continue
+                if cls.name in STAGED:
+                    # Not a file on the installed system: these land in the
+                    # directory that becomes the appended cpio, and what an
+                    # operator needs to know is what goes into the initramfs,
+                    # which the description says.
+                    staged += 1
                     continue
                 read += 1
                 names = _written_names(call.args[0], reachable)
@@ -720,6 +742,7 @@ def test_the_dry_run_names_every_file_only_its_owner_may_read() -> None:
         "WriteAuthorizedKeys",
         "WriteFirstBoot",
         "WriteMachineId",
+        "WriteMemoryEntry",
         "WriteNetworkConfig",
         "WriteProxyEnvironment",
     }, sorted(derived_here)

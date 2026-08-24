@@ -8,5 +8,5 @@
 
 [bootloader]
   unpack the ram kernel and initramfs into /boot/efi/gentoo-install-ram
-  write a systemd-boot entry for the ram environment
+  write /boot/efi/loader/entries/gentoo-install-ram.conf, a systemd-boot entry for the ram environment
   arm one boot into the memory environment with systemd-boot

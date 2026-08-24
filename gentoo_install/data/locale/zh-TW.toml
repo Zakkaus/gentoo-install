@@ -652,6 +652,7 @@
 "put the installer, the configuration and {} key(s) in authorized_keys inside the initramfs" = "將安裝器、設定檔與 {} 把金鑰以 authorized_keys 放進 initramfs"
 "delete the downloaded archive, now that its two files are out" = "需要的兩個檔案已取出，刪除下載的封存檔"
 "write a {} entry for the {} environment" = "寫入 {} 的開機項目，用於 {} 環境"
+"write {}, a {} entry for the {} environment" = "寫入 {}：{} 的開機項目，用於 {} 環境"
 "arm one boot into the memory environment with {}" = "以 {} 預約一次進入記憶體環境的開機"
 "replace the default boot entry with the memory environment ({})" = "將預設開機項目換成記憶體環境（{}）"
 "take back the armed boot and delete what it placed" = "取消開機預約並刪除它放置的檔案"
