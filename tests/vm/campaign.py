@@ -200,6 +200,10 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         Run("fixtures/vm-convert.toml"),
         Run("fixtures/vm-raidz.toml"),
         Run("fixtures/vm-zram.toml"),
+        # A sudo user's `authorized_keys`, read back off the installed system.
+        # Nothing else in the matrix does: `vm-unlock` has keys and no user,
+        # and the two fixtures that have both put `/home` on its own dataset.
+        Run("fixtures/vm-user-key.toml"),
         Run("fixtures/vm-bios-luks.toml", firmware="bios"),
         # sshd with a key that can reach it, and the initramfs daemon that
         # unlocks the root: `remote_unlock` was off in every other fixture.
