@@ -298,6 +298,16 @@ def wait_for_unlock_daemon(
     raise RuntimeError(f"no ssh daemon on port {port} after {patience:.0f}s: {last}")
 
 
+#: What ssh prints on every session here and what no reader needs to see.
+_SSH_NOISE: Final[re.Pattern[str]] = re.compile(
+    r"^Warning: Permanently added .*to the list of known hosts\.$", re.MULTILINE
+)
+
+
+def _without_ssh_noise(output: str) -> str:
+    return _SSH_NOISE.sub("", output).strip()
+
+
 def try_remote_unlock(key: Path, port: int, installation: InstallConfig) -> str:
     """Answer the empty string when the unlock worked, or why it did not."""
     try:
@@ -344,7 +354,13 @@ def remote_unlock(
         process.communicate()
         raise RuntimeError(f"remote unlock timed out after {timeout:.0f}s") from error
     if process.returncode != 0:
-        raise RuntimeError(f"remote unlock failed: {output.strip()[-300:]}")
+        # The exit code and the output without ssh's own noise: with
+        # `StrictHostKeyChecking=no` every session prints `Permanently added`,
+        # and a message that kept only the last 300 characters showed that
+        # warning and nothing else, which reads as though ssh was the problem.
+        printed = _without_ssh_noise(output)
+        why = repr(printed[-300:]) if printed else "nothing"
+        raise RuntimeError(f"remote unlock: ssh exited {process.returncode} and said {why}")
     if proof is None:
         return "unlocked"
     said = [line.strip() for line in output.splitlines() if line.strip()]
