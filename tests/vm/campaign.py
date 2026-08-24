@@ -437,7 +437,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     done: list[Outcome] = []
     if args.only:
-        done = list(parallel(named(args.only)))
+        # Named, not counted: `named()` answers with every `Run` carrying the
+        # fixture, so `--only vm-binpkg` is three runs and a reader who is
+        # told `3 runs` cannot tell which three.
+        chosen = named(args.only)
+        print(f"--- {', '.join(one.name for one in chosen)} ({len(chosen)} runs)")
+        done = list(parallel(chosen))
     elif args.keep_going:
         # One pool, not one stage at a time. The stage barrier exists so a
         # failed blocking stage can stop the rest, and `--keep-going` has
