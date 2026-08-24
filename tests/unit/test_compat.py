@@ -1146,3 +1146,96 @@ def test_a_conversion_is_not_refused_for_an_esp_it_has_not_read_yet() -> None:
     # refused, so the rule above is not "never ask for an esp".
     partitioned = replace(built, disk=replace(built.disk, graph=DeviceGraph.build([])))
     assert compat.Trait.NO_MOUNTED_ESP in compat.traits_of(partitioned)
+
+
+def test_a_mirror_site_the_region_does_not_offer_is_refused() -> None:
+    """`mirrors.gentoo_binhost()` resolves a site key with
+    `next((one for one in sites if one.key == preferred), sites[0])`, so a key
+    the region lacks is replaced by the region's first site and nothing says
+    so. `vm-binhost-fallback` names `xtom-hk` because its binary package index
+    answers 404 and the run is green only if Portage drops that host; rewritten
+    to `global`, where there is no `xtom-hk`, it resolved to
+    `distfiles.gentoo.org` and installed from a working binary host."""
+    from dataclasses import replace
+
+    from gentoo_install.exec.config import load
+    from gentoo_install.model import compat, mirrors
+    from gentoo_install.model.config import MirrorRegion
+
+    config = load(Path("tests/fixtures/vm-binhost-fallback.toml"))
+    assert config.portage.mirrors.site == "xtom-hk", config.portage.mirrors
+    assert not compat.mirror_site_problems(config)
+
+    moved = replace(
+        config,
+        portage=replace(
+            config.portage,
+            mirrors=replace(config.portage.mirrors, region=MirrorRegion.GLOBAL),
+        ),
+    )
+    problems = compat.mirror_site_problems(moved)
+    assert problems and "xtom-hk" in problems[0], problems
+
+    # The silent substitution the rule exists to catch, so the case is not
+    # arguing against a mechanism that was never there.
+    assert mirrors.gentoo_binhost(MirrorRegion.GLOBAL, "xtom-hk") != mirrors.gentoo_binhost(
+        MirrorRegion.CN, "xtom-hk"
+    )
+    assert "xtom" not in mirrors.gentoo_binhost(MirrorRegion.GLOBAL, "xtom-hk")
+
+
+def test_a_fixture_that_keeps_its_site_keeps_its_region(tmp_path: Path) -> None:
+    """The two are one choice: a key is looked up inside its region, so moving
+    the region alone is the same silent substitution by another route.
+
+    Read off the file the harness writes rather than off its source, because
+    what the guest installs from is the file.
+    """
+    from gentoo_install.exec.config import load
+    from gentoo_install.model import compat
+    from gentoo_install.model.config import MirrorRegion, Sync
+    from tests.vm import cluster
+
+    kept, moved = cluster.fixtures(["vm-binhost-fallback", "vm-xfs"])
+    written = cluster.rewrite_fixtures(
+        [kept, moved], tmp_path, MirrorRegion.GLOBAL, Sync.WEBRSYNC, site="osuosl"
+    )
+
+    pinned = load(written / kept.fixture.name).portage.mirrors
+    assert (pinned.region, pinned.site) == (MirrorRegion.CN, "xtom-hk"), pinned
+    assert not compat.mirror_site_problems(load(written / kept.fixture.name))
+
+    ordinary = load(written / moved.fixture.name).portage.mirrors
+    assert (ordinary.region, ordinary.site) == (MirrorRegion.GLOBAL, "osuosl"), ordinary
+
+
+def test_seeding_a_language_drops_a_mirror_site_its_region_lacks() -> None:
+    """The Mirrors screen already clears the site when the region changes;
+    the language seeding replaced the region and left the site behind. An
+    operator who picks `tuna` and then chooses an English profile would fetch
+    everything from `distfiles.gentoo.org` with nothing said."""
+    from dataclasses import replace
+
+    from gentoo_install.model import compat
+    from gentoo_install.model.config import MirrorRegion
+    from gentoo_install.tui import screens
+    from tests.unit.layouts import config as a_config
+
+    chinese = replace(
+        a_config(),
+        portage=replace(
+            a_config().portage,
+            mirrors=replace(
+                a_config().portage.mirrors, region=MirrorRegion.CN, site="tuna"
+            ),
+        ),
+    )
+    assert not compat.mirror_site_problems(chinese)
+
+    # The seeding that moves the region. Whichever language leaves the region
+    # where it was keeps the site, which is the other half of the rule.
+    for tag in sorted(screens.LANGUAGE_DEFAULTS):
+        seeded = screens.with_language(chinese, tag)
+        assert not compat.mirror_site_problems(seeded), (tag, seeded.portage.mirrors)
+        kept = seeded.portage.mirrors.region is MirrorRegion.CN
+        assert bool(seeded.portage.mirrors.site) == kept, (tag, seeded.portage.mirrors)

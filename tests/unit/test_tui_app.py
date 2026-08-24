@@ -261,7 +261,7 @@ def test_install_hands_back_the_configuration() -> None:
     ready = replace(
         config(),
         system=replace(config().system, root_password_hash="$6$test$x"),
-        portage=replace(config().portage, mirrors=replace(config().portage.mirrors, site="tuna")),
+        portage=replace(config().portage, mirrors=replace(config().portage.mirrors, site="osuosl")),
     )
     # The Install row opens the overview: enter leaves the operation list, and
     # the confirmation starts on No, so Yes takes one more key.
@@ -292,7 +292,7 @@ def test_the_install_row_shows_every_operation_before_it_starts() -> None:
     ready = replace(
         config(),
         system=replace(config().system, root_password_hash="$6$test$x"),
-        portage=replace(config().portage, mirrors=replace(config().portage.mirrors, site="tuna")),
+        portage=replace(config().portage, mirrors=replace(config().portage.mirrors, site="osuosl")),
     )
     # Enter leaves the overview, then No, which returns to the menu.
     keys = [*down(len(settings.SETTINGS)), "\n", "\n", "\n", "q", "KEY_DOWN", "\n"]
@@ -2485,7 +2485,7 @@ def test_a_detected_row_has_to_be_opened_and_not_only_filled_in() -> None:
     ready = replace(
         config(),
         system=replace(config().system, root_password_hash="$6$test$x"),
-        portage=replace(config().portage, mirrors=replace(config().portage.mirrors, site="tuna")),
+        portage=replace(config().portage, mirrors=replace(config().portage.mirrors, site="osuosl")),
     )
     # The group itself counts when nothing behind it is required: `Compiler`
     # has a usable value on every row and still has to be looked at.

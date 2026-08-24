@@ -16,6 +16,7 @@ from enum import Enum
 from pathlib import PurePosixPath
 from typing import Callable, Final, Mapping
 
+from . import mirrors
 from .config import (
     BinhostChannel,
     DiskMode,
@@ -432,6 +433,32 @@ def binhost_subarch_problems(
             "`ld.so --help` does not list x86-64-v3 as supported",
         )
     return ()
+
+
+def mirror_site_problems(config: InstallConfig) -> tuple[str, ...]:
+    """Reject a mirror site the chosen region does not offer.
+
+    `mirrors.gentoo_binhost()` and everything beside it resolve a site key
+    with `next((one for one in sites if one.key == preferred), sites[0])`, so
+    a key the region lacks is silently replaced by the region's first site —
+    for the distfiles, the ebuild repository and the official binary host
+    alike. `vm-binhost-fallback` names `xtom-hk` because its binary package
+    index answers 404 and the run is green only if Portage drops that host;
+    rewritten to `global`, where there is no `xtom-hk`, it installed from
+    `distfiles.gentoo.org` and proved nothing. An operator who picks a mirror
+    and is given another one is owed the same answer.
+    """
+    site = config.portage.mirrors.site
+    if not site:
+        return ()
+    region = config.portage.mirrors.region
+    offered = [one.key for one in mirrors.gentoo_sites(region)]
+    if site in offered:
+        return ()
+    return (
+        f"mirror site {site!r} is not one of region {region.value!r}: "
+        f"{', '.join(sorted(offered))}",
+    )
 
 
 class FilesystemLabelUnit(Enum):
