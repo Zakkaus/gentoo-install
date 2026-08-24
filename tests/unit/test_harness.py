@@ -154,13 +154,6 @@ NOT_IN_THE_CAMPAIGN: Final[frozenset[str]] = frozenset(
         # medium the campaign boots, because the machine under test has to
         # have a bootloader of its own to arm.
         "vm-ram.toml",
-        # A conversion converts a running system, and the cluster runs it as
-        # the second phase of a pair: install an ordinary machine, then
-        # convert that. The local campaign has no pairing, so it ran the
-        # fixture against a seeded cloud image whose root filesystem holds
-        # 3 GiB free, and the installer refused with exit 2 — correctly, and
-        # the verdict read `FAIL`.
-        "vm-convert.toml",
         # The only fixture that configures a static address, and the interface
         # it has to pin is the cluster's: a local guest presents `enp0s2` where
         # the cluster presents `ens18`, so `[Match] Name=ens18` matches nothing
@@ -5946,3 +5939,31 @@ def test_both_runners_read_one_answer_for_how_heavy_a_guest_is() -> None:
         job = cluster_fixtures([stem])[0]
         assert job.heavy == (local[stem].weight > 1), stem
         assert job.heavy == bool(local[stem].cpus), stem
+
+
+def test_a_conversion_is_dispatched_to_the_runner_that_can_perform_one() -> None:
+    """`vm-convert` was run through `tests/vm/run.py`, which boots the
+    installation medium against a blank disk. A conversion has to convert a
+    machine that is already running, so it met a seeded cloud image whose root
+    filesystem holds 3 GiB free and the installer refused with exit 2. The
+    refusal was right; the dispatch was not.
+
+    Derived from `DiskMode.IN_PLACE` rather than named, which is how
+    `cluster.py` decides the same thing.
+    """
+    from tests.vm.campaign import STAGES, Run
+
+    conversion = Run("fixtures/vm-convert.toml")
+    assert conversion.converts
+    assert conversion.argv()[1:3] == ["-m", "tests.vm.convert"]
+    # The image, because no installation medium is booted: a name carrying
+    # `official-minimal-uefi` would name two things this run does not have.
+    assert conversion.name == "fedora-vm-convert", conversion.name
+
+    plain = Run("fixtures/vm-xfs.toml")
+    assert not plain.converts
+    assert plain.argv()[1:3] == ["-m", "tests.vm.run"]
+
+    # And it is in the campaign again, which is the point of the change.
+    named = {Path(one.config).stem for stage in STAGES.values() for one in stage}
+    assert "vm-convert" in named
