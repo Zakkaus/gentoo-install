@@ -685,7 +685,7 @@ def test_an_image_install_is_judged_by_the_image_it_wrote() -> None:
     from tests.vm import run as runner
 
     installation = load(Path("tests/fixtures/vm-image.toml"))
-    expectation = runner._from_config(Path("tests/fixtures/vm-image.toml"))
+    expectation = runner._from_config(load(Path("tests/fixtures/vm-image.toml")))
     assert [name for name, _ in expectation] == ["image"]
     pattern = expectation[0][1]
 
@@ -727,14 +727,14 @@ def test_an_image_install_is_judged_by_the_image_it_wrote() -> None:
 
     printed = StringIO()
     with contextlib.redirect_stdout(printed):
-        assert runner.check_expected({"image.txt": real, "install.rc": b"0\n"}, written) == 0
+        assert runner.check_expected({"image.txt": real, "install.rc": b"0\n"}, load(written)) == 0
     # What was read, not what a different mode reads: nothing booted here.
     assert "the image holds every filesystem" in printed.getvalue(), printed.getvalue()
     assert "booted" not in printed.getvalue(), printed.getvalue()
     # The esp alone: the install stopped before it made the root filesystem.
-    assert runner.check_expected({"image.txt": b"loop1\nloop1p1 vfat\n"}, written) != 0
+    assert runner.check_expected({"image.txt": b"loop1\nloop1p1 vfat\n"}, load(written)) != 0
     # And nothing collected at all, which is how the check stayed inert.
-    assert runner.check_expected({}, written) != 0
+    assert runner.check_expected({}, load(written)) != 0
 
     # And the install phase really asks for that verdict: `report` was called
     # with no assertions there, so `image.txt` was collected, printed, and
@@ -1067,7 +1067,7 @@ def test_local_and_cluster_use_the_same_installed_contract() -> None:
         if installation.disk.mode in without_a_machine:
             continue
         expected = [(one.name, one.pattern) for one in checks(installation)]
-        assert _from_config(path) == expected
+        assert _from_config(load(path)) == expected
         assert [(name, pattern) for name, _, pattern in _asked_for(installation)] == expected
 
 
@@ -1186,7 +1186,7 @@ def test_a_single_runner_check_cannot_be_added_without_breaking_parity(
         "_asked_for",
         lambda config: [*original(config), ("sabotage", "true", "^true$")],
     )
-    assert [(name, pattern) for name, pattern in run._from_config(path)] != [
+    assert [(name, pattern) for name, pattern in run._from_config(load(path))] != [
         (name, pattern) for name, _, pattern in cluster._asked_for(installation)
     ]
 
@@ -2714,10 +2714,10 @@ def test_a_healthy_init_is_judged_by_the_marker_it_prints() -> None:
     missing = {one.name for one in checks_for_fixture} - written.keys()
     assert not missing, missing
     healthy = {f"{one.name}.txt": written[one.name] for one in checks_for_fixture}
-    assert check_expected(healthy, fixture) == 0
+    assert check_expected(healthy, load(fixture)) == 0
     broken = dict(healthy)
     broken["failed.txt"] = b"cronie.service loaded failed failed\n"
-    assert check_expected(broken, fixture) != 0
+    assert check_expected(broken, load(fixture)) != 0
 
 
 def test_installed_mount_check_requires_every_configured_target() -> None:
@@ -4144,7 +4144,7 @@ def test_memory_runner_boots_the_target_and_reuses_shared_state_checks() -> None
     source = inspect.getsource(ram.run_install)
     assert "boot_installed=True" in source, source
     assert "check_installed(console, installation)" in source, source
-    assert "report(result, keep=True, assertions=configuration)" in source, source
+    assert "report(result, keep=True, assertions=load(configuration))" in source, source
 
 
 class _CdAppearsLate:
@@ -5629,3 +5629,53 @@ def test_a_run_the_workstation_cannot_start_is_not_reported_as_a_failure(
 
     log.write_text("the install stopped: mkfs refused the device\n")
     assert mark_for(Outcome(run, 1, 0.0, log)) == "FAIL"
+
+
+def test_the_installed_checks_read_the_config_the_run_installed(tmp_path: Path) -> None:
+    """A remote-unlock run installs the harness's key, not the operator's.
+
+    `zbm-unlock` failed its authorized-keys check on 2026-08-24 with the file
+    present and its modes right: it held `SHA256:9Y3t23If...`, the run's own
+    key, while the check derived its fingerprint from the fixture on disk.
+    """
+    from gentoo_install.exec.config import load
+    from gentoo_install.model.sshkey import fingerprint
+    from tests.vm.installed import checks
+    from tests.vm.run import installed_config
+
+    fixture = Path("tests/fixtures/zbm-unlock.toml")
+    key = tmp_path / "id_ed25519"
+    key.with_suffix(".pub").write_text(
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH8w6sgdmfNXN4gVQnnQ"
+        "/5WQiY0oUPrQYr0SPTfnw2ah harness@example\n"
+    )
+
+    written = installed_config(fixture, key)
+    assert written.system.authorized_keys != load(fixture).system.authorized_keys, written
+
+    patterns = "".join(
+        one.pattern for one in checks(written) if one.name.startswith("authorized keys")
+    )
+    assert patterns, [one.name for one in checks(written)]
+    # Escaped, because the check escapes what it puts in its pattern: a
+    # fingerprint holds `+` and `/`.
+    for absent in load(fixture).system.authorized_keys:
+        assert re.escape(fingerprint(absent)) not in patterns, absent
+    for present in written.system.authorized_keys:
+        assert re.escape(fingerprint(present)) in patterns, present
+
+    # The call site, not only the helper: the defect was one `load()` in the
+    # boot branch, and a test that calls `installed_config` itself passes with
+    # that line still there.
+    import ast
+
+    source = (Path(__file__).resolve().parents[1] / "vm" / "run.py").read_text()
+    bound = [
+        ast.unparse(node.value)
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Assign)
+        and any(isinstance(one, ast.Name) and one.id == "expected" for one in node.targets)
+    ]
+    assert bound, "the boot branch no longer binds `expected`"
+    for value in bound:
+        assert value.startswith("installed_config("), value

@@ -627,6 +627,19 @@ def run_installer(console: SerialConsole, config: str, extra: str = "") -> None:
     console.run("sync")
 
 
+def installed_config(fixture: Path, key: Path) -> InstallConfig:
+    """The configuration this run installs, which is not the fixture on disk.
+
+    A remote-unlock run replaces the operator's keys with the harness's own,
+    so a check derived from the file reads `/root/.ssh/authorized_keys` and
+    finds a key it never asked for. Both halves read this.
+    """
+    loaded = load(fixture)
+    if not loaded.kernel.remote_unlock.enabled:
+        return loaded
+    return remote_config(loaded, key.with_suffix(".pub").read_text().strip())
+
+
 def install_remote_config(
     console: SerialConsole,
     key: Path,
@@ -637,8 +650,7 @@ def install_remote_config(
     """Publish run-owned remote-unlock values and return the bootstrap path."""
     if not installation.kernel.remote_unlock.enabled:
         return config
-    public_key = key.with_suffix(".pub").read_text().strip()
-    substituted = remote_config(installation, public_key)
+    substituted = installed_config(REPOSITORY / "tests" / config, key)
     remote_path = f"/tmp/{Path(config).name}"
     push_config(key, ssh_port, remote_path, to_toml(substituted))
     return remote_path
@@ -830,7 +842,7 @@ def _perform(args: argparse.Namespace, medium: Medium, workdir: Path) -> int:
     with Vm(spec) as vm:
         with SerialConsole.connect(vm.serial_socket, vm.serial_log) as console:
             if args.boot_installed:
-                expected = load(REPOSITORY / "tests" / args.install)
+                expected = installed_config(REPOSITORY / "tests" / args.install, key)
                 unlocked_remotely = False
                 unlock_failed = ""
                 if expected.kernel.remote_unlock.enabled:
@@ -852,9 +864,7 @@ def _perform(args: argparse.Namespace, medium: Medium, workdir: Path) -> int:
                 print(f"[{time.monotonic() - started:5.1f}s] logged into the installed system ({method})")
                 check_installed(console, expected)
                 power_off(console, vm)
-                code = report(
-                    result_disk, keep=args.keep, assertions=REPOSITORY / "tests" / args.install
-                )
+                code = report(result_disk, keep=args.keep, assertions=expected)
                 if unlock_failed:
                     # The subject of the fixture is the unlock, so a machine
                     # that only came up by console has still failed it.
@@ -948,7 +958,11 @@ def _discard(targets: Sequence[Path], *, keep: bool) -> None:
 
 
 def report(
-    result_disk: Path, *, keep: bool, assertions: Path | None = None, installed: bool = False
+    result_disk: Path,
+    *,
+    keep: bool,
+    assertions: InstallConfig | None = None,
+    installed: bool = False,
 ) -> int:
     results = read_disk(result_disk)
     for name in sorted(results):
@@ -960,9 +974,8 @@ def report(
     return code
 
 
-def _from_config(config: Path) -> list[tuple[str, str]]:
+def _from_config(installation: InstallConfig) -> list[tuple[str, str]]:
     """Return the shared contract in the local result format."""
-    installation = load(config)
     if installation.disk.mode is DiskMode.IMAGE:
         # Nothing booted, so none of the installed-state checks ran: what
         # this mode produces is a file, and `check_image` reads its layout.
@@ -980,7 +993,7 @@ def _image_pattern(installation: InstallConfig) -> str:
 
 
 def verdict(
-    results: dict[str, bytes], assertions: Path | None, *, installed: bool = False
+    results: dict[str, bytes], assertions: InstallConfig | None, *, installed: bool = False
 ) -> int:
     """Turn everything the run left behind into one exit code."""
     code = check_expected(results, assertions) if assertions is not None else 0
@@ -1004,7 +1017,7 @@ def verdict(
     return code
 
 
-def check_expected(results: dict[str, bytes], config: Path) -> int:
+def check_expected(results: dict[str, bytes], config: InstallConfig) -> int:
     """Turn the collected output into a verdict."""
     missing: list[str] = []
     # From the configuration rather than hardcoded: a second fixture installs a
@@ -1015,7 +1028,7 @@ def check_expected(results: dict[str, bytes], config: Path) -> int:
     # while the live medium is still up. Asking for the rest would fail every
     # image run; asking for none of it left the image check inert, collected
     # and printed and never compared.
-    writes_an_image = load(config).disk.mode is DiskMode.IMAGE
+    writes_an_image = config.disk.mode is DiskMode.IMAGE
     installed = [] if writes_an_image else list(EXPECTED)
     for name, pattern in [*installed, *_from_config(config)]:
         text = results.get(f"{name}.txt", b"").decode("utf-8", "replace")

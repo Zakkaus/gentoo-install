@@ -370,7 +370,7 @@ def run_install(
             )
             check_installed(console, installation)
             power_off(console, vm)
-        if report(result, keep=True, assertions=configuration) != 0:
+        if report(result, keep=True, assertions=load(configuration)) != 0:
             raise RuntimeError("the installed system failed its shared state checks")
         verified = True
         print(
