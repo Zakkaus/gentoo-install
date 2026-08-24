@@ -198,7 +198,6 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         # from staging root to swap to bootloader is exercised on a real
         # system rather than a plan. Two installs one after the other, so it is
         # long rather than heavy: the instantaneous cost is one guest's.
-        Run("fixtures/vm-convert.toml"),
         Run("fixtures/vm-raidz.toml"),
         Run("fixtures/vm-zram.toml"),
         # A sudo user's `authorized_keys`, read back off the installed system.

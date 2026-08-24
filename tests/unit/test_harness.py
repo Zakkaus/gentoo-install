@@ -153,6 +153,13 @@ NOT_IN_THE_CAMPAIGN: Final[frozenset[str]] = frozenset(
         # medium the campaign boots, because the machine under test has to
         # have a bootloader of its own to arm.
         "vm-ram.toml",
+        # A conversion converts a running system, and the cluster runs it as
+        # the second phase of a pair: install an ordinary machine, then
+        # convert that. The local campaign has no pairing, so it ran the
+        # fixture against a seeded cloud image whose root filesystem holds
+        # 3 GiB free, and the installer refused with exit 2 — correctly, and
+        # the verdict read `FAIL`.
+        "vm-convert.toml",
         # The only fixture that configures a static address, and the interface
         # it has to pin is the cluster's: a local guest presents `enp0s2` where
         # the cluster presents `ens18`, so `[Match] Name=ens18` matches nothing
