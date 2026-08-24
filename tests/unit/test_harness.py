@@ -759,7 +759,9 @@ def test_an_image_install_is_judged_by_the_image_it_wrote() -> None:
 
     import inspect
 
-    wiring = inspect.getsource(runner._perform)
+    # `_install_and_check`, which is where the work is: `_perform` is the
+    # wrapper that stands a fixture's proxy up around it.
+    wiring = inspect.getsource(runner._install_and_check)
     assert "_reads_an_image(args.install, args.dry_run)" in wiring
 
 
@@ -2773,14 +2775,43 @@ def test_installed_mount_check_handles_swap_and_unprobed_conversion() -> None:
     assert re.search(conversion_check.pattern, "/proc proc proc\n") is None
 
 
-def test_a_proxy_on_the_workstation_must_be_listening_before_the_run() -> None:
-    """The install fails at the stage3 fetch when it is not, and that reads as
-    a defect in the proxy support the fixture exists to prove."""
+def test_the_harness_starts_the_proxy_a_fixture_names_on_this_workstation() -> None:
+    """`vm-proxy` and `vm-proxy-http` were skipped unless somebody had started
+    a proxy by hand, and the cluster cannot run them at all, so the direction
+    an operator on an intranet needs — the proxy works and the install
+    finishes — had never been measured."""
     import socket
     from dataclasses import replace
 
     from gentoo_install.exec.config import load
-    from tests.vm.run import GATEWAY, require_proxy
+    from tests.vm.run import GATEWAY, free_port, proxy_for
+
+    root = Path(__file__).resolve().parents[1]
+    installation = load(root / "fixtures" / "vm-proxy.toml")
+    port = free_port()
+    named = replace(installation, proxy=replace(installation.proxy, host=GATEWAY, port=port))
+
+    def reachable() -> bool:
+        with socket.socket() as probe:
+            probe.settimeout(2.0)
+            return probe.connect_ex(("127.0.0.1", port)) == 0
+
+    assert not reachable()
+    with proxy_for(named):
+        assert reachable(), port
+    # And taken down again: a run that leaves one behind makes the next run's
+    # "already listening" branch true for a proxy nobody is serving.
+    assert not reachable()
+
+
+def test_a_proxy_already_listening_is_left_alone() -> None:
+    """The port is in the fixture rather than chosen here so that an operator
+    can debug against their own proxy; replacing it would take that away."""
+    import socket
+    from dataclasses import replace
+
+    from gentoo_install.exec.config import load
+    from tests.vm.run import GATEWAY, proxy_for
 
     root = Path(__file__).resolve().parents[1]
     installation = load(root / "fixtures" / "vm-proxy.toml")
@@ -2788,42 +2819,35 @@ def test_a_proxy_on_the_workstation_must_be_listening_before_the_run() -> None:
         listener.bind(("127.0.0.1", 0))
         listener.listen(1)
         port = listener.getsockname()[1]
-        require_proxy(
-            replace(
-                installation,
-                proxy=replace(installation.proxy, host=GATEWAY, port=port),
-            )
+        named = replace(
+            installation, proxy=replace(installation.proxy, host=GATEWAY, port=port)
         )
-    with pytest.raises(SystemExit) as refused:
-        require_proxy(
-            replace(
-                installation,
-                proxy=replace(installation.proxy, host=GATEWAY, port=port),
-            )
-        )
-    assert str(port) in str(refused.value)
+        with proxy_for(named):
+            # Still the test's own listener: a second bind on the same port
+            # would have raised rather than answered.
+            assert listener.getsockname()[1] == port
 
 
-def test_a_proxy_somewhere_else_is_not_checked_against_this_workstation() -> None:
-    """An operator's own intranet proxy is unreachable from here by design, and
-    refusing the run on that would refuse every real configuration."""
+def test_a_proxy_somewhere_else_starts_nothing_on_this_workstation() -> None:
+    """An operator's own intranet proxy is unreachable from here by design,
+    and binding its port here would answer for a machine that is not this
+    one."""
+    import socket
     from dataclasses import replace
 
     from gentoo_install.exec.config import load
-    from tests.vm.run import free_port, require_proxy
+    from tests.vm.run import free_port, proxy_for
 
     root = Path(__file__).resolve().parents[1]
     installation = load(root / "fixtures" / "vm-proxy.toml")
     # A port nothing holds, so dropping the address check would make this
-    # raise. `1080` would not: the workstation runs a proxy there during a
-    # proxy run, and the test would pass for the wrong reason.
+    # bind. `1080` would not: a proxy run holds that one.
     port = free_port()
-    require_proxy(
-        replace(
-            installation,
-            proxy=replace(installation.proxy, host="192.0.2.9", port=port),
-        )
-    )
+    named = replace(installation, proxy=replace(installation.proxy, host="192.0.2.9", port=port))
+    with proxy_for(named):
+        with socket.socket() as probe:
+            probe.settimeout(2.0)
+            assert probe.connect_ex(("127.0.0.1", port)) != 0, port
 
 
 def test_input_method_check_accepts_its_planned_environment() -> None:
@@ -5639,9 +5663,11 @@ def test_a_run_the_workstation_cannot_start_is_not_reported_as_a_failure(
     run = Run("fixtures/vm-proxy-http.toml")
     log = tmp_path / "proxy-http.log"
 
+    # The ISO, because the harness starts the proxy itself now and that
+    # message is gone: a sample nothing can produce stops being a sample.
     log.write_text(
-        f"{MISSING_PRECONDITION}http://10.0.2.2:3129 names this workstation, and nothing"
-        " is listening on port 3129; start the proxy before the run\n"
+        f"{MISSING_PRECONDITION}openSUSE-Leap-15.6-NET-x86_64-Media.iso is not "
+        "downloaded here\n"
     )
     assert mark_for(Outcome(run, 1, 0.0, log)) == "SKIP"
 
@@ -5967,3 +5993,76 @@ def test_a_conversion_is_dispatched_to_the_runner_that_can_perform_one() -> None
     # And it is in the campaign again, which is the point of the change.
     named = {Path(one.config).stem for stage in STAGES.values() for one in stage}
     assert "vm-convert" in named
+
+
+def test_the_proxy_the_harness_runs_carries_a_real_fetch() -> None:
+    """A proxy that accepts a connection and forwards nothing looks exactly
+    like a working one to `require_proxy`'s old probe, which is what the
+    fixtures were waiting on. Both kinds and both directions of the SOCKS
+    credential, against a listener this test runs itself."""
+    import socket
+    import threading
+    import urllib.request
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    from tests.vm.proxy import Credential, serving
+
+    body = b"through the proxy"
+
+    class Answering(BaseHTTPRequestHandler):
+        # The name is `http.server`'s, not a choice.
+        def do_GET(self) -> None:
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_: object) -> None:
+            return None
+
+    with HTTPServer(("127.0.0.1", 0), Answering) as origin:
+        threading.Thread(target=origin.serve_forever, daemon=True).start()
+        where = f"http://127.0.0.1:{origin.server_address[1]}/"
+
+        with serving("http", 0) as port:
+            opener = urllib.request.build_opener(
+                urllib.request.ProxyHandler({"http": f"http://127.0.0.1:{port}"})
+            )
+            with opener.open(where, timeout=10) as answer:
+                assert answer.read() == body
+
+        with serving("socks5", 0, Credential("installer", "secret")) as port:
+            assert _through_socks(port, "installer", "secret", origin.server_address[1]) == body
+            # The refusal, or the credential is decoration.
+            assert _through_socks(port, "installer", "wrong", origin.server_address[1]) is None
+        origin.shutdown()
+
+
+def _through_socks(port: int, name: str, secret: str, target: int) -> bytes | None:
+    """One SOCKS5 CONNECT to `127.0.0.1:target`, then one HTTP request.
+
+    Hand-written rather than through a library, because the point is what the
+    bytes on the wire are: nothing in the standard library speaks SOCKS5.
+    """
+    import socket
+
+    with socket.create_connection(("127.0.0.1", port), timeout=10) as client:
+        client.sendall(bytes((5, 1, 2)))
+        if client.recv(2) != bytes((5, 2)):
+            return None
+        client.sendall(
+            bytes((1, len(name))) + name.encode() + bytes((len(secret),)) + secret.encode()
+        )
+        if client.recv(2) != bytes((1, 0)):
+            return None
+        client.sendall(bytes((5, 1, 0, 1)) + socket.inet_aton("127.0.0.1") + target.to_bytes(2, "big"))
+        if client.recv(10)[:2] != bytes((5, 0)):
+            return None
+        client.sendall(b"GET / HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
+        seen = b""
+        while True:
+            chunk = client.recv(65536)
+            if not chunk:
+                break
+            seen += chunk
+        return seen.partition(b"\r\n\r\n")[2]
