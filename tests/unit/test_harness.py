@@ -5852,3 +5852,62 @@ def test_every_dispatch_form_says_what_it_will_run_before_it_runs(
     assert len(said) >= 3, said
     for spoken in said:
         assert spoken.strip(), said
+
+
+def test_an_answer_the_passphrase_prompt_discarded_is_answered_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A local `vm-zfs-encrypted` spent its whole 300s ceiling at
+
+        Enter passphrase for 'rpool':install-disk
+
+    with nothing after it. The echo is the proof: the prompt had not yet
+    turned it off, so `TCSAFLUSH` threw the answer away, and ZFSBootMenu
+    prints that prompt once. Waiting for a second one waits for ever."""
+    from gentoo_install.exec.config import load
+    from tests.vm import run as runner
+    from tests.vm.console import DISK_PASSPHRASE, SerialConsole
+
+    import time
+
+    # A clock the reads advance, so a wait for a prompt that is never printed
+    # again ends at its own ceiling rather than holding the suite for 300s.
+    clock = [0.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+
+    class Losing:
+        """A prompt that discards the first answer and echoes it."""
+
+        def __init__(self) -> None:
+            self.answers = 0
+            self.queue = [b"Enter passphrase for 'rpool':"]
+
+        def recv(self, size: int) -> bytes:
+            clock[0] += 1.0
+            return self.queue.pop(0) if self.queue else b""
+
+        def sendall(self, data: bytes) -> None:
+            typed = data.decode().strip()
+            if typed != DISK_PASSPHRASE:
+                self.queue.append(b"# " if typed == "install" else b"Password: ")
+                return
+            self.answers += 1
+            # The first one comes back rather than being read; the second is
+            # taken and the machine goes on to its login.
+            self.queue.append(
+                f"{DISK_PASSPHRASE}\r\n".encode() if self.answers == 1 else b"\r\nlogin: "
+            )
+
+        def close(self) -> None:
+            return None
+
+        @property
+        def closed(self) -> bool:
+            return False
+
+    channel = Losing()
+    console = SerialConsole(cast(Any, channel), BytesIO())
+    installation = load(Path("tests/fixtures/vm-zfs-encrypted.toml"))
+
+    assert runner.unlock_and_login(console, installation) == "console"
+    assert channel.answers == 2, channel.answers
