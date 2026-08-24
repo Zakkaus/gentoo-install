@@ -458,12 +458,17 @@ def merge(existing: str, wanted: Sequence[tuple[str, str]]) -> str:
 class CreateAutounmaskFiles(Operation):
     stage: Stage = Stage.PORTAGE
 
+    def destinations(self) -> tuple[PurePosixPath, ...]:
+        return tuple(PurePosixPath(one) for one in AUTOUNMASK_FILES)
+
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
-        return "create the three autounmask files emerge writes its decisions into", ()
+        return "create {}, which emerge writes its decisions into", (
+            ", ".join(str(one) for one in self.destinations()),
+        )
 
     def apply(self, context: Context) -> None:
-        for path in AUTOUNMASK_FILES:
-            context.write(PurePosixPath(path), "")
+        for path in self.destinations():
+            context.write(path, "")
 
 
 @dataclass(frozen=True, kw_only=True)

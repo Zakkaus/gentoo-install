@@ -656,7 +656,7 @@
 "write /etc/portage/make.conf with {}; {} mirrors in the configured order, {} appended" = "寫入含有 {} 的 /etc/portage/make.conf；{} 個鏡像依設定順序，另加 {} 個"
 "write /etc/portage/make.conf with {}; {} mirrors in the configured order" = "寫入含有 {} 的 /etc/portage/make.conf；{} 個鏡像依設定順序"
 "write {}" = "寫入 {}"
-"create the three autounmask files emerge writes its decisions into" = "建立 emerge 寫入決定的三個 autounmask 檔案"
+"create {}, which emerge writes its decisions into" = "建立 {}，emerge 會把它的決定寫進去"
 "point repository {} at {}, commit signatures verified" = "將套件庫 {} 指向 {}，並驗證提交簽章"
 "point repository {} at {}" = "將套件庫 {} 指向 {}"
 "configure repository {} to sync with emerge-webrsync" = "設定套件庫 {} 使用 emerge-webrsync 同步"
