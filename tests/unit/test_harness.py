@@ -5727,3 +5727,19 @@ def test_the_dataset_check_names_every_dataset_the_configuration_declares() -> N
     assert not re.search(check.pattern, without), check.pattern
     # And not satisfied by the question: the command names no dataset.
     assert not re.search(check.pattern, check.command), check.command
+
+
+def test_a_failed_remote_unlock_says_the_exit_code_and_not_ssh_noise() -> None:
+    """`zbm-unlock` failed on 2026-08-24 with the whole message being
+    `Warning: Permanently added '[127.0.0.1]:52151' (ECDSA) to the list of
+    known hosts.` — ssh's own noise, kept because the report took the last 300
+    characters and there was nothing else. A reader learns from that only that
+    ssh ran."""
+    from tests.vm.run import _without_ssh_noise
+
+    noise = (
+        "Warning: Permanently added '[127.0.0.1]:52151' (ECDSA) to the list of known hosts.\n"
+    )
+    assert _without_ssh_noise(noise) == ""
+    assert _without_ssh_noise(noise + "zfs: no such pool\n") == "zfs: no such pool"
+    assert _without_ssh_noise("zfs: no such pool\n") == "zfs: no such pool"
