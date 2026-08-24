@@ -587,9 +587,18 @@ class Watchdog:
             node = f" on {self.where}" if self.where else ""
             busy = self.load() if self.load is not None else None
             said = "" if busy is None else f", the node itself at {busy * 100:.0f}%"
-            qemu = self.state() if self.state is not None else ""
-            if qemu and qemu != "running":
-                said += f", and qemu calls the guest {qemu}"
+            if self.state is not None:
+                qemu = self.state()
+                # An unanswered call reads exactly like `running` when only a
+                # non-empty answer is reported, and `vm-raidz` stalled for
+                # 1200s with `cpu 0.00` on an idle node and no clause at all:
+                # whether qemu had paused it on an `io-error` could not be
+                # told from the verdict.
+                if qemu != "running":
+                    said += (
+                        ", and qemu calls the guest "
+                        f"{qemu or 'nothing: the hypervisor would not say'}"
+                    )
             return (
                 f"counters were flat{node} "
                 f"({self._counter_before} -> {self._counter_after} bytes, "
