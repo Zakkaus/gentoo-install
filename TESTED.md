@@ -316,6 +316,8 @@ after that can name one.
 
 | `332c852cfcb64` | `zfs-zbm` on a local UEFI guest, the run behind the `canmount` fix | installed, booted, and `/home/zakk/.ssh/authorized_keys` is there with `600` on the file, `700` on `.ssh` and `755` on the home directory. `zfs list` reports `zpcala/ROOT/gentoo/home` at 256K against 192K on the run before, which is the same dataset holding the files rather than being covered while they went to the root dataset. **What this does not establish:** `zbm-unlock`, whose guest was killed by `earlyoom` in the same round and which also carries the remote-unlock path. |
 
+| `12d9eb6aaae2e` | `vm-proxy-dead`, `vm-binhost-fallback` and `vm-proxy` on local guests, the three entries of `tests/vm/expectations.py` | each produced the verdict its entry asks for: `vm-proxy-dead` passes by failing, `vm-binhost-fallback` passes because it recorded the degradation — its journal names the 404 and all 35 packages read `compiled` — and `vm-proxy` reads `SKIP` because this workstation runs no SOCKS5 listener. Before `#1013` that last one printed `FAIL`. **What this does not establish:** that the fixture's premise holds anywhere else. The same fixture at this revision took binary packages from the same URL on the cluster, so what it measures depends on the network the guest is on. |
+
 **Rows recorded before `5a9b9f220e651` and saying `mounted its layout` overstate
 one of their checks.**
 `tests/vm/installed.py`'s `mounts` check expects the pattern `/` and is matched
