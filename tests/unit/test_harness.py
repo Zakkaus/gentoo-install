@@ -5790,3 +5790,32 @@ def test_only_reaches_every_run_of_a_fixture() -> None:
     assert "official-minimal-uefi-vm-binpkg" in names, names
     assert "official-minimal-uefi-vm-binpkg-interrupted" in names, names
     assert any(one.interrupt for one in chosen), names
+
+
+def test_an_interrupted_run_does_not_share_a_work_directory() -> None:
+    """`--only vm-binpkg` now selects the plain run and the `--interrupt` one,
+    and they collided: the work directory took the fixture stem and not the
+    suffix `Run.name` carries, so the second reported `LOCK` at 0.0m without
+    ever starting."""
+    import ast
+    import inspect
+
+    from tests.vm import run as runner
+    from tests.vm.campaign import Run
+
+    plain = Run("fixtures/vm-binpkg.toml")
+    interrupted = Run("fixtures/vm-binpkg.toml", interrupt=True)
+    assert plain.name != interrupted.name, plain.name
+    assert interrupted.name.endswith(runner.INTERRUPTED_SUFFIX), interrupted.name
+
+    # And the work directory is built from the same constant, so the two
+    # names cannot drift apart again.
+    source = inspect.getsource(runner.main)
+    assigned = [
+        ast.unparse(node.value)
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Assign)
+        and any(isinstance(one, ast.Name) and one.id == "workdir" for one in node.targets)
+    ]
+    assert assigned, "main no longer assigns workdir"
+    assert all("INTERRUPTED_SUFFIX" in one for one in assigned), assigned
