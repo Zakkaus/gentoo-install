@@ -528,7 +528,6 @@ REVIEWED_TEMPLATES: frozenset[str] = frozenset(
         " unpack it into the target and write {}",
         "enable {} in the {} runlevel",
         "import {} from {}, locally sign it for {}, and verify the local signature",
-        "run a script from {} and {} commands once, the first time the system boots",
         "the remote unlock address {} is IPv{} and its gateway {} is IPv{}, so the initramfs has"
         " no route",
         "set the console keymap to {} and its font to {} in {}",
@@ -540,6 +539,9 @@ REVIEWED_TEMPLATES: frozenset[str] = frozenset(
         "write {} so repository {} syncs with emerge-webrsync",
         "write {} adding verified binary package host {} at {}",
         "write {} adding unverified binary package host {} at {}",
+        "write {} to run a script from {} and {} commands at the first boot",
+        "write {} to run a script from {} at the first boot",
+        "write {} to run {} commands at the first boot",
         "set the system locale to {} in {}",
         "start a login on {} at {} baud",
         "stream the {} image {} onto {}",

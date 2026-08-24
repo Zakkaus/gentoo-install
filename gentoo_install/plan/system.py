@@ -1071,20 +1071,23 @@ class WriteFirstBoot(Operation):
     url: str
     init: InitSystem
 
+    def destinations(self) -> tuple[PurePosixPath, ...]:
+        starter = FIRST_BOOT_UNIT if self.init is InitSystem.SYSTEMD else FIRST_BOOT_OPENRC
+        return (FIRST_BOOT_SCRIPT, starter)
+
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        where = _named(self.destinations())
         if self.url and self.commands:
             return (
-                "run a script from {} and {} commands once, the first time the system boots",
-                (self.url, str(len(self.commands))),
+                "write {} to run a script from {} and {} commands at the first boot",
+                (where, self.url, str(len(self.commands))),
             )
         if self.url:
-            return "run a script from {} once, the first time the system boots", (self.url,)
-        if self.commands:
-            return (
-                "run {} commands once, the first time the system boots",
-                (str(len(self.commands)),),
-            )
-        return "run  once, the first time the system boots", ()
+            return "write {} to run a script from {} at the first boot", (where, self.url)
+        return "write {} to run {} commands at the first boot", (
+            where,
+            str(len(self.commands)),
+        )
 
     def apply(self, context: Context) -> None:
         fetched = context.fetch_text(self.url) if self.url else ""
@@ -1102,10 +1105,11 @@ class WriteFirstBoot(Operation):
         # Last, and only on success: a script that removes itself before the
         # commands run leaves no way to see what a failure was.
         lines.append(f"rm -f {self._starter()}")
-        context.write(FIRST_BOOT_SCRIPT, "\n".join(lines) + "\n", mode=0o700)
+        script, starter = self.destinations()
+        context.write(script, "\n".join(lines) + "\n", mode=0o700)
         if self.init is InitSystem.SYSTEMD:
             context.write(
-                FIRST_BOOT_UNIT,
+                starter,
                 "[Unit]\n"
                 "Description=gentoo-install first boot\n"
                 f"ConditionPathExists={FIRST_BOOT_SCRIPT}\n"
@@ -1119,7 +1123,7 @@ class WriteFirstBoot(Operation):
             )
         else:
             context.write(
-                FIRST_BOOT_OPENRC,
+                starter,
                 f"#!/bin/sh\n[ -x {FIRST_BOOT_SCRIPT} ] && {FIRST_BOOT_SCRIPT}\n",
                 mode=0o755,
             )

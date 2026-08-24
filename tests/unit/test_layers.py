@@ -718,6 +718,7 @@ def test_the_dry_run_names_every_file_only_its_owner_may_read() -> None:
         "SetHardwareClock",
         "SetHostname",
         "WriteAuthorizedKeys",
+        "WriteFirstBoot",
         "WriteMachineId",
         "WriteNetworkConfig",
         "WriteProxyEnvironment",
