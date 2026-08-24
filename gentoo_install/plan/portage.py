@@ -48,6 +48,11 @@ RELEASE_KEY: Final[PurePosixPath] = PurePosixPath("/usr/share/openpgp-keys/gento
 PORTAGE_TRUST_KEY_ID: Final[PurePosixPath] = PurePosixPath("/etc/portage/gnupg/mykeyid")
 
 
+def _repos_path(name: str) -> PurePosixPath:
+    """Where one ebuild repository's `repos.conf` stanza goes."""
+    return PurePosixPath("/etc/portage/repos.conf") / f"{name}.conf"
+
+
 def _binrepos_path(name: str) -> PurePosixPath:
     filename = "gentoo.conf" if name == "gentoo" else f"{name}.conf"
     return PurePosixPath("/etc/portage/binrepos.conf") / filename
@@ -482,13 +487,18 @@ class ConfigureRepository(Operation):
     #: signature keys mean nothing to rsync, so they are written only for git.
     sync_type: str = "git"
 
+    def destinations(self) -> tuple[PurePosixPath, ...]:
+        return (_repos_path(self.name),)
+
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        where = str(_repos_path(self.name))
         if self.verify_commits:
-            return "point repository {} at {}, commit signatures verified", (
+            return "write {} pointing {} at {}, commit signatures verified", (
+                where,
                 self.name,
                 self.sync_uri,
             )
-        return "point repository {} at {}", (self.name, self.sync_uri)
+        return "write {} pointing {} at {}", (where, self.name, self.sync_uri)
 
     def apply(self, context: Context) -> None:
         stanza = [
@@ -505,9 +515,8 @@ class ConfigureRepository(Operation):
             # Without a key path there is nothing to verify against, and Portage
             # treats the whole sync as unverified rather than failing loudly.
             stanza.append(f"sync-openpgp-key-path = {RELEASE_KEY}")
-        context.write(
-            PurePosixPath(f"/etc/portage/repos.conf/{self.name}.conf"), "\n".join(stanza) + "\n"
-        )
+        (path,) = self.destinations()
+        context.write(path, "\n".join(stanza) + "\n")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -518,8 +527,14 @@ class ConfigureWebrsyncRepository(Operation):
     name: str
     location: PurePosixPath
 
+    def destinations(self) -> tuple[PurePosixPath, ...]:
+        return (_repos_path(self.name),)
+
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
-        return "configure repository {} to sync with emerge-webrsync", (self.name,)
+        return "write {} so repository {} syncs with emerge-webrsync", (
+            str(_repos_path(self.name)),
+            self.name,
+        )
 
     def apply(self, context: Context) -> None:
         stanza = (
@@ -530,7 +545,8 @@ class ConfigureWebrsyncRepository(Operation):
             "sync-webrsync-verify-signature = true\n"
             f"sync-openpgp-key-path = {RELEASE_KEY}\n"
         )
-        context.write(PurePosixPath(f"/etc/portage/repos.conf/{self.name}.conf"), stanza)
+        (path,) = self.destinations()
+        context.write(path, stanza)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -1285,10 +1301,22 @@ class ConfigureBinhost(Operation):
     sync_uri: str
     verify: bool
 
+    def destinations(self) -> tuple[PurePosixPath, ...]:
+        return (_binrepos_path(self.name),)
+
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        where = str(_binrepos_path(self.name))
         if self.verify:
-            return "add verified binary package host {} at {}", (self.name, self.sync_uri)
-        return "add unverified binary package host {} at {}", (self.name, self.sync_uri)
+            return "write {} adding verified binary package host {} at {}", (
+                where,
+                self.name,
+                self.sync_uri,
+            )
+        return "write {} adding unverified binary package host {} at {}", (
+            where,
+            self.name,
+            self.sync_uri,
+        )
 
     def apply(self, context: Context) -> None:
         if context.degraded(BINARY_PACKAGES) or context.degraded(binhost_trust(self.name)):

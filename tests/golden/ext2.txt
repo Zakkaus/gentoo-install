@@ -28,7 +28,7 @@
   fetch the first ebuild repository snapshot with emerge-webrsync
   select profile default/linux/amd64/23.0
   install git, which every later repository sync needs: emerge dev-vcs/git, with no binhost
-  point repository gentoo at https://github.com/gentoo-mirror/gentoo.git, commit signatures verified
+  write /etc/portage/repos.conf/gentoo.conf pointing gentoo at https://github.com/gentoo-mirror/gentoo.git, commit signatures verified
   sync repository gentoo
   set sys-kernel/installkernel to dracut
   accept the linux-firmware licence
