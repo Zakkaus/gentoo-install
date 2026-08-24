@@ -5746,3 +5746,32 @@ def test_a_failed_remote_unlock_says_the_exit_code_and_not_ssh_noise() -> None:
     assert _without_ssh_noise(noise) == ""
     assert _without_ssh_noise(noise + "zfs: no such pool\n") == "zfs: no such pool"
     assert _without_ssh_noise("zfs: no such pool\n") == "zfs: no such pool"
+
+
+def test_an_untracked_file_does_not_make_a_run_look_dirty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every run said `1 uncommitted files` because a screenshot sat untracked
+    in the checkout, while `git describe --dirty` had already reported the
+    tree clean. `CLAUDE.md` reads that line to decide whether a result counts,
+    so a file the driver cannot contain must not appear in it."""
+    import subprocess
+
+    from tests.vm import driver
+
+    def git(*argv: str) -> None:
+        subprocess.run(["git", *argv], cwd=tmp_path, check=True, capture_output=True)
+
+    git("init", "--quiet")
+    git("config", "user.email", "zakk@gentoozh.org")
+    git("config", "user.name", "Zakk")
+    git("config", "commit.gpgsign", "false")
+    (tmp_path / "tracked.txt").write_text("one\n")
+    git("add", "tracked.txt")
+    git("commit", "--quiet", "-m", "first")
+
+    monkeypatch.setattr(driver, "REPOSITORY", tmp_path)
+    (tmp_path / "screenshot.png").write_bytes(b"")
+    assert "uncommitted" not in driver.revision(), driver.revision()
+    (tmp_path / "tracked.txt").write_text("two\n")
+    assert "1 uncommitted files" in driver.revision(), driver.revision()

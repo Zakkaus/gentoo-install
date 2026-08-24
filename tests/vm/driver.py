@@ -132,7 +132,13 @@ def revision() -> str:
     described = ask(["git", "describe", "--always", "--dirty"]).strip()
     if not described:
         return "unknown, not a git checkout"
-    uncommitted = len(ask(["git", "status", "--short"]).splitlines())
+    # Tracked changes only: an untracked screenshot sitting in the checkout
+    # made every run say `1 uncommitted files`, which reads as a result that
+    # proves nothing while `git describe --dirty` had already said the tree
+    # was clean.
+    uncommitted = len(
+        ask(["git", "status", "--short", "--untracked-files=no"]).splitlines()
+    )
     return f"{described} ({uncommitted} uncommitted files)" if uncommitted else described
 
 
