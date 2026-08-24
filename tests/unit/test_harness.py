@@ -5606,3 +5606,26 @@ def test_the_installed_key_check_rejects_a_file_sshd_would_ignore() -> None:
             ("ssh-keygen: /root/.ssh/authorized_keys: No such file\n", "no file at all"),
         ):
             assert not re.search(check.pattern, broken), (check.name, why)
+
+
+def test_a_run_the_workstation_cannot_start_is_not_reported_as_a_failure(
+    tmp_path: Path,
+) -> None:
+    """Two runs ended at 0.0m on 2026-08-24: `vm-proxy-http` because nothing
+    listened on the proxy port, and `vm-binpkg` on the openSUSE medium because
+    that ISO is not downloaded here. Both were printed as FAIL, which sends a
+    reader to the installer for something the workstation is missing."""
+    from tests.vm.campaign import Outcome, Run, mark_for
+    from tests.vm.media import MISSING_PRECONDITION
+
+    run = Run("fixtures/vm-proxy-http.toml")
+    log = tmp_path / "proxy-http.log"
+
+    log.write_text(
+        f"{MISSING_PRECONDITION}http://10.0.2.2:3129 names this workstation, and nothing"
+        " is listening on port 3129; start the proxy before the run\n"
+    )
+    assert mark_for(Outcome(run, 1, 0.0, log)) == "SKIP"
+
+    log.write_text("the install stopped: mkfs refused the device\n")
+    assert mark_for(Outcome(run, 1, 0.0, log)) == "FAIL"

@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Callable, Final, Sequence
 
 from .expectations import EXPECTATIONS, Expectation
+from .media import MISSING_PRECONDITION
 
 WORKROOT: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/runs"
 LOGS: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/campaign"
@@ -319,6 +320,10 @@ def mark_for(outcome: Outcome) -> str:
         # neither the expected path nor a completed installation.
         return "BYPASS" if outcome.returncode == 0 else "FAIL"
     said = outcome.log.read_text(errors="replace")
+    if MISSING_PRECONDITION in said:
+        # Not a fixture that failed: the workstation is missing an ISO or a
+        # listener, and reporting it as FAIL sends a reader to the installer.
+        return "SKIP"
     if HOST_KILLED in said:
         return "HOST"
     return "LOCK" if ALREADY_RUNNING in said else "FAIL"

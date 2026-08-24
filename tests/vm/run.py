@@ -52,7 +52,7 @@ from .console import (
 )
 from .monitor import type_text
 from .driver import FIND_DRIVER, REPOSITORY, build as build_driver
-from .media import MEDIA, Medium
+from .media import MEDIA, MISSING_PRECONDITION, Medium
 from .qemu import Firmware, Vm, VmSpec
 from .results import collect_command, create_disk, read_disk
 from .installed import checks, stage_passphrase_commands
@@ -142,8 +142,8 @@ def require_proxy(installation: InstallConfig) -> None:
         probe.settimeout(5.0)
         if probe.connect_ex(("127.0.0.1", parsed.port)) != 0:
             raise SystemExit(
-                f"{url} names this workstation, and nothing is listening on "
-                f"port {parsed.port}; start the proxy before the run"
+                f"{MISSING_PRECONDITION}{url} names this workstation, and nothing is "
+                f"listening on port {parsed.port}; start the proxy before the run"
             )
 
 
