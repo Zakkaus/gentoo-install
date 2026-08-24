@@ -4202,3 +4202,35 @@ def test_a_zfs_root_is_a_heavy_guest_whatever_its_kernel_says() -> None:
     # And not everything: a plain binary-package install stays light, or the
     # rule buys nothing and the cluster runs one guest at a time.
     assert not compiles(load(FIXTURES / "vm-xfs.toml"))
+
+
+def test_a_watchdog_verdict_tells_an_unanswered_state_from_a_running_one(
+    tmp_path: Path,
+) -> None:
+    """`vm-raidz` stalled 1200s with `cpu 0.00` on a node at 0% and the verdict
+    carried no word about qemu at all. Only a non-empty answer was reported, so
+    a guest qemu had paused on an `io-error` and a hypervisor that did not
+    answer produced the same silence — and the two want opposite next steps."""
+
+    def flat() -> tuple[int, float]:
+        return 0, 0.0
+
+    def verdict(state: str) -> str:
+        watch = cluster.Watchdog(
+            tmp_path / "install.log",
+            flat,
+            where="infra-node1",
+            load=lambda: 0.0,
+            state=lambda: state,
+        )
+        said = None
+        for _ in range(cluster.WATCH_STRIKES + 2):
+            said = watch.idle_reason()
+        assert said is not None, state
+        return said
+
+    assert "qemu calls the guest io-error" in verdict("io-error")
+    assert "the hypervisor would not say" in verdict("")
+    # And a guest that is genuinely running says nothing extra: a clause on
+    # every verdict is a clause nobody reads.
+    assert "qemu calls the guest" not in verdict("running")
