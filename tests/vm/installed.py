@@ -266,10 +266,14 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
             ]
             required.append(rf"ACL 600 {re.escape(path)}")
             required.append(rf"ACL 700 {re.escape(home)}/\.ssh")
+            required.append(rf"ACL [0-7]{{3}} {re.escape(home)}$")
             result.append(
                 InstalledCheck(
                     f"authorized keys {name}",
-                    f"ssh-keygen -lf {path}; stat -c 'ACL %a %n' {path} {home}/.ssh",
+                    # The home directory as well as the two below it: a
+                    # missing `.ssh` and a missing `/home/<user>` are different
+                    # failures, and the first message could not tell them apart.
+                    f"ssh-keygen -lf {path}; stat -c 'ACL %a %n' {path} {home}/.ssh {home}",
                     "(?s)" + "".join(f"(?=.*{one})" for one in required),
                     line_boundary_exception="requires every fingerprint and both modes",
                 )

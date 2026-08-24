@@ -5596,6 +5596,7 @@ def test_the_installed_key_check_rejects_a_file_sshd_would_ignore() -> None:
         f"2048 {printed} root@example (RSA)\n"
         "ACL 600 /root/.ssh/authorized_keys\n"
         "ACL 700 /root/.ssh\n"
+        "ACL 750 /root\n"
     )
     for check in found:
         assert re.search(check.pattern, good), check.name
@@ -5604,6 +5605,8 @@ def test_the_installed_key_check_rejects_a_file_sshd_would_ignore() -> None:
             (good.replace("ACL 700", "ACL 755"), "a world-readable directory"),
             (good.replace(printed[7:20], "Z" * 13), "a different key"),
             ("ssh-keygen: /root/.ssh/authorized_keys: No such file\n", "no file at all"),
+            # The two are different failures and the message has to say which.
+            (good.replace("ACL 750 /root\n", ""), "no home directory either"),
         ):
             assert not re.search(check.pattern, broken), (check.name, why)
 

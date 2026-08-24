@@ -204,6 +204,9 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         # Nothing else in the matrix does: `vm-unlock` has keys and no user,
         # and the two fixtures that have both put `/home` on its own dataset.
         Run("fixtures/vm-user-key.toml"),
+        # The same user with `/home` mounted separately: the pair is what
+        # separates a mount of its own from ZFS.
+        Run("fixtures/vm-home-key.toml"),
         Run("fixtures/vm-bios-luks.toml", firmware="bios"),
         # sshd with a key that can reach it, and the initramfs daemon that
         # unlocks the root: `remote_unlock` was off in every other fixture.
