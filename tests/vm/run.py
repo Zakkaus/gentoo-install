@@ -43,6 +43,10 @@ from gentoo_install.exec.config import load
 from gentoo_install.model.serialise import to_toml
 from gentoo_install.model.manual import dataset_for
 
+from contextlib import contextmanager, nullcontext
+from typing import Iterator
+
+from .proxy import Credential, serving
 from .console import (
     DISK_PASSPHRASE,
     PASSPHRASE_ATTEMPTS,
@@ -53,7 +57,7 @@ from .console import (
 )
 from .monitor import type_text
 from .driver import FIND_DRIVER, REPOSITORY, build as build_driver
-from .media import MEDIA, MISSING_PRECONDITION, Medium
+from .media import MEDIA, Medium
 from .qemu import Firmware, Vm, VmSpec
 from .results import collect_command, create_disk, read_disk
 from .installed import checks, stage_passphrase_commands
@@ -130,26 +134,34 @@ def free_port() -> int:
     return port
 
 
-def require_proxy(installation: InstallConfig) -> None:
-    """Refuse a run whose proxy is not listening, before anything is built.
+@contextmanager
+def proxy_for(installation: InstallConfig) -> Iterator[None]:
+    """Run the proxy the fixture asks for, for the life of the run.
 
     A fixture reaches the workstation at qemu's user-mode gateway, which is
-    `127.0.0.1` from here. Without this the install fails at the stage3 fetch
-    and reads exactly like a defect in the proxy support it was meant to prove.
+    `127.0.0.1` from here. Refusing instead meant `vm-proxy` and
+    `vm-proxy-http` were skipped unless somebody had started one by hand, and
+    the cluster cannot run them at all, so the direction an operator on an
+    intranet needs — the proxy works and the install finishes — had never been
+    measured.
+
+    Something already listening is left alone: an operator debugging against
+    their own proxy is why the port is in the fixture rather than chosen here.
     """
     url = installation.proxy.redacted_url
-    if not url:
-        return
-    parsed = urlsplit(url)
-    if parsed.hostname != GATEWAY or parsed.port is None:
+    parsed = urlsplit(url) if url else None
+    if parsed is None or parsed.hostname != GATEWAY or parsed.port is None:
+        yield
         return
     with socket.socket() as probe:
         probe.settimeout(5.0)
-        if probe.connect_ex(("127.0.0.1", parsed.port)) != 0:
-            raise SystemExit(
-                f"{MISSING_PRECONDITION}{url} names this workstation, and nothing is "
-                f"listening on port {parsed.port}; start the proxy before the run"
-            )
+        already = probe.connect_ex(("127.0.0.1", parsed.port)) == 0
+    if already:
+        yield
+        return
+    credential = Credential(installation.proxy.username, installation.proxy.password)
+    with serving(installation.proxy.kind.value, parsed.port, credential):
+        yield
 
 
 def _target_paths(workdir: Path, installation: InstallConfig) -> tuple[Path, ...]:
@@ -838,11 +850,21 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _perform(args: argparse.Namespace, medium: Medium, workdir: Path) -> int:
+    """Run the guest with whatever the fixture needs standing around it.
+
+    A wrapper rather than a `with` around the body: the body is eighty lines
+    and re-indenting them would bury this one decision in a diff of
+    whitespace.
+    """
+    scope = proxy_for(load(REPOSITORY / "tests" / args.install)) if args.install else nullcontext()
+    with scope:
+        return _install_and_check(args, medium, workdir)
+
+
+def _install_and_check(args: argparse.Namespace, medium: Medium, workdir: Path) -> int:
     ssh_port = args.ssh_port or free_port()
     key = ssh_keypair(workdir)
     requested = load(REPOSITORY / "tests" / args.install) if args.install else None
-    if requested is not None:
-        require_proxy(requested)
     remote_port = (
         free_port() if requested is not None and requested.kernel.remote_unlock.enabled else None
     )
