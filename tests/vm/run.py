@@ -58,6 +58,10 @@ from .results import collect_command, create_disk, read_disk
 from .installed import checks, stage_passphrase_commands
 
 WORKROOT = Path.home() / "code/gentoo-install/lab/vm/runs"
+
+#: What a run killed partway and finished with `--resume` is called, in both
+#: its work directory and `campaign.Run.name`.
+INTERRUPTED_SUFFIX: Final[str] = "-interrupted"
 #: Big enough for a stage3, a desktop and the swap a fixture may ask for.
 DEFAULT_TARGET_SIZE = "40G"
 #: Slirp reads the host's `/etc/resolv.conf` once at startup, so a host that
@@ -803,7 +807,10 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
     variant = Path(args.install).stem if args.install else "probe"
-    workdir = WORKROOT / f"{medium.name}-{args.firmware}-{variant}"
+    # The suffix `campaign.Run.name` uses, because the two have to agree: the
+    # plain and the interrupted run of one fixture shared a work directory,
+    # and asking for both at once made the second report `LOCK` at 0.0m.
+    workdir = WORKROOT / f"{medium.name}-{args.firmware}-{variant}{INTERRUPTED_SUFFIX if args.interrupt else ''}"
     workdir.mkdir(parents=True, exist_ok=True)
     # The medium too: a rolling release keeps its filename, so a result
     # that names only the medium does not say which build it booted.

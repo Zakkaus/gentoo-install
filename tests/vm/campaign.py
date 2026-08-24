@@ -28,6 +28,7 @@ from typing import Callable, Final, Sequence
 from .driver import revision
 from .expectations import EXPECTATIONS, Expectation
 from .media import MISSING_PRECONDITION
+from .run import INTERRUPTED_SUFFIX
 
 WORKROOT: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/runs"
 LOGS: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/campaign"
@@ -118,7 +119,7 @@ class Run:
 
     @property
     def name(self) -> str:
-        how = "-interrupted" if self.interrupt else ""
+        how = INTERRUPTED_SUFFIX if self.interrupt else ""
         return f"{self.medium}-{self.firmware}-{Path(self.config).stem}{how}"
 
     @property
