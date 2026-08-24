@@ -318,6 +318,8 @@ after that can name one.
 
 | `12d9eb6aaae2e` | `vm-proxy-dead`, `vm-binhost-fallback` and `vm-proxy` on local guests, the three entries of `tests/vm/expectations.py` | each produced the verdict its entry asks for: `vm-proxy-dead` passes by failing, `vm-binhost-fallback` passes because it recorded the degradation — its journal names the 404 and all 35 packages read `compiled` — and `vm-proxy` reads `SKIP` because this workstation runs no SOCKS5 listener. Before `#1013` that last one printed `FAIL`. **What this does not establish:** that the fixture's premise holds anywhere else. The same fixture at this revision took binary packages from the same URL on the cluster, so what it measures depends on the network the guest is on. |
 
+| `5d42214c87366` | `vm-binpkg` killed partway and finished with `--resume`, on a local UEFI guest | the first measurement of the resume path. `ok 6.0m`, and the run's `skipped.txt` reads `8`: the second attempt skipped eight operations the first had finished rather than partitioning a disk it had already installed onto. Two defects had kept it unreachable — `--only` selected one run per fixture, and once both were selected they shared a work directory. **What this does not establish:** resuming across a reboot, or across a different installer revision, which `README.md` already marks as unverified. |
+
 **Rows recorded before `5a9b9f220e651` and saying `mounted its layout` overstate
 one of their checks.**
 `tests/vm/installed.py`'s `mounts` check expects the pattern `/` and is matched
