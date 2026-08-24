@@ -719,7 +719,7 @@ def test_only_the_boot_environment_is_left_unmounted_at_boot() -> None:
     dataset array of `calamares-settings-gig`'s `zfs.conf`."""
     from pathlib import PurePosixPath
 
-    from gentoo_install.plan.disk import CreateDataset
+    from gentoo_install.plan.disk import CreateDataset, MountZfsDataset
 
     holder = CreateDataset(dataset=i("ds"), name="rpool/ROOT", mountpoint=None)
     root = CreateDataset(dataset=i("ds"), name="rpool/ROOT/gentoo", mountpoint=PurePosixPath("/"))
@@ -728,9 +728,25 @@ def test_only_the_boot_environment_is_left_unmounted_at_boot() -> None:
     )
     assert (holder.canmount(), root.canmount(), home.canmount()) == ("off", "noauto", "on")
 
+    # Created `noauto` whatever it ends up as: `zfs create -o canmount=on`
+    # mounts the dataset immediately, and the pool's altroot puts `/home`
+    # under the target before the root dataset is mounted over it. The writes
+    # then land in the root dataset and the machine boots with an empty
+    # `/home`, which is what `zfs-zbm` did on 2026-08-24.
     recorder = Recorder()
     home.apply(recorder)
-    assert "canmount=on" in recorder.only("zfs", "create")
+    assert "canmount=noauto" in recorder.only("zfs", "create")
+    assert "canmount=on" not in recorder.only("zfs", "create")
+
+    # And the mount stage puts it back, so `zfs mount -a` brings it up at boot.
+    mounting = Recorder()
+    mounting.replies["zfs"] = "no"
+    MountZfsDataset(
+        mountpoint=i("mnt"), name="rpool/ROOT/gentoo/home", path=PurePosixPath("/home")
+    ).apply(mounting)
+    assert ("zfs", "set", "canmount=on", "rpool/ROOT/gentoo/home") in mounting.commands, (
+        mounting.commands
+    )
 
 
 def test_the_downloaded_stage3_does_not_ship_with_the_installed_system() -> None:

@@ -876,6 +876,30 @@ class ImportZpool(Operation):
         context.run(["zpool", "import", "-N", "-f", "-R", str(context.target), self.name])
 
 
+def canmount_for(mountpoint: PurePosixPath | None) -> str:
+    """What a dataset's `canmount` is once the install is finished.
+
+    `zfs mount -a` and `zfs-mount-generator` both skip `noauto`, which is
+    wanted for the boot environment and wrong for everything else: a `/home`
+    dataset marked `noauto` came up empty. The values are the ones
+    `calamares-settings-gig`'s `zfs.conf` gives its dataset array.
+    """
+    if mountpoint is None:
+        return "off"
+    return "noauto" if mountpoint == PurePosixPath("/") else "on"
+
+
+def _canmount_at_creation(mountpoint: PurePosixPath | None) -> str:
+    """What it is created with, which is never `on`.
+
+    `zfs create -o canmount=on` mounts the dataset immediately, and the pool's
+    altroot puts a `/home` dataset under the target before the root dataset is
+    mounted over it: the writes then land in the root dataset and the machine
+    boots with an empty `/home`.
+    """
+    return "off" if mountpoint is None else "noauto"
+
+
 @dataclass(frozen=True, kw_only=True)
 class CreateDataset(Operation):
     stage: Stage = Stage.ZFS
@@ -890,16 +914,14 @@ class CreateDataset(Operation):
         return f"create dataset {self.name} as {self.dataset}, mountpoint {where}"
 
     def canmount(self) -> str:
-        """`zfs mount -a` and `zfs-mount-generator` both skip `noauto`, which is
-        wanted for the boot environment and wrong for everything else: a
-        `/home` dataset marked `noauto` came up empty. The values are the ones
-        `calamares-settings-gig`'s `zfs.conf` gives its dataset array."""
-        if self.mountpoint is None:
-            return "off"
-        return "noauto" if self.mountpoint == PurePosixPath("/") else "on"
+        return canmount_for(self.mountpoint)
 
     def apply(self, context: Context) -> None:
         where = str(self.mountpoint) if self.mountpoint is not None else "none"
+        # `noauto` whatever it ends up as: `zfs create -o canmount=on` mounts
+        # the dataset there and then, and the pool's altroot puts `/home`
+        # under the target before the root dataset is mounted over it. The
+        # mount stage sets the real value once it has mounted this in order.
         # -p: a dataset three levels down needs its parents, and the layout
         # names only the leaves it mounts.
         context.run(
@@ -907,7 +929,7 @@ class CreateDataset(Operation):
                 "zfs", "create", "-p",
                 *DATASET_OPTIONS,
                 "-o", f"mountpoint={where}",
-                "-o", f"canmount={self.canmount()}",
+                "-o", f"canmount={_canmount_at_creation(self.mountpoint)}",
                 self.name,
             ]
         )
@@ -994,6 +1016,12 @@ class MountZfsDataset(Operation):
                 return
             context.run(["zfs", "unmount", self.name])
         context.run(["zfs", "mount", self.name])
+        # After the mount, not at creation: `canmount=on` is what makes
+        # `zfs mount -a` bring this dataset up at boot, and setting it here
+        # keeps `zfs create` from mounting it before the root is in place.
+        wanted = canmount_for(self.path)
+        if wanted != "noauto":
+            context.run(["zfs", "set", f"canmount={wanted}", self.name])
 
 @dataclass(frozen=True, kw_only=True)
 class DiscardStage3(Operation):
