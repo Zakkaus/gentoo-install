@@ -3049,9 +3049,17 @@ def _naming(command: str) -> Iterator[None]:
     try:
         yield
     except ConsoleIdle as error:
-        raise ConsoleIdle(f"{error} while running {_shortened(command)!r}") from error
+        raise ConsoleIdle(
+            f"{error} while running {_shortened(command)!r}",
+            waited=error.waited,
+            seen=error.seen,
+        ) from error
     except ConsoleTimeout as error:
-        raise ConsoleTimeout(f"{error} while running {_shortened(command)!r}") from error
+        raise ConsoleTimeout(
+            f"{error} while running {_shortened(command)!r}",
+            waited=error.waited,
+            seen=error.seen,
+        ) from error
 
 
 #: What clears a half-typed line, including one inside an unclosed quote.
@@ -3226,7 +3234,9 @@ class Reconnecting:
                     # alone filled all 300 of `zbm-unlock`'s, so the round
                     # could not say whether its counters had moved.
                     raise ConsoleTimeout(
-                        f"the console was silent for {idle:.0f}s and {reason}: {error}"
+                        f"the console was silent for {idle:.0f}s and {reason}: {error}",
+                        waited=error.waited,
+                        seen=error.seen,
                     ) from error
 
         self._with_reconnect(timeout, wait_once, watch=watch)
@@ -3770,10 +3780,19 @@ def _unlock(
                 ),
                 timeout=BOOT_PATIENCE,
             )
-        except (ConsoleTimeout, ConsoleClosed) as error:
+        except ConsoleTimeout as error:
             return UnlockResult(
                 InstalledBootState.WAIT_LOGIN,
-                f"the encrypted disk asked for nothing and booted nowhere: {error}"[:200],
+                (
+                    "the encrypted disk asked for nothing and booted nowhere in "
+                    f"{error.waited:.0f}s; the console held "
+                    f"{error.seen[-INITRAMFS_SCREEN_BYTES:]!r}"
+                )[:VERDICT_BYTES],
+            )
+        except ConsoleClosed as error:
+            return UnlockResult(
+                InstalledBootState.WAIT_LOGIN,
+                f"the encrypted disk closed its console: {error}"[:VERDICT_BYTES],
             )
         if any(one.encode() in said for one in LOGIN_PROMPTS):
             return UnlockResult(InstalledBootState.LOGIN_READY)
@@ -3796,7 +3815,7 @@ def _unlock(
         except ConsoleClosed as error:
             return UnlockResult(
                 InstalledBootState.WAIT_LOGIN,
-                f"the disk passphrase delivery is unknown: {error}"[:200],
+                f"the disk passphrase delivery is unknown: {error}"[:VERDICT_BYTES],
             )
     return UnlockResult(
         InstalledBootState.WAIT_LOGIN,
@@ -3930,7 +3949,7 @@ def boot_and_check(
     try:
         refused = _log_in(link, INSTALLED_PASSWORD)
     except ConsoleClosed as error:
-        return f"installed login response delivery is unknown: {error}"[:200]
+        return f"installed login response delivery is unknown: {error}"[:VERDICT_BYTES]
     if refused:
         return f"{missed_the_prompt}; {refused}"[:VERDICT_BYTES] if missed_the_prompt else refused
 

@@ -4108,3 +4108,70 @@ def test_both_runners_read_one_git_state() -> None:
     assert asks_git_status(driver) == 1, "driver.py no longer asks git once"
     assert asks_git_status(cluster) == 0, "cluster.py asks git for itself again"
     assert "git_state" in inspect.getsource(cluster.revision_identity)
+
+
+def test_the_encrypted_boot_verdict_says_how_long_and_what_was_on_the_screen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`vm-zfs-encrypted` was failed after 66 minutes with `the encrypted disk
+    asked for nothing and booted nowhere: never matched '<the pattern>'` and
+    nothing else: the verdict was cut to 200 bytes from the front, and
+    `ConsoleTimeout` leads with the pattern, which is 200 bytes on its own. So
+    the one fact it carried is the one already in the source, and whether the
+    guest had waited its whole ceiling or died at second twelve could not be
+    told from the verdict at all."""
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    clock = [0.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+
+    class Booting:
+        """A guest that reaches dracut and then stops, escapes and all."""
+
+        def __init__(self) -> None:
+            self._said = False
+
+        def recv(self, size: int) -> bytes:
+            clock[0] += 1.0
+            if self._said:
+                return b""
+            self._said = True
+            return (
+                b"[\x1b[0;32m  OK  \x1b[0m] Reached target \x1b[0;1;39mZFS pool "
+                b"import target\x1b[0m\r\n         Starting \x1b[0;1;39mdracut "
+                b"pre-mount hook\x1b[0m...\r\n"
+            )
+
+        def sendall(self, data: bytes) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+        @property
+        def closed(self) -> bool:
+            return False
+
+    serial = SerialConsole(cast(Any, Booting()), BytesIO())
+
+    class Watching:
+        def __init__(self) -> None:
+            self.console = serial
+
+        def observe(self, pattern: str, timeout: float, *, solicit: bool = False) -> bytes:
+            return serial.expect(pattern, timeout)
+
+        def respond(self, line: str) -> None:
+            return None
+
+    from gentoo_install.exec.config import load
+
+    installation = load(FIXTURES / "vm-zfs-encrypted.toml")
+    result = cluster._unlock(cast(Any, _Keyboard()), cast(Any, Watching()), installation)
+
+    assert result.refused, result
+    # The screen and the wait, neither of which the reader can get from the
+    # source. `dracut pre-mount` appears in no pattern the wait was built from.
+    assert "dracut pre-mount hook" in result.refused, result.refused
+    assert f"{cluster.BOOT_PATIENCE:.0f}s" in result.refused, result.refused
+    # And not the pattern, which is what the truncation used to keep.
+    assert "Please enter passphrase" not in result.refused, result.refused
