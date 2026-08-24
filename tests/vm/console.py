@@ -61,7 +61,18 @@ def command_done(token: int) -> str:
 
 
 class ConsoleTimeout(Exception):
-    """A pattern did not appear on the console within its deadline."""
+    """A pattern did not appear on the console within its deadline.
+
+    `waited` and `seen` are what a verdict needs and the message cannot carry:
+    the message leads with the pattern, which at the encrypted boot is longer
+    than any verdict, so a caller that truncates from the front keeps the one
+    fact its reader already has and drops the two it does not.
+    """
+
+    def __init__(self, message: str, *, waited: float = 0.0, seen: bytes = b"") -> None:
+        super().__init__(message)
+        self.waited = waited
+        self.seen = seen
 
 
 class ConsoleIdle(ConsoleTimeout):
@@ -243,7 +254,9 @@ class SerialConsole:
         )
         raise error(
             f"never matched {pattern!r}, {why}; "
-            f"last output was {strip_ansi(self._buffer)[-600:]!r}"
+            f"last output was {strip_ansi(self._buffer)[-600:]!r}",
+            waited=time.monotonic() - started,
+            seen=strip_ansi(self._buffer),
         )
 
     def send(self, line: str) -> None:
