@@ -243,7 +243,7 @@ def operation_templates() -> set[str]:
     """Description templates the overview passes to the catalog indirectly."""
     import ast
 
-    from gentoo_install.plan import dd, kernel, portage, system
+    import gentoo_install.plan
 
     def templates(expression: ast.expr) -> set[str]:
         if isinstance(expression, ast.IfExp):
@@ -255,11 +255,13 @@ def operation_templates() -> set[str]:
             return {template.value}
         return set()
 
+    # Every module in the package, not a list written by hand: `netboot.py`
+    # was never in that list, so all eleven of its descriptions sat outside
+    # the catalogs and the rule that exists to catch exactly that passed.
     found: set[str] = set()
-    for module in (dd, kernel, portage, system):
-        module_path = module.__file__
-        assert module_path is not None
-        tree = ast.parse(Path(module_path).read_text(encoding="utf-8"))
+    package = Path(gentoo_install.plan.__file__).parent
+    for module_path in sorted(package.glob("*.py")):
+        tree = ast.parse(module_path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if not isinstance(node, ast.FunctionDef) or node.name != "describe_parts":
                 continue
@@ -542,6 +544,9 @@ REVIEWED_TEMPLATES: frozenset[str] = frozenset(
         "write {} to run a script from {} and {} commands at the first boot",
         "write {} to run a script from {} at the first boot",
         "write {} to run {} commands at the first boot",
+        "check this machine has the {} MiB {} needs",
+        "unpack the {} kernel and initramfs into {}",
+        "write a {} entry for the {} environment",
         "set the system locale to {} in {}",
         "start a login on {} at {} baud",
         "stream the {} image {} onto {}",
