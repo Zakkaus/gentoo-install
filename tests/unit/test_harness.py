@@ -325,11 +325,19 @@ def test_the_machine_is_packed_by_weight_rather_than_by_count() -> None:
 def test_a_heavier_run_asks_for_the_cores_on_the_command_line() -> None:
     """The guest derives its MAKEOPTS from the vCPU count, so the weight has to
     reach `run.py` rather than only the scheduler."""
-    from tests.vm.campaign import Run
+    from tests.vm.campaign import COMPILING_CPUS, Run
 
-    argv = Run("fixtures/vm-cjk-kernel.toml", weight=2, cpus=10).argv()
-    assert "--cpus" in argv and argv[argv.index("--cpus") + 1] == "10"
-    assert "--cpus" not in Run("fixtures/vm-binpkg.toml").argv()
+    # A fixture that compiles, rather than a hand-set weight: the cores are
+    # derived from the configuration now, so a run that asks for them has to
+    # be one that would.
+    heavy = Run("fixtures/vm-desktop.toml")
+    assert heavy.compiles, heavy.config
+    argv = heavy.argv()
+    assert "--cpus" in argv and argv[argv.index("--cpus") + 1] == str(COMPILING_CPUS)
+
+    light = Run("fixtures/vm-binpkg.toml")
+    assert not light.compiles, light.config
+    assert "--cpus" not in light.argv()
 
 
 def test_every_configuration_the_campaign_runs_reaches_the_serial_port() -> None:
@@ -2956,17 +2964,19 @@ def test_campaign_collects_an_outcome_from_every_worker(
 
     from tests.vm import campaign
 
+    # Real fixture names, because a `Run` reads its own configuration to
+    # decide how heavy it is; what each one installs does not matter here.
     runs = [
-        campaign.Run("fixtures/timeout.toml"),
-        campaign.Run("fixtures/oserror.toml"),
-        campaign.Run("fixtures/complete.toml"),
+        campaign.Run("fixtures/vm-xfs.toml"),
+        campaign.Run("fixtures/vm-lvm.toml"),
+        campaign.Run("fixtures/vm-btrfs.toml"),
     ]
     announced: list[str] = []
 
     def fake_perform(run: campaign.Run) -> campaign.Outcome:
-        if run.config.endswith("timeout.toml"):
+        if run.config.endswith("vm-xfs.toml"):
             raise subprocess.TimeoutExpired(run.argv(), 1.0)
-        if run.config.endswith("oserror.toml"):
+        if run.config.endswith("vm-lvm.toml"):
             raise OSError("could not launch guest")
         return campaign.Outcome(run, 0, 1.0, tmp_path / "complete.log")
 
@@ -5911,3 +5921,28 @@ def test_an_answer_the_passphrase_prompt_discarded_is_answered_again(
 
     assert runner.unlock_and_login(console, installation) == "console"
     assert channel.answers == 2, channel.answers
+
+
+def test_both_runners_read_one_answer_for_how_heavy_a_guest_is() -> None:
+    """The two runners spend the same resource on the same install and each
+    held its own answer: the cluster derived it, the campaign wrote it out per
+    run. Comparing them fixture by fixture gave nine disagreements, every one
+    the local table calling light what the cluster's rule calls heavy — the
+    six ZFS layouts, and the three with no binary host at all."""
+    from tests.vm.campaign import STAGES
+    from tests.vm.cluster import fixtures as cluster_fixtures
+
+    local = {Path(one.config).stem: one for stage in STAGES.values() for one in stage}
+    # Only what the cluster will accept: a fixture it refuses has no answer
+    # there to compare against.
+    shared = sorted(
+        stem
+        for stem in local
+        if stem not in {"vm-proxy", "vm-proxy-http", "vm-image", "static-ip", "vm-convert"}
+    )
+    assert len(shared) > 20, shared
+
+    for stem in shared:
+        job = cluster_fixtures([stem])[0]
+        assert job.heavy == (local[stem].weight > 1), stem
+        assert job.heavy == bool(local[stem].cpus), stem

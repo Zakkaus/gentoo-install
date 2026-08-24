@@ -48,6 +48,7 @@ from contextlib import contextmanager
 from typing import Final, Iterator, Protocol, TypeVar, cast, Sequence
 
 from .expectations import EXPECTATIONS, Expectation
+from .sizing import compiles
 
 from gentoo_install.model.config import Firmware as BootFirmware
 from gentoo_install.model.config import (
@@ -4486,24 +4487,6 @@ def _sweep_jobs(scheduled: Mapping[str, Job]) -> None:
     _sweep(inflight)
 
 
-def _compiles(config: InstallConfig) -> bool:
-    """Whether this configuration spends an hour in `emerge` rather than six
-    minutes: a kernel built from source, a desktop, no binary host at all, or
-    a ZFS root.
-
-    A binary kernel does not spare a ZFS layout: `sys-fs/zfs` builds a module
-    against whatever kernel was installed and no binary host carries one,
-    and ZFSBootMenu is in `gentoo-zh` alone. `vm-zfs-encrypted` reads as
-    light by every other test here and compiled nineteen packages, systemd
-    among them, on the two cores a light guest is given.
-    """
-    if config.disk.graph.of_type(ZfsPool):
-        return True
-    if config.kernel.source.value.endswith("-bin"):
-        return bool(config.packages.desktop) or not config.portage.binhost.official
-    return True
-
-
 #: qemu's user-mode network, where `10.0.2.2` is the machine running qemu and
 #: `10.0.2.3` is its resolver. A cluster guest is bridged and has neither, so a
 #: fixture naming one of them can only run under `tests/vm/run.py`. Dispatching
@@ -4567,7 +4550,7 @@ def fixtures(names: list[str]) -> list[Job]:
                 fixture=path,
                 uefi=config.bootloader.firmware.value != "bios",
                 disks=max(1, len(config.disk.graph.of_type(Existing))),
-                heavy=_compiles(config),
+                heavy=compiles(config),
                 remote_unlock=_requests_remote_unlock(path),
                 convert_to=convert_to,
             )
