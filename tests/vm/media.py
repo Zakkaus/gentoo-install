@@ -12,6 +12,11 @@ from typing import Final, Iterable
 from gentoo_install.exec import preflight
 from gentoo_install.exec.config import load
 
+#: What a run says when the workstation lacks something it needs. Both the
+#: refusals and the campaign's summary read this one string, so a precondition
+#: cannot be reported as a fixture that failed.
+MISSING_PRECONDITION: Final[str] = "this run needs something the workstation has not got: "
+
 CACHE = Path.home() / "code/gentoo-install/lab/vm"
 
 
@@ -91,6 +96,11 @@ def _read(path: Path) -> str:
 
 
 def _sha256(path: Path) -> str:
+    if not path.is_file():
+        # Named rather than a traceback: a workstation without this ISO is a
+        # run that cannot start, and `FileNotFoundError` at the bottom of a
+        # stack reads like the fixture broke.
+        raise SystemExit(f"{MISSING_PRECONDITION}{path} is not there; download it before the run")
     reader = hashlib.sha256()
     with path.open("rb") as handle:
         for block in iter(lambda: handle.read(1 << 20), b""):
