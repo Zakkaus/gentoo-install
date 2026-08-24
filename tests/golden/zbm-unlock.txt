@@ -93,7 +93,7 @@
   install the bootloader: emerge sys-boot/zfsbootmenu sys-boot/efibootmgr
   install the EFI stub generate-zbm builds around: emerge sys-apps/systemd
   write /etc/zfsbootmenu/dracut.conf.d/dropbear.conf and /etc/cmdline.d/dracut-network.conf, authorise keys at /etc/dropbear/root_key, and generate dedicated host keys under /etc/dropbear
-  write /etc/zfsbootmenu/config.yaml, build ZFSBootMenu into /efi/EFI/zbm, and boot zpcala/ROOT/gentoo/root from it
+  write /etc/zfsbootmenu/config.yaml, build ZFSBootMenu into /efi/EFI/zbm, and boot zpcala/ROOT/gentoo/root from it with cmdline console=ttyS0,115200 quiet
 
 [packages]
   enable zfs-import-scan.service at boot
