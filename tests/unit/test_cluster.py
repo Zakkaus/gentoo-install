@@ -4190,14 +4190,15 @@ def test_a_zfs_root_is_a_heavy_guest_whatever_its_kernel_says() -> None:
     desktop stops covering this case and says so.
     """
     from gentoo_install.exec.config import load
+    from tests.vm.sizing import compiles
 
     for name in ("vm-zfs", "vm-zfs-encrypted", "vm-zfs-mirror", "vm-raidz"):
         config = load(FIXTURES / f"{name}.toml")
         assert config.kernel.source.value.endswith("-bin"), name
         assert not config.packages.desktop, name
         assert config.portage.binhost.official, name
-        assert cluster._compiles(config), name
+        assert compiles(config), name
 
     # And not everything: a plain binary-package install stays light, or the
     # rule buys nothing and the cluster runs one guest at a time.
-    assert not cluster._compiles(load(FIXTURES / "vm-xfs.toml"))
+    assert not compiles(load(FIXTURES / "vm-xfs.toml"))

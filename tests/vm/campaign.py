@@ -25,10 +25,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Final, Sequence
 
-from .driver import revision
+from gentoo_install.exec.config import load
+
+from .driver import REPOSITORY, revision
 from .expectations import EXPECTATIONS, Expectation
 from .media import MISSING_PRECONDITION
 from .run import INTERRUPTED_SUFFIX
+from .sizing import compiles
+
+#: What a `Run.config` is relative to, the same root the driver CD puts it
+#: under: `fixtures/vm-xfs.toml` names the file `tests/fixtures/vm-xfs.toml`.
+FIXTURE_ROOT: Final[Path] = REPOSITORY / "tests"
+
+#: What a compiling run is given and what it costs. The cores reach the guest
+#: as its MAKEOPTS, and the weight is what keeps three of them on the machine
+#: rather than six.
+COMPILING_CPUS: Final[int] = 10
+COMPILING_WEIGHT: Final[int] = 2
 
 WORKROOT: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/runs"
 LOGS: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/campaign"
@@ -106,16 +119,28 @@ class Run:
     #: Boot what was installed and check it. Always: an install that exits 0
     #: is not an install that boots, and that is the whole question.
     boot: bool = True
-    #: vCPUs, and through the guest's own MAKEOPTS how fast it compiles. Left
-    #: at zero for a run that installs binary packages: more cores do nothing
-    #: for a download, and they would be taken from a run that is compiling.
-    cpus: int = 0
-    #: What this costs the machine, against `CAPACITY`. Two for a run that
-    #: compiles a kernel or a desktop: those saturate their vCPUs for half an
-    #: hour, and packing them beside each other makes every one of them slower
-    #: without finishing any sooner. One for a run that installs binary
-    #: packages, which spends its time on the network and the disk.
-    weight: int = 1
+
+    @property
+    def compiles(self) -> bool:
+        """Whether this run spends its time in `emerge` rather than on the
+        network. Derived rather than written per run, because it was written
+        per run and drifted: nine fixtures were marked light here and answer
+        heavy on the cluster, the six ZFS layouts among them."""
+        return compiles(load(FIXTURE_ROOT / self.config))
+
+    @property
+    def weight(self) -> int:
+        """What this costs the machine, against `CAPACITY`. A compiling run
+        saturates its vCPUs for half an hour, and packing two of them beside
+        each other makes both slower without finishing either sooner."""
+        return COMPILING_WEIGHT if self.compiles else 1
+
+    @property
+    def cpus(self) -> int:
+        """vCPUs, and through the guest's own MAKEOPTS how fast it compiles.
+        Zero for a run that installs binary packages: more cores do nothing
+        for a download and would be taken from a run that is compiling."""
+        return COMPILING_CPUS if self.compiles else 0
 
     @property
     def name(self) -> str:
@@ -148,7 +173,7 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         # The only fixture whose target disk already holds a table; `run.py`
         # seeds it, and the installer keeps partition 1 and adds partition 2.
         Run("fixtures/mbr-edit.toml", firmware="bios"),
-        Run("fixtures/vm-desktop.toml", weight=2, cpus=10),
+        Run("fixtures/vm-desktop.toml"),
         Run("fixtures/vm-zfs.toml"),
     ),
     "matrix": (
@@ -165,7 +190,7 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         Run("fixtures/zfs-zbm.toml"),
         Run("fixtures/zbm-unlock.toml"),
         Run("fixtures/btrfs-luks.toml"),
-        Run("fixtures/ext4-bios.toml", firmware="bios", weight=2, cpus=10),
+        Run("fixtures/ext4-bios.toml", firmware="bios"),
         Run("fixtures/vm-cjk-kernel.toml"),
         # The four nothing had ever installed: the only untested filesystem, a
         # desktop on openrc, GNOME at all, and btrfs subvolumes without LUKS
@@ -181,14 +206,14 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         # is a different path: the configuration, the build, `installkernel`
         # and the initramfs are produced rather than unpacked, and about an
         # hour on four cores, so it gets the weight a desktop gets.
-        Run("fixtures/vm-source-kernel.toml", weight=2, cpus=10),
+        Run("fixtures/vm-source-kernel.toml"),
         # A machine that configures its own address instead of asking for one.
         # The model has carried static addressing since the beginning and no
         # fixture set it, so nothing had ever installed a machine that comes up
         # on an address, a gateway and a resolver it was given. `cluster.py`
         # rewrites the address to the one the scheduler reserved.
-        Run("fixtures/vm-openrc-desktop.toml", weight=2, cpus=10),
-        Run("fixtures/vm-gnome.toml", weight=2, cpus=10),
+        Run("fixtures/vm-openrc-desktop.toml"),
+        Run("fixtures/vm-gnome.toml"),
         # Three more nothing had ever installed: raidz needs a third disk,
         # which no other fixture asks for; zram was set by none of them; and
         # GRUB opening the container itself to read /boot only happens on an
@@ -238,7 +263,7 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         # xfce behind greetd, and the only fixture with a display manager
         # whose configuration the installer rewrites rather than writes: the
         # `command =` line in the file `gui-libs/greetd` installs.
-        Run("fixtures/vm-greetd.toml", weight=2, cpus=10),
+        Run("fixtures/vm-greetd.toml"),
     ),
     # One configuration, six media: this stage tests `bootstrap.sh` and
     # preflight, so the shortest fixture is the right one. Booted like every
