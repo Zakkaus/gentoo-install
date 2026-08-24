@@ -8,6 +8,7 @@ process it drove, so nothing else in the run can notice a failure for it.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -5826,3 +5827,28 @@ def test_an_interrupted_run_does_not_share_a_work_directory() -> None:
     ]
     assert assigned, "main no longer assigns workdir"
     assert all("INTERRUPTED_SUFFIX" in one for one in assigned), assigned
+
+
+def test_every_dispatch_form_says_what_it_will_run_before_it_runs(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--only vm-zfs-encrypted` printed nothing at all until the run ended an
+    hour later: its two siblings each announce their round and that branch was
+    written without one. A local round redirected to a file is then a zero-byte
+    file for the whole run, which reads exactly like a launch that failed."""
+    from tests.vm import campaign
+
+    said: list[str] = []
+
+    def announced(runs: Sequence[campaign.Run]) -> list[campaign.Outcome]:
+        said.append(capsys.readouterr().out)
+        return []
+
+    monkeypatch.setattr(campaign, "parallel", announced)
+    monkeypatch.setattr(campaign, "report", lambda done: 0)
+    for argv in (["--only", "vm-xfs"], ["--keep-going"], []):
+        assert campaign.main(argv) == 0, argv
+
+    assert len(said) >= 3, said
+    for spoken in said:
+        assert spoken.strip(), said
