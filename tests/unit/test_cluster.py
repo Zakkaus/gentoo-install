@@ -20,7 +20,15 @@ from tests.vm import cluster
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 from tests.vm.console import ConsoleTimeout, SerialConsole, command_done
-from tests.vm.proxmox import Api, Node, ProxmoxError, ProxmoxNotFound, VMID_FIRST, VMID_LAST
+from tests.vm.proxmox import (
+    Api,
+    Node,
+    ProxmoxError,
+    ProxmoxNotFound,
+    ProxmoxTransientError,
+    VMID_FIRST,
+    VMID_LAST,
+)
 
 
 class WorkerFailure(Exception):
@@ -4032,3 +4040,38 @@ def test_a_campaign_names_the_guests_an_earlier_one_left_behind() -> None:
 
     assert cluster.orphan_report(cast(Any, Listing([running, resolver]))) == []
     assert cluster.orphan_report(cast(Any, Listing(ProxmoxError("no answer")))) == []
+
+
+def test_a_transient_failure_while_tidying_does_not_end_the_campaign(
+    tmp_path: Path,
+) -> None:
+    """A campaign on 2026-08-24 ended with no verdicts at all: an SSL handshake
+    failed inside `stale_drivers`, which only removes old driver CDs, and the
+    error came out of the scheduler. Six guests had been built and deleted and
+    nothing was said about any of them."""
+    from tests.vm.cluster import place_driver
+
+    class Tidying:
+        def __init__(self) -> None:
+            self.placed: list[str] = []
+
+        def stale_drivers(self, node: str, keep: str, older_than: float) -> list[str]:
+            raise ProxmoxTransientError("GET /nodes/n/storage/local/content did not answer")
+
+        def isos(self, node: str) -> list[str]:
+            return ["driver.iso"]
+
+        def remove_iso(self, node: str, name: str) -> str:
+            return ""
+
+        def upload_iso(self, node: str, path: Path, name: str) -> str:
+            self.placed.append(name)
+            return ""
+
+    api = Tidying()
+    trust = tmp_path / "trust"
+    driver = tmp_path / "driver.iso"
+    driver.write_bytes(b"cd")
+
+    # The point is that this returns rather than raising.
+    place_driver(cast(Any, api), "infra-node2", trust, driver, "driver.iso")

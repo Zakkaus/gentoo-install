@@ -834,7 +834,16 @@ def prepare(
 
 def place_driver(api: Api, node: str, trust: Path, driver_path: Path, driver: str) -> None:
     """Put one driver CD on a node's `local` storage, replacing a stale copy."""
-    for stale in api.stale_drivers(node, driver, DRIVER_KEPT_SECONDS):
+    # Best-effort: an old driver CD left on a node costs disk and nothing
+    # else, and a transient API failure here ended a whole campaign with no
+    # verdicts at all on 2026-08-24 — six guests built, deleted, and nothing
+    # said about any of them.
+    try:
+        stale_drivers = api.stale_drivers(node, driver, DRIVER_KEPT_SECONDS)
+    except ProxmoxTransientError as error:
+        print(f"stale drivers on {node} could not be listed: {error}", file=sys.stderr)
+        stale_drivers = []
+    for stale in stale_drivers:
         reason = api.remove_iso(node, stale)
         if reason:
             print(f"{stale} stayed on {node}: {reason}", file=sys.stderr)
