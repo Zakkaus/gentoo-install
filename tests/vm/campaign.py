@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Callable, Final, Sequence
 
 from gentoo_install.exec.config import load
+from gentoo_install.model.config import DiskMode
 
 from .driver import REPOSITORY, revision
 from .expectations import EXPECTATIONS, Expectation
@@ -120,6 +121,22 @@ class Run:
     #: is not an install that boots, and that is the whole question.
     boot: bool = True
 
+    #: Which cloud image a conversion is run against. Ignored by every other
+    #: run, which boots the installation medium instead.
+    image: str = "fedora"
+
+    @property
+    def converts(self) -> bool:
+        """Whether this run converts a machine in place rather than installing
+        onto a blank disk.
+
+        `tests/vm/convert.py` is what does that here: it boots a cloud image,
+        hands it the driver CD and converts what is already running. Dispatched
+        through `tests/vm/run.py` instead, the fixture met a seeded image whose
+        root filesystem holds 3 GiB free and the installer refused with exit 2.
+        """
+        return load(FIXTURE_ROOT / self.config).disk.mode is DiskMode.IN_PLACE
+
     @property
     def compiles(self) -> bool:
         """Whether this run spends its time in `emerge` rather than on the
@@ -145,13 +162,23 @@ class Run:
     @property
     def name(self) -> str:
         how = INTERRUPTED_SUFFIX if self.interrupt else ""
-        return f"{self.medium}-{self.firmware}-{Path(self.config).stem}{how}"
+        # A conversion names the image it converts: no installation medium is
+        # booted, so `official-minimal-uefi` would name two things this run
+        # does not have.
+        where = self.image if self.converts else f"{self.medium}-{self.firmware}"
+        return f"{where}-{Path(self.config).stem}{how}"
 
     @property
     def expectation(self) -> Expectation | None:
         return EXPECTATIONS.get(Path(self.config).stem)
 
     def argv(self) -> list[str]:
+        if self.converts:
+            return [
+                sys.executable, "-m", "tests.vm.convert",
+                "--image", self.image,
+                "--config", self.config,
+            ]
         argv = [
             sys.executable, "-m", "tests.vm.run",
             "--medium", self.medium,
@@ -192,6 +219,10 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         Run("fixtures/btrfs-luks.toml"),
         Run("fixtures/ext4-bios.toml", firmware="bios"),
         Run("fixtures/vm-cjk-kernel.toml"),
+        # Run by `tests/vm/convert.py` rather than `run.py`: it boots a
+        # cloud image and converts what is already running, which is the
+        # only thing a conversion can be measured against.
+        Run("fixtures/vm-convert.toml"),
         # The four nothing had ever installed: the only untested filesystem, a
         # desktop on openrc, GNOME at all, and btrfs subvolumes without LUKS
         # wrapped round them.
