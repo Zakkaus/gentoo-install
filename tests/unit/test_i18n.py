@@ -514,8 +514,6 @@ def test_no_catalog_shows_a_particle_the_writer_had_not_chosen() -> None:
 #: goes and rotated the three names in the stage3 line.
 REVIEWED_TEMPLATES: frozenset[str] = frozenset(
     {
-        "add unverified binary package host {} at {}",
-        "add verified binary package host {} at {}",
         "write {} for {} with addresses {}; gateways {}; DNS {}",
         "write {} for the wired interface with addresses {}; gateways {}; DNS {}",
         "write {} for {} with DHCP and DNS {}",
@@ -530,8 +528,6 @@ REVIEWED_TEMPLATES: frozenset[str] = frozenset(
         " unpack it into the target and write {}",
         "enable {} in the {} runlevel",
         "import {} from {}, locally sign it for {}, and verify the local signature",
-        "point repository {} at {}",
-        "point repository {} at {}, commit signatures verified",
         "run a script from {} and {} commands once, the first time the system boots",
         "the remote unlock address {} is IPv{} and its gateway {} is IPv{}, so the initramfs has"
         " no route",
@@ -539,6 +535,11 @@ REVIEWED_TEMPLATES: frozenset[str] = frozenset(
         "set the hostname to {} in {}",
         "keep proxy environment for {} in {}",
         "write {} with locales {} and verify them",
+        "write {} pointing {} at {}, commit signatures verified",
+        "write {} pointing {} at {}",
+        "write {} so repository {} syncs with emerge-webrsync",
+        "write {} adding verified binary package host {} at {}",
+        "write {} adding unverified binary package host {} at {}",
         "set the system locale to {} in {}",
         "start a login on {} at {} baud",
         "stream the {} image {} onto {}",

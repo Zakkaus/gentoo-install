@@ -706,7 +706,10 @@ def test_the_dry_run_names_every_file_only_its_owner_may_read() -> None:
     # Named rather than counted: a class leaving this rule has to be a
     # decision, and the name is what makes it one.
     assert derived_here == {
+        "ConfigureBinhost",
         "ConfigureConsole",
+        "ConfigureRepository",
+        "ConfigureWebrsyncRepository",
         "CreateAutounmaskFiles",
         "ConfigureZram",
         "GenerateLocales",
