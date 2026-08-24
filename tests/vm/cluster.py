@@ -81,6 +81,7 @@ from .console import (
     plain,
 )
 from .driver import (
+    git_state,
     FIND_DRIVER,
     NAME_PREFIX as DRIVER_PREFIX,
     build as build_driver,
@@ -1534,18 +1535,11 @@ def _first_selector(installation: InstallConfig) -> str:
 def revision_identity(driver: Path) -> str:
     """Git state and exact driver bytes represented by a campaign outcome."""
 
-    def ask(argv: list[str]) -> str:
-        try:
-            result = subprocess.run(
-                argv, cwd=REPOSITORY, capture_output=True, text=True
-            )
-        except OSError:
-            return ""
-        return result.stdout.strip() if result.returncode == 0 else ""
-
-    described = ask(["git", "describe", "--always", "--dirty"]) or "unknown"
-    changed = len(ask(["git", "status", "--short"]).splitlines())
-    return f"{described} dirty={changed} driver-sha256={driver_digest(driver)}"
+    described, changed = git_state()
+    return (
+        f"{described or 'unknown'} dirty={changed} "
+        f"driver-sha256={driver_digest(driver)}"
+    )
 
 
 def retain_driver(workdir: Path, built: Path) -> Path:

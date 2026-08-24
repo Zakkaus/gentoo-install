@@ -111,13 +111,13 @@ exec sh ./bootstrap.sh --no-shell "$@"
 """
 
 
-def revision() -> str:
-    """What the driver CD is about to be built from.
+def git_state() -> tuple[str, int]:
+    """What `git describe` calls the checkout, and how many tracked files differ.
 
-    A campaign that ran while its own tree was being committed to measured
-    twelve different snapshots and could name none of them, so every run says
-    this before it boots anything. `dirty` means the result proves nothing
-    about any commit.
+    Tracked only: an untracked screenshot sitting in the checkout made every
+    run report a change while `git describe --dirty` on the same line said the
+    tree was clean, and both runners read that to decide whether a result
+    counts.
     """
 
     def ask(command: list[str]) -> str:
@@ -131,14 +131,22 @@ def revision() -> str:
 
     described = ask(["git", "describe", "--always", "--dirty"]).strip()
     if not described:
+        return "", 0
+    changed = ask(["git", "status", "--short", "--untracked-files=no"]).splitlines()
+    return described, len(changed)
+
+
+def revision() -> str:
+    """What the driver CD is about to be built from.
+
+    A campaign that ran while its own tree was being committed to measured
+    twelve different snapshots and could name none of them, so every run says
+    this before it boots anything. `dirty` means the result proves nothing
+    about any commit.
+    """
+    described, uncommitted = git_state()
+    if not described:
         return "unknown, not a git checkout"
-    # Tracked changes only: an untracked screenshot sitting in the checkout
-    # made every run say `1 uncommitted files`, which reads as a result that
-    # proves nothing while `git describe --dirty` had already said the tree
-    # was clean.
-    uncommitted = len(
-        ask(["git", "status", "--short", "--untracked-files=no"]).splitlines()
-    )
     return f"{described} ({uncommitted} uncommitted files)" if uncommitted else described
 
 
