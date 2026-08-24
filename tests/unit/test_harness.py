@@ -5775,3 +5775,18 @@ def test_an_untracked_file_does_not_make_a_run_look_dirty(
     assert "uncommitted" not in driver.revision(), driver.revision()
     (tmp_path / "tracked.txt").write_text("two\n")
     assert "1 uncommitted files" in driver.revision(), driver.revision()
+
+
+def test_only_reaches_every_run_of_a_fixture() -> None:
+    """`--only vm-binpkg` reached the openSUSE medium and nothing else: the
+    lookup was a dict keyed by the fixture stem, so of the eight runs carrying
+    that fixture the last one written won. The ordinary run and the
+    `--interrupt` one that exercises `--resume` could not be asked for."""
+    from tests.vm.campaign import named
+
+    chosen = named(["vm-binpkg"])
+    names = [one.name for one in chosen]
+    assert len(names) > 1, names
+    assert "official-minimal-uefi-vm-binpkg" in names, names
+    assert "official-minimal-uefi-vm-binpkg-interrupted" in names, names
+    assert any(one.interrupt for one in chosen), names

@@ -404,11 +404,18 @@ def named(wanted: Sequence[str]) -> list[Run]:
     So that testing four configurations again is this harness with an argument
     rather than a shell loop written for one afternoon and thrown away.
     """
-    by_name = {Path(one.config).stem: one for runs in STAGES.values() for one in runs}
+    # Every `Run` carrying the fixture, not one: a dict keyed by the stem kept
+    # only the last, so `--only vm-binpkg` reached the openSUSE medium and
+    # neither the ordinary run nor the `--interrupt` one that exercises
+    # `--resume` could be asked for at all.
+    by_name: dict[str, list[Run]] = {}
+    for runs in STAGES.values():
+        for one in runs:
+            by_name.setdefault(Path(one.config).stem, []).append(one)
     missing = [one for one in wanted if one not in by_name]
     if missing:
         raise SystemExit(f"no fixture named {', '.join(missing)}; have {', '.join(sorted(by_name))}")
-    return [by_name[one] for one in wanted]
+    return [run for one in wanted for run in by_name[one]]
 
 
 def main(argv: list[str] | None = None) -> int:
