@@ -1,0 +1,85 @@
+[partition]
+  release anything a previous run of this configuration left mounted or open
+  wipe existing signatures from disk
+  create a gpt partition table on disk as table
+  create partition 1 on disk as esp in the gpt table: esp, 512MiB
+  create partition 2 on disk as cryptroot in the gpt table: data, the rest of the disk
+  reread the partition table of disk and wait for its nodes
+
+[format]
+  make a vfat filesystem on esp as espfs labelled ESP
+  make a btrfs filesystem on cryptroot as rootfs
+  create btrfs subvolume @home on cryptroot as sub-home
+  create btrfs subvolume @ on cryptroot as sub-root
+
+[mount]
+  mount cryptroot at / with compress=zstd:1,subvol=@
+  mount esp at /efi with umask=0077
+  mount cryptroot at /home with compress=zstd:1,subvol=@home
+
+[stage3]
+  download the newest systemd stage3 from https://distfiles.gentoo.org directly, verify it against BB572E0E2D182910, unpack it into the target and write /etc/gentoo-install/proxy.toml
+
+[chroot]
+  mount transient proc, sys, dev and run filesystems into the target
+  seed the target's resolv.conf from the install medium
+
+[portage]
+  write /etc/portage/make.conf with MAKEOPTS, INPUT_DEVICES, ACCEPT_LICENSE, L10N, FEATURES; 2 mirrors in the configured order, 5 appended
+  configure Portage, wget, curl, git and gpg for direct connection
+  create /etc/portage/package.use/zz-autounmask, /etc/portage/package.accept_keywords/zz-autounmask, /etc/portage/package.license/zz-autounmask, which emerge writes its decisions into
+  disable inherited binary package host gentoo
+  run getuto so Portage has a keyring to verify binary packages against, and write dirmngr.conf
+  import BB572E0E2D182910 from /usr/share/openpgp-keys/gentoo-release.asc, locally sign it for gentoo, and verify the local signature
+  write /etc/portage/binrepos.conf/gentoo.conf adding verified binary package host gentoo at https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64
+  fetch the first ebuild repository snapshot with emerge-webrsync
+  select profile default/linux/amd64/23.0/systemd
+  install git, which every later repository sync needs: emerge dev-vcs/git
+  write /etc/portage/repos.conf/gentoo.conf pointing gentoo at https://github.com/gentoo-mirror/gentoo.git, commit signatures verified
+  sync repository gentoo
+  set sys-kernel/installkernel to dracut
+  accept the linux-firmware licence
+  resolve app-admin/sudo net-misc/openssh sys-process/cronie sys-kernel/installkernel sys-kernel/dracut sys-kernel/linux-firmware sys-fs/btrfs-progs sys-fs/dosfstools sys-kernel/gentoo-kernel-bin sys-boot/grub sys-boot/efibootmgr together before installing the requested packages
+
+[system]
+  write /etc/locale.gen with locales en_US.UTF-8, zh_TW.UTF-8 and verify them
+  set the system locale to zh_TW.UTF-8 in /etc/locale.conf
+  set the timezone to Asia/Taipei
+  set the console keymap to us and its font to default8x16 in /etc/vconsole.conf
+  set the hostname to homekeybox in /etc/hostname and /etc/hosts
+  give the target its own machine id with systemd-machine-id-setup
+  write /etc/fstab with UUID from cryptroot / btrfs defaults,compress=zstd:1,subvol=@ 0 1, UUID from esp /efi vfat defaults,umask=0077 0 2, UUID from cryptroot /home btrfs defaults,compress=zstd:1,subvol=@home 0 2
+  treat the hardware clock as UTC in /etc/adjtime
+  create user zakk in users, wheel, audio, video, render, usb, input with a password
+  write SHA256:wBQUIpTF0DPsPEUeafUC1YRHr0N0LIdt+LtbxepvlkQ into /home/zakk/.ssh/authorized_keys
+  set the root password
+  install sudo: emerge app-admin/sudo
+  let the wheel group run sudo, with a password, in /etc/sudoers.d/10-wheel
+  install sshd: emerge net-misc/openssh
+  ssh password login: off, root: off, in 50-gentoo-install.conf
+  enable sshd at boot
+  generate the ssh host keys
+  write /etc/systemd/network/20-wired.network for the wired interfaces with DHCP and DNS -
+  enable systemd-networkd at boot
+  enable systemd-resolved at boot
+  install cron: emerge sys-process/cronie
+  enable cronie at boot
+
+[kernel]
+  install the hook that puts a kernel in /boot: emerge sys-kernel/installkernel
+  install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware
+  install the storage tools: emerge sys-fs/btrfs-progs sys-fs/dosfstools
+  install the kernel: emerge sys-kernel/gentoo-kernel-bin
+  write /etc/dracut.conf.d/10-gentoo-install.conf so dracut carries btrfs, and 13 cloud bus drivers whatever it detects
+  rebuild the initramfs from sys-kernel/gentoo-kernel-bin with the modules written above
+  check the installkernel payload names existing kernel files
+
+[bootloader]
+  install the bootloader: emerge sys-boot/grub sys-boot/efibootmgr
+  write /etc/default/grub with cmdline console=ttyS0,115200, its menu on ttyS0
+  install GRUB for uefi on the esp at /efi
+
+[finish]
+  point /etc/resolv.conf at systemd-resolved rather than the install medium's
+  delete the downloaded stage3 from /var/cache/gentoo-install
+  unmount everything under the target
