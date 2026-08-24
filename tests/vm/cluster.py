@@ -1358,6 +1358,7 @@ def rewrite_fixtures(
     ]
     for job, source in wanted:
         config = load(source)
+        keeps_its_site = job.name in KEEPS_ITS_SITE
         # The overlay moves with the region. A `cn` run that still cloned
         # gentoo-zh from github stopped the install after two hundred seconds
         # of `Could not connect to server`, while every other fetch in the same
@@ -1375,8 +1376,12 @@ def rewrite_fixtures(
                 sync=sync,
                 mirrors=replace(
                     config.portage.mirrors,
-                    region=region,
-                    site=config.portage.mirrors.site if job.name in KEEPS_ITS_SITE else site,
+                    # The region moves with the site or not at all: a site key
+                    # is looked up inside its region, and `xtom-hk` under
+                    # `global` resolves to `distfiles.gentoo.org` with nothing
+                    # said. `model/compat.py` refuses that pair now.
+                    region=config.portage.mirrors.region if keeps_its_site else region,
+                    site=config.portage.mirrors.site if keeps_its_site else site,
                     gentoo_zh=chosen,
                     # A replaced list, when one is given: a cache on the
                     # guests' own segment is an address with no name to
@@ -2941,8 +2946,8 @@ def _did_not_stop(name: str, code: bytes, files: Mapping[str, bytes]) -> str:
         )
     return ""
 
-#: Fixtures whose mirror site is the thing under test, so `--site` must not
-#: move it. `vm-binhost-fallback` names `xtom-hk`, whose binary package index
+#: Fixtures whose mirror site is the thing under test, so neither `--site`
+#: nor `--region` may move it: a key is looked up inside its region. `vm-binhost-fallback` names `xtom-hk`, whose binary package index
 #: answers 404, and the run is green only if Portage drops that host and
 #: compiles from source. Rewritten to a working site it installed from a
 #: binhost in 42 minutes and proved nothing.

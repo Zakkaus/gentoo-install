@@ -17,7 +17,7 @@ from typing import Callable, Final, Sequence
 
 from ..i18n import Catalog
 from ..exec import fetch
-from ..model import compat
+from ..model import compat, mirrors
 from ..model.config import (
     BASE_PROFILE,
     SystemConfig,
@@ -2200,6 +2200,17 @@ LANGUAGE_DEFAULTS: Final[dict[str, LanguageDefaults]] = {
 }
 
 
+def _site_kept_in(site: str, region: MirrorRegion) -> str:
+    """The chosen site if the region still offers it, and nothing otherwise.
+
+    Empty takes the region's first, which is what an operator who has not
+    chosen gets; a key the region lacks would take it silently instead.
+    """
+    if site and site in {one.key for one in mirrors.gentoo_sites(region)}:
+        return site
+    return ""
+
+
 def with_language(config: InstallConfig, tag: str) -> InstallConfig:
     """The configuration as the chosen interface language leaves it."""
     chosen = LANGUAGE_DEFAULTS.get(tag)
@@ -2225,7 +2236,14 @@ def with_language(config: InstallConfig, tag: str) -> InstallConfig:
         packages=replace(config.packages, applications=applications),
         portage=replace(
             config.portage,
-            mirrors=replace(config.portage.mirrors, region=chosen.mirror_region),
+            # The site goes with the region, as `_edit_region` already does
+            # it: a key is looked up inside its region, so `tuna` carried into
+            # `global` resolves to `distfiles.gentoo.org` and nothing says so.
+            mirrors=replace(
+                config.portage.mirrors,
+                region=chosen.mirror_region,
+                site=_site_kept_in(config.portage.mirrors.site, chosen.mirror_region),
+            ),
         ),
     )
     if not chosen.cjk_console:
