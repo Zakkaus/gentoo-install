@@ -655,7 +655,7 @@
 "write /etc/portage/make.conf with {}; {} mirrors in the configured order, {} appended" = "{} を含む /etc/portage/make.conf を書き込み、{} 個のミラーを設定順にし、{} 個を追加"
 "write /etc/portage/make.conf with {}; {} mirrors in the configured order" = "{} を含む /etc/portage/make.conf を書き込み、{} 個のミラーを設定順にする"
 "write {}" = "{} を書き込む"
-"create the three autounmask files emerge writes its decisions into" = "emerge が判断を書き込む三つの autounmask ファイルを作成"
+"create {}, which emerge writes its decisions into" = "{} を作成し、emerge の判断をそこに書き込ませる"
 "point repository {} at {}, commit signatures verified" = "リポジトリー {} を {} に向け、コミット署名を検証"
 "point repository {} at {}" = "リポジトリー {} を {} に向ける"
 "configure repository {} to sync with emerge-webrsync" = "リポジトリー {} を emerge-webrsync で同期するよう設定"

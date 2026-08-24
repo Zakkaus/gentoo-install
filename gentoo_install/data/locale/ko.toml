@@ -655,7 +655,7 @@
 "write /etc/portage/make.conf with {}; {} mirrors in the configured order, {} appended" = "{}를 포함한 /etc/portage/make.conf를 작성하고 {}개 미러를 설정순으로 정렬하며 {}개를 추가"
 "write /etc/portage/make.conf with {}; {} mirrors in the configured order" = "{}를 포함한 /etc/portage/make.conf를 작성하고 {}개 미러를 설정순으로 정렬"
 "write {}" = "{} 작성"
-"create the three autounmask files emerge writes its decisions into" = "emerge가 결정을 기록하는 세 개의 autounmask 파일 생성"
+"create {}, which emerge writes its decisions into" = "{} 생성: emerge가 결정을 여기에 작성"
 "point repository {} at {}, commit signatures verified" = "저장소 {}를 {}로 지정하고 커밋 서명 검증"
 "point repository {} at {}" = "저장소 {}를 {}로 지정"
 "configure repository {} to sync with emerge-webrsync" = "저장소 {}가 emerge-webrsync로 동기화되도록 구성"

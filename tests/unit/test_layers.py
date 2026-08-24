@@ -707,6 +707,7 @@ def test_the_dry_run_names_every_file_only_its_owner_may_read() -> None:
     # decision, and the name is what makes it one.
     assert derived_here == {
         "ConfigureConsole",
+        "CreateAutounmaskFiles",
         "ConfigureZram",
         "GenerateLocales",
         "GrantSudo",
