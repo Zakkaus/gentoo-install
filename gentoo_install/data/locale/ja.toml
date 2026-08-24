@@ -651,6 +651,7 @@
 "put the installer, the configuration and {} key(s) in authorized_keys inside the initramfs" = "インストーラー、設定、{} 個の鍵を authorized_keys として initramfs に格納"
 "delete the downloaded archive, now that its two files are out" = "必要な 2 つのファイルを取り出したので、ダウンロードしたアーカイブを削除"
 "write a {} entry for the {} environment" = "{} 用のエントリーを書き込む（{} 環境）"
+"write {}, a {} entry for the {} environment" = "{} を書き込む：{} 用のエントリー、{} 環境"
 "arm one boot into the memory environment with {}" = "{} でメモリー環境への一度きりの起動を設定"
 "replace the default boot entry with the memory environment ({})" = "既定の起動エントリーをメモリー環境に置き換える（{}）"
 "take back the armed boot and delete what it placed" = "設定した起動を取り消し、配置したものを削除"

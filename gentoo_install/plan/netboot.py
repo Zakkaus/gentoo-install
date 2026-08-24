@@ -913,8 +913,27 @@ class WriteMemoryEntry(Operation):
         """
         return self.access or bool(self.launch.ssh_key) or bool(self.launch.root_password)
 
+    def destinations(self) -> tuple[PurePosixPath, ...]:
+        # Only the systemd-boot entry: the GRUB branch delegates to
+        # `_write_custom`, and a file another path writes is named by that one.
+        if self.target.method is not BootMethod.SYSTEMD_BOOT:
+            return ()
+        return (
+            PurePosixPath(str(self.target.esp_mountpoint))
+            / "loader"
+            / "entries"
+            / f"{PLACE}.conf",
+        )
+
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
-        return "write a {} entry for the {} environment", (
+        written = self.destinations()
+        if not written:
+            return "write a {} entry for the {} environment", (
+                self.target.method.value,
+                self.mode.value,
+            )
+        return "write {}, a {} entry for the {} environment", (
+            str(written[0]),
             self.target.method.value,
             self.mode.value,
         )
@@ -929,13 +948,8 @@ class WriteMemoryEntry(Operation):
                 f"initrd  /{PLACE}/initramfs\n"
                 f"options {cmdline}\n"
             )
-            context.write(
-                PurePosixPath(str(self.target.esp_mountpoint))
-                / "loader"
-                / "entries"
-                / f"{PLACE}.conf",
-                entry,
-            )
+            (path,) = self.destinations()
+            context.write(path, entry)
             return
         # Both GRUBs read their own `custom.cfg`, and a UEFI one is reached
         # by `--bootnext` into GRUB rather than into the entry directly.

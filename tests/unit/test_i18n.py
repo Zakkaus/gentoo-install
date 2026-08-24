@@ -547,6 +547,7 @@ REVIEWED_TEMPLATES: frozenset[str] = frozenset(
         "check this machine has the {} MiB {} needs",
         "unpack the {} kernel and initramfs into {}",
         "write a {} entry for the {} environment",
+        "write {}, a {} entry for the {} environment",
         "set the system locale to {} in {}",
         "start a login on {} at {} baud",
         "stream the {} image {} onto {}",
