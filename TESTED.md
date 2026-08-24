@@ -308,6 +308,8 @@ after that can name one.
 
 | `7f55e45a53102` | `static-ip`, `vm-binpkg`, `vm-lvm`, `vm-mdraid` and `vm-f2fs` on the cluster, five of six | each installed, booted and passed its post-boot checks. `static-ip` is the record that the static address path works where the interface it pins exists: the same fixture cannot pass on a local guest, which presents `enp0s2` against the `ens18` it names. The sixth, `vm-binhost-fallback`, failed and is described above: its host served packages, so it measured nothing it exists to measure. |
 
+| `8d4d7d730ad6c` and the four revisions before it | eleven local guests driven through `tests/vm/campaign.py` rather than `run.py`: `vm-proxy-dead`, `mbr-edit`, `vm-greetd`, `vm-bios-luks`, `vm-openrc-desktop`, `vm-gnome`, `vm-lvm`, `vm-mdraid`, `vm-bios`, `vm-f2fs`, `ext3` | all eleven passed. `vm-proxy-dead` passes by failing and is the first run of the expectation table added in `#996` against a real guest rather than a constructed `Outcome`. `ext3` ran alone and took 11.0m, which is what separates its two cluster stalls from the fixture. **What the three desktop rows do not establish:** that a session draws. The checks read the packages, the service state and the configuration; the harness has no display, so nothing in these runs saw a screen. |
+
 **Rows recorded before `5a9b9f220e651` and saying `mounted its layout` overstate
 one of their checks.**
 `tests/vm/installed.py`'s `mounts` check expects the pattern `/` and is matched
@@ -412,7 +414,10 @@ with the screen behind it refusing to open, so the install could never start.
 
 ## Not covered by any record
 
-greetd desktop sessions and ibus outside GNOME. Binary-host failure
+A desktop session that actually draws, and ibus outside GNOME. `vm-greetd`,
+`vm-gnome` and `vm-openrc-desktop` all install and boot, so the packages, the
+service state and the configuration are covered; the harness has no display
+and no run has ever seen a screen. Binary-host failure
 fallback left this list on `e16f57a39199d`: `vm-binhost-fallback` installed
 against a host whose index answered 404, recorded the degradation and finished
 from source. **It is back on this list as of `7f55e45a53102`**: the same host
