@@ -55,7 +55,7 @@
   resolve app-admin/sudo net-misc/openssh sys-process/cronie sys-kernel/installkernel sys-kernel/dracut sys-kernel/linux-firmware sys-kernel/dracut-crypt-ssh sys-apps/iproute2 net-misc/dhcp net-misc/iputils sys-fs/dosfstools sys-kernel/gentoo-cjk-kernel-bin sys-fs/zfs sys-boot/zfsbootmenu sys-boot/efibootmgr sys-apps/systemd sys-apps/kbd app-editors/vim together before installing the requested packages
 
 [system]
-  generate and verify locales en_US.UTF-8, zh_TW.UTF-8
+  write /etc/locale.gen with locales en_US.UTF-8, zh_TW.UTF-8 and verify them
   set the system locale to zh_TW.UTF-8 in /etc/locale.conf
   set the timezone to Asia/Taipei
   set the console keymap to us and its font to default8x16 in /etc/vconsole.conf
@@ -67,7 +67,7 @@
   write SHA256:wBQUIpTF0DPsPEUeafUC1YRHr0N0LIdt+LtbxepvlkQ into /root/.ssh/authorized_keys and /home/zakk/.ssh/authorized_keys
   set the root password
   install sudo: emerge app-admin/sudo
-  let the wheel group run sudo, with a password
+  let the wheel group run sudo, with a password, in /etc/sudoers.d/10-wheel
   install sshd: emerge net-misc/openssh
   ssh password login: off, root: off, in 50-gentoo-install.conf
   enable sshd at boot

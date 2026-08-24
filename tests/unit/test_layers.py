@@ -708,12 +708,15 @@ def test_the_dry_run_names_every_file_only_its_owner_may_read() -> None:
     assert derived_here == {
         "ConfigureConsole",
         "ConfigureZram",
+        "GenerateLocales",
+        "GrantSudo",
         "SelectLocale",
         "SetHardwareClock",
         "SetHostname",
         "WriteAuthorizedKeys",
         "WriteMachineId",
         "WriteNetworkConfig",
+        "WriteProxyEnvironment",
     }, sorted(derived_here)
 
 

@@ -58,7 +58,7 @@
   resolve app-admin/sudo net-misc/openssh sys-process/cronie sys-kernel/installkernel sys-apps/systemd sys-kernel/dracut sys-kernel/linux-firmware sys-fs/cryptsetup sys-fs/btrfs-progs sys-fs/dosfstools sys-kernel/gentoo-cjk-kernel-bin sys-boot/grub sys-boot/efibootmgr kde-plasma/plasma-meta x11-base/xorg-server kde-apps/konsole kde-apps/dolphin app-i18n/fcitx app-i18n/fcitx-gtk app-i18n/fcitx-qt app-i18n/fcitx-configtool app-i18n/fcitx-rime app-i18n/rime-data media-fonts/noto-cjk media-fonts/noto media-libs/fontconfig net-proxy/flclash-bin together before installing the requested packages
 
 [system]
-  generate and verify locales en_US.UTF-8, zh_TW.UTF-8
+  write /etc/locale.gen with locales en_US.UTF-8, zh_TW.UTF-8 and verify them
   set the system locale to zh_TW.UTF-8 in /etc/locale.conf
   set the timezone to Asia/Taipei
   set the console keymap to us and its font to default8x16 in /etc/vconsole.conf
@@ -70,7 +70,7 @@
   create user zakk in users, wheel, audio, video, render, usb, input with no password
   set the root password
   install sudo: emerge app-admin/sudo
-  let the wheel group run sudo, with a password
+  let the wheel group run sudo, with a password, in /etc/sudoers.d/10-wheel
   install sshd: emerge net-misc/openssh
   ssh password login: off, root: off, in 50-gentoo-install.conf
   enable sshd at boot

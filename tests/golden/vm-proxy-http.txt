@@ -42,8 +42,8 @@
   resolve sys-process/cronie sys-kernel/installkernel sys-kernel/dracut sys-kernel/linux-firmware sys-fs/btrfs-progs sys-fs/dosfstools sys-kernel/gentoo-kernel-bin sys-boot/grub sys-boot/efibootmgr together before installing the requested packages
 
 [system]
-  keep proxy environment for http://10.0.2.2:3129 in the installed system
-  generate and verify locales en_US.UTF-8, zh_TW.UTF-8
+  keep proxy environment for http://10.0.2.2:3129 in /etc/environment and /etc/profile.d/gentoo-install-proxy.sh
+  write /etc/locale.gen with locales en_US.UTF-8, zh_TW.UTF-8 and verify them
   set the system locale to zh_TW.UTF-8 in /etc/locale.conf
   set the timezone to Asia/Taipei
   set the console keymap to us and its font to default8x16 in /etc/vconsole.conf
