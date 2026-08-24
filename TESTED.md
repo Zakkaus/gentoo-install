@@ -314,6 +314,8 @@ after that can name one.
 
 | `8d4d7d730ad6c` | `vm-zfs-encrypted`, `vm-zfs-mirror`, `vm-raidz`, `vm-desktop` and `vm-source-kernel` on the cluster, five of six | all five installed and booted. `vm-source-kernel` took 322.6m, which is the record for a kernel built from source. `ext3` ended the same way as the round before, on a different node — two nodes, one stopping point, and the same fixture installs and boots in 11.0m on a local guest. **What this does not establish:** why. The pair of cluster failures is recorded in `docs/tasks.md` row 402 with the counters. |
 
+| `332c852cfcb64` | `zfs-zbm` on a local UEFI guest, the run behind the `canmount` fix | installed, booted, and `/home/zakk/.ssh/authorized_keys` is there with `600` on the file, `700` on `.ssh` and `755` on the home directory. `zfs list` reports `zpcala/ROOT/gentoo/home` at 256K against 192K on the run before, which is the same dataset holding the files rather than being covered while they went to the root dataset. **What this does not establish:** `zbm-unlock`, whose guest was killed by `earlyoom` in the same round and which also carries the remote-unlock path. |
+
 **Rows recorded before `5a9b9f220e651` and saying `mounted its layout` overstate
 one of their checks.**
 `tests/vm/installed.py`'s `mounts` check expects the pattern `/` and is matched
