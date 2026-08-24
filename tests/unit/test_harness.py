@@ -5679,3 +5679,19 @@ def test_the_installed_checks_read_the_config_the_run_installed(tmp_path: Path) 
     assert bound, "the boot branch no longer binds `expected`"
     for value in bound:
         assert value.startswith("installed_config("), value
+
+
+def test_a_second_campaign_does_not_write_over_the_first_ones_logs() -> None:
+    """The run that found the missing `authorized_keys` on 2026-08-24 had its
+    install log replaced by the run sent to confirm it, because both wrote
+    `<fixture>.log`. `cluster.py` learned this already and puts the vmid and
+    the driver hash in its own names."""
+    from tests.vm.campaign import _log_for, Run
+    from tests.vm.driver import revision
+
+    named = _log_for(Run("fixtures/vm-luks.toml")).name
+    marker = revision().split()[0]
+    assert marker in named, (named, marker)
+    # `-dirty` survives: a name that drops it reads like a commit.
+    if "dirty" in marker:
+        assert "dirty" in named, named
