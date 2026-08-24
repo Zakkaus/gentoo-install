@@ -61,7 +61,10 @@ def test_remote_unlock_replaces_fixture_values_without_mutating_fixture() -> Non
         ("vm-unlock.toml", "unlock", None),
         (
             "zbm-unlock.toml",
-            "zfs load-key -a",
+            # The pools first: `zfs load-key -a` succeeds with nothing to do
+            # when the pool is not imported, so the proof was the first thing
+            # to notice and said only `dataset does not exist`.
+            "echo pools=$(zpool list -H -o name | tr '\\n' ',') && zfs load-key -a",
             "zfs get -H -o value keystatus zpcala/ROOT/gentoo/root",
         ),
     ],
