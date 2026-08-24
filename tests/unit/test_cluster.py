@@ -16,7 +16,7 @@ from typing import Any, cast
 import pytest
 
 from gentoo_install.model.config import MirrorRegion, Sync
-from tests.vm import cluster
+from tests.vm import cluster, driver
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 from tests.vm.console import ConsoleTimeout, SerialConsole, command_done
@@ -1019,6 +1019,7 @@ def test_a_node_that_refuses_a_guest_does_not_end_the_campaign() -> None:
     that were installing."""
     import ast
     import inspect
+    from types import ModuleType
     import textwrap
 
     from tests.vm import proxmox
@@ -4075,3 +4076,35 @@ def test_a_transient_failure_while_tidying_does_not_end_the_campaign(
 
     # The point is that this returns rather than raising.
     place_driver(cast(Any, api), "infra-node2", trust, driver, "driver.iso")
+
+
+def test_both_runners_read_one_git_state() -> None:
+    """`driver.revision()` and `cluster.revision_identity()` each ran their own
+    `git status`, and fixing the untracked-file count in one left the other
+    reporting `dirty=1` for a screenshot."""
+    import ast
+    import inspect
+    from types import ModuleType
+
+    def asks_git_status(module: ModuleType) -> int:
+        """`git status` argv lists, not every `"status"` in the file: the
+        orphan report reads a `status` key out of the API's answer, and a
+        check that counted that would fail for a reason it does not mean."""
+        tree = ast.parse(inspect.getsource(module))
+        found = 0
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.List, ast.Tuple)):
+                continue
+            words = [
+                one.value
+                for one in node.elts
+                if isinstance(one, ast.Constant) and isinstance(one.value, str)
+            ]
+            if words[:2] == ["git", "status"]:
+                found += 1
+        return found
+
+    # One derivation, in the module that owns it.
+    assert asks_git_status(driver) == 1, "driver.py no longer asks git once"
+    assert asks_git_status(cluster) == 0, "cluster.py asks git for itself again"
+    assert "git_state" in inspect.getsource(cluster.revision_identity)
