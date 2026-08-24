@@ -278,6 +278,28 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
                     line_boundary_exception="requires every fingerprint and both modes",
                 )
             )
+    datasets = tuple(installation.disk.graph.of_type(ZfsDataset))
+    if datasets:
+        # Every dataset the configuration declares, read off the machine with
+        # the mountpoint it declared. A pool whose child dataset is absent, or
+        # mounted somewhere else, produces a system that boots and quietly
+        # holds none of what was written into that dataset.
+        pools = {
+            one.id: one.name for one in installation.disk.graph.of_type(ZfsPool)
+        }
+        declared = [
+            rf"^{re.escape(f'{pools[one.pool]}/{one.name}')}\s"
+            for one in datasets
+            if one.pool in pools
+        ]
+        result.append(
+            InstalledCheck(
+                "datasets",
+                "zfs list -H -o name,used,mountpoint",
+                "(?ms)" + "".join(f"(?=.*{one})" for one in declared),
+                line_boundary_exception="requires one line per configured dataset",
+            )
+        )
     if installation.system.zram is not None:
         # The device the machine brought up, not the file the installer wrote:
         # `zram-generator` and `zram-init` each read a configuration that can

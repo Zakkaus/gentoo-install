@@ -589,6 +589,7 @@ def test_every_installed_check_is_line_bounded_or_names_why_it_is_not() -> None:
         ("greetd config", "requires constraints across greetd config lines"),
         ("inputmethod", "requires the binary and every environment line"),
         ("authorized keys root", "requires every fingerprint and both modes"),
+        ("datasets", "requires one line per configured dataset"),
         ("authorized keys zakk", "requires every fingerprint and both modes"),
     }
     for installation in configurations:
@@ -5698,3 +5699,31 @@ def test_a_second_campaign_does_not_write_over_the_first_ones_logs() -> None:
     # `-dirty` survives: a name that drops it reads like a commit.
     if "dirty" in marker:
         assert "dirty" in named, named
+
+
+def test_the_dataset_check_names_every_dataset_the_configuration_declares() -> None:
+    """A pool whose child dataset is absent, or mounted somewhere else, gives
+    a machine that boots and holds none of what was written into that dataset.
+    `zfs-zbm` lost `/home/zakk` entirely and nothing in the checks read the
+    dataset list back."""
+    import re
+
+    from gentoo_install.exec.config import load
+    from tests.vm.installed import checks
+
+    installation = load(Path("tests/fixtures/zfs-zbm.toml"))
+    found = [one for one in checks(installation) if one.name == "datasets"]
+    assert found, [one.name for one in checks(installation)]
+    check = found[0]
+
+    listed = (
+        "zpcala/ROOT\t96K\tnone\n"
+        "zpcala/ROOT/gentoo\t2.1G\tnone\n"
+        "zpcala/ROOT/gentoo/root\t2.1G\t/\n"
+        "zpcala/ROOT/gentoo/home\t96K\t/home\n"
+    )
+    assert re.search(check.pattern, listed), check.pattern
+    without = listed.replace("zpcala/ROOT/gentoo/home\t96K\t/home\n", "")
+    assert not re.search(check.pattern, without), check.pattern
+    # And not satisfied by the question: the command names no dataset.
+    assert not re.search(check.pattern, check.command), check.command
