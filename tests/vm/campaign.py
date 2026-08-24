@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Final, Sequence
 
+from .driver import revision
 from .expectations import EXPECTATIONS, Expectation
 from .media import MISSING_PRECONDITION
 
@@ -270,7 +271,12 @@ class Outcome:
 
 
 def _log_for(run: Run) -> Path:
-    return LOGS / f"{run.name}.log"
+    # The revision in the name, because a second campaign otherwise writes over
+    # the log of the first: the run that found the missing `authorized_keys` on
+    # 2026-08-24 had its evidence replaced by the run sent to confirm it.
+    # The whole first word, `-dirty` included: a truncated one turns a run
+    # that proves nothing into a name that reads like a commit.
+    return LOGS / f"{run.name}-{revision().split()[0]}.log"
 
 
 def _failed_outcome(run: Run, started: float, error: Exception) -> Outcome:
