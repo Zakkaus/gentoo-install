@@ -4175,3 +4175,29 @@ def test_the_encrypted_boot_verdict_says_how_long_and_what_was_on_the_screen(
     assert f"{cluster.BOOT_PATIENCE:.0f}s" in result.refused, result.refused
     # And not the pattern, which is what the truncation used to keep.
     assert "Please enter passphrase" not in result.refused, result.refused
+
+
+def test_a_zfs_root_is_a_heavy_guest_whatever_its_kernel_says() -> None:
+    """`vm-zfs-encrypted` stalled twice mid-compile on the two cores a light
+    guest is given, and its own `install.jsonl` says why: nineteen packages
+    compiled, among them `sys-fs/zfs`, `sys-boot/zfsbootmenu`, its `fzf`,
+    `kexec-tools` and `mbuffer`, and `sys-apps/systemd`. A binary kernel does
+    not spare a ZFS layout, because the module is built against whatever
+    kernel was installed.
+
+    The three assertions before the verdict are the point: every other test
+    for a heavy guest says these are light, so a fixture that later gains a
+    desktop stops covering this case and says so.
+    """
+    from gentoo_install.exec.config import load
+
+    for name in ("vm-zfs", "vm-zfs-encrypted", "vm-zfs-mirror", "vm-raidz"):
+        config = load(FIXTURES / f"{name}.toml")
+        assert config.kernel.source.value.endswith("-bin"), name
+        assert not config.packages.desktop, name
+        assert config.portage.binhost.official, name
+        assert cluster._compiles(config), name
+
+    # And not everything: a plain binary-package install stays light, or the
+    # rule buys nothing and the cluster runs one guest at a time.
+    assert not cluster._compiles(load(FIXTURES / "vm-xfs.toml"))

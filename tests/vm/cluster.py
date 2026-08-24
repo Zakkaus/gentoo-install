@@ -4488,8 +4488,17 @@ def _sweep_jobs(scheduled: Mapping[str, Job]) -> None:
 
 def _compiles(config: InstallConfig) -> bool:
     """Whether this configuration spends an hour in `emerge` rather than six
-    minutes: a kernel built from source, a desktop, or no binary host at all.
+    minutes: a kernel built from source, a desktop, no binary host at all, or
+    a ZFS root.
+
+    A binary kernel does not spare a ZFS layout: `sys-fs/zfs` builds a module
+    against whatever kernel was installed and no binary host carries one,
+    and ZFSBootMenu is in `gentoo-zh` alone. `vm-zfs-encrypted` reads as
+    light by every other test here and compiled nineteen packages, systemd
+    among them, on the two cores a light guest is given.
     """
+    if config.disk.graph.of_type(ZfsPool):
+        return True
     if config.kernel.source.value.endswith("-bin"):
         return bool(config.packages.desktop) or not config.portage.binhost.official
     return True
