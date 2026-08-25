@@ -4234,3 +4234,36 @@ def test_a_watchdog_verdict_tells_an_unanswered_state_from_a_running_one(
     # And a guest that is genuinely running says nothing extra: a clause on
     # every verdict is a clause nobody reads.
     assert "qemu calls the guest" not in verdict("running")
+
+
+def test_the_cluster_limit_counts_weight_rather_than_guests() -> None:
+    """Four guests at `--limit 4` meant four compiling ones, and `vm-raidz`
+    and `vm-cjk-kernel` both stalled mid-`emerge` with their nodes at 0%. The
+    same two finished at a limit of two: 64.5m and 20.0m. Memory and cores are
+    reserved per node already; this is the whole-cluster ceiling those cannot
+    express, and `campaign.py` has charged its own machine this way all along.
+    """
+    from tests.vm.campaign import COMPILING_WEIGHT as LOCAL_WEIGHT
+    from tests.vm.cluster import COMPILING_WEIGHT, fixtures
+
+    heavy, light = fixtures(["vm-raidz", "vm-binpkg"])
+    assert heavy.heavy and not light.heavy, (heavy.name, light.name)
+    assert (heavy.weight, light.weight) == (COMPILING_WEIGHT, 1)
+    # One number, both runners: a second table is how the two came to
+    # disagree about nine fixtures in the first place.
+    assert COMPILING_WEIGHT == LOCAL_WEIGHT
+
+    # And the schedule really spends it that way, read off the same
+    # arithmetic the dispatch loop uses.
+    from tests.vm.cluster import slots_within
+    from tests.vm.proxmox import Node
+
+    free = [Node(name=f"infra-node{n}", free_bytes=0, cores=4, free_cores=4.0) for n in range(6)]
+    assert len(slots_within(4, list(free), [])) == 4
+    # One compiling guest already out there leaves two, not three: counting
+    # guests is what put four of them on at once.
+    assert len(slots_within(4, list(free), [heavy])) == 2
+    assert len(slots_within(4, list(free), [light])) == 3
+    assert slots_within(4, list(free), [heavy, heavy]) == []
+    # Zero is "ask the cluster what fits", not "nothing fits".
+    assert len(slots_within(0, list(free), [heavy, heavy])) == len(free)
