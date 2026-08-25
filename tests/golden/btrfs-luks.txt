@@ -105,6 +105,7 @@
   install the flclash group: emerge net-proxy/flclash-bin
   set XMODIFIERS, QT_IM_MODULES in /etc/environment for fcitx
   configure fcitx with rime and luna_pinyin pinyin_simp for skel, zakk, writing .config/fcitx5/profile, .config/gtk-3.0/settings.ini, .config/gtk-4.0/settings.ini, .local/share/fcitx5/rime/default.custom.yaml under each
+  verify app-i18n/rime-data installed luna_pinyin, pinyin_simp
   verify app-i18n/fcitx installed /usr/share/applications/fcitx5-wayland-launcher.desktop
   set /etc/xdg/kwinrc so the Wayland session starts /usr/share/applications/fcitx5-wayland-launcher.desktop
   enable /etc/fonts/conf.d/70-noto-cjk.conf

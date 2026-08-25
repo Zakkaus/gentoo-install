@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import stat
 import re
 
 from pathlib import Path, PurePosixPath
@@ -83,6 +84,20 @@ def installed_package_paths(target: Path, package: str) -> frozenset[PurePosixPa
         except (OSError, TargetEscape) as error:
             raise CommandFailed(f"cannot read {contents_path} for {package}") from error
     return frozenset(paths)
+
+
+def target_is_file(target: Path, path: PurePosixPath) -> bool:
+    """Whether an absolute target path is an existing regular file."""
+    try:
+        handle = open_in_target(target, path, os.O_RDONLY)
+    except (FileNotFoundError, NotADirectoryError, IsADirectoryError):
+        return False
+    except (OSError, TargetEscape) as error:
+        raise CommandFailed(f"cannot inspect target file {path}") from error
+    try:
+        return stat.S_ISREG(os.fstat(handle).st_mode)
+    finally:
+        os.close(handle)
 
 
 def target_is_directory(target: Path, path: PurePosixPath) -> bool:
