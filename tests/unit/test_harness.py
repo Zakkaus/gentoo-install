@@ -7,6 +7,7 @@ process it drove, so nothing else in the run can notice a failure for it.
 
 from __future__ import annotations
 
+import ast
 import re
 from collections.abc import Sequence
 from io import BytesIO
@@ -19,6 +20,7 @@ if TYPE_CHECKING:
 
 import pytest
 
+from tests.vm.console import passphrase_settle
 from tests.vm.run import verdict
 
 
@@ -6134,33 +6136,63 @@ def test_no_run_path_spells_out_the_login_sequence_itself() -> None:
     assert re.search(r"console\.(login|answer_login)\(", source), source[:0]
 
 
-def test_a_boot_passphrase_is_answered_after_the_prompt_has_settled(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """`vm-zfs-encrypted` failed locally three times running with its answer
-    echoed on its own line and never taken, and passed on the cluster, where a
-    websocket adds a delay a unix socket does not. Answering three seconds
-    later made the same fixture install and boot. The prompt is printed before
-    its reader is ready, so the wait is the fix and repeating was not: six
-    sends made the line read `install-diskinstall-disk…`."""
-    import time
+#: Every function that waits for a boot passphrase prompt and answers it. The
+#: set is named rather than counted so that a loop removed shows up as
+#: loudly as a loop added: a check over whatever it happens to find passes on
+#: a file with nothing in it.
+PASSPHRASE_LOOPS: Final[frozenset[tuple[str, str]]] = frozenset(
+    {
+        ("tests/vm/run.py", "unlock_and_login"),
+        ("tests/vm/cluster.py", "reach_the_login_past_any_passphrase"),
+        ("tests/vm/cluster.py", "_unlock"),
+    }
+)
 
-    from tests.vm import run as runner
-    from tests.vm.console import PROMPT_SETTLE
 
-    waited: list[float] = []
-    monkeypatch.setattr(time, "sleep", lambda seconds: waited.append(seconds))
+def _answers_a_passphrase(function: ast.FunctionDef) -> bool:
+    """Whether this function waits for a passphrase prompt and answers it."""
+    names = {
+        node.id for node in ast.walk(function) if isinstance(node, ast.Name)
+    }
+    return "PASSPHRASE_PROMPT" in names and "DISK_PASSPHRASE" in names
 
-    source = Path("tests/vm/run.py").read_text()
-    # The wait is before the send, not after it: after is a wait for nothing.
-    passphrase = source.index("console.send(DISK_PASSPHRASE)")
-    settle = source.rindex("time.sleep(PROMPT_SETTLE)", 0, passphrase)
-    assert "\n" in source[settle:passphrase], source[settle:passphrase]
-    assert source.count("time.sleep(PROMPT_SETTLE)") == 1, source.count(
-        "time.sleep(PROMPT_SETTLE)"
-    )
-    assert PROMPT_SETTLE > 0, PROMPT_SETTLE
-    # The name, not a re-export: `run.py` imports it from `console.py`, and
-    # asserting on the attribute makes mypy read it as a module export.
-    assert "PROMPT_SETTLE" in source, source[:0]
-    assert runner.unlock_and_login is not None
+
+def test_every_passphrase_loop_reads_the_one_settle_rule() -> None:
+    """Three loops on three transports, and the measurement reached one.
+
+    `PROMPT_SETTLE` was measured because `vm-zfs-encrypted` failed locally
+    three times running with its answer echoed on its own line and never
+    taken. The fix went into `run.py`. The cluster's
+    `reach_the_login_past_any_passphrase` still answered the moment it read
+    the prompt, and `_unlock` still started its settle from zero, so the
+    fixture that showed the defect was measured on a path the fix never
+    reached.
+    """
+    found: set[tuple[str, str]] = set()
+    for path in sorted({one for one, _ in PASSPHRASE_LOOPS}):
+        tree = ast.parse(Path(path).read_text())
+        for function in ast.walk(tree):
+            if not isinstance(function, ast.FunctionDef):
+                continue
+            if not _answers_a_passphrase(function):
+                continue
+            found.add((path, function.name))
+            called = {
+                node.func.id
+                for node in ast.walk(function)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            }
+            assert "passphrase_settle" in called, (
+                f"{path}:{function.name} answers a passphrase prompt without "
+                "reading the settle rule"
+            )
+    assert found == PASSPHRASE_LOOPS, found ^ PASSPHRASE_LOOPS
+
+
+def test_the_settle_grows_with_every_unanswered_prompt() -> None:
+    """A fixed wait is a guess about a machine whose load is not ours to
+    choose: the three seconds were measured on an idle one, and a prompt
+    answered without effect is evidence that this machine needs longer."""
+    assert passphrase_settle(0) > 0, passphrase_settle(0)
+    assert passphrase_settle(1) > passphrase_settle(0), passphrase_settle(1)
+    assert passphrase_settle(4) > passphrase_settle(3), passphrase_settle(4)
