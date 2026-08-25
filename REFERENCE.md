@@ -115,11 +115,40 @@ The paths below are implemented and have automated unit or plan coverage unless 
 | --- | --- | --- |
 | `Existing` | `selector`, `wipe` | Selects a pre-existing device. |
 | `PartitionTable` | `disk`, `table`, `create`, `remove` | Creates or edits a partition table. |
-| `Partition` | `table`, `index`, `role`, `size`, `label` | Defines a partition; final `size` may consume remaining space. |
+| `Partition` | `table`, `index`, `role`, `size`, `label`, `min`, `max` | Defines a partition. `size` is an absolute size, a share such as `"40%"`, or `"rest"`; see the sizes below. |
 | `Luks` | `backing`, `name`, `passphrase_file` | Defines a LUKS container. |
 | `MdRaid` | `members`, `level`, `name`, `metadata` | Defines an mdraid array. |
 | `VolumeGroup` | `members`, `name` | Defines an LVM volume group. |
 | `LogicalVolume` | `group`, `name`, `size` | Defines an LVM logical volume. |
+
+### Partition sizes
+
+`size` takes three forms, and `min` and `max` bound the two that are derived.
+
+| `size` | Meaning |
+| --- | --- |
+| `"20G"` | Exactly that much. `min` and `max` are refused beside it. |
+| `"40%"` | That share of what the table has left after every absolute size on it. |
+| `"rest"` | Whatever the others leave. Only the last partition may ask for it; an omitted `size` means the same and is still accepted. |
+
+A share is of what the fixed sizes leave, so an ESP of `512MiB`, a swap of
+`8G`, a root of `40%` and a home of `60%` describe a disk that fits. `min` and
+`max` are what let one file install a fleet of unlike disks: four tenths of a
+240 GB disk is 96 GB and four tenths of an 8 TB disk is 3.2 TB, and neither is
+what the operator meant on the other machine.
+
+[`tests/fixtures/vm-shares.toml`](tests/fixtures/vm-shares.toml) is a complete
+layout written this way: a fixed ESP, a root at `40%` bounded either side, and
+a home taking the rest. Its disk selector and credentials are for a virtual
+machine and must not be installed unchanged on a real one.
+
+A share below its `min` is refused rather than raised to it: the space would
+come from another partition, and a layout that stops adding up without anybody
+being told is what the bounds exist to prevent. Shares are resolved from the
+disk's own capacity before the plan is built, so `--dry-run` prints the bytes
+the install will write; a machine that does not report the disk's size says so
+rather than printing a number the install would not use.
+
 | `ZfsPool` | `vdevs`, `name`, `topology`, `encrypted`, `passphrase_file` | Defines a ZFS pool. |
 | `ZfsDataset` | `pool`, `name` | Defines a ZFS dataset. |
 | `Filesystem` | `device`, `kind`, `label`, `create` | Formats a device, or verifies it when `create = false`. |
