@@ -80,9 +80,14 @@ recorded.
 
 ### Records from QEMU on one machine
 
-These cover what the cluster cannot drive. A BIOS guest there writes nothing to
-its serial port before the kernel starts, and neither a screenshot endpoint nor
-a way to pass firmware arguments is available to a non-root API token.
+These cover what the cluster could not drive when each row was written. That
+is no longer the whole BIOS story: on 2026-08-25 `vm-bios` (22.5m), `mbr-edit`
+(29.2m), `vm-bios-luks` (29.6m) and `ext4-bios` (40.4m) all installed and
+booted on the cluster at `122d1cf603a85` and `ed67574b26765`. What a BIOS guest
+there still cannot show is its firmware and bootloader screens — nothing
+reaches the serial port before the kernel starts, and a non-root API token has
+neither a screenshot endpoint nor a way to pass firmware arguments — so a
+failure before the kernel is diagnosable only on this machine.
 
 | Revision | Fixtures | Why not the cluster |
 |---|---|---|
