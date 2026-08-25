@@ -6126,3 +6126,53 @@ def test_an_image_run_hands_its_verdict_a_configuration_not_a_path() -> None:
         # other call site passes a name already bound from it.
         if "REPOSITORY" in written:
             assert "installed_config(" in written, written
+
+
+def test_a_name_prompt_that_comes_back_is_answered_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`vm-zfs-encrypted` failed on an install that had finished: its console
+    held two `cryptzfs login:` banners two seconds apart and no `Password:`.
+    The name prompt turns the echo off with `TCSAFLUSH`, so a name typed into
+    that window is discarded and agetty prints a fresh one. `cluster.py` has
+    handled this since `ext3` lost 33.6 minutes to it; the local console did
+    the sequence once and gave up."""
+    import time
+
+    from tests.vm.console import SerialConsole
+
+    clock = [0.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+
+    class Agetty:
+        """A login that swallows the first name and reprints its prompt."""
+
+        def __init__(self) -> None:
+            self.names = 0
+            self.queue = [b"\r\nlab login: "]
+
+        def recv(self, size: int) -> bytes:
+            clock[0] += 1.0
+            return self.queue.pop(0) if self.queue else b""
+
+        def sendall(self, data: bytes) -> None:
+            typed = data.decode().strip()
+            if typed == "root":
+                self.names += 1
+                # The first name lands in the flush window and is lost.
+                self.queue.append(
+                    b"\r\nlab login: " if self.names == 1 else b"\r\nPassword: "
+                )
+                return
+            self.queue.append(b"\r\n# ")
+
+        def close(self) -> None:
+            return None
+
+        @property
+        def closed(self) -> bool:
+            return False
+
+    guest = Agetty()
+    SerialConsole(cast(Any, guest), BytesIO()).login("root", "install", r"# ")
+    assert guest.names == 2, guest.names

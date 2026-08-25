@@ -130,6 +130,12 @@ PASSPHRASE_ATTEMPTS: Final[int] = 5
 #: arrives without the guest doing anything.
 ECHO_PATIENCE: Final[float] = 5.0
 
+#: How long a name prompt has to answer with a password prompt. Short,
+#: because `login` prints one at once when it read the name at all: the
+#: whole minute was spent waiting for a prompt agetty had already
+#: replaced with a second `login:`.
+NAME_PATIENCE: Final[float] = 20.0
+
 
 def discarded_by_the_prompt(console: "SerialConsole", answer: str) -> bool:
     """Whether `answer` came back on the console after being typed at a prompt.
@@ -354,10 +360,31 @@ class SerialConsole:
         return plain(said.split(command_done(token).encode())[0])
 
     def login(self, user: str, password: str | None, prompt: str) -> None:
+        """Log in, answering a name prompt that comes back.
+
+        The name prompt turns the echo off with `TCSAFLUSH`, which discards
+        whatever was typed before it: a name sent into that window never
+        reaches `login`, agetty prints a fresh `login:` and no `Password:`
+        ever arrives. `vm-zfs-encrypted` failed on an install that had
+        finished, with two `cryptzfs login:` banners two seconds apart on its
+        console and a machine that was otherwise fine. `cluster.py` has
+        carried the same handling since `ext3` lost 33.6 minutes to it.
+        """
         self.expect(r"login:", timeout=300.0)
-        self.send(user)
+        for attempt in range(PASSPHRASE_ATTEMPTS):
+            self.send(user)
+            if password is None:
+                break
+            try:
+                self.expect(PASSWORD_PROMPT, timeout=NAME_PATIENCE)
+                break
+            except ConsoleTimeout:
+                if attempt + 1 == PASSPHRASE_ATTEMPTS:
+                    raise
+                # The fresh prompt agetty printed, which is already in the
+                # buffer: waiting for a new one would wait for a third.
+                self.expect(r"login:", timeout=NAME_PATIENCE)
         if password is not None:
-            self.expect(PASSWORD_PROMPT, timeout=60.0)
             self.send(password)
         self.expect(prompt, timeout=60.0)
 
