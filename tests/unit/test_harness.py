@@ -6196,3 +6196,85 @@ def test_the_settle_grows_with_every_unanswered_prompt() -> None:
     assert passphrase_settle(0) > 0, passphrase_settle(0)
     assert passphrase_settle(1) > passphrase_settle(0), passphrase_settle(1)
     assert passphrase_settle(4) > passphrase_settle(3), passphrase_settle(4)
+
+
+def test_a_booted_image_run_is_judged_like_any_installed_machine() -> None:
+    """`exit 0` and a layout read through `losetup` were the whole record.
+
+    Nothing had ever booted the file an image install writes, so a mode whose
+    entire product is that file was verified by reading it. The install pass
+    still reads it; the pass after it boots the same file and is judged by
+    what a booted machine leaves behind.
+    """
+    import contextlib
+    from io import StringIO
+
+    from gentoo_install.exec.config import load
+    from tests.vm import run as runner
+
+    written = load(Path("tests/fixtures/vm-image.toml"))
+    read_back = [name for name, _ in runner._from_config(written)]
+    assert read_back == ["image"], read_back
+    after_boot = [name for name, _ in runner._from_config(written, booted=True)]
+    assert "image" not in after_boot, after_boot
+    assert len(after_boot) > 1, after_boot
+
+    # The same results, judged twice: what satisfies the install pass cannot
+    # satisfy the boot pass, because the boot pass asks what came up.
+    collected = {"image.txt": b"loop1   \nloop1p1 vfat\nloop1p2 ext4\n", "install.rc": b"0\n"}
+    printed = StringIO()
+    with contextlib.redirect_stdout(printed):
+        assert runner.check_expected(collected, written) == 0
+    with contextlib.redirect_stdout(StringIO()):
+        assert runner.check_expected(collected, written, booted=True) == 1
+
+
+def test_the_image_comes_out_of_the_guest_without_its_declared_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Twenty gibibytes declared and a few written, read back compressed.
+
+    What the file holds is asserted; what it occupies is not. Skipping a run
+    of zeros and writing it produce the same bytes, and the difference is the
+    allocation -- which ZFS makes on its own, so the assertion that would hold
+    it passed with the seek removed and was not a check at all.
+    """
+    import gzip as gzip_module
+    import subprocess as subprocess_module
+    import tempfile
+
+    from gentoo_install.exec.config import load
+    from tests.vm import run as runner
+
+    written = load(Path("tests/fixtures/vm-image.toml"))
+    payload = b"\0" * (runner.IMAGE_BLOCK * 3) + b"gentoo" + b"\0" * 10
+
+    class _Pull:
+        def __init__(self, code: int, body: bytes) -> None:
+            self.stdout = BytesIO(gzip_module.compress(body))
+            self.returncode = code
+
+        def communicate(self, timeout: float | None = None) -> tuple[bytes, bytes]:
+            return b"", b"ssh: connect to host port 22: Connection refused"
+
+    def _pull(code: int, body: bytes) -> Any:
+        return lambda *args, **rest: _Pull(code, body)
+
+    with tempfile.TemporaryDirectory() as scratch:
+        into = Path(scratch) / "image.raw"
+        monkeypatch.setattr(subprocess_module, "Popen", _pull(0, payload))
+        runner.fetch_image(Path("/dev/null"), 2222, written, into)
+        # Byte-exact: the seek advances the file position by exactly what it
+        # skipped, and one that does not leaves the payload at the wrong
+        # offset and the file short.
+        assert into.read_bytes() == payload, into.stat().st_size
+
+        # An ssh that failed is not an image, however much arrived.
+        monkeypatch.setattr(subprocess_module, "Popen", _pull(255, payload))
+        with pytest.raises(RuntimeError, match="did not come out of the guest"):
+            runner.fetch_image(Path("/dev/null"), 2222, written, into)
+
+        # Nor is an empty one: the file exists and holds no install.
+        monkeypatch.setattr(subprocess_module, "Popen", _pull(0, b""))
+        with pytest.raises(RuntimeError, match="came out empty"):
+            runner.fetch_image(Path("/dev/null"), 2222, written, into)

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import gzip
 import io
 import os
 import re
@@ -642,6 +643,82 @@ def check_image(console: SerialConsole, installation: InstallConfig) -> None:
     console.run("sync")
 
 
+#: The block a fetched image is read in, and the run of zeros a sparse write
+#: skips. An image declares twenty gibibytes and holds a few, and the run
+#: directory has no room for the declaration.
+IMAGE_BLOCK: Final[int] = 1 << 20
+
+#: How long the image has to cross the SSH channel. Compressed on the way, so
+#: what crosses is closer to what was written than to what was declared.
+IMAGE_FETCH_TIMEOUT: Final[float] = 1800.0
+
+
+def fetch_image(key: Path, port: int, installation: InstallConfig, into: Path) -> Path:
+    """Bring the file an image install produced out of the guest.
+
+    The whole product of this mode is that file, and it sits on a scratch
+    filesystem inside a target disk `_discard` deletes: until this ran nothing
+    outside the guest had ever seen one, so no run had booted one and `exit 0`
+    was the only evidence the mode worked.
+    """
+    source = shlex.quote(installation.disk.image)
+    pull = subprocess.Popen(
+        [
+            "ssh", "-p", str(port), "-i", str(key),
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=10",
+            "root@127.0.0.1", f"gzip -1 -c {source}",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if pull.stdout is None:
+        raise RuntimeError("the image fetch opened no pipe to read")
+    written = 0
+    try:
+        with gzip.GzipFile(fileobj=pull.stdout) as plain, into.open("wb") as sink:
+            while block := plain.read(IMAGE_BLOCK):
+                if block.strip(b"\0"):
+                    sink.write(block)
+                else:
+                    sink.seek(len(block), os.SEEK_CUR)
+                written += len(block)
+            sink.truncate(written)
+    finally:
+        pull.stdout.close()
+        problem = pull.communicate(timeout=IMAGE_FETCH_TIMEOUT)[1]
+    if pull.returncode != 0:
+        raise RuntimeError(
+            f"the image did not come out of the guest: ssh exited {pull.returncode}, "
+            f"saying {problem.decode('utf-8', 'replace').strip()[:400]!r}"
+        )
+    if written == 0:
+        raise RuntimeError(f"the image at {installation.disk.image} came out empty")
+    return into
+
+
+def image_as_target(image: Path, target: Path) -> None:
+    """Put the fetched image where the boot pass looks for an installed disk.
+
+    qemu attaches every target as qcow2 and what this mode writes is raw, so
+    the file is converted rather than renamed.
+    """
+    converted = subprocess.run(
+        ["qemu-img", "convert", "-f", "raw", "-O", "qcow2", str(image), str(target)],
+        capture_output=True,
+        text=True,
+        timeout=IMAGE_FETCH_TIMEOUT,
+    )
+    if converted.returncode != 0:
+        raise RuntimeError(
+            f"the image could not be made bootable: qemu-img exited "
+            f"{converted.returncode}, saying {converted.stderr.strip()[:400]!r}"
+        )
+    image.unlink()
+
+
 def run_installer(console: SerialConsole, config: str, extra: str = "") -> None:
     """Run the installer from the driver CD and keep everything it printed."""
     console.run(FIND_DRIVER)
@@ -771,14 +848,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--keep", action="store_true", help="keep the run directory")
     args = parser.parse_args(argv)
 
-    if args.and_boot and args.install and load(
-        REPOSITORY / "tests" / args.install
-    ).disk.mode is DiskMode.IMAGE:
-        # The product is a file on the guest's own scratch filesystem, so
-        # there is no installed disk to boot: `check_image` is the whole
-        # answer and it runs in the install itself.
-        return main([one for one in (argv or sys.argv[1:]) if one != "--and-boot"])
-
     if args.and_boot:
         # The install first, then the same arguments again with the boot check.
         # Recursion rather than a loop: `main` owns the lock, the workdir and
@@ -865,6 +934,7 @@ def _install_and_check(args: argparse.Namespace, medium: Medium, workdir: Path) 
     result_disk = create_disk(workdir / "result.img")
     driver_iso = build_driver(workdir / "driver.iso") if args.install and not args.boot_installed else None
     targets: tuple[Path, ...] = ()
+    fetched: Path | None = None
     if args.install:
         # One disk per `existing` node, because the fixture names them
         # `virtio-target0`, `virtio-target1` and qemu numbers the serials the
@@ -919,7 +989,9 @@ def _install_and_check(args: argparse.Namespace, medium: Medium, workdir: Path) 
                 print(f"[{time.monotonic() - started:5.1f}s] logged into the installed system ({method})")
                 check_installed(console, expected)
                 power_off(console, vm)
-                code = report(result_disk, keep=args.keep, assertions=expected)
+                code = report(
+                    result_disk, keep=args.keep, assertions=expected, booted=True
+                )
                 if unlock_failed:
                     # The subject of the fixture is the unlock, so a machine
                     # that only came up by console has still failed it.
@@ -960,9 +1032,19 @@ def _install_and_check(args: argparse.Namespace, medium: Medium, workdir: Path) 
                 run_installer(console, config, "--dry-run" if args.dry_run else "")
                 if not args.dry_run:
                     check_image(console, installation)
+                    if installation.disk.mode is DiskMode.IMAGE:
+                        # While the guest is up: the file lives on a
+                        # filesystem only the guest has mounted.
+                        fetched = fetch_image(
+                            key, ssh_port, installation, workdir / "image.raw"
+                        )
             else:
                 probe(console)
             power_off(console, vm)
+    if fetched is not None:
+        # After the guest has stopped: this overwrites the disk the scratch
+        # filesystem was on, and the boot pass reads it as the installed disk.
+        image_as_target(fetched, targets[0])
 
     # With the assertions when the product is a file: an image run has no
     # second phase, so this is the only place its verdict can be decided.
@@ -1023,20 +1105,23 @@ def report(
     keep: bool,
     assertions: InstallConfig | None = None,
     installed: bool = False,
+    booted: bool = False,
 ) -> int:
     results = read_disk(result_disk)
     for name in sorted(results):
         print(f"--- {name} ---")
         print(results[name].decode("utf-8", "replace").rstrip())
-    code = verdict(results, assertions, installed=installed)
+    code = verdict(results, assertions, installed=installed, booted=booted)
     if not keep:
         result_disk.unlink(missing_ok=True)
     return code
 
 
-def _from_config(installation: InstallConfig) -> list[tuple[str, str]]:
+def _from_config(
+    installation: InstallConfig, *, booted: bool = False
+) -> list[tuple[str, str]]:
     """Return the shared contract in the local result format."""
-    if installation.disk.mode is DiskMode.IMAGE:
+    if installation.disk.mode is DiskMode.IMAGE and not booted:
         # Nothing booted, so none of the installed-state checks ran: what
         # this mode produces is a file, and `check_image` reads its layout.
         return [("image", _image_pattern(installation))]
@@ -1053,10 +1138,16 @@ def _image_pattern(installation: InstallConfig) -> str:
 
 
 def verdict(
-    results: dict[str, bytes], assertions: InstallConfig | None, *, installed: bool = False
+    results: dict[str, bytes],
+    assertions: InstallConfig | None,
+    *,
+    installed: bool = False,
+    booted: bool = False,
 ) -> int:
     """Turn everything the run left behind into one exit code."""
-    code = check_expected(results, assertions) if assertions is not None else 0
+    code = (
+        check_expected(results, assertions, booted=booted) if assertions is not None else 0
+    )
     installer = results.get("install.rc", b"").decode("utf-8", "replace").strip()
     remote = results.get("remote-unlock.rc", b"").decode("utf-8", "replace").strip()
     if remote not in ("", "0"):
@@ -1077,7 +1168,9 @@ def verdict(
     return code
 
 
-def check_expected(results: dict[str, bytes], config: InstallConfig) -> int:
+def check_expected(
+    results: dict[str, bytes], config: InstallConfig, *, booted: bool = False
+) -> int:
     """Turn the collected output into a verdict."""
     missing: list[str] = []
     # From the configuration rather than hardcoded: a second fixture installs a
@@ -1088,9 +1181,12 @@ def check_expected(results: dict[str, bytes], config: InstallConfig) -> int:
     # while the live medium is still up. Asking for the rest would fail every
     # image run; asking for none of it left the image check inert, collected
     # and printed and never compared.
-    writes_an_image = config.disk.mode is DiskMode.IMAGE
+    # `booted` is the difference between the two passes an image run now has:
+    # the install pass reads the file with `losetup`, and the pass after it
+    # boots that same file and is judged like every other installed machine.
+    writes_an_image = config.disk.mode is DiskMode.IMAGE and not booted
     installed = [] if writes_an_image else list(EXPECTED)
-    for name, pattern in [*installed, *_from_config(config)]:
+    for name, pattern in [*installed, *_from_config(config, booted=booted)]:
         text = results.get(f"{name}.txt", b"").decode("utf-8", "replace")
         if re.search(pattern, text, re.MULTILINE) is None:
             missing.append(f"{name}.txt does not match {pattern}")
