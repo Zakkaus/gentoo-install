@@ -3162,6 +3162,43 @@ class Reconnecting:
     def to(cls, guest: Guest, log: Path, tries: int = RECONNECT_TRIES) -> Reconnecting:
         return cls(lambda: SerialConsole(guest.console(), log.open("ab")), tries)
 
+    def what_a_fresh_console_says(self) -> str:
+        """Whether the console is still there, asked rather than assumed.
+
+        Every stall on this cluster is `the console was silent` with the last
+        line mid-compile, and the counters cannot tell that from a healthy
+        build: these guests keep `/var/tmp/portage` in RAM, so `gi-vm-desktop`
+        was measured compiling `fcitx-rime` with both disk counters frozen and
+        `cpu 0.00`. What separates the two is whether a new console shows the
+        build still printing, and nothing had ever opened one.
+
+        Passive first, because a live guest mid-compile prints at once. The
+        newline is only for a window that stayed empty, where the guest is
+        being ended either way: `vm-luks` lost `grub-install` at operation 56
+        of 56 to an interrupt sent on a reopen, so nothing is written to a
+        console that has just proved it is alive.
+        """
+        try:
+            self.reopen(solicit_prompt=False)
+            said = self._listen(POKE_PATIENCE)
+            if said:
+                return f"a new console showed {said[-POKE_BYTES:]!r} at once"
+            self.console.send("")
+            woken = self._listen(POKE_PATIENCE)
+        except (ConsoleClosed, ProxmoxError) as error:
+            return f"a new console could not be opened: {error}"
+        if woken:
+            return f"a new console said nothing until it was asked, then {woken[-POKE_BYTES:]!r}"
+        return f"a new console opened and stayed empty for {2 * POKE_PATIENCE:.0f}s"
+
+    def _listen(self, patience: float) -> bytes:
+        """Everything that arrives in this window, looking for nothing."""
+        try:
+            self.console.expect(NEVER_MATCHES, timeout=patience)
+        except ConsoleTimeout as quiet:
+            return quiet.seen
+        return b""
+
     def reopen(self, *, solicit_prompt: bool = True) -> None:
         self._reopens += 1
         if self._reopens > REOPEN_CEILING:
@@ -3303,7 +3340,8 @@ class Reconnecting:
                     # alone filled all 300 of `zbm-unlock`'s, so the round
                     # could not say whether its counters had moved.
                     raise ConsoleTimeout(
-                        f"the console was silent for {idle:.0f}s and {reason}: {error}",
+                        f"the console was silent for {idle:.0f}s and {reason}; "
+                        f"{self.what_a_fresh_console_says()}: {error}",
                         waited=error.waited,
                         seen=error.seen,
                     ) from error
@@ -3571,6 +3609,18 @@ def _name_the_user(link: Reconnecting) -> bool:
 #: no window to wait out; the growth below is kept for the console that proves
 #: otherwise by echoing.
 PASSWORD_ECHO_OFF_AFTER: Final[float] = 0.0
+
+#: A pattern nothing matches, for a read whose point is what arrived rather
+#: than what it was looking for.
+NEVER_MATCHES: Final[str] = "(?!)"
+
+#: How long a fresh console is given to say anything, twice: once passively
+#: and once after a newline. Short, because this runs only on the path that is
+#: about to end the guest.
+POKE_PATIENCE: Final[float] = 20.0
+
+#: How much of what it said the verdict carries.
+POKE_BYTES: Final[int] = 200
 
 #: Added to the settle each time the console proves it lost that race, and how
 #: many of those are absorbed. A fixed wait is a guess about a machine whose
