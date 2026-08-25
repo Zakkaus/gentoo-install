@@ -371,6 +371,16 @@ class SerialConsole:
         carried the same handling since `ext3` lost 33.6 minutes to it.
         """
         self.expect(r"login:", timeout=300.0)
+        self.answer_login(user, password, prompt)
+
+    def answer_login(self, user: str, password: str | None, prompt: str) -> None:
+        """The same, for a caller that has already read the `login:`.
+
+        Split out because `run.py` waits for the name prompt beside a
+        passphrase one and cannot wait for it twice. Four call sites did this
+        sequence inline; the fix for the reprinted prompt reached one of them
+        and `vm-zfs-encrypted` failed exactly as before.
+        """
         for attempt in range(PASSPHRASE_ATTEMPTS):
             self.send(user)
             if password is None:

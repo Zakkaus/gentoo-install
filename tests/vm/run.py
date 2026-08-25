@@ -51,7 +51,6 @@ from .console import (
     DISK_PASSPHRASE,
     PASSPHRASE_ATTEMPTS,
     PASSPHRASE_PROMPT,
-    PASSWORD_PROMPT,
     SerialConsole,
     discarded_by_the_prompt,
 )
@@ -501,11 +500,7 @@ def unlock_and_login(
         console.login("root", INSTALLED_PASSWORD, r"# ")
         return "console"
     if remote_unlocked:
-        console.expect(r"login:", timeout=300.0)
-        console.send("root")
-        console.expect(PASSWORD_PROMPT, timeout=60.0)
-        console.send(INSTALLED_PASSWORD)
-        console.expect(r"# ", timeout=60.0)
+        console.login("root", INSTALLED_PASSWORD, r"# ")
         return "remote"
     # Bounded: a wrong passphrase makes the prompt come back, and each one
     # re-arms the timeout, so an unbounded loop would never fail.
@@ -518,10 +513,10 @@ def unlock_and_login(
     for _ in range(PASSPHRASE_ATTEMPTS):
         seen = console.expect(rf"{PASSPHRASE_PROMPT}|login:", timeout=300.0)
         if b"login:" in seen:
-            console.send("root")
-            console.expect(PASSWORD_PROMPT, timeout=60.0)
-            console.send(INSTALLED_PASSWORD)
-            console.expect(r"# ", timeout=60.0)
+            # The prompt is already read, so the part after it: waiting for a
+            # second `login:` would wait for the one agetty prints on a
+            # failure, not the one in hand.
+            console.answer_login("root", INSTALLED_PASSWORD, r"# ")
             return "console"
         console.send(DISK_PASSPHRASE)
         # Answered again here rather than at the top of the loop: an answer

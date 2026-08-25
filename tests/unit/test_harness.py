@@ -6176,3 +6176,19 @@ def test_a_name_prompt_that_comes_back_is_answered_again(
     guest = Agetty()
     SerialConsole(cast(Any, guest), BytesIO()).login("root", "install", r"# ")
     assert guest.names == 2, guest.names
+
+
+def test_no_run_path_spells_out_the_login_sequence_itself() -> None:
+    """The reprinted-name-prompt fix reached `SerialConsole.login()` and
+    `vm-zfs-encrypted` failed again in exactly the same way, because
+    `unlock_and_login` carried its own copy of the sequence. Six call sites
+    waited for `PASSWORD_PROMPT`; hardening one of them changed nothing for
+    the fixture that had shown the defect.
+    """
+    import re
+
+    source = Path("tests/vm/run.py").read_text()
+    assert "PASSWORD_PROMPT" not in source, "run.py spells the sequence out again"
+    # And it does reach the shared one, by whichever of the two entries suits
+    # a caller that has already read the prompt.
+    assert re.search(r"console\.(login|answer_login)\(", source), source[:0]
