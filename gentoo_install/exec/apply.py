@@ -93,6 +93,9 @@ class Machine:
     def target_is_directory(self, path: PurePosixPath) -> bool:
         return packages.target_is_directory(self.mountpoint, path)
 
+    def target_is_file(self, path: PurePosixPath) -> bool:
+        return packages.target_is_file(self.mountpoint, path)
+
     def write(self, path: PurePosixPath, content: str, *, mode: int = 0o644) -> None:
         # Beside it and renamed over, never in place: a run cut short between
         # the truncate and the write leaves a half-written `fstab` or

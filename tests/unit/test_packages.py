@@ -336,6 +336,7 @@ class PackageRecorder(Recorder):
         self.package_paths: dict[str, frozenset[PurePosixPath]] = {}
         self.help: dict[str, str] = {}
         self.directories: set[PurePosixPath] = set()
+        self.regular_files: set[PurePosixPath] = set()
 
     def installed_package_paths(self, package: str) -> frozenset[PurePosixPath]:
         return self.package_paths.get(package, frozenset())
@@ -345,6 +346,9 @@ class PackageRecorder(Recorder):
 
     def target_is_directory(self, path: PurePosixPath) -> bool:
         return path in self.directories
+
+    def target_is_file(self, path: PurePosixPath) -> bool:
+        return path in self.regular_files
 
 
 def test_greetd_update_preserves_package_owned_defaults() -> None:
@@ -603,3 +607,53 @@ def test_a_group_fragment_declaring_half_of_the_pair_is_refused_at_import() -> N
 
     with pytest.raises(ConfigError, match="WriteForGroup declares no directory, verb"):
         plan_packages.WriteForGroup(group="chat", lines=("one",))
+
+
+def test_a_rime_schema_the_profile_names_must_be_on_disk() -> None:
+    """rime ignores a schema that is not there and fcitx falls back to
+    `keyboard-us`, so a profile naming one reads as a working install: exit 0,
+    a written configuration, and no input method. Half of these come from
+    `app-i18n/rime-data` only with `USE=extra`, so the coupling between a
+    group's `schemas` and its `package_use` is one edit away from silence.
+    """
+    check = plan_packages.VerifyRimeSchemas(
+        package="app-i18n/rime-data", schemas=("luna_pinyin", "pinyin_simp")
+    )
+    assert "luna_pinyin, pinyin_simp" in check.describe(), check.describe()
+
+    recorder = PackageRecorder()
+    recorder.regular_files = {
+        plan_packages.RIME_DATA / f"{one}.schema.yaml"
+        for one in ("luna_pinyin", "pinyin_simp")
+    }
+    check.apply(recorder)
+
+    # The one the extra set carries, missing: that is what a dropped
+    # `package_use` looks like, and it has to stop the install.
+    recorder.regular_files.discard(plan_packages.RIME_DATA / "pinyin_simp.schema.yaml")
+    with pytest.raises(CommandFailed, match="pinyin_simp"):
+        check.apply(recorder)
+
+
+def test_every_rime_group_has_its_schemas_verified() -> None:
+    """The check is derived from the profile it follows, not from a second
+    list: a group whose schemas nobody verifies is the shape this repository
+    keeps hitting."""
+    installation = config()
+    selected = replace(
+        installation,
+        packages=replace(
+            installation.packages,
+            desktop="plasma",
+            applications=("fcitx5", "rime", "rime-simplified"),
+        ),
+    )
+    operations = plan_packages.build(selected, load_catalog())
+    written = [
+        one for one in operations if isinstance(one, plan_packages.WriteInputMethodProfile)
+    ]
+    checked = [
+        one for one in operations if isinstance(one, plan_packages.VerifyRimeSchemas)
+    ]
+    assert written and written[0].schemas, written
+    assert [one.schemas for one in checked] == [written[0].schemas], (written, checked)

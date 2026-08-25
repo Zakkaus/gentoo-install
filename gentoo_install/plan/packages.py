@@ -142,6 +142,8 @@ class PackageInspection(Protocol):
 
     def target_is_directory(self, path: PurePosixPath) -> bool: ...
 
+    def target_is_file(self, path: PurePosixPath) -> bool: ...
+
 
 def _package_inspection(context: Context, package: str) -> PackageInspection:
     if not isinstance(context, PackageInspection):
@@ -812,6 +814,52 @@ class WriteInputMethodProfile(Operation):
         return f"patch:\n  schema_list:\n{listed}"
 
 
+#: Where rime looks for a schema, and the suffix it reads. Not a guess: the
+#: files `app-i18n/rime-data` lists in its own VDB CONTENTS are exactly
+#: `/usr/share/rime-data/<name>.schema.yaml`.
+RIME_DATA: Final[PurePosixPath] = PurePosixPath("/usr/share/rime-data")
+#: The package the schemas come from, and whose `USE=extra` decides whether
+#: half of them are on disk at all. Named here so the failure points at the
+#: flag rather than at the file.
+RIME_DATA_PACKAGE: Final[str] = "app-i18n/rime-data"
+RIME_SCHEMA_SUFFIX: Final[str] = ".schema.yaml"
+
+
+@dataclass(frozen=True, kw_only=True)
+class VerifyRimeSchemas(Operation):
+    """The schemas the profile just named, checked against the target.
+
+    rime ignores a schema that is not on disk and fcitx then falls back to
+    `keyboard-us`, so a profile naming one reads as a working install: exit 0,
+    a written configuration, and no input method. Half of these schemas come
+    from `app-i18n/rime-data` only with `USE=extra`, so the coupling between a
+    group's `schemas` and its `package_use` is one edit away from silence.
+    """
+
+    stage: Stage = Stage.PACKAGES
+    package: str
+    schemas: tuple[str, ...]
+
+    def describe(self) -> str:
+        return f"verify {self.package} installed {', '.join(self.schemas)}"
+
+    def apply(self, context: Context) -> None:
+        inspection = _package_inspection(context, self.package)
+        missing = tuple(
+            schema
+            for schema in self.schemas
+            if not inspection.target_is_file(
+                RIME_DATA / f"{schema}{RIME_SCHEMA_SUFFIX}"
+            )
+        )
+        if missing:
+            raise CommandFailed(
+                f"the input method profile names {', '.join(missing)}, but "
+                f"{RIME_DATA} holds no such schema. A schema from the extra set "
+                f"needs {self.package} built with USE=extra"
+            )
+
+
 #: Driver groups that cannot be installed together, and why. Two drivers for
 #: the same adapter, not two adapters: `amdgpu` and `radeon` cover different
 #: AMD generations and a machine can hold one card of each, so they are not
@@ -1312,6 +1360,12 @@ def _input_method(config: InstallConfig, chosen: tuple[Group, ...]) -> list[Oper
                 homes=tuple(homes),
             )
         )
+        if schemas:
+            operations.append(
+                VerifyRimeSchemas(
+                    package=RIME_DATA_PACKAGE, schemas=tuple(schemas)
+                )
+            )
     if framework == "ibus" and config.packages.desktop == GNOME_DESKTOP_GROUP:
         sources = tuple(group.input_source for group in chosen if group.input_source)
         if sources:
