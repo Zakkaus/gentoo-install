@@ -874,3 +874,35 @@ def test_a_machine_running_udev_is_not_sent_to_mdev(
 
     assert ("mdev", "-s") not in asking.asked, asking.asked
     assert ("udevadm", "settle") in asking.asked, asking.asked
+
+
+def test_a_selector_may_be_spelled_the_way_the_installer_writes_one() -> None:
+    """The installer writes `UUID=` into fstab, crypttab and the mount units it
+    generates, and `resolve()` took only a path, so a selector copied back out
+    of a machine this installer made was refused. `/dev/disk/by-uuid/…` worked
+    by accident all along, because udev keeps the symlink and `Path.exists()`
+    is all `resolve()` asked.
+    """
+    from gentoo_install.errors import DeviceNotFound
+    from gentoo_install.exec.probe import UDEV_DIRECTORY_FOR_TAG, udev_path_for
+
+    assert udev_path_for("UUID=abc-123") == "/dev/disk/by-uuid/abc-123"
+    assert udev_path_for("LABEL=gentoo") == "/dev/disk/by-label/gentoo"
+    assert udev_path_for("PARTUUID=dd") == "/dev/disk/by-partuuid/dd"
+    # The tag as `blkid` prints it or as an operator types it.
+    assert udev_path_for("partlabel=esp") == "/dev/disk/by-partlabel/esp"
+
+    # A path is left exactly as written, including one that already names the
+    # directory this would have built.
+    for path in ("/dev/sda", "/dev/disk/by-id/virtio-target0", "target.raw"):
+        assert udev_path_for(path) == path
+
+    # A misspelt tag is refused rather than looked for as a relative file: the
+    # error then names the key rather than a device nobody asked for.
+    with pytest.raises(DeviceNotFound, match="names no identifier"):
+        udev_path_for("UUDI=typo")
+
+    # Every directory named is one udev actually keeps.
+    assert set(UDEV_DIRECTORY_FOR_TAG.values()) <= {
+        "by-uuid", "by-label", "by-partuuid", "by-partlabel", "by-id", "by-path"
+    }
