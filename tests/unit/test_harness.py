@@ -6279,3 +6279,83 @@ def test_the_image_comes_out_of_the_guest_without_its_declared_size(
         monkeypatch.setattr(subprocess_module, "Popen", _pull(0, b""))
         with pytest.raises(RuntimeError, match="came out empty"):
             runner.fetch_image(Path("/dev/null"), 2222, written, into)
+
+
+def _ppm(width: int, height: int, ink: dict[tuple[int, int], bytes]) -> bytes:
+    """A P6 PPM whose named pixels differ from the background."""
+    body = bytearray(b"\x00\x00\x00" * width * height)
+    for (column, line), colour in ink.items():
+        at = (line * width + column) * 3
+        body[at : at + 3] = colour
+    return f"P6\n{width} {height}\n255\n".encode() + bytes(body)
+
+
+def test_the_framebuffer_reader_answers_which_columns_carry_ink(tmp_path: Path) -> None:
+    """The serial console carries the bytes the guest wrote, not what the
+    console made of them. A CJK kernel built with the wrong font size writes
+    the same bytes and draws nothing, and every check this repository has
+    passes on it.
+    """
+    from tests.vm.monitor import TEXT_CELL_HEIGHT, Framebuffer, MonitorError, screendump
+
+    # Two text rows of a narrow screen, with ink in the second row only.
+    width, height = 18, TEXT_CELL_HEIGHT * 2
+    lit = {(column, TEXT_CELL_HEIGHT + 3): b"\xff\xff\xff" for column in (4, 5, 13)}
+    shot = tmp_path / "screen.ppm"
+    shot.write_bytes(_ppm(width, height, lit))
+
+    screen = Framebuffer.read(shot)
+    assert (screen.width, screen.height) == (width, height)
+    assert screen.inked_columns(0) == frozenset()
+    assert screen.inked_columns(1) == frozenset({4, 5, 13})
+    with pytest.raises(MonitorError, match="past the"):
+        screen.inked_columns(2)
+
+    # A truncated dump is refused rather than read as a smaller screen: qemu
+    # creates the file and then writes it, so a race reads a valid header over
+    # a body that is not there yet.
+    short = tmp_path / "short.ppm"
+    short.write_bytes(_ppm(width, height, {})[:-30])
+    with pytest.raises(MonitorError, match="carries"):
+        Framebuffer.read(short)
+
+    # And a file that is not one at all.
+    other = tmp_path / "other.ppm"
+    other.write_bytes(b"P3\n2 2\n255\n0 0 0 0 0 0 0 0 0 0 0 0\n")
+    with pytest.raises(MonitorError, match="not an 8-bit binary PPM"):
+        Framebuffer.read(other)
+
+    assert screendump is not None
+
+
+def test_screendump_reads_a_real_qemu_screen(tmp_path: Path) -> None:
+    """Against qemu itself, because the format is the whole question: this
+    was written after one run measured `P6\\n720 400\\n255\\n` from a live
+    monitor, and a reader built from the documentation would have been
+    checked against nothing."""
+    import shutil
+    import subprocess
+
+    from tests.vm.monitor import TEXT_CELL_HEIGHT, TEXT_CELL_WIDTH, screendump
+
+    qemu = shutil.which("qemu-system-x86_64")
+    if qemu is None:
+        pytest.skip("no qemu-system-x86_64 on this machine")
+    socket_path = tmp_path / "mon.sock"
+    guest = subprocess.Popen(
+        [
+            qemu, "-display", "none", "-m", "128", "-nodefaults", "-vga", "std",
+            "-monitor", f"unix:{socket_path},server,nowait",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        screen = screendump(socket_path, tmp_path / "shot.ppm")
+    finally:
+        guest.terminate()
+        guest.wait(timeout=30)
+    # Text mode, in the cells the reader assumes: 80 columns and 25 rows.
+    assert screen.width == 80 * TEXT_CELL_WIDTH, screen.width
+    assert screen.height == 25 * TEXT_CELL_HEIGHT, screen.height
+    assert len(screen.pixels) == screen.width * screen.height * 3
