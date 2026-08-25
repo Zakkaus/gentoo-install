@@ -503,11 +503,20 @@ def test_each_rime_schema_is_a_group_the_operator_can_tick() -> None:
     from gentoo_install.plan.build import build
 
     catalog = load_catalog()
+    from gentoo_install.plan.packages import RIME_DATA_PACKAGE
+
     named = {schema for group in catalog.values() for schema in group.schemas}
     assert {"luna_pinyin", "bopomofo", "wubi86", "cangjie5", "jyut6ping3"} <= named
     # One schema per group, so ticking one cannot drag in another.
     for name, group in catalog.items():
         assert len(group.schemas) <= 1, name
+        # And the data package with it. `app-i18n/rime-data` installs the
+        # schema files and nothing else, so a group that names a schema
+        # without it leaves fcitx pointing at an addon that is not on disk and
+        # falling back to `keyboard-us` -- which is how this was found the
+        # first time, and the install exits 0 either way.
+        if group.schemas:
+            assert RIME_DATA_PACKAGE in group.packages, (name, group.packages)
 
     desktop = load(_Path("tests/fixtures/vm-desktop.toml"))
     picked = _replace(
