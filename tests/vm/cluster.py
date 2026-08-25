@@ -201,6 +201,10 @@ TARGET_GIB: Final[int] = 40
 HEAVY_MEMORY_MIB: Final[int] = 8192
 HEAVY_CORES: Final[int] = 4
 
+#: What a compiling guest costs `--limit`, the same number
+#: `campaign.py` charges its own machine.
+COMPILING_WEIGHT: Final[int] = 2
+
 #: Left free on every node whatever else is scheduled. A node with nothing
 #: spare stops answering, and this cluster runs other people's machines.
 NODE_HEADROOM_BYTES: Final[int] = 2 * 1024**3
@@ -380,6 +384,18 @@ class Job:
     @property
     def cores(self) -> int:
         return HEAVY_CORES if self.heavy else GUEST_CORES
+
+    @property
+    def weight(self) -> int:
+        """What this costs `--limit`, in the same units `campaign.CAPACITY`
+        counts.
+
+        Counting guests let four compiling ones onto the cluster at once and
+        two of them stalled mid-`emerge` with their nodes at 0%; the same two
+        finished at a limit of two. Memory and cores are already reserved per
+        node, and this is the whole-cluster ceiling those cannot express.
+        """
+        return COMPILING_WEIGHT if self.heavy else 1
 
     @property
     def collected(self) -> bool:
@@ -1860,6 +1876,18 @@ def _reserved_bytes(scheduled: Mapping[str, Job]) -> Counter[str]:
     return held
 
 
+def slots_within(limit: int, slots: list[Node], running: Sequence[Job]) -> list[Node]:
+    """The slots the whole-cluster ceiling still allows, in weight units.
+
+    Named rather than inline so that a test reads the same arithmetic the
+    schedule does: counting guests here admitted four compiling ones and two
+    of them stalled.
+    """
+    if not limit:
+        return slots
+    return slots[: max(0, limit - sum(job.weight for job in running))]
+
+
 def _reserved_cores(scheduled: Mapping[str, Job]) -> Counter[str]:
     held: Counter[str] = Counter()
     for job in scheduled.values():
@@ -2665,8 +2693,7 @@ def run(
                 # that genuinely has nowhere to run.
                 print(f"the cluster's capacity could not be read: {error}", flush=True)
                 slots = []
-            if limit:
-                slots = slots[: max(0, limit - len(running))]
+            slots = slots_within(limit, slots, running)
             if waiting and not running and not slots:
                 now = time.monotonic()
                 if capacity_since is None:
@@ -4601,7 +4628,14 @@ def main(argv: list[str] | None = None) -> int:
             raise argparse.ArgumentTypeError("--limit cannot be negative")
         return limit
 
-    parser.add_argument("--limit", type=nonnegative, default=0, help="how many guests at once")
+    parser.add_argument(
+        "--limit",
+        type=nonnegative,
+        default=0,
+        help="how much of the cluster to use at once, in the units `Job.weight` counts: "
+        "a guest that compiles is worth two and every other one is worth one, so `4` is "
+        "four binary-package installs or two compiling ones",
+    )
     parser.add_argument("--workdir", type=Path, default=WORKROOT)
     parser.add_argument(
         "--site",
