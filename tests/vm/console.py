@@ -137,6 +137,23 @@ NAME_PATIENCE: Final[float] = 20.0
 #: is what worked, and it costs one wait per run.
 PROMPT_SETTLE: Final[float] = 3.0
 
+#: Added to that wait for each prompt already answered without effect. A fixed
+#: wait is a guess about a machine whose load is not ours to choose, and the
+#: three seconds above were measured on an idle one.
+PASSPHRASE_BACKOFF: Final[float] = 2.0
+
+
+def passphrase_settle(answered: int) -> float:
+    """How long to wait before answering a boot passphrase prompt.
+
+    The one rule every passphrase loop reads. There are three of them, on
+    three different transports, and the measurement that produced
+    `PROMPT_SETTLE` reached only the one that had failed: the cluster's
+    `reach_the_login_past_any_passphrase` answered the moment it read the
+    prompt and `unlock_and_login` started from zero.
+    """
+    return PROMPT_SETTLE + PASSPHRASE_BACKOFF * answered
+
 class Channel(Protocol):
     """What a console needs of its transport, and nothing more.
 

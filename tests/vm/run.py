@@ -51,7 +51,7 @@ from .console import (
     DISK_PASSPHRASE,
     PASSPHRASE_ATTEMPTS,
     PASSPHRASE_PROMPT,
-    PROMPT_SETTLE,
+    passphrase_settle,
     SerialConsole,
 )
 from .monitor import type_text
@@ -510,7 +510,7 @@ def unlock_and_login(
         # prompt, which is on the serial port and is waited for below.
         time.sleep(GRUB_PROMPT_SECONDS)
         type_text(monitor, DISK_PASSPHRASE)
-    for _ in range(PASSPHRASE_ATTEMPTS):
+    for answered in range(PASSPHRASE_ATTEMPTS):
         seen = console.expect(rf"{PASSPHRASE_PROMPT}|login:", timeout=300.0)
         if b"login:" in seen:
             # The prompt is already read, so the part after it: waiting for a
@@ -523,7 +523,7 @@ def unlock_and_login(
         # and the line became `install-diskinstall-disk…`. The prompt is
         # printed before its reader is ready, so the fix is to wait, not to
         # repeat.
-        time.sleep(PROMPT_SETTLE)
+        time.sleep(passphrase_settle(answered))
         console.send(DISK_PASSPHRASE)
     raise SystemExit("the disk kept asking for a passphrase; it is not the one installed")
 

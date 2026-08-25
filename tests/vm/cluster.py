@@ -72,6 +72,7 @@ from .console import (
     PASSPHRASE_ATTEMPTS,
     PASSPHRASE_PROMPT,
     PASSWORD_PROMPT,
+    passphrase_settle,
     ConsoleClosed,
     ConsoleIdle,
     ConsoleTimeout,
@@ -2319,17 +2320,20 @@ def reach_the_login_past_any_passphrase(console: Line) -> None:
     so waiting for `login:` alone spent the whole patience at dracut's prompt
     and reported `s2` as a machine that never booted.
     """
-    for _ in range(PASSPHRASE_ATTEMPTS):
+    seen = b""
+    for answered in range(PASSPHRASE_ATTEMPTS):
         seen = console.expect(f"{PASSPHRASE_PROMPT}|login:", INSTALLED_LOGIN_PATIENCE)
         # What arrived shows a passphrase prompt, rather than what it does not
         # end in: a console that answers the pattern without echoing the text
         # would otherwise be read as an endless passphrase.
         if re.search(PASSPHRASE_PROMPT.encode(), seen) is None:
             return
+        time.sleep(passphrase_settle(answered))
         console.send(DISK_PASSPHRASE)
     raise ProxmoxError(
         f"the installed system asked for a passphrase {PASSPHRASE_ATTEMPTS} "
-        "times and never offered a login"
+        f"times and never offered a login; the console held "
+        f"{seen[-INITRAMFS_SCREEN_BYTES:]!r}"
     )
 
 
@@ -3839,8 +3843,7 @@ def _unlock(
     if not remotely_unlocked and installation.bootloader.firmware is BootFirmware.BIOS:
         time.sleep(GRUB_PROMPT_SECONDS)
         guest.send_keys([*keys_for(DISK_PASSPHRASE), "ret"])
-    settle = PASSWORD_ECHO_OFF_AFTER
-    for _ in range(UNLOCK_TRIES):
+    for answered in range(UNLOCK_TRIES):
         try:
             said = link.observe(
                 "|".join(
@@ -3876,12 +3879,11 @@ def _unlock(
                     f"{said[-INITRAMFS_SCREEN_BYTES:]!r}"
                 )[:VERDICT_BYTES],
             )
-        # The same race the installed system's login lost: the prompt turns
-        # the echo off with `TCSAFLUSH`, which discards whatever was typed
-        # before it. `zbm-unlock` answered twice and ZFSBootMenu said `Key
-        # load error: Incorrect key provided` both times.
-        time.sleep(settle)
-        settle += PASSWORD_ECHO_BACKOFF
+        # The prompt is printed before its reader is ready: `zbm-unlock`
+        # answered twice and ZFSBootMenu said `Key load error: Incorrect key
+        # provided` both times. This started from zero until the local runner
+        # measured the wait that fixes it.
+        time.sleep(passphrase_settle(answered))
         try:
             link.respond(DISK_PASSPHRASE)
         except ConsoleClosed as error:
