@@ -126,9 +126,21 @@ def _extract(iso: Path, files: dict[str, Path]) -> None:
 #: until a run failed on a path nobody had moved.
 ISO_CACHE = CACHE / "iso"
 
-#: Alpine packages for executables whose names differ. An empty package means
-#: the base image already supplies the command.
+#: The Alpine package for every executable a fixture needs. An empty package
+#: means the base image already supplies the command, which on Alpine means
+#: busybox.
+#:
+#: Every command, with no fallback to its own name: `.get(command, command)`
+#: made an unlisted command into a package name, `apk add` refused the whole
+#: list with `cat (no such package)`, and the run failed two steps later with
+#: `this installer needs python 3.11 or newer; found: none` — python3 was in
+#: the same atomic transaction. Nine of the twenty-six that fell through were
+#: not packages at all; the other seventeen worked by luck.
+#:
+#: Checked against `APKINDEX` from `v3.24/{main,community}` on 2026-08-25
+#: rather than remembered.
 ALPINE_PACKAGE_FOR_COMMAND: Final[dict[str, str]] = {
+    "blkid": "blkid",
     "blockdev": "util-linux-misc",
     "btrfs": "btrfs-progs",
     "chroot": "coreutils",
@@ -149,6 +161,31 @@ ALPINE_PACKAGE_FOR_COMMAND: Final[dict[str, str]] = {
     "udevadm": "eudev",
     "vgcreate": "lvm2",
     "zpool": "zfs",
+    "cat": "",
+    "cryptsetup": "cryptsetup",
+    "dd": "",
+    "dmsetup": "device-mapper",
+    "findmnt": "findmnt",
+    "gpg": "gpg",
+    "gpg-agent": "gpg-agent",
+    "gzip": "gzip",
+    "install": "",
+    "losetup": "losetup",
+    "lsblk": "lsblk",
+    "mdadm": "mdadm",
+    "mkdir": "",
+    "mount": "mount",
+    "parted": "parted",
+    "sgdisk": "sgdisk",
+    "sleep": "",
+    "tar": "tar",
+    "test": "",
+    "truncate": "",
+    "umount": "umount",
+    "vgchange": "lvm2",
+    "wipefs": "wipefs",
+    "xz": "xz",
+    "zfs": "zfs",
 }
 
 
@@ -161,10 +198,19 @@ def _fixture_commands() -> frozenset[str]:
 
 
 def _alpine_packages(commands: Iterable[str]) -> tuple[str, ...]:
-    packages = {
-        ALPINE_PACKAGE_FOR_COMMAND.get(command, command)
-        for command in commands
-    }
+    """The packages that supply these commands, refusing any it cannot name.
+
+    No fallback to the command's own name: `apk` takes the whole list or none
+    of it, so one command that is not a package name loses python3 as well and
+    the run fails at the installer rather than here.
+    """
+    unknown = sorted(one for one in commands if one not in ALPINE_PACKAGE_FOR_COMMAND)
+    if unknown:
+        raise MediaError(
+            "no Alpine package is named for " + ", ".join(unknown)
+            + "; add each to ALPINE_PACKAGE_FOR_COMMAND, empty when busybox supplies it"
+        )
+    packages = {ALPINE_PACKAGE_FOR_COMMAND[command] for command in commands}
     return tuple(sorted(package for package in packages if package))
 
 
@@ -172,7 +218,7 @@ ALPINE_PACKAGES: Final[tuple[str, ...]] = ("python3", *_alpine_packages(_fixture
 
 GIGOS = Medium(
     name="gigos",
-    iso=ISO_CACHE / "gig-os-20260807.iso",
+    iso=ISO_CACHE / "gig-os-20260818.iso",
     volume_label="Gig-OS",
     kernel_in_iso="/boot/kernel",
     initrd_in_iso="/boot/initrd",
@@ -205,8 +251,8 @@ OFFICIAL_MINIMAL = Medium(
 
 GENTOO_CJK = Medium(
     name="gentoo-cjk",
-    iso=ISO_CACHE / "install-amd64-cjk-minimal-20260809T143052Z.iso",
-    volume_label="Gentoo-CJK-amd64-20260809",
+    iso=ISO_CACHE / "install-amd64-cjk-minimal-20260820T064553Z.iso",
+    volume_label="Gentoo-CJK-amd64-20260820",
     kernel_in_iso="/boot/gentoo",
     initrd_in_iso="/boot/gentoo.igz",
     root_prompt=r"livecd ~ #",
