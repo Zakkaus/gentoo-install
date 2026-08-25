@@ -209,6 +209,39 @@ class ProbedDisk:
     model: str
 
 
+#: The `blkid` tag a `/dev/disk/by-*` directory answers for. Written this way
+#: because the installer writes `UUID=` into fstab, crypttab and the mount
+#: units it generates: a selector spelled the same way is the one an operator
+#: copies back out of the machine, and refusing it made the file speak two
+#: dialects of the same identifier.
+UDEV_DIRECTORY_FOR_TAG: Final[dict[str, str]] = {
+    "UUID": "by-uuid",
+    "LABEL": "by-label",
+    "PARTUUID": "by-partuuid",
+    "PARTLABEL": "by-partlabel",
+    "ID": "by-id",
+}
+
+
+def udev_path_for(selector: str) -> str:
+    """A `TAG=value` selector as the path udev keeps for it, or the selector.
+
+    A tag nothing provides is refused rather than tried as a path: `UUDI=x`
+    would otherwise be looked for as a relative file, and the error would name
+    a missing device instead of a misspelt key.
+    """
+    tag, sign, value = selector.partition("=")
+    if not sign or "/" in tag:
+        return selector
+    directory = UDEV_DIRECTORY_FOR_TAG.get(tag.upper())
+    if directory is None:
+        raise DeviceNotFound(
+            f"{selector!r} names no identifier this installer knows; "
+            f"use one of {', '.join(sorted(UDEV_DIRECTORY_FOR_TAG))} or a path"
+        )
+    return f"/dev/disk/{directory}/{value}"
+
+
 @dataclass(frozen=True)
 class ProbedPartition:
     """Facts read for a device nested below a whole disk."""
@@ -609,7 +642,7 @@ class Probe:
 
     def resolve(self, device: DeviceId, selector: str) -> str:
         """Turn a selector into a path that exists now."""
-        candidate = Path(selector)
+        candidate = Path(udev_path_for(selector))
         if candidate.exists():
             path = str(candidate.resolve())
             self.remember(device, path)
