@@ -3280,6 +3280,22 @@ class Reconnecting:
                         waited=error.waited,
                         seen=error.seen,
                     ) from error
+                except ConsoleTimeout as error:
+                    # The ceiling, not a step that was slow, and after the
+                    # idle branch because `ConsoleIdle` is one of these.
+                    # `expect` reports the window it was given, and the last
+                    # window before an eight-hour deadline is a few seconds:
+                    # `btrfs-luks` was ended at 481.4m compiling C++ and the
+                    # verdict read `162s of 162s elapsed`, which names
+                    # neither the ceiling nor the guest still working.
+                    if _remaining(deadline) > 1.0:
+                        raise
+                    raise ConsoleTimeout(
+                        f"the run's {timeout / 3600:.0f}h ceiling ended it with the "
+                        f"console still printing: {error}",
+                        waited=error.waited,
+                        seen=error.seen,
+                    ) from error
 
         self._with_reconnect(timeout, wait_once, watch=watch)
 

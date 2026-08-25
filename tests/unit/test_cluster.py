@@ -4267,3 +4267,42 @@ def test_the_cluster_limit_counts_weight_rather_than_guests() -> None:
     assert slots_within(4, list(free), [heavy, heavy]) == []
     # Zero is "ask the cluster what fits", not "nothing fits".
     assert len(slots_within(0, list(free), [heavy, heavy])) == len(free)
+
+
+def test_the_run_ceiling_says_so_rather_than_reporting_its_last_window(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`btrfs-luks` was ended at 481.4 minutes with C++ still compiling on its
+    console and the verdict read `never matched 'MARK_26_DONE', 162s of 162s
+    elapsed`. `expect` reports the window it was handed, and the last window
+    before an eight-hour deadline is a few seconds, so a guest that ran out of
+    budget while working reads exactly like a step that hung."""
+    clock = [0.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+
+    class Printing:
+        """A guest that keeps printing and never finishes."""
+
+        def recv(self, size: int) -> bytes:
+            clock[0] += 1.0
+            return b"compiling something\n"
+
+        def sendall(self, data: bytes) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+        @property
+        def closed(self) -> bool:
+            return False
+
+    serial = SerialConsole(cast(Any, Printing()), BytesIO())
+    link = cluster.Reconnecting(lambda: serial)
+    with pytest.raises(ConsoleTimeout) as ended:
+        link.wait_for("install", timeout=30.0, idle=20.0)
+
+    said = str(ended.value)
+    assert "ceiling ended it with the console still printing" in said, said
+    # And what it was printing, so the reader can tell working from wedged.
+    assert "compiling something" in said, said
