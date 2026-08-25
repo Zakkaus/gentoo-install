@@ -2849,3 +2849,53 @@ def test_a_merge_that_may_not_use_a_binhost_says_so() -> None:
     assert "binhost" not in merge.describe(), merge.describe()
     without = replace(merge, binary_host=False)
     assert "with no binhost" in without.describe(), without.describe()
+
+
+def test_a_half_finished_clone_is_cleared_before_the_sync_is_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`zbm-unlock` stopped at 46.8m with two errors on one line: `curl 56 …
+    unexpected eof while reading` from a clone cut off mid-transfer, and then
+    `Repository 'gentoo-zh' is missing masters attribute in
+    '/var/db/repos/gentoo-zh/metadata/layout.conf'`. The retry existed and ran,
+    into the directory the first attempt had left, so a transient network drop
+    became permanent for the rest of the run."""
+    from typing import Sequence
+
+    from gentoo_install.errors import CommandFailed
+    from gentoo_install.plan import portage as plan_portage
+
+    from .recorder import Recorder
+
+    class Cut(Recorder):
+        refusals: int = 1
+
+        def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> CommandOutput:
+            if "--sync" in argv and self.refusals:
+                self.refusals -= 1
+                raise CommandFailed(
+                    "emerge --sync gentoo-zh ended with exit 1: error: RPC failed; "
+                    "curl 56 OpenSSL SSL_read: unexpected eof while reading"
+                )
+            return super().run_in_target(argv, check=check)
+
+    where = PurePosixPath("/var/db/repos/gentoo-zh")
+    monkeypatch.setattr(plan_portage, "SYNC_PAUSE", 0.0)
+    recorder = Cut()
+    plan_portage.SyncRepository(name="gentoo-zh", location=where).apply(recorder)
+
+    removals = [one for one in recorder.in_target if one and one[0] == "rm"]
+    assert removals, "the failed attempt's directory was left in place"
+    assert str(where) in removals[-1], removals
+    # One clean directory per attempt, and the last thing done is the sync
+    # rather than a removal: clearing after a success deletes the copy.
+    kinds = [
+        "rm" if one[0] == "rm" else "sync"
+        for one in recorder.in_target
+        if one and (one[0] == "rm" or "--sync" in one)
+    ]
+    # `rm` twice: the one `apply()` always does before the first sync, and
+    # one more before the retry. The refused sync is absent because the
+    # double raises instead of recording it, so the pairing is read from the
+    # removals rather than from an alternation.
+    assert kinds == ["rm", "rm", "sync"], kinds

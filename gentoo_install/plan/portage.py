@@ -852,6 +852,14 @@ class SyncRepository(Operation):
                 if site_unreachable(str(failed)):
                     raise
                 if attempt + 1 < SYNC_TRIES:
+                    # What the failed attempt left, before sleeping on it. A
+                    # clone cut off mid-transfer leaves a directory with no
+                    # `metadata/layout.conf`, and the next two attempts then
+                    # fail on `Repository 'gentoo-zh' is missing masters
+                    # attribute` rather than on the network: `zbm-unlock`
+                    # stopped at 46.8m with `curl 56 … unexpected eof` and
+                    # that message, one after the other, on the same line.
+                    context.run_in_target(["rm", "--recursive", "--force", str(self.location)])
                     context.run(["sleep", f"{SYNC_PAUSE * (attempt + 1):g}"])
         assert last is not None
         raise last
