@@ -30,6 +30,7 @@ from .config import (
     SystemConfig,
 )
 from .device import (
+    takes_the_rest,
     DeviceGraph,
     DeviceId,
     Existing,
@@ -802,7 +803,7 @@ def _partition_size_problems(graph: DeviceGraph, table: PartitionTable) -> list[
     for one in partitions:
         if one.size is not None and one.size.bytes <= 0:
             problems.append(f"partition {one.id} on {table.id} is {one.size}")
-    unsized = [one for one in partitions if one.size is None]
+    unsized = [one for one in partitions if takes_the_rest(one)]
     if len(unsized) > 1:
         problems.append(
             f"{len(unsized)} partitions on {table.id} take the rest of the disk; "

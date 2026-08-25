@@ -10,9 +10,11 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import PurePosixPath
-from typing import Any, Mapping, Sequence, TypeVar
+from typing import Any, Final, Mapping, Sequence, TypeVar
 
-from ..errors import ConfigError
+from decimal import Decimal
+
+from ..errors import ConfigError, InvalidSize
 from . import config as model_config
 from . import sshkey
 from . import templates
@@ -50,6 +52,7 @@ from .config import (
     User,
 )
 from .device import (
+    Share,
     DeviceGraph,
     DeviceId,
     Existing,
@@ -74,6 +77,11 @@ from .device import (
     ZfsTopology,
 )
 from .size import Size
+
+#: How a partition asks for whatever the others leave. Spelled out rather
+#: than left as an omitted key: a partition with no `size` reads like one
+#: whose size was forgotten, and it is a decision.
+REST: Final[str] = "rest"
 
 E = TypeVar("E", bound=Enum)
 
@@ -454,15 +462,58 @@ def _indexes(raw: Mapping[str, Any], key: str, at: str) -> tuple[int, ...]:
 
 
 def _partition(raw: Mapping[str, Any], at: str) -> Node:
-    _reject_unknown(raw, at, {"kind", "id", "table", "index", "role", "size", "label"})
+    _reject_unknown(
+        raw, at, {"kind", "id", "table", "index", "role", "size", "label", "min", "max"}
+    )
+    absolute, share = _extent(raw, at)
     return Partition(
         id=_id(raw, at),
         table=_ref(raw, "table", at),
         index=_int(raw, "index", at, required=True),
         role=_enum(raw, "role", at, PartitionRole, PartitionRole.DATA),
-        size=_size(raw, "size", at),
+        size=absolute,
         label=_str(raw, "label", at, ""),
+        share=share,
     )
+
+
+def _extent(raw: Mapping[str, Any], at: str) -> tuple[Size | None, Share | None]:
+    """How much of the table this partition asks for.
+
+    Three spellings and one field: `"20G"` is an absolute size, `"40%"` is a
+    share of what the absolute ones leave, and `"rest"` is whatever remains.
+    An omitted `size` still means `rest`, because every configuration written
+    before this existed says it that way.
+
+    `min` and `max` bound a share and are refused beside an absolute size:
+    one extent described by three numbers is one nobody can read back.
+    """
+    written = _get(raw, "size", at, required=False)
+    lowest = _size(raw, "min", at)
+    highest = _size(raw, "max", at)
+    bounded = lowest is not None or highest is not None
+    if written is not None and not isinstance(written, str):
+        raise ConfigError(
+            f'{_at("size", at)} must be a size literal such as "512MiB", a share such '
+            f'as "40%", or "rest"'
+        )
+    if written is not None and not written.endswith("%") and written != REST:
+        if bounded:
+            raise ConfigError(
+                f"{_at('size', at)} is an absolute size, so `min` and `max` say nothing "
+                "it does not already say; bound a share or a rest instead"
+            )
+        return Size.parse(written), None
+    percent: Decimal | None = None
+    if written is not None and written.endswith("%"):
+        try:
+            percent = Decimal(written[:-1])
+        except ArithmeticError as error:
+            raise ConfigError(f"{_at('size', at)}: {written!r} is not a share") from error
+    try:
+        return None, Share(percent=percent, minimum=lowest, maximum=highest)
+    except InvalidSize as error:
+        raise ConfigError(f"{_at('size', at)}: {error}") from error
 
 
 def _luks(raw: Mapping[str, Any], at: str) -> Node:

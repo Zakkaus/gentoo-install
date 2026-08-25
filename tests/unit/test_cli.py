@@ -2396,3 +2396,29 @@ def test_every_named_error_has_an_exit_code_somebody_chose(
         code = main(["--config", str(FIXTURES / "btrfs-luks.toml"), "--dry-run"])
         capsys.readouterr()
         assert code == EXIT_FOR_ERROR[name], (name, code, EXIT_FOR_ERROR[name])
+
+
+def test_a_dry_run_reads_a_capacity_only_when_a_share_needs_one() -> None:
+    """A share is a share of the disk, so a dry run that cannot read the
+    capacity prints a different number from the one the install writes. A
+    layout of absolute sizes needs none, and reading one anyway made every dry
+    run depend on evidence it does not use: the first version asked a probe
+    double for `disk_bytes` and `ext4-bios` exited 4."""
+    import tomllib
+
+    from gentoo_install.model.device import asks_for_a_share
+    from gentoo_install.model.parse import parse
+
+    plain = load(FIXTURES / "ext4-bios.toml")
+    assert not asks_for_a_share(plain.disk.graph)
+
+    base = (FIXTURES / "vm-xfs.toml").read_text()
+    anchor = 'kind = "partition"\nid = "rootpart"\ntable = "table"\nindex = 2\nrole = "data"'
+    assert base.count(anchor) == 1
+    shared = parse(tomllib.loads(base.replace(anchor, f'{anchor}\nsize = "40%"')))
+    assert asks_for_a_share(shared.disk.graph)
+
+    # `rest` is not a share of anything: it is whatever is left, which needs
+    # no capacity to describe, so it must not drag a probe in behind it.
+    rested = parse(tomllib.loads(base.replace(anchor, f'{anchor}\nsize = "rest"')))
+    assert not asks_for_a_share(rested.disk.graph)

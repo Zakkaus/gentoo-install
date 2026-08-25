@@ -7,6 +7,8 @@ it changes and nothing else.
 
 from __future__ import annotations
 
+from typing import Final
+
 from pathlib import PurePosixPath
 
 from gentoo_install.model.config import (
@@ -31,10 +33,12 @@ from gentoo_install.model.device import (
     Partition,
     PartitionRole,
     PartitionTable,
+    StorageFacts,
     StorageLayout,
     TableType,
     ZfsDataset,
     ZfsPool,
+    asks_for_a_share,
 )
 from gentoo_install.model.size import Size
 
@@ -121,6 +125,31 @@ def config(nodes: list[Node] | None = None) -> InstallConfig:
         # An empty hash locks root, and `compat` refuses a system nothing can
         # log into. Every layout here is meant to be installable.
         system=SystemConfig(root_password_hash="$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"),
+    )
+
+
+#: The disk every test pretends a share is a share of. A share cannot be
+#: worked out without a capacity, so a fixture carrying one has no plan at
+#: all without this — the same reason `running_layout()` stands in for the
+#: conversion's machine. Stated rather than probed, because a golden file has
+#: to say the same thing on every machine that regenerates it.
+STAND_IN_CAPACITY: Final[Size] = Size.parse("512GiB")
+
+
+def facts_for(installation: InstallConfig) -> StorageFacts:
+    """The storage evidence a fixture needs to be planned at all.
+
+    Empty unless something asks for a share: a layout of absolute sizes is
+    planned from the file alone, and handing it a capacity it does not read
+    would hide a plan that had started to need one.
+    """
+    if not asks_for_a_share(installation.disk.graph):
+        return StorageFacts()
+    return StorageFacts(
+        capacities={
+            one.id: STAND_IN_CAPACITY
+            for one in installation.disk.graph.of_type(Existing)
+        }
     )
 
 

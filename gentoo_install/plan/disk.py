@@ -42,7 +42,7 @@ from ..model.device import (
     ZfsPool,
     ZfsTopology,
 )
-from ..model.size import DEFAULT_ALIGNMENT, Size
+from ..model.size import DEFAULT_ALIGNMENT, SectorSize, Size
 from .mounts import ResolvedMount, resolve_mounts
 from .operations import CommandOutput, Context, Operation, Stage, answered
 
@@ -1295,7 +1295,7 @@ def _operations_for(
                 table_kind=table.table,
                 index=node.index,
                 role=node.role,
-                size=node.size,
+                size=resolve_share(graph, node, storage_facts),
                 label=node.label,
                 start=_start_of(graph, node, storage_facts),
                 limit=_extent_end_of(graph, node, storage_facts),
@@ -1390,6 +1390,82 @@ def _dataset_mountpoint(graph: DeviceGraph, dataset: DeviceId) -> PurePosixPath 
         if mount.source == dataset:
             return mount.path
     return None
+
+
+def resolve_share(
+    graph: DeviceGraph, partition: Partition, facts: StorageFacts
+) -> Size | None:
+    """The bytes this partition asks for, with any share worked out.
+
+    A share is a share of what the table can hand out after every absolute
+    size on it, so `40%` beside `60%` beside an esp and a swap is a layout
+    that fits. `None` still means the rest, which is what `sgdisk` is told.
+
+    Resolved here rather than at `apply()` so that `describe()` prints the
+    number the run will use: a `--dry-run` that says `40%` and an install that
+    writes 96 GiB are two different answers to one question.
+
+    The usable space comes from `Size.usable_for_partitions`, the same
+    function `exec/preflight.py` checks fixed sizes against. Its own docstring
+    says why: answered separately, an operator was told their sizes fitted and
+    the install refused them an hour later.
+    """
+    if partition.share is None:
+        return partition.size
+    if partition.share.percent is None:
+        return _bounded(None, partition)
+    table = _expect(graph, partition.table, PartitionTable)
+    base = share_base(graph, table, facts)
+    if base is None:
+        raise InvalidLayout(
+            f"{partition.id} asks for {partition.share.percent}% of "
+            f"{table.disk}, and this machine did not report that disk's size"
+        )
+    wanted = Size(int(base.bytes * partition.share.percent / 100)).align_down()
+    return _bounded(wanted, partition)
+
+
+def share_base(
+    graph: DeviceGraph, table: PartitionTable, facts: StorageFacts
+) -> Size | None:
+    """What a share on this table is a share of, or `None` when unknown.
+
+    Every absolute size comes off first. A share is then what is left, which
+    is how an operator describes it: the esp and the swap take their fixed
+    sizes and the rest is split.
+    """
+    capacity = facts.capacities.get(table.disk)
+    if capacity is None:
+        return None
+    usable = capacity.usable_for_partitions(
+        table.table is TableType.GPT, SectorSize(512)
+    )
+    fixed = sum(
+        one.size.bytes
+        for one in graph.of_type(Partition)
+        if one.table == table.id and one.size is not None
+    )
+    return Size(max(0, usable.bytes - fixed))
+
+
+def _bounded(wanted: Size | None, partition: Partition) -> Size | None:
+    """A share clamped by its own bounds, or refused when it cannot be met.
+
+    Never quietly raised to the minimum: the space that would come from is
+    another partition's, and moving it silently is how a layout stops adding
+    up without anybody being told.
+    """
+    share = partition.share
+    assert share is not None
+    if wanted is None:
+        return None
+    if share.minimum is not None and wanted < share.minimum:
+        raise InvalidLayout(
+            f"{partition.id} works out to {wanted}, below the {share.minimum} it asks for"
+        )
+    if share.maximum is not None and share.maximum < wanted:
+        return share.maximum
+    return wanted
 
 
 def _start_of(

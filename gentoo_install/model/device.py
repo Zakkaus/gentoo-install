@@ -13,12 +13,13 @@ the operation sequence; this module only rejects a graph that cannot be ordered.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from enum import Enum
 from pathlib import PurePosixPath
 from types import MappingProxyType
 from typing import Iterable, Mapping, NewType, TypeVar
 
-from ..errors import DeviceCycle, DuplicateDeviceId, UnknownDeviceId
+from ..errors import DeviceCycle, DuplicateDeviceId, InvalidSize, UnknownDeviceId
 from .size import Size
 
 DeviceId = NewType("DeviceId", str)
@@ -171,17 +172,22 @@ class StorageFacts:
 
     mdraid_metadata: Mapping[DeviceId, MdraidMetadataFact]
     free_extents: Mapping[DeviceId, tuple[Extent, ...]]
+    #: What each disk holds, as `lsblk` reports it. A share is a share of
+    #: this, so a configuration carrying one cannot be planned without it.
+    capacities: Mapping[DeviceId, Size]
 
     def __init__(
         self,
         *,
         mdraid_metadata: Mapping[DeviceId, MdraidMetadataFact] | None = None,
         free_extents: Mapping[DeviceId, tuple[Extent, ...]] | None = None,
+        capacities: Mapping[DeviceId, Size] | None = None,
     ) -> None:
         object.__setattr__(
             self, "mdraid_metadata", MappingProxyType(dict(mdraid_metadata or {}))
         )
         object.__setattr__(self, "free_extents", MappingProxyType(dict(free_extents or {})))
+        object.__setattr__(self, "capacities", MappingProxyType(dict(capacities or {})))
 
     def metadata_for(self, device: DeviceId) -> MdraidMetadataFact:
         return self.mdraid_metadata.get(device, MdraidMetadataState.UNAVAILABLE)
@@ -205,14 +211,79 @@ class PartitionTable(Node):
         return (self.disk,)
 
 
+def takes_the_rest(partition: "Partition") -> bool:
+    """Whether this partition asks for whatever the others leave.
+
+    Not `size is None`: a partition asking for `40%` also carries no absolute
+    size, and reading the absence as "the rest" made a table with a share and
+    a `rest` on it look like two partitions competing for the same space.
+    """
+    if partition.size is not None:
+        return False
+    return partition.share is None or partition.share.percent is None
+
+
+def asks_for_a_share(graph: "DeviceGraph") -> bool:
+    """Whether any partition here asks for a proportion of its disk.
+
+    What decides whether a run has to read a disk's capacity. A layout of
+    absolute sizes needs none, and reading one anyway makes every dry run
+    depend on evidence it does not use.
+    """
+    return any(
+        one.share is not None and one.share.percent is not None
+        for one in graph.of_type(Partition)
+    )
+
+
+@dataclass(frozen=True)
+class Share:
+    """What a partition asks for when it is not an absolute size.
+
+    `percent` is a share of the table's free space after every absolute
+    partition on it, so `40` beside `60` beside an esp and a swap is a
+    configuration that fits: the two fixed sizes come off first and the rest
+    is split. `None` asks for whatever is left.
+
+    `minimum` and `maximum` are what makes one file serve a fleet: four tenths
+    of a 240 GB disk is 96 GB and four tenths of an 8 TB disk is 3.2 TB, and
+    neither number is what the operator meant on the other machine.
+    """
+
+    percent: Decimal | None = None
+    minimum: Size | None = None
+    maximum: Size | None = None
+
+    def __post_init__(self) -> None:
+        if self.percent is not None and not 0 < self.percent <= 100:
+            raise InvalidSize(f"a share is between 0 and 100 percent, got {self.percent}")
+        if (
+            self.minimum is not None
+            and self.maximum is not None
+            and self.maximum.bytes < self.minimum.bytes
+        ):
+            raise InvalidSize(f"maximum {self.maximum} is below minimum {self.minimum}")
+
+
 @dataclass(frozen=True)
 class Partition(Node):
     table: DeviceId
     index: int
     role: PartitionRole
     #: None means "all remaining space"; only the last partition may use it.
+    #: A `share` says the same thing with bounds, or asks for a proportion.
     size: Size | None
     label: str = ""
+    #: Set instead of `size`, never beside it: two descriptions of one extent
+    #: is a configuration nobody can read back.
+    share: Share | None = None
+
+    def __post_init__(self) -> None:
+        if self.size is not None and self.share is not None:
+            raise InvalidSize(
+                f"partition {self.id} carries both a size and a share; an extent is "
+                "written one way or the other"
+            )
 
     @property
     def inputs(self) -> tuple[DeviceId, ...]:

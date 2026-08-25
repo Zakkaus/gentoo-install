@@ -26,6 +26,7 @@ from ..model.hardware import CpuVendor, HardwareFacts
 # and `plan/` may not import `exec/`; re-exported here so every caller that
 # asks the probe for the method reads the enum from the same place.
 from ..model.config import BootMethod as BootMethod
+from ..model.size import Size
 from ..model.device import (
     DeviceGraph,
     DeviceId,
@@ -1545,7 +1546,29 @@ def probe_storage_facts(config: InstallConfig, probe: Probe) -> StorageFacts:
         one.id: probe.mdraid_metadata(one.selector) for one in graph.of_type(Existing)
     }
     free = _free_extents(graph, probe)
-    return StorageFacts(mdraid_metadata=metadata, free_extents=free)
+    return StorageFacts(
+        mdraid_metadata=metadata, free_extents=free, capacities=probe_capacities(graph, probe)
+    )
+
+
+def probe_capacities(graph: DeviceGraph, probe: Probe) -> dict[DeviceId, Size]:
+    """What each disk in this layout holds.
+
+    Separate from the rest of the storage evidence because a dry run needs it:
+    a share is a share of the disk, so without a capacity `plan.build()` cannot
+    say what `40%` is and the printed plan would be a different answer from the
+    one the install uses. The heavier evidence — mdraid metadata, free extents
+    — is still only read before a real install.
+    """
+    found: dict[DeviceId, Size] = {}
+    for one in graph.of_type(Existing):
+        try:
+            held = probe.disk_bytes(probe.resolve(one.id, one.selector))
+        except DeviceNotFound:
+            continue
+        if held:
+            found[one.id] = Size(held)
+    return found
 
 
 def _free_extents(graph: DeviceGraph, probe: Probe) -> dict[DeviceId, tuple[Extent, ...]]:
