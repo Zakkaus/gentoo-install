@@ -657,3 +657,44 @@ def test_every_rime_group_has_its_schemas_verified() -> None:
     ]
     assert written and written[0].schemas, written
     assert [one.schemas for one in checked] == [written[0].schemas], (written, checked)
+
+
+def test_the_target_probes_answer_absence_without_hiding_an_escape(
+    tmp_path: Path,
+) -> None:
+    """Neither probe had a test, and the check that reads them cannot fail
+    if they always answer the same thing.
+
+    The distinction is measured rather than assumed: `O_NOFOLLOW |
+    O_DIRECTORY` answers `ENOTDIR` for a symlink out of the target and
+    `ENOENT` for a name that is not there, so a first version of this that
+    took both turned a symlink escape into a quiet `False`.
+    """
+    from gentoo_install.exec.packages import target_is_directory, target_is_file
+
+    target = tmp_path / "target"
+    (target / "usr/share/rime-data").mkdir(parents=True)
+    (target / "usr/share/rime-data/luna_pinyin.schema.yaml").write_text("x")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (target / "usr/escape").symlink_to(outside, target_is_directory=True)
+
+    schema = PurePosixPath("/usr/share/rime-data/luna_pinyin.schema.yaml")
+    assert target_is_file(target, schema)
+    # Absent, in both the shapes an uninstalled package produces: the file
+    # gone, and the directory that would hold it gone with it.
+    assert not target_is_file(
+        target, PurePosixPath("/usr/share/rime-data/pinyin_simp.schema.yaml")
+    )
+    assert not target_is_file(
+        target, PurePosixPath("/usr/share/nothing-here/pinyin_simp.schema.yaml")
+    )
+    # A directory is not a file, and a file is not a directory.
+    assert not target_is_file(target, PurePosixPath("/usr/share/rime-data"))
+    assert target_is_directory(target, PurePosixPath("/usr/share/rime-data"))
+    assert not target_is_directory(target, schema)
+
+    # And a symlink out of the target is still refused rather than answered.
+    for probe in (target_is_file, target_is_directory):
+        with pytest.raises(CommandFailed, match="cannot inspect"):
+            probe(target, PurePosixPath("/usr/escape/anything"))
