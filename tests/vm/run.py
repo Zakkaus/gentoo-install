@@ -55,7 +55,7 @@ from .console import (
     passphrase_settle,
     SerialConsole,
 )
-from .monitor import type_text
+from .monitor import TEXT_CELL_WIDTH, screendump, type_text
 from .driver import FIND_DRIVER, REPOSITORY, build as build_driver
 from .media import MEDIA, Medium
 from .qemu import Firmware, Vm, VmSpec
@@ -529,6 +529,61 @@ def unlock_and_login(
     raise SystemExit("the disk kept asking for a passphrase; it is not the one installed")
 
 
+#: What is written to the VGA console to ask whether a wide glyph is drawn.
+#: Two narrow characters on one row and two wide ones on the next, so the
+#: answer is a comparison between two rows of the same screen rather than a
+#: threshold: a console that draws neither, and one that draws the wide pair
+#: in single cells, both fail without anyone having to say how many pixels a
+#: glyph should have.
+NARROW_SAMPLE: Final[str] = "AB"
+WIDE_SAMPLE: Final[str] = "\u4e2d\u6587"
+
+#: Which text rows they are written to.
+NARROW_ROW: Final[int] = 0
+WIDE_ROW: Final[int] = 1
+
+
+def check_console_glyphs(
+    console: SerialConsole, installation: InstallConfig, monitor: Path, into: Path
+) -> None:
+    """Whether the console draws a wide glyph, read off the screen.
+
+    The serial line carries the bytes the guest wrote, not what the console
+    made of them, so every check in this harness passes on a kernel that
+    prints the text and draws nothing: one shipped `CONFIG_FONT_CJK_16x16`
+    alone and was found by a human looking at a screen.
+    """
+    if not installation.system.console_cjk:
+        return
+    console.run(
+        f"printf '\\033[2J\\033[H{NARROW_SAMPLE}\\n{WIDE_SAMPLE}\\n' > /dev/tty1"
+    )
+    console.run("sync")
+    screen = screendump(monitor, into)
+    narrow = screen.inked_columns(NARROW_ROW)
+    wide = screen.inked_columns(WIDE_ROW)
+    if not narrow:
+        raise SystemExit(
+            f"the console drew nothing at all for {NARROW_SAMPLE!r}, so this "
+            "check cannot say anything about the wide pair"
+        )
+    if not wide:
+        raise SystemExit(
+            f"the console drew {NARROW_SAMPLE!r} across {max(narrow) + 1} pixels "
+            f"and drew nothing for the wide pair"
+        )
+    # Each wide character takes two cells, so the pair reaches about twice as
+    # far as the narrow pair. Compared against the same screen's own narrow
+    # row rather than against a pixel count, because the cell size is the
+    # font's to choose.
+    if max(wide) + 1 < TEXT_CELL_WIDTH * len(NARROW_SAMPLE) * 2 - TEXT_CELL_WIDTH:
+        raise SystemExit(
+            f"the console drew the wide pair across {max(wide) + 1} pixels and "
+            f"{NARROW_SAMPLE!r} across {max(narrow) + 1}: a wide glyph takes two "
+            "cells, so this console fell back to a narrow one"
+        )
+
+
 def check_installed(console: SerialConsole, installation: InstallConfig) -> None:
     """Assert against the system that was installed, booted from its own disk."""
     console.run(f"mkdir -p {RESULT_DIR}")
@@ -988,6 +1043,9 @@ def _install_and_check(args: argparse.Namespace, medium: Medium, workdir: Path) 
                 )
                 print(f"[{time.monotonic() - started:5.1f}s] logged into the installed system ({method})")
                 check_installed(console, expected)
+                check_console_glyphs(
+                    console, expected, vm.monitor_socket, workdir / "console.ppm"
+                )
                 power_off(console, vm)
                 code = report(
                     result_disk, keep=args.keep, assertions=expected, booted=True

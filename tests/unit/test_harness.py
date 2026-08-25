@@ -6359,3 +6359,76 @@ def test_screendump_reads_a_real_qemu_screen(tmp_path: Path) -> None:
     assert screen.width == 80 * TEXT_CELL_WIDTH, screen.width
     assert screen.height == 25 * TEXT_CELL_HEIGHT, screen.height
     assert len(screen.pixels) == screen.width * screen.height * 3
+
+
+def _screen_with(narrow: int, wide: int) -> Any:
+    """A framebuffer whose two top rows carry ink out to these pixels."""
+    from tests.vm.monitor import TEXT_CELL_HEIGHT, Framebuffer
+
+    width, height = 160, TEXT_CELL_HEIGHT * 3
+    body = bytearray(b"\x00\x00\x00" * width * height)
+    for row, reach in ((0, narrow), (1, wide)):
+        for column in range(reach):
+            at = ((row * TEXT_CELL_HEIGHT + 4) * width + column) * 3
+            body[at : at + 3] = b"\xff\xff\xff"
+    return Framebuffer(width=width, height=height, pixels=bytes(body))
+
+
+def test_a_wide_glyph_is_measured_against_the_same_screens_narrow_row(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """One build shipped `CONFIG_FONT_CJK_16x16` alone, printed the text and
+    drew nothing, and every check in this harness passed. The comparison is
+    between two rows of one screen so that nobody has to say how many pixels
+    a glyph should have: the cell size is the font's to choose.
+    """
+    from dataclasses import replace as _replace
+
+    from gentoo_install.exec.config import load
+    from tests.vm import run as runner
+    from tests.vm.monitor import TEXT_CELL_WIDTH
+
+    cjk = load(Path("tests/fixtures/vm-cjk-kernel.toml"))
+    assert cjk.system.console_cjk, "this fixture is the one that asks for it"
+    plain = _replace(cjk, system=_replace(cjk.system, console_cjk=False))
+
+    class Console:
+        def __init__(self) -> None:
+            self.commands: list[str] = []
+
+        def run(self, command: str, timeout: float = 0.0) -> bytes:
+            self.commands.append(command)
+            return b""
+
+    def _answer(screen: Any) -> None:
+        monkeypatch.setattr(runner, "screendump", lambda *args, **rest: screen)
+
+    # A console asked for nothing is not touched at all.
+    quiet = Console()
+    _answer(_screen_with(0, 0))
+    runner.check_console_glyphs(cast(Any, quiet), plain, tmp_path / "m", tmp_path / "p")
+    assert quiet.commands == [], quiet.commands
+
+    # Two cells per wide character: the pair reaches about twice as far.
+    good = Console()
+    _answer(_screen_with(TEXT_CELL_WIDTH * 2, TEXT_CELL_WIDTH * 4))
+    runner.check_console_glyphs(cast(Any, good), cjk, tmp_path / "m", tmp_path / "p")
+    assert any("/dev/tty1" in one for one in good.commands), good.commands
+    assert any("\\033[2J" in one for one in good.commands), good.commands
+
+    # The fallback: the wide pair drawn in single cells, which is what a
+    # kernel with the wrong font size does.
+    _answer(_screen_with(TEXT_CELL_WIDTH * 2, TEXT_CELL_WIDTH * 2))
+    with pytest.raises(SystemExit, match="fell back"):
+        runner.check_console_glyphs(cast(Any, Console()), cjk, tmp_path / "m", tmp_path / "p")
+
+    # Nothing drawn for the wide pair at all.
+    _answer(_screen_with(TEXT_CELL_WIDTH * 2, 0))
+    with pytest.raises(SystemExit, match="drew nothing for the wide pair"):
+        runner.check_console_glyphs(cast(Any, Console()), cjk, tmp_path / "m", tmp_path / "p")
+
+    # And a screen with no ink anywhere says so rather than reporting the
+    # wide pair missing: an empty comparison proves nothing either way.
+    _answer(_screen_with(0, 0))
+    with pytest.raises(SystemExit, match="cannot say anything"):
+        runner.check_console_glyphs(cast(Any, Console()), cjk, tmp_path / "m", tmp_path / "p")
