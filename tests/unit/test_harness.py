@@ -6132,3 +6132,35 @@ def test_no_run_path_spells_out_the_login_sequence_itself() -> None:
     # And it does reach the shared one, by whichever of the two entries suits
     # a caller that has already read the prompt.
     assert re.search(r"console\.(login|answer_login)\(", source), source[:0]
+
+
+def test_a_boot_passphrase_is_answered_after_the_prompt_has_settled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`vm-zfs-encrypted` failed locally three times running with its answer
+    echoed on its own line and never taken, and passed on the cluster, where a
+    websocket adds a delay a unix socket does not. Answering three seconds
+    later made the same fixture install and boot. The prompt is printed before
+    its reader is ready, so the wait is the fix and repeating was not: six
+    sends made the line read `install-diskinstall-disk…`."""
+    import time
+
+    from tests.vm import run as runner
+    from tests.vm.console import PROMPT_SETTLE
+
+    waited: list[float] = []
+    monkeypatch.setattr(time, "sleep", lambda seconds: waited.append(seconds))
+
+    source = Path("tests/vm/run.py").read_text()
+    # The wait is before the send, not after it: after is a wait for nothing.
+    passphrase = source.index("console.send(DISK_PASSPHRASE)")
+    settle = source.rindex("time.sleep(PROMPT_SETTLE)", 0, passphrase)
+    assert "\n" in source[settle:passphrase], source[settle:passphrase]
+    assert source.count("time.sleep(PROMPT_SETTLE)") == 1, source.count(
+        "time.sleep(PROMPT_SETTLE)"
+    )
+    assert PROMPT_SETTLE > 0, PROMPT_SETTLE
+    # The name, not a re-export: `run.py` imports it from `console.py`, and
+    # asserting on the attribute makes mypy read it as a module export.
+    assert "PROMPT_SETTLE" in source, source[:0]
+    assert runner.unlock_and_login is not None
