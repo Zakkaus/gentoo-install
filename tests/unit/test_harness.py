@@ -145,10 +145,13 @@ def test_every_configuration_the_campaign_names_exists() -> None:
 #: in without anybody noticing, which is what this check exists to stop.
 NOT_IN_THE_CAMPAIGN: Final[frozenset[str]] = frozenset(
     {
-        # An image install writes a file rather than the guest's own disk, and
-        # what has to boot is that file attached as a second disk. Nothing in
-        # `tests/vm/campaign.py` boots a file yet.
-        "vm-image.toml",
+        # A share is a share of the disk, and every guest here is given the
+        # same 40 GiB target, so this fixture would measure one capacity and
+        # prove nothing about the arithmetic it exists for. What it does prove
+        # is checked without a guest: `tests/golden/vm-shares.txt` carries the
+        # resolved bytes, and `tests/unit/test_plan_disk.py` runs the same
+        # configuration against two very different disks.
+        "vm-shares.toml",
         # What the memory environment is asked to install once it comes up.
         # `tests/vm/ram.py` runs it against a cloud image rather than the
         # medium the campaign boots, because the machine under test has to
@@ -6066,3 +6069,60 @@ def _through_socks(port: int, name: str, secret: str, target: int) -> bytes | No
                 break
             seen += chunk
         return seen.partition(b"\r\n\r\n")[2]
+
+
+def test_the_image_install_is_in_the_campaign_and_is_not_booted() -> None:
+    """`vm-image` was in neither runner: the cluster refuses it because it
+    cannot give the guest a filesystem to write the image onto, and the
+    campaign excluded it because nothing here boots a file. So the only
+    installation mode that produces a file rather than a disk was never run
+    end to end at all.
+
+    `check_image` reads the partitions and filesystems out of the file, which
+    is what a verdict for this mode can honestly assert; booting it is a
+    separate gap with its own row.
+    """
+    from tests.vm.campaign import STAGES
+
+    named = {Path(one.config).stem: one for stage in STAGES.values() for one in stage}
+    image = named.get("vm-image")
+    assert image is not None, sorted(named)
+    assert not image.boot, "the target disk carries the scratch filesystem, not a system"
+    assert "--and-boot" not in image.argv(), image.argv()
+    # And every other run still boots, or this field becomes a way to make a
+    # red run green.
+    assert all(one.boot for name, one in named.items() if name != "vm-image")
+
+
+def test_an_image_run_hands_its_verdict_a_configuration_not_a_path() -> None:
+    """Every image run died on `'PosixPath' object has no attribute 'disk'`.
+    `check_expected` took an `InstallConfig` from `#1015` onward and this call
+    site kept passing the fixture's path; `argparse.Namespace` makes
+    `args.install` `Any`, so the expression built from it was `Any` too and
+    mypy strict had nothing to say. Nothing in either runner's list carried
+    the image mode, so nothing ran into it.
+    """
+    import ast
+
+    source = Path("tests/vm/run.py").read_text()
+    tree = ast.parse(source)
+    inside = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "_install_and_check"
+    )
+    assertions = [
+        keyword.value
+        for node in ast.walk(inside)
+        if isinstance(node, ast.Call)
+        for keyword in node.keywords
+        if keyword.arg == "assertions"
+    ]
+    assert assertions, "the image verdict lost its assertions argument"
+    for value in assertions:
+        written = ast.unparse(value)
+        # A path only ever reaches this argument through `installed_config`,
+        # which is what turns it into the configuration the run installs. The
+        # other call site passes a name already bound from it.
+        if "REPOSITORY" in written:
+            assert "installed_config(" in written, written

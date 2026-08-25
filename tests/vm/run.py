@@ -976,7 +976,12 @@ def _install_and_check(args: argparse.Namespace, medium: Medium, workdir: Path) 
         result_disk,
         keep=args.keep,
         assertions=(
-            REPOSITORY / "tests" / args.install
+            # The configuration this run installs, not the path to it:
+            # `check_expected` takes an `InstallConfig` and a `Path` reached
+            # it here, so every image run died on `'PosixPath' object has no
+            # attribute 'disk'`. `argparse.Namespace` makes `args.install`
+            # `Any`, so the whole expression was `Any` and mypy said nothing.
+            installed_config(REPOSITORY / "tests" / args.install, key)
             if _reads_an_image(args.install, args.dry_run)
             else None
         ),
