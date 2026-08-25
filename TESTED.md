@@ -140,8 +140,14 @@ a `volume_label` stamped with the build date, so repinning the ISO without the
 label would have produced a medium that boots and is then refused for being the
 wrong one. Both are read out of the ISO now and a test holds them to it.
 
-What these rows do not cover: the Gig-OS ISO also runs the installer by script
-from its own session, and that path has no record.
+What these rows do not cover, and it is larger than a missing record: the
+shipping ISO does not carry this installer. `gig-os-20260818`'s squashfs holds
+381042 entries and not one of them matches `gentoo-install` or `bootstrap.sh`;
+what it does hold is `/usr/bin/calamares` and a `calamares.desktop` on both
+`/etc/skel/Desktop` and `/home/live/Desktop`. Every row above was measured with
+the installer carried in on a second CD the harness builds, which is not how an
+operator reaches it. Packaging it into the ISO beside Calamares is M6 and has
+not started.
 
 ### Network modes
 
