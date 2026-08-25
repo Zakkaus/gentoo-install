@@ -32,12 +32,20 @@ from .exec.probe import (
     BootMethod,
     architecture,
     Probe,
+    probe_capacities,
     probe_storage_facts,
     secure_boot,
 )
 from .exec.runner import Runner
 from .log import Journal
-from .model.device import DeviceGraph, DeviceId, StorageFacts, StorageLayout, ZfsPool
+from .model.device import (
+    DeviceGraph,
+    DeviceId,
+    StorageFacts,
+    StorageLayout,
+    ZfsPool,
+    asks_for_a_share,
+)
 from .model.hardware import HardwareFacts
 from .model.size import Size
 from .tui import app, screens
@@ -509,8 +517,19 @@ def _once(arguments: argparse.Namespace, state: RunState, refused: str) -> int |
             layout = Probe(
                 runner=Runner(log=lambda line: None), work=arguments.work
             ).storage_layout()
+        if arguments.dry_run and asks_for_a_share(config.disk.graph):
+            # A capacity even for a dry run, and only when a share needs one:
+            # a share is a share of the disk, so without it the printed plan
+            # cannot say what `40%` is, and a plan that prints a different
+            # number from the one the install writes is the defect this whole
+            # feature exists to avoid. Gated on the share rather than on the
+            # mode, so a configuration that asks for nothing reads nothing.
+            storage_facts = StorageFacts(
+                capacities=probe_capacities(config.disk.graph, reading)
+            )
         if not arguments.dry_run and config.disk.mode is not DiskMode.DD:
-            # Storage metadata is only required before a real install.
+            # The heavier evidence — mdraid metadata, free extents — is only
+            # required before a real install.
             storage_facts = probe_storage_facts(config, reading)
             # `ld.so --help`, the loader's own answer about this machine.
             loader_v3 = reading.supports_v3()

@@ -29,7 +29,7 @@ from gentoo_install.plan import netboot
 from gentoo_install.plan.build import build
 from gentoo_install.plan.render import render
 
-from ..unit.layouts import running_layout
+from ..unit.layouts import facts_for, running_layout
 
 HERE = Path(__file__).resolve().parent
 FIXTURES = HERE.parent / "fixtures"
@@ -109,7 +109,14 @@ def plan_of(installation: InstallConfig) -> str:
     gives the conversion a golden file at all: without it `build` raises and
     the fixture had none while every other fixture had one."""
     layout = running_layout() if installation.disk.mode is DiskMode.IN_PLACE else None
-    return render(build(installation, load_catalog(), layout=layout))
+    return render(
+        build(
+            installation,
+            load_catalog(),
+            layout=layout,
+            storage_facts=facts_for(installation),
+        )
+    )
 
 
 def plan_text(name: str) -> str:

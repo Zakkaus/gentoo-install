@@ -1419,3 +1419,89 @@ def test_rereading_a_table_updates_it_as_well_as_asking() -> None:
     # Undeclared on purpose, like `partprobe`: it runs with `check=False`
     # and `Probe.wait_for` scans for the node when it is absent.
     assert "partx" not in RereadPartitionTable.host_commands
+
+
+def _with_root_extent(body: str) -> InstallConfig:
+    """`vm-xfs` with its root partition asking for something else."""
+    import tomllib
+
+    from gentoo_install.model.parse import parse
+
+    base = Path("tests/fixtures/vm-xfs.toml").read_text()
+    anchor = 'kind = "partition"\nid = "rootpart"\ntable = "table"\nindex = 2\nrole = "data"'
+    assert base.count(anchor) == 1
+    return parse(tomllib.loads(base.replace(anchor, f"{anchor}\n{body}")))
+
+
+def _resolved(body: str, capacity: str) -> Size | None:
+    from gentoo_install.model.device import DeviceId, StorageFacts
+    from gentoo_install.plan.disk import resolve_share
+
+    from gentoo_install.model.device import Partition
+
+    config = _with_root_extent(body)
+    facts = StorageFacts(
+        capacities={DeviceId("disk"): Size.parse(capacity)} if capacity else {}
+    )
+    root = config.disk.graph.nodes[DeviceId("rootpart")]
+    assert isinstance(root, Partition)
+    return resolve_share(config.disk.graph, root, facts)
+
+
+def test_a_share_is_of_what_the_fixed_sizes_leave_and_its_bounds_hold() -> None:
+    """One file for a fleet of unlike disks is the whole point: four tenths of
+    a 240 GB disk and four tenths of an 8 TB disk are both wrong on the other
+    machine, and the bounds are what make one configuration serve both.
+
+    The base is what `Size.usable_for_partitions` answers minus every absolute
+    size on the table — the esp here — so `40%` beside `60%` beside an esp is
+    a layout that fits. Counting the whole disk instead would refuse it.
+    """
+    small = _resolved('size = "40%"', "240G")
+    large = _resolved('size = "40%"', "8T")
+    assert small is not None and large is not None
+    assert small < large, (small, large)
+
+    # The ceiling catches the large disk and leaves the small one alone.
+    bounded = 'size = "40%"\nmin = "30G"\nmax = "100G"'
+    assert _resolved(bounded, "240G") == small
+    assert _resolved(bounded, "8T") == Size.parse("100G")
+
+    # The esp comes off the base first, asserted against the arithmetic rather
+    # than against a looser bound: every candidate base is smaller than the
+    # raw capacity, so `share < 40% of capacity` passes whether or not the
+    # fixed sizes were subtracted, and a control that removed the subtraction
+    # stayed green.
+    from gentoo_install.model.size import SectorSize
+
+    usable = Size.parse("240G").usable_for_partitions(True, SectorSize(512))
+    esp = Size.parse("512MiB")
+    assert small == Size(int((usable.bytes - esp.bytes) * 40 / 100)).align_down()
+    assert small != Size(int(usable.bytes * 40 / 100)).align_down()
+
+    # Aligned, because a partition that starts mid-unit is one `parted` moves.
+    assert small.is_aligned(), small
+
+    # And the other two spellings still mean what they meant.
+    assert _resolved('size = "rest"', "240G") is None
+    assert _resolved('size = "20G"', "240G") == Size.parse("20G")
+
+
+def test_a_share_below_its_floor_is_refused_rather_than_raised() -> None:
+    """Raising it to the minimum takes the space from another partition, and
+    a layout that stops adding up without anybody being told is the failure
+    this whole feature exists to avoid."""
+    from gentoo_install.errors import InvalidLayout
+
+    with pytest.raises(InvalidLayout, match="below the"):
+        _resolved('size = "1%"\nmin = "30G"', "240G")
+
+
+def test_a_share_on_a_disk_of_unknown_size_says_so() -> None:
+    """A dry run on a machine that has no such disk cannot work out what 40%
+    is, and inventing a number would make the printed plan a different answer
+    from the one the install uses."""
+    from gentoo_install.errors import InvalidLayout
+
+    with pytest.raises(InvalidLayout, match="did not report"):
+        _resolved('size = "40%"', "")

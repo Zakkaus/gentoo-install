@@ -38,7 +38,7 @@ from gentoo_install.model.device import (
 from gentoo_install.plan import bootloader, disk, mounts, system
 from gentoo_install.plan.portage import Emerge
 
-from .layouts import config, ext4_on_gpt, i
+from .layouts import config, ext4_on_gpt, facts_for, i
 from .recorder import Recorder
 
 #: What `locale -a` answers for the default set, so a test that is not
@@ -238,7 +238,7 @@ def test_runtime_mounts_and_fstab_share_resolved_graph_meaning(
 
     runtime = [
         operation
-        for operation in disk.build(installation)
+        for operation in disk.build(installation, facts_for(installation))
         if isinstance(operation, (disk.Mount, disk.MountZfsDataset))
     ]
     entries = system.fstab_entries(installation)
@@ -1547,7 +1547,7 @@ def test_every_derived_destination_is_named_by_the_description() -> None:
                 )
             )
         for installation in variants:
-            for operation in build(installation, catalog):
+            for operation in build(installation, catalog, storage_facts=facts_for(installation)):
                 named = getattr(operation, "destinations", None)
                 if named is None:
                     continue
@@ -1593,7 +1593,7 @@ def test_every_operation_that_names_a_file_writes_exactly_the_files_it_named() -
                 )
             )
         for installation in variants:
-            for operation in build(installation, catalog):
+            for operation in build(installation, catalog, storage_facts=facts_for(installation)):
                 named = getattr(operation, "destinations", None)
                 if named is None:
                     continue

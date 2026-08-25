@@ -1,0 +1,120 @@
+# One file for a fleet of unlike disks. The esp takes a fixed size and the two
+# shares split what it leaves, so 40 and 60 add up to a layout that fits rather
+# than one that has to be written as 39 and 59.
+#
+# The bounds are what make it serve both a small disk and a large one: four
+# tenths of a 240 GB disk is 96 GB and four tenths of an 8 TB disk is 3.2 TB,
+# and neither is what the operator meant on the other machine.
+#
+# The root hash below is `install`, produced by `openssl passwd -6`.
+config_version = 1
+
+[system]
+hostname = "fleetbox"
+timezone = "UTC"
+locales = ["en_US.UTF-8"]
+locale = "en_US.UTF-8"
+init = "systemd"
+networking = "builtin"
+sshd = true
+root_password_hash = "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5edSHpqaYBdiNfXHCoIPRVgb9lT/"
+
+[portage]
+profile = "default/linux/amd64/23.0/systemd"
+makeopts = "-j4"
+
+[portage.mirrors]
+region = "global"
+
+[portage.binhost]
+official = true
+community = "off"
+
+[kernel]
+source = "dist-bin"
+
+[bootloader]
+kind = "grub"
+firmware = "uefi"
+kernel_params = ["console=ttyS0,115200"]
+[disk]
+root = "mnt-root"
+
+[[disk.devices]]
+kind = "existing"
+id = "disk"
+selector = "/dev/disk/by-id/virtio-target0"
+wipe = true
+
+[[disk.devices]]
+kind = "table"
+id = "table"
+disk = "disk"
+table = "gpt"
+
+[[disk.devices]]
+kind = "partition"
+id = "esp"
+table = "table"
+index = 1
+role = "esp"
+size = "512MiB"
+
+[[disk.devices]]
+kind = "partition"
+id = "rootpart"
+table = "table"
+index = 2
+role = "data"
+size = "40%"
+min = "20GiB"
+max = "300GiB"
+
+[[disk.devices]]
+kind = "partition"
+id = "homepart"
+table = "table"
+index = 3
+role = "data"
+size = "rest"
+min = "10GiB"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "espfs"
+device = "esp"
+type = "vfat"
+label = "ESP"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "rootfs"
+device = "rootpart"
+type = "ext4"
+label = "gentoo"
+
+[[disk.devices]]
+kind = "filesystem"
+id = "homefs"
+device = "homepart"
+type = "ext4"
+label = "home"
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-root"
+source = "rootfs"
+path = "/"
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-esp"
+source = "espfs"
+path = "/efi"
+options = ["umask=0077"]
+
+[[disk.devices]]
+kind = "mountpoint"
+id = "mnt-home"
+source = "homefs"
+path = "/home"

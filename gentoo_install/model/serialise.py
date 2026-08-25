@@ -19,6 +19,7 @@ from . import config as model_config
 from .config import InstallConfig, ProxyConfig
 from .templates import Choice
 from .device import (
+    Share,
     Existing,
     Filesystem,
     LogicalVolume,
@@ -34,6 +35,7 @@ from .device import (
     ZfsDataset,
     ZfsPool,
 )
+from .parse import REST
 from .size import Size
 
 #: The `kind` each node is written as, mirroring `parse._NODES`. A node class
@@ -57,6 +59,15 @@ KINDS: Final[dict[type[Node], str]] = {
 #: Where a field name and its key in the file differ. `Filesystem.kind` is the
 #: one case: the node discriminator already claims `kind`.
 RENAMED: Final[dict[tuple[type[Node], str], str]] = {(Filesystem, "kind"): "type"}
+
+#: Fields the writer spells as more than one key. `Partition.share` is the
+#: one case: a share and an absolute size answer the same question, so they
+#: share the `size` key, and the bounds are two keys beside it. Declared
+#: rather than special-cased in the test, or the next field that expands
+#: escapes the check that every emitted key is one the parser accepts.
+SPELLED_AS: Final[dict[tuple[type[Node], str], frozenset[str]]] = {
+    (Partition, "share"): frozenset({"size", "min", "max"}),
+}
 
 #: Fields whose value is replaced when the configuration is published. A crypt
 #: hash is not the password, but it is what an offline attack starts from, and
@@ -188,8 +199,27 @@ def _disk(config: InstallConfig) -> list[str]:
                 held == field.default or held == _empty(field.default_factory)
             ):
                 continue
+            if isinstance(held, Share):
+                lines += _share(held)
+                continue
             named = RENAMED.get((type(node), field.name), field.name)
             lines.append(f"{named} = {_value(held)}")
+    return lines
+
+
+def _share(held: Share) -> list[str]:
+    """A share as the one `size` key that reads it back, plus its bounds.
+
+    `rest` rather than an omitted `size`: a partition with no size reads like
+    one whose size was forgotten, and it is a decision. The parser still
+    accepts the omission, so a file written before this stays valid.
+    """
+    written = f"{held.percent}%" if held.percent is not None else REST
+    lines = [f'size = "{written}"']
+    if held.minimum is not None:
+        lines.append(f'min = "{held.minimum}"')
+    if held.maximum is not None:
+        lines.append(f'max = "{held.maximum}"')
     return lines
 
 def _value(held: Any) -> str:

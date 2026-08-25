@@ -288,7 +288,7 @@ def test_every_node_field_the_writer_emits_is_a_key_its_parser_accepts() -> None
     from dataclasses import fields
 
     from gentoo_install.model import parse as parse_module
-    from gentoo_install.model.serialise import KINDS, RENAMED
+    from gentoo_install.model.serialise import KINDS, RENAMED, SPELLED_AS
 
     source = ast.parse(inspect.getsource(parse_module))
     accepted: dict[str, set[str]] = {}
@@ -317,5 +317,14 @@ def test_every_node_field_the_writer_emits_is_a_key_its_parser_accepts() -> None
     for held, kind in KINDS.items():
         keys = accepted.get(builders[kind])
         assert keys is not None, (kind, builders[kind])
-        written = {RENAMED.get((held, one.name), one.name) for one in fields(held)}
+        written: set[str] = set()
+        for one in fields(held):
+            written |= SPELLED_AS.get(
+                (held, one.name), frozenset({RENAMED.get((held, one.name), one.name)})
+            )
         assert written <= keys, (kind, sorted(written - keys))
+    # And every declared expansion is for a field that exists, so a renamed
+    # field leaves a stale entry that quietly excuses nothing.
+    for (held, name), spelled in SPELLED_AS.items():
+        assert name in {one.name for one in fields(held)}, (held.__name__, name)
+        assert spelled, (held.__name__, name)
