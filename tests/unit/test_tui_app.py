@@ -4262,3 +4262,43 @@ def test_the_install_row_derives_a_conversion_from_the_machine(
 
     with pytest.raises(ConversionUnsupported, match="layout was not read"):
         real_build(converted, load_catalog())
+
+
+def test_the_interface_exports_the_answers_it_was_given_not_the_graph() -> None:
+    """`vm-xfs` — one disk, one esp, one xfs root, the commonest layout there
+    is — exports as sixty lines of device graph. The four-line `[disk.simple]`
+    form covers it, and `DiskConfig.simple` is what tells the writer to use
+    it: the shape is never inferred back, because `table = "gpt"` written out
+    and `table` omitted produce the same graph from two different answers.
+
+    Nothing set it, so every export was the long form and the short one was
+    reachable only by somebody who already knew it existed.
+    """
+    from gentoo_install.model.serialise import to_toml
+    from gentoo_install.tui import screens
+
+    at = context()
+    assert not at.manual, "this case is about the template path"
+    templated = screens._rebuild(config(), at)
+    assert templated.disk.simple is not None
+
+    written = to_toml(templated)
+    assert "[disk.simple]" in written, written
+    assert "[[disk.devices]]" not in written, written
+    # And it reads back as the same installation, which is the whole point of
+    # saving one: an unattended second run, not a record of what was chosen.
+    assert load_toml(written).disk.graph.nodes.keys() == templated.disk.graph.nodes.keys()
+
+    # Taken over by hand, the template is no longer what the operator means.
+    at.manual = True
+    by_hand = screens._rebuild(config(), at)
+    assert by_hand.disk.simple is None
+    assert "[disk.simple]" not in to_toml(by_hand)
+
+
+def load_toml(text: str) -> InstallConfig:
+    import tomllib
+
+    from gentoo_install.model.parse import parse
+
+    return parse(tomllib.loads(text))

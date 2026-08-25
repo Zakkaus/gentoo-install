@@ -112,8 +112,20 @@ def _rebuild(config: InstallConfig, context: Context) -> InstallConfig:
     table with a whole-disk graph carrying `wipe`, which is the operator's data
     destroyed by opening an unrelated row.
     """
-    graph, root = manual.build(context.layout) if context.manual else build(context.choice)
-    return replace(config, disk=DiskConfig(graph=graph, root=root))
+    if context.manual:
+        graph, root = manual.build(context.layout)
+        # Cleared, not left behind: a layout the operator has taken over by
+        # hand is no longer the template it started from, and writing
+        # `[disk.simple]` beside it would export a file that installs
+        # something else.
+        return replace(config, disk=DiskConfig(graph=graph, root=root, simple=None))
+    graph, root = build(context.choice)
+    # Kept, so the export is the four lines the operator answered rather than
+    # the sixty the graph takes to say the same thing. `serialise.py` writes
+    # `[disk.simple]` when this is set and the graph otherwise; it is never
+    # inferred back from the shape, because `table = "gpt"` written out and
+    # `table` omitted produce the same graph from two different answers.
+    return replace(config, disk=DiskConfig(graph=graph, root=root, simple=context.choice))
 
 
 #: What each mode does, in the operator's terms rather than the enum's.
