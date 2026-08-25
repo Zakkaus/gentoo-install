@@ -93,6 +93,7 @@ a way to pass firmware arguments is available to a non-root API token.
 | `90516741321b` | `vm-proxy` (SOCKS5, password), `vm-proxy-http` | the proxy runs on the host, which a bridged cluster guest cannot reach; each installed 57 operations, 69 packages from a binary host and 46 compiled, and each disk then booted and passed every installed-state check |
 | `f466b89d8206` | `vm-bios-luks` | BIOS serial console; 57 operations, 59 packages from a binary host, 20 compiled, then the disk it wrote booted, unlocked its root and passed every installed-state check |
 | `6ec5d840ff973` | `vm-binpkg`, killed at the stage3 and finished with `--resume` | the cluster has no way to interrupt an install; the resumed run skipped 8 operations an earlier one had recorded as done, reached `[53/53]`, and the disk it wrote booted, mounted its layout and had no failed unit. Zero skipped is a failure there: it would mean the resume repartitioned a disk it had already installed onto |
+| `122d1cf603a85` | `vm-binpkg` plain and `vm-binpkg` killed at the stage3 and finished with `--resume`, in one campaign invocation | the cluster has no way to interrupt an install. Both finished in 5.7 minutes; the resumed one skipped 8 operations an earlier run had recorded as done and installed 58 operations, 30 packages from a binary host and 11 compiled, and each disk then booted and passed every installed-state check. Zero skipped would be a failure: it would mean the resume repartitioned a disk it had already installed onto |
 | `d05e75025c080` | `vm-image` | the same image mode at the revision the campaign runs, through one `--and-boot` invocation: 54 operations, 30 packages from a binary host, 10 compiled, and `losetup -Pf` inside the live medium answered `loop1p1 vfat` and `loop1p2 ext4`. Nothing booted it |
 | `cbd22d88417a6` | `vm-image` | the product is a file on a filesystem this runner mounts on the spare disk, and the cluster has none to offer; 54 operations, 55 packages from a binary host, 12 compiled, then the image was attached with `losetup -Pf` inside the live medium and answered `loop1p1 vfat` and `loop1p2 ext4`, the two filesystems the layout declares. Nothing booted it: reading a file on the guest's own disk is what this record covers |
 
@@ -142,6 +143,19 @@ The negative direction has a revision-tagged cluster run: the `vm-proxy-dead`
 fixture points the proxy at a port where nothing listens and the install stops
 at the stage3 download with `Connection refused`, so a run that reached the
 mirror would show the proxy had been bypassed.
+
+At `122d1cf603a85` both positive directions ran under the campaign rather than
+by hand, against a proxy the harness starts itself: `vm-proxy` (SOCKS5 with a
+password) in 8.9 minutes and `vm-proxy-http` in 8.7 minutes, each installing
+and then booting the disk it wrote and passing every installed-state check.
+Before that revision the run was skipped unless somebody had started a proxy,
+so nothing measured this direction automatically.
+
+What that pair establishes and what it does not: an install finishing does not
+by itself prove the fetches went through the proxy, because QEMU's user-mode
+network also gives the guest a direct route. It is the pair that carries the
+claim — the same configuration stops when the proxy is dead and finishes when
+it answers, and the guest's own `make.conf` names `socks5h://10.0.2.2:1080`.
 
 An HTTP or HTTPS proxy that requires a password cannot check the tree
 snapshot's signature: `emerge-webrsync` hands gemato only the credential-free
