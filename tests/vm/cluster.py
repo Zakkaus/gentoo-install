@@ -1876,8 +1876,15 @@ def _reserved_bytes(scheduled: Mapping[str, Job]) -> Counter[str]:
     return held
 
 
-def slots_within(limit: int, slots: list[Node], running: Sequence[Job]) -> list[Node]:
+def slots_within(
+    limit: int, slots: list[Node], running: Sequence[Job], waiting: Sequence[Job]
+) -> list[Node]:
     """The slots the whole-cluster ceiling still allows, in weight units.
+
+    The budget is spent over the jobs about to start as well as the ones
+    already out there. Charging only the running ones left the first pass with
+    an empty cluster and a full list: round twelve dispatched four compiling
+    guests at `--limit 4`, which is eight units against a ceiling of four.
 
     Named rather than inline so that a test reads the same arithmetic the
     schedule does: counting guests here admitted four compiling ones and two
@@ -1885,7 +1892,14 @@ def slots_within(limit: int, slots: list[Node], running: Sequence[Job]) -> list[
     """
     if not limit:
         return slots
-    return slots[: max(0, limit - sum(job.weight for job in running))]
+    spare = limit - sum(job.weight for job in running)
+    allowed = 0
+    for job in waiting:
+        if allowed >= len(slots) or spare < job.weight:
+            break
+        spare -= job.weight
+        allowed += 1
+    return slots[:allowed]
 
 
 def _reserved_cores(scheduled: Mapping[str, Job]) -> Counter[str]:
@@ -2693,7 +2707,7 @@ def run(
                 # that genuinely has nowhere to run.
                 print(f"the cluster's capacity could not be read: {error}", flush=True)
                 slots = []
-            slots = slots_within(limit, slots, running)
+            slots = slots_within(limit, slots, running, waiting)
             if waiting and not running and not slots:
                 now = time.monotonic()
                 if capacity_since is None:

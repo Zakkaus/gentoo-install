@@ -4259,14 +4259,18 @@ def test_the_cluster_limit_counts_weight_rather_than_guests() -> None:
     from tests.vm.proxmox import Node
 
     free = [Node(name=f"infra-node{n}", free_bytes=0, cores=4, free_cores=4.0) for n in range(6)]
-    assert len(slots_within(4, list(free), [])) == 4
-    # One compiling guest already out there leaves two, not three: counting
-    # guests is what put four of them on at once.
-    assert len(slots_within(4, list(free), [heavy])) == 2
-    assert len(slots_within(4, list(free), [light])) == 3
-    assert slots_within(4, list(free), [heavy, heavy]) == []
+    # Four units is four binary-package guests or two compiling ones, and the
+    # budget is spent over the jobs about to start as well as the running
+    # ones: charging only the running ones sent four compiling guests out on
+    # the first pass, which is eight units against a ceiling of four.
+    assert len(slots_within(4, list(free), [], [light] * 6)) == 4
+    assert len(slots_within(4, list(free), [], [heavy] * 6)) == 2
+    # One compiling guest already out there leaves one more, not three.
+    assert len(slots_within(4, list(free), [heavy], [heavy] * 6)) == 1
+    assert len(slots_within(4, list(free), [light], [light] * 6)) == 3
+    assert slots_within(4, list(free), [heavy, heavy], [heavy] * 6) == []
     # Zero is "ask the cluster what fits", not "nothing fits".
-    assert len(slots_within(0, list(free), [heavy, heavy])) == len(free)
+    assert len(slots_within(0, list(free), [heavy, heavy], [heavy] * 6)) == len(free)
 
 
 def test_the_run_ceiling_says_so_rather_than_reporting_its_last_window(
