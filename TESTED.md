@@ -123,13 +123,12 @@ ZFSBootMenu; the other four use ext4.
 | `alpine-standard-3.24.1`, BIOS, OpenRC, ext4 | `bc8ab3a0edcf` | root shell in 59s; 51 operations, 29 from a binary host, 51 compiled; booted with no failed unit |
 | `install-amd64-minimal-20260816T170110Z`, UEFI, systemd, xfs | `86cca05b314f` | installed `vm-xfs` in one run: 56 operations, 61 packages from a binary host, 12 compiled, then the disk it wrote booted, logged in on the console and passed every installed-state check |
 
-Both target media were measured at `b03f8eafa7501` on 2026-08-25, which is the
-first record either has at a current revision:
+Both target media have a record at a current revision, the first either has:
 
-| Medium | Fixture | Result |
-|---|---|---|
-| `gig-os-20260818`, UEFI | `vm-binpkg` | 58 operations, 30 packages from a binary host, 11 compiled; the disk it wrote booted, mounted its layout and had no failed unit |
-| `install-amd64-cjk-minimal-20260820T064553Z`, UEFI | `vm-cjk-kernel` | 59 operations, 30 packages from a binary host, 11 compiled; same result |
+| Medium | Fixture | Revision | Result |
+|---|---|---|---|
+| `gig-os-20260818`, UEFI | `vm-binpkg` | `d3493b505430f` | 55 operations, 30 packages from a binary host, 11 compiled; the disk it wrote booted, mounted its layout and had no failed unit |
+| `install-amd64-cjk-minimal-20260820T064553Z`, UEFI | `vm-cjk-kernel` | `b03f8eafa7501` | 59 operations, 30 packages from a binary host, 11 compiled; same result |
 
 Both ISOs are in `lab/vm/iso/`, fetched from `iso.gentoozh.org`. `media.py` had
 named files the download site no longer carries — `gig-os-20260807` against
