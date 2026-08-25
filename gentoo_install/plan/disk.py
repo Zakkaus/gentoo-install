@@ -1038,6 +1038,11 @@ class DiscardStage3(Operation):
         context.run_in_target(["rm", "--recursive", "--force", f"/{STAGE3_CACHE}"])
 
 
+#: How much of the tool's own words a busy-pool failure carries. The
+#: verdict that reports it is truncated, and a pool's status is longer
+#: than a console line.
+HOLDER_BYTES: Final[int] = 400
+
 RELEASE_TRIES: Final[int] = 6
 RELEASE_PAUSE: Final[float] = 5.0
 
@@ -1142,7 +1147,23 @@ class UnmountTarget(Operation):
         if self._mounted_datasets(context, pool):
             context.run(["zpool", "export", "-f", pool])
             return
-        raise CommandFailed(f"{pool} remains busy after dataset unmount; holder is unknown") from last
+        raise CommandFailed(
+            f"{pool} remains busy after dataset unmount; holder is unknown. "
+            f"`zpool export` said {str(last).strip()[:HOLDER_BYTES]!r}, and the pool "
+            f"reads {self._holders(context, pool)}"
+        ) from last
+
+    def _holders(self, context: Context, pool: str) -> str:
+        """What the machine says about a pool it will not let go of.
+
+        `holder is unknown` was the whole message, so an operator was told the
+        export failed and nothing else: the run that hit it on `vm-zfs` left
+        no way to tell `zed` from a stray mount from a device still open.
+        Read rather than guessed, and `check=False` throughout because this
+        runs while an error is already being raised.
+        """
+        status = context.run(["zpool", "status", "-v", pool], check=False)
+        return str(status).strip()[:HOLDER_BYTES] or "nothing at all"
 
 
 def finish(config: InstallConfig) -> list[Operation]:

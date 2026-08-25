@@ -1505,3 +1505,47 @@ def test_a_share_on_a_disk_of_unknown_size_says_so() -> None:
 
     with pytest.raises(InvalidLayout, match="did not report"):
         _resolved('size = "40%"', "")
+
+
+def test_a_pool_nothing_will_release_says_what_the_machine_knows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`rpool remains busy after dataset unmount; holder is unknown` was the
+    whole message when `vm-zfs` hit it at 62.3 minutes. Refusing to force is
+    right — forcing hides the holder and an unexported pool needs `zpool
+    import -f` on the next boot — but the operator was told the export failed
+    and nothing else, not even what `zpool export` itself had said."""
+    from gentoo_install.errors import CommandFailed
+    from gentoo_install.plan.operations import CommandOutput
+
+    class NeverReleases(Recorder):
+        def run(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> CommandOutput:
+            if tuple(argv[:2]) == ("zpool", "export"):
+                raise CommandFailed("zpool export rpool exited 1: pool is busy")
+            if tuple(argv[:2]) == ("zpool", "status"):
+                return CommandOutput("  pool: rpool\n state: ONLINE\n  scan: none\n", 0)
+            if tuple(argv[:2]) == ("zfs", "list"):
+                # Nothing of its own is mounted, which is the branch that
+                # refuses rather than forcing.
+                return CommandOutput("rpool\tno\nrpool/ROOT\tno\n", 0)
+            if argv[0] == "findmnt":
+                return CommandOutput("", 1)
+            return super().run(argv, check=check, input_text=input_text)
+
+    monkeypatch.setattr(disk, "RELEASE_PAUSE", 0.0)
+    with pytest.raises(CommandFailed) as refused:
+        disk.UnmountTarget(pools=("rpool",)).apply(NeverReleases())
+
+    said = str(refused.value)
+    # The classification stays — `holder is unknown` is true and is what
+    # `test_a_pool_busy_with_nothing_mounted_is_named_rather_than_forced`
+    # holds — and the evidence is added beside it.
+    assert "holder is unknown" in said, said
+    assert "pool is busy" in said, said
+    assert "state: ONLINE" in said, said
+    # Still not forced. Asserted here as well as in that test because the
+    # risk of this change is that improving the message turns into forcing
+    # the export, which is what the operation refuses to do on purpose.
+    assert "-f" not in said, said
