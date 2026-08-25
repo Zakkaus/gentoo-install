@@ -118,12 +118,23 @@ ZFSBootMenu; the other four use ext4.
 | `alpine-standard-3.24.1`, BIOS, OpenRC, ext4 | `bc8ab3a0edcf` | root shell in 59s; 51 operations, 29 from a binary host, 51 compiled; booted with no failed unit |
 | `install-amd64-minimal-20260816T170110Z`, UEFI, systemd, xfs | `86cca05b314f` | installed `vm-xfs` in one run: 56 operations, 61 packages from a binary host, 12 compiled, then the disk it wrote booted, logged in on the console and passed every installed-state check |
 
-The Gig-OS ISO has no record at a current revision. It runs the installer by
-script, and the medium that covers the same path — the self-built gentoo-cjk
-minimal ISO — was last measured at `b931ef46fc15ed50385f70467f2bfb0a8d1fd154`,
-which this file lists as historical: the installation path changed after it.
-Neither ISO is in `lab/vm/iso/`, so measuring either starts with building or
-fetching one.
+Both target media were measured at `b03f8eafa7501` on 2026-08-25, which is the
+first record either has at a current revision:
+
+| Medium | Fixture | Result |
+|---|---|---|
+| `gig-os-20260818`, UEFI | `vm-binpkg` | 58 operations, 30 packages from a binary host, 11 compiled; the disk it wrote booted, mounted its layout and had no failed unit |
+| `install-amd64-cjk-minimal-20260820T064553Z`, UEFI | `vm-cjk-kernel` | 59 operations, 30 packages from a binary host, 11 compiled; same result |
+
+Both ISOs are in `lab/vm/iso/`, fetched from `iso.gentoozh.org`. `media.py` had
+named files the download site no longer carries — `gig-os-20260807` against
+`20260818`, and a CJK minimal eleven days older — and `GENTOO_CJK` also carried
+a `volume_label` stamped with the build date, so repinning the ISO without the
+label would have produced a medium that boots and is then refused for being the
+wrong one. Both are read out of the ISO now and a test holds them to it.
+
+What these rows do not cover: the Gig-OS ISO also runs the installer by script
+from its own session, and that path has no record.
 
 ### Network modes
 
