@@ -318,8 +318,14 @@ def test_install_wait_names_silent_console_and_flat_counters(
         link.wait_for("install", timeout=5.0, idle=2.0, watch=watch)
 
     message = str(raised.value)
-    assert clock[0] == 2.0
+    # Two poke windows after the idle one: a fresh console is opened and read,
+    # then asked. That time is spent only on a guest about to be ended, and it
+    # buys the one fact the counters cannot give.
+    assert clock[0] == 2.0 + 2 * cluster.POKE_PATIENCE, clock[0]
     assert "console was silent" in message
+    # This console answers nothing, which is what a guest that has really
+    # stopped looks like -- and it now says so instead of leaving it open.
+    assert "stayed empty" in message, message
     assert "counters were flat" in message
     assert "network 4096 -> 4096" in message, message
     assert "disk 0 -> 0" in message, message
@@ -334,6 +340,67 @@ def test_install_wait_names_silent_console_and_flat_counters(
     # And what qemu calls it, when that is not `running`: a guest paused by a
     # storage error reads exactly like one that stopped on its own.
     assert "qemu calls the guest io-error" in message, message
+
+
+def test_a_console_that_answers_when_reopened_says_so_in_the_verdict(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The difference between a guest that stopped and a console that went.
+
+    Five stalls on this cluster read `the console was silent` mid-compile, and
+    the counters cannot separate the two: these guests keep
+    `/var/tmp/portage` in RAM, so `gi-vm-desktop` was measured compiling
+    `fcitx-rime` with both disk counters frozen and `cpu 0.00`. A fresh
+    console that prints at once is a guest that never stopped.
+    """
+    clock = [0.0]
+    talking = _Talkative(clock)
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    serial = SerialConsole(TimedChannel(clock), BytesIO())
+    # The first console is the silent one the wait gave up on; the one the
+    # poke opens is the guest still printing.
+    opened = [0]
+
+    def _open() -> SerialConsole:
+        opened[0] += 1
+        return serial if opened[0] == 1 else SerialConsole(talking, BytesIO())
+
+    link = cluster.Reconnecting(_open)
+    watch = cluster.Watchdog(
+        tmp_path / "install.log", lambda: Traffic(4096, 0, 0.0), where="infra-node2"
+    )
+    watch.log.write_bytes(b"output before the idle window\n")
+
+    with pytest.raises(ConsoleTimeout) as raised:
+        link.wait_for("install", timeout=5.0, idle=2.0, watch=watch)
+
+    message = str(raised.value)
+    assert "showed" in message and "at once" in message, message
+    assert "still compiling" in message, message
+    # And it never had to be asked, so nothing was written to a guest that is
+    # working: `vm-luks` lost `grub-install` at operation 56 of 56 that way.
+    assert "until it was asked" not in message, message
+
+
+class _Talkative:
+    """A console that prints the moment anything reads it."""
+
+    def __init__(self, clock: list[float]) -> None:
+        self._clock = clock
+
+    def recv(self, size: int) -> bytes:
+        self._clock[0] += 1.0
+        return b"[3/24] still compiling\n"
+
+    def sendall(self, data: bytes) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
+
+    @property
+    def closed(self) -> bool:
+        return False
 
 
 def test_run_ceiling_ends_silent_guest_that_keeps_moving_bytes(
