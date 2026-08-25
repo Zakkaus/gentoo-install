@@ -219,6 +219,11 @@ STAGES: Final[dict[str, tuple[Run, ...]]] = {
         Run("fixtures/btrfs-luks.toml"),
         Run("fixtures/ext4-bios.toml", firmware="bios"),
         Run("fixtures/vm-cjk-kernel.toml"),
+        # `boot=False`: the product is a file on the scratch filesystem
+        # this runner mounts, and the target disk carries that
+        # filesystem rather than an installed system. `check_image`
+        # reads the partitions and filesystems out of the file itself.
+        Run("fixtures/vm-image.toml", boot=False),
         # Run by `tests/vm/convert.py` rather than `run.py`: it boots a
         # cloud image and converts what is already running, which is the
         # only thing a conversion can be measured against.
