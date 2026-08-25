@@ -122,35 +122,11 @@ DISK_PASSPHRASE = "install-disk"
 #: runner at five, so a fifth valid prompt passed one and failed the other.
 PASSPHRASE_ATTEMPTS: Final[int] = 5
 
-#: How long an answer has to come back on the console before it is taken to
-#: have been read rather than discarded. A passphrase prompt turns the echo
-#: off with `TCSAFLUSH`, which throws away whatever was typed before it: an
-#: answer that is echoed never reached the reader, and the prompt is still
-#: waiting. Bounded and short, because the echo is the local terminal's and
-#: arrives without the guest doing anything.
-ECHO_PATIENCE: Final[float] = 5.0
-
 #: How long a name prompt has to answer with a password prompt. Short,
 #: because `login` prints one at once when it read the name at all: the
 #: whole minute was spent waiting for a prompt agetty had already
 #: replaced with a second `login:`.
 NAME_PATIENCE: Final[float] = 20.0
-
-
-def discarded_by_the_prompt(console: "SerialConsole", answer: str) -> bool:
-    """Whether `answer` came back on the console after being typed at a prompt.
-
-    A local `vm-zfs-encrypted` sat at `Enter passphrase for 'rpool':` for its
-    whole 300s ceiling with `install-disk` echoed beside it: the echo proves
-    the prompt had not yet turned it off, so `TCSAFLUSH` discarded the answer
-    and no second prompt was ever going to be printed.
-    """
-    try:
-        console.expect(re.escape(answer), timeout=ECHO_PATIENCE)
-    except ConsoleTimeout:
-        return False
-    return True
-
 
 class Channel(Protocol):
     """What a console needs of its transport, and nothing more.
