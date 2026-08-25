@@ -51,6 +51,7 @@ from .console import (
     DISK_PASSPHRASE,
     PASSPHRASE_ATTEMPTS,
     PASSPHRASE_PROMPT,
+    PROMPT_SETTLE,
     SerialConsole,
 )
 from .monitor import type_text
@@ -517,10 +518,12 @@ def unlock_and_login(
             # failure, not the one in hand.
             console.answer_login("root", INSTALLED_PASSWORD, r"# ")
             return "console"
-        # Sent once. Answering again on an echo was tried and made it worse:
-        # ZFSBootMenu echoed every one of six sends on its own line and
-        # accepted none, so the retry turned one wrong answer into a line
-        # reading `install-diskinstall-disk…`. The echo is not a race here.
+        # Answered a moment late, and only once. Retrying on the echo was
+        # tried first and made it worse: ZFSBootMenu took none of six sends
+        # and the line became `install-diskinstall-disk…`. The prompt is
+        # printed before its reader is ready, so the fix is to wait, not to
+        # repeat.
+        time.sleep(PROMPT_SETTLE)
         console.send(DISK_PASSPHRASE)
     raise SystemExit("the disk kept asking for a passphrase; it is not the one installed")
 

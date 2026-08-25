@@ -128,6 +128,15 @@ PASSPHRASE_ATTEMPTS: Final[int] = 5
 #: replaced with a second `login:`.
 NAME_PATIENCE: Final[float] = 20.0
 
+#: How long a boot-time passphrase prompt is given to start reading
+#: before it is answered. ZFSBootMenu prints its prompt and sets the
+#: terminal up after it: locally `vm-zfs-encrypted` failed three times
+#: running, with the answer echoed on its own line and never taken,
+#: and the same fixture passed on the cluster, where a websocket adds
+#: the delay this does. Measured rather than derived — three seconds
+#: is what worked, and it costs one wait per run.
+PROMPT_SETTLE: Final[float] = 3.0
+
 class Channel(Protocol):
     """What a console needs of its transport, and nothing more.
 
