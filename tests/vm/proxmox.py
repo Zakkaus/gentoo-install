@@ -582,6 +582,27 @@ class GuestSpec:
     nonce: str = ""
 
 
+@dataclass(frozen=True)
+class Traffic:
+    """What a guest moved, kept in the two directions that mean different
+    things. Summed, a stalled guest reads `29577 bytes in 1200s` and nothing
+    says whether that was a network keepalive on a machine whose disk had
+    stopped or the other way round -- which is the whole question about the
+    stalls on this cluster.
+    """
+
+    network: int
+    disk: int
+    cpu: float
+
+    @property
+    def moved(self) -> int:
+        """What the watchdog decides on. Either direction is enough: a compile
+        with its build directory in RAM answers no network and writes nothing
+        to the disk the hypervisor counts."""
+        return self.network + self.disk
+
+
 @dataclass
 class Guest:
     """A machine on the cluster, and the only thing allowed to delete it."""
@@ -732,7 +753,7 @@ class Guest:
         said = status.get("qmpstatus")
         return said if isinstance(said, str) else ""
 
-    def transferred(self) -> tuple[int, float] | None:
+    def transferred(self) -> Traffic | None:
         """Bytes this guest has received and written, and its CPU share.
 
         What the watchdog reads when the console is silent: an install
@@ -745,12 +766,15 @@ class Guest:
             # One unanswered request is not evidence about the guest, and a
             # watchdog that raises here stops the whole schedule.
             return None
-        moved = int(status.get("netin", 0)) + int(status.get("diskwrite", 0))
         # The share of a core the guest is using, from the same reading. A
         # compile whose build directory is in RAM moves no bytes at all:
         # `vm-binhost-fallback` was ended for 7781 bytes in twenty minutes
         # while it was building grub.
-        return moved, float(status.get("cpu", 0.0))
+        return Traffic(
+            network=int(status.get("netin", 0)),
+            disk=int(status.get("diskwrite", 0)),
+            cpu=float(status.get("cpu", 0.0)),
+        )
 
     def running(self) -> bool:
         status = self.api.call("GET", f"/nodes/{self.node}/qemu/{self.vmid}/status/current")

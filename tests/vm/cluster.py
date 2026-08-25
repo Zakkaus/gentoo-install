@@ -101,6 +101,7 @@ from .proxmox import (
     Node,
     ProxmoxError,
     ProxmoxTransientError,
+    Traffic,
     VMID_FIRST,
     VMID_LAST,
     Line,
@@ -518,7 +519,7 @@ class Watchdog:
     """
 
     log: Path
-    counters: Callable[[], tuple[int, float] | None]
+    counters: Callable[[], Traffic | None]
     #: Where the guest is. A verdict that says only `counters were flat` is a
     #: guess about a cluster whose other tenants this campaign does not
     #: control: `static-ip` went to cpu 0.00 mid-compile and the node it was
@@ -538,6 +539,8 @@ class Watchdog:
     _moved: int = field(default=0, init=False)
     _counter_before: int = field(default=0, init=False)
     _counter_after: int = field(default=0, init=False)
+    _network: tuple[int, int] = field(default=(0, 0), init=False)
+    _disk: tuple[int, int] = field(default=(0, 0), init=False)
     _cpu: float = field(default=0.0, init=False)
     #: Consecutive samples the hypervisor would not answer.
     _blind: int = field(default=0, init=False)
@@ -577,9 +580,14 @@ class Watchdog:
             self._blind += 1
             return self._blind < BLIND_SAMPLES
         self._blind = 0
-        moved, self._cpu = traffic
+        moved, self._cpu = traffic.moved, traffic.cpu
         self._counter_before = self._moved
         self._counter_after = moved
+        # Both directions, so a verdict can say which of them stopped. The
+        # first sample has no earlier reading to compare against, so it is its
+        # own predecessor rather than a jump from zero.
+        self._network = (self._network[1] or traffic.network, traffic.network)
+        self._disk = (self._disk[1] or traffic.disk, traffic.disk)
         # Either signal is enough. A compile whose build directory is in RAM
         # writes nothing and answers no network, and `vm-binhost-fallback` was
         # ended for that at 48.8 minutes with grub half built.
@@ -618,7 +626,8 @@ class Watchdog:
                     )
             return (
                 f"counters were flat{node} "
-                f"({self._counter_before} -> {self._counter_after} bytes, "
+                f"(network {self._network[0]} -> {self._network[1]}, "
+                f"disk {self._disk[0]} -> {self._disk[1]}, "
                 f"cpu {self._cpu:.2f}){said}"
             )
 
