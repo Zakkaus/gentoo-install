@@ -86,13 +86,31 @@ def installed_package_paths(target: Path, package: str) -> frozenset[PurePosixPa
     return frozenset(paths)
 
 
+def _is_absent(error: TargetEscape) -> bool:
+    """Whether this escape is a component that is not there.
+
+    `open_in_target` opens each component itself, so a directory missing on
+    the way arrives as `TargetEscape`, and a probe that re-raised it answered
+    `cannot inspect` for a package that is not installed at all -- where the
+    caller has the message that names the reason. `ENOENT` only: measured on
+    this kernel, `O_NOFOLLOW | O_DIRECTORY` answers `ENOTDIR` for a symlink
+    out of the target and `ENOENT` for a missing name, so taking both would
+    turn the escape this function exists to catch into a quiet `False`.
+    """
+    return isinstance(error.__cause__, FileNotFoundError)
+
+
 def target_is_file(target: Path, path: PurePosixPath) -> bool:
     """Whether an absolute target path is an existing regular file."""
     try:
         handle = open_in_target(target, path, os.O_RDONLY)
     except (FileNotFoundError, NotADirectoryError, IsADirectoryError):
         return False
-    except (OSError, TargetEscape) as error:
+    except TargetEscape as error:
+        if _is_absent(error):
+            return False
+        raise CommandFailed(f"cannot inspect target file {path}") from error
+    except OSError as error:
         raise CommandFailed(f"cannot inspect target file {path}") from error
     try:
         return stat.S_ISREG(os.fstat(handle).st_mode)
@@ -106,7 +124,11 @@ def target_is_directory(target: Path, path: PurePosixPath) -> bool:
         handle = open_in_target(target, path, os.O_RDONLY | os.O_DIRECTORY)
     except (FileNotFoundError, NotADirectoryError):
         return False
-    except (OSError, TargetEscape) as error:
+    except TargetEscape as error:
+        if _is_absent(error):
+            return False
+        raise CommandFailed(f"cannot inspect target directory {path}") from error
+    except OSError as error:
         raise CommandFailed(f"cannot inspect target directory {path}") from error
     os.close(handle)
     return True
