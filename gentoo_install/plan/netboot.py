@@ -1199,10 +1199,6 @@ def _without_previous(text: str) -> str:
     return before + after.lstrip("\n")
 
 
-def _under(path: PurePosixPath, parent: str) -> bool:
-    return str(path).startswith(parent.rstrip("/") + "/")
-
-
 def _only_image(context: Context, place: PurePosixPath, suffix: str) -> PurePosixPath:
     """The one file of that kind in the directory this plan owns."""
     said = context.run(["ls", "--almost-all", str(place)], check=False)
