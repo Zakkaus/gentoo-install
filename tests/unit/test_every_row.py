@@ -321,3 +321,31 @@ def test_no_row_loses_its_value_when_it_is_opened_again() -> None:
             wrong.append(f"{row.key}: chose {chose!r}, reopened as {row.value(again.unwrap(), at)!r}")
     assert not wrong, wrong
     assert walked > 10, walked
+
+
+def test_an_encrypted_pool_with_no_key_file_still_reads_as_encrypted() -> None:
+    """The row asked whether a pool had a `passphrase_file`; every rule in
+    `compat.py` asks whether it is `encrypted`.
+
+    `validate.py` refuses a file without the flag and allows the flag without
+    a file, so a pool keyed any other way is encrypted to the planner and to
+    the compatibility table while the menu said `off` — the operator reads one
+    answer and the install performs the other.
+    """
+    from gentoo_install.model.compat import _encrypted_pool
+    from gentoo_install.model.device import ZfsPool
+
+    from .layouts import zfs_root
+
+    layout = zfs_root()
+    installation = config(layout)
+    pools = installation.disk.graph.of_type(ZfsPool)
+    assert pools and pools[0].encrypted, pools
+    assert not pools[0].passphrase_file, pools[0].passphrase_file
+
+    assert _encrypted_pool(installation.disk.graph, installation.disk.root)
+
+    row = next(one for one in every_row() if one.key == "encryption")
+    at = context()
+    at.columns = 100
+    assert row.value(installation, at) == "on", row.value(installation, at)
