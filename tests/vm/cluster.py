@@ -3192,6 +3192,17 @@ class Reconnecting:
         except (ConsoleClosed, ProxmoxError) as error:
             return f"a new console could not be opened: {error}"
         if woken:
+            # A prompt is a different failure from a stall and was being
+            # counted as one: `vm-cjk-kernel` printed `MARK_21_BEGIN`, stopped
+            # mid-compiler-line, and answered `root@livecd ~ #` when poked at
+            # 178.9 minutes. The guest never stopped -- the console stopped
+            # delivering, and the marker was printed into a connection nobody
+            # was receiving on.
+            if re.search(_ANY_ROOT_PROMPT.rstrip(), woken.decode("utf-8", "replace")):
+                return (
+                    "the guest is at a shell prompt, so its command ended and "
+                    "the console stopped delivering rather than the guest stopping"
+                )
             return f"a new console said nothing until it was asked, then {woken[-POKE_BYTES:]!r}"
         # Whether the proxy answered is the difference between a console that
         # is gone and a guest that has stopped, and both look like silence.
