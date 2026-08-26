@@ -27,6 +27,7 @@ from ..model.config import (
 )
 from ..model.compat import CJK_KERNELS, KERNEL_PACKAGES
 from ..model import compat, mirrors
+from ..model.templates import Layout
 from ..model.device import (
     DeviceGraph,
     DeviceId,
@@ -477,17 +478,24 @@ def _layout(config: InstallConfig, context: Context) -> str:
         return context.translate("manual, {count} partitions").format(
             count=len(context.layout.slices)
         )
-    if context.choice.layout.value == "whole-disk":
-        layout = context.translate("whole-disk")
-    elif context.choice.layout.value == "whole-disk-btrfs":
-        layout = context.translate("whole-disk-btrfs")
-    elif context.choice.layout.value == "whole-disk-zfs":
-        layout = context.translate("whole-disk-zfs")
-    else:
-        layout = context.translate("reuse")
-    if context.choice.layout.value.startswith("whole-disk"):
-        return f"{layout} ({context.translate('erases the disk')})"
-    return layout
+    # Keyed on the member, not on its string. Spelled out as three `==`
+    # branches and a `startswith`, a fourth whole-disk layout fell to the
+    # `else` and was labelled `reuse` while the prefix test still added
+    # `erases the disk`: the row that decides whether a disk is wiped said
+    # both. A member with no label here raises rather than mislabels, and
+    # `test_every_layout_has_a_label` refuses one before it can.
+    labels = {
+        Layout.WHOLE_DISK: context.translate("whole-disk"),
+        Layout.WHOLE_DISK_BTRFS: context.translate("whole-disk-btrfs"),
+        Layout.WHOLE_DISK_ZFS: context.translate("whole-disk-zfs"),
+        Layout.REUSE: context.translate("reuse"),
+    }
+    layout = labels[context.choice.layout]
+    # Whether it erases is whether it builds a table at all, which is what
+    # `Layout.REUSE` is defined as not doing.
+    if context.choice.layout is Layout.REUSE:
+        return layout
+    return f"{layout} ({context.translate('erases the disk')})"
 
 
 def _template_writes_the_table(config: InstallConfig, context: Context) -> str:
