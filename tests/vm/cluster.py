@@ -3168,10 +3168,12 @@ class Reconnecting:
 
         Every stall on this cluster is `the console was silent` with the last
         line mid-compile, and the counters cannot tell that from a healthy
-        build: these guests keep `/var/tmp/portage` in RAM, so `gi-vm-desktop`
-        was measured compiling `fcitx-rime` with both disk counters frozen and
-        `cpu 0.00`. What separates the two is whether a new console shows the
-        build still printing, and nothing had ever opened one.
+        build: `gi-vm-desktop` was measured compiling `fcitx-rime` with both
+        disk counters frozen and `cpu 0.00`, because the hypervisor counts
+        block writes and a compile's output sits in the guest's page cache
+        first. No fixture sets `build_in_ram`, so this is not a tmpfs. What
+        separates the two is whether a new console shows the build still
+        printing, and nothing had ever opened one.
 
         Passive first, because a live guest mid-compile prints at once. The
         newline is only for a window that stayed empty, where the guest is
