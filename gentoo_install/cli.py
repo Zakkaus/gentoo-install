@@ -158,6 +158,12 @@ def parser() -> argparse.ArgumentParser:
         "what an unattended run wants",
     )
     parsed.add_argument(
+        "--menu",
+        action="store_true",
+        help="a person is driving this console, so open the interface even though "
+        "--no-shell is set; requires a terminal on stdin",
+    )
+    parsed.add_argument(
         "--skip-preflight",
         action="store_true",
         help="install without checking the machine first, for a harness that knows what it booted",
@@ -412,6 +418,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         if error.code == 2:
             return EXIT_CONFIG
         raise
+    if arguments.menu and not sys.stdin.isatty():
+        # Outside the walk, because a preflight refusal with no `--config` is
+        # carried back into the menu as a reason to answer differently, and no
+        # answer makes a pipe into a terminal.
+        print(
+            "preflight: --menu says a person is driving this console, but "
+            "stdin is not a terminal",
+            file=sys.stderr,
+        )
+        return EXIT_PREFLIGHT
     state = RunState(disk_was_written=bool(arguments.resume))
     # Why the previous walk's answers were turned down, carried back into the
     # menu. A refusal that reaches the operator as a line on a dead terminal
@@ -809,7 +825,14 @@ def _confirmed_swap(
 
 
 def _unattended(arguments: argparse.Namespace) -> bool:
-    """Whether there is nobody at the keyboard to answer a question."""
+    """Whether there is nobody at the keyboard to answer a question.
+
+    `--no-shell` says the closing offer of a root shell is unwanted, not that
+    nobody is here, and the driver CD adds it to every run including the one an
+    operator drives a key at a time. `--menu` is how that side says otherwise.
+    """
+    if arguments.menu:
+        return False
     return bool(arguments.no_shell) or not sys.stdin.isatty()
 
 

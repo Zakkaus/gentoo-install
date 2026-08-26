@@ -2082,6 +2082,11 @@ def _created_on_a_free_vmid(
     raise conflict
 
 
+#: What a session hands the installer. `--menu` because the driver CD adds
+#: `--no-shell` to every run, and without it the interface refuses to open.
+DRIVEN_BY_A_PERSON: Final[str] = "--lang zh-TW --menu"
+
+
 def tui_execution(
     api: Api, node: str, name: str, spec: int, workdir: Path, vmid: int = 0
 ) -> Running:
@@ -2153,7 +2158,7 @@ def tui_execution(
     # No `--config`: the menu is the subject.
     link.console.send(
         f"TERM=xterm LINES={TUI_LINES} COLUMNS={TUI_COLUMNS} "
-        "sh /mnt/driver/install.sh --lang zh-TW"
+        f"sh /mnt/driver/install.sh {DRIVEN_BY_A_PERSON}"
     )
     held.console = link
     return held
@@ -2257,7 +2262,7 @@ def tui_conversion(
     link.run(f"stty rows {TUI_LINES} cols {TUI_COLUMNS}")
     link.console.send(
         f"TERM=xterm LINES={TUI_LINES} COLUMNS={TUI_COLUMNS} "
-        "sh /mnt/driver/install.sh --lang zh-TW"
+        f"sh /mnt/driver/install.sh {DRIVEN_BY_A_PERSON}"
     )
     return Running(
         guest=guest,
