@@ -2899,3 +2899,40 @@ def test_a_half_finished_clone_is_cleared_before_the_sync_is_retried(
     # double raises instead of recording it, so the pairing is read from the
     # removals rather than from an alternation.
     assert kinds == ["rm", "rm", "sync"], kinds
+
+
+def test_a_build_killed_for_memory_says_so_rather_than_exit_1() -> None:
+    """`vm-gnome` died compiling `net-libs/webkit-gtk` with four jobs in eight
+    gibibytes and the installer said `emerge ended with exit 1`.
+
+    The guest's own log held the answer -- `x86_64-pc-linux-gnu-g++: fatal
+    error: Killed` and `Out of memory: Killed ... task=cc1plus` -- and the
+    operator had to find it. The package is not broken and retrying changes
+    nothing; what changes it is fewer jobs or some swap, so the message says
+    that instead of leaving an exit code.
+    """
+    for said in (
+        "x86_64-pc-linux-gnu-g++: fatal error: Killed\ncompilation terminated.",
+        "Out of memory: Killed process 419676 (cc1plus)",
+        "virtual memory exhausted: Cannot allocate memory",
+    ):
+        recorder = Recorder()
+        recorder.answering = lambda argv, text=said: CommandOutput(text, 1)
+        with pytest.raises(CommandFailed, match="ran out of memory") as stopped:
+            portage.Emerge(
+                packages=("net-libs/webkit-gtk",), summary="install the desktop"
+            ).apply(recorder)
+        # The two things that change the outcome, and the original text: a
+        # message that drops what the compiler said is one nobody can check.
+        assert "MAKEOPTS" in str(stopped.value), stopped.value
+        assert "swap" in str(stopped.value), stopped.value
+        assert "exit 1" in str(stopped.value), stopped.value
+
+    # And an ordinary failure is still an ordinary failure.
+    plain = Recorder()
+    plain.answering = lambda argv: CommandOutput("configure: error: no gtk", 1)
+    with pytest.raises(CommandFailed) as ordinary:
+        portage.Emerge(
+            packages=("net-libs/webkit-gtk",), summary="install the desktop"
+        ).apply(plain)
+    assert "ran out of memory" not in str(ordinary.value), ordinary.value

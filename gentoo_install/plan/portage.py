@@ -1026,6 +1026,13 @@ class Emerge(Operation):
         if not _binpkg_failure(str(result)) or context.degraded(BINARY_PACKAGES):
             if self._optional(context, str(result)):
                 return
+            if _ran_out_of_memory(str(result)):
+                raise CommandFailed(
+                    "the compiler was killed because the machine ran out of memory, "
+                    "not because the package is broken: lower the job count in "
+                    "MAKEOPTS or give the machine swap, then resume. "
+                    f"emerge ended with {result.ending}: {worth_reading(str(result))}"
+                )
             raise CommandFailed(f"emerge ended with {result.ending}: {worth_reading(str(result))}")
         marker = _binpkg_failure(str(result))
         if (again := self._one_more_binary_try(context, command)) is not None:
@@ -1111,6 +1118,23 @@ BINHOST_INDEX_FAILURE: Final[str] = "Error fetching binhost package info"
 #: `!!! [gentoo] <urlopen error [Errno -3] Temporary failure in name
 #: resolution>`. Captured, because without it the recorded reason says the
 #: host has no index when the guest could not resolve its name at all.
+#: What the kernel and the compiler say when a build is killed for memory.
+#: `vm-gnome` died compiling `net-libs/webkit-gtk` with four jobs in eight
+#: gibibytes and the installer reported `emerge ended with exit 1`, leaving
+#: the operator to find `Out of memory: Killed ... task=cc1plus` in the log.
+#: Both spellings, because the kernel's line is not always in the emerge
+#: output the installer captured while gcc's always is.
+_OUT_OF_MEMORY: Final[re.Pattern[str]] = re.compile(
+    r"Out of memory: Killed|fatal error: Killed|virtual memory exhausted|"
+    r"cc1plus: out of memory|g\+\+: fatal error: Killed"
+)
+
+
+def _ran_out_of_memory(said: str) -> bool:
+    """Whether this emerge failed because the machine had no memory left."""
+    return _OUT_OF_MEMORY.search(said) is not None
+
+
 _INDEX_UNREADABLE: Final[re.Pattern[str]] = re.compile(
     r"!!! \[(?P<host>[^\]]+)\] "
     + re.escape(BINHOST_INDEX_FAILURE)
