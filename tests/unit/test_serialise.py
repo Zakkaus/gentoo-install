@@ -9,11 +9,14 @@ from pathlib import Path
 import pytest
 
 from gentoo_install.exec.config import load
-from gentoo_install.model.config import InstallConfig, Overlay, PortageConfig, ProxyConfig, User
+from gentoo_install.model.config import DiskConfig, InstallConfig, Overlay, PortageConfig, ProxyConfig, User
 from gentoo_install.model.config import ProxyKind
 from gentoo_install.model.device import DeviceGraph, DeviceId, Existing, Node, PartitionTable
 from gentoo_install.model.parse import parse
 from gentoo_install.model.serialise import KINDS, REDACTED, SECRET, to_toml
+from gentoo_install.model import templates
+from gentoo_install.model.templates import Layout
+from gentoo_install.model.config import Firmware
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
@@ -26,6 +29,32 @@ def _round_trip(config: InstallConfig) -> InstallConfig:
 def test_every_fixture_survives_a_round_trip(path: Path) -> None:
     config = parse(tomllib.loads(path.read_text()))
     assert _round_trip(config) == config
+
+@pytest.mark.parametrize(
+    "layout",
+    [one for one in Layout if one is not Layout.REUSE],
+    ids=lambda one: one.value,
+)
+def test_every_template_the_menu_builds_survives_a_round_trip(layout: Layout) -> None:
+    """The fixtures above all came from TOML, so they agreed by construction:
+    a second parse of what a first parse produced cannot disagree with it.
+
+    What an operator exports is not a fixture. `templates.build` constructs
+    the graph in Python, and its `rootpart` carried `share=None` while an
+    omitted `size` parsed back as an empty `Share` — the same answer to
+    `takes_the_rest` and a different object, so every export-then-import of a
+    menu-built configuration compared unequal.
+    """
+    graph, root = templates.build(
+        templates.Choice(
+            disk="/dev/disk/by-id/virtio-target0",
+            layout=layout,
+            firmware=Firmware.UEFI,
+        )
+    )
+    config = InstallConfig(disk=DiskConfig(graph=graph, root=root))
+    assert _round_trip(config) == config
+
 
 def test_a_dd_configuration_survives_a_round_trip() -> None:
     configuration = parse(

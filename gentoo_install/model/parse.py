@@ -504,6 +504,12 @@ def _extent(raw: Mapping[str, Any], at: str) -> tuple[Size | None, Share | None]
                 "it does not already say; bound a share or a rest instead"
             )
         return Size.parse(written), None
+    if written is None and not bounded:
+        # Nothing written is `share=None`, which is what `templates.build`
+        # constructs for the same partition. Answering `Share()` instead made
+        # every template fail export-then-import equality: the two mean the
+        # same to `takes_the_rest` and compare unequal.
+        return None, None
     percent: Decimal | None = None
     if written is not None and written.endswith("%"):
         try:
