@@ -378,3 +378,21 @@ def test_every_layout_has_a_label_and_only_reuse_keeps_the_disk() -> None:
         assert erases is (member is not Layout.REUSE), (member, shown)
         # And the label is the member's own, not another member's.
         assert member.value in shown or member is Layout.REUSE, (member, shown)
+
+
+def test_an_encrypted_pool_needs_an_initramfs_keymap_too() -> None:
+    """The row said `nothing is unlocked at boot` for an encrypted ZFS root.
+
+    `compat._encrypted_pool` says native ZFS encryption prompts for a
+    passphrase exactly as a LUKS container does, and `zbm-unlock` and
+    `vm-zfs-encrypted` both answer that prompt on a real machine, so the
+    operator was told no keyboard layout mattered for a prompt that appears.
+    Same rule as the encryption row, one reader behind.
+    """
+    from .layouts import zfs_root
+
+    row = next(one for one in every_row() if one.key == "keymap_initramfs")
+    at = context()
+    at.columns = 100
+    shown = row.value(config(zfs_root()), at)
+    assert "nothing is unlocked at boot" not in shown, shown
