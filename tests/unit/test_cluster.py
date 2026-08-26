@@ -2968,6 +2968,37 @@ def test_the_silent_console_sentence_is_the_one_the_editor_raises(
     assert cluster.SILENT_EDITOR in str(raised.value)
 
 
+def test_every_sentence_worth_another_boot_is_one_the_menu_raises() -> None:
+    """The retry fired for one sentence and a second recoverable failure went
+    past it: `static-ip` was lost at 0.5 minutes to `the entry booted before
+    its countdown was held`, having passed at 18.2 minutes the round before.
+
+    Read off what the code raises rather than out of its source, and over the
+    whole set rather than the one that was written first.
+    """
+    from tests.vm import cluster, proxmox
+    from tests.vm.proxmox import GrubNotReadable
+
+    class Booting:
+        """A menu whose countdown has already expired."""
+
+        def expect(self, pattern: str, timeout: float) -> bytes:
+            return b"executed automatically in 0s"
+
+        def send_raw(self, keys: str) -> None:
+            return None
+
+        def snapshot(self, seconds: float) -> bytes:
+            return b"Booting `Boot LiveCD (kernel: gentoo)'\r\n"
+
+    with pytest.raises(GrubNotReadable) as raised:
+        proxmox.hold_the_menu(cast(Any, Booting()), timeout=0.5)
+    assert cluster.BOOTED_ITSELF in str(raised.value), raised.value
+    # And the set the retry reads is the one both sentences are in.
+    assert any(one in str(raised.value) for one in cluster.WORTH_ANOTHER_BOOT)
+    assert cluster.SILENT_EDITOR in cluster.WORTH_ANOTHER_BOOT
+
+
 def test_a_reconnect_grant_never_shortens_the_ceiling() -> None:
     """`vm-desktop` was ended at `899s of 898s elapsed` with
     `dev-qt/qtsensors` still compiling, six hours into a run whose ceiling had
