@@ -370,7 +370,14 @@ def _unlock_keymap(config: InstallConfig, context: Context) -> str:
     prompt that will not appear.
     """
     graph = config.disk.graph
-    if not graph.of_type(Luks) and not config.kernel.remote_unlock.enabled:
+    # An encrypted pool as well as a container: `compat._encrypted_pool` says
+    # native ZFS encryption "prompts for a passphrase exactly as a LUKS
+    # container does", and this row told the operator no keyboard mattered
+    # for a prompt that appears.
+    encrypted = graph.of_type(Luks) or any(
+        pool.encrypted for pool in graph.of_type(ZfsPool)
+    )
+    if not encrypted and not config.kernel.remote_unlock.enabled:
         return context.translate("nothing is unlocked at boot")
     chosen = config.system.keymap_initramfs
     if chosen:
