@@ -942,10 +942,11 @@ class Emerge(Operation):
     repository_bootstrap: bool = False
     mode: InstallMode = InstallMode.NORMAL
     source: SourcePolicy = SourcePolicy.binaries_allowed()
-    #: Whether this run has a binary host at all. The stage3 ships an enabled
-    #: `binrepos.conf` for the official one, so `--getbinpkg=y` reaches it
-    #: even when the configuration turned every host off: `ext2` compiled 48
-    #: packages and fetched 20 from a host it had not asked for.
+    #: Whether this run has a binary host at all, which decides `--getbinpkg`.
+    #: The stage3 ships an enabled `binrepos.conf` for the official one and
+    #: `ext2` once compiled 48 packages while fetching 20 from a host it had
+    #: not asked for; `build()` now schedules `DisableBinhost(name="gentoo")`
+    #: before any emerge, so that host is gone rather than merely unasked for.
     binary_host: bool = True
     #: What to degrade rather than fail, when this emerge is what enables an
     #: optional path. Empty means the install stops, which is right for
