@@ -479,9 +479,16 @@ check added in `#996` reported it rather than recording an ordinary binary
 package install as coverage. A fixture whose failure is borrowed from the
 outside world stops measuring on a day nobody chooses.
 
-CJK text-console rendering is not covered either, and the `vm-cjk-kernel` row
-above does not cover it: that run establishes that the patched kernel merges,
-that `system.console_cjk` reaches the target and that the machine boots with no
-failed unit. Whether the console draws a CJK glyph is a different question, and
-one build answered it wrongly with only `CONFIG_FONT_CJK_16x16` while every
-check passed.
+CJK text-console rendering is covered as of `fdb27e31c61bd`, and it was not
+before: the `vm-cjk-kernel` rows above establish that the patched kernel
+merges, that `system.console_cjk` reaches the target and that the machine boots
+with no failed unit, none of which says a glyph appeared. One build answered
+that wrongly with only `CONFIG_FONT_CJK_16x16` while every check passed.
+
+A local `vm-cjk-kernel` run now writes two narrow characters on one console row
+and two wide ones on the next, dumps the framebuffer through qemu's monitor and
+compares the two rows. Measured on the installed system: `AB` reached 15 pixels
+and the wide pair reached 31, on a 1280x800 framebuffer console whose cells are
+8 wide. The cell is taken from the narrow row of that same screen rather than
+from a constant — `TEXT_CELL_WIDTH` is 9, which is VGA text mode's, and the
+threshold built from it passed here by four pixels.
