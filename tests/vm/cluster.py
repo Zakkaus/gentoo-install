@@ -4545,9 +4545,9 @@ def _edit_uefi_cmdline(guest: Guest, link: "Reconnecting") -> None:
         append_to_cmdline(link, EXTRA_CMDLINE)
         return
     except GrubNotReadable as error:
-        if SILENT_EDITOR not in str(error):
+        if not any(one in str(error) for one in WORTH_ANOTHER_BOOT):
             raise
-        print(f"the console said nothing to the editor, booting once more: {error}", flush=True)
+        print(f"the medium's menu was not editable, booting once more: {error}", flush=True)
     guest.reset()
     link.reopen(solicit_prompt=False)
     append_to_cmdline(link, EXTRA_CMDLINE)
@@ -4557,6 +4557,17 @@ def _edit_uefi_cmdline(guest: Guest, link: "Reconnecting") -> None:
 #: the wrong thing. Matched rather than re-derived, so the two sentences
 #: cannot drift apart into a retry that never fires.
 SILENT_EDITOR: Final[str] = "the console delivered"
+
+#: What `hold_the_menu` says when the countdown ran out before the key that
+#: stops it arrived. `static-ip` was lost at 0.5 minutes to this, having
+#: passed the same fixture at 18.2 minutes the round before.
+BOOTED_ITSELF: Final[str] = "booted before its countdown"
+
+#: The failures a fresh boot can answer. A set rather than one constant: the
+#: retry existed for `SILENT_EDITOR` alone and a second recoverable failure
+#: went straight past it, which is the shape this repository keeps hitting --
+#: one rule, one reader, a new instance nobody added.
+WORTH_ANOTHER_BOOT: Final[tuple[str, ...]] = (SILENT_EDITOR, BOOTED_ITSELF)
 
 
 def _edit_bios_cmdline(guest: Guest, link: "Reconnecting") -> None:
