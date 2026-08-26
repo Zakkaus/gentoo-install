@@ -3181,16 +3181,23 @@ class Reconnecting:
         """
         try:
             self.reopen(solicit_prompt=False)
-            said = self._listen(POKE_PATIENCE)
+            first = self._listen(POKE_PATIENCE)
+            said = _without_the_banner(first)
             if said:
                 return f"a new console showed {said[-POKE_BYTES:]!r} at once"
             self.console.send("")
-            woken = self._listen(POKE_PATIENCE)
+            woken = _without_the_banner(self._listen(POKE_PATIENCE))
         except (ConsoleClosed, ProxmoxError) as error:
             return f"a new console could not be opened: {error}"
         if woken:
             return f"a new console said nothing until it was asked, then {woken[-POKE_BYTES:]!r}"
-        return f"a new console opened and stayed empty for {2 * POKE_PATIENCE:.0f}s"
+        # Whether the proxy answered is the difference between a console that
+        # is gone and a guest that has stopped, and both look like silence.
+        greeted = "the proxy greeted it and " if TERMPROXY_BANNER.search(first) else ""
+        return (
+            f"a new console opened, {greeted}the guest wrote nothing for "
+            f"{2 * POKE_PATIENCE:.0f}s"
+        )
 
     def _listen(self, patience: float) -> bytes:
         """Everything that arrives in this window, looking for nothing."""
@@ -3610,6 +3617,21 @@ def _name_the_user(link: Reconnecting) -> bool:
 #: no window to wait out; the growth below is kept for the console that proves
 #: otherwise by echoing.
 PASSWORD_ECHO_OFF_AFTER: Final[float] = 0.0
+
+#: What Proxmox's own terminal proxy writes when a session attaches, which is
+#: not the guest saying anything. `zfs-zbm` stalled at 95.5 minutes and the
+#: poke answered `a new console showed b'OKstarting serial terminal on
+#: interface serial0'`, which is this and nothing else: the check matched the
+#: greeting produced by opening it.
+TERMPROXY_BANNER: Final[re.Pattern[bytes]] = re.compile(
+    rb"OK\s*starting serial terminal on interface serial\d+\s*"
+)
+
+
+def _without_the_banner(said: bytes) -> bytes:
+    """What the guest said, with the proxy's own greeting removed."""
+    return TERMPROXY_BANNER.sub(b"", said).strip()
+
 
 #: A pattern nothing matches, for a read whose point is what arrived rather
 #: than what it was looking for.

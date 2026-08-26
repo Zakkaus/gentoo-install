@@ -325,7 +325,11 @@ def test_install_wait_names_silent_console_and_flat_counters(
     assert "console was silent" in message
     # This console answers nothing, which is what a guest that has really
     # stopped looks like -- and it now says so instead of leaving it open.
-    assert "stayed empty" in message, message
+    # Without the proxy's greeting, because this fake never sends one: that
+    # clause is the difference between a console that is gone and a guest
+    # that stopped.
+    assert "wrote nothing" in message, message
+    assert "the proxy greeted it" not in message, message
     assert "counters were flat" in message
     assert "network 4096 -> 4096" in message, message
     assert "disk 0 -> 0" in message, message
@@ -385,12 +389,13 @@ def test_a_console_that_answers_when_reopened_says_so_in_the_verdict(
 class _Talkative:
     """A console that prints the moment anything reads it."""
 
-    def __init__(self, clock: list[float]) -> None:
+    def __init__(self, clock: list[float], says: bytes = b"[3/24] still compiling\n") -> None:
         self._clock = clock
+        self._says = says
 
     def recv(self, size: int) -> bytes:
         self._clock[0] += 1.0
-        return b"[3/24] still compiling\n"
+        return self._says
 
     def sendall(self, data: bytes) -> None:
         return None
@@ -401,6 +406,41 @@ class _Talkative:
     @property
     def closed(self) -> bool:
         return False
+
+
+def test_the_proxys_own_greeting_is_not_the_guest_speaking(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`zfs-zbm` stalled at 95.5 minutes and the poke answered `a new console
+    showed b'OKstarting serial terminal on interface serial0'`, which is what
+    Proxmox writes when a session attaches and nothing the guest did. The
+    check matched the greeting opening it produced -- the same shape as a
+    shell echoing the command that asked it a question."""
+    clock = [0.0]
+    banner = _Talkative(clock, b"OKstarting serial terminal on interface serial0\r\n")
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    serial = SerialConsole(TimedChannel(clock), BytesIO())
+    opened = [0]
+
+    def _open() -> SerialConsole:
+        opened[0] += 1
+        return serial if opened[0] == 1 else SerialConsole(banner, BytesIO())
+
+    link = cluster.Reconnecting(_open)
+    watch = cluster.Watchdog(
+        tmp_path / "install.log", lambda: Traffic(4096, 0, 0.0), where="infra-node1"
+    )
+    watch.log.write_bytes(b"output before the idle window\n")
+
+    with pytest.raises(ConsoleTimeout) as raised:
+        link.wait_for("install", timeout=5.0, idle=2.0, watch=watch)
+
+    message = str(raised.value)
+    assert "at once" not in message, message
+    # And it says the proxy answered, because a console that is gone and a
+    # guest that has stopped are the two readings and both look like silence.
+    assert "the proxy greeted it" in message, message
+    assert "wrote nothing" in message, message
 
 
 def test_run_ceiling_ends_silent_guest_that_keeps_moving_bytes(
