@@ -123,9 +123,9 @@ class CursesScreen:
             if pressed != "KEY_RESIZE" and not too_small(self):
                 return pressed
             curses.update_lines_cols()
-            self._window.erase()
             if not too_small(self):
                 return pressed
+            self._window.erase()
             self._show_too_small()
             if pressed in ("\x1b", "\x03"):
                 return pressed
