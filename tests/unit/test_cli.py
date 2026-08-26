@@ -2422,3 +2422,30 @@ def test_a_dry_run_reads_a_capacity_only_when_a_share_needs_one() -> None:
     # no capacity to describe, so it must not drag a probe in behind it.
     rested = parse(tomllib.loads(base.replace(anchor, f'{anchor}\nsize = "rest"')))
     assert not asks_for_a_share(rested.disk.graph)
+
+
+def test_a_resume_with_no_journal_refuses_instead_of_partitioning(tmp_path: Path) -> None:
+    """`--resume` says it carries on "instead of partitioning the disk again".
+
+    With nothing to resume the code started a fresh journal, left `finished`
+    empty and applied the whole operation list -- partitioning included. The
+    work directory is a tmpfs, so the ordinary way to arrive here is a reboot,
+    which is exactly when an operator believes a resume is what they asked
+    for.
+    """
+    import pytest as _pytest
+
+    from gentoo_install import cli
+    from gentoo_install.errors import ResumeRefused
+
+    # A journal with entries carries on, which is the whole point of the flag.
+    cli._refuse_a_resume_with_no_journal(tmp_path, True)
+
+    with _pytest.raises(ResumeRefused) as refused:
+        cli._refuse_a_resume_with_no_journal(tmp_path / "run", False)
+    said = str(refused.value)
+    # Both halves, because the operator's next move depends on which is wrong:
+    # the flag they passed, and the directory that turned out to be empty.
+    assert "--resume" in said, said
+    assert str(tmp_path / "run") in said, said
+    assert "partition" in said, said

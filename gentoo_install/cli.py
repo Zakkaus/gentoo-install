@@ -677,8 +677,7 @@ def install(
         if arguments.resume:
             resuming = journal.resume()
             _refuse_a_different_run(journal, identity, record)
-            if not resuming:
-                journal.started(**identity)
+            _refuse_a_resume_with_no_journal(arguments.work, resuming)
         else:
             journal.started(**identity)
         finished = completed(journal) if arguments.resume else frozenset()
@@ -1134,6 +1133,25 @@ def _refuse_a_different_run(
         # would refuse every resume there.
         if mine and theirs and mine != theirs:
             raise ResumeRefused(refusal)
+
+def _refuse_a_resume_with_no_journal(work: Path, resuming: bool) -> None:
+    """A resume with nothing to resume is a full install, so it is refused.
+
+    `--resume` says it carries on "instead of partitioning the disk again",
+    and with no journal to read the run started a fresh one, skipped nothing
+    and applied the whole list. The work directory is a tmpfs, so the ordinary
+    way to arrive here is a reboot -- which is exactly when an operator
+    believes a resume is what they asked for.
+    """
+    if resuming:
+        return
+    raise ResumeRefused(
+        f"--resume was given and {work} holds no journal to resume: the work "
+        "directory does not survive a reboot, so this would partition the disk "
+        "again rather than carry on. Run without --resume to install from the "
+        "beginning."
+    )
+
 
 def _from_menu(
     arguments: argparse.Namespace, refused: str = ""
