@@ -55,7 +55,7 @@ from .console import (
     passphrase_settle,
     SerialConsole,
 )
-from .monitor import TEXT_CELL_WIDTH, screendump, type_text
+from .monitor import screendump, type_text
 from .sizing import LIGHT_MEMORY_MIB, memory_mib
 from .driver import FIND_DRIVER, REPOSITORY, build as build_driver
 from .media import MEDIA, Medium
@@ -573,15 +573,21 @@ def check_console_glyphs(
             f"the console drew {NARROW_SAMPLE!r} across {max(narrow) + 1} pixels "
             f"and drew nothing for the wide pair"
         )
-    # Each wide character takes two cells, so the pair reaches about twice as
-    # far as the narrow pair. Compared against the same screen's own narrow
-    # row rather than against a pixel count, because the cell size is the
-    # font's to choose.
-    if max(wide) + 1 < TEXT_CELL_WIDTH * len(NARROW_SAMPLE) * 2 - TEXT_CELL_WIDTH:
+    # The cell width comes from the narrow row of this same screen, not from a
+    # constant: `TEXT_CELL_WIDTH` is 9 because that is what VGA text mode gave
+    # a guest with nothing booted, and the installed system came up on a
+    # 1280x800 framebuffer console whose cells are 8 wide. One measurement
+    # covered one input, and the threshold passed here by luck.
+    cell = (max(narrow) + 1) / len(NARROW_SAMPLE)
+    # Two cells per wide character, less one cell of slack for a glyph that
+    # does not ink its last column.
+    wanted = cell * len(WIDE_SAMPLE) * 2 - cell
+    if max(wide) + 1 < wanted:
         raise SystemExit(
             f"the console drew the wide pair across {max(wide) + 1} pixels and "
-            f"{NARROW_SAMPLE!r} across {max(narrow) + 1}: a wide glyph takes two "
-            "cells, so this console fell back to a narrow one"
+            f"{NARROW_SAMPLE!r} across {max(narrow) + 1}, so a cell is {cell:.0f} "
+            f"wide and the pair should reach {wanted:.0f}: this console fell "
+            "back to a narrow glyph"
         )
 
 

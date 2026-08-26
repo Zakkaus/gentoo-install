@@ -6386,8 +6386,6 @@ def test_a_wide_glyph_is_measured_against_the_same_screens_narrow_row(
 
     from gentoo_install.exec.config import load
     from tests.vm import run as runner
-    from tests.vm.monitor import TEXT_CELL_WIDTH
-
     cjk = load(Path("tests/fixtures/vm-cjk-kernel.toml"))
     assert cjk.system.console_cjk, "this fixture is the one that asks for it"
     plain = _replace(cjk, system=_replace(cjk.system, console_cjk=False))
@@ -6409,21 +6407,24 @@ def test_a_wide_glyph_is_measured_against_the_same_screens_narrow_row(
     runner.check_console_glyphs(cast(Any, quiet), plain, tmp_path / "m", tmp_path / "p")
     assert quiet.commands == [], quiet.commands
 
-    # Two cells per wide character: the pair reaches about twice as far.
+    # Two cells per wide character: the pair reaches about twice as far. The
+    # cell here is 8 rather than `TEXT_CELL_WIDTH`, because that is what the
+    # installed system's framebuffer console actually draws and the check
+    # derives the cell from the screen rather than from the constant.
     good = Console()
-    _answer(_screen_with(TEXT_CELL_WIDTH * 2, TEXT_CELL_WIDTH * 4))
+    _answer(_screen_with(8 * 2, 8 * 4))
     runner.check_console_glyphs(cast(Any, good), cjk, tmp_path / "m", tmp_path / "p")
     assert any("/dev/tty1" in one for one in good.commands), good.commands
     assert any("\\033[2J" in one for one in good.commands), good.commands
 
     # The fallback: the wide pair drawn in single cells, which is what a
     # kernel with the wrong font size does.
-    _answer(_screen_with(TEXT_CELL_WIDTH * 2, TEXT_CELL_WIDTH * 2))
+    _answer(_screen_with(8 * 2, 8 * 2))
     with pytest.raises(SystemExit, match="fell back"):
         runner.check_console_glyphs(cast(Any, Console()), cjk, tmp_path / "m", tmp_path / "p")
 
     # Nothing drawn for the wide pair at all.
-    _answer(_screen_with(TEXT_CELL_WIDTH * 2, 0))
+    _answer(_screen_with(8 * 2, 0))
     with pytest.raises(SystemExit, match="drew nothing for the wide pair"):
         runner.check_console_glyphs(cast(Any, Console()), cjk, tmp_path / "m", tmp_path / "p")
 
@@ -6431,6 +6432,16 @@ def test_a_wide_glyph_is_measured_against_the_same_screens_narrow_row(
     # wide pair missing: an empty comparison proves nothing either way.
     _answer(_screen_with(0, 0))
     with pytest.raises(SystemExit, match="cannot say anything"):
+        runner.check_console_glyphs(cast(Any, Console()), cjk, tmp_path / "m", tmp_path / "p")
+
+    # A wider cell than either mode measured here, to show the threshold moves
+    # with the screen rather than with a constant: a 16-wide cell needs the
+    # wide pair out at 48, and 32 is a narrow fallback at that size even
+    # though it would have passed as a wide pair on an 8-wide cell.
+    _answer(_screen_with(16 * 2, 16 * 4))
+    runner.check_console_glyphs(cast(Any, Console()), cjk, tmp_path / "m", tmp_path / "p")
+    _answer(_screen_with(16 * 2, 16 * 2))
+    with pytest.raises(SystemExit, match="fell back"):
         runner.check_console_glyphs(cast(Any, Console()), cjk, tmp_path / "m", tmp_path / "p")
 
 
