@@ -559,7 +559,10 @@ def _encryption(config: InstallConfig, context: Context) -> str:
     is built from `context.layout`, so the choice said `on` over a layout that
     carried no container and the machine came up unencrypted."""
     graph = config.disk.graph
-    if graph.of_type(Luks) or any(pool.passphrase_file for pool in graph.of_type(ZfsPool)):
+    # `encrypted`, not `passphrase_file`: `validate.py` refuses a file without
+    # the flag and allows the flag without a file, so a pool keyed any other
+    # way is encrypted to every rule in `compat.py` and read as `off` here.
+    if graph.of_type(Luks) or any(pool.encrypted for pool in graph.of_type(ZfsPool)):
         return context.translate("on")
     return context.translate("off")
 
