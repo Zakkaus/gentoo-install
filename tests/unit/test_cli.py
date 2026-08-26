@@ -105,6 +105,7 @@ def test_dd_execution_skips_target_shell_and_log_handover(
         skip_preflight=True,
         resume=False,
         no_shell=False,
+        menu=False,
     )
     monkeypatch.setattr(cli, "apply", lambda *args: None)
     monkeypatch.setattr(report, "offer_paste", lambda *args: None)
@@ -678,7 +679,7 @@ def test_an_unattended_run_is_never_asked_about_a_shell(
 
     from gentoo_install.exec.apply import Machine
 
-    arguments = argparse.Namespace(no_shell=True, target=Path("/mnt/gentoo"))
+    arguments = argparse.Namespace(no_shell=True, menu=False, target=Path("/mnt/gentoo"))
     said: list[str] = []
     cli._offer_a_shell(arguments, cast(Machine, None), said.append, False)
     assert not said and not capsys.readouterr().out
@@ -805,7 +806,7 @@ def test_an_unattended_run_is_asked_nothing_on_the_way_out(
         asked.append(question)
         return False
 
-    arguments = argparse.Namespace(no_shell=True, target=tmp_path)
+    arguments = argparse.Namespace(no_shell=True, menu=False, target=tmp_path)
     report.offer_paste(
         tmp_path,
         lambda line: None,
@@ -978,6 +979,7 @@ def test_the_log_is_kept_before_the_target_is_unmounted(
             skip_preflight=True,
             resume=False,
             no_shell=True,
+            menu=False,
             dry_run=False,
         )
         try:
@@ -1508,7 +1510,7 @@ def test_a_conversion_reads_the_running_layout_even_for_a_dry_run(
 
 
 def _conversion_arguments(no_shell: bool) -> argparse.Namespace:
-    return argparse.Namespace(no_shell=no_shell)
+    return argparse.Namespace(no_shell=no_shell, menu=False)
 
 
 def test_the_swap_is_confirmed_before_it_runs(
@@ -1558,6 +1560,7 @@ def test_a_declined_conversion_exits_as_a_user_abort(
         skip_preflight=True,
         resume=False,
         no_shell=True,
+        menu=False,
         dry_run=False,
     )
 
@@ -1677,6 +1680,7 @@ def test_a_conversion_acts_on_the_running_root_not_the_mount_point(
         skip_preflight=True,
         resume=False,
         no_shell=True,
+        menu=False,
         dry_run=False,
     )
     cli.install(converted, (), arguments, cli.RunState())
@@ -1716,6 +1720,7 @@ def test_the_machine_gets_the_derived_configuration_for_a_conversion(
         skip_preflight=True,
         resume=False,
         no_shell=True,
+        menu=False,
         dry_run=False,
     )
 
@@ -1771,7 +1776,7 @@ def test_an_unattended_conversion_still_records_that_ssh_stops() -> None:
     return or the one run nobody is watching never carries it.
     """
     said: list[str] = []
-    unattended = argparse.Namespace(no_shell=True)
+    unattended = argparse.Namespace(no_shell=True, menu=False)
 
     assert cli._confirmed_swap(unattended, said.append)
     assert any(cli.SESSION_IS_THE_LIFELINE in line for line in said), said
@@ -2449,3 +2454,72 @@ def test_a_resume_with_no_journal_refuses_instead_of_partitioning(tmp_path: Path
     assert "--resume" in said, said
     assert str(tmp_path / "run") in said, said
     assert "partition" in said, said
+
+
+def test_a_console_a_person_drives_is_not_an_unattended_run() -> None:
+    """`--no-shell` says the closing root shell is unwanted, not that nobody is
+    here, and the driver CD adds it to every run. Both meanings on one flag
+    left `tests/tui/session.py` unable to open the menu at all: it answered
+    `an unattended run needs --config FILE` on a console an operator drives a
+    key at a time."""
+    import argparse
+
+    from gentoo_install import cli
+
+    def parsed(*argv: str) -> argparse.Namespace:
+        return cli.parser().parse_args(list(argv))
+
+    # What the driver CD hands a session, which is the case that was refused.
+    assert not cli._unattended(parsed("--no-shell", "--menu", "--lang", "zh-TW"))
+    # What it hands a fixture, which must stay unattended: the closing offer of
+    # a root shell would sit on a serial console nobody is reading.
+    assert cli._unattended(parsed("--no-shell", "--config", "x.toml"))
+
+
+def test_a_menu_promised_to_a_pipe_is_refused(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--menu` asserts a person is driving. A pipe is where that is false, and
+    curses would draw to nobody. Refused outside the walk: a preflight refusal
+    with no `--config` is carried back into the menu as a reason to answer
+    differently, and no answer turns a pipe into a terminal."""
+    import io
+
+    from gentoo_install import cli
+
+    class NotATerminal(io.StringIO):
+        def isatty(self) -> bool:
+            return False
+
+    monkeypatch.setattr("sys.stdin", NotATerminal())
+    code = cli.main(["--menu"])
+    said = capsys.readouterr()
+    assert code == cli.EXIT_PREFLIGHT, (code, said)
+    assert "--menu" in said.err, said.err
+
+
+def test_every_session_invocation_asks_for_the_menu() -> None:
+    """The refusal above fires on any `install.sh` run with no `--config`, so a
+    session invocation that forgets `--menu` cannot open the interface at all.
+
+    The interpolation is resolved before the check: an earlier version matched
+    the constant's name, which is present whatever the constant holds, and the
+    control that emptied it stayed green.
+    """
+    import re
+    from pathlib import Path
+
+    from tests.vm import cluster
+
+    source = Path(cluster.__file__).read_text(encoding="utf-8")
+    invocations = [
+        found.replace("{DRIVEN_BY_A_PERSON}", cluster.DRIVEN_BY_A_PERSON)
+        for found in re.findall(r'"[^"]*install\.sh ([^"]*)"', source)
+    ]
+    assert invocations, source[:200]
+    driven = [one for one in invocations if "--config" not in one]
+    # The two session entry points, so a walk that stops matching them cannot
+    # leave this passing with nothing checked.
+    assert len(driven) == 2, driven
+    for arguments in driven:
+        assert "--menu" in arguments, arguments
