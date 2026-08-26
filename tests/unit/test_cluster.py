@@ -443,6 +443,66 @@ def test_the_proxys_own_greeting_is_not_the_guest_speaking(
     assert "wrote nothing" in message, message
 
 
+def test_a_guest_at_a_prompt_is_not_reported_as_a_stall(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`vm-cjk-kernel` printed `MARK_21_BEGIN`, stopped mid-compiler-line, and
+    answered `root@livecd ~ #` when the poke asked at 178.9 minutes.
+
+    The guest never stopped: its command ended and the console stopped
+    delivering, so the marker went into a connection nobody was receiving on.
+    Counted as a stall it kept row 402 looking like one defect when it is two,
+    which is what made it take fifteen rounds.
+    """
+    clock = [0.0]
+    prompt = _Talkative(clock, b"\x1b[?2004l\x1b[?2004hroot@livecd ~ # ")
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    serial = SerialConsole(TimedChannel(clock), BytesIO())
+    opened = [0]
+
+    def _open() -> SerialConsole:
+        opened[0] += 1
+        # Silent when read, talking only after the poke's newline: the shell
+        # redraws its prompt when something is typed at it.
+        return serial if opened[0] == 1 else SerialConsole(_Quiet(clock, prompt), BytesIO())
+
+    link = cluster.Reconnecting(_open)
+    watch = cluster.Watchdog(
+        tmp_path / "install.log", lambda: Traffic(4096, 0, 0.0), where="infra-node5"
+    )
+    watch.log.write_bytes(b"output before the idle window\n")
+
+    with pytest.raises(ConsoleTimeout) as raised:
+        link.wait_for("install", timeout=5.0, idle=2.0, watch=watch)
+
+    message = str(raised.value)
+    assert "at a shell prompt" in message, message
+    assert "the console stopped delivering" in message, message
+
+
+class _Quiet:
+    """Silent until something is written to it, then whatever it was given."""
+
+    def __init__(self, clock: list[float], after: object) -> None:
+        self._clock = clock
+        self._after = after
+        self._written = False
+
+    def recv(self, size: int) -> bytes:
+        self._clock[0] += 1.0
+        return cast(Any, self._after).recv(size) if self._written else b""
+
+    def sendall(self, data: bytes) -> None:
+        self._written = True
+
+    def close(self) -> None:
+        return None
+
+    @property
+    def closed(self) -> bool:
+        return False
+
+
 def test_run_ceiling_ends_silent_guest_that_keeps_moving_bytes(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
