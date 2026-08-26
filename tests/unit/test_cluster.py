@@ -4515,3 +4515,23 @@ def test_the_run_ceiling_says_so_rather_than_reporting_its_last_window(
     assert "ceiling ended it with the console still printing" in said, said
     # And what it was printing, so the reader can tell working from wedged.
     assert "compiling something" in said, said
+
+
+def test_a_key_already_loaded_is_not_the_initramfs_giving_up() -> None:
+    """`zbm-unlock` was failed at 142.6 minutes with `Key load error: Key
+    already loaded for 'zpcala'`.
+
+    ZFSBootMenu says that when the key is in place, which is exactly what a
+    successful remote SSH unlock leaves behind — so the fixture whose subject
+    is the remote unlock was failed for performing it. The wrong-key message
+    the codebase already quotes elsewhere is `Key load error: Incorrect key
+    provided`, and that one still counts.
+    """
+    already = b"Enter passphrase for 'zpcala':\r\nKey load error: Key already loaded for 'zpcala'"
+    assert not cluster.initramfs_gave_up(already), already
+
+    wrong = b"Key load error: Incorrect key provided for 'zpcala'"
+    assert cluster.initramfs_gave_up(wrong), wrong
+    for other in (b"Entering emergency mode", b"Failed to mount /sysroot"):
+        assert cluster.initramfs_gave_up(other), other
+    assert not cluster.initramfs_gave_up(b"[    3.1] mounting the root")
