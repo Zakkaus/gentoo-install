@@ -102,11 +102,17 @@ def keys_for(text: str) -> list[str]:
 #: and a file write; the wait is for the monitor to get to the command.
 DUMP_PATIENCE: Final[float] = 10.0
 
-#: What VGA text mode gives, measured rather than assumed: `screendump` on a
-#: guest with `-vga std` and nothing booted wrote `P6\n720 400\n255\n`, which
-#: is 80 columns of 9 pixels and 25 rows of 16.
-TEXT_CELL_WIDTH: Final[int] = 9
+#: The row height every mode measured here uses, because both draw an 8x16
+#: font: VGA text mode on a guest with nothing booted wrote `P6\n720 400\n255\n`
+#: and an installed system came up on a 1280x800 framebuffer console, and 800
+#: and 400 are both whole multiples of this.
 TEXT_CELL_HEIGHT: Final[int] = 16
+
+#: What that VGA text mode gives per column. Only that mode: the same
+#: installed system's framebuffer console draws 8-wide cells, so anything
+#: comparing glyph widths derives the cell from the screen it is reading
+#: rather than from this.
+TEXT_CELL_WIDTH: Final[int] = 9
 
 
 @dataclass(frozen=True)
