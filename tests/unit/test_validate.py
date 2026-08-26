@@ -1511,3 +1511,46 @@ def test_a_repository_name_is_checked_before_it_reaches_eselect() -> None:
             installation, portage=replace(installation.portage, repositories=("science",))
         )
     )
+
+
+def test_a_table_this_run_writes_needs_a_disk_this_run_wipes() -> None:
+    """`CreatePartitionTable` runs `sgdisk --zap-all` for `create`, and a
+    configuration could say `wipe = false` on the disk and `create = true` on
+    its table.
+
+    Both were accepted, and the erase is what happened: the operator read
+    `wipe = false` and the installer took every partition on the disk. That is
+    the one operation with no way back, so it is refused rather than warned
+    about.
+    """
+    import tomllib
+    from pathlib import Path as _Path
+
+    from gentoo_install.errors import GentooInstallError
+    from gentoo_install.model.parse import parse
+
+    raw = _Path("tests/fixtures/vm-binpkg.toml").read_text()
+    data = tomllib.loads(raw.replace("wipe = true", "wipe = false"))
+    for device in data["disk"]["devices"]:
+        if device.get("kind") == "table":
+            device["create"] = True
+    kept = parse(data)
+
+    with pytest.raises(GentooInstallError) as refused:
+        validate(kept)
+    assert "zap-all" in str(refused.value), refused.value
+    assert "wipe = true" in str(refused.value), refused.value
+
+    # And the two coherent pairs are still accepted: wipe and create together,
+    # and keep and edit together, which is what the manual editor builds.
+    both = tomllib.loads(raw)
+    for device in both["disk"]["devices"]:
+        if device.get("kind") == "table":
+            device["create"] = True
+    validate(parse(both))
+
+    neither = tomllib.loads(raw.replace("wipe = true", "wipe = false"))
+    for device in neither["disk"]["devices"]:
+        if device.get("kind") == "table":
+            device["create"] = False
+    validate(parse(neither))
