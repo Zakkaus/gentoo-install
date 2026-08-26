@@ -290,6 +290,23 @@ class Partition(Node):
         return (self.table,)
 
 
+def mapper_path(name: str) -> str:
+    """Where `cryptsetup open` puts a container.
+
+    A function rather than a literal at each caller: `plan/disk.py` spelled
+    it, `exec/apply.py` spelled it again, and the operations that open one
+    carry a name rather than the node. A convention changed in one layer
+    opens a container the others cannot find.
+    """
+    return f"/dev/mapper/{name}"
+
+
+def md_path(name: str) -> str:
+    """Where `mdadm --create` puts an array. Eight sites across
+    `plan/disk.py`, `plan/system.py` and `exec/apply.py` spelled this."""
+    return f"/dev/md/{name}"
+
+
 @dataclass(frozen=True)
 class Luks(Node):
     backing: DeviceId
@@ -301,6 +318,10 @@ class Luks(Node):
     @property
     def inputs(self) -> tuple[DeviceId, ...]:
         return (self.backing,)
+
+    @property
+    def device_path(self) -> str:
+        return mapper_path(self.name)
 
 
 @dataclass(frozen=True)
@@ -314,6 +335,10 @@ class MdRaid(Node):
     @property
     def inputs(self) -> tuple[DeviceId, ...]:
         return self.members
+
+    @property
+    def device_path(self) -> str:
+        return md_path(self.name)
 
 
 @dataclass(frozen=True)

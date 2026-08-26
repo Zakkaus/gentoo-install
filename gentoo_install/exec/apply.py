@@ -153,9 +153,9 @@ class Machine:
         if isinstance(node, Partition):
             return self._partition_path(node)
         if isinstance(node, Luks):
-            return f"/dev/mapper/{node.name}"
+            return node.device_path
         if isinstance(node, MdRaid):
-            return f"/dev/md/{node.name}"
+            return node.device_path
         if isinstance(node, LogicalVolume):
             group = self.config.disk.graph[node.group]
             if isinstance(group, VolumeGroup):
