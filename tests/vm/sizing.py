@@ -12,6 +12,8 @@ no binary host at all.
 
 from __future__ import annotations
 
+from typing import Final
+
 from gentoo_install.model.config import InstallConfig
 from gentoo_install.model.device import ZfsPool
 
@@ -32,3 +34,27 @@ def compiles(config: InstallConfig) -> bool:
     if config.kernel.source.value.endswith("-bin"):
         return bool(config.packages.desktop) or not config.portage.binhost.official
     return True
+
+
+#: What a guest that does not compile is given. Four gibibytes rather than
+#: six, so the three nodes with about 6 GiB spare can each take one instead of
+#: none: the installer warns below 5 GiB and builds in `/var/tmp` rather than
+#: a tmpfs, which is slower and correct.
+LIGHT_MEMORY_MIB: Final[int] = 4096
+
+#: What a guest that compiles is given. Twelve rather than eight: the comment
+#: this replaced said eight "is what `MAKEOPTS -j4` needs to link", and
+#: `vm-gnome` was `Killed` compiling `net-libs/webkit-gtk` at 185 minutes with
+#: exactly that. Two gibibytes a job is the figure the handbook gives, and it
+#: was not enough for that one.
+HEAVY_MEMORY_MIB: Final[int] = 12288
+
+
+def memory_mib(config: InstallConfig) -> int:
+    """How much memory this configuration's guest needs.
+
+    Here rather than in either runner: `cluster.py` gave a compiling guest
+    8192 and `qemu.py` gave every local guest a flat `8G`, so one rule had two
+    spellings and neither was tied to a measurement that held.
+    """
+    return HEAVY_MEMORY_MIB if compiles(config) else LIGHT_MEMORY_MIB

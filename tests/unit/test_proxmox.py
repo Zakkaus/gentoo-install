@@ -1907,9 +1907,19 @@ def test_a_guest_that_compiles_is_given_a_whole_node() -> None:
 
 
 def test_a_node_with_one_light_slot_left_is_not_given_a_heavy_guest() -> None:
-    """A heavy guest asks for twice the memory, so a slot list built from the
-    light size does not answer for it."""
-    from tests.vm.cluster import GUEST_MEMORY_MIB, NODE_HEADROOM_BYTES, room_for
+    """A heavy guest asks for more memory, so a slot list built from the light
+    size does not answer for it.
+
+    Both sizes come from `sizing.py` rather than from a ratio spelled here: it
+    said "twice" and stayed true only while heavy was 8192 against 4096, which
+    stopped being so when `vm-gnome` was `Killed` compiling webkit-gtk.
+    """
+    from tests.vm.cluster import (
+        GUEST_MEMORY_MIB,
+        HEAVY_MEMORY_MIB,
+        NODE_HEADROOM_BYTES,
+        room_for,
+    )
     from tests.vm.cluster import fixtures as cluster_fixtures
     from tests.vm.proxmox import Node
 
@@ -1925,11 +1935,12 @@ def test_a_node_with_one_light_slot_left_is_not_given_a_heavy_guest() -> None:
 
     two_slots = Node(
         name="infra-node2",
-        free_bytes=NODE_HEADROOM_BYTES + 2 * GUEST_MEMORY_MIB * 1024**2,
+        free_bytes=NODE_HEADROOM_BYTES + HEAVY_MEMORY_MIB * 1024**2,
         cores=4,
             free_cores=64.0,
     )
     assert room_for(two_slots, heavy)
+    assert HEAVY_MEMORY_MIB > GUEST_MEMORY_MIB, (HEAVY_MEMORY_MIB, GUEST_MEMORY_MIB)
 
 
 def test_a_broken_pipe_is_a_dropped_console_and_not_a_dead_run() -> None:

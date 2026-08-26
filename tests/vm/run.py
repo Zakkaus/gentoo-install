@@ -56,6 +56,7 @@ from .console import (
     SerialConsole,
 )
 from .monitor import TEXT_CELL_WIDTH, screendump, type_text
+from .sizing import LIGHT_MEMORY_MIB, memory_mib
 from .driver import FIND_DRIVER, REPOSITORY, build as build_driver
 from .media import MEDIA, Medium
 from .qemu import Firmware, Vm, VmSpec
@@ -1005,9 +1006,17 @@ def _install_and_check(args: argparse.Namespace, medium: Medium, workdir: Path) 
             seed = SEEDED.get(Path(args.install).stem if args.install else "", ())
             targets = tuple(create_target(path, args.target_size, seed) for path in wanted)
 
+    # From the configuration, not a flat number: `vm-gnome` was `Killed`
+    # compiling webkit-gtk in a guest given what every other one is given.
+    wanted_memory = (
+        f"{memory_mib(load(REPOSITORY / 'tests' / args.install))}M"
+        if args.install
+        else f"{LIGHT_MEMORY_MIB}M"
+    )
     spec = VmSpec(
         medium=medium,
         workdir=workdir,
+        memory=wanted_memory,
         **({"cpus": args.cpus} if args.cpus else {}),
         firmware=Firmware(args.firmware),
         ssh_port=ssh_port,

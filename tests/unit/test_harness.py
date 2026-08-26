@@ -6432,3 +6432,33 @@ def test_a_wide_glyph_is_measured_against_the_same_screens_narrow_row(
     _answer(_screen_with(0, 0))
     with pytest.raises(SystemExit, match="cannot say anything"):
         runner.check_console_glyphs(cast(Any, Console()), cjk, tmp_path / "m", tmp_path / "p")
+
+
+def test_one_rule_says_how_much_memory_a_guest_needs() -> None:
+    """`cluster.py` gave a compiling guest 8192 and `qemu.py` gave every local
+    guest a flat `8G`, so the same question had two answers and the local one
+    did not distinguish a desktop from a binary-package install at all.
+    `vm-gnome` was `Killed` compiling `net-libs/webkit-gtk` at 185 minutes.
+    """
+    from gentoo_install.exec.config import load
+    from tests.vm import cluster, qemu, sizing
+
+    heavy = load(Path("tests/fixtures/vm-gnome.toml"))
+    light = load(Path("tests/fixtures/vm-binpkg.toml"))
+    assert sizing.compiles(heavy) and not sizing.compiles(light)
+    assert sizing.memory_mib(heavy) == sizing.HEAVY_MEMORY_MIB
+    assert sizing.memory_mib(light) == sizing.LIGHT_MEMORY_MIB
+    # Larger, and the reason is a measurement rather than a ratio: eight was
+    # what a compiling guest had when webkit-gtk was killed in one.
+    assert sizing.HEAVY_MEMORY_MIB > 8192, sizing.HEAVY_MEMORY_MIB
+
+    # And both runners read that one rule rather than restating it.
+    assert cluster.HEAVY_MEMORY_MIB == sizing.HEAVY_MEMORY_MIB
+    assert cluster.GUEST_MEMORY_MIB == sizing.LIGHT_MEMORY_MIB
+    assert qemu.VmSpec.memory == f"{sizing.LIGHT_MEMORY_MIB}M", qemu.VmSpec.memory
+    # The local runner asks the rule for every run that installs something:
+    # its default is only for a run with no configuration, such as probing a
+    # medium.
+    source = Path("tests/vm/run.py").read_text()
+    assert "memory_mib(load(" in source, source[:0]
+    assert "memory=wanted_memory" in source, source[:0]
