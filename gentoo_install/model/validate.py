@@ -255,6 +255,7 @@ def validate(
             *root_size_problems(config),
             *_zfs_kernel_problems(config, zfs_kernel_max),
             *_reuse_problems(config),
+            *_zapped_disk_problems(config),
             *_pool_problems(config),
             *_array_problems(config),
             *(rule.describe() for rule in compat.violations(config, storage_facts)),
@@ -592,6 +593,30 @@ def _reuse_problems(config: InstallConfig) -> list[str]:
             problems.append(
                 f"{filesystem.id} reuses the filesystem on {under.id}, which is marked to be "
                 f"wiped"
+            )
+    return problems
+
+
+def _zapped_disk_problems(config: InstallConfig) -> list[str]:
+    """A table this run writes has to sit on a disk this run wipes.
+
+    `CreatePartitionTable` runs `sgdisk --zap-all` for `create`, which takes
+    every entry with it. A configuration saying `wipe = false` on the disk and
+    `create = true` on its table says both keep this disk and erase its table,
+    and the erase is what happens: the operator reads one thing and the
+    installer does the other, on the one operation that cannot be undone.
+    """
+    graph = config.disk.graph
+    problems: list[str] = []
+    for table in graph.of_type(PartitionTable):
+        if not table.create:
+            continue
+        disk = graph[table.disk]
+        if isinstance(disk, Existing) and not disk.wipe:
+            problems.append(
+                f"{table.id} is created on {disk.id}, which is marked not to be wiped: "
+                f"creating a table runs `sgdisk --zap-all` and takes every partition "
+                f"on it, so set `wipe = true` to say so or `create = false` to keep them"
             )
     return problems
 
