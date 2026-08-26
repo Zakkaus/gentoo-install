@@ -396,3 +396,51 @@ def test_an_encrypted_pool_needs_an_initramfs_keymap_too() -> None:
     at.columns = 100
     shown = row.value(config(zfs_root()), at)
     assert "nothing is unlocked at boot" not in shown, shown
+
+
+def test_a_layout_alone_is_still_answers_the_image_mode_discards() -> None:
+    """Choosing to write an image empties `disk.graph` and `disk.root`, and
+    the count that decides whether to ask counted five other groups only.
+
+    A configuration whose only answers are a partition table counted zero, so
+    the question was skipped and the table went without one — the exact thing
+    the count exists to prevent, and a hand-built table is the most laborious
+    thing the menu makes.
+    """
+    from dataclasses import replace as _replace
+
+    from gentoo_install.model.config import (
+        BootloaderConfig,
+        DiskConfig,
+        InstallConfig,
+        KernelConfig,
+        PackagesConfig,
+        PortageConfig,
+        SystemConfig,
+    )
+    from gentoo_install.model.device import DeviceGraph, DeviceId
+    from gentoo_install.tui.screens import _answers_this_mode_discards
+
+    from .layouts import ext4_on_gpt
+
+    bare = InstallConfig(
+        system=SystemConfig(),
+        packages=PackagesConfig(),
+        portage=PortageConfig(),
+        kernel=KernelConfig(),
+        bootloader=BootloaderConfig(),
+        disk=DiskConfig(graph=DeviceGraph.build([]), root=DeviceId("")),
+    )
+    assert _answers_this_mode_discards(bare) == 0, "nothing answered is nothing to lose"
+
+    laid_out = config(ext4_on_gpt())
+    only_disk = _replace(
+        laid_out,
+        system=SystemConfig(),
+        packages=PackagesConfig(),
+        portage=PortageConfig(),
+        kernel=KernelConfig(),
+        bootloader=BootloaderConfig(),
+    )
+    assert only_disk.disk.graph.nodes, only_disk.disk
+    assert _answers_this_mode_discards(only_disk) == 1, _answers_this_mode_discards(only_disk)

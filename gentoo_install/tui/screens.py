@@ -299,7 +299,7 @@ def _answers_this_mode_discards(config: InstallConfig) -> int:
     keypress on it emptied twenty of them, silently. An agent that pressed it
     went back and forth three times looking for what it had lost.
     """
-    return sum(
+    kept = sum(
         1
         for part, blank in (
             ("system", SystemConfig()),
@@ -310,6 +310,13 @@ def _answers_this_mode_discards(config: InstallConfig) -> int:
         )
         if getattr(config, part) != blank
     )
+    # The layout as well, because this mode empties `graph` and `root` too. A
+    # configuration whose only answers are a partition table counted zero and
+    # was discarded without the question, and a hand-built table is the most
+    # laborious thing the menu makes.
+    if config.disk.graph.nodes or config.disk.root:
+        kept += 1
+    return kept
 
 
 def _agrees_to_discard(screen: Screen, context: Context, kept: int) -> bool:
