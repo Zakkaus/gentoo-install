@@ -74,6 +74,15 @@ SPELLED_AS: Final[dict[tuple[type[Node], str], frozenset[str]]] = {
 #: the pastebin is a public address.
 SECRET: Final[frozenset[str]] = frozenset({"password_hash", "root_password_hash"})
 
+#: Device fields a paste must not carry. Separate from `SECRET`, which means
+#: the password hashes and whose test derives its membership from the model:
+#: this one is a path rather than a hash, and folding the two together would
+#: have made that rule unstatable. It names where key material sits on the
+#: installing machine, and a hand-written configuration points it wherever the
+#: operator keeps keys. `publishing=True` has one caller, the pastebin upload
+#: in `exec/report.py`, so nothing that needs the real path sees the redaction.
+NOT_FOR_A_PASTE: Final[frozenset[str]] = frozenset({"passphrase_file"})
+
 #: What stands in for a secret. Not a valid hash, so a file edited from a
 #: published one locks the account rather than setting a password nobody knows.
 REDACTED: Final[str] = "removed-before-publishing"
@@ -87,7 +96,7 @@ def to_toml(config: InstallConfig, *, publishing: bool = False) -> str:
     lines = [f"{model_config.CONFIG_VERSION_KEY} = {config.config_version}"]
     for name in model_config.PERSISTED_SECTIONS[:-1]:
         lines += _section(name, getattr(config, name), publishing=publishing)
-    lines += _disk(config)
+    lines += _disk(config, publishing=publishing)
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
@@ -170,7 +179,7 @@ def _simple(choice: Choice) -> list[str]:
     return lines
 
 
-def _disk(config: InstallConfig) -> list[str]:
+def _disk(config: InstallConfig, *, publishing: bool = False) -> list[str]:
     disk = config.disk
     lines = ["", "[disk]"]
     for field in fields(disk):
@@ -203,6 +212,9 @@ def _disk(config: InstallConfig) -> list[str]:
                 lines += _share(held)
                 continue
             named = RENAMED.get((type(node), field.name), field.name)
+            if publishing and field.name in NOT_FOR_A_PASTE:
+                lines.append(f"{named} = {_value(REDACTED)}")
+                continue
             lines.append(f"{named} = {_value(held)}")
     return lines
 

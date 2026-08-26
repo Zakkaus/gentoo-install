@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from gentoo_install.model.config import ProxyConfig
-from gentoo_install.model.serialise import SECRET
+from gentoo_install.model.serialise import NOT_FOR_A_PASTE, SECRET
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -35,7 +35,9 @@ def test_security_names_what_publishing_actually_removes() -> None:
     said = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
     paragraph = next(part for part in said.split("\n- ") if "--paste" in part)
 
-    for name in SECRET:
+    # Both tables: `NOT_FOR_A_PASTE` was added without a document guard of its
+    # own, which is the same gap the redaction itself was closing.
+    for name in (*SECRET, *NOT_FOR_A_PASTE):
         assert f"`{name}`" in paragraph, name
     dropped = {"username", "password"}
     assert dropped <= {field.name for field in fields(ProxyConfig)}, "the model moved"
