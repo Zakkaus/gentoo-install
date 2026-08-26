@@ -26,8 +26,10 @@ by one person: a reply comes when there is one to give.
   under `/run/gentoo-install/keys/` with mode `0600` for the command that
   reads it, and `/run` is a tmpfs, so it does not survive the reboot into the
   installed system. The installer does not delete it before then. `--paste`
-  replaces `password_hash` and `root_password_hash` and drops the proxy
-  username and password, so a published configuration carries neither.
+  replaces `password_hash`, `root_password_hash` and `passphrase_file` and
+  drops the proxy username and password, so a published configuration carries
+  none of them. The key file's path is replaced as well as the hashes: it is
+  not the key, and it still says where key material sits on the machine.
 - **What is verified.** The stage3 is checked against its DIGESTS and its
   OpenPGP signature; the repository snapshot is verified by `emerge-webrsync`;
   binary packages are refused unless their host's key is imported and locally

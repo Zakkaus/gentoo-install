@@ -357,3 +357,31 @@ def test_every_node_field_the_writer_emits_is_a_key_its_parser_accepts() -> None
     for (held, name), spelled in SPELLED_AS.items():
         assert name in {one.name for one in fields(held)}, (held.__name__, name)
         assert spelled, (held.__name__, name)
+
+
+def test_a_published_configuration_redacts_the_key_file_path() -> None:
+    """`_disk` took no `publishing` flag, so the whole device section bypassed
+    the redaction that `_section` applies.
+
+    The field holds a path rather than the key, which is why it looked
+    harmless — but it names where key material sits on the installing machine,
+    and a hand-written configuration points it wherever the operator keeps
+    keys. `publishing=True` has one caller, the pastebin upload in
+    `exec/report.py`, so nothing that needs the real path ever sees this form.
+    """
+    for name in ("vm-luks", "vm-zfs-encrypted"):
+        config = parse(tomllib.loads((FIXTURES / f"{name}.toml").read_text()))
+        saved = to_toml(config)
+        published = to_toml(config, publishing=True)
+
+        held = [one for one in saved.splitlines() if "passphrase_file" in one]
+        assert held, f"{name} carries no key file to redact"
+        assert all("/run/" in one for one in held), held
+
+        gone = [one for one in published.splitlines() if "passphrase_file" in one]
+        assert gone, f"{name} dropped the key rather than redacting it"
+        assert all(REDACTED in one for one in gone), gone
+        assert "/run/gentoo-install-keys" not in published, published
+
+        # The saved form is what an operator keeps, and it has to stay usable.
+        assert REDACTED not in saved, saved
