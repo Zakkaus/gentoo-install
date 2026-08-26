@@ -349,9 +349,15 @@ class WriteMakeConf(Operation):
     #: the overlay's own distfiles, so ranking them together would order one
     #: repository by how fast the other answers.
     appended: tuple[str, ...] = ()
+    #: Whether `MAKEOPTS` is the installing machine's core count, resolved
+    #: here because only `exec` may look at the machine. An empty `makeopts`
+    #: means "follow this machine", and it was written as no `MAKEOPTS` at
+    #: all: a stage3's `make.conf` carries none, `make.globals` carries none
+    #: and no profile sets one, so the target built with a single job.
+    jobs_from_machine: bool = False
 
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
-        keys = ", ".join(key for key, _ in self.settings)
+        keys = ", ".join(key for key, _ in self._named())
         mirrors = str(len(self.mirrors))
         if self.speed_test:
             if self.appended:
@@ -373,9 +379,19 @@ class WriteMakeConf(Operation):
             (keys, mirrors),
         )
 
+
+    def _named(self) -> tuple[tuple[str, str], ...]:
+        """What the file will hold, for the description. `MAKEOPTS` is named
+        even though its value is not known until apply."""
+        if not self.jobs_from_machine:
+            return self.settings
+        return (*self.settings, ("MAKEOPTS", ""))
+
     def apply(self, context: Context) -> None:
         ranked = context.rank_mirrors(self.mirrors) if self.speed_test else self.mirrors
         wanted = list(self.settings)
+        if self.jobs_from_machine:
+            wanted.append(("MAKEOPTS", f"-j{context.jobs()}"))
         listed = (*ranked, *self.appended)
         # Not written at all when empty: an empty GENTOO_MIRRORS is a shorter
         # list than Portage's own, not the same thing as leaving it alone.
@@ -1567,6 +1583,7 @@ def build(
             mirrors=_distfiles(portage),
             speed_test=portage.mirrors.speed_test,
             appended=_appended_distfiles(portage),
+            jobs_from_machine=not portage.makeopts,
         ),
         WriteProxyClients(proxy=config.proxy),
         CreateAutounmaskFiles(),

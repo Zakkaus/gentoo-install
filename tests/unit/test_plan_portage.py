@@ -1430,9 +1430,9 @@ def test_the_stage3_comes_from_the_mirror_the_operator_chose() -> None:
     """Only `--mirror` was read, so choosing USTC set the mirror for every
     later fetch and still downloaded the stage3 itself, several hundred
     megabytes of it, from `distfiles.gentoo.org`."""
+    from gentoo_install.data import load_catalog
     from dataclasses import replace
 
-    from gentoo_install.data import load_catalog
     from gentoo_install.model.config import MirrorConfig, MirrorRegion
     from gentoo_install.plan.build import DEFAULT_MIRROR, build, stage3_mirror
 
@@ -2936,3 +2936,43 @@ def test_a_build_killed_for_memory_says_so_rather_than_exit_1() -> None:
             packages=("net-libs/webkit-gtk",), summary="install the desktop"
         ).apply(plain)
     assert "ran out of memory" not in str(ordinary.value), ordinary.value
+
+
+def test_following_this_machine_writes_its_core_count() -> None:
+    """The menu stores the machine's own count as an empty `makeopts`, and an
+    empty one wrote no `MAKEOPTS` at all.
+
+    Nothing else supplies one: a stage3 built 2026-08-23 ships a `make.conf`
+    with `COMMON_FLAGS` and no `MAKEOPTS`, `make.globals` has none and no
+    profile sets one, so the target compiled with a single job while the
+    operator had chosen every core. `Context.jobs()` already existed for this
+    and nothing read it.
+    """
+    from dataclasses import replace as _replace
+
+    from gentoo_install.exec.config import load
+
+    chosen = load(Path("tests/fixtures/vm-binpkg.toml"))
+    following = _replace(chosen, portage=_replace(chosen.portage, makeopts=""))
+
+    written = [
+        one
+        for one in portage.build(following, "")
+        if isinstance(one, portage.WriteMakeConf)
+    ]
+    assert written and written[0].jobs_from_machine, written
+    assert "MAKEOPTS" in written[0].describe(), written[0].describe()
+
+    recorder = Recorder()
+    written[0].apply(recorder)
+    made = recorder.files[PurePosixPath("/etc/portage/make.conf")]
+    assert f'MAKEOPTS="-j{recorder.jobs()}"' in made, made
+
+    # And a configuration that names its own jobs is left alone.
+    pinned = [
+        one for one in portage.build(chosen, "") if isinstance(one, portage.WriteMakeConf)
+    ]
+    assert pinned and not pinned[0].jobs_from_machine, pinned
+    second = Recorder()
+    pinned[0].apply(second)
+    assert 'MAKEOPTS="-j4"' in second.files[PurePosixPath("/etc/portage/make.conf")]
