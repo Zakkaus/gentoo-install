@@ -34,7 +34,9 @@ def test_no_screen_draws_an_english_sentence_in_a_chinese_menu() -> None:
     at.tag = "zh-TW"
     installation = config()
     found: dict[str, set[str]] = {}
+    refused: dict[str, str] = {}
     drawn = 0
+    walked = 0
     for name, screen_function in sorted(vars(screens).items()):
         if not name.endswith("_screen") or not callable(screen_function):
             continue
@@ -44,6 +46,7 @@ def test_no_screen_draws_an_english_sentence_in_a_chinese_menu() -> None:
             continue
         if parameters[:1] != ["screen"]:
             continue
+        walked += 1
         display = FakeScreen(keys=["\x1b"] * 40, lines=40, columns=120)
         answered: Any = None
         try:
@@ -51,9 +54,8 @@ def test_no_screen_draws_an_english_sentence_in_a_chinese_menu() -> None:
                 answered = screen_function(display, installation, at)
             else:
                 answered = screen_function(display, at)
-        except Exception:
-            # A screen this configuration cannot open is not this test's
-            # subject; the ones it can open are, and there are many.
+        except Exception as error:
+            refused[name] = f"{type(error).__name__}: {error}"
             continue
         del answered
         drawn += 1
@@ -63,9 +65,11 @@ def test_no_screen_draws_an_english_sentence_in_a_chinese_menu() -> None:
                     hit = hit.strip()
                     if len(hit) > 12 and not any(one in hit for one in NOT_PROSE):
                         found.setdefault(name, set()).add(hit)
-    # The count guards the walk itself: a signature change that stops matching
-    # every screen would leave this passing with nothing rendered.
-    assert drawn >= 8, drawn
+    # Every screen this configuration reaches is drawn, so a screen that stops
+    # opening is a hole in the check above rather than a screen out of scope:
+    # the floor this assertion replaced was 8 against 49 that draw today.
+    assert refused == {}, refused
+    assert drawn == walked, (drawn, walked)
     assert found == {}, {name: sorted(hits) for name, hits in found.items()}
 
 
