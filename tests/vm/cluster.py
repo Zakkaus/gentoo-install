@@ -48,6 +48,7 @@ from contextlib import contextmanager
 from typing import Final, Iterator, Protocol, TypeVar, cast, Sequence
 
 from .expectations import EXPECTATIONS, Expectation
+from . import sizing
 from .sizing import compiles
 
 from gentoo_install.model.config import Firmware as BootFirmware
@@ -190,8 +191,8 @@ EXTRA_CMDLINE: Final[str] = "console=ttyS0,115200"
 #: with about 6 GiB spare can each take one instead of none: the installer
 #: warns below 5 GiB and builds in `/var/tmp` rather than a tmpfs, which is
 #: slower and correct. Two cores of a node's four leaves it able to answer the
-#: API while a build runs.
-GUEST_MEMORY_MIB: Final[int] = 4096
+#: API while a build runs. The number itself is `sizing.py`'s.
+GUEST_MEMORY_MIB: Final[int] = sizing.LIGHT_MEMORY_MIB
 GUEST_CORES: Final[int] = 2
 TARGET_GIB: Final[int] = 40
 
@@ -199,8 +200,8 @@ TARGET_GIB: Final[int] = 40
 #: is an hour of `emerge` where a binary-package fixture is six minutes, and
 #: giving both the same two cores left the cluster idle while the queue was
 #: deep. A node has four cores, so a heavy guest takes all of them and the
-#: node carries one; the memory is what `MAKEOPTS -j4` needs to link.
-HEAVY_MEMORY_MIB: Final[int] = 8192
+#: node carries one; the memory is `sizing.py`'s, which both runners read.
+HEAVY_MEMORY_MIB: Final[int] = sizing.HEAVY_MEMORY_MIB
 HEAVY_CORES: Final[int] = 4
 
 #: What a compiling guest costs `--limit`, the same number

@@ -13,6 +13,7 @@ from types import TracebackType
 from typing import Final, Self
 
 from .media import Medium
+from .sizing import LIGHT_MEMORY_MIB
 from .results import RESULT_SERIAL
 
 OVMF_CODE = Path("/usr/share/edk2-ovmf/OVMF_CODE_4M.qcow2")
@@ -51,7 +52,11 @@ class VmSpec:
     medium: Medium
     workdir: Path
     firmware: Firmware = Firmware.UEFI
-    memory: str = "8G"
+    #: A flat figure was every local guest's, whatever it installed, while
+    #: `cluster.py` gave a compiling one twice what it gave the rest. Callers
+    #: with a configuration pass `sizing.memory_mib`; this default is for the
+    #: ones that have none, such as probing a medium.
+    memory: str = f"{LIGHT_MEMORY_MIB}M"
     #: MAKEOPTS in the guest is derived from this, so it decides how fast the
     #: packages a fixture compiles are built. Five leaves 32 threads covering
     #: six guests at once.
