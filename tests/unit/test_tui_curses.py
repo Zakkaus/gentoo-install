@@ -783,3 +783,69 @@ def test_a_row_opened_before_a_resize_draws_inside_the_new_frame() -> None:
     # box around it were gone.
     assert result["left"].strip().startswith("row"), result
     assert result["title"].startswith("gentoo-install"), result
+
+
+def test_an_accepted_resize_does_not_wipe_the_screen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Erasing here is what made the frame disappear intermittently.
+
+    `Region` redraws the frame when the screen's size differs from the one it
+    last drew at, and any `size()` call updates that. A resize that erased the
+    window and then found the size already recorded left the frame wiped and
+    nothing to put it back: `test_a_row_opened_before_a_resize_draws_inside_
+    the_new_frame` failed twice in fifteen runs, and once in twenty with the
+    driver's quiet window raised to three seconds, so it was not the harness
+    waiting too little. The caller redraws on `KEY_RESIZE` and `TwoPane.frame`
+    clears the screen itself, so the erase was never what removed stale
+    content.
+    """
+    import curses as curses_module
+
+    from gentoo_install.tui.curses_screen import CursesScreen
+
+    # Only the module-level calls the constructor makes outside a terminal.
+    # The window itself is the fake below, so what is under test -- whether
+    # `key` erases -- is answered by the real code.
+    monkeypatch.setattr(curses_module, "update_lines_cols", lambda: None)
+    monkeypatch.setattr(curses_module, "raw", lambda: None)
+    monkeypatch.setattr(curses_module, "has_colors", lambda: False)
+    monkeypatch.setattr(curses_module, "keyname", lambda key: b"KEY_RESIZE")
+
+    class Window:
+        def __init__(self, size: tuple[int, int], keys: list[int | str]) -> None:
+            self._size = size
+            self._keys = keys
+            self.erased = 0
+
+        def get_wch(self) -> int | str:
+            return self._keys.pop(0)
+
+        def getmaxyx(self) -> tuple[int, int]:
+            return self._size
+
+        def erase(self) -> None:
+            self.erased += 1
+
+        def addstr(self, *args: Any, **rest: Any) -> None:
+            return None
+
+        def refresh(self) -> None:
+            return None
+
+        def clrtoeol(self) -> None:
+            return None
+
+        def nodelay(self, flag: bool) -> None:
+            return None
+
+    resize = curses_module.KEY_RESIZE
+    roomy = Window((40, 120), [resize])
+    assert CursesScreen(roomy).key() == "KEY_RESIZE"
+    assert roomy.erased == 0, "an accepted resize wiped the frame off the screen"
+
+    # A resize that leaves the terminal unusable still erases: the message it
+    # puts up needs the screen to itself, and no frame survives that size.
+    cramped = Window((4, 20), [resize, "\x1b"])
+    assert CursesScreen(cramped).key() == "\x1b"
+    assert cramped.erased >= 1, "the too-small screen was drawn over the old layout"
