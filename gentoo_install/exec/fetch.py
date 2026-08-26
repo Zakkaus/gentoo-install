@@ -50,15 +50,18 @@ TIMEOUT: Final[float] = 60.0
 #: naming the installer also puts something readable in a mirror's log.
 USER_AGENT: Final[str] = "gentoo-install"
 
-#: Every Gentoo mirror carries this, and it is small enough that the time is
-#: dominated by latency and the first megabytes of throughput.
+#: Every Gentoo mirror carries this, and it holds a timestamp: `_probe` asks
+#: for at most 64 KiB and the file is far under that, so what is ranked is
+#: how fast a mirror answers, not how fast it transfers. A mirror that
+#: answers quickly and then serves a stage3 slowly still wins here.
 PROBE_FILE: Final[str] = "distfiles/timestamp.chk"
 
 #: A mirror that has not answered by now is not the one to install from.
 PROBE_TIMEOUT: Final[float] = 5.0
 
-#: Enough that a long mirror list is measured in one timeout rather than in
-#: one per site.
+#: Enough that a long mirror list costs a few timeouts rather than one per
+#: site: the `cn` region has 23 sites, so a region where none answers is
+#: three waves of `PROBE_TIMEOUT` and not the 23 a serial probe would take.
 PROBE_WORKERS: Final[int] = 8
 
 
