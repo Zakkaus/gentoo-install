@@ -349,3 +349,32 @@ def test_an_encrypted_pool_with_no_key_file_still_reads_as_encrypted() -> None:
     at = context()
     at.columns = 100
     assert row.value(installation, at) == "on", row.value(installation, at)
+
+
+def test_every_layout_has_a_label_and_only_reuse_keeps_the_disk() -> None:
+    """The row compared `layout.value` against three strings and then tested
+    `startswith("whole-disk")` for the warning.
+
+    A fourth whole-disk layout would fall to the `else` and be labelled
+    `reuse` while the prefix test still added `erases the disk`, so the row
+    that decides whether a disk is wiped would have said both. Over the enum
+    rather than over the three that exist today: a member added without a
+    label has to fail here, not in front of an operator.
+    """
+    from gentoo_install.model.templates import Layout
+
+    from .layouts import ext4_on_gpt
+
+    row = next(one for one in every_row() if one.key == "layout")
+    installation = config(ext4_on_gpt())
+    for member in Layout:
+        at = context()
+        at.columns = 100
+        at.manual = False
+        at.choice = replace(at.choice, layout=member)
+        shown = row.value(installation, at)
+        assert shown, member
+        erases = "erases the disk" in shown
+        assert erases is (member is not Layout.REUSE), (member, shown)
+        # And the label is the member's own, not another member's.
+        assert member.value in shown or member is Layout.REUSE, (member, shown)
