@@ -301,6 +301,17 @@ def mapper_path(name: str) -> str:
     return f"/dev/mapper/{name}"
 
 
+def dataset_name(pool: "ZfsPool", dataset: "ZfsDataset") -> str:
+    """The dataset's full name, which is the pool's and its own.
+
+    Three places built this: `plan/disk.py` for the creation, `plan/mounts.py`
+    for the mount and `plan/bootloader.py` for the root the bootloader names.
+    A convention changed in one of them creates a dataset the others cannot
+    address, and the install would finish and boot nowhere.
+    """
+    return f"{pool.name}/{dataset.name}"
+
+
 def md_path(name: str) -> str:
     """Where `mdadm --create` puts an array. Eight sites across
     `plan/disk.py`, `plan/system.py` and `exec/apply.py` spelled this."""

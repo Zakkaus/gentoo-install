@@ -16,6 +16,7 @@ from typing import Callable, Final, Protocol, cast
 from ..errors import CommandFailed, ConfigError, GentooInstallError, InvalidLayout
 from ..model.config import DiskMode, InstallConfig
 from ..model.device import (
+    dataset_name,
     md_path,
     mapper_path,
     DeviceGraph,
@@ -1386,7 +1387,7 @@ def _operations_for(
         return [
             CreateDataset(
                 dataset=node.id,
-                name=f"{pool.name}/{node.name}",
+                name=dataset_name(pool, node),
                 mountpoint=_dataset_mountpoint(graph, node.id),
             )
         ]

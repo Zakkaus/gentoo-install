@@ -1207,3 +1207,27 @@ class Example:
     # answers with the last component as well as the unparsed expression.
     names = _written_names(call.args[0], _bindings_in(body, {}))
     assert "locale.conf" in names, sorted(names)
+
+
+def test_one_place_builds_a_dataset_full_name() -> None:
+    """`plan/disk.py` created the dataset, `plan/mounts.py` mounted it and
+    `plan/bootloader.py` named it as the root, and each built
+    `{pool}/{dataset}` itself.
+
+    A convention changed in one of them creates a dataset the others cannot
+    address, and the install finishes and boots nowhere. Same shape as the
+    eight spellings of `/dev/md/{name}`.
+    """
+    import re
+    from pathlib import Path as _Path
+
+    from gentoo_install.model import device
+
+    assert device.dataset_name is not None
+    spelled = {
+        path.as_posix(): re.findall(r'f"\{pool\.name\}/', _Path(path).read_text())
+        for path in sorted(_Path("gentoo_install").rglob("*.py"))
+        if path.name != "device.py"
+    }
+    offenders = {name: hits for name, hits in spelled.items() if hits}
+    assert not offenders, offenders
