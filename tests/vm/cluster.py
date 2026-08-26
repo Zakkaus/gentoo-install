@@ -3757,6 +3757,24 @@ INITRAMFS_GAVE_UP: Final[tuple[str, ...]] = (
     "Key load error",
 )
 
+#: The one `Key load error` that is a success. ZFSBootMenu says this when the
+#: key is already in place, which is exactly what a remote SSH unlock leaves
+#: behind: `zbm-unlock` was failed at 142.6 minutes with `Key load error: Key
+#: already loaded for 'zpcala'`, for doing the thing the fixture exists to do.
+KEY_ALREADY_LOADED: Final[str] = "Key already loaded"
+
+
+def initramfs_gave_up(said: bytes) -> bool:
+    """Whether this screen shows the initramfs failing to reach the root.
+
+    One reader, so the exception cannot be applied in one place and forgotten
+    in the other: the pattern that waits for these and the check that reads
+    what arrived are different lines.
+    """
+    if KEY_ALREADY_LOADED.encode() in said:
+        return False
+    return any(one.encode() in said for one in INITRAMFS_GAVE_UP)
+
 #: Enough of the screen to carry the refusal and the prompt above it.
 INITRAMFS_SCREEN_BYTES: Final[int] = 600
 
@@ -3966,7 +3984,7 @@ def _unlock(
             )
         if any(one.encode() in said for one in LOGIN_PROMPTS):
             return UnlockResult(InstalledBootState.LOGIN_READY)
-        if any(one.encode() in said for one in INITRAMFS_GAVE_UP):
+        if initramfs_gave_up(said):
             return UnlockResult(
                 InstalledBootState.WAIT_LOGIN,
                 (
