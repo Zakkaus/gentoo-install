@@ -16,6 +16,8 @@ from typing import Callable, Final, Protocol, cast
 from ..errors import CommandFailed, ConfigError, GentooInstallError, InvalidLayout
 from ..model.config import DiskMode, InstallConfig
 from ..model.device import (
+    md_path,
+    mapper_path,
     DeviceGraph,
     DeviceId,
     Existing,
@@ -463,7 +465,7 @@ class CreateMdRaid(Operation):
     def describe(self) -> str:
         members = ", ".join(self.members)
         return (
-            f"create {self.level.value} array /dev/md/{self.name} as {self.array} "
+            f"create {self.level.value} array {md_path(self.name)} as {self.array} "
             f"from {members}, metadata {self.metadata.value}"
         )
 
@@ -472,7 +474,7 @@ class CreateMdRaid(Operation):
             [
                 "mdadm",
                 "--create",
-                f"/dev/md/{self.name}",
+                md_path(self.name),
                 "--run",
                 f"--level={self.level.value}",
                 f"--metadata={self.metadata.value}",
@@ -529,7 +531,7 @@ class OpenLuks(Operation):
     name: str
 
     def describe(self) -> str:
-        return f"open {self.backing} as /dev/mapper/{self.name} using the key file for {self.container}"
+        return f"open {self.backing} as {mapper_path(self.name)} using the key file for {self.container}"
 
     @property
     def survives_a_reboot(self) -> bool:
@@ -563,7 +565,7 @@ class AssembleMdRaid(Operation):
     name: str
 
     def describe(self) -> str:
-        return f"assemble /dev/md/{self.name} from {', '.join(self.members)}"
+        return f"assemble {md_path(self.name)} from {', '.join(self.members)}"
 
     @property
     def survives_a_reboot(self) -> bool:
@@ -571,13 +573,13 @@ class AssembleMdRaid(Operation):
 
     def apply(self, context: Context) -> None:
         listed = context.run(["mdadm", "--detail", "--scan"])
-        if f"/dev/md/{self.name}" in listed:
+        if md_path(self.name) in listed:
             return
         context.run(
             [
                 "mdadm",
                 "--assemble",
-                f"/dev/md/{self.name}",
+                md_path(self.name),
                 *(context.device_path(member) for member in self.members),
             ]
         )
@@ -1261,7 +1263,7 @@ _CLOSE: Final[dict[type[Node], Callable[[Node], tuple[str, ...]]]] = {
     ZfsPool: lambda node: ("zpool", "export", cast(ZfsPool, node).name),
     VolumeGroup: lambda node: ("vgchange", "--activate", "n", cast(VolumeGroup, node).name),
     Luks: lambda node: ("cryptsetup", "close", cast(Luks, node).name),
-    MdRaid: lambda node: ("mdadm", "--stop", f"/dev/md/{cast(MdRaid, node).name}"),
+    MdRaid: lambda node: ("mdadm", "--stop", cast(MdRaid, node).device_path),
 }
 
 

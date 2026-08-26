@@ -989,14 +989,14 @@ class WriteMdadmConf(Operation):
 
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
         arrays = ", ".join(
-            f"ARRAY /dev/md/{array.name} metadata={array.metadata.value} UUID from {array.id}"
+            f"ARRAY {array.device_path} metadata={array.metadata.value} UUID from {array.id}"
             for array in self.arrays
         )
         return "write /etc/mdadm.conf with {}", (arrays,)
 
     def apply(self, context: Context) -> None:
         definitions = "".join(
-            f"ARRAY /dev/md/{array.name} metadata={array.metadata.value} "
+            f"ARRAY {array.device_path} metadata={array.metadata.value} "
             f"UUID={context.array_uuid(array.id)}\n"
             for array in self.arrays
         )
