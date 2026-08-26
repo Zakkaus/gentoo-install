@@ -20,6 +20,7 @@ from ..errors import CommandFailed, ConfigError, InvalidLayout, NothingToBoot
 from ..model import compat
 from ..model.config import Bootloader, DiskMode, Firmware, InitSystem, InstallConfig, RemoteUnlock
 from ..model.device import (
+    dataset_name,
     Existing,
     DeviceId,
     Filesystem,
@@ -666,7 +667,7 @@ def boot_facts(config: InstallConfig) -> BootFacts:
         if not isinstance(pool, ZfsPool):
             raise InvalidLayout(f"{source.id} does not refer to a ZFS pool")
         root_device: DeviceId | None = None
-        dataset = f"{pool.name}/{source.name}"
+        dataset = dataset_name(pool, source)
         root_parameters: tuple[str, ...] = ()
         pool_name = pool.name
         pool_dataset = dataset

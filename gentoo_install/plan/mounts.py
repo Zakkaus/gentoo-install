@@ -8,6 +8,7 @@ from pathlib import PurePosixPath
 
 from ..errors import InvalidLayout
 from ..model.device import (
+    dataset_name,
     DeviceGraph,
     DeviceId,
     Filesystem,
@@ -50,7 +51,7 @@ def _resolve_mount(graph: DeviceGraph, mount: Mountpoint) -> ResolvedMount:
             mountpoint=mount.id,
             path=mount.path,
             device=None,
-            dataset=f"{pool.name}/{source.name}",
+            dataset=dataset_name(pool, source),
             filesystem_kind=None,
             subvolume=None,
             options=mount.options,
