@@ -932,7 +932,7 @@ def test_one_table_decides_what_an_architecture_is_called() -> None:
     spell an architecture drifted apart."""
     import ast
 
-    from gentoo_install.model.compat import ARCHITECTURES
+    from gentoo_install.model.architecture import ARCHITECTURES
 
     pairs = {(one.kernel_name, one.gentoo_name) for one in ARCHITECTURES}
     assert ("x86_64", "amd64") in pairs
@@ -941,7 +941,7 @@ def test_one_table_decides_what_an_architecture_is_called() -> None:
     # the second table this exists to prevent. One file is exempt, by path: a
     # basename exempted every future `plan/compat.py` from the rule too.
     for path in sorted(PACKAGE.rglob("*.py")):
-        if path == PACKAGE / "model" / "compat.py":
+        if path == PACKAGE / "model" / "architecture.py":
             continue
         text = path.read_text()
         for kernel_name, gentoo_name in pairs:
@@ -964,13 +964,18 @@ def test_the_default_architecture_is_pinned_by_name_not_by_row_order() -> None:
     and refuse x86_64, while the stage3 and profile paths still fetch amd64."""
     import ast
 
-    from gentoo_install.model import compat
+    import platform
 
-    assert compat.DEFAULT_ARCHITECTURE.kernel_name == "x86_64"
-    assert compat.DEFAULT_ARCHITECTURE.gentoo_name == "amd64"
+    from gentoo_install.model import architecture as compat
+
+    # The machine's own row, not the first one in the table. On a machine the
+    # table has no row for it falls back to amd64, and `preflight` refuses by
+    # name rather than a URL being composed from a guess.
+    expected = compat.architecture_of(platform.machine()) or compat.AMD64
+    assert compat.DEFAULT_ARCHITECTURE == expected
     assert compat.DEFAULT_ARCHITECTURE in compat.ARCHITECTURES
 
-    source = (PACKAGE / "model" / "compat.py").read_text()
+    source = (PACKAGE / "model" / "architecture.py").read_text()
     assigned = [
         node.value
         for node in ast.walk(ast.parse(source))
@@ -993,7 +998,7 @@ def test_an_architecture_row_cannot_be_written_with_its_names_swapped() -> None:
 
     import pytest
 
-    from gentoo_install.model.compat import Architecture
+    from gentoo_install.model.architecture import Architecture
 
     # Called through a name mypy cannot resolve to the constructor, so the
     # rejection this pins is the runtime one and not a silenced type error.

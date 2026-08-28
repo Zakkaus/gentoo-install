@@ -18,6 +18,7 @@ from typing import Final
 
 from ..errors import CommandFailed, ConfigError, InvalidLayout, NothingToBoot
 from ..model import compat
+from ..model.architecture import DEFAULT_ARCHITECTURE
 from ..model.config import Bootloader, DiskMode, Firmware, InitSystem, InstallConfig, RemoteUnlock
 from ..model.device import (
     dataset_name,
@@ -174,7 +175,12 @@ class InstallGrub(Operation):
     def apply(self, context: Context) -> None:
         force = ["--force"] if self.force else []
         if self.firmware is Firmware.UEFI and self.esp is not None:
-            efi = ["grub-install", *force, "--target=x86_64-efi", f"--efi-directory={self.esp}"]
+            efi = [
+                "grub-install",
+                *force,
+                f"--target={DEFAULT_ARCHITECTURE.grub_target}",
+                f"--efi-directory={self.esp}",
+            ]
             # The removable-media path first, because it is the one that boots
             # without an NVRAM entry: firmware that loses its entry, and every
             # firmware that never had one, boots only that.

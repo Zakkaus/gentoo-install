@@ -38,11 +38,12 @@ from ..errors import (
 from ..redact import scrub
 from ..model import paste
 from ..model.validate import KernelCeiling
+from ..model.architecture import DEFAULT_ARCHITECTURE
 from ..model.config import ProxyConfig
 from .probe import RELEASE_KEY
 from .runner import Runner
 
-STAGE3_PATH: Final[str] = "releases/amd64/autobuilds"
+STAGE3_PATH: Final[str] = f"releases/{DEFAULT_ARCHITECTURE.gentoo_name}/autobuilds"
 TIMEOUT: Final[float] = 60.0
 
 #: Sent on every request. `paste.gentoozh.org` answers 403 to the agent urllib
@@ -265,7 +266,7 @@ def _newest(
     The signature around the entries is not checked here: the DIGESTS file is,
     and it is what decides whether the bytes are the right ones.
     """
-    pointer = f"{builds}/latest-stage3-amd64-{variant}.txt"
+    pointer = f"{builds}/latest-stage3-{DEFAULT_ARCHITECTURE.gentoo_name}-{variant}.txt"
     paths: list[str] = []
     for line in _read_patiently(pointer, proxy).splitlines():
         said = line.strip()
@@ -465,7 +466,8 @@ def why_mirror_unreachable(
     mirror: str, variant: str, proxy: ProxyConfig | None = None
 ) -> str:
     """Empty when the mirror answers, and why it did not otherwise."""
-    url = f"{mirror.rstrip('/')}/{STAGE3_PATH}/latest-stage3-amd64-{variant}.txt"
+    stage3 = f"latest-stage3-{DEFAULT_ARCHITECTURE.gentoo_name}-{variant}.txt"
+    url = f"{mirror.rstrip('/')}/{STAGE3_PATH}/{stage3}"
     return why_unreachable(url) if proxy is None else why_unreachable(url, proxy)
 
 

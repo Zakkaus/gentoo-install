@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
+from .architecture import DEFAULT_ARCHITECTURE
 from .config import PROFILE_RELEASE, GentooZhMirror, MirrorRegion
 
 
@@ -243,14 +244,18 @@ def gentoo_rsync_uri(region: MirrorRegion, preferred: str = "") -> str:
 
 #: Where a mirror keeps the official binary packages, relative to the
 #: distfiles base. Every site that carries the releases tree carries these.
-BINPACKAGES: Final[str] = f"releases/amd64/binpackages/{PROFILE_RELEASE}"
+#: Where a mirror keeps the official binary packages, relative to the
+#: distfiles base. The architecture appears twice in one URL and both come
+#: from the same row: `releases/<gentoo_name>/binpackages/<release>/<subarch>`.
+BINPACKAGES: Final[str] = "releases/{arch}/binpackages/" + PROFILE_RELEASE
 
 
-def gentoo_binhost(region: MirrorRegion, preferred: str = "", subarch: str = "x86-64") -> str:
+def gentoo_binhost(region: MirrorRegion, preferred: str = "", subarch: str = "") -> str:
     """The official binary packages, from the same site as the distfiles."""
     sites = gentoo_sites(region)
     chosen = next((site for site in sites if site.key == preferred), sites[0])
-    return f"{chosen.distfiles}/{BINPACKAGES}/{subarch}"
+    within = BINPACKAGES.format(arch=DEFAULT_ARCHITECTURE.gentoo_name)
+    return f"{chosen.distfiles}/{within}/{subarch or DEFAULT_ARCHITECTURE.binhost_subarch}"
 
 
 def gentoozh(chosen: GentooZhMirror) -> Site:

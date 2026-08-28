@@ -19,6 +19,7 @@ from typing import Final, Sequence
 
 from ..errors import CommandFailed, ConfigError
 from ..model import mirrors
+from ..model.architecture import DEFAULT_ARCHITECTURE
 from ..model.config import (
     BinhostChannel,
     InitSystem,
@@ -1785,7 +1786,9 @@ def make_conf(
     if wanted:
         settings.append(("USE", " ".join(wanted)))
     if portage.cpu_flags:
-        settings.append(("CPU_FLAGS_X86", " ".join(portage.cpu_flags)))
+        settings.append(
+            (DEFAULT_ARCHITECTURE.cpu_flags_variable, " ".join(portage.cpu_flags))
+        )
     wanted_cards = video_cards or portage.video_cards
     if wanted_cards:
         settings.append(("VIDEO_CARDS", " ".join(wanted_cards)))
