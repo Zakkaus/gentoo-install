@@ -7,7 +7,7 @@ import os
 import shutil
 import sys
 import time
-from typing import Final, Sequence, cast
+from typing import Any, Final, Sequence, cast
 import re
 from dataclasses import replace
 from pathlib import Path
@@ -2523,3 +2523,53 @@ def test_every_session_invocation_asks_for_the_menu() -> None:
     assert len(driven) == 2, driven
     for arguments in driven:
         assert "--menu" in arguments, arguments
+
+
+def test_the_evidence_for_a_live_medium_is_a_token_not_a_sentence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`live_medium()` is carried as a `Refusal.detail`, which is not translated.
+
+    The menu draws `translate(reason) + " (" + detail + ")"`, so a sentence
+    here put English inside a translated line: a guest running the interface
+    in Traditional Chinese drew a translated refusal ending in `(the kernel
+    command line carries rd.live.)`. The reason already says what happened;
+    the detail says which marker, and a marker is the same word in every
+    language.
+    """
+    from gentoo_install.exec import probe as probe_module
+
+    class Said:
+        def __init__(self, stdout: str) -> None:
+            self.stdout = stdout
+            self.returncode = 0
+
+    class Runner:
+        def __init__(self, root: str) -> None:
+            self.root = root
+
+        def run(self, argv: list[str], check: bool = True) -> Said:
+            del argv, check
+            return Said(self.root)
+
+    cmdline = tmp_path / "cmdline"
+    monkeypatch.setattr(probe_module, "CMDLINE", cmdline)
+
+    cmdline.write_text("BOOT_IMAGE=/vmlinuz rd.live.image quiet")
+    from_cmdline = _probe_with(probe_module, Runner(""), tmp_path).live_medium()
+    assert from_cmdline == "rd.live.", from_cmdline
+
+    cmdline.write_text("BOOT_IMAGE=/vmlinuz root=/dev/vda2 ro")
+    from_root = _probe_with(probe_module, Runner("overlay"), tmp_path).live_medium()
+    assert from_root == "overlay", from_root
+
+    # The rule, rather than the two values above: a producer that grows a
+    # sentence again is what this is here to refuse.
+    for evidence in (from_cmdline, from_root):
+        assert " " not in evidence, evidence
+
+
+def _probe_with(probe_module: object, runner: object, work: Path) -> RealProbe:
+    """A `Probe` built the way `cli.py` builds one, with a fake runner."""
+    made = getattr(probe_module, "Probe")
+    return cast(RealProbe, made(cast(Any, runner), work))

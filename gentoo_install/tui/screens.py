@@ -138,8 +138,15 @@ INSTALL_MODES: tuple[tuple[DiskMode, str], ...] = (
 
 def _because(refused: refusals.Refusal, translate: Catalog) -> str:
     """The reason in the operator's language, and what on this machine caused
-    it after it. The detail is a device path or a command name, which is the
-    same word in every language and is not in any catalog."""
+    it after it.
+
+    The detail is never translated, so a producer that puts a sentence there
+    writes English into a translated line: `live_medium()` did, and a guest
+    drew a Chinese refusal ending in `(the kernel command line carries ...)`.
+    A device path, a filesystem type or a comma-joined list of commands is the
+    same word in every language; `str(error)` is not, and is accepted only
+    because an exception message has nowhere else to go.
+    """
     if not refused.detail:
         return translate(refused.reason)
     return f"{translate(refused.reason)} ({refused.detail})"
