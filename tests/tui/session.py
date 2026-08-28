@@ -240,10 +240,20 @@ def _settled(grid: "Screen", console: object) -> str:
     """
     read = getattr(console, "read_available")
     deadline = time.monotonic() + SETTLE_LIMIT
+    # Two quiet windows, not one. The console is a websocket to a node, so a
+    # single gap between chunks can be longer than one window and lands in the
+    # middle of a drawn run rather than between two frames: a row that reads
+    # `-j` where the guest wrote `-j1` looks exactly like a defect in the
+    # interface, and three reads in a row showed it.
+    quiet = 0
     while time.monotonic() < deadline:
         arrived = read(SETTLE_QUIET)
         if not arrived:
-            break
+            quiet += 1
+            if quiet == 2:
+                break
+            continue
+        quiet = 0
         grid.feed(arrived)
     return _with_cursor(grid)
 
