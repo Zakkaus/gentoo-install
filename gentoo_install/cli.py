@@ -53,6 +53,7 @@ from .tui import context as tui_context
 from .tui.curses_screen import CursesScreen, too_small
 from .i18n import Catalog, tag_for
 from .model import mirrors, qr, refusals, templates
+from .model.architecture import official_subarch
 from .model.config import (
     BootloaderConfig,
     Binhost,
@@ -1336,7 +1337,7 @@ def _blank(
         portage=PortageConfig(
             makeopts=f"-j{cores}",
             cpu_flags=cpu_flags,
-            binhost=Binhost(subarch="x86-64-v3" if supports_v3 else "x86-64"),
+            binhost=Binhost(subarch=official_subarch(supports_v3)),
             mirrors=MirrorConfig(region=region, site=mirrors.gentoo_sites(region)[0].key),
         ),
     )

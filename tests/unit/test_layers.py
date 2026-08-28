@@ -1236,3 +1236,58 @@ def test_one_place_builds_a_dataset_full_name() -> None:
     }
     offenders = {name: hits for name, hits in spelled.items() if hits}
     assert not offenders, offenders
+
+
+def test_one_row_decides_both_halves_of_the_binhost_url() -> None:
+    """The official binary host spells the architecture twice in one URL.
+
+    `releases/<gentoo_name>/binpackages/<release>/<binhost_subarch>`. The first
+    half was parameterised and the second was written as `x86-64`, so an
+    aarch64 machine asked for an arm64 releases path ending in `/x86-64`, took
+    a 404 and compiled all sixty-three packages from source. It installed --
+    the degradation is recorded and falls back to source, which is the design
+    -- so nothing failed and nothing said so either.
+    """
+    import ast
+
+    from gentoo_install.model import architecture, mirrors
+    from gentoo_install.model.config import MirrorRegion
+
+    url = mirrors.gentoo_binhost(MirrorRegion.GLOBAL)
+    row = architecture.DEFAULT_ARCHITECTURE
+    assert f"/{row.gentoo_name}/" in url, url
+    assert url.endswith(f"/{row.binhost_subarch}"), url
+
+    # And nothing outside the table writes a subarchitecture of its own: the
+    # three that did were the dataclass default, the automatic configuration
+    # and the menu's offer, all spelling `x86-64`.
+    # `i686` is both a `uname -m` answer and a binhost directory, so a literal
+    # `i686` is not evidence of a second spelling of the subarchitecture --
+    # `plan/netboot.py` keys Alpine's kernel flavours by the former.
+    kernel_names = {one.kernel_name for one in architecture.ARCHITECTURES}
+    known = {one.binhost_subarch for one in architecture.ARCHITECTURES}
+    known.add(architecture.V3_SUBARCH)
+    known -= kernel_names
+    # Two places outside the table may still name one, and both are named
+    # here rather than exempted by pattern: `mirrors.GENTOOZH_SUBARCH`, a fact
+    # about a host that builds for one machine only, and the menu's own offer.
+    allowed = {
+        PACKAGE / "model" / "architecture.py",
+        PACKAGE / "model" / "mirrors.py",
+        PACKAGE / "tui" / "mirror.py",
+    }
+    for path in sorted(PACKAGE.rglob("*.py")):
+        if path in allowed:
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Constant) and node.value in known:
+                raise AssertionError(f"{path}:{node.lineno} writes {node.value!r}")
+
+    # And `mirrors.py` names exactly one, the community host's.
+    source = (PACKAGE / "model" / "mirrors.py").read_text(encoding="utf-8")
+    spelled = [
+        node.lineno
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Constant) and node.value in known
+    ]
+    assert len(spelled) == 1, spelled

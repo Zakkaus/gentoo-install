@@ -277,8 +277,14 @@ def gentoozh_for(region: MirrorRegion) -> GentooZhMirror:
     return _GENTOOZH_BY_REGION[region]
 
 
+#: gentoo-zh builds for one machine only, so this is a fact about that host
+#: rather than a parameter of the target: on any other architecture the
+#: community binary host is off, not pointed at a directory it never built.
+GENTOOZH_SUBARCH: Final[str] = "x86-64"
+
+
 def gentoozh_binhost(
-    chosen: GentooZhMirror, subarch: str = "x86-64", unstable: bool = False
+    chosen: GentooZhMirror, subarch: str = GENTOOZH_SUBARCH, unstable: bool = False
 ) -> str:
     """The channel is a different path, not a different keyword file: stable
     builds against the main tree's `amd64`, unstable against `~amd64`

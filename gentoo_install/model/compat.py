@@ -17,6 +17,7 @@ from enum import Enum
 from pathlib import PurePosixPath
 from typing import Callable, Final, Mapping
 
+from .architecture import ARCHITECTURES, V3_SUBARCH
 from . import mirrors
 from .config import (
     BinhostChannel,
@@ -366,7 +367,9 @@ _CJK_KERNEL_PACKAGES: Final[frozenset[str]] = frozenset(
 #: The official binary hosts this installer knows how to point Portage at.
 #: A subarchitecture outside this set is a refusal rather than a URL composed
 #: from it, because a host that does not exist answers 404 an hour in.
-BINHOST_SUBARCHS: Final[frozenset[str]] = frozenset({"x86-64", "x86-64-v3"})
+BINHOST_SUBARCHS: Final[frozenset[str]] = frozenset(
+    {one.binhost_subarch for one in ARCHITECTURES} | {V3_SUBARCH}
+)
 
 
 def binhost_subarch_problems(
@@ -387,10 +390,10 @@ def binhost_subarch_problems(
         return ()
     if binhost.subarch not in BINHOST_SUBARCHS:
         return (f"official binhost subarch {binhost.subarch!r} is not supported",)
-    if binhost.subarch == "x86-64-v3" and supports_v3 is False:
+    if binhost.subarch == V3_SUBARCH and supports_v3 is False:
         return (
-            "official binhost subarch 'x86-64-v3' needs a CPU this one is not: "
-            "`ld.so --help` does not list x86-64-v3 as supported",
+            f"official binhost subarch {V3_SUBARCH!r} needs a CPU this one is "
+            f"not: `ld.so --help` does not list {V3_SUBARCH} as supported",
         )
     return ()
 
