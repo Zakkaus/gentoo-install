@@ -163,6 +163,7 @@
 "every license" = "すべてのライセンス"
 "Compile jobs" = "コンパイルの並列数"
 "this machine's core count" = "このマシンのコア数"
+"Compiler" = "コンパイラ"
 "Compiler flags" = "コンパイラフラグ"
 "what the stage3 already has" = "stage3 の設定をそのまま使う"
 "binary packages match" = "バイナリパッケージと一致します"

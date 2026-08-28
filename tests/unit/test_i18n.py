@@ -279,8 +279,13 @@ def displayed() -> set[str]:
 
     found = in_a_table()
     found |= operation_templates()
-    for module in Path(tui.__file__).parent.parent.rglob("*.py"):
-        for node in ast.walk(ast.parse(module.read_text(encoding="utf-8"))):
+    trees = {
+        module: ast.parse(module.read_text(encoding="utf-8"))
+        for module in Path(tui.__file__).parent.parent.rglob("*.py")
+    }
+    carriers = _translates_a_parameter(trees.values())
+    for tree in trees.values():
+        for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
             called = getattr(node.func, "id", "") or getattr(node.func, "attr", "")
@@ -288,23 +293,51 @@ def displayed() -> set[str]:
                 node.args[0], ast.Constant
             ):
                 found.add(str(node.args[0].value))
+            # `Setting("cflags", "Compiler flags", ...)`: a dataclass field,
+            # translated by whoever draws the row rather than in a body here,
+            # so it cannot be derived the way the carriers below are.
             if called == "Setting" and len(node.args) > 1:
                 if isinstance(node.args[1], ast.Constant):
                     found.add(str(node.args[1].value))
-            # `footer(translate, "Start writing to the disks")`: the string
-            # names what enter does on that screen and is translated inside.
-            if called == "footer" and len(node.args) > 1:
-                if isinstance(node.args[1], ast.Constant):
-                    found.add(str(node.args[1].value))
-            # `_consent_screen(screen, config, context, "Font configuration",
-            # summary)`: its fourth argument is the title and it calls
-            # `translate(title)` itself. Without this the collector could not
-            # see that title at all, so `Font configuration` drew in English
-            # on four translated screens and this test stayed green.
-            if called == "_consent_screen" and len(node.args) > 3:
-                if isinstance(node.args[3], ast.Constant):
-                    found.add(str(node.args[3].value))
+            for position in carriers.get(called, ()):
+                if len(node.args) <= position:
+                    continue
+                carried = node.args[position]
+                if isinstance(carried, ast.Constant):
+                    found.add(str(carried.value))
     return found
+
+
+def _translates_a_parameter(trees: object) -> dict[str, set[int]]:
+    """Functions that hand one of their own parameters to `translate`.
+
+    Derived, not listed: the list was written by hand and missed one three
+    times. `footer` and `_consent_screen` were added after each miss drew
+    English on a translated screen, and `nested` was still absent, which is
+    why the group title `Compiler` reached four screens untranslated and was
+    not even a catalog key.
+    """
+    import ast as _ast
+    from typing import Iterable, cast
+
+    carriers: dict[str, set[int]] = {}
+    for tree in cast("Iterable[_ast.Module]", trees):
+        for function in _ast.walk(tree):
+            if not isinstance(function, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+                continue
+            names = [one.arg for one in function.args.args]
+            for node in _ast.walk(function):
+                if not isinstance(node, _ast.Call):
+                    continue
+                called = getattr(node.func, "id", "") or getattr(node.func, "attr", "")
+                if called not in {"translate", "_translate"} or not node.args:
+                    continue
+                argument = node.args[0]
+                if isinstance(argument, _ast.Name) and argument.id in names:
+                    carriers.setdefault(function.name, set()).add(
+                        names.index(argument.id)
+                    )
+    return carriers
 
 
 def test_the_catalogs_hold_every_string_the_interface_shows() -> None:

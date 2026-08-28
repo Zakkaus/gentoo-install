@@ -163,6 +163,7 @@
 "every license" = "모든 라이선스"
 "Compile jobs" = "컴파일 병렬 수"
 "this machine's core count" = "이 컴퓨터의 코어 수"
+"Compiler" = "컴파일러"
 "Compiler flags" = "컴파일러 플래그"
 "what the stage3 already has" = "stage3 설정을 그대로 사용"
 "binary packages match" = "바이너리 패키지가 일치합니다"
