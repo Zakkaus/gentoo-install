@@ -839,3 +839,33 @@ def test_the_password_form_shows_the_catalog_word_for_done() -> None:
     drawn = "\n".join(line for frame in display.frames for line in frame)
     assert "Done" not in drawn, drawn
     assert at.translate("Done") in drawn, drawn
+
+
+def test_the_compile_jobs_row_says_what_the_plan_will_write() -> None:
+    """An empty `makeopts` means the target's own core count, not the stage3's.
+
+    `plan.portage` passes `jobs_from_machine=not portage.makeopts` and writes
+    `-j` with the machine's cores, while the row read `stage3 default`: the
+    menu named the opposite of what the install does. Found by reading the
+    screen on a guest, where choosing the preselected row changed the summary
+    to a value that row does not produce.
+    """
+    from dataclasses import replace
+
+    from gentoo_install.i18n import Catalog
+    from gentoo_install.tui import settings
+
+    from .test_tui_app import config, context
+
+    at = context()
+    at.translate = Catalog("zh-TW")
+    installation = config()
+    unpinned = replace(
+        installation, portage=replace(installation.portage, makeopts="")
+    )
+    said = settings._makeopts(unpinned, at)
+    assert said == at.translate("this machine's core count"), said
+    assert said != at.translate("stage3 default"), said
+
+    pinned = replace(installation, portage=replace(installation.portage, makeopts="-j4"))
+    assert settings._makeopts(pinned, at) == "-j4"

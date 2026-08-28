@@ -705,7 +705,10 @@ def _license(config: InstallConfig, context: Context) -> str:
 def _makeopts(config: InstallConfig, context: Context) -> str:
     if config.portage.makeopts:
         return config.portage.makeopts
-    return context.translate("stage3 default")
+    # Not the stage3's value: `plan.portage` passes `jobs_from_machine` when
+    # this is empty and writes the target's own core count, so the row said
+    # the opposite of what the install does. Same words as the chooser's row.
+    return context.translate("this machine's core count")
 
 
 def _cflags(config: InstallConfig, context: Context) -> str:

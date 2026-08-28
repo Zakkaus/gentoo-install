@@ -1967,12 +1967,18 @@ def test_the_console_font_is_a_row_and_the_size_with_no_cjk_says_why() -> None:
     assert chosen.unwrap().system.console_font is ConsoleFontSize.SIZE_16X32
 
 
-def test_empty_makeopts_summary_names_the_stage3_default() -> None:
-    """An empty value is preserved by the plan, so its summary must say stage3 default."""
+def test_empty_makeopts_summary_names_the_machine_it_installs_onto() -> None:
+    """An empty value is resolved by the plan, so its summary says whose cores.
+
+    This test held the opposite until now, and its own docstring carried the
+    premise that stopped being true: `#1086` made `plan.portage` pass
+    `jobs_from_machine` for an empty value and write the target's core count,
+    while the row still read `stage3 default`.
+    """
     at = context()
     empty = config()
     setting = next(one for group in settings.SETTINGS for one in group.rows if one.key == "makeopts")
-    assert settings.shown_value(setting, empty, at) == "stage3 default"
+    assert settings.shown_value(setting, empty, at) == "this machine's core count"
 
 
 def test_console_font_is_available_for_standard_kernel_without_console_cjk() -> None:

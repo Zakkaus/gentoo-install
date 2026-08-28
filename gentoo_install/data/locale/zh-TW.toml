@@ -378,7 +378,6 @@
 "a reused layout writes no table" = "沿用既有分割區不寫分割表"
 "none detected" = "未偵測到"
 "this machine" = "本機"
-"stage3 default" = "stage3 預設值"
 "baseline" = "基線"
 "what the profile sets, and what a binary host builds" = "profile 決定，binhost 也照同一組設定建置"
 "Encryption is a field of each partition, under Partitions." = "加密是各分割區的欄位；設定位置為分割區頁面。"

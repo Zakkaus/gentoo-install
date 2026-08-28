@@ -378,7 +378,6 @@
 "a reused layout writes no table" = "構成を流用する場合はパーティションテーブルを書かない"
 "none detected" = "検出なし"
 "this machine" = "このマシン"
-"stage3 default" = "stage3 の既定値"
 "baseline" = "ベースライン"
 "what the profile sets, and what a binary host builds" = "profile が決める設定で、binhost も同じ設定でビルドします"
 "Encryption is a field of each partition, under Partitions." = "暗号化は「パーティション」画面にある各パーティションの項目です。"
