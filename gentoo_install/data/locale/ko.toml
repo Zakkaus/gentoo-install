@@ -378,7 +378,6 @@
 "a reused layout writes no table" = "기존 구성을 재사용하면 파티션 테이블을 쓰지 않음"
 "none detected" = "감지 없음"
 "this machine" = "이 기기"
-"stage3 default" = "stage3 기본값"
 "baseline" = "기준선"
 "what the profile sets, and what a binary host builds" = "profile이 정하는 설정이며 binhost 도 같은 설정으로 빌드합니다"
 "Encryption is a field of each partition, under Partitions." = '암호화는 "파티션" 화면의 각 파티션에 있는 항목입니다.'
