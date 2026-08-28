@@ -17,7 +17,7 @@ from pathlib import PurePosixPath
 from typing import Final
 
 from ..errors import DownloadFailed, PreflightFailed
-from ..model.compat import ARCHITECTURES, architecture_of
+from ..model.architecture import ARCHITECTURES, architecture_of
 from ..model.config import BootMethod, MemoryLaunch, MemoryMode, MirrorRegion
 from .operations import CommandOutput, Context, Operation, Stage
 
@@ -82,8 +82,19 @@ ALPINE_REPOSITORY: Final[str] = "{base}/latest-stable/main"
 #: composes an aarch64 URL and the modloop is the one built beside the kernel
 #: that will be running.
 ALPINE_MODLOOP: Final[str] = (
-    "{base}/latest-stable/releases/{architecture}/netboot-{version}/modloop-lts"
+    "{base}/latest-stable/releases/{architecture}/netboot-{version}/modloop-{flavour}"
 )
+
+#: Which kernel Alpine builds for each architecture. Not one word everywhere:
+#: `alpine-netboot-3.24.1-aarch64.tar.gz` holds `virt` and `rpi` and no `lts`
+#: at all, measured 2026-08-29, so an aarch64 run composing `vmlinuz-lts`
+#: extracts nothing. `virt` is the one built for a machine with no hardware of
+#: its own, which is every cloud instance this arms.
+ALPINE_FLAVOUR: Final[dict[str, str]] = {
+    "x86_64": "lts",
+    "i686": "lts",
+    "aarch64": "virt",
+}
 
 #: What Alpine names a netboot archive. `netboot/` beside it holds whatever
 #: release is newest, so pinning the version keeps `modules/$(uname -r)` inside
@@ -418,9 +429,10 @@ class PlaceMemoryKernel(Operation):
                 )
             return
         archive = _only_image(context, STAGING, ".tar.gz")
+        flavour = _alpine_flavour(archive)
         for member, name in (
-            ("boot/vmlinuz-lts", "kernel"),
-            ("boot/initramfs-lts", "initramfs"),
+            (f"boot/vmlinuz-{flavour}", "kernel"),
+            (f"boot/initramfs-{flavour}", "initramfs"),
         ):
             context.run(
                 [
@@ -1242,7 +1254,34 @@ def _alpine_modloop(
             f"{archive.name} is not named as an Alpine netboot archive, so the "
             "modloop its kernel needs cannot be composed from it"
         )
-    return ALPINE_MODLOOP.format(base=ALPINE_MIRRORS[region], **named.groupdict())
+    return ALPINE_MODLOOP.format(
+        base=ALPINE_MIRRORS[region],
+        flavour=_alpine_flavour(archive),
+        **named.groupdict(),
+    )
+
+
+def _alpine_flavour(archive: PurePosixPath) -> str:
+    """Which kernel to take out of this netboot archive.
+
+    The architecture is in the archive's own name, so the flavour is derived
+    from what was downloaded rather than from what the machine says it is.
+    """
+    named = ALPINE_ARCHIVE.match(archive.name)
+    if named is None:
+        raise DownloadFailed(
+            f"{archive.name} is not named as an Alpine netboot archive, so the "
+            "kernel inside it cannot be named either"
+        )
+    architecture = named.group("architecture")
+    flavour = ALPINE_FLAVOUR.get(architecture)
+    if flavour is None:
+        known = ", ".join(sorted(ALPINE_FLAVOUR))
+        raise DownloadFailed(
+            f"Alpine builds no known netboot kernel for {architecture}; "
+            f"the architectures this can arm are {known}"
+        )
+    return flavour
 
 
 def _volume_label(context: Context, image: PurePosixPath) -> str:

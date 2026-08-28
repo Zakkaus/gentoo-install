@@ -14,6 +14,7 @@ from typing import AbstractSet, Final, Iterable, Mapping
 
 from ..errors import DeviceNotFound, PreflightFailed
 from ..model import compat
+from ..model.architecture import DEFAULT_ARCHITECTURE
 from ..model.config import DiskMode, Firmware, InstallConfig
 from ..model.device import (
     DeviceGraph,
@@ -505,7 +506,7 @@ def inspect(
     # The row rather than the literal: `uname -m` and Gentoo spell the same
     # architecture differently, and the message has to name the one the
     # configuration targets rather than the one this file was written for.
-    installs = compat.DEFAULT_ARCHITECTURE
+    installs = DEFAULT_ARCHITECTURE
     if config.disk.mode is not DiskMode.DD and machine.architecture != installs.kernel_name:
         fatal.append(
             f"this build installs {installs.gentoo_name} and the machine reports "

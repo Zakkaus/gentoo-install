@@ -9,6 +9,7 @@ once and read twice.
 
 from __future__ import annotations
 
+
 import ipaddress
 import re
 from dataclasses import dataclass
@@ -359,48 +360,7 @@ _CJK_KERNEL_PACKAGES: Final[frozenset[str]] = frozenset(
 )
 
 
-@dataclass(frozen=True, kw_only=True)
-class Architecture:
-    """One target architecture, under each of the names something spells it.
 
-    Ecosystems name the same architecture differently, the way `fma` and
-    `fma3` do: `uname -m` answers `x86_64` and Gentoo's `profiles/arch.list`
-    says `amd64`. Holding the pair together is what lets a site compare a row
-    instead of a literal. Keyword-only, because both fields are strings that
-    read the same way round, so a swapped row would pass every gate.
-    """
-
-    #: What `uname -m` answers on a machine of this kind.
-    kernel_name: str
-    #: The line of `profiles/arch.list`, which is also the keyword.
-    gentoo_name: str
-
-
-#: The row every published path targets today: the stage3, the profile and the
-#: official binary host are all fetched for it. Named so that the default is
-#: this row rather than whichever one the table happens to list first.
-AMD64: Final[Architecture] = Architecture(kernel_name="x86_64", gentoo_name="amd64")
-
-#: Every architecture this installer has a name for. A machine outside it is
-#: refused by name rather than sent to a URL composed from a guess.
-ARCHITECTURES: Final[tuple[Architecture, ...]] = (
-    AMD64,
-    Architecture(kernel_name="aarch64", gentoo_name="arm64"),
-    Architecture(kernel_name="i686", gentoo_name="x86"),
-)
-
-#: What an installation targets when its configuration says nothing. Only
-#: amd64 is installed today; the others are named so that the sites that
-#: decide can compare a row rather than a literal.
-DEFAULT_ARCHITECTURE: Final[Architecture] = AMD64
-
-
-def architecture_of(kernel_name: str) -> Architecture | None:
-    """The row a machine reporting `kernel_name` belongs to, if there is one."""
-    for row in ARCHITECTURES:
-        if row.kernel_name == kernel_name:
-            return row
-    return None
 
 
 #: The official binary hosts this installer knows how to point Portage at.

@@ -1168,7 +1168,7 @@ def test_every_architecture_this_maps_is_one_gentoo_names() -> None:
     `install-amd64-…`: two ecosystems naming the same machine, the way `fma`
     and `fma3` do. A name Gentoo does not use finds no asset and the failure
     reads as a missing release."""
-    from gentoo_install.model.compat import ARCHITECTURES
+    from gentoo_install.model.architecture import ARCHITECTURES
 
     named = {one.gentoo_name for one in ARCHITECTURES}
     assert named <= GENTOO_ARCH_NAMES, sorted(named - GENTOO_ARCH_NAMES)
