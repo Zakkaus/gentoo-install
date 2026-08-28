@@ -6503,3 +6503,30 @@ def test_one_rule_says_how_much_memory_a_guest_needs() -> None:
     source = Path("tests/vm/run.py").read_text()
     assert "memory_mib(load(" in source, source[:0]
     assert "memory=wanted_memory" in source, source[:0]
+
+
+def test_a_gap_between_chunks_is_not_the_end_of_the_draw() -> None:
+    """One quiet window ended the read in the middle of a drawn row.
+
+    The console is a websocket to a cluster node, so the gap between two
+    chunks of one repaint can be longer than a window. Reading then returned
+    `-j` for a row the guest had written as `-j1`, which reads as a defect in
+    the interface rather than as half a frame, and it repeated across three
+    reads because the tear is where the network put it, not where the guest is.
+    """
+    from tests.tui.session import _settled
+    from tests.tui.screen import Screen
+
+    class TornConsole:
+        """Delivers one repaint in two chunks with a quiet window between."""
+
+        def __init__(self) -> None:
+            self.answers = [b"\x1b[1;1H  -j", b"", b"1", b"", b""]
+
+        def read_available(self, patience: float) -> bytes:
+            del patience
+            return self.answers.pop(0) if self.answers else b""
+
+    grid = Screen(lines=5, columns=20)
+    shown = _settled(grid, TornConsole())
+    assert "-j1" in shown, shown
