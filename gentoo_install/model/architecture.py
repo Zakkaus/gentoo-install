@@ -100,3 +100,23 @@ def architecture_of(kernel_name: str) -> Architecture | None:
         if row.kernel_name == kernel_name:
             return row
     return None
+
+
+#: The one subarchitecture above the row's own, and what a CPU needs for it.
+#: Only amd64 publishes a second: the arm64 releases tree holds one
+#: subarchitecture directory, `arm64`, measured 2026-08-29.
+V3_SUBARCH: Final[str] = "x86-64-v3"
+
+
+def official_subarch(supports_v3: bool) -> str:
+    """Which directory of the official binary host this machine reads.
+
+    The architecture appears twice in that URL and both come from the row.
+    Written as `x86-64` here, an aarch64 machine composed an arm64
+    releases path ending in `/x86-64`, took a 404 and compiled all sixty-three
+    packages from source.
+    """
+    if supports_v3 and DEFAULT_ARCHITECTURE == AMD64:
+        return V3_SUBARCH
+    return DEFAULT_ARCHITECTURE.binhost_subarch
+

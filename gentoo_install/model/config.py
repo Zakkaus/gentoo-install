@@ -7,6 +7,8 @@ produce the same object, and `plan.build()` accepts nothing else.
 
 from __future__ import annotations
 
+from .architecture import DEFAULT_ARCHITECTURE
+
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Final, TYPE_CHECKING
@@ -403,7 +405,7 @@ class Binhost:
     #: The official host's subarchitecture. `x86-64-v3` needs AVX2 and the two
     #: are the only ones with a useful number of packages; gentoo-zh builds
     #: `x86-64` only, so this does not touch it.
-    subarch: str = "x86-64"
+    subarch: str = DEFAULT_ARCHITECTURE.binhost_subarch
     community: BinhostChannel = BinhostChannel.OFF
 
 
