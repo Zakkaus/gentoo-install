@@ -1165,11 +1165,20 @@ def use_our_resolvers() -> str:
     # printf wrote through the link and `systemd-resolved` put its own file
     # back. The converted guest reached `10.31.0.254` and `223.5.5.5` and
     # still answered `fail fail fail fail fail` to every lookup.
+    # And `nsswitch.conf` after both: stopping the daemon is not enough,
+    # because `hosts: mymachines resolve [!UNAVAIL=return] files myhostname
+    # dns` returns whatever `resolve` says and only falls through to `dns` --
+    # the module that reads the file above -- when `resolve` is UNAVAIL.
+    # Measured on the converted guest: the file held the three servers, two of
+    # them answered pings, `systemd-resolved` was active again, and
+    # `getent hosts distfiles.gentoo.org` still answered 2. Rewriting the line
+    # to `files dns` made the same lookup answer 0.
     return (
         "systemctl stop systemd-resolved 2>/dev/null; "
         "rc-service systemd-resolved stop 2>/dev/null; "
         "rm -f /etc/resolv.conf; "
-        f"printf '{resolvers}' > /etc/resolv.conf"
+        f"printf '{resolvers}' > /etc/resolv.conf; "
+        "sed -i 's/^hosts:.*/hosts: files dns/' /etc/nsswitch.conf 2>/dev/null"
     )
 
 
