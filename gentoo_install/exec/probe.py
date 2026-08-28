@@ -1210,8 +1210,13 @@ class Probe:
 
         The installer assumed it, and the assumption is what makes running it
         on a machine somebody uses dangerous: nothing said so before the disk
-        screen. Read rather than guessed, because a medium can be anything —
+        screen. Read rather than guessed, because a medium can be anything --
         Alpine, Debian, a Fedora live image.
+
+        One token, not a sentence: this is carried as a `Refusal.detail`,
+        which the menu appends to a translated reason without translating it,
+        so a sentence here put English inside a Chinese line. The callers that
+        want prose build their own around it.
         """
         try:
             cmdline = CMDLINE.read_text(encoding="utf-8")
@@ -1219,7 +1224,7 @@ class Probe:
             cmdline = ""
         for marker in self.LIVE_CMDLINE:
             if marker in cmdline:
-                return f"the kernel command line carries {marker}"
+                return marker
         said = self.runner.run(
             ["findmnt", "--noheadings", "--output", "FSTYPE", "--mountpoint", "/"],
             check=False,
@@ -1228,7 +1233,7 @@ class Probe:
             return ""
         kind = said.stdout.strip()
         if kind in self.LIVE_ROOT_TYPES:
-            return f"the root filesystem is {kind}"
+            return kind
         return ""
 
     def memory_environment(self) -> bool:
