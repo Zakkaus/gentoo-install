@@ -589,6 +589,12 @@ def test_the_handshake_accept_must_match_the_key_that_was_sent(
     class Raw:
         def __init__(self) -> None:
             self.closed = False
+            #: What `keep_asking` set, so the double answers the same calls the
+            #: real socket does rather than only the ones this test reads.
+            self.options: list[tuple[int, int, int]] = []
+
+        def setsockopt(self, level: int, option: int, value: int) -> None:
+            self.options.append((level, option, value))
 
         def close(self) -> None:
             self.closed = True
