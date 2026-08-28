@@ -6530,3 +6530,63 @@ def test_a_gap_between_chunks_is_not_the_end_of_the_draw() -> None:
     grid = Screen(lines=5, columns=20)
     shown = _settled(grid, TornConsole())
     assert "-j1" in shown, shown
+
+
+def test_a_console_socket_asks_whether_its_peer_is_still_there() -> None:
+    """`read()` answers empty for an idle console and for a dead one alike.
+
+    A half-open connection whose peer vanished without a FIN reads empty for
+    ever, which is exactly what an idle guest looks like, and four stalled
+    guests were read as the installer hanging. Keepalive makes the kernel
+    break the second one, and `read()` already turns that `OSError` into a
+    closed console with a reason.
+
+    Measured against a real socket rather than a double: these are the values
+    the kernel kept, not the values that were passed.
+    """
+    import socket
+
+    from tests.vm import websocket
+
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    talking = socket.create_connection(listener.getsockname())
+    try:
+        assert talking.getsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE) == 0
+        websocket.keep_asking(talking)
+        assert talking.getsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE) == 1
+        assert (
+            talking.getsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE)
+            == websocket.SILENCE_BEFORE_PROBING
+        )
+        assert (
+            talking.getsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL)
+            == websocket.BETWEEN_PROBES
+        )
+        assert (
+            talking.getsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT)
+            == websocket.PROBES_BEFORE_GIVING_UP
+        )
+    finally:
+        talking.close()
+        listener.close()
+
+
+def test_the_console_connection_is_the_one_that_gets_keepalive() -> None:
+    """`connect` must call it, not only export it: a helper nothing reaches
+    leaves every real console exactly as ambiguous as before."""
+    import ast
+    import inspect
+
+    from tests.vm import websocket
+
+    import textwrap
+
+    source = textwrap.dedent(inspect.getsource(websocket.WebSocket.connect))
+    called = {
+        getattr(node.func, "id", "") or getattr(node.func, "attr", "")
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call)
+    }
+    assert "keep_asking" in called, sorted(called)

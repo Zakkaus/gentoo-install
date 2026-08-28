@@ -37,6 +37,34 @@ class WebSocketError(Exception):
     """The handshake failed, or the peer sent something this client cannot read."""
 
 
+#: How long a console may be silent before the kernel starts probing it, and
+#: how many probes at what spacing decide it is gone. A guest is legitimately
+#: silent for minutes at a time, so this measures the connection rather than
+#: the guest: the probes are TCP, and the node answers them whether or not
+#: anything is being typed.
+SILENCE_BEFORE_PROBING: Final[int] = 30
+BETWEEN_PROBES: Final[int] = 10
+PROBES_BEFORE_GIVING_UP: Final[int] = 3
+
+
+def keep_asking(sock: socket.socket) -> None:
+    """Ask the kernel to notice a peer that went away without saying so.
+
+    `read()` answers empty both for an idle console and for a half-open
+    connection whose peer is gone with no FIN, and nothing above can tell
+    those apart: four stalled guests were diagnosed for days as the installer
+    hanging. With keepalive the second one breaks the socket instead, and the
+    `OSError` branch in `read()` already reports it with a reason.
+
+    Not a websocket ping: that needs the server to answer, and this needs
+    nothing from it.
+    """
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, SILENCE_BEFORE_PROBING)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, BETWEEN_PROBES)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, PROBES_BEFORE_GIVING_UP)
+
+
 def _client_frame(payload: bytes, opcode: int) -> bytes:
     """One masked frame. A client always masks; a server never does."""
     mask = os.urandom(4)
@@ -106,6 +134,7 @@ class WebSocket:
         secure: ssl.SSLSocket | None = None
         try:
             raw = socket.create_connection((host, port), timeout=timeout)
+            keep_asking(raw)
             secure = (context or ssl.create_default_context()).wrap_socket(
                 raw, server_hostname=host
             )
