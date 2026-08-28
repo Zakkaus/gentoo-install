@@ -872,11 +872,13 @@ class Form:
 
     title: str
     fields: list[Field]
+    #: No default: the one form that took it drew `Done` in the middle of a
+    #: Traditional Chinese screen, and five others passed the catalog's word.
+    done: str
     footer: str = ""
     #: What the marks in the body mean, kept at the end of the footer line so
     #: it does not read as one more key.
     legend: str = ""
-    done: str = "Done"
     #: Drawn under the title after one of the answers was rejected. Retrying
     #: with the values kept is the point: an
     #: operator who mistyped the second password should not lose the first.

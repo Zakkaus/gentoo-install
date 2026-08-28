@@ -442,7 +442,7 @@ def main(window):
         Field(label="password", secret=True),
         Field(label="sudo", toggle=True),
     ]
-    answered = Form(title="account", fields=fields, footer="[q]", message="try again").run(screen)
+    answered = Form(title="account", fields=fields, done="Done", footer="[q]", message="try again").run(screen)
     answer["values"] = answered.unwrap() if answered.chosen else None
     answer["outcome"] = answered.outcome.value
 
@@ -509,7 +509,7 @@ from gentoo_install.tui.widgets import Field, Form
 
 
 def main(window: object) -> None:
-    form = Form(title="network", fields=[Field(label="address")], footer="[Esc] Leave")
+    form = Form(title="network", fields=[Field(label="address")], done="Done", footer="[Esc] Leave")
     translated = "Escape after translation"
     answered = form.run(CursesScreen(window, lambda source: translated))
     answer["outcome"] = answered.outcome.value

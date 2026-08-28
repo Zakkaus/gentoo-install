@@ -196,7 +196,7 @@ def test_left_leaves_a_prefilled_field_without_editing_it() -> None:
     assert answer.outcome is Outcome.BACK
     assert answer.value is None
 
-    filled = Form(
+    filled = Form(done="Done", 
         title="User account",
         fields=[Field(label="name", value="zakk"), Field(label="shell", value="/bin/bash")],
     )
@@ -276,7 +276,7 @@ def test_q_is_a_character_in_a_field_and_a_way_out_of_a_menu() -> None:
 def test_a_form_moves_between_its_fields_with_the_arrow_keys() -> None:
     """One field per screen makes the operator answer six questions without
     ever seeing them together, which is the failure this replaces."""
-    form = Form(
+    form = Form(done="Done", 
         title="Network",
         fields=[Field(label="Address"), Field(label="Gateway"), Field(label="DNS")],
     )
@@ -290,13 +290,13 @@ def test_a_form_moves_between_its_fields_with_the_arrow_keys() -> None:
 
 
 def test_a_form_edits_the_field_the_cursor_is_on_and_no_other() -> None:
-    form = Form(title="t", fields=[Field(label="a", value="one"), Field(label="b", value="two")])
+    form = Form(done="Done", title="t", fields=[Field(label="a", value="one"), Field(label="b", value="two")])
     keys = ["KEY_DOWN", "\x7f", "\x7f", "\x7f", *"three", "KEY_DOWN", "\n"]
     assert form.run(FakeScreen(keys=keys, lines=20, columns=80)).unwrap() == ["one", "three"]
 
 
 def test_a_form_shows_every_field_at_once() -> None:
-    form = Form(
+    form = Form(done="Done", 
         title="Network",
         fields=[Field(label="Address", placeholder="10.0.0.2/24"), Field(label="DNS")],
     )
@@ -313,7 +313,7 @@ def test_a_form_with_an_overlong_wide_label_still_accepts_input() -> None:
     wider than the terminal. The trimming loop then deleted a string that was
     already empty, so the redraw never ended and the form never took a key.
     """
-    form = Form(title="Network", fields=[Field(label=WIDE * 60)])
+    form = Form(done="Done", title="Network", fields=[Field(label=WIDE * 60)])
     screen = FakeScreen(keys=["KEY_DOWN", "\n"], lines=24, columns=80)
 
     assert form.run(screen).unwrap() == [""]
@@ -322,7 +322,7 @@ def test_a_form_with_an_overlong_wide_label_still_accepts_input() -> None:
 def test_escape_leaves_a_form_without_an_answer() -> None:
     """Back rather than Cancel: escape has one meaning at every depth below
     the main menu, and it had two inside one feature."""
-    form = Form(title="t", fields=[Field(label="a")])
+    form = Form(done="Done", title="t", fields=[Field(label="a")])
     assert form.run(FakeScreen(keys=["\x1b"])).outcome is Outcome.BACK
 
 
@@ -349,11 +349,11 @@ def test_a_form_takes_the_back_its_footer_offers() -> None:
     so the only way out of it was to answer."""
     from gentoo_install.tui.widgets import Field, Form
 
-    empty = Form(title="Address", fields=[Field(label="Port"), Field(label="Address")])
+    empty = Form(done="Done", title="Address", fields=[Field(label="Port"), Field(label="Address")])
     assert empty.run(FakeScreen(keys=["KEY_BACKSPACE"])).outcome is Outcome.BACK
 
     # A field with content deletes instead, the same as a single text field.
-    filled = Form(
+    filled = Form(done="Done", 
         title="Address",
         fields=[Field(label="Port", value="222"), Field(label="Address")],
     )
@@ -374,7 +374,7 @@ def test_a_validated_form_retains_values_and_draws_the_error_inline() -> None:
     screen = FakeScreen(
         keys=[*"kept", "KEY_DOWN", "\n", "KEY_DOWN", "\n"], lines=20, columns=80
     )
-    answer = Form(title="Account", fields=[Field(label="Name")]).run_validated(
+    answer = Form(done="Done", title="Account", fields=[Field(label="Name")]).run_validated(
         screen, validate
     )
 
@@ -414,7 +414,7 @@ def test_a_validator_can_correct_one_field_without_losing_the_others() -> None:
         *"kept", "KEY_DOWN", *"wrong", "KEY_DOWN", "\n",
         "KEY_DOWN", *"right", "KEY_DOWN", "\n",
     ]
-    answer = Form(
+    answer = Form(done="Done", 
         title="Password",
         fields=[Field(label="First"), Field(label="Again")],
     ).run_validated(FakeScreen(keys=keys), validate)
@@ -431,7 +431,7 @@ def test_a_rejected_form_can_still_go_back_or_cancel(pressed: str, outcome: Outc
     def reject(values: list[str]) -> Answer[str] | FormRejected:
         return FormRejected("Try again.")
 
-    form = Form(title="Account", fields=[Field(label="Name")])
+    form = Form(done="Done", title="Account", fields=[Field(label="Name")])
     answer = form.run_validated(FakeScreen(keys=["KEY_DOWN", "\n", pressed]), reject)
     assert answer.outcome is outcome
 
@@ -494,7 +494,7 @@ def test_tab_moves_on_and_shift_tab_moves_back() -> None:
     assert raw.run(FakeScreen(keys=["\t", "\x1b[Z", "\n"], lines=24)).unwrap() == 1
 
     # A form moves between fields the same way, and tab is not typed into one.
-    form = Form(
+    form = Form(done="Done", 
         title="account",
         fields=[Field(label="name"), Field(label="shell")],
     )
@@ -584,7 +584,7 @@ def test_a_field_refuses_a_character_it_can_never_hold() -> None:
     from gentoo_install.tui.widgets import Accepts, Field, Form
 
     screen = FakeScreen(keys=["a", " ", "b", "\t", "\n"], lines=20, columns=60)
-    answered = Form(
+    answered = Form(done="Done", 
         title="Proxy",
         fields=[Field(label="host", accepts=Accepts.NO_SPACE)],
         footer="",
@@ -597,7 +597,7 @@ def test_a_port_field_takes_digits_and_nothing_else() -> None:
     from gentoo_install.tui.widgets import Accepts, Field, Form
 
     screen = FakeScreen(keys=["8", "o", "0", "-", "8", "\t", "\n"], lines=20, columns=60)
-    answered = Form(
+    answered = Form(done="Done", 
         title="Proxy",
         fields=[Field(label="port", accepts=Accepts.DIGITS)],
         footer="",
@@ -612,7 +612,7 @@ def test_a_field_with_no_rule_takes_what_it_is_given() -> None:
     from gentoo_install.tui.widgets import Field, Form
 
     screen = FakeScreen(keys=["a", " ", "b", "\t", "\n"], lines=20, columns=60)
-    answered = Form(title="Any", fields=[Field(label="free")], footer="").run(screen)
+    answered = Form(done="Done", title="Any", fields=[Field(label="free")], footer="").run(screen)
 
     assert answered.unwrap() == ["a b"]
 
@@ -979,7 +979,7 @@ def test_the_footer_names_the_key_that_always_goes_back() -> None:
     # with a value already in the field.
     typed = TextField(title="Hostname", value="gentoo")
     assert typed.run(FakeScreen(keys=["KEY_LEFT"])).outcome is Outcome.BACK
-    form = Form(title="User", fields=[Field(label="Name", value="zakk")])
+    form = Form(done="Done", title="User", fields=[Field(label="Name", value="zakk")])
     assert form.run(FakeScreen(keys=["KEY_LEFT"])).outcome is Outcome.BACK
 
 
@@ -1029,7 +1029,7 @@ def test_every_widget_draws_at_the_floor_the_interface_refuses_below() -> None:
         lambda screen: TextField(title="hostname", value="gentoo", detail="the name").run(screen),
         lambda screen: Confirm(title="erase", phrase="vda", detail="type it").run(screen),
         lambda screen: TwoPane(title="gentoo-install", rows=pane_rows(), footer="[enter]").run(screen),
-        lambda screen: Form(title="net", fields=[field]).run(screen),
+        lambda screen: Form(done="Done", title="net", fields=[field]).run(screen),
     )
     for widget in drawn:
         screen = FakeScreen(keys=["\x1b"] * 8, lines=MINIMUM_LINES, columns=MINIMUM_COLUMNS)
