@@ -781,3 +781,28 @@ def test_a_placeholder_is_prose_through_the_catalog_or_a_value_named_here() -> N
     # And the list holds nothing that has since been translated or removed.
     present = {one.split(" ", 1)[1].strip("'\"") for one in bare}
     assert present == UNTRANSLATED_PLACEHOLDERS, sorted(UNTRANSLATED_PLACEHOLDERS - present)
+
+
+def test_the_password_form_shows_the_catalog_word_for_done() -> None:
+    """Six forms pass `translate("Done")`; the password form did not, so the
+    only English word on a Traditional Chinese screen was its own button.
+
+    `Form.done` has no default now, so mypy answers for the next one. This
+    holds the rendering, because the reason the miss survived is that no test
+    read the drawn frame: the sentence check needs three lowercase words in a
+    row and `Done` is one.
+    """
+    from gentoo_install.i18n import Catalog
+    from gentoo_install.tui import screens
+
+    from .fake_screen import FakeScreen
+    from .test_tui_app import config, context
+
+    at = context()
+    at.translate = Catalog("zh-TW")
+    at.tag = "zh-TW"
+    display = FakeScreen(keys=["\x1b"] * 8, lines=40, columns=120)
+    screens.root_password_screen(display, config(), at)
+    drawn = "\n".join(line for frame in display.frames for line in frame)
+    assert "Done" not in drawn, drawn
+    assert at.translate("Done") in drawn, drawn

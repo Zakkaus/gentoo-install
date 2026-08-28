@@ -1464,6 +1464,7 @@ def _ask_password(screen: Screen, context: Context, title: str) -> Answer[str]:
             Field(label=translate("Password"), secret=True),
             Field(label=translate("Type it again"), secret=True),
         ],
+        done=translate("Done"),
         footer=footer(translate),
     ).run_validated(screen, validated)
 
