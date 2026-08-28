@@ -163,6 +163,7 @@
 "every license" = "全部授權"
 "Compile jobs" = "編譯並行數"
 "this machine's core count" = "本機核心數"
+"Compiler" = "編譯器"
 "Compiler flags" = "編譯器旗標"
 "what the stage3 already has" = "沿用 stage3 設定"
 "binary packages match" = "可使用相符的二進位套件"

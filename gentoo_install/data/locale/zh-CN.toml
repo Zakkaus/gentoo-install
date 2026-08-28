@@ -163,6 +163,7 @@
 "every license" = "全部许可"
 "Compile jobs" = "编译并行数"
 "this machine's core count" = "本机核心数"
+"Compiler" = "编译器"
 "Compiler flags" = "编译器标志"
 "what the stage3 already has" = "沿用 stage3 设置"
 "binary packages match" = "可使用匹配的二进制软件包"
