@@ -321,6 +321,36 @@ def test_the_machine_is_packed_by_weight_rather_than_by_count() -> None:
     assert CAPACITY // max(one.weight for one in heavy) == 3
 
 
+def test_no_run_can_carry_a_weight_of_its_own_again() -> None:
+    """Both runners must keep reading `sizing.compiles`, not a second copy.
+
+    They did not: `Run` held a hand-written weight per row, nine fixtures were
+    marked light here while the cluster derived heavy, and every one of the
+    nine was a layout that compiles a ZFS module. A field is how that comes
+    back, so the field set is what this holds.
+    """
+    import ast
+    import dataclasses
+    from pathlib import Path
+
+    from tests.vm import campaign, sizing
+
+    written = {field.name for field in dataclasses.fields(campaign.Run)}
+    assert not written & {"weight", "cpus", "heavy", "compiles"}, written
+    # And the derivation reads the shared rule rather than a local copy: the
+    # import is what makes it the same rule, so the import is what is held.
+    imported = {
+        name.name
+        for node in ast.walk(ast.parse(Path(campaign.__file__).read_text(encoding="utf-8")))
+        if isinstance(node, ast.ImportFrom) and node.module == "sizing"
+        for name in node.names
+    }
+    assert "compiles" in imported, imported
+    # The cluster reads the same module, so naming it here is not a second
+    # spelling of the rule.
+    assert sizing.compiles.__module__ == "tests.vm.sizing"
+
+
 def test_a_heavier_run_asks_for_the_cores_on_the_command_line() -> None:
     """The guest derives its MAKEOPTS from the vCPU count, so the weight has to
     reach `run.py` rather than only the scheduler."""
