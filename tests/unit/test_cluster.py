@@ -4535,3 +4535,33 @@ def test_a_key_already_loaded_is_not_the_initramfs_giving_up() -> None:
     for other in (b"Entering emergency mode", b"Failed to mount /sysroot"):
         assert cluster.initramfs_gave_up(other), other
     assert not cluster.initramfs_gave_up(b"[    3.1] mounting the root")
+
+
+def test_the_resolver_setup_reaches_nsswitch_as_well_as_the_file() -> None:
+    """Writing `/etc/resolv.conf` is not enough on an installed systemd guest.
+
+    Measured on the converted guest: the file held all three servers, two of
+    them answered pings, and `getent hosts distfiles.gentoo.org` still
+    answered 2. `systemd-resolved` was active again -- stopping a
+    socket-activated daemon does not keep it stopped -- and the guest's
+    `hosts: mymachines resolve [!UNAVAIL=return] files myhostname dns` returns
+    whatever `resolve` says, so the `dns` module that reads the file was never
+    reached. Rewriting the line to `files dns` made the same lookup answer 0.
+
+    The whole install after it went by name: the conversion stopped at
+    operation 26 with `<urlopen error [Errno -2] Name or service not known>`.
+    """
+    from tests.vm.cluster import GUEST_RESOLVERS, use_our_resolvers
+
+    command = use_our_resolvers()
+    for one in GUEST_RESOLVERS:
+        assert f"nameserver {one}" in command, command
+    assert "stop systemd-resolved" in command, command
+    # The half that was missing, and the reason it is not enough to stop the
+    # daemon: an active `resolve` module answers before the file is read.
+    assert "nsswitch.conf" in command, command
+    assert "hosts: files dns" in command, command
+    # After the file, not before: the sed and the printf both touch what the
+    # next lookup reads, and a resolver written after the switch was rewritten
+    # would still be the one in force.
+    assert command.index("resolv.conf") < command.index("nsswitch.conf"), command
