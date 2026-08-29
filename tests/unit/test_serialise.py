@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import tomllib
-from typing import Iterator
-from dataclasses import fields, replace
+from typing import Iterator, cast
+from dataclasses import MISSING, fields, is_dataclass, replace
 from pathlib import Path
 
 import pytest
@@ -16,7 +16,21 @@ from gentoo_install.model.parse import parse
 from gentoo_install.model.serialise import KINDS, REDACTED, SECRET, to_toml
 from gentoo_install.model import templates
 from gentoo_install.model.templates import Layout
-from gentoo_install.model.config import Firmware
+from gentoo_install.model.config import (
+    Binhost,
+    ConsoleFontSize,
+    Firewall,
+    Firmware,
+    FirstBoot,
+    GentooZhMirror,
+    KernelConfig,
+    Keywords,
+    Logger,
+    MirrorConfig,
+    PackagesConfig,
+    SystemConfig,
+)
+from gentoo_install.model.size import Size
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
@@ -385,3 +399,144 @@ def test_a_published_configuration_redacts_the_key_file_path() -> None:
 
         # The saved form is what an operator keeps, and it has to stay usable.
         assert REDACTED not in saved, saved
+
+
+#: A value away from the default for every persisted field no fixture moves.
+#: The writer is generated from the dataclass fields and the parser is written
+#: by hand, so a field the fixtures leave alone has nothing holding the two
+#: together: `SystemConfig.firewall` was written and then rejected as an
+#: unknown key while every fixture round trip stayed green.
+NON_DEFAULT: "dict[tuple[type, str], object]" = {
+    (Binhost, "subarch"): "arm64",
+    (FirstBoot, "commands"): ("emerge --info",),
+    (FirstBoot, "url"): "https://example.test/first-boot.sh",
+    (KernelConfig, "dracut_modules"): ("crypt", "lvm"),
+    (KernelConfig, "package"): "sys-kernel/gentoo-kernel",
+    (KernelConfig, "version"): "6.12.16",
+    (MirrorConfig, "distfiles"): ("https://mirror.example.test/gentoo",),
+    (MirrorConfig, "gentoo_distfiles"): False,
+    (MirrorConfig, "gentoo_zh"): GentooZhMirror.NJU,
+    (MirrorConfig, "gentoo_zh_distfiles"): False,
+    (MirrorConfig, "repo_sync_uri"): "rsync://mirror.example.test/gentoo-portage",
+    (PackagesConfig, "extra"): ("app-editors/vim",),
+    (PackagesConfig, "graphics"): ("amdgpu",),
+    (PortageConfig, "accept_license"): ("*",),
+    (PortageConfig, "build_in_ram"): Size.parse("8G"),
+    (PortageConfig, "cpu_flags"): ("avx2", "sse4_2"),
+    (PortageConfig, "input_devices"): ("libinput", "synaptics"),
+    (PortageConfig, "keywords"): Keywords.TESTING,
+    (PortageConfig, "l10n"): ("zh-TW",),
+    (PortageConfig, "repositories"): ("gentoo-zh",),
+    (PortageConfig, "testing_packages"): ("app-editors/vim",),
+    (SystemConfig, "console_font"): ConsoleFontSize.SIZE_16X32,
+    (SystemConfig, "cron"): False,
+    (SystemConfig, "firewall"): Firewall.NFTABLES,
+    (SystemConfig, "hardware_clock_utc"): False,
+    (SystemConfig, "keymap"): "de",
+    (SystemConfig, "keymap_initramfs"): "de",
+    (SystemConfig, "logger"): Logger.SYSLOG_NG,
+    (SystemConfig, "sshd_password_login"): True,
+    (SystemConfig, "sshd_root_login"): True,
+    (User, "shell"): "/bin/zsh",
+}
+
+#: Fields the table above deliberately leaves out, and why.
+UNBINDABLE: "dict[tuple[type, str], str]" = {
+    (InstallConfig, "config_version"): "the parser accepts 1 and rejects every other value",
+    (DiskConfig, "simple"): (
+        "a template replaces the graph on write, which "
+        "test_a_simple_disk_is_written_back_as_the_template holds"
+    ),
+}
+
+
+def _moved(config: InstallConfig) -> "set[tuple[type, str]]":
+    """Name every field this configuration sets away from its default."""
+    seen: "set[tuple[type, str]]" = set()
+    pending: "list[object]" = [config]
+    while pending:
+        held = pending.pop()
+        if not is_dataclass(held) or isinstance(held, type):
+            continue
+        for one in fields(held):
+            value = getattr(held, one.name)
+            if one.default is not MISSING:
+                default: object = one.default
+            elif one.default_factory is not MISSING:
+                default = one.default_factory()
+            else:
+                default = object()
+            if value != default:
+                seen.add((type(held), one.name))
+            pending.append(value)
+            if isinstance(value, tuple):
+                pending.extend(value)
+    return seen
+
+
+def _declared(config: InstallConfig) -> "set[tuple[type, str]]":
+    """Name every field the writer would reach from this configuration."""
+    declared: "set[tuple[type, str]]" = set()
+    pending: "list[object]" = [config]
+    while pending:
+        held = pending.pop()
+        if not is_dataclass(held) or isinstance(held, type):
+            continue
+        for one in fields(held):
+            value = getattr(held, one.name)
+            # A field already holding a dataclass differs from its default only
+            # through that dataclass's own fields, which are covered on their
+            # own; naming it here would ask for a second entry for one value.
+            if not (is_dataclass(value) and not isinstance(value, type)):
+                declared.add((type(held), one.name))
+            pending.append(value)
+            if isinstance(value, tuple):
+                pending.extend(value)
+    return declared
+
+
+def _apply(held: object) -> object:
+    """Set every field this table names on `held` and everything under it."""
+    if not is_dataclass(held) or isinstance(held, type):
+        return held
+    changes: "dict[str, object]" = {}
+    for one in fields(held):
+        value = getattr(held, one.name)
+        if (type(held), one.name) in NON_DEFAULT:
+            changes[one.name] = NON_DEFAULT[(type(held), one.name)]
+        elif isinstance(value, tuple):
+            changes[one.name] = tuple(_apply(inner) for inner in value)
+        else:
+            changes[one.name] = _apply(value)
+    return replace(held, **changes)
+
+
+def test_every_persisted_field_is_held_by_a_round_trip() -> None:
+    """A fixture round trip binds only the fields that fixture moves. Measured
+    on 2026-08-30: 34 of the 107 persisted fields never leave their default in
+    any fixture, and `firewall` — written and then rejected as an unknown key —
+    was one of them, so every fixture round trip was green while the installer
+    could not load back what it had exported."""
+    fixtures = [parse(tomllib.loads(path.read_text())) for path in sorted(FIXTURES.glob("*.toml"))]
+    moved: "set[tuple[type, str]]" = set()
+    declared: "set[tuple[type, str]]" = set()
+    for one in fixtures:
+        moved |= _moved(one)
+        declared |= _declared(one)
+
+    unbound = declared - moved - set(NON_DEFAULT) - set(UNBINDABLE)
+    assert not unbound, sorted((held.__name__, name) for held, name in unbound)
+    # And the table does not rot: an entry for a field the fixtures already
+    # move reads as coverage this test is not providing.
+    stale = set(NON_DEFAULT) - declared
+    assert not stale, sorted((held.__name__, name) for held, name in stale)
+
+    with_every_field = _apply(fixtures[0])
+    # Without this the round trip below could hold over a configuration the
+    # table never reached, which is the shape of a check that cannot fail.
+    assert set(NON_DEFAULT) <= _moved(cast(InstallConfig, with_every_field)), sorted(
+        (held.__name__, name) for held, name in set(NON_DEFAULT) - _moved(
+            cast(InstallConfig, with_every_field)
+        )
+    )
+    assert _round_trip(cast(InstallConfig, with_every_field)) == with_every_field
