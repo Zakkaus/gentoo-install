@@ -21,6 +21,7 @@ from ..model.config import (
     InstallConfig,
     Networking,
     PackagesConfig,
+    SystemConfig,
 )
 from ..plan import automatic as automatic_values
 from ..plan.fonts import CJK_SANS_PREFERENCE, CjkFontconfigLocale, FontCategory
@@ -273,6 +274,16 @@ def _desktop_proposes(
         changed = replace(
             changed,
             packages=replace(changed.packages, display_manager=""),
+        )
+    # The same undo for the network manager, which had only the forward half:
+    # a desktop derived `networkmanager-wpa` and choosing no desktop
+    # afterwards left it, so a converted server carried NetworkManager it was
+    # never asked for. Read off the menu: the network row stayed
+    # `networkmanager-wpa` after the desktop row went back to none.
+    if _has_derived(context, ValueKind.NETWORKING, before.system.networking.value):
+        changed = replace(
+            changed,
+            system=replace(changed.system, networking=SystemConfig().networking),
         )
     if not desktop:
         return changed

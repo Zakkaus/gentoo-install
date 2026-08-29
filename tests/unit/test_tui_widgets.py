@@ -1423,3 +1423,50 @@ def test_a_detail_too_long_for_one_row_keeps_its_end() -> None:
     TextField(title="name", detail="convert").run(short)
     assert short.frames[-1][2].strip() == "convert", short.frames[-1][:5]
     assert short.frames[-1][3].strip() == "", short.frames[-1][:5]
+
+
+def test_a_derived_network_manager_is_undone_like_the_login_screen() -> None:
+    """Choosing a desktop and then none left NetworkManager behind.
+
+    `_desktop_proposes` cleared a derived display manager before proposing the
+    new one and had no matching step for the network manager, so the forward
+    half ran and the undo did not. Read off the menu on a conversion: the
+    network row stayed `networkmanager-wpa` after the desktop row went back to
+    none, and a converted server would have carried a service nobody asked for.
+    """
+    from dataclasses import replace
+
+    from gentoo_install.model.config import Networking, SystemConfig
+    from gentoo_install.tui.context import ValueKind, ValueProvenance, ValueSource
+    from gentoo_install.tui.packages import _desktop_proposes
+
+    from .test_tui_app import config, context
+
+    at = context()
+    before = config()
+    with_manager = replace(
+        before,
+        system=replace(before.system, networking=Networking.NETWORKMANAGER_WPA),
+    )
+    at.provenance = {
+        ValueProvenance(
+            ValueKind.NETWORKING,
+            Networking.NETWORKMANAGER_WPA.value,
+            ValueSource.DERIVED,
+        )
+    }
+
+    # No desktop: the derived manager goes back to the default.
+    answered = _desktop_proposes(with_manager, with_manager, at, "")
+    assert answered.system.networking == SystemConfig().networking, answered.system
+
+    # The operator's own choice is not touched.
+    at.provenance = {
+        ValueProvenance(
+            ValueKind.NETWORKING,
+            Networking.NETWORKMANAGER_WPA.value,
+            ValueSource.OPERATOR,
+        )
+    }
+    kept = _desktop_proposes(with_manager, with_manager, at, "")
+    assert kept.system.networking == Networking.NETWORKMANAGER_WPA, kept.system
