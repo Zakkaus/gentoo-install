@@ -3025,6 +3025,65 @@ def test_the_zfs_bootloader_prompt_returns_only_installable_answers() -> None:
         validate(answered.unwrap())
 
 
+def test_taking_zfsbootmenu_back_takes_the_overlay_it_added_with_it() -> None:
+    """The screen's own docstring says choosing ZFSBootMenu is consenting to
+    `gentoo-zh`, because adding it silently was the fault it replaced. The
+    reverse half was never written: measured before this fix, ZFSBootMenu then
+    systemd-boot left `gentoo-zh` in the overlays and the community binary
+    host at `stable`, neither of which the operator had selected."""
+    from gentoo_install.tui.context import GENTOO_ZH
+    from gentoo_install.model.config import BinhostChannel
+
+    at = context()
+    start = config(zfs_root())
+    assert not [one for one in start.portage.overlays if one.name == GENTOO_ZH]
+
+    chose = partitions._zfs_bootloader(
+        FakeScreen(keys=["\n"], lines=24, columns=100), start, at
+    ).unwrap()
+    assert [one.name for one in chose.portage.overlays] == [GENTOO_ZH]
+    assert chose.portage.binhost.community is not BinhostChannel.OFF
+
+    took_it_back = partitions._zfs_bootloader(
+        FakeScreen(keys=["KEY_DOWN", "\n"], lines=24, columns=100), chose, at
+    ).unwrap()
+    assert took_it_back.bootloader.kind is Bootloader.SYSTEMD_BOOT
+    assert [one.name for one in took_it_back.portage.overlays] == []
+    assert took_it_back.portage.binhost.community is BinhostChannel.OFF
+
+
+def test_an_overlay_the_operator_chose_survives_the_bootloader_choice() -> None:
+    """Negative control for the above: the reverse half takes back what this
+    screen added, not what the Mirrors screen was told to add."""
+    from gentoo_install.tui.context import GENTOO_ZH, with_gentoo_zh
+    from dataclasses import replace as _replace
+
+    at = context()
+    start = config(zfs_root())
+    theirs = _replace(start, portage=with_gentoo_zh(start))
+    assert [one.name for one in theirs.portage.overlays] == [GENTOO_ZH]
+
+    after = partitions._zfs_bootloader(
+        FakeScreen(keys=["KEY_DOWN", "\n"], lines=24, columns=100), theirs, at
+    ).unwrap()
+    assert [one.name for one in after.portage.overlays] == [GENTOO_ZH]
+
+
+def test_a_desktop_chosen_later_does_not_erase_the_overlays_provenance() -> None:
+    """`_record_derived` dropped every derived record, so a desktop chosen
+    after ZFSBootMenu erased the overlay's and the bootloader could no longer
+    take back what it had added."""
+    from gentoo_install.tui.context import GENTOO_ZH, ValueKind, mark_derived, was_derived
+    from gentoo_install.tui import packages
+
+    at = context()
+    mark_derived(at, ValueKind.OVERLAY, GENTOO_ZH)
+    assert was_derived(at, ValueKind.OVERLAY, GENTOO_ZH)
+
+    packages._record_derived(at, config(zfs_root()), packages.Effects())
+    assert was_derived(at, ValueKind.OVERLAY, GENTOO_ZH)
+
+
 def test_the_erase_field_is_visibly_empty_before_anything_is_typed() -> None:
     """The selector was drawn inside the box as a placeholder, where it is
     indistinguishable from a value already entered: an operator pressed enter

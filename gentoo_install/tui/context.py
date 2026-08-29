@@ -52,6 +52,8 @@ class ValueKind(Enum):
     VIDEO_CARD = "video card"
     NETWORKING = "networking"
     DISPLAY_MANAGER = "display manager"
+    OVERLAY = "overlay"
+    COMMUNITY_BINHOST = "community binhost"
 
 
 class ValueSource(Enum):
@@ -438,6 +440,12 @@ TABLE: Final[str] = "table"
 DROP: Final[str] = "drop"
 
 
+#: Named once: this module composes its address, the bootloader screen adds it
+#: and the mirror screen removes it, and a literal in each is a fourth place to
+#: keep the same string right.
+GENTOO_ZH: Final[str] = "gentoo-zh"
+
+
 def with_gentoo_zh(config: InstallConfig) -> PortageConfig:
     """The overlay, cloned from the site already chosen for it.
 
@@ -445,16 +453,52 @@ def with_gentoo_zh(config: InstallConfig) -> PortageConfig:
     table is a second address to update, and the overlay has moved once
     already. A site the operator has not picked yet answers as upstream.
     """
-    if any(overlay.name == "gentoo-zh" for overlay in config.portage.overlays):
+    if any(overlay.name == GENTOO_ZH for overlay in config.portage.overlays):
         return config.portage
     where = mirrors.gentoozh(config.portage.mirrors.gentoo_zh).git
-    added = (*config.portage.overlays, Overlay(name="gentoo-zh", sync_uri=where))
+    added = (*config.portage.overlays, Overlay(name=GENTOO_ZH, sync_uri=where))
     binhost = config.portage.binhost
     if binhost.community is BinhostChannel.OFF:
         # On with the overlay: the host serves what that overlay builds, and
         # `compat.py` is what keeps the two from being set apart.
         binhost = replace(binhost, community=BinhostChannel.STABLE)
     return replace(config.portage, overlays=added, binhost=binhost)
+
+
+def without_gentoo_zh(config: InstallConfig) -> PortageConfig:
+    """The overlay removed, and the binary host that came on with it.
+
+    The mirror of `with_gentoo_zh`, and in one place for the same reason the
+    two are set together there: the community host serves what that overlay
+    builds, so leaving it on refuses the install from a row the operator is
+    not looking at.
+    """
+    kept = tuple(one for one in config.portage.overlays if one.name != GENTOO_ZH)
+    return replace(
+        config.portage,
+        overlays=kept,
+        binhost=replace(config.portage.binhost, community=BinhostChannel.OFF),
+    )
+
+
+def mark_derived(context: "Context", kind: ValueKind, value: str) -> None:
+    """Record that a choice, not the operator, supplied this value."""
+    context.provenance.add(ValueProvenance(kind, value, ValueSource.DERIVED))
+
+
+def was_derived(context: "Context", kind: ValueKind, value: str) -> bool:
+    """Whether a choice supplied this value, so taking that choice back takes
+    the value with it. An operator's own selection has no such record."""
+    return ValueProvenance(kind, value, ValueSource.DERIVED) in context.provenance
+
+
+def forget_derived(context: "Context", kind: ValueKind) -> None:
+    """Drop every derived record of this kind, the choice having been undone."""
+    context.provenance = {
+        one
+        for one in context.provenance
+        if not (one.kind is kind and one.source is ValueSource.DERIVED)
+    }
 
 
 #: What the preflight refuses, read from there rather than written again: the

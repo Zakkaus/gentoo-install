@@ -40,6 +40,8 @@ from ..model.validate import validate
 from ..errors import GentooInstallError, InvalidSize, ValidationFailed
 from .context import (
     Context,
+    GENTOO_ZH,
+    ValueKind,
     answers,
     DONE,
     DROP,
@@ -48,8 +50,12 @@ from .context import (
     TABLE,
     current_menu,
     footer,
+    forget_derived,
+    mark_derived,
     say,
+    was_derived,
     with_gentoo_zh,
+    without_gentoo_zh,
 )
 from .widgets import (
     Answer,
@@ -99,7 +105,18 @@ def _zfs_bootloader(
 
     def apply(kind: Bootloader) -> InstallConfig:
         if kind is Bootloader.SYSTEMD_BOOT:
-            return replace(config, bootloader=replace(config.bootloader, kind=kind))
+            if not was_derived(context, ValueKind.OVERLAY, GENTOO_ZH):
+                # An overlay the operator selected on the Mirrors screen is
+                # theirs, and this choice does not reach across and take it.
+                return replace(config, bootloader=replace(config.bootloader, kind=kind))
+            forget_derived(context, ValueKind.OVERLAY)
+            return replace(
+                config,
+                bootloader=replace(config.bootloader, kind=kind),
+                portage=without_gentoo_zh(config),
+            )
+        if not any(one.name == GENTOO_ZH for one in config.portage.overlays):
+            mark_derived(context, ValueKind.OVERLAY, GENTOO_ZH)
         return replace(
             config,
             bootloader=replace(config.bootloader, kind=kind),
