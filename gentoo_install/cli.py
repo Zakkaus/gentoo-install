@@ -729,7 +729,7 @@ def install(
                 show_the_address,
             )
             if config.disk.mode is not DiskMode.DD:
-                _offer_a_shell(arguments, machine, record, stopped)
+                _offer_a_shell(arguments, machine, record, stopped, target, config.disk.mode)
         except BaseException as error:
             failure = _first_failure(failure, error, record)
         if config.disk.mode is not DiskMode.DD:
@@ -922,20 +922,31 @@ def _offer_a_shell(
     machine: Machine,
     record: Callable[[str], None],
     stopped: bool,
+    target: Path,
+    mode: DiskMode,
 ) -> None:
     """A root shell in the target before it is unmounted.
 
     Offered after a failure as well as after a success: the operator is the one
     who can tell whether the machine is fixable, and once the target is
     unmounted they would have to mount the whole layout again by hand.
+
+    `target`, not `arguments.target`: a conversion's target is the running `/`
+    and it never created `/mnt/gentoo`, so the unresolved value offered a
+    chroot into a directory the machine does not have.
     """
     if _unattended(arguments):
         return
-    if not _asked(f"enter a root shell in {arguments.target} before unmounting?"):
+    question = (
+        f"enter a root shell in the converted system at {target}?"
+        if mode is DiskMode.IN_PLACE
+        else f"enter a root shell in {target} before unmounting?"
+    )
+    if not _asked(question):
         return
-    record(f"a root shell was opened in {arguments.target}")
-    machine.runner.run(["chroot", str(arguments.target), "/bin/bash", "--login"], check=False)
-    record("the shell exited; unmounting")
+    record(f"a root shell was opened in {target}")
+    machine.runner.run(["chroot", str(target), "/bin/bash", "--login"], check=False)
+    record("the shell exited" if mode is DiskMode.IN_PLACE else "the shell exited; unmounting")
 
 
 def _probe_for(arguments: argparse.Namespace) -> Probe:
