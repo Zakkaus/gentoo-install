@@ -3069,6 +3069,95 @@ def test_an_overlay_the_operator_chose_survives_the_bootloader_choice() -> None:
     assert [one.name for one in after.portage.overlays] == [GENTOO_ZH]
 
 
+def test_answering_the_drive_row_with_the_disk_it_shows_keeps_the_table() -> None:
+    """Driven through the real interface on a guest with a hand-written table
+    of three partitions: the Drive row showed `/dev/vda` and was still marked
+    required, and answering it with that same disk left `partition table:
+    unset`, `manual, 0 partitions` and no partitions at all -- the row less
+    answered than before, and no warning.
+
+    Both clears in `disk_screen` name the disk being switched away from, so
+    both belong to a change.
+    """
+    from gentoo_install.model import manual
+    from gentoo_install.model.device import PartitionRole
+    from gentoo_install.model.size import Size
+    from gentoo_install.tui import screens
+
+    at = context()
+    only = at.disks[0][0]
+    at.choice = replace(at.choice, disk=only)
+    at.confirmed.add(only)
+    at.layout = manual.Layout(
+        disks=[
+            manual.Disk(
+                selector=only,
+                slices=[
+                    manual.Slice(
+                        index=1,
+                        role=PartitionRole.ESP,
+                        size=Size.parse("512MiB"),
+                        mountpoint="/efi",
+                    ),
+                    manual.Slice(
+                        index=2,
+                        role=PartitionRole.DATA,
+                        size=Size.parse("20GiB"),
+                        mountpoint="/",
+                    ),
+                ],
+            )
+        ]
+    )
+
+    screens.disk_screen(FakeScreen(keys=["\n"], lines=24, columns=100), config(), at)
+
+    assert [one.index for one in at.layout.disks[0].slices] == [1, 2], at.layout
+    assert only in at.confirmed, at.confirmed
+
+
+def test_choosing_a_different_disk_still_drops_the_table_and_the_consent() -> None:
+    """Negative control for the above, and the reason both clears exist: the
+    kept rows name partitions of the disk being left, and a confirmation
+    carried across unblocks the install for a disk nobody agreed to erase."""
+    from gentoo_install.model import manual
+    from gentoo_install.model.device import PartitionRole
+    from gentoo_install.model.size import Size
+    from gentoo_install.tui import screens
+
+    at = context()
+    if len(at.disks) < 2:
+        import pytest as _pytest
+
+        _pytest.skip("this fixture offers one disk")
+    first, second = at.disks[0][0], at.disks[1][0]
+    at.choice = replace(at.choice, disk=first)
+    at.confirmed.add(first)
+    at.layout = manual.Layout(
+        disks=[
+            manual.Disk(
+                selector=first,
+                slices=[
+                    manual.Slice(
+                        index=1,
+                        role=PartitionRole.DATA,
+                        size=Size.parse("20GiB"),
+                        mountpoint="/",
+                    )
+                ],
+            )
+        ]
+    )
+
+    screens.disk_screen(
+        FakeScreen(keys=["KEY_DOWN", "\n"], lines=24, columns=100), config(), at
+    )
+
+    assert at.choice.disk == second
+    assert not at.layout.disks or not at.layout.disks[0].slices, at.layout
+    assert first not in at.confirmed, at.confirmed
+
+
 def test_a_flag_the_operator_typed_is_not_withdrawn_as_a_proposal() -> None:
     """The flags row records what was typed as the operator's, and
     `desktop_screen` then records the proposal as derived -- after it, and

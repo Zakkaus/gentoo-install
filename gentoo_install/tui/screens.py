@@ -394,15 +394,21 @@ def disk_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
     if not answer.chosen:
         return Answer(answer.outcome)
     picked = answer.unwrap()
+    # Both clears below name the disk being switched away from, so both are
+    # for a change: answering this row with the disk it already shows threw
+    # away a hand-written table of three partitions and left the row less
+    # answered than before.
+    changed = picked != context.choice.disk
     context.choice = replace(context.choice, disk=picked)
-    # `_rebuild` reads the layout rather than the choice when the table was
-    # hand-written, so leaving this behind partitioned the disk the operator
-    # switched away from. The kept rows name partitions of that disk and go too.
-    context.layout = manual.Layout()
-    # Cleared with the disk: the operator typed the name of the one they were
-    # looking at, and carrying that confirmation to another unblocks the
-    # install for a disk nobody agreed to erase.
-    context.confirmed.clear()
+    if changed:
+        # `_rebuild` reads the layout rather than the choice when the table was
+        # hand-written, so leaving this behind partitioned the disk the operator
+        # switched away from. The kept rows name partitions of that disk and go too.
+        context.layout = manual.Layout()
+        # Cleared with the disk: the operator typed the name of the one they were
+        # looking at, and carrying that confirmation to another unblocks the
+        # install for a disk nobody agreed to erase.
+        context.confirmed.clear()
     context.inspect_disk(picked)
     return Answer(Outcome.CHOSE, _rebuild(config, context))
 
