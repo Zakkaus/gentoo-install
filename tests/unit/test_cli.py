@@ -2573,3 +2573,51 @@ def _probe_with(probe_module: object, runner: object, work: Path) -> RealProbe:
     """A `Probe` built the way `cli.py` builds one, with a fake runner."""
     made = getattr(probe_module, "Probe")
     return cast(RealProbe, made(cast(Any, runner), work))
+
+
+def test_the_kernel_is_quiet_while_the_menu_is_drawn(tmp_path: Path) -> None:
+    """On a serial console the kernel and the menu share one screen.
+
+    A guest drew `[ 3915.800938] clocksource: Watchdog remote CPU 1 read ti`
+    across a panel, which is unreadable and indistinguishable from a broken
+    installer. Only the first field of `/proc/sys/kernel/printk` decides what
+    reaches the console, and it is put back afterwards.
+    """
+    from gentoo_install.exec.console import WHILE_DRAWING, kernel_messages_held
+
+    printk = tmp_path / "printk"
+    printk.write_text("7\t4\t1\t7\n")
+    with kernel_messages_held(printk):
+        assert printk.read_text().split()[0] == WHILE_DRAWING, printk.read_text()
+    assert printk.read_text().split()[0] == "7", printk.read_text()
+
+    # Restored when the walk raises, or a failed install leaves the machine
+    # silent about everything that follows.
+    with pytest.raises(RuntimeError):
+        with kernel_messages_held(printk):
+            raise RuntimeError("the walk stopped")
+    assert printk.read_text().split()[0] == "7", printk.read_text()
+
+    # A machine with no procfs still gets a menu: the file is absent here and
+    # the block runs anyway.
+    ran = False
+    with kernel_messages_held(tmp_path / "absent"):
+        ran = True
+    assert ran
+
+
+def test_the_menu_walk_is_wrapped_in_the_quiet(tmp_path: Path) -> None:
+    """A helper nothing calls leaves every serial console as noisy as before."""
+    import ast
+    import inspect
+    import textwrap
+
+    from gentoo_install import cli
+
+    source = textwrap.dedent(inspect.getsource(cli._from_menu))
+    called = {
+        getattr(node.func, "id", "") or getattr(node.func, "attr", "")
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call)
+    }
+    assert "kernel_messages_held" in called, sorted(called)

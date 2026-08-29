@@ -52,6 +52,7 @@ from .tui import app, screens
 from .tui import context as tui_context
 from .tui.curses_screen import CursesScreen, too_small
 from .i18n import Catalog, tag_for
+from .exec.console import kernel_messages_held
 from .model import mirrors, qr, refusals, templates
 from .model.architecture import official_subarch
 from .model.config import (
@@ -1288,7 +1289,10 @@ def _from_menu(
     os.environ.pop("LINES", None)
     os.environ.pop("COLUMNS", None)
     try:
-        finished = curses.wrapper(walk)
+        # The kernel shares this screen on a serial console, and a message
+        # lands in the middle of a panel: held for the walk, restored after.
+        with kernel_messages_held():
+            finished = curses.wrapper(walk)
     except curses.error as error:
         raise errors.PreflightFailed(
             f"the menu needs a terminal and this is not one ({error}); pass --config FILE"
