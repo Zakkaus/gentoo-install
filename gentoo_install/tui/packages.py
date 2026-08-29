@@ -229,15 +229,22 @@ def derive_effects(
         ),
         networking_changed=after.system.networking is not before.system.networking,
         kept_display_manager=kept_display_manager,
+        # Not what the operator also typed: `desktop_screen` records the
+        # proposal as derived after the flags row has recorded the edit as
+        # theirs, so a value in both was withdrawn by the next desktop change.
         withdrawn_use=tuple(
             one.value
             for one in context.provenance
-            if one.kind is ValueKind.USE_FLAG and one.source is ValueSource.DERIVED
+            if one.kind is ValueKind.USE_FLAG
+            and one.source is ValueSource.DERIVED
+            and not _has_operator(context, ValueKind.USE_FLAG, one.value)
         ),
         withdrawn_video_cards=tuple(
             one.value
             for one in context.provenance
-            if one.kind is ValueKind.VIDEO_CARD and one.source is ValueSource.DERIVED
+            if one.kind is ValueKind.VIDEO_CARD
+            and one.source is ValueSource.DERIVED
+            and not _has_operator(context, ValueKind.VIDEO_CARD, one.value)
         ),
     )
 

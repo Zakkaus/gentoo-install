@@ -3069,6 +3069,27 @@ def test_an_overlay_the_operator_chose_survives_the_bootloader_choice() -> None:
     assert [one.name for one in after.portage.overlays] == [GENTOO_ZH]
 
 
+def test_a_flag_the_operator_typed_is_not_withdrawn_as_a_proposal() -> None:
+    """The flags row records what was typed as the operator's, and
+    `desktop_screen` then records the proposal as derived -- after it, and
+    from effects computed before it. A value in both carried both sources,
+    and `withdrawn_use` removed it by name on the next desktop change."""
+    from gentoo_install.tui import packages
+    from gentoo_install.tui.context import ValueKind
+
+    at = context()
+    before = config(zfs_root())
+    packages._record_operator(at, ValueKind.USE_FLAG, ["qt6"])
+    packages._record_derived(
+        at, before, packages.Effects(use_flags=("qt6", "wayland"))
+    )
+
+    effects = packages.derive_effects(before, before, at)
+    assert "qt6" not in effects.withdrawn_use, effects.withdrawn_use
+    # And a value only the proposal supplied is still withdrawn.
+    assert "wayland" in effects.withdrawn_use, effects.withdrawn_use
+
+
 def test_a_desktop_chosen_later_does_not_erase_the_overlays_provenance() -> None:
     """`_record_derived` dropped every derived record, so a desktop chosen
     after ZFSBootMenu erased the overlay's and the bootloader could no longer
