@@ -87,6 +87,7 @@ from .console import (
     command_done,
     marked_command,
     plain,
+    strip_ansi,
 )
 from .driver import (
     git_state,
@@ -2569,7 +2570,7 @@ def install_one(
             job.name,
             verdict,
             time.monotonic() - started,
-            dropped or str(error)[:OUTCOME_BYTES],
+            how_far_it_got(log) + (dropped or str(error))[:OUTCOME_BYTES],
             log,
             phase=phase,
             revision=revision,
@@ -2983,6 +2984,21 @@ EXPECTED_TO_FAIL: Final[Mapping[str, Expectation]] = MappingProxyType(
 #: `install.txt` meant 294910 lines of build output first.
 INSTALL_STOPPED: Final[str] = "the install stopped: "
 
+#: What `cli.py` prints to stderr when it refuses before `install()` runs, so
+#: that line is never written. Named prefixes rather than the log's last line:
+#: a build's own output is not a reason, and `vm-shares` was failed with
+#: `the installer exited b'1'` and nothing else while `configuration:
+#: rootpart works out to 16178MiB, below the 20GiB it asks for` was in the
+#: file the guest had handed back.
+REFUSED_BEFORE_THE_RUN: Final[tuple[str, ...]] = (
+    "configuration: ",
+    "preflight: ",
+    "conversion: ",
+    "device: ",
+    "work directory: ",
+    "resume: ",
+)
+
 #: How much of that line the verdict keeps.
 REASON_BYTES: Final[int] = 400
 
@@ -2998,6 +3014,15 @@ def _why_it_stopped(files: Mapping[str, bytes]) -> str:
         found = line.find(INSTALL_STOPPED)
         if found >= 0:
             return f": {line[found + len(INSTALL_STOPPED):].strip()[:REASON_BYTES]}"
+    lines = said.splitlines()
+    for index in range(len(lines) - 1, -1, -1):
+        if not lines[index].startswith(REFUSED_BEFORE_THE_RUN):
+            continue
+        # To the end, not that line alone: a validation refusal is a header
+        # and one indented line for each rule it broke, and the header names
+        # none of them.
+        rest = " ".join(one.strip() for one in lines[index:] if one.strip())
+        return f": {rest[:REASON_BYTES]}"
     return ""
 
 
@@ -4240,6 +4265,37 @@ PROXY_DROPPED: Final[re.Pattern[str]] = re.compile(
 
 #: How much of the log's tail carries the reason a console went away.
 PROXY_TAIL_BYTES: Final[int] = 4096
+
+
+#: The line `exec/apply.py` prints before each operation. Read from the log
+#: rather than named in a verdict message: the marker a timeout reports counts
+#: this harness's own commands, and `btrfs-luks` read `never matched
+#: MARK_24_DONE` while the installer had reached its own operation 78 of 90.
+PROGRESS_LINE: Final[re.Pattern[str]] = re.compile(
+    r"^\[\d+/\d+ [0-9:]+\] \[[a-z]+\] [^\r\n]*", re.MULTILINE
+)
+
+#: How far back a progress line is looked for. Larger than the proxy window
+#: above: one `emerge` writes megabytes between two of them.
+PROGRESS_TAIL_BYTES: Final[int] = 8 * 1024 * 1024
+
+
+def how_far_it_got(log: Path) -> str:
+    """The installer's own last progress line, or empty when it printed none.
+
+    A verdict is truncated to a few hundred bytes, so this goes at the front:
+    `never matched 'MARK_24_DONE'` reads like an early failure and that guest
+    was three operations from the end of its package set.
+    """
+    try:
+        with log.open("rb") as reading:
+            reading.seek(0, 2)
+            reading.seek(max(0, reading.tell() - PROGRESS_TAIL_BYTES))
+            tail = strip_ansi(reading.read()).decode("utf-8", "replace")
+    except OSError:
+        return ""
+    found = PROGRESS_LINE.findall(tail)
+    return f"reached {found[-1].strip()}; " if found else ""
 
 
 def console_proxy_dropped(log: Path) -> str:
