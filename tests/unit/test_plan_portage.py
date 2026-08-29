@@ -2976,3 +2976,63 @@ def test_following_this_machine_writes_its_core_count() -> None:
     second = Recorder()
     pinned[0].apply(second)
     assert 'MAKEOPTS="-j4"' in second.files[PurePosixPath("/etc/portage/make.conf")]
+
+
+def test_the_check_asks_the_question_the_merge_will_ask() -> None:
+    """`VerifyPackages` refused a package set the merge installs.
+
+    It ran `emerge --pretend --quiet -- <atoms>` while the merge runs with
+    `--autounmask-use=y --autounmask-write=y --autounmask-continue=y`, so any
+    set needing a USE change was rejected by the guard and accepted by the
+    thing it guards. Measured on a conversion from a server profile with no X:
+    `fcitx-gtk` wants `gtk[X]`, and the install stopped at operation 26 of 60.
+    """
+    import inspect
+
+    from gentoo_install.plan.portage import AUTOUNMASK, EMERGE_OPTIONS, VerifyPackages
+
+    # One table, two readers: every autounmask option the merge carries.
+    assert AUTOUNMASK == tuple(
+        one for one in EMERGE_OPTIONS if one.startswith("--autounmask")
+    )
+    assert AUTOUNMASK, EMERGE_OPTIONS
+
+    resolve = inspect.getsource(VerifyPackages._resolve)
+    assert "AUTOUNMASK" in resolve, resolve
+    # `--verbose` is the merge's alone: the check is quiet.
+    assert "--quiet" in resolve, resolve
+
+
+def test_the_refusal_names_the_line_that_explains_it() -> None:
+    """The message took the first non-empty line, which is never the reason.
+
+    A chroot whose locales are not generated prints `setlocale: unsupported
+    locale setting` before anything else, so every refusal was reported as a
+    locale warning. Taking the first `!!!` line instead is also wrong: in the
+    same log the three of those were mirror download warnings from ten
+    minutes earlier.
+    """
+    from gentoo_install.plan.portage import why_emerge_refused
+
+    measured = (
+        "setlocale: unsupported locale setting\n"
+        "\n"
+        "!!! Couldn't download '.layout.conf.mirror.nyist.edu.cn'. Aborting.\n"
+        "!!! Couldn't download 'openpgp-keys-gentoozh-20260726.asc'. Aborting.\n"
+        "\n"
+        "The following USE changes are necessary to proceed:\n"
+        "# required by app-i18n/fcitx-gtk-5.1.7::gentoo[gtk4]\n"
+        ">=gui-libs/gtk-4.20.4 X\n"
+    )
+    assert why_emerge_refused(measured) == "The following USE changes are necessary to proceed:"
+
+    # A refusal emerge words differently, and the fallback when it words it in
+    # a way this does not know: the last line, not the first.
+    assert "no ebuilds" in why_emerge_refused(
+        "setlocale: unsupported locale setting\n"
+        "emerge: there are no ebuilds to satisfy \"app-misc/absent\".\n"
+    )
+    assert why_emerge_refused("setlocale: bad\nsomething else entirely\n") == (
+        "something else entirely"
+    )
+    assert why_emerge_refused("") == "no output"
