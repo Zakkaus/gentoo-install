@@ -94,7 +94,7 @@ EFI_PACKAGE: Final[str] = "sys-boot/efibootmgr"
 #: Where generate-zbm writes, and the path firmware boots with no NVRAM entry.
 #: It names the image after the kernel, so the name is looked up, not assumed.
 ZBM_DIRECTORY: Final[str] = "EFI/zbm"
-FALLBACK_IMAGE: Final[str] = "EFI/BOOT/BOOTX64.EFI"
+FALLBACK_IMAGE: Final[str] = f"EFI/BOOT/BOOT{DEFAULT_ARCHITECTURE.efi_name.upper()}.EFI"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -497,7 +497,8 @@ class InstallZfsBootMenu(Operation):
             f"  ImageDir: {self.esp}/EFI/zbm\n"
             "  Versions: false\n"
             "  Enabled: true\n"
-            "  Stub: /usr/lib/systemd/boot/efi/linuxx64.efi.stub\n"
+            "  Stub: /usr/lib/systemd/boot/efi/linux"
+            f"{DEFAULT_ARCHITECTURE.efi_name}.efi.stub\n"
             f"{kernel}"
         )
 

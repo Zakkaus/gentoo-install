@@ -1207,3 +1207,54 @@ def test_the_operation_takes_the_drivers_for_this_machine() -> None:
 
     written = WriteDracutModules(modules=("crypt",))
     assert written.drivers == cloud_drivers(DEFAULT_ARCHITECTURE), written.drivers
+
+
+def test_one_token_names_both_efi_files() -> None:
+    """UEFI spells the machine in two file names, and both were `x64`.
+
+    `EFI/BOOT/BOOTX64.EFI` is the removable-media fallback the firmware looks
+    for with no NVRAM entry, and `linuxx64.efi.stub` is what ZFSBootMenu is
+    told to build against. An aarch64 firmware looks for `BOOTAA64.EFI` and
+    that machine ships `linuxaa64.efi.stub`, so both were wrong there and the
+    fallback path was not a fallback at all.
+
+    The token is systemd's own: `efi_arch` in its `meson.build` maps
+    `aarch64` to `aa64`, `x86_64` to `x64` and `x86` to `ia32`. `BOOTAA64.EFI`
+    was also read off a real aarch64 esp.
+    """
+    from gentoo_install.model.architecture import ARCHITECTURES, architecture_of
+    from gentoo_install.plan import bootloader
+
+    named = {row.kernel_name: row.efi_name for row in ARCHITECTURES}
+    assert named == {"x86_64": "x64", "aarch64": "aa64", "i686": "ia32"}, named
+
+    arm = architecture_of("aarch64")
+    assert arm is not None
+    assert f"BOOT{arm.efi_name.upper()}.EFI" == "BOOTAA64.EFI"
+
+    # And the module composes rather than spelling it: the constant follows
+    # whichever machine this is running on.
+    from gentoo_install.model.architecture import DEFAULT_ARCHITECTURE
+
+    assert bootloader.FALLBACK_IMAGE == (
+        f"EFI/BOOT/BOOT{DEFAULT_ARCHITECTURE.efi_name.upper()}.EFI"
+    )
+
+    # No file in the package spells one of the other rows' EFI names, which is
+    # how the second copy came back the last four times.
+    import ast
+    from pathlib import Path
+
+    package = Path(bootloader.__file__).parent.parent
+    others = {
+        row.efi_name for row in ARCHITECTURES if row is not DEFAULT_ARCHITECTURE
+    }
+    for path in sorted(package.rglob("*.py")):
+        if path.name == "architecture.py":
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+                continue
+            for one in others:
+                assert f"BOOT{one.upper()}.EFI" not in node.value, f"{path}:{node.lineno}"
+                assert f"linux{one}.efi.stub" not in node.value, f"{path}:{node.lineno}"
