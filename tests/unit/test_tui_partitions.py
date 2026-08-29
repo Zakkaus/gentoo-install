@@ -13,7 +13,7 @@ from typing import Callable, Final, TypeVar
 import pytest
 
 from gentoo_install.errors import ValidationFailed
-from gentoo_install.i18n import width
+from gentoo_install.i18n import Catalog, width
 from gentoo_install.model import manual
 from gentoo_install.model.config import (
     Bootloader,
@@ -82,6 +82,80 @@ def opened() -> tui_context.Context:
 
 def index_of(items: list[str], label: str) -> int:
     return items.index(label)
+
+
+def test_a_purpose_that_is_not_zfs_keeps_the_passphrase_it_was_given() -> None:
+    """`Purpose` carries no encryption, so a purpose change must not decide it.
+    Clearing the passphrase on the way into `zfs` took an encrypted root away
+    from an operator who passed through that purpose and came back: the
+    Encryption row read `off` and an empty passphrase is not a refusal, it is
+    a plaintext root.
+    """
+    from gentoo_install.model.device import PartitionRole
+    from gentoo_install.model.size import Size
+    from gentoo_install.tui.partitions import _apply_purpose
+
+    root = next(one for one in manual.PURPOSES if one.key == "root")
+    zfs = next(one for one in manual.PURPOSES if one.key == "zfs")
+    encrypted = manual.Slice(
+        index=1,
+        role=PartitionRole.DATA,
+        size=Size.parse("20GiB"),
+        mountpoint="/",
+        passphrase_file="/run/keys/root",
+    )
+
+    through = _apply_purpose(encrypted, zfs)
+    back = _apply_purpose(through, root)
+    assert back.passphrase_file == "/run/keys/root", (through, back)
+    # The purpose still decides what it owns.
+    assert back.role is root.role and back.mountpoint == root.mountpoint
+
+
+def test_the_encryption_row_is_refused_for_a_pool_member_with_a_reason() -> None:
+    """Measured on `manual.build`: a `zfs` slice with a passphrase and one
+    without produce the same graph, no `Luks` under the vdev either way, so a
+    value there would be shown and ignored. The pool's own passphrase is what
+    `ZfsPool.encrypted` reads."""
+    from gentoo_install.model.device import Luks, PartitionRole
+    from gentoo_install.model.size import Size
+    from gentoo_install.tui.partitions import _encryption_refused
+
+    def graph_for(passphrase: str) -> list[str]:
+        layout = manual.Layout(
+            disks=[
+                manual.Disk(
+                    selector="/dev/disk/by-id/x",
+                    slices=[
+                        manual.Slice(
+                            index=1,
+                            role=PartitionRole.ESP,
+                            size=Size.parse("512MiB"),
+                            filesystem=manual.ESP_FILESYSTEM,
+                            mountpoint="/efi",
+                        ),
+                        manual.Slice(
+                            index=2,
+                            role=PartitionRole.ZFS,
+                            size=None,
+                            passphrase_file=passphrase,
+                        ),
+                    ],
+                )
+            ]
+        )
+        built, _ = manual.build(layout)
+        return [str(one.id) for one in built.nodes.values() if isinstance(one, Luks)]
+
+    assert graph_for("") == graph_for("/run/keys/zfs") == []
+
+    said = Catalog("en")
+    zfs = next(one for one in manual.PURPOSES if one.key == "zfs")
+    esp = next(one for one in manual.PURPOSES if one.key == "esp")
+    root = next(one for one in manual.PURPOSES if one.key == "root")
+    assert _encryption_refused(zfs, said), "a pool member takes no encryption row"
+    assert _encryption_refused(esp, said), "the esp still takes none"
+    assert _encryption_refused(root, said) == "", "an ordinary partition still takes one"
 
 
 def test_the_table_starts_from_something_that_already_boots() -> None:
@@ -436,7 +510,15 @@ def test_exactly_one_pool_encryption_row_is_shown_only_when_a_pool_exists() -> N
     assert rows[0].detail == "on"
 
 
-def test_changing_an_encrypted_partition_to_zfs_drops_its_luks_path() -> None:
+def test_changing_a_partition_to_zfs_keeps_the_luks_path_it_had() -> None:
+    """This asserted the opposite and carried no reason. Measured on
+    `manual.build`: a `zfs` slice with a passphrase and one without produce the
+    same graph, no `Luks` under the vdev either way, so clearing it protected
+    nothing and took an encrypted root away from an operator who passed through
+    the purpose and came back. The row is refused for a pool member instead,
+    which `test_the_encryption_row_is_refused_for_a_pool_member_with_a_reason`
+    holds.
+    """
     entry = manual.Slice(
         index=2,
         role=PartitionRole.DATA,
@@ -448,7 +530,8 @@ def test_changing_an_encrypted_partition_to_zfs_drops_its_luks_path() -> None:
 
     changed = partitions._apply_purpose(entry, manual.purpose_for("zfs"))
 
-    assert changed.passphrase_file == ""
+    assert changed.passphrase_file == "/run/keys/partition"
+    assert changed.role is PartitionRole.ZFS
 
 
 def test_a_field_that_does_not_apply_says_why() -> None:
