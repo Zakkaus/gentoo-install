@@ -8,10 +8,11 @@ initramfs that cannot find the root filesystem.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from typing import Final
 
+from ..model.architecture import DEFAULT_ARCHITECTURE, Architecture
 from ..model.config import Bootloader, InitSystem, InstallConfig, KernelSource
 from ..errors import ConfigError, ConversionUnsupported, NothingToBoot, ValidationFailed
 from ..model import compat
@@ -316,6 +317,20 @@ CLOUD_DRIVERS: Final[tuple[str, ...]] = (
     "gve",
 )
 
+#: The ones Linux builds for x86 alone. `dracut-install` fails its whole `-m`
+#: list when any single name is missing, so naming a Xen frontend on aarch64
+#: leaves a machine whose every initramfs rebuild fails -- including the one a
+#: kernel upgrade triggers. Measured on an aarch64 guest: `modinfo -n
+#: xen_blkfront` finds nothing and the other eleven are present.
+X86_ONLY_DRIVERS: Final[frozenset[str]] = frozenset({"xen_blkfront", "xen_netfront"})
+
+
+def cloud_drivers(row: Architecture = DEFAULT_ARCHITECTURE) -> tuple[str, ...]:
+    """The drivers to name for the machine being installed."""
+    if row.kernel_name in ("x86_64", "i686"):
+        return CLOUD_DRIVERS
+    return tuple(one for one in CLOUD_DRIVERS if one not in X86_ONLY_DRIVERS)
+
 
 @dataclass(frozen=True, kw_only=True)
 class WriteDracutModules(Operation):
@@ -323,7 +338,7 @@ class WriteDracutModules(Operation):
     modules: tuple[str, ...]
     #: Drivers named regardless of what dracut detected. `add_drivers+=` is
     #: dracut's own key for this (`dracut.conf(5)`).
-    drivers: tuple[str, ...] = CLOUD_DRIVERS
+    drivers: tuple[str, ...] = field(default_factory=cloud_drivers)
 
     def describe(self) -> str:
         carried = f"write {DRACUT_MODULES_CONFIG} so dracut carries {', '.join(self.modules)}"
