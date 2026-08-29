@@ -17,7 +17,13 @@ from enum import Enum
 from pathlib import PurePosixPath
 from typing import Callable, Final, Mapping
 
-from .architecture import ARCHITECTURES, V3_SUBARCH
+from .architecture import (
+    AMD64,
+    ARCHITECTURES,
+    DEFAULT_ARCHITECTURE,
+    V3_SUBARCH,
+    Architecture,
+)
 from . import mirrors
 from .config import (
     BinhostChannel,
@@ -396,6 +402,32 @@ def binhost_subarch_problems(
             f"not: `ld.so --help` does not list {V3_SUBARCH} as supported",
         )
     return ()
+
+
+def cjk_kernel_problems(
+    config: InstallConfig, row: Architecture | None = None
+) -> tuple[str, ...]:
+    """Refuse a cjktty kernel where gentoo-zh does not build one.
+
+    The three packages that carry the patch are `~amd64` in that overlay, so
+    another machine choosing one asks for an atom the overlay holds for a
+    different architecture: `emerge` stops with the disk already partitioned.
+    Keyed on `applies_cjktty`, which the table already carries, rather than on
+    a second list of atom names.
+    """
+    # Looked up in the body, not bound as a default: a default argument is
+    # evaluated when the function is defined, so the row could not be varied
+    # and a test that swapped it saw the machine's own.
+    row = row if row is not None else DEFAULT_ARCHITECTURE
+    package = KERNEL_PACKAGES.get(config.kernel.source)
+    if package is None or not package.applies_cjktty:
+        return ()
+    if row.gentoo_name == AMD64.gentoo_name:
+        return ()
+    return (
+        f"{package.atom} carries the cjktty patch, which gentoo-zh builds for "
+        f"{AMD64.gentoo_name} only, and this installs {row.gentoo_name}",
+    )
 
 
 def mirror_site_problems(config: InstallConfig) -> tuple[str, ...]:

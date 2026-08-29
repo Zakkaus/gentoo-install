@@ -1239,3 +1239,88 @@ def test_seeding_a_language_drops_a_mirror_site_its_region_lacks() -> None:
         assert not compat.mirror_site_problems(seeded), (tag, seeded.portage.mirrors)
         kept = seeded.portage.mirrors.region is MirrorRegion.CN
         assert bool(seeded.portage.mirrors.site) == kept, (tag, seeded.portage.mirrors)
+
+
+def test_a_cjktty_kernel_is_refused_where_gentoo_zh_builds_none() -> None:
+    """The three cjktty packages are `~amd64` in gentoo-zh.
+
+    An aarch64 machine could select one from the menu and reach `emerge` with
+    the disk already partitioned, asking that overlay for an atom it carries
+    for another architecture. Keyed on `applies_cjktty`, the trait the table
+    already holds, so a fourth cjktty package is covered the day it is added.
+    """
+    from dataclasses import replace
+
+    from gentoo_install.model import compat
+    from gentoo_install.model.architecture import AMD64, architecture_of
+    from gentoo_install.model.config import KernelSource
+
+    arm = architecture_of("aarch64")
+    assert arm is not None
+
+    carries = [
+        source
+        for source, package in compat.KERNEL_PACKAGES.items()
+        if package.applies_cjktty
+    ]
+    assert carries, compat.KERNEL_PACKAGES
+
+    base = config()
+    for source in carries:
+        chosen = replace(base, kernel=replace(base.kernel, source=source))
+        refused = compat.cjk_kernel_problems(chosen, arm)
+        assert refused, (source, refused)
+        assert compat.KERNEL_PACKAGES[source].atom in refused[0], refused
+        # And the same choice on amd64 is not refused.
+        assert compat.cjk_kernel_problems(chosen, AMD64) == (), source
+
+    # Every kernel the table offers is covered: the ones without the patch are
+    # accepted on both rows rather than left undecided.
+    for source in KernelSource:
+        chosen = replace(base, kernel=replace(base.kernel, source=source))
+        for row in (AMD64, arm):
+            answered = compat.cjk_kernel_problems(chosen, row)
+            expected = bool(
+                compat.KERNEL_PACKAGES[source].applies_cjktty and row is arm
+            )
+            assert bool(answered) == expected, (source, row.kernel_name, answered)
+
+
+def test_validate_reads_the_cjktty_rule() -> None:
+    """A rule nothing calls refuses nothing, so `validate` names this one.
+
+    The overlay is enabled here: without it a different rule speaks first,
+    and a test that accepted any refusal would pass while this one was never
+    reached.
+    """
+    from dataclasses import replace
+
+    import pytest as _pytest
+
+    from gentoo_install.errors import ValidationFailed
+    from gentoo_install.model import compat, validate
+    from gentoo_install.model.architecture import architecture_of
+    from gentoo_install.model.config import KernelSource, Overlay
+
+    base = config()
+    cjk = replace(
+        base,
+        kernel=replace(base.kernel, source=KernelSource.CJK_BIN),
+        portage=replace(
+            base.portage,
+            overlays=(
+                Overlay(name="gentoo-zh", sync_uri="https://example.invalid/overlay.git"),
+            ),
+        ),
+    )
+    arm = architecture_of("aarch64")
+    assert arm is not None
+
+    # On the row the overlay builds for, this configuration is installable.
+    validate.validate(cjk)
+
+    with _pytest.MonkeyPatch.context() as patched:
+        patched.setattr(compat, "DEFAULT_ARCHITECTURE", arm)
+        with _pytest.raises(ValidationFailed) as refused:
+            validate.validate(cjk)
+    assert "cjktty" in str(refused.value), str(refused.value)
