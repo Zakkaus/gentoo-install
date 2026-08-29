@@ -681,8 +681,58 @@ def test_an_unattended_run_is_never_asked_about_a_shell(
 
     arguments = argparse.Namespace(no_shell=True, menu=False, target=Path("/mnt/gentoo"))
     said: list[str] = []
-    cli._offer_a_shell(arguments, cast(Machine, None), said.append, False)
+    cli._offer_a_shell(
+        arguments,
+        cast(Machine, None),
+        said.append,
+        False,
+        Path("/mnt/gentoo"),
+        DiskMode.PARTITION,
+    )
     assert not said and not capsys.readouterr().out
+
+
+def test_a_conversion_is_offered_a_shell_in_the_root_it_converted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Read off the machine `m7i` converted: the question named `/mnt/gentoo`,
+    which the conversion never created, and answering it would have chrooted
+    into a directory that is not there."""
+    import argparse
+
+    from types import SimpleNamespace
+
+    from gentoo_install.exec.apply import Machine
+
+    class Fake:
+        def __init__(self) -> None:
+            self.argv: list[list[str]] = []
+
+        def run(self, argv: list[str], check: bool = True) -> None:
+            self.argv.append(argv)
+
+    asked: list[str] = []
+    # The two unattended guards have their own test above; this one is about
+    # what the question and the chroot name once it is asked.
+    monkeypatch.setattr(cli, "_unattended", lambda arguments: False)
+    def say_yes(question: str) -> bool:
+        asked.append(question)
+        return True
+
+    monkeypatch.setattr(cli, "_asked", say_yes)
+    arguments = argparse.Namespace(no_shell=False, menu=False, target=Path("/mnt/gentoo"))
+    runner = Fake()
+    machine = cast(Machine, SimpleNamespace(runner=runner))
+
+    cli._offer_a_shell(arguments, machine, lambda one: None, False, Path("/"), DiskMode.IN_PLACE)
+    assert runner.argv == [["chroot", "/", "/bin/bash", "--login"]]
+    assert "/mnt/gentoo" not in asked[0], asked
+    # An ordinary install still says what it is about to do.
+    cli._offer_a_shell(
+        arguments, machine, lambda one: None, False, Path("/mnt/gentoo"), DiskMode.PARTITION
+    )
+    assert "before unmounting" in asked[1], asked
+    assert "before unmounting" not in asked[0], asked
 
 
 def test_a_saved_configuration_loads_back_into_the_same_install(tmp_path: Path) -> None:
@@ -995,6 +1045,61 @@ def test_the_log_is_kept_before_the_target_is_unmounted(
     assert done.index("keep") < done.index("closing"), done
     stopped = order_of(fail=True)
     assert stopped.index("keep") < stopped.index("release"), stopped
+
+
+def test_the_conversion_hands_the_offer_the_root_it_resolved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`install()` resolves the target once — `/` in place, `--target`
+    otherwise — and every other reader takes it from there. The offer took the
+    unresolved value, so a conversion proposed `/mnt/gentoo`.
+    """
+    import argparse
+    from dataclasses import replace
+
+    from gentoo_install import cli
+    from gentoo_install.data import load_catalog
+    from gentoo_install.exec import report
+    from gentoo_install.plan.build import build
+
+    from .layouts import config, ext4_on_gpt
+
+    handed: dict[str, tuple[object, ...]] = {}
+
+    class Recording:
+        def __init__(self, **fields: object) -> None:
+            self.given_up: set[str] = set()
+            self.runner = fields["runner"]
+
+    monkeypatch.setattr(cli, "Machine", Recording)
+    monkeypatch.setattr(cli, "apply", lambda *args: None)
+    monkeypatch.setattr(report, "keep_log", lambda work, target, record: None)
+    monkeypatch.setattr(report, "offer_paste", lambda *args, **kwargs: None)
+
+    def offered(mode: DiskMode) -> tuple[object, ...]:
+        monkeypatch.setattr(
+            cli, "_offer_a_shell", lambda *args: handed.__setitem__(mode.value, args)
+        )
+        chosen = config(ext4_on_gpt())
+        chosen = replace(chosen, disk=replace(chosen.disk, mode=mode))
+        arguments = argparse.Namespace(
+            work=tmp_path / f"work-{mode.value}",
+            target=tmp_path / "target",
+            skip_preflight=True,
+            resume=False,
+            no_shell=True,
+            menu=False,
+            dry_run=False,
+        )
+        cli.install(chosen, tuple(build(config(ext4_on_gpt()), load_catalog())), arguments, cli.RunState())
+        return handed[mode.value]
+
+    converting = offered(DiskMode.IN_PLACE)
+    assert Path("/") in converting, converting
+    assert tmp_path / "target" not in converting, converting
+    # And an ordinary install is still handed the directory it mounted.
+    ordinary = offered(DiskMode.PARTITION)
+    assert tmp_path / "target" in ordinary, ordinary
 
 
 def test_log_preservation_can_run_without_the_cli(tmp_path: Path) -> None:
