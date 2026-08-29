@@ -2972,3 +2972,33 @@ def test_a_device_that_never_appears_says_what_was_tried() -> None:
     # Either branch is named, and the mdev branch carries the status.
     assert "tried" in said, said
     assert "udev" in said or "mdev=" in said, said
+
+
+def test_a_clustered_p_is_still_a_pretend() -> None:
+    """`emerge -pv` is a pretend, and it was journaled as a merge.
+
+    `_pretending` compared each argument against `-p` exactly, so only the
+    lone spelling was recognised. Short options cluster, and `-pv` is what an
+    operator types: its `[binary]`/`[ebuild]` lines went into the journal as
+    installed packages, which is the doubling the function exists to prevent.
+    """
+    from gentoo_install.exec.runner import _pretending
+
+    for argv in (
+        ["emerge", "--pretend", "sys-apps/coreutils"],
+        ["emerge", "-p", "sys-apps/coreutils"],
+        ["emerge", "-pv", "sys-apps/coreutils"],
+        ["emerge", "-vp", "sys-apps/coreutils"],
+        ["emerge", "-pqv", "sys-apps/coreutils"],
+    ):
+        assert _pretending(argv), argv
+
+    # And a real merge is still a real merge: no `p` outside a cluster, and a
+    # long option that merely contains the letter is not a pretend.
+    for argv in (
+        ["emerge", "sys-apps/coreutils"],
+        ["emerge", "-v", "--getbinpkg", "sys-apps/coreutils"],
+        ["emerge", "--quiet-build=y", "app-portage/cpuid2cpuflags"],
+        ["emerge", "-j2", "sys-apps/coreutils"],
+    ):
+        assert not _pretending(argv), argv
