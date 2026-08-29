@@ -877,6 +877,64 @@ def test_a_pastebin_that_refuses_leaves_the_overview_standing() -> None:
     assert answer.outcome is Outcome.BACK
 
 
+def test_turning_gentoo_zh_off_and_on_keeps_the_channel_that_was_chosen() -> None:
+    """`with_gentoo_zh` turns the community host on at `stable`, so an operator
+    who had chosen `unstable` was moved to the other channel by turning the
+    overlay off and on again -- from a row that says nothing about channels.
+    Measured before this fix: `unstable` came back as `stable`."""
+    from dataclasses import replace as _replace
+
+    from gentoo_install.model.config import BinhostChannel
+    from gentoo_install.tui.context import GENTOO_ZH, with_gentoo_zh
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    at = context()
+    start = config(ext4_on_gpt())
+    chosen = _replace(start, portage=with_gentoo_zh(start))
+    chosen = _replace(
+        chosen,
+        portage=_replace(
+            chosen.portage,
+            binhost=_replace(chosen.portage.binhost, community=BinhostChannel.UNSTABLE),
+        ),
+    )
+
+    # The cursor opens on the site already chosen, so it walks up to the
+    # `not used` row at the top before answering.
+    off = mirror._edit_gentoozh(
+        FakeScreen(keys=["KEY_UP"] * 8 + ["\n"], lines=30, columns=110), at, chosen
+    )
+    assert off is not None
+    assert [one.name for one in off.portage.overlays] == []
+    assert off.portage.binhost.community is BinhostChannel.OFF
+
+    back = mirror._edit_gentoozh(
+        FakeScreen(keys=["KEY_DOWN", "\n"], lines=30, columns=110), at, off
+    )
+    assert back is not None
+    assert [one.name for one in back.portage.overlays] == [GENTOO_ZH]
+    assert back.portage.binhost.community is BinhostChannel.UNSTABLE
+
+
+def test_a_first_time_gentoo_zh_choice_still_arrives_at_the_stable_channel() -> None:
+    """Negative control for the above: with nothing recorded, the overlay
+    brings the host on at `stable` exactly as it did before."""
+    from gentoo_install.model.config import BinhostChannel
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    at = context()
+    start = config(ext4_on_gpt())
+    assert start.portage.binhost.community is BinhostChannel.OFF
+
+    chosen = mirror._edit_gentoozh(
+        FakeScreen(keys=["KEY_DOWN", "\n"], lines=30, columns=110), at, start
+    )
+    assert chosen is not None
+    assert chosen.portage.binhost.community is BinhostChannel.STABLE
+
+
 def test_opening_the_mirror_screen_and_changing_nothing_answers_it() -> None:
     """The row is required so nobody installs from a mirror they never looked
     at, and opening the screen is looking at it. Leaving the site unset made

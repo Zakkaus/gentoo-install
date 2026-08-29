@@ -26,10 +26,15 @@ from .context import (
     Context,
     DONE,
     FieldDescriptor,
+    ValueKind,
     current_menu,
     footer,
+    forget_derived,
+    mark_derived,
     pick,
+    was_derived,
     with_gentoo_zh,
+    without_gentoo_zh,
 )
 from .widgets import Answer, Item, Menu, Outcome, Screen, TextField
 
@@ -472,17 +477,13 @@ def _edit_gentoozh(
     picked = answer.unwrap()
     portage = config.portage
     if picked is None:
-        # What required the overlay goes with it: leaving the community binhost
-        # on refuses the install from a row the operator is not looking at.
-        kept = tuple(one for one in portage.overlays if one.name != "gentoo-zh")
-        return replace(
-            config,
-            portage=replace(
-                portage,
-                overlays=kept,
-                binhost=replace(portage.binhost, community=BinhostChannel.OFF),
-            ),
-        )
+        # Recorded before it is lost: `with_gentoo_zh` turns the host back on
+        # at `STABLE`, so an operator who had chosen `UNSTABLE` was quietly
+        # moved to the other channel by turning the overlay off and on again.
+        if portage.binhost.community is not BinhostChannel.OFF:
+            forget_derived(context, ValueKind.COMMUNITY_BINHOST)
+            mark_derived(context, ValueKind.COMMUNITY_BINHOST, portage.binhost.community.value)
+        return replace(config, portage=without_gentoo_zh(config))
     # The overlay is cloned from the chosen site, not from upstream: a mirror
     # picked here and ignored by the sync is the choice doing nothing.
     added = with_gentoo_zh(config)
@@ -490,10 +491,21 @@ def _edit_gentoozh(
         replace(one, sync_uri=mirrors.gentoozh(picked).git) if one.name == "gentoo-zh" else one
         for one in added.overlays
     )
+    binhost = added.binhost
+    for channel in BinhostChannel:
+        if channel is not BinhostChannel.OFF and was_derived(
+            context, ValueKind.COMMUNITY_BINHOST, channel.value
+        ):
+            binhost = replace(binhost, community=channel)
+            forget_derived(context, ValueKind.COMMUNITY_BINHOST)
+            break
     return replace(
         config,
         portage=replace(
-            added, overlays=overlays, mirrors=replace(portage.mirrors, gentoo_zh=picked)
+            added,
+            overlays=overlays,
+            binhost=binhost,
+            mirrors=replace(portage.mirrors, gentoo_zh=picked),
         ),
     )
 
