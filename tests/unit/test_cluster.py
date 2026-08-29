@@ -1383,6 +1383,69 @@ def test_a_fixture_that_needs_user_mode_networking_is_refused_here() -> None:
     assert cluster.fixtures(["vm-xfs", "zfs-zbm"])
 
 
+def test_a_verdict_says_how_far_the_installer_had_reached(tmp_path: Path) -> None:
+    """A marker names one of this harness's own commands, not an installer
+    operation, and the two were read as the same thing: `btrfs-luks` was
+    reported as `never matched \'MARK_24_DONE\'` with the installer at its own
+    operation 78 of 90, three from the end of its package set.
+
+    Sampled from a kept cluster log, so the shape is the one `exec/apply.py`
+    actually writes.
+    """
+    log = tmp_path / "a-guest.log"
+    log.write_bytes(
+        b"| >>> Emerging (1 of 4) sys-apps/portage\r\n"
+        b"[76/90 0:27:38] [bootloader] write /etc/default/grub with cmdline\r\n"
+        b"[78/90 0:27:55] [packages] install the plasma group: emerge kde-plasma\r\n"
+        b"|  * kwin-6.6.6-1.gpkg.tar MD5 SHA1 size ;-) ...           [ ok ]\r\n"
+    )
+    said = cluster.how_far_it_got(log)
+    assert said.startswith("reached [78/90"), said
+    assert "install the plasma group" in said, said
+
+    # A guest that printed no operation says nothing rather than naming the
+    # last thing a build wrote.
+    quiet = tmp_path / "quiet.log"
+    quiet.write_bytes(b"| >>> Emerging (1 of 4) sys-apps/portage\r\n")
+    assert cluster.how_far_it_got(quiet) == ""
+    assert cluster.how_far_it_got(tmp_path / "never-made") == ""
+
+
+def test_a_run_refused_before_it_started_names_the_reason(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`cli.py` writes `the install stopped: ` only once `install()` is running,
+    so a configuration refused before that left the whole verdict at `the
+    installer exited b\'1\'`. The reason was in the file the guest handed back.
+
+    The refusal is produced by `cli.main`, not written here, so a renamed
+    prefix fails this test rather than going quiet in a verdict.
+    """
+    from gentoo_install import cli as real_cli
+    from gentoo_install.cli import EXIT_CONFIG, main
+    from tests.vm.results import LOG_TAIL
+
+    broken = tmp_path / "broken.toml"
+    broken.write_text(
+        (Path(__file__).resolve().parents[1] / "fixtures" / "vm-xfs.toml")
+        .read_text()
+        .replace('locale = "en_US.UTF-8"', 'locale = "zh_CH.UTF-8"')
+    )
+    monkeypatch.setattr(real_cli, "_require_root", lambda arguments: None)
+    monkeypatch.setattr(real_cli, "_check_the_clock", lambda: None)
+    assert main(["--config", str(broken), "--dry-run"]) == EXIT_CONFIG
+    printed = capsys.readouterr().err
+    assert printed.strip(), "the refusal printed nothing"
+
+    reason = cluster._why_it_stopped({LOG_TAIL: printed.encode()})
+    assert "configuration:" in reason, (reason, printed)
+    assert "zh_CH.UTF-8" in reason, reason
+
+    # And a build's own output is still not a reason: that decision is held by
+    # `test_a_stopped_install_says_why` and this must not overturn it.
+    assert cluster._why_it_stopped({LOG_TAIL: b"| >>> Emerging app-i18n/ibus\n"}) == ""
+
+
 def test_a_layout_that_cannot_fit_this_runners_target_is_refused_here() -> None:
     """Every guest here gets the same `TARGET_GIB`. `vm-shares` asks `40%` of
     the disk for a root that declares `min = "20GiB"`, which is 16178MiB at
