@@ -123,12 +123,25 @@ def _replace_contents(destination: Path, staged: Path, copy: Copier) -> None:
 
 
 def _restore_contents(destination: Path, staged: Path) -> None:
-    """Undo `_replace_contents` when a later directory fails."""
+    """Undo `_replace_contents` when a later directory fails.
+
+    Entries that arrived across a filesystem boundary are removed rather than
+    renamed back. `_replace_contents` reaches `copy()` only after `rename`
+    answered `EXDEV`, and renaming the same entry the other way is that move
+    again: it raised, the caller recorded the error and left the directory
+    half replaced, which on `/usr` is a machine that does not boot. A copy
+    leaves the staged original in place, so removing the copy is the undo.
+    """
     aside = destination / KEPT_ASIDE
     for name in sorted(os.listdir(destination)):
         if name == KEPT_ASIDE:
             continue
-        os.rename(destination / name, staged / name)
+        try:
+            os.rename(destination / name, staged / name)
+        except OSError as error:
+            if error.errno != errno.EXDEV:
+                raise
+            _remove(destination / name)
     for name in sorted(os.listdir(aside)):
         os.rename(aside / name, destination / name)
     os.rmdir(aside)
