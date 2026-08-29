@@ -986,3 +986,56 @@ def test_a_conversion_checks_its_subvolume_rather_than_making_it() -> None:
 
     fresh = Subvolume(id=DeviceId("sub"), filesystem=DeviceId("rootfs"), name="@")
     assert fresh.create
+
+
+def test_an_unreadable_mount_table_is_not_an_empty_one() -> None:
+    """Two readers of one `findmnt`, and only one treated failure as failure.
+
+    `_mounted_under` returned `[]` for a non-zero exit, which is what it
+    returns when nothing is mounted below the staging root, so the unmount
+    loop did nothing. The check after it read the same command, treated the
+    same failure as an error, and raised about a mount that was never
+    unmounted. Both go through one reader now.
+    """
+    import pytest as _pytest
+
+    from gentoo_install.errors import ConversionFailed
+    from gentoo_install.plan import convert as plan_convert
+    from gentoo_install.plan.operations import CommandOutput
+
+    class Refusing:
+        """A machine whose mount table cannot be read."""
+
+        def run(self, argv: object, check: bool = True) -> CommandOutput:
+            del argv, check
+            return CommandOutput("findmnt: cannot read /proc/self/mountinfo", 1)
+
+    removing = plan_convert.LeaveStaging(staging=PurePosixPath("/gentoo-install.new"))
+    with _pytest.raises(ConversionFailed) as refused:
+        removing.apply(cast(Any, Refusing()))
+    assert "could not be read" in str(refused.value), str(refused.value)
+
+    # A readable table with nothing below the staging root still passes, and
+    # the entries below it are returned deepest first.
+    class Reporting:
+        def __init__(self) -> None:
+            self.commands: list[tuple[str, ...]] = []
+
+        def run(self, argv: object, check: bool = True) -> CommandOutput:
+            del check
+            self.commands.append(tuple(str(one) for one in cast(Any, argv)))
+            if tuple(str(one) for one in cast(Any, argv))[0] != "findmnt":
+                return CommandOutput("", 0)
+            if len(self.commands) == 1:
+                return CommandOutput(
+                    "/\n/gentoo-install.new/dev\n/gentoo-install.new/dev/pts\n", 0
+                )
+            return CommandOutput("/\n", 0)
+
+    machine = Reporting()
+    removing.apply(cast(Any, machine))
+    unmounted = [one for one in machine.commands if one[0] == "umount"]
+    assert [one[-1] for one in unmounted] == [
+        "/gentoo-install.new/dev/pts",
+        "/gentoo-install.new/dev",
+    ], unmounted

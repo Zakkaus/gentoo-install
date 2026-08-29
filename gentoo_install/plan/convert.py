@@ -259,17 +259,31 @@ class LeaveStaging(Operation):
     def describe(self) -> str:
         return f"unmount and remove {self.staging}"
 
+    def _every_mount(self, context: Context) -> str:
+        """What the machine reports as mounted, refusing a failed read.
+
+        `findmnt` with no filter lists every mount and exits 0, so a non-zero
+        status is an error rather than an empty answer. One reader treated it
+        as empty and the other as an error: the unmount loop then did nothing
+        and the check after it raised, naming a mount that was never unmounted.
+        """
+        listed = context.run(
+            ["findmnt", "--noheadings", "--list", "--output", "TARGET"], check=False
+        )
+        if isinstance(listed, CommandOutput) and listed.returncode != 0:
+            raise ConversionFailed(
+                f"what is mounted under {self.staging} could not be read: "
+                f"{str(listed).strip()}"
+            )
+        return str(listed)
+
     def _mounted_under(self, context: Context) -> list[str]:
         """Every mount below the staging root, deepest first.
 
         Deepest first because `/gentoo-install.new/dev/pts` has to go before
         `/gentoo-install.new/dev`, and `umount` refuses a busy parent.
         """
-        listed = context.run(
-            ["findmnt", "--noheadings", "--list", "--output", "TARGET"], check=False
-        )
-        if isinstance(listed, CommandOutput) and listed.returncode != 0:
-            return []
+        listed = self._every_mount(context)
         under = f"{self.staging}/"
         found = [
             line.strip()
@@ -284,16 +298,10 @@ class LeaveStaging(Operation):
         # answered `not mounted` and exited 1 while seventeen binds stayed.
         for mounted in self._mounted_under(context):
             context.run(["umount", "--lazy", mounted], check=False)
-        listed = context.run(
-            ["findmnt", "--noheadings", "--list", "--output", "TARGET"], check=False
-        )
-        # `findmnt` with no filter lists every mount and exits 0, so a non-zero
-        # status is an error rather than an empty answer. Reading it as empty
-        # is what lets the `rm` below walk into a `/proc` still bound here.
-        if isinstance(listed, CommandOutput) and listed.returncode != 0:
-            raise ConversionFailed(
-                f"what is mounted under {self.staging} could not be read: {str(listed).strip()}"
-            )
+        # Read again through the same reader: what the `rm` below walks into
+        # depends on this answer, and an unreadable mount table is not an
+        # empty one.
+        listed = self._every_mount(context)
         under = f"{self.staging}/"
         if any(
             line.strip() == str(self.staging) or line.strip().startswith(under)
