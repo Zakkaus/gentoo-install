@@ -1163,3 +1163,47 @@ def test_openrc_with_systemd_boot_has_a_fixture() -> None:
         if init == "openrc" and kind == "systemd-boot":
             paired.append(fixture.name)
     assert paired, "no fixture pairs openrc with systemd-boot"
+
+
+def test_no_driver_is_named_that_this_architecture_never_built() -> None:
+    """`dracut-install` fails its whole `-m` list when one name is missing.
+
+    The cloud driver list named `xen_blkfront` and `xen_netfront`
+    unconditionally, and Linux builds the Xen frontends for x86 alone. On the
+    aarch64 machine installed with this tree, every initramfs rebuild failed:
+
+        dracut-install: Failed to find module 'xen_blkfront'
+        dracut[E]: FAILED: ... -m virtio_pci ... xen_blkfront ...
+
+    The install itself did not stop, because `installkernel` built that one.
+    A successful install left a machine that could not rebuild its initramfs,
+    which a kernel upgrade needs.
+    """
+    from gentoo_install.model.architecture import AMD64, ARCHITECTURES, architecture_of
+    from gentoo_install.plan.kernel import CLOUD_DRIVERS, X86_ONLY_DRIVERS, cloud_drivers
+
+    on_amd64 = cloud_drivers(AMD64)
+    assert set(X86_ONLY_DRIVERS) <= set(on_amd64), on_amd64
+    assert on_amd64 == CLOUD_DRIVERS
+
+    arm = architecture_of("aarch64")
+    assert arm is not None
+    on_arm = cloud_drivers(arm)
+    assert not set(X86_ONLY_DRIVERS) & set(on_arm), on_arm
+    # And nothing else was dropped: the eleven that exist are still named,
+    # because a provider that attaches the disk differently on the next boot
+    # is what the list is for.
+    assert set(on_arm) == set(CLOUD_DRIVERS) - set(X86_ONLY_DRIVERS)
+
+    # Every row answers, so a new architecture cannot silently take amd64's.
+    for row in ARCHITECTURES:
+        assert cloud_drivers(row), row
+
+
+def test_the_operation_takes_the_drivers_for_this_machine() -> None:
+    """A rule nothing reads leaves every initramfs as broken as before."""
+    from gentoo_install.model.architecture import DEFAULT_ARCHITECTURE
+    from gentoo_install.plan.kernel import WriteDracutModules, cloud_drivers
+
+    written = WriteDracutModules(modules=("crypt",))
+    assert written.drivers == cloud_drivers(DEFAULT_ARCHITECTURE), written.drivers
