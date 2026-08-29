@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import errno
 import os
+import re
 import shutil
 import sys
 from enum import Enum
@@ -23,8 +24,40 @@ Copier = Callable[[Path, Path], None]
 #: Inside the mount, so every move is a rename on one filesystem.
 KEPT_ASIDE: str = ".gentoo-install.old"
 
+#: The kernel's own mount table, which lists a bind mount `st_dev` cannot see.
+MOUNTINFO: Path = Path("/proc/self/mountinfo")
 
-def _mounts_inside(directory: Path) -> list[str]:
+
+def _mount_points() -> frozenset[str]:
+    """Every mount point in this namespace, from the kernel's own list.
+
+    `os.path.ismount` compares a directory's `st_dev` against its parent's, so
+    a bind mount within one filesystem reads as an ordinary directory while
+    `rename(2)` still answers EBUSY for it. Measured under `unshare -rm`:
+    `mount --bind` of a sibling directory is `False` to `ismount` and present
+    here.
+    """
+    try:
+        listed = MOUNTINFO.read_text()
+    except OSError as error:
+        raise ConversionFailed(
+            f"the mount table could not be read, so whether a directory this "
+            f"conversion replaces is a mount point is unknown: {error}"
+        ) from error
+    points: set[str] = set()
+    for line in listed.splitlines():
+        fields = line.split(" ")
+        if len(fields) > 4:
+            points.add(_unescape(fields[4]))
+    return frozenset(points)
+
+
+def _unescape(field: str) -> str:
+    """Undo mountinfo's octal escaping of space, tab, newline and backslash."""
+    return re.sub(r"\\([0-7]{3})", lambda found: chr(int(found.group(1), 8)), field)
+
+
+def _mounts_inside(directory: Path, points: frozenset[str]) -> list[str]:
     """Name every entry of `directory` that is itself a mount point.
 
     A directory that cannot be listed is refused rather than reported as
@@ -33,6 +66,10 @@ def _mounts_inside(directory: Path) -> list[str]:
     directory with nothing mounted below it says: `rename(2)` then answers
     EBUSY partway through the entries, which is the state its own comment
     calls one with no clean rollback.
+
+    One level is the depth that matters: renaming a directory with a mount
+    nested further down succeeds, and only renaming the mount point itself
+    answers EBUSY.
     """
     try:
         entries = sorted(os.listdir(directory))
@@ -41,7 +78,7 @@ def _mounts_inside(directory: Path) -> list[str]:
             f"{directory} cannot be listed, so whether it holds a mount this "
             f"conversion cannot move is unknown: {error}"
         ) from error
-    return [one for one in entries if os.path.ismount(directory / one)]
+    return [one for one in entries if str(directory / one) in points]
 
 
 class Arrival(Enum):
@@ -160,6 +197,7 @@ def convert(
         # step exists to avoid: the window would be the whole copy.
         raise ConversionFailed("the staging directory is not on the root filesystem")
 
+    points = _mount_points()
     destinations: list[tuple[str, Path, Path, Path, bool, bool]] = []
     for name in names:
         destination = root / name
@@ -169,15 +207,15 @@ def convert(
             raise ConversionFailed(f"the staging directory has no {name}")
         if os.path.lexists(old):
             raise ConversionFailed(f"{old} is left from an earlier attempt")
-        # Read once and used twice: the second call decided which replacement
+        # Read once and used twice: the second read decided which replacement
         # and rollback this entry gets, so a mount appearing between the two
         # skipped the nested check above and still took the mounted path.
-        mounted = os.path.ismount(destination)
+        mounted = str(destination) in points
         if mounted:
             # Counted before anything moves: `rename(2)` answers EBUSY for a
             # mount point, and finding that out halfway through the entries is
             # a state with no clean rollback.
-            nested = _mounts_inside(destination)
+            nested = _mounts_inside(destination, points)
             if nested:
                 raise ConversionFailed(
                     f"{destination} is a separate mount holding {', '.join(nested)}, "
