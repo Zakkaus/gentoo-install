@@ -290,6 +290,7 @@ def validate(
         *_l10n_problems(config),
         *_repository_name_problems(config),
         *compat.binhost_subarch_problems(config, supports_v3),
+        *compat.cjk_kernel_problems(config),
         *compat.mirror_site_problems(config),
     ]
     if problems:
