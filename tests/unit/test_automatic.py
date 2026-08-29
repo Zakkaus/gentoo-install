@@ -877,6 +877,46 @@ def test_a_pastebin_that_refuses_leaves_the_overview_standing() -> None:
     assert answer.outcome is Outcome.BACK
 
 
+def test_answering_the_region_row_with_the_same_region_keeps_the_site() -> None:
+    """A site belongs to its region, so changing the region drops it. Enter on
+    the row with that region already selected changes nothing and dropped it
+    anyway, and `Done` then wrote the region's first mirror over a site the
+    operator had picked by hand."""
+    from dataclasses import replace as _replace
+
+    from gentoo_install.model.config import MirrorRegion
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    at = context()
+    start = config(ext4_on_gpt())
+    chosen = _replace(
+        start,
+        portage=_replace(
+            start.portage,
+            mirrors=_replace(
+                start.portage.mirrors, region=MirrorRegion.GLOBAL, site="a-hand-picked-site"
+            ),
+        ),
+    )
+
+    # The cursor opens on the region already selected, so enter answers with it.
+    same = mirror._edit_mirror_region(
+        FakeScreen(keys=["\n"], lines=30, columns=110), at, chosen
+    )
+    assert same is not None
+    assert same.portage.mirrors.region is MirrorRegion.GLOBAL
+    assert same.portage.mirrors.site == "a-hand-picked-site"
+
+    # A different region still drops it: that is what this row is for.
+    moved = mirror._edit_mirror_region(
+        FakeScreen(keys=["KEY_UP", "\n"], lines=30, columns=110), at, chosen
+    )
+    assert moved is not None
+    assert moved.portage.mirrors.region is not MirrorRegion.GLOBAL
+    assert moved.portage.mirrors.site == ""
+
+
 def test_turning_gentoo_zh_off_and_on_keeps_the_channel_that_was_chosen() -> None:
     """`with_gentoo_zh` turns the community host on at `stable`, so an operator
     who had chosen `unstable` was moved to the other channel by turning the

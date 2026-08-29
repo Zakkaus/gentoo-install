@@ -286,7 +286,13 @@ def _edit_mirror_region(screen: Screen, context: Context, config: InstallConfig)
     picked = Menu(title=context.translate("Region"), items=[Item(label=one.value, value=one) for one in MirrorRegion], footer=footer(context.translate), current=current.region).run(screen)
     if not picked.chosen:
         return None
-    return replace(config, portage=replace(config.portage, mirrors=replace(current, region=picked.unwrap(), site="")))
+    region = picked.unwrap()
+    # A site belongs to its region, so changing the region drops it. Answering
+    # with the region already selected changes nothing and must not: enter on
+    # that row discarded a site the operator had picked by hand, and `Done`
+    # then wrote the region's first mirror.
+    site = current.site if region is current.region else ""
+    return replace(config, portage=replace(config.portage, mirrors=replace(current, region=region, site=site)))
 
 
 def _edit_mirror_site(screen: Screen, context: Context, config: InstallConfig) -> InstallConfig | None:
