@@ -134,6 +134,38 @@ EMERGE_OPTIONS: Final[tuple[str, ...]] = (
     "--autounmask-continue=y",
 )
 
+#: The options that decide what emerge accepts, as against what it prints.
+#: `VerifyPackages` asks whether the merge will succeed, so it has to carry
+#: these: without them the check refused a package set the merge installs by
+#: writing the USE change, and an install stopped at operation 26 of 60.
+AUTOUNMASK: Final[tuple[str, ...]] = tuple(
+    one for one in EMERGE_OPTIONS if one.startswith("--autounmask")
+)
+
+#: How emerge says why it will not proceed, in the order the message is
+#: looked for. Read off a real refusal rather than guessed: the first
+#: non-empty line was `setlocale: unsupported locale setting`, which a chroot
+#: whose locales are not generated yet always prints, and the three lines
+#: beginning `!!!` were mirror download warnings from ten minutes earlier.
+REFUSALS: Final[tuple[str, ...]] = (
+    "Error fetching binhost package info",
+    "necessary to proceed",
+    "there are no ebuilds",
+    "All ebuilds that could satisfy",
+    "has unmet requirements",
+    "Multiple package instances",
+)
+
+
+def why_emerge_refused(output: str) -> str:
+    """The line that explains a refusal, not the first line printed."""
+    lines = [one.strip() for one in output.splitlines() if one.strip()]
+    for line in lines:
+        if any(one in line for one in REFUSALS):
+            return line.removeprefix("!!! ").strip()
+    return lines[-1].removeprefix("!!! ").strip() if lines else "no output"
+
+
 #: What a failed keyring degrades: every host at once, since none of them can
 #: be verified without one.
 BINARY_PACKAGES: Final[str] = "binary packages"
@@ -1450,10 +1482,7 @@ class VerifyPackages(Operation):
         if problems:
             raise ConfigError("; ".join(problems))
 
-        detail = next(
-            (line.strip().removeprefix("!!! ") for line in output.splitlines() if line.strip()),
-            "no output",
-        )
+        detail = why_emerge_refused(output)
         requesters = tuple(
             dict.fromkeys(
                 requester for request in self.requests for requester in request.requesters
@@ -1468,7 +1497,8 @@ class VerifyPackages(Operation):
     ) -> CommandOutput:
         without = ("--usepkg=n", "--getbinpkg=n") if source_only else ()
         output = context.run_in_target(
-            ["emerge", "--pretend", "--quiet", *without, "--", *atoms], check=False
+            ["emerge", "--pretend", "--quiet", *AUTOUNMASK, *without, "--", *atoms],
+            check=False,
         )
         if not isinstance(output, CommandOutput):
             raise ConfigError("emerge --pretend returned no exit status")
