@@ -494,3 +494,77 @@ def test_a_directory_that_cannot_be_listed_is_not_reported_as_empty(
     not_a_directory.write_text("")
     with _pytest.raises(ConversionFailed):
         _mounts_inside(not_a_directory)
+
+
+def test_a_copied_entry_is_undone_by_removing_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The later rollback renamed back what only a copy could bring in.
+
+    `_replace_contents` reaches `copy()` only after `rename` answered `EXDEV`,
+    and `_restore_contents` then renamed the same entry the other way: the
+    same cross-device move, which raises. `convert` records the error and
+    leaves the directory half replaced, and on `/usr` that is a machine that
+    does not boot.
+    """
+    import errno
+    import os
+
+    from gentoo_install.exec.convert import KEPT_ASIDE, _restore_contents
+
+    destination = tmp_path / "var"
+    staged = tmp_path / "staging" / "var"
+    aside = destination / KEPT_ASIDE
+    for one in (destination, staged, aside):
+        one.mkdir(parents=True)
+    # What the machine looks like after `_replace_contents`: the original
+    # entry held aside, the staged one copied in, and the staged original
+    # still present because a copy does not consume it.
+    (aside / "old").write_text("the machine's own")
+    (destination / "new").write_text("from the stage3")
+    (staged / "new").write_text("from the stage3")
+
+    real_rename = os.rename
+
+    def crossing(source: "str | Path", target: "str | Path") -> None:
+        # Only the direction that leaves the mount: an entry moving out of the
+        # destination into the staging root. Putting the held-aside original
+        # back is a rename inside the mount and still works.
+        if str(source).startswith(str(destination)) and KEPT_ASIDE not in str(source):
+            raise OSError(errno.EXDEV, "Invalid cross-device link")
+        real_rename(source, target)
+
+    monkeypatch.setattr(os, "rename", crossing)
+    _restore_contents(destination, staged)
+
+    # The machine's own entry is back and the copy is gone.
+    assert (destination / "old").read_text() == "the machine's own"
+    assert not (destination / "new").exists()
+    # The staged copy is untouched, so a later attempt still has it.
+    assert (staged / "new").read_text() == "from the stage3"
+    assert not aside.exists()
+
+
+def test_a_rollback_still_raises_for_anything_but_a_crossing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only `EXDEV` means the entry arrived by copy; a busy one is a failure."""
+    import errno
+    import os
+
+    from gentoo_install.exec.convert import KEPT_ASIDE, _restore_contents
+
+    destination = tmp_path / "var"
+    staged = tmp_path / "staging" / "var"
+    (destination / KEPT_ASIDE).mkdir(parents=True)
+    staged.mkdir(parents=True)
+    (destination / "new").write_text("")
+
+    def busy(source: "str | Path", target: "str | Path") -> None:
+        del source, target
+        raise OSError(errno.EBUSY, "Device or resource busy")
+
+    monkeypatch.setattr(os, "rename", busy)
+    with pytest.raises(OSError) as raised:
+        _restore_contents(destination, staged)
+    assert raised.value.errno == errno.EBUSY
