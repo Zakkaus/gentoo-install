@@ -25,11 +25,22 @@ KEPT_ASIDE: str = ".gentoo-install.old"
 
 
 def _mounts_inside(directory: Path) -> list[str]:
-    """Name every entry of `directory` that is itself a mount point."""
+    """Name every entry of `directory` that is itself a mount point.
+
+    A directory that cannot be listed is refused rather than reported as
+    holding nothing. The caller decides from this answer whether the rename
+    is safe, and `[]` from an `OSError` said exactly what `[]` from a
+    directory with nothing mounted below it says: `rename(2)` then answers
+    EBUSY partway through the entries, which is the state its own comment
+    calls one with no clean rollback.
+    """
     try:
         entries = sorted(os.listdir(directory))
-    except OSError:
-        return []
+    except OSError as error:
+        raise ConversionFailed(
+            f"{directory} cannot be listed, so whether it holds a mount this "
+            f"conversion cannot move is unknown: {error}"
+        ) from error
     return [one for one in entries if os.path.ismount(directory / one)]
 
 
