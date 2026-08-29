@@ -169,7 +169,11 @@ def convert(
             raise ConversionFailed(f"the staging directory has no {name}")
         if os.path.lexists(old):
             raise ConversionFailed(f"{old} is left from an earlier attempt")
-        if os.path.ismount(destination):
+        # Read once and used twice: the second call decided which replacement
+        # and rollback this entry gets, so a mount appearing between the two
+        # skipped the nested check above and still took the mounted path.
+        mounted = os.path.ismount(destination)
+        if mounted:
             # Counted before anything moves: `rename(2)` answers EBUSY for a
             # mount point, and finding that out halfway through the entries is
             # a state with no clean rollback.
@@ -183,7 +187,7 @@ def convert(
         # merged-usr Debian has no `/lib64` at all, and renaming what is not
         # there fails half way through with the rest already swapped.
         destinations.append(
-            (name, destination, staged, old, os.path.lexists(destination), os.path.ismount(destination))
+            (name, destination, staged, old, os.path.lexists(destination), mounted)
         )
     # Mount points last: replacing one by content is the only step whose
     # rollback touches more than two renames, so nothing else has to be undone
