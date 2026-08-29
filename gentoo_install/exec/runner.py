@@ -328,7 +328,15 @@ def _pretending(argv: Sequence[str]) -> bool:
     and a package the pretend named and the merge never installed was in the
     record as installed.
     """
-    return any(one in ("--pretend", "-p") for one in argv)
+    for one in argv:
+        if one == "--pretend":
+            return True
+        # `-pv` is the spelling an operator types, and short options cluster:
+        # matching `-p` alone let every combined form through, so a pretend
+        # was journaled as a merge by the commonest way of asking for one.
+        if one.startswith("-") and not one.startswith("--") and "p" in one[1:]:
+            return True
+    return False
 
 
 def _display_argv(argv: Sequence[str]) -> tuple[str, ...]:
