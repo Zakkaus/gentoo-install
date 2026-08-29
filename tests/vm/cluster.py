@@ -60,8 +60,13 @@ from gentoo_install.model.config import (
 from gentoo_install.model.device import (
     Existing,
     Luks,
+    Partition,
+    StorageFacts,
     ZfsPool,
 )
+from gentoo_install.errors import InvalidLayout
+from gentoo_install.model.size import Size
+from gentoo_install.plan.disk import resolve_share
 from gentoo_install.model.config import MirrorRegion, Sync
 from gentoo_install.model import mirrors
 from gentoo_install.exec.config import load
@@ -4716,6 +4721,32 @@ def _needs_a_scratch_filesystem(config: InstallConfig) -> str:
     return config.disk.image if config.disk.mode is DiskMode.IMAGE else ""
 
 
+#: Every guest here is given the same `TARGET_GIB`, so a layout whose bounds
+#: cannot be met at that size is refused before a node is taken rather than an
+#: hour later: `vm-shares` asks `40%` of the disk for a root that declares
+#: `min = "20GiB"`, which works out to 16178MiB on 40 GiB, and the installer
+#: exited 1 after 1.9 minutes of cluster time. Derived from `TARGET_GIB` rather
+#: than named, so the refusal follows the size this runner actually gives.
+def _will_not_fit_this_runner(config: InstallConfig) -> str:
+    """Why this layout cannot be resolved at `TARGET_GIB`, or empty."""
+    graph = config.disk.graph
+    facts = StorageFacts(
+        capacities={
+            node.id: Size(TARGET_GIB * 1024**3)
+            for node in graph.nodes.values()
+            if isinstance(node, Existing)
+        }
+    )
+    for node in graph.nodes.values():
+        if not isinstance(node, Partition):
+            continue
+        try:
+            resolve_share(graph, node, facts)
+        except InvalidLayout as refused:
+            return str(refused)
+    return ""
+
+
 def _needs_user_mode_networking(config: InstallConfig) -> str:
     """The address that only the local hypervisor provides, or empty."""
     if not config.proxy.host:
@@ -4747,6 +4778,12 @@ def fixtures(names: list[str]) -> list[Job]:
             raise SystemExit(
                 f"{name} reaches {local_only}, which only qemu's user-mode network "
                 "provides: run it with tests/vm/run.py, not on the cluster"
+            )
+        unfittable = _will_not_fit_this_runner(config)
+        if unfittable:
+            raise SystemExit(
+                f"{name} cannot be laid out on the {TARGET_GIB} GiB target every "
+                f"guest here is given: {unfittable}"
             )
         convert_to: Path | None = None
         if config.disk.mode is DiskMode.IN_PLACE:

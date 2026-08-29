@@ -1383,6 +1383,45 @@ def test_a_fixture_that_needs_user_mode_networking_is_refused_here() -> None:
     assert cluster.fixtures(["vm-xfs", "zfs-zbm"])
 
 
+def test_a_layout_that_cannot_fit_this_runners_target_is_refused_here() -> None:
+    """Every guest here gets the same `TARGET_GIB`. `vm-shares` asks `40%` of
+    the disk for a root that declares `min = "20GiB"`, which is 16178MiB at
+    that size, so the installer refuses it — correctly — after the round has
+    taken a node and 1.9 minutes.
+
+    The local campaign already names this fixture and its reason, but that is
+    a list only the local runner reads. This refusal is derived from
+    `TARGET_GIB`, so it follows the size this runner gives.
+    """
+    import pytest
+
+    with pytest.raises(SystemExit, match="20GiB"):
+        cluster.fixtures(["vm-shares"])
+
+    # Negative control: the fixtures that fit are still dispatched, including
+    # the one whose layout comes from the machine rather than the file.
+    assert [one.name for one in cluster.fixtures(["vm-xfs", "vm-convert"])] == [
+        "vm-xfs",
+        "vm-convert",
+    ]
+
+
+def test_the_two_runners_agree_on_which_fixtures_a_guest_cannot_run() -> None:
+    """A fixture excluded for a reason that holds on both runners has to be
+    excluded on both. `vm-shares` was named in the local table and dispatched
+    here anyway, which is one rule kept in two places with one of them
+    complete."""
+    import pytest
+
+    from tests.unit.test_harness import NOT_IN_THE_CAMPAIGN
+
+    both: dict[str, str] = {"vm-shares.toml": "20GiB"}
+    assert set(both) <= NOT_IN_THE_CAMPAIGN, sorted(set(both) - NOT_IN_THE_CAMPAIGN)
+    for fixture, said in both.items():
+        with pytest.raises(SystemExit, match=said):
+            cluster.fixtures([fixture.removesuffix(".toml")])
+
+
 def test_the_prompt_after_a_refusal_is_read_before_the_name_is_offered_again(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
