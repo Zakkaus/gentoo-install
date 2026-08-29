@@ -195,7 +195,12 @@ class InstallGrub(Operation):
                     continue
                 installed.add(disk)
                 context.run_in_target(
-                    ["grub-install", *force, "--target=i386-pc", disk]
+                    [
+                        "grub-install",
+                        *force,
+                        f"--target={DEFAULT_ARCHITECTURE.bios_target}",
+                        disk,
+                    ]
                 )
         context.run_in_target(["grub-mkconfig", "--output", "/boot/grub/grub.cfg"])
         # grub-mkconfig exits 0 having found no kernel, and the machine then

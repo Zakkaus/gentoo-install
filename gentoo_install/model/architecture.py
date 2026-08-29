@@ -36,6 +36,10 @@ class Architecture:
     #: in, under `releases/<gentoo_name>/binpackages/<release>/`. A fourth
     #: spelling: amd64's is `x86-64` and arm64's is `arm64`.
     binhost_subarch: str
+    #: `grub-install --target` for a BIOS boot, empty where the architecture
+    #: has no BIOS platform at all. Measured on an aarch64 machine: after a
+    #: GRUB install `/usr/lib/grub/` holds `arm64-efi` and nothing else.
+    bios_target: str
     #: How UEFI spells this machine, which names two files: the removable
     #: media fallback `EFI/BOOT/BOOT<name>.EFI` and systemd's
     #: `linux<name>.efi.stub`. Read off systemd's own `efi_arch` table in
@@ -50,6 +54,7 @@ AMD64: Final[Architecture] = Architecture(
     kernel_name="x86_64",
     gentoo_name="amd64",
     grub_target="x86_64-efi",
+    bios_target="i386-pc",
     cpu_flags_variable="CPU_FLAGS_X86",
     binhost_subarch="x86-64",
         efi_name="x64",
@@ -63,6 +68,7 @@ ARCHITECTURES: Final[tuple[Architecture, ...]] = (
         kernel_name="aarch64",
         gentoo_name="arm64",
         grub_target="arm64-efi",
+        bios_target="",
         cpu_flags_variable="CPU_FLAGS_ARM",
         binhost_subarch="arm64",
         efi_name="aa64",
@@ -71,6 +77,7 @@ ARCHITECTURES: Final[tuple[Architecture, ...]] = (
         kernel_name="i686",
         gentoo_name="x86",
         grub_target="i386-efi",
+        bios_target="i386-pc",
         cpu_flags_variable="CPU_FLAGS_X86",
         binhost_subarch="i686",
     efi_name="ia32",

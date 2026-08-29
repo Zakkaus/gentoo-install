@@ -516,7 +516,16 @@ def inspect(
     wants_uefi = config.bootloader.firmware is Firmware.UEFI
     if targets_machine_firmware and wants_uefi and not machine.uefi:
         fatal.append(f"the configuration boots by UEFI and this machine booted by BIOS")
-    if targets_machine_firmware and not wants_uefi and machine.uefi:
+    if targets_machine_firmware and not wants_uefi and not installs.bios_target:
+        # Fatal, not the warning below: this is not a machine that could boot
+        # either way. GRUB builds no BIOS platform for this architecture, so
+        # `grub-install` has no target to be given and the install would stop
+        # at the bootloader with the disk already partitioned.
+        fatal.append(
+            f"the configuration boots by BIOS and {installs.gentoo_name} has no "
+            "BIOS platform: GRUB builds none for it"
+        )
+    elif targets_machine_firmware and not wants_uefi and machine.uefi:
         warnings.append("the configuration boots by BIOS on a machine that booted by UEFI")
     if targets_machine_firmware and wants_uefi and not machine.efi_variables:
         # Fatal: `efibootmgr --create` is what the ZFSBootMenu install runs,
@@ -531,7 +540,7 @@ def inspect(
         # firmware then refuse the amd64 executable it was handed.
         fatal.append(
             "this machine booted through 32-bit EFI firmware, which cannot load "
-            "the amd64 EFI executables an amd64 install writes"
+            f"the 64-bit EFI executables a {installs.gentoo_name} install writes"
         )
 
     commands = assess_commands(wanted, machine.commands, machine.versions)

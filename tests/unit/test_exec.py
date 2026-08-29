@@ -3002,3 +3002,67 @@ def test_a_clustered_p_is_still_a_pretend() -> None:
         ["emerge", "-j2", "sys-apps/coreutils"],
     ):
         assert not _pretending(argv), argv
+
+
+def test_bios_is_refused_where_the_architecture_has_no_bios_platform(tmp_path: Path) -> None:
+    """A warning is wrong when the boot method does not exist at all.
+
+    `grub-install --target=i386-pc` is the PC BIOS platform, and GRUB builds
+    no BIOS platform for arm64: after a GRUB install on an aarch64 machine
+    `/usr/lib/grub/` holds `arm64-efi` and nothing else. The check warned and
+    carried on, so the install would have partitioned the disk and stopped at
+    the bootloader with nothing to install.
+    """
+    from gentoo_install.model.architecture import ARCHITECTURES, architecture_of
+
+    named = {row.kernel_name: row.bios_target for row in ARCHITECTURES}
+    assert named["x86_64"] == "i386-pc"
+    assert named["i686"] == "i386-pc"
+    arm = architecture_of("aarch64")
+    assert arm is not None
+    assert arm.bios_target == "", arm
+
+    # Driven, not read: `preflight.inspect` must put the refusal in `fatal`
+    # for a BIOS configuration on an architecture with no BIOS platform. An
+    # earlier version of this test searched the source for the field name and
+    # stayed green when the branch was disabled with `if False and ...`.
+    from dataclasses import replace
+
+    import pytest as _pytest
+
+    from gentoo_install.exec import preflight
+    from gentoo_install.model import architecture
+    from gentoo_install.model.config import Firmware
+
+    bios = config()
+    bios = replace(bios, bootloader=replace(bios.bootloader, firmware=Firmware.BIOS))
+
+    def refusals(row: architecture.Architecture) -> tuple[str, ...]:
+        with _pytest.MonkeyPatch.context() as patched:
+            patched.setattr(preflight, "DEFAULT_ARCHITECTURE", row)
+            return preflight.inspect(bios, described(), probe_of(tmp_path)).fatal
+
+    without = refusals(arm)
+    assert any("no BIOS platform" in one for one in without), without
+
+    with_bios = refusals(architecture.AMD64)
+    assert not any("no BIOS platform" in one for one in with_bios), with_bios
+
+
+def test_the_bios_target_is_not_written_a_second_time() -> None:
+    """`plan/bootloader.py` spelled `i386-pc` beside the row that holds it."""
+    import ast
+    from pathlib import Path
+
+    from gentoo_install.model.architecture import ARCHITECTURES
+    from gentoo_install.plan import bootloader
+
+    package = Path(bootloader.__file__).parent.parent
+    targets = {row.bios_target for row in ARCHITECTURES if row.bios_target}
+    for path in sorted(package.rglob("*.py")):
+        if path.name == "architecture.py":
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                for one in targets:
+                    assert one not in node.value, f"{path}:{node.lineno} writes {one!r}"
