@@ -459,3 +459,38 @@ def test_a_copy_that_writes_part_of_a_tree_then_fails_leaves_none_of_it(
     assert not (root / "var" / "cache").exists(), sorted(
         one.name for one in (root / "var").iterdir()
     )
+
+
+def test_a_directory_that_cannot_be_listed_is_not_reported_as_empty(
+    tmp_path: Path,
+) -> None:
+    """The guard on the irreversible step could not tell safe from unreadable.
+
+    `_mounts_inside` returned `[]` for a directory with nothing mounted below
+    it and `[]` for one whose listing raised, and the caller uses that answer
+    to decide the rename may proceed. Its own comment says why that matters:
+    `rename(2)` answers EBUSY for a mount point, and finding that out halfway
+    through the entries is a state with no clean rollback.
+    """
+    import pytest as _pytest
+
+    from gentoo_install.errors import ConversionFailed
+    from gentoo_install.exec.convert import _mounts_inside
+
+    # A directory with nothing mounted below it still answers empty.
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    (plain / "a-file").write_text("")
+    assert _mounts_inside(plain) == []
+
+    # One that cannot be listed is refused, and the message names it.
+    absent = tmp_path / "never-made"
+    with _pytest.raises(ConversionFailed) as refused:
+        _mounts_inside(absent)
+    assert str(absent) in str(refused.value), str(refused.value)
+
+    # A file where a directory was expected raises through the same path.
+    not_a_directory = tmp_path / "file"
+    not_a_directory.write_text("")
+    with _pytest.raises(ConversionFailed):
+        _mounts_inside(not_a_directory)
