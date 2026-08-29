@@ -481,6 +481,7 @@
 "sys-boot/zfsbootmenu is in that overlay and in no other repository, so the emerge fails once the disks have already been partitioned" = "sys-boot/zfsbootmenu はその overlay にしかなく、ディスクを分割した後で emerge が失敗します"
 "the key its packages are signed with comes from that overlay, and without it nothing from the host verifies" = "パッケージの署名鍵はその overlay から提供されるため、鍵がなければその binhost のパッケージを検証できません。"
 "firmware cannot open a container to read the esp" = "ファームウェアは esp を読むときコンテナを開けません"
+"the pool's own encryption covers its members" = "プール自身の暗号化がそのメンバーを含みます"
 "firmware reads the esp itself and cannot open a LUKS container, so an encrypted one never boots" = "ファームウェアは esp を直接読み、LUKS コンテナを開けないため、暗号化した esp は起動しません"
 "Run once at first boot" = "初回起動時の命令"
 "Script address" = "スクリプトのアドレス"

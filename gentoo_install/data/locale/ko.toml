@@ -481,6 +481,7 @@
 "sys-boot/zfsbootmenu is in that overlay and in no other repository, so the emerge fails once the disks have already been partitioned" = "sys-boot/zfsbootmenu 은 그 overlay 에만 있어 디스크를 나눈 뒤에 emerge 가 실패합니다"
 "the key its packages are signed with comes from that overlay, and without it nothing from the host verifies" = "패키지 서명 키는 해당 overlay에서 제공되므로, 키가 없으면 해당 binhost의 패키지를 검증할 수 없습니다."
 "firmware cannot open a container to read the esp" = "펌웨어는 esp 를 읽을 때 컨테이너를 열 수 없습니다"
+"the pool's own encryption covers its members" = "풀 자체의 암호화가 그 구성원을 포함합니다"
 "firmware reads the esp itself and cannot open a LUKS container, so an encrypted one never boots" = "펌웨어는 esp 를 직접 읽으며 LUKS 컨테이너를 열 수 없으므로 암호화된 esp 는 부팅되지 않습니다"
 "Run once at first boot" = "첫 부팅 명령"
 "Script address" = "스크립트 주소"

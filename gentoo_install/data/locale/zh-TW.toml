@@ -482,6 +482,7 @@
 "sys-boot/zfsbootmenu is in that overlay and in no other repository, so the emerge fails once the disks have already been partitioned" = "sys-boot/zfsbootmenu 僅存在於該 overlay；缺少 overlay 時，emerge 會在磁碟分割後失敗"
 "the key its packages are signed with comes from that overlay, and without it nothing from the host verifies" = "簽章金鑰來自該 overlay；缺少該金鑰時，binhost 提供的套件均無法通過驗證。"
 "firmware cannot open a container to read the esp" = "韌體讀取 esp 時無法開啟加密容器"
+"the pool's own encryption covers its members" = "儲存池本身的加密涵蓋它的成員"
 "firmware reads the esp itself and cannot open a LUKS container, so an encrypted one never boots" = "韌體無法開啟 LUKS 容器，因此使用加密 esp 的系統無法開機。"
 "Run once at first boot" = "首次開機指令"
 "Script address" = "腳本位址"

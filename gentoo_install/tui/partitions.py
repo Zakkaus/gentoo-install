@@ -977,11 +977,7 @@ def _slice_field_items(
                     detail=translate("on") if entry.passphrase_file else translate("off"),
                     # Firmware reads the esp itself and cannot open a container,
                     # so an encrypted esp never boots.
-                    disabled_because=(
-                        translate("firmware cannot open a container to read the esp")
-                        if purpose.role is PartitionRole.ESP
-                        else ""
-                    ),
+                    disabled_because=_encryption_refused(purpose, translate),
                 )
             ]
             # Neither member kind: the pool and the array each carry their
@@ -1169,6 +1165,25 @@ _SLICE_FIELDS: tuple[FieldDescriptor[tuple[manual.Slice, manual.Purpose]], ...] 
 )
 
 
+def _encryption_refused(purpose: manual.Purpose, translate: Catalog) -> str:
+    """Why this purpose takes no encryption row, or empty when it takes one.
+
+    A `Purpose` carries no encryption of its own, so this is the only place
+    that decides it. `_apply_purpose` used to clear the passphrase on the way
+    into `zfs` instead, which took an encrypted root away from an operator who
+    passed through that purpose and came back.
+    """
+    if purpose.role is PartitionRole.ESP:
+        # Firmware reads the esp itself and cannot open a container, so an
+        # encrypted esp never boots.
+        return translate("firmware cannot open a container to read the esp")
+    if purpose.role is PartitionRole.ZFS:
+        # `manual.build` reads the pool's own passphrase and puts no LUKS under
+        # a vdev, so a value here would be shown and then ignored.
+        return translate("the pool's own encryption covers its members")
+    return ""
+
+
 def _apply_purpose(entry: manual.Slice, purpose: manual.Purpose) -> manual.Slice:
     """Everything the purpose decides, in one place: picking `swap` has to drop
     the filesystem and the mount point it had as `root`."""
@@ -1177,7 +1192,6 @@ def _apply_purpose(entry: manual.Slice, purpose: manual.Purpose) -> manual.Slice
         role=purpose.role,
         filesystem=entry.filesystem if purpose.chooses_filesystem else purpose.filesystem,
         mountpoint=entry.mountpoint if purpose.asks_mountpoint else purpose.mountpoint,
-        passphrase_file=("" if purpose.role is PartitionRole.ZFS else entry.passphrase_file),
     )
 
 
