@@ -411,8 +411,19 @@ def _has_operator(context: Context, kind: ValueKind, value: str) -> bool:
 
 def _record_derived(context: Context, after: InstallConfig, effects: Effects) -> None:
     """Replace the previous choice's derived values with the new choice's."""
+    # Only the kinds this proposal owns: it used to drop every derived record,
+    # so choosing a desktop after ZFSBootMenu erased the overlay's and taking
+    # the bootloader back left an overlay nobody had selected.
+    mine = {
+        ValueKind.USE_FLAG,
+        ValueKind.VIDEO_CARD,
+        ValueKind.NETWORKING,
+        ValueKind.DISPLAY_MANAGER,
+    }
     context.provenance = {
-        one for one in context.provenance if one.source is not ValueSource.DERIVED
+        one
+        for one in context.provenance
+        if not (one.kind in mine and one.source is ValueSource.DERIVED)
     }
     context.provenance.update(
         ValueProvenance(ValueKind.USE_FLAG, value, ValueSource.DERIVED)
