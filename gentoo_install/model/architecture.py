@@ -36,6 +36,11 @@ class Architecture:
     #: in, under `releases/<gentoo_name>/binpackages/<release>/`. A fourth
     #: spelling: amd64's is `x86-64` and arm64's is `arm64`.
     binhost_subarch: str
+    #: How UEFI spells this machine, which names two files: the removable
+    #: media fallback `EFI/BOOT/BOOT<name>.EFI` and systemd's
+    #: `linux<name>.efi.stub`. Read off systemd's own `efi_arch` table in
+    #: `meson.build`, and `BOOTAA64.EFI` measured on an aarch64 machine's esp.
+    efi_name: str
 
 
 #: The row every published path targets today: the stage3, the profile and the
@@ -47,6 +52,7 @@ AMD64: Final[Architecture] = Architecture(
     grub_target="x86_64-efi",
     cpu_flags_variable="CPU_FLAGS_X86",
     binhost_subarch="x86-64",
+        efi_name="x64",
 )
 
 #: Every architecture this installer has a name for. A machine outside it is
@@ -59,6 +65,7 @@ ARCHITECTURES: Final[tuple[Architecture, ...]] = (
         grub_target="arm64-efi",
         cpu_flags_variable="CPU_FLAGS_ARM",
         binhost_subarch="arm64",
+        efi_name="aa64",
     ),
     Architecture(
         kernel_name="i686",
@@ -66,6 +73,7 @@ ARCHITECTURES: Final[tuple[Architecture, ...]] = (
         grub_target="i386-efi",
         cpu_flags_variable="CPU_FLAGS_X86",
         binhost_subarch="i686",
+    efi_name="ia32",
     ),
 )
 
