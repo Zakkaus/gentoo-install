@@ -138,9 +138,30 @@ EMERGE_OPTIONS: Final[tuple[str, ...]] = (
 #: `VerifyPackages` asks whether the merge will succeed, so it has to carry
 #: these: without them the check refused a package set the merge installs by
 #: writing the USE change, and an install stopped at operation 26 of 60.
-AUTOUNMASK: Final[tuple[str, ...]] = tuple(
-    one for one in EMERGE_OPTIONS if one.startswith("--autounmask")
-)
+#: What the check adds so emerge computes the USE changes and prints them.
+#: Not the whole set the merge carries: `--autounmask-write` never writes
+#: under `--pretend` -- portage's `depgraph.py` reads
+#: `write_to_file = autounmask_write and not pretend` -- so passing it and
+#: `--autounmask-continue` to a pretend changes what is reported and nothing
+#: else.
+AUTOUNMASK: Final[tuple[str, ...]] = ("--autounmask-use=y",)
+
+#: How emerge announces the one change the merge applies on its own. Only USE:
+#: `--autounmask-license` and `--autounmask=y` are deliberately absent from
+#: `EMERGE_OPTIONS`, so a keyword or licence change is a refusal the merge
+#: would also make.
+USE_CHANGES_NEEDED: Final[str] = "The following USE changes are necessary to proceed"
+
+
+def merge_would_apply(output: str) -> bool:
+    """Whether the merge accepts what this pretend refused.
+
+    The merge runs with `--autounmask-write=y --autounmask-continue=y` and no
+    `--pretend`, so it writes the USE change and carries on. A check that
+    reported this as a refusal was stricter than the thing it guards, and an
+    install stopped at operation 26 of 55 for one `wpa_supplicant dbus`.
+    """
+    return USE_CHANGES_NEEDED in output
 
 #: How emerge says why it will not proceed, in the order the message is
 #: looked for. Read off a real refusal rather than guessed: the first
@@ -1445,6 +1466,10 @@ class VerifyPackages(Operation):
             return
         output = self._without_the_binary_host(context, atoms, output)
         if output.returncode == 0:
+            return
+        if merge_would_apply(str(output)):
+            # The merge writes this one and carries on, so refusing here would
+            # stop an install that works.
             return
 
         problems: list[str] = []

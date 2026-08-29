@@ -2991,11 +2991,14 @@ def test_the_check_asks_the_question_the_merge_will_ask() -> None:
 
     from gentoo_install.plan.portage import AUTOUNMASK, EMERGE_OPTIONS, VerifyPackages
 
-    # One table, two readers: every autounmask option the merge carries.
-    assert AUTOUNMASK == tuple(
+    # Only what a pretend can act on. This first held every autounmask option
+    # the merge carries, and that premise was wrong: portage's `depgraph.py`
+    # reads `write_to_file = autounmask_write and not pretend`, so the writing
+    # pair does nothing here and the outcome has to be read instead.
+    assert AUTOUNMASK == ("--autounmask-use=y",)
+    assert set(AUTOUNMASK) < {
         one for one in EMERGE_OPTIONS if one.startswith("--autounmask")
-    )
-    assert AUTOUNMASK, EMERGE_OPTIONS
+    }
 
     resolve = inspect.getsource(VerifyPackages._resolve)
     assert "AUTOUNMASK" in resolve, resolve
@@ -3036,3 +3039,95 @@ def test_the_refusal_names_the_line_that_explains_it() -> None:
         "something else entirely"
     )
     assert why_emerge_refused("") == "no output"
+
+
+def test_a_use_change_the_merge_writes_is_not_a_refusal() -> None:
+    """Adding the autounmask options to the pretend did not make it pass.
+
+    Portage's `depgraph.py` reads `write_to_file = autounmask_write and not
+    pretend`, so `--autounmask-write` never writes under `--pretend` and
+    `--autounmask-continue` has nothing to continue into. The check therefore
+    has to read the outcome: the merge runs without `--pretend`, writes the
+    change and carries on.
+
+    Measured on a conversion that stopped at operation 26 of 55 for one line:
+
+        The following USE changes are necessary to proceed:
+        # required by net-misc/networkmanager-1.56.0::gentoo[-iwd,wifi]
+        >=net-wireless/wpa_supplicant-2.11-r4 dbus
+    """
+    from gentoo_install.plan.portage import (
+        AUTOUNMASK,
+        EMERGE_OPTIONS,
+        merge_would_apply,
+    )
+
+    measured = (
+        "setlocale: unsupported locale setting\n"
+        "The following USE changes are necessary to proceed:\n"
+        '(see "package.use" in the portage(5) man page for more details)\n'
+        "# required by net-misc/networkmanager-1.56.0::gentoo[-iwd,wifi]\n"
+        ">=net-wireless/wpa_supplicant-2.11-r4 dbus\n"
+    )
+    assert merge_would_apply(measured)
+
+    # A keyword change is not one the merge applies: `--autounmask=y` is
+    # deliberately absent from the merge's options, so this stays a refusal.
+    assert not merge_would_apply(
+        "The following keyword changes are necessary to proceed:\n"
+        "=app-misc/thing-1 ~amd64\n"
+    )
+    assert not merge_would_apply("emerge: there are no ebuilds to satisfy \"x/y\".\n")
+    assert not merge_would_apply("")
+
+    # The check adds only what a pretend can act on, and the merge keeps the
+    # writing pair: passing those to a pretend changes nothing it does.
+    assert AUTOUNMASK == ("--autounmask-use=y",)
+    assert "--autounmask-write=y" in EMERGE_OPTIONS
+    assert "--autounmask-write=y" not in AUTOUNMASK
+
+
+def test_the_check_accepts_a_use_change_rather_than_stopping_the_install() -> None:
+    """The call site, not only the predicate: `apply` must return, not raise.
+
+    An earlier version of this test exercised `merge_would_apply` alone and
+    stayed green with the branch in `apply` disabled.
+    """
+    recorder = Recorder()
+    refused = (
+        "setlocale: unsupported locale setting\n"
+        "The following USE changes are necessary to proceed:\n"
+        "# required by net-misc/networkmanager-1.56.0::gentoo[-iwd,wifi]\n"
+        ">=net-wireless/wpa_supplicant-2.11-r4 dbus\n"
+    )
+
+    def answer(argv: Sequence[str]) -> str | None:
+        if argv[0] != "emerge":
+            return CommandOutput("", 0)
+        return CommandOutput(refused, 1)
+
+    recorder.answering = answer
+    check = portage.VerifyPackages(
+        requests=(
+            portage.PackageRequest(
+                atom="net-misc/networkmanager",
+                requesters=("the `install the network tools` operation",),
+            ),
+        )
+    )
+    # No exception: the merge writes this change and carries on.
+    check.apply(recorder)
+
+    # And a refusal the merge would also make still stops the install.
+    def keyworded(argv: Sequence[str]) -> str | None:
+        if argv[0] != "emerge":
+            return CommandOutput("", 0)
+        return CommandOutput(
+            "The following keyword changes are necessary to proceed:\n"
+            "=net-misc/networkmanager-9 ~amd64\n",
+            1,
+        )
+
+    recorder.answering = keyworded
+    with pytest.raises(ConfigError):
+        check.apply(recorder)
