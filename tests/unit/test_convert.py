@@ -568,3 +568,40 @@ def test_a_rollback_still_raises_for_anything_but_a_crossing(
     with pytest.raises(OSError) as raised:
         _restore_contents(destination, staged)
     assert raised.value.errno == errno.EBUSY
+
+
+def test_the_mount_state_is_read_once_for_each_destination(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two reads decided two different things about the same directory.
+
+    The first chose whether nested mounts had to be counted; the second, five
+    lines later, chose which replacement and rollback the entry gets. A mount
+    appearing between them skipped the check and still took the mounted path,
+    which is the path the check exists to make safe.
+    """
+    import os
+
+    from gentoo_install.exec import convert as exec_convert
+
+    root = tmp_path / "root"
+    staging = tmp_path / "root" / "gentoo-install.new"
+    for name in ("usr", "var"):
+        (root / name).mkdir(parents=True)
+        (staging / name).mkdir(parents=True)
+
+    asked: list[str] = []
+    real_ismount = os.path.ismount
+
+    def counting(path: "str | Path") -> bool:
+        asked.append(str(path))
+        return real_ismount(path)
+
+    monkeypatch.setattr(os.path, "ismount", counting)
+    exec_convert.convert(
+        staging, ("usr", "var"), copy=lambda source, target: None, root=root
+    )
+
+    for name in ("usr", "var"):
+        destination = str(root / name)
+        assert asked.count(destination) == 1, (destination, asked)
