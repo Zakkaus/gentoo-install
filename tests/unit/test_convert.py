@@ -250,10 +250,7 @@ def test_a_separately_mounted_directory_is_replaced_by_its_contents(
     (staging / "usr" / "new.txt").write_text("new")
     (staging / "var" / "portage").mkdir()
 
-    real = os.path.ismount
-    monkeypatch.setattr(
-        "os.path.ismount", lambda path: str(path).endswith("/var") or real(path)
-    )
+    _pretend_mounts(monkeypatch, root / "var")
     # The directory itself, not its contents: a rename would put a different
     # directory at that path, which is exactly what a mount point forbids. In a
     # temporary directory nothing is really mounted, so the inode is what tells
@@ -274,6 +271,54 @@ def test_a_separately_mounted_directory_is_replaced_by_its_contents(
     assert not (root / "usr" / "kept.txt").exists()
 
 
+def _pretend_mounts(monkeypatch: pytest.MonkeyPatch, *paths: Path) -> None:
+    """Name what the kernel would list as a mount point in a temporary tree."""
+    from gentoo_install.exec import convert as exec_convert
+
+    real = exec_convert._mount_points()
+    monkeypatch.setattr(
+        exec_convert, "_mount_points", lambda: real | {str(one) for one in paths}
+    )
+
+
+def test_a_bind_mount_within_one_filesystem_is_still_a_mount_point(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`os.path.ismount` compares `st_dev` against the parent's, so it answers
+    False for a bind mount of a sibling directory while `rename(2)` still
+    answers EBUSY for it. Measured under `unshare -rm`: the bind mount is
+    False to `ismount` and listed in `/proc/self/mountinfo`.
+
+    Sampled from this machine's own table, so the field the mount point comes
+    from is the one the kernel writes:
+
+        36 35 98:0 /mnt1 /mnt2 rw,noatime master:1 - ext3 /dev/root rw
+    """
+    from gentoo_install.exec import convert as exec_convert
+
+    sample = (
+        "36 35 98:0 /mnt1 /mnt2 rw,noatime master:1 - ext3 /dev/root rw\n"
+        "37 36 0:32 / /var/a\\040b rw,relatime - tmpfs none rw\n"
+        "\n"
+    )
+    written = tmp_path / "mountinfo"
+    written.write_text(sample)
+    monkeypatch.setattr(exec_convert, "MOUNTINFO", written)
+    assert exec_convert._mount_points() == frozenset({"/mnt2", "/var/a b"})
+
+
+def test_an_unreadable_mount_table_is_refused_rather_than_read_as_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Negative control for the above: no mount point and no answer at all are
+    different, and the caller decides an irreversible step from this one."""
+    from gentoo_install.exec import convert as exec_convert
+
+    monkeypatch.setattr(exec_convert, "MOUNTINFO", tmp_path / "absent")
+    with pytest.raises(ConversionFailed, match="mount table"):
+        exec_convert._mount_points()
+
+
 def test_a_mount_inside_a_mounted_directory_is_refused_before_any_move(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -288,11 +333,7 @@ def test_a_mount_inside_a_mounted_directory_is_refused_before_any_move(
     (root / "var" / "lib").mkdir()
     (root / "usr" / "kept.txt").write_text("old")
 
-    real = os.path.ismount
-    monkeypatch.setattr(
-        "os.path.ismount",
-        lambda path: str(path).endswith(("/var", "/var/lib")) or real(path),
-    )
+    _pretend_mounts(monkeypatch, root / "var", root / "var" / "lib")
 
     with pytest.raises(ConversionFailed, match="holding lib"):
         convert.convert(staging, ("usr", "var"), copy=_copy, root=root)
@@ -325,10 +366,7 @@ def test_a_mounted_directory_is_filled_by_copy_when_rename_cannot_cross(
     (staging / "var" / "db").mkdir()
     (staging / "usr" / "new.txt").write_text("new")
 
-    real_mount = os.path.ismount
-    monkeypatch.setattr(
-        "os.path.ismount", lambda path: str(path).endswith("/var") or real_mount(path)
-    )
+    _pretend_mounts(monkeypatch, root / "var")
     real_rename = os.rename
     crossed: list[tuple[str, str]] = []
 
@@ -370,10 +408,7 @@ def test_a_failed_cross_device_copy_restores_all_replaced_directories(
     (root / "var" / "old-log").write_text("old var")
     (staging / "var" / "cache").mkdir()
 
-    real_mount = os.path.ismount
-    monkeypatch.setattr(
-        "os.path.ismount", lambda path: str(path).endswith("/var") or real_mount(path)
-    )
+    _pretend_mounts(monkeypatch, root / "var")
     real_rename = os.rename
 
     def cross_device_rename(source: Path | str, destination: Path | str) -> None:
@@ -435,10 +470,7 @@ def test_a_copy_that_writes_part_of_a_tree_then_fails_leaves_none_of_it(
     (root / "var" / "old-log").write_text("old var")
     (staging / "var" / "cache").mkdir()
 
-    real_mount = os.path.ismount
-    monkeypatch.setattr(
-        "os.path.ismount", lambda path: str(path).endswith("/var") or real_mount(path)
-    )
+    _pretend_mounts(monkeypatch, root / "var")
     real_rename = os.rename
 
     def cross_device_rename(source: Path | str, destination: Path | str) -> None:
@@ -481,19 +513,19 @@ def test_a_directory_that_cannot_be_listed_is_not_reported_as_empty(
     plain = tmp_path / "plain"
     plain.mkdir()
     (plain / "a-file").write_text("")
-    assert _mounts_inside(plain) == []
+    assert _mounts_inside(plain, frozenset()) == []
 
     # One that cannot be listed is refused, and the message names it.
     absent = tmp_path / "never-made"
     with _pytest.raises(ConversionFailed) as refused:
-        _mounts_inside(absent)
+        _mounts_inside(absent, frozenset())
     assert str(absent) in str(refused.value), str(refused.value)
 
     # A file where a directory was expected raises through the same path.
     not_a_directory = tmp_path / "file"
     not_a_directory.write_text("")
     with _pytest.raises(ConversionFailed):
-        _mounts_inside(not_a_directory)
+        _mounts_inside(not_a_directory, frozenset())
 
 
 def test_a_copied_entry_is_undone_by_removing_it(
@@ -590,18 +622,16 @@ def test_the_mount_state_is_read_once_for_each_destination(
         (root / name).mkdir(parents=True)
         (staging / name).mkdir(parents=True)
 
-    asked: list[str] = []
-    real_ismount = os.path.ismount
+    reads: list[int] = []
+    real_points = exec_convert._mount_points
 
-    def counting(path: "str | Path") -> bool:
-        asked.append(str(path))
-        return real_ismount(path)
+    def counting() -> frozenset[str]:
+        reads.append(1)
+        return real_points()
 
-    monkeypatch.setattr(os.path, "ismount", counting)
+    monkeypatch.setattr(exec_convert, "_mount_points", counting)
     exec_convert.convert(
         staging, ("usr", "var"), copy=lambda source, target: None, root=root
     )
 
-    for name in ("usr", "var"):
-        destination = str(root / name)
-        assert asked.count(destination) == 1, (destination, asked)
+    assert len(reads) == 1, reads
