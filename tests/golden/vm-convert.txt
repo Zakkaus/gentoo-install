@@ -19,6 +19,7 @@
   install git, which every later repository sync needs: emerge dev-vcs/git, in /gentoo-install.new
   write /etc/portage/repos.conf/gentoo.conf pointing gentoo at https://github.com/gentoo-mirror/gentoo.git, commit signatures verified, in /gentoo-install.new
   sync repository gentoo, in /gentoo-install.new
+  drop getbinpkg from FEATURES in /etc/portage/make.conf when no binary package host was written, in /gentoo-install.new
   set sys-kernel/installkernel to dracut, in /gentoo-install.new
   accept the linux-firmware licence, in /gentoo-install.new
   resolve net-misc/openssh sys-process/cronie sys-kernel/installkernel sys-kernel/dracut sys-kernel/linux-firmware sys-fs/dosfstools sys-fs/e2fsprogs sys-kernel/gentoo-kernel-bin sys-boot/grub sys-boot/efibootmgr together before installing the requested packages, in /gentoo-install.new

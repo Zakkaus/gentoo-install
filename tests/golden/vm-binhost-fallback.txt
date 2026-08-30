@@ -32,6 +32,7 @@
   fetch the first ebuild repository snapshot with emerge-webrsync
   select profile default/linux/amd64/23.0/systemd
   write /etc/portage/repos.conf/gentoo.conf so repository gentoo syncs with emerge-webrsync
+  drop getbinpkg from FEATURES in /etc/portage/make.conf when no binary package host was written
   set sys-kernel/installkernel to dracut
   accept the linux-firmware licence
   resolve net-misc/openssh sys-process/cronie sys-kernel/installkernel sys-kernel/dracut sys-kernel/linux-firmware sys-fs/dosfstools sys-fs/e2fsprogs sys-kernel/gentoo-kernel-bin sys-boot/grub sys-boot/efibootmgr together before installing the requested packages

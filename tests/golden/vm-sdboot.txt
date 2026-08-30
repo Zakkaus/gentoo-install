@@ -34,6 +34,7 @@
   install git, which every later repository sync needs: emerge dev-vcs/git
   write /etc/portage/repos.conf/gentoo.conf pointing gentoo at https://github.com/gentoo-mirror/gentoo.git, commit signatures verified
   sync repository gentoo
+  drop getbinpkg from FEATURES in /etc/portage/make.conf when no binary package host was written
   set sys-kernel/installkernel to dracut systemd systemd-boot
   accept the linux-firmware licence
   ask for sys-apps/systemd[boot,kernel-install], which is what provides bootctl

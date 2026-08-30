@@ -455,6 +455,44 @@ class WriteMakeConf(Operation):
         context.write(PurePosixPath("/etc/portage/make.conf"), merge(existing, wanted))
 
 
+@dataclass(frozen=True, kw_only=True)
+class SettleBinhostFeature(Operation):
+    """Make `FEATURES` agree with whether a binary host was configured.
+
+    `WriteMakeConf` writes `getbinpkg` because the configuration asks for a
+    host, and `ConfigureBinhost` finds out six operations later whether there
+    is one this machine can verify -- it returns without writing
+    `binrepos.conf` when there is not. Left alone the installed system says it
+    fetches binary packages and has nothing naming where from.
+
+    A degradation during the merges is a different thing and does not reach
+    here: the host is configured and verified, and one package did not arrive.
+    """
+
+    stage: Stage = Stage.PORTAGE
+    hosts: tuple[str, ...] = ()
+
+    def destinations(self) -> tuple[PurePosixPath, ...]:
+        return (MAKE_CONF,)
+
+    def describe(self) -> str:
+        return (
+            "drop getbinpkg from FEATURES in /etc/portage/make.conf when no "
+            "binary package host was written"
+        )
+
+    def apply(self, context: Context) -> None:
+        existing = context.read(MAKE_CONF)
+        usable = [
+            one
+            for one in self.hosts
+            if not context.degraded(BINARY_PACKAGES)
+            and not context.degraded(binhost_trust(one))
+        ]
+        wanted = existing if usable else _features_without(existing, "getbinpkg")
+        context.write(MAKE_CONF, wanted)
+
+
 class PortageConfigKind(Enum):
     USE = "package.use"
     KEYWORDS = "package.accept_keywords"
@@ -1844,6 +1882,13 @@ def build(
             ),
             ConfigureBinhost(name="gentoo-zh", sync_uri=community_binhost(portage), verify=True),
         ]
+    hosts = tuple(
+        one.name for one in operations if isinstance(one, ConfigureBinhost)
+    )
+    if hosts:
+        # After every `ConfigureBinhost`, because it is their outcome this
+        # reads: `WriteMakeConf` wrote `getbinpkg` before any of them ran.
+        operations.append(SettleBinhostFeature(hosts=hosts))
     return operations
 
 
@@ -1937,6 +1982,27 @@ def _features(config: InstallConfig) -> tuple[str, ...]:
     if config.proxy.enabled and (config.proxy.over_socks or config.proxy.username):
         wanted.append("-userfetch")
     return tuple(wanted)
+
+
+#: The one file `WriteMakeConf` and `ConfigureBinhost` both touch.
+MAKE_CONF: Final[PurePosixPath] = PurePosixPath("/etc/portage/make.conf")
+
+_FEATURES_LINE: Final[re.Pattern[str]] = re.compile(
+    r'^(?P<lead>FEATURES=")(?P<value>[^"]*)(?P<tail>")\n', re.MULTILINE
+)
+
+
+def _features_without(text: str, feature: str) -> str:
+    """`make.conf` with one feature removed from `FEATURES`, and the whole
+    assignment dropped when it was the only one."""
+
+    def rewritten(found: "re.Match[str]") -> str:
+        kept = [one for one in found.group("value").split() if one != feature]
+        if not kept:
+            return ""
+        return f"{found.group('lead')}{' '.join(kept)}{found.group('tail')}\n"
+
+    return _FEATURES_LINE.sub(rewritten, text)
 
 
 def _proxy_endpoint(proxy: ProxyConfig) -> str:
