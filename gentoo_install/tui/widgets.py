@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-import textwrap
 from typing import (
     Callable,
     ClassVar,
@@ -71,8 +70,15 @@ class Style(Enum):
 
 
 #: One character per style, drawn in the left margin. ASCII: a console with no
-#: CJK font and no box-drawing set still shows it.
-MARKS: Final[dict[Style, str]] = {Style.REQUIRED: "*", Style.UNTOUCHED: "~"}
+#: CJK font and no box-drawing set still shows it. Total over `Style`, because
+#: the lookup happens while a screen is being drawn and a missing member raised
+#: there rather than anywhere a caller could answer for it.
+MARKS: Final[dict[Style, str]] = {
+    Style.PLAIN: "",
+    Style.REQUIRED: "*",
+    Style.UNTOUCHED: "~",
+    Style.DIMMED: "",
+}
 
 
 class Outcome(Enum):
@@ -222,7 +228,7 @@ class Region:
     #: and kept, an editor went on writing into the rectangle the old size gave
     #: it while the frame around it was redrawn for the new one, and the screen
     #: held half of each layout.
-    cut: Callable[[int, int], tuple[int, int, int, int]] | None = None
+    cut: Callable[[int, int], tuple[int, int, int, int] | None] | None = None
     #: Draws the frame around this rectangle again. The editor inside redraws
     #: itself when the terminal changes size; nothing else did, so the list
     #: beside it and the box around it were gone and the screen held one pane
@@ -230,7 +236,7 @@ class Region:
     redraw: Callable[[], None] | None = None
     _seen: tuple[int, int] = (0, 0)
 
-    def _rectangle(self) -> tuple[int, int, int, int]:
+    def _rectangle(self) -> tuple[int, int, int, int] | None:
         if self.cut is None:
             return self.line, self.column, self.lines, self.columns
         size = self.screen.size()
@@ -243,11 +249,17 @@ class Region:
         return self.cut(*size)
 
     def size(self) -> tuple[int, int]:
-        _, _, lines, columns = self._rectangle()
+        rectangle = self._rectangle()
+        if rectangle is None:
+            return 0, 0
+        _, _, lines, columns = rectangle
         return lines, columns
 
     def clear(self) -> None:
-        line, column, lines, columns = self._rectangle()
+        rectangle = self._rectangle()
+        if rectangle is None:
+            return
+        line, column, lines, columns = rectangle
         for offset in range(lines):
             self.screen.write(line + offset, column, " " * columns)
 
@@ -259,7 +271,10 @@ class Region:
         highlight: bool = False,
         style: Style = Style.PLAIN,
     ) -> None:
-        top, left, lines, columns = self._rectangle()
+        rectangle = self._rectangle()
+        if rectangle is None:
+            return
+        top, left, lines, columns = rectangle
         if not 0 <= line < lines or column >= columns:
             return
         self.screen.write(
@@ -381,7 +396,7 @@ class _Menu(Generic[V, A]):
             )
             if here is not None:
                 cursor = here
-        if self.items[cursor].disabled_because:
+        if 0 <= cursor < len(self.items) and self.items[cursor].disabled_because:
             cursor = self._first_enabled()
         while True:
             self.cursor = cursor
@@ -416,9 +431,10 @@ class _Menu(Generic[V, A]):
                 # left goes back from both. It is left out where several rows
                 # are chosen at once: there right would accept the screen on
                 # the way to a row the operator meant to mark.
-                answer = self._accept(cursor)
-                if answer is not None:
-                    return answer
+                if self._shown(cursor):
+                    answer = self._accept(cursor)
+                    if answer is not None:
+                        return answer
             elif pressed in BACK_KEYS:
                 return Answer(Outcome.BACK)
             elif pressed in CANCEL_IN_A_MENU:
@@ -446,11 +462,15 @@ class _Menu(Generic[V, A]):
 
     def _after_typing(self, cursor: int) -> int:
         """Keep the cursor on a row the filter still shows."""
-        return cursor if self._shown(cursor) else self._first_enabled()
+        if self._shown(cursor):
+            return cursor
+        return self._first_enabled()
 
     def _shown(self, index: int) -> bool:
         """Case-insensitive, on the label alone: a row is found by the name the
         operator reads, not by the reason printed beside it."""
+        if not 0 <= index < len(self.items):
+            return False
         if not self._query:
             return True
         return self._query.lower() in self.items[index].label.lower()
@@ -465,6 +485,8 @@ class _Menu(Generic[V, A]):
         overlay the operator then removed -- and refusing the keystroke left
         them holding an invalid selection with no way to drop it.
         """
+        if not self._shown(cursor):
+            return
         if self.items[cursor].disabled_because and cursor not in self.selected:
             return
         if not self.tri_state:
@@ -492,7 +514,10 @@ class _Menu(Generic[V, A]):
         for index, item in enumerate(self.items):
             if self._shown(index) and not item.disabled_because:
                 return index
-        return next((index for index in range(len(self.items)) if self._shown(index)), 0)
+        return next(
+            (index for index in range(len(self.items)) if self._shown(index)),
+            -1,
+        )
 
     def _last_enabled(self) -> int:
         for index in range(len(self.items) - 1, -1, -1):
@@ -500,20 +525,40 @@ class _Menu(Generic[V, A]):
                 continue
             if not self.items[index].disabled_because or index in self.selected:
                 return index
-        return len(self.items) - 1
+        return next(
+            (
+                index
+                for index in range(len(self.items) - 1, -1, -1)
+                if self._shown(index)
+            ),
+            -1,
+        )
 
     def _page(self, cursor: int, by: int, screen: Screen) -> int:
-        """One screen, measured from the screen rather than a constant: the
-        rows a page holds is what this terminal draws, and a fixed number is
-        wrong on every terminal but one."""
-        lines, _ = screen.size()
+        """One screen, measured in the display rows it actually draws."""
+        lines, columns = screen.size()
         room = max(1, lines - 4 - len(self.preamble))
-        for _ in range(room):
-            moved = self._step(cursor, by)
-            if moved == cursor:
-                break
-            cursor = moved
-        return cursor
+        positions: dict[int, int] = {}
+        for row, (index, _) in enumerate(self._display_rows(columns)):
+            if index is not None:
+                positions[index] = row
+        current = positions.get(cursor)
+        if current is None:
+            return cursor
+        target = current + by * room
+        moved = cursor
+        while True:
+            candidate = self._step(moved, by)
+            if candidate == moved:
+                return moved
+            candidate_row = positions.get(candidate)
+            if candidate_row is None:
+                return moved
+            if by > 0 and candidate_row > target and moved != cursor:
+                return moved
+            if by < 0 and candidate_row < target and moved != cursor:
+                return moved
+            moved = candidate
 
     def _step(self, cursor: int, by: int) -> int:
         """Skip disabled rows, and stop rather than wrap: wrapping past the end
@@ -563,8 +608,9 @@ class _Menu(Generic[V, A]):
             # console with no colour has to show the same thing, and a legend
             # naming a mark nobody draws describes an interface that does not
             # exist. In the left margin, so the labels stay aligned.
-            if item.style is not Style.PLAIN:
-                screen.write(row + 2 + above, 0, MARKS[item.style], style=item.style)
+            mark = MARKS[item.style]
+            if mark:
+                screen.write(row + 2 + above, 0, mark, style=item.style)
             screen.write(
                 row + 2 + above,
                 2,
@@ -602,7 +648,7 @@ class _Menu(Generic[V, A]):
                 text = f"{text}  {item.detail}"
             if item.disabled_because:
                 text = f"{text} - {item.disabled_because}"
-            wrapped = textwrap.wrap(text, width=max(1, columns - 4), break_long_words=False) or [""]
+            wrapped = wrap_to_cells(text, max(1, columns - 4))
             rows.append((index, wrapped[0]))
             rows.extend((None, continuation) for continuation in wrapped[1:])
         return rows
@@ -619,7 +665,7 @@ class _Menu(Generic[V, A]):
 
 class Menu(_Menu[V, V]):
     def _accept(self, cursor: int) -> Answer[V] | None:
-        if self.items[cursor].disabled_because:
+        if not self._shown(cursor) or self.items[cursor].disabled_because:
             return None
         return Answer(Outcome.CHOSE, self.items[cursor].value)
 
@@ -627,10 +673,16 @@ class Menu(_Menu[V, V]):
 class MultipleChoiceMenu(_Menu[V, tuple[V, ...]]):
     _multiple: ClassVar[bool] = True
 
-    def _accept(self, cursor: int) -> Answer[tuple[V, ...]]:
+    def _accept(self, cursor: int) -> Answer[tuple[V, ...]] | None:
+        if not self._shown(cursor):
+            return None
         return Answer(
             Outcome.CHOSE,
-            tuple(self.items[index].value for index in sorted(self.selected)),
+            tuple(
+                self.items[index].value
+                for index in sorted(self.selected)
+                if not self.items[index].disabled_because
+            ),
         )
 
 
@@ -898,10 +950,9 @@ class Form:
         # The last row submits, so it is a row like the others and reachable
         # the same way.
         cursor = 0
-        # `TextField`'s rule: backspace deletes while the field under the cursor
-        # has content and leaves only from an empty one nobody has edited. The
-        # footer offers Back and the form had no way at all to take it.
-        touched = False
+        # Backspace leaves only an empty field nobody has edited, so clearing
+        # a field never exits the form.
+        touched = [False] * len(self.fields)
         while True:
             self._draw(screen, typed, cursor, message)
             pressed = screen.key()
@@ -923,19 +974,25 @@ class Form:
                     typed = [list(value) for value in corrected]
                     message = checked.message
                     cursor = 0
-                    touched = False
+                    touched = [False] * len(self.fields)
                     continue
                 cursor += 1
             elif pressed == " " and cursor < len(self.fields) and self.fields[cursor].toggle:
                 typed[cursor] = [] if typed[cursor] else ["x"]
-                touched = True
+                touched[cursor] = True
+            elif pressed == CLEAR_KEY:
+                if cursor < len(self.fields) and not self.fields[cursor].toggle:
+                    typed[cursor].clear()
+                    touched[cursor] = True
             elif pressed in ("KEY_LEFT", "\x1b"):
                 return Answer(Outcome.BACK)
             elif pressed in ("\x7f", "KEY_BACKSPACE"):
-                if cursor < len(self.fields) and typed[cursor] and not self.fields[cursor].toggle:
+                if cursor == len(self.fields):
+                    return Answer(Outcome.BACK)
+                if typed[cursor] and not self.fields[cursor].toggle:
                     typed[cursor].pop()
-                    touched = True
-                elif not touched:
+                    touched[cursor] = True
+                elif not touched[cursor]:
                     return Answer(Outcome.BACK)
             elif pressed in CANCEL:
                 return Answer(Outcome.CANCELLED)
@@ -947,7 +1004,7 @@ class Form:
                 and self.fields[cursor].accepts.holds(pressed)
             ):
                 typed[cursor].append(pressed)
-                touched = True
+                touched[cursor] = True
 
     def _draw(
         self, screen: Screen, typed: list[list[str]], cursor: int, message: str
@@ -1346,8 +1403,10 @@ class TwoPane(Generic[V]):
             _seen=(lines, columns),
         )
 
-    def _pane(self, lines: int, columns: int) -> tuple[int, int, int, int]:
+    def _pane(self, lines: int, columns: int) -> tuple[int, int, int, int] | None:
         """Where the right pane sits on a screen this size."""
+        if columns < TWO_PANE_COLUMNS or lines < TWO_PANE_LINES:
+            return None
         left = left_pane_width(((row.label, row.state) for row in self.rows), columns)
         return 3, left + 2, max(1, lines - 3 - 2), max(1, columns - left - 4)
 
