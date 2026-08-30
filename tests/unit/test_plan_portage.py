@@ -2084,8 +2084,10 @@ def test_a_binary_whose_download_broke_retries_from_source() -> None:
 
     emerges = [argv for argv in recorder.in_target if argv[0] == "emerge"]
     # Binaries, binaries again because one dropped handshake is not the host
-    # being gone, then source.
-    assert len(emerges) == 3
+    # being gone, binaries once more without the package that failed, then
+    # source. That third step keeps one bad download from compiling a group:
+    # `vm-gnome` lost eight hours to one of them.
+    assert len(emerges) == 4
     assert "--getbinpkg=n" in emerges[-1] and "--usepkg=n" in emerges[-1]
     assert "--getbinpkg=n" not in emerges[1]
     assert recorder.degraded(portage.BINARY_PACKAGES)
@@ -2133,6 +2135,74 @@ def test_a_binary_that_downloads_on_the_second_try_compiles_nothing() -> None:
     assert len(emerges) == 2
     assert all("--getbinpkg=n" not in argv for argv in emerges)
     assert not recorder.degraded(portage.BINARY_PACKAGES)
+
+
+#: Verbatim from `vm-gnome-9301-69777bdafc.log`, which reached the run's 8h
+#: ceiling at 481.5 minutes with the console still printing.
+GNOME_TLS_DROPPED = """>>> Emerging binary (39 of 227) net-print/cups-pk-helper-0.2.7-r1::gentoo
+--2026-08-29 16:35:15--  https://distfiles.gentoo.org/releases/amd64/\
+binpackages/23.0/x86-64/net-print/cups-pk-helper/cups-pk-helper-0.2.7-r1-6.gpkg.tar
+Connecting to distfiles.gentoo.org|89.187.187.12|:443... connected.
+Unable to establish SSL connection.
+>>> Failed to emerge net-print/cups-pk-helper-0.2.7-r1, Log file:
+"""
+
+
+def test_one_failing_binary_is_excluded_before_the_group_is_given_up() -> None:
+    """Measured on `vm-gnome`: 38 packages had merged as binaries, the 39th
+    answered `Unable to establish SSL connection.` twice, and the group of 227
+    was rebuilt from source with WebKitGTK in it -- 481.5 minutes, and the
+    run's ceiling ended it. Excluding that one package is the step between the
+    whole-group retry and giving the group up."""
+    recorder = Recorder()
+    tries: list[Sequence[str]] = []
+
+    def answering(argv: Sequence[str]) -> CommandOutput:
+        if argv[0] != "emerge":
+            return CommandOutput("", 0)
+        tries.append(argv)
+        # The first two are the same command; the third excludes the package.
+        if any("net-print/cups-pk-helper" in one for one in argv):
+            return CommandOutput("", 0)
+        return CommandOutput(GNOME_TLS_DROPPED, 1)
+
+    recorder.answering = answering
+
+    portage.Emerge(
+        packages=("gnome-base/gnome-light",), summary="install the gnome group"
+    ).apply(recorder)
+
+    emerges = [argv for argv in recorder.in_target if argv[0] == "emerge"]
+    assert len(emerges) == 3, [list(one) for one in emerges]
+    # The binary host is still in use for everything else, and nothing was
+    # rebuilt from source.
+    assert all("--getbinpkg=n" not in argv for argv in emerges), emerges
+    assert not recorder.degraded(portage.BINARY_PACKAGES)
+    assert recorder.degraded("net-print/cups-pk-helper")
+
+
+def test_the_group_still_goes_to_source_when_excluding_one_does_not_help() -> None:
+    """Negative control: a host that is actually gone still degrades the path,
+    which is what keeps an unreachable binary host from stopping the install."""
+    recorder = Recorder()
+
+    def answering(argv: Sequence[str]) -> CommandOutput:
+        if argv[0] != "emerge":
+            return CommandOutput("", 0)
+        if "--getbinpkg=n" in argv:
+            return CommandOutput("", 0)
+        return CommandOutput(GNOME_TLS_DROPPED, 1)
+
+    recorder.answering = answering
+
+    portage.Emerge(
+        packages=("gnome-base/gnome-light",), summary="install the gnome group"
+    ).apply(recorder)
+
+    assert recorder.degraded(portage.BINARY_PACKAGES)
+    assert any(
+        "--getbinpkg=n" in argv for argv in recorder.in_target if argv[0] == "emerge"
+    )
 
 
 #: Verbatim from `run54/vm-desktop.install.txt`, which ended at exit 4.

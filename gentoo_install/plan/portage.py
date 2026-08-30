@@ -1073,6 +1073,8 @@ class Emerge(Operation):
                 marker = again
             else:
                 return
+            if self._one_failing_binary(context, marker):
+                return
             context.degrade(BINARY_PACKAGES, f"selected binary package failed: {marker}")
             self._from_source(context)
             return
@@ -1109,6 +1111,8 @@ class Emerge(Operation):
             marker = again
         else:
             return
+        if self._one_failing_binary(context, marker):
+            return
         context.degrade(BINARY_PACKAGES, f"selected binary package failed: {marker}")
         self._from_source(context)
 
@@ -1123,6 +1127,34 @@ class Emerge(Operation):
         if not self.degrades:
             return False
         context.degrade(self.degrades, f"{' '.join(self.packages)} did not merge: {said.strip()[:200]}")
+        return True
+
+    def _without_one_binary(self, context: Context, package: str) -> bool:
+        """Try again with that one package excluded from the binary host.
+
+        Between the whole-group retry and giving the group up: `vm-gnome` lost
+        eight hours compiling 227 packages because one `.gpkg.tar` download
+        answered `Unable to establish SSL connection.` twice.
+        """
+        argv = self._argv(context, source_only=False)
+        for index, item in enumerate(argv):
+            if item.startswith(BINPKG_EXCLUDED):
+                argv[index] = f"{item} {package}"
+                break
+        else:
+            return False
+        answer = context.run_in_target(argv, check=False)
+        return isinstance(answer, CommandOutput) and answer.returncode == 0
+
+    def _one_failing_binary(self, context: Context, marker: str) -> bool:
+        """Whether excluding the package this marker names finished the merge."""
+        package = _failed_package(marker)
+        if not package or not self._without_one_binary(context, package):
+            return False
+        # The package, not `BINARY_PACKAGES`: giving up the path would send
+        # every later merge to source as well, which is the eight hours this
+        # step exists to avoid. Nothing reads a package name back.
+        context.degrade(package, f"its binary package failed, so it is compiled: {marker}")
         return True
 
     def _from_source(self, context: Context) -> None:
@@ -1235,6 +1267,13 @@ def _binhost_killed_emerge(result: CommandOutput) -> str | None:
     if result.returncode != -signal.SIGPIPE or str(result).strip():
         return None
     return "the binary host killed emerge with SIGPIPE before it printed anything"
+
+
+def _failed_package(marker: str) -> str:
+    """The package a binary failure names, in the shape `--usepkg-exclude`
+    takes, or empty when the marker names none."""
+    found = re.search(r">>> Failed to emerge (\S+?)(?:,|$)", marker)
+    return _unversioned(found.group(1)) if found else ""
 
 
 def _binpkg_failure(output: str) -> str | None:
