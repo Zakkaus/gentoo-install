@@ -1395,3 +1395,34 @@ def test_no_operation_writes_an_architecture_keyword_it_spelled_itself() -> None
                     if any(one in inner.value for one in spellings):
                         written.append(f"{path.name}:{inner.lineno}: {inner.value!r}")
     assert not written, written
+
+
+def test_every_desktop_fixture_names_the_profile_its_desktop_declares() -> None:
+    """`data/profiles/<desktop>.toml` declares the profile each desktop is
+    built against, and the menu applies it. `btrfs-luks` paired Plasma with the
+    generic `desktop/systemd` profile instead, and it is the fixture that
+    stalled three cluster rounds at `[78/90] install the plasma group` while
+    `vm-desktop`, the other Plasma fixture, passed with `desktop/plasma`.
+    """
+    import tomllib
+
+    from gentoo_install.data import load_catalog
+    from gentoo_install.model.config import InitSystem
+    from gentoo_install.tui.packages import _profile_for, desktop_profiles
+
+    declared = desktop_profiles(load_catalog())
+    wrong: list[str] = []
+    for path in sorted((PACKAGE.parent / "tests" / "fixtures").glob("*.toml")):
+        raw = tomllib.loads(path.read_text())
+        desktop = raw.get("packages", {}).get("desktop", "")
+        profile = raw.get("portage", {}).get("profile", "")
+        if not desktop or not profile or desktop not in declared:
+            continue
+        init = raw.get("system", {}).get("init", "systemd")
+        wanted = _profile_for(
+            declared[desktop],
+            InitSystem.SYSTEMD if init == "systemd" else InitSystem.OPENRC,
+        )
+        if profile != wanted:
+            wrong.append(f"{path.name}: {desktop} has {profile}, not {wanted}")
+    assert wrong == [], wrong
