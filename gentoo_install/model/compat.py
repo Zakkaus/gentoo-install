@@ -512,15 +512,36 @@ class FilesystemLabelUnit(Enum):
         return len(label.encode()) if self is FilesystemLabelUnit.BYTES else len(label)
 
 
+#: What `mkfs.fat` writes a label out of, measured against dosfstools 4.2 on
+#: 2026-08-31 by formatting a throwaway image once per codepoint from 0x20 to
+#: 0x7e. Everything outside it was refused, and so was every non-ASCII
+#: character: a CJK label stops at the CP850 conversion, and even `É`, which
+#: CP850 has, answers `Labels with characters below 0x20 are not allowed`.
+FAT_LABEL_CHARACTERS: Final[frozenset[str]] = frozenset(
+    " !#$%&'()-0123456789@ABCDEFGHIJKLMNOPQRSTUVWXYZ^_`abcdefghijklmnopqrstuvwxyz{}~"
+)
+
+
 @dataclass(frozen=True)
 class FilesystemLabelRule:
     kind: FilesystemType
     maximum: int
     unit: FilesystemLabelUnit
+    #: Empty where the filesystem takes any character. `mkfs` refuses the rest
+    #: after the disks are partitioned, so the set is checked here instead.
+    characters: frozenset[str] = frozenset()
 
     def problem(self, filesystem: Filesystem) -> str | None:
+        if not filesystem.create:
+            return None
+        refused = self._refused(filesystem.label)
+        if refused is not None:
+            return (
+                f"filesystem {filesystem.id} has a {filesystem.kind.value} label "
+                f"holding {refused!r}, which mkfs cannot write into one"
+            )
         length = self.unit.measure(filesystem.label)
-        if not filesystem.create or length <= self.maximum:
+        if length <= self.maximum:
             return None
         return (
             f"filesystem {filesystem.id} has a {filesystem.kind.value} label of {length} "
@@ -528,14 +549,19 @@ class FilesystemLabelRule:
             f"{self.maximum} {self.unit.value}"
         )
 
+    def _refused(self, label: str) -> str | None:
+        if not self.characters:
+            return None
+        return next((one for one in label if one not in self.characters), None)
+
 
 FILESYSTEM_LABEL_RULES: tuple[FilesystemLabelRule, ...] = (
     FilesystemLabelRule(FilesystemType.EXT2, 16, FilesystemLabelUnit.BYTES),
     FilesystemLabelRule(FilesystemType.EXT3, 16, FilesystemLabelUnit.BYTES),
     FilesystemLabelRule(FilesystemType.EXT4, 16, FilesystemLabelUnit.BYTES),
-    # The CJK probe fails during CP850 conversion before length is checked, so
-    # this entry represents only mkfs.fat's independent character-count limit.
-    FilesystemLabelRule(FilesystemType.VFAT, 11, FilesystemLabelUnit.CHARACTERS),
+    FilesystemLabelRule(
+        FilesystemType.VFAT, 11, FilesystemLabelUnit.CHARACTERS, FAT_LABEL_CHARACTERS
+    ),
 )
 
 

@@ -1657,3 +1657,37 @@ def test_the_cjk_refusal_reads_the_package_the_install_will_merge() -> None:
 
     assert compat.cjk_kernel_problems(config, elsewhere), "the override names a cjk kernel"
     assert not compat.cjk_kernel_problems(config, AMD64)
+
+
+@pytest.mark.parametrize(
+    "label, refused",
+    [
+        ("GENTOO ESP", False),
+        ("esp_1", False),
+        ("A-B", False),
+        ("\u4e00", True),
+        ("CAF\u00c9", True),
+        ("A.B", True),
+        ("A+B", True),
+    ],
+)
+def test_a_vfat_label_is_refused_unless_mkfs_can_write_it(
+    label: str, refused: bool
+) -> None:
+    """Measured against dosfstools 4.2 on 2026-08-31, one throwaway image per
+    codepoint. `mkfs.vfat -n` stops at the CP850 conversion for a CJK label and
+    answers `Labels with characters below 0x20 are not allowed` for every other
+    non-ASCII one, and the length rule alone let both through to a formatting
+    stage that runs after the disks are partitioned.
+    """
+    nodes = [
+        replace(node, label=label)
+        if isinstance(node, Filesystem) and node.id == i("espfs")
+        else node
+        for node in ext4_on_gpt()
+    ]
+    if not refused:
+        validate(config(nodes))
+        return
+    with pytest.raises(ValidationFailed, match="which mkfs cannot write into one"):
+        validate(config(nodes))
