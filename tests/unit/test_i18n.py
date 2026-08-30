@@ -237,6 +237,12 @@ def in_a_table() -> set[str]:
         one.missing for group in SETTINGS for one in (group, *group.rows) if one.required
     }
     found |= set(STATUS_REASONS.values())
+    # The reason a status is refused is drawn beside it, greyed out. A role
+    # added to the table without a sentence draws an English row in a
+    # translated menu.
+    from gentoo_install.model.manual import NOT_KEPT
+
+    found |= set(NOT_KEPT.values())
     # A mirror is drawn by its own name and where it is, both translated: a
     # Chinese interface listing "Nanjing University" reads half-finished.
     for site in (*GENTOO_SITES, *GENTOOZH_SITES):

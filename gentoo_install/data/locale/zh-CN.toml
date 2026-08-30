@@ -399,6 +399,8 @@
 "delete" = "删除"
 "create" = "创建"
 "left alone, data and all" = "原封不动，数据保留"
+"an array is created, never assembled, so a member cannot be kept" = "阵列只会创建，不会组装已有的，所以成员无法保留"
+"a pool is created, never imported, so a member cannot be kept" = "存储池只会创建，不会导入已有的，所以成员无法保留"
 "kept in the table, given a new filesystem" = "留在分区表，重建文件系统"
 "removed from the table, data and all" = "从分区表移除，数据一并消失"
 "not on the disk yet" = "尚未创建"

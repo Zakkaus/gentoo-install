@@ -13,6 +13,7 @@ from enum import Enum
 from pathlib import PurePosixPath
 from typing import Final
 
+from ..errors import InvalidLayout
 from .config import Firmware
 from .templates import ESP_SIZE
 from .device import (
@@ -143,6 +144,23 @@ class SliceStatus(Enum):
 #: What each status does, as the row says it. Beside the enum rather than in
 #: the screen: a status added here without a sentence is a menu row that reads
 #: as its own key.
+#: Roles whose device the graph can only make, never take over. `MdRaid` and
+#: `ZfsPool` carry no `create` field and `plan/disk.py` has only `mdadm
+#: --create` and `zpool create -f`, so a kept row of one of these promises the
+#: operator its data and overwrites it.
+NOT_KEPT: Final[dict[PartitionRole, str]] = {
+    PartitionRole.RAID: "an array is created, never assembled, so a member cannot be kept",
+    PartitionRole.ZFS: "a pool is created, never imported, so a member cannot be kept",
+}
+
+
+def kept_row_refused(entry: Slice) -> str:
+    """Why this row cannot be left alone, or an empty string when it can."""
+    if entry.status is not SliceStatus.KEEP:
+        return ""
+    return NOT_KEPT.get(entry.role, "")
+
+
 STATUS_REASONS: Final[dict[SliceStatus, str]] = {
     SliceStatus.KEEP: "left alone, data and all",
     SliceStatus.FORMAT: "kept in the table, given a new filesystem",
@@ -434,6 +452,8 @@ def build(layout: Layout) -> tuple[DeviceGraph, DeviceId]:
             if entry.status is SliceStatus.DELETE:
                 # Gone from the table above, so it carries nothing downstream.
                 continue
+            if refused := kept_row_refused(entry):
+                raise InvalidLayout(f"partition {entry.index} of {disk.selector}: {refused}")
             part = DeviceId(f"{prefix}-part{entry.index}")
             if entry.status is SliceStatus.CREATE:
                 nodes.append(
