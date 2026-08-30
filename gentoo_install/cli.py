@@ -89,6 +89,11 @@ from .plan.render import render, summarise
 #: and no answer at all, takes the global list.
 CN: Final[str] = "CN"
 
+#: What `chroot` answers for its own failure rather than the command's, from
+#: its `--help`: 125 for chroot itself, 126 for a command that cannot be
+#: invoked, 127 for one that is not there.
+CHROOT_COULD_NOT_START: Final[tuple[int, ...]] = (125, 126, 127)
+
 #: What an operator has to know before a conversion starts, because after it
 #: there is no way to tell them.
 SESSION_IS_THE_LIFELINE: Final[str] = (
@@ -962,8 +967,13 @@ def _offer_a_shell(
     ).format(target=target)
     if not _asked(question):
         return
+    opened = machine.runner.run(["chroot", str(target), "/bin/bash", "--login"], check=False)
+    if opened.returncode in CHROOT_COULD_NOT_START:
+        # Recorded before the run, the log said a shell had opened and exited
+        # on a target where `chroot` never started one.
+        record(f"no root shell could be started in {target}: exit {opened.returncode}")
+        return
     record(f"a root shell was opened in {target}")
-    machine.runner.run(["chroot", str(target), "/bin/bash", "--login"], check=False)
     record("the shell exited" if mode is DiskMode.IN_PLACE else "the shell exited; unmounting")
 
 
@@ -1043,7 +1053,16 @@ def _check_the_clock() -> None:
             file=sys.stderr,
         )
         return
-    runner.run(["hwclock", "--hctosys", "--utc"], check=False)
+    applied = runner.run(["hwclock", "--hctosys", "--utc"], check=False)
+    if applied.returncode != 0:
+        # The same warning as the line above, for the same reason: the RTC now
+        # holds the right time and the system clock does not, so TLS refuses
+        # every mirror and the next message blames the network.
+        print(
+            "warning: the system clock could not be set from the corrected RTC; "
+            f"TLS may refuse every mirror ({applied.stdout.strip()[:80]})",
+            file=sys.stderr,
+        )
 
 
 def _require_network() -> None:
