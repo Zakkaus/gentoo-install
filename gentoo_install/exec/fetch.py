@@ -26,7 +26,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 from collections.abc import Iterator, Sequence
-from typing import Any, Callable, Final
+from typing import Any, Callable, Final, Mapping
 
 from ..errors import (
     ArchiveDigestMismatch,
@@ -311,11 +311,27 @@ def _import_release_key(
 
 def text(url: str, proxy: ProxyConfig | None = None) -> str:
     """A short document, such as a public key someone pasted somewhere."""
-    return _read_for(paste.raw_url(url), proxy)
+    return _not_the_password_form(url, _read_for(paste.raw_url(url), proxy))
+
+
+def _not_the_password_form(url: str, body: str) -> str:
+    """The body, unless the server answered its password form instead.
+
+    A wrong password answers 200, so nothing but the body says so and the
+    caller would hand an HTML page to its parser.
+    """
+    if paste.looks_like_the_password_form(body):
+        raise DownloadFailed(
+            f"{url} is an encrypted paste and the password given does not open it"
+        )
+    return body
 
 
 def upload(
-    body: str, export: paste.Export, proxy: ProxyConfig | None = None
+    body: str,
+    export: paste.Export,
+    proxy: ProxyConfig | None = None,
+    password: str = "",
 ) -> str:
     """Create a paste and return the address of the page that shows it.
 
@@ -324,9 +340,9 @@ def upload(
     """
     request = _asked(
         f"{paste.BASE}/",
-        data=paste.payload(body, export),
+        data=paste.payload(body, export, password=password),
         method="POST",
-        **{"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json"},
     )
     try:
         with _urlopen(request, proxy, TIMEOUT) as response:
@@ -593,10 +609,22 @@ def _version_key(version: str) -> tuple[tuple[int, ...], int, int, int]:
     return (tuple(parts), _SUFFIX_ORDER[suffix], int(count), int(revision))
 
 
-def _asked(url: str, *, data: bytes | None = None, method: str = "GET", **headers: str) -> urllib.request.Request:
+def _asked(
+    url: str,
+    *,
+    data: bytes | None = None,
+    method: str = "GET",
+    # A mapping as well as keywords: a header whose name carries a hyphen is
+    # not a Python identifier.
+    headers: Mapping[str, str] | None = None,
+    **named: str,
+) -> urllib.request.Request:
     """Every request this module makes, so none of them goes out unnamed."""
     return urllib.request.Request(
-        url, data=data, method=method, headers={"User-Agent": USER_AGENT, **headers}
+        url,
+        data=data,
+        method=method,
+        headers={"User-Agent": USER_AGENT, **(headers or {}), **named},
     )
 
 
@@ -932,16 +960,21 @@ def _resolvers(path: Path) -> str:
     return f"nameservers {servers}" if servers else "no nameserver line"
 
 
-def read_text(url: str, *, ceiling: int) -> str:
+def read_text(url: str, *, ceiling: int, password: str = "") -> str:
     """Read a small document, refusing a body past `ceiling`.
 
     One byte past the cap is read on purpose: a body exactly at the cap is
     allowed, and anything longer is refused without the rest of it ever being
     read. A configuration is kilobytes, and a redirect into an ISO is the case
     this exists to stop.
+
+    A password reaches an encrypted paste: wastebin stores such an entry as
+    ciphertext, so the secrets a configuration carries are readable by neither
+    the host nor whoever guesses the address.
     """
+    headers = {paste.PASSWORD_HEADER: password} if password else None
     try:
-        with _urlopen(_asked(url), _CURRENT_PROXY.get(), TIMEOUT) as response:
+        with _urlopen(_asked(url, headers=headers), _CURRENT_PROXY.get(), TIMEOUT) as response:
             body = response.read(ceiling + 1)
     except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as error:
         raise DownloadFailed(
@@ -949,7 +982,7 @@ def read_text(url: str, *, ceiling: int) -> str:
         ) from error
     if len(body) > ceiling:
         raise DownloadFailed(scrub(f"{url} is larger than {ceiling} bytes"))
-    return str(body.decode("utf-8", "replace"))
+    return _not_the_password_form(url, str(body.decode("utf-8", "replace")))
 
 
 def _read_once(url: str, proxy: ProxyConfig | None = None) -> str:

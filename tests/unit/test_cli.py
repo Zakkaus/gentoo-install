@@ -2138,7 +2138,7 @@ def test_a_dry_run_takes_its_configuration_from_a_url(
     asked: list[str] = []
     body = (FIXTURES / "ext4-bios.toml").read_text()
 
-    def reading(url: str, *, ceiling: int) -> str:
+    def reading(url: str, *, ceiling: int, password: str = "") -> str:
         asked.append(url)
         return body
 
@@ -2155,7 +2155,7 @@ def test_a_local_configuration_never_reaches_the_network(
     """The negative direction: accepting a URL must not send an ordinary path
     through the fetcher, which would need a network to read a file."""
 
-    def refuse(url: str, *, ceiling: int) -> str:
+    def refuse(url: str, *, ceiling: int, password: str = "") -> str:
         raise AssertionError(f"a path was fetched: {url}")
 
     monkeypatch.setattr(fetch, "read_text", refuse)

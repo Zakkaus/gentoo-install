@@ -57,7 +57,7 @@ def test_config_error_redacts_user_information_and_query_credentials(
         "?token=query-credential"
     )
 
-    def refuse(url: str, *, ceiling: int) -> str:
+    def refuse(url: str, *, ceiling: int, password: str = "") -> str:
         raise DownloadFailed(f"{url} could not be read")
 
     monkeypatch.setattr(fetch, "read_text", refuse)

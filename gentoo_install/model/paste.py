@@ -62,16 +62,40 @@ def export_for(key: str) -> Export:
     return next(one for one in EXPORTS if one.key == key)
 
 
-def payload(text: str, export: Export, expires: int = EXPIRES) -> bytes:
-    """The body of the POST that creates a paste."""
-    return json.dumps(
-        {
-            "text": text,
-            "extension": export.extension,
-            "title": export.title,
-            "expires": expires,
-        }
-    ).encode()
+#: The header wastebin reads the password from on `GET /raw/:id`, named in its
+#: own README. A request without it, or with the wrong one, answers 200 and the
+#: HTML form rather than a status a caller can test.
+PASSWORD_HEADER: Final[str] = "wastebin-password"
+
+
+def payload(
+    text: str, export: Export, expires: int = EXPIRES, password: str = ""
+) -> bytes:
+    """The body of the POST that creates a paste.
+
+    With a password the server encrypts the entry: wastebin's README says
+    ChaCha20Poly1305 with an argon2 hashed password, so the text is unreadable
+    to the host as well as to anyone who guesses the address.
+    """
+    body: dict[str, object] = {
+        "text": text,
+        "extension": export.extension,
+        "title": export.title,
+        "expires": expires,
+    }
+    if password:
+        body["password"] = password
+    return json.dumps(body).encode()
+
+
+def looks_like_the_password_form(body: str) -> bool:
+    """Whether this is the form wastebin answers instead of the text.
+
+    Measured on 2026-08-31: a `GET /raw/:id` for an encrypted paste with no
+    password, or the wrong one, answers 200 with an HTML page. A caller that
+    only reads the status hands that page to its parser.
+    """
+    return body.lstrip()[:9].lower() == "<!doctype"
 
 
 def page_url(path: str) -> str:

@@ -13,6 +13,7 @@ import hashlib
 import locale
 import os
 import shutil
+import getpass
 import sys
 import termios
 import time
@@ -498,7 +499,7 @@ def _once(arguments: argparse.Namespace, state: RunState, refused: str) -> int |
                 return EXIT_ABORTED
             config = chosen
         else:
-            config = load_source(arguments.config)
+            config = _configuration_from(arguments.config)
         if not arguments.missing_commands:
             catalog = load_catalog()
             validate(
@@ -871,6 +872,22 @@ def _closing_catalog(state: RunState, arguments: argparse.Namespace) -> Catalog:
     otherwise: `--config` never opens a screen and has no tag to carry.
     """
     return Catalog(state.language or tag_for(override=arguments.lang))
+
+
+def _configuration_from(source: str) -> InstallConfig:
+    """The configuration, asking for a password when the paste needs one.
+
+    Asked rather than taken from the command line: a password there reaches
+    the shell's history and every `ps` on the machine. An unattended run has
+    no terminal to ask, so the refusal stands and names what is missing.
+    """
+    try:
+        return load_source(source)
+    except errors.ConfigError as refused:
+        if "encrypted paste" not in str(refused) or not sys.stdin.isatty():
+            raise
+    _forget_what_was_typed()
+    return load_source(source, getpass.getpass("password for this paste: "))
 
 
 def _asked(question: str) -> bool:

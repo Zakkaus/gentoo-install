@@ -45,19 +45,23 @@ def load(path: Path) -> InstallConfig:
     return parse(raw)
 
 
-def load_source(source: str) -> InstallConfig:
+def load_source(source: str, password: str = "") -> InstallConfig:
     """Read a configuration from a path or from a URL.
 
     One entry point for both, because every mode takes its configuration the
     same way: what differs between installing, converting and writing an image
     is what the configuration says, not where it came from.
+
+    A password opens an encrypted paste. The caller asks for it rather than
+    taking it from the command line, where it would reach the shell's history
+    and every `ps` on the machine.
     """
     if not looks_like_a_url(source):
         return load(Path(source))
     from . import fetch
 
     try:
-        body = fetch.read_text(source, ceiling=URL_CEILING)
+        body = fetch.read_text(source, ceiling=URL_CEILING, password=password)
     except GentooInstallError as error:
         raise ConfigError(scrub(f"{source}: {error}")) from error
     try:
